@@ -159,12 +159,22 @@ class DeclarationsMixin:
         )
 
     def parse_struct(self, visibility: Visibility = Visibility.PRIVATE,
-                     is_unsafe: bool = False) -> Struct:
+                     is_unsafe: bool = False,
+                     is_borrowing: bool = False) -> Struct:
         """Parse a struct declaration: struct Name { field: Type } or struct Box<T> { value: T }
 
         `unsafe struct` (design 130) declares an unsafe TYPE: naming, binding,
         receiving or returning one of its values makes a function unsafe. The
         name check (`Unsafe*`) is a semantic rule and lives in the typechecker.
+
+        `borrows struct` (design 275 U3) declares a type that HOLDS A LENT
+        PLACE, and it is the ONE declaration that licenses a reference-typed
+        field — the parameters-only rule (DF-163d) is not relaxed, it is read
+        against a type whose values the rejector confines to one window. Only
+        a SHARED `&T` field is admitted here: U3 is a shared-window feature, so
+        a `&var T` field is refused at the field with the rule named. Every
+        other semantic rule — at least one reference field, the origin, the
+        fence — is the typechecker's.
         """
         start = self.current()
         self.expect(TokenType.STRUCT)
@@ -199,9 +209,13 @@ class DeclarationsMixin:
             field_type = self.parse_type()
             # A field is storage that outlives every call, so it may not name a
             # reference (DF-163d) — and refusing the declaration is what closes
-            # the struct-literal construction `Holder(r: &x)` with it.
+            # the struct-literal construction `Holder(r: &x)` with it. The ONE
+            # exception is a `borrows struct`'s own SHARED reference field: the
+            # type is confined to one window, so the field does not outlive the
+            # storage it names (design 275 U3).
             self.reject_reference_field(field_name_token.value, name,
-                                        field_type, type_anchor)
+                                        field_type, type_anchor,
+                                        borrowing_struct=is_borrowing)
             fields.append(StructField(name=field_name_token.value, type=field_type,
                                       visibility=field_visibility,
                                       visibility_written=field_vis_written,
@@ -223,6 +237,7 @@ class DeclarationsMixin:
             type_params=type_params,
             visibility=visibility,
             is_unsafe=is_unsafe,
+            is_borrowing=is_borrowing,
             line=start.line,
             column=start.column,
             source_file=self.source_file

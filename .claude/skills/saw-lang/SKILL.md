@@ -979,8 +979,43 @@ var u = w.copy()       // explicit duplicate
   so a shared read of a nested CoW buffer does NOT copy. Two refusals follow —
   an outer `-> &var T` backed by an inner `-> &T` is refused at the `lend`, and
   an EXCLUSIVE-ONLY inner accessor makes the outer one exclusive-only too.
-  v1 fences: a borrows body is `sync` (a window never spans a suspend —
-  `with_ref`/`with_var_ref` stay the long-window spelling), no borrows function
+  **A BORROWING STRUCT holds a lent place, and the `for` head is its window**
+  (design 275 U3). Four spellings, one fact:
+  ```saw-fragment
+  public borrows struct VectorIterator<T, A: Allocator = GlobalAllocator> {
+      private vector: &Vector<T, A>          // a plain SHARED reference field
+      private index: Int
+  }
+  extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
+      public func iter(&self) borrows -> VectorIterator<T, A> {
+          VectorIterator<T, A>(vector: lends self, index: 0)
+      }
+  }
+  ```
+  `borrows struct` declares the type's nature where a reader meets the type,
+  the `&T` field is the ordinary reference spelling, `borrows` on a
+  VALUE-returning signature says the result borrows the receiver, and `lends
+  self` at the initializer is the body's proof. THE VALUE LIVES ONLY IN ITS
+  WINDOW: legal in exactly one position, the DIRECT head of a `for` whose
+  receiver is a place rooted in a named binding. `let it = v.iter()` is
+  refused, and so is `for x in make_vector().iter()` ("bind the collection
+  first" — a temporary has no persistent storage for the window to point
+  into), an argument, a field, a `move` operand, a `??` operand, a closure
+  return. NOTHING ERASES IT either: not `Optional<It>`, `Vector<It>`,
+  `Box<It>`, a bare `T`, an `any Trait`, or a function type's return or
+  parameter (`() -> It`, `(It) -> Int`) — each refused at the DECLARATION
+  that names the type, which is what makes a laundering helper unwritable
+  rather than caught. `lends self` is the ONLY origin (a projection, another
+  reference parameter and a `&var self` receiver are each refused by name),
+  fields are SHARED only (`&var` is refused: an iterator holding `&var
+  Collection` could reallocate what another reader is walking), and `Item` is
+  owned. Owned fields and a `deinit` work; at the close the struct is
+  destroyed and THEN the root charge ends, so a `deinit` may read through the
+  reference.
+  v1 fences: a borrows ACCESSOR's body is `sync` and its `lend` window never
+  spans a suspend (`with_ref`/`with_var_ref` stay the long-window spelling and
+  keep the same rule; the `for` window over a BORROWING STRUCT is the one that
+  does span one), no borrows function
   VALUES or existentials, no trait requirements, and a borrows body cannot
   FORWARD another CONDITIONAL place (`lend other.get(k)!` is not expressible —
   split the search out and lend your own storage instead). `Set` still gets no
@@ -2642,12 +2677,15 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   inserted at the TOP of each loop body (a `continue` hits it too) in the task's own
   body, in the suspending callees the compiler embeds, and in a suspending `main` —
   which means the body becomes SUSPENDING even if you wrote nothing that suspends.
-  Four bounds worth knowing: a SYNC callee is NOT instrumented (a compute loop
+  Three bounds worth knowing: a SYNC callee is NOT instrumented (a compute loop
   inside a never-suspending helper called from a task still starves — move the loop
-  into the task or put a `yield_now` in the helper); a `for` over a COLLECTION
-  (`for x in v.iter()`) is not instrumented, nor is any loop nested inside one
-  (only a range `for` can be state-split — use a `while` over an index); a CLOSURE
-  body is not instrumented; std's io loops use the 89-c charge instead. Cost on a
+  into the task or put a `yield_now` in the helper); a CLOSURE
+  body is not instrumented; std's io loops use the 89-c charge instead. A `for`
+  over a COLLECTION was a FOURTH bound until design 275 U3 and is charged now,
+  nested loops included — the exemption existed because only a range `for` could
+  be state-split, and both shapes split now. SUSPECT the old advice ("use a
+  `while` over an index") in older builds; the shape it named is what U3 made
+  unnecessary. Cost on a
   maximally tight arithmetic loop in a spawned task: 1.53x (the loop joins the
   frame's state machine). Loops outside task bodies are untouched.
 - A spawned task may CALL `TcpListener.accept()`, and a **multi-connection
@@ -2855,6 +2893,21 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   suspends. It is design 44's test-only entry and it used to crash the compiler
   there; a suspending body already runs inside an executor, so the diagnostic
   names the direct call — which is what embeds.
+  **A SUSPENSION INSIDE A `for` OVER A COLLECTION EMBEDS (design 275 U3 /
+  SL-317).** The iterator becomes frame state and the loop head re-enters
+  through `next()`; any `Iterator` conformer works, the head is evaluated
+  once, and `continue` re-enters at `next()`. It was a clean refusal ("use a
+  `while` loop over an index") before, so a build that gives that message
+  predates U3 — and, since the op budget now charges such a loop's back-edge,
+  a `for x in v.iter()` in a MULTI-THREADED task body is refused on `Send`
+  (the iterator holds a reference): index there instead.
+  **AND THE INLINE `try EXPR catch { … }` SPLITS (SL-215).** A suspending call
+  in its catch embeds, and a `break`/`continue` written there reaches the loop
+  it names — the transform rewrites the inline form into the block form it
+  means. SUSPECT BOTH FACES in older builds: the suspending catch was refused
+  ("appears in a nested/expression position"), and the `break` was SILENTLY
+  LOST while a `continue` spun forever, because the split marking listed the
+  block form and not the inline one.
   Still a clean,
   user-anchored compile error (NOT a silent block): a suspension-spanning `if let`/
   `guard let`/`while let` with a TUPLE pattern; and a suspending `try { } catch { }` block whose try
@@ -4258,7 +4311,17 @@ construct in the owner and lend `&driver` down.
   through one would change an element's hash.
   `iter()`/`enumerated()` carry a `T: Copy` bound (design 122): `next()` yields
   an element the consumer OWNS, so a NoCopy element is reached through a place
-  or `with_ref`, never a `for` loop. Since design 130's accessor rule,
+  or `with_ref`, never a `for` loop. **AND THE ITERATOR BORROWS THE VECTOR FOR
+  THE WHOLE LOOP** (design 275 U3): it is a `borrows struct` holding
+  `&Vector<T, A>`, the `for` statement is its window, and the body may read the
+  collection but not grow it, replace it, move it or swap its elements — the
+  same exclusivity error `v.push` already gets inside a `with_ref` window. It
+  was an owned value carrying a raw buffer pointer and a length snapshot
+  before, so a body that pushed until the buffer reallocated read FREED MEMORY
+  in safe code at exit 0 (`seen = 1025` for a sum of 10, SL-321) — treat a
+  mutating body as a clean error now and SUSPECT it in older builds. Collect
+  what you need first, or index with a `while` loop if you must mutate while
+  walking. Since design 130's accessor rule,
   `set`/`swap`/`swap_out`/`with_ref`/`with_var_ref`, `String.byte_at(i)` and
   `String.substring(s, e)` ALL PANIC out of range — no silent no-op
   (`set`/`swap` used to be) and no clamp (`substring` used to be). An empty

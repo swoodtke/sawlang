@@ -1,0 +1,134 @@
+// K134 (design 275 U3): THE CONFLICT AXIS — every competing safe writer.
+//
+// A place borrow charges its ROOT (design 146), read over the `for`
+// statement's extent instead of one expression's. The Law of Exclusivity then
+// sees every writer the window excludes, and each row below is one spelling of
+// reaching the root while the window holds it:
+//
+//   * the body PUSHES (`&var self` receiver)
+//   * `with_var_ref` on the root in the body
+//   * a `&var` EXTENT STARTED inside the body (a design-189/201 spawn)
+//   * a MOVE of the root — (ii)'s address-stability rule, K20's precedent
+//   * a REASSIGNMENT of the root (whole-referent replacement)
+//   * a `swap` of two elements (an exclusive method on the root)
+//   * a write through an ENCLOSING OWNER's path (`st.patches` is the window's
+//     root, and `st` is the owner that overlaps it)
+//   * a write through a CONSTANT index beside a window opened on a DYNAMIC one
+//     (`bins[i]` may be `bins[0]`)
+//
+// The cells that COMPOSE — an ordinary read, a `&` extent, a second `for` over
+// the same root nested inside the first — are
+// `examples/conformance/K135_window_conflicts_that_compose.saw`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+// EXPECT-ERROR-CONTAINS: cannot `move` `owned` while a window borrows it
+// EXPECT-ERROR-CONTAINS: `owned` cannot be written here
+// EXPECT-ERROR-CONTAINS: `st` cannot be written here
+// EXPECT-ERROR-CONTAINS: borrows `st.patches` for the whole of the `for` statement
+// EXPECT-ERROR-CONTAINS: borrows `bins[…]` for the whole of the `for` statement
+// EXPECT-ERROR-CONTAINS: a `for` over a borrowed iterator holds the collection for the whole loop
+
+struct Store {
+    patches: Vector<Int>,
+    count: Int
+}
+extension Store: NoCopy {}
+
+func row_push(v: &var Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        total = total + x
+        let _ = v.push(9)                   // ROW: the body pushes
+    }
+    total
+}
+
+func row_with_var_ref(v: &var Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        total = total + x
+        v.with_var_ref(0, { e in e = 7 })   // ROW: an exclusive element borrow
+    }
+    total
+}
+
+func bump(n: &var Vector<Int>) -> Int { n.len() }
+
+func row_spawn_extent_started_in_body(v: Vector<Int>) -> Int {
+    var owned = move v
+    var group = TaskGroup()
+    var total = 0
+    for x in owned.iter() {
+        total = total + x
+        let h = group.spawn(bump(&var owned))   // ROW: a `&var` extent STARTED inside
+        let _ = h.join()
+    }
+    total
+}
+
+func sink(v: Vector<Int>) -> Int { v.len() }
+
+func row_move(v: Vector<Int>) -> Int {
+    var owned = move v
+    var total = 0
+    for x in owned.iter() {
+        total = total + x
+        total = total + sink(move owned)    // ROW: a MOVE of the root
+    }
+    total
+}
+
+func row_reassign(v: Vector<Int>) -> Int {
+    var owned = move v
+    var total = 0
+    for x in owned.iter() {
+        total = total + x
+        owned = []                          // ROW: a REASSIGNMENT of the root
+    }
+    total
+}
+
+func row_swap(v: &var Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        total = total + x
+        v.swap(0, 1)                        // ROW: a swap of two elements
+    }
+    total
+}
+
+// The window's root is the PATH `st.patches`, so a write to the disjoint
+// sibling `st.count` composes exactly as it would beside any other place
+// borrow. What conflicts is a write of an ENCLOSING OWNER — the path the
+// window's root is reached THROUGH.
+func row_enclosing_owner(st: &var Store) -> Int {
+    var total = 0
+    for x in st.patches.iter() {
+        total = total + x
+        st.patches = []                     // ROW: the window's own root
+    }
+    total
+}
+
+// A DYNAMIC index overlaps a constant one: `i` is not known until run time, so
+// `bins[i]` and `bins[0]` may be the same element and the write is refused.
+// This is the row a second overlap implementation loses — the window table
+// compared hop sequences for EQUALITY for one revision, and `walk(0)` then
+// pushed into the very vector it was iterating (codex r1 #3). The overlap
+// question has ONE answer now (`windows.paths_overlap`), and the Law's call-set
+// check has always given this one.
+func row_dynamic_index(i: Int) -> Int {
+    let a: Vector<Int> = [1, 2]
+    let b: Vector<Int> = [3, 4]
+    var bins = [move a, move b]
+    var total = 0
+    for n in bins[i].iter() {
+        total = total + n
+        let _ = bins[0].push(n)             // ROW: a dynamic index may BE 0
+    }
+    total
+}
+
+func main() {
+    print("unreached")
+}

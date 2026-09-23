@@ -1,0 +1,90 @@
+// K149 (design 275 U3 / SL-317): THE MOTIVATING CONSUMER'S LOOP SHAPE.
+//
+// sawtracker's `src/store.saw:285` is what SL-317 was filed for:
+//
+//     let names = try filenames("{repo}/.sawtracker/issues")
+//     for name in names.iter() {
+//         let raw = try common.read_file("…/{name}")     // SUSPENDS (io)
+//         let doc = try model.decode(raw)
+//         …
+//         common.put(&var st.issues, id, move doc)       // writes a DIFFERENT root
+//     }
+//
+// A collection `for` whose body suspends AND propagates an error AND writes a
+// root that is not the one being iterated — three things at once, which is why
+// it is the shape worth pinning rather than the minimal one. It was a clean
+// refusal ("use a `while` loop over an index") before SL-317.
+//
+// Reproduced here with the io replaced by a suspending read, so the row runs
+// in the ordinary battery: the shape is the assertion, not the syscall. THE
+// ORACLE IS THE SYNC TWIN.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sync 3 entries, 6 bytes
+// driven 3 entries, 6 bytes
+
+import std.task.{yield_now}
+
+struct Bad { why: String }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.why) }
+}
+
+struct Store {
+    issues: Map<Int, Int>,
+    bytes: Int
+}
+extension Store: NoCopy {}
+
+// The suspending "read" — an io park, in the shape a task body meets it.
+func read_entry(name: Int) -> Result<Int, Bad> {
+    yield_now()
+    if name < 0 { return Bad(why: "unreadable") }
+    name
+}
+
+func read_entry_sync(name: Int) -> Result<Int, Bad> {
+    if name < 0 { return Bad(why: "unreadable") }
+    name
+}
+
+func put(st: &var Store, key: Int, value: Int) {
+    let _ = st.issues.insert(key, value)
+    st.bytes = st.bytes + value
+}
+
+func open_store_sync(names: &Vector<Int>, st: &var Store) -> Result<Int, Bad> {
+    for name in names.iter() {
+        let doc = try read_entry_sync(name)
+        put(&var st, name, doc)
+    }
+    st.issues.len()
+}
+
+func open_store_driven(names: &Vector<Int>, st: &var Store) -> Result<Int, Bad> {
+    for name in names.iter() {
+        let doc = try read_entry(name)
+        put(&var st, name, doc)
+    }
+    st.issues.len()
+}
+
+func main() {
+    let names: Vector<Int> = [1, 2, 3]
+
+    let m1: Map<Int, Int> = {:}
+    var s1 = Store(issues: move m1, bytes: 0)
+    let n1 = match open_store_sync(&names, &var s1) {
+        case Ok(n) -> n,
+        case Err(_) -> 0
+    }
+    print("sync {n1} entries, {s1.bytes} bytes")
+
+    let m2: Map<Int, Int> = {:}
+    var s2 = Store(issues: move m2, bytes: 0)
+    let n2 = match __saw_drive(open_store_driven(&names, &var s2)) {
+        case Ok(n) -> n,
+        case Err(_) -> 0
+    }
+    print("driven {n2} entries, {s2.bytes} bytes")
+}

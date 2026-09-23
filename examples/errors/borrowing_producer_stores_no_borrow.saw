@@ -1,0 +1,54 @@
+// K142 (design 275 U3, codex r2 #7): THE PRODUCER EXEMPTION COVERS ONLY THE
+// VALUE BEING PROVED — the leaves of the returning paths — and every other
+// bare borrowing-typed expression inside a producer meets the ordinary fence.
+//
+// For one revision the fence's e1 exemption read the enclosing method's
+// RETURN TYPE and not the position: every bare `It`-typed expression in a
+// `borrows -> It` producer was exempt, so `var held = other.iter()` stored a
+// foreign borrow, `other.value = 99` mutated its origin while `held` was live,
+// and `held.next()` read 99 through it — compiled, ran, printed `99 / 1`. Now
+// the exemption is the set `_producer_paths_missing_origin` judges (the tail,
+// every `return`, the arms of a value branch on the way to either, and a
+// back-conversion's operand), so a stored construction and a value handed to
+// a call are refused where they are written. Rows: codex's program, a stored
+// `lends self` construction that is a leaf of no returning path, and the
+// producer's own result passed as an argument.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `It` is a `borrows struct` and may not be used outside a window head
+
+struct Owner { value: Int }
+borrows struct It { source: &Owner, done: Bool }
+
+extension Owner {
+    func iter(&self) borrows -> It {
+        It(source: lends self, done: false)
+    }
+    func bad(&self, other: &var Owner) borrows -> It {
+        var held = other.iter()                          // ROW: a stored foreign borrow
+        other.value = 99
+        print(held.next()!)
+        It(source: lends self, done: false)
+    }
+    func bad_local(&self) borrows -> It {
+        let held = It(source: lends self, done: false)   // ROW: a stored construction, no path's leaf
+        It(source: lends self, done: false)
+    }
+    func bad_arg(&self, other: &Owner) borrows -> It {
+        let n = count(other.iter())                      // ROW: handed to a call
+        It(source: lends self, done: n > 0)
+    }
+}
+
+func count(it: &Owner) -> Int { 0 }
+
+extension It: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.done { None } else {
+            self.done = true
+            self.source.value
+        }
+    }
+}
+
+func main() {}

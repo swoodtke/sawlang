@@ -181,6 +181,13 @@ class _PlaceTransform:
     def run(self, program: Program) -> None:
         for func in getattr(program, 'functions', []) or []:
             if getattr(func, 'is_borrows', False):
+                if _is_borrowing_producer(func):
+                    # A free `borrows` function that lends nothing is the U3
+                    # PRODUCER shape with no receiver to be the origin of. The
+                    # typechecker reports it (it is the one that knows whether
+                    # the return type is a borrowing struct); the lowering just
+                    # has nothing to do with a body that has no `lend`.
+                    continue
                 if _mentions_lend_var(getattr(func, 'body', None)):
                     self._error(
                         func,
@@ -196,6 +203,18 @@ class _PlaceTransform:
             twins = []
             for method in list(getattr(ext, 'methods', []) or []):
                 if not getattr(method, 'is_borrows', False):
+                    continue
+                if _is_borrowing_producer(method):
+                    # design 275 U3: a producer LENDS ITS RECEIVER into the
+                    # value it returns, so the receiver has to arrive as the
+                    # CALLER's storage rather than a copy — a copy's address
+                    # dies with the call and the window would point at it. That
+                    # is exactly what DF-146b already fixed for a design-141
+                    # accessor, so it is the same bit, not a second ABI: the
+                    # checker still sees a plain `&self` body, and everything
+                    # but the `lends self` in it stays ordinary `&self` code.
+                    if not getattr(method, 'is_static', False):
+                        method.place_self_by_pointer = True
                     continue
                 sig = self._signature(method)
                 if sig is None:
@@ -1036,6 +1055,39 @@ class _PlaceTransform:
 
 def _mentions_lend_var(node) -> bool:
     return node is not None and _contains(node, LendVarLiteral)
+
+
+def _is_borrowing_producer(decl) -> bool:
+    """Is this `borrows` declaration the U3 VALUE-returning producer rather
+    than a design-141 lend?
+
+    A `borrows` function either LENDS exactly once or RETURNS a borrowing
+    struct, never both — so the presence of a `lend` in the body is the whole
+    answer, and it is an answer this pass can give. Which is what it needs: the
+    place transform runs BEFORE type checking, so it cannot ask whether the
+    return type names a `borrows struct` (the struct may be imported). A
+    declaration that lends nothing has no window-closure form to lower into;
+    everything else about it — that the return type really is a borrowing
+    struct, the receiver, the origin — is `typechecker/borrowing.py`'s, which
+    runs when the answer is knowable.
+
+    TWO conditions, and the RETURN TYPE is the first because SL-333 R1 made it
+    load-bearing: `borrows -> &T` NAMES A LENT REFERENCE, so such a declaration
+    is a design-141 accessor whatever its body does and a missing `lend` stays
+    design 141's coverage error ("a `borrows` body must `lend` a place"). Only
+    a NON-reference return can be the U3 producer — and then only if the body
+    lends nothing, so a `borrows -> T` body that DOES lend still gets R1's
+    "write `-> &T`" fixit from `_signature` rather than being read as a
+    producer that forgot its struct.
+    """
+    if not getattr(decl, 'is_borrows', False):
+        return False
+    declared = getattr(decl, 'return_type', None)
+    if declared is None or declared.kind == TypeKind.REFERENCE:
+        return False
+    if declared.kind == TypeKind.VOID:
+        return False
+    return not _contains(getattr(decl, 'body', None), LendStatement)
 
 
 def _fold_lend_var(block: Block, flavor: bool) -> None:

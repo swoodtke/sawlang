@@ -1,0 +1,132 @@
+// K152 (design 275 U3, codex r2 #4): A PROPAGATING `try` INSIDE A BORROWED
+// PLACE'S INDEX is decomposed in evaluation position, and the place itself is
+// never hoisted.
+//
+// `sink(&values[try fail_index()], move r)`: the borrow is not a value a temp
+// can hold (SL-223), but the INDEX inside it runs like any argument and holds
+// the same things. Two gaps met here for one revision. The child-position
+// funnel (`_map_uncond_children`) had no `ReferenceExpr` arm, so the
+// positional split could not see the `try` at all; and the split's own
+// `_contains_move` was a second module-level definition that SHADOWED the
+// original for `_collect_move_arg_receivers` and stopped at every closure —
+// including a place-WINDOW body, which is how a `Vector` subscript is written
+// down and which runs inline as part of the statement. The window shape
+// compiled on the base and died on the branch with `use of undefined value
+// %caught_error`, in a statement the split never touched. Now the funnel maps
+// a place's indices (`_map_place_indices`, the one walk of a place's evaluated
+// parts) and `_statement_moves` descends a window body and not an ordinary
+// closure's.
+//
+// Cells (base / r2 / now, counts of `drop kept`):
+//   J   `&values[try f()]`, a Vector place, f fails      1 / ICE / 1
+//   K   `&var values[try f()]`                           1 / ICE / 1
+//   J2  the success path (index runs, borrow lands)      1 / ICE / 1
+//   J3  a fixed array's element (an `ArrayIndex`, not
+//       an accessor window)                              1 / ICE / 1
+//   J4  the move BEFORE the borrowed place's index        1 / ICE / 1
+// The sync twin of J drops once too (its index is evaluated before the move,
+// so nothing is abandoned — SL-348's sync gap needs the orphan ordering).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4
+// drop kept
+// J: caught
+// 4
+// drop kept
+// K: caught
+// 4
+// drop kept
+// J2: ok 10
+// 4
+// drop kept
+// J3: caught
+// 4
+// drop kept
+// J4: caught
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+struct Bad { n: Int }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+
+struct Cell { n: Int }
+
+func note(r: &Res) -> Int { r.name.len() }
+func fail_index() sync -> Result<Int, Bad> { Bad(n: 1) }
+func ok_index() sync -> Result<Int, Bad> { 0 }
+func sink_ref(value: &Int, r: Res) sync -> Int { value + 1 }
+func sink_var(value: &var Int, r: Res) sync -> Int { value = value + 1  value }
+func sink_var_rev(r: Res, value: &var Int) sync -> Int { value = value + 1  value }
+func sink_cell(value: &Cell, r: Res) sync -> Int { value.n }
+
+// J: the index of a `&` argument (codex r2 #4's program), a Vector place
+func j_ref_index() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    let values: Vector<Int> = [9]
+    yield_now()
+    let n = sink_ref(&values[try fail_index()], move r)
+    n
+}
+
+// K: the index of a `&var` argument
+func k_var_index() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    var values: Vector<Int> = [9]
+    yield_now()
+    let n = sink_var(&var values[try fail_index()], move r)
+    n
+}
+
+// J2: the success path — the index runs, the borrow lands, the move happens
+func j2_ok() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    let values: Vector<Int> = [9]
+    yield_now()
+    let n = sink_ref(&values[try ok_index()], move r)
+    n
+}
+
+// J3: a fixed array's element — an `ArrayIndex`, not an accessor window
+func j3_array() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    let cells: [Cell; 2] = [Cell(n: 3), Cell(n: 4)]
+    yield_now()
+    let n = sink_cell(&cells[try fail_index()], move r)
+    n
+}
+
+// J4: the move BEFORE the borrowed place's index
+func j4_rev() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    var values: Vector<Int> = [9]
+    yield_now()
+    let n = sink_var_rev(move r, &var values[try fail_index()])
+    n
+}
+
+func run(label: String, r: Result<Int, Bad>) {
+    match r {
+        case Ok(n) -> print("{label}: ok {n}"),
+        case Err(_) -> print("{label}: caught")
+    }
+}
+
+func main() {
+    run("J", __saw_drive(j_ref_index()))
+    run("K", __saw_drive(k_var_index()))
+    run("J2", __saw_drive(j2_ok()))
+    run("J3", __saw_drive(j3_array()))
+    run("J4", __saw_drive(j4_rev()))
+}

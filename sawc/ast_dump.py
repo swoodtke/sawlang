@@ -35,7 +35,7 @@ from ast_nodes import (
     LendStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation,
     FormatPlaceholder,
-    Identifier, BinaryOp, UnaryOp, MoveExpr, CastExpr, FunctionCall, IfExpr,
+    Identifier, BinaryOp, UnaryOp, MoveExpr, LendsExpr, CastExpr, FunctionCall, IfExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex, MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain, MethodCall, SelfExpr,
     IfLetExpr, EnumInit, MatchArm, MatchExpr, RangeExpr, ClosureExpr, ClosureParam,
@@ -623,6 +623,17 @@ class ASTDumper:
 
         elif isinstance(expr, MoveExpr):
             self._emit(f"MoveExpr({expr.variable})")
+
+        elif isinstance(expr, LendsExpr):
+            # design 275 U3: `lends self`, the origin proof at a borrowing
+            # struct's construction. The place is dumped as a child because the
+            # parser accepts any place and the TYPECHECKER refuses everything
+            # but `self` — a dump that printed only the keyword would hide the
+            # spelling the refusal is about.
+            self._emit("LendsExpr")
+            self._indent()
+            self._dump_expression(expr.place)
+            self._dedent()
 
         elif isinstance(expr, CastExpr):
             self._emit(f"CastExpr as {self._type_str(expr.target_type)}")

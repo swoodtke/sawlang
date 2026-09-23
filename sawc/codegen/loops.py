@@ -19,6 +19,7 @@ Usage:
 from typing import Optional
 from llvmlite import ir
 from ast_nodes import WhileExpr, ForLoop, RangeExpr, BreakStatement, ContinueStatement, TypeKind
+from typechecker.borrowing import WINDOW_RESOURCE
 
 
 class LoopsMixin:
@@ -91,6 +92,58 @@ class LoopsMixin:
         if stmt.diverges:
             self.builder.unreachable()
 
+    # ------------------------------------------------------------------ #
+    # design 275 U3 — the WINDOW's resource, lowered for the sync path
+    # ------------------------------------------------------------------ #
+
+    def _open_window_resource(self, resource_saw, slot) -> bool:
+        """Put the window's RESOURCE under scope cleanup. Returns whether it is.
+
+        ONE ROUTINE for any client (the reuse obligation's point (3)): what it
+        knows is that a window has a resource living in a persistent slot, and
+        that the resource is destroyed at the close. The `for` client's
+        resource happens to be a borrowing iterator; a future accessor
+        client's would be a lend result, and neither shape appears here.
+
+        An iterator with OWNED fields or a hand-written `deinit` is SUPPORTED
+        (design 275 U3 part (i) — the drop machinery is the existing one, and
+        refusing them would make the std iterators the only writable shape), so
+        it owes a drop, and it never got one: every pre-U3 iterator was
+        reference-plus-Int or pointer-plus-Ints, which needs no cleanup, so
+        nothing in the corpus could see the omission.
+
+        THE SCOPE IS PUSHED AROUND THE LOOP, and BEFORE the `loop_stack` entry
+        that records the unwind depth — so a `break`/`continue` unwinds only
+        the scopes INSIDE it and the close (`_close_window_resource`, at the
+        loop's end block) is what releases the resource, exactly once. A
+        `return` out of the body sweeps it through `_cleanup_all_scopes` like
+        every other live binding.
+
+        BEFORE THE CHARGE ENDS, which is the order part (i) fixes: a
+        hand-written `deinit` on a borrowing struct may still read THROUGH the
+        reference, so the referent has to outlive the drop. The charge is a
+        compile-time fact with no runtime event, so "before it ends" is
+        "inside the statement" — which is what closing at the end block means.
+        """
+        if resource_saw is not None and self.type_param_context:
+            resource_saw = resource_saw.substitute(self.type_param_context)
+        if resource_saw is None or not self._needs_cleanup(resource_saw):
+            return False
+        self.variables[WINDOW_RESOURCE] = slot
+        self.variable_types[WINDOW_RESOURCE] = resource_saw
+        self.cleanup_stack.append([])
+        self._register_cleanup(WINDOW_RESOURCE, resource_saw)
+        return True
+
+    def _close_window_resource(self, opened: bool) -> None:
+        """RELEASE: destroy the window's resource, once, at the loop's exit."""
+        if not opened:
+            return
+        self._cleanup_scope(self.cleanup_stack.pop())
+        self.variables.pop(WINDOW_RESOURCE, None)
+        self.variable_types.pop(WINDOW_RESOURCE, None)
+        self.drop_flags.pop(WINDOW_RESOURCE, None)
+
     def _generate_for_loop(self, stmt: ForLoop):
         """Generate LLVM IR for a for loop using Iterator.
 
@@ -112,29 +165,15 @@ class LoopsMixin:
         if isinstance(stmt.iterable, RangeExpr):
             iter_alloca, next_func, item_type = self._init_range_iterator(stmt.iterable)
         else:
-            # Custom iterator: generate the iterator expression and call its next() method
-            iter_val = self._generate_expression(stmt.iterable)
+            iter_alloca, next_func, item_type = self._acquire_head_iterator(
+                stmt.iterable)
 
-            # Find the struct type for the iterator
-            struct_name = self._find_struct_name_for_value(iter_val)
-            if struct_name is None:
-                raise ValueError(f"Cannot determine iterator type for for loop")
-
-            # Get the mangled next method name
-            next_mangled = self._mangle_method_name(struct_name, "next")
-            if next_mangled not in self.functions:
-                raise ValueError(f"Type {struct_name} does not implement Iterator (missing next method)")
-
-            next_func = self.functions[next_mangled]
-
-            # Allocate storage for the iterator (since next mutates it)
-            iter_alloca = self._entry_alloca(iter_val.type, name="__iter")
-            self.builder.store(iter_val, iter_alloca)
-
-            # Determine the item type from the next method's return type
-            # next() returns Optional<Item>, so extract Item type from { i1, Item }
-            optional_type = next_func.function_type.return_type
-            item_type = optional_type.elements[1]
+        # design 275 U3: the window RESOURCE joins scope cleanup here, before
+        # the `loop_stack` entry below records the unwind depth.
+        _window_open = (False if isinstance(stmt.iterable, RangeExpr)
+                        else self._open_window_resource(
+                            getattr(stmt.iterable, 'resolved_type', None),
+                            iter_alloca))
 
         # Create basic blocks
         cond_block = func.append_basic_block("for.cond")
@@ -233,6 +272,10 @@ class LoopsMixin:
         # Position at end block for next statements
         self.builder.position_at_end(end_block)
 
+        # RELEASE: the window's resource is destroyed here — the one point
+        # every exit edge of the loop reaches.
+        self._close_window_resource(_window_open)
+
     def _init_range_iterator(self, range_expr: RangeExpr):
         """Materialize the iterator for a `for ... in start..end` / `..=` loop.
 
@@ -259,6 +302,52 @@ class LoopsMixin:
         range_val = self.builder.insert_value(range_val, end_val, 1)
         self.builder.store(range_val, iter_alloca)
         return iter_alloca, self.functions["Range_next"], self.int_type
+
+    def _acquire_head_iterator(self, head):
+        """Materialize a collection `for`'s HEAD as the loop's OWN iterator.
+
+        Returns (iter_alloca, next_func, item_type), the shape
+        `_init_range_iterator` returns for a range head. ONE routine for the
+        statement form (`_generate_for_loop`) and the value form
+        (`_generate_for_loop_value`), because the acquisition is where the
+        head's TRANSFER DECISION IS CONSUMED (design 275 U3, codex r2 #1):
+        `_check_value_transfer` entry 20 judged the head — a Copy-tier binding
+        is stamped `needs_copy`, a `move it` retired its binding, a temporary
+        owes nothing — and the loop then claims cleanup ownership of the
+        iterator (`_open_window_resource`), so the value it stores MUST be the
+        one the decision describes. For one revision both lowerings stored the
+        bare load: a Copy-tier binding was freed by its first loop's close and
+        read afterwards (`43 43` for `30 abc 5 0`; an Arc-holding one
+        underflowed its count). The driven twin never had the gap — its seed is
+        a `let` over the same node, and `_generate_let_statement` consumes the
+        stamp — so this is the sync half catching up to the one rule.
+        """
+        iter_val = self._generate_expression(head)
+        head_saw = getattr(head, 'resolved_type', None)
+        if head_saw is not None and self._transfer_site_needs_copy(head):
+            iter_val = self._generate_copy(iter_val, head_saw)
+
+        # Find the struct type for the iterator
+        struct_name = self._find_struct_name_for_value(iter_val)
+        if struct_name is None:
+            raise ValueError(f"Cannot determine iterator type for for loop")
+
+        # Get the mangled next method name
+        next_mangled = self._mangle_method_name(struct_name, "next")
+        if next_mangled not in self.functions:
+            raise ValueError(f"Type {struct_name} does not implement Iterator (missing next method)")
+
+        next_func = self.functions[next_mangled]
+
+        # Allocate storage for the iterator (since next mutates it)
+        iter_alloca = self._entry_alloca(iter_val.type, name="__iter")
+        self.builder.store(iter_val, iter_alloca)
+
+        # Determine the item type from the next method's return type
+        # next() returns Optional<Item>, so extract Item type from { i1, Item }
+        optional_type = next_func.function_type.return_type
+        item_type = optional_type.elements[1]
+        return iter_alloca, next_func, item_type
 
     def _find_struct_name_for_value(self, val) -> Optional[str]:
         """Find the struct name for an LLVM value by matching its type."""
@@ -287,29 +376,15 @@ class LoopsMixin:
         if isinstance(expr.iterable, RangeExpr):
             iter_alloca, next_func, item_type = self._init_range_iterator(expr.iterable)
         else:
-            # Custom iterator: generate the iterator expression and call its next() method
-            iter_val = self._generate_expression(expr.iterable)
+            iter_alloca, next_func, item_type = self._acquire_head_iterator(
+                expr.iterable)
 
-            # Find the struct type for the iterator
-            struct_name = self._find_struct_name_for_value(iter_val)
-            if struct_name is None:
-                raise ValueError(f"Cannot determine iterator type for for loop")
-
-            # Get the mangled next method name
-            next_mangled = self._mangle_method_name(struct_name, "next")
-            if next_mangled not in self.functions:
-                raise ValueError(f"Type {struct_name} does not implement Iterator (missing next method)")
-
-            next_func = self.functions[next_mangled]
-
-            # Allocate storage for the iterator (since next mutates it)
-            iter_alloca = self._entry_alloca(iter_val.type, name="__iter")
-            self.builder.store(iter_val, iter_alloca)
-
-            # Determine the item type from the next method's return type
-            # next() returns Optional<Item>, so extract Item type from { i1, Item }
-            optional_type = next_func.function_type.return_type
-            item_type = optional_type.elements[1]
+        # design 275 U3: the window RESOURCE, same routine as the statement
+        # twin, pushed before the `loop_stack` entry records the unwind depth.
+        _window_open = (False if isinstance(expr.iterable, RangeExpr)
+                        else self._open_window_resource(
+                            getattr(expr.iterable, 'resolved_type', None),
+                            iter_alloca))
 
         # For loops are conditional, return Optional<T>
         # Get the inner type from typechecker annotation
@@ -405,6 +480,9 @@ class LoopsMixin:
 
         # Load and return result
         self.builder.position_at_end(end_block)
+        # RELEASE, before the value is read out: the window's resource is
+        # destroyed at the one point every exit edge of the loop reaches.
+        self._close_window_resource(_window_open)
         return self.builder.load(result_alloca, name="for.value")
 
     def _generate_while_expr_value(self, expr: WhileExpr):

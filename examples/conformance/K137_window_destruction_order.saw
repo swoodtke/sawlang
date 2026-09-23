@@ -1,0 +1,263 @@
+// K137 (design 275 U3, part (i)): TWO EVENTS AT THE CLOSE, IN THIS ORDER —
+// the iterator is DESTROYED, and THEN the root charge ends.
+//
+// The order matters because a hand-written `deinit` on a borrowing struct may
+// still read THROUGH the reference, so the referent has to outlive the drop.
+// The fixture is a user borrowing iterator holding a COUNTED resource beside a
+// COUNTED Vector owner, because an iterator of reference-plus-Int cannot test
+// destruction at all: the iterator's own `deinit` prints, the owner's prints,
+// and the interleaving IS the assertion.
+//
+// THE PRINT AFTER THE LOOP IS INSIDE THE WALK (codex r1 #4). "Destroyed at the
+// close" is a claim about the STATEMENT's extent, and a print that runs only
+// after the walk RETURNS cannot tell "at the close" from "at frame release":
+// for one revision the driven lowering emitted the iterator's seed and its
+// `while` as two SIBLING statements of the enclosing block, the iterator was a
+// field of that block's scope, and it deinited at frame teardown — AFTER the
+// code following the `for`, after the root charge had ended — while this
+// file, printing only after the return, passed. So every walk here prints
+// "after … loop" as its next statement, and the iterator's deinit must
+// precede it. The seed and the loop are one `ScopedBlock` now — the
+// statement-scoped construct the transform already splits — and the
+// normalization writes that block's scope entry itself, since it runs after
+// the renamer's scope map is built.
+//
+// THE ROUTES, in the DRIVEN form (the sync twin has always been right, and is
+// here as the oracle): exhaustion, `break`, `return` (the print sits in the
+// caller), `continue` to an OUTER loop (the inner window closes on every
+// pass), an error propagated by `try` to the caller, and the OWNED-iterator
+// twin of exhaustion and `break` (the same seed, no window, the same scope).
+// ONE STANDING BOUND, not this row's: a `for` inside a split `try { } catch
+// { }` whose body FAILS releases its iterator at frame teardown in a driven
+// body — DF-242a, the driven try-body edge, which holds for every frame local
+// of that block, and its sync twin releases at the edge.
+//
+// Owned fields and a hand-written `deinit` on a borrowing struct are SUPPORTED
+// (the drop machinery is the existing one — design 131's deinit prefix plus the
+// synthesized field drops — and refusing them would make the std iterators the
+// only writable shape). THE REFERENCE FIELD IS EXEMPT from drop, design 88: it
+// owns nothing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- sync
+// iterator deinit, owner still has 3
+// after sync loop
+// walk 6
+// owner deinit
+// -- driven
+// iterator deinit, owner still has 3
+// after driven loop
+// walk 6
+// owner deinit
+// -- break on the first element
+// iterator deinit, owner still has 3
+// after break loop
+// walk 1
+// -- driven break
+// iterator deinit, owner still has 3
+// after driven break
+// walk 3
+// -- driven return
+// iterator deinit, owner still has 3
+// after driven return 3
+// -- driven continue to the outer loop
+// iterator deinit, owner still has 3
+// after inner 1
+// iterator deinit, owner still has 3
+// after inner 2
+// after outer
+// walk 12
+// -- driven try propagated
+// iterator deinit, owner still has 3
+// caught stop
+// -- owned driven
+// drop counter
+// after owned loop
+// walk 7
+// -- owned driven break
+// drop counter
+// after owned break
+// walk 3
+// owner deinit
+
+import std.task.{yield_now}
+
+// A COUNTED resource the ITERATOR owns — this is what makes the drop visible.
+struct Tag {
+    name: String
+}
+extension Tag: NoCopy {}
+
+struct Bag {
+    private items: Vector<Int>
+}
+extension Bag: NoCopy {
+    // The COUNTED owner. Its deinit must run AFTER the iterator's, because the
+    // iterator's own deinit reads through the reference into it.
+    func deinit(&var self) { print("owner deinit") }
+}
+
+borrows struct BagIterator {
+    private bag: &Bag
+    private index: Int,
+    private tag: Tag            // an OWNED field, dropped by the synthesized tail
+}
+
+extension BagIterator: NoCopy {
+    // A hand-written `deinit` that READS THROUGH THE REFERENCE. It runs BEFORE
+    // the root charge ends, which is what makes the read legal.
+    func deinit(&var self) {
+        print("{self.tag.name}, owner still has {self.bag.items.len()}")
+    }
+}
+
+extension Bag {
+    public func iter(&self) borrows -> BagIterator {
+        BagIterator(bag: lends self, index: 0, tag: Tag(name: "iterator deinit"))
+    }
+    public func len(&self) -> Int { self.items.len() }
+}
+
+extension BagIterator: Iterator {
+    type Item = Int
+    public func next(&var self) -> Int? {
+        if self.index < self.bag.items.len() {
+            let i = self.index
+            self.index = self.index + 1
+            self.bag.items.get(i)
+        } else {
+            None
+        }
+    }
+}
+
+struct Bad { why: String }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.why) }
+}
+
+func fails(x: Int) -> Result<Int, Bad> {
+    yield_now()
+    if x > 1 { return Bad(why: "stop") }
+    x
+}
+
+// The OWNED twin: no window, the same seed, the same scope.
+struct Counter { index: Int }
+extension Counter: NoCopy {
+    func deinit(&var self) { print("drop counter") }
+}
+extension Counter: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index < 3 { self.index = self.index + 1  self.index } else { None }
+    }
+}
+
+func walk_sync(b: &Bag) -> Int {
+    var total = 0
+    for x in b.iter() { total = total + x }
+    print("after sync loop")
+    total
+}
+
+func walk_driven(b: &Bag) -> Int {
+    var total = 0
+    for x in b.iter() { yield_now()  total = total + x }
+    print("after driven loop")
+    total
+}
+
+func walk_break(b: &Bag) -> Int {
+    var total = 0
+    for x in b.iter() { total = total + x  break }
+    print("after break loop")
+    total
+}
+
+func walk_driven_break(b: &Bag) -> Int {
+    var total = 0
+    for x in b.iter() { yield_now()  total = total + x  if x == 2 { break } }
+    print("after driven break")
+    total
+}
+
+func walk_driven_return(b: &Bag) -> Int {
+    var total = 0
+    for x in b.iter() { yield_now()  total = total + x  if x == 2 { return total } }
+    print("unreached")
+    total
+}
+
+func walk_driven_continue_outer(b: &Bag) -> Int {
+    var total = 0
+    var round = 0
+    while round < 2 {
+        round = round + 1
+        for x in b.iter() { yield_now()  total = total + x  if x == 2 { continue } }
+        print("after inner {round}")
+    }
+    print("after outer")
+    total
+}
+
+func walk_driven_try(b: &Bag) -> Result<Int, Bad> {
+    var total = 0
+    for x in b.iter() { let k = try fails(x)  total = total + k }
+    print("unreached")
+    total
+}
+
+func walk_owned_driven() -> Int {
+    var total = 0
+    for n in Counter(index: 0) { yield_now()  total = total + n  if n == 1 { break } }
+    print("after owned loop")
+    total + 6
+}
+
+func walk_owned_driven_break() -> Int {
+    var total = 0
+    for n in Counter(index: 0) { yield_now()  total = total + n  if n == 2 { break } }
+    print("after owned break")
+    total
+}
+
+func main() {
+    print("-- sync")
+    var v1: Vector<Int> = [1, 2, 3]
+    var b1 = Bag(items: move v1)
+    print("walk {walk_sync(&b1)}")
+    // The iterator's deinit already printed, inside the `for`'s close; `b1`'s
+    // prints here, where the `move` retires it.
+    let _ = move b1
+
+    print("-- driven")
+    var v2: Vector<Int> = [1, 2, 3]
+    var b2 = Bag(items: move v2)
+    print("walk {__saw_drive(walk_driven(&b2))}")
+    let _ = move b2
+
+    var v3: Vector<Int> = [1, 2, 3]
+    let b3 = Bag(items: move v3)
+    print("-- break on the first element")
+    print("walk {walk_break(&b3)}")
+    print("-- driven break")
+    print("walk {__saw_drive(walk_driven_break(&b3))}")
+    print("-- driven return")
+    let r = __saw_drive(walk_driven_return(&b3))
+    print("after driven return {r}")
+    print("-- driven continue to the outer loop")
+    print("walk {__saw_drive(walk_driven_continue_outer(&b3))}")
+    print("-- driven try propagated")
+    match __saw_drive(walk_driven_try(&b3)) {
+        case Ok(n) -> print("ok {n}"),
+        case Err(e) -> print("caught {e}")
+    }
+    print("-- owned driven")
+    print("walk {__saw_drive(walk_owned_driven())}")
+    print("-- owned driven break")
+    print("walk {__saw_drive(walk_owned_driven_break())}")
+    // `b3` deinits here, after every window over it has closed — its "owner
+    // deinit" line is the last thing printed.
+    let _ = move b3
+}

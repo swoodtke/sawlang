@@ -1,0 +1,179 @@
+// K140 (design 275 U3): CANCELLATION IS A SAFETY GUARANTEE, NOT A TERMINATION
+// CLAIM.
+//
+// A cancel request does NOT close a window. The borrow stays live while
+// cancellation is delivered, while it is caught and handled inside the body,
+// and until the statement has actually exited. WHAT IS GUARANTEED is that a
+// live window is never destroyed by dropping a still-running frame: teardown
+// DRIVES the frame (a cancel wakes a parked task — design 102) and JOINS it
+// (design 124 item 5, K87) before its box is released, so the frame reaches
+// the statement's exit by ordinary control flow and iterator and owner cleanup
+// run exactly once on the route actually taken.
+//
+// THE CELLS, each counting deinits:
+//   * a cancel delivered while the task is PARKED IN A NESTED CALLEE inside
+//     the body — one iterator deinit, one owner deinit;
+//   * a caught cancellation that CONTINUES the loop — the window stays live,
+//     the iterator is not destroyed, and the loop runs to exhaustion; its
+//     "items seen" line is printed INSIDE the task after the loop, so the
+//     iterator's deinit precedes it (K137's order — for one revision it
+//     followed, the driven resource deiniting at frame release, codex r1 #4);
+//   * a cancel delivered BEFORE the head is initialized. A cancel is a
+//     REQUEST: it does not stop the head from running, so the cell that
+//     measures zero constructions is one where the cancellation is PROPAGATED
+//     out of the head's own evaluation (B3's A3) — ZERO iterator
+//     constructions, ZERO iterator drops, and the OWNER's deinit count is
+//     whatever its initialization state was;
+//   * cancel at the park, then exhaustion.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- parked in a nested callee
+// iterator deinit
+// owner deinit
+// iterator deinit
+// -- caught and continued: 3 items seen
+// owner deinit
+// -- cancellation out of the head: 0 iterators built
+// owner deinit
+// -- cancel at the park then exhaustion
+// iterator deinit
+// owner deinit
+
+import std.task.{yield_now}
+
+struct Bad { why: String }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.why) }
+}
+
+struct Tag { name: String }
+extension Tag: NoCopy {}
+
+struct Bag {
+    private items: Vector<Int>
+}
+extension Bag: NoCopy {
+    func deinit(&var self) { print("owner deinit") }
+}
+
+borrows struct BagIterator {
+    private bag: &Bag
+    private index: Int,
+    private tag: Tag
+}
+extension BagIterator: NoCopy {
+    func deinit(&var self) { print("{self.tag.name}") }
+}
+
+extension Bag {
+    public func iter(&self) borrows -> BagIterator {
+        BagIterator(bag: lends self, index: 0, tag: Tag(name: "iterator deinit"))
+    }
+    // A producer with an ARGUMENT, so the head has somewhere for a failure to
+    // come from (B3's A3).
+    public func iter_from(&self, skip: Int) borrows -> BagIterator {
+        BagIterator(bag: lends self, index: skip,
+                    tag: Tag(name: "iterator deinit"))
+    }
+}
+
+extension BagIterator: Iterator {
+    type Item = Int
+    public func next(&var self) -> Int? {
+        if self.index < self.bag.items.len() {
+            let i = self.index
+            self.index = self.index + 1
+            self.bag.items.get(i)
+        } else {
+            None
+        }
+    }
+}
+
+// A NESTED callee that parks — the cancel is delivered while the task is
+// inside it, with the window live in the caller's frame.
+func park_deep(x: Int) -> Int {
+    yield_now()
+    yield_now()
+    x
+}
+
+func parked_in_a_nested_callee(b: Bag) -> Int {
+    var total = 0
+    for x in b.iter() {
+        total = total + park_deep(x)
+        if cancelled() { break }
+    }
+    total
+}
+
+// A caught cancellation that CONTINUES the loop: the window stays live and the
+// iterator is not destroyed until the statement exits on its own terms.
+func caught_and_continued(b: Bag) -> Int {
+    var seen = 0
+    for x in b.iter() {
+        yield_now()
+        if cancelled() {
+            seen = seen + 1
+            continue                // the window is untouched by this
+        }
+        seen = seen + 1
+    }
+    print("-- caught and continued: {seen} items seen")
+    seen
+}
+
+// B3's A3 under cancellation: the failure comes out of the HEAD's own
+// evaluation, so the producer never runs and no iterator is ever constructed.
+func failing_head(x: Int) -> Result<Int, Bad> {
+    yield_now()
+    return Bad(why: "cancelled in the head")
+}
+
+func cancellation_out_of_the_head(b: Bag) -> Result<Int, Bad> {
+    var total = 0
+    for x in b.iter_from(try failing_head(0)) { total = total + x }
+    total
+}
+
+func cancel_at_park_then_exhaustion(b: Bag) -> Int {
+    var total = 0
+    for x in b.iter() {
+        yield_now()
+        total = total + x
+    }
+    total
+}
+
+func fresh() -> Bag {
+    var v: Vector<Int> = [1, 2, 3]
+    Bag(items: move v)
+}
+
+func main() {
+    print("-- parked in a nested callee")
+    var g1 = TaskGroup()
+    let h1 = g1.spawn(parked_in_a_nested_callee(fresh()))
+    h1.cancel()
+    let _ = h1.join()
+
+    var g2 = TaskGroup()
+    let h2 = g2.spawn(caught_and_continued(fresh()))
+    h2.cancel()
+    let _ = h2.join()
+
+    print("-- cancellation out of the head: 0 iterators built")
+    var g3 = TaskGroup()
+    let h3 = g3.spawn(cancellation_out_of_the_head(fresh()))
+    h3.cancel()
+    let _ = match h3.join() {
+        case Ok(n) -> n,
+        case Err(_) -> 0
+    }
+
+    print("-- cancel at the park then exhaustion")
+    var g4 = TaskGroup()
+    let h4 = g4.spawn(cancel_at_park_then_exhaustion(fresh()))
+    h4.cancel()
+    let _ = h4.join()
+}

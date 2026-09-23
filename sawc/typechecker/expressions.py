@@ -168,6 +168,11 @@ class ExpressionsMixin:
         result = visitor(expr)
         if result is not None:
             expr.resolved_type = result
+            # design 275 U3: THE FENCE. A borrowing struct's value is legal
+            # only as a window head, and this is the one line every
+            # expression's type passes through — so the position list is a
+            # matrix of tests rather than a matrix of checks.
+            self.check_borrowing_fence(expr, result)
             # design 130 rule 3: an expression whose VALUE has an unsafe type is
             # the function naming/binding one. A closure literal is skipped —
             # `_check_closure` decides which domain its body's contact belongs to
@@ -689,6 +694,10 @@ class ExpressionsMixin:
     def visit_MoveExpr(self, expr: MoveExpr) -> Optional[SawType]:
         return self._check_move_expr(expr)
 
+    def visit_LendsExpr(self, expr) -> Optional[SawType]:
+        """`lends self` (design 275 U3) — see `typechecker/borrowing.py`."""
+        return self._check_lends_expr(expr)
+
     def visit_ReferenceExpr(self, expr: ReferenceExpr) -> Optional[SawType]:
         return self._check_reference_expr(expr)
 
@@ -953,6 +962,13 @@ class ExpressionsMixin:
                 self._report_task_borrow(borrow, 'read', expr.line, expr.column,
                                          root=expr.name)
 
+        # design 275 U3, access site 1: a READ of a root a statement window
+        # borrows. A SHARED window composes with readers, so this reports only
+        # for an exclusive one — reserved, and asked anyway so the site is
+        # present and the follow-up adds no entry point.
+        self.check_window_access((expr.name, ()), False, 'read',
+                                 expr.line, expr.column)
+
         # Auto-dereference reference types
         if var_info.type.kind == TypeKind.REFERENCE:
             return var_info.type.inner_type
@@ -1136,6 +1152,13 @@ class ExpressionsMixin:
                 self._report_task_borrow(borrow, 'move', expr.line, expr.column,
                                          root=expr.variable)
 
+        # design 275 U3, access site 2: `move` of a root a window borrows —
+        # (ii)'s address-stability rule, whose precedent is K20's "`move` of a
+        # borrowed root is refused". A relocated referent leaves the window's
+        # reference naming storage nothing owns.
+        self.check_window_access((expr.variable, ()), True, 'move',
+                                 expr.line, expr.column)
+
         # Record the move against the binding's identity.
         self._mark_binding_moved(var_info, expr.variable, expr.line, expr.column)
 
@@ -1241,6 +1264,13 @@ class ExpressionsMixin:
 
         # For &var, check that the target is mutable
         if expr.mutable:
+            # design 275 U3 (codex r1 #10): a `&var` of storage reached THROUGH
+            # a shared reference FIELD of a `borrows struct` is refused by the
+            # field's own rule, before the root's mode is consulted.
+            if self.reject_shared_reference_field_write(
+                    expr.expr, "take a `&var` reference", expr.line,
+                    expr.column):
+                return None
             if isinstance(expr.expr, Identifier):
                 var_info = self.current_scope.lookup(expr.expr.name)
                 # An immutable static rejects `&var STATIC` (design 41; an
@@ -4199,7 +4229,8 @@ class ExpressionsMixin:
         self._check_consuming_receiver(expr, method_info)
         # `&var self` method may not be called on an immutable binding (L11).
         if getattr(method_info, "self_mutable", False) and not method_info.is_init:
-            imm_root = self._immutable_receiver_root(expr.object)
+            imm_root = self._immutable_receiver_root(
+                expr.object, f"call `&var self` method `{expr.method_name}`")
             if imm_root is not None:
                 self._error(
                     ErrorKind.IMMUTABLE_ASSIGNMENT,
@@ -7482,7 +7513,20 @@ class ExpressionsMixin:
             type_map = {tp.name: arg for tp, arg in zip(tps, obj_type.type_args)}
             if type_map:
                 field_type = field_type.substitute(type_map)
-        return self._resolve_type(field_type)
+        field_type = self._resolve_type(field_type)
+        # design 275 U3, exception e4: a `borrows struct`'s reference field
+        # reads exactly as a reference PARAMETER does — AUTO-DEREFERENCED, so
+        # `self.vector.length` reaches the referent and the `&Vector<T>` value
+        # itself is never obtainable. That is what confines the field to a
+        # non-escaping RE-BORROW (design 106's forwarding rules) without a
+        # second rule: references are not first-class in Saw, so a read that
+        # cannot yield the reference cannot store, return or capture it, and a
+        # read that yields the REFERENT is an ordinary value read judged by the
+        # ordinary copy policy. `_check_identifier` does the same for a
+        # reference-typed local; this is that rule one position over.
+        if field_type is not None and field_type.kind == TypeKind.REFERENCE:
+            return field_type.inner_type
+        return field_type
 
     def _check_init_field_value(self, value, expected_type: Optional[SawType]) -> Optional[SawType]:
         """Type-check a struct-init field/init-argument value.
@@ -8306,7 +8350,7 @@ class ExpressionsMixin:
                      "a temporary is already yours, so read it with `!`"
             )
             return None
-        imm_root = self._immutable_receiver_root(expr.object)
+        imm_root = self._immutable_receiver_root(expr.object, "call `take()`")
         if imm_root is not None:
             self._error(
                 ErrorKind.IMMUTABLE_ASSIGNMENT,
@@ -11431,7 +11475,11 @@ class ExpressionsMixin:
         # design 260: the consuming-receiver funnel, entry point 2 of 2.
         self._check_consuming_receiver(expr, method_info)
         if receiver_exclusive and not method_info.is_init:
-            imm_root = self._immutable_receiver_root(expr.object)
+            imm_root = self._immutable_receiver_root(
+                expr.object,
+                (f"open an exclusive place window (`{expr.method_name}`)"
+                 if is_window else
+                 f"call `&var self` method `{expr.method_name}`"))
             if imm_root is not None:
                 if is_window and not window_exclusive:
                     # The window only READS, so the refusal is about the
@@ -13680,6 +13728,18 @@ class ExpressionsMixin:
         # that made it. The `with_ref` identity closure `{ e in e }` is NOT this
         # case — reading a reference binding yields the VALUE, so it infers `T`.
         return_type = self._reject_reference_closure_return(expr, return_type)
+        # design 275 U3: nor may it name a borrowing struct — the one return
+        # position the declaration walk cannot see, because a closure literal
+        # writes no return type. Anchored on the tail, as the reference twin is.
+        # The post-transform program is the compiler's (E8): a driven body's
+        # window resource is a frame `Slot`, and the transform's own closures
+        # carry it legitimately.
+        if not getattr(self, 'exempt_statement_window', False):
+            _tail = getattr(expr.body, 'final_expr', None)
+            self.reject_borrowing_type(
+                return_type, "the inferred return type of a closure",
+                _tail.line if _tail is not None else expr.line,
+                _tail.column if _tail is not None else expr.column)
         # DF-304a — THE TAIL IS A TRANSFER, and this is where it takes the
         # checkpoint. A closure body's tail hands its value to the CALLER, so it
         # performs the same transfer `return <value>` in the same body performs —

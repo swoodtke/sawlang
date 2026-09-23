@@ -1,0 +1,101 @@
+// K151 (design 275 U3, codex r1 #5): THE `for` HEAD IS A TRANSFER.
+//
+// The loop takes OWNERSHIP of its iterator — it lives in the loop's own slot,
+// is driven by `&var self` calls and is destroyed at the close — so the head
+// goes through the ordinary value-transfer checkpoint like any other value
+// acquiring a new owner (`_check_value_transfer` entry 20). A NAMED NoCopy
+// iterator needs `move it`; an ExplicitCopy one needs `move it` or
+// `it.copy()`; the refusal is the ordinary one, with the ordinary hints. For
+// one revision the sync lowering claimed cleanup ownership of whatever the
+// head loaded without asking, so a NoCopy `for n in it` compiled and the one
+// Counter was destroyed TWICE (`7 / drop counter / after loop / drop
+// counter`), and the driven lowering's `let __saw_iter = it` was the same bare
+// read. The rows: a NoCopy binding as the head in a sync body and in a driven
+// one, and an ExplicitCopy binding in a sync body — and the same three heads
+// in the VALUE form (`let got = for n in it { break n }`), which acquires an
+// owner through the same acquisition and asks the same checkpoint (codex r2
+// #2: for one revision only the statement form asked, and the value form's
+// NoCopy head was destroyed twice in a wholly sync loop). The driven value
+// rows are refused HERE, ahead of SL-346's transform refusal of the shape.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Counter` which implements NoCopy
+// EXPECT-ERROR-CONTAINS: use `move` to transfer ownership instead
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Held` which implements ExplicitCopy
+
+import std.task.{yield_now}
+
+struct Counter { index: Int }
+extension Counter: NoCopy {
+    func deinit(&var self) { print("drop counter") }
+}
+extension Counter: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index == 0 { self.index = 1  7 } else { None }
+    }
+}
+
+struct Held { items: Vector<Int>, index: Int }
+@synthesize
+extension Held: ExplicitCopy {}
+extension Held: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index < self.items.len() {
+            let i = self.index
+            self.index = i + 1
+            self.items[i]
+        } else { None }
+    }
+}
+
+func row_nocopy_sync() sync {
+    let it = Counter(index: 0)
+    for n in it { print(n) }                // ROW: a NoCopy binding, bare
+    print("after loop")
+}
+
+func row_nocopy_driven() -> Int {
+    let it = Counter(index: 0)
+    var total = 0
+    for n in it { yield_now()  total = total + n }   // ROW: the driven twin
+    total
+}
+
+func row_explicitcopy_sync() sync {
+    var v: Vector<Int> = [4, 5]
+    let it = Held(items: move v, index: 0)
+    for n in it { print(n) }                // ROW: an ExplicitCopy binding, bare
+}
+
+func row_nocopy_value_sync() sync {
+    let it = Counter(index: 0)
+    let got = for n in it { break n }       // ROW: the VALUE form, NoCopy
+    print(got ?? 0)
+}
+
+func row_nocopy_value_driven() -> Int {
+    let it = Counter(index: 0)
+    yield_now()
+    let got = for n in it { break n }       // ROW: the value form, driven
+    got ?? 0
+}
+
+func row_explicitcopy_value_sync() sync {
+    var v: Vector<Int> = [4, 5]
+    let it = Held(items: move v, index: 0)
+    let got = for n in it { break n }       // ROW: the value form, ExplicitCopy
+    print(got ?? 0)
+}
+
+func row_explicitcopy_value_driven() -> Int {
+    var v: Vector<Int> = [4, 5]
+    let it = Held(items: move v, index: 0)
+    yield_now()
+    let got = for n in it { break n }       // ROW: … and driven
+    got ?? 0
+}
+
+func main() {
+    print("unreached")
+}

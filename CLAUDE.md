@@ -207,6 +207,13 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   six, because the plain-call one runs once per family a call comes in: a free
   call plus an INSTANCE, a STATIC and a GENERIC-struct method, each grafted from
   a node the compiler really produced),
+  `windowseam` (design 275 U3: the statement-scoped borrow window is a STRUCTURE,
+  not a `for`-loop feature — `tools/test_window_seam.py` fails if `sawc/windows.py`
+  names an AST class or any iteration vocabulary in its code, if the record's
+  resource slot stops being generic, if the chokepoint's docstring lists a client
+  that no longer resolves, or if either the typechecker or codegen half reaches
+  past its ONE adapter, so the generic window statement a follow-up specifies adds
+  syntax and a binding rather than a second implementation of root accounting),
   `stdseed` (SL-327: the design-206 std seed table is keyed by `Method.node_id`,
   and a wrong key costs a DIAGNOSTIC rather than a failure, so nothing in the
   corpus can see it — `tools/test_std_seed_keying.py` checks the rule directly:

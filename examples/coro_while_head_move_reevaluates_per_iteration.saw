@@ -37,16 +37,16 @@
 // subject's hoist lands inside the loop body by construction. Cell 3 measures
 // that rather than assuming it.
 //
-// WHY EVERY CELL NESTS ITS `while` INSIDE A COLLECTION `for` — load-bearing, not
-// decoration. Design 127 charges a loop backedge in a task body against the
-// frame's op budget, which makes a bare driven `while` SUSPENSION-SPANNING, and
-// a moving condition there is a separate standing refusal in `_split_while`
-// ("`move` in the condition of a suspension-spanning `while` … is not
-// supported"). A `for` over a collection is not instrumented, and neither is a
-// loop nested inside one — so this is the shape in which a NON-spanning moving
-// `while` exists in a driven body at all, which is the shape this file is about.
-// (It is the shape review r1's own reproducer used, and the shape the exit-half
-// sibling uses.)
+// WHY EVERY CELL NESTS ITS `while` INSIDE A COLLECTION `for` — historical now,
+// and no longer load-bearing. Design 127 charges a loop backedge in a task body
+// against the frame's op budget, which makes a bare driven `while`
+// SUSPENSION-SPANNING; a collection `for` was not instrumented and neither was
+// anything nested inside one, so this was once the shape in which a NON-spanning
+// moving `while` existed in a driven body at all (it is the shape review r1's
+// own reproducer used, and the shape the exit-half sibling uses). Design 275 U3
+// charges that loop too (SL-317), so every driven cell here now SPANS and takes
+// `_split_while`'s lowering — which relinquishes in the condition path exactly
+// as the in-place arm does (SL-338), so the cells read the same either way.
 //
 // THE ORACLE IS THE SYNC TWIN: every cell runs the same body without a
 // suspension, and the two destruction sequences must be identical. Drops are

@@ -1,0 +1,198 @@
+// K147 (design 275 U3, closing SL-215): THE INLINE `try EXPR catch { … }`
+// SPLITS.
+//
+// A `TryExpr` carrying a `catch_block` is the inline form, and nothing in the
+// split walk ever looked at that slot — `_collect_calls`'s try/catch arm
+// matched `TryCatchExpr` only, so a suspending call in the catch fell through
+// to the one rejector. The transform now rewrites the inline form into the
+// BLOCK form it means (`try EXPR catch { B }` becomes `try { try EXPR } catch
+// { B }`), so design 196 unit 3's CFG split does the work and the two
+// spellings agree.
+//
+// THE ROWS this file walks:
+//   * a SUSPENDING call in the catch block (SL-215's own repro, in
+//     `examples/coro_suspending_call_in_inline_catch.saw`), here in the
+//     guard-shaped spelling where the catch DIVERGES;
+//   * the ERROR BINDING — `error` is in scope in the catch, at its declared
+//     type, and is readable across the suspension;
+//   * the three `try` VARIANTS: only `try … catch` carries a catch block, and
+//     `try!`/`try?` beside it in the same driven body keep their own
+//     lowerings;
+//   * the `route_path` clause (`try(as E.Case) f()`), which is a PROPAGATING
+//     spelling and takes NO catch — the pair is refused, so the row is that
+//     the routed `try` and an inline catch COEXIST in one driven body;
+//   * a catch that exits the enclosing LOOP (`break` / `continue`), which is
+//     the same slot's other face: `_mark_ob_block` never listed `TryExpr`, so
+//     such a catch kept a RAW `break` that left the resume method's DISPATCH
+//     loop — the break was lost and a `continue` spun forever, silently.
+//
+// THE ORACLE IS THE SYNC TWIN for every row.
+//
+// DF-196b's multi-error refusal is the block form's and is inherited whole:
+// `examples/errors/inline_catch_multi_error.saw`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// suspending catch sync 0
+// suspending catch driven 0
+// error binding sync stop
+// error binding driven stop
+// variants sync 12
+// variants driven 12
+// routed beside an inline catch 7
+// catch breaks the loop sync 1
+// catch breaks the loop driven 1
+// catch continues the loop sync 6
+// catch continues the loop driven 6
+
+import std.task.{yield_now}
+
+struct Bad { why: String }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.why) }
+}
+
+enum Wrapped { case Inner(e: Bad) }
+extension Wrapped: Printable {
+    func format(&self, into: &var StringBuilder) {
+        match self { case Inner(e) -> e.format(into: &var into) }
+    }
+}
+extension Wrapped: Error {}
+
+func respond() {
+    yield_now()
+}
+
+func fallible(x: Int) -> Result<Int, Bad> {
+    yield_now()
+    if x < 0 { return Bad(why: "stop") }
+    x
+}
+
+func fallible_sync(x: Int) -> Result<Int, Bad> {
+    if x < 0 { return Bad(why: "stop") }
+    x
+}
+
+// ---- a SUSPENDING call in the catch, guard-shaped -------------------------
+
+func suspending_catch_sync(x: Int) -> Int {
+    let n = try fallible_sync(x) catch {
+        return 0
+    }
+    n
+}
+
+func suspending_catch_driven(x: Int) -> Int {
+    let n = try fallible(x) catch {
+        respond()
+        return 0
+    }
+    n
+}
+
+// ---- the ERROR BINDING -----------------------------------------------------
+
+func error_binding_sync(x: Int) -> String {
+    let n = try fallible_sync(x) catch {
+        return "{error}"
+    }
+    "{n}"
+}
+
+func error_binding_driven(x: Int) -> String {
+    let n = try fallible(x) catch {
+        respond()
+        return "{error}"
+    }
+    "{n}"
+}
+
+// ---- the three `try` VARIANTS in one body ----------------------------------
+
+func variants_sync(x: Int) -> Int {
+    let a = try! fallible_sync(x)
+    let b = try? fallible_sync(x)
+    let c = try fallible_sync(0 - x) catch { 8 }
+    a + (b ?? 0) + c
+}
+
+func variants_driven(x: Int) -> Int {
+    let a = try! fallible(x)
+    let b = try? fallible(x)
+    let c = try fallible(0 - x) catch { respond()  8 }
+    a + (b ?? 0) + c
+}
+
+// ---- a ROUTED `try` beside an inline catch ---------------------------------
+//
+// A `route_path` clause is a PROPAGATING spelling and takes no catch of its
+// own (the pair is refused at the `try`), so the row is that the two coexist.
+func routed(x: Int) -> Result<Int, Wrapped> {
+    let a = try(as Wrapped.Inner) fallible(x)
+    let b = try fallible(0 - x) catch { respond()  5 }
+    a + b
+}
+
+// ---- a catch that EXITS THE ENCLOSING LOOP --------------------------------
+//
+// The silent face of the same missing slot: `break` and `continue` written in
+// an inline catch inside a suspension-spanning loop.
+func catch_breaks_sync(v: &Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        let n = try fallible_sync(0 - x) catch { break }
+        total = total + n
+    }
+    total + 1
+}
+
+func catch_breaks_driven(v: &Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        let n = try fallible(0 - x) catch { break }
+        total = total + n
+    }
+    total + 1
+}
+
+func catch_continues_sync(v: &Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        let n = try fallible_sync(0 - x) catch { continue }
+        total = total + n
+    }
+    total + 6
+}
+
+func catch_continues_driven(v: &Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        let n = try fallible(0 - x) catch { continue }
+        total = total + n
+    }
+    total + 6
+}
+
+func main() {
+    print("suspending catch sync {suspending_catch_sync(0 - 1)}")
+    print("suspending catch driven {__saw_drive(suspending_catch_driven(0 - 1))}")
+
+    print("error binding sync {error_binding_sync(0 - 1)}")
+    print("error binding driven {__saw_drive(error_binding_driven(0 - 1))}")
+
+    print("variants sync {variants_sync(2)}")
+    print("variants driven {__saw_drive(variants_driven(2))}")
+
+    let r = match __saw_drive(routed(2)) {
+        case Ok(n) -> n,
+        case Err(_) -> 0
+    }
+    print("routed beside an inline catch {r}")
+
+    let v: Vector<Int> = [1, 2, 3]
+    print("catch breaks the loop sync {catch_breaks_sync(&v)}")
+    print("catch breaks the loop driven {__saw_drive(catch_breaks_driven(&v))}")
+    print("catch continues the loop sync {catch_continues_sync(&v)}")
+    print("catch continues the loop driven {__saw_drive(catch_continues_driven(&v))}")
+}

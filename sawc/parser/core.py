@@ -620,6 +620,44 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             return True
         return False
 
+    def _parse_borrowing_modifier(self) -> bool:
+        """Consume a prefix `borrows` STRUCT modifier, if present.
+
+        `borrows struct` (design 275 U3) is `unsafe struct`'s shape for the
+        same reason: a type declaration has no signature, so the effect slot
+        every other declaration uses does not exist for it. The word is the
+        SAME `borrows` the effect slot spells — a type that holds a lent place
+        and a function that lends one say the same thing about themselves — and
+        it is a keyword already, so nothing in either lexer changes.
+
+        The prefix is legal in front of `struct` alone; `_error_borrows_prefix`
+        reports every other position with the fixit naming the effect slot.
+        """
+        if self.match(TokenType.BORROWS):
+            self.advance()
+            return True
+        return False
+
+    def _error_borrows_prefix(self) -> None:
+        """A prefix `borrows` in front of a declaration that is not a `struct`.
+
+        The mirror of `_error_unsafe_prefix`, and it earns its own text: an
+        author who writes `borrows func iter(&self) -> It` has spelled the
+        effect in the wrong slot, and the fixit that names the right one is
+        the whole of the fix.
+        """
+        if self.match(TokenType.FUNC, TokenType.INIT):
+            keyword = "func" if self.match(TokenType.FUNC) else "init"
+            head = "func name(...)" if keyword == "func" else "init(...)"
+            self.error(f"`borrows` goes after the parameter list, not before "
+                       f"`{keyword}` — write `{head} borrows -> &T` (the "
+                       f"effect slot, after `sync`)")
+        self.error("`borrows` may only precede `struct` — a type that HOLDS a "
+                   "lent place declares it at the type (`borrows struct It`), "
+                   "and every other declaration carries the effect in the "
+                   "post-parameter slot (`func f(...) borrows -> &T`), got "
+                   f"{self.current().type.name}")
+
     def _error_unsafe_prefix(self) -> None:
         """A prefix `unsafe` in front of a declaration that is not a `struct`
         (design 136). A declaration's signature reads identically to its
@@ -845,8 +883,12 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 unsafe = self._parse_unsafe_modifier()
                 if unsafe and not self.match(TokenType.STRUCT, TokenType.STATIC):
                     self._error_unsafe_prefix()
+                borrowing = self._parse_borrowing_modifier()
+                if borrowing and not self.match(TokenType.STRUCT):
+                    self._error_borrows_prefix()
                 if self.match(TokenType.STRUCT):
-                    p.structs.append(self.parse_struct(visibility, unsafe))
+                    p.structs.append(self.parse_struct(visibility, unsafe,
+                                                       borrowing))
                 elif self.match(TokenType.FUNC):
                     p.functions.append(self.parse_function(visibility))
                 elif self.match(TokenType.ENUM):
@@ -871,6 +913,15 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 p.statics.append(self.parse_static(Visibility.PRIVATE, True))
             else:
                 self._error_unsafe_prefix()
+        elif self.match(TokenType.BORROWS):
+            # `borrows struct It { ... }` — the type-level half of design 275
+            # U3's spelling, in the position `unsafe struct` uses.
+            self.advance()
+            if self.match(TokenType.STRUCT):
+                p.structs.append(self.parse_struct(Visibility.PRIVATE, False,
+                                                   True))
+            else:
+                self._error_borrows_prefix()
         elif self.match(TokenType.STRUCT):
             p.structs.append(self.parse_struct())
         elif self.match(TokenType.ENUM):

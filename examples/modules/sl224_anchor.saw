@@ -3,15 +3,17 @@
 // THIS file's function and the refusal below belongs to THIS file — which is
 // the whole point of the test that imports it.
 //
-// `for` over a non-range iterable with a suspension inside is one of the 21
-// raise sites that passed no `source_file` at all, so it rendered against the
-// ENTRY module's reporter: right message, wrong file, and a snippet of whatever
-// the entry file happened to have on that line.
+// The vehicle was a `for` over a non-range iterable with a suspension inside,
+// one of the 21 raise sites that passed no `source_file` at all. Design 275 U3
+// (SL-317) gave that shape its split, so the vehicle is now a suspending call
+// inside a CLOSURE BODY — the shape table's other REFUSE row (SL-316), raised
+// through the same `_FrameBuilder._error` and therefore asking the same
+// question of the same funnel.
 import std.task.{yield_now}
 
 public func spin(v: Vector<Int>) -> Int {
     var total = 0
-    for x in v.iter() {
+    v.each { [&var total] x in
         yield_now()
         total = total + x
     }

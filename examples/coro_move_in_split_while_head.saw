@@ -1,0 +1,76 @@
+// SL-338: a `move` in the HEAD of a suspension-SPANNING `while` relinquishes
+// the frame's claim ONCE PER EVALUATION, inside the loop's condition path — the
+// rule SL-234 gave the non-split `while` and SL-226 review r1 corrected, now
+// reaching the SPLIT lowering too.
+//
+// WHERE THE CLEAR GOES, and why `while` is the head that had to say it. Every
+// other container evaluates its head once, so its hoist is a prelude ahead of
+// the container. A `while` CONDITION re-evaluates, and repeated evaluation of a
+// MOVING condition is valid: the body may reinitialize the local before the
+// backedge, so the next pass consumes the REPLACEMENT. In the in-place lowering
+// `_head_into_while_body` puts the hoist inside the loop ahead of the body
+// dispatch; in the SPLIT lowering the HEADER is already its own state, re-entered
+// by every backedge and every `continue`, so `_split_while` emitting the hoist
+// there says the same thing with nothing extra. It used to refuse instead, the
+// condition being evaluated inside `_branch(...)` with no block left for a
+// trailing clear.
+//
+// WHY THIS FILE EXISTS. These two bodies are the DRIVEN halves of
+// `examples/coro_head_move_with_early_exit_drops_once.saw`, where they sit
+// beside their sync twins — the oracle — and where they were lowered in place
+// until design 275 U3 charged a collection `for`'s back-edge and everything
+// nested inside it (SL-317). The inner `while` SPANS now, so the same source
+// exercises the split path, which is what this file names.
+//
+// THE ORACLE IS THE SYNC TWIN: the `move` in the head relinquishes exactly once,
+// so a contained block that exits early destroys the value once, and one that
+// REINITIALIZES keeps its replacement's claim.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// while-exit driven
+// drop old
+// -> 3
+// while-reinit driven
+// drop old
+// drop new
+// -> 6
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+func note(r: &Res) -> Int { r.name.len() }
+func consume_bool(r: Res) -> Bool { true }
+
+func while_exit_driven(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        while consume_bool(move r) { return 3 }
+    }
+    0
+}
+
+func while_reinit_driven(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        while consume_bool(move r) {
+            r = Res(name: "new")
+            break
+        }
+    }
+    6
+}
+
+func main() {
+    print("while-exit driven")
+    print("-> {__saw_drive(while_exit_driven([1, 2]))}")
+    print("while-reinit driven")
+    print("-> {__saw_drive(while_reinit_driven([1]))}")
+}

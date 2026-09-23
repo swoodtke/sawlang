@@ -13,12 +13,18 @@
 // forgotten one site at a time.
 //
 // The oracle is the FILE, and the line/column deliberately do NOT discriminate:
-// before the fix this same program reported the SAME `14:5` against THIS file,
-// where line 14 is a comment line. Right span, wrong file, absurd snippet —
-// which is why only the path can tell the two compilers apart.
+// before the fix this same program reported the same span against THIS file,
+// where that line is a comment. Right span, wrong file, absurd snippet — which
+// is why only the path can tell the two compilers apart.
+//
+// THE VEHICLE CHANGED with design 275 U3: the refusal this used to ride — a
+// suspension inside a `for` over a non-range iterable — became a SPLIT
+// (SL-317). The closure-body refusal (SL-316) is the shape table's other REFUSE
+// row and is raised through the same `_FrameBuilder._error`, so it asks the
+// same question of the same funnel.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: a suspension inside a `for` over a non-range iterable
-// EXPECT-ERROR-CONTAINS: sl224_anchor.saw:14:5
+// EXPECT-ERROR-CONTAINS: a closure body is not driven
+// EXPECT-ERROR-CONTAINS: sl224_anchor.saw:16:12
 
 import modules.sl224_anchor
 

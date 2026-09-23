@@ -653,17 +653,25 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // is a copy at the source. Unbounded, `next()` returned a bitwise duplicate
     // of the slot, so an owning element (`Vector<String>`, `Vector<Vector<..>>`,
     // `Vector<File>`) was owned by BOTH the loop variable and the vector and
-    // deinit'd twice (design 122 unit A). This follows the `StringBytes`/
-    // `StringScalars` model — an iterator yields values the consumer owns
-    // outright, with their own retain — rather than a scoped-borrow shape:
-    // a borrow iterator would have to hold the container borrowed for the
-    // whole loop, which is exactly what `with_ref`/`with_var_ref` already
-    // offer per element, and where `each`/`map` reach a NoCopy element type.
+    // deinit'd twice (design 122 unit A). The ELEMENT policy is unchanged; what
+    // changed in design 275 U3 is the ITERATOR's relationship to the vector.
+    // It used to be an owned value carrying a raw buffer pointer and a length
+    // SNAPSHOT — an untracked borrow, which SL-321 proved unsound: the loop
+    // body could `v.push` until the buffer reallocated, and the remaining
+    // `next()` reads came out of freed memory in safe sync code. Now the
+    // iterator is a BORROWING STRUCT holding `&Vector<T>` itself, the `for`
+    // statement is its window, and a body mutation is the clean exclusivity
+    // error `v.push` already gets inside a `with_ref` window.
     /// Returns an iterator over the vector's elements (`for x in v.iter()`).
     /// Each element is yielded as an owned copy, which is what requires
-    /// `T: Copy`.
-    public func iter(&self) unsafe -> VectorIterator<T> {
-        VectorIterator<T>(buffer: self.buffer, length: self.length, index: 0)
+    /// `T: Copy`. The iterator BORROWS the vector for the whole loop, so the
+    /// body may read it but not add to it, remove from it or replace it.
+    // The ALLOCATOR rides through: the iterator holds `&Vector<T, A>`, so a
+    // vector on a custom allocator iterates without its allocator being
+    // erased. (The old shape held a bare `UnsafePointer<T>`, which is why it
+    // needed no `A` — and why nothing connected the iterator to the vector.)
+    public func iter(&self) borrows -> VectorIterator<T, A> {
+        VectorIterator<T, A>(vector: lends self, index: 0)
     }
 
     // A concrete iterator yielding `(index, element)` pairs for `for` loops
@@ -671,9 +679,9 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // each element is produced by value.
     /// Returns an iterator yielding `(index, element)` pairs. The iterator follows
     /// the bounds of `iter()`. Because elements are yielded by value, `T` must
-    /// be `Copy`.
-    public func enumerated(&self) unsafe -> EnumeratedIterator<T> {
-        EnumeratedIterator<T>(buffer: self.buffer, length: self.length, index: 0)
+    /// be `Copy`. Like `iter()`, it BORROWS the vector for the whole loop.
+    public func enumerated(&self) borrows -> EnumeratedIterator<T, A> {
+        EnumeratedIterator<T, A>(vector: lends self, index: 0)
     }
 }
 
@@ -763,14 +771,19 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
 // VectorIterator<T> - Iterator over vector elements
 // =============================================================================
 
-// Iterator holds a pointer and length, not the Vector itself
-// This allows Vector to be NoCopy while still supporting iteration
-// `public` because `Vector.iter()` HANDS ONE OUT: a public API needs public
-// types (Aug 21), and a caller that holds the value of a `for x in v.iter()`
-// must be able to name its type. The fields stay private.
-public struct VectorIterator<T> {
-    private buffer: UnsafePointer<T>?
-    private length: Int
+// A BORROWING STRUCT (design 275 U3): it holds the VECTOR, lent, and reads
+// `length` and `buffer` through the reference on every `next()`. Nothing is
+// snapshotted, so there is no stale pointer to go stale — which is what makes
+// SL-321's repro a compile error at the `push` instead of a read out of freed
+// memory. LEND THE ROOT, NOT THE BUFFER is the whole of the shape: an iterator
+// over `self.buffer` would be back to a pointer the vector can invalidate.
+//
+// `public` for the design-80 signature-visibility rule — `Vector.iter()` is
+// public and a public signature may not name a private type — NOT so a caller
+// can hold one: holding a borrowing struct is refused, and its only legal
+// position is the head of the `for` that consumes it. The fields stay private.
+public borrows struct VectorIterator<T, A: Allocator = GlobalAllocator> {
+    private vector: &Vector<T, A>
     private index: Int
 }
 
@@ -784,14 +797,14 @@ public struct VectorIterator<T> {
 // duplicable-family bound admits.
 // A move-only element type never reaches here (use `with_ref`/`with_var_ref`,
 // or the closure methods, which carry no bound at all since design 216).
-extension VectorIterator<T: ExplicitCopy>: Iterator {
+extension VectorIterator<T: ExplicitCopy, A: Allocator = GlobalAllocator>: Iterator {
     type Item = T
 
     public func next(&var self) unsafe -> T? {
-        if self.index < self.length {
+        if self.index < self.vector.length {
             let idx = self.index
             self.index = self.index + 1
-            if let buf = self.buffer {
+            if let buf = self.vector.buffer {
                 buf[idx].copy()
             } else {
                 None
@@ -806,25 +819,24 @@ extension VectorIterator<T: ExplicitCopy>: Iterator {
 // EnumeratedIterator<T> - yields (index, element) pairs (design 53)
 // =============================================================================
 
-// `public` for the same reason as `VectorIterator` above:
-// `Vector.enumerated()` returns one.
-public struct EnumeratedIterator<T> {
-    private buffer: UnsafePointer<T>?
-    private length: Int
+// The same four-line shape as `VectorIterator` above, and `public` for the
+// same design-80 reason: `Vector.enumerated()` returns one.
+public borrows struct EnumeratedIterator<T, A: Allocator = GlobalAllocator> {
+    private vector: &Vector<T, A>
     private index: Int
 }
 
 // `T: ExplicitCopy` + `.copy()` for the same reason as `VectorIterator` above:
 // the yielded pair OWNS its element, so it must not be a bitwise duplicate of
 // the slot. (`enumerated()` keeps the stricter `T: Copy` at the producer.)
-extension EnumeratedIterator<T: ExplicitCopy>: Iterator {
+extension EnumeratedIterator<T: ExplicitCopy, A: Allocator = GlobalAllocator>: Iterator {
     type Item = (Int, T)
 
     public func next(&var self) unsafe -> (Int, T)? {
-        if self.index < self.length {
+        if self.index < self.vector.length {
             let idx = self.index
             self.index = self.index + 1
-            if let buf = self.buffer {
+            if let buf = self.vector.buffer {
                 (idx, buf[idx].copy())
             } else {
                 None

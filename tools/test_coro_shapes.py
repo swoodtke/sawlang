@@ -53,6 +53,7 @@ pass vacuously.
 
 import ast
 import os
+import re
 import subprocess
 import sys
 
@@ -175,14 +176,24 @@ def check_rows_are_well_formed():
                     f"because the split does not exist YET must point at the "
                     f"work that would build it, or the refusal is a dead end.")
         if row.disposition == coro_shapes.SPLIT:
-            if not row.handler.startswith("_split_"):
+            # A SPLIT row names the routine(s) that implement it, and for one
+            # container that is a COMPOSITION: design 275 U3 gave the
+            # collection `for` its split by REWRITING it into the `while let`
+            # it denotes, so `_split_while` and `_split_if_let` do the work and
+            # a normalization runs ahead of them. The check is the same
+            # question either way — does `coro_transform.py` define what the
+            # table points a reader at — asked of every routine the handler
+            # names, with at least one of them a `_split_*`.
+            named = re.findall(r"_[A-Za-z0-9_]+", row.handler)
+            if not any(n.startswith("_split_") for n in named):
                 problems.append(
                     f"{where}: a SPLIT row's handler is `{row.handler}`, which "
-                    f"is not a `_split_*` routine.")
-            elif f"def {row.handler}(" not in transform_src:
-                problems.append(
-                    f"{where}: the SPLIT row names `{row.handler}`, which "
-                    f"`coro_transform.py` does not define.")
+                    f"names no `_split_*` routine.")
+            for name in named:
+                if f"def {name}(" not in transform_src:
+                    problems.append(
+                        f"{where}: the SPLIT row names `{name}`, which "
+                        f"`coro_transform.py` does not define.")
     # design 275 §3 ruling 2: the two call shapes design 44's by-value embedding
     # cannot serve are REFUSE **pending SL-322**, and the ruling's words are
     # "the refusal naming it". So each row's issue must appear in the file that
@@ -271,8 +282,6 @@ CONSULTATIONS = [
      "how DF-193a's `TryCatchExpr` came to be skipped"),
     ("_suspend_in_closure_message", "coro_shapes.refusal_of",
      "the ClosureExpr REFUSE row's message"),
-    ("_suspend_in_inline_catch_message", "coro_shapes.refusal_of",
-     "the TryExpr REFUSE row's message (SL-215)"),
     ("_reject_buried_suspend_call", "coro_shapes.unbuildable_message",
      "SL-287's refusal, out of the ledger's recorded reason"),
     ("_record_frame_decisions", "coro_shapes.unclassified_container",

@@ -665,6 +665,23 @@ class RegistrationMixin:
                 # sharing one object, exactly as a `let` annotation's write-back
                 # does.
                 field.type = self._resolve_declared_qualified_names(field.type)
+                # THE RESOLVED FIELD CATEGORY of a `borrows struct` (design 275
+                # U3, codex r2 #10): a field spelled through an alias of a
+                # SHARED reference (`source: OwnerRef`, `type OwnerRef =
+                # &Owner`) IS the lent reference, and it is resolved HERE — the
+                # one place the declaration's spelling becomes the checker's
+                # fact, shared by the symbol table and the AST — so the
+                # declaration check, the producer proof, the permission walk,
+                # the struct-init check, the member-access auto-deref and
+                # codegen's reference-field pointer all read `&Owner` without
+                # each resolving it. An alias to `&var` is left as written so
+                # the shared-window refusal names the alias the author wrote.
+                if getattr(struct, 'is_borrowing', False):
+                    resolved = self._resolve_type_alias(field.type)
+                    if (resolved is not None and resolved is not field.type
+                            and resolved.kind == TypeKind.REFERENCE
+                            and not resolved.reference_mutable):
+                        field.type = resolved
                 # A closure-typed field is escaping (design 16/29): the struct
                 # value can outlive any call, so a stored closure must be safe to
                 # store. Stamp the bit; writing `escaping` here is redundant.
@@ -697,6 +714,7 @@ class RegistrationMixin:
             def_module=def_module,
             type_identity=identity,
             is_unsafe=getattr(struct, 'is_unsafe', False),
+            is_borrowing=getattr(struct, 'is_borrowing', False),
             line=struct.line,
             column=struct.column,
             ast_node=struct if struct.type_params else None

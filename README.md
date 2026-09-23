@@ -553,6 +553,39 @@ extension Document {
 }
 ```
 
+A type can hold a lent place too. `borrows struct` declares one, and its value
+lives for exactly one `for` statement — which is how iteration is safe:
+
+```saw-error
+// error-contains: `v` cannot be accessed by reference here
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    var seen = 0
+    for x in v.iter() {
+        seen = seen + x
+        let _ = v.push(9)
+    }
+    print(seen)
+}
+// error: exclusive access violation: `v` cannot be accessed by reference here
+//        — the window opened at line 5 borrows `v` for the whole of the `for`
+//        statement that iterates it
+```
+
+`Vector.iter()` hands back a `VectorIterator` holding `&Vector<T, A>`, so the
+loop borrows the collection for its whole run and the body may read it but not
+grow it, replace it, move it or swap its elements. The iterator reads the
+vector's length and buffer through the reference on every step, so a growth
+that reallocated the buffer cannot leave it pointing at freed storage. The
+borrow is tracked by the ordinary Law of Exclusivity, not by a lifetime
+annotation: the value cannot be bound to a name, stored in a field, passed as
+an argument or wrapped in a generic, so there is one place it can be and the
+compiler knows where that is.
+
+Such a loop may suspend. The iterator becomes part of the task's frame and the
+loop head re-enters through `next()`, so a `for` over a collection can await
+I/O in its body like any other statement.
+
 A method can also END its receiver. `consumes` says so at the declaration, and
 `move` says so at the call:
 

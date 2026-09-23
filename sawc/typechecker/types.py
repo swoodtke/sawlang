@@ -21,8 +21,9 @@ from ast_nodes import (
 )
 from ast_walk import child_nodes
 from errors import ErrorKind
-from noescape import first_reference_in
+from noescape import _MAX_ALIAS_DEPTH, first_reference_in
 from type_identity import display_name
+from windows import DYNAMIC_INDEX, paths_overlap
 from namespace import (
     SymbolKind, StructSymbol, EnumSymbol, FunctionSymbol, TraitSymbol, TypeAliasSymbol
 )
@@ -952,12 +953,68 @@ class TypeUtilsMixin:
         ("generic-parameter default",    "ref_generic_param_default"),       # 193 u5
     )
 
+    def _borrowing_field_referent(self, struct, field, ftype, line, column):
+        """A `borrows struct` field's type as the no-escape walk should see it.
+
+        Returns what the walk runs on: the REFERENT for the one exempt shape (a
+        top-level SHARED reference, aliases resolved), and the field's own type
+        otherwise — so every position but the exempt one keeps the ordinary
+        refusal, with the ordinary message. Reports the MODE error itself,
+        because `&var` is not a position question: it is the shared-window rule
+        (U3's part 0), and a message about parameters-only would teach the
+        wrong thing.
+        """
+        resolved = ftype
+        for _ in range(_MAX_ALIAS_DEPTH):
+            if resolved is None or resolved.kind != TypeKind.STRUCT:
+                break
+            aliased = self._alias_target(resolved)
+            if aliased is None:
+                break
+            resolved = aliased
+        if resolved is None or resolved.kind != TypeKind.REFERENCE:
+            return ftype
+        if resolved.reference_mutable:
+            value = (resolved.inner_type if resolved.inner_type is not None
+                     else "T")
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"field `{field.name}` of `borrows struct {struct.name}` may "
+                f"not be an EXCLUSIVE reference: `{ftype}` is `&var`, and a "
+                f"borrowing struct holds SHARED references only. A window is "
+                f"shared, and an exclusive field would let this type "
+                f"reallocate the very storage another reader is walking "
+                f"through its own field — which recording the root alone "
+                f"would not catch",
+                line, column,
+                hint=f"lend it shared (`{field.name}: &{value}`); mutating "
+                     f"this type's OWN state stays ordinary `&var self` on "
+                     f"its methods")
+            return None
+        return resolved.inner_type
+
     def _no_escape_positions(self, program):
         """Yield `(type, what, line, column)` for every position in
         `NO_ESCAPE_POSITIONS`, in that order."""
         for struct in getattr(program, 'structs', []):
+            borrowing = getattr(struct, 'is_borrowing', False)
             for field in struct.fields:
-                yield (field.type, f"field `{field.name}` of `{struct.name}`",
+                ftype = field.type
+                if borrowing:
+                    # design 275 U3, and SL-333 R5's FIELD clause: a reference
+                    # type is legal as a struct field iff the struct is
+                    # `borrows struct`. The parser applied the exception to the
+                    # WRITTEN form; this is the same exception once aliases are
+                    # resolved, so `type Ref = &Vector<Int>` is neither a way
+                    # past the rule nor a way past the exception. Only the TOP
+                    # LEVEL is exempt, and only SHARED — the walk then runs on
+                    # what the reference points at, so `&(Int, &T)` is still
+                    # refused on the inner one.
+                    ftype = self._borrowing_field_referent(
+                        struct, field, ftype,
+                        getattr(field, 'line', struct.line),
+                        getattr(field, 'column', struct.column))
+                yield (ftype, f"field `{field.name}` of `{struct.name}`",
                        getattr(field, 'line', struct.line),
                        getattr(field, 'column', struct.column))
         for enum in getattr(program, 'enums', []):
@@ -4439,6 +4496,16 @@ class TypeUtilsMixin:
         RECURSION
          19. This function itself, once per arm of a value branch (below).
 
+        LOOP HEADS
+         20. `_check_for_loop` and `_check_for_loop_as_expression`
+             (statements.py) — a collection `for`'s HEAD in the statement and
+             the value form, context "`for` head" (design 275 U3, codex r1 #5
+             and r2 #2): the loop owns its iterator, so a named NoCopy head
+             needs `move` and a Copy-tier one retains. The decision is
+             CONSUMED at codegen's `_acquire_head_iterator` (loops.py), the
+             one acquisition both lowerings share, and by the driven seed's
+             `let`.
+
         Behavior by the source expression and its resolved type:
         - `move x`: ownership transfers; a transfer is neither a copy nor a
           NoCopy violation, so it is always accepted. The source binding's
@@ -5113,8 +5180,10 @@ class TypeUtilsMixin:
     # them, which the caller's own call-site check rejects. Hence fully static.
     # ------------------------------------------------------------------
 
-    # Sentinel for an array index that is not a compile-time constant.
-    _DYNAMIC_INDEX = object()
+    # Sentinel for an array index that is not a compile-time constant. THE
+    # SAME OBJECT `windows.paths_overlap` compares against — one sentinel, so
+    # a path built here reads correctly in the window table and vice versa.
+    _DYNAMIC_INDEX = DYNAMIC_INDEX
 
     @staticmethod
     def _place_use_receiver(node):
@@ -5202,35 +5271,16 @@ class TypeUtilsMixin:
     def _paths_overlap(self, a, b) -> bool:
         """Two access paths overlap iff they may denote overlapping storage.
 
-        Different roots -> disjoint. Same root: walk projections in parallel;
-        differing fields / tuple indices / differing *constant* array indices at
-        the same position -> disjoint; a DYNAMIC index at a position overlaps
-        anything there (conservative). Running out of projections on either side
-        (one is a prefix of the other) -> overlap.
+        `windows.paths_overlap` IS the definition (obligation 1) — the table it
+        states is the Law's, and the window table asks the same function, so a
+        window and a call's access set can never disagree about two paths.
+        This wrapper is the name the checker's own call sites know it by.
 
         Only ever consulted for pairs where at least one side is mutable/moved,
         so the dynamic-index conservatism applies exactly where the decision
         requires it.
         """
-        root_a, proj_a = a
-        root_b, proj_b = b
-        if root_a != root_b:
-            return False
-        for pa, pb in zip(proj_a, proj_b):
-            if pa[0] != pb[0]:
-                # Different projection kinds on the same root cannot denote the
-                # same storage.
-                return False
-            if pa[0] == 'index':
-                ia, ib = pa[1], pb[1]
-                if ia is self._DYNAMIC_INDEX or ib is self._DYNAMIC_INDEX:
-                    continue
-                if ia != ib:
-                    return False
-            else:
-                if pa[1] != pb[1]:
-                    return False
-        return True
+        return paths_overlap(a, b)
 
     def _render_lvalue_path(self, expr: Expression) -> str:
         """Render an lvalue expression as a source-like path (for diagnostics)."""
@@ -5930,6 +5980,17 @@ class TypeUtilsMixin:
                     self._report_task_borrow(
                         b, 'capture' if id(e) in capture_entries else 'access',
                         ln, col, root=path[0])
+
+        # design 275 U3, access site 3: the same cross-check against the open
+        # STATEMENT WINDOWS. This is where `v.push(x)` inside a `for x in
+        # v.iter()` body arrives (a `&var self` receiver is a `mut` entry), and
+        # with it every other spelling that reaches a call — a `&var` argument,
+        # an `o.take()` receiver, a closure's borrow captures, and a design-201
+        # spawn argument STARTED inside the body.
+        for kind, path, e, ln, col in entries:
+            self.check_window_access(
+                path, kind != 'imm',
+                'capture' if id(e) in capture_entries else 'access', ln, col)
 
         n = len(entries)
         for i in range(n):

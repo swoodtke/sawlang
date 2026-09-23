@@ -1220,6 +1220,38 @@ class MoveExpr(Expression):
 
 
 @dataclass
+class LendsExpr(Expression):
+    """`lends self` — the ORIGIN PROOF at a borrowing struct's construction
+    (design 275 U3).
+
+    A `borrows` signature says a borrow EXISTS; this says WHERE IT CAME FROM,
+    at the one site the compiler needs to know: the initializer of a reference
+    field of a `borrows struct`. The call site then charges the receiver
+    PLACE's root, through design 141's root attribution, for the window's
+    extent.
+
+    U3 admits exactly ONE origin, and the parser therefore accepts exactly one
+    spelling: `lends self`. A projection (`lends self.buffer`), another
+    reference parameter, or a local would each name a root the call site cannot
+    attribute, so each is refused at the `lends` rather than admitted and
+    approximated. The node keeps a `place` field anyway — it is what the
+    follow-up brief that widens the origin would fill, and what the refusal
+    renders — so widening the rule does not mean changing the shape of the
+    tree.
+
+    `lends` is a CONTEXTUAL keyword, matched by value exactly as `import`,
+    `module` and `export` are: the pair `lends self` is otherwise a parse error
+    in every position, so no user binding named `lends` stops compiling and
+    neither lexer's keyword table changes (which is what keeps `lexdiff` and
+    the selfhost lexer out of this unit).
+    """
+    place: Expression = None      # `self` — the only spelling U3 accepts
+    # The typechecker stamps the receiver's type here, so codegen knows what
+    # the reference points at without re-resolving `self`.
+    referent_type: Optional['SawType'] = annotation(None)
+
+
+@dataclass
 class ReferenceExpr(Expression):
     """Reference expression at call site: &expr or &var expr.
 
@@ -2291,6 +2323,18 @@ class ForLoop(Statement):
     body: 'Block'
     result_type: Optional['SawType'] = None  # Set by typechecker for expression context
     element_type: Optional['SawType'] = None  # Loop-variable type (design 65: drop owning loop var per iteration)
+    # design 275 U3: the STATEMENT WINDOW this `for` opened, when its head
+    # produced a borrowing struct — a `windows.StatementWindow`, minted and
+    # closed by the one chokepoint (`windows.WindowTable`). `for` is the
+    # chokepoint's only client today; the field lives on this node because a
+    # window's EXTENT is a statement and this statement is the extent.
+    #
+    # The transform and codegen read the RECORD, never this node's own shape:
+    # the frame field for the window's resource, the design-88 pointer
+    # encoding, the referent-pinning assertion and the exit-route cleanup are
+    # all properties of the window. `None` on a range `for` and on an
+    # OWNED-iterator `for` — neither opens one.
+    window: Optional[Any] = annotation(None)
 
 
 @dataclass
@@ -2421,6 +2465,19 @@ class Struct(ASTNode):
     # the methods that touch the field are unsafe. The compiler requires an
     # unsafe type's name to start with `Unsafe`.
     is_unsafe: bool = False
+    # `borrows struct` (design 275 U3): this type HOLDS A LENT PLACE. It is
+    # design 130's `unsafe struct` shape — the type declares its nature at its
+    # declaration, every signature that carries it echoes it, and `--emit-docs`
+    # carries it as a type attribute — with no name convention, because a
+    # borrowing struct appears only as a window head where the syntax and the
+    # producing `borrows` already say so.
+    #
+    # What it LICENSES: a field whose type is a plain SHARED reference (`&T`),
+    # which every other struct is refused (DF-163d). What it COSTS: the value
+    # may live only inside its window — never a `let`, an argument, a field, a
+    # type argument or an existential — which `typechecker/borrowing.py`'s one
+    # rejector enforces at every other position.
+    is_borrowing: bool = False
     source_file: str = ""
     doc: Optional[str] = None
     # Design 144: the module-qualified IDENTITY the typechecker stamps here at
@@ -2630,6 +2687,18 @@ class Method(ASTNode):
     # lent type in `place_type`, leaving this bit set as the declaration's own
     # record of what the author wrote.
     is_borrows: bool = False
+    # design 275 U3: THE ORIGIN SUMMARY of a `borrows` method that RETURNS A
+    # BORROWING STRUCT rather than lending a place — `'receiver root'`, the one
+    # origin U3 admits, or None for every other method.
+    #
+    # It is a DECLARED annotation field (design 126's AST contract) and not a
+    # re-derivation, for the same reason `is_reference` is one: it must ride
+    # `substitute_ast_types` through monomorphization and travel with an
+    # IMPORTED declaration, whose body the call site never sees. The call site
+    # reads it and substitutes it onto the RECEIVER PLACE's root through design
+    # 141's root attribution — `v.iter()` charges `v`, `st.patches.iter()`
+    # charges the path `st.patches`.
+    borrow_origin: Optional[str] = annotation(None)
     # `consumes` (design 260): this `&var self` method ENDS its receiver. The
     # exclusive borrow's contract changes at its ending — the CALLEE releases
     # what remains of the referent at body end, and the caller's binding is

@@ -1,0 +1,201 @@
+// K151 accept twin (design 275 U3, codex r1 #5 + r2 #1/#2): the head's
+// transfer, spelled — and CONSUMED where the loop acquires its iterator.
+//
+// `for n in move it` hands the iterator to the loop and it drops ONCE, at the
+// close, before the code after the loop — sync and driven alike, in the
+// statement form and in the value form (`let got = for n in move it { break n }`
+// destroys it at the `for` STATEMENT's close, ahead of the print of its value:
+// K137's order). A Copy-tier binding RETAINS at the head, so the binding stays
+// usable after the loop and a second loop over it starts from the binding's own
+// state (its index is still 0) — a String-holding, an Arc-holding and a
+// closure-holding iterator each, sync and driven. The String is INTERPOLATED
+// on purpose (codex r2 #1): a static literal is immortal and masked the freed
+// storage for one revision, in which the sync lowering stored the bare load
+// and the first loop's close freed the binding's String (`43 43` for
+// `30 abc 5 0`) and underflowed the Arc. An ExplicitCopy binding is duplicated
+// with `it.copy()` and the original is untouched, statement and value form. A
+// temporary — every `borrows` producer's result included — owes nothing,
+// which is the shape every other test writes. The DRIVEN value form is
+// SL-346's standing refusal (the op budget makes every loop in a driven body
+// span), so its accept cells are not here; its REFUSAL rows are in the error
+// twin, because the checkpoint runs ahead of the transform.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// drop counter
+// after move sync
+// drop counter
+// after move driven
+// walk 7
+// drop counter
+// 7
+// after move value sync
+// copy tier sync 30 abc 5 0
+// copy tier driven 30 abc 5 0
+// arc sync 6 0 3
+// arc driven 6 0 3
+// closure sync 120 0
+// closure driven 120 0
+// explicit copy 9 0 2
+// explicit copy value 4 0 2
+// drop res 2
+// drop res 1
+
+import std.task.{yield_now}
+
+struct Counter { index: Int }
+extension Counter: NoCopy {
+    func deinit(&var self) { print("drop counter") }
+}
+extension Counter: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index == 0 { self.index = 1  7 } else { None }
+    }
+}
+
+struct Words { text: String, index: Int }      // the automatic Copy tier
+extension Words: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index < self.text.len() { self.index = self.index + 1  self.index }
+        else { None }
+    }
+}
+
+struct Res { n: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop res {}", self.n) }
+}
+
+struct Shared { cell: Arc<Res>, index: Int }   // the declared Copy tier
+@synthesize
+extension Shared: Copy {}
+extension Shared: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index < 2 { self.index = self.index + 1  self.index } else { None }
+    }
+}
+
+struct Closed { f: () sync -> Int, index: Int }   // a closure env: Copy tier
+extension Closed: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index < 2 { self.index = self.index + 1  self.f() } else { None }
+    }
+}
+
+struct Held { items: Vector<Int>, index: Int }
+@synthesize
+extension Held: ExplicitCopy {}
+extension Held: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index < self.items.len() {
+            let i = self.index
+            self.index = i + 1
+            self.items[i]
+        } else { None }
+    }
+}
+
+func move_sync() sync {
+    let it = Counter(index: 0)
+    for n in move it { print(n) }
+    print("after move sync")
+}
+
+func move_driven() -> Int {
+    let it = Counter(index: 0)
+    var total = 0
+    for n in move it { yield_now()  total = total + n }
+    print("after move driven")
+    total
+}
+
+func move_value_sync() sync {
+    let it = Counter(index: 0)
+    let got = for n in move it { break n }     // the iterator drops HERE
+    print(got ?? 0)
+    print("after move value sync")
+}
+
+func copy_tier_sync(n: Int) sync {
+    let it = Words(text: "abc {n}", index: 0)
+    var t = 0
+    for x in it { t = t + x }
+    for x in it { t = t + x }                  // the binding is still whole
+    print("copy tier sync {t} {it.text} {it.index}")
+}
+
+func copy_tier_driven(n: Int) {
+    let it = Words(text: "abc {n}", index: 0)
+    var t = 0
+    for x in it { yield_now()  t = t + x }
+    for x in it { yield_now()  t = t + x }
+    print("copy tier driven {t} {it.text} {it.index}")
+}
+
+func arc_sync(cell: Arc<Res>) sync {
+    let it = Shared(cell: cell.copy(), index: 0)
+    var t = 0
+    for x in it { t = t + x }
+    for x in it { t = t + x }
+    print("arc sync {t} {it.index} {cell.strong_count()}")
+}
+
+func arc_driven(cell: Arc<Res>) {
+    let it = Shared(cell: cell.copy(), index: 0)
+    var t = 0
+    for x in it { yield_now()  t = t + x }
+    for x in it { yield_now()  t = t + x }
+    print("arc driven {t} {it.index} {cell.strong_count()}")
+}
+
+func closure_sync(k: Int) sync {
+    let it = Closed(f: { k * 10 }, index: 0)
+    var t = 0
+    for x in it { t = t + x }
+    for x in it { t = t + x }
+    print("closure sync {t} {it.index}")
+}
+
+func closure_driven(k: Int) {
+    let it = Closed(f: { k * 10 }, index: 0)
+    var t = 0
+    for x in it { yield_now()  t = t + x }
+    for x in it { yield_now()  t = t + x }
+    print("closure driven {t} {it.index}")
+}
+
+func explicit_copy() sync {
+    var v: Vector<Int> = [4, 5]
+    let it = Held(items: move v, index: 0)
+    var t = 0
+    for n in it.copy() { t = t + n }
+    print("explicit copy {t} {it.index} {it.items.len()}")
+}
+
+func explicit_copy_value() sync {
+    var v: Vector<Int> = [4, 5]
+    let it = Held(items: move v, index: 0)
+    let got = for n in it.copy() { break n }
+    print("explicit copy value {got ?? 0} {it.index} {it.items.len()}")
+}
+
+func main() {
+    move_sync()
+    print("walk {__saw_drive(move_driven())}")
+    move_value_sync()
+    copy_tier_sync(5)
+    __saw_drive(copy_tier_driven(5))
+    let one = try! Arc(value: Res(n: 1))
+    arc_sync(one.copy())
+    let two = try! Arc(value: Res(n: 2))
+    __saw_drive(arc_driven(two.copy()))
+    closure_sync(3)
+    __saw_drive(closure_driven(3))
+    explicit_copy()
+    explicit_copy_value()
+}

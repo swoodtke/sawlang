@@ -22,11 +22,21 @@
 import std.task.*
 import std.data.{Data}
 
+// INDEXED, not `for x in v.iter()` — design 275 U3 (SL-317) charges a
+// collection loop's back-edge like every other loop's, so such a loop SPANS,
+// so its iterator is a local held across a suspension and meets the
+// Send-on-frames rule (K19). `VectorIterator` holds `&Vector<T>` and is not
+// `Send`, and the U3 ruling is that frame address stability is no argument to
+// relax Send — so a borrowed iterator does not cross to a worker thread. The
+// index loop below is the multi-threaded spelling; `sum_nested` beneath was
+// already written this way.
 func sum_vector(v: Vector<Int>) -> Int {
     yield_now()
     var total = 0
-    for x in v.iter() {
-        total = total + x
+    var i = 0
+    while i < v.len() {
+        total = total + v[i]
+        i = i + 1
     }
     total
 }

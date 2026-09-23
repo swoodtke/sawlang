@@ -1,0 +1,29 @@
+// K141's REFUSAL half (design 275 U3, part (iii)): a suspension inside a
+// `Mutex.lock` body is refused by the `sync`-body rule.
+//
+// `Mutex.lock<R>(&self, body: (&var T) sync -> R)` declares a `sync` body, so
+// the `for` inside one is a SYNC window: it works with the window's guarantees
+// intact, and a suspension there is the existing design-141/230 fence rather
+// than a new rule. Nothing about U3 extends a guard's lifetime, and nothing
+// has to.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: sync
+
+import std.mutex.{Mutex}
+import std.task.{yield_now}
+
+func step(x: Int) -> Int {
+    yield_now()
+    x
+}
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    let guarded = Mutex(value: move v)
+    let a = guarded.lock({ items in
+        var total = 0
+        for x in items.iter() { total = total + step(x) }
+        total
+    })
+    print("{a}")
+}

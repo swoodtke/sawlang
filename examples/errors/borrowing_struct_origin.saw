@@ -1,0 +1,145 @@
+// K144 (design 275 U3): THE ORIGIN IS A CHECKED COMPILER FACT.
+//
+// A `borrows` signature says a borrow EXISTS; the call site must know WHICH
+// root to charge. U3 admits ONE origin — the RECEIVER — so every other
+// spelling is refused by name rather than approximated by a root walk:
+//
+//   * `lends self.items` — a PROJECTION of the receiver. `lend the ROOT, not
+//     the buffer` is the whole shape of the four-line iterator: a struct that
+//     snapshots what the receiver points at is back to a pointer the owner can
+//     invalidate.
+//   * `lends other` — another reference PARAMETER. The window charges the
+//     RECEIVER place's root, and nothing at the call site names this one.
+//   * a by-value receiver is not a row here: the PARSER already refuses `self`
+//     without a sigil ("'self' must be a reference"), so the origin rule's own
+//     refusal for it is unreachable from source and is the belt to that braces.
+//   * a `&var self` receiver — U3 admits SHARED reference fields only, so an
+//     exclusive lend would be the origin of a field this type may not hold.
+//   * a field NOT initialized with `lends self` on a returning path.
+//   * a `borrows struct` with NO reference field — design 130's rule-7
+//     teaching error: the keyword says values of this type carry a borrow, and
+//     every use site reads that claim.
+//   * BY PATH, NOT BY SCAN (codex r1 #1): the check follows the VALUE each
+//     returning path hands the caller — the tail, every `return`, and each arm
+//     of a value `if`/`match`/`try … catch` through them — and refuses the
+//     path whose leaf is not a construction written in this body. For one
+//     revision it scanned the body for constructions and passed on the
+//     strength of ONE good arm, so `if flag { Own(bag: lends self) } else {
+//     other.iter() }` compiled and the window charged the wrong root. The
+//     rows: another producer's result in an `if` arm, in a `return`, in a
+//     `match` arm and in a `catch` handler; the receiver's OWN accessor as
+//     the tail; and a LOCAL bound to a construction and handed back.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: U3 admits the receiver as the only borrow origin
+// EXPECT-ERROR-CONTAINS: lend the ROOT, not the buffer
+// EXPECT-ERROR-CONTAINS: requires a SHARED receiver (`&self`)
+// EXPECT-ERROR-CONTAINS: holds no lent place
+// EXPECT-ERROR-CONTAINS: every returning path of `path_if_arm`
+// EXPECT-ERROR-CONTAINS: every returning path of `path_return`
+// EXPECT-ERROR-CONTAINS: every returning path of `path_match_arm`
+// EXPECT-ERROR-CONTAINS: every returning path of `path_catch`
+// EXPECT-ERROR-CONTAINS: every returning path of `path_own_accessor`
+// EXPECT-ERROR-CONTAINS: every returning path of `path_local`
+// EXPECT-ERROR-CONTAINS: yields the call `.iter()`, another producer's result rather than a construction of `Own` written in this body
+// EXPECT-ERROR-CONTAINS: yields the binding `it` rather than a construction of `Own` written in this body
+
+struct Bag {
+    private items: Vector<Int>
+}
+extension Bag: NoCopy {}
+
+borrows struct Projected {
+    private items: &Vector<Int>
+    private index: Int
+}
+
+borrows struct Foreign {
+    private bag: &Bag
+    private index: Int
+}
+
+borrows struct Exclusive {
+    private bag: &Bag
+    private index: Int
+}
+
+// ROW: a `borrows struct` with no reference field at all.
+borrows struct Placeless {
+    private index: Int
+}
+
+extension Bag {
+    // ROW: a PROJECTION of the receiver.
+    public func projected(&self) borrows -> Projected {
+        Projected(items: lends self.items, index: 0)
+    }
+
+    // ROW: another reference PARAMETER.
+    public func foreign(&self, other: &Bag) borrows -> Foreign {
+        Foreign(bag: lends other, index: 0)
+    }
+
+    // ROW: an EXCLUSIVE receiver.
+    public func exclusive(&var self) borrows -> Exclusive {
+        Exclusive(bag: lends self, index: 0)
+    }
+}
+
+// ---- BY PATH ---------------------------------------------------------------
+
+borrows struct Own {
+    private bag: &Bag
+    private index: Int
+}
+
+struct Bad { n: Int }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+func may(n: Int) -> Result<Int, Bad> { if n > 0 { n } else { Bad(n: n) } }
+
+extension Bag {
+    public func iter(&self) borrows -> Own { Own(bag: lends self, index: 0) }
+
+    // ROW: the false arm of the TAIL `if` yields another producer's result.
+    public func path_if_arm(&self, other: &Bag, flag: Bool) borrows -> Own {
+        if flag { Own(bag: lends self, index: 0) } else { other.iter() }
+    }
+
+    // ROW: a `return` statement ahead of a well-formed tail.
+    public func path_return(&self, other: &Bag, flag: Bool) borrows -> Own {
+        if flag { return other.iter() }
+        Own(bag: lends self, index: 0)
+    }
+
+    // ROW: a `match` arm, with a well-formed sibling arm.
+    public func path_match_arm(&self, other: &Bag, k: Int) borrows -> Own {
+        match k {
+            case 0 -> Own(bag: lends self, index: 0),
+            case _ -> other.iter()
+        }
+    }
+
+    // ROW: the `catch` handler of a value `try … catch`.
+    public func path_catch(&self, other: &Bag) borrows -> Own {
+        try {
+            let k = try may(self.items.len())
+            Own(bag: lends self, index: k)
+        } catch {
+            other.iter()
+        }
+    }
+
+    // ROW: the receiver's OWN accessor — a call, not a construction.
+    public func path_own_accessor(&self) borrows -> Own { self.iter() }
+
+    // ROW: a LOCAL bound to a construction and handed back.
+    public func path_local(&self) borrows -> Own {
+        let it = Own(bag: lends self, index: 0)
+        it
+    }
+}
+
+func main() {
+    print("unreached")
+}

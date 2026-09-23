@@ -1,0 +1,119 @@
+// K150 accept twin (design 275 U3, codex r1 #10's sweep): READING through a
+// borrowing struct's reference field composes at every shape — a nested
+// field, an indexed element, a `&self` METHOD called on the referent, the
+// referent forwarded as a `&` argument (`&self.source`), a field of it
+// forwarded (`&self.source.items`), an optional field read, a GENERIC
+// instantiation, and the DRIVEN twin. The method-call and `&`-argument rows
+// are the ones the sweep found dead in codegen (`%"Owner"* != %"Owner"**`):
+// the field's slot holds a POINTER to the referent, the typechecker
+// auto-dereferences it, and every consumer of the member pointer wants the
+// referent's address — which `_get_member_pointer` now yields for exactly a
+// `borrows struct`'s reference field.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sync 70
+// generic 7
+// driven 70
+
+import std.task.{yield_now}
+
+struct Owner {
+    private items: Vector<Int>
+    private spare: Int?
+}
+extension Owner: NoCopy {}
+
+extension Owner {
+    public func at(&self, i: Int) -> Int { self.items[i] }
+    public func count(&self) -> Int { self.items.len() }
+}
+
+func look(o: &Owner) -> Int { o.count() * 10 }
+func measure(v: &Vector<Int>) -> Int { v.len() }
+
+borrows struct It {
+    private source: &Owner
+    private index: Int
+}
+
+extension Owner {
+    public func iter(&self) borrows -> It { It(source: lends self, index: 0) }
+}
+
+extension It: Iterator {
+    type Item = Int
+    public func next(&var self) -> Int? {
+        if self.index < self.source.count() {              // a `&self` METHOD
+            let i = self.index
+            self.index = i + 1
+            let a = self.source.items[i]                   // an indexed element
+            let b = self.source.at(i)                      // a method with an argument
+            let c = look(&self.source)                     // the referent as `&`
+            let d = measure(&self.source.items)            // a field of it as `&`
+            let e = self.source.spare ?? 0                 // an optional field
+            a + b + c + d + e
+        } else {
+            None
+        }
+    }
+}
+
+struct Bag<T: Copy> {
+    private items: Vector<T>
+}
+extension Bag<T: Copy>: NoCopy {}
+
+borrows struct BagIterator<T: Copy> {
+    private source: &Bag<T>
+    private index: Int
+}
+
+extension Bag<T: Copy> {
+    public func iter(&self) borrows -> BagIterator<T> {
+        BagIterator<T>(source: lends self, index: 0)
+    }
+    public func count(&self) -> Int { self.items.len() }
+    public func at(&self, i: Int) -> T { self.items[i] }
+}
+
+extension BagIterator<T: Copy>: Iterator {
+    type Item = T
+    public func next(&var self) -> T? {
+        if self.index < self.source.count() {              // GENERIC: through the field
+            let i = self.index
+            self.index = i + 1
+            self.source.at(i)
+        } else {
+            None
+        }
+    }
+}
+
+func walk_sync(o: &Owner) -> Int {
+    var total = 0
+    for x in o.iter() { total = total + x }
+    total
+}
+
+func walk_driven(o: &Owner) -> Int {
+    var total = 0
+    for x in o.iter() {
+        yield_now()
+        total = total + x
+    }
+    total
+}
+
+func main() {
+    var v: Vector<Int> = [1, 2]
+    let owner = Owner(items: move v, spare: 10)
+    print("sync {walk_sync(&owner)}")
+
+    var w: Vector<Int> = [3, 4]
+    let bag = Bag<Int>(items: move w)
+    var g = 0
+    for x in bag.iter() { g = g + x }
+    print("generic {g}")
+
+    print("driven {__saw_drive(walk_driven(&owner))}")
+}

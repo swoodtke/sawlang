@@ -4381,6 +4381,19 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def visit_SelfExpr(self, expr: SelfExpr):
         return self._generate_self_expr(expr)
 
+    def visit_LendsExpr(self, expr):
+        """`lends self` (design 275 U3) — the receiver's ADDRESS.
+
+        A producer's receiver travels by pointer (`place_self_by_pointer`, set
+        by the place transform for exactly this reason), so `self` in
+        `self.variables` already IS the caller's storage and there is nothing
+        to take an address of. That is the whole lowering: the reference field
+        this initializes is a pointer, and the pointer is the argument.
+        """
+        if "self" not in self.variables:
+            raise ValueError("`lends self` outside a method")
+        return self.variables["self"]
+
     def visit_EnumInit(self, expr: EnumInit):
         return self._generate_enum_init(expr)
 

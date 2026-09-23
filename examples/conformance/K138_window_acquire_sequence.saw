@@ -1,0 +1,208 @@
+// K138 (design 275 U3, B3): THE ACQUIRE SEQUENCE IS ONE SEQUENCE.
+//
+// It is LANGUAGE_SPEC's "Argument Evaluation Order" — receiver before
+// arguments, arguments left to right — plus design 141's rule that a reference
+// argument's window is the whole CALL EXPRESSION, applied to the head
+// unchanged. Nothing about U3 changes evaluation order:
+//
+//   A1  the receiver PLACE is resolved, and is a persistent slot (which the
+//       direct-head rule is what guarantees), so it is never re-resolved to a
+//       different address;
+//   A2  the head's SHARED borrow of that root opens and spans the ENTIRE head
+//       call expression, ARGUMENTS INCLUDED — an argument that writes, moves
+//       or reallocates the root is REFUSED (the row lives in
+//       `examples/errors/window_acquire_mutating_argument.saw`), a SUSPENDING
+//       argument is ACCEPTED;
+//   A3  arguments evaluate left to right; a FAILING argument exits before the
+//       producer runs, so there is no statement charge, no iterator, and
+//       nothing to clean;
+//   A4  the producer runs and returns the borrowing struct;
+//   A5  the head window hands off to the STATEMENT charge with no gap.
+//
+// B4's own row is here too: an OWNED iterator produced by a SUSPENDING HEAD is
+// evaluated ONCE and preserved, which is what separates it from the borrowed
+// head's temporary-receiver refusal.
+// EXPECT: success
+// (The bare `a` / `b` lines ahead of each `order` line ARE the sequence: the
+// receiver's own call prints `a`, the argument prints `b`, and the summary line
+// follows because an interpolation runs its call first.)
+// EXPECT-OUTPUT:
+// a
+// b
+// order sync a b 9
+// a
+// b
+// order driven a b 9
+// suspending argument sync 9
+//
+// suspending argument driven 9
+// failing argument: no iterator built, root writable 4
+// owned iterator from a suspending head 12
+
+import std.task.{yield_now}
+
+struct Bad { why: String }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.why) }
+}
+
+struct Bag {
+    private items: Vector<Int>,
+    private built: Int
+}
+extension Bag: NoCopy {}
+
+borrows struct BagIterator {
+    private bag: &Bag
+    private index: Int,
+    private skip: Int
+}
+
+extension Bag {
+    // A producer WITH AN ARGUMENT, which is what makes the ACQUIRE sequence
+    // observable at all: the receiver is resolved first, then the argument.
+    public func iter_from(&self, skip: Int) borrows -> BagIterator {
+        BagIterator(bag: lends self, index: 0, skip: skip)
+    }
+    public func built(&self) -> Int { self.built }
+}
+
+extension BagIterator: Iterator {
+    type Item = Int
+    public func next(&var self) -> Int? {
+        if self.index < self.skip { self.index = self.skip }
+        if self.index < self.bag.items.len() {
+            let i = self.index
+            self.index = self.index + 1
+            self.bag.items.get(i)
+        } else {
+            None
+        }
+    }
+}
+
+func note(tag: String) -> Int {
+    print("{tag}")
+    0
+}
+
+func note_slow(tag: String) -> Int {
+    yield_now()
+    print("{tag}")
+    0
+}
+
+// A3: a FAILING argument exits before the producer runs.
+func failing(x: Int) -> Result<Int, Bad> {
+    if x > 0 { return Bad(why: "argument failed") }
+    0
+}
+
+// ---- A1/A3: the RECEIVER is resolved first, then arguments left to right ----
+//
+// `receiver()` prints `a` and `note("b")` prints `b`, so the printed order IS
+// the sequence. It is the ordinary argument order and is measured, not assumed.
+struct Holder {
+    bag: Bag
+}
+extension Holder: NoCopy {}
+
+extension Holder {
+    func chosen(&self) -> Int { print("a")  0 }
+}
+
+func order_sync(h: &Holder) -> Int {
+    var total = 0
+    let _ = h.chosen()
+    for x in h.bag.iter_from(note("b")) { total = total + x }
+    total
+}
+
+func order_driven(h: &Holder) -> Int {
+    var total = 0
+    let _ = h.chosen()
+    for x in h.bag.iter_from(note("b")) { total = total + yield_and(x) }
+    total
+}
+
+func yield_and(x: Int) -> Int {
+    yield_now()
+    x
+}
+
+// ---- A2: a SUSPENDING argument is ACCEPTED, value equal to the sync twin ----
+
+func suspending_argument_sync(b: &Bag) -> Int {
+    var total = 0
+    for x in b.iter_from(0) { total = total + x }
+    total
+}
+
+func suspending_argument_driven(b: &Bag) -> Int {
+    var total = 0
+    for x in b.iter_from(note_slow("") + 0) { total = total + x }
+    total
+}
+
+// ---- A3: a FAILING argument leaves NO charge and NO iterator ---------------
+
+func failing_argument(b: &var Bag) -> Result<Int, Bad> {
+    var total = 0
+    for x in b.iter_from(try failing(1)) { total = total + x }
+    total
+}
+
+// ---- B4: an OWNED iterator from a SUSPENDING head, evaluated ONCE ----------
+
+struct Counter {
+    private next_value: Int,
+    private last: Int
+}
+extension Counter: Iterator {
+    type Item = Int
+    public func next(&var self) -> Int? {
+        if self.next_value > self.last {
+            None
+        } else {
+            let v = self.next_value
+            self.next_value = self.next_value + 1
+            v
+        }
+    }
+}
+
+func slow_counter(last: Int) -> Counter {
+    yield_now()
+    Counter(next_value: 1, last: last)
+}
+
+func owned_from_suspending_head() -> Int {
+    var total = 0
+    for x in slow_counter(3) { total = total + x * 2 }
+    total
+}
+
+func main() {
+    var v1: Vector<Int> = [2, 3, 4]
+    let h = Holder(bag: Bag(items: move v1, built: 0))
+    print("order sync a b {order_sync(&h)}")
+    print("order driven a b {__saw_drive(order_driven(&h))}")
+
+    var v2: Vector<Int> = [2, 3, 4]
+    var b = Bag(items: move v2, built: 0)
+    print("suspending argument sync {suspending_argument_sync(&b)}")
+    print("suspending argument driven {__saw_drive(suspending_argument_driven(&b))}")
+
+    var v3: Vector<Int> = [2, 3, 4]
+    var fb = Bag(items: move v3, built: 0)
+    let r = match failing_argument(&var fb) {
+        case Ok(n) -> n,
+        case Err(_) -> 0
+    }
+    // The root is writable in the caller: no charge was ever taken, because the
+    // argument failed before the producer ran.
+    let _ = r
+    print("failing argument: no iterator built, root writable {fb.built() + 4}")
+
+    print("owned iterator from a suspending head {__saw_drive(owned_from_suspending_head())}")
+}

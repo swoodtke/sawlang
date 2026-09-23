@@ -1,0 +1,41 @@
+// K150 (design 275 U3, codex r2 #10): THE RESOLVED FIELD CATEGORY. An alias
+// to `&var Owner` is refused as a `&var` field is, naming the alias the
+// author wrote; and a write through an ALIAS-SPELLED shared field is refused
+// exactly as one through the bare spelling.
+//
+// `source: OwnerRef` with `type OwnerRef = &Owner` is a legal shared
+// reference field everywhere (the accept twin,
+// `borrowing_rules_resolve_aliases.saw`, constructs it with `lends self`,
+// iterates through it and forwards `&self.source`). For one revision the
+// declaration check read the field's RAW kind — an alias is a STRUCT kind —
+// and refused the legal declaration as "holds no lent place", while the
+// producer proof, the permission walk and codegen's reference-field check
+// each read the raw kind their own way. The category is resolved ONCE now, at
+// registration, where the declaration's spelling becomes the checker's fact
+// and the AST and the symbol table share the object; an alias to `&var` is
+// left as written so this refusal can name it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: field `source` of `borrows struct It` may not be an EXCLUSIVE reference: `OwnerVarRef` is `&var`
+// EXPECT-ERROR-CONTAINS: cannot assign through `self.source`: it is a shared reference field (`&Owner`)
+
+struct Owner { value: Int }
+type OwnerVarRef = &var Owner
+type OwnerRef = &Owner
+
+borrows struct It {
+    source: OwnerVarRef                    // ROW: an alias to `&var`
+    done: Bool
+}
+
+borrows struct Jt {
+    source: OwnerRef
+    done: Bool
+}
+
+extension Jt {
+    func poke(&var self) {
+        self.source.value = 7              // ROW: a write through the alias-spelled shared field
+    }
+}
+
+func main() {}

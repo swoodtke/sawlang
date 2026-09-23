@@ -1382,6 +1382,7 @@ def admit_declarations(adm) -> bool:
     tc.exempt_ext_scope = True
     tc.exempt_shadowed_qualifier = True
     tc.exempt_prelude_gate = True
+    tc.exempt_statement_window = True
 
     for attempt in range(2):
         entry_ns = run_typecheck(tc, lambda: tc.check_module(

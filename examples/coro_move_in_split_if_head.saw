@@ -1,0 +1,55 @@
+// SL-338: a `move` in the HEAD of a suspension-SPANNING `if` relinquishes the
+// frame's claim exactly ONCE — the same rule SL-234 gave the non-split `if`,
+// now reaching the SPLIT lowering too.
+//
+// THE TWO LOWERINGS, and why the rule had to be said twice. A container that
+// spans nothing is rewritten in place, so `_lower_inplace` binds its head to a
+// temp and emits the drop-flag clear between the temp and the container
+// (`_hoist_head_and_relinquish`). A container that SPANS is CFG-split into
+// states instead, and `_split_if` evaluates the condition inside `_branch(...)`
+// — which terminates the block, so a clear emitted beside the capture `let`s
+// would run BEFORE the move that owes it and a trailing one would have no block
+// left to sit in. `_split_if` refused rather than choose wrongly; it hoists now,
+// as a prelude into the block the branch ends, which is the same three lines the
+// in-place arm emits.
+//
+// WHY THIS FILE EXISTS. The refusal was unreachable from a collection `for`
+// until design 275 U3 charged its back-edge (SL-317 gave that loop its state
+// split): an uncharged loop does not span, so the `if` carrying the `continue`
+// was never split, and this exact body passed as the `if_continue` cell of
+// `examples/coro_head_move_relinquishes_before_early_exit.saw` — where it still
+// sits, now measuring the split path with it. The same body over a RANGE `for`
+// met the refusal on every compiler before U3, which is what says the limit was
+// the split lowering's and not the loop's.
+//
+// THE ORACLE IS THE DROP COUNT: `r` is destroyed once per iteration, in the
+// callee, and frame teardown destroys nothing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// drop old
+// drop old
+// 5
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+func note(r: &Res) -> Int { r.name.len() }
+func consume_bool(r: Res) -> Bool { true }
+
+func if_continue(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        if consume_bool(move r) { continue }
+    }
+    5
+}
+
+func main() {
+    print(__saw_drive(if_continue([1, 2])))
+}

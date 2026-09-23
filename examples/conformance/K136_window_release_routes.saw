@@ -1,0 +1,254 @@
+// K136 (design 275 U3, part (i) + B2): EVERY ROUTE OUT LEAVES THE WINDOW.
+//
+// The extent is LEXICAL, so every route out of the `for` ends the charge —
+// and each row PROVES it by writing the root at the first reachable point
+// after the exit, which the window would have refused. THE ORACLE IS THE SYNC
+// TWIN throughout: each cell runs driven and sync and the two answers agree.
+//
+// THE SEVEN ROUTES of part (i):
+//   1 exhaustion              5 an error propagated by `try` (proof in the
+//   2 `break`, with and         catch, block and INLINE forms alike)
+//     without a value         6 an error CAUGHT inside the body that
+//   3 `continue` TARGETING      CONTINUES the loop — the window STAYS live
+//     THIS loop: NOT an       7 exit under cancellation (K138)
+//     exit
+//   4 `return` from the body — the writable-again proof sits in the CALLER
+//
+// …plus the EMPTY loop (the head still evaluates, zero iterations, the
+// iterator still drops once) and BREAK-THEN-MUTATE, the release-timing cell.
+//
+// B2 — A WINDOW CLOSES BY CONTROL-FLOW TARGET, not by the spelling of the
+// exit:
+//   * `continue` targeting THIS loop keeps its window (row 3);
+//   * `break`/`continue` targeting an INNER loop closes nothing of the outer;
+//   * a window NESTED inside an outer loop closes when control continues that
+//     outer loop — so the next outer pass opens a fresh one.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// exhaustion sync 6 4
+// exhaustion driven 6 4
+// break plain sync 1 4
+// break plain driven 1 4
+// break with value sync 3 4
+// continue keeps the window sync 4 4
+// continue keeps the window driven 4 4
+// return from the body 1 4
+// error propagated 2 4
+// error caught and continued 5 4
+// empty loop 0 1
+// break then mutate 1 5
+// inner loop jump closes nothing 12
+// outer continue closes the inner window 12
+
+import std.task.{yield_now}
+
+struct Bad { why: String }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.why) }
+}
+
+func slow(x: Int) -> Int {
+    yield_now()
+    x
+}
+
+func fails(x: Int) -> Result<Int, Bad> {
+    yield_now()
+    if x > 1 { return Bad(why: "stop") }
+    x
+}
+
+// ---- 1. exhaustion ---------------------------------------------------------
+
+func exhaustion_sync(v: &var Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() { total = total + x }
+    let _ = v.push(9)                 // writable again, right after the statement
+    total
+}
+
+func exhaustion_driven(v: &var Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() { total = total + slow(x) }
+    let _ = v.push(9)
+    total
+}
+
+// ---- 2. break, with and without a value ------------------------------------
+
+func break_plain_sync(v: &var Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() { total = total + x  break }
+    let _ = v.push(9)
+    total
+}
+
+func break_plain_driven(v: &var Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() { total = total + slow(x)  break }
+    let _ = v.push(9)
+    total
+}
+
+// SL-222's discarded-body rule is unchanged: the loop's value arrives through
+// `break <value>`, and the `for` types `T?`.
+func break_value_sync(v: &var Vector<Int>) -> Int {
+    let got = for x in v.iter() { break x + 2 }
+    let _ = v.push(9)
+    got ?? 0
+}
+
+// THERE IS NO DRIVEN TWIN of this cell, and the bound is not U3's. Design 127
+// charges every loop back-edge in a driven body, so a `for` in a DRIVEN body
+// has a suspending body whatever the author wrote — and a VALUE-position loop
+// whose body suspends is a standing refusal ("a suspension-spanning loop does
+// not support `break <value>`"). The RANGE `for` answers identically on main,
+// which is the point: SL-317 charged the collection `for`'s back-edge with
+// every other loop's, so the two `for` shapes now share this bound as they
+// share the split.
+
+// ---- 3. `continue` TARGETING THIS LOOP is NOT an exit -----------------------
+
+func continue_sync(v: &var Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        if x == 2 { continue }        // the window and the charge stay live
+        total = total + x
+    }
+    let _ = v.push(9)
+    total
+}
+
+func continue_driven(v: &var Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        if x == 2 { continue }
+        total = total + slow(x)
+    }
+    let _ = v.push(9)
+    total
+}
+
+// ---- 4. `return` from the body: the proof is in the CALLER ------------------
+
+func return_from_body(v: &Vector<Int>) -> Int {
+    for x in v.iter() { return x }
+    0
+}
+
+// ---- 5. an error PROPAGATED out of the body --------------------------------
+
+func propagates(v: &Vector<Int>) -> Result<Int, Bad> {
+    var total = 0
+    for x in v.iter() { total = total + (try fails(x)) }
+    total
+}
+
+// ---- 6. an error CAUGHT inside the body that CONTINUES the loop -------------
+//
+// The window stays live and the iterator is NOT destroyed — this is a route
+// that does not leave the statement at all.
+func caught_and_continued(v: &var Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        let got = try fails(x) catch { 2 }
+        total = total + got
+    }
+    let _ = v.push(9)
+    total
+}
+
+// ---- the EMPTY loop and BREAK-THEN-MUTATE ----------------------------------
+
+func empty_loop(v: &var Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() { total = total + slow(x) }   // v is empty here
+    let _ = v.push(9)
+    total
+}
+
+func break_then_mutate(v: &var Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        total = total + slow(x)
+        break
+    }
+    let _ = v.push(9)                 // the FIRST reachable point after the exit
+    total
+}
+
+// ---- B2: control-flow TARGETS ----------------------------------------------
+
+func inner_loop_jump_closes_nothing(v: &Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        var n = 0
+        while n < 3 {
+            n = n + 1
+            if n == 2 { continue }    // targets the INNER loop: closes nothing
+            if n == 3 { break }       // …and neither does this
+        }
+        total = total + slow(x) * 2
+    }
+    total
+}
+
+func outer_continue_closes_the_inner_window(v: &Vector<Int>) -> Int {
+    var total = 0
+    var n = 0
+    while n < 2 {
+        n = n + 1
+        for x in v.iter() {           // a window NESTED inside an outer loop
+            total = total + slow(x)
+            if x == 2 { continue }    // this one targets the `for`
+        }
+        if n == 1 { continue }        // continuing the OUTER loop closed it
+    }
+    total
+}
+
+func main() {
+    var a: Vector<Int> = [1, 2, 3]
+    print("exhaustion sync {exhaustion_sync(&var a)} {a.len()}")
+    var b: Vector<Int> = [1, 2, 3]
+    print("exhaustion driven {__saw_drive(exhaustion_driven(&var b))} {b.len()}")
+
+    var c: Vector<Int> = [1, 2, 3]
+    print("break plain sync {break_plain_sync(&var c)} {c.len()}")
+    var d: Vector<Int> = [1, 2, 3]
+    print("break plain driven {__saw_drive(break_plain_driven(&var d))} {d.len()}")
+
+    var e: Vector<Int> = [1, 2, 3]
+    print("break with value sync {break_value_sync(&var e)} {e.len()}")
+
+    var g: Vector<Int> = [1, 2, 3]
+    print("continue keeps the window sync {continue_sync(&var g)} {g.len()}")
+    var h: Vector<Int> = [1, 2, 3]
+    print("continue keeps the window driven {__saw_drive(continue_driven(&var h))} {h.len()}")
+
+    var i: Vector<Int> = [1, 2, 3]
+    let r = __saw_drive(return_from_body(&i))
+    let _ = i.push(9)                 // the caller is where the root is writable
+    print("return from the body {r} {i.len()}")
+
+    var j: Vector<Int> = [1, 2, 3]
+    let p = match __saw_drive(propagates(&j)) {
+        case Ok(n) -> n,
+        case Err(_) -> 2
+    }
+    let _ = j.push(9)                 // the proof for the propagating route
+    print("error propagated {p} {j.len()}")
+
+    var k: Vector<Int> = [1, 2, 3]
+    print("error caught and continued {__saw_drive(caught_and_continued(&var k))} {k.len()}")
+
+    var m: Vector<Int> = []
+    print("empty loop {__saw_drive(empty_loop(&var m))} {m.len()}")
+
+    var n: Vector<Int> = [1, 2, 3, 4]
+    print("break then mutate {__saw_drive(break_then_mutate(&var n))} {n.len()}")
+
+    let o: Vector<Int> = [1, 2, 3]
+    print("inner loop jump closes nothing {__saw_drive(inner_loop_jump_closes_nothing(&o))}")
+    print("outer continue closes the inner window {__saw_drive(outer_continue_closes_the_inner_window(&o))}")
+}

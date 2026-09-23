@@ -4789,14 +4789,103 @@ indexing (`a[0]` is not an accessor, so constant distinct indices stay disjoint)
 
 Three fences hold in this version:
 
-- A `borrows` body is `sync`. A place window may not span a suspension: the root
-  stays borrowed for the whole window, so yielding with one open would let
-  another task invalidate it. `with_ref` / `with_var_ref` remain the explicit
-  long-window and multi-statement spellings.
+- A `borrows` body is `sync`. An accessor's `lend` window may not span a
+  suspension, and neither may a `with_ref` / `with_var_ref` body: the root
+  stays borrowed for the whole window, and those two spellings record no extent
+  a reader could check it against. `with_ref` / `with_var_ref` remain the
+  explicit long-window and multi-statement spellings. The `for` window over a
+  borrowing struct is the one window that DOES span a suspension — see
+  *Borrowing structs* below, and *Suspension and the coroutine transform* for
+  what is known about it that is not known about these two.
 - There are no `borrows` function *values* or existentials. A `borrows` method
   cannot be bound to a name or erased behind `any Trait`.
 - Traits cannot require a `borrows` method. A generic `T: IndexPlace` bound is
   not part of this version.
+
+#### Borrowing structs
+
+**Status: implemented.** A **borrowing struct** is a type that holds a lent
+place. It is declared `borrows struct`, one of its fields is a plain shared
+reference, and a `borrows` function returns one by value:
+
+```saw-fragment
+public borrows struct VectorIterator<T, A: Allocator = GlobalAllocator> {
+    private vector: &Vector<T, A>
+    private index: Int
+}
+
+extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
+    public func iter(&self) borrows -> VectorIterator<T, A> {
+        VectorIterator<T, A>(vector: lends self, index: 0)
+    }
+}
+```
+
+Four spellings, one fact. The `borrows struct` keyword declares the type's
+nature where a reader meets the type; the `&Vector<T, A>` field is the
+ordinary reference spelling, and no second modifier restates it; `borrows` on
+a value-returning signature says at the declaration that the result borrows
+the receiver; and `lends self` at the initializer is the body's proof.
+
+**The window is the `for` statement.** A `borrows` call returning a borrowing
+struct is legal in exactly one position: the direct head of a `for` whose
+receiver is a place rooted in a named binding — a local, a parameter, `self`,
+or a field path of one. The window opens at the head's evaluation and closes
+when the statement ends, on every route out.
+
+```saw-fragment
+for x in v.iter() { total = total + x }   // the window's extent is this statement
+let it = v.iter()                          // error: a borrowing struct may not
+                                           // be bound by a `let`
+for x in make_vector().iter() { }          // error: bind the collection first —
+                                           // a temporary has no persistent
+                                           // storage for the window to point into
+```
+
+While the window is open the collection is borrowed shared, so the body may
+read it and may not grow it, replace it, move it or swap its elements. That is
+the same exclusivity error `v.push` already gets inside a `with_ref` window,
+and it is what makes iteration safe: before this rule an iterator held a raw
+buffer pointer and a length snapshot, so a body that pushed until the buffer
+reallocated read freed memory in safe code.
+
+**Nothing erases it.** A borrowing struct may not instantiate a type parameter
+— not `Optional<It>`, `Result<It, E>`, `Vector<It>`, `Box<It>` or a bare `T` —
+may not sit in a function type's return or parameters (`() -> It`,
+`(It) -> Int`, however deeply nested), may not be erased into an `any Trait`
+existential, and may not be a parameter, a struct field, a plain return type or
+an associated type. Each is refused at
+the declaration that names the type, so a helper that would forward one cannot
+be written rather than being caught at its call. It may conform to `Iterator`,
+which is how `for` reaches `next`, and only static dispatch reaches the
+conformance.
+
+**The origin is the receiver.** `lends self` is the only spelling, it requires
+a `&self` receiver, and every returning path must initialize every reference
+field with it. A projection (`lends self.buffer`), another reference parameter
+or a local names a root the call site cannot charge, and each is refused by
+name. The rule is why the iterator lends the vector rather than its buffer:
+`next()` reads `length` and `buffer` through the reference on every call, so
+nothing is snapshotted and there is no stale pointer to go stale.
+
+**Shared only.** A borrowing struct's reference fields are `&T`. A `&var`
+field is refused: an iterator holding `&var Vector<T>` could reallocate the
+collection another reader is walking through its own field, and recording the
+root would not catch it. Mutating the borrowing struct's own state is
+unaffected — `next(&var self)` advances its cursor, which is not mutable
+access to the borrowed collection.
+
+**Item is owned.** A borrowing struct's `Iterator.Item` may be neither a
+reference nor another borrowing struct, so the loop variable owns what it is
+handed. `Vector`'s `T: Copy` elements satisfy this.
+
+**Owned fields and `deinit` are supported**, and two things happen at the
+window's close in this order: the borrowing struct is destroyed, and then the
+root charge ends. The order is what lets a hand-written `deinit` read through
+the reference.
+
+A place is never a value outside a borrowing struct, and a borrowing struct is
+never a value outside its window.
 
 #### Standard library accessors
 
@@ -7322,10 +7411,19 @@ Observable rules:
     spawned body needs none of that — it points into the task's own frame, which
     the box keeps alive. A `threads: N` group refuses a reference parameter
     outright, on `Send`.
-  - Container-internal borrows (`Vector.with_ref`/`with_var_ref`) keep their
-    `sync`-body restriction: unlike a confined stack/frame referent, a container
-    borrow projects into shared, reachable storage that a concurrent task could
-    reallocate across a suspension, so it may not span one.
+  - The `for` WINDOW spans a suspension; the closure and accessor spellings do
+    not. A `for x in v.iter()` head opens a tracked window over the collection
+    (see *Borrowing structs* under Places), and the window may hold across a
+    park because three things are known about it: its ORIGIN is recorded, its
+    EXTENT is the statement, and the Law of Exclusivity sees every competing
+    safe writer. A `&var` extent live at the head or started inside the body is
+    the writer-beside-reader error, a `&` extent composes, a `threads: N` group
+    refuses the frame on `Send` before the question arises, and nothing else in
+    this task runs while the frame is parked. `Vector.with_ref` /
+    `with_var_ref` bodies and `borrows` accessor `lend` windows RETAIN the
+    `sync` restriction: a suspension inside one is a compile error, and the
+    same argument would lift it, but it wants a consumer sweep and rows of its
+    own.
 - **`deinit` may not suspend** — a `deinit` is always a `sync` context, so a
   suspension inside one is a compile error (deterministic destruction).
 - **Effect polymorphism — generic suspending functions/methods** (design 70,
@@ -7571,10 +7669,31 @@ Observable rules:
       served
   }
   ```
+- **A suspension inside a `for` over a COLLECTION embeds.** The iterator becomes
+  frame state, the loop head re-enters through `next()`, and the split is the
+  one a `while let` already had: a spanning collection `for` is rewritten into
+  the loop it denotes, so `_split_while` and `_split_if_let` do the work and
+  there is no third routine. Any `Iterator` conformer works — an owned iterator
+  becomes an ordinary frame field, and a borrowing struct (see *Places*) adds
+  the tracked window. The head is evaluated exactly once, `continue` re-enters
+  at `next()`, and `break` leaves as it always did.
+
+  ```saw-fragment
+  func open_store(names: &Vector<Path>, st: &var Store) -> Result<Int, IoError> {
+      for name in names.iter() {
+          let raw = try read_file(name)      // suspends, inside the loop
+          put(&var st, name, raw)
+      }
+      st.len()
+  }
+  ```
+- **The INLINE `try EXPR catch { … }` splits too.** A suspending call in its
+  catch block embeds, and a `break` or `continue` written there reaches the
+  loop it names. The transform rewrites the inline form into the block form it
+  means, so both spellings take the same CFG split.
 - **Not yet supported** (rejected with a diagnostic anchored at the user's source
   line, not miscompiled): a
-  suspension-spanning `if let`/`guard let` with a *tuple pattern*; a suspension inside a `for`
-  over a non-range iterable; a value-producing `break` out of a suspension-spanning
+  suspension-spanning `if let`/`guard let` with a *tuple pattern*; a value-producing `break` out of a suspension-spanning
   loop; a chained assignment through MORE THAN ONE optional hop whose RHS
   suspends (`a?.b?.c = stream.read()` — the single-hop form works; bind the inner
   optional with `if let` first); and a suspending `try { … } catch { … }` block
@@ -7744,16 +7863,19 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
 
   The compute check goes at the TOP of each loop body (so a `continue` reaches it
   too) in the task's own body, in the suspending callees the compiler embeds into
-  it, and in a suspending `main`. Four bounds, each deliberate:
+  it, and in a suspending `main`. Three bounds, each deliberate:
   - a SYNC callee is not instrumented, so a compute loop inside a never-suspending
     helper called from a task stays unpreempted. Put the loop in the task, or give
     the helper a `yield_now` (which makes it suspending);
-  - a `for` over a COLLECTION (`for x in v.iter()`) is not instrumented, and
-    neither is any loop nested inside one — only a range `for` can be state-split.
-    Write it as a `while` over an index if the loop is long enough to matter;
   - a CLOSURE body is not instrumented (a closure is not driven, so a yield there
     would do nothing);
   - std's own io loops keep the 89-c charge rather than carrying both.
+
+  A `for` over a COLLECTION used to be a fourth bound, and it went with its
+  reason: it was exempt because only a range `for` could be state-split, so
+  instrumenting one would have turned working programs into compile errors.
+  Both `for` shapes split now, so both are charged, and so is every loop nested
+  inside either.
 
   Cost: a wrapping decrement and a branch per iteration, plus the larger effect
   that the loop it guards joins the frame's state machine (its variables become

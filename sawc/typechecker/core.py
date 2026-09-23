@@ -45,6 +45,8 @@ from .tierreq import TierRequirementsMixin
 from .sigvis import SignatureVisibilityMixin
 from .consumes import ConsumesMixin
 from .ownership import OwnershipLedgerMixin
+from .borrowing import BorrowingMixin
+from windows import WindowTable
 
 
 # design 218 unit 1.5 stage 2 — A MONOMORPHIZED INSTANCE'S DIAGNOSTICS ARE REAL.
@@ -383,7 +385,7 @@ class Scope:
         return self.variables.get(name)
 
 
-class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin, EffectsMixin, PlacesMixin, SerdeMixin, TierRequirementsMixin, SignatureVisibilityMixin, ConsumesMixin, OwnershipLedgerMixin):
+class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin, EffectsMixin, PlacesMixin, SerdeMixin, TierRequirementsMixin, SignatureVisibilityMixin, ConsumesMixin, OwnershipLedgerMixin, BorrowingMixin):
     """Type checks a Saw program."""
 
     def __init__(self, reporter: ErrorReporter, freestanding: bool = False,
@@ -540,6 +542,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         #   E3 exempt_ext_scope             PERMANENT (source-level rule)
         #   E4 exempt_shadowed_qualifier    PERMANENT (warnings describe source)
         #   E5 exempt_prelude_gate          PERMANENT (source-level rule)
+        #   E8 exempt_statement_window      PERMANENT (the transform OWNS it)
         #
         # E6 (design 132's lost-write rule) went at stage 3, which is what the
         # split was for: the closures the transform emits are ordinary checked
@@ -577,6 +580,28 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self.exempt_ext_scope = post_transform
         self.exempt_shadowed_qualifier = post_transform
         self.exempt_prelude_gate = post_transform
+        # E8 (design 275 U3): the STATEMENT WINDOW's root charge. The rule is
+        # about the AUTHORED program, and it ran on the authored tree one pass
+        # earlier. In a TRANSFORMED body `self` IS the frame — the loop's
+        # collection has become `self.<field>` and every resume hand-off passes
+        # `&var self` — so the whole frame overlaps the window's root by the
+        # ordinary prefix rule and the charge would report the compiler's own
+        # lowering. From the transform onward the TRANSFORM owns the window
+        # (`coro_transform`'s window handling reads the record this pass
+        # stamped on the statement: the frame field, the referent-pinning
+        # assertion, the exit-route closing).
+        #
+        # It covers the FENCE too, in both halves, and for one reason: the
+        # transform's own lowering of a window is EXCEPTION e2 — the resource
+        # becomes a frame FIELD in a driven body (a `Slot<It>` held inline) and
+        # a `let` binding in a sync one, neither of them nameable in source.
+        # Those are the two storage positions the rule exists to DESCRIBE, so
+        # judging the compiler's tree by it would be judging the answer by the
+        # question. What keeps that from being a hole is that the transform
+        # moves the head into its own binding and does nothing else with the
+        # value: it never becomes an argument, a return, a capture or a type
+        # argument of anything an author wrote.
+        self.exempt_statement_window = post_transform
         # Freestanding profile (design 19/20): gates hosted-only facilities such
         # as Float formatting in print (dtoa is not available without libc).
         self.freestanding = freestanding
@@ -655,6 +680,14 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # every join point — a borrow released on only one branch comes back at
         # the end of the branch, because the other path never joined.
         self._task_borrows: List['TaskCaptureBorrow'] = []
+        # design 275 U3: the STATEMENT WINDOWS open in the body being checked,
+        # and the expression node currently named as a legal WINDOW HEAD.
+        # Function-local for the same reason `_task_borrows` is — a window's
+        # extent is a statement in ONE body — and saved/restored around each
+        # function and method body. The head mark is keyed by `id`, so nothing
+        # about a node's SHAPE grants the permission.
+        self._windows = WindowTable()
+        self._window_head_ids: frozenset = frozenset()
         # SL-333 R4: the access sets of calls whose PLACE entries could not be
         # settled where they were checked, because the accessor's receiver
         # requirement is a fact about a body this module may not have reached
@@ -3665,6 +3698,16 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # a bypass for every position they guard.
         self._validate_no_ref_laundering_in_program(program)
 
+        # design 275 U3: the TYPE-POSITION half of the borrowing-struct fence,
+        # over the same matrix plus PARAMETERS. A helper forwarding a borrowing
+        # struct and a generic identity wrapper are not value-position refusals
+        # — they are IMPOSSIBLE SPELLINGS, refused here at the declaration that
+        # names the type, which is where the author can act on it. Also carries
+        # the "a `borrows struct` with no reference field" teaching error.
+        self.validate_no_borrowing_struct_escape(program)
+        for _struct in program.structs:
+            self.check_borrowing_struct_decl(_struct)
+
         # Same position, same reason (design 148): every type-parameter BOUND
         # names a trait. Traits are registered by now, so a forward reference
         # resolves and a non-trait is diagnosable at the declaration.
@@ -4684,6 +4727,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._check_signature_visibility_in_program(module_ast)
         # design 188 unit 1: the no-escape walk again, with aliases resolved.
         self._validate_no_ref_laundering_in_program(module_ast)
+        # design 275 U3: entry point 2 of 2 for the borrowing-struct type fence
+        # — an imported module's declarations are registered by this pass, so a
+        # user `borrows struct` in another module meets the same rules.
+        self.validate_no_borrowing_struct_escape(module_ast)
+        for _struct in module_ast.structs:
+            self.check_borrowing_struct_decl(_struct)
 
         # design 246 Unit A: entry point 2 of 2 — a module's own declarations
         # are registered by its own pass, so the rule is owed here too.

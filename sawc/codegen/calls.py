@@ -3433,6 +3433,19 @@ class CallsMixin:
         # Get pointer to the base object (variable/self/field/element/fallback).
         base_ptr = self._get_lvalue_pointer(expr.object)
 
+        # design 275 U3: a hop THROUGH a `borrows struct`'s reference field.
+        # The slot holds a POINTER to the referent, so the referent's address is
+        # one load away — the same shape `_element_pointer` already takes for a
+        # pointer-typed container one method up. The typechecker auto-dereferences
+        # such a field (exception e4: it is readable only as a non-escaping
+        # re-borrow), so a member access can only have reached here on a field
+        # whose pointee is the struct being projected.
+        if (isinstance(base_ptr.type, ir.PointerType)
+                and isinstance(base_ptr.type.pointee, ir.PointerType)
+                and isinstance(base_ptr.type.pointee.pointee,
+                               (ir.BaseStructType, ir.LiteralStructType))):
+            base_ptr = self.builder.load(base_ptr, name="lent_ref")
+
         # Determine the struct type
         ptr_type = base_ptr.type
         if isinstance(ptr_type, ir.PointerType):
@@ -3462,7 +3475,56 @@ class CallsMixin:
         # GEP to get pointer to the field
         zero = ir.Constant(ir.IntType(32), 0)
         field_idx = ir.Constant(ir.IntType(32), field_index)
-        return self.builder.gep(base_ptr, [zero, field_idx], name=f"{expr.member}_ptr")
+        field_ptr = self.builder.gep(base_ptr, [zero, field_idx],
+                                     name=f"{expr.member}_ptr")
+
+        # design 275 U3: the field ITSELF is a `borrows struct`'s reference
+        # field. The typechecker auto-dereferences it (exception e4), so every
+        # consumer of this pointer — a value read, a nested member hop, a
+        # method RECEIVER, a `&self.source` argument, a place window's root —
+        # wants the REFERENT's address, which is one load away; and every
+        # WRITE at or through the field is refused ahead of codegen
+        # (`borrowing.py`'s `shared_reference_field_hop`), so no consumer wants
+        # the slot. Asked of the NAMESPACE, not the LLVM shape: an
+        # `UnsafePointer<S>` field is the same `%S*` slot and must stay a slot.
+        # For one revision only the nested-hop consumer above did this load,
+        # so `self.source.peek(i)` — a `&self` method reached through the
+        # field — died in codegen with `%"Owner"* != %"Owner"**` (found by the
+        # codex r1 #10 sweep).
+        if self._borrowing_struct_reference_field(struct_name, expr):
+            return self.builder.load(field_ptr, name="lent_ref")
+        return field_ptr
+
+    def _borrowing_struct_reference_field(self, struct_name, expr) -> bool:
+        """Is `expr.member` the reference field of a `borrows struct`?
+
+        Answered from the declaration: the LLVM slot name is the
+        INSTANTIATION's (`BagIt$1$Int`), which the namespace does not hold, so
+        the object's stamped `resolved_type` names the template. Confined to
+        `borrows struct`s on purpose — a coroutine FRAME also holds
+        reference-typed fields (design 88's frame-resident pointers), and
+        those are reached through the transform's own windows.
+        """
+        sym = self.namespace.lookup_struct(struct_name)
+        if sym is None:
+            obj_t = getattr(expr.object, 'resolved_type', None)
+            if obj_t is not None and obj_t.kind == TypeKind.REFERENCE:
+                obj_t = obj_t.inner_type
+            if obj_t is None or obj_t.kind != TypeKind.STRUCT or not obj_t.struct_name:
+                return False
+            sym = self.namespace.lookup_struct(obj_t.struct_name)
+        if sym is None or not getattr(sym, 'is_borrowing', False):
+            return False
+        t = (sym.fields or {}).get(expr.member)
+        # The RESOLVED field category (codex r2 #10): an alias-spelled `&T`
+        # field (`source: OwnerRef`, `type OwnerRef = &Owner`) is the lent
+        # reference exactly as a bare one, and the typechecker's
+        # `reference_field_type` reads it the same way.
+        if t is not None:
+            t = self._resolve_type_alias(t)
+        return bool(t is not None and t.kind == TypeKind.REFERENCE
+                    and (t.inner_type is None
+                         or t.inner_type.kind != TypeKind.EXISTENTIAL))
 
     def _generate_self_expr(self, expr: SelfExpr):
         """Generate code for 'self' keyword."""

@@ -1,0 +1,82 @@
+// K150 (design 275 U3, codex r1 #10): A BORROWING STRUCT'S REFERENCE FIELD
+// LENDS ITS REFERENT READ-ONLY, at every position that writes through a path.
+//
+// The field is auto-dereferenced at the member access (exception e4), so it
+// reads as a `&T` parameter reads — and a `&T` parameter's PERMISSION is
+// carried by its binding, which every write rule consults. A field has no
+// binding, so for one revision the permission was lost at the hop and a
+// `&var self` cursor was taken as licence to write the referent:
+// `self.source.n = 99` reached codegen and died there, and `self.source.bump()`
+// died on a pointer mismatch. ONE walk answers now
+// (`borrowing.py`'s `shared_reference_field_hop`), asked from every entry that
+// writes through a path, and each row below is one of those entries:
+//
+//   * a plain assignment through the field
+//   * a compound assignment through it
+//   * a `&var self` method call on the referent
+//   * a `&var` argument reaching into it
+//   * a `&var self` method call on a FIELD of the referent (`items.push`)
+//   * `take()` on an optional field of the referent
+//   * a PLACE write into a container the referent owns (`items[i] = v`)
+//
+// `&var self` is permission to write the iterator's OWN state (`self.index`),
+// never what it borrows — a `for` window is SHARED, and the whole point of
+// the window is that no write reaches the collection while it is open.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign through `self.source`: it is a shared reference field (`&Owner`) of a `borrows struct`
+// EXPECT-ERROR-CONTAINS: cannot use compound assignment through `self.source`
+// EXPECT-ERROR-CONTAINS: cannot call `&var self` method `bump` through `self.source`
+// EXPECT-ERROR-CONTAINS: cannot take a `&var` reference through `self.source`
+// EXPECT-ERROR-CONTAINS: cannot call `&var self` method `push` through `self.source`
+// EXPECT-ERROR-CONTAINS: cannot call `take()` through `self.source`
+// EXPECT-ERROR-CONTAINS: lends its referent READ-ONLY for the whole window
+// EXPECT-ERROR-CONTAINS: mutate the iterator's own fields (`self.index`), never the referent
+
+struct Owner {
+    private n: Int
+    private items: Vector<Int>
+    private spare: Int?
+}
+extension Owner: NoCopy {}
+
+extension Owner {
+    public func bump(&var self) { self.n = self.n + 1 }
+}
+
+borrows struct It {
+    private source: &Owner
+    private index: Int
+}
+
+extension Owner {
+    public func iter(&self) borrows -> It { It(source: lends self, index: 0) }
+}
+
+func grow(n: &var Int) { n += 1 }
+
+extension It: Iterator {
+    type Item = Int
+    public func next(&var self) -> Int? {
+        if self.index < self.source.items.len() {
+            let i = self.index
+            self.index = i + 1                    // the iterator's OWN state: fine
+            self.source.items.get(i)
+        } else {
+            None
+        }
+    }
+}
+
+extension It {
+    public func row_assign(&var self) { self.source.n = 99 }
+    public func row_compound(&var self) { self.source.n += 1 }
+    public func row_var_method(&var self) { self.source.bump() }
+    public func row_var_arg(&var self) { grow(&var self.source.n) }
+    public func row_push(&var self) { try! self.source.items.push(7) }
+    public func row_take(&var self) -> Int? { self.source.spare.take() }
+    public func row_place_write(&var self) { self.source.items[0] = 5 }
+}
+
+func main() {
+    print("unreached")
+}

@@ -484,17 +484,18 @@ def _instrument_loop_backedges(func, budget=LOOP_BUDGET_DEFAULT):
     covers a `continue` — a `while c { ...; continue }` would jump straight over
     a trailing check and never cede.
 
-    Two subtrees are skipped, and both are documented bounds rather than
-    oversights:
+    ONE subtree is skipped, and it is a documented bound rather than an
+    oversight: a CLOSURE body. It is not part of this frame's state machine, so
+    a `yield_now()` there lowers to a codegen no-op and would buy nothing.
 
-    * A CLOSURE body. It is not part of this frame's state machine, so a
-      `yield_now()` there lowers to a codegen no-op and would buy nothing.
-    * A `for` over a NON-RANGE iterable (`for x in v.iter()`), and everything
-      nested inside it. `_split_for` can only state-split a range `for`; a
-      suspension anywhere inside a collection `for` is a clean rejection
-      (`use a `while` loop`). Instrumenting one would turn working programs into
-      compile errors, so such a loop — and any loop nested in it — stays
-      unpreempted. Rewrite the loop as a `while` over an index to get the check.
+    THE COLLECTION `for` IS CHARGED as of design 275 U3 (SL-317). It was the
+    second skip, and the reason was the missing split: `_split_for` could only
+    state-split a RANGE `for`, so a suspension anywhere inside a collection one
+    — the inserted `yield_now()` included — was a clean rejection, and
+    instrumenting such a loop would have turned working programs into compile
+    errors. With the split in place the exemption is gone with its reason, and
+    a `for x in v.iter() { }` spinner cedes on the same backedge count as the
+    `while` an author used to have to write instead.
 
     Returns True when at least one loop was instrumented (the caller then knows
     the counter declaration was added). A loop-free body is left byte-identical.
@@ -503,8 +504,6 @@ def _instrument_loop_backedges(func, budget=LOOP_BUDGET_DEFAULT):
 
     def visit(node):
         if isinstance(node, ClosureExpr):
-            return
-        if isinstance(node, ForLoop) and not isinstance(node.iterable, RangeExpr):
             return
         if isinstance(node, (WhileExpr, ForLoop)):
             found.append(node)
@@ -1219,6 +1218,41 @@ def _answered(node, saw_type):
 # auditable.
 
 
+def _statement_moves(node):
+    """Does `node` hold a `move` THE STATEMENT PERFORMS — outside any ordinary
+    closure body, but INSIDE a place-window body?
+
+    A window body (`ClosureExpr.is_place_window`, synthesized by
+    `place_uses._window_call` for `&v[i]` and its kin) is not a closure in the
+    language's sense: it runs inline, while the window is open, as part of the
+    statement that opened it, so a `move r` written there is one of the
+    statement's own moves and the try landing's positional question applies to
+    it. An ORDINARY closure's body runs whenever the closure is called, which
+    is not a position in this statement's evaluation order.
+
+    Named apart from `_contains_move` on purpose (design 275 U3, codex r2
+    #4): for one revision this walk was DEFINED UNDER THAT NAME, a second
+    module-level definition that shadowed the original for its one other
+    caller, `_collect_move_arg_receivers` — which needs the descent into a
+    window body to keep a moved receiver addressable — so the window shape
+    `sink(&values[try f()], move r)` compiled on the base and died on the
+    branch with `use of undefined value %caught_error`, in a statement the
+    split itself never touched.
+    """
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        if isinstance(n, MoveExpr):
+            return True
+        if not isinstance(n, ASTNode):
+            continue
+        if (isinstance(n, ClosureExpr)
+                and not getattr(n, 'is_place_window', False)):
+            continue
+        stack.extend(_child_nodes(n))
+    return False
+
+
 def _substitute(old, new):
     """Return `new`, having MOVED `old`'s position marks onto it.
 
@@ -1901,6 +1935,12 @@ def _body_arms_io(body):
 
 
 class _FrameBuilder:
+    # `_uniq_walk_block` in RENAME-ONLY mode (`_rename_caught_error`): the walk
+    # renames reads against the scope map it is handed and mints no bindings.
+    # A class-level default, so the mode is off for every builder that never
+    # turns it on and no read has to guess.
+    _uniq_rename_only = False
+
     def __init__(self, func, struct_name=None, tc=None, is_spawn_root=False,
                  recv_saw_type=None, exit_status_root=False, ledger=None):
         # design 275 U1: THE discovery ledger, and this builder's only route to
@@ -2324,6 +2364,147 @@ class _FrameBuilder:
         self._anf_ctr = 0
         self._anf_block(self.func.body)
 
+    # ------------------------------------------------------------------ #
+    # SL-339 / codex r1 #6 — the try landing's error edge is POSITIONAL
+    # ------------------------------------------------------------------ #
+
+    def _split_leaf_at_propagating_tries(self):
+        """Split a leaf statement at every propagating `try` NESTED in its
+        value, in evaluation order, when the statement also carries a `move`:
+
+            let n = sink(try f(), move r)
+            =>
+            let __anfN = try f()          # its own landing: no move before it
+            let n = sink(__anfN, move r)  # no `try`: the move trails, as ever
+
+        WHY A SPLIT AND NOT A SMARTER REPLAY. A landing (`_landed_inplace`, with
+        `_try_catch_landing` / `_try_propagate_landing` as its two catch
+        blocks) wraps ONE statement in one `try { } catch { }`
+        and re-emits, on the error edge, the drop-flag clears the statement's
+        moves owe (`_trailing_forgets`, SL-339) — because a `move` INSIDE the
+        failing call's subject (`try f(move r)`) handed the value to the callee
+        before the failure, and the frame's claim is dead on both edges out.
+        That replay was UNCONDITIONAL, and a statement can hold moves the
+        failing `try` never reached: `sink(try f(), move r)` evaluates its
+        arguments left to right (design 147/199), so `move r` never ran when
+        `f` failed, and clearing the frame's claim leaked `r` — where the base
+        compiler, replaying nothing, dropped it once at frame release (codex r1
+        #6, which also disproved c72's claim that the ordering was
+        unreachable). One statement, one landing, several `try`s and moves
+        interleaved: no single replay set is right for every edge, so the
+        statement is cut into pieces that each have exactly one answer —
+        a hoisted `let __anfN = try <subject>` owes the clears of the moves in
+        ITS subject (they ran: the call was made) and nothing else; the
+        residual statement carries no propagating `try`, so its moves are
+        trailing clears on the straight-line edge only.
+
+        THE EVALUATION ORDER IS DESIGN 147's, kept the way `_anf_children`
+        keeps it: every side-effecting sibling written BEFORE a lifted `try`
+        is lifted with it (`sink(eat(move r), try f())` lifts `eat(move r)`
+        first, and that temp's own trailing clear runs at once), while a pure
+        sibling — a literal, a plain read, a `move` operand — stays where it
+        was written and is evaluated after the hoisted `try`. That last case is
+        the ORPHAN ordering, `sink(move r, try f())`: in source order the move
+        runs, `f` fails, and the call that would have taken the value is never
+        made, so nobody owns it — the sync twin LEAKS it (a pre-existing
+        codegen gap this pass does not reach; filed separately). Here the
+        move is simply not performed on the failing path and `r` is released
+        by its own scope, once, which is what the base did by accident and the
+        only answer with an owner.
+
+        SCOPE, deliberately narrow: a statement is touched only when it holds
+        BOTH a propagating `try` that is not its direct value AND a `move` —
+        a `try` that is the statement's whole value (`let x = try f(move r)`,
+        `return try f(move r)`) already has one landing with one right answer,
+        and a statement with no `move` has nothing to relinquish. A `try`
+        inside a CONDITIONAL position (`a ?? sink(try f(), move r)`) is not
+        split HERE — the value-conditional lowering ran first and, on the same
+        both-a-try-and-a-move condition (`_vc_spans`), gave the guarded path a
+        block of its own, so the `try` reaches this pass as an ordinary arm
+        STATEMENT and is decomposed inside its guard (codex r2 #3: left opaque
+        for one revision, the whole-statement landing cleared a move the None
+        path never ran). A `try` inside a BORROWED place's index is a child
+        position like any other (`_map_uncond_children`'s `ReferenceExpr` arm,
+        codex r2 #4). Temps are the ANF hoist's (`_anf_lift`, so the
+        substitution carries its marks), and their statement-end release joins
+        `_stmt_temps` beside any the ANF pass recorded.
+        """
+        self._ptry_block(self.func.body)
+
+    def _ptry_block(self, block):
+        new_stmts = []
+        for s in block.statements:
+            new_stmts.extend(self._ptry_stmt(s))
+        block.statements = new_stmts
+        for s in block.statements:
+            for b in control_blocks(s):
+                self._ptry_block(b)
+
+    def _ptry_stmt(self, s):
+        for cls, field, _lift_self in self._ANF_STMT_ENTRIES:
+            if isinstance(s, cls):
+                break
+        else:
+            return [s]
+        value = getattr(s, field)
+        if value is None or isinstance(value, self._ANF_OPAQUE):
+            return [s]
+        if not self._has_propagating_try(value) or not _statement_moves(value):
+            return [s]
+        out = []
+        setattr(s, field, self._ptry(value, out, lift_self=False))
+        if out:
+            names = [t.name for t in out if isinstance(t, LetStatement)]
+            prior = self._stmt_temps.get(id(s))
+            if prior is not None:
+                names = list(prior[1]) + names
+            if names:
+                self._stmt_temps[id(s)] = (s, names)
+        return out + [s]
+
+    def _ptry(self, expr, out, lift_self):
+        if expr is None or not isinstance(expr, ASTNode):
+            return expr
+        if not self._has_propagating_try(expr):
+            return expr
+        if isinstance(expr, self._ANF_CONDITIONAL):
+            return expr
+        if (isinstance(expr, TryExpr) and expr.variant == "propagate"
+                and expr.catch_block is None):
+            # A `try` nested in the subject runs first: linearize it, then this.
+            self._ptry_children(expr.expr, out)
+            if lift_self:
+                return self._anf_lift(expr, out)
+            return expr
+        self._ptry_children(expr, out)
+        return expr
+
+    def _ptry_children(self, expr, out):
+        """`_anf_children` with "carries a propagating `try`" for "spans a
+        suspension": lift every such child, and every impure sibling to the
+        LEFT of the last one, in evaluation order."""
+        children = self._uncond_children(expr)
+        last_lift = -1
+        for i, child in enumerate(children):
+            if (isinstance(child, ASTNode)
+                    and not isinstance(child, self._ANF_CONDITIONAL)
+                    and self._has_propagating_try(child)):
+                last_lift = i
+        pos = [0]
+
+        def do(child):
+            i = pos[0]
+            pos[0] += 1
+            if (i < last_lift and isinstance(child, ASTNode)
+                    and not self._has_propagating_try(child)
+                    and not self._anf_is_pure(child)):
+                if isinstance(child, ReferenceExpr):
+                    self._anf_lift_place_indices(child.expr, out)
+                    return child
+                return self._anf_lift(child, out)
+            return self._ptry(child, out, lift_self=True)
+        self._map_uncond_children(expr, do)
+
     def _anf_block(self, block):
         new_stmts = []
         for s in block.statements:
@@ -2422,7 +2603,29 @@ class _FrameBuilder:
 
         The chain is collected OUTSIDE-IN and lifted INSIDE-OUT, because that is
         the order the subscripts of `v[i()][j()]` run in: `v[i()]` is what `j()`
-        then indexes, so `i()`'s temp has to be appended first.
+        then indexes, so `i()`'s temp has to be appended first — which is
+        `_map_place_indices`' order, the one walk of a place's evaluated parts.
+        """
+        def lift(index):
+            if self._anf_is_pure(index):
+                return index
+            return self._anf_lift(index, out)
+        self._map_place_indices(place, lift)
+
+    def _map_place_indices(self, place, fn):
+        """Apply `fn` to each INDEX of a place — `x[i]`, `x.f[i]`, `x[i][j]`,
+        `x.0[i]` — writing the result back, in EVALUATION ORDER (inside-out:
+        `v[i()][j()]` runs `i()` before `j()`).
+
+        THE ONE WALK of a place's evaluated parts. A place is a chain of
+        projections off a root, and only an index can hold an expression that
+        RUNS — everything else in the chain is a name. Two readers: the
+        `ReferenceExpr` arm of `_map_uncond_children` (a borrowed place is not
+        a value to lift, but its indices are child positions like any other —
+        codex r2 #4: with no such arm the positional try split could not see
+        `&values[try fail_index()]`, and the landing it built read a caught
+        error nothing had stored) and `_anf_lift_place_indices` (SL-223's
+        evaluation-order lift of the same indices).
         """
         indices = []
         node = place
@@ -2435,8 +2638,7 @@ class _FrameBuilder:
             else:
                 node = node.tuple_expr
         for ix in reversed(indices):
-            if not self._anf_is_pure(ix.index):
-                ix.index = self._anf_lift(ix.index, out)
+            ix.index = fn(ix.index)
 
     def _anf_is_pure(self, expr):
         """Conservative purity for the evaluation-order hoist (DF-133a).
@@ -2610,6 +2812,15 @@ class _FrameBuilder:
         and never a value — `let r = 0..n` names no type — so `_head_lift` owns
         its endpoints and it is deliberately not here. `ArrayLiteral.repeat_count`
         is compile-time-only and must NOT be lifted (see its annotation).
+
+        A `ReferenceExpr` (`&place` / `&var place`) IS here, and its children
+        are the place's INDICES (`_map_place_indices`), never the place itself:
+        a borrow is not a value a temp can hold (SL-223), but an index inside
+        it runs like any argument and holds the same things — a suspension, a
+        propagating `try`, a conditional. Absent for one revision, so the
+        positional try split (codex r2 #4) could not decompose
+        `sink(&values[try fail_index()], move r)` and the landing it built for
+        the whole statement loaded a `%caught_error` nothing had stored.
         """
         if isinstance(expr, FunctionCall):
             for a in expr.arguments:
@@ -2663,6 +2874,8 @@ class _FrameBuilder:
             # Only the stage-2 walk reaches a TryExpr here; `_anf` peels its
             # subject itself before this dispatch ever sees one.
             expr.expr = fn(expr.expr)
+        elif isinstance(expr, ReferenceExpr):
+            self._map_place_indices(expr.expr, fn)
 
     def _is_suspension_point(self, expr):
         """THE question "is `expr` itself a suspension point?" — one definition,
@@ -2817,19 +3030,97 @@ class _FrameBuilder:
     def _lower_value_conditionals(self):
         self._vc_ctr = 0
         self._extra_frame_locals = []
+        self._vc_try_split = False
+        self._vc_in_spanning_loop = False
         self._vc_block(self.func.body)
 
     def _vc_block(self, block):
         new_stmts = []
         for s in block.statements:
+            # THE STATEMENT decides whether a guarded `try` is a reason to
+            # lower (see `_vc_spans`): set once per statement, so the
+            # re-entries `_vc_hoist_to_temp` makes for the pieces it lifts
+            # read the same answer the whole statement gave.
+            self._vc_try_split = self._vc_try_split_owed(s)
             new_stmts.extend(self._vc_stmt(s))
         block.statements = new_stmts
         for s in block.statements:
             self._vc_recurse(s)
 
+    def _vc_try_split_owed(self, s):
+        """Does leaf statement `s` carry BOTH a propagating `try` and a `move`
+        — `_split_leaf_at_propagating_tries`' own scope, asked ahead of it."""
+        value = self._vc_stmt_value(s)
+        if value is None and isinstance(s, CompoundAssignStatement):
+            value = s.value
+        if value is None and isinstance(s, ExpressionStatement):
+            value = s.expression if isinstance(s.expression,
+                                               OptionalChainAssign) else None
+        if value is None or not isinstance(value, ASTNode):
+            return False
+        return self._has_propagating_try(value) and _statement_moves(value)
+
+    def _vc_spans(self, expr):
+        """THE TRIGGER of the value-conditional lowering — the one question
+        every entry below asks of a conditional (or of an expression that may
+        bury one): must it take the branch shape?
+
+        Two reasons, one answer. A SUSPENSION under the guard (design 120
+        stage 2): a suspend may not be hoisted above its guard, so the
+        conditional becomes statement-position branches and the suspension
+        lands unconditionally inside one. And a PROPAGATING `try` under the
+        guard in a statement that also carries a `move` (design 275 U3, codex
+        r2 #3): a landing wraps ONE statement and relinquishes the moves it
+        recorded on the error edge, so a `try` still under a guard is judged
+        by a landing that cannot know whether the guarded path ran — on the
+        None path of `maybe ?? sink(try fail(), move r)` the failing `try` ran
+        and `move r` did not, and the whole-statement landing cleared the
+        frame's claim on a value the frame still owned (a leak; the base
+        dropped it once). The branch shape puts the `try` into an ARM
+        STATEMENT, where `_split_leaf_at_propagating_tries` decomposes it
+        within its guard — an error site is never hoisted outside its guard,
+        because the guard is now a block edge. Same scope as the split's: the
+        second reason fires only when the statement holds both (see
+        `_vc_try_split_owed`); a guarded `try` with no `move` beside it has
+        nothing to relinquish and keeps its one landing.
+
+        THREE reasons since codex r3 #1 (design 275 U3). A `break`/`continue`
+        under the guard that targets an ENCLOSING SUSPENSION-SPANNING LOOP —
+        `_is_split`'s clause 2, asked here of a VALUE-position conditional.
+        The marking walk (`_mark_ob_block`) stamps clause 2 on a container that
+        IS a statement, and a conditional buried in a leaf — `id(try f() catch
+        { break })`, `Pair(a: if c { break } else { n })`, and the plain
+        `let n = if c { break } else { n }` too, whose `ctrl` is the `let` —
+        is nobody's statement: nothing stamped it, the branch lowering asked
+        only the two reasons above, and the leaf lowered in place with a RAW
+        jump that left the resume dispatcher — the code after the loop was
+        skipped (a `break`) or the loop spun forever (a `continue`), at exit 0.
+        The branch shape makes it a statement-position container, which the
+        marking walk then stamps and the split routes. `_vc_in_spanning_loop`
+        is the same flag `_mark_ob_block` threads, re-decided by every
+        `while`/`for` for its own body (`_vc_recurse`), because a loop OWNS the
+        jumps written directly inside it; `_has_loop_ctrl` stops at a nested
+        loop for the same reason. Outside a spanning loop the reason never
+        fires, so no conditional that lowered correctly is touched.
+        """
+        if not isinstance(expr, ASTNode):
+            return False
+        if self._spans_suspension(expr):
+            return True
+        if self._vc_in_spanning_loop and self._has_loop_ctrl(expr):
+            return True
+        return self._vc_try_split and self._has_propagating_try(expr)
+
     def _vc_recurse(self, s):
-        for block in control_blocks(s):
-            self._vc_block(block)
+        ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+        outer = self._vc_in_spanning_loop
+        if isinstance(ctrl, (WhileExpr, ForLoop)):
+            self._vc_in_spanning_loop = self._spans_suspension(ctrl)
+        try:
+            for block in control_blocks(s):
+                self._vc_block(block)
+        finally:
+            self._vc_in_spanning_loop = outer
 
     # The sub-expression each value-conditional evaluates UNCONDITIONALLY before it
     # branches — the one position where a suspension is NOT skippable.
@@ -2883,7 +3174,7 @@ class _FrameBuilder:
     def _vc_lift_here(self, expr, out):
         """Lift `expr` itself when it is a suspension-spanning value-conditional,
         otherwise lift the ones buried inside it. Returns the replacement."""
-        if not isinstance(expr, ASTNode) or not self._spans_suspension(expr):
+        if not self._vc_spans(expr):
             return expr
         if self._is_value_conditional(expr):
             return self._vc_hoist_to_temp(expr, out)
@@ -2894,7 +3185,7 @@ class _FrameBuilder:
         """Replace every suspension-spanning value-conditional in a STRICT
         descendant position of `root` with a read of a preceding statement temp."""
         def visit(child):
-            if not isinstance(child, ASTNode) or not self._spans_suspension(child):
+            if not self._vc_spans(child):
                 return child
             # A closure body is its own scope — never hoist a conditional out of one.
             if isinstance(child, ClosureExpr):
@@ -2946,7 +3237,7 @@ class _FrameBuilder:
         value-position conditional into the branch shape assigning a result sink."""
         import copy as _copy
         if (isinstance(s, LetStatement) and self._is_value_conditional(s.value)
-                and self._spans_suspension(s.value)):
+                and self._vc_spans(s.value)):
             cond = s.value
             t = getattr(cond, 'resolved_type', None) or s.type_annotation
             self._extra_frame_locals.append((s.name, t))
@@ -2961,7 +3252,7 @@ class _FrameBuilder:
             self._vc_head_hoist(cond, pre)
             return pre + [self._cond_to_branch(cond, sink)]
         if (isinstance(s, AssignStatement) and self._is_value_conditional(s.value)
-                and self._spans_suspension(s.value)):
+                and self._vc_spans(s.value)):
             cond = s.value
             tgt = s.target
             line, col = s.line, s.column
@@ -2974,7 +3265,7 @@ class _FrameBuilder:
             return pre + [self._cond_to_branch(cond, sink)]
         if (isinstance(s, ReturnStatement) and s.value is not None
                 and self._is_value_conditional(s.value)
-                and self._spans_suspension(s.value)):
+                and self._vc_spans(s.value)):
             cond = s.value
             line, col = s.line, s.column
 
@@ -2989,7 +3280,7 @@ class _FrameBuilder:
         # result is dropped).
         if (isinstance(s, ExpressionStatement)
                 and isinstance(s.expression, OptionalChainAssign)
-                and self._spans_suspension(s.expression)):
+                and self._vc_spans(s.expression)):
             lowered = self._lower_optchain_assign(s.expression)
             if lowered is not None:
                 return [lowered]
@@ -2999,7 +3290,7 @@ class _FrameBuilder:
         # preceding temp and the operator applies to that. `_vc_lift_here` does
         # both cases: the value IS a conditional, or merely contains one.
         if (isinstance(s, CompoundAssignStatement) and s.value is not None
-                and self._spans_suspension(s.value)):
+                and self._vc_spans(s.value)):
             pre = []
             s.value = self._vc_lift_here(s.value, pre)
             if pre:
@@ -3013,7 +3304,7 @@ class _FrameBuilder:
         # lowers. `_vc_lift_here` does both cases: the value IS a conditional,
         # or merely contains one.
         if (isinstance(s, DestructuringLet) and s.value is not None
-                and self._spans_suspension(s.value)):
+                and self._vc_spans(s.value)):
             pre = []
             s.value = self._vc_lift_here(s.value, pre)
             if pre:
@@ -3025,7 +3316,7 @@ class _FrameBuilder:
         # conditional to its own preceding statement — the outermost form the
         # branches above lower — and read the temp in its place.
         root = self._vc_stmt_value(s)
-        if root is not None and self._spans_suspension(root):
+        if root is not None and self._vc_spans(root):
             pre = []
             self._vc_lift_nested(root, pre)
             if pre:
@@ -3219,6 +3510,317 @@ class _FrameBuilder:
     # emitted THROUGH `_vc_stmt`, so a head that is itself a short-circuit
     # (`if a && slow()`) is lowered to the branch shape exactly as the same
     # expression in `let` position would be — the guard survives the lift.
+
+    # ------------------------------------------------------------------ #
+    # SL-317 — the COLLECTION `for` becomes the `while let` it means
+    # ------------------------------------------------------------------ #
+
+    def _normalize_collection_for(self):
+        """Rewrite every suspension-spanning `for x in <iterable>` over a
+        COLLECTION into the loop it already denotes:
+
+            for x in v.iter() { BODY }
+            =>
+            var __iter0 = v.iter()
+            while {
+                if let x = __iter0.next() { BODY } else { break }
+            }
+
+        THE SPLIT IS THEREFORE NOT A NEW ONE. Design 233 lowered `while let` to
+        exactly this pair in the PARSER, for exactly this reason: the binding
+        rules were `if let`'s already, so `while let` got them by BEING an `if
+        let` rather than by a second copy. SL-317 is the same argument one
+        construct over — `_split_while`'s conditionless form and
+        `_split_if_let`'s marked binding are the two splits a collection `for`
+        needs, and the iterator's residency in the frame is what
+        `_collect_frame_locals` does with any other local. There is no
+        `_split_collection_for`, and the shape table says so
+        (`coro_shapes.CONTAINERS[ForLoop]`, whose handler names this pass).
+
+        WHAT THE REWRITE OWES, one clause each:
+
+        * the HEAD is evaluated EXACTLY ONCE, which is what a `for` promises and
+          a `while` condition does not — so it becomes a `let` AHEAD of the
+          loop, not the loop's own head. (`_hoist_container_heads` then lifts
+          anything suspending inside it, and design 275 U3's ACQUIRE sequence
+          is unchanged: the receiver place was resolved and charged by the
+          checker, and the hoist preserves argument order.)
+        * `continue` re-enters the loop TOP, which is now the `next()` call —
+          the `for` back-edge, spelled.
+        * `break` leaves the `while`, which is the `for`'s own exit.
+        * the iterator binding is `var`: `Iterator.next` is `&var self`.
+        * the binding is the compiler's own (design 275 U3's exception e2): a
+          `__saw`-reserved name no source can spell, and never bound to a
+          borrowing struct anywhere an author could reach it.
+
+        ONLY A SPANNING LOOP IS REWRITTEN. A collection `for` with no suspension
+        in it lowers exactly as it always did, through codegen's own desugaring
+        — so nothing in the corpus changes shape for a rule it never met.
+        """
+        self._iter_ctr = 0
+        self._collfor_block(self.func.body)
+
+    def _collfor_block(self, block):
+        new_stmts = []
+        for s in block.statements:
+            new_stmts.extend(self._collfor_stmt(s))
+        block.statements = new_stmts
+        for s in block.statements:
+            for b in control_blocks(s):
+                self._collfor_block(b)
+
+    def _collfor_stmt(self, s):
+        if not isinstance(s, ForLoop):
+            return [s]
+        if isinstance(s.iterable, RangeExpr):
+            return [s]                      # the range `for` keeps `_split_for`
+        if not self._spans_suspension(s):
+            return [s]
+        line = getattr(s, 'line', 0) or 0
+        col = getattr(s, 'column', 0) or 0
+        name = f"__saw_iter{self._iter_ctr}"
+        self._iter_ctr += 1
+        iter_type = getattr(s.iterable, 'resolved_type', None)
+        seed = LetStatement(name=name, type_annotation=None, value=s.iterable,
+                            mutable=True, line=line, column=col)
+        recv = Identifier(name=name, line=line, column=col)
+        recv.resolved_type = iter_type
+        nxt = MethodCall(object=recv, method_name="next", arguments=[],
+                         line=line, column=col)
+        # `next()` yields `Item?`, and the checker stamped `Item` on the loop as
+        # `element_type` (design 65's own reason for recording it). Carrying it
+        # here is what types the binding's frame field: nothing between this
+        # pass and codegen re-derives an expression's type, so a synthesized
+        # node that carries none is the "local has no resolved type" refusal.
+        item = getattr(s, 'element_type', None)
+        if item is not None:
+            nxt.resolved_type = SawType(TypeKind.OPTIONAL, inner_type=item)
+        binding = IfLetExpr(
+            name=s.variable, optional_expr=nxt, mutable=False,
+            then_branch=s.body,
+            else_branch=Block(
+                statements=[BreakStatement(line=line, column=col)],
+                final_expr=None, line=line, column=col),
+            line=line, column=col, while_let=True)
+        loop = WhileExpr(
+            condition=None,
+            body=Block(statements=[ExpressionStatement(
+                expression=binding, line=line, column=col)],
+                final_expr=None, line=line, column=col),
+            line=line, column=col, is_while_let=True)
+        # THE RESOURCE KEEPS THE STATEMENT'S EXTENT (design 275 U3 part (i),
+        # codex r1 #4). The seed and the loop are ONE statement's worth of
+        # scope — the `for`'s — so they are wrapped in a `ScopedBlock`, the
+        # statement-scoped construct the transform already splits (SL-333's
+        # fold produces the same node for the same reason). Every route out of
+        # that block — exhaustion, `break`, a `continue` to an outer loop, a
+        # `return`, a propagated error, a cancellation — releases the iterator
+        # at the block's edge, BEFORE the code after the `for`, which is what
+        # "the iterator is destroyed, and THEN the root charge ends" means for
+        # a charge that has no runtime event. Emitted as two SIBLING statements
+        # for one revision, the iterator was a frame field of the ENCLOSING
+        # block and deinited at frame release, after "after driven loop".
+        scoped = ScopedBlock(
+            block=Block(statements=[seed, ExpressionStatement(
+                expression=loop, line=line, column=col)],
+                final_expr=None, line=line, column=col),
+            line=line, column=col)
+        # THE SCOPE MAP IS WRITTEN HERE, not by the renamer: `_uniquify_bindings`
+        # ran before this pass (the synthesized name is unique by construction
+        # and the pass order is `prepare`'s), so the seed is a binding the
+        # renamer's scope map never saw, and `_block_scope_names` — which is
+        # what `_lower_block`'s E-FALL, `_scope_release_to_loop`'s E-BRK/E-CNT
+        # and `_scope_release_all`'s E-RET read — would answer nothing for this
+        # block. That silence was the whole of codex r1 #4: no scope owned the
+        # iterator, so only `release()` at frame death dropped it.
+        self._scope_binders[id(scoped.block)] = (scoped.block, [seed])
+        return [ExpressionStatement(expression=scoped, line=line, column=col)]
+
+    # ------------------------------------------------------------------ #
+    # SL-215 — the INLINE `try EXPR catch { … }` becomes the BLOCK form
+    # ------------------------------------------------------------------ #
+
+    def _normalize_inline_catch(self):
+        """Rewrite an INLINE `try EXPR catch { B }` into the BLOCK form it
+        means, wherever the state machine has to express its catch:
+
+            try EXPR catch { B }   =>   try { try EXPR } catch { B }
+
+        The two are the same construct (SL-215 c1 listed the block form as the
+        verified workaround, and design 196 unit 3 gave IT the CFG split). The
+        inline spelling is a `TryExpr` carrying a `catch_block`, and nothing in
+        the split walk ever looked at that slot: `_collect_calls`'s try/catch
+        arm matches `TryCatchExpr` only, so a suspending call in the catch fell
+        through to `_reject_buried_suspend_call` — the refusal `coro_shapes`
+        recorded as the `TryExpr` REFUSE row.
+
+        THE SAME SLOT COST A SILENT MISCOMPILE, which is why this is not only
+        SL-215's fix: `_mark_ob_block`'s clause-2 marking (a container carrying
+        a `break`/`continue` for an enclosing SPANNING loop must be split, even
+        when it does not itself span) lists `IfExpr`, `MatchExpr` and
+        `TryCatchExpr` — and not `TryExpr`. So a `try f() catch { break }`
+        inside a spanning loop kept a RAW `break`, which leaves the resume
+        method's `while true` DISPATCH loop rather than the logical loop: the
+        `break` was lost and a `continue` spun forever, silently. Measured on
+        main with a range `for`; a collection `for` was shielded only by the op
+        budget's skip, which design 275 U3 retires. The normalization fixes
+        both at once because it puts the catch in the node the marking already
+        names — which is SL-215's own argument, arriving at a second symptom.
+
+        WHEN. Only where the lowering differs — the catch SPANS a suspension
+        (SL-215), or it carries a `break`/`continue` for an enclosing spanning
+        loop (the silent one above). Every other inline catch keeps the
+        lowering it has, so no corpus IR moves for a rule it never met.
+
+        WHAT IT INHERITED, and what closed it: the block form DOUBLE-FREED a
+        `move` of a frame local in its try body when the error edge was taken
+        (SL-339, measured on main), because `_landed_inplace` wraps the
+        lowered statement and the trailing drop-flag clear is never reached on
+        that edge. The inline form lowered in place, so it reached the clear;
+        giving its catch a CFG split therefore had it meet a defect it had been
+        shielded from. Both landings relinquish on their own edge now — see
+        `_trailing_forgets` — so the normalization costs the inline spelling
+        nothing. `examples/coro_move_in_split_try_body.saw` is the regression
+        test.
+
+        WHAT IS PRESERVED. The inner `try EXPR` keeps the author's node whole —
+        its `variant`, its `route_path` (design 234 §3's error-routing clause)
+        and every annotation the checker stamped on it — because it is the SAME
+        NODE, moved into a block. The catch block is likewise the author's. The
+        VALUE is the try-block's tail, which is what an inline `try`'s value
+        already was. The error binding is the block form's implicit `error`,
+        which is the name the inline form binds too. DF-196b's multi-error
+        refusal is the block form's and applies unchanged — with one error
+        expression in the block there is one error type to refuse or accept.
+        """
+        self._catch_ctr = 0
+        self._inline_catch_block(self.func.body, False)
+
+    def _inline_catch_block(self, block, in_spanning_loop):
+        """Every STATEMENT POSITION of `block` — its statements and the trailing
+        expression the parser parked in `final_expr` — under ONE loop flag.
+
+        The trailing expression is written back by ROOT: `_inline_catch_rewrite`
+        returns the (possibly replaced) node it was handed, so a `try f() catch
+        { break }` written LAST in a loop body — the shape DF-233a is about,
+        which `_normalize_suspending_tails` leaves here because it statementizes
+        only a tail that SPANS — lands in the slot the way a statement does.
+        """
+        stmts = block.statements
+        for i, s in enumerate(stmts):
+            stmts[i] = self._inline_catch_rewrite(s, in_spanning_loop)
+        if block.final_expr is not None:
+            block.final_expr = self._inline_catch_rewrite(block.final_expr,
+                                                          in_spanning_loop)
+
+    def _inline_catch_rewrite(self, node, in_spanning_loop):
+        """Replace every qualifying inline `try … catch` under `node`, at EVERY
+        child position, and return the (possibly replaced) root.
+
+        THE WALK IS `ast_walk.map_nodes` — the one write-side enumeration of
+        "where a child expression sits" — so a call argument (positional or
+        labeled, free or method), a receiver, a struct-literal field, a map
+        entry's key and value, a tuple/array/collection element, an index, the
+        place under a `&`/`&var` argument, an interpolation operand, a `return`
+        value, a `??`/`&&`/`||` operand, a bare `match` arm and a catch block
+        of another inline catch are all reached the same way. For one revision
+        this was a hand-rolled visit that stopped at anything not an `ASTNode`
+        — so `Argument` (a plain dataclass) and the TUPLES inside
+        `StructInit.field_inits` / `MapLiteral.entries` ended the walk, an
+        inline `try … catch { break }` inside `id(…)`, `Pair(a: …)` or `{k: …}`
+        in a spanning loop was never normalized, and its raw `break` left the
+        resume dispatcher: the code after the loop was silently skipped, exit
+        0 (codex r3 #1). That is DF-187b's tuple drift one pass over, and the
+        cure is the same — ride the enumeration, never re-enumerate.
+
+        Three descents are this pass's OWN, and they are what `descend` is for:
+          * a `Block` is walked by `_inline_catch_block` under the flag in
+            force, so a block nested anywhere in a leaf statement (a value
+            `if`'s arm, the catch block of an inline catch that does NOT split)
+            is a statement container like any other;
+          * a `while`/`for` walks its HEADS under the enclosing loop's flag and
+            its BODY under its own (`_spans_suspension` of the loop) — a jump
+            written in the body targets THIS loop, and whether it must be routed
+            to a state is this loop's question. `control_heads`/`control_blocks`
+            are the two enumerations of a container's parts, so neither slot is
+            spelled here;
+          * a closure body is not this frame's state machine and is not entered.
+        So each `try … catch` is asked exactly once, under the loop that owns
+        the jumps written in it, and pre-order, so a catch that splits because a
+        NESTED catch inside it jumps is rewritten first and the nested one is
+        then met inside the block form's catch block. The block form's error
+        binding is minted per rewrite (`_block_form`), and the nested catch's
+        own `error` is a rebind the renamer stops at, so the two never share a
+        name.
+        """
+        def rule(n):
+            if (isinstance(n, TryExpr) and n.catch_block is not None
+                    and self._inline_catch_must_split(n, in_spanning_loop)):
+                return self._block_form(n)
+            return n
+
+        def descend(n):
+            if isinstance(n, ClosureExpr):
+                return False
+            if isinstance(n, Block):
+                self._inline_catch_block(n, in_spanning_loop)
+                return False
+            if isinstance(n, (WhileExpr, ForLoop)):
+                inner = self._spans_suspension(n)
+                for owner, field in control_heads(n):
+                    setattr(owner, field, self._inline_catch_rewrite(
+                        getattr(owner, field), in_spanning_loop))
+                for body in control_blocks(n):
+                    self._inline_catch_block(body, inner)
+                return False
+            return True
+
+        return map_nodes(node, rule, descend)
+
+    def _inline_catch_must_split(self, t, in_spanning_loop) -> bool:
+        if self._spans_suspension(t.catch_block):
+            return True
+        return in_spanning_loop and self._has_loop_ctrl(t.catch_block)
+
+    def _block_form(self, t):
+        """`try EXPR catch { B }` -> `try { try EXPR } catch { B }`."""
+        line = getattr(t, 'line', 0) or 0
+        col = getattr(t, 'column', 0) or 0
+        catch = t.catch_block
+        t.catch_block = None
+        inner = Block(statements=[], final_expr=t, line=line, column=col)
+        # The catch's ERROR TYPE, which the block form's split needs and the
+        # inline form recorded one layer down: `result_enum_type` is the
+        # CONCRETE `Result<T, E>` the checker resolved for this `try`, so `E` is
+        # its second type argument. ONE type by construction — an inline catch
+        # handles ONE expression — so DF-196b's multi-error refusal is
+        # satisfied here for the same reason it is satisfied for a one-call
+        # block, rather than by an exemption.
+        res = getattr(t, 'result_enum_type', None)
+        err = None
+        if res is not None and res.type_args and len(res.type_args) > 1:
+            err = res.type_args[1]
+        # A UNIQUE error binding per rewrite. The block form's caught error
+        # travels in a FRAME FIELD named by the binding, and the default name
+        # is `error` for every one of them — so two normalized catches in one
+        # body would share one field and the second would be typed by the
+        # first (measured: `argument `value` expects `Alpha` but got `Beta``,
+        # and sawtracker's accept loop has exactly two, `ChannelError` and
+        # `IoError`). The author's `error` reads are renamed with it, which is
+        # `_prep_ob_split`'s move for an `if let` binding one construct over.
+        err_name = f"__saw_caught{self._catch_ctr}"
+        self._catch_ctr += 1
+        self._rename_caught_error(catch, err_name)
+        tc = TryCatchExpr(try_block=inner, catch_block=catch,
+                          error_binding=err_name, line=line, column=col)
+        tc.error_type = err
+        tc.error_types = [err] if err is not None else None
+        # The block form's VALUE is its try-block's tail, which is this very
+        # `try` — so the two expressions have the same type, and carrying it
+        # across is what types the `let` a driven body binds the result to
+        # (nothing between here and codegen re-derives an expression's type).
+        tc.resolved_type = t.resolved_type
+        return _substitute(t, tc)
 
     def _hoist_container_heads(self):
         """Lift every container HEAD the state machine cannot hold in place into
@@ -3449,6 +4051,36 @@ class _FrameBuilder:
         self._redefines = {}
         self._uniq_walk_block(self.func.body, [])
 
+    def _rename_caught_error(self, catch_block, new_name: str) -> None:
+        """Rename the implicit `error` binding's READS inside one catch block.
+
+        The default caught-error name is `error` and it is IMPLICIT — no `let`
+        writes it — so when `_block_form` normalizes an inline `try … catch`
+        into the block form it mints a unique name and the reads must follow.
+
+        THE WALK IS `_uniq_walk_block`, in rename-only mode, and reusing it is
+        the point: renaming the reads of a binding is the alpha-renamer's whole
+        job, and it already knows every position a NAME sits in (an
+        `Identifier`, a `MoveExpr.variable`, a closure-typed `FunctionCall.name`,
+        a capture spec) and every position it can be reached through (a tuple
+        inside a list — `StructInit.field_inits` — an `Argument` wrapper, a
+        pattern). The hand-written walk this replaced enumerated those itself
+        and had neither the tuple nor the `MoveExpr` string: `Wrap(value: error)`
+        and `eat(move error)` both came out as `Undefined variable: error`
+        (codex r1 #7), which is DF-187b's shape one construct over.
+
+        It also knows what a rebind means, so the three stopping rules come for
+        free rather than as a list: a nested catch block binds the name itself,
+        a closure body binds its own parameters (and is not this frame's state
+        machine anyway), and a user `let error = …` inside the catch SHADOWS the
+        caught one from that point on.
+        """
+        self._uniq_rename_only = True
+        try:
+            self._uniq_walk_block(catch_block, [{"error": (new_name, False)}])
+        finally:
+            self._uniq_rename_only = False
+
     def _uniq_fresh(self, name):
         while True:
             new = f"{_UNIQ_PREFIX}{self._uniq_ctr}_{name}"
@@ -3472,6 +4104,16 @@ class _FrameBuilder:
         if name == "_" or name.startswith("__"):
             # `_` binds nothing, and a `__`-prefixed name is a compiler temp
             # (the lexer reserves the prefix) — unique already.
+            return name
+        if self._uniq_rename_only:
+            # RENAME-ONLY: every binding in the body is unique already (this
+            # pass ran in full at `prepare`'s first step), so there is nothing
+            # to mint. What the walk is here FOR is the other half of a binding
+            # — the SHADOW: a binding of `error` inside the catch block hides
+            # the caught one from every read after it, exactly as it hides an
+            # enclosing local, and recording the identity mapping is what makes
+            # `_uniq_lookup` find the inner binding first.
+            scope[name] = (name, callable_)
             return name
         if second_view and name in scope:
             return scope[name][0]
@@ -3501,11 +4143,14 @@ class _FrameBuilder:
         # Nodes, not strings: `_mark_optional_binding_splits` RENAMES a split
         # `guard let`'s binding after this pass, and reading `.name` at emission
         # time follows that rename for free.
-        self._scope_binders[id(block)] = (block, binders)
+        if not self._uniq_rename_only:
+            self._scope_binders[id(block)] = (block, binders)
 
     def _note_redefinition(self, stmt, scope, name):
         """Record that `stmt`'s binding of `name` REPLACES a live same-scope
         binding (design 107), for the E-REDEF edge."""
+        if self._uniq_rename_only:
+            return          # the redefinitions were recorded on the real pass
         prior = scope.get(name)
         if prior is None:
             return
@@ -3972,8 +4617,9 @@ class _FrameBuilder:
                 # A THIRD residency reason, and it is `force`'s (above) at the
                 # other landing site (DF-245d). A statement carrying a
                 # propagating `try` is lowered behind a one-statement
-                # `try { … } catch { … }` wrapper — `_emit_try_landing` inside a
-                # split try/catch, `_emit_try_propagate` with no enclosing catch
+                # `try { … } catch { … }` wrapper — `_landed_inplace`, whose
+                # catch is `_try_catch_landing` inside a split try/catch and
+                # `_try_propagate_landing` with no enclosing catch
                 # — and a `let` inside that wrapper is SCOPED to it, invisible to
                 # the statement after it. `force` says so for the whole subtree
                 # of a split try/catch; the propagate site has no such marker, so
@@ -4035,6 +4681,14 @@ class _FrameBuilder:
                 walk_block(s.else_branch, force)
             elif isinstance(ctrl, WhileExpr):
                 walk_block(ctrl.body, force)
+            elif isinstance(ctrl, ScopedBlock):
+                # SL-333's fold and design 275 U3's collection-`for`
+                # normalization both produce one; its block is a scope like any
+                # branch's, and a `let` declared in it (the window's `__saw_iter`
+                # seed) crosses the states its `while` splits into. Absent from
+                # this walk for one revision, so the seed got no field and the
+                # split loop read an undefined name (codex r1 #4's fix found it).
+                walk_block(ctrl.block, force)
             elif isinstance(ctrl, MatchExpr):
                 # SL-273/SL-278: `_is_split`, not `_spans_suspension` — a match
                 # SPLIT for design 96's `break`/`continue` clause relocates its
@@ -4712,6 +5366,20 @@ class _FrameBuilder:
         # every suspending call sit in statement position within some block, so the
         # wrapper hoists and the collect/reject walk are exhaustive by construction.
         self._normalize_suspending_tails()
+        # SL-317 (design 275 U3): a suspension-spanning `for` over a COLLECTION
+        # becomes the `while let` it denotes — the iterator a `let` ahead of the
+        # loop, the head a `next()` at the loop top. Runs AFTER tail
+        # normalization (so a trailing `for` is already a statement) and BEFORE
+        # every hoist and the binding-split marking, so what those passes see is
+        # an ordinary conditionless `while` over an ordinary `if let`.
+        self._normalize_collection_for()
+        # SL-215 (design 275 U3): an INLINE `try EXPR catch { … }` whose catch
+        # the state machine has to express becomes the BLOCK form, which design
+        # 196 unit 3 already splits. Runs after the collection-`for`
+        # normalization (whose `while` is one of the spanning loops the
+        # `break`/`continue` clause asks about) and before every hoist and
+        # marking pass, so what they see is an ordinary `try { } catch { }`.
+        self._normalize_inline_catch()
         # design 62 G2: hoist a suspending call out of an `if let`/`guard let`
         # CONDITION into a preceding driven temp, BEFORE call/local collection —
         # the temp is then an ordinary nested-suspending-call-in-let and the
@@ -4758,6 +5426,13 @@ class _FrameBuilder:
         # is embedded+driven (its internal park integrates with the executor)
         # rather than hiding inside a TryExpr the nested-call scan cannot see.
         self._hoist_suspending_try()
+        # SL-339 / codex r1 #6 (design 275 U3): a leaf statement carrying a
+        # propagating `try` NESTED in a larger expression beside a `move` is
+        # SPLIT at each `try`, in evaluation order, so every landing's error
+        # edge relinquishes exactly the moves that executed before it. Runs
+        # after the two hoists above (a suspending `try` is already its own
+        # statement by then) and before the binding-split marking.
+        self._split_leaf_at_propagating_tries()
         # design 104 item 1: an `if let`/`guard let` whose BODY spans a suspension
         # cannot be lowered in place (its branch must break across resume states).
         # Mark such bindings for CFG-splitting and rename each to a UNIQUE frame
@@ -5403,19 +6078,6 @@ class _FrameBuilder:
         return coro_shapes.refusal_of(
             coro_shapes.CONTAINERS[ClosureExpr], self.name, what)
 
-    def _suspend_in_inline_catch_message(self, what):
-        """THE message for a suspension in an INLINE `try EXPR catch { }` block
-        (`coro_shapes.CONTAINERS[TryExpr]`, REFUSE pending SL-215).
-
-        Its own row because the BLOCK form splits and the inline form does not,
-        and the author's fix is to write the other spelling — which the generic
-        "nested/expression position" text never said. Design 275 U3 owns the
-        split; until it lands the message names the issue rather than the
-        position, so the refusal is a pointer instead of a dead end.
-        """
-        return coro_shapes.refusal_of(
-            coro_shapes.CONTAINERS[TryExpr], self.name, what)
-
     def _reject_buried_suspend_call(self, stmt):
         """A suspending call in a position the flat state split cannot express —
         inside a larger expression, a method-call receiver, or a control-flow
@@ -5443,11 +6105,16 @@ class _FrameBuilder:
             # construct that is not in their program.
             #
             # design 275 U2: `where` is the SHAPE TABLE's REFUSE row for the
-            # innermost enclosing shape, and it is what picks the message. Two
-            # rows have one: `ClosureExpr` (the closure body, above) and
-            # `TryExpr` (the INLINE `try … catch`, SL-215) — the second used to
-            # take the generic "nested/expression position" text, which never
-            # told its author that the BLOCK spelling one line away works.
+            # innermost enclosing shape, and it is what picks the message. ONE
+            # row has one now: `ClosureExpr` (the closure body, above). The
+            # inline `try … catch` (`TryExpr`) held the other until SL-215
+            # (design 275 U3): its catch is normalized into the block form at
+            # every child position before this walk runs, so a suspension in
+            # one is embedded by the split rather than reported here, and a
+            # call found under an unrewritten inline catch is one whose
+            # callee has NO frame (SL-287's row) — which takes SL-287's own
+            # message, not a pointer at a spelling that would meet the same
+            # refusal.
             if isinstance(n, ClosureExpr):
                 in_closure = True
                 where = ClosureExpr
@@ -5502,16 +6169,8 @@ class _FrameBuilder:
             elif isinstance(n, MethodCall) and self._method_call_suspends(n):
                 found.append(("method", n, in_closure, where))
             if isinstance(n, ASTNode):
-                # design 275 U2: the INLINE `try EXPR catch { }` is the one
-                # container whose block this walk enters with a shape of its
-                # own — the table's `TryExpr` REFUSE row (SL-215). Descend its
-                # catch block under that row and everything else under the
-                # enclosing one, so the message names the construct the author
-                # wrote rather than "a nested/expression position".
-                catch = (n.catch_block if isinstance(n, TryExpr) else None)
                 for c in _child_nodes(n):
-                    scan(c, in_closure,
-                         TryExpr if (catch is not None and c is catch) else where)
+                    scan(c, in_closure, where)
 
         scan(stmt)
         if found:
@@ -5556,12 +6215,6 @@ class _FrameBuilder:
                 # refused HERE (by the caller's own scan of the body its author
                 # wrote) rather than from inside a frame built around `each`.
                 raise self._error(self._suspend_in_closure_message(what), g)
-            if where is TryExpr:
-                # The table's `TryExpr` REFUSE row — the INLINE
-                # `try EXPR catch { }`, whose catch block does not CFG-split
-                # (SL-215 owns the split; design 275 U3 flips this row).
-                raise self._error(
-                    self._suspend_in_inline_catch_message(what), g)
             if kind == "method":
                 tgt = self._ledger.method_target(g)
                 if tgt.kind == 'unsupported':
@@ -5629,6 +6282,21 @@ class _FrameBuilder:
         # (catch state, frame field the caught error travels in), or None.
         self._try_ctx = None
         self._tcland_ctr = 0
+        # SL-339: the accumulator `_trailing_forgets` records into while a
+        # statement is lowered behind a `try` landing, so the error edge can
+        # give up the same claims the straight-line edge does. None everywhere
+        # else, which is what keeps every other lowering untouched.
+        self._edge_forgets = None
+        # design 275 U3 (codex r2 #3): how many in-place LOOP bodies the
+        # in-place descent is inside. A landing wraps a LEAF at depth 0 (see
+        # `_landing_owed`); inside an in-place loop the split-try landing's
+        # `continue` would reach that loop instead of the dispatch loop, so
+        # the loop keeps its one wrapper there.
+        self._inplace_loop_depth = 0
+        # …and how many in-place `try { } catch { }` BODIES it is inside: a
+        # propagating `try` there lands in the AUTHOR's catch (codegen's own
+        # try lowering), so no leaf under one takes a landing of its own.
+        self._inplace_try_depth = 0
         self.cur = 0
 
         # design 218b: the FUNCTION-BODY scope. Pushed and never popped — the
@@ -6436,16 +7104,12 @@ class _FrameBuilder:
         # a propagating `try`, reached by every statement kind that can carry
         # one: a bare expression statement, a `let`, an assignment — and, since
         # DF-244a, a `return` (which defers to it from its own branch above).
-        if self._has_propagating_try(s):
-            if self._try_ctx is not None:
-                self._emit_try_landing(s)
-            else:
-                self._emit_try_propagate(s)
-            return
-
         # Non-suspending statement (incl. non-spanning control flow): lower in
-        # place — identifier→frame-field rewrites, drop-flag clears, returns→done.
-        self._emit(self._lower_inplace(s))
+        # place — identifier→frame-field rewrites, drop-flag clears, returns→done
+        # — behind its own landing when it carries a propagating `try`
+        # (`_landed_inplace`, which also decides where a NESTED leaf's landing
+        # goes).
+        self._emit(self._landed_inplace(s))
 
     def _split_scoped_block(self, s, loop_ctx):
         """SL-333: the `#lend_var` fold's selected branch — one block, always
@@ -6456,12 +7120,12 @@ class _FrameBuilder:
     def _split_if(self, e, loop_ctx):
         forgets = []
         cap_lets, cond = self._rewrite_hosting(e.condition, forgets)
-        if forgets:
-            raise self._error(
-                f"coroutine transform: `move` in the condition of a "
-                f"suspension-spanning `if` in `{self.name}` is not supported",
-                e)
-        self._emit(cap_lets)
+        # SL-338: the head is evaluated inside `_branch(...)`, which terminates
+        # the block, so a trailing clear has nowhere to go — the hoist gives it
+        # one. See `_hoist_head_and_relinquish` for the ordering rule; this is
+        # the ONCE row, emitted as a prelude into the block the branch ends.
+        pre, cond = self._hoist_head_and_relinquish(cond, forgets, e)
+        self._emit(cap_lets + pre)
         then_b = self._new_block()
         else_b = self._new_block() if e.else_branch is not None else None
         merge = self._new_block()
@@ -6615,12 +7279,15 @@ class _FrameBuilder:
             self.cur = header
             forgets = []
             cap_lets, cond = self._rewrite_hosting(e.condition, forgets)
-            if forgets:
-                raise self._error(
-                    f"coroutine transform: `move` in the condition of a "
-                    f"suspension-spanning `while` in `{self.name}` is not "
-                    f"supported", e)
-            self._emit(cap_lets)
+            # SL-338: the PER-ITERATION row of `_hoist_head_and_relinquish`.
+            # `self.cur` is the HEADER block, which every backedge and every
+            # `continue` re-enters, so emitting the hoist here IS what
+            # `_head_into_while_body` does for the in-place arm (SL-226 r1): the
+            # condition is evaluated and the consumed claim cleared together,
+            # once per evaluation, so a body that reinitializes the local keeps
+            # running and each pass consumes a different value.
+            pre, cond = self._hoist_head_and_relinquish(cond, forgets, e)
+            self._emit(cap_lets + pre)
             self._branch(cond, body_b, exit_b)
             self.cur = body_b
             self._lower_block(e.body, loop_ctx=(header, exit_b),
@@ -6666,17 +7333,17 @@ class _FrameBuilder:
         single-iteration `3..=3` ran none at all — silently, since the sync
         twin of the same loop was right."""
         if not isinstance(s.iterable, RangeExpr):
-            # design 275 U2: the shape table's ForLoop row is SPLIT for the
-            # RANGE form and this is the sub-shape the routine has no split for
-            # — a collection `for` makes the iterator frame state and re-enters
-            # the loop head through `next()`. `coro_shapes.SPLIT_LIMITS` records
-            # it beside the row so the table states the limit rather than
-            # implying a split that is not there, and the message names the
-            # issue that owns the missing one.
-            raise self._error(
-                f"coroutine transform: a suspension inside a `for` over a "
-                f"non-range iterable in `{self.name}` is not supported; "
-                f"use a `while` loop over an index. (Pending SL-317.)", s)
+            # SL-317 (design 275 U3): a spanning collection `for` is REWRITTEN
+            # into its `while let` before any of this runs
+            # (`_normalize_collection_for`), so one reaching here means that
+            # pass missed a statement — an INVARIANT FAILURE naming the loop,
+            # never the old refusal, which is what "there is no fourth outcome"
+            # means for a shape that now has a split.
+            raise coro_ledger.LedgerMiss(
+                f"the collection `for` in `{self.name}` reached `_split_for`: "
+                f"`_normalize_collection_for` rewrites every spanning one into "
+                f"its `while let` before the split walk, so this statement was "
+                f"not visited (design 275 U3 / SL-317)")
         var = s.variable
         inclusive = bool(s.iterable.is_inclusive)
         end_name = f"__end_{var}"
@@ -6802,12 +7469,13 @@ class _FrameBuilder:
         self._check_guarded_owning_payload(e)
         forgets = []
         cap_lets, scrut = self._rewrite_hosting(e.matched_expr, forgets)
-        if forgets:
-            raise self._error(
-                f"coroutine transform: `move` of the scrutinee of a "
-                f"suspension-spanning `match` in `{self.name}` is not supported",
-                e)
-        self._emit(cap_lets)
+        # SL-338: the third split container whose head had no place for a
+        # clear. `consuming=False` for the same reason the in-place arm gives —
+        # a `match` consumes an owned scrutinee by construction, so the plain
+        # name already transfers and a `move` here would cost the arm bindings
+        # their drop flags.
+        pre, scrut = self._hoist_head_and_relinquish(scrut, forgets, e)
+        self._emit(cap_lets + pre)
         merge = self._new_block()
         arm_entries = []
         new_arms = []
@@ -6900,7 +7568,8 @@ class _FrameBuilder:
         The catch arm becomes a STATE of its own, reachable from every state the
         try body lowers into. The try body lowers with `_try_ctx` naming that
         state and the frame field the caught error travels in; each statement in
-        it that holds a propagating `try` gets a landing pad (`_emit_try_landing`)
+        it that holds a propagating `try` gets a landing pad (`_landed_inplace`
+        with `_try_catch_landing`)
         whose job is exactly to fill that field and jump. Fall off the end of
         either arm and control reaches `merge`, which is what makes this the same
         diamond `_split_if` builds — the only new thing is that the second arm is
@@ -6958,8 +7627,9 @@ class _FrameBuilder:
         scan(s)
         return found[0]
 
-    def _emit_try_landing(self, s):
-        """Lower one statement of a split try body behind its own error landing.
+    def _try_catch_landing(self, raw, edge, line, col):
+        """The landing of a statement in a split try body: the catch block of
+        the wrapper `_landed_inplace` builds around it.
 
         The statement lowers in place exactly as it would anywhere else; what
         wraps it is a synthesized one-statement `try { <it> } catch { … }` whose
@@ -6977,14 +7647,20 @@ class _FrameBuilder:
 
         The synthesized catch binds the raw error under its own `__tclandN` name
         so it cannot collide with the user's binding, which by then names a frame
-        field."""
+        field.
+
+        THE ERROR EDGE RELINQUISHES TOO (SL-339). A `move` of a frame local in
+        the wrapped statement hands the value to the callee AT THE CALL, so the
+        frame's claim is dead on BOTH edges out of it — and the trailing clear
+        the statement's own lowering emits sits inside the `try_block` above,
+        which the error edge leaves before reaching. `_trailing_forgets`
+        records those names while the statement lowers and they are re-emitted
+        HERE, ahead of the error store, so exactly one clear runs per path.
+        Before this the error edge left the claim standing and the frame
+        destroyed at teardown what the callee had already destroyed: a silent
+        double free at exit 0."""
         catch_entry, err_field = self._try_ctx
-        line = getattr(s, 'line', self.func.line)
-        col = getattr(s, 'column', 0)
-        raw = f"__tcland{self._tcland_ctr}"
-        self._tcland_ctr += 1
-        inner = self._lower_inplace(s)
-        landing = Block(statements=[
+        return Block(statements=self._forgets(edge) + [
             self._store_field(err_field,
                               Identifier(name=raw, line=line, column=col),
                               line, col),
@@ -6992,11 +7668,6 @@ class _FrameBuilder:
                             value=_int(catch_entry), line=line, column=col),
             ContinueStatement(line=line, column=col),
         ], final_expr=None, line=line, column=col)
-        self._emit([ExpressionStatement(expression=TryCatchExpr(
-            try_block=Block(statements=inner, final_expr=None,
-                            line=line, column=col),
-            catch_block=landing, error_binding=raw,
-            line=line, column=col), line=line, column=col)])
 
     def _propagating_try_errors(self, s):
         """The error type of every propagating `try` in `s`, deduplicated by
@@ -7073,8 +7744,9 @@ class _FrameBuilder:
             f"its own statement, or handle them with `try <call> catch {{ ... }}`.",
             line=line, column=col)
 
-    def _emit_try_propagate(self, s):
-        """Lower one statement whose propagating `try` leaves the COROUTINE.
+    def _try_propagate_landing(self, wrap, edge, line, col):
+        """The landing of a statement whose propagating `try` leaves the
+        COROUTINE: the catch block of the wrapper `_landed_inplace` builds.
 
         With no enclosing `try { } catch { }`, a failing `try` returns the error
         from the function — and in a state machine "returning" means storing the
@@ -7089,20 +7761,93 @@ class _FrameBuilder:
         `Poll` — which the typechecker caught as an error naming `Poll`, a
         type the author never wrote (DF-196d). So `try` was unusable in a task
         body: `try!` panicked, `try?` dropped the cause, and design 92's whole
-        failable-returns-Result idiom had no concurrent spelling."""
+        failable-returns-Result idiom had no concurrent spelling.
+
+        THE ERROR EDGE RELINQUISHES TOO (SL-339), for the reason the in-block
+        twin gives: the statement's trailing clear is inside the wrapper and
+        this edge leaves before it, so the names `_trailing_forgets` recorded
+        are handed to `_done_seq`, which runs them after the result store. The
+        frame's `release()` follows in that same sequence, and it is what would
+        otherwise destroy a second time the value the callee already took."""
+        return Block(statements=self._done_seq(wrap, edge), final_expr=None,
+                     line=line, column=col)
+
+    def _landing_owed(self, s):
+        """Does statement `s`, lowered in place, take a landing OF ITS OWN?
+
+        A LANDING WRAPS A LEAF (design 275 U3, codex r2 #3). A leaf that
+        carries a propagating `try` does; so does the statement that would
+        have been a leaf before codegen's own try lowering. A CONTAINER lowered
+        in place — a non-spanning `if`, `if let`, `match`, `guard let`'s else,
+        a scoped block, a try/catch's catch — takes one only for its HEAD
+        (`control_heads`), because its nested leaves take their own through
+        `_lower_stmt_list`, each with the clears of ITS moves and no other's.
+        For one revision the whole container was one wrapper whose edge
+        re-emitted every nested trailing clear, so a guarded `try` (a `??`
+        default lowered to an `if let` arm) failing on the path it ran on
+        cleared the frame's claim on a value a sibling path's `move` never
+        touched — a leak where the base dropped it once.
+
+        INSIDE AN IN-PLACE LOOP BODY (`_inplace_loop_depth` > 0) the whole
+        loop keeps its one wrapper and no nested leaf takes its own: the split
+        try/catch landing's `continue` is a jump to the resume DISPATCH loop,
+        and from inside an in-place loop it would reach that loop instead. A
+        `move` of a frame local inside a loop body is the cross-iteration move
+        the typechecker already refuses unless the body reassigns it, so the
+        shape this keeps out of reach is the one that reinitializes per
+        iteration — recorded, not closed.
+        """
+        if not self._has_propagating_try(s):
+            return False
+        if self._inplace_try_depth > 0:
+            # Inside an in-place `try { } catch { }` BODY: the error edge is the
+            # author's catch, which codegen's own try lowering reaches. A
+            # landing here would carry the error OUT of the coroutine past the
+            # catch that was written for it (rows 5 and 7 of the K152 pin, and
+            # the value-position form, all caught this for one revision).
+            return False
+        if self._inplace_loop_depth > 0 or not control_blocks(s):
+            return True
+        heads = [getattr(owner, field) for owner, field in control_heads(s)]
+        ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+        if isinstance(ctrl, TryExpr) and ctrl.catch_block is not None:
+            heads.append(ctrl.expr)          # the inline catch's SUBJECT
+        return any(self._has_propagating_try(h) for h in heads
+                   if isinstance(h, ASTNode))
+
+    def _landed_inplace(self, s):
+        """Lower `s` in place — behind its own error landing when
+        `_landing_owed` says so. THE ONE BUILDER of the one-statement
+        `try { <it> } catch { <landing> }` wrapper (design 196 unit 3), for
+        both landings: `_try_catch_landing` when a split `try { } catch { }`
+        encloses this statement, `_try_propagate_landing` when the error
+        leaves the coroutine. The edge's clears are exactly the names
+        `_trailing_forgets` recorded WHILE THIS STATEMENT lowered — its own
+        `_edge_forgets` accumulator, so a nested leaf's clears (which that
+        leaf's own wrapper owns) never reach an enclosing edge."""
+        if not self._landing_owed(s):
+            return self._lower_inplace(s)
         line = getattr(s, 'line', self.func.line)
         col = getattr(s, 'column', 0)
         raw = f"__tcland{self._tcland_ctr}"
         self._tcland_ctr += 1
-        wrap = self._propagated_err_value(s, raw, line, col)
-        inner = self._lower_inplace(s)
-        landing = Block(statements=self._done_seq(wrap, []), final_expr=None,
-                        line=line, column=col)
-        self._emit([ExpressionStatement(expression=TryCatchExpr(
+        wrap = (self._propagated_err_value(s, raw, line, col)
+                if self._try_ctx is None else None)
+        saved, self._edge_forgets = self._edge_forgets, []
+        try:
+            inner = self._lower_inplace(s)
+            edge = list(self._edge_forgets)
+        finally:
+            self._edge_forgets = saved
+        if self._try_ctx is None:
+            landing = self._try_propagate_landing(wrap, edge, line, col)
+        else:
+            landing = self._try_catch_landing(raw, edge, line, col)
+        return [ExpressionStatement(expression=TryCatchExpr(
             try_block=Block(statements=inner, final_expr=None,
                             line=line, column=col),
             catch_block=landing, error_binding=raw,
-            line=line, column=col), line=line, column=col)])
+            line=line, column=col), line=line, column=col)]
 
     def _emit_blk_call(self, bc):
         """design 103 (A6): lower a blocking-extern call to the offload sequence,
@@ -7622,6 +8367,42 @@ class _FrameBuilder:
     def _forgets(self, names):
         return [self._forget_stmt(n) for n in names]
 
+    def _trailing_forgets(self, names):
+        """THE FUNNEL for a LEAF statement's TRAILING drop-flag clears — the
+        ones emitted AFTER the statement that performed the move, which is
+        where SL-234 put them and where a straight-line edge reaches them.
+
+        It exists because a statement lowered inside a split `try` body has a
+        SECOND edge out of it, and the trailing position is on neither the
+        error edge to the catch state (`_try_catch_landing`) nor the one out of
+        the coroutine (`_try_propagate_landing`). The callee owns the value from
+        the moment the call is made, so the frame's claim has to be given up on
+        both; recording the names here is what lets those two emit the same
+        clears on the edge they own (SL-339 — a silent double free at exit 0
+        before this, the callee's `deinit` plus the frame's at teardown).
+
+        ENTRY POINTS (obligation 1 — a funnel names its entries), every
+        position a leaf statement's clears are emitted from:
+          * `_lower_inplace`'s `DestructuringLet` arm, both returns (the
+            frame-resident rewrite and DF-217o's pass-through)
+          * `_lower_inplace`'s `LetStatement` arm
+          * `_lower_inplace`'s `AssignStatement` arm, both returns (a migrated
+            whole-binding target and the general one)
+          * `_lower_inplace`'s FALLBACK — a plain expression statement
+          * `_done_seq`, which is the `ReturnStatement` arm's trailing position
+            (`return try f(move r)` defers to the try dispatch, so its clears
+            are owed on the error edge like any other leaf's)
+
+        NOT an entry: `_hoist_head_and_relinquish`. A CONTAINER's clear is
+        placed between its head and its blocks rather than trailing the
+        statement, so it is already reached on the head's own success edge and
+        re-running it on an error edge raised from a BLOCK would erase a claim
+        that block re-established — "clearing twice is a no-op" being true of
+        the flag and false of the claim."""
+        if self._edge_forgets is not None:
+            self._edge_forgets.extend(names)
+        return self._forgets(names)
+
     def _hoist_head_and_relinquish(self, head, forgets, at, consuming=False):
         """Bind a container's HEAD to a temp and relinquish the move's frame
         claim right there — between the head's evaluation and the container.
@@ -7834,7 +8615,26 @@ class _FrameBuilder:
                 node.iterable = self._rewrite_expr(node.iterable, forgets)
             elif node.condition is not None:
                 node.condition = self._rewrite_expr(node.condition, forgets)
-            self._lower_block_in_place(node.body)
+            self._inplace_loop_depth += 1
+            try:
+                self._lower_block_in_place(node.body)
+            finally:
+                self._inplace_loop_depth -= 1
+            return node
+        if isinstance(node, TryCatchExpr):
+            # A VALUE-position `try { } catch { }` (`let v = try { … } catch
+            # { … }`), non-spanning. Its blocks are value-carrying exactly as
+            # the generic `Block` arm below would judge them; what this arm
+            # adds is the TRY-BODY fact `_landing_owed` reads — a propagating
+            # `try` in the body lands in the author's catch, so no leaf there
+            # takes a landing of its own (the statement arm in `_lower_inplace`
+            # says the same for the statement form).
+            self._inplace_try_depth += 1
+            try:
+                self._lower_block_in_place(node.try_block, value_used=True)
+            finally:
+                self._inplace_try_depth -= 1
+            self._lower_block_in_place(node.catch_block, value_used=True)
             return node
         if isinstance(node, Block):
             # `value_used=True`: reaching a block through the EXPRESSION
@@ -8296,7 +9096,7 @@ class _FrameBuilder:
     def _lower_stmt_list(self, stmts):
         out = []
         for s in stmts:
-            out.extend(self._lower_inplace(s))
+            out.extend(self._landed_inplace(s))
             out.extend(self._stmt_temp_release(s))   # E-STMT
         return out
 
@@ -8335,7 +9135,7 @@ class _FrameBuilder:
                 s.pattern, getattr(s.value, 'resolved_type', None))]
             if leaf_names and all(n not in self.encmap for n in leaf_names):
                 s.value = value
-                return cap_lets + [s] + self._forgets(forgets)
+                return cap_lets + [s] + self._trailing_forgets(forgets)
             src = f"__destrsrc{self._destr_ctr}"
             self._destr_ctr += 1
             out = list(cap_lets)
@@ -8350,7 +9150,7 @@ class _FrameBuilder:
             out.extend(moves)
             # E-REDEF: a leaf that REPLACED a same-scope binding retires it here.
             out.extend(self._redefinition_release(s))
-            return out + self._forgets(forgets)
+            return out + self._trailing_forgets(forgets)
 
         if isinstance(s, LetStatement):
             forgets = []
@@ -8369,7 +9169,7 @@ class _FrameBuilder:
             # initializer derives from the old value, so the drop cannot precede
             # it. Codegen's `_drop_redefined_same_scope` is the sync twin.
             return (cap_lets + [new] + self._redefinition_release(s)
-                    + self._forgets(forgets))
+                    + self._trailing_forgets(forgets))
 
         if isinstance(s, AssignStatement):
             forgets = []
@@ -8391,9 +9191,9 @@ class _FrameBuilder:
                     and _enc_is_slot(self.encmap.get(s.target.name))):
                 new = self._store_field(s.target.name, s.value,
                                         s.line, s.column)
-                return cap_lets + [new] + self._forgets(forgets)
+                return cap_lets + [new] + self._trailing_forgets(forgets)
             s.target = self._rewrite_assign_target(s.target, forgets)
-            return cap_lets + [s] + self._forgets(forgets)
+            return cap_lets + [s] + self._trailing_forgets(forgets)
 
         # A control-flow expression may appear as a bare statement (a user
         # `while`/`if`/`match`) or wrapped in an ExpressionStatement (driver-
@@ -8454,7 +9254,11 @@ class _FrameBuilder:
             # that `return`s/`break`s leaves before a trailing clear.
             pre, ctrl.iterable = self._hoist_head_and_relinquish(
                 iterable, forgets, s)
-            self._lower_block_in_place(ctrl.body)
+            self._inplace_loop_depth += 1
+            try:
+                self._lower_block_in_place(ctrl.body)
+            finally:
+                self._inplace_loop_depth -= 1
             return cap_lets + pre + [s]
         if isinstance(ctrl, TryCatchExpr):
             # A NON-spanning `try { } catch { }` in STATEMENT position: both
@@ -8465,7 +9269,11 @@ class _FrameBuilder:
             # found, one container over. A SPANNING one is CFG-split long before
             # here (`_splits_try_catch`), and `_lower_block` demotes there.
             forgets = []
-            self._lower_block_in_place(ctrl.try_block)
+            self._inplace_try_depth += 1
+            try:
+                self._lower_block_in_place(ctrl.try_block)
+            finally:
+                self._inplace_try_depth -= 1
             self._lower_block_in_place(ctrl.catch_block)
             return [s] + self._forgets(forgets)
         if isinstance(ctrl, TryExpr) and ctrl.catch_block is not None:
@@ -8534,7 +9342,11 @@ class _FrameBuilder:
                     e.condition = ref
                     if pre:
                         self._head_into_while_body(e, pre, ref)
-                self._lower_block_in_place(body)
+                self._inplace_loop_depth += 1
+                try:
+                    self._lower_block_in_place(body)
+                finally:
+                    self._inplace_loop_depth -= 1
                 return [s]
             if isinstance(e, MatchExpr):
                 forgets = []
@@ -8609,7 +9421,7 @@ class _FrameBuilder:
         # statement burying an early exit beside a `move`. The rule now serves
         # the two LEAF arms above as well — see `_refuse_buried_early_exit`.
         self._refuse_buried_early_exit(s, ns, forgets, "a statement")
-        return cap_lets + [ns] + self._forgets(forgets)
+        return cap_lets + [ns] + self._trailing_forgets(forgets)
 
     def _store_result(self, value):
         """The write of this frame's result — the one place a value crosses
@@ -8698,6 +9510,14 @@ class _FrameBuilder:
         about."""
         names = self._block_scope_names(block)
         self._push_scope(names)
+        # design 275 U3 (codex r2 #3): at loop depth 0 a nested leaf's clears
+        # belong to ITS landing (`_landed_inplace`), so the enclosing
+        # statement's edge accumulator is closed while the block lowers — the
+        # container's own edge keeps exactly its head's clears. Inside an
+        # in-place loop the loop's one wrapper still collects everything.
+        saved = self._edge_forgets
+        if self._inplace_loop_depth == 0:
+            self._edge_forgets = None
         try:
             self._lower_block_body_in_place(block, value_used)
             if (names and block.final_expr is None
@@ -8705,6 +9525,7 @@ class _FrameBuilder:
                 block.statements = (block.statements
                                     + self._scope_release_seq(names))   # E-FALL
         finally:
+            self._edge_forgets = saved
             self._pop_scope()
 
     def _lower_block_body_in_place(self, block, value_used=False):
@@ -8801,7 +9622,7 @@ class _FrameBuilder:
             seq.append(ExpressionStatement(expression=value))
         elif value is not None:
             seq.append(self._store_result(value))
-        seq.extend(self._forgets(forgets))
+        seq.extend(self._trailing_forgets(forgets))
         # E-RET (design 218b): every open scope releases here, innermost first,
         # AFTER the result store (so a `return move local` still has its value
         # to hand back) and AHEAD of `release()`. `release()` survives as the

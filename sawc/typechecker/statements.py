@@ -26,6 +26,7 @@ from ast_nodes import (
 )
 from ast_walk import pattern_binding_sites
 from errors import ErrorKind
+from windows import WindowTable
 
 
 def _statement_diverges(stmt) -> bool:
@@ -257,6 +258,10 @@ class StatementsMixin:
         # method body is checked with none of its caller's open.
         saved_borrows, saved_pending = self._task_borrows, self._pending_task_borrows
         self._task_borrows, self._pending_task_borrows = [], []
+        # And so are statement windows (design 275 U3): a window's extent is a
+        # statement in ONE body.
+        saved_windows = getattr(self, '_windows', None)
+        self._windows = WindowTable()
         # design 242 ruling 5: must-consume handles are function-local too — the
         # v1 fence is that a handle never leaves the function unconsumed.
         saved_obligations = self._spawn_obligations
@@ -518,10 +523,17 @@ class StatementsMixin:
             method, method.type_params, "method",
             f"{struct_name}.{method.name}" if struct_name else method.name,
             method.visibility == Visibility.PUBLIC, method.line, method.column)
+        # design 275 U3: the ORIGIN rules of a `borrows -> S` producer, and the
+        # recording of `borrow_origin`. After the body, so `lends self` has
+        # reported its own refusals first and this adds only what the body as a
+        # whole owes. Still inside the scope, because the receiver binding is
+        # what says `Self`.
+        self.check_borrowing_producer(method)
         self._effect_exit()
         self.current_method = None
         self.moved_bindings = saved_moves
         self._task_borrows, self._pending_task_borrows = saved_borrows, saved_pending
+        self._windows = saved_windows
         self._spawn_obligations = saved_obligations
         self._pending_spawn_obligation = saved_pending_obligation
         self.current_type_params = prev_method_type_params
@@ -1176,6 +1188,9 @@ class StatementsMixin:
         # Task-capture borrows are function-local for the same reason (189).
         saved_borrows, saved_pending = self._task_borrows, self._pending_task_borrows
         self._task_borrows, self._pending_task_borrows = [], []
+        # Statement windows too (design 275 U3).
+        saved_windows = getattr(self, '_windows', None)
+        self._windows = WindowTable()
         # And so are design 242's must-consume handles (ruling 5's v1 fence).
         saved_obligations = self._spawn_obligations
         saved_pending_obligation = self._pending_spawn_obligation
@@ -1330,6 +1345,7 @@ class StatementsMixin:
         self.current_function = None
         self.moved_bindings = saved_moves
         self._task_borrows, self._pending_task_borrows = saved_borrows, saved_pending
+        self._windows = saved_windows
         self._spawn_obligations = saved_obligations
         self._pending_spawn_obligation = saved_pending_obligation
         self._exit_unsafe_scope(func, saved_unsafe_contact, "function", func.name)
@@ -2029,6 +2045,22 @@ class StatementsMixin:
             var_type = resolved_type
         else:
             var_type = value_type
+
+        # design 275 U3: a `let`/`var` may not BIND the receiver of a borrowing
+        # struct's own method (`let t = self`). The value fence exempts the
+        # bare receiver read (exception e3 — `self` as a receiver, a scrutinee,
+        # an operand), and a binding is the one consumer of that read that
+        # STORES it, so it is asked here; any other initializer of this type
+        # was refused at the expression already (codex r1 #2's sweep).
+        if (var_type is not None and self._is_receiver_read(stmt.value)
+                and not getattr(self, 'exempt_statement_window', False)):
+            found = self._first_borrowing_struct_in(var_type)
+            if found is not None:
+                self.reject_borrowing_value(
+                    found, 'other', stmt.value,
+                    extra=f" — here `self` is bound to the local `{stmt.name}`, "
+                          f"which packages the receiver for use past the "
+                          f"call; reach through `self` where it is needed")
 
         # Value-transfer checkpoint: enforce NoCopy move-discipline and mark
         # Copy sites for codegen (replaces the old inline NoCopy check).
@@ -2925,22 +2957,28 @@ class StatementsMixin:
         return True
 
     def _check_task_borrow_write(self, target, line: int, column: int) -> None:
-        """Refuse a write whose root a spawned task is borrowing (design 189).
+        """Refuse a write whose root an EXTENT is borrowing — a spawned task's
+        (design 189) or an open statement window's (design 275 U3).
 
         The root is what a capture charges, so `p.field = v` and `v[i] = x`
         collide with a borrow of `p`/`v` exactly as a whole-binding write does —
         the same "a place borrow charges its ROOT" rule design 146 wrote for
-        windows, read over the task's extent.
+        windows, read over the extent. Both extents are asked here because a
+        write has ONE target and the two answers are the same question over
+        different lifetimes; this is the WRITE entry of both funnels.
         """
-        if not self._task_borrows:
-            return
         path = self._build_access_path(target)
         if path is None:
             return
-        borrow = self._task_borrow_for_name(path[0], writes=True)
-        if borrow is not None:
-            self._report_task_borrow(borrow, 'write', line, column,
-                                     root=path[0])
+        if self._task_borrows:
+            borrow = self._task_borrow_for_name(path[0], writes=True)
+            if borrow is not None:
+                self._report_task_borrow(borrow, 'write', line, column,
+                                         root=path[0])
+        # design 275 U3, access site 4: a WRITE whose root a statement window
+        # borrows — `v = other` (a whole-referent replacement, which (ii)
+        # forbids for the window's extent), `v[i] = x`, `v.field = x`.
+        self.check_window_access(path, True, 'write', line, column)
 
     def _check_write_target(self, target, line: int, column: int, *,
                             compound: bool = False, value=None,
@@ -2961,6 +2999,10 @@ class StatementsMixin:
           2. a by-value closure capture (design 132 unit A);
           3. storage reached through a `&self` receiver (DF-175a);
           4. a root a spawned task is borrowing (design 189);
+          3b. storage reached through a SHARED REFERENCE FIELD of a
+             `borrows struct` (design 275 U3 — `borrowing.py`'s
+             `shared_reference_field_hop`, the one walk every write-through
+             entry asks);
           5. the Law of Exclusivity against the right-hand side (design 193
              unit 4) — compound is the sharper half, since it READS the target
              as well as writing it;
@@ -3000,6 +3042,15 @@ class StatementsMixin:
                                           compound=compound):
             return True
 
+        # 3b (design 275 U3, codex r1 #10): storage reached THROUGH a shared
+        # reference FIELD of a `borrows struct`. Question 3 asks the receiver's
+        # mode and question 6 the root binding's, and a hop through `&T` field
+        # answers neither — the field has no binding — so it is asked by name.
+        if self.reject_shared_reference_field_write(
+                target, "use compound assignment" if compound else "assign",
+                line, column):
+            return True
+
         # Asked before the target's subexpressions are checked so the diagnostic
         # names the WRITE rather than the read of the path it walks through.
         self._check_task_borrow_write(target, line, column)
@@ -3014,7 +3065,7 @@ class StatementsMixin:
             return True
         return False
 
-    def _immutable_receiver_root(self, receiver):
+    def _immutable_receiver_root(self, receiver, what: str = "write"):
         """The immutable root a RECEIVER is reached through, by name, or None.
 
         The mutation-through-a-receiver half of `_immutable_lvalue_root`: a
@@ -3023,7 +3074,16 @@ class StatementsMixin:
         write target asks. Reaching one through an inline `[T; N]` element
         (`h.cells[0].bump()`) went unchecked while the write spelling of the
         same mutation was refused — the receiver side of DF-225j.
+
+        A receiver reached THROUGH a shared reference FIELD of a `borrows
+        struct` (design 275 U3, codex r1 #10) is refused HERE, with the
+        field's own sentence, and None is returned so the caller adds no
+        second one: `what` is the caller's verb phrase for the message.
         """
+        if self.reject_shared_reference_field_write(
+                receiver, what, getattr(receiver, 'line', 0),
+                getattr(receiver, 'column', 0)):
+            return None
         root = self._immutable_lvalue_root(receiver)
         return root[0] if root is not None else None
 
@@ -3946,8 +4006,12 @@ class StatementsMixin:
     def _check_for_loop(self, stmt: ForLoop):
         """Check a for loop statement."""
         from .core import VariableInfo, Scope
-        # Check the iterable expression
-        iterable_type = self._check_expression(stmt.iterable)
+        # Check the iterable expression. design 275 U3: this NODE is the one
+        # position a borrowing struct's value may appear in, so it is named to
+        # the fence before it is checked — the fence itself lives at the
+        # expression-type chokepoint and knows nothing about loops.
+        with self._window_head(stmt.iterable):
+            iterable_type = self._check_expression(stmt.iterable)
 
         # Determine the loop variable type based on the iterable
         loop_var_type: Optional[SawType] = None
@@ -3956,6 +4020,22 @@ class StatementsMixin:
             # Range expression - loop variable is Int
             loop_var_type = SawType(TypeKind.INT)
         else:
+            # THE HEAD IS A TRANSFER (design 275 U3, codex r1 #5): the loop
+            # takes OWNERSHIP of its iterator — it is stored in the loop's own
+            # slot, driven by `&var self` calls, and destroyed at the close — so
+            # the head goes through the ordinary value-transfer checkpoint like
+            # any other value acquiring a new owner (`_check_value_transfer`
+            # entry 20). A NAMED NoCopy iterator needs `move it` (the bare read
+            # is the ordinary "cannot copy … NoCopy" with the move hint), a
+            # Copy-tier binding is marked to retain so the binding stays usable
+            # after the loop, and a temporary — every `borrows` producer's
+            # result included — owes nothing. For one revision the sync lowering
+            # claimed cleanup ownership of whatever the head loaded, so a
+            # NoCopy `for n in it` compiled and the one value was destroyed
+            # twice; the driven lowering's `let __saw_iter = it` was the same
+            # bare read.
+            self._check_value_transfer(stmt.iterable, iterable_type,
+                                       "`for` head", stmt.line, stmt.column)
             # Check if the type implements Iterator interface
             loop_var_type = self._get_iterator_item_type(iterable_type, stmt.line, stmt.column)
             if loop_var_type is None:
@@ -3965,6 +4045,10 @@ class StatementsMixin:
         # retained element yielded by a custom iterator) must be released at the
         # end of each iteration unless it was moved out (design 65).
         stmt.element_type = loop_var_type
+
+        # design 275 U3: the ForLoop ADAPTER to the statement-window chokepoint.
+        # Opens nothing for a range loop or an owned iterator (B4).
+        _window = self.open_for_window(stmt, iterable_type)
 
         # Create new scope for loop body with loop variable
         old_scope = self.current_scope
@@ -3992,6 +4076,7 @@ class StatementsMixin:
         self.loop_depth += 1
         self._check_loop_body(stmt.body, old_scope)
         self.loop_depth -= 1
+        self.close_for_window(_window)
 
         # Restore scope
         self.current_scope = old_scope
@@ -3999,8 +4084,9 @@ class StatementsMixin:
     def _check_for_loop_as_expression(self, expr: ForLoop) -> Optional[SawType]:
         """Check a for loop expression and return its type (Optional<T> from break values)."""
         from .core import VariableInfo, Scope
-        # Check the iterable expression
-        iterable_type = self._check_expression(expr.iterable)
+        # Check the iterable expression (see `_check_for_loop` for the head mark)
+        with self._window_head(expr.iterable):
+            iterable_type = self._check_expression(expr.iterable)
 
         # Determine the loop variable type based on the iterable
         loop_var_type: Optional[SawType] = None
@@ -4009,6 +4095,15 @@ class StatementsMixin:
             # Range expression - loop variable is Int
             loop_var_type = SawType(TypeKind.INT)
         else:
+            # THE HEAD IS A TRANSFER in the value form exactly as in the
+            # statement form (design 275 U3, codex r2 #2): both acquire an
+            # owner for the iterator through the same codegen routine, so both
+            # ask the checkpoint (entry 20). For one revision only
+            # `_check_for_loop` asked, and a NoCopy head in
+            # `let got = for n in it { break n }` — a wholly sync loop — was
+            # destroyed twice.
+            self._check_value_transfer(expr.iterable, iterable_type,
+                                       "`for` head", expr.line, expr.column)
             # Check if the type implements Iterator interface
             loop_var_type = self._get_iterator_item_type(iterable_type, expr.line, expr.column)
             if loop_var_type is None:
@@ -4017,6 +4112,10 @@ class StatementsMixin:
         # Stash for codegen (design 65): release an owning loop variable per
         # iteration unless it is moved out.
         expr.element_type = loop_var_type
+
+        # design 275 U3: the same ForLoop adapter, from the expression-position
+        # checker — one window per `for`, whichever of the two checks it.
+        _window = self.open_for_window(expr, iterable_type)
 
         # For loops are always conditional (have a finite range), so return Optional<T>
         # Push loop info onto stack: (break_type, is_infinite=False, has_break)
@@ -4043,6 +4142,7 @@ class StatementsMixin:
         self.loop_depth += 1
         self._check_loop_body(expr.body, old_scope)
         self.loop_depth -= 1
+        self.close_for_window(_window)
 
         # Restore scope
         self.current_scope = old_scope

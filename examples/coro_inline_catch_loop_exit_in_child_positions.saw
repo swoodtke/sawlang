@@ -1,0 +1,4126 @@
+// SL-215 / design 275 U3 (codex r3 #1): an inline `try EXPR catch { … }` is
+// normalized into the block form AT EVERY CHILD POSITION — the loop-exit
+// regression beside K147's direct rows.
+//
+// K147 pins the inline catch where a statement holds it DIRECTLY and its
+// subject suspends. This file is the same catch one wrapper down, with a SYNC
+// subject: the enclosing loop spans a suspension (`yield_now()` beside the
+// statement), the catch carries a `break`/`continue` for that loop, or a
+// suspending call of its own, and the wrapper is every position the
+// child-position funnel (`ast_walk.map_nodes`) names — a call argument
+// (positional and labeled), a method-call argument, a receiver (field and
+// method), a struct-literal field, a map-literal key and value, a tuple
+// element, an array and a `Vector` literal element, an index, the place under a
+// `&` argument, an interpolation operand, a `return` value, a `??` / `&&` / `||`
+// operand, a nested inline catch inside a catch — plus the direct spelling as
+// the control, and a value `if`/`match` arm that jumps, which is the same
+// mechanism one construct over. Each cell is a `while` and a collection `for`,
+// each with `break` and `continue`; the suspending catch is the `while` cell.
+//
+// TWO walks were the mechanism. `_inline_catch_rewrite` hand-rolled its visit
+// and stopped at anything not an `ASTNode` — `Argument` is a plain dataclass,
+// a struct-literal field and a map entry are TUPLES — so an inline catch inside
+// `id(…)`, `Pair(a: …)`, `{k: …}` or `read(&a[…])` was never normalized, and a
+// suspending call in its catch took the "pending SL-215" refusal. It rides
+// `ast_walk.map_nodes` now. And the VALUE-CONDITIONAL lowering asked only
+// "spans a suspension" of a leaf statement's conditional, so the normalized
+// `try { } catch { break }` (and a value `if`/`match` whose arm jumps) sitting
+// in a `let`, an argument or any other leaf position inside a spanning loop
+// lowered IN PLACE with a raw jump: the `break` left the resume dispatcher and
+// the driver re-entered it forever, the `continue` spun, and the code after the
+// loop never ran — at every wrapper, exit 0 or a hang. `_vc_spans` asks the
+// loop-exit clause too (`_has_loop_ctrl` under the loop that owns the jump), so
+// the conditional takes the branch shape and the split routes the jump.
+//
+// THE ORACLE IS THE SYNC TWIN for every cell: `+ 100` after the loop is what a
+// lost `break` skipped, and the cell values differ by kind (a `break` at the
+// failing element, a `continue` past it, a suspending catch supplying its own
+// value) so a jump that went to the wrong place reads as the wrong number.
+//
+// This body is a generated matrix: every cell is the same loop around one
+// wrapper, and the sync twin is the driven cell minus the `yield_now()`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// direct_break_while sync 101 driven 101
+// direct_break_for sync 101 driven 101
+// direct_continue_while sync 104 driven 104
+// direct_continue_for sync 104 driven 104
+// direct_suspend_while sync 107 driven 107
+// call_arg_break_while sync 101 driven 101
+// call_arg_break_for sync 101 driven 101
+// call_arg_continue_while sync 104 driven 104
+// call_arg_continue_for sync 104 driven 104
+// call_arg_suspend_while sync 107 driven 107
+// call_arg_labeled_break_while sync 101 driven 101
+// call_arg_labeled_break_for sync 101 driven 101
+// call_arg_labeled_continue_while sync 104 driven 104
+// call_arg_labeled_continue_for sync 104 driven 104
+// call_arg_labeled_suspend_while sync 107 driven 107
+// method_arg_break_while sync 101 driven 101
+// method_arg_break_for sync 101 driven 101
+// method_arg_continue_while sync 104 driven 104
+// method_arg_continue_for sync 104 driven 104
+// method_arg_suspend_while sync 107 driven 107
+// receiver_break_while sync 101 driven 101
+// receiver_break_for sync 101 driven 101
+// receiver_continue_while sync 104 driven 104
+// receiver_continue_for sync 104 driven 104
+// receiver_suspend_while sync 107 driven 107
+// receiver_method_break_while sync 101 driven 101
+// receiver_method_break_for sync 101 driven 101
+// receiver_method_continue_while sync 104 driven 104
+// receiver_method_continue_for sync 104 driven 104
+// receiver_method_suspend_while sync 107 driven 107
+// struct_field_break_while sync 101 driven 101
+// struct_field_break_for sync 101 driven 101
+// struct_field_continue_while sync 104 driven 104
+// struct_field_continue_for sync 104 driven 104
+// struct_field_suspend_while sync 107 driven 107
+// map_key_break_while sync 101 driven 101
+// map_key_break_for sync 101 driven 101
+// map_key_continue_while sync 104 driven 104
+// map_key_continue_for sync 104 driven 104
+// map_key_suspend_while sync 104 driven 104
+// map_value_break_while sync 101 driven 101
+// map_value_break_for sync 101 driven 101
+// map_value_continue_while sync 104 driven 104
+// map_value_continue_for sync 104 driven 104
+// map_value_suspend_while sync 107 driven 107
+// tuple_elem_break_while sync 101 driven 101
+// tuple_elem_break_for sync 101 driven 101
+// tuple_elem_continue_while sync 104 driven 104
+// tuple_elem_continue_for sync 104 driven 104
+// tuple_elem_suspend_while sync 107 driven 107
+// array_elem_break_while sync 101 driven 101
+// array_elem_break_for sync 101 driven 101
+// array_elem_continue_while sync 104 driven 104
+// array_elem_continue_for sync 104 driven 104
+// array_elem_suspend_while sync 107 driven 107
+// vector_elem_break_while sync 101 driven 101
+// vector_elem_break_for sync 101 driven 101
+// vector_elem_continue_while sync 104 driven 104
+// vector_elem_continue_for sync 104 driven 104
+// vector_elem_suspend_while sync 107 driven 107
+// index_break_while sync 101 driven 101
+// index_break_for sync 101 driven 101
+// index_continue_while sync 104 driven 104
+// index_continue_for sync 104 driven 104
+// index_suspend_while sync 107 driven 107
+// ref_place_break_while sync 101 driven 101
+// ref_place_break_for sync 101 driven 101
+// ref_place_continue_while sync 104 driven 104
+// ref_place_continue_for sync 104 driven 104
+// ref_place_suspend_while sync 107 driven 107
+// interpolation_break_while sync 101 driven 101
+// interpolation_break_for sync 101 driven 101
+// interpolation_continue_while sync 104 driven 104
+// interpolation_continue_for sync 104 driven 104
+// interpolation_suspend_while sync 107 driven 107
+// return_value_break_while sync 101 driven 101
+// return_value_break_for sync 101 driven 101
+// return_value_continue_while sync 3 driven 3
+// return_value_continue_for sync 3 driven 3
+// return_value_suspend_while sync 3 driven 3
+// coalesce_break_while sync 101 driven 101
+// coalesce_break_for sync 101 driven 101
+// coalesce_continue_while sync 104 driven 104
+// coalesce_continue_for sync 104 driven 104
+// coalesce_suspend_while sync 107 driven 107
+// and_operand_break_while sync 101 driven 101
+// and_operand_break_for sync 101 driven 101
+// and_operand_continue_while sync 104 driven 104
+// and_operand_continue_for sync 104 driven 104
+// and_operand_suspend_while sync 106 driven 106
+// or_operand_break_while sync 101 driven 101
+// or_operand_break_for sync 101 driven 101
+// or_operand_continue_while sync 104 driven 104
+// or_operand_continue_for sync 104 driven 104
+// or_operand_suspend_while sync 106 driven 106
+// nested_catch_break_while sync 101 driven 101
+// nested_catch_break_for sync 101 driven 101
+// nested_catch_continue_while sync 104 driven 104
+// nested_catch_continue_for sync 104 driven 104
+// nested_catch_suspend_while sync 107 driven 107
+// value_if_let_break_while sync 101 driven 101
+// value_if_let_break_for sync 101 driven 101
+// value_if_let_continue_while sync 104 driven 104
+// value_if_let_continue_for sync 104 driven 104
+// value_if_let_suspend_while sync 107 driven 107
+// value_if_arg_break_while sync 101 driven 101
+// value_if_arg_break_for sync 101 driven 101
+// value_if_arg_continue_while sync 104 driven 104
+// value_if_arg_continue_for sync 104 driven 104
+// value_if_arg_suspend_while sync 107 driven 107
+// value_match_arg_break_while sync 101 driven 101
+// value_match_arg_break_for sync 101 driven 101
+// value_match_arg_continue_while sync 104 driven 104
+// value_match_arg_continue_for sync 104 driven 104
+// value_match_arg_suspend_while sync 107 driven 107
+
+import std.task.{yield_now}
+
+struct Bad { n: Int }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+struct Pair { a: Int, b: Int }
+struct Bag { n: Int }
+extension Bag {
+    func add(&self, x: Int) sync -> Int { self.n + x }
+}
+
+func fail(x: Int) sync -> Result<Int, Bad> { if x == 2 { return Bad(n: x) }  x }
+func failb(x: Int) sync -> Result<Bool, Bad> { if x == 2 { return Bad(n: x) }  true }
+func failbag(x: Int) sync -> Result<Bag, Bad> { if x == 2 { return Bad(n: x) }  Bag(n: x) }
+func id(n: Int) sync -> Int { n }
+func idl(n: Int) sync -> Int { n }
+func read(p: &Int) sync -> Int { p }
+func respond() { yield_now() }
+
+func direct_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = try fail(x) catch { break }
+        total = total + n
+    }
+    total + 100
+}
+
+func direct_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = try fail(x) catch { break }
+        total = total + n
+    }
+    total + 100
+}
+
+func direct_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = try fail(x) catch { break }
+        total = total + n
+    }
+    total + 100
+}
+
+func direct_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = try fail(x) catch { break }
+        total = total + n
+    }
+    total + 100
+}
+
+func direct_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = try fail(x) catch { continue }
+        total = total + n
+    }
+    total + 100
+}
+
+func direct_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = try fail(x) catch { continue }
+        total = total + n
+    }
+    total + 100
+}
+
+func direct_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = try fail(x) catch { continue }
+        total = total + n
+    }
+    total + 100
+}
+
+func direct_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = try fail(x) catch { continue }
+        total = total + n
+    }
+    total + 100
+}
+
+func direct_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = try fail(x) catch { 3 }
+        total = total + n
+    }
+    total + 100
+}
+
+func direct_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = try fail(x) catch { respond()  3 }
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = id(try fail(x) catch { break })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = id(try fail(x) catch { break })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = id(try fail(x) catch { break })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = id(try fail(x) catch { break })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = id(try fail(x) catch { continue })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = id(try fail(x) catch { continue })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = id(try fail(x) catch { continue })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = id(try fail(x) catch { continue })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = id(try fail(x) catch { 3 })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = id(try fail(x) catch { respond()  3 })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_labeled_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = idl(n: try fail(x) catch { break })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_labeled_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = idl(n: try fail(x) catch { break })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_labeled_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = idl(n: try fail(x) catch { break })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_labeled_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = idl(n: try fail(x) catch { break })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_labeled_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = idl(n: try fail(x) catch { continue })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_labeled_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = idl(n: try fail(x) catch { continue })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_labeled_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = idl(n: try fail(x) catch { continue })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_labeled_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = idl(n: try fail(x) catch { continue })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_labeled_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = idl(n: try fail(x) catch { 3 })
+        total = total + n
+    }
+    total + 100
+}
+
+func call_arg_labeled_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = idl(n: try fail(x) catch { respond()  3 })
+        total = total + n
+    }
+    total + 100
+}
+
+func method_arg_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = bag.add(try fail(x) catch { break })
+        total = total + n
+    }
+    total + 100
+}
+
+func method_arg_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = bag.add(try fail(x) catch { break })
+        total = total + n
+    }
+    total + 100
+}
+
+func method_arg_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = bag.add(try fail(x) catch { break })
+        total = total + n
+    }
+    total + 100
+}
+
+func method_arg_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = bag.add(try fail(x) catch { break })
+        total = total + n
+    }
+    total + 100
+}
+
+func method_arg_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = bag.add(try fail(x) catch { continue })
+        total = total + n
+    }
+    total + 100
+}
+
+func method_arg_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = bag.add(try fail(x) catch { continue })
+        total = total + n
+    }
+    total + 100
+}
+
+func method_arg_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = bag.add(try fail(x) catch { continue })
+        total = total + n
+    }
+    total + 100
+}
+
+func method_arg_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = bag.add(try fail(x) catch { continue })
+        total = total + n
+    }
+    total + 100
+}
+
+func method_arg_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = bag.add(try fail(x) catch { 3 })
+        total = total + n
+    }
+    total + 100
+}
+
+func method_arg_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = bag.add(try fail(x) catch { respond()  3 })
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = (try failbag(x) catch { break }).n
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = (try failbag(x) catch { break }).n
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = (try failbag(x) catch { break }).n
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = (try failbag(x) catch { break }).n
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = (try failbag(x) catch { continue }).n
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = (try failbag(x) catch { continue }).n
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = (try failbag(x) catch { continue }).n
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = (try failbag(x) catch { continue }).n
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = (try failbag(x) catch { Bag(n: 3) }).n
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = (try failbag(x) catch { respond()  Bag(n: 3) }).n
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_method_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = (try failbag(x) catch { break }).add(0)
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_method_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = (try failbag(x) catch { break }).add(0)
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_method_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = (try failbag(x) catch { break }).add(0)
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_method_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = (try failbag(x) catch { break }).add(0)
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_method_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = (try failbag(x) catch { continue }).add(0)
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_method_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = (try failbag(x) catch { continue }).add(0)
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_method_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = (try failbag(x) catch { continue }).add(0)
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_method_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = (try failbag(x) catch { continue }).add(0)
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_method_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = (try failbag(x) catch { Bag(n: 3) }).add(0)
+        total = total + n
+    }
+    total + 100
+}
+
+func receiver_method_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = (try failbag(x) catch { respond()  Bag(n: 3) }).add(0)
+        total = total + n
+    }
+    total + 100
+}
+
+func struct_field_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = Pair(a: try fail(x) catch { break }, b: 1).a
+        total = total + n
+    }
+    total + 100
+}
+
+func struct_field_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = Pair(a: try fail(x) catch { break }, b: 1).a
+        total = total + n
+    }
+    total + 100
+}
+
+func struct_field_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = Pair(a: try fail(x) catch { break }, b: 1).a
+        total = total + n
+    }
+    total + 100
+}
+
+func struct_field_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = Pair(a: try fail(x) catch { break }, b: 1).a
+        total = total + n
+    }
+    total + 100
+}
+
+func struct_field_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = Pair(a: try fail(x) catch { continue }, b: 1).a
+        total = total + n
+    }
+    total + 100
+}
+
+func struct_field_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = Pair(a: try fail(x) catch { continue }, b: 1).a
+        total = total + n
+    }
+    total + 100
+}
+
+func struct_field_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = Pair(a: try fail(x) catch { continue }, b: 1).a
+        total = total + n
+    }
+    total + 100
+}
+
+func struct_field_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = Pair(a: try fail(x) catch { continue }, b: 1).a
+        total = total + n
+    }
+    total + 100
+}
+
+func struct_field_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = Pair(a: try fail(x) catch { 3 }, b: 1).a
+        total = total + n
+    }
+    total + 100
+}
+
+func struct_field_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = Pair(a: try fail(x) catch { respond()  3 }, b: 1).a
+        total = total + n
+    }
+    total + 100
+}
+
+func map_key_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let m: Map<Int, Int> = {try fail(x) catch { break }: x}
+        let n = m.get(x) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_key_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let m: Map<Int, Int> = {try fail(x) catch { break }: x}
+        let n = m.get(x) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_key_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let m: Map<Int, Int> = {try fail(x) catch { break }: x}
+        let n = m.get(x) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_key_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let m: Map<Int, Int> = {try fail(x) catch { break }: x}
+        let n = m.get(x) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_key_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let m: Map<Int, Int> = {try fail(x) catch { continue }: x}
+        let n = m.get(x) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_key_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let m: Map<Int, Int> = {try fail(x) catch { continue }: x}
+        let n = m.get(x) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_key_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let m: Map<Int, Int> = {try fail(x) catch { continue }: x}
+        let n = m.get(x) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_key_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let m: Map<Int, Int> = {try fail(x) catch { continue }: x}
+        let n = m.get(x) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_key_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let m: Map<Int, Int> = {try fail(x) catch { 3 }: x}
+        let n = m.get(x) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_key_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let m: Map<Int, Int> = {try fail(x) catch { respond()  3 }: x}
+        let n = m.get(x) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_value_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let m: Map<Int, Int> = {1: try fail(x) catch { break }}
+        let n = m.get(1) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_value_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let m: Map<Int, Int> = {1: try fail(x) catch { break }}
+        let n = m.get(1) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_value_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let m: Map<Int, Int> = {1: try fail(x) catch { break }}
+        let n = m.get(1) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_value_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let m: Map<Int, Int> = {1: try fail(x) catch { break }}
+        let n = m.get(1) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_value_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let m: Map<Int, Int> = {1: try fail(x) catch { continue }}
+        let n = m.get(1) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_value_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let m: Map<Int, Int> = {1: try fail(x) catch { continue }}
+        let n = m.get(1) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_value_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let m: Map<Int, Int> = {1: try fail(x) catch { continue }}
+        let n = m.get(1) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_value_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let m: Map<Int, Int> = {1: try fail(x) catch { continue }}
+        let n = m.get(1) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_value_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let m: Map<Int, Int> = {1: try fail(x) catch { 3 }}
+        let n = m.get(1) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func map_value_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let m: Map<Int, Int> = {1: try fail(x) catch { respond()  3 }}
+        let n = m.get(1) ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func tuple_elem_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let t = (try fail(x) catch { break }, 1)
+        let n = t.0
+        total = total + n
+    }
+    total + 100
+}
+
+func tuple_elem_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let t = (try fail(x) catch { break }, 1)
+        let n = t.0
+        total = total + n
+    }
+    total + 100
+}
+
+func tuple_elem_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let t = (try fail(x) catch { break }, 1)
+        let n = t.0
+        total = total + n
+    }
+    total + 100
+}
+
+func tuple_elem_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let t = (try fail(x) catch { break }, 1)
+        let n = t.0
+        total = total + n
+    }
+    total + 100
+}
+
+func tuple_elem_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let t = (try fail(x) catch { continue }, 1)
+        let n = t.0
+        total = total + n
+    }
+    total + 100
+}
+
+func tuple_elem_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let t = (try fail(x) catch { continue }, 1)
+        let n = t.0
+        total = total + n
+    }
+    total + 100
+}
+
+func tuple_elem_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let t = (try fail(x) catch { continue }, 1)
+        let n = t.0
+        total = total + n
+    }
+    total + 100
+}
+
+func tuple_elem_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let t = (try fail(x) catch { continue }, 1)
+        let n = t.0
+        total = total + n
+    }
+    total + 100
+}
+
+func tuple_elem_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let t = (try fail(x) catch { 3 }, 1)
+        let n = t.0
+        total = total + n
+    }
+    total + 100
+}
+
+func tuple_elem_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let t = (try fail(x) catch { respond()  3 }, 1)
+        let n = t.0
+        total = total + n
+    }
+    total + 100
+}
+
+func array_elem_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let a = [try fail(x) catch { break }, 1]
+        let n = a[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func array_elem_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let a = [try fail(x) catch { break }, 1]
+        let n = a[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func array_elem_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let a = [try fail(x) catch { break }, 1]
+        let n = a[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func array_elem_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let a = [try fail(x) catch { break }, 1]
+        let n = a[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func array_elem_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let a = [try fail(x) catch { continue }, 1]
+        let n = a[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func array_elem_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let a = [try fail(x) catch { continue }, 1]
+        let n = a[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func array_elem_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let a = [try fail(x) catch { continue }, 1]
+        let n = a[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func array_elem_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let a = [try fail(x) catch { continue }, 1]
+        let n = a[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func array_elem_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let a = [try fail(x) catch { 3 }, 1]
+        let n = a[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func array_elem_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let a = [try fail(x) catch { respond()  3 }, 1]
+        let n = a[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func vector_elem_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let v2: Vector<Int> = [try fail(x) catch { break }]
+        let n = v2[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func vector_elem_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let v2: Vector<Int> = [try fail(x) catch { break }]
+        let n = v2[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func vector_elem_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let v2: Vector<Int> = [try fail(x) catch { break }]
+        let n = v2[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func vector_elem_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let v2: Vector<Int> = [try fail(x) catch { break }]
+        let n = v2[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func vector_elem_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let v2: Vector<Int> = [try fail(x) catch { continue }]
+        let n = v2[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func vector_elem_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let v2: Vector<Int> = [try fail(x) catch { continue }]
+        let n = v2[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func vector_elem_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let v2: Vector<Int> = [try fail(x) catch { continue }]
+        let n = v2[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func vector_elem_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let v2: Vector<Int> = [try fail(x) catch { continue }]
+        let n = v2[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func vector_elem_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let v2: Vector<Int> = [try fail(x) catch { 3 }]
+        let n = v2[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func vector_elem_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let v2: Vector<Int> = [try fail(x) catch { respond()  3 }]
+        let n = v2[0]
+        total = total + n
+    }
+    total + 100
+}
+
+func index_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = table[try fail(x) catch { break }]
+        total = total + n
+    }
+    total + 100
+}
+
+func index_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = table[try fail(x) catch { break }]
+        total = total + n
+    }
+    total + 100
+}
+
+func index_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = table[try fail(x) catch { break }]
+        total = total + n
+    }
+    total + 100
+}
+
+func index_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = table[try fail(x) catch { break }]
+        total = total + n
+    }
+    total + 100
+}
+
+func index_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = table[try fail(x) catch { continue }]
+        total = total + n
+    }
+    total + 100
+}
+
+func index_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = table[try fail(x) catch { continue }]
+        total = total + n
+    }
+    total + 100
+}
+
+func index_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = table[try fail(x) catch { continue }]
+        total = total + n
+    }
+    total + 100
+}
+
+func index_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = table[try fail(x) catch { continue }]
+        total = total + n
+    }
+    total + 100
+}
+
+func index_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = table[try fail(x) catch { 3 }]
+        total = total + n
+    }
+    total + 100
+}
+
+func index_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = table[try fail(x) catch { respond()  3 }]
+        total = total + n
+    }
+    total + 100
+}
+
+func ref_place_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = read(&table[try fail(x) catch { break }])
+        total = total + n
+    }
+    total + 100
+}
+
+func ref_place_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = read(&table[try fail(x) catch { break }])
+        total = total + n
+    }
+    total + 100
+}
+
+func ref_place_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = read(&table[try fail(x) catch { break }])
+        total = total + n
+    }
+    total + 100
+}
+
+func ref_place_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = read(&table[try fail(x) catch { break }])
+        total = total + n
+    }
+    total + 100
+}
+
+func ref_place_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = read(&table[try fail(x) catch { continue }])
+        total = total + n
+    }
+    total + 100
+}
+
+func ref_place_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = read(&table[try fail(x) catch { continue }])
+        total = total + n
+    }
+    total + 100
+}
+
+func ref_place_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = read(&table[try fail(x) catch { continue }])
+        total = total + n
+    }
+    total + 100
+}
+
+func ref_place_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = read(&table[try fail(x) catch { continue }])
+        total = total + n
+    }
+    total + 100
+}
+
+func ref_place_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = read(&table[try fail(x) catch { 3 }])
+        total = total + n
+    }
+    total + 100
+}
+
+func ref_place_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = read(&table[try fail(x) catch { respond()  3 }])
+        total = total + n
+    }
+    total + 100
+}
+
+func interpolation_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = "{try fail(x) catch { break }}".to_int() ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func interpolation_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = "{try fail(x) catch { break }}".to_int() ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func interpolation_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = "{try fail(x) catch { break }}".to_int() ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func interpolation_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = "{try fail(x) catch { break }}".to_int() ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func interpolation_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = "{try fail(x) catch { continue }}".to_int() ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func interpolation_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = "{try fail(x) catch { continue }}".to_int() ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func interpolation_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = "{try fail(x) catch { continue }}".to_int() ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func interpolation_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = "{try fail(x) catch { continue }}".to_int() ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func interpolation_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = "{try fail(x) catch { 3 }}".to_int() ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func interpolation_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = "{try fail(x) catch { respond()  3 }}".to_int() ?? 0
+        total = total + n
+    }
+    total + 100
+}
+
+func return_value_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        if x >= 2 { return try fail(x) catch { break } }
+        let n = x
+        total = total + n
+    }
+    total + 100
+}
+
+func return_value_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        if x >= 2 { return try fail(x) catch { break } }
+        let n = x
+        total = total + n
+    }
+    total + 100
+}
+
+func return_value_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        if x >= 2 { return try fail(x) catch { break } }
+        let n = x
+        total = total + n
+    }
+    total + 100
+}
+
+func return_value_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        if x >= 2 { return try fail(x) catch { break } }
+        let n = x
+        total = total + n
+    }
+    total + 100
+}
+
+func return_value_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        if x >= 2 { return try fail(x) catch { continue } }
+        let n = x
+        total = total + n
+    }
+    total + 100
+}
+
+func return_value_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        if x >= 2 { return try fail(x) catch { continue } }
+        let n = x
+        total = total + n
+    }
+    total + 100
+}
+
+func return_value_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        if x >= 2 { return try fail(x) catch { continue } }
+        let n = x
+        total = total + n
+    }
+    total + 100
+}
+
+func return_value_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        if x >= 2 { return try fail(x) catch { continue } }
+        let n = x
+        total = total + n
+    }
+    total + 100
+}
+
+func return_value_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        if x >= 2 { return try fail(x) catch { 3 } }
+        let n = x
+        total = total + n
+    }
+    total + 100
+}
+
+func return_value_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        if x >= 2 { return try fail(x) catch { respond()  3 } }
+        let n = x
+        total = total + n
+    }
+    total + 100
+}
+
+func coalesce_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = none_int ?? try fail(x) catch { break }
+        total = total + n
+    }
+    total + 100
+}
+
+func coalesce_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = none_int ?? try fail(x) catch { break }
+        total = total + n
+    }
+    total + 100
+}
+
+func coalesce_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = none_int ?? try fail(x) catch { break }
+        total = total + n
+    }
+    total + 100
+}
+
+func coalesce_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = none_int ?? try fail(x) catch { break }
+        total = total + n
+    }
+    total + 100
+}
+
+func coalesce_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = none_int ?? try fail(x) catch { continue }
+        total = total + n
+    }
+    total + 100
+}
+
+func coalesce_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = none_int ?? try fail(x) catch { continue }
+        total = total + n
+    }
+    total + 100
+}
+
+func coalesce_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = none_int ?? try fail(x) catch { continue }
+        total = total + n
+    }
+    total + 100
+}
+
+func coalesce_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = none_int ?? try fail(x) catch { continue }
+        total = total + n
+    }
+    total + 100
+}
+
+func coalesce_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = none_int ?? try fail(x) catch { 3 }
+        total = total + n
+    }
+    total + 100
+}
+
+func coalesce_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = none_int ?? try fail(x) catch { respond()  3 }
+        total = total + n
+    }
+    total + 100
+}
+
+func and_operand_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let b = flag && (try failb(x) catch { break })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func and_operand_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let b = flag && (try failb(x) catch { break })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func and_operand_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let b = flag && (try failb(x) catch { break })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func and_operand_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let b = flag && (try failb(x) catch { break })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func and_operand_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let b = flag && (try failb(x) catch { continue })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func and_operand_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let b = flag && (try failb(x) catch { continue })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func and_operand_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let b = flag && (try failb(x) catch { continue })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func and_operand_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let b = flag && (try failb(x) catch { continue })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func and_operand_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let b = flag && (try failb(x) catch { true })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func and_operand_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let b = flag && (try failb(x) catch { respond()  true })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func or_operand_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let b = flagf || (try failb(x) catch { break })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func or_operand_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let b = flagf || (try failb(x) catch { break })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func or_operand_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let b = flagf || (try failb(x) catch { break })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func or_operand_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let b = flagf || (try failb(x) catch { break })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func or_operand_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let b = flagf || (try failb(x) catch { continue })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func or_operand_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let b = flagf || (try failb(x) catch { continue })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func or_operand_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let b = flagf || (try failb(x) catch { continue })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func or_operand_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let b = flagf || (try failb(x) catch { continue })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func or_operand_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let b = flagf || (try failb(x) catch { true })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func or_operand_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let b = flagf || (try failb(x) catch { respond()  true })
+        let n = if b { x } else { 0 }
+        total = total + n
+    }
+    total + 100
+}
+
+func nested_catch_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = try fail(x) catch { try fail(x) catch { break } }
+        total = total + n
+    }
+    total + 100
+}
+
+func nested_catch_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = try fail(x) catch { try fail(x) catch { break } }
+        total = total + n
+    }
+    total + 100
+}
+
+func nested_catch_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = try fail(x) catch { try fail(x) catch { break } }
+        total = total + n
+    }
+    total + 100
+}
+
+func nested_catch_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = try fail(x) catch { try fail(x) catch { break } }
+        total = total + n
+    }
+    total + 100
+}
+
+func nested_catch_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = try fail(x) catch { try fail(x) catch { continue } }
+        total = total + n
+    }
+    total + 100
+}
+
+func nested_catch_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = try fail(x) catch { try fail(x) catch { continue } }
+        total = total + n
+    }
+    total + 100
+}
+
+func nested_catch_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = try fail(x) catch { try fail(x) catch { continue } }
+        total = total + n
+    }
+    total + 100
+}
+
+func nested_catch_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = try fail(x) catch { try fail(x) catch { continue } }
+        total = total + n
+    }
+    total + 100
+}
+
+func nested_catch_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = try fail(x) catch { try fail(x) catch { 3 } }
+        total = total + n
+    }
+    total + 100
+}
+
+func nested_catch_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = try fail(x) catch { try fail(x) catch { respond()  3 } }
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_let_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = if x == 2 { break } else { x }
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_let_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = if x == 2 { break } else { x }
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_let_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = if x == 2 { break } else { x }
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_let_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = if x == 2 { break } else { x }
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_let_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = if x == 2 { continue } else { x }
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_let_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = if x == 2 { continue } else { x }
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_let_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = if x == 2 { continue } else { x }
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_let_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = if x == 2 { continue } else { x }
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_let_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = if x == 2 { 3 } else { x }
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_let_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = if x == 2 { respond()  3 } else { x }
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_arg_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = id(if x == 2 { break } else { x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_arg_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = id(if x == 2 { break } else { x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_arg_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = id(if x == 2 { break } else { x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_arg_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = id(if x == 2 { break } else { x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_arg_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = id(if x == 2 { continue } else { x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_arg_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = id(if x == 2 { continue } else { x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_arg_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = id(if x == 2 { continue } else { x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_arg_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = id(if x == 2 { continue } else { x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_arg_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = id(if x == 2 { 3 } else { x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_if_arg_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = id(if x == 2 { respond()  3 } else { x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_match_arg_break_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = id(match x { case 2 -> { break }, case _ -> x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_match_arg_break_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = id(match x { case 2 -> { break }, case _ -> x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_match_arg_break_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = id(match x { case 2 -> { break }, case _ -> x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_match_arg_break_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = id(match x { case 2 -> { break }, case _ -> x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_match_arg_continue_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = id(match x { case 2 -> { continue }, case _ -> x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_match_arg_continue_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = id(match x { case 2 -> { continue }, case _ -> x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_match_arg_continue_for_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        let n = id(match x { case 2 -> { continue }, case _ -> x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_match_arg_continue_for_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        let n = id(match x { case 2 -> { continue }, case _ -> x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_match_arg_suspend_while_sync(v: &Vector<Int>) sync -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        let n = id(match x { case 2 -> { 3 }, case _ -> x })
+        total = total + n
+    }
+    total + 100
+}
+
+func value_match_arg_suspend_while_driven(v: &Vector<Int>) -> Int {
+    let bag = Bag(n: 0)
+    let table: [Int; 4] = [0, 1, 2, 3]
+    let none_int: Int? = None
+    let flag = v.len() > 0
+    let flagf = v.len() < 0
+    var total = 0
+    var i = 0
+    while i < 4 {
+        let x = i
+        i = i + 1
+        yield_now()
+        let n = id(match x { case 2 -> { respond()  3 }, case _ -> x })
+        total = total + n
+    }
+    total + 100
+}
+
+func main() {
+    let v: Vector<Int> = [0, 1, 2, 3]
+    print("direct_break_while sync {} driven {}", direct_break_while_sync(&v), __saw_drive(direct_break_while_driven(&v)))
+    print("direct_break_for sync {} driven {}", direct_break_for_sync(&v), __saw_drive(direct_break_for_driven(&v)))
+    print("direct_continue_while sync {} driven {}", direct_continue_while_sync(&v), __saw_drive(direct_continue_while_driven(&v)))
+    print("direct_continue_for sync {} driven {}", direct_continue_for_sync(&v), __saw_drive(direct_continue_for_driven(&v)))
+    print("direct_suspend_while sync {} driven {}", direct_suspend_while_sync(&v), __saw_drive(direct_suspend_while_driven(&v)))
+    print("call_arg_break_while sync {} driven {}", call_arg_break_while_sync(&v), __saw_drive(call_arg_break_while_driven(&v)))
+    print("call_arg_break_for sync {} driven {}", call_arg_break_for_sync(&v), __saw_drive(call_arg_break_for_driven(&v)))
+    print("call_arg_continue_while sync {} driven {}", call_arg_continue_while_sync(&v), __saw_drive(call_arg_continue_while_driven(&v)))
+    print("call_arg_continue_for sync {} driven {}", call_arg_continue_for_sync(&v), __saw_drive(call_arg_continue_for_driven(&v)))
+    print("call_arg_suspend_while sync {} driven {}", call_arg_suspend_while_sync(&v), __saw_drive(call_arg_suspend_while_driven(&v)))
+    print("call_arg_labeled_break_while sync {} driven {}", call_arg_labeled_break_while_sync(&v), __saw_drive(call_arg_labeled_break_while_driven(&v)))
+    print("call_arg_labeled_break_for sync {} driven {}", call_arg_labeled_break_for_sync(&v), __saw_drive(call_arg_labeled_break_for_driven(&v)))
+    print("call_arg_labeled_continue_while sync {} driven {}", call_arg_labeled_continue_while_sync(&v), __saw_drive(call_arg_labeled_continue_while_driven(&v)))
+    print("call_arg_labeled_continue_for sync {} driven {}", call_arg_labeled_continue_for_sync(&v), __saw_drive(call_arg_labeled_continue_for_driven(&v)))
+    print("call_arg_labeled_suspend_while sync {} driven {}", call_arg_labeled_suspend_while_sync(&v), __saw_drive(call_arg_labeled_suspend_while_driven(&v)))
+    print("method_arg_break_while sync {} driven {}", method_arg_break_while_sync(&v), __saw_drive(method_arg_break_while_driven(&v)))
+    print("method_arg_break_for sync {} driven {}", method_arg_break_for_sync(&v), __saw_drive(method_arg_break_for_driven(&v)))
+    print("method_arg_continue_while sync {} driven {}", method_arg_continue_while_sync(&v), __saw_drive(method_arg_continue_while_driven(&v)))
+    print("method_arg_continue_for sync {} driven {}", method_arg_continue_for_sync(&v), __saw_drive(method_arg_continue_for_driven(&v)))
+    print("method_arg_suspend_while sync {} driven {}", method_arg_suspend_while_sync(&v), __saw_drive(method_arg_suspend_while_driven(&v)))
+    print("receiver_break_while sync {} driven {}", receiver_break_while_sync(&v), __saw_drive(receiver_break_while_driven(&v)))
+    print("receiver_break_for sync {} driven {}", receiver_break_for_sync(&v), __saw_drive(receiver_break_for_driven(&v)))
+    print("receiver_continue_while sync {} driven {}", receiver_continue_while_sync(&v), __saw_drive(receiver_continue_while_driven(&v)))
+    print("receiver_continue_for sync {} driven {}", receiver_continue_for_sync(&v), __saw_drive(receiver_continue_for_driven(&v)))
+    print("receiver_suspend_while sync {} driven {}", receiver_suspend_while_sync(&v), __saw_drive(receiver_suspend_while_driven(&v)))
+    print("receiver_method_break_while sync {} driven {}", receiver_method_break_while_sync(&v), __saw_drive(receiver_method_break_while_driven(&v)))
+    print("receiver_method_break_for sync {} driven {}", receiver_method_break_for_sync(&v), __saw_drive(receiver_method_break_for_driven(&v)))
+    print("receiver_method_continue_while sync {} driven {}", receiver_method_continue_while_sync(&v), __saw_drive(receiver_method_continue_while_driven(&v)))
+    print("receiver_method_continue_for sync {} driven {}", receiver_method_continue_for_sync(&v), __saw_drive(receiver_method_continue_for_driven(&v)))
+    print("receiver_method_suspend_while sync {} driven {}", receiver_method_suspend_while_sync(&v), __saw_drive(receiver_method_suspend_while_driven(&v)))
+    print("struct_field_break_while sync {} driven {}", struct_field_break_while_sync(&v), __saw_drive(struct_field_break_while_driven(&v)))
+    print("struct_field_break_for sync {} driven {}", struct_field_break_for_sync(&v), __saw_drive(struct_field_break_for_driven(&v)))
+    print("struct_field_continue_while sync {} driven {}", struct_field_continue_while_sync(&v), __saw_drive(struct_field_continue_while_driven(&v)))
+    print("struct_field_continue_for sync {} driven {}", struct_field_continue_for_sync(&v), __saw_drive(struct_field_continue_for_driven(&v)))
+    print("struct_field_suspend_while sync {} driven {}", struct_field_suspend_while_sync(&v), __saw_drive(struct_field_suspend_while_driven(&v)))
+    print("map_key_break_while sync {} driven {}", map_key_break_while_sync(&v), __saw_drive(map_key_break_while_driven(&v)))
+    print("map_key_break_for sync {} driven {}", map_key_break_for_sync(&v), __saw_drive(map_key_break_for_driven(&v)))
+    print("map_key_continue_while sync {} driven {}", map_key_continue_while_sync(&v), __saw_drive(map_key_continue_while_driven(&v)))
+    print("map_key_continue_for sync {} driven {}", map_key_continue_for_sync(&v), __saw_drive(map_key_continue_for_driven(&v)))
+    print("map_key_suspend_while sync {} driven {}", map_key_suspend_while_sync(&v), __saw_drive(map_key_suspend_while_driven(&v)))
+    print("map_value_break_while sync {} driven {}", map_value_break_while_sync(&v), __saw_drive(map_value_break_while_driven(&v)))
+    print("map_value_break_for sync {} driven {}", map_value_break_for_sync(&v), __saw_drive(map_value_break_for_driven(&v)))
+    print("map_value_continue_while sync {} driven {}", map_value_continue_while_sync(&v), __saw_drive(map_value_continue_while_driven(&v)))
+    print("map_value_continue_for sync {} driven {}", map_value_continue_for_sync(&v), __saw_drive(map_value_continue_for_driven(&v)))
+    print("map_value_suspend_while sync {} driven {}", map_value_suspend_while_sync(&v), __saw_drive(map_value_suspend_while_driven(&v)))
+    print("tuple_elem_break_while sync {} driven {}", tuple_elem_break_while_sync(&v), __saw_drive(tuple_elem_break_while_driven(&v)))
+    print("tuple_elem_break_for sync {} driven {}", tuple_elem_break_for_sync(&v), __saw_drive(tuple_elem_break_for_driven(&v)))
+    print("tuple_elem_continue_while sync {} driven {}", tuple_elem_continue_while_sync(&v), __saw_drive(tuple_elem_continue_while_driven(&v)))
+    print("tuple_elem_continue_for sync {} driven {}", tuple_elem_continue_for_sync(&v), __saw_drive(tuple_elem_continue_for_driven(&v)))
+    print("tuple_elem_suspend_while sync {} driven {}", tuple_elem_suspend_while_sync(&v), __saw_drive(tuple_elem_suspend_while_driven(&v)))
+    print("array_elem_break_while sync {} driven {}", array_elem_break_while_sync(&v), __saw_drive(array_elem_break_while_driven(&v)))
+    print("array_elem_break_for sync {} driven {}", array_elem_break_for_sync(&v), __saw_drive(array_elem_break_for_driven(&v)))
+    print("array_elem_continue_while sync {} driven {}", array_elem_continue_while_sync(&v), __saw_drive(array_elem_continue_while_driven(&v)))
+    print("array_elem_continue_for sync {} driven {}", array_elem_continue_for_sync(&v), __saw_drive(array_elem_continue_for_driven(&v)))
+    print("array_elem_suspend_while sync {} driven {}", array_elem_suspend_while_sync(&v), __saw_drive(array_elem_suspend_while_driven(&v)))
+    print("vector_elem_break_while sync {} driven {}", vector_elem_break_while_sync(&v), __saw_drive(vector_elem_break_while_driven(&v)))
+    print("vector_elem_break_for sync {} driven {}", vector_elem_break_for_sync(&v), __saw_drive(vector_elem_break_for_driven(&v)))
+    print("vector_elem_continue_while sync {} driven {}", vector_elem_continue_while_sync(&v), __saw_drive(vector_elem_continue_while_driven(&v)))
+    print("vector_elem_continue_for sync {} driven {}", vector_elem_continue_for_sync(&v), __saw_drive(vector_elem_continue_for_driven(&v)))
+    print("vector_elem_suspend_while sync {} driven {}", vector_elem_suspend_while_sync(&v), __saw_drive(vector_elem_suspend_while_driven(&v)))
+    print("index_break_while sync {} driven {}", index_break_while_sync(&v), __saw_drive(index_break_while_driven(&v)))
+    print("index_break_for sync {} driven {}", index_break_for_sync(&v), __saw_drive(index_break_for_driven(&v)))
+    print("index_continue_while sync {} driven {}", index_continue_while_sync(&v), __saw_drive(index_continue_while_driven(&v)))
+    print("index_continue_for sync {} driven {}", index_continue_for_sync(&v), __saw_drive(index_continue_for_driven(&v)))
+    print("index_suspend_while sync {} driven {}", index_suspend_while_sync(&v), __saw_drive(index_suspend_while_driven(&v)))
+    print("ref_place_break_while sync {} driven {}", ref_place_break_while_sync(&v), __saw_drive(ref_place_break_while_driven(&v)))
+    print("ref_place_break_for sync {} driven {}", ref_place_break_for_sync(&v), __saw_drive(ref_place_break_for_driven(&v)))
+    print("ref_place_continue_while sync {} driven {}", ref_place_continue_while_sync(&v), __saw_drive(ref_place_continue_while_driven(&v)))
+    print("ref_place_continue_for sync {} driven {}", ref_place_continue_for_sync(&v), __saw_drive(ref_place_continue_for_driven(&v)))
+    print("ref_place_suspend_while sync {} driven {}", ref_place_suspend_while_sync(&v), __saw_drive(ref_place_suspend_while_driven(&v)))
+    print("interpolation_break_while sync {} driven {}", interpolation_break_while_sync(&v), __saw_drive(interpolation_break_while_driven(&v)))
+    print("interpolation_break_for sync {} driven {}", interpolation_break_for_sync(&v), __saw_drive(interpolation_break_for_driven(&v)))
+    print("interpolation_continue_while sync {} driven {}", interpolation_continue_while_sync(&v), __saw_drive(interpolation_continue_while_driven(&v)))
+    print("interpolation_continue_for sync {} driven {}", interpolation_continue_for_sync(&v), __saw_drive(interpolation_continue_for_driven(&v)))
+    print("interpolation_suspend_while sync {} driven {}", interpolation_suspend_while_sync(&v), __saw_drive(interpolation_suspend_while_driven(&v)))
+    print("return_value_break_while sync {} driven {}", return_value_break_while_sync(&v), __saw_drive(return_value_break_while_driven(&v)))
+    print("return_value_break_for sync {} driven {}", return_value_break_for_sync(&v), __saw_drive(return_value_break_for_driven(&v)))
+    print("return_value_continue_while sync {} driven {}", return_value_continue_while_sync(&v), __saw_drive(return_value_continue_while_driven(&v)))
+    print("return_value_continue_for sync {} driven {}", return_value_continue_for_sync(&v), __saw_drive(return_value_continue_for_driven(&v)))
+    print("return_value_suspend_while sync {} driven {}", return_value_suspend_while_sync(&v), __saw_drive(return_value_suspend_while_driven(&v)))
+    print("coalesce_break_while sync {} driven {}", coalesce_break_while_sync(&v), __saw_drive(coalesce_break_while_driven(&v)))
+    print("coalesce_break_for sync {} driven {}", coalesce_break_for_sync(&v), __saw_drive(coalesce_break_for_driven(&v)))
+    print("coalesce_continue_while sync {} driven {}", coalesce_continue_while_sync(&v), __saw_drive(coalesce_continue_while_driven(&v)))
+    print("coalesce_continue_for sync {} driven {}", coalesce_continue_for_sync(&v), __saw_drive(coalesce_continue_for_driven(&v)))
+    print("coalesce_suspend_while sync {} driven {}", coalesce_suspend_while_sync(&v), __saw_drive(coalesce_suspend_while_driven(&v)))
+    print("and_operand_break_while sync {} driven {}", and_operand_break_while_sync(&v), __saw_drive(and_operand_break_while_driven(&v)))
+    print("and_operand_break_for sync {} driven {}", and_operand_break_for_sync(&v), __saw_drive(and_operand_break_for_driven(&v)))
+    print("and_operand_continue_while sync {} driven {}", and_operand_continue_while_sync(&v), __saw_drive(and_operand_continue_while_driven(&v)))
+    print("and_operand_continue_for sync {} driven {}", and_operand_continue_for_sync(&v), __saw_drive(and_operand_continue_for_driven(&v)))
+    print("and_operand_suspend_while sync {} driven {}", and_operand_suspend_while_sync(&v), __saw_drive(and_operand_suspend_while_driven(&v)))
+    print("or_operand_break_while sync {} driven {}", or_operand_break_while_sync(&v), __saw_drive(or_operand_break_while_driven(&v)))
+    print("or_operand_break_for sync {} driven {}", or_operand_break_for_sync(&v), __saw_drive(or_operand_break_for_driven(&v)))
+    print("or_operand_continue_while sync {} driven {}", or_operand_continue_while_sync(&v), __saw_drive(or_operand_continue_while_driven(&v)))
+    print("or_operand_continue_for sync {} driven {}", or_operand_continue_for_sync(&v), __saw_drive(or_operand_continue_for_driven(&v)))
+    print("or_operand_suspend_while sync {} driven {}", or_operand_suspend_while_sync(&v), __saw_drive(or_operand_suspend_while_driven(&v)))
+    print("nested_catch_break_while sync {} driven {}", nested_catch_break_while_sync(&v), __saw_drive(nested_catch_break_while_driven(&v)))
+    print("nested_catch_break_for sync {} driven {}", nested_catch_break_for_sync(&v), __saw_drive(nested_catch_break_for_driven(&v)))
+    print("nested_catch_continue_while sync {} driven {}", nested_catch_continue_while_sync(&v), __saw_drive(nested_catch_continue_while_driven(&v)))
+    print("nested_catch_continue_for sync {} driven {}", nested_catch_continue_for_sync(&v), __saw_drive(nested_catch_continue_for_driven(&v)))
+    print("nested_catch_suspend_while sync {} driven {}", nested_catch_suspend_while_sync(&v), __saw_drive(nested_catch_suspend_while_driven(&v)))
+    print("value_if_let_break_while sync {} driven {}", value_if_let_break_while_sync(&v), __saw_drive(value_if_let_break_while_driven(&v)))
+    print("value_if_let_break_for sync {} driven {}", value_if_let_break_for_sync(&v), __saw_drive(value_if_let_break_for_driven(&v)))
+    print("value_if_let_continue_while sync {} driven {}", value_if_let_continue_while_sync(&v), __saw_drive(value_if_let_continue_while_driven(&v)))
+    print("value_if_let_continue_for sync {} driven {}", value_if_let_continue_for_sync(&v), __saw_drive(value_if_let_continue_for_driven(&v)))
+    print("value_if_let_suspend_while sync {} driven {}", value_if_let_suspend_while_sync(&v), __saw_drive(value_if_let_suspend_while_driven(&v)))
+    print("value_if_arg_break_while sync {} driven {}", value_if_arg_break_while_sync(&v), __saw_drive(value_if_arg_break_while_driven(&v)))
+    print("value_if_arg_break_for sync {} driven {}", value_if_arg_break_for_sync(&v), __saw_drive(value_if_arg_break_for_driven(&v)))
+    print("value_if_arg_continue_while sync {} driven {}", value_if_arg_continue_while_sync(&v), __saw_drive(value_if_arg_continue_while_driven(&v)))
+    print("value_if_arg_continue_for sync {} driven {}", value_if_arg_continue_for_sync(&v), __saw_drive(value_if_arg_continue_for_driven(&v)))
+    print("value_if_arg_suspend_while sync {} driven {}", value_if_arg_suspend_while_sync(&v), __saw_drive(value_if_arg_suspend_while_driven(&v)))
+    print("value_match_arg_break_while sync {} driven {}", value_match_arg_break_while_sync(&v), __saw_drive(value_match_arg_break_while_driven(&v)))
+    print("value_match_arg_break_for sync {} driven {}", value_match_arg_break_for_sync(&v), __saw_drive(value_match_arg_break_for_driven(&v)))
+    print("value_match_arg_continue_while sync {} driven {}", value_match_arg_continue_while_sync(&v), __saw_drive(value_match_arg_continue_while_driven(&v)))
+    print("value_match_arg_continue_for sync {} driven {}", value_match_arg_continue_for_sync(&v), __saw_drive(value_match_arg_continue_for_driven(&v)))
+    print("value_match_arg_suspend_while sync {} driven {}", value_match_arg_suspend_while_sync(&v), __saw_drive(value_match_arg_suspend_while_driven(&v)))
+}

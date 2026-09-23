@@ -75,7 +75,7 @@ def _expand(value):
 # the write side
 # --------------------------------------------------------------------------- #
 
-def map_nodes(node, rule):
+def map_nodes(node, rule, descend=None):
     """Apply `rule` to `node` and to every AST node under it, replacing each in
     its parent slot. Returns the (possibly new) root.
 
@@ -83,29 +83,40 @@ def map_nodes(node, rule):
     place — a program's declaration lists are shared between the merged ASTs, so
     rebuilding one would quietly unshare it; tuples are immutable and are
     rebuilt into their list slot.
+
+    `descend`, when given, is asked of every visited node AFTER `rule` has
+    replaced it and BEFORE its children are walked; answering False keeps the
+    walk out of that node's children (the node itself still stands, replaced,
+    in its slot). It is how a pass whose OWN rule stops at a boundary — a
+    `Block` it visits under a flag of its own, a closure body that is not this
+    frame's state machine — rides this enumeration instead of hand-rolling a
+    second one that agrees on lists and `Argument`s and not on tuples, which is
+    the drift DF-187b found and codex r3 #1 found again (an inline
+    `try … catch` inside a call argument, a struct-literal field or a map
+    entry, walked past by a visit that stopped at anything not an `ASTNode`).
     """
     node = rule(node)
-    if isinstance(node, ASTNode):
+    if isinstance(node, ASTNode) and (descend is None or descend(node)):
         for f in structural_fields(node):
             value = getattr(node, f.name, None)
-            new_value = _map_value(value, rule)
+            new_value = _map_value(value, rule, descend)
             if new_value is not value:
                 setattr(node, f.name, new_value)
     return node
 
 
-def _map_value(value, rule):
+def _map_value(value, rule, descend):
     if isinstance(value, list):
         for i, item in enumerate(value):
-            value[i] = _map_value(item, rule)
+            value[i] = _map_value(item, rule, descend)
         return value
     if isinstance(value, tuple):
-        return tuple(_map_value(item, rule) for item in value)
+        return tuple(_map_value(item, rule, descend) for item in value)
     if isinstance(value, Argument):
-        value.value = map_nodes(value.value, rule)
+        value.value = map_nodes(value.value, rule, descend)
         return value
     if isinstance(value, ASTNode):
-        return map_nodes(value, rule)
+        return map_nodes(value, rule, descend)
     return value
 
 

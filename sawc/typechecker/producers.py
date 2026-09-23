@@ -96,7 +96,8 @@ from ast_nodes import (
     ArrayIndex, ArrayLiteral, BinaryOp, BindOptional, BoolLiteral, CastExpr,
     ClosureExpr, EnumInit, ErasedErrWrap, Expression, FloatLiteral, ForLoop,
     ForceUnwrap, FormatPlaceholder, FunctionCall, Identifier, IfExpr,
-    IfLetExpr, IntLiteral, LendVarLiteral, MapLiteral, MatchExpr, MemberAccess,
+    IfLetExpr, IntLiteral, LendsExpr, LendVarLiteral, MapLiteral, MatchExpr,
+    MemberAccess,
     MethodCall, MoveExpr, NilCoalesce, NoneLiteral, OptionalChain,
     OptionalChainAssign, OptionalEvalExpr, OptionalWrap, RangeExpr,
     ReferenceExpr, ResultErrWrap, ResultOkWrap, ScopedBlock, SelfExpr,
@@ -231,6 +232,12 @@ def branch_arm_sources(expr: Expression):
 PRODUCER_OWN_ARM: FrozenSet[Type[Expression]] = frozenset({
     MoveExpr,          # ownership transfers; `_check_move_expr` records it
     ReferenceExpr,     # a borrow grants no ownership
+    # design 275 U3: `lends self` is a BORROW, on exactly the terms
+    # `ReferenceExpr` is one — it grants no ownership, and the storage it names
+    # belongs to the caller of the producer it is written in. It reaches a
+    # transfer position only once (a borrowing struct's reference field), and
+    # the origin rules in `typechecker/borrowing.py` are what judge it there.
+    LendsExpr,
 })
 
 #: Nodes that produce a fresh value the reader already owns. Nothing is

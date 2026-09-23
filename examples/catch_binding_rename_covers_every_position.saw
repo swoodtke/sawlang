@@ -1,0 +1,100 @@
+// When an inline `try … catch` is normalized into the block form, the implicit
+// `error` binding is renamed to a unique one (two catches in one body would
+// otherwise share a frame field) and the author's reads must follow it. The
+// rename is the alpha-renamer's job and runs through `_uniq_walk_block` in
+// rename-only mode, so it reaches every position a NAME sits in and stops at
+// every construct that REBINDS the name.
+//
+// One cell per position, because the walk this replaced enumerated the
+// positions by hand and had neither of the two shapes DF-187b already cost the
+// compiler once: a tuple inside a list (`StructInit.field_inits`,
+// `MapLiteral.entries`) and a name held as a plain STRING (`MoveExpr.variable`).
+// Those three ICEd with `Undefined variable: error`; the closure body was left
+// naming a binding that no longer existed; and the SHADOW cell was worse than
+// an error — the hand walk renamed the reads of the inner `let error` too, so
+// `print(error)` rendered the caught error instead of the local it names.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: struct init: 1
+// EXPECT-OUTPUT: move: 1
+// EXPECT-OUTPUT: interpolation: bad
+// EXPECT-OUTPUT: closure: 101
+// EXPECT-OUTPUT: map literal: 1
+// EXPECT-OUTPUT: match: 22
+// EXPECT-OUTPUT: shadow: 1001
+// EXPECT-OUTPUT: done
+import std.task.{yield_now}
+
+struct Bad { n: Int }
+struct Wrap { value: Bad }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+
+enum Code { case One, case Two }
+extension Code: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("code") }
+}
+extension Code: Error {}
+
+func fail() sync -> Result<Void, Bad> { Bad(n: 1) }
+func fail_code() sync -> Result<Void, Code> { Code.Two }
+func eat(e: Bad) sync { print("move: {}", e.n) }
+func run_int(body: () sync -> Int) sync -> Int { body() }
+
+func work() {
+    yield_now()
+    let items: Vector<Int> = [1, 2]
+
+    for a in items.iter() {
+        try fail() catch {                      // a tuple slot: a struct literal
+            let wrapped = Wrap(value: error)
+            print("struct init: {}", wrapped.value.n)
+            break
+        }
+    }
+    for b in items.iter() {
+        try fail() catch {                      // a plain string field: `move`
+            eat(move error)
+            break
+        }
+    }
+    for c in items.iter() {
+        try fail() catch {                      // an interpolation operand
+            print("interpolation: {error}")
+            break
+        }
+    }
+    for d in items.iter() {
+        try fail() catch {                      // a closure body naming it
+            print("closure: {}", run_int({ error.n + 100 }))
+            break
+        }
+    }
+    for e in items.iter() {
+        try fail() catch {                      // the other tuple slot: a map
+            let seen = {"k": error.n}
+            print("map literal: {}", seen["k"]!)
+            break
+        }
+    }
+    for f in items.iter() {
+        try fail_code() catch {                 // a match scrutinee
+            match error {
+                case One -> print("match: 11"),
+                case Two -> print("match: 22")
+            }
+            break
+        }
+    }
+    for g in items.iter() {
+        try fail() catch {                      // a SHADOW: the rename stops
+            let error = error.n + 1000
+            print("shadow: {}", error)
+            break
+        }
+    }
+    print("done")
+}
+
+func main() { __saw_drive(work()) }

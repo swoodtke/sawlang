@@ -1,0 +1,32 @@
+// K132 (design 275 U3, closing SL-321): NO USE-AFTER-FREE IN SAFE CODE.
+//
+// This program compiled clean, exited 0 and printed `seen = 1025` for a sum of
+// 10. `Vector.iter` handed back an OWNED value carrying a raw buffer pointer
+// and a length SNAPSHOT; the `&self` borrow ended at the return, so the type
+// system held no link between the iterator and the vector and the Law of
+// Exclusivity never saw the body's `&var v` as conflicting. After the first
+// body's pushes reallocated, the remaining `next()` reads came out of FREED
+// MEMORY — in safe sync code, with no `unsafe` anywhere in the source.
+//
+// The iterator is a BORROWING STRUCT now: it holds `&Vector<T, A>` and the
+// `for` statement is its window, so the mutation is the clean exclusivity
+// error `v.push` already got inside a `with_ref` window.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+// EXPECT-ERROR-CONTAINS: `v` cannot be accessed by reference here
+// EXPECT-ERROR-CONTAINS: borrows `v` for the whole of the `for` statement
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3, 4]
+    var seen = 0
+    for x in v.iter() {
+        seen = seen + x
+        var k = 0
+        while k < 64 {
+            let _ = v.push(100 + k)
+            k = k + 1
+        }
+    }
+    print("seen = {}", seen)
+    print("count = {}", v.len())
+}

@@ -1,0 +1,282 @@
+// SL-339 / codex SL-318.p7 r1 #6: THE TRY LANDING'S ERROR EDGE RELINQUISHES
+// EXACTLY THE MOVES THAT EXECUTED — by POSITION in evaluation order, never by
+// replaying every `move` the statement holds.
+//
+// `examples/coro_move_in_split_try_body.saw` pins the half SL-339 found: a
+// `move` INSIDE the failing call's subject (`try f(move r)`) handed the value
+// to the callee before the failure, so the frame's claim is dead on the error
+// edge too. This file pins the other half, which the fix of that half broke:
+// a `move` the failing `try` NEVER REACHED. `sink(try f(), move r)` evaluates
+// its arguments left to right (design 147/199), `f` fails, `move r` never runs
+// — and a landing that replayed every clear in the statement dropped the
+// frame's claim on a value the frame still owned, a LEAK where the base
+// compiler dropped it once at frame release. c72 had called that ordering
+// unreachable; it is one line of ordinary code.
+//
+// THE MECHANISM: a leaf statement with a propagating `try` NESTED in its value
+// beside a `move` is SPLIT at each such `try`, in evaluation order, before the
+// landings are built (`_split_leaf_at_propagating_tries`) — every hoisted
+// `let __anfN = try <subject>` owes the clears of the moves in ITS subject and
+// nothing else, and the residual statement, carrying no `try`, owes its moves
+// on the straight-line edge only. Side-effecting siblings written before a
+// lifted `try` are lifted with it (design 147's rule, `_anf_children`'s
+// shape); a pure `move` operand stays where it was written.
+//
+// WHICH ORDERINGS ARE REACHABLE, since the claim was made once that some are
+// not — every one below is, in the same eight lines of prelude:
+//   1  `sink(try f(), move r)`            f fails: r NOT moved, dropped by its scope
+//   2  `sink_rev(move r, try f())`        f fails: the call is never made, so the
+//      value has no taker; the move is not performed on that path (pure
+//      operand, evaluated after the hoisted `try`) and r drops by its scope.
+//      THE SYNC TWIN LEAKS HERE — the moved temporary of an abandoned call is
+//      released by nothing in codegen's own try lowering (pre-existing,
+//      SL-348) — so this row's oracle is the BASE driven compiler and the
+//      count, not the sync twin
+//   3a `sink3(try a(), move r, try b())`  a fails: r not moved
+//   3b `sink3(try a(), move r, try b())`  b fails: r not moved (row 2's rule)
+//   4  `(try mk()).use(move r)`           a `try` in RECEIVER position, mk fails
+//   5  the BLOCK form `try { n = sink(try f(), move r) } catch { … }` and its
+//      `sink_rev` twin — the in-block landing, `_try_catch_landing`
+//   6  `return try take(move r)`          the move IS inside the subject: the
+//      callee took it, one drop in the callee (SL-339's own half, kept)
+//   7  a `move` in the CATCH block         `eat(move r)` runs there, one drop
+//   8  `two(eat(move r), try f())`         a call BEFORE the `try` took r: it is
+//      lifted ahead of the `try` and its own clear runs at once
+//   9  `sink4(try a(), move r, try b(), move q)`  two moves, two tries
+//  10  `sink(g(try f()), move r)`          a `try` nested inside an argument's call
+//  11  the SUCCESS path of the split       the values are the hand-unchained ones
+//
+// Every cell binds `r` as `var`, reads `&r` before the suspension (so `r` is a
+// drop-flag frame field, the encoding the clear is about — a `Slot`-encoded
+// field gives its claim up in `take()` and never had the bug), and is driven.
+// THE ORACLE IS THE DROP COUNT: `kept` (and `second`) destroyed exactly once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- 1 try then move
+// drop kept
+// caught
+// -- 2 move then try
+// drop kept
+// caught
+// -- 3a two tries, first fails
+// drop kept
+// caught
+// -- 3b two tries, second fails
+// drop kept
+// caught
+// -- 4 try in receiver position
+// drop kept
+// caught
+// -- 5 block form, try then move
+// handled
+// drop kept
+// ok 0
+// -- 5 block form, move then try
+// handled
+// drop kept
+// ok 0
+// -- 6 return try, move in the subject
+// take_res kept
+// drop kept
+// caught
+// -- 7 move in the catch
+// eat kept
+// drop kept
+// ok 1
+// -- 8 a call before the try took it
+// eat kept
+// drop kept
+// caught
+// -- 9 two moves, two tries, second fails
+// drop second
+// drop kept
+// caught
+// -- 10 try nested in an argument's call
+// drop kept
+// caught
+// -- 11 success path
+// sink kept
+// drop kept
+// ok 11
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+struct Bad { n: Int }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+
+func note(r: &Res) -> Int { r.name.len() }
+func fail() sync -> Result<Int, Bad> { Bad(n: 1) }
+func ok() sync -> Result<Int, Bad> { 1 }
+func g(n: Int) sync -> Int { n + 10 }
+func two(a: Int, b: Int) sync -> Int { a + b }
+func sink(n: Int, r: Res) sync -> Int { print("sink {}", r.name)  n }
+func sink_rev(r: Res, n: Int) sync -> Int { print("sink_rev {}", r.name)  n }
+func sink3(a: Int, r: Res, b: Int) sync -> Int { print("sink3 {}", r.name)  a + b }
+func sink4(a: Int, r: Res, b: Int, q: Res) sync -> Int { print("sink4 {} {}", r.name, q.name)  a + b }
+func eat(r: Res) sync -> Int { print("eat {}", r.name)  1 }
+func take_res(r: Res) sync -> Result<Int, Bad> { print("take_res {}", r.name)  Bad(n: 2) }
+struct Box2 { k: Int }
+extension Box2 { func use(&self, r: Res) -> Int { print("use {}", r.name)  self.k } }
+func mk_fail() sync -> Result<Box2, Bad> { Bad(n: 3) }
+
+func row1() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    let _ = note(&r)
+    yield_now()
+    let n = sink(try fail(), move r)
+    n
+}
+
+func row2() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    let _ = note(&r)
+    yield_now()
+    let n = sink_rev(move r, try fail())
+    n
+}
+
+func row3a() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    let _ = note(&r)
+    yield_now()
+    let n = sink3(try fail(), move r, try ok())
+    n
+}
+
+func row3b() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    let _ = note(&r)
+    yield_now()
+    let n = sink3(try ok(), move r, try fail())
+    n
+}
+
+func row4() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    let _ = note(&r)
+    yield_now()
+    let n = (try mk_fail()).use(move r)
+    n
+}
+
+func row5a() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    let _ = note(&r)
+    yield_now()
+    var n = 0
+    try {
+        n = sink(try fail(), move r)
+    } catch {
+        print("handled")
+    }
+    n
+}
+
+func row5b() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    let _ = note(&r)
+    yield_now()
+    var n = 0
+    try {
+        n = sink_rev(move r, try fail())
+    } catch {
+        print("handled")
+    }
+    n
+}
+
+func row6() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    let _ = note(&r)
+    yield_now()
+    return try take_res(move r)
+}
+
+func row7() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    let _ = note(&r)
+    yield_now()
+    var n = 0
+    try {
+        n = try fail()
+    } catch {
+        n = eat(move r)
+    }
+    n
+}
+
+func row8() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    let _ = note(&r)
+    yield_now()
+    let n = two(eat(move r), try fail())
+    n
+}
+
+func row9() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    var q = Res(name: "second")
+    let _ = note(&r) + note(&q)
+    yield_now()
+    let n = sink4(try ok(), move r, try fail(), move q)
+    n
+}
+
+func row10() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    let _ = note(&r)
+    yield_now()
+    let n = sink(g(try fail()), move r)
+    n
+}
+
+func row11() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    let _ = note(&r)
+    yield_now()
+    let n = sink(g(try ok()), move r)
+    n
+}
+
+func report(r: Result<Int, Bad>) {
+    match r {
+        case Ok(n) -> print("ok {}", n),
+        case Err(e) -> print("caught")
+    }
+}
+
+func main() {
+    print("-- 1 try then move")
+    report(__saw_drive(row1()))
+    print("-- 2 move then try")
+    report(__saw_drive(row2()))
+    print("-- 3a two tries, first fails")
+    report(__saw_drive(row3a()))
+    print("-- 3b two tries, second fails")
+    report(__saw_drive(row3b()))
+    print("-- 4 try in receiver position")
+    report(__saw_drive(row4()))
+    print("-- 5 block form, try then move")
+    report(__saw_drive(row5a()))
+    print("-- 5 block form, move then try")
+    report(__saw_drive(row5b()))
+    print("-- 6 return try, move in the subject")
+    report(__saw_drive(row6()))
+    print("-- 7 move in the catch")
+    report(__saw_drive(row7()))
+    print("-- 8 a call before the try took it")
+    report(__saw_drive(row8()))
+    print("-- 9 two moves, two tries, second fails")
+    report(__saw_drive(row9()))
+    print("-- 10 try nested in an argument's call")
+    report(__saw_drive(row10()))
+    print("-- 11 success path")
+    report(__saw_drive(row11()))
+}

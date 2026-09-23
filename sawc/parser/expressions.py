@@ -21,7 +21,7 @@ from ast_nodes import (
     LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement, ExpressionStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation,
     FormatPlaceholder, Identifier,
-    BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
+    BinaryOp, UnaryOp, MoveExpr, LendsExpr, ReferenceExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MapLiteral, SetLiteral,
     MemberAccess, StructInit,
@@ -678,8 +678,44 @@ class ExpressionsMixin:
         _close_chain()
         return expr
 
+    def _lends_opens_a_place(self) -> bool:
+        """Is the `lends` at the parse position the unary origin form?
+
+        THE DISCRIMINATOR for design 275 U3's contextual keyword, and the ONLY
+        place the question is asked. A place head is `self` or a NAME, and two
+        adjacent name-ish tokens are not an expression in any other reading —
+        so `lends self`, `lends self.cells[i]` and `lends buf` take the unary
+        form, while every ordinary use of an identifier that happens to be
+        spelled `lends` keeps it: a bare read (`print(lends)`, `lends`, a
+        `lends,` element), a call (`lends(3)`), an operand (`lends + 1`), an
+        argument label (`f(lends: 3)`), an assignment target (`lends = 7`).
+        A field read (`x.lends`) and a declaration name (`let lends = 7`,
+        `struct E { lends: Int }`) never reach here at all — the postfix and
+        declaration parsers consume the token themselves.
+        """
+        nxt = self.peek(1)
+        return nxt.type in (TokenType.SELF, TokenType.IDENT)
+
     def parse_primary(self) -> Expression:
         token = self.current()
+
+        if self.match_ident("lends") and self._lends_opens_a_place():
+            # `lends self` (design 275 U3) — the origin proof at a borrowing
+            # struct's construction. A CONTEXTUAL keyword: `lends` is an
+            # ordinary identifier everywhere else, and the pair `lends <place>`
+            # is a parse error in every position today, so nothing that
+            # compiles now stops compiling and neither lexer's keyword table
+            # grows an entry.
+            #
+            # The parser accepts `lends <place>` in general and the TYPECHECKER
+            # refuses everything but `lends self`, because the refusal has to
+            # name what the author wrote ("U3 admits the receiver as the only
+            # borrow origin") rather than leave a bare parse error on a
+            # spelling the follow-up brief may widen.
+            lends_token = self.advance()
+            place = self.parse_unary()
+            return LendsExpr(place=place, line=lends_token.line,
+                             column=lends_token.column)
 
         if self.match(TokenType.INT):
             self.advance()

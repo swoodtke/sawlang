@@ -94,7 +94,15 @@ extension Res: NoCopy {
 func note(r: &Res) -> Int { r.name.len() }
 
 func consume_none(r: Res) -> Int? { None }
-func consume_vec(r: Res) -> Vector<Int> { [1] }
+// design 275 U3: this used to return a `Vector<Int>` the head iterated with
+// `.iter()`, which is now the temporary-receiver REFUSAL — a BORROWED
+// iterator's receiver must be a place rooted in a named binding, because a
+// temporary has no persistent storage for the window to point into. An OWNED
+// iterator has no such restriction (it owns its source), so the head keeps its
+// shape by handing back a `String`: what this file pins is the `move` IN the
+// head and the drop that follows it, and `_hoist_head_and_relinquish` is the
+// same routine either way.
+func consume_text(r: Res) -> String { "a" }
 func consume_bool(r: Res) -> Bool { true }
 
 // ---- a contained block EXITS EARLY: the value dies once, in the callee ----
@@ -121,7 +129,7 @@ func for_exit_sync(items: Vector<Int>) -> Int {
     for i in items.iter() {
         var r = Res(name: "old")
         if note(&r) + i < 0 { return -1 }
-        for j in consume_vec(move r).iter() { return 2 }
+        for j in consume_text(move r).bytes() { return 2 }
     }
     0
 }
@@ -130,10 +138,17 @@ func for_exit_driven(items: Vector<Int>) -> Int {
     for i in items.iter() {
         var r = Res(name: "old")
         if note(&r) + i < 0 { return -1 }
-        for j in consume_vec(move r).iter() { return 2 }
+        for j in consume_text(move r).bytes() { return 2 }
     }
     0
 }
+
+// The two DRIVEN `while` cells below now exercise the SPLIT lowering, which is
+// what design 275 U3 changed about them: U3 charges a collection `for`'s
+// back-edge and everything nested inside it, so the inner `while` SPANS and its
+// head goes through `_split_while` rather than `_lower_inplace`. Both paths
+// reach `_hoist_head_and_relinquish` now (SL-338), so the driven cells answer
+// exactly as their sync twins do — which is the oracle this file is built on.
 
 func while_exit_sync(items: Vector<Int>) -> Int {
     for i in items.iter() {
@@ -183,7 +198,7 @@ func for_reinit_sync(items: Vector<Int>) -> Int {
     for i in items.iter() {
         var r = Res(name: "old")
         if note(&r) + i < 0 { return -1 }
-        for j in consume_vec(move r).iter() { r = Res(name: "new") }
+        for j in consume_text(move r).bytes() { r = Res(name: "new") }
     }
     5
 }
@@ -192,7 +207,7 @@ func for_reinit_driven(items: Vector<Int>) -> Int {
     for i in items.iter() {
         var r = Res(name: "old")
         if note(&r) + i < 0 { return -1 }
-        for j in consume_vec(move r).iter() { r = Res(name: "new") }
+        for j in consume_text(move r).bytes() { r = Res(name: "new") }
     }
     5
 }

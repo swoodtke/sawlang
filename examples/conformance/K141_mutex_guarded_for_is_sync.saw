@@ -1,0 +1,51 @@
+// XFAIL: SL-340 — `Mutex(value: move v)` at a HEAP-OWNING payload frees the
+// payload at construction, on MAIN and with no diagnostic: an `init`'s
+// by-value parameter is registered for scope-exit cleanup and the transfer
+// into `UnsafeMutableInterior(value)` does not retire it, so the buffer is
+// released at the end of the init body and the struct is returned around it.
+// So `items.len()` reads 3 and `items[0]` reads freed memory — the ITERATION
+// this row is about is downstream of that and reads the same bytes.
+//
+// The row itself is design 275 U3's ruling and is kept as written: the XPASS
+// flip when SL-340 lands is the validation. Its REFUSAL half —
+// `examples/errors/mutex_guarded_for_suspends.saw` — passes today, which is
+// what says the `sync` fence is intact and only the payload is broken.
+//
+// K141 (design 275 U3, part (iii)): THE `Mutex` ROW IS CLOSED, NOT OPEN.
+//
+// `Mutex.lock<R>(&self, body: (&var T) sync -> R)` runs a `sync` body, so a
+// `for` over the guarded collection INSIDE `lock` is a SYNC window and works,
+// with the window's guarantees intact — and a suspension inside it is refused
+// by the `sync`-body rule, which is design 141/230's existing fence and not a
+// new one. The two together are a PAIRED test: nothing here extends a guard's
+// lifetime, and nothing has to.
+//
+// The refusal half is `examples/errors/mutex_guarded_for_suspends.saw`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// guarded sum 6
+// guarded sum after a push 15
+
+import std.mutex.{Mutex}
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    let guarded = Mutex(value: move v)
+
+    let a = guarded.lock({ items in
+        var total = 0
+        for x in items.iter() { total = total + x }
+        total
+    })
+    print("guarded sum {a}")
+
+    // The window closes with the `for` statement, so the very next statement
+    // inside the same `sync` body may grow the collection again.
+    let b = guarded.lock({ items in
+        let _ = items.push(9)
+        var total = 0
+        for x in items.iter() { total = total + x }
+        total
+    })
+    print("guarded sum after a push {b}")
+}

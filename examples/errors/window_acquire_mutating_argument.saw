@@ -1,0 +1,59 @@
+// K139 (design 275 U3, B3 step A2): THE HEAD'S BORROW SPANS THE WHOLE CALL
+// EXPRESSION, ARGUMENTS INCLUDED.
+//
+// Exactly as `f(&v, g(&var v))` is already a conflict today (design 199: an
+// argument's borrow extends over the whole call expression), an explicit or
+// default ARGUMENT of the head that writes, moves or reallocates the root is
+// refused — before the producer ever runs. The rule does not depend on the
+// lowering: the checker treats the argument as inside the head's window, so a
+// SUSPENDING argument (which the U2 shape table's HOIST lifts to a preceding
+// statement) is accepted with no change to this answer, and the root's address
+// is stable across the hoisted suspension because A1 made it a persistent
+// slot.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+// EXPECT-ERROR-CONTAINS: is borrowed by a nested call in this argument list
+
+struct Bag {
+    private items: Vector<Int>
+}
+extension Bag: NoCopy {}
+
+borrows struct BagIterator {
+    private bag: &Bag
+    private index: Int,
+    private skip: Int
+}
+
+extension Bag {
+    public func iter_from(&self, skip: Int) borrows -> BagIterator {
+        BagIterator(bag: lends self, index: 0, skip: skip)
+    }
+}
+
+extension BagIterator: Iterator {
+    type Item = Int
+    public func next(&var self) -> Int? {
+        if self.index < self.bag.items.len() {
+            let i = self.index
+            self.index = self.index + 1
+            self.bag.items.get(i)
+        } else {
+            None
+        }
+    }
+}
+
+func grow(b: &var Bag) -> Int { 0 }
+
+func row_mutating_argument(b: &var Bag) -> Int {
+    var total = 0
+    for x in b.iter_from(grow(&var b)) {    // the argument writes the ROOT
+        total = total + x
+    }
+    total
+}
+
+func main() {
+    print("unreached")
+}

@@ -1,0 +1,131 @@
+// K135 / K144 / K150 accept twins (design 275 U3, codex r2 #5, #8, #9, #10):
+// the borrowing rules resolve aliases and identities BEFORE they judge.
+//
+//   #8   a local shadow of a module-static window root is an INDEPENDENT root:
+//        `var ROOT = Owner(value: ROOT.value + 1)` inside `for n in ROOT.iter()`
+//        compiles and prints 3 (the static's window and the static are
+//        untouched; the shadow's own write is the shadow's). Sync only: the
+//        DRIVEN derived shadow of a static is a pre-existing transform bug —
+//        the shadow's initializer resolves the static's name to the frame
+//        field being declared, `Slot.value: slot is empty` on the base with
+//        no window in sight — filed as SL-349.
+//   #9   the shared-field permission walk stops at an `UnsafePointer`
+//        indexing exactly where `_immutable_lvalue_root` does: `self.source.p[0]
+//        = 7` in an `unsafe` method compiles and lands in the pointee (the
+//        loop prints `pt 10` = 3 + the 7 it just wrote; `poked 7` reads the
+//        slot after the window), while `self.source.n = 7` stays refused
+//        (`errors/borrowing_field_is_read_only.saw`).
+//   #10  `source: OwnerRef` with `type OwnerRef = &Owner` is a legal shared
+//        reference field everywhere: declared, constructed with `lends self`,
+//        read through (`self.source.value`), forwarded (`&self.source`),
+//        iterated over sync and driven.
+//   #5   an alias-returning producer inhabits the alias with the design-63
+//        back-conversion over a construction, whole-body and per arm — a
+//        declaration that compiles (a head of alias type is its own question).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// jt 10
+// jt driven 10
+// pt 10
+// poked 7
+
+import std.task.{yield_now}
+
+struct Owner { value: Int }
+type OwnerRef = &Owner
+type Alias = It
+
+borrows struct It { source: &Owner, done: Bool }
+borrows struct Jt { source: OwnerRef, done: Bool }      // #10: the alias-spelled field
+
+extension Owner {
+    func iter(&self) borrows -> It {
+        It(source: lends self, done: false)
+    }
+    func jter(&self) borrows -> Jt {
+        Jt(source: lends self, done: false)              // constructed through the alias field
+    }
+    func alter(&self) borrows -> Alias {                 // #5's legal twin
+        Alias(It(source: lends self, done: false))
+    }
+    func alter_arms(&self, flag: Bool) borrows -> Alias {
+        if flag { Alias(It(source: lends self, done: false)) }
+        else { Alias(It(source: lends self, done: true)) }
+    }
+}
+
+extension It: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.done { None } else {
+            self.done = true
+            self.source.value
+        }
+    }
+}
+
+extension Jt {
+    func total(&self) -> Int { self.source.value + count_of(&self.source) }   // reads + `&self.source`
+}
+extension Jt: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.done { None } else {
+            self.done = true
+            self.total()
+        }
+    }
+}
+
+func count_of(o: &Owner) -> Int { o.value }
+
+// #9: the pointer boundary
+struct Cell { n: Int, p: UnsafePointer<Int> }
+borrows struct Pt { source: &Cell, done: Bool }
+extension Cell {
+    func pter(&self) borrows -> Pt { Pt(source: lends self, done: false) }
+}
+extension Pt {
+    func poke(&var self) unsafe { self.source.p[0] = 7 }     // past the pointer: not the referent's storage
+    func peek(&self) unsafe -> Int { self.source.p[0] }
+}
+extension Pt: Iterator {
+    type Item = Int
+    func next(&var self) unsafe -> Int? {
+        if self.done { None } else { self.done = true  self.poke()  self.source.n + self.peek() }
+    }
+}
+
+static ROOT: Owner = Owner(value: 1)
+
+func shadow_sync() {
+    for n in ROOT.iter() {
+        var ROOT = Owner(value: ROOT.value + 1)   // #8: an independent root
+        ROOT.value = ROOT.value + n
+        print(ROOT.value)
+    }
+}
+
+func alias_field(o: &Owner) {
+    for n in o.jter() { print("jt {n}") }
+}
+
+func alias_field_driven(o: &Owner) {
+    for n in o.jter() { yield_now()  print("jt driven {n}") }
+}
+
+func pointer_write() unsafe {
+    var slot = 0
+    let c = Cell(n: 3, p: (&slot) as UnsafePointer<Int>)
+    for n in c.pter() { print("pt {n}") }
+    print("poked {slot}")
+}
+
+func main() {
+    shadow_sync()
+    let o = Owner(value: 5)
+    alias_field(&o)
+    __saw_drive(alias_field_driven(&o))
+    pointer_write()
+}

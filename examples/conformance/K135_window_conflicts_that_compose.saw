@@ -1,0 +1,251 @@
+// K135 (design 275 U3): THE OTHER HALF OF THE CONFLICT AXIS — what COMPOSES.
+//
+// A `for` window is SHARED, so it excludes writers and nothing else. The rows
+// here are the ones a rule that merely "locked the collection" would have
+// broken, and each is measured rather than asserted:
+//
+//   * an ordinary READ of the root inside the body (`v.len()`)
+//   * a read of a DISJOINT sibling of the window's root path (`st.count`,
+//     where the window holds `st.patches`)
+//   * a SECOND `for` over the same root, nested inside the first — two shared
+//     windows on one root
+//   * a `&` extent live at the head (a design-189 SHARED task capture)
+//   * a `&var` extent on a DISJOINT root beside the window
+//   * a legal REFINING SHADOW of the root inside the body (`var v = v.copy()`,
+//     design 107) — a DIFFERENT binding that happens to read the same, so the
+//     four access sites all reach it and none of them is the window's root.
+//     The conflict check compares BINDING IDENTITY before it compares
+//     projections, which is what design 189's task borrow already does; for
+//     one revision it compared the textual path and refused the copy (codex
+//     r1 #8)
+//   * a write through a DISJOINT CONSTANT index beside a window on another
+//     (`bins[0].iter()` and `bins[1].push`), the cell the conservative
+//     dynamic-index row must not swallow (its refusal twin is K134's)
+//
+// …and the ROOT AXIS, which is about where the referent LIVES rather than who
+// competes for it: a frame-local, a `&` parameter, a `&var` parameter of a
+// driven callee, an ENCLOSING FRAME's field reached as `self.<field>`, a field
+// of a `&var self` receiver, and a GENERIC collection instantiation.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// read the root 21
+// disjoint sibling 27
+// nested over one root 36
+// shared extent composes 6
+// disjoint exclusive extent 6
+// refining shadow is its own root 15
+// refining shadow driven 15
+// disjoint constant indices 6
+// root frame-local 12
+// root shared param 12
+// root var param 12
+// root enclosing frame field 12
+// root receiver field 12
+// root generic instantiation 12
+
+import std.task.{yield_now}
+
+func step(x: Int) -> Int {
+    yield_now()
+    x * 2
+}
+
+struct Store {
+    patches: Vector<Int>,
+    count: Int
+}
+extension Store: NoCopy {}
+
+struct Holder {
+    inner: Vector<Int>
+}
+extension Holder: NoCopy {}
+
+struct Wrapper<T> {
+    held: Vector<T>
+}
+extension Wrapper<T>: NoCopy {}
+
+// ---- conflicts that compose -----------------------------------------------
+
+func read_the_root(v: &Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        total = total + step(x) + v.len()   // a READ of the root, inside
+    }
+    total
+}
+
+func disjoint_sibling(st: &var Store) -> Int {
+    var total = 0
+    for x in st.patches.iter() {
+        total = total + x + st.count        // a DISJOINT sibling of the root
+    }
+    total
+}
+
+func nested_over_one_root(v: &Vector<Int>) -> Int {
+    var total = 0
+    for a in v.iter() {
+        for b in v.iter() {                 // two SHARED windows on one root
+            total = total + a * b
+        }
+        yield_now()
+    }
+    total
+}
+
+func observe(v: &Vector<Int>) -> Int { v.len() }
+func bump(n: &var Int) -> Int { n = n + 1  n }
+
+func shared_extent_composes(v: Vector<Int>) -> Int {
+    var owned = move v
+    var group = TaskGroup()
+    let h = group.spawn(observe(&owned))    // a SHARED extent live at the head
+    var total = 0
+    for x in owned.iter() { total = total + x }
+    let _ = h.join()
+    total
+}
+
+func disjoint_exclusive_extent(v: Vector<Int>) -> Int {
+    var owned = move v
+    var other = 0
+    var group = TaskGroup()
+    let h = group.spawn(bump(&var other))   // a `&var` extent on a DISJOINT root
+    var total = 0
+    for x in owned.iter() { total = total + x }
+    let _ = h.join()
+    total
+}
+
+func fresh() -> Vector<Int> {
+    var made: Vector<Int> = [9]
+    move made
+}
+
+// Each of the FOUR access sites reaches the shadow, and none of them reaches
+// the window's root: a `&var self` receiver (the call access set), an ordinary
+// read, a whole-referent write, and a `move`.
+func refining_shadow(source: &Vector<Int>) -> Int {
+    var total = 0
+    for n in source.iter() {
+        var source = source.copy()          // design 107: a NEW binding
+        try! source.push(n)                 // the CALL access set
+        total = total + source.len()        // a READ
+        source = fresh()                    // the WRITE target
+        let taken = move source             // a MOVE
+        total = total + taken.len()
+    }
+    total
+}
+
+// The same shadow in a DRIVEN body: the window is frame state and the shadow a
+// frame field, and the identity comparison is the checker's, not the lowering's.
+func refining_shadow_driven(source: &Vector<Int>) -> Int {
+    var total = 0
+    for n in source.iter() {
+        var source = source.copy()
+        yield_now()
+        try! source.push(n)
+        total = total + source.len()
+        source = fresh()
+        let taken = move source
+        total = total + taken.len()
+    }
+    total
+}
+
+func disjoint_constant_indices() -> Int {
+    let a: Vector<Int> = [1, 2]
+    let b: Vector<Int> = [3]
+    var bins = [move a, move b]
+    var total = 0
+    for n in bins[0].iter() {
+        try! bins[1].push(n)                // a DISJOINT constant index
+        total = total + n
+    }
+    total + bins[1].len()
+}
+
+// ---- the ROOT axis ---------------------------------------------------------
+
+func root_frame_local() -> Int {
+    var v: Vector<Int> = [1, 2, 3]
+    var total = 0
+    for x in v.iter() { total = total + step(x) }
+    total
+}
+
+func root_shared_param(v: &Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() { total = total + step(x) }
+    total
+}
+
+func root_var_param(v: &var Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() { total = total + step(x) }
+    total
+}
+
+// The ENCLOSING FRAME's field: `self.inner` is `&self.<field>` into the parent
+// frame, which does not move (design 134's cell/frame split).
+extension Holder {
+    func walk(&self) -> Int {
+        var total = 0
+        for x in self.inner.iter() { total = total + step(x) }
+        total
+    }
+    func walk_var(&var self) -> Int {
+        var total = 0
+        for x in self.inner.iter() { total = total + step(x) }
+        total
+    }
+}
+
+extension Wrapper<T: Copy> {
+    func walk(&self) -> Int {
+        var n = 0
+        for _x in self.held.iter() { yield_now()  n = n + 1 }
+        n
+    }
+}
+
+func root_generic_instantiation() -> Int {
+    var v: Vector<Int> = [1, 2, 3]
+    let w = Wrapper<Int>(held: move v)
+    w.walk() * 4
+}
+
+func main() {
+    let v: Vector<Int> = [1, 2, 3]
+    print("read the root {__saw_drive(read_the_root(&v))}")
+
+    var pv: Vector<Int> = [1, 2, 3]
+    var st = Store(patches: move pv, count: 7)
+    print("disjoint sibling {disjoint_sibling(&var st)}")
+
+    print("nested over one root {__saw_drive(nested_over_one_root(&v))}")
+
+    var sv: Vector<Int> = [1, 2, 3]
+    print("shared extent composes {shared_extent_composes(move sv)}")
+    var dv: Vector<Int> = [1, 2, 3]
+    print("disjoint exclusive extent {disjoint_exclusive_extent(move dv)}")
+
+    print("refining shadow is its own root {refining_shadow(&v)}")
+    print("refining shadow driven {__saw_drive(refining_shadow_driven(&v))}")
+    print("disjoint constant indices {disjoint_constant_indices()}")
+
+    print("root frame-local {__saw_drive(root_frame_local())}")
+    print("root shared param {__saw_drive(root_shared_param(&v))}")
+    var mv: Vector<Int> = [1, 2, 3]
+    print("root var param {__saw_drive(root_var_param(&var mv))}")
+
+    var hv: Vector<Int> = [1, 2, 3]
+    var h = Holder(inner: move hv)
+    print("root enclosing frame field {__saw_drive(h.walk())}")
+    print("root receiver field {__saw_drive(h.walk_var())}")
+
+    print("root generic instantiation {__saw_drive(root_generic_instantiation())}")
+}

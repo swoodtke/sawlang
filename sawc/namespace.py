@@ -130,6 +130,13 @@ class StructSymbol:
     # receiving/returning one of its values makes a function unsafe. Held here
     # rather than read off `ast_node`, which is None for a non-generic struct.
     is_unsafe: bool = False
+    # `borrows struct` (design 275 U3): this type HOLDS A LENT PLACE, so its
+    # values live only inside a window and its reference field is legal. Held
+    # here for the same reason `is_unsafe` is — `ast_node` is None for a
+    # non-generic struct — and read off the TYPE IDENTITY rather than any
+    # visibility, so a user borrowing struct in another module is refused and
+    # admitted by exactly the same rules as std's.
+    is_borrowing: bool = False
     line: int = 0
     column: int = 0
     ast_node: Optional[Struct] = None

@@ -118,7 +118,20 @@ CONTAINERS = {
                                 "_split_guard_let", guard="_coro_split",
                                 unguarded=_IFLET_UNGUARDED),
     WhileExpr: ShapeRow("WhileExpr", "body", SPLIT, "_split_while"),
-    ForLoop: ShapeRow("ForLoop", "body", SPLIT, "_split_for"),
+    # SL-317 (design 275 U3) gave the OTHER `for` its split, and it is the same
+    # split: a spanning collection `for` is REWRITTEN into the `while let` it
+    # denotes (`_normalize_collection_for`) — the iterator a `let` ahead of the
+    # loop, the head a `next()` at the loop top — so `_split_while`'s
+    # conditionless form and `_split_if_let`'s marked binding do the work, and
+    # the iterator's residency in the frame is `_collect_frame_locals`'s. Design
+    # 233 lowered `while let` to that same pair in the parser for the same
+    # reason: the rules already existed, so the construct gets them by BEING
+    # what it means rather than by a second copy. `_split_for` therefore serves
+    # the RANGE form alone, and a collection `for` reaching it is an invariant
+    # failure, not a refusal — which is what retiring `SPLIT_LIMITS` records.
+    ForLoop: ShapeRow("ForLoop", "body", SPLIT,
+                      "_split_for (range) / _normalize_collection_for "
+                      "+ _split_while + _split_if_let (collection)"),
     MatchExpr: ShapeRow("MatchExpr", "arms[].body", SPLIT, "_split_match"),
     # SL-333: the `#lend_var` fold's selected branch. One block, always
     # entered, so the split is the simplest of the set — no condition to
@@ -133,22 +146,24 @@ CONTAINERS = {
                            unguarded="a `try { } catch { }` that neither spans "
                                      "a suspension nor carries a jump out of an "
                                      "enclosing spanning loop lowers in place"),
-    # The two REFUSE rows. Each names the issue that OWNS the missing split, so
-    # the message an author reads is a pointer rather than a dead end — and so
-    # that the row flips to SPLIT in the landing that closes it (design 275 U3
-    # owns both; this unit deliberately adds no split).
-    TryExpr: ShapeRow(
-        "TryExpr", "catch_block", REFUSE, "_reject_buried_suspend_call",
-        reason="the INLINE `try EXPR catch { ... }` form has no CFG split, so "
-               "its catch block cannot become a resume target",
-        issue="SL-215",
-        template=(
-            "coroutine transform: the suspending call {what} appears in the "
-            "catch block of an INLINE `try ... catch {{ ... }}` in driven "
-            "`{name}`, and that form has no CFG split — its catch block cannot "
-            "become a resume target. Use the BLOCK form "
-            "`try {{ ... }} catch {{ ... }}`, which does split, or the "
-            "`match` form. (Pending SL-215.)")),
+    # SL-215 (design 275 U3) gave the INLINE `try EXPR catch { … }` its split,
+    # and it is the block form's: an inline catch whose catch block SPANS a
+    # suspension, or carries a `break`/`continue` for an enclosing spanning
+    # loop, is REWRITTEN into `try { try EXPR } catch { … }`
+    # (`_normalize_inline_catch`) ahead of every hoist and marking pass, at
+    # every child position the write-side walk reaches (codex r3 #1 found the
+    # call-argument, struct-field and map-entry positions walked past), so
+    # `_split_try_catch` does the work and the two spellings agree. An inline
+    # catch that reaches `_collect_calls` unrewritten is one the normalization
+    # LEFT in place — its catch neither spans nor jumps, and its subject is
+    # hoisted like any `try`'s (`_maybe_hoist_try` / the ANF hoist) — so the
+    # row is unconditional: descending its catch block embeds and refuses
+    # exactly what the enclosing walk would, and finds nothing there by
+    # construction. This row was REFUSE pending SL-215 for one unit.
+    TryExpr: ShapeRow("TryExpr", "catch_block", SPLIT,
+                      "_normalize_inline_catch + _split_try_catch"),
+    # The one REFUSE row. It names the issue that OWNS the missing split, so
+    # the message an author reads is a pointer rather than a dead end.
     ClosureExpr: ShapeRow(
         "ClosureExpr", "body", REFUSE, "_reject_buried_suspend_call",
         reason="a closure body is not driven — it is called through a function "
@@ -432,18 +447,16 @@ def pending_note(row):
 # --------------------------------------------------------------------------- #
 #
 # A SPLIT row says the container CAN become resume states, and for one container
-# that is true of some of its spellings and not all. Recording the exception
-# here rather than leaving it inside the routine is what keeps the table honest:
-# a reader of the `ForLoop` row learns the limit from the table, and the routine
-# that raises names the same issue the row does. Each entry is
+# that was true of some of its spellings and not all. Recording the exception
+# here rather than leaving it inside the routine is what kept the table honest:
+# a reader of the `ForLoop` row learned the limit from the table, and the
+# routine that raised named the same issue the row did. Each entry is
 # `(node, sub-shape, issue, what it would take)`.
+#
+# EMPTY as of design 275 U3 (SL-317), and deliberately kept rather than deleted:
+# the ONE entry it ever held was the collection `for`, and its emptiness is the
+# statement that every SPLIT row now splits every spelling of its container.
+# `tools/test_coro_shapes.py` reads it, so a new limit has a place to be
+# declared instead of a `raise` inside a routine nothing enumerates.
 
-SPLIT_LIMITS = (
-    ("ForLoop", "a `for` over a COLLECTION (`for x in v.iter()`) rather than a "
-                "range", "SL-317",
-     "the iterator value becomes frame state across the suspension and the "
-     "loop head re-enters through `next()`; ONE split funnel would serve the "
-     "range and the iterator `for`. Refused at the `for` with a message naming "
-     "the issue — design 275 U3 owns it, and this unit deliberately adds no "
-     "split"),
-)
+SPLIT_LIMITS = ()

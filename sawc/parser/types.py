@@ -141,7 +141,8 @@ class TypeParsingMixin:
                 f"rather than letting a pointer out")
 
     def reject_reference_field(self, field_name: str, struct_name: str,
-                               field_type: SawType, anchor) -> None:
+                               field_type: SawType, anchor,
+                               borrowing_struct: bool = False) -> None:
         """A struct FIELD may not name a reference (DF-163d).
 
         A field is storage that outlives every call, so a reference in one is
@@ -150,7 +151,48 @@ class TypeParsingMixin:
         (`Holder(r: &x)`) is not a call argument. Refusing the DECLARATION
         closes the construction with it: no field has a reference type, so no
         initializer can supply one.
+
+        `borrowing_struct=True` is the ONE exception (design 275 U3, and R5's
+        FIELD clause: a reference type is legal as a return type iff the
+        function is `borrows`, and as a struct field iff the struct is
+        `borrows struct`). The premise the refusal rests on — "a field outlives
+        every call that could have created the reference" — is exactly what a
+        borrowing struct does not do: its values live only inside one window,
+        the window charges the referent's root for its whole extent, and the
+        origin is a checked compiler fact. The exception is TOP-LEVEL and
+        SHARED only:
+
+          * a NESTED reference (`pair: (Int, &T)`, `slot: &T?`) escapes the
+            pointer exactly as any other field would and keeps the refusal —
+            the window tracks a field's root, not a root buried in a tuple;
+          * a `&var T` field is refused with the rule named, because U3 is a
+            shared-window feature: an iterator carrying `&var Collection`
+            could reallocate the very collection an outer shared iterator is
+            reading through its own field, and recording the root alone would
+            not catch it. (Distinct from `next(&var self)`, which mutates the
+            iterator's OWN cursor.)
         """
+        if borrowing_struct and field_type.kind == TypeKind.REFERENCE:
+            if field_type.reference_mutable:
+                value = (field_type.inner_type if field_type.inner_type
+                         is not None else "T")
+                self.error_at(
+                    anchor,
+                    f"field `{field_name}` of `borrows struct {struct_name}` "
+                    f"may not be an EXCLUSIVE reference: its type "
+                    f"`{field_type}` is `&var`, and a borrowing struct holds "
+                    f"SHARED references only. A window is shared, and an "
+                    f"exclusive field would let this type reallocate the very "
+                    f"storage another reader is walking through its own field "
+                    f"— which recording the root alone would not catch. Lend "
+                    f"it shared (`{field_name}: &{value}`); mutating this "
+                    f"type's OWN state stays ordinary `&var self` on its "
+                    f"methods")
+            # The lent type itself is still walked — `&(Int, &T)` is refused on
+            # the inner one, for the reason the outer one is now allowed.
+            self.reject_reference_field(field_name, struct_name,
+                                        field_type.inner_type, anchor)
+            return
         found = self._first_reference_in(field_type)
         if found is None:
             return
@@ -169,7 +211,13 @@ class TypeParsingMixin:
             f"A field outlives every call that could have created the "
             f"reference, so the pointer it holds outlives the storage it "
             f"names. {fix}, or — to hand out storage this type already owns — "
-            f"{self._lend_out(value)}")
+            f"{self._lend_out(value)}" + (
+                f". To hold a lent place for the extent of ONE window, declare "
+                f"the type `borrows struct {struct_name}` (design 275 U3): a "
+                f"borrowing struct's values live only inside their window, "
+                f"which is what makes the shared field sound"
+                if found is field_type and not field_type.reference_mutable
+                else ""))
 
     def reject_reference_payload(self, payload_name: str, variant_name: str,
                                  enum_name: str, payload_type: SawType,
