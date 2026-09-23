@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":23,"sequence":1389,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790206892"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":24,"sequence":1393,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790207628"}
 ---
 
 
@@ -461,4 +461,84 @@ Submitted patch SL-2.p2 (revision 1): Design 274 U0': the Python parser's gramma
 
 <!-- sawtracker:comment {"author":"agent:sawtracker-tests","body_bytes":37,"created":"1790206892","id":"c19"} -->
 Tests passed for SL-2.p2 (revision 1)
+
+<!-- sawtracker:comment {"author":"agent:codex","body_bytes":9198,"created":"1790207628","id":"c20"} -->
+Requested changes on patch SL-2.p2 (revision 1)
+
+REQUEST CHANGES — SL-2.p2 r1, base 3f324dd5, applied 0251e7f2; reconstructed tree 7ed2d512f4816a2ebc5d3ea9425d39912d2c64cc.
+
+Two independent Sol slices (depth and grammar/diagnostics), followed by parent adjudication and focused reproduction on the exact patch. No source edits. The M21 acceptance remeasurement is GREEN, but the findings below still block the proposed parser freeze.
+
+1. [P1] Complete the shared depth funnel across all recursive-descent cycles.
+Locations: sawc/parser/core.py:1460-1498; statements.py:159-196; expressions.py:1336-1406; the named entry list in core.py:413-455.
+
+Inline module bodies, guard else bodies, and recursive tuple/enum patterns never enter nested(). Parent ran fresh-process Lexer+Parser probes and observed:
+- 256 and 257 nested inline modules: both accepted.
+- 256 and 257 nested guard-let else bodies: both accepted. The bodies end in return; the 257 case also accepts without a warming sibling expression.
+- 257 nested tuple-destructuring pattern groups: accepted.
+- A match containing 256 nested enum payload patterns (257 active levels including match): accepted.
+
+These are inherited paths, not new regressions, but completing them is the explicit scope of design259 R4 and design274 U0: one funnel for EVERY recursive-descent entry, refusal at the 257th construct's opener. Exact 257 acceptance is sufficient evidence; no deeper Python-recursion crash was needed or run. Charge the constructs while their children are being parsed, keep required braces free, and retain sibling release/shared mixed-depth behavior.
+
+2. [P2] Rebase an interpolation depth refusal to its real source opener.
+Locations: sawc/parser/expressions.py:1994-2031; tools/dump_ast.py:33-54.
+
+The new subparser seed correctly inherits the string's active level, but the broad SyntaxError wrapper converts NestingLimitExceeded before rebasing its coordinates. Parent placed 256 groups inside a string interpolation on source line 3. The actual 257th opener is 3:280; tools/dump_ast.py emits exactly:
+
+ERROR<TAB>1:256<TAB>nesting exceeds the parser depth limit (256)
+
+The adjacent total-depth-256 case (255 groups plus the string) accepts. Preserve the nonrecoverable depth refusal and rebase its position through the interpolation boundary. Message-containment-only pins cannot defend the frozen ERROR-position contract; this case needs the actual coordinate.
+
+3. [P2] Keep the blessed labelled-call shape in the new grouped-name call path.
+Locations: sawc/parser/expressions.py:660-672 versus :810-816; docs/AST_DUMP.md:98-110.
+
+Parent canonical dumps of otherwise identical expression positions show:
+- f(n: 0) -> StructInit f, field n.
+- (f)(n: 0) -> FunctionCall f(), named argument n.
+
+The new branch always makes FunctionCall and bypasses the existing labelled-call classification. That conflicts with both R8's blessed StructInit shape and the patch's grouping-erases-without-changing-the-name-call contract. Route this already-supported name/argument-list path through the same classification. This does NOT request general expression callees, a new Call AST, or reopening the deferred SL-73 unit. Extra grouped generic/bare-closure spellings are not requested here under SL-2 c14's scope split.
+
+4. [P2] Include a trailing closure in generic free-name lookahead.
+Locations: sawc/parser/expressions.py:790-800,817-830; compare the method-side follow test at :503-510.
+
+The inherited free-name lookahead retains <...> only before '(' or '.', so it rewinds before the newly supported bare closure can attach. Parent parse-only dumps show run<Int> { 1 } is silently a BinaryOp(>) whose left child is BinaryOp(<), not a call. try! run<Int> { 1 } wraps that same comparison tree. Controls run<Int>({ 1 }) and run { 1 } are FunctionCall nodes. This is the generic sibling of R6's free-function trailing closure, not a non-name callee. Preserve the generic arguments before the closure, as the method-side path already does.
+
+5. [P2] Finish N7 for an unclosed quote after a balanced interpolation, in both lexers.
+Locations: sawc/lexer.py:396-406,438-488; selfhost/lexer/src/lib.saw:794-807,829-875.
+
+Input bytes `"x {1}` have a balanced interpolation and no closing quote. Both the Python lexer and the freshly built U0 selfhost lexer report an unterminated INTERPOLATION at 1:4, rather than an unterminated STRING at quote 1:1. Controls distinguish the cases: `"x` correctly points to 1:1; genuinely unbalanced `"x {1` correctly points to brace 1:4.
+
+The remembered first interpolation opener remains live after '}', and Python also reuses the quote-coordinate variables for each interpolation. Preserve the quote's coordinates separately and use an interpolation anchor only for an interpolation that is still unclosed. This is an inherited heuristic left incomplete by the scoped N7 correction. Lexer parity alone misses it because both implementations agree on the wrong result.
+
+6. [P2] Correct N2's taught doubly-optional target.
+Location: sawc/parser/types.py:333-345; ruling SL-309 c1.
+
+For both n as Int?? 9 and n as Int ?? 9, the emitted learning note says `as Optional<Int>` is a doubly-optional target. It is only one layer. The ruling explicitly requires `as Optional<Int?>`; that spelling is accepted by the exact parser. The dynamic suggestion happens to work only after the target already consumed a '?'. Keep the whitespace-blind rejection and token anchor, but teach the ruled type instead of changing its meaning.
+The same cells also suggest coalescing a cast to plain Int, rather than the ruling's `(n as Int?) ?? 9`. Teach both intended spellings from SL-309 c1; merely adding parentheses around a nonoptional Int target does not make a valid coalesce.
+
+7. [P2] Reconcile the authoritative grammar documentation and Saw skill.
+Locations: LANGUAGE_SPEC.md:114-121,695-697,2147-2153,6941-6945; .claude/skills/saw-lang/SKILL.md:1474-1484.
+
+The proposed tree still says bare match arms are expressions only, says x as Int? ?? y is accepted with operator-wins, and teaches parenthesized map closures because try operands cannot take trailing closures. The Saw skill repeats operator-wins. These became false under the patch's R7', N2 and DF-259c changes. Updating only AST_DUMP.md leaves the actual language reference and agent guidance contradictory. Update those passages to the settled rules, not to another grammar variant.
+
+Acceptance coverage still owed:
+- Design259:233-237 explicitly requires a bare lend arm beside its braced behavior; the new match-arm example covers return/break/continue/let but has no lend arm.
+- SL-309 c1 requires the original four-cell matrix, including Int?? at EOL, plus Int ?? 9 and the explicit Optional<Int?> row. The new cast examples omit the EOL and explicit nested-optional rows. Keep parser acceptance separate from typechecker expectations.
+- The new binary-wrap example claims every precedence tier but has no trailing-?? row. Source inspection confirms the operator is wired correctly; this is a coverage-claim correction, not another production finding.
+
+Positive results and scope:
+- The charged paths use one semantic 256 limit, unwind counters, and preserve fatal refusals across generic speculation. Keeping Python interpreter headroom after parsing is consistent with the supplied SL-369 observation; it is not a raised language limit.
+- General non-name calls remain SL-73; U5's battery lane and SL-58's boolean guard are not requested. No prototype flags, limits, source, or fixtures were changed here.
+- The author-reported full battery was not rerun. Negative depth/grammar checks were parser/AST-only; lexer negatives reused the already-built fixed-tree miniVM and stopped in lexing. No LLVM/native compilation of the negative parser cases, and no baseline or known-crashing compiler experiment.
+
+M21 ALIGNMENT — exact submitted SL-328.p1 r3 (applied 9f1b2063) over this exact U0 patch:
+- Validation tree d8a935eefc7c0b8a5390a307a151aed3232a922c, root /Users/swoodtke/Projects/sawlang-m21-u0-validation.
+- Fresh miniVM built with this compiler and selfhost lexer (18.72s).
+- Full test_canonical.py: 38/38 cases, all 37/37 applicable Python parse-only comparisons; VM/O0/O2/ASan/sawc plus the full-run arena-VM cross-check (50.06s).
+- Strict --debt-probe: 1/1 Python comparison and its five runtime modes, no skip or widened limits (18.55s). The debt branch does not run the separate arena-VM cross-check, despite the shared success banner.
+- All nine former Python failures individually exit 0 with empty stderr: grouped callee; multiline assignment RHS; 256 groups; 256 calls; 256 assignment-target groups; 256 assignment-RHS groups; 256 if nesting; 256 else-if nesting; mixed if depth256.
+
+This proves the requested nine/debt alignment, NOT every M21 gate. The prototype N7 lexer-error anchor and generated inventory still need deliberate reconciliation against the accepted U0 revision; the full arena/harness/corpus suite was not rerun in this measurement. SL-328 remains external-review-only; this report is not a self-approval.
+
+Please revise the listed source/contract gaps and retain the green M21 alignment. No approval or merge requested.
 
