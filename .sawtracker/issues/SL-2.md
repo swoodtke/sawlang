@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":29,"sequence":1473,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790274591"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":30,"sequence":1476,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790274639"}
 ---
 
 
@@ -689,4 +689,47 @@ Prototype fixture/inventory reconciliation and M21 alignment were NOT performed 
 
 <!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":35,"created":"1790274591","id":"c25"} -->
 Revised patch SL-2.p2 to revision 3
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":4346,"created":"1790274639","id":"c26"} -->
+SL-2.p2 r3 submitted: one commit 22305361 on origin/main. It answers c24 point by point. c20 findings 2, 3, 4 and 6 stay closed and are untouched.
+
+1. P1, flat ASTs.
+   - `_stamp_unset_positions` and `_count_shorthand_params` are iterative, each with its own worklist. The shorthand walk's local visit_expr/visit_block pair is gone. `reject_reference_field` lost its self-call too.
+   - No flat operator is charged, and no limit was raised.
+   The depthfunnel lane now has NO exemptions:
+   - Its graph covers methods, sub-parsers, local functions, named lambdas and the parser files' module-level functions. Any recursion that never passes a charge fails, self-edges included.
+   - codex's cells run as parser-level checks through the Parser API, in a fresh interpreter: 12,000-term spines plain, in an interpolation and in a closure body. The spines are `+`, `??`, `||`, `.b`, `[0]`, `!`, `as Int`, `?.b` and `$0 +`, plus a 12,000-`?` field type.
+   - The lane also fails if the recursion limit is ever raised past the funnel's own.
+   On r2 the lane reports 24 failures; on r3 it is green (172 parser scopes, 21 entry points, 52 cells). These are parser-only checks, because whole-program compilation of a long chain is SL-380.
+2. P2, branches that returned before charging.
+   - An empty `()` expression charges before its empty check.
+   - A parenthesized type charges once for the whole list, so `()` counts.
+   - `move` charges at its token for its whole place path, through a new `_parse_move_operand` that is listed in ENTRY POINTS.
+   A 13-row 256/257 matrix in the lane covers codex's cells plus `move x[0]`, `move *p[0]`, empty arrays, empty argument lists, prefix `-`, `&` types, generic arguments, and empty tuple and payload patterns. On r2 these rows are accepted; on r3 they are refused at the opener.
+   The implementer swept by listing every `return` outside a `with self.nested` body in each charging method and classifying each one. Only codex's three consumed an opener without charging.
+3. P2, N7, now a structural rule. Anchor at an interpolation's `{` only when its text holds an odd number of unescaped `"`. That unpaired quote can only be the literal's own closing quote, swallowed by a stray `{`. The line-layout rule is gone, and both lexers do the same count.
+   - `"a {(1 +` / `2)}` → 1:1 (quote); r2 gave 1:4.
+   - `"x {1}` → 1:1.
+   - The DF-116d shape → 1:4 (brace); the pin keeps 10:22.
+   - `"a {b" }` → 1:4 (brace). This is new, and correct under the rule, since the brace did swallow the quote.
+   - `"a {b\"}` → 1:1.
+   selfhost/lexer/tests/errors.saw has four new cases that fail on r2's lexer. lexdiff shows zero mismatches.
+4. Docs.
+   - AST_DUMP.md and `_parse_name_call`: a labelled list WITH a trailing closure is a FunctionCall, for both `f(n: 0) { 1 }` and `(f)(n: 0) { 1 }`.
+   - LANGUAGE_SPEC.md and SKILL.md: a bare arm is one expression or statement under the ordinary continuation rules, and the comma is optional.
+   - The trailing-closure exceptions now include the match scrutinee and the match-arm guard (probe-confirmed).
+   - Both files note that an empty `()` and `move` count toward the nesting limit and flat chains do not.
+
+Gates:
+- Implementer's full battery on the pre-fix tree: 33 of 34 stages green, 4363s. The one failure was `suite` (2704 passed, 9 xfailed, 1 failed): `lexer_unterminated_interpolation`, whose anchor r3's own header edit had moved by a line. The header was shortened back, and the anchor is 10:22 again.
+- Post-fix, per the Sep 24 targeted-tests ruling, with no suite or freestanding rerun: the N7 pin family passes 6/6 via -f, and depthfunnel, lexdiff, selfhostlex, astdiff and docverify are green.
+- Lead spot checks on the tip, under the lock: depthfunnel green; 20 targeted pins pass (N7 family, nesting_limit*, match arms, grouped callee).
+
+Filed from this round: SL-390 (soundness). A reference nested 13 or more levels deep in a type escapes the no-reference-field refusal. The lead confirmed it on main: N=12 is refused, N=13, 14 and 20 compile.
+
+Proposed prototypes/parser edits, for codex (not committed):
+- the N7 fixture on the unpaired-quote rule, with the five cases above;
+- the lane's boundary rows for empty `()` in expression and type position, `move`, `move x[0]` and `move *p[0]`;
+- inventory entries for the two new N7 examples.
+
 
