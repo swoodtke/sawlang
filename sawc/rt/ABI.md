@@ -1,59 +1,57 @@
 # The Saw runtime ABI (`__saw_rt_*`) — v2 (design 117)
 
 This is the frozen contract between compiled Saw code and its host runtime.
-The compiler DECLARES and CALLS these symbols; a linked runtime IMPLEMENTS
+The compiler declares and calls these symbols; a linked runtime implements
 them. Freezing the set here is what lets a runtime be a **link-time swap**
 (host_macos, host_linux, sos-hosted, kernel/none) instead of compiler surgery.
 
-**Minimization principle (design 117).** The ABI was frozen at v1 by design 113;
-this is the sanctioned v2 revision, made deliberately while the only
-implementations are our two host runtimes. The target of the minimization is
-**not** raw symbol count — it is the *floor of C-expressed and globals-coupled
-surface*: hidden channels of state in the contract (the POSIX errno global) and
-bodies that could not be written in Saw. So v2 DELETES the errno accessors (ops
-carry their own status), makes the reactor an INSTANCE rather than process-global
-seam state, and shrinks the thread surface to spawn/join — while ADDING
-status-carrying OS ops where an operation crosses the boundary. More symbols,
-less hidden coupling; the whole reactor now lives in Saw and the C floor is only
-the three DF-113a/b/c shim bodies.
+**Minimization principle (v2, design 117).** The target is not raw symbol
+count but the surface expressed in C or coupled through globals: hidden
+channels of state in the contract (the POSIX errno global) and bodies that
+cannot be written in Saw. So v2 has no errno accessors (ops carry their own
+status), makes the reactor an instance rather than process-global seam state,
+and reduces the v1 thread surface to spawn/join, while adding status-carrying
+OS ops where an operation crosses the boundary. More symbols, less hidden
+coupling. The reactor is written in Saw; C is left for the bodies a Saw FFI gap
+blocks (`shim.c`, listed under "Authoring a runtime in Saw").
 
 Two symbol tiers exist (design 113); only the first is this ABI:
 
-- **`__saw_rt_*` — the runtime ABI (THIS document).** Implemented by a linked
+- **`__saw_rt_*` — the runtime ABI (this document).** Implemented by a linked
   runtime. The compiler emits them as external declarations under every
   profile. In the hosted profile a runtime object is linked automatically; in
   the freestanding profile the environment (kernel/bootloader/RTOS) supplies
-  them.
-- **`__saw_*` — compiler-internal synthesized helpers (NOT this ABI).** Emitted
-  as IR bodies by codegen, carry no host-OS knowledge, and a runtime must NOT
-  provide them: string retain/release/alloc/from_bytes/len (`__saw_string_*`),
-  the Arc/Channel atomic helpers (`__saw_atomic_*`), and integer print
-  (`__saw_print_int` / `__saw_print_uint`). (Design 118 stage 3 RETIRED the compiler's last reactor
-  helper — the `__saw_reactor` instance getter — into the Saw executor's
-  `__saw_host_reactor()`; codegen no longer emits any reactor-instance code.)
+  them. (`__saw_rt_get_argc`/`_get_argv` are the exception; see "Program
+  arguments".)
+- **`__saw_*` — compiler-internal synthesized helpers (not this ABI).** Emitted
+  as IR bodies by codegen, they carry no host-OS knowledge, and a runtime must
+  not provide them: string retain/release/alloc/from_bytes/len
+  (`__saw_string_*`), the atomic helpers (`__saw_atomic_*`), and integer print
+  (`__saw_print_int` / `__saw_print_uint`). The process-wide reactor instance
+  is not a compiler helper: it is the executor's `__saw_host_reactor()` in
+  std/taskgroup.saw, and codegen emits no reactor-instance code.
 
 Widths follow design 47. `word` below = the platform `Int`/`UInt` width
 (pointer-width: 64-bit on x86-64/aarch64, 32-bit on riscv32). The stdlib types
 the seams that carry sizes/counts/fds/handles/tokens as `Int`, so they are
 `word`-wide; the clock seams return `Int64` explicitly. On the 64-bit hosted
-targets `word` is `i64`, so the ABI is byte-identical to the pre-113 synthesized
-seams.
+targets `word` is `i64`.
 
 Every C-ABI signature below fits the design-58 `@export` whitelist (fixed-width
 ints, `Int`/`UInt`, `UnsafePointer`, `Void`/`Never`) — a runtime written in Saw
 exports each body under its `__saw_rt_*` name.
 
-**The signatures below are MACHINE-CHECKED (design 149).** `runtime_abi.py`
+**The signatures below are machine-checked (design 149).** `runtime_abi.py`
 parses them out of this file, and a compile that builds a runtime — `sawc
 --runtime-build` for `sawc/rt/`, or `--runtime-provider` for a package declaring
 `[package] runtime = true` — checks every exported seam against the signature
 written here. A mismatch is a compile error naming this document. Arity and
-machine WIDTH are what is compared: `word`, `ptr` and every `i8*`/`i8**`/`word*`
+machine width are what is compared: `word`, `ptr` and every `i8*`/`i8**`/`word*`
 spelling are one pointer-width class (the C ABI does not distinguish them at this
 width, and this document uses `word` and `ptr` for the same handles), while
 `Int64` and `i32` are their own, because those differ from `word` on a 32-bit
-target. So editing a signature here changes what implementations are accepted —
-which is the point, and the reason an edit is an ABI change.
+target. So editing a signature here changes what implementations are accepted,
+which is why an edit is an ABI change.
 
 `make abidoc` checks the other direction: that this document describes exactly
 the frozen symbol set, with no seam left undescribed and none described that the
@@ -73,50 +71,45 @@ guarantees `alignof(max_align_t)` >= 16). A runtime that honors alignment may us
 Free a block previously returned by `__saw_rt_alloc`. Hosted default: `free(ptr)`.
 
 ### `__saw_rt_alloc_deny_after(allow: word) -> void`
-**Hosted test facility (design 123), OPTIONAL for a runtime to provide.**
+**Hosted test facility (design 123), optional for a runtime to provide.**
 Permits `allow` more allocations and refuses every one after (returning NULL); a
-NEGATIVE `allow` disarms the limit. This is how the three-tier
-allocation-failure policy reaches the OOM path of a type that takes no allocator
-type parameter (`String`, `StringBuilder`, `Data`, `Arc`, `Mutex`, `Channel`).
-Denial is a MODE, armed and disarmed. Design 137 dropped the second parameter, a
-bounded window that re-armed the allocator by itself: it existed because a Saw
-`panic(msg)` assembled its message into a fresh allocation, so under blanket
-denial every panic reported "string allocation failed" rather than the one the
-failing method raised. Panic messages are assembled in stack scratch now, so a
-test can deny everything and still read the real message; one that wants to keep
-running afterward calls `deny_after(-1)`. Nothing in std calls it (a test
-declares the `extern` itself), so a freestanding runtime may omit the symbol.
+negative `allow` disarms the limit. This is how a test reaches the OOM path of a
+type that takes no allocator type parameter (`String`, `StringBuilder`, `Data`,
+`Arc`, `Channel`). Denial is a mode, armed and disarmed; it does not re-arm
+itself. A test that denies everything still reads the failing method's real
+panic message, because panic messages are assembled in stack scratch rather
+than allocated; one that wants to keep running afterward calls
+`deny_after(-1)`. Nothing in std calls it (a test declares the `extern`
+itself), so a freestanding runtime may omit the symbol.
 
 ### `__saw_rt_write(ptr: i8*, len: word) -> void`
 The output primitive behind `print`. Writes `len` bytes from `ptr` to standard
-output. The hosted default routes through C stdio (`fwrite`+`fflush`) so `print`
-output stays ordered against the still-`printf`-based `Float` path. A runtime that
-replaces this MUST preserve that ordering if the Float path still uses stdio.
+output. The hosted default writes through C stdio (`fwrite`, then `fflush`), so
+each call's bytes are flushed before it returns.
 
 ### `__saw_rt_panic(ptr: i8*, len: word) -> ! (noreturn)`
-The infallible-tier panic sink (design 19). Emits the message at `ptr` (via
-`__saw_rt_write`) and does not return. Hosted default aborts; a kernel decides
-policy. Marked `noreturn`.
+The panic sink. Emits the message at `ptr` (via `__saw_rt_write`) and does not
+return. Hosted default aborts; a kernel decides policy. Marked `noreturn`.
 
 ## Time
 
 ### `__saw_rt_sleep_ns(ns: i64) -> void`
-Park the current OS thread for `ns` nanoseconds, read as UNSIGNED — the whole
+Park the current OS thread for `ns` nanoseconds, read as unsigned: the whole
 u64 range is a valid request. Zero returns at once.
 
-Hosted default: a loop of `usleep` calls, one whole second per chunk plus a
-remainder rounded UP to a whole microsecond. A park is a floor, so returning
-early is the one wrong answer; over-sleeping by under a microsecond is not.
-Chunking is what makes the whole range honest: `usleep` takes a 32-bit
-microsecond count, so the v1 `__saw_rt_sleep_ms` seam this REPLACES (design 180)
-multiplied and narrowed in one step and wrapped a request past about 35 minutes
-into a short nap (DF-170a).
+Hosted default: a clock-corrected loop of `usleep` calls, at most one second
+per call, each rounded up to a whole microsecond. A park is a floor, so
+returning early is the one wrong answer; over-sleeping by under a microsecond
+is not. Chunking is what makes the whole range honest: `usleep` takes a 32-bit
+microsecond count. (This seam replaces v1's `__saw_rt_sleep_ms`; see the change
+table.)
 
 Not interruptible: it returns when the span has elapsed and nothing can cut it
 short. The executor therefore parks in the reactor, not here, whenever it may
-need to abandon the wait — `__saw_rt_reactor_poll` takes the same deadline as
-its timeout and `__saw_rt_reactor_wake` can rouse it. This seam is the
-no-reactor fallback and the body behind a `sleep` reached outside any executor.
+need to abandon the wait: `__saw_rt_reactor_poll` takes the same deadline as
+its timeout and `__saw_rt_reactor_wake` can rouse it. This seam is the body
+behind a park that never needs abandoning and behind a `sleep` reached outside
+any executor.
 
 ### `__saw_rt_clock_monotonic_nanos() -> Int64`
 A monotonic clock as nanoseconds since an arbitrary epoch (behind `Instant.now()`).
@@ -129,20 +122,17 @@ Wall clock as seconds since the Unix epoch. Hosted default:
 
 ## Errors — the portable `SysError` tag space (design 117)
 
-v2 DELETES the three v1 errno accessors (`__saw_rt_errno` /
-`__saw_rt_errno_would_block` / `__saw_rt_errno_connect_state`). Reading a
-thread-local errno global *after the fact* is a POSIX-ism: fragile (anything
-clobbers errno between op and read — v1's `tcp_listen` did exactly that, calling
-`close()` between a failed `bind()` and the caller's errno read) and
-unimplementable on SOS, whose ratified syscall ABI is a `(status, value)` pair
-with a small SysError tag (sos/spec.md §5.7).
+v2 has no errno accessors (v1's three are in the migration table). Reading a
+thread-local errno after the fact is fragile (anything that runs between the
+op and the read can overwrite errno) and unimplementable on SOS, whose syscall
+ABI is a `(status, value)` pair with a small SysError tag (SOS spec §5.7).
 
 **`SysError`** is a small fixed-ABI tag space. `0` = ok; a failing operation
-returns the NEGATED tag (the Linux-kernel `-errno` convention), so one word
-carries success/count (`>= 0`) or `-tag` (`< 0`) — no aggregate return, mapping
-1:1 onto the SOS `(status, value)` register pair. The set is deliberately
-convergent with the SOS SysError enum, so hosted and SOS runtimes share one error
-vocabulary.
+returns the negated tag (the Linux-kernel `-errno` convention), so one word
+carries success/count (`>= 0`) or `-tag` (`< 0`), with no aggregate return,
+mapping 1:1 onto the SOS `(status, value)` register pair. The set is
+convergent with the SOS SysError enum, so hosted and SOS runtimes share one
+error vocabulary.
 
 | tag | name                | mapped hosted errno(s)                     |
 |-----|---------------------|--------------------------------------------|
@@ -170,90 +160,74 @@ vocabulary.
 | 21  | NetDown             | ENETDOWN                                   |
 
 `IsConnected` (3) and `InProgress` (2) exist so a re-issued nonblocking
-`connect()` can be classified (done / still-connecting / failed) without an errno
-accessor. **Pin deviation (recorded):** the brief suggested `Other(errno)` carry
-the raw hosted errno for diagnostics. A single negated-word return cannot carry a
-tag AND a raw errno, and SOS has no errno to preserve, so `Other` is tagless;
-diagnostic richness is instead achieved by mapping the common failure errnos to
-named tags (so `Other` is rare). std wraps the tag into `IoError` at the Saw
-level (`IoError.of(syscall, tag)`); the observable behavior and the *shape* of
-the error text are unchanged — the parenthetical is now the tag's human name
-(`"io error: mkdir failed (not found)"`) rather than a raw errno number (no test
-observed the number).
+`connect()` can be classified (done / still connecting / failed) without an
+errno accessor.
 
-**Tags 17-21 were added by DF-215a (Aug 15), and they are what the paragraph
-above promises.** The v2 map named sixteen errnos and none of the five that can
-only happen OFF LOOPBACK, so `Other` was not rare at all — it was every remote
-dial failure, and `io error: connect failed (other error)` was the whole of what
-std.net could say about one while the cause sat in errno and was discarded. The
-addition is what "map the common failure errnos to named tags" means for a
-program that leaves the machine; it is not a new mechanism.
+**The status word carries no errno.** A single negated-word return cannot
+carry a tag and a raw errno, and SOS has no errno to preserve, so a failing op
+returns only the tag, and `Other` carries nothing extra. Diagnostic detail
+comes from mapping the common failure errnos to named tags, so `Other` is rare,
+and from the separate `__saw_rt_last_raw_code` seam below. std wraps the tag
+into `IoError` (`IoError.of(syscall:tag:)`), whose text names the kind
+(`"io error: mkdir failed (not found)"`).
 
-**Why widening this table is ADDITIVE rather than an ABI change.** No existing
-tag is renumbered — `Other` keeps 16, which is why the five sit after it instead
-of beside their neighbours. Nothing about a seam's SIGNATURE moves, so
-`runtime_abi.py`'s machine check (arity and width) and `make abidoc`'s symbol-set
-check both see exactly what they saw before. And the compatibility question has
-one answer in each direction: a runtime that never returns 17-21 is still
-correct, and a consumer that does not know them degrades to the text it prints
-today, because every consumer of a tag reads it through a total mapping with a
-catch-all (std's `sys_error_name` ends in `case _ -> "other error"`). What WOULD
-be an ABI change is reusing or renumbering a tag, and a future addition should
-take the next free number for the same reason. The SOS `SosStatus` enum is a
-SEPARATE contract (sos/spec.md §5.7 says so in as many words) and is untouched.
+**Adding tags.** Tags 17-21 are the failures that can only happen off loopback
+(DF-215a). Widening this table is additive, not an ABI change: no existing tag
+is renumbered (`Other` keeps 16, which is why 17-21 sit after it rather than
+beside their neighbours), and no seam signature moves, so `runtime_abi.py`'s
+arity/width check and `make abidoc`'s symbol-set check are unaffected. A
+runtime that never returns 17-21 is still correct, and a consumer that does not
+know a tag degrades to a catch-all: std turns a tag into an `IoErrorKind`
+through `IoErrorKind.of(tag:)`, which answers `Unknown` for a tag it does not
+know. Reusing or renumbering a tag would be an ABI change; a new tag takes the
+next free number. The SOS `SosStatus` enum is a separate contract (SOS spec
+§5.7) and is unaffected.
 
 ### `__saw_rt_last_syserror() -> word`
-Read the calling thread's errno and return the portable SysError TAG. This is the
+Read the calling thread's errno and return the portable SysError tag. This is the
 single host-divergent errno→tag mapping (errno lives behind `__error()` on macOS,
-`__errno_location()` on Linux; the errno VALUES diverge). It is a runtime-INTERNAL
-seam: the status-carrying OS ops below call it IMMEDIATELY after a failing syscall
-(nothing runs between, so errno is never clobbered), and std NEVER calls it after
-a bare libc op. Not an errno accessor across the std boundary — std sees tags.
+`__errno_location()` on Linux; the errno values diverge). It is a runtime-internal
+seam: the status-carrying OS ops below call it immediately after a failing syscall
+(nothing runs between, so errno is not overwritten), and std never calls it after
+a bare libc op. Not an errno accessor across the std boundary: std sees tags.
 
-It also STAMPS the raw code the next seam hands back. That stamp is part of this
+It also stamps the raw code the next seam hands back. That stamp is part of this
 seam's contract, not an implementation detail: a runtime whose classifier
 forgets it answers a stale number.
 
 ### `__saw_rt_last_raw_code() -> word`
-The RAW platform error code behind this thread's most recent
-`__saw_rt_last_syserror()` classification — the hosted errno itself, not a tag.
+The raw platform error code behind this thread's most recent
+`__saw_rt_last_syserror()` classification: the hosted errno itself, not a tag.
 `0` where the platform has none, and `0` on a thread that has classified
 nothing.
 
-**This AMENDS the "Pin deviation" paragraph above; it does not overturn it**
-(design 234 §2, user ruling Aug 22). Both of that paragraph's grounds survive
-intact:
+This seam is consistent with "The status word carries no errno" above
+(design 234):
 
 - *The status word still carries only the tag.* A failing op still returns one
   negated word holding a tag, so the `(status, value)` correspondence with the
-  SOS syscall ABI — the reason the encoding is what it is — is untouched. This
-  is a SEPARATE symbol, which is why the change is additive in exactly the sense
-  the tag-table widening above is: no signature moves, so `runtime_abi.py`'s
-  arity/width check and `make abidoc`'s symbol-set check see what they saw
-  before.
-- *std still never reads errno after the fact.* The deleted v1
-  `__saw_rt_errno` read the LIVE errno global whenever std asked, so anything
-  running between the failing op and the read clobbered it (v1's `tcp_listen`
-  called `close()` in that window). Here the value is captured INSIDE the
-  runtime, in the same statement that classifies, and this seam only hands back
-  what was already frozen.
+  SOS syscall ABI is untouched. This is a separate symbol, and adding it moved
+  no signature.
+- *std still never reads errno after the fact.* The value is captured inside
+  the runtime, in the same call that classifies, and this seam hands back what
+  was already captured; nothing that runs between the failing op and the read
+  can overwrite it.
 
-What changed is the need. Classification is lossy BY DESIGN — EACCES and EPERM
-are both `PermissionDenied` — and design 234 §2 makes `IoError` carry a portable
-kind *and* the platform's raw number so a log can name the real one. Design 117
-bought diagnostic richness by growing the tag table instead; the tag table is
-still the portable half and still grows the same way (DF-215a).
+Classification is lossy by design (EACCES and EPERM are both
+`PermissionDenied`), so `IoError` carries the portable kind and this raw
+number, and a log can name the real code. The tag table is still the portable
+half and still grows as described above.
 
-**Per THREAD.** errno is per-thread, MT TaskGroups classify on several threads at
+**Per thread.** errno is per-thread, MT TaskGroups classify on several threads at
 once, and a process-global slot would hand one thread's refusal to another. Both
 hosted bodies use pthread thread-specific data, which is what
 `rt/common/op_budget.saw` uses for the same reason (Saw has no thread-local
 storage).
 
-**FRESHNESS — the caller's obligation.** The value is valid immediately after a
-failing op returned `-tag`, on the SAME thread. A tag the runtime SYNTHESIZES
-without consulting errno leaves the slot alone — `-Invalid` for an unrecognized
-open mode, `-NotFound` for a name the resolver answered with no IPv4 address —
+**Freshness is the caller's obligation.** The value is valid immediately after
+a failing op returned `-tag`, on the same thread. A tag the runtime synthesizes
+without consulting errno leaves the slot alone (`-Invalid` for an unrecognized
+open mode, `-NotFound` for a name the resolver answered with no IPv4 address),
 so a caller pairing one of those with a raw code must supply `0` itself. std
 does: `IoError.of(syscall:tag:)` reads this seam and is used only where a
 runtime op just classified, while the synthesized paths build their error
@@ -262,36 +236,31 @@ through `IoError.of(syscall:kind:)`, whose `code` is `0`. The blocking
 on an offload worker thread (design 183), so its classification is not on the
 calling thread's slot at all.
 
-**SOS / freestanding.** A SOS or kernel runtime answers its NATIVE STATUS WORD,
-which on SOS numerically COINCIDES with the SysError tag — the SOS syscall ABI's
-status half is that same tag space (sos/spec.md §5.7). That coincidence is
-documented rather than engineered around: SOS stores nothing extra, and `code`
-reads back as the number `kind` was built from. A freestanding runtime with no
-status of its own answers `0`, which §2 sanctions in as many words ("`0` where
-the platform has none"). `sos/rt/common` implements neither this seam nor
-`__saw_rt_last_syserror` today — it exports four seams and no OS-op family — so
-there is nothing there to stamp yet; the paragraph above is the answer for when
-one lands.
+**SOS / freestanding.** A SOS or kernel runtime answers its native status word,
+which on SOS coincides numerically with the SysError tag (the SOS syscall ABI's
+status half is that same tag space), so an SOS runtime need store nothing extra,
+and `code` reads back as the number `kind` was built from. A freestanding runtime with no
+status of its own answers `0` ("`0` where the platform has none").
 
 ## Sockets — OS-divergent helpers
 
 ### `__saw_rt_set_nonblocking(fd: word) -> word  (0/-1)`
-Set `O_NONBLOCK` on `fd`. **OS-divergent** flag value; C shim (DF-113c — variadic
+Set `O_NONBLOCK` on `fd`. **OS-divergent** flag value; C shim (DF-113c: variadic
 `fcntl`). Returns 0 on success, -1 on the `F_GETFL` failure.
 
 ### `__saw_rt_sin_set_family(buf: i8*) -> void`
-Stamp the OS-divergent prefix of a `struct sockaddr_in` at `buf` — the ONLY part
+Stamp the OS-divergent prefix of a `struct sockaddr_in` at `buf`, the only part
 whose layout differs by OS. macOS: `{ u8 sin_len=16; u8 sin_family=AF_INET }`;
 Linux: `{ u16 sin_family=AF_INET }` (LE). `AF_INET==2` on both.
 
-### Runtime-INTERNAL socket helpers (design 272 unit 2)
-Not `__saw_rt_*` and not part of the frozen seam set — these are how
+### Runtime-internal socket helpers (design 272)
+Not `__saw_rt_*` and not part of the frozen seam set: these are how
 `rt/common/os_ops.saw` stays OS-independent, the same arrangement
-`__saw_epoll_event_size` already uses. A runtime provider supplies them for its
-own host and nothing outside `rt/` may call them.
+`__saw_epoll_event_size` uses. A runtime provider supplies them for its own
+host, and nothing outside `rt/` may call them.
 
 They live in `shim.c`, for the reason `__saw_open_flags` does: every value here
-is a C MACRO whose number differs by host, and C is the only language in the
+is a C macro whose number differs by host, and C is the only language in the
 build that can read it. Writing them into the Saw runtime would mean hardcoding
 `SOL_SOCKET` as `0xffff` on one host and `1` on the other and hoping every
 future platform agreed; asking the headers cannot drift.
@@ -301,22 +270,24 @@ map a portable option tag to this host's `(level, name)`, or `-1` for an option
 this host lacks.
 
 `__saw_socket_suppress_sigpipe(fd) -> void` and
-`__saw_socket_send_flags() -> word` are the two halves of ONE contract: **a
-write to a socket whose peer has gone reports `EPIPE`; it never raises
-SIGPIPE.** macOS sets `SO_NOSIGPIPE` on the socket and sends with flags `0`;
-Linux has no such option and sends with `MSG_NOSIGNAL`. Every socket the
-runtime creates — listener, accepted connection, dialled connection — gets the
-suppression, and `__saw_rt_tcp_write` passes the flags.
+`__saw_socket_send_flags() -> word` are the two halves of one contract: **a
+write to a socket whose peer has gone reports `EPIPE` rather than raising
+SIGPIPE.** Linux gets this per send (`MSG_NOSIGNAL`); macOS sets
+`SO_NOSIGPIPE` on each socket and sends with flags `0`. The macOS
+`setsockopt` result is ignored: if a kernel refused it, that socket would still
+work but could raise SIGPIPE on a dead peer. Every socket the runtime creates
+(listener, accepted connection, dialled connection) gets the suppression, and
+`__saw_rt_tcp_write` passes the flags.
 
-This is deliberately PER SOCKET rather than the process-wide `SIG_IGN` most
-runtimes install at startup. An ignored disposition is inherited across
-`execve`, and `rt/common/proc.saw` does not reset dispositions before `execvp`,
-so a process-wide ignore would be handed to every child a Saw program spawns,
+This is per socket rather than the process-wide `SIG_IGN` many runtimes
+install at startup. An ignored disposition is inherited across `execve`, and
+`rt/common/proc.saw` does not reset dispositions before `execvp`, so a
+process-wide ignore would be handed to every child a Saw program spawns,
 including shells and pipelines it did not write. Pipes keep their behaviour;
 only sockets change. The user-visible consequence is that a write to a hung-up
 client is an ordinary `Err(IoError)` with kind `BrokenPipe`.
 
-### Runtime-INTERNAL signal helpers (design 272 unit 3)
+### Runtime-internal signal helpers (design 272)
 Also `shim.c`, also outside the frozen set, for the same reason: signal numbers
 are per-host macros (`SIGUSR1` is 30 on macOS and 10 on Linux).
 
@@ -334,112 +305,106 @@ are per-host macros (`SIGUSR1` is 30 on macOS and 10 on Linux).
 | 7   | WindowChanged   | `SIGWINCH` |
 
 `__saw_signal_watch(signo) -> word` installs a handler and returns the watch
-pipe's READ END, or `-1` (bad signal) / `-2` (already watched) / `-3` (the pipe
+pipe's read end, or `-1` (bad signal) / `-2` (already watched) / `-3` (the pipe
 or the handler could not be installed). `__saw_signal_unwatch(signo)` restores
 the disposition and drains. `__saw_signal_raise(signo) -> word` sends the signal
 to this process. `__saw_signal_drain(signo) -> word` takes the deliveries
-belonging to the CURRENT watch off that signal's pipe — a positive count, or
+belonging to the current watch off that signal's pipe: a positive count, or
 `-1` for nothing pending.
 
-**Three invariants this family rests on**, each earned by a race a review
-reproduced against an earlier version (the first two at r1, the third at r3):
+**Three invariants this family rests on** (design 272 records the race each one
+closes):
 
 1. **The watch transaction is serialized.** Initialization, the already-watched
    check, descriptor publication and `sigaction` installation are one
    transaction under a mutex. Unsynchronized, two callers could both acquire one
    signal and each save the other's handler as the "previous" disposition. The
-   HANDLER takes no lock and must not: it can interrupt a thread already inside
+   handler takes no lock and must not: it can interrupt a thread already inside
    that mutex.
 2. **Nothing a handler can reach is ever reclaimed.** A signal's pipe is created
    at its first watch and lives for the process; `unwatch` closes nothing.
    Restoring a disposition stops future handler entries but not one already past
    its descriptor load, and closing the pipe under such a handler frees the
-   descriptor number for reuse — the delayed write then lands in an unrelated
+   descriptor number for reuse, so the delayed write would land in an unrelated
    resource. Costs at most two descriptors per watched signal.
 
-3. **The handler takes exactly ONE snapshot, and the tag never recurs.** A
+3. **The handler takes exactly one snapshot, and the tag does not recur.** A
    single word per signal packs the generation (bits 63..1) and the watched flag
    (bit 0); the handler derives both from one atomic acquire load and stamps its
    record with the generation it saw. The drain validates against the word it
    loads itself.
 
-   Both halves are load-bearing and neither substitutes for the other. Three
-   separate loads let a handler paused after observing `watched` read a LATER
-   watch's generation and label its old delivery current — one rewatch was
-   enough to show it. A short tag recurs: seven bits came back around after 128
-   watch cycles. One snapshot fixes the first; 63 monotonic bits, never reset,
-   fix the second — recurrence would need 2^63 (~9.2e18) complete watch cycles
-   while one handler stays paused, which at a nanosecond each is over 290 years.
+   Both halves are needed, and neither substitutes for the other. With separate
+   loads, a handler paused after observing `watched` could read a later watch's
+   generation and label its old delivery current. A short tag recurs (a 7-bit
+   one after 128 watch cycles). One snapshot fixes the first; 63 monotonic
+   bits, never reset, fix the second: recurrence would need 2^63 (~9.2e18)
+   complete watch cycles while one handler stays paused, which at a nanosecond
+   each is over 290 years.
 
-   The handler STAMPS and the reader VALIDATES, never the other way round: a
+   The handler stamps and the reader validates, never the other way round: a
    handler that validated before writing would have a window between the two.
    Records are eight bytes, far under `PIPE_BUF`, so a pipe write is atomic and
    records never interleave or split.
 
-A runtime provider replacing these must keep all three invariants; they are contract,
-not implementation detail.
+A runtime provider replacing these must keep all three invariants; they are
+contract, not implementation detail.
 
-**NO REACTOR SEAM WAS ADDED.** The design-272 brief expected one, and the
-mechanism check the SL-228 issue asked for came back the other way: the handler
-writes one byte to a pipe, and a pipe read end is an ordinary readable
-descriptor that `__saw_rt_reactor_register(r, fd, write, token)` already
-carries. The natives the sketch named would each have needed a signal-shaped
-registration the frozen `(fd, write, token)` seam cannot express.
-
-Three reasons the pipe won, recorded because the sketch pointed elsewhere: no
-frozen-seam change; ONE mechanism on both hosts rather than two (kqueue's
+**No reactor seam.** The handler writes an 8-byte record to a pipe, and a pipe
+read end is an ordinary readable descriptor that
+`__saw_rt_reactor_register(r, fd, write, token)` already carries, so a watcher
+parks like any io park. kqueue's `EVFILT_SIGNAL` and Linux's `signalfd` would
+each need a signal-shaped registration the frozen `(fd, write, token)` seam
+cannot express, and they would be two mechanisms rather than one:
 `EVFILT_SIGNAL` observes delivery and needs the disposition set to `SIG_IGN`,
-Linux's `signalfd` consumes a BLOCKED signal and needs a mask — different enough
-to be two implementations wearing one name); and no thread-ordering hazard,
-which is decisive. `signalfd` requires the signal blocked in EVERY thread, and a
-thread that already existed when the watch began cannot be made to block it, so
-a process-directed signal delivered there takes the default action and kills the
-process. A handler runs on whichever thread takes the signal and has no such
-requirement.
+while `signalfd` consumes a blocked signal and needs a mask. The decisive
+difference is thread ordering. `signalfd` requires the signal blocked in every
+thread, and a thread that already existed when the watch began cannot be made
+to block it, so a process-directed signal delivered there takes the default
+action, which for most watched signals terminates the process. A handler runs
+on whichever thread takes the signal and has no such requirement.
 
 ## Status-carrying network ops (design 117)
 
 Each does its syscall(s) and returns `>= 0` on success/count or `-tag` on failure.
-OS-INDEPENDENT bodies (identical libc calls on both hosts; only the errno→tag
+OS-independent bodies (identical libc calls on both hosts; only the errno→tag
 mapping and `sin_set_family` diverge). The sockaddr is built internally; the errno
 is captured with `__saw_rt_last_syserror()` right after the failing syscall.
 
 ### `__saw_rt_tcp_listen(port: word) -> word`
 Socket+set_nonblocking+bind+listen on 127.0.0.1:`port` (0 = ephemeral). Returns
-the listen fd or `-tag`. errno is captured BEFORE the cleanup `close()`.
+the listen fd or `-tag`. errno is captured before the cleanup `close()`.
 
 ### `__saw_rt_tcp_listen_on(addr_be: word, port: word) -> word`
 The same nonblocking listener and error contract, bound to the supplied IPv4
 address (network-order bits in a platform word). Address zero binds all IPv4
-interfaces. The original listen seam delegates here with loopback, preserving
-existing callers. `TcpListener.listen(port, host: "0.0.0.0")` exposes the explicit
-address path; the host must be a dotted IPv4 literal and the port 0..65535.
+interfaces. `__saw_rt_tcp_listen` delegates here with loopback.
+`TcpListener.listen(port, host: "0.0.0.0")` exposes the explicit address path;
+the host must be a dotted IPv4 literal and the port 0..65535.
 
 ### `__saw_rt_tcp_listen_with(addr_be: word, port: word, reuse_address: word, backlog: word) -> word`
-**ADDITIVE (design 272 unit 2, SL-229).** The same nonblocking listener and
-error contract, carrying the options a listening socket can only be given
-BETWEEN `socket()` and `bind()` — which is why they cannot be setters on the
-listener the two seams above return: by then the window has closed.
-`reuse_address` non-zero sets `SO_REUSEADDR` before the bind; `backlog` is the
-`listen(2)` queue depth. `__saw_rt_tcp_listen_on` now delegates HERE with
-`reuse_address = 1` and backlog 16 (the value it previously hardcoded), and
-`__saw_rt_tcp_listen` delegates to that with loopback — so no existing seam
-changed signature and a runtime implementing only the older pair still links.
+(design 272) The same nonblocking listener and error contract, carrying the
+options a listening socket can only be given between `socket()` and `bind()`,
+which is why they cannot be setters on the listener the two seams above return:
+by then the window has closed. `reuse_address` non-zero sets `SO_REUSEADDR`
+before the bind; `backlog` is the `listen(2)` queue depth.
+`__saw_rt_tcp_listen_on` delegates here with `reuse_address = 1` and backlog
+16, and `__saw_rt_tcp_listen` delegates to that with loopback.
 
 Reuse does not make a genuine collision quiet: two sockets bound to the same
-address AND port still refuse the second with `AddrInUse`. What it permits is
+address and port still refuse the second with `AddrInUse`. What it permits is
 binding over the remains of a connection that has already closed.
 
 ### `__saw_rt_socket_set_option(fd: word, option: word, value: word) -> word`
-**ADDITIVE (design 272 unit 2, SL-229).** Sets one socket option by PORTABLE
-TAG → `0` or `-tag`. The option tag space is the table below; the host maps each
-tag to its own `(level, name)` pair, exactly as it maps its errno numbers to the
-`SysError` space, because the platform constants disagree (`SOL_SOCKET` is
-`0xffff` on macOS and `1` on Linux; `SO_REUSEADDR` is `4` and `2`). `value` is a
-C `int`; an option needing a different value shape would take its own seam.
+(design 272) Sets one socket option by portable tag → `0` or `-tag`. The option
+tag space is the table below; the host maps each tag to its own `(level, name)`
+pair, as it maps its errno numbers to the `SysError` space, because the
+platform constants disagree (`SOL_SOCKET` is `0xffff` on macOS and `1` on
+Linux; `SO_REUSEADDR` is `4` and `2`). `value` is a C `int`; an option needing a
+different value shape would take its own seam.
 
 An option this host does not have returns `-Invalid` rather than succeeding
-quietly — a setting that silently did nothing is the silent degradation the
+quietly: a setting that silently did nothing is the silent degradation the
 never-hide-errors rule forbids.
 
 | Tag | Option        | macOS                      | Linux                    |
@@ -458,47 +423,42 @@ client is waiting).
 ### `__saw_rt_tcp_connect_start(addr_be: word, port: word) -> word`
 Start a nonblocking connect to `addr_be`:`port` → the connecting fd (`>= 0`,
 including the EINPROGRESS "wait for writable" case) or `-tag` on a real failure.
-`addr_be` is the IPv4 address as it sits in `sockaddr_in.sin_addr` — network
-byte order — which is what both std's dotted-quad parser and
+`addr_be` is the IPv4 address as it sits in `sockaddr_in.sin_addr` (network
+byte order), which is what both std's dotted-quad parser and
 `__saw_rt_resolve_ipv4` produce.
-
-It took only the port until design 184 and dialled a hardcoded 127.0.0.1, which
-is why `TcpStream.connect` ignored its `host` argument and reported success on
-the wrong peer (DF-181d).
 
 ### `__saw_rt_tcp_connect_check(fd: word, addr_be: word, port: word) -> word`
 Re-issue the nonblocking connect to learn the true state (design 90). `0` =
 connected; `-InProgress` = still connecting (re-park); `-tag` = a real failure.
-`addr_be` must be the address `connect_start` was given — re-issuing against a
+`addr_be` must be the address `connect_start` was given: re-issuing against a
 different peer asks a different question.
 
 ### `__saw_rt_resolve_ipv4(host: i8*, out: u32*, max: word) -> word`
-**BLOCKING — the first seam in this document that says so, and it says so
-because it is (design 184).** Resolve the NUL-terminated hostname at `host` to
-IPv4 addresses, writing at most `max` of them to `out` in NETWORK byte order,
-ready to drop into `sockaddr_in.sin_addr`. Returns the COUNT written (`0` = the
+**Blocking (design 184).** Resolve the NUL-terminated hostname at `host` to
+IPv4 addresses, writing at most `max` of them to `out` in network byte order,
+ready to drop into `sockaddr_in.sin_addr`. Returns the count written (`0` = the
 resolver succeeded and offered no IPv4 address, which is not a failure) or
 `-tag`. `max <= 0` is `-Invalid`.
 
-**The blocking contract.** This call is UNBOUNDED. The hosted body is
+**The blocking contract.** This call is unbounded. The hosted body is
 `getaddrinfo(3)` with `AF_INET`/`SOCK_STREAM` hints, which may read
-`/etc/hosts`, ask mDNS, query LDAP or wait out a DNS timeout — microseconds to
-tens of seconds, decided by configuration this process does not control. It is
-therefore the one seam std declares `extern blocking`: every call is OFFLOADED
-to a worker thread by design 183's machinery and the calling task PARKS, so a
-resolution in flight never stops a sibling and never wedges the cooperative
-executor. A runtime implementing this seam may take as long as it needs; what it
-may NOT do is assume a caller is willing to wait on the calling thread.
+`/etc/hosts`, ask mDNS, query LDAP or wait out a DNS timeout: microseconds to
+tens of seconds, decided by configuration this process does not control. std
+therefore declares it `extern blocking`: every call is offloaded to a worker
+thread by design 183's machinery and the calling task parks, so a resolution in
+flight never stops a sibling and never wedges the cooperative executor. A
+runtime implementing this seam may take as long as it needs; what it may not do
+is assume a caller is willing to wait on the calling thread.
 
-Two consequences for an implementer. The body itself is ORDINARY SYNC CODE — the
-offload happens on the std side, so `--runtime-build`'s sync-only discipline
-applies here exactly as to every other seam. And both pointers obey design 183's
-rule: they address the parked task's frame or the heap, so the worker thread may
+Two consequences for an implementer. The body itself is ordinary sync code (the
+offload happens on the std side), so `--runtime-build`'s sync-only discipline
+applies here as to every other seam. And both pointers obey design 183's rule:
+they address the parked task's frame or the heap, so the worker thread may
 still be reading and writing through them for the whole call, cancellation
 included (`take` joins the worker before the task takes its cancel path).
 
 `EAI_SYSTEM` is reported through errno, so the hosted body maps it with
-`__saw_rt_last_syserror()`; `EAI_AGAIN` — a TEMPORARY resolver failure — maps to
+`__saw_rt_last_syserror()`; `EAI_AGAIN` (a temporary resolver failure) maps to
 `WouldBlock`, the tag whose errno (`EAGAIN`) means the same thing. A name with no
 address is `-NotFound`.
 
@@ -520,33 +480,28 @@ captured right after). C-string args.
 - `__saw_rt_fs_chdir(path: i8*) -> word`
 - `__saw_rt_fs_dirent_name(entry: i8*) -> i8*` — **OS-divergent** (design 122).
   The NUL-terminated name inside a `struct dirent` returned by `readdir`: the
-  `d_name` offset is 21 on macOS and 19 on Linux, and it is the ONLY divergent
+  `d_name` offset is 21 on macOS and 19 on Linux, and it is the only divergent
   part of a readdir walk, so std keeps `opendir`/`readdir`/`closedir` and only
   the projection is a seam. `entry` is non-NULL (std checks readdir's result).
 - `__saw_rt_env_set(name: i8*, value: i8*, overwrite: word) -> word`
 - `__saw_rt_env_unset(name: i8*) -> word`
 
-## Status-carrying file I/O (design 132 unit G — additive)
+## Status-carrying file I/O (design 132)
 
-The same convention applied to the read/write surface. These were bare libc
-calls in std, where the failure CAUSE was unreadable — `__saw_rt_last_syserror`
-is runtime-internal and must not be called after a bare libc op — so
-`File.open`/`read`/`write` could only answer `None`. Each returns its natural
-non-negative result or `-tag`.
+The same convention applied to the read/write surface, so the failure cause
+reaches std as a tag (`__saw_rt_last_syserror` is runtime-internal and must not
+be called after a bare libc op). Each returns its natural non-negative result
+or `-tag`.
 
 - `__saw_rt_fs_open(path: i8*, mode: word, perm: word) -> word` — the fd, or
-  `-tag`. `mode` is a **PORTABLE OPEN MODE**, not a POSIX flag word: `0` read an
+  `-tag`. `mode` is a **portable open mode**, not a POSIX flag word: `0` read an
   existing file, `1` write from the beginning creating-or-emptying, `2` append
   creating-if-absent. An unrecognized mode is `-Invalid`. `perm` is the creation
   permission (`0644` from std), read by the kernel only when the mode creates.
 
-  It carried the raw `O_*` flag word until design 155, and could not: those bits
-  are per-host C macros, and std spelled them as the LINUX decimal values for
-  BOTH hosts. On macOS that silently made `File.create` omit `O_TRUNC` (a short
-  write over a long file left the old tail in place) and `File.open_append` omit
-  `O_CREAT` while gaining `O_TRUNC`. A runtime translates the mode into its own
-  host's bits — the hosted one in `shim.c`, which is the only place that can see
-  `<fcntl.h>`.
+  The mode is portable because the `O_*` bits are per-host C macros. A runtime
+  translates it into its own host's bits; the hosted runtime does so in
+  `shim.c` (`__saw_open_flags`), the only place that can see `<fcntl.h>`.
 - `__saw_rt_fs_read(fd: word, buf: i8*, count: word) -> word` — bytes read
   (`0` = end of file), or `-tag`.
 - `__saw_rt_fs_write(fd: word, buf: i8*, count: word) -> word` — bytes written,
@@ -562,38 +517,29 @@ non-negative result or `-tag`.
   readdir's end-of-stream is not an error, and closedir's status is not
   actionable.
 
-## Process spawn (design 122 — additive)
+## Process spawn (design 122)
 
-Seams added after v2 froze, for the same reason the fs/env ops exist: the
-operation crosses the boundary and its status has to come back with it. They
-replace `std.process.Command`'s old `system()`/`popen()` shell command line —
-which re-split every argument and executed anything after a `;` — with a real
-argv spawn. **No shell is involved at any point**, on any implementation: one
-`argv` element is one argument, whatever bytes it holds.
+The operation crosses the boundary and its status has to come back with it, as
+for the fs/env ops. The spawn is a real argv spawn: **no shell is involved at
+any point**, on any implementation, and one `argv` element is one argument,
+whatever bytes it holds.
 
 A **job** is an opaque heap record owning the child's pid and, when capturing,
-the read end of its stdout pipe. Single-owner discipline, exactly like the
-offload family: `spawn` creates the job, the reap destroys it. The hosted bodies
-are `fork` + `execvp` (`rt/common/proc.saw`, OS-independent); between fork and
-exec the child touches only async-signal-safe calls
-(`close`/`dup2`/`execvp`/`_exit`).
+the read end of its stdout pipe. Single-owner discipline, as in the offload
+family: `spawn` creates the job, the reap destroys it. The hosted bodies are
+`fork` + `execvp` (`rt/common/proc.saw`, OS-independent); between fork and exec
+the child touches only async-signal-safe calls (`close`/`dup2`/`execvp`/`_exit`).
 
-**The child WAIT is zero-thread (design 182).** The v1 shape had two seams that
-blocked the calling thread — a `read` on a blocking pipe and a `waitpid` with no
-options — and design 181 measured what that costs: a sibling task's first tick
-landed only when the child exited, because the one cooperative executor thread was
-inside the wait. The wait half is fixed. `try_wait` reaps with `WNOHANG` and
-answers `-WouldBlock` while the child lives, and a caller that has to wait asks
-for a DESCRIPTOR — `wait_fd` — and parks it on the reactor with the ordinary
+**The child wait uses no thread (design 182).** `try_wait` reaps with `WNOHANG`
+and answers `-WouldBlock` while the child lives, and a caller that has to wait
+asks for a descriptor (`wait_fd`) and parks it on the reactor with the ordinary
 read-interest registration. A runtime that cannot hand out a wait descriptor is
 still correct: `try_wait` alone is a poll, slower but never wedging anything.
 
-The DRAIN half followed in design 187 unit 11, and closes DF-181a. `read_stdout`
-still blocks — a pipe read has nothing else to be — but std declares it
-`blocking`, so every call is offloaded to a worker thread and the task parks:
-`Command.output` costs no executor thread either. With that, the v1 blocking
-reap `__saw_rt_proc_wait` reached zero callers and was REMOVED from this
-contract; a runtime no longer implements it.
+The stdout drain still blocks (a pipe read has nothing else to be), but std
+declares `read_stdout` `blocking`, so every call is offloaded to a worker
+thread and the task parks. The v1 blocking reap `__saw_rt_proc_wait` is not
+part of this contract (see the change table).
 
 ### `__saw_rt_proc_spawn(path: i8*, argv: i8**, flags: word) -> word`
 Spawn `path` with the NULL-terminated `argv` array (`argv[0]` is the program
@@ -601,34 +547,30 @@ name, as `execvp` expects). Returns the job handle (`> 0`) or `-tag`. A child
 that cannot exec exits **127** (the POSIX "command not found" convention), which
 std maps back to a launch failure.
 
-`flags` is a REDIRECTION BIT SET, one bit per stream (design 155 widened what
-design 122 called `capture`; `0` and `1` still mean what they always meant, so
-nothing that predates the bits changes):
+`flags` is a redirection bit set, one bit per stream (`0` and `1` mean what
+they meant before bit 1 existed):
 
 | bit | value | meaning |
 |-----|-------|---------|
 | 0   | 1     | the child's stdout goes into a pipe the job owns (`read_stdout` drains it) |
 | 1   | 2     | the child's stderr goes wherever its stdout goes — into the pipe with bit 0, and plain `2>&1` without it |
 
-Bit 1 exists because a spawner that captures a child's output but INHERITS its
-diagnostics cannot keep its own output clean, and had no way to say so: a tool
-that runs hundreds of children it expects some of to fail (the design-155 irdet
-port over a corpus with negative tests in it) would interleave their error text
-with its own report. Discarding stderr and capturing it SEPARATELY are both
-still unexpressible — see DF-155a.
+Bit 1 exists because a spawner that captures a child's output but inherits its
+diagnostics cannot keep its own output clean: a tool that runs many children it
+expects some of to fail would interleave their error text with its own report.
+Discarding stderr and capturing it separately are not expressible (DF-155a).
 
 ### `__saw_rt_proc_spawn_env(path: i8*, argv: i8**, envp: i8**, flags: word) -> word`
-The same spawn with environment OVERRIDES (design 155 — additive; the seam
-`std.process.Command.env(name:value:)` needs, and the reason it is a seam at all
-is that only the runtime can reach the process environment). `envp` is a
-NULL-terminated `NAME=VALUE` array; the child gets the spawning process's
-environment **with each of those names set to the given value and everything
-else inherited** — not a replacement environment. Names are unique (std replaces
-rather than appends), so no precedence question reaches the seam. Returns the
-job handle (`> 0`) or `-tag`, and `-Exhausted` when the merged array cannot be
-allocated.
+The same spawn with environment overrides (design 155): the seam behind
+`std.process.Command.env(name:value:)`, a seam because only the runtime can
+reach the process environment. `envp` is a NULL-terminated `NAME=VALUE` array;
+the child gets the spawning process's environment **with each of those names
+set to the given value and everything else inherited**, not a replacement
+environment. Names are unique (std replaces rather than appends), so no
+precedence question reaches the seam. Returns the job handle (`> 0`) or
+`-tag`, and `-Exhausted` when the merged array cannot be allocated.
 
-The merge runs in the PARENT, before the fork; the child does nothing but point
+The merge runs in the parent, before the fork; the child does nothing but point
 `environ` at the result before `execvp`. That ordering is the contract, not an
 implementation detail: a spawning process may be multi-threaded, and the window
 between fork and exec may only touch async-signal-safe calls, which a merge that
@@ -640,15 +582,14 @@ new image's environment from `environ`).
 Read up to `len` bytes of the child's captured stdout: the byte count (`0` =
 EOF, and `0` immediately for a job spawned without capture) or `-tag`.
 
-**BLOCKING — the second seam in this document to say so (design 187 unit 11).**
-The pipe is a blocking descriptor and a child may write nothing for as long as it
-likes, so this call is UNBOUNDED. std declares it `extern blocking`, so every
-call is offloaded to a worker thread by design 183's machinery and the calling
-task PARKS; a runtime implementing this seam may take as long as it needs, and
-what it may NOT do is assume a caller is willing to wait on the calling thread.
-`buf` obeys design 183's pointer rule — it addresses the parked task's frame or
-the heap, so the worker may write through it for the whole call, cancellation
-included.
+**Blocking (design 187).** The pipe is a blocking descriptor and a child may
+write nothing for as long as it likes, so this call is unbounded. std declares
+it `extern blocking`, so every call is offloaded to a worker thread by design
+183's machinery and the calling task parks; a runtime implementing this seam
+may take as long as it needs, and what it may not do is assume a caller is
+willing to wait on the calling thread. `buf` obeys design 183's pointer rule:
+it addresses the parked task's frame or the heap, so the worker may write
+through it for the whole call, cancellation included.
 
 ### `__saw_rt_proc_wait_fd(job: word) -> word`
 A descriptor that becomes **readable once the child has exited**, or `-tag`.
@@ -658,14 +599,14 @@ ordinary reactor park: register it for read interest, and the poll that would
 have blocked in `waitpid` blocks in `kevent`/`epoll_wait` alongside every other
 parked task.
 
-`-tag` is not a failure of the wait — it means only that this child cannot be
+`-tag` is not a failure of the wait: it means only that this child cannot be
 waited for by descriptor right now, and the caller falls back to polling
 `try_wait`. The common reason is benign: on macOS the child became a zombie
 between the caller's poll and this call, and there is no exit left to register
 for (see `__saw_rt_proc_exit_fd`).
 
 ### `__saw_rt_proc_exit_fd(pid: word) -> word`
-**OS-DIVERGENT** — the one host-specific piece of the wait, and the seam
+**OS-divergent**: the one host-specific piece of the wait, and the seam
 `wait_fd` is built on. A descriptor readable once process `pid` has exited, or
 `-tag`.
 
@@ -694,15 +635,16 @@ The job is **destroyed** — descriptors closed, record freed — on every answe
 ### `__saw_rt_proc_release(job: word) -> void`
 Abandon the job without waiting: one `WNOHANG` reap (so a child that already
 exited does not linger as a zombie), then close its descriptors and free the
-record. The cancellation exit — design 102 cancels the WAIT, not the CHILD, so a
-child still running keeps running and this process never collects its status.
+record. The cancellation exit: cancellation cancels the wait, not the child, so
+a child still running keeps running and this process never collects its status.
 
 ## Cooperative-scheduler fairness (design 89-c)
 
-A backstop for the single-threaded cooperative scheduler: an io op that completes
-WITHOUT parking charges a process-global budget; when it is exhausted the io
-primitive force-yields once so a busy always-ready socket cannot monopolize the
-executor. Op-count, not wall-clock. Default budget 128.
+A backstop for the cooperative scheduler: an io op that completes without
+parking charges a budget; when it is exhausted the io primitive force-yields
+once so a busy always-ready socket cannot monopolize the executor. The budget
+is per thread, so each MT worker has its own allowance and reset. Op-count, not
+wall-clock. Default budget 128.
 
 ### `__saw_rt_op_budget_tick() -> word  (1/0)`
 Decrement the budget. Returns `1` (and resets to the default) when it reaches zero
@@ -711,47 +653,36 @@ Decrement the budget. Returns `1` (and resets to the default) when it reaches ze
 ### `__saw_rt_op_budget_reset() -> void`
 Restore the default budget (a genuine park already ceded).
 
-## The IO reactor — INSTANCE-based (designs 76 / 91 / 102 / 117)
+## The IO reactor (instance-based)
 
-v2 makes the reactor an opaque INSTANCE created through the ABI, not process-global
+The reactor is an opaque instance created through the ABI, not process-global
 seam state. `__saw_rt_reactor_create()` allocates an instance owning its
-kqueue/epoll fd AND its wake source; register/poll/wake/destroy take the
-instance. This dissolves DF-113d (the poll event buffer was a per-call MT-safe
-STACK array Saw could not express): the reactor now lives in Saw
-(`rt/host_macos/reactor.saw` kqueue, `rt/host_linux/reactor.saw` epoll) and each
-poll heap-allocates its own event buffer.
+kqueue/epoll fd and its wake source; register/unregister/poll/wake/destroy take
+the instance. The hosted reactor is Saw (`rt/host_macos/reactor.saw` for
+kqueue, `rt/host_linux/reactor.saw` for epoll).
 
-**The process-global singleton is EXECUTOR policy, not runtime state.** _Design 118
-stage 3 moved this fully into Saw:_ the singleton is `__saw_host_reactor()`
-(std/taskgroup.saw) — a lazy, race-safe getter over an `Atomic<Int>` static
-(`reactor_create` on first use, published via `compare_exchange`; a loser
-`reactor_destroy`s its spare) that returns the `SystemReactor` value conforming to
-the Saw `Reactor` trait. The executor threads the instance EXPLICITLY (each seam
-call passes `self.instance`), so the reactor seams are plain externs and there is no
-compiler-injected instance. (Through design 117 this was the compiler-synthesized
-`__saw_reactor()` getter + a per-call-site instance injection; both are retired.)
+**The process-wide instance is executor policy, not runtime state.** It is
+`__saw_host_reactor()` (std/taskgroup.saw), a lazy getter over an
+`Atomic<Int>` static: `reactor_create` on first use, published by
+`compare_exchange`, and a thread that loses the race `reactor_destroy`s its
+spare. It returns the `SystemReactor` value that conforms to the Saw `Reactor`
+trait, and the executor passes the instance explicitly on every seam call.
 
-**Concurrency (design 117 pin — match v1 observable semantics exactly).** MT
-TaskGroups poll from several worker threads concurrently. v1's poll used a
-per-call STACK event buffer, so concurrent polls were independent. v2 preserves
-this EXACTLY with a per-call HEAP event buffer (`malloc`/`free` inside `poll`) —
-no shared buffer, no poll mutex. The design-91 token contract and the one-shot
-rearm are byte-identical to v1 (the net suite is the regression harness).
+**Concurrency.** Several threads poll one instance at once (MT TaskGroup
+workers and the ambient scheduler), so concurrent polls must be independent.
+The hosted bodies allocate the event buffer per call (`malloc`/`free` inside
+`poll`): no shared buffer, no poll mutex.
 
-**The wake is a BROADCAST (design 225 unit 1).** No seam changed — the set, the
-names and the widths are exactly as v2 froze them — but `__saw_rt_reactor_wake`
-now guarantees that every thread parked in `poll` returns, not one of them, and
-the mechanism is a kqueue `EVFILT_USER` / a Linux `eventfd` in place of the
-design-102 self-wake pipe. The pipe could not serve a live worker pool: its read
-end was armed one-shot INSIDE each poll, so concurrent pollers shared one
-registration, the first delivery deleted it, and every LATER wake reached nobody
-at all (measured Aug 16 on three parked threads: one wake woke one, and the
-second and third woke none). The wake source is armed once at create and never
+**The wake is a broadcast (design 225).** `__saw_rt_reactor_wake` makes every
+thread blocked in `poll` return, not one of them. The hosted bodies use a
+kqueue `EVFILT_USER` event / a Linux `eventfd`, armed once at create and never
 deleted, so a blocked poller's registration cannot be consumed out from under
-it; reaching every poller is a cascade over a per-instance count of the threads
-currently blocked, so a wake costs one trigger per blocked poller and stops when
-the last one out reads zero. `examples/reactor_cross_thread_wake.saw` is the
-seam-level test.
+it. A wake source armed one-shot inside each poll would not do: concurrent
+pollers would share one registration, and the first delivery would remove it
+for all of them. Reaching every poller is a cascade over a per-instance count
+of the threads at the blocking call: a poller that consumed the wake re-posts
+it while that count is positive, and the chain stops when a consumer reads
+zero. `examples/reactor_cross_thread_wake.saw` is the seam-level test.
 
 ### `__saw_rt_reactor_create() -> ptr`
 Create a reactor instance: a kqueue (macOS) / epoll (Linux) fd + its wake source
@@ -761,98 +692,90 @@ instance pointer (as a `word`).
 ### `__saw_rt_reactor_register(r: ptr, fd: word, write: word, token: word) -> void`
 Arm **one-shot** readiness interest on `fd` in `r` for read (`write==0`) or write
 (`write!=0`). `token` is carried as the event's user-data and is **the parked
-frame's `__wake`-word ADDRESS** (design 91) — the precise-routing contract. One-shot
+frame's `__wake`-word address** (design 91), the precise-routing contract, or
+`0` for a registration made outside any frame (never latched). One-shot
 (`EV_ONESHOT`/`EPOLLONESHOT`) plus fd close drop the registration; epoll re-arms a
-known fd with `EPOLL_CTL_MOD` on `EEXIST`.
+known fd with `EPOLL_CTL_MOD` when the `EPOLL_CTL_ADD` fails.
 
 ### `__saw_rt_reactor_unregister(r: ptr, fd: word, write: word) -> void`
 Drop readiness interest on `fd` in `r` for read (`write==0`) or write
-(`write!=0`) — `EV_DELETE` on kqueue, `EPOLL_CTL_DEL` on epoll. **Idempotent:**
+(`write!=0`): `EV_DELETE` on kqueue, `EPOLL_CTL_DEL` on epoll. **Idempotent:**
 an already-fired one-shot, a closed fd, and an fd that was never armed all
 return `ENOENT`/`EBADF`, which is the state the caller asked for, so the result
-is ignored. (Linux keeps ONE interest per `(epfd, fd)` covering both directions,
+is ignored. (Linux keeps one interest per `(epfd, fd)` covering both directions,
 so `write` is accepted for uniformity and unused there.)
 
-Added by design 147 (DF-134a), the first widening of the frozen set since v2.
-The token a registration carries is the parked frame's `__wake`-word ADDRESS, so
-a registration that outlives its frame is a dangling write, not a leak — and
-since design 134 the frame box is released at task completion, which makes the
-window real. Two callers: std.net's park loops call it on their cancellation
-exit (the one path that leaves a loop with an event still armed), and a
-coroutine frame's synthesized `release` calls it for the last `(fd, dir)` the
-frame armed, ahead of its own field drops so the fd is still open and still the
-frame's. A frame whose body contains no `io_wait` arms nothing and gets neither
-the bookkeeping fields nor the call.
+The token a registration carries is the parked frame's `__wake`-word address,
+so a registration that outlives its frame is a dangling write, not a leak, and
+the frame box is released at task completion, which makes the window real
+(DF-134a). Two callers: std's park loops call it when they leave without their
+event firing (a cancellation or a timeout), and a coroutine frame's synthesized
+`release` calls it for the last `(fd, dir)` the frame armed, ahead of its own
+field drops so the fd is still open and still the frame's. A frame whose body
+contains no literal `io_wait` gets neither the bookkeeping fields nor the call.
 
 ### `__saw_rt_reactor_poll(r: ptr, timeout_ms: word) -> word  (ready count)`
 Block in `kevent`/`epoll_wait` on `r` up to `timeout_ms` (`< 0` = forever). For
-EACH ready event, **LATCH its token word to 0 (ready)** — waking exactly the
-frame(s) that registered for that `(fd, direction)`. The latch is a persistent word
-(not an edge), so a poll that fires before the scheduler finished recording the
-park is never lost. Token `0` is skipped — it is the wake source's own token, and
-consuming one is what makes this poll re-post the wake to the next blocked
-poller (the cascade above) and clear the source so it does not busy-fire. The
-event buffer is a per-call heap allocation (concurrency pin above).
+each ready event with a nonzero token, **latch its token word to 0 (ready)**,
+waking the task whose frame registered for that `(fd, direction)`. The latch
+is a persistent word, not an edge, so a latch that lands after the frame has
+stored its park word is seen at the next scan. (One that lands between the
+arm and that store is overwritten today: SL-353.) Token `0` is never latched:
+it belongs to the wake source and to registrations made outside any frame.
+Consuming the wake event makes the poll re-post the wake while another poller
+is blocked (the cascade above) and clear the source so it does not busy-fire.
+Returns the number of events delivered, a consumed wake event included. The
+event buffer is a per-call heap allocation (see Concurrency above).
 
 ### `__saw_rt_reactor_wake(r: ptr) -> void`
-Rouse EVERY thread blocked in `poll` on `r`, from any thread — including one the
-executor knows nothing about. Two callers' worth of contract: the design-102
-cancel-wake path (a `cancel()` on an already-io-parked task rouses the poll; the
-scheduler re-checks `cancelled()` and wakes the parked frame, which returns
-`Err(IoError)` at its loop top), and design 225's live worker pool, where a
-worker's progress has to reach an ambient scheduler parked on another thread. A
-wake fired with NOTHING parked is not lost: the source is state rather than an
-edge, so the next `poll` returns on it at once. Which FRAMES are woken is
-unchanged and still precise — a non-cancelled sibling parked on an idle fd stays
-parked; the broadcast is over pollers, not over frames.
+Rouse every thread blocked in `poll` on `r`, from any thread, including one the
+executor knows nothing about. Its callers: the cancel wake (a `cancel()` on an
+already io-parked task rouses the poll; the scheduler re-checks `cancelled()`
+and wakes the parked frame, which returns `Err(IoError)` at its loop top), the
+MT worker pool, where a worker's progress has to reach a scheduler parked on
+another thread, and a channel send's poke. A wake fired with nothing parked is
+not lost: the source is state rather than an edge, so the next `poll` returns
+on it at once. Which frames are woken stays precise (a non-cancelled sibling
+parked on an idle fd stays parked); the broadcast is over pollers, not frames.
 
 ### `__saw_rt_reactor_destroy(r: ptr) -> void`
 Close the instance's fds and free it. (Called by the singleton getter on the
 CAS-loser's spare; the process-lifetime instance itself is never destroyed.)
 
-## Threads — spawn/join (designs 21 / 117)
+## Threads — spawn/join/detach (designs 21 / 117 / 242)
 
-v2 consolidates the thread surface to spawn/join (v1's `__saw_rt_pthread_create` /
-`__saw_rt_pthread_join` are gone). The DF-113b fn-pointer thunk stays in `shim.c`.
-pthread symbols resolve from libSystem (macOS) / libc+libpthread (Linux).
+v1's `__saw_rt_pthread_create`/`__saw_rt_pthread_join` are replaced by
+spawn/join (see the migration table); detach was added later. pthread symbols
+resolve from libSystem (macOS) / libc+libpthread (Linux).
 
 ### `__saw_rt_thread_spawn(entry: void*(*)(void*), env: i8*) -> word  (handle)`
-`pthread_create(&t, NULL, entry, env)`; RETURN the OS thread handle (`pthread_t`,
+`pthread_create(&t, NULL, entry, env)`; return the OS thread handle (`pthread_t`,
 pointer-sized on both hosts) as a word. Spawn codegen stores the returned handle
-into the task control block's first 8-byte slot (byte-identical control-block
-layout to the v1 `pthread_create`-writes-the-slot form). C shim (DF-113b — a raw C
-function pointer).
+into the control block's first slot. C shim (DF-113b: a raw C function
+pointer).
 
 ### `__saw_rt_thread_join(handle: word) -> void`
-`pthread_join((pthread_t)handle, NULL)` — join by the handle VALUE. Saw body
+`pthread_join((pthread_t)handle, NULL)`: join by the handle value. Saw body
 (`rt/common/pthread.saw`).
 
 ### `__saw_rt_thread_detach(ctrl: i8*) -> void`
 `pthread_detach` on the thread whose control block is `ctrl`, and the handoff of
-that block's OWNERSHIP to the thread's own exit path. C shim (DF-113b's reason
-plus one of its own — see below). Design 242 ruling 4: the daemon-thread fate,
-where the values a thread owns deinit if it completes and the OS terminates it
-at process exit.
+that block's ownership to the thread's own exit path. C shim (DF-113b's reason
+plus one of its own, below). The daemon-thread fate (design 242): the values a
+thread owns deinit if it completes, and the OS terminates it at process exit.
 
-**This is ADDITIVE, on design 234's `__saw_rt_last_raw_code` precedent** (user
-ruling Aug 22, recorded above at that seam): one new symbol beside the two
-consolidated by design 117, and **no existing signature moves**. So
-`runtime_abi.py`'s arity/width check and `make abidoc`'s symbol-set check see
-exactly what they saw before, and a runtime that implements the v2 thread
-surface keeps implementing it unchanged.
-
-**Why it takes the BLOCK and not the handle.** Its twin `__saw_rt_thread_join`
+**Why it takes the block and not the handle.** Its twin `__saw_rt_thread_join`
 takes the handle by value, and symmetry would say this should too. It cannot,
 because detaching is two jobs rather than one: the OS thread must be detached,
-AND somebody must eventually free the control block — and after a detach there
+and somebody must eventually free the control block, and after a detach there
 is no join left to do it. The two parties who could are the detacher and the
 thread's own exit path, they run concurrently, and exactly one must free. That
 handshake needs a word both can reach, which means the block.
 
 **The handshake, frozen.** The control block is
-`{ pthread_t tid, i8* env, word state, T result }` — spawn codegen owns that
-layout and this document freezes exactly ONE word of it, `state`, at offset
-`2 * sizeof(void*)`. Spawn codegen seeds it with the block's own SIZE (a
+`{ pthread_t tid, i8* env, word state, T result }`; spawn codegen owns that
+layout and this document freezes exactly one word of it, `state`, at offset
+`2 * sizeof(void*)`. Spawn codegen seeds it with the block's own size (a
 positive number) before the thread exists. Then:
 
 | party | exchange | what a returned value means |
@@ -861,71 +784,71 @@ positive number) before the thread exists. Then:
 | the thread's exit path (the per-spawn trampoline, after the result is stored and the env released) | `prev = xchg(state, -size)` | `prev == 0` — the detacher already ran; **free it there**. Otherwise the detacher has not run and will |
 
 Both exchanges are acquire-release. Exactly one side frees, always, with no lock
-and no wait. **The size travels IN the word** so this seam can call
-`__saw_rt_dealloc` without knowing `T` — the block's layout is the compiler's,
+and no wait. **The size travels in the word** so this seam can call
+`__saw_rt_dealloc` without knowing `T`: the block's layout is the compiler's,
 and the seam learns one word of it and nothing else.
 
 `join` never touches `state`: a joined thread was never detached, so the joiner
-is the block's only owner and frees it the way it always did.
+is the block's only owner and frees it.
 
 **Why C.** DF-113b's reason (the block's first slot holds a `pthread_t`, which
-Saw has no type for) plus one of this seam's own: the handshake is an ATOMIC
-EXCHANGE over raw memory, and Saw's atomics are a TYPE (`Atomic<Int>`) rather
+Saw has no type for) plus one of this seam's own: the handshake is an atomic
+exchange over raw memory, and Saw's atomics are a type (`Atomic<Int>`) rather
 than an operation a pointer can carry.
 
 **SOS / freestanding.** A runtime with no threads implements neither this seam
-nor `__saw_rt_thread_spawn`/`_join`, and owes nothing: the ruled answer is to
-REFUSE rather than to no-op, because a silent no-op would leak the control block
-of every detached thread and would tell a caller its thread was detached when no
-thread exists. `sos/rt/common` has no thread surface at all, so a `Thread.spawn`
-there fails at link with the spawn seam missing long before a `detach` could be
-reached — which is that refusal, arrived at by the same route the rest of the
-thread surface already takes.
+nor `__saw_rt_thread_spawn`/`_join`. It must refuse rather than provide a
+no-op `detach`: a silent no-op would leak the control block of every detached
+thread and would tell a caller its thread was detached when no thread exists.
+Without the spawn seam, a `Thread.spawn` fails at link before a `detach` could
+be reached, which is that refusal.
 
 ### `__saw_rt_pthread_mutex_init_default(m: i8*) -> void`
 `pthread_mutex_init(m, NULL)`. Saw reserves a conservative slot (<= 64 bytes).
 
 ### `__saw_rt_pthread_cond_init_default(c: i8*) -> void`
 `pthread_cond_init(c, NULL)`. `pthread_cond_t` is 48 bytes on macOS/glibc; std
-reserves 64. (Full Thread traitification is design 118; these init seams stay.)
+reserves 64.
 
 ### `__saw_rt_lock_acquire(state: word*) -> void`
 ### `__saw_rt_lock_release(state: word*) -> void`
-**The one-word lock (design 186).** `state` addresses ONE platform word that
-`Mutex<T>` carries inline, and **ZERO MEANS UNLOCKED** — that is the contract, on
+**The one-word lock (design 186).** `state` addresses one platform word that
+`Mutex<T>` carries inline, and **zero means unlocked**: that is the contract on
 every host, and it is what lets `static M: Mutex<T>` be declared with no
 initializer and land in .bss. A runtime may use as much of the word as it likes
 (both hosted implementations use its low four bytes, and both hosted targets are
 little-endian) but must accept all-zero as the initial unlocked state.
 
-`acquire` blocks the calling THREAD until the lock is held; `release` hands it
+`acquire` blocks the calling thread until the lock is held; `release` hands it
 on. Neither is recursive: acquiring a lock this thread already holds is a
-program bug, and a runtime may trap or deadlock. Both are `sync` — a seam never
-suspends a task, which is why `Mutex.lock` takes a `sync` closure.
+program bug, and a runtime may trap or deadlock. Both are `sync` (a seam never
+suspends a task), which is why `Mutex.lock` takes a `sync` closure.
 
 Host bodies: macOS is `os_unfair_lock_lock`/`_unlock` in Saw
 (`rt/host_macos/lock.saw`); Linux is a three-state futex in `rt/shim.c`, which
-stays C because a futex needs 32-bit atomics through a pointer and a variadic
-`syscall`, neither of which Saw can spell (DF-186c).
+stays C because a futex needs 32-bit atomics through a pointer, which Saw
+cannot spell (DF-186c).
 
-## Blocking-extern offload (design 103, widened by design 183)
+## Blocking-extern offload (design 183)
 
-A blocking FFI call inside a suspending task is offloaded to a thread-per-call so
-the cooperative reactor thread never blocks; the task parks on the job's self-pipe
-like any socket read. A job is a heap record; single-owner discipline throughout.
-The offload thunk `fn` is a C-ABI `word(word)`.
+A blocking FFI call inside a suspending task runs on a thread of its own, one
+per call; normally the task parks on the job's pipe like any socket read, so no
+executor thread blocks. Cancellation goes straight to `take`, which joins the
+call's thread, so it can block the executor thread running it until the call
+returns. A job is a heap record; single-owner discipline
+throughout. The offload thunk `fn` is a C-ABI `word(word)`.
 
-That one word is a pointer to the call's ARGUMENT SLOTS — one `word`-sized slot
-per parameter, in declaration order — and `fn` is a thunk the COMPILER synthesizes
-for each offloaded extern, which reads the slots back at their declared types and
-makes the real call. So the extern's own C ABI is the compiler's ordinary
-extern-call lowering, this seam family knows nothing about arity, and every
-signature the C-ABI whitelist admits (fixed-width integers, Int/UInt, Float,
-UnsafePointer, plus Void/Never returns) can be offloaded.
+That one word is a pointer to the call's argument slots (one `word`-sized slot
+per parameter, in declaration order), and `fn` is a thunk the compiler
+synthesizes for each offloaded extern, which reads the slots back at their
+declared types and makes the real call. So the extern's own C ABI is the
+compiler's ordinary extern-call lowering, this seam family knows nothing about
+arity, and every signature the C-ABI whitelist admits (fixed-width integers,
+Int/UInt, Float, UnsafePointer, plus Void/Never returns) can be offloaded.
 
 **Lifetime rule for the runtime**: the worker reads the slots at a time `start`
-cannot bound, so `start` COPIES them into storage the job owns and `take` frees
-that storage after the join. What a pointer slot POINTS AT is the caller's
+cannot bound, so `start` copies them into storage the job owns and `take` frees
+that storage after the join. What a pointer slot points at is the caller's
 obligation (LANGUAGE_SPEC, "Blocking externs and the offload"): it must live in
 the suspended frame or the heap, both of which outlive the park.
 
@@ -944,17 +867,19 @@ The job's readable pipe fd (the parked task registers this with the reactor).
 ### `__saw_rt_offload_take(job: word) -> word  (result)`
 Join the worker (full barrier), read the result, close the pipe, free the argument
 slots and the job. One result word; a Void/Never extern's caller ignores it. The
-join is unconditional — a cancelled task still takes, which is what makes freeing
+join is unconditional: a cancelled task still takes, which is what makes freeing
 the slots safe.
 
 ### `__saw_rt_blocking_sleep(ms: word) -> word  (ms)`
-The reference blocking primitive: a real thread-blocking sleep returning its
-argument, exercised by the offload tests via a `blocking func` extern.
+The reference blocking primitive: a thread-blocking sleep that returns its
+argument, which the offload tests call through a `blocking func` extern.
 
-## Program arguments (design 81 CI rider)
+## Program arguments (design 81)
 
-The C entry `main(argc, argv)` stashes its two arguments into runtime storage at
-startup; `Env.argc`/`Env.arg` read them through these accessors on every target.
+The C entry `main(argc, argv)` stashes its two arguments in two module-private
+globals at startup, and `Env.argc`/`Env.arg` read them through these accessors
+on every target. The compiler emits both accessors, and the globals, into
+every program; the hosted runtime does not export them.
 
 ### `__saw_rt_get_argc() -> i32`
 The `argc` main received.
@@ -979,205 +904,98 @@ The `argv` main received.
 | `__saw_rt_reactor_poll(timeout)` | signature +instance: `(r,timeout)`                        |
 | `__saw_rt_reactor_wake()`        | signature +instance: `(r)`                                |
 | —                                | **new** `__saw_rt_reactor_create`, `__saw_rt_reactor_destroy` |
-| —                                | **new (design 147)** `__saw_rt_reactor_unregister` — DF-134a |
 | `__saw_rt_pthread_create(tid,start,arg)` | **renamed** `__saw_rt_thread_spawn(entry,env) -> handle` |
 | `__saw_rt_pthread_join(tid)`     | **renamed** `__saw_rt_thread_join(handle)` (value handle) |
 
 Everything else (alloc/dealloc/write/panic, sleep, clocks, set_nonblocking,
-sin_set_family, op-budget, mutex/cond init, the offload family, get_argc/argv) is
-unchanged from v1.
+sin_set_family, op-budget, mutex/cond init, the offload family, get_argc/argv)
+carried over from v1 into v2 unchanged; later changes are in the next table.
 
-Changes since v2, additive but for the one removal noted:
+Changes since v2. Rows marked **changed**, **replaced** or **removed** alter
+something an older runtime already implements; the rest add a symbol, a tag or
+a flag bit.
 
 | design | change                                                          |
 |--------|----------------------------------------------------------------|
 | 122    | `__saw_rt_fs_dirent_name`                                      |
 | 122    | `__saw_rt_proc_{spawn,read_stdout,wait}`                       |
+| 123    | `__saw_rt_alloc_deny_after` (optional hosted test facility)    |
 | 132    | `__saw_rt_fs_{open,read,write,lseek,opendir}`                  |
-| 182    | `__saw_rt_proc_{exit_fd,wait_fd,try_wait,release}` — the zero-thread child wait |
-| 187    | `__saw_rt_proc_wait` **REMOVED**: its last caller (`Command.output`) went cooperative, so the v1 blocking reap has none. A runtime that still exports it is harmless; one that does not is complete |
-| DF-215a | SysError tags 17-21 (`HostUnreachable`/`NetUnreachable`/`TimedOut`/`HostDown`/`NetDown`) — the five off-loopback errnos the map omitted. No symbol, no signature, no renumbering; see the tag table above |
-| 234 | `__saw_rt_last_raw_code` — the raw platform code beside the tag, stamped by `__saw_rt_last_syserror` and read by std's `IoError`. Additive: one new symbol, no existing signature moved. AMENDS the "Pin deviation" paragraph without overturning either of its grounds; see that seam's entry |
-| 242 | `__saw_rt_thread_detach` — `pthread_detach` plus the control block's ownership handshake with the thread's own exit path. Additive on the 234 precedent: one new symbol, no existing signature moved. It is the one seam that takes the control BLOCK rather than a handle, and it freezes exactly one word of that block's layout (`state`, at `2 * sizeof(void*)`); see its entry |
+| 137    | `__saw_rt_alloc_deny_after` **changed**: one parameter, `(allow)`; the second (a window that re-armed the allocator) is gone |
+| 147    | `__saw_rt_reactor_unregister` (DF-134a)                        |
+| 155    | `__saw_rt_proc_spawn_env`; `__saw_rt_proc_spawn`'s `flags` gains bit 1 (stderr follows stdout); `__saw_rt_fs_open`'s `mode` **changed** from a raw `O_*` flag word to the portable open mode, with the same signature |
+| 180    | `__saw_rt_sleep_ms(ms)` **replaced** by `__saw_rt_sleep_ns(ns)`: nanoseconds, read as unsigned |
+| 182    | `__saw_rt_proc_{exit_fd,wait_fd,try_wait,release}`: the child wait with no thread |
+| 183    | `__saw_rt_offload_start` **changed** from `(fn, arg)` to `(fn, argp, argc)`: the thunk's word points at argument slots the job copies |
+| 184    | `__saw_rt_resolve_ipv4`; `__saw_rt_tcp_connect_start` **changed** from `(port)` to `(addr_be, port)` and `__saw_rt_tcp_connect_check` from `(fd, port)` to `(fd, addr_be, port)` (they dialled a hardcoded 127.0.0.1) |
+| 186    | `__saw_rt_lock_{acquire,release}`                              |
+| 187    | `__saw_rt_proc_wait` **removed**: its last caller (`Command.output`) went cooperative, so the v1 blocking reap has none, and a runtime need not provide it |
+| DF-215a | SysError tags 17-21 (`HostUnreachable`/`NetUnreachable`/`TimedOut`/`HostDown`/`NetDown`), the five off-loopback errnos the map omitted. No symbol, no signature, no renumbering; see the tag table above |
+| 225    | `__saw_rt_reactor_wake` **changed** contract: it rouses every blocked poller, not one. No signature change; see the reactor section |
+| 234    | `__saw_rt_last_raw_code`: the raw platform code beside the tag, stamped by `__saw_rt_last_syserror` and read by std's `IoError`. One new symbol, no existing signature moved; the status word still carries only the tag (see that seam's entry) |
+| 242    | `__saw_rt_thread_detach`: `pthread_detach` plus the control block's ownership handshake with the thread's own exit path. One new symbol, no existing signature moved. It takes the control block rather than a handle, and it freezes exactly one word of that block's layout (`state`, at `2 * sizeof(void*)`); see its entry |
+| 272    | `__saw_rt_tcp_listen_with`, `__saw_rt_socket_set_option`      |
+| —      | `__saw_rt_tcp_listen_on`                                       |
 
-## The compiler → executor entry-point boundary (design 118, stage 1: map + carve)
+## The compiler → executor boundary (design 118)
 
-This section pins the SECOND boundary design 118 works against: not the
-`__saw_rt_*` runtime ABI above (Saw ↔ host OS), but the seam between
-**compiler-synthesized IR** (coroutine frames + the transform) and the
-**cooperative executor**. Design 118 relocates the executor fully into Saw
-behind `Reactor`/`Thread` traits; this map is the doc commit that fixes the
-boundary shape BEFORE any code moves (per the staging plan). It is descriptive
-of the code as it stands at stage-1 start plus the carve it proposes; the
-symbols marked NEW do not exist yet.
+A second boundary, separate from the runtime ABI above (Saw ↔ host OS): the
+one between the code the compiler synthesizes (coroutine frames and the
+transform) and the cooperative executor, which is Saw (`std/taskgroup.saw` and
+`std/task.saw`). Synthesized code holds no scheduler loop or park policy of its
+own; it calls the executor by name through the entry points below. These are
+not `__saw_rt_*` seams: a runtime does not provide them, and nothing here is
+machine-checked.
 
-### Three tiers, not two
+| concern | entry point | called from |
+|---------|-------------|-------------|
+| enqueue | `TaskGroup.__enqueue(task: Box<any Resumable>, cell: Box<any __TaskCell>) -> Int` | the spawn helper `__spawn_<f>` |
+| handle identity | `TaskGroup.__gen_at(slot: Int) -> Int` | the spawn helper, after `__enqueue` |
+| background group | `__saw_bg_group() -> UnsafePointer<TaskGroup>`, `__saw_bg_close()` | the `Task.spawn` helper; the synthesized `main` of a program with a background spawn |
+| drive with spawns | `__saw_exec_run_root(rootbox)`, `__saw_exec_run_root_status(rootbox, cellbox, cellp) -> Int` | the entry executor of a suspending `main` in a program that spawns |
+| single-frame park | `__saw_exec_park(wake: Int, deadline: Int)` | the entry executor of a suspending `main` with no spawns; an `io_wait` or channel park outside any frame |
+| arm io | `__saw_exec_io_register(fd: Int, dir: Int, token: Int)` | the `io_wait` and offload park lowerings; `io_wait` outside a frame (token `0`) |
+| disarm io | `__saw_exec_io_unregister(fd: Int, dir: Int)` | the `io_unwait` lowering, including a frame's synthesized `release` |
+| thread-engine count | `__saw_exec_thread_task_started()` | `Thread.spawn` codegen |
+| panic sink | `__saw_bt_panic(message, length)` | the panic path of a program that links the executor |
 
-The design-113 intro names two symbol tiers. There is in fact a third, and
-design 118 is about making it a clean, small, Saw-authored boundary:
+In the other direction, the compiler emits the `__saw_bt_table()` blob that the
+executor's task dump reads.
 
-1. **`__saw_rt_*`** — the runtime ABI (Saw ↔ host OS), documented above.
-2. **`__saw_*` compiler-internal helpers** — string/atomic/box/print glue and
-   the `__saw_reactor` instance getter. Emitted as IR bodies by codegen.
-3. **The executor** — the cooperative scheduler, run queue, park/wake, MT
-   engine. **Most of it is ALREADY Saw** (designs 89/75/91/102 put it in
-   `std/taskgroup.saw` + `std/task.saw`); design 118 relocates the last
-   synthesized pieces and routes reactor/thread access through traits.
+What stays synthesized:
 
-### What the compiler still synthesizes (stage-1 inventory)
+- **Frame layout and the transform.** Per suspending function or method, a
+  `__Frame_<f>` struct and its `resume() -> Poll` state machine, with the
+  `Resumable` conformance (`wake_reason`, `is_cancelled`, `io_deadline`,
+  `bt_desc`, `release`) that `Box<any Resumable>` erasure dispatches through.
+  A suspension writes the frame's `__wake` reason and returns `Pending` (an io
+  park first arms the reactor through `__saw_exec_io_register`). Wake reasons
+  follow the park word vocabulary in std/taskgroup.saw: `> 0` sleep
+  nanoseconds, `0` ready, `-1` io park, `< -1` readiness-word park.
+- **The single-frame entry executor** keeps its resume-until-done loop over
+  `main`'s own stack frame, with no box and no scheduler list; its only park is
+  the call to `__saw_exec_park`. A monomorphized `__saw_exec_run_single(box)`
+  that would remove even that loop is a deferred option.
+- **The test-only drivers** `__saw_drive_<f>` / `__saw_drive_steps_<f>` resume
+  in a loop and never park.
+- **The offload lowering.** A `blocking` extern call becomes
+  `__saw_blk_start`, a park loop on the job pipe, and `__saw_blk_take`; codegen
+  lowers `__saw_blk_*` to the `__saw_rt_offload_*` seams and emits one
+  `__saw_blk_thunk$<extern>` per offloaded extern (design 183).
+- **The spawn half of the thread engine.** `Thread.spawn { }` codegen builds
+  the control block and a per-site trampoline and launches it through
+  `__saw_rt_thread_spawn` (a raw C function pointer, DF-113b). Joins go
+  through the `NativeThread` trait (`PosixThread` over `__saw_rt_thread_join`,
+  in std/task.saw).
 
-Emitted as Saw AST by `coro_transform.py` or as IR by `codegen/`:
-
-- **Frame layout + transform** (KEPT synthesized — a non-goal to move): per
-  suspending fn/method a `__Frame_<f>` struct with fields, in order,
-  `__state:Int`, `__wake:Int`, `__io_tok:Int`, `__cancel:Bool`,
-  `__result:R?` (omitted for a `Void` body); the `resume() -> Poll`
-  state machine; the `wake_reason()->Int` and `is_cancelled()->Bool`
-  read accessors; the `Resumable` conformance (vtable for `Box<any Resumable>`
-  erasure). A suspension is just `__wake=<reason>; __state=<n>; return Pending`
-  — no executor call. Wake reason: `>0` sleep NANOSECONDS (design 180), `0`
-  yield/ready, `-1`
-  (`IO_PARK_WAKE`) io-parked.
-- **Entry executor** — a suspending `main` is replaced by a synthesized `main`:
-  - no spawns → `_make_entry_executor`: an INLINE drive loop over main's own
-    stack frame that on `Pending` calls `__saw_exec_sleep_ns(ns)` (wake>0) or
-    `__saw_rt_reactor_poll(-1)` (wake<0) or resumes at once (wake==0).
-  - spawns → `_make_ambient_entry_executor`: box main erased, call
-    `__saw_exec_run_root(box)` (Saw).
-- **Drivers** `__saw_drive_<f>` / `__saw_drive_steps_<f>` (design 44/45,
-  test-only) — an INLINE resume loop over a stack frame, same park inline as
-  the single-frame entry executor, then reads `__f.__result`.
-- **Spawn helper** `__spawn_<f>(&group, args) -> Task<T>|VoidTask`
-  — builds the frame, `Box<any Resumable>.make`, captures `__result`/`__cancel`
-  slot pointers, calls `group.__enqueue(move box)`, returns the handle.
-- **io park lowering** (inside `resume`, both the `io_wait` primitive and the
-  design-103 offload park loop) — emits a direct
-  `__saw_rt_reactor_register(fd, dir, self.__io_tok)` then suspends `IO_PARK_WAKE`.
-- **Offload lowering** — `let x = slow(a, b)` (blocking extern) desugars to
-  `__saw_blk_start` + an `io_wait` park loop on the job pipe + `__saw_blk_take`;
-  codegen lowers `__saw_blk_*` to the `__saw_rt_offload_*` seams. `start` also
-  emits `__saw_blk_thunk$<extern>` (internal, one per offloaded extern, design
-  183): `word(word)`, reads the argument slots back at their declared types and
-  makes the real C call.
-- **`Thread.spawn { } -> Thread<T>` thread engine** (`codegen/calls.py::_generate_spawn`)
-  — control block `{tid, env, result}`, a per-site `i8*(i8*)` trampoline, and a
-  `__saw_rt_thread_spawn(tramp, cb)` launch (the SPAWN half stays codegen — the raw
-  C trampoline pointer is DF-113b). `Thread<T>`/`VoidThread` join/deinit
-  (`std/task.saw`, Saw) join through the design-118 stage-4 `NativeThread` trait /
-  `PosixThread` over `__saw_rt_thread_join`.
-- ~~**`__saw_reactor()`** reactor-instance getter + injection~~ — RETIRED (design
-  118 stage 3). The process-global reactor singleton is now the Saw
-  `__saw_host_reactor()` (lazy CAS over an `Atomic<Int>` static in
-  std/taskgroup.saw) returning the `SystemReactor` `Reactor` impl; the reactor seams
-  are plain externs the executor calls at full arity.
-- **Intrinsic lowerings** (`codegen/calls.py`): `sleep`→`__saw_rt_sleep_ns` (the
-  `Duration` argument's nanosecond field, extracted in IR — design 180);
-  `io_wait` outside a frame → `__saw_exec_io_register` + `__saw_exec_park(-1)`
-  (design 118 stage 2/3, routed through the trait); `cancelled()`→false,
-  `yield_now`/`__saw_io_park`→no-op outside a frame; `__saw_box_data`,
-  `__saw_forget`.
-
-### What is ALREADY Saw (the executor proper)
-
-`std/taskgroup.saw` + `std/task.saw`: the `TaskGroup` run queue (parallel
-`tasks`/`cells`/`done`/`remaining`/`active`/`gen`/`pin` vectors + the `free` slot
-list, design 134), the ambient scheduler
-`__saw_exec_run(term_group, term_slot, term_gen)` + its sweep helpers, `__enqueue`,
-`__saw_exec_run_root`, the MT fork-join drain `__drain_mt`/`__saw_exec_worker`,
-`Task`/`VoidTask` `join`/`cancel`/`cancel_addr`, `yield_now`, and
-the `Thread<T>`/`VoidThread` join/deinit. These call the reactor externs
-(`__saw_rt_reactor_poll`, `__saw_rt_reactor_wake`) and `__saw_exec_sleep_ns`
-DIRECTLY today — those direct calls are exactly what stage 3 routes through the
-`Reactor` trait.
-
-### The proposed entry-point boundary (spawn / enqueue / drive / park / wake / join)
-
-The minimal set of Saw-authored executor entry points the synthesized IR calls
-by name. The compiler emits calls; the Saw executor implements them. After the
-carve, synthesized IR contains NO scheduler-loop or park-policy body — only
-frame code + these calls.
-
-| concern  | entry point (shape)                                   | status |
-|----------|-------------------------------------------------------|--------|
-| enqueue  | `__enqueue(&var TaskGroup, box: Box<any Resumable>, cell: Box<any __TaskCell>) -> Int` | exists (Saw) |
-| drive    | `__saw_exec_run_root(box: Box<any Resumable>)`            | exists (Saw) |
-| join     | `__saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int)` | exists (Saw) |
-| drive/park (single-frame) | `__saw_exec_park(wake: Int)`             | stage 2 ✓ — carved the `_make_entry_executor` `Pending` body into this one Saw call (wake>0 → sleep; wake<0 → reactor poll -1; 0 → return). The trivial resume-until-done loop STAYS synthesized (lead pin: the design-45 allocation-free fast path is contract, and post-carve the loop carries zero policy). |
-| park (io) | `__saw_exec_io_register(fd: Int, dir: Int, token: Int)`  | stage 2 ✓ — Saw wrapper the `io_wait`/offload park lowerings + the outside-frame `io_wait` codegen path call instead of the raw `__saw_rt_reactor_register` extern |
-| wake     | `__saw_exec_reactor_wake()`                                | stage 2 ✓ — Saw wrapper over `__saw_rt_reactor_wake` (`Task`/`VoidTask.cancel` call it) |
-| sleep    | `__saw_exec_sleep_ns(ns: Int)`                             | stage 2 ✓ — promoted from a codegen intrinsic to a real Saw fn over `__saw_rt_sleep_ns`. Design 180 moved the unit to nanoseconds (the executor's whole deadline bookkeeping follows `Duration`) and moved every ABANDONABLE park off it onto the reactor poll. |
-
-`spawn` itself stays the synthesized `__spawn_<f>` helper (frame-shaped, cannot
-be generic-erased) whose executor touches are `__enqueue` and the `__gen_at`
-read that completes the handle's `(slot, generation)` identity. The `Thread<T>`
-thread engine's only executor touch is `__saw_rt_thread_spawn`/`_join`
-(stage 4 routes these through a `NativeThread` surface).
-
-**Why these:** every reactor/timer touch by synthesized IR OR by the existing
-Saw executor is funnelled through `__saw_exec_park` / `__saw_exec_io_register` /
-`__saw_exec_reactor_wake` / `__saw_exec_sleep_ns` and the poll inside `__saw_exec_run`. Stage
-3 then swaps ONLY those bodies to dispatch through a `Reactor` trait object held
-as the executor's singleton (replacing the compiler-injected `__saw_reactor()`
-instance), without touching a single synthesized call site.
-
-### Stage carve plan (each lands suite-green)
-
-- **Stage 2 (ST core) — LANDED:** added `__saw_exec_park`/`__saw_exec_sleep_ns` (Saw);
-  `_make_entry_executor`'s `Pending` arm now calls `__saw_exec_park(__f.__wake)`;
-  the resume-until-done loop STAYS synthesized (lead pin — do NOT box main onto
-  `__saw_exec_run_root`; the design-45 allocation-free fast path is part of the
-  byte-identical behavior contract, and after the carve the residual loop carries
-  zero policy). A monomorphized generic `__saw_exec_run_single(box)` that removes
-  even the loop (no box, per-frame instantiation) is the DEFERRED option if the
-  synthesized loop is ever unwanted. REFINEMENT of the stage-1 map: the
-  `__saw_drive_*` drivers have an EMPTY `Pending` body (design-44 test-only
-  busy-resume — they never park), so there is no park body to carve there; leaving
-  them untouched is what preserves byte-identical behavior (adding a park would be
-  a behavior change, not a relocation). The reactor is still consumed via the
-  direct externs (funnelled through the stage-2 `__saw_exec_*` wrappers).
-- **Stage 3 (reactor trait) — LANDED:** the `Reactor` trait (`register`/`poll`/
-  `wake`, token = the parked frame's `__wake`-word address, design 91) is defined in
-  std/taskgroup.saw, with `SystemReactor { instance: Int }` conforming over the
-  design-117 `__saw_rt_reactor_*` instance seams. Every executor reactor touch —
-  `__saw_exec_io_register`, `__saw_exec_reactor_wake`, `__saw_exec_park`'s poll, the
-  `__saw_exec_run` sweep poll, and the MT-worker poll — now goes through the trait
-  via `__saw_host_reactor()`, a Saw lazy-CAS singleton over an `Atomic<Int>` static
-  (create-on-first-use, publish via `compare_exchange`, loser destroys its spare).
-  The compiler-synthesized `__saw_reactor()` getter AND its per-seam instance
-  injection are RETIRED — the executor threads the instance explicitly, so the
-  reactor seams are now plain externs the Saw executor calls at full arity.
-  DEVIATIONS (recorded, rationale in taskgroup.saw): (1) ONE `SystemReactor` wrapper,
-  not two `KqueueReactor`/`EpollReactor` — the host divergence (kqueue vs epoll)
-  already lives in the rt/ bodies behind the seams, so two Saw wrappers would be
-  identical duplication. (2) STATIC dispatch through the `Reactor` conformance, not a
-  singleton `any Reactor` existential — a per-call `Box<any Reactor>` would add an
-  allocation (behavior-profile change) with no benefit, since the reactor impl is
-  selected at LINK/compile time, not runtime; the trait is the source-level contract
-  the SOS runtime implements as its own conforming type + `__saw_host_reactor()`.
-  IO_WAIT-GATING RESOLUTION (deferred design-114 question): `io_wait` stays a
-  std-INTERNAL suspension intrinsic — it is not prelude, and the raw net primitives
-  it partners (`tcp_try_read`/`net_buffer`/…) require an explicit
-  `import std.net.{…}`, so it is already gated out of ordinary user code. The
-  white-box reactor tests (`net_precise_*`, the `io_wait` echo examples) REMAIN the
-  reactor's contract regression suite in examples/ (the only test harness) — they
-  now exercise exactly the `(fd, direction, token)` semantics `SystemReactor` wraps,
-  so they ARE the `Reactor`-contract unit tests. No harder gating was added (that
-  would need a new visibility mechanism — out of scope; a follow-up if wanted).
-- **Stage 4 (threads/MT/offload) — LANDED:** the `NativeThread` trait (`join`) +
-  `struct PosixThread { handle: Int }` conforming over `__saw_rt_thread_join` are
-  defined in std/task.saw; `Thread<T>.join`/`deinit` join through the trait, and the
-  MT `TaskGroup` drain joins its workers as `VoidThread`s, so both the
-  `Thread.spawn{}` engine and the MT engine go through that surface. The SPAWN
-  half stays the compiler-emitted `__saw_rt_thread_spawn` primitive — spawn codegen
-  (`_generate_spawn`) builds the task control block + a raw C-ABI trampoline pointer
-  (DF-113b, a value Saw cannot express), the thread analog of the coroutine frame
-  layout the compiler keeps. Offload PARKING already goes through the reactor (the
-  `io_wait` on the job pipe, stage 2/3); the offload worker's own thread spawn lives
-  in the rt/ runtime (rt/common/offload.saw), not the executor, so it needs no
-  executor-side Thread routing. DEVIATION (same as stage 3): STATIC dispatch through
-  the `Thread` conformance, not an `any Thread` existential (no per-join box; the
-  impl is link/compile-time selected). Send checks + design-103 semantics unchanged
-  (byte-identical; the MT/offload/Send regression tests are the ratchet).
+The executor reaches register/unregister/poll/wake only through the `Reactor`
+trait, implemented for the hosted runtime by `SystemReactor` over the instance
+seams, with static dispatch rather than an `any Reactor` existential: the
+implementation is chosen at link time, so a box would cost an allocation and
+buy nothing. An SOS-hosted runtime would implement the same trait. The
+white-box reactor tests (`net_precise_*` and the `io_wait` echo examples)
+exercise the `(fd, direction, token)` semantics `SystemReactor` wraps, so they
+are the `Reactor` contract's tests.
 
 ## The four intended implementations
 
@@ -1185,57 +1003,61 @@ instance), without touching a single synthesized call site.
    `__error`, `__stdoutp`, `sin_len` sockaddr prefix.
 2. **host_linux** — epoll reactor, glibc pthreads, Linux errno/clock ids,
    `__errno_location`, `stdout`, u16 sockaddr family.
-3. **sos-hosted** — the SOS userland runtime (a sibling Saw runtime; kernel briefs).
-   The SysError tag space and the negated-word status convention are its native
-   `(status, value)` shape.
+3. **sos-hosted** — the SOS userland runtime, a Saw runtime in the sawos
+   repository. The SysError tag space and the negated-word status convention
+   are its native `(status, value)` shape.
 4. **kernel / none** — the freestanding profile: the compiler emits these as
    external declarations only and links no runtime; a kernel supplies the bodies.
 
-## Authoring a runtime in Saw (design 113b / 117)
+## Authoring a runtime in Saw (design 113b)
 
 The hosted runtime is **authored in Saw** under `sawc/rt/`, compiled with
-`--runtime-build`, plus one small C shim for the three bodies a Saw FFI gap
-blocks. Layout:
+`--runtime-build`, plus a C shim for the bodies a Saw FFI gap blocks. Layout:
 
 ```
 sawc/rt/
-  common/       OS-independent bodies: alloc/sleep/op-budget, pthread mutex/cond
-                init + thread_join, offload, process spawn (proc.saw — fork/exec
-                argv spawn, WNOHANG reap), and the status-carrying OS ops
-                (os_ops.saw — tcp_* + fs_* + env_*)
-  host_macos/   kqueue reactor + macOS specifics (clock, net_os = errno→tag +
-                sin_set_family, dirent = the d_name offset, proc_wait = the
-                EVFILT_PROC child-exit descriptor)
-  host_linux/   epoll reactor + Linux specifics (proc_wait = pidfd_open)
-  shim.c        the three FFI-blocked bodies (below)
+  common/       OS-independent bodies: mem.saw (alloc, dealloc, deny_after),
+                sleep.saw, op_budget.saw, pthread.saw (mutex/cond init,
+                thread_join), offload.saw, proc.saw (fork/exec argv spawn,
+                WNOHANG reap), os_ops.saw (the status-carrying tcp_*/fs_*/env_*
+                ops, socket options, resolve_ipv4)
+  host_macos/   kqueue reactor + macOS specifics: clock, net_os (errno→tag,
+                raw code, sin_set_family), dirent (the d_name offset), lock
+                (os_unfair_lock), proc_wait (the EVFILT_PROC child-exit
+                descriptor)
+  host_linux/   epoll reactor + Linux specifics: clock, net_os, dirent,
+                proc_wait (pidfd_open); the Linux lock is in shim.c
+  shim.c        the bodies a Saw FFI gap blocks (below)
 ```
 
 **The `--runtime-build` compile mode.** `@export("__saw_rt_<name>")` is allowed for
-EXACTLY the frozen ABI set (the compiler validates against `sawc/runtime_abi.py`);
+exactly the frozen ABI set (the compiler validates against `sawc/runtime_abi.py`);
 a misspelled/non-ABI `__saw_rt_*` export is a clean error naming the valid set.
-The module is sync-only; only `builtin.saw` is loaded. Objects are built + cached
-under `.build/rt/<key>/` (key = hash of every rt source + the triple), auto-linked
-for hosted builds (`sawc -v` lists them). The freestanding profile links NO runtime
-(verified by `freestanding_seams_extern_no_runtime`).
+The module is sync-only; only `builtin.saw` is loaded. Objects are built and
+cached under `.build/rt/<key>/` (the key hashes every input that can change the
+built runtime: the rt sources, `shim.c`, the triple, and the compiler and std
+sources) and auto-linked for hosted builds (`sawc -v` lists them). The
+freestanding profile links no runtime (verified by
+`freestanding_seams_extern_no_runtime`).
 
-**The C floor — `shim.c` (design 117: unchanged from v1; the last non-Saw bodies).**
-Each is a tracked language gap; a future design shrinks the shim to zero:
+**The C floor: `shim.c`.** Each body there is C because of a named Saw FFI gap,
+and moves to Saw when its gap closes:
 
-- `__saw_rt_write` / `__saw_rt_panic` — **DF-113a (no extern C global).** They
-  route through libc's `stdout` FILE* (`fwrite`+`fflush`, keeping `print` ordered
-  against the printf Float path). Saw cannot name an extern global.
-- `__saw_rt_thread_spawn` + the offload thread thunk — **DF-113b (no C
-  function-pointer type).** Both pass/call a raw C function pointer.
-- `__saw_rt_set_nonblocking` — **DF-113c (no variadic extern).** It calls the
-  variadic `fcntl(fd, F_SETFL, ...)` (an arm64 ABI requirement).
-
-## Implementation status (design 117)
-
-- **Landed:** ABI v2. The reactor is instance-based and RELOCATED TO SAW (the last
-  synthesized seam is gone — the compiler now synthesizes only the `__saw_reactor`
-  process-global getter, which is executor policy, not a seam body). The errno
-  accessors are deleted; every errno-reading OS op is a status-carrying runtime
-  function returning the portable SysError tag. The thread surface is spawn/join.
-  The C floor is exactly the three DF-113a/b/c shim bodies. Full compiler suite,
-  blade bootstrap, and sos_runner green on macOS; the Linux runtime variant is
-  written against the documented glibc/epoll ABI and verified in CI.
+- `__saw_rt_write` / `__saw_rt_panic`: no extern C global (DF-113a). They write
+  through libc's `stdout` `FILE*` (`fwrite`, then `fflush`), which Saw cannot
+  name.
+- `__saw_rt_thread_spawn` and the offload thread body: no C function-pointer
+  type (DF-113b). Both pass or call a raw C function pointer.
+- `__saw_rt_thread_detach`: DF-113b's reason plus an atomic exchange over raw
+  memory (see its entry).
+- `__saw_rt_set_nonblocking`: calls the variadic `fcntl(fd, F_SETFL, ...)`.
+  It is in C for a reason that no longer holds (DF-113c): Saw does declare
+  variadic externs now (`open` in `rt/common/os_ops.saw`).
+- `__saw_rt_lock_acquire` / `_release` on Linux: a futex needs 32-bit atomics
+  through a pointer (DF-186c).
+- Runtime-internal helpers the Saw bodies call, for the same gaps (per-host C
+  macros and struct layouts, an extern global, a signal handler's function
+  pointer): `__saw_open_flags`, the `getaddrinfo` projections
+  (`__saw_ai_next`, `__saw_ai_ipv4`, `__saw_gai_tag`),
+  `__saw_environ_get`/`_set`, the socket-option and SIGPIPE helpers, the
+  signal family, and on Linux `__saw_epoll_event_size`/`_data_offset`.

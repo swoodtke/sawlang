@@ -1,47 +1,44 @@
-// std.net — minimal nonblocking TCP over the design-76 cooperative IO reactor.
+// std.net: nonblocking TCP over the cooperative IO reactor.
 //
-// HOSTED-ONLY: links libc socket syscalls plus the compiler reactor seams
-// (codegen/core.py); never loaded in the freestanding profile (a kernel supplies
-// its own reactor via interrupts/WFI — see HOSTED_STD_MODULES in sawc.py).
+// Hosted only: it links libc socket calls and the runtime's socket seams, and
+// is never loaded in the freestanding profile (HOSTED_STD_MODULES in sawc.py).
 //
-// SURFACE SHAPE (reported): the cooperative-IO surface follows the SAME idiom the
-// language already ships for channels — a NON-blocking `try_*` primitive plus a
-// suspension point written in the caller's own task body:
+// Two layers. The owning types (`TcpListener`, `TcpStream`) park internally on
+// would-block and return `Result`s. Their methods can suspend because the
+// coroutine transform embeds a suspending std method as a sub-frame. Below
+// them, the raw `tcp_try_*`
+// primitives return a would-block sentinel and leave the park to a loop in
+// the caller's own task body:
 //
 //     while going {
 //         let r = tcp_try_read(fd, buf, 64)
 //         if net_would_block(r) {
-//             io_wait(fd, 0)            // register (0=read) + park the TASK
+//             io_wait(fd, 0)            // register (0=read) + park the task
 //         } else {
 //             n = r; going = false
 //         }
 //     }
 //
-// `io_wait(fd, write)` is a COMPILER INTRINSIC (like `yield_now`): it registers
+// `io_wait(fd, write)` is a compiler intrinsic, like `yield_now`: it registers
 // the fd with the reactor for read (write==0) or write (write==1) interest and
-// suspends the task with an IO-ready wake reason. The executor polls the reactor
-// when nothing is runnable (poll timeout = earliest sleep deadline) and wakes the
-// task on readiness — so a blocked socket op never stalls a runnable peer and
-// never busy-waits. This idiom lives in the user body because the coroutine
-// transform is entry-module-only (a suspending std free function cannot embed as
-// a sub-frame — the same reason `Channel.receive()` is inline-lowered). A
-// first-class inline-lowered `tcp_read`/`tcp_accept`/`tcp_write` (receive()-style)
-// is the ergonomic follow-up.
+// suspends the task with an io wake reason. The executor polls the reactor
+// when nothing is runnable and resumes the task on readiness, so a blocked
+// socket op neither stalls a runnable peer nor busy-waits.
 
 extern "C" {
-    // A couple of raw socket calls std.net still spells directly (no errno branch):
-    // the AF_UNIX test pair and fd close.
+    // Raw socket calls std.net spells directly (no errno branch): the AF_UNIX
+    // test pair and fd close.
     func close(fd: Int32) -> Int32
     func socketpair(domain: Int32, ty: Int32, protocol: Int32, fds: UnsafePointer<Int32>) -> Int32
 
-    // design 117: the status-carrying network ops (rt/common/os_ops.saw). Each
-    // does its syscall and returns >= 0 on success/count or the NEGATED portable
-    // SysError tag on failure (rt/ABI.md) — the errno accessors are gone.
+    // The status-carrying network ops (rt/common/os_ops.saw). Each does its
+    // syscall and returns >= 0 on success/count or the negated portable
+    // SysError tag on failure (rt/ABI.md).
     func __saw_rt_tcp_listen(port: Int) -> Int
     func __saw_rt_tcp_listen_on(addr_be: Int, port: Int) -> Int
-    // design 272 unit 2 (SL-229): bind + listen carrying the options that can
-    // only be set between `socket()` and `bind()`, and the by-tag option setter
-    // for the ones a live connection takes.
+    // Bind + listen carrying the options that can only be set between
+    // `socket()` and `bind()`, and the by-tag option setter for the ones a live
+    // connection takes.
     func __saw_rt_tcp_listen_with(addr_be: Int, port: Int, reuse_address: Int,
                                   backlog: Int) -> Int
     func __saw_rt_socket_set_option(fd: Int, option: Int, value: Int) -> Int
@@ -51,74 +48,63 @@ extern "C" {
     func __saw_rt_tcp_connect_check(fd: Int, addr_be: Int, port: Int) -> Int
     func __saw_rt_tcp_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
     func __saw_rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
-    // The host errno -> portable SysError tag mapper (rt/*/net_os.saw). Its one
-    // std caller is `IoError.from_errno`, which has no callers of its own —
-    // file/directory/env build their errors from the tag their op returned. See
-    // that factory's note and DF-215e: rt/ABI.md calls this seam
-    // runtime-INTERNAL, so reading it at any distance from the failing op is the
-    // clobber the design-117 status convention exists to make impossible.
+    // The host errno -> portable SysError tag mapper (rt/*/net_os.saw). Its only
+    // std caller is `IoError.from_errno`, which has no callers of its own.
+    // rt/ABI.md calls this seam runtime-internal: read at any distance from the
+    // failing op, errno may already have been overwritten (DF-215e).
     func __saw_rt_last_syserror() -> Int
 
-    // design 234 §2: the RAW platform code the classification above folded
-    // away, captured beside the tag at the instant it was produced (rt/ABI.md
-    // — an AMENDMENT to design 117's pin, not an overturn: the status word
-    // still carries only the tag, and this is not an errno read after the
-    // fact). Valid immediately after a failing op returned `-tag`, on this
-    // thread; `IoError.of(syscall:tag:)` is the ONE reader, and the paths whose
-    // tag nothing classified go through `IoError.of(syscall:kind:)` instead.
+    // The raw platform code the classification folded away, captured beside
+    // the tag when it was produced (rt/ABI.md). Valid immediately after a
+    // failing op returned `-tag`, on this thread. Its only reader is
+    // `raw_code_now`, for `IoError.of(syscall:tag:)`; a tag nothing classified
+    // goes through `IoError.of(syscall:kind:)` instead.
     func __saw_rt_last_raw_code() -> Int
 
-    // design 184: hostname resolution, and the ONLY seam in std that is
-    // `blocking`. `getaddrinfo` is unbounded — it may consult /etc/hosts, mDNS,
-    // LDAP or the network and wait out a DNS timeout — so every call is
-    // OFFLOADED to a worker thread by design 183's machinery and the calling
-    // task parks, exactly as it does on a socket read. `blocking` is part of the
-    // symbol's contract, so no other declaration of it can drop the annotation:
-    // there is no way to spell a naked resolve, which is design 184's law and is
-    // what `examples/errors/resolve_seam_must_be_blocking.saw` pins.
+    // Hostname resolution, declared `blocking`. `getaddrinfo` is unbounded (it
+    // may consult /etc/hosts, mDNS, LDAP or the network and wait out a DNS
+    // timeout), so every call is offloaded to a worker thread and the calling
+    // task parks, as it does on a socket read. `blocking` is part of the
+    // symbol's contract, so no other declaration of it can drop the
+    // annotation and there is no way to spell a naked resolve
+    // (`examples/errors/resolve_seam_must_be_blocking.saw` pins it).
     //
     // Writes up to `max` addresses (network byte order) to `out` and returns the
-    // count, `0` when the name has no IPv4 address, or a NEGATED SysError tag.
+    // count, `0` when the name has no IPv4 address, or a negated SysError tag.
     // Both pointers must address the parked frame or the heap (design 183's
-    // pointer rule) — the worker reads and writes through them while the task is
+    // pointer rule): the worker reads and writes through them while the task is
     // away.
     //
-    // Called from `TcpStream.resolve_first`, which is a static METHOD for
-    // exactly one reason: the transform embeds a suspending std method as a
-    // sub-frame and cannot reach a std free function, so a resolve written as a
-    // free helper would lower to a naked call and stop the executor for the
-    // whole lookup. Pin: `examples/net_connect_by_name.saw`.
+    // Called from `TcpStream.resolve_first`, a static method the transform
+    // embeds as a sub-frame, so the `blocking` seam runs inside a frame and is
+    // offloaded; a lookup lowered as a naked call would stop the executor for
+    // its whole duration (`examples/net_connect_by_name.saw`).
     blocking func __saw_rt_resolve_ipv4(host: UnsafePointer<Int8>,
                                         out: UnsafePointer<UInt32>,
                                         max: Int) -> Int
 
-    // design 118 stage 3: the `io_wait` intrinsic lowering now emits the Saw
-    // executor entry point `__saw_exec_io_register` (std/taskgroup.saw), which arms
-    // the reactor through the `Reactor` trait — so net no longer declares the raw
-    // `__saw_rt_reactor_register` seam (it is called only from taskgroup.saw).
     func __saw_rt_set_nonblocking(fd: Int) -> Int
 
-    // design 89-c: the cooperative op-count budget seam (codegen/core.py). Each io
-    // op that completes WITHOUT parking charges the budget; `__saw_rt_op_budget_tick()`
-    // returns non-zero when the budget is exhausted (and resets it), signalling the
-    // primitive to force a fairness `yield_now()`. `__saw_rt_op_budget_reset()` restores
-    // the budget after a genuine park (the task already ceded to the scheduler).
+    // The cooperative op-count budget (rt/common/op_budget.saw). Each io op that
+    // completes without parking charges the budget; `__saw_rt_op_budget_tick()`
+    // returns non-zero when it is exhausted (and resets it), telling the
+    // primitive to force a fairness `yield_now()`. `__saw_rt_op_budget_reset()`
+    // restores it after a genuine park (the task already ceded to the scheduler).
     func __saw_rt_op_budget_tick() -> Int
     func __saw_rt_op_budget_reset()
 
-    // Bytes -> owned refcounted String (compiler runtime; see codegen/core.py).
+    // Bytes -> owned refcounted String (a compiler-emitted helper; see
+    // codegen/core.py).
     func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
 
-    // design 272 unit 1 (SL-204): the monotonic clock, for turning a caller's
-    // `Duration` into the ABSOLUTE instant `io_wait_until` parks against. The
-    // same seam std.time reads and std/taskgroup.saw already declares; no ABI
-    // addition, and monotonic rather than wall-clock so a timeout cannot be
-    // lengthened or cut short by the system clock being set.
+    // The monotonic clock, for turning a caller's `Duration` into the absolute
+    // instant `io_wait_until` parks against. Monotonic rather than wall-clock,
+    // so setting the system clock cannot lengthen or cut short a timeout.
     func __saw_rt_clock_monotonic_nanos() -> Int64
 }
 
-// Constants for the AF_UNIX test pair (the only raw socket call left in this
-// file). The IP socket setup moved into rt/common/os_ops.saw (design 117).
+// Constants for the AF_UNIX test pair. IP sockets are set up in
+// rt/common/os_ops.saw.
 static AF_UNIX: Int32 = 1
 static SOCK_STREAM: Int32 = 1
 static PROTO_DEFAULT: Int32 = 0
@@ -126,41 +112,33 @@ static READ_CHUNK: Int = 4096        // TcpStream.read chunk size
 static WOULD_BLOCK: Int = -2         // the `tcp_try_*` would-block sentinel
 static NET_ERROR: Int = -1           // the `tcp_*` error sentinel
 
-// design 117: the portable SysError tags std.net branches on (the full space is
-// documented in rt/ABI.md). A failing rt op returns the NEGATED tag; the raw
-// `tcp_try_*` primitives translate that back to the WOULD_BLOCK/NET_ERROR
-// sentinels their callers expect, while the owning types keep the tag for IoError.
-// (The `Interrupted` tag left this list with design 234: the cancellation exits
-// that used to spell it now build their error from `IoErrorKind.Interrupted`
-// directly, through `io_cancelled`, because nothing classified an errno there
-// and the raw code must stay 0.)
-// design 272 unit 2: the default listen backlog — the depth of the kernel's
-// queue of arrived-but-not-yet-accepted connections. Unchanged from the value
-// the runtime hardcoded before it became a parameter, so exposing it changed
-// nothing for a caller who does not name it.
+// The default listen backlog: the depth of the kernel's queue of
+// arrived-but-not-yet-accepted connections. The same 16 the runtime's older
+// listen seams pass.
 static DEFAULT_BACKLOG: Int = 16
 
-// design 272 unit 2: the portable socket-option tags (rt/ABI.md). The host maps
-// each to its own `(level, name)` pair; std never names a platform constant.
+// The portable socket-option tags (rt/ABI.md). The host maps each to its own
+// `(level, name)` pair; std never names a platform constant.
 static OPT_NO_DELAY: Int = 1
 static OPT_KEEPALIVE: Int = 2
 
+// The portable SysError tags std.net branches on (the full space is in
+// rt/ABI.md). A failing rt op returns the negated tag; the raw `tcp_try_*`
+// primitives map it back to the WOULD_BLOCK/NET_ERROR sentinels their callers
+// expect, while the owning types keep the tag for `IoError`.
 static SYS_WOULD_BLOCK: Int = 1
 static SYS_IN_PROGRESS: Int = 2
 static SYS_NOT_FOUND: Int = 10
 
-// std's OWN scratch-buffer refusal, sitting far below the tag space (tags run
-// 0..21) so a read loop can tell it from an OS refusal. It matters because the
-// two build their `IoError` differently: an OS refusal carries the raw code the
-// runtime just captured, and this one has no platform number behind it at all.
-// Design 234 unit 3 turns this whole path into a `Result` and the sentinel goes
-// with it.
+// std's own scratch-buffer refusal, far below any negated tag, so a read loop
+// can tell it from an OS refusal. The two build their `IoError` differently:
+// an OS refusal carries the raw code the runtime just captured, and this one
+// has no platform number behind it.
 static NET_NO_SCRATCH: Int = -1000
 
-// How many addresses a resolution asks for. `connect` dials the FIRST answer,
+// How many addresses a resolution asks for. `connect` dials the first answer,
 // so one is all it needs; asking for more would copy words nothing reads.
-// (Happy-eyeballs, which is what would want the rest, needs the dual-stack
-// design first — see the tracker's design-184 future-work note.)
+// (Happy-eyeballs would want the rest, and needs dual-stack support first.)
 static RESOLVE_MAX: Int = 1
 
 // FdPair is the 8-byte `int[2]` socketpair fills.
@@ -174,9 +152,9 @@ func net_would_block(r: Int) -> Bool {
     r == WOULD_BLOCK
 }
 
-// A heap read buffer, allocated ONCE per stream and reused across reads (freed
-// with `net_free_buffer`). NOT per-call: the socket read/write paths themselves
-// (`tcp_try_read`/`tcp_try_write`) allocate nothing — they take this pointer.
+// A heap read buffer, allocated once per stream and reused across reads (freed
+// with `net_free_buffer`). The raw read/write paths (`tcp_try_read`/
+// `tcp_try_write`) allocate nothing; they take this pointer.
 func net_buffer(size: Int) unsafe -> UnsafePointer<Int8> {
     if let p = GlobalAllocator().alloc(size, 1) {
         return p
@@ -193,14 +171,13 @@ func net_bytes_to_string(buf: UnsafePointer<Int8>, len: Int) unsafe -> String {
     __saw_string_from_bytes(buf, len)
 }
 
-// design 117: the raw `tcp_*` layer is now a thin translation over the status-
-// carrying rt ops (rt/common/os_ops.saw). The rt ops return >= 0 on success or a
-// NEGATED SysError tag; these wrappers map that back to the legacy WOULD_BLOCK
-// (-2) / NET_ERROR (-1) sentinels the internal std.net callers and the white-box
-// tests expect. The owning TcpListener/TcpStream types call the rt ops DIRECTLY
-// so they keep the tag for a precise IoError.
+// The raw `tcp_*` layer: a thin translation over the status-carrying rt ops
+// (rt/common/os_ops.saw). The rt ops return >= 0 on success or a negated
+// SysError tag; these wrappers map that to the WOULD_BLOCK (-2) / NET_ERROR (-1)
+// sentinels the white-box tests expect. The owning TcpListener/TcpStream types
+// call the rt ops directly so they keep the tag for a precise IoError.
 
-// Fold an rt-op result into the legacy count / WOULD_BLOCK / NET_ERROR contract.
+// Fold an rt-op result into the count / WOULD_BLOCK / NET_ERROR contract.
 func net_sentinel(r: Int) -> Int {
     if r >= 0 {
         r
@@ -237,8 +214,8 @@ func tcp_connect_start(addr_be: Int, port: Int) -> Int {
     if r < 0 { NET_ERROR } else { r }
 }
 
-// Re-issue the nonblocking connect() to learn the true completion state
-// (design 90); `addr_be` must be the address `tcp_connect_start` was given.
+// Re-issue the nonblocking connect() to learn the true completion state;
+// `addr_be` must be the address `tcp_connect_start` was given.
 // Returns 0 = connected, the would-block sentinel (-2) = still connecting
 // (re-park), or -1 = failed.
 func tcp_connect_check(fd: Int, addr_be: Int, port: Int) -> Int {
@@ -265,9 +242,9 @@ func tcp_try_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
 }
 
 // Close a socket fd. An fd is an `Int32` at the C boundary and an `Int`
-// everywhere in this file, so the narrowing is written (design 205): every fd
-// here came out of a socket call that already answered an `Int32`, so a value
-// out of range is a bug and `as` is the spelling that says so.
+// everywhere in this file, so the narrowing is written: every fd here came out
+// of a socket call that already answered an `Int32`, so a value out of range is
+// a bug and `as` is the spelling that says so.
 func tcp_close(fd: Int) {
     let _ = close(fd as Int32)
 }
@@ -288,13 +265,12 @@ func tcp_socketpair() unsafe -> (Int, Int) {
 }
 
 // =============================================================================
-// IPv4 literals (design 184 unit 1)
+// IPv4 literals
 // =============================================================================
 //
-// A dotted quad is an ADDRESS already — there is nothing to look up — so it is
+// A dotted quad is an address already, with nothing to look up, so it is
 // parsed here, in Saw, and never reaches the platform resolver or leaves the
-// executor thread. Every `connect("127.0.0.1", port)` in the tree takes this
-// path.
+// executor thread. `connect("127.0.0.1", port)` takes this path.
 
 static ASCII_DOT: Int = 46
 static ASCII_ZERO: Int = 48
@@ -308,7 +284,7 @@ static OCTET_MAX_DIGITS: Int = 3
 // Four octets as the `sockaddr_in.sin_addr` word: the octets sit in memory in
 // the order they are written, so on a little-endian target — the only kind the
 // hosted runtime builds for, the same assumption `htons` states in
-// rt/common/os_ops.saw — the FIRST octet is the low byte.
+// rt/common/os_ops.saw — the first octet is the low byte.
 func ipv4_addr(a: UInt32, b: UInt32, c: UInt32, d: UInt32) -> UInt32 {
     a | (b << 8) | (c << 16) | (d << 24)
 }
@@ -316,12 +292,12 @@ func ipv4_addr(a: UInt32, b: UInt32, c: UInt32, d: UInt32) -> UInt32 {
 // A dotted-quad IPv4 literal as its address word, or `None` when `host` is not
 // one (the caller then resolves it).
 //
-// STRICT on purpose: exactly four octets, one to three digits each, no leading
+// Strict on purpose: exactly four octets, one to three digits each, no leading
 // zero, no sign, no spaces, nothing before or after. A near-miss like
-// "127.00.0.1" is NOT guessed at here — it falls through to the platform
+// "127.00.0.1" is not guessed at here; it falls through to the platform
 // resolver, whose reading of it is the authoritative one. Guessing would mean
-// picking a side in the decades-old "is a leading zero octal?" ambiguity, which
-// is a source of address confusion, not a convenience.
+// picking a side in the "is a leading zero octal?" ambiguity, which is a
+// source of address confusion, not a convenience.
 func parse_ipv4_literal(host: String) -> UInt32? {
     let n = host.len()
     if n < IPV4_MIN_TEXT || n > IPV4_MAX_TEXT {
@@ -372,22 +348,20 @@ static INVALID_FD: Int32 = -1
 
 // One nonblocking read of up to READ_CHUNK bytes into a scratch buffer, appended
 // to `into` (grows as needed). Returns the byte count (0 = peer closed / EOF) or
-// a NEGATED SysError tag (design 117): the owning types keep the tag for a
-// precise IoError. `NET_NO_SCRATCH` is the third answer — std could not get the
-// chunk buffer, which is not something the OS refused. The pointer work is
-// confined here (raw layer); TcpStream.read drives it behind an io_wait park.
+// a negated SysError tag: the owning types keep the tag for a precise IoError.
+// `NET_NO_SCRATCH` is the third answer: std could not get the chunk buffer,
+// which is not something the OS refused. The pointer work is confined here
+// (raw layer); TcpStream.read drives it behind an io_wait park.
 func net_read_once(fd: Int, into: &var Data) unsafe -> Int {
     if let ptr = GlobalAllocator().alloc(READ_CHUNK, 1) {
         let r = __saw_rt_tcp_read(fd, ptr, READ_CHUNK)
         var placed = r
         if r > 0 {
-            // design 234: growing `into` can now be refused, and this function's
-            // return is a byte count or a negated tag — so the refusal takes the
-            // SAME third answer std's own scratch failure already has. The
-            // callers turn `NET_NO_SCRATCH` into
-            // `IoError(kind: ResourcesExhausted)`, which is what an out-of-memory
-            // read is; the bytes just read are dropped with the scratch buffer,
-            // which is the all-or-nothing this read had either way.
+            // Growing `into` can be refused, and this function returns a byte
+            // count or a negated tag, so the refusal takes the same third answer
+            // as a scratch failure. The callers turn `NET_NO_SCRATCH` into
+            // `IoError(kind: ResourcesExhausted)`; the bytes just read are
+            // dropped with the scratch buffer.
             match into.append_bytes(ptr, r) {
                 case Ok(_) -> {},
                 case Err(_) -> { placed = NET_NO_SCRATCH }
@@ -400,7 +374,7 @@ func net_read_once(fd: Int, into: &var Data) unsafe -> Int {
 }
 
 // One nonblocking write of the tail of `s` starting at `off`. Returns bytes
-// written (may be < remaining) or a NEGATED SysError tag (design 117).
+// written (may be < remaining) or a negated SysError tag.
 func net_write_str_once(fd: Int, s: String, off: Int) unsafe -> Int {
     let ptr = s as UnsafePointer<Int8>
     __saw_rt_tcp_write(fd, ptr + off, s.len() - off)
@@ -413,15 +387,13 @@ func net_write_data_once(fd: Int, bytes: &Data, off: Int) unsafe -> Int {
 }
 
 // =============================================================================
-// IoError — the OS boundary, as a portable KIND plus the platform's raw code
-// (design 56 / 84, reshaped by design 234 §2)
+// IoError: the OS boundary, as a portable kind plus the platform's raw code
 // =============================================================================
 
 /// What kind of failure the operating system reported.
 ///
-/// The OS boundary is genuinely open-vocabulary — the errno set is large,
-/// platform-dependent and not closed — so this is a CURATED portable set and
-/// `Unknown` is its escape hatch. Two rules keep it honest:
+/// The errno set is large, platform-dependent and open, so this is a curated
+/// portable set and `Unknown` is its escape hatch. Two rules keep it honest:
 ///
 /// - **Classification is diagnostic, not contractual.** Several platform codes
 ///   share one kind: `EACCES` and `EPERM` are both `PermissionDenied`. A
@@ -432,7 +404,7 @@ func net_write_data_once(fd: Int, bytes: &Data, off: Int) unsafe -> Int {
 ///   breaks an exhaustive match at compile time rather than silently rerouting
 ///   it somewhere else.
 ///
-/// The raw values ARE the portable SysError tags `sawc/rt/ABI.md` freezes, so a
+/// The raw values are the portable SysError tags `sawc/rt/ABI.md` freezes, so a
 /// tag a runtime returns becomes a kind through `from(raw:)` and there is no
 /// second table to keep in step. A tag this vocabulary does not know — a
 /// runtime newer than this std — reads as `Unknown`.
@@ -513,9 +485,7 @@ extension IoErrorKind {
             case InvalidArgument -> "invalid argument",
             case ResourcesExhausted -> "resources exhausted",
             case Unknown -> "other error",
-            // The REMOTE-reach failures (DF-215a). Every one of these can only
-            // happen off loopback, which is why the suite never produced one
-            // and why all five read as "other error" until the map named them.
+            // The remote-reach failures, which only happen off loopback.
             case HostUnreachable -> "host unreachable",
             case NetworkUnreachable -> "network unreachable",
             case TimedOut -> "timed out",
@@ -531,20 +501,20 @@ extension IoErrorKind: Printable {
     }
 }
 
-/// A failed operating-system operation: which call failed, what KIND of refusal
+/// A failed operating-system operation: which call failed, what kind of refusal
 /// it was, and the platform's own code for it.
 ///
 /// Prints through the `Error` vtable as `io error: connect failed (connection
-/// refused)` — the KIND only, so the text reads the same on every host. The
-/// raw code is for a log that wants the number, and is read explicitly.
+/// refused)`: the kind only, so the text reads the same on every host. The raw
+/// code is for a log that wants the number, and is read explicitly.
 public struct IoError {
     private syscall: String
     private kind: IoErrorKind
     private code: Int32
 }
 
-// The raw code this thread's last classification captured (design 234 §2), as
-// an `Int32`. Out-of-range is answered `0` rather than by the panicking `as`:
+// The raw code this thread's last classification captured, as an `Int32`.
+// Out-of-range is answered `0` rather than by the panicking `as`:
 // the value comes from a runtime, and a diagnostic field is the last thing that
 // should be able to abort the program reporting an error.
 func raw_code_now() -> Int32 {
@@ -556,7 +526,7 @@ func raw_code_now() -> Int32 {
 }
 
 extension IoError {
-    /// The portable KIND of the failure.
+    /// The portable kind of the failure.
     ///
     /// Diagnostic, not contractual — several platform codes share one kind, so
     /// a program that must distinguish them reads `code()`. `Unknown` is opaque
@@ -565,29 +535,23 @@ extension IoError {
         self.kind
     }
 
-    /// The platform's OWN code for the failure — the hosted errno itself, and
+    /// The platform's own code for the failure: the hosted errno itself, and
     /// on a freestanding target the native status. `0` where the platform has
     /// none, which includes a failure std raised on its own behalf (a cancelled
     /// park, a name with no address).
     ///
-    /// This is NOT the portable tag, and it is not portable: `ECONNREFUSED` is
-    /// 61 on macOS and 111 on Linux. Log it, do not branch on it — `kind()` is
-    /// the branchable half. (It was spelled `code()` and returned the TAG until
-    /// design 234; the tag is now `kind()`, which cannot be mistaken for a
-    /// number.)
+    /// This is not the portable tag, and it is not portable: `ECONNREFUSED` is
+    /// 61 on macOS and 111 on Linux. Log it; branch on `kind()`.
     public func code(&self) -> Int32 {
         self.code
     }
 
-    /// Capture the CURRENT failure as an `IoError`. VALID ONLY on the statement
-    /// after a failing `__saw_rt_*` op: it reads the calling thread's errno
-    /// through a seam rt/ABI.md documents as runtime-INTERNAL, and anything
-    /// running in between clobbers it (the v1 `tcp_listen` bug — a `close()`
-    /// between a failed `bind()` and the errno read).
+    /// Builds an `IoError` from the calling thread's current errno.
     ///
-    /// NO CALLERS: file/directory/env build their errors from the tag their op
-    /// already returned, which needs no errno read at all and has been the
-    /// shape since design 117. Whether this factory should exist is DF-215e.
+    /// Valid only on the statement after a failing `__saw_rt_*` op: it reads
+    /// errno through a seam `sawc/rt/ABI.md` documents as runtime-internal,
+    /// and anything that runs in between can overwrite it. The tag a failing
+    /// op returns needs no errno read; pass it to `of(syscall:tag:)` instead.
     public static func from_errno(syscall: String) -> IoError {
         IoError.of(syscall: syscall, tag: __saw_rt_last_syserror())
     }
@@ -597,7 +561,7 @@ extension IoError {
     ///
     /// The capture is what makes this the OS-refusal factory: it reads
     /// `__saw_rt_last_raw_code()`, which is valid immediately after that op, on
-    /// this thread (rt/ABI.md). A tag NOT produced by a classification — one
+    /// this thread (rt/ABI.md). A tag not produced by a classification, one
     /// std or the runtime synthesized — must not come through here; use the
     /// `kind:` factory, whose `code` is `0`.
     public static func of(syscall: String, tag: Int) -> IoError {
@@ -628,25 +592,25 @@ func io_error(syscall: String, tag: Int) -> IoError {
     IoError.of(syscall: syscall, tag: tag)
 }
 
-// A park cut short by design-102 cancellation. Not an OS refusal — nothing
-// classified an errno — so it carries no raw code.
+// A park cut short by cooperative cancellation. Not an OS refusal (nothing
+// classified an errno), so it carries no raw code.
 func io_cancelled(syscall: String) -> IoError {
     IoError.of(syscall: syscall, kind: IoErrorKind.Interrupted)
 }
 
-// A failed resolution, NAMING THE HOST. The host IS the failure here — an error
-// that does not say which name could not be resolved is unactionable — so it
+// A failed resolution, naming the host. The host is the failure here (an error
+// that does not say which name could not be resolved is unactionable), so it
 // goes in the syscall slot and prints as `io error: resolve "db.internal"
 // failed (not found)`.
 //
-// Built through the `kind:` factory, for two reasons that both point the same
-// way: the resolver's tag may be one the RUNTIME synthesized (a name with no
-// IPv4 address answers `-NotFound` with no errno behind it), and the resolve
-// seam is `blocking`, so whatever it did classify happened on an offload worker
-// thread rather than this one (rt/ABI.md's freshness rule).
-// The three appends FORCE rather than report: this function's whole job is to
-// describe a failure, and there is no error channel behind an error constructor
-// — the same shape as a `format` body (design 234 §5's rendering boundary).
+// Built through the `kind:` factory for two reasons: the resolver's tag may be
+// one the runtime synthesized (a name with no IPv4 address answers `-NotFound`
+// with no errno behind it), and the resolve seam is `blocking`, so whatever it
+// did classify happened on an offload worker thread rather than this one
+// (rt/ABI.md's freshness rule).
+// The three appends force rather than report: this function's whole job is to
+// describe a failure, and there is no error channel behind an error
+// constructor, the same shape as a `format` body.
 func resolve_error(host: String, tag: Int) -> IoError {
     var what = StringBuilder()
     try! what.append("resolve \"")
@@ -656,7 +620,7 @@ func resolve_error(host: String, tag: Int) -> IoError {
 }
 
 // =============================================================================
-// Deadlines (design 272 unit 1, SL-204)
+// Deadlines (design 272)
 // =============================================================================
 
 /// The outcome of a network operation that was given a deadline.
@@ -682,14 +646,14 @@ public enum Timed<T> {
     case TimedOut
 }
 
-// A caller's `Duration` as the ABSOLUTE monotonic instant the park gives up at,
+// A caller's `Duration` as the absolute monotonic instant the park gives up at,
 // which is what `io_wait_until` takes and what the executor compares against.
 //
 // Absolute rather than relative all the way down: a loop that re-parks after a
-// spurious wake must not restart its own timeout, and a relative span recomputed
-// per iteration does exactly that — a connection dribbling one byte every
-// `timeout - 1` would never time out. Computing the instant ONCE, before the
-// first attempt, is what makes the deadline a deadline.
+// spurious wake must not restart its own timeout, and a relative span
+// recomputed per iteration does exactly that (a connection dribbling one byte
+// every `timeout - 1` would never time out). Computing the instant once, before
+// the first attempt, is what makes the deadline a deadline.
 //
 // Saturates at `Int.max` rather than wrapping: a span past the representable
 // range means "not coming back", and a wrapped one would mean "already expired",
@@ -707,19 +671,19 @@ func net_deadline_at(timeout: Duration) -> Int {
     now + span
 }
 
-// Has `at` arrived? Read fresh every time — the point of the check is that time
+// Has `at` arrived? Read fresh every time: the point of the check is that time
 // has passed since the last one.
 func net_deadline_passed(at: Int) -> Bool {
     (__saw_rt_clock_monotonic_nanos() as Int) >= at
 }
 
 // =============================================================================
-// TcpListener — an owning listening socket (design 84)
+// TcpListener: an owning listening socket
 // =============================================================================
 //
 // NoCopy: the listen fd has exactly one owner; `Deinit` closes it exactly once
 // (the move checkpoint prevents use-after-close, NoCopy prevents double-close).
-// The fd is a PRIVATE field — the public surface exposes no raw fds or pointers.
+// The fd is a private field; the public surface exposes no raw fds or pointers.
 
 public struct TcpListener {
     private fd: Int
@@ -765,27 +729,27 @@ extension TcpListener {
     }
 
     // Accept the next connection, returning its owning stream or an IoError.
-    // COOPERATIVE: parks on the listen fd (io_wait, hidden) until a connection
-    // arrives — a runnable peer never stalls. Cancellation-observing at the park
-    // (design 76 A3). A genuine accept failure surfaces as Err(IoError) — design
-    // 92: a broken accept must NOT be indistinguishable from a live stream.
+    // Cooperative: parks on the listen fd until a connection arrives, so a
+    // runnable peer never stalls, and observes cancellation at the park. A
+    // genuine accept failure is `Err(IoError)`, never something that looks
+    // like a live stream.
     public func accept(&self) -> Result<TcpStream, IoError> {
         while {
             if cancelled() {
-                // DF-134a: leaving the loop without our event firing would strand
-                // the armed registration, whose token is an address inside this
-                // frame. Disarm before returning.
+                // Leaving the loop without our event firing would strand the
+                // armed registration, whose token is an address inside this
+                // frame (DF-134a). Disarm before returning.
                 io_unwait(self.fd, 0)
                 return io_cancelled("accept")   // cancelled before a connection
             }
             let c = __saw_rt_tcp_accept(self.fd)
             if c == -SYS_WOULD_BLOCK {
                 io_wait(self.fd, 0)                // park until a client arrives
-                __saw_rt_op_budget_reset()             // design 89-c: parked, budget reset
+                __saw_rt_op_budget_reset()             // parked, so reset the budget
             } else if c < 0 {
                 return io_error("accept", -c)      // a real accept error
             } else {
-                if __saw_rt_op_budget_tick() != 0 {     // design 89-c: fairness backstop
+                if __saw_rt_op_budget_tick() != 0 {     // fairness backstop
                     yield_now()                    // ran the budget out without parking
                 }
                 return TcpStream(fd: c)            // got a connection
@@ -806,21 +770,21 @@ extension TcpListener {
         let at = net_deadline_at(timeout)
         while {
             if cancelled() {
-                io_unwait(self.fd, 0)          // DF-134a: disarm before returning
+                io_unwait(self.fd, 0)          // disarm before returning
                 return io_cancelled("accept")
             }
             let c = __saw_rt_tcp_accept(self.fd)
             if c == -SYS_WOULD_BLOCK {
-                // The deadline is checked BEFORE parking, so a span that has
-                // already run out never parks at all, and AFTER a wake the loop
-                // re-issues `accept` first — readiness that lands in the same
+                // The deadline is checked before parking, so a span that has
+                // already run out never parks at all, and after a wake the loop
+                // re-issues `accept` first: readiness that lands in the same
                 // instant as the deadline is reported as the connection it is.
                 if net_deadline_passed(at) {
                     io_unwait(self.fd, 0)
                     return Timed<TcpStream>.TimedOut
                 }
-                io_wait_until(self.fd, 0, at)  // park until a client arrives OR `at`
-                __saw_rt_op_budget_reset()         // design 89-c: parked, budget reset
+                io_wait_until(self.fd, 0, at)  // park until a client arrives or `at`
+                __saw_rt_op_budget_reset()         // parked, so reset the budget
             } else if c < 0 {
                 return io_error("accept", -c)  // a real accept error
             } else {
@@ -842,12 +806,12 @@ extension TcpListener: NoCopy {
 }
 
 // =============================================================================
-// TcpStream — an owning connected socket (design 84)
+// TcpStream: an owning connected socket
 // =============================================================================
 //
 // NoCopy owning type; `Deinit` closes the conn fd exactly once. read/write park
-// internally on would-block — application code never sees io_wait / a raw fd /
-// a pointer.
+// internally on would-block, so application code never sees io_wait, a raw fd
+// or a pointer.
 
 public struct TcpStream {
     private fd: Int
@@ -855,26 +819,22 @@ public struct TcpStream {
 
 extension TcpStream {
     // Connect to `host`:`port`, where `host` is a dotted-quad IPv4 literal or a
-    // name to resolve. COOPERATIVE throughout: a name is resolved on a worker
+    // name to resolve. Cooperative throughout: a name is resolved on a worker
     // thread while siblings run, and the dial then parks until the socket is
-    // writable (connected). Returns the owning stream or an IoError — one that
-    // NAMES THE HOST when the name is the thing that failed.
-    //
-    // design 184: `host` used to be ignored outright, so `connect("example.com",
-    // 80)` dialled 127.0.0.1:80 and reported success (DF-181d).
+    // writable (connected). Returns the owning stream or an IoError, one that
+    // names the host when the name is the thing that failed.
     public static func connect(host: String, port: Int) -> Result<TcpStream, IoError> {
-        // The literal fast path (design 184 unit 1). A dotted quad is an address
-        // already, so it is parsed here, in Saw, and dialled directly — no libc,
-        // no resolver, no thread hop, and no way for a literal caller to pay for
-        // the resolver's existence.
+        // The literal fast path. A dotted quad is an address already, so it is
+        // parsed here, in Saw, and dialled directly: no libc, no resolver, no
+        // thread hop, and no way for a literal caller to pay for the resolver's
+        // existence.
         if let literal = parse_ipv4_literal(host) {
             return TcpStream.dial(literal as Int, port)
         }
-        // A NAME. `getaddrinfo` is unbounded, so the lookup runs on a worker
-        // thread and this task PARKS while siblings run (design 183's offload
-        // over design 184's `blocking` seam). Design 184's law: resolution never
-        // stops the executor. `examples/net_connect_by_name.saw` pins the
-        // interleave that proves it.
+        // A name. `getaddrinfo` is unbounded, so the lookup runs on a worker
+        // thread and this task parks while siblings run: resolution never stops
+        // the executor (design 184). `examples/net_connect_by_name.saw` pins the
+        // interleave.
         let first = TcpStream.resolve_first(host)
         if first < 0 {
             return resolve_error(host, -first)
@@ -882,22 +842,20 @@ extension TcpStream {
         return TcpStream.dial(first, port)
     }
 
-    // The FIRST IPv4 address `host` resolves to, as the address word the dial
-    // seam takes, or a NEGATED SysError tag — std.net's house convention for a
-    // raw op, and collision-free here because every address word is >= 0. A
-    // resolver that succeeds and offers no IPv4 address answers `-NotFound`:
-    // "nowhere to dial" is a failure to the one caller this has.
+    // The first IPv4 address `host` resolves to, as the address word the dial
+    // seam takes, or a negated SysError tag: std.net's convention for a raw op,
+    // and collision-free here because every address word is >= 0. A resolver
+    // that succeeds and offers no IPv4 address answers `-NotFound`: "nowhere to
+    // dial" is a failure to the one caller this has.
     //
-    // A static METHOD, and deliberately: the transform embeds a suspending std
-    // method as a sub-frame and cannot reach a std FREE function, so the same
-    // code written as a free helper would run its `blocking` seam outside a
-    // frame — a naked call holding the executor thread for the whole lookup.
-    // `unsafe` confines the pointer work (design 130) so `connect` keeps a safe
-    // signature.
+    // A static method so the transform embeds it as a sub-frame: its `blocking`
+    // seam then runs inside a frame and is offloaded, instead of a naked call
+    // holding the executor thread for the whole lookup. `unsafe` confines the
+    // pointer work so `connect` keeps a safe signature.
     //
-    // `found` is a frame local, so it is heap-resident for the whole park and
-    // the worker may write through the pointer while this task is away — design
-    // 183's pointer rule, which is why the buffer is not a stack temporary.
+    // `found` is a frame local, so it lives in the parked frame for the whole
+    // park and the worker may write through the pointer while this task is
+    // away (design 183's pointer rule); a stack temporary would not.
     static func resolve_first(host: String) unsafe -> Int {
         var found: [UInt32; RESOLVE_MAX] = [0; RESOLVE_MAX]
         let n = __saw_rt_resolve_ipv4(host as UnsafePointer<Int8>,
@@ -920,21 +878,20 @@ extension TcpStream {
         if fd < 0 {
             return io_error("connect", -fd)
         }
-        // Park until the connect completes, RE-VERIFYING each wake: the reactor's
-        // coarse wake-all can rouse this park before our own socket is writable
-        // (design 90). Loop like read/write/accept — re-check, re-park on
-        // would-block — instead of trusting a single wake (which produced ENOTCONN
-        // on a spurious rouse in a multi-connection workload).
+        // Park until the connect completes, re-checking after every resume
+        // rather than trusting one: a resume is not proof that this socket is
+        // connected. Loop like read/write/accept and re-park on would-block
+        // (design 90).
         while {
             if cancelled() {
-                io_unwait(fd, 1)           // DF-134a: disarm before the fd goes
-                tcp_close(fd)              // design 102: cancelled while connecting
+                io_unwait(fd, 1)           // disarm before the fd goes
+                tcp_close(fd)              // cancelled while connecting
                 return io_cancelled("connect")
             }
             let check = __saw_rt_tcp_connect_check(fd, addr, port)
             if check == -SYS_IN_PROGRESS {
-                io_wait(fd, 1)             // still connecting — park until writable
-                __saw_rt_op_budget_reset()      // design 89-c: parked, budget reset
+                io_wait(fd, 1)             // still connecting: park until writable
+                __saw_rt_op_budget_reset()      // parked, so reset the budget
             } else if check < 0 {
                 tcp_close(fd)
                 return io_error("connect", -check)
@@ -942,7 +899,7 @@ extension TcpStream {
                 break                         // connected
             }
         }
-        if __saw_rt_op_budget_tick() != 0 {         // design 89-c: fairness backstop
+        if __saw_rt_op_budget_tick() != 0 {         // fairness backstop
             yield_now()
         }
         return TcpStream(fd: fd)
@@ -951,17 +908,16 @@ extension TcpStream {
     /// Connects to `host`:`port`, giving up after `timeout`.
     ///
     /// Returns `Value` with the owning stream, or `TimedOut` if the peer did
-    /// not answer in time. A refused or unreachable peer is still `Err` — a
+    /// not answer in time. A refused or unreachable peer is still `Err`: a
     /// closed port is a different fact from a silent one, and only the second
     /// is a timeout.
     ///
-    /// One boundary, stated plainly because it is not obvious: when `host` is a
-    /// NAME, the deadline does not interrupt the lookup. Resolution runs on a
-    /// worker thread (design 184) and the platform resolver cannot be
+    /// When `host` is a name, the deadline does not interrupt the lookup.
+    /// Resolution runs on a worker thread and the platform resolver cannot be
     /// cancelled, so the timeout is checked once resolution returns and then
     /// governs the dial. A name that resolves slower than `timeout` therefore
     /// reports `TimedOut` after the lookup rather than during it. Pass a dotted
-    /// IPv4 literal when the whole span must be bounded — that path performs no
+    /// IPv4 literal when the whole span must be bounded; that path performs no
     /// lookup at all.
     public static func connect(host: String, port: Int,
                                timeout: Duration) -> Result<Timed<TcpStream>, IoError> {
@@ -981,9 +937,8 @@ extension TcpStream {
         return TcpStream.dial_until(first, port, at)
     }
 
-    // The deadline-bounded twin of `dial`. Same re-verifying park loop (design
-    // 90 — a coarse wake can rouse this before OUR socket is writable), with the
-    // park bounded and the deadline checked on the would-block path.
+    // The deadline-bounded twin of `dial`: the same re-checking park loop, with
+    // the park bounded and the deadline checked on the would-block path.
     static func dial_until(addr: Int, port: Int,
                            at: Int) -> Result<Timed<TcpStream>, IoError> {
         let fd = __saw_rt_tcp_connect_start(addr, port)
@@ -992,7 +947,7 @@ extension TcpStream {
         }
         while {
             if cancelled() {
-                io_unwait(fd, 1)           // DF-134a: disarm before the fd goes
+                io_unwait(fd, 1)           // disarm before the fd goes
                 tcp_close(fd)
                 return io_cancelled("connect")
             }
@@ -1003,7 +958,7 @@ extension TcpStream {
                     tcp_close(fd)          // the half-open socket is ours to drop
                     return Timed<TcpStream>.TimedOut
                 }
-                io_wait_until(fd, 1, at)   // park until writable OR `at`
+                io_wait_until(fd, 1, at)   // park until writable or `at`
                 __saw_rt_op_budget_reset()
             } else if check < 0 {
                 tcp_close(fd)
@@ -1044,37 +999,31 @@ extension TcpStream {
         return
     }
 
-    // A connected, nonblocking stream pair (AF_UNIX socketpair) — for tests and
-    // local IPC, no bound port. Both ends are owning TcpStreams.
+    // A connected, nonblocking stream pair (AF_UNIX socketpair), for tests and
+    // local IPC, with no bound port. Both ends are owning TcpStreams.
     public static func pair() -> (TcpStream, TcpStream) {
         let p = tcp_socketpair()
         (TcpStream(fd: p.0), TcpStream(fd: p.1))
     }
 
-    // Read the next chunk of bytes. On success returns the chunk as owned Data —
-    // an EMPTY Ok means the peer closed cleanly (EOF). A genuine read failure is
-    // Err(IoError), DISTINCT from EOF (design 92: an empty Data can no longer mean
-    // BOTH close and failure — an Err is now unmistakable). COOPERATIVE: parks
-    // internally on would-block until bytes arrive or the peer closes.
-    //
-    // (Returns the chunk BY VALUE rather than filling a `&var Data`: an in-out
-    // reference parameter cannot be held across this method's internal io_wait
-    // suspension — the coroutine transform opt-encodes across-suspend locals but
-    // not a live reference param, the same limitation design 84 met. The Result
-    // still makes error distinct from EOF, which is the requirement.)
+    // Read the next chunk of bytes. On success returns the chunk as owned Data;
+    // an empty Ok means the peer closed cleanly (EOF). A genuine read failure is
+    // Err(IoError), distinct from EOF. Cooperative: parks internally on
+    // would-block until bytes arrive or the peer closes. `read_into` appends to
+    // a caller's buffer instead.
     public func read(&self) -> Result<Data, IoError> {
         var out = Data()
         while {
             if cancelled() {
-                io_unwait(self.fd, 0)                      // DF-134a: disarm the park
-                return io_cancelled("read")   // design 102: peer-cancelled at the park
+                io_unwait(self.fd, 0)                      // disarm the park
+                return io_cancelled("read")   // cancelled at the park
             }
             let r = net_read_once(self.fd, &var out)
             if r == -SYS_WOULD_BLOCK {
                 io_wait(self.fd, 0)            // park until readable
-                __saw_rt_op_budget_reset()          // design 89-c: parked, budget reset
+                __saw_rt_op_budget_reset()          // parked, so reset the budget
             } else if r == NET_NO_SCRATCH {
-                // std's own refusal, not the OS's — so it carries no raw code.
+                // std's own refusal, not the OS's, so it carries no raw code.
                 return IoError.of(syscall: "read",
                                   kind: IoErrorKind.ResourcesExhausted)
             } else if r < 0 {
@@ -1083,7 +1032,7 @@ extension TcpStream {
                 break                          // r >= 0: bytes read (0 = EOF)
             }
         }
-        if __saw_rt_op_budget_tick() != 0 {         // design 89-c: fairness backstop
+        if __saw_rt_op_budget_tick() != 0 {         // fairness backstop
             yield_now()                        // always-ready read: cede periodically
         }
         return move out
@@ -1091,8 +1040,8 @@ extension TcpStream {
 
     /// Reads the next chunk of bytes, giving up after `timeout`.
     ///
-    /// Returns `Value` with the chunk — an EMPTY chunk still means the peer
-    /// closed cleanly — or `TimedOut` if nothing arrived in time. A genuine
+    /// Returns `Value` with the chunk (an empty chunk still means the peer
+    /// closed cleanly) or `TimedOut` if nothing arrived in time. A genuine
     /// read failure is still `Err`, so all four outcomes stay distinct: bytes,
     /// EOF, timeout, error.
     ///
@@ -1104,8 +1053,8 @@ extension TcpStream {
         let at = net_deadline_at(timeout)
         while {
             if cancelled() {
-                io_unwait(self.fd, 0)                      // DF-134a: disarm the park
-                return io_cancelled("read")   // design 102: cancelled at the park
+                io_unwait(self.fd, 0)                      // disarm the park
+                return io_cancelled("read")   // cancelled at the park
             }
             let r = net_read_once(self.fd, &var out)
             if r == -SYS_WOULD_BLOCK {
@@ -1113,8 +1062,8 @@ extension TcpStream {
                     io_unwait(self.fd, 0)
                     return Timed<Data>.TimedOut
                 }
-                io_wait_until(self.fd, 0, at)  // park until readable OR `at`
-                __saw_rt_op_budget_reset()          // design 89-c: parked, budget reset
+                io_wait_until(self.fd, 0, at)  // park until readable or `at`
+                __saw_rt_op_budget_reset()          // parked, so reset the budget
             } else if r == NET_NO_SCRATCH {
                 return IoError.of(syscall: "read",
                                   kind: IoErrorKind.ResourcesExhausted)
@@ -1130,37 +1079,31 @@ extension TcpStream {
         return Timed<Data>.Value(value: move out)
     }
 
-    // Read the next chunk of bytes and APPEND them into the caller's `into`
+    // Read the next chunk of bytes and append them to the caller's `into`
     // buffer, returning the byte count (0 = the peer closed cleanly / EOF), or
-    // Err(IoError) on a genuine read failure (distinct from EOF, design 92). The
-    // in-out `&var Data` is held across this method's internal io_wait suspension —
-    // design 88 (D6): a reference parameter is frame-resident across a suspend, so
-    // the append after the park writes back to the SAME caller buffer. Offered
-    // ALONGSIDE the value `read()` (which allocates a fresh Data): `read_into` lets
-    // a caller ACCUMULATE across successive reads into one growing buffer with no
-    // per-chunk allocation (design 96 unblocked it — a `&var Data` read is a
-    // suspending method, and driving one from a spawned worker or a nested frame
-    // works now). COOPERATIVE: parks internally on would-block until bytes arrive.
+    // Err(IoError) on a genuine read failure, distinct from EOF. The `&var Data`
+    // is held across this method's io_wait park: a reference parameter is
+    // frame-resident across a suspend, so the append after the park writes to
+    // the caller's buffer. Beside the value-returning `read()`, this lets a
+    // caller accumulate successive reads into one growing buffer without a
+    // fresh Data per chunk. Cooperative: parks internally on would-block until
+    // bytes arrive.
     public func read_into(&self, into: &var Data) -> Result<Int, IoError> {
         var count = 0
         while {
             if cancelled() {
-                io_unwait(self.fd, 0)                      // DF-134a: disarm the park
-                return io_cancelled("read")   // design 102: cancelled at park
+                io_unwait(self.fd, 0)                      // disarm the park
+                return io_cancelled("read")   // cancelled at the park
             }
-            // Design 106: FORWARD the held `&var into` straight to the raw-layer
-            // helper (`net_read_once` owns the scratch buffer + the append). The
-            // reference param is re-borrowed onward across this method's io_wait
-            // park — design 88 makes `into` a frame-resident pointer, and the
-            // forwarding call passes that same pointer through with no per-chunk
-            // buffer management here. (Pre-106 this had to inline net_read_once's
-            // body — a reference param could not be the operand of `&var`.)
+            // Forward the held `&var into` to `net_read_once`, which owns the
+            // scratch buffer and the append. `into` is a frame-resident pointer
+            // across the park, and this call passes that same pointer on.
             let r = net_read_once(self.fd, &var into)
             if r == -SYS_WOULD_BLOCK {
                 io_wait(self.fd, 0)                    // park until readable
-                __saw_rt_op_budget_reset()                  // design 89-c: parked, reset
+                __saw_rt_op_budget_reset()                  // parked, so reset the budget
             } else if r == NET_NO_SCRATCH {
-                // std's own refusal, not the OS's — so it carries no raw code.
+                // std's own refusal, not the OS's, so it carries no raw code.
                 return IoError.of(syscall: "read",
                                   kind: IoErrorKind.ResourcesExhausted)
             } else if r < 0 {
@@ -1170,7 +1113,7 @@ extension TcpStream {
                 break
             }
         }
-        if __saw_rt_op_budget_tick() != 0 {                 // design 89-c: fairness backstop
+        if __saw_rt_op_budget_tick() != 0 {                 // fairness backstop
             yield_now()
         }
         return count
@@ -1187,7 +1130,7 @@ extension TcpStream {
         let at = net_deadline_at(timeout)
         while {
             if cancelled() {
-                io_unwait(self.fd, 0)                      // DF-134a: disarm the park
+                io_unwait(self.fd, 0)                      // disarm the park
                 return io_cancelled("read")
             }
             let r = net_read_once(self.fd, &var into)
@@ -1196,7 +1139,7 @@ extension TcpStream {
                     io_unwait(self.fd, 0)
                     return Timed<Int>.TimedOut
                 }
-                io_wait_until(self.fd, 0, at)          // park until readable OR `at`
+                io_wait_until(self.fd, 0, at)          // park until readable or `at`
                 __saw_rt_op_budget_reset()
             } else if r == NET_NO_SCRATCH {
                 return IoError.of(syscall: "read",
@@ -1214,42 +1157,41 @@ extension TcpStream {
         return Timed<Int>.Value(value: count)
     }
 
-    // Write the WHOLE Data buffer, parking on would-block until every byte is
-    // sent. Returns Ok on success or the write error honestly (design 92 — this
-    // REPLACES the old Void `write_all`/`write_all_str` that silently swallowed a
-    // hard write error). Bytes-typed so it can send arbitrary binary.
+    // Write the whole Data buffer, parking on would-block until every byte is
+    // sent. Returns Ok, or the write error. Bytes-typed so it can send
+    // arbitrary binary.
     public func write(&self, bytes: Data) -> Result<Void, IoError> {
         var off = 0
         let total = bytes.len()
         while off < total {
             if cancelled() {
-                io_unwait(self.fd, 1)                       // DF-134a: disarm the park
-                return io_cancelled("write")   // design 102: cancelled at the park
+                io_unwait(self.fd, 1)                       // disarm the park
+                return io_cancelled("write")   // cancelled at the park
             }
             let w = net_write_data_once(self.fd, &bytes, off)
             if w == -SYS_WOULD_BLOCK {
                 io_wait(self.fd, 1)            // park until writable
-                __saw_rt_op_budget_reset()          // design 89-c: parked, budget reset
+                __saw_rt_op_budget_reset()          // parked, so reset the budget
             } else if w < 0 {
                 return io_error("write", -w)
             } else {
                 off = off + w
             }
         }
-        if __saw_rt_op_budget_tick() != 0 {         // design 89-c: fairness backstop
+        if __saw_rt_op_budget_tick() != 0 {         // fairness backstop
             yield_now()
         }
         return
     }
 
-    // Write the whole string's bytes (design 95 — the text overload of
-    // `write(bytes: Data)`, re-added once the coroutine transform learned to
-    // key driven-method frames by resolved signature, so the two overloads get
-    // distinct frames). Same park-until-sent loop over the string's UTF-8.
+    // Write the whole string's bytes: the text overload of `write(bytes:)`, the
+    // same park-until-sent loop over the string's UTF-8. The two overloads get
+    // distinct frames because the coroutine transform keys driven-method
+    // frames by resolved signature.
     public func write(&self, s: String) -> Result<Void, IoError> {
-        // design 234: staging the string's bytes can be refused, and this
-        // domain's word for that is `ResourcesExhausted` — the same one the
-        // read path's scratch failure already uses.
+        // Staging the string's bytes can be refused, and this domain's word for
+        // that is `ResourcesExhausted`, the one the read path's scratch failure
+        // uses.
         let bytes = match s.to_data() {
             case Ok(d) -> move d,
             case Err(_) -> {
@@ -1260,20 +1202,20 @@ extension TcpStream {
         let total = bytes.len()
         while off < total {
             if cancelled() {
-                io_unwait(self.fd, 1)                       // DF-134a: disarm the park
-                return io_cancelled("write")   // design 102: cancelled at the park
+                io_unwait(self.fd, 1)                       // disarm the park
+                return io_cancelled("write")   // cancelled at the park
             }
             let w = net_write_data_once(self.fd, &bytes, off)
             if w == -SYS_WOULD_BLOCK {
                 io_wait(self.fd, 1)            // park until writable
-                __saw_rt_op_budget_reset()          // design 89-c: parked, budget reset
+                __saw_rt_op_budget_reset()          // parked, so reset the budget
             } else if w < 0 {
                 return io_error("write", -w)
             } else {
                 off = off + w
             }
         }
-        if __saw_rt_op_budget_tick() != 0 {         // design 89-c: fairness backstop
+        if __saw_rt_op_budget_tick() != 0 {         // fairness backstop
             yield_now()
         }
         return

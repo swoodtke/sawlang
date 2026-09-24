@@ -26,9 +26,9 @@
 #include <netinet/tcp.h>
 
 /* ---- DF-113a: no extern C global ---------------------------------------
- * Saw cannot name `stdout`. Output goes through stdio rather than raw
- * `write(2)` so it stays on one buffered stream with the printf-based Float
- * path, which is what keeps `print` output in program order (rt/ABI.md).
+ * Saw cannot name `stdout`. Output goes through stdio's `stdout`, flushed on
+ * every write, so it stays in order with other writes to that same stream
+ * (for example C code the program links that prints to stdout).
  */
 void __saw_rt_write(const char *ptr, size_t len) {
     fwrite(ptr, 1, len, stdout);
@@ -153,11 +153,12 @@ void __saw_rt_thread_detach(void *ctrl) {
     }
 }
 
-/* ---- DF-113c: no variadic extern ---------------------------------------
+/* ---- DF-113c: variadic fcntl -------------------------------------------
  * `fcntl` is variadic, and a fixed-arity declaration of a variadic function
  * is wrong on some ABIs: on Apple arm64 the F_SETFL argument would go in a
- * register the callee reads from the stack. So it is called from C. Returns
- * 0, or -1 if F_GETFL fails. */
+ * register the callee reads from the stack. It is called from C here; Saw
+ * can now declare variadic externs (`open` in rt/common/os_ops.saw), so this
+ * reason no longer holds. Returns 0, or -1 if F_GETFL fails. */
 long __saw_rt_set_nonblocking(long fd) {
     int flags = fcntl((int)fd, F_GETFL, 0);
     if (flags < 0) return -1;
@@ -516,7 +517,7 @@ void *__saw_offload_thread_ptr(void) {
     return (void *)__saw_offload_thread;
 }
 
-/* ---- DF-186c: no 32-bit atomics through a pointer, no variadic extern ----
+/* ---- DF-186c: no 32-bit atomics through a pointer -----------------------
  * The Linux body of `__saw_rt_lock_acquire` / `_release`, the one-word lock
  * behind `Mutex<T>` (rt/ABI.md). The macOS body is Saw
  * (sawc/rt/host_macos/lock.saw).
