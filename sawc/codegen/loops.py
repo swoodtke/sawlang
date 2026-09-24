@@ -8,7 +8,7 @@ Loop representation:
 - Loops use basic blocks: condition, body, and end
 - Loop stack tracks (continue_block, break_block, result_storage, cleanup_depth)
   for nested loops; `cleanup_depth` is `len(self.cleanup_stack)` at loop entry,
-  which is what `break`/`continue` unwind down to (DF-218r)
+  which is what `break`/`continue` unwind down to
 - For loops desugar to Iterator::next() calls
 
 Usage:
@@ -35,12 +35,10 @@ class LoopsMixin:
         _generate_continue_statement: Generate continue statement
 
     The scopes a `break`/`continue` exits are released by
-    `_cleanup_to_depth` (resources.py), the shared nonlocal-exit walk —
-    DF-218r's own funnel, widened by DF-218v to serve the try/catch error
-    edge as well. The bound this file supplies is the fourth `loop_stack`
-    element: the cleanup depth recorded at loop ENTRY, before the loop's own
-    bindings register, so a `for`'s design-65 owning loop variable is inside
-    the unwind.
+    `_cleanup_to_depth` (resources.py), the shared nonlocal-exit walk. The
+    bound this file supplies is the fourth `loop_stack` element: the cleanup
+    depth recorded at loop entry, before the loop's own bindings register, so
+    a `for`'s owning loop variable is inside the unwind.
     """
 
     def _generate_while_expr(self, stmt: WhileExpr):
@@ -83,8 +81,8 @@ class LoopsMixin:
         # Position at end block for next statements
         self.builder.position_at_end(end_block)
 
-        # Design 177: a conditionless loop nothing breaks out of DIVERGES, so
-        # this end block has no predecessors — nothing can reach the code after
+        # A conditionless loop nothing breaks out of diverges, so this end
+        # block has no predecessors: nothing can reach the code after
         # the loop. Terminate it with `unreachable`, which is precisely what a
         # `panic(...)` leaves behind, so every downstream `is_terminated` check
         # treats the rest of the block as the dead code it is (not emitted, no
@@ -93,37 +91,30 @@ class LoopsMixin:
             self.builder.unreachable()
 
     # ------------------------------------------------------------------ #
-    # design 275 U3 — the WINDOW's resource, lowered for the sync path
+    # The window's resource, lowered for the sync path (design 275)
     # ------------------------------------------------------------------ #
 
     def _open_window_resource(self, resource_saw, slot) -> bool:
-        """Put the window's RESOURCE under scope cleanup. Returns whether it is.
+        """Put the window's resource under scope cleanup. Returns whether it is.
 
-        ONE ROUTINE for any client (the reuse obligation's point (3)): what it
-        knows is that a window has a resource living in a persistent slot, and
-        that the resource is destroyed at the close. The `for` client's
-        resource happens to be a borrowing iterator; a future accessor
-        client's would be a lend result, and neither shape appears here.
+        One routine for any client: what it knows is that a window has a
+        resource living in a persistent slot, and that the resource is
+        destroyed at the close. The `for` client's resource is a borrowing
+        iterator; an accessor client's would be a lend result, and neither
+        shape appears here. An iterator with owned fields or a hand-written
+        `deinit` is supported, so it owes a drop.
 
-        An iterator with OWNED fields or a hand-written `deinit` is SUPPORTED
-        (design 275 U3 part (i) — the drop machinery is the existing one, and
-        refusing them would make the std iterators the only writable shape), so
-        it owes a drop, and it never got one: every pre-U3 iterator was
-        reference-plus-Int or pointer-plus-Ints, which needs no cleanup, so
-        nothing in the corpus could see the omission.
+        The scope is pushed around the loop, before the `loop_stack` entry
+        that records the unwind depth, so a `break`/`continue` unwinds only
+        the scopes inside it and the close (`_close_window_resource`, at the
+        loop's end block) releases the resource, exactly once. A `return` out
+        of the body sweeps it through `_cleanup_all_scopes`.
 
-        THE SCOPE IS PUSHED AROUND THE LOOP, and BEFORE the `loop_stack` entry
-        that records the unwind depth — so a `break`/`continue` unwinds only
-        the scopes INSIDE it and the close (`_close_window_resource`, at the
-        loop's end block) is what releases the resource, exactly once. A
-        `return` out of the body sweeps it through `_cleanup_all_scopes` like
-        every other live binding.
-
-        BEFORE THE CHARGE ENDS, which is the order part (i) fixes: a
-        hand-written `deinit` on a borrowing struct may still read THROUGH the
-        reference, so the referent has to outlive the drop. The charge is a
-        compile-time fact with no runtime event, so "before it ends" is
-        "inside the statement" — which is what closing at the end block means.
+        The drop happens before the root charge ends: a hand-written `deinit`
+        on a borrowing struct may still read through the reference, so the
+        referent has to outlive the drop. The charge is a compile-time fact
+        with no runtime event, so "before it ends" is "inside the statement",
+        which closing at the end block satisfies.
         """
         if resource_saw is not None and self.type_param_context:
             resource_saw = resource_saw.substitute(self.type_param_context)
@@ -136,7 +127,9 @@ class LoopsMixin:
         return True
 
     def _close_window_resource(self, opened: bool) -> None:
-        """RELEASE: destroy the window's resource, once, at the loop's exit."""
+        """Destroy the window's resource, once, at the loop's end block, where
+        exhaustion and `break` meet (a `return` releases it through
+        `_cleanup_all_scopes` instead)."""
         if not opened:
             return
         self._cleanup_scope(self.cleanup_stack.pop())
@@ -168,8 +161,8 @@ class LoopsMixin:
             iter_alloca, next_func, item_type = self._acquire_head_iterator(
                 stmt.iterable)
 
-        # design 275 U3: the window RESOURCE joins scope cleanup here, before
-        # the `loop_stack` entry below records the unwind depth.
+        # The window resource joins scope cleanup here, before the
+        # `loop_stack` entry below records the unwind depth.
         _window_open = (False if isinstance(stmt.iterable, RangeExpr)
                         else self._open_window_resource(
                             getattr(stmt.iterable, 'resolved_type', None),
@@ -182,8 +175,8 @@ class LoopsMixin:
 
         # Push loop blocks onto stack for break/continue
         # continue goes to cond block (call next again), break goes to end.
-        # Recorded BEFORE the owning loop variable's scope, so both edges
-        # release it (DF-218r).
+        # Recorded before the owning loop variable's scope, so both edges
+        # release it.
         self.loop_stack.append((cond_block, end_block, None,
                                 len(self.cleanup_stack)))
 
@@ -192,9 +185,9 @@ class LoopsMixin:
 
         # Generate condition: call next() and check if Some
         self.builder.position_at_end(cond_block)
-        # `Iterator.next` is `&var self`, so `_self_operand` is a no-op here —
-        # routed through it (design 261) so this stops being one more site that
-        # decides the receiver convention on its own.
+        # `Iterator.next` is `&var self`, so `_self_operand` is a no-op here;
+        # routed through it so no site decides the receiver convention on its
+        # own (design 261).
         optional_result = self.builder.call(
             next_func, [self._self_operand(next_func, iter_alloca, name="next_self")],
             name="next_result")
@@ -206,12 +199,12 @@ class LoopsMixin:
         # Generate body
         self.builder.position_at_end(body_block)
 
-        # Design 107 item 2: a derived for-loop variable may SHADOW an enclosing
-        # binding (`let x = ...; for x in x.lines() { ... }`). Snapshot the
-        # name->storage maps so the shadowed OUTER binding is restored after the
-        # loop — otherwise a use of the outer name afterward would resolve to the
-        # loop's (dead) storage, and the plain `del` below would drop the outer
-        # entry entirely (the design-100 block-shadow hazard, applied to loops).
+        # A derived for-loop variable may shadow an enclosing binding (`let x
+        # = ...; for x in x.lines() { ... }`). Snapshot the name->storage maps
+        # so the shadowed outer binding is restored after the loop; otherwise a
+        # use of the outer name afterward would resolve to the loop's (dead)
+        # storage, and the plain `del` below would drop the outer entry
+        # entirely (design 107).
         _shadow_snap = (dict(self.variables), dict(self.variable_types),
                         dict(self.drop_flags))
 
@@ -221,18 +214,17 @@ class LoopsMixin:
         self.builder.store(loop_val, loop_var_alloca)
         self.variables[stmt.variable] = loop_var_alloca
 
-        # An OWNING loop variable (a retained element yielded by a custom
-        # iterator, e.g. `for e in set.iter()`) must be RELEASED at the end of
+        # An owning loop variable (a retained element yielded by a custom
+        # iterator, e.g. `for e in set.iter()`) must be released at the end of
         # each iteration unless the body moved it out (design 65). Register it in
         # a per-iteration cleanup scope with a fresh drop flag (reset each pass),
         # then drop-if-unmoved before branching back to the condition.
         elem_saw = stmt.element_type
-        # L18 fix (design 65 followup): the typechecker stamps `element_type` with
-        # the loop variable's type as WRITTEN — inside a generic method that is the
-        # unsubstituted param (`Vector<T>.iter()` yields `T`). Left as `T`,
-        # `_needs_cleanup(T)` is False and the owning loop variable is never
-        # released — the leak that forced Set algebra onto indexed `while`. Resolve
-        # it to the active monomorphization first, exactly as params/reads do.
+        # The typechecker stamps `element_type` with the loop variable's type
+        # as written; inside a generic method that is the unsubstituted param
+        # (`Vector<T>.iter()` yields `T`). Left as `T`, `_needs_cleanup(T)` is
+        # False and the owning loop variable is never released. Resolve it to
+        # the active monomorphization first, exactly as params/reads do.
         if elem_saw is not None and self.type_param_context:
             elem_saw = elem_saw.substitute(self.type_param_context)
         drop_loop_var = (elem_saw is not None
@@ -272,8 +264,8 @@ class LoopsMixin:
         # Position at end block for next statements
         self.builder.position_at_end(end_block)
 
-        # RELEASE: the window's resource is destroyed here — the one point
-        # every exit edge of the loop reaches.
+        # The window's resource is destroyed here, where exhaustion and
+        # `break` meet; a `return` released it on its own edge.
         self._close_window_resource(_window_open)
 
     def _init_range_iterator(self, range_expr: RangeExpr):
@@ -304,23 +296,19 @@ class LoopsMixin:
         return iter_alloca, self.functions["Range_next"], self.int_type
 
     def _acquire_head_iterator(self, head):
-        """Materialize a collection `for`'s HEAD as the loop's OWN iterator.
+        """Materialize a collection `for`'s head as the loop's own iterator.
 
         Returns (iter_alloca, next_func, item_type), the shape
-        `_init_range_iterator` returns for a range head. ONE routine for the
+        `_init_range_iterator` returns for a range head. One routine for the
         statement form (`_generate_for_loop`) and the value form
         (`_generate_for_loop_value`), because the acquisition is where the
-        head's TRANSFER DECISION IS CONSUMED (design 275 U3, codex r2 #1):
-        `_check_value_transfer` entry 20 judged the head — a Copy-tier binding
-        is stamped `needs_copy`, a `move it` retired its binding, a temporary
-        owes nothing — and the loop then claims cleanup ownership of the
-        iterator (`_open_window_resource`), so the value it stores MUST be the
-        one the decision describes. For one revision both lowerings stored the
-        bare load: a Copy-tier binding was freed by its first loop's close and
-        read afterwards (`43 43` for `30 abc 5 0`; an Arc-holding one
-        underflowed its count). The driven twin never had the gap — its seed is
-        a `let` over the same node, and `_generate_let_statement` consumes the
-        stamp — so this is the sync half catching up to the one rule.
+        head's transfer decision is consumed: `_check_value_transfer` judged
+        the head (a Copy-tier binding is stamped `needs_copy`, a `move it`
+        retired its binding, a temporary owes nothing), and the loop then
+        claims cleanup ownership of the iterator (`_open_window_resource`), so
+        the value it stores must be the one the decision describes. The driven
+        twin's seed is a `let` over the same node, which
+        `_generate_let_statement` handles the same way (design 275).
         """
         iter_val = self._generate_expression(head)
         head_saw = getattr(head, 'resolved_type', None)
@@ -379,8 +367,8 @@ class LoopsMixin:
             iter_alloca, next_func, item_type = self._acquire_head_iterator(
                 expr.iterable)
 
-        # design 275 U3: the window RESOURCE, same routine as the statement
-        # twin, pushed before the `loop_stack` entry records the unwind depth.
+        # The window resource, same routine as the statement twin, pushed
+        # before the `loop_stack` entry records the unwind depth.
         _window_open = (False if isinstance(expr.iterable, RangeExpr)
                         else self._open_window_resource(
                             getattr(expr.iterable, 'resolved_type', None),
@@ -415,9 +403,9 @@ class LoopsMixin:
 
         # Generate condition: call next() and check if Some
         self.builder.position_at_end(cond_block)
-        # `Iterator.next` is `&var self`, so `_self_operand` is a no-op here —
-        # routed through it (design 261) so this stops being one more site that
-        # decides the receiver convention on its own.
+        # `Iterator.next` is `&var self`, so `_self_operand` is a no-op here;
+        # routed through it so no site decides the receiver convention on its
+        # own (design 261).
         optional_result = self.builder.call(
             next_func, [self._self_operand(next_func, iter_alloca, name="next_self")],
             name="next_result")
@@ -429,7 +417,7 @@ class LoopsMixin:
         # Generate body
         self.builder.position_at_end(body_block)
 
-        # Design 107 item 2: shadow-safe loop variable (see _generate_for_loop).
+        # Shadow-safe loop variable (see _generate_for_loop).
         _shadow_snap = (dict(self.variables), dict(self.variable_types),
                         dict(self.drop_flags))
 
@@ -442,9 +430,9 @@ class LoopsMixin:
         # Release an owning loop variable per iteration unless moved (design 65),
         # mirroring the statement-context for-loop.
         elem_saw = expr.element_type
-        # L18 fix (design 65 followup): resolve a generic loop-variable type to the
-        # active monomorphization so an owning loop variable is released (see the
-        # statement-context for-loop for the full rationale).
+        # Resolve a generic loop-variable type to the active monomorphization
+        # so an owning loop variable is released (see the statement-context
+        # for-loop).
         if elem_saw is not None and self.type_param_context:
             elem_saw = elem_saw.substitute(self.type_param_context)
         drop_loop_var = (elem_saw is not None
@@ -480,8 +468,9 @@ class LoopsMixin:
 
         # Load and return result
         self.builder.position_at_end(end_block)
-        # RELEASE, before the value is read out: the window's resource is
-        # destroyed at the one point every exit edge of the loop reaches.
+        # Release before the value is read out: the window's resource is
+        # destroyed here, where exhaustion and `break` meet; a `return`
+        # released it on its own edge.
         self._close_window_resource(_window_open)
         return self.builder.load(result_alloca, name="for.value")
 
@@ -554,10 +543,10 @@ class LoopsMixin:
         # Load and return result
         self.builder.position_at_end(end_block)
         if expr.diverges:
-            # Design 177, expression position: the loop produced no value and
-            # nothing reaches here. Same shape as `_generate_panic` — terminate
-            # and hand back None, which every value site already has to tolerate
-            # from a diverging initializer.
+            # Expression position: the loop produced no value and nothing
+            # reaches here. Same shape as `_generate_panic`: terminate and hand
+            # back None, which every value site already has to tolerate from a
+            # diverging initializer.
             self.builder.unreachable()
             return None
         return self.builder.load(result_alloca, name="while.value")
@@ -615,9 +604,9 @@ class LoopsMixin:
         if not self.loop_stack:
             raise ValueError("continue outside of loop")
 
-        # Release every scope the branch exits, innermost first — the current
+        # Release every scope the branch exits, innermost first: the current
         # iteration's body locals (and a `for`'s owning loop variable) die here
-        # exactly as they do on the fall-through edge (DF-218r).
+        # exactly as they do on the fall-through edge.
         continue_block, _, _, cleanup_depth = self.loop_stack[-1]
         self._cleanup_to_depth(cleanup_depth)
         self.builder.branch(continue_block)

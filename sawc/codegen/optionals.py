@@ -39,13 +39,12 @@ class OptionalsMixin:
     def _wrap_in_optional(self, value):
         """Wrap a value in an optional type (for implicit wrapping)."""
         if value is None or isinstance(value.type, ir.VoidType):
-            # `Void?` carries an `i8` PLACEHOLDER payload — LLVM has no
-            # void-in-struct — and only the is_some flag is ever read (design
-            # 111). There is no payload to insert, so set the flag and stop.
-            # Reached when a `Void`-instantiated generic local becomes an
-            # opt-encoded coroutine frame field (design 132 unit C) — and, as
-            # a bare None, when `try?` wraps a `Result<Void, E>`'s Ok, whose
-            # payload extraction yields no value at all (DF-281a).
+            # `Void?` carries an `i8` placeholder payload (LLVM has no
+            # void-in-struct) and only the is_some flag is ever read. There is
+            # no payload to insert, so set the flag and stop. Reached when a
+            # `Void`-instantiated generic local becomes an opt-encoded
+            # coroutine frame field, and, as a bare None, when `try?` wraps a
+            # `Result<Void, E>`'s Ok, whose payload extraction yields no value.
             optional_type = ir.LiteralStructType([ir.IntType(1), ir.IntType(8)])
             optional_val = ir.Constant(optional_type, ir.Undefined)
             return self.builder.insert_value(
@@ -68,14 +67,14 @@ class OptionalsMixin:
         This is inserted by the typechecker when a value of type T
         is used where T? is expected.
 
-        Design 40 item 5 (L10): the value escapes into the Some payload — a
-        transfer site. Generate it through _gen_transfer_value so an owned
-        Copy value auto-wrapped into `Some(...)` is retained, closing
-        the same premature-free hole the Result Ok/Err auto-wrap had.
+        The value escapes into the Some payload, so this is a transfer site.
+        Generate it through _gen_transfer_value so an owned Copy value
+        auto-wrapped into `Some(...)` is retained, as the Result Ok/Err
+        auto-wrap is.
 
-        DF-205a: a transfer site is also a WIDENING site. The payload's width is
-        the SLOT's, so `let o: Int? = u` on a `UInt32 u` carries an i32 into an
-        `Int?` payload and the read sign-extended it to -294967296.
+        A transfer site is also a widening site: the payload's width is the
+        slot's, so `let o: Int? = u` on a `UInt32 u` widens the i32 to the
+        `Int?` payload by the source's signedness.
         """
         value = self._gen_transfer_value(expr.value)
         target = getattr(expr, 'target_type', None)
@@ -92,26 +91,18 @@ class OptionalsMixin:
     def _fit_optional_slot(self, value, slot_type):
         """`value`, wrapped as many times as `slot_type` is asking for.
 
-        Every store into an optional slot used to ask "is the slot an optional
-        and the value not one" — a SHAPE test, which cannot tell an already-fit
-        value from one that needs another layer. At a NESTED optional both
-        answers are "optional" and the wrap was skipped, so an `Int?` was stored
-        into an `Int??` slot (DF-174b: `group.spawn(work())` where
-        `work() -> Int?`, whose result cell is `T?` at `T = Int?`).
+        A shape test ("is the slot an optional and the value not one") cannot
+        tell an already-fit value from one that needs another layer: at a
+        nested optional both are optional-shaped, so an `Int?` bound for an
+        `Int??` slot (a `T?` result cell at `T = Int?`) would go unwrapped.
+        Comparing the value against the slot's payload type answers exactly;
+        the shape test stays as the fallback so a value that merely needs a
+        later coercion (a narrower integer, say) still wraps.
 
-        Comparing the value against the slot's PAYLOAD type answers both cases
-        exactly, and the shape test is kept as the fallback so a value that
-        merely needs a later coercion (a narrower integer, say) still wraps
-        where it always did.
-
-        DF-174g: the payload comparison answers "one more layer", and a slot can
-        ask for two. Naming the type (`let a: Optional<Int?> = 5`) puts a bare
-        value TWO layers below its slot, where the containers — the only source
-        of a nested optional before — always put it one (their payload is
-        already a layer down). So the fit recurses into the slot's payload
-        first: whatever number of layers separates the two, each one is a real
-        `Some`, and the peel that reads them back finds a value at every depth
-        instead of `undef` under a present tag.
+        A slot can ask for more than one layer (`let a: Optional<Int?> = 5`
+        puts a bare value two layers below its slot), so the fit recurses into
+        the slot's payload first: each layer is a real `Some`, and the peel
+        that reads them back finds a value at every depth.
         """
         if value is None or not self._is_optional_type(slot_type):
             return value
@@ -143,11 +134,11 @@ class OptionalsMixin:
         inner_type = none_type.inner_type
 
         if inner_type is None:
-            # The expectation the checker pushed down from the surrounding slot
-            # (DF-146l). `_apply_literal_expected_type` stamps it on the literal
-            # before checking it, exactly as it stamps a fixed width on a bare
-            # integer, so a `None` in a Map/Vector/Set/tuple ELEMENT position —
-            # every slot reached only through that recursion — carries its
+            # The expectation the checker pushed down from the surrounding slot.
+            # `_apply_literal_expected_type` stamps it on the literal before
+            # checking it, exactly as it stamps a fixed width on a bare
+            # integer, so a `None` in a Map/Vector/Set/tuple element position
+            # (every slot reached only through that recursion) carries its
             # payload type here. The checker keeps returning the untyped form so
             # the literal still unifies with any `T?`.
             expected = expr.expected_type
@@ -162,9 +153,9 @@ class OptionalsMixin:
                 inner_type = inner_type.substitute(self.type_param_context)
 
         if inner_type is None:
-            # DF-146l's hardening rule: a `None` that reached here with no
-            # payload type is a program no slot pinned, not a compiler-invariant
-            # violation. Report it where the author wrote it.
+            # A `None` that reached here with no payload type is a program no
+            # slot pinned, not a compiler-invariant violation. Report it where
+            # the author wrote it.
             from .core import CodegenUserError
             raise CodegenUserError(
                 "cannot tell what this `None` is a `None` OF — no annotation, "
@@ -175,12 +166,11 @@ class OptionalsMixin:
                      "None`), or give the call an explicit type argument",
                 source_file=self._di_current_basename())
 
-        # Lower the OPTIONAL, not the payload: `Void?` has no void-in-struct
+        # Lower the optional, not the payload: `Void?` has no void-in-struct
         # representation and carries an `i8` placeholder instead, and that rule
         # lives in `_get_llvm_type`'s OPTIONAL branch. Assembling `{i1, payload}`
-        # here bypassed it and produced a `{i1, void}` that no `Void?` slot would
-        # accept — which is what a `Void`-instantiated generic local hit when the
-        # coroutine transform gave it a frame field (design 132 unit C).
+        # here would bypass it and produce a `{i1, void}` that no `Void?` slot
+        # accepts.
         optional_type = self._get_llvm_type(
             SawType(TypeKind.OPTIONAL, inner_type=inner_type))
         optional_val = ir.Constant(optional_type, ir.Undefined)
@@ -197,12 +187,12 @@ class OptionalsMixin:
         Extracts the value from an optional, panicking at runtime if the
         optional is None.
 
-        design 131: when the typechecker marked this unwrap `payload_needs_copy`
-        it is a VALUE READ out of a place the source keeps (`let a = o!`,
-        `f(o!)`, `return o!`), so the extracted payload is retained here — at the
-        extraction — and the new owner's later drop is balanced. Borrow uses
-        (`o!.m()`, `&o!`, `o!.field`) are never marked, so they still read in
-        place with no traffic.
+        When the typechecker marked this unwrap `payload_needs_copy` it is a
+        value read out of a place the source keeps (`let a = o!`, `f(o!)`,
+        `return o!`), so the extracted payload is retained here, at the
+        extraction, and the new owner's later drop is balanced. Borrow uses
+        (`o!.m()`, `&o!`, `o!.field`) are never marked, so they read in place
+        with no traffic (design 131).
         """
         optional_val = self._generate_expression(expr.expr)
 
@@ -226,8 +216,8 @@ class OptionalsMixin:
         return self._retain_read_payload(expr, payload)
 
     def _retain_read_payload(self, node, payload):
-        """design 131: honor a `payload_needs_copy` mark on a payload-extraction
-        node by retaining the extracted value against the payload's own type."""
+        """Honor a `payload_needs_copy` mark on a payload-extraction node by
+        retaining the extracted value against the payload's own type."""
         if not node.payload_needs_copy:
             return payload
         payload_type = self._payload_saw_type(node)
@@ -236,7 +226,7 @@ class OptionalsMixin:
         return self._generate_copy(payload, payload_type)
 
     def _payload_saw_type(self, node) -> SawType:
-        """The Saw type of the payload a design-131 extraction node yields."""
+        """The Saw type of the payload an extraction node yields."""
         src = getattr(node, 'optional_expr', None) or getattr(node, 'expr', None)
         if src is None:
             return None
@@ -254,12 +244,12 @@ class OptionalsMixin:
         Returns the unwrapped value if present, otherwise evaluates and
         returns the default expression.
 
-        design 131: `a ?? b` yields an OWNED value, so each arm hands over its
-        own reference. The Some arm retains the payload it read out of `a` (when
+        `a ?? b` yields an owned value, so each arm hands over its own
+        reference. The Some arm retains the payload it read out of `a` (when
         the typechecker's place rule says so); the None arm goes through the
         ordinary transfer path, which retains a named/field default. Retaining
-        per-ARM rather than on the merged result is what keeps a fresh default
-        (`opt ?? "fallback"`) from being over-retained.
+        per arm rather than on the merged result is what keeps a fresh default
+        (`opt ?? "fallback"`) from being over-retained (design 131).
         """
         optional_val = self._generate_expression(expr.expr)
 
@@ -278,12 +268,12 @@ class OptionalsMixin:
         self.builder.position_at_start(some_bb)
         some_val = self.builder.extract_value(optional_val, 1, name="some_value")
         some_val = self._retain_read_payload(expr, some_val)
-        # design 195 rule 2: the payload's half of the merge. The DEFAULT was
-        # widened in the typechecker, which could wrap the expression it had; the
-        # payload is an `extractvalue` with no AST node to wrap, so it is extended
-        # here — by the PAYLOAD's own signedness, which is what preserves the
-        # value. Emitted in the some-block, before the branch, so it dominates the
-        # phi.
+        # The payload's half of the merge's widening. The default is widened in
+        # the typechecker, which can wrap the expression it has; the payload is
+        # an `extractvalue` with no AST node to wrap, so it is extended here,
+        # by the payload's own signedness, which is what preserves the value
+        # (design 195). Emitted in the some-block, before the branch, so it
+        # dominates the phi.
         merged = getattr(expr, 'resolved_type', None)
         if merged is not None and isinstance(some_val.type, ir.IntType):
             merged_llvm = self._get_llvm_type(merged)
@@ -298,8 +288,8 @@ class OptionalsMixin:
         # None branch - evaluate default
         self.builder.position_at_start(none_bb)
         none_val = self._gen_transfer_value(expr.default)
-        # design 228 leg 6: a DIVERGING default (`o ?? panic("gone")`,
-        # `o ?? fault(p)`) terminated this block with `unreachable`, so it takes
+        # A diverging default (`o ?? panic("gone")`, `o ?? fault(p)`)
+        # terminated this block with `unreachable`, so it takes
         # no edge to the merge and contributes no incoming to the phi. A phi
         # with the single some-arm incoming is exactly right: that arm is the
         # only way control reaches the merge.
@@ -387,18 +377,18 @@ class OptionalsMixin:
         return phi
 
     # ==================================================================== #
-    # Design 111 — full optional chaining.
+    # Full optional chaining (design 111).
     #
     # An OptionalEvalExpr wraps the maximal postfix run; each `?.` hop is a
     # BindOptional marking an unwrap-or-short-circuit. Codegen flattens the spine
     # into a segment list and lowers it as a linear address-based walk: every
     # optional hop tests `is_some` in place and, on None, jumps to a shared
-    # none-block (skipping the REST of the chain, including method arguments).
-    # Intermediate payloads are borrowed IN PLACE (a pointer into the optional's
-    # payload) — never copied, never consumed. Owned mid-chain temporaries (an
+    # none-block (skipping the rest of the chain, including method arguments).
+    # Intermediate payloads are borrowed in place (a pointer into the optional's
+    # payload), never copied, never consumed. Owned mid-chain temporaries (an
     # rvalue head, a non-final method result) are spilled to slots and dropped
-    # EXACTLY ONCE on every path: each short-circuit block drops the temps created
-    # before it; the some-completion drops them all.
+    # exactly once on every path: each short-circuit block drops the temps
+    # created before it; the some-completion drops them all.
     # ==================================================================== #
     _I32_0 = None  # (documented) — helpers below build i32 constants inline.
 
@@ -434,7 +424,7 @@ class OptionalsMixin:
         """A chain head that already denotes real storage — borrowed in place, not
         spilled/consumed. Everything else (a call/constructor result) is an owned
         rvalue the chain spills and drops. A tuple projection is storage on the
-        same terms a struct field is (DF-151j)."""
+        same terms a struct field is."""
         return isinstance(
             head, (Identifier, MemberAccess, ArrayIndex, SelfExpr, TupleIndex))
 
@@ -584,11 +574,10 @@ class OptionalsMixin:
         in place iff every optional hop is non-None; skip the RHS entirely on
         short-circuit. Yields `Void?` — Some(unit) written, None skipped.
 
-        `expr.op` is the COMPOUND spelling `x?.y += v` (design 227 unit 4): the
-        field is loaded, the operator applied and the result stored back, all on
-        the all-some path — so the None path still evaluates no RHS and stores
-        nothing. Nothing is dropped or retained there: a compound target is a
-        number."""
+        `expr.op` is the compound spelling `x?.y += v`: the field is loaded,
+        the operator applied and the result stored back, all on the all-some
+        path, so the None path still evaluates no RHS and stores nothing.
+        Nothing is dropped or retained there: a compound target is a number."""
         target = expr.target
         head, segments = self._flatten_optional_chain(target.expr)
         result_llvm = ir.LiteralStructType([ir.IntType(1), ir.IntType(8)])
@@ -612,7 +601,7 @@ class OptionalsMixin:
                     field_saw = self._substitute_saw_type(field_saw, self.type_param_context)
                 chain_op = getattr(expr, 'op', None)
                 if chain_op is not None:
-                    # Read-modify-write, RHS generated HERE (all-some path only).
+                    # Read-modify-write, RHS generated here (all-some path only).
                     current = self.builder.load(field_ptr, name="chainw_cur")
                     rhs = self._generate_expression(expr.value)
                     self.builder.store(
@@ -620,7 +609,7 @@ class OptionalsMixin:
                                                 self._int_is_signed(node)),
                         field_ptr)
                     continue
-                # RHS is generated HERE, on the all-some path only.  A
+                # RHS is generated here, on the all-some path only.  A
                 # memberwise struct literal uses the same staging destination
                 # as ordinary replacement assignment: all reads/effects finish
                 # before the live field is dropped.
@@ -630,14 +619,9 @@ class OptionalsMixin:
                     break
                 if field_saw is not None and self._needs_cleanup(field_saw):
                     self._emit_drop_at(field_ptr, field_saw)
-                # The RHS is a TRANSFER into the payload field, so the retain is
-                # the shared oracle's decision (SL-275). Asked inline as "is the
-                # RHS a bare Identifier?" this site retained `x?.y = s` and
-                # aliased `x?.y = h.s` / `x?.y = t.0` / `x?.y = arr[i]`: the old
-                # field value is released just above, the new one was stored
-                # without a retain, and the net effect on an `Arc` source was one
-                # reference lost per assignment, ending in `over-release of an
-                # Arc (refcount underflow)` at teardown.
+                # The RHS is a transfer into the payload field, so the retain is
+                # the shared oracle's decision: a projection source (`x?.y =
+                # h.s`) must retain, since the source keeps its own reference.
                 if field_saw is not None and self._transfer_site_needs_copy(expr.value):
                     value = self._generate_copy_for_dest(value, field_saw)
                 self._store_assigned_value(

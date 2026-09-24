@@ -35,18 +35,18 @@ class StatementsMixin:
     def _generate_statement(self, stmt: Statement):
         """Generate code for a statement.
 
-        Each full statement gets its own statement-scoped temporary list (item
-        4): owned Deinit-needing values produced mid-statement that no binding
+        Each full statement gets its own statement-scoped temporary list:
+        owned Deinit-needing values produced mid-statement that no binding
         takes ownership of (a method-call receiver, a discarded call result) are
         registered here and released LIFO once the statement finishes. Loops
         manage their own per-iteration scopes, so they keep the outer context.
         """
-        # design 69: point the DWARF line table at this statement's source line
-        # before lowering it (a line-0 synthesized node inherits the prior line).
+        # Point the DWARF line table at this statement's source line before
+        # lowering it (a line-0 synthesized node inherits the prior line).
         self._di_set_line(stmt.line, stmt.column)
 
-        # design 192 unit 2: the breadcrumb — the statement half of the pair
-        # sawc.py's catch-all reads to anchor an internal compiler error. See
+        # The breadcrumb: the statement half of the pair sawc.py's catch-all
+        # reads to anchor an internal compiler error. See
         # `CodeGenerator._generate_expression` and `sawc._ice_location`.
         old_node = getattr(self, '_current_node', None)
         self._current_node = stmt
@@ -80,16 +80,16 @@ class StatementsMixin:
                     self._emit_drop_at(slot, saw_type)
         finally:
             self.statement_temps = saved_temps
-        # Restored only on the SUCCESS path, deliberately: an exception on the
-        # way through leaves the INNERMOST node that was being lowered stamped,
+        # Restored only on the success path, deliberately: an exception on the
+        # way through leaves the innermost node that was being lowered stamped,
         # which is the one the report wants to name.
         self._current_node = old_node
 
     # ===== Statement Visitor Methods =====
 
     def visit_StaticAssert(self, stmt):
-        """Design 53: a statement-position `static_assert` — evaluated at compile
-        time, emits no code (a false result is a clean compile error)."""
+        """A statement-position `static_assert`: evaluated at compile time,
+        emits no code (a false result is a clean compile error)."""
         self._eval_static_assert(stmt)
 
     def visit_LetStatement(self, stmt: LetStatement):
@@ -104,15 +104,9 @@ class StatementsMixin:
         Evaluate the source once and bind each component. Whether the source
         stays live — and therefore whether each owning component is retained via
         `_generate_copy` — is the shared transfer oracle's answer; a `move`
-        source (or a fresh tuple) transfers without a retain.
-
-        SL-275: the question used to be asked inline as "is the source a bare
-        Identifier?", which agreed with the checker on `let (a, b) = pair` and
-        disagreed on every PROJECTION source. `let (a, b) = h.pair` bound both
-        components as bitwise aliases of storage `h` still owned, so the
-        bindings' scope-exit releases ran against the container's references and
-        the program aborted with `over-release of a String reference (refcount
-        underflow)`."""
+        source (or a fresh tuple) transfers without a retain, while a
+        projection source (`let (a, b) = h.pair`) retains, since `h` still owns
+        that storage."""
         value = self._generate_expression(stmt.value)
         is_copy_source = self._transfer_site_needs_copy(stmt.value)
         src_type = self._expr_type(stmt.value)
@@ -120,33 +114,20 @@ class StatementsMixin:
                                stmt.mutable, is_copy_source)
 
     def _pattern_binding_names(self, pattern):
-        """All binding names a pattern introduces (skips `_`) — see
-        `ast_walk.pattern_binding_names`, the one definition of this walk. This
-        copy used to stop at `BindingPattern`/`TuplePattern`, so a variant
-        pattern nested in a tuple would have gone under-counted; the shared walk
-        descends it."""
+        """All binding names a pattern introduces (skips `_`); see
+        `ast_walk.pattern_binding_names`, the one definition of this walk."""
         return pattern_binding_names(pattern)
 
     def _destructure_bind(self, pattern, value, saw_type, mutable, copy):
         """Bind an irrefutable tuple pattern's leaves (design 63 T1d).
 
-        TWO PASSES, because the leaves answer to two different orders. Named
-        leaves are BOUND in declaration order, which is what makes the cleanup
-        scope release them in REVERSE — design 128's rule for every structural
-        teardown, and the oracle `let (x, y, z) = …` has always met. A `_` leaf
-        names no binding to register, so its component is dropped inline here
-        instead, and those drops run in reverse declaration order TOO (DF-218y,
-        ruled Aug 22: discard order is reverse-declaration everywhere).
-
-        The discards are therefore COLLECTED by the walk and flushed by this
-        entry point, since a forward emission cannot spell a reverse order. So a
-        destructure binds what is named, then releases what is discarded — the
-        second half innermost-last, exactly as a scope exit does. It walked
-        forward until the ruling, alongside the match lowering's own inline
-        discard loop; unlike that one it was forward on BOTH twins (the
-        transform does not rewrite a destructure's leaves), so this position
-        changed the sync and driven halves together and introduced no
-        divergence.
+        Two passes, because the leaves answer to two different orders. Named
+        leaves are bound in declaration order, which makes the cleanup scope
+        release them in reverse (design 128's rule for every structural
+        teardown). A `_` leaf names no binding to register, so its component
+        is dropped here instead, and discard order is reverse-declaration too.
+        The walk collects the discards and this entry point flushes them in
+        reverse, since a forward emission cannot spell a reverse order.
         """
         discards = []
         self._destructure_walk(pattern, value, saw_type, mutable, copy, discards)
@@ -161,24 +142,15 @@ class StatementsMixin:
         declaration order, for the caller to drop in reverse."""
         if isinstance(pattern, WildcardPattern):
             # Per-position `_`: the component is dropped by the caller's flush,
-            # so the discard consumes exactly once — but ONLY when the source
+            # so the discard consumes exactly once, but only when the source
             # handed its ownership over.
             #
             # `copy` is the same source-ownership answer the named arm below
-            # reads, and it has to be read here too: a COPIED source (a
-            # projection, whose container keeps owning it) hands over nothing,
-            # so there is no reference for this position to consume. Dropping
-            # the raw projected component there releases a reference the
-            # destructure never acquired — `let (kept, _) = p.t` walked an
-            # `Arc` down 3 -> 2 -> 1 on successive calls and then read 7 out of
-            # freed storage, with the container still live.
-            #
-            # The neighbouring lowering already had this rule and this walk did
-            # not: `if let _ = opt` asks `_optional_source_hands_over` before it
-            # drops (`conditionals.py`), which is the same question under
-            # another name. A copied source therefore acquires nothing and
-            # releases nothing here; a fresh or `move`d one still drops exactly
-            # once.
+            # reads: a copied source (a projection, whose container keeps
+            # owning it) hands over nothing, so dropping the component would
+            # release a reference the destructure never acquired. `if let _ =
+            # opt` asks the same question through `_optional_source_hands_over`
+            # (conditionals.py). A fresh or `move`d source drops exactly once.
             if (not copy) and saw_type is not None and self._needs_cleanup(saw_type):
                 discards.append((value, saw_type))
             return
@@ -203,31 +175,24 @@ class StatementsMixin:
                                        discards)
 
     def _generate_discard_let(self, stmt: LetStatement):
-        """Design 53 / DF1: `let _ = expr` evaluates the RHS, takes ownership,
-        and drops it at the end of THIS statement (immediately, like an unused
-        temporary) — no binding is created. A Copy lvalue is copied so
-        the source is untouched and the COPY is what gets released."""
+        """`let _ = expr` evaluates the RHS, takes ownership, and drops it at
+        the end of this statement (like an unused temporary); no binding is
+        created. A Copy lvalue is copied so the source is untouched and the
+        copy is what gets released."""
         value = self._generate_expression(stmt.value)
         var_type = (self._resolve_type_alias(stmt.type_annotation)
                     if stmt.type_annotation else self._expr_type(stmt.value))
-        # A discard has no destination SLOT — nothing is stored, so nothing
-        # wraps — while the annotation may still be opt-encoded (`let _:
-        # String? = s`). Reconcile it with the value in hand ONCE, up front:
+        # A discard has no destination slot (nothing is stored, so nothing
+        # wraps), while the annotation may still be opt-encoded (`let _:
+        # String? = s`). Reconcile it with the value in hand once, up front:
         # both the retain below and the drop registered after it are glue over
-        # this same value, so both must be driven by the same type (DF-151c).
+        # this same value, so both must be driven by the same type.
         var_type = self._transfer_type_for(value, var_type)
-        # A discard is a TRANSFER into a home that dies at the end of this
+        # A discard is a transfer into a home that dies at the end of this
         # statement, so it takes the same copy decision as every other transfer
-        # site — `_transfer_site_needs_copy`, the shared oracle.
-        #
-        # SL-275: this used to ask only "is the RHS a bare Identifier?". That
-        # retained a whole-binding read (`let _ = s`) and bitwise-aliased every
-        # PROJECTION — `let _ = h.s`, `let _ = t.0`, `let _ = arr[i]` — so the
-        # drop registered below released storage the SOURCE still owned, and the
-        # source then read empty (`let _ = h.s` printed nothing and SEGFAULTED).
-        # The oracle answers the Identifier row identically at every owning tier
-        # (probed: String, Arc, an automatic-Copy struct, `String?`, an owning
-        # tuple), so nothing about the row that worked changed.
+        # site: `_transfer_site_needs_copy`, the shared oracle. A projection
+        # (`let _ = h.s`) must retain, or the drop below releases storage the
+        # source still owns.
         if var_type and self._transfer_site_needs_copy(stmt.value):
             value = self._generate_copy(value, var_type)
         if (var_type and self._needs_cleanup(var_type)
@@ -260,12 +225,12 @@ class StatementsMixin:
         # must be released at statement end too. Register it LAST so it drops
         # FIRST (LIFO), before any receiver temporaries it was built from.
         #
-        # A statement-position `if` / `match` is CONTROL FLOW rather than a
+        # A statement-position `if` / `match` is control flow rather than a
         # value: the typechecker deliberately leaves it unannotated and
-        # `need_result=False` means codegen built nothing either. Since SL-213
-        # read the producer taxonomy here those nodes answer BRANCHES like any
-        # other, so the value question is asked first — `_expr_type` fails loud
-        # on an unannotated node, which is right everywhere it IS a value.
+        # `need_result=False` means codegen built nothing either. The producer
+        # taxonomy answers BRANCHES for those nodes like any other, so the
+        # value question is asked first; `_expr_type` fails loud on an
+        # unannotated node, which is right everywhere it is a value.
         if (value is not None
                 and getattr(stmt.expression, 'resolved_type', None) is not None
                 and self._is_owned_temporary(stmt.expression)
@@ -321,13 +286,10 @@ class StatementsMixin:
         value = self._generate_memory_destination_rhs(
             stmt.value, name=f"{stmt.name}.init")
 
-        # The initializer DIVERGED (`let x = panic("...")`, and since design 177
-        # `let x = while { }`): it produced no value and terminated the block
-        # with `unreachable`. There is nothing to bind and nowhere to bind it —
-        # appending the store would put instructions after a terminator, which
-        # is invalid IR. Before this guard the None crashed the pass with
-        # "'NoneType' object has no attribute 'type'" reported as an internal
-        # compiler error.
+        # The initializer diverged (`let x = panic("...")`, `let x = while { }`):
+        # it produced no value and terminated the block with `unreachable`.
+        # There is nothing to bind and nowhere to bind it; appending the store
+        # would put instructions after a terminator, which is invalid IR.
         if value is None and self.builder.block.is_terminated:
             return
 
@@ -337,29 +299,19 @@ class StatementsMixin:
         # Determine the variable type early for copy behavior. A written
         # annotation may omit trailing default type args (`Map<Int, R>`) or tag an
         # enum as STRUCT; canonicalize so the binding's kind/identity match the
-        # monomorphized type — otherwise its deinit/cleanup lookup misses (design
-        # 61): the element/buffer would leak at scope end.
+        # monomorphized type; otherwise its deinit/cleanup lookup misses and the
+        # element/buffer leaks at scope end.
         if resolved_annotation is not None:
             var_type = self._canonicalize_type_kind(resolved_annotation)
         else:
             var_type = self._expr_type(stmt.value)
 
-        # A `let` initializer is a TRANSFER into a new home, so it takes the same
-        # copy decision as every other transfer site — `_transfer_needs_copy`, the
+        # A `let` initializer is a transfer into a new home, so it takes the same
+        # copy decision as every other transfer site: `_transfer_needs_copy`, the
         # oracle that reads the typechecker's `needs_copy` mark and re-derives the
-        # projection rules codegen owns.
-        #
-        # DF-139a: this used to ask only "is the initializer a bare Identifier?".
-        # That retained a whole-binding read (`let c = s`) but bitwise-aliased
-        # every PROJECTION — `let c = h.s`, `let c = t.0`, `let c = arr[i]` — even
-        # though the typechecker had marked the retain and every OTHER transfer
-        # site (call argument, return, aggregate element) honored it. The source
-        # still owned that storage, so overwriting it (`h.s = build(2)`) released
-        # the value out from under the live copy, and the copy's own scope-exit
-        # drop then freed it a second time.
-        #
-        # A `move` initializer transfers ownership and is not in the oracle's
-        # aliasing set, so it still copies nothing.
+        # projection rules codegen owns. A projection (`let c = h.s`) retains,
+        # since the source still owns that storage; a `move` initializer
+        # transfers ownership and copies nothing.
         if var_type and self._transfer_site_needs_copy(stmt.value):
             value = self._generate_copy(value, var_type)
 
@@ -370,19 +322,13 @@ class StatementsMixin:
                                    isinstance(value.type.elements[0], ir.IntType) and
                                    value.type.elements[0].width == 1)
 
-            # A `None` LITERAL generated at the i64 placeholder payload, retagged
-            # into the slot's own optional type. There is no payload to carry —
-            # `None` is the flag and an undef — so rebuilding from the flag alone
-            # is exactly right HERE and nowhere else.
-            #
-            # DF-174g: it used to be a shape test with no reference to the AST,
-            # and a genuine `Int?` value bound for an `Int??` slot answers that
-            # test the same way a placeholder does — payload i64, target
-            # something else. So `let a: Optional<Int?> = 5` was rebuilt from its
-            # inner TAG with the payload dropped: the outer layer read present
-            # and the inner was garbage, so the first peel worked and the second
-            # crashed. Asking the value whether it IS a `None` literal is the
-            # question the shape test was trying to guess at.
+            # A `None` literal generated at the i64 placeholder payload, retagged
+            # into the slot's own optional type. There is no payload to carry
+            # (`None` is the flag and an undef), so rebuilding from the flag
+            # alone is right here and nowhere else. The test asks the AST, not
+            # the shape: a genuine `Int?` value bound for an `Int??` slot has
+            # the same shape as the placeholder, and rebuilding it would drop
+            # its payload.
             if is_already_optional and isinstance(stmt.value, NoneLiteral):
                 current_inner_type = value.type.elements[1]
                 target_inner_type = self._get_llvm_type(resolved_annotation.inner_type)
@@ -405,28 +351,24 @@ class StatementsMixin:
 
                     value = new_optional
 
-            # DF-174g: and then FIT it, which the `let` path never did. The
-            # typechecker inserts one `OptionalWrap` however deep the slot is, so
-            # a value two layers below its annotation arrived one layer short and
-            # the alloca took the value's type rather than the slot's. The fit
-            # wraps as many layers as the annotation asks for.
+            # Then fit it. The typechecker inserts one `OptionalWrap` however
+            # deep the slot is, so a value two layers below its annotation
+            # arrives one layer short; the fit wraps as many layers as the
+            # annotation asks for, so the alloca takes the slot's type.
             value = self._fit_optional_slot(
                 value, self._get_llvm_type(resolved_annotation))
 
-        # Rider (design 77 item 8 follow-up): NARROW a fixed-width integer LOCAL
-        # to its annotated storage width. A bare-literal RHS (`let a: Int32 = 5`)
-        # is generated at PLATFORM width (i64); without this the binding allocas
-        # i64, so a later `-a` / overflow check runs at the wrong width and a
-        # wire-format struct store reads too many bytes. The typechecker already
-        # range-checked the literal against the annotation (design 65), so the
-        # truncation is value-preserving. Suffixed/cast RHS values already carry
-        # the right width (no-op here). Only same-family integer annotations are
-        # coerced.
+        # Narrow a fixed-width integer local to its annotated storage width. A
+        # bare-literal RHS (`let a: Int32 = 5`) is generated at platform width
+        # (i64); without this the binding allocas i64, so a later `-a` /
+        # overflow check runs at the wrong width and a wire-format struct store
+        # reads too many bytes. The typechecker already range-checked the
+        # literal against the annotation, so the truncation is
+        # value-preserving. Suffixed/cast RHS values already carry the right
+        # width (no-op here). Only integer annotations are coerced.
         #
-        # A WIDEN goes through the design-195 funnel, by the SOURCE's signedness:
-        # this arm used to read the TARGET's, so `let wide: Int = someUInt32`
-        # sign-extended and every unsigned value with its high bit set came back
-        # negative (DF-195a).
+        # A widen goes through `_widen_int_value`, by the source's signedness,
+        # so `let wide: Int = someUInt32` zero-extends (design 195).
         _signed_ints = {TypeKind.INT, TypeKind.INT8, TypeKind.INT16,
                         TypeKind.INT32, TypeKind.INT64}
         _unsigned_ints = {TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16,
@@ -444,33 +386,28 @@ class StatementsMixin:
                         value, target_llvm,
                         getattr(stmt.value, 'resolved_type', None))
 
-        # Design 107: a DERIVED same-scope redefinition REPLACES the old binding.
-        # The initializer above already consumed (`move`) or copied the old
-        # value; drop the old binding now if it still owns one (a `.copy()`
+        # A derived same-scope redefinition replaces the old binding (design
+        # 107). The initializer above already consumed (`move`) or copied the
+        # old value; drop the old binding now if it still owns one (a `.copy()`
         # derivation), retiring its scope-exit cleanup so it never double-frees.
         #
         # `coro_redefines` is the coroutine transform's answer for a body it
-        # alpha-renamed (DF-151a gives every binding a name unique within the
-        # body, so the two halves of a redefinition no longer share one). This
-        # match is by NAME, so a renamed pair read as two unrelated locals and
-        # the replaced value survived to the scope's end — visible in a
-        # non-suspending SPAWN root, whose body the transform renames and whose
-        # locals codegen still owns.
+        # alpha-renamed: every binding there has a name unique within the body,
+        # so the two halves of a redefinition do not share one, and this match
+        # is by name.
         self._drop_redefined_same_scope(
             getattr(stmt, 'coro_redefines', None) or stmt.name)
 
-        # A local at `Void` has no storage to name (design 132 unit C / DF-123b).
-        # The typechecker already rejects a CONCRETE `let n = <Void expr>`
-        # (design 122), but a local typed by the method's own type parameter is
-        # checked abstractly and only becomes Void at an instantiation — which is
-        # the natural body of `Mutex.lock<R>`, where a critical section that
-        # computes nothing is the common case. That reached `alloca(void)` and
-        # tripped an llvmlite assertion, surfacing as an `internal compiler
-        # error:` with an EMPTY message. There is nothing to store and nothing to
-        # clean up, so record the name as void-valued and read it back as Void.
+        # A local at `Void` has no storage to name. The typechecker rejects a
+        # concrete `let n = <Void expr>`, but a local typed by the method's own
+        # type parameter is checked abstractly and only becomes Void at an
+        # instantiation (the natural body of `Mutex.lock<R>`, where a critical
+        # section that computes nothing is the common case). `alloca(void)` is
+        # invalid, and there is nothing to store and nothing to clean up, so
+        # record the name as void-valued and read it back as Void (design 132).
         if isinstance(value.type, ir.VoidType):
-            # DF-300b: a Void binding has no storage, so an alignment request
-            # on it could only be dropped. Refuse instead of dropping.
+            # A Void binding has no storage, so an alignment request on it
+            # could only be dropped. Refuse instead of dropping.
             if requested_align(stmt) is not None:
                 from .core import CodegenUserError
                 raise CodegenUserError(
@@ -482,14 +419,14 @@ class StatementsMixin:
             self.variables.pop(stmt.name, None)
             return
 
-        # DF-300b: `@align(N)` on this local, already folded and validated by
-        # the typechecker's align funnel. `_entry_alloca` takes the MAXIMUM of
-        # the request and the type's own ABI alignment, so an `@align` can
-        # only ever strengthen a slot, never weaken one.
+        # `@align(N)` on this local, already folded and validated by the
+        # typechecker's align funnel. `_entry_alloca` takes the maximum of the
+        # request and the type's own ABI alignment, so an `@align` can only
+        # ever strengthen a slot, never weaken one.
         alloca = self._entry_alloca(value.type, name=stmt.name,
                                     align=requested_align(stmt))
-        # design 261 U2: `let b = a` on an aggregate is a COPY, and one
-        # `llvm.memcpy` is what it should be rather than a field walk.
+        # `let b = a` on an aggregate is a copy, and one `llvm.memcpy` is what
+        # it should be rather than a field walk (design 261).
         self._store_materialized_or_transfer(
             value, alloca, final_use=True)
         self.variables[stmt.name] = alloca
@@ -505,20 +442,20 @@ class StatementsMixin:
                 self._register_cleanup(stmt.name, var_type)
 
     def _transfer_site_needs_copy(self, value_expr) -> bool:
-        """Whether a `let` initializer or an ASSIGNMENT RHS must retain the value
-        it reads (DF-139a, extended to assignments by DF-151h).
+        """Whether a transfer into a binding or slot (a `let` initializer, an
+        assignment RHS, a destructure, a discard, a struct-literal field, a
+        collection `for` head) must retain the value it reads.
 
-        The answer is the shared transfer oracle's, with ONE carve-out: indexing
-        a RAW POINTER. `self.buffer[i]` inside `Vector`/`Map` is the unsafe
-        domain's manual bookkeeping, not a read out of storage the compiler
-        tracks ownership of, and std deliberately takes a bare alias there and
-        decides the retain at the SUBSEQUENT use — `Vector.get` retains when it
-        returns the element, while `Vector.swap_out` overwrites the slot and
-        `move`s the alias out, which must stay at exactly one reference. Making
-        the read itself retain left every `swap_out` result over-retained (a leak
-        the Map/Set refcount-balance oracles catch).
+        The answer is the shared transfer oracle's, with one carve-out:
+        indexing a raw pointer. `self.buffer[i]` inside `Vector`/`Map` is the
+        unsafe domain's manual bookkeeping, not a read out of storage the
+        compiler tracks ownership of; std takes a bare alias there and decides
+        the retain at the subsequent use (`Vector.get` retains when it returns
+        the element, while `Vector.swap_out` `move`s the alias out, which must
+        stay at exactly one reference). Retaining at the read would over-retain
+        every `swap_out` result.
 
-        A fixed array (`[T; N]`) index is NOT this case: it is ordinary safe
+        A fixed array (`[T; N]`) index is not this case: it is ordinary safe
         storage the source keeps owning, so it retains like a field.
         """
         if isinstance(value_expr, ArrayIndex):
@@ -539,8 +476,8 @@ class StatementsMixin:
         It fails *loud*, never silent: an unannotated expression is a compiler
         bug (the typechecker must annotate every expression it checks, and
         codegen-synthesized nodes must set ``resolved_type`` at creation). A
-        silent ``None`` here is exactly what previously disabled cleanup
-        registration and copy insertion and leaked resources.
+        silent ``None`` here would disable cleanup registration and copy
+        insertion and leak resources.
         """
         resolved = expr.resolved_type
         if resolved is None:
@@ -579,10 +516,10 @@ class StatementsMixin:
             if var_type is None:
                 var_type = stmt.target.resolved_type
 
-            # Design 110: whole-referent replacement through a `&var` reference
-            # parameter. The variable holds a POINTER to the caller's value; load
-            # it, deinit the old value at that address, then store the new one —
-            # the through-ref counterpart of the plain-variable path below.
+            # Whole-referent replacement through a `&var` reference parameter
+            # (design 110). The variable holds a pointer to the caller's value;
+            # load it, deinit the old value at that address, then store the new
+            # one: the through-ref counterpart of the plain-variable path below.
             if var_type is not None and var_type.kind == TypeKind.REFERENCE:
                 referent_ptr = self.builder.load(
                     self.variables[stmt.target.name],
@@ -599,15 +536,11 @@ class StatementsMixin:
                 if self._needs_cleanup(var_type) and not is_static_target:
                     self._generate_deinit_call(stmt.target.name, var_type)
 
-                # An assignment RHS is a TRANSFER into a new home and takes the
-                # same copy decision every other transfer site takes (DF-151h).
-                # It used to ask only "is the RHS a bare Identifier?" — the very
-                # question DF-139a had already retired at the `let` path one
-                # statement kind over — so `a = h.r` / `a = t.0` / `a = arr[i]`
-                # bitwise-aliased a value the source keeps owning, and both
-                # halves then released it.
+                # An assignment RHS is a transfer into a new home and takes the
+                # same copy decision every other transfer site takes; a
+                # projection (`a = h.r`) reads a value the source keeps owning.
                 if self._frame_owning_read_copy(stmt.value):
-                    # design 124: see the field-assignment path below.
+                    # A frame-field read; see the field-assignment path below.
                     value = self._generate_copy(value, self._expr_type(stmt.value))
                 elif isinstance(stmt.value, Identifier) or \
                         self._transfer_site_needs_copy(stmt.value):
@@ -616,20 +549,20 @@ class StatementsMixin:
             # The integer-width and optional-layer fits, then the store — the
             # same funnel every other assignment target kind ends at.
             self._store_assigned_value(value, target_ptr, stmt.value)
-            # DF-146h: re-arm the drop flag of a moved-from local. A static
-            # target has no drop flag (statics are immortal).
+            # Re-arm the drop flag of a moved-from local. A static target has
+            # no drop flag (statics are immortal).
             if not is_static_target:
                 self._revive_assigned_binding(stmt.target.name, var_type)
 
         elif (isinstance(stmt.target, MemberAccess)
                 and self._static_global(stmt.target) is not None):
-            # DF-232d: `mod.NAME = v` — the module-qualified spelling of the
-            # static write the Identifier arm above handles. Same storage (the
-            # static's global), same rules: a static is immortal and design 149
-            # admits only trivially-destructible types, so there is no old value
-            # to deinit and no drop flag to re-arm. Split out ahead of the field
-            # arm below, which would resolve the target's OBJECT as a value and
-            # find the qualifier names none.
+            # `mod.NAME = v`: the module-qualified spelling of the static write
+            # the Identifier arm above handles. Same storage (the static's
+            # global), same rules: a static is immortal and admits only
+            # trivially-destructible types, so there is no old value to deinit
+            # and no drop flag to re-arm (design 149). Split out ahead of the
+            # field arm below, which would resolve the target's object as a
+            # value and find the qualifier names none.
             target_ptr = self._static_global(stmt.target)
             var_type = stmt.target.resolved_type
             if var_type is not None:
@@ -643,8 +576,8 @@ class StatementsMixin:
 
         elif (isinstance(stmt.target, MemberAccess)
                 and getattr(stmt.target, 'tuple_field_index', None) is not None):
-            # NAMED-TUPLE element write `pair.x = fresh` (DF-151j): the label is
-            # a position, so this is the tuple-slot store below under its other
+            # Named-tuple element write `pair.x = fresh`: the label is a
+            # position, so this is the tuple-slot store below under its other
             # spelling. Split out ahead of the field path because a tuple has no
             # `struct_types` entry to look its layout up in.
             idx = stmt.target.tuple_field_index
@@ -653,7 +586,7 @@ class StatementsMixin:
                 self._tuple_element_saw_type(stmt.target.object, idx))
 
         elif isinstance(stmt.target, TupleIndex):
-            # WHOLE-ELEMENT TUPLE WRITE `t.0 = fresh` (DF-151j).
+            # Whole-element tuple write `t.0 = fresh`.
             self._store_into_tuple_slot(
                 stmt, value, self._get_tuple_element_pointer(stmt.target),
                 self._tuple_element_saw_type(stmt.target.tuple_expr,
@@ -661,11 +594,11 @@ class StatementsMixin:
 
         elif isinstance(stmt.target, MemberAccess):
             # Field assignment: obj.field = value
-            # Resolve a pointer to the object's REAL storage (variable, self,
+            # Resolve a pointer to the object's real storage (variable, self,
             # nested field, or array/pointer element). _get_lvalue_pointer
             # recurses and unwraps references, so an array-element base
             # (`a[i].field = x`) GEPs into the live array rather than a
-            # throwaway copy (design 39 item 1).
+            # throwaway copy.
             obj_expr = stmt.target.object
             struct_ptr = self._get_lvalue_pointer(obj_expr)
 
@@ -701,16 +634,14 @@ class StatementsMixin:
                 ir.Constant(ir.IntType(32), field_index)
             ], name=f"{stmt.target.member}_ptr")
 
-            # LIVE-SLOT RELEASE (design 39 item 2, extended to struct fields): a
-            # struct field always holds a live value — fields are fully
-            # initialized at construction and partial moves are forbidden
-            # (design 35) — so overwriting an owning field must run the old
-            # value's drop glue BEFORE the store, exactly as the variable- and
-            # array-element-assignment paths do. Without this, `self.field =
-            # move new` (e.g. Map._grow's `self.slots = move new_slots`) leaks
-            # the old field's backing buffer. The drop goes through the field's
-            # OWN concrete type, so a `Vector<..., A>` field frees via its
-            # allocator `A`, not a default.
+            # Live-slot release: a struct field always holds a live value
+            # (fields are fully initialized at construction and partial moves
+            # are forbidden), so overwriting an owning field must run the old
+            # value's drop glue before the store, exactly as the variable- and
+            # array-element-assignment paths do; otherwise `self.slots = move
+            # new_slots` leaks the old backing buffer. The drop goes through
+            # the field's own concrete type, so a `Vector<..., A>` field frees
+            # via its allocator `A`, not a default.
             field_saw = self._struct_field_saw_type(struct_name, stmt.target.member)
             if field_saw is not None and self._needs_cleanup(field_saw):
                 self._emit_drop_at(field_ptr, field_saw)
@@ -723,20 +654,20 @@ class StatementsMixin:
                          or self._transfer_site_needs_copy(stmt.value))):
                 value = self._generate_copy_for_dest(value, field_saw)
             elif self._frame_owning_read_copy(stmt.value):
-                # design 124: a coroutine frame reading one of its own owned
-                # locals (`self.name!`) into another field — `__result` at a
-                # `return loc`, a sub-frame's param slot — duplicates it: the
-                # source field keeps its drop flag and is released at the task's
-                # eager teardown. Copy against the VALUE's type, not the field's
-                # (the same rule `_generate_copy_for_dest` applies above).
+                # A coroutine frame reading one of its own owned locals
+                # (`self.name!`) into another field (`__result` at a `return
+                # loc`, a sub-frame's param slot) duplicates it: the source
+                # field keeps its drop flag and is released at the task's eager
+                # teardown. Copy against the value's type, not the field's (the
+                # same rule `_generate_copy_for_dest` applies above) (design 124).
                 value = self._generate_copy(value, self._expr_type(stmt.value))
 
             # Fit and store through the funnel: the integer width first (a
             # `w.b = 2` on a `UInt32` field is an i64 constant here), then the
-            # optional layers — `_fit_optional_slot` compares against the
-            # slot's PAYLOAD, so a struct-typed inner also wraps, e.g. an
+            # optional layers. `_fit_optional_slot` compares against the
+            # slot's payload, so a struct-typed inner also wraps, e.g. an
             # opt-encoded coroutine closure frame field `f: (()->Int)?` whose
-            # value is the 3-word closure struct (design 77 item 4).
+            # value is the 3-word closure struct.
             self._store_assigned_value(value, field_ptr, stmt.value)
 
         elif isinstance(stmt.target, ArrayIndex):
@@ -752,14 +683,14 @@ class StatementsMixin:
                 container_val = self.builder.load(container_ptr, name="container")
 
                 if isinstance(container_val.type, ir.ArrayType):
-                    # Dynamic bounds check (design 63 T1b) on `arr[i] = v`.
+                    # Dynamic bounds check on `arr[i] = v`.
                     self._emit_array_bounds_check(index_val, container_val.type.count, stmt.target.index)
                     # Array: GEP with two indices [0, index]
                     zero = ir.Constant(ir.IntType(64), 0)
                     elem_ptr = self.builder.gep(container_ptr, [zero, index_val], name="elem_ptr")
-                    # LIVE-SLOT RELEASE (design 39 item 2): a fixed-array element
-                    # slot always holds a live value, so overwriting it must run
-                    # the old value's drop glue BEFORE the store — exactly as the
+                    # Live-slot release: a fixed-array element slot always holds
+                    # a live value, so overwriting it must run the old value's
+                    # drop glue before the store, exactly as the
                     # Identifier-target path releases its prior value. (The
                     # PointerType branch below is the placement primitive and
                     # deliberately does NOT release: it fills uninitialized slots.)
@@ -779,12 +710,12 @@ class StatementsMixin:
                 elif isinstance(container_val.type, ir.PointerType):
                     # Pointer: GEP with single index.
                     #
-                    # PLACEMENT-MOVE PRIMITIVE (see LANGUAGE_SPEC "Placement
+                    # Placement-move primitive (see LANGUAGE_SPEC "Placement
                     # writes"): the store to `elem_ptr` below (`ptr[i] = value`)
                     # bitwise-moves `value` into the target slot. The source is
                     # consumed by the value-transfer checkpoint in the
-                    # typechecker, but — unlike the Identifier target above, which
-                    # calls _generate_deinit_call on the prior value first — this
+                    # typechecker, but, unlike the Identifier target above, which
+                    # calls _generate_deinit_call on the prior value first, this
                     # path performs NO destination release. It assumes the slot
                     # is uninitialized; using it on a slot that holds a live
                     # value leaks that value (its deinit never runs). This is the
@@ -798,14 +729,11 @@ class StatementsMixin:
                 container_saw = self._expr_type(container_expr)
                 if (container_saw is not None
                         and container_saw.kind == TypeKind.ARRAY):
-                    # A fixed-array FIELD or nested element (`self.data[i] = b`,
-                    # `outer.rows[i] = v`). This used to fall through to the
-                    # pointer branch below and raise an internal compiler error:
-                    # the container was evaluated as a VALUE, and an array value
-                    # is not a pointer to GEP through. Address the real storage
-                    # instead, exactly as the Identifier branch does — the same
-                    # bounds check, the same live-slot release, the same
-                    # Copy retain — so the write lands in the field
+                    # A fixed-array field or nested element (`self.data[i] = b`,
+                    # `outer.rows[i] = v`). An array value is not a pointer to
+                    # GEP through, so address the real storage, exactly as the
+                    # Identifier branch does (the same bounds check, live-slot
+                    # release and Copy retain), and the write lands in the field
                     # rather than in a copy of it.
                     container_ptr = self._get_lvalue_pointer(container_expr)
                     pointee = container_ptr.type.pointee
@@ -826,8 +754,8 @@ class StatementsMixin:
                             or self._transfer_site_needs_copy(stmt.value)):
                         value = self._generate_copy_for_dest(value, elem_saw)
                 else:
-                    # A non-identifier container (e.g. `self.field_ptr[i] = v`,
-                    # design 52b): evaluate it as a value; a pointer-typed one
+                    # A non-identifier container (e.g. `self.field_ptr[i] = v`):
+                    # evaluate it as a value; a pointer-typed one
                     # GEPs like the Identifier pointer branch (placement-move
                     # primitive, no release — the slot is caller-managed raw
                     # memory).
@@ -838,26 +766,21 @@ class StatementsMixin:
                     else:
                         raise ValueError(f"Unsupported container expression in assignment: {type(container_expr)}")
 
-            # Fit and store through the funnel. The WIDEN it does carries the
-            # assigned expression's own type, so it extends by the SOURCE's
-            # signedness: this arm used to `sext` unconditionally, and
-            # `slots[0] = u` for a `UInt32 u` holding 4000000000 stored
-            # -294967296 into an `[Int; 2]` (DF-195e). The optional wrap comes
-            # AFTER, which is why the copy above is driven by
-            # `_generate_copy_for_dest` (DF-151c: the value in hand is the
-            # payload). Missing until DF-151e, because no `[T?; N]` could be
-            # built to reach it: `b[0] = s` on a `[String?; 2]` stored a bare
-            # `i8*` into a `{i1, i8*}` slot.
+            # Fit and store through the funnel. The widen it does carries the
+            # assigned expression's own type, so it extends by the source's
+            # signedness (`slots[0] = u` for a `UInt32 u` zero-extends). The
+            # optional wrap comes after, which is why the copy above is driven
+            # by `_generate_copy_for_dest`: the value in hand is the payload.
             self._store_assigned_value(value, elem_ptr, stmt.value)
 
-            # Placement-MOVE bookkeeping (design 65): a pointer-target store
-            # (`ptr[i] = value`, Vector.push/set's primitive) bitwise-MOVES the
-            # source into the slot. If the source is an owned binding carrying a
-            # drop flag, clear it — the value now lives in the buffer and must NOT
-            # also drop at scope exit. This is the move a drop flag previously
-            # "could not observe"; observing it here is what makes registering
-            # owning by-value params of instance methods safe (they release when
-            # used-and-not-moved, and do not double-free when placement-moved).
+            # Placement-move bookkeeping: a pointer-target store (`ptr[i] =
+            # value`, Vector.push/set's primitive) bitwise-moves the source
+            # into the slot. If the source is an owned binding carrying a drop
+            # flag, clear it: the value now lives in the buffer and must not
+            # also drop at scope exit. Observing this move is what makes
+            # registering owning by-value params of instance methods safe (they
+            # release when used-and-not-moved, and do not double-free when
+            # placement-moved) (design 65).
             if (isinstance(stmt.target.array_expr, Identifier)
                     and isinstance(container_val.type, ir.PointerType)
                     and isinstance(stmt.value, Identifier)):
@@ -867,10 +790,10 @@ class StatementsMixin:
                 self.moved_variables.add(stmt.value.name)
 
         elif isinstance(stmt.target, SelfExpr):
-            # Design 110: `self = v` in a `&var self` method. `self` is bound to
-            # the caller's storage pointer directly (methods.py registers the
-            # mutable-self arg as the pointer itself), so it already IS the
-            # referent address — no reference load, unlike the Identifier path.
+            # `self = v` in a `&var self` method (design 110). `self` is bound
+            # to the caller's storage pointer directly (methods.py registers the
+            # mutable-self arg as the pointer itself), so it already is the
+            # referent address: no reference load, unlike the Identifier path.
             self_ptr = self.variables.get("self")
             if self_ptr is None:
                 raise ValueError("`self = v` outside a method")
@@ -881,34 +804,26 @@ class StatementsMixin:
             raise ValueError(f"Invalid assignment target: {type(stmt.target)}")
 
     def _store_assigned_value(self, value, slot_ptr, value_expr):
-        """THE store an assignment makes: fit the value to the slot, then store.
+        """The store an assignment makes: fit the value to the slot, then store.
 
         Two fits, in this order, at every assignment target kind:
+        - Integer width. A platform `Int` is assignable to and from any integer
+          type (`_types_compatible`), and a bare literal is a platform `Int`
+          until some slot tells it otherwise, so a well-typed program arrives
+          here with an i64 value for an i32 slot (`v = 4`, or `v = k` for a
+          plain `Int` k). Retype the constant, truncate, or widen by the
+          source's signedness (design 195).
+        - Optional layers. A bare `T` into a `T?` or `T??` slot wraps as many
+          times as the slot asks.
 
-        - INTEGER WIDTH. A platform `Int` is assignable to and from any integer
-          type by design (`_types_compatible`), and a bare literal is a
-          platform `Int` until some slot tells it otherwise — so a well-typed
-          program legitimately arrives here with an i64 value for an i32 slot,
-          both from `v = 4` (a literal that adopted `UInt32` in the checker but
-          is still built as a constant) and from `v = k` for a plain `Int` k
-          (which adopts nothing and never could). Retype the constant,
-          truncate, or widen by the SOURCE's signedness (design 195).
-        - OPTIONAL LAYERS. A bare `T` into a `T?` — or a `T??` — slot wraps as
-          many times as the slot asks (DF-174b/g).
-
-        ENTRY POINTS (DF-232a) — the five stores `_generate_assign_statement`
-        reaches:
-
-          the Identifier arm            a local, or an `unsafe static var`
-          the MemberAccess arm          a struct field
-          `_store_into_tuple_slot`      a tuple slot (`t.0`, `p.x`)
-          the ArrayIndex arm            an array or pointer element
-          `_store_replacement_through_ptr`   a `&var` referent, or `self`
-
-        Only the ARRAY arm coerced the width before DF-232a, which is why
-        `v = 4`, `w.b = 2`, `t.0 = 5` and `r = 11` (through `&var`) all died in
-        llvmlite's verifier with `cannot store i64 to i32*` — one missing fit,
-        reported four ways. A sixth store site is added by calling this.
+        Entry points (a new store site is added by calling this):
+          `_generate_assign_statement`'s Identifier arm -- a local, or an `unsafe static var`
+          its module-qualified static arm -- `mod.NAME = v`
+          its MemberAccess arm -- a struct field
+          its ArrayIndex arm -- an array or pointer element
+          `_store_into_tuple_slot` -- a tuple slot (`t.0`, `p.x`)
+          `_store_replacement_through_ptr` -- a `&var` referent, or `self`
+          `_generate_optional_chain_assign` (optionals.py) -- `x?.y = v`
         """
         if self._store_none_optional_tag(value_expr, slot_ptr):
             return
@@ -922,9 +837,9 @@ class StatementsMixin:
             value = self._coerce_int_llvm(
                 value, slot_type, getattr(value_expr, 'resolved_type', None))
         value = self._fit_optional_slot(value, slot_type)
-        # design 261 U2: this is the assignment funnel for all five target
-        # kinds, so routing it here puts every aggregate assignment on the
-        # memcpy without touching any of the arms.
+        # This is the assignment funnel for every target kind, so routing it
+        # here puts every aggregate assignment on the memcpy without touching
+        # any of the arms (design 261).
         self._store_materialized_or_transfer(
             value, slot_ptr, final_use=True)
 
@@ -941,15 +856,15 @@ class StatementsMixin:
         return elements[index]
 
     def _store_into_tuple_slot(self, stmt, value, elem_ptr, elem_saw):
-        """Store a whole-element tuple write into its slot (DF-151j).
+        """Store a whole-element tuple write into its slot.
 
         Mirrors the struct-field path step for step, because a tuple element is
-        the same kind of storage: the slot always holds a LIVE value (a tuple is
+        the same kind of storage: the slot always holds a live value (a tuple is
         fully initialized at construction and partial moves are forbidden), so
-        the overwritten element's drop glue runs BEFORE the store and it deinits
+        the overwritten element's drop glue runs before the store and it deinits
         exactly once; a Copy RHS that is an existing binding is
         retained; a coroutine frame reading one of its own owned locals
-        duplicates against the VALUE's type (design 124); a bare `T` into an
+        duplicates against the value's type (design 124); a bare `T` into an
         opt-encoded slot wraps last.
         """
         if elem_saw is not None and self._needs_cleanup(elem_saw):
@@ -965,15 +880,15 @@ class StatementsMixin:
 
     def _store_replacement_through_ptr(self, stmt, value, referent_ptr,
                                        referent_saw):
-        """Design 110 replacement-assignment store: release the old referent
+        """Replacement-assignment store (design 110): release the old referent
         value at `referent_ptr`, then install `value`. Mirrors the plain-variable
         and through-ref field-assignment paths (deinit old, Copy-retain a
         plain-binding RHS, optional-wrap, store); `referent_ptr` already points at
         the caller's real storage, so the write lands in the caller's slot."""
-        # A generic `&var T` param records the ABSTRACT `T` referent in
+        # A generic `&var T` param records the abstract `T` referent in
         # variable_types (params are stored unsubstituted); substitute the active
         # monomorphization so the drop glue and copy tier are the concrete
-        # instantiation's — an abstract `T` reads as non-owning and would LEAK the
+        # instantiation's. An abstract `T` reads as non-owning and would leak the
         # replaced value (its deinit never runs).
         if referent_saw is not None:
             referent_saw = self._substitute_saw_type(
@@ -1028,11 +943,10 @@ class StatementsMixin:
                 self.builder.store(new_val, target_ptr)
 
         elif isinstance(stmt.target, MemberAccess):
-            # Field compound assignment: obj.field += value — through the
-            # lvalue funnel rather than straight to `_get_member_pointer`, so a
+            # Field compound assignment: obj.field += value, through the lvalue
+            # funnel rather than straight to `_get_member_pointer`, so a
             # module-qualified static (`mod.N += v`) gets the same address every
-            # other write shape gets (DF-232d). Everything else routes on to
-            # `_get_member_pointer` exactly as before.
+            # other write shape gets.
             field_ptr = self._get_lvalue_pointer(stmt.target)
             current_val = self.builder.load(field_ptr, name="field_val")
             rhs = self._generate_expression(stmt.value)
@@ -1040,8 +954,8 @@ class StatementsMixin:
             self.builder.store(new_val, field_ptr)
 
         elif isinstance(stmt.target, TupleIndex):
-            # Tuple element compound assignment `t.0 += value` (DF-151j) — the
-            # element slot, loaded and stored back through the same address.
+            # Tuple element compound assignment `t.0 += value`: the element
+            # slot, loaded and stored back through the same address.
             elem_ptr = self._get_tuple_element_pointer(stmt.target)
             current_val = self.builder.load(elem_ptr, name="tuple_elem_val")
             rhs = self._generate_expression(stmt.value)
@@ -1060,7 +974,7 @@ class StatementsMixin:
                 container_val = self.builder.load(container_ptr, name="container")
 
                 if isinstance(container_val.type, ir.ArrayType):
-                    # Dynamic bounds check (design 63 T1b) on `arr[i] += v`.
+                    # Dynamic bounds check on `arr[i] += v`.
                     self._emit_array_bounds_check(index_val, container_val.type.count, stmt.target.index)
                     # Array: GEP with two indices [0, index]
                     zero = ir.Constant(ir.IntType(64), 0)
@@ -1071,21 +985,17 @@ class StatementsMixin:
                 else:
                     raise ValueError(f"Cannot index into type: {container_val.type}")
             else:
-                # DF-188e: a NON-IDENTIFIER container, which the plain assignment
-                # path has handled for a long while and this one simply had no
-                # case for — so `n += 1` on a `&var Int` param AFTER a suspension
-                # died with "Unsupported container expression in compound
-                # assignment" while `n = n + 1` compiled and ran. The coroutine
-                # transform makes a reference param a frame-resident pointer, so
-                # the target arrives as `self.n[0]`: an `ArrayIndex` over a
-                # `MemberAccess`. The two arms below mirror the assignment path
-                # exactly, minus its ownership bookkeeping — a compound-assign
-                # target is a number, so there is no old value to drop and no
-                # incoming value to retain.
+                # A non-identifier container. The coroutine transform makes a
+                # reference param a frame-resident pointer, so `n += 1` on a
+                # `&var Int` param after a suspension arrives as `self.n[0]`: an
+                # `ArrayIndex` over a `MemberAccess`. The two arms below mirror
+                # the assignment path minus its ownership bookkeeping: a
+                # compound-assign target is a number, so there is no old value
+                # to drop and no incoming value to retain.
                 container_saw = self._expr_type(container_expr)
                 if (container_saw is not None
                         and container_saw.kind == TypeKind.ARRAY):
-                    # A fixed-array FIELD or nested element (`self.data[i] += 1`).
+                    # A fixed-array field or nested element (`self.data[i] += 1`).
                     container_ptr = self._get_lvalue_pointer(container_expr)
                     pointee = container_ptr.type.pointee
                     if not isinstance(pointee, ir.ArrayType):
@@ -1123,9 +1033,9 @@ class StatementsMixin:
         (design 31) -- `x += y` must not silently wrap where `x = x + y` panics.
         Float ops are untouched.
 
-        Unlike the binary-operator path these checks pass no explicit panic line
-        (design 122 unit I): a compound assignment IS the statement, so the line
-        the statement walk already announced is the operator's own line.
+        Unlike the binary-operator path these checks pass no explicit panic
+        line: a compound assignment is the statement, so the line the statement
+        walk already announced is the operator's own line.
         """
         is_float = isinstance(left.type, ir.DoubleType)
 
@@ -1168,30 +1078,24 @@ class StatementsMixin:
         # Generate return value first (before cleanup, in case it uses local vars)
         if stmt.value is not None:
             value = self._gen_transfer_value(stmt.value)
-            # design 228 leg 4: `return <diverging>`. A `panic(...)` or a
-            # `-> Never` call as the returned expression never produces a value,
-            # and emitting it already terminated this block with `unreachable`.
-            # There is no `ret` to write, and no cleanup to run either — control
-            # does not reach here. This site never asked, so it walked on to
-            # write a terminator into a terminated block, which llvmlite
-            # reported as a bare `internal compiler error at ...
-            # (ReturnStatement)` with no message at all. It was broken for
-            # `panic` too, at every callee kind, which is why legs 2 and 3 could
-            # not reach it.
+            # `return <diverging>`: a `panic(...)` or a `-> Never` call as the
+            # returned expression never produces a value, and emitting it
+            # already terminated this block with `unreachable`. There is no
+            # `ret` to write and no cleanup to run; control does not reach here.
             #
-            # The question codegen asks is the BUILDER's, not the type's: an
-            # expression can be typed `Never` and still fall through (design
-            # 141's window result `__R`), so "did the emission terminate this
-            # block" is the only sound proxy once lowering has begun.
+            # The question is the builder's, not the type's: an expression can
+            # be typed `Never` and still fall through (a window result `__R`),
+            # so "did the emission terminate this block" is the only sound
+            # proxy once lowering has begun (design 228).
             if self.builder.block.is_terminated:
                 return
         else:
             value = None
 
         # Drain statement-scoped temporaries produced while evaluating the return
-        # expression -- e.g. the `makeR()` receiver in `return makeR().value()`
-        # (brief 23 item 3). The end-of-statement drain in `_generate_statement`
-        # is skipped once `return` terminates the block, so it must run HERE,
+        # expression -- e.g. the `makeR()` receiver in `return makeR().value()`.
+        # The end-of-statement drain in `_generate_statement` is skipped once
+        # `return` terminates the block, so it must run here,
         # before the terminator, in LIFO order. The returned value is exempt: it
         # is never registered as a statement temp (only unbound owned receivers
         # and discarded results are), so it is not released here -- we never free
@@ -1204,19 +1108,18 @@ class StatementsMixin:
         # Cleanup all scopes before returning
         self._cleanup_all_scopes()
 
-        # Now return
-        # design 221 unit B4: a `return` inside `main` crosses to the C entry's
-        # `i32` through the one funnel, exactly as the fall-through epilogue
-        # does — the value's shape decides, not the position it left from.
+        # A `return` inside `main` crosses to the C entry's `i32` through the
+        # one funnel, exactly as the fall-through epilogue does: the value's
+        # shape decides, not the position it left from.
         if self._is_c_entry(self.builder.function):
             self._emit_main_exit_return(value)
             return
         if value is not None:
             ret_type = self.builder.function.function_type.return_type
             if isinstance(ret_type, ir.VoidType):
-                # design 132 unit C's instantiation-uniformity rule: a generic
-                # `-> R` body writes `return <expr>` and must compile at EVERY
-                # instantiation, `R = Void` included. A Void value is zero-sized
+                # Instantiation uniformity: a generic `-> R` body writes
+                # `return <expr>` and must compile at every instantiation,
+                # `R = Void` included (design 132). A Void value is zero-sized
                 # and this instantiation's LLVM signature returns void, so the
                 # expression is evaluated for its effect and nothing is handed
                 # back — `ret void %val` is not an instruction.

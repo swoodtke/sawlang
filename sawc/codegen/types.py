@@ -26,44 +26,35 @@ class TypesMixin:
     """
 
     def _lower_declared_return(self, saw_return_type):
-        """The LLVM return type a DECLARATION lowers to, plus whether it is the
+        """The LLVM return type a declaration lowers to, plus whether it is the
         `-> Never` shape. Returns `(llvm_type, is_never)`.
 
-        Design 58: a `-> Never` declaration lowers to `void` + the `noreturn`
-        attribute — the `_start`/`abort` C shape — because a function that does
-        not return has no result to describe. `_get_llvm_type` maps `Never` to
-        an i8 PLACEHOLDER instead, which is right for an incidental type query
-        and wrong for a signature: the caller then reads an i8 result out of a
-        call that produced nothing, and `_terminate_after_noreturn` (which asks
-        the `noreturn` attribute) can never fire on it.
+        A `-> Never` declaration lowers to `void` + the `noreturn` attribute
+        (the `_start`/`abort` C shape), because a function that does not
+        return has no result to describe. `_get_llvm_type` maps `Never` to an
+        i8 placeholder instead, which is right for an incidental type query and
+        wrong for a signature: the caller would read an i8 result out of a call
+        that produced nothing, and `_terminate_after_noreturn` (which asks the
+        `noreturn` attribute) could never fire on it (design 228).
 
-        THE FUNNEL (design 228 leg 3, obligation 1). Every site that turns a
-        DECLARED Saw return type into an LLVM one asks this, and these are all
-        of them:
-          - `_declare_function` (core.py) — top-level `func`.
-          - `_declare_extern_function` (core.py) — `extern "C"` (DF-172h).
-          - `_declare_extension_methods` (core.py) — extension methods, static
-            and instance. This one had no `-> Never` arm at all, so a
-            `-> Never` METHOD was emitted as `define i8 @T_die`.
-          - `_declare_monomorphized_method` (generics.py) — the specialized
-            twin of the above, reached per instantiation.
-          - `_trait_slot_fn_type` (existentials.py) — the vtable slot type,
-            which is also the thunk's, so both sides move together.
+        Entry points (every site that turns a declared Saw return type into an
+        LLVM one):
+          `_lower_declared_return_of` -- `func` and extension-method declarations
+          `_declare_extern_function` (core.py) -- `extern "C"`
+          `_extern_llvm_type` (core.py) -- an extern's prototype type
+          `_trait_slot_fn_type` (existentials.py) -- the vtable slot type, also the thunk's
 
-        NOT a function TYPE (`_get_llvm_type`'s FUNCTION arm, and the closure
+        Not a function type (`_get_llvm_type`'s FUNCTION arm, and the closure
         body `_generate_closure` emits to match it). A type is a
-        REPRESENTATION, not a declaration: design 141's place-window closure
-        gets `Never` as an ordinary SUBSTITUTED result — the window body of an
-        accessor call in a coroutine frame's dispatch `match` has type `__R` =
-        `Never` — and the two halves of that representation are computed in
-        different places from differently-substituted types, so lowering it to
-        `void` makes them disagree (`{i8 (…)*, …} != {void (…)*, …}` on five
-        coroutine tests). A diverging closure keeps the i8 placeholder; its
-        CALLERS still terminate, because the closure-call site asks
+        representation, not a declaration: a place-window closure can get
+        `Never` as an ordinary substituted result, and the two halves of that
+        representation are computed in different places from
+        differently-substituted types, so lowering it to `void` would make them
+        disagree. A diverging closure keeps the i8 placeholder; its callers
+        still terminate, because the closure-call site asks
         `_terminate_after_noreturn` with the call expression instead.
 
-        A `None` return type (a trait method with none recorded) is `void`, as
-        it was before.
+        A `None` return type (a trait method with none recorded) is `void`.
         """
         if saw_return_type is None:
             return ir.VoidType(), False
@@ -74,20 +65,19 @@ class TypesMixin:
     def _lower_declared_return_of(self, decl):
         """`_lower_declared_return`, asked about a DECLARATION rather than a type.
 
-        The one thing a type cannot answer: whether its `Never` was WRITTEN.
-        Design 228's rule is about the declaration ("this function does not
-        return"), and a `Never` that arrives by SUBSTITUTION is an ordinary
-        value type — design 132's ruling for `Void`, at the return position.
-        Design 141's place accessor is the case: a window closure's result `__R`
-        is `Never` whenever the window body never falls through, so
-        `Slot<ArcE>.value<Never>` is a real function that returns a value nobody
-        reads. `_declare_monomorphized_method` asked the TEMPLATE's return type
-        and got that right by accident of where it stood; the ordinary
-        declaration pass is handed the substituted CLONE, so the clone carries
-        the answer (`mono_substituted_never`) and this is where it is read.
+        The one thing a type cannot answer: whether its `Never` was written.
+        The noreturn rule is about the declaration ("this function does not
+        return"), and a `Never` that arrives by substitution is an ordinary
+        value type, as `Void` is (design 132). A place accessor is the case: a
+        window closure's result `__R` is `Never` whenever the window body never
+        falls through, so `Slot<ArcE>.value<Never>` is a real function that
+        returns a value nobody reads. The declaration pass is handed the
+        substituted clone, so the clone carries the answer
+        (`mono_substituted_never`) and this is where it is read.
 
-        Every DECLARATION site goes through here; `_lower_declared_return` stays
-        for the two that have a type and no declaration (a trait vtable slot).
+        Entry points:
+          `_declare_function` (core.py)
+          `_declare_extension_methods` (core.py)
         """
         saw_return_type = getattr(decl, 'return_type', None)
         if getattr(decl, 'mono_substituted_never', False):
@@ -96,22 +86,17 @@ class TypesMixin:
 
     def _init_llvm_return_type(self, method, struct_llvm_type,
                                type_mapping=None):
-        """The LLVM return type of an `init` — DF-245a.
+        """The LLVM return type of an `init`.
 
-        An `init` returns its RECEIVER, or `Result<Receiver, E>` when it is the
+        An `init` returns its receiver, or `Result<Receiver, E>` when it is the
         fallible form; the typechecker's `_init_declared_return` has already
-        refused everything else, so this only has to tell the two apart. Before
-        DF-245a both prototype sites hardcoded the receiver's layout and read
-        the written annotation nowhere, which is why a wrong declared return
-        reached LLVM as a module that did not verify.
+        refused everything else, so this only has to tell the two apart. A
+        `type_mapping`, when given, is applied first so a
+        `Result<Holder<T>, E>` lowers at the instantiation.
 
-        THE FUNNEL, obligation 1. The two sites that build an `init`'s prototype
-        are its only entry points:
-          - `_declare_extension_methods` (core.py)    — a non-generic extension.
-          - `_declare_monomorphized_method` (generics.py) — the specialized twin,
-            which passes its `type_mapping` so a `Result<Holder<T>, E>` lowers at
-            the instantiation rather than at the template.
-        The BODY sites read `llvm_func.function_type.return_type` instead, so
+        Entry points (the sites that build an `init`'s prototype):
+          `_declare_extension_methods` (core.py)
+        The body sites read `llvm_func.function_type.return_type` instead, so
         they follow whatever this decided with nothing to keep in step.
         """
         declared = getattr(method, 'return_type', None)
@@ -148,7 +133,7 @@ class TypesMixin:
         elif saw_type.kind == TypeKind.BOOL:
             return ir.IntType(1)
         elif saw_type.kind == TypeKind.NEVER:
-            # Bottom type (design 49): a diverging `panic(...)` produces no value.
+            # Bottom type: a diverging `panic(...)` produces no value.
             # A concrete LLVM type is never actually needed (codegen terminates
             # the block with `unreachable`), but map it to i8 as a harmless
             # placeholder so any incidental type query does not crash.
@@ -181,7 +166,7 @@ class TypesMixin:
             # pointer to `void`, so model it as `i8*` (byte-addressed). The
             # pointee may reach `void` only after type-param substitution
             # (T -> Void), so check the resolved LLVM type. Arises for a
-            # Void-result Task control block (design 77 item 1).
+            # Void-result Task control block.
             if isinstance(pointee_type, ir.VoidType):
                 return ir.IntType(8).as_pointer()
             return ir.PointerType(pointee_type)
@@ -192,8 +177,8 @@ class TypesMixin:
             # Reference type: &T or &var T - compiled as pointer
             if saw_type.inner_type is None:
                 raise ValueError("Reference type missing inner type")
-            # `&any Trait` (design 51): the reference IS the fat pointer (data,
-            # vtable) — a two-word value, not a thin pointer-to-fat-pointer.
+            # `&any Trait` (design 51): the reference is the fat pointer (data,
+            # vtable), a two-word value, not a thin pointer-to-fat-pointer.
             if saw_type.inner_type.kind == TypeKind.EXISTENTIAL:
                 return self._existential_llvm_type()
             pointee_type = self._get_llvm_type(saw_type.inner_type)
@@ -210,40 +195,39 @@ class TypesMixin:
             # Look up the struct type (might actually be an enum, type param, or type alias)
             if saw_type.struct_name is None:
                 raise ValueError("Struct type missing name")
-            # `Box<any Trait, A>` (design 51): an OWNED erased value is itself a fat
-            # pointer { heap data ptr, vtable ptr }. It never monomorphizes through
-            # box.saw (its payload is unsized) — construction/dispatch/teardown are
-            # all special-cased — so intercept the type before that path.
+            # `Box<any Trait, A>` (design 51): an owned erased value is itself a
+            # fat pointer { heap data ptr, vtable ptr }. It never monomorphizes
+            # through box.saw (its payload is unsized; construction, dispatch
+            # and teardown are all special-cased), so intercept the type before
+            # that path.
             if (saw_type.struct_name == "Box" and saw_type.type_args
                     and saw_type.type_args[0].kind == TypeKind.EXISTENTIAL):
                 return self._existential_llvm_type()
-            # design 46: UnsafeMemory<T, Use> is ONE WORD — the raw address.
-            # Its `T`/`Use` are phantom (the declared `{ addr: Int }` body is
-            # never materialized); every access is intercepted, so the value that
-            # flows through codegen is just the pointer-width address (design 47:
-            # addresses are pointer-width, so a fixed MMIO address like
-            # 0x18003000 is a 32-bit value under a riscv32 target).
+            # UnsafeMemory<T, Use> is one word: the raw address. Its `T`/`Use`
+            # are phantom (the declared `{ addr: Int }` body is never
+            # materialized); every access is intercepted, so the value that
+            # flows through codegen is just the pointer-width address (a fixed
+            # MMIO address like 0x18003000 is a 32-bit value under a riscv32
+            # target) (design 46).
             if saw_type.struct_name == "UnsafeMemory":
                 return self.int_type
-            # design 226: `FuncPointer<F>` is ONE WORD — the address of code
-            # whose signature is `F`. It lowers to `F`'s own BARE function
-            # pointer, the closure lowering below minus the environment: no
-            # `env_ptr` parameter, no `dtor_ptr` beside it. That is what makes
-            # it exactly a C function pointer at the ABI (the whole point of
-            # the type) and what makes the indirect call a plain `call`. The
-            # declared `{ addr: Int }` body is never materialized — the struct
-            # never monomorphizes, since every construction, every call and
-            # `from_raw` are intercepted.
+            # `FuncPointer<F>` is one word: the address of code whose signature
+            # is `F`. It lowers to `F`'s own bare function pointer, the closure
+            # lowering below minus the environment: no `env_ptr` parameter, no
+            # `dtor_ptr` beside it. That makes it exactly a C function pointer
+            # at the ABI and the indirect call a plain `call`. The declared
+            # `{ addr: Int }` body is never materialized: every construction,
+            # every call and `from_raw` are intercepted (design 226).
             if saw_type.struct_name == "FuncPointer":
                 return self._funcpointer_llvm_type(saw_type)
-            # THE LAYOUT-TRANSPARENT WRAPPERS, through the shared predicate:
-            # design 46's `ReadOnly<T>`/`WriteOnly<T>` MMIO markers (a
-            # `ReadOnly<UInt32>` field occupies exactly a `UInt32`, which is what
-            # makes projection offsets land on the real register) and design
-            # 186's `UnsafeMutableInterior<T>` (an INLINE `T`, so a cell field
-            # costs no wrapper and `ptr()` is the address of the field itself —
-            # what lets `Atomic<T>`/`SpinLock<T>` carry a real cell with
-            # byte-identical layout to the versions that did not).
+            # The layout-transparent wrappers, through the shared predicate:
+            # the `ReadOnly<T>`/`WriteOnly<T>` MMIO markers (a
+            # `ReadOnly<UInt32>` field occupies exactly a `UInt32`, which is
+            # what makes projection offsets land on the real register) and
+            # `UnsafeMutableInterior<T>` (an inline `T`, so a cell field costs
+            # no wrapper and `ptr()` is the address of the field itself, which
+            # lets `Atomic<T>`/`SpinLock<T>` carry a real cell at the layout of
+            # a bare `T`).
             if (is_layout_transparent(saw_type.struct_name)
                     and saw_type.type_args):
                 return self._get_llvm_type(saw_type.type_args[0])
@@ -254,12 +238,12 @@ class TypesMixin:
             # Check if it's a type parameter in the current context
             if saw_type.struct_name in self.type_param_context:
                 bound = self.type_param_context[saw_type.struct_name]
-                # A SELF-MAPPING binding (`T -> T`) means an unsubstituted type
+                # A self-mapping binding (`T -> T`) means an unsubstituted type
                 # parameter reached codegen: recursing on it never terminates and
                 # surfaces as `maximum recursion depth exceeded`, which fails the
-                # WHOLE compilation unit rather than the one construct at fault
-                # (DF-123a). Stop at a bounded, named failure instead — every
-                # caller that monomorphizes is expected to substitute first.
+                # whole compilation unit rather than the one construct at fault.
+                # Stop at a bounded, named failure instead; every caller that
+                # monomorphizes is expected to substitute first.
                 if (bound is not None and bound.kind == TypeKind.STRUCT
                         and bound.struct_name == saw_type.struct_name):
                     raise ValueError(
@@ -274,15 +258,14 @@ class TypesMixin:
             # Handle generic struct with type arguments (e.g., VectorIterator<Int>)
             if saw_type.type_args:
                 # Substitute any type parameters in the args against the current
-                # monomorphization context BEFORE monomorphizing the nested
+                # monomorphization context before monomorphizing the nested
                 # generic. Inside `unbox<Int>`, a parameter typed `Box<T>` must
-                # monomorphize `Box<Int>` (context T->Int), NOT re-enter `Box<T>`
+                # monomorphize `Box<Int>` (context T->Int), not re-enter `Box<T>`
                 # abstractly: with raw `[T]` args, `_ensure_monomorphized_struct`
                 # zips Box's formal `T` against the arg `T`, self-maps `T->T`, and
                 # generating field type `T` loops forever between the type-param
-                # lookup here and the field-type walk. Substituting first is the
-                # single shared fix for every nested-generic param/return/field
-                # type (brief 36, L8).
+                # lookup here and the field-type walk. This covers every
+                # nested-generic param/return/field type.
                 concrete_args = [self._substitute_saw_type(a, self.type_param_context)
                                  for a in saw_type.type_args]
                 # Check if this is actually a generic enum (like Result<T, E>)
@@ -292,13 +275,11 @@ class TypesMixin:
                 mangled_name = self._ensure_monomorphized_struct(saw_type.struct_name, concrete_args)
                 return self.struct_types[mangled_name][0]
             if saw_type.struct_name not in self.struct_types:
-                # A GENERIC named with no arguments at all. That is well-formed
-                # exactly when every parameter is defaulted (design 37, and
-                # design 148 for a const one): `Tag()` where `struct Tag<T =
-                # Int>`. Nothing had filled the defaults on this path, so a
-                # zero-argument init on such a type reached here as a bare name
-                # and raised an internal compiler error. Fill and monomorphize —
-                # the same identity rule as every other reference site.
+                # A generic named with no arguments at all. That is well-formed
+                # exactly when every parameter is defaulted (including a const
+                # one): `Tag()` where `struct Tag<T = Int>`. Fill and
+                # monomorphize, the same identity rule as every other
+                # reference site (design 37).
                 filled = self._fill_default_type_args(saw_type.struct_name, [])
                 if filled:
                     if saw_type.struct_name in self.generic_enums:
@@ -308,12 +289,12 @@ class TypesMixin:
                     mangled_name = self._ensure_monomorphized_struct(
                         saw_type.struct_name, filled)
                     return self.struct_types[mangled_name][0]
-                # design 246 Unit B: a declaration this unit owns that the
-                # registration loop has not reached. Register it here and ask
-                # again — the retry finds a published handle, because
-                # registration publishes before it lowers. Covers the ENUM
-                # spelled with the generic STRUCT kind too, which is how a bare
-                # name arrives from a field or a payload.
+                # A declaration this unit owns that the registration loop has
+                # not reached. Register it here and ask again: the retry finds
+                # a published handle, because registration publishes before it
+                # lowers. Covers an enum spelled with the generic STRUCT kind
+                # too, which is how a bare name arrives from a field or a
+                # payload (design 246).
                 if self._demand_register_type(saw_type.struct_name):
                     return self._get_llvm_type(saw_type)
                 raise ValueError(f"Undefined struct: {saw_type.struct_name}")
@@ -324,9 +305,9 @@ class TypesMixin:
                 # None literal with unknown type - platform Int placeholder
                 inner_llvm_type = self.int_type
             elif saw_type.inner_type.kind == TypeKind.VOID:
-                # `Void?` (design 111 optional-chain assignment result): LLVM has no
+                # `Void?` (e.g. an optional-chain assignment result): LLVM has no
                 # void-in-struct, so the unit payload is a placeholder i8. Only the
-                # is_some flag is ever inspected (via `guard let _ =` / discard).
+                # is_some flag is ever inspected.
                 inner_llvm_type = ir.IntType(8)
             else:
                 inner_llvm_type = self._get_llvm_type(saw_type.inner_type)
@@ -337,16 +318,16 @@ class TypesMixin:
                 raise ValueError("Enum type missing name")
             # Handle generic enum with type_args
             if saw_type.type_args:
-                # Substitute type params against the current context first — same
-                # nested-generic monomorphization fix as the STRUCT branch above
-                # (brief 36, L8), so `Maybe<T>`/`Result<T, E>` in a param/return
-                # position specialize with concrete args rather than recursing.
+                # Substitute type params against the current context first, as
+                # the STRUCT branch above does, so `Maybe<T>`/`Result<T, E>` in a
+                # param/return position specialize with concrete args rather
+                # than recursing.
                 concrete_args = [self._substitute_saw_type(a, self.type_param_context)
                                  for a in saw_type.type_args]
                 mangled_name = self._ensure_monomorphized_enum(saw_type.enum_name, concrete_args)
                 return self.enum_types[mangled_name][0]
             if saw_type.enum_name not in self.enum_types:
-                # design 246 Unit B — see the struct arm above.
+                # See the struct arm above.
                 if self._demand_register_type(saw_type.enum_name):
                     return self._get_llvm_type(saw_type)
                 raise ValueError(f"Undefined enum: {saw_type.enum_name}")
@@ -364,7 +345,7 @@ class TypesMixin:
                 raise ValueError("Array type missing element type or size")
             size = saw_type.array_size
             if size is None:
-                # A length that is still symbolic — `[Int; N]` on a const-generic
+                # A length that is still symbolic: `[Int; N]` on a const-generic
                 # parameter (design 148). This instantiation's bindings supply
                 # it, exactly as the TYPE_PARAM arm above resolves an element
                 # type. Resolving at this chokepoint means every path that
@@ -373,29 +354,16 @@ class TypesMixin:
                 size, _ = saw_type._substituted_length(
                     self._const_length_context())
             if size is None:
-                # A DECLARED length that never folded — `[UInt8; count]` naming
-                # a runtime binding, say. This is the position design 148 says
-                # owns the requirement ("a declared array length reaching
-                # codegen reports it"), and it is the author's mistake, not a
-                # compiler invariant: report it where the length is written,
-                # with the same wording the repeat-count position already uses.
-                # It raised a bare ValueError until design 172 part 2 hit it —
-                # so one spelling of one rule gave a clean, hint-carrying error
-                # and the other gave an internal compiler error (DF-172f).
-                # DF-172j narrowed what reaches here: a module `static` of type
-                # `Int`/`UInt` whose own initializer folds now folds, and the
-                # ones that still do not say which static and why.
+                # A declared length that did not fold earlier. Codegen, with its
+                # full layout oracle, is the last position that can answer, so
+                # the fold is tried here and its answer kept: a length written
+                # inside a type argument (`sizeof<[UInt8; sizeof<Int>()]>()`)
+                # is visited by no declared-type walk and first folds here.
                 #
-                # DF-307a: the fold below is TRIED FIRST and its answer KEPT.
-                # It ran here before, with codegen's full layout oracle in hand,
-                # purely to phrase the error — so a length the front end could
-                # not reach at all reported "the length is not allowed here"
-                # (the default `what`, i.e. the fold had SUCCEEDED and the value
-                # was dropped on the floor). The one such length left after the
-                # front end gained its own oracle is one written inside a TYPE
-                # ARGUMENT — `sizeof<[UInt8; sizeof<Int>()]>()` — which no
-                # declared-type walk visits. Codegen is the last position that
-                # can answer, so it answers instead of reporting.
+                # A length that still does not fold (`[UInt8; count]` naming a
+                # runtime binding) is the author's mistake, not a compiler
+                # invariant: report it where the length is written, with the
+                # wording the repeat-count position uses (design 148).
                 from .core import CodegenUserError
                 from const_eval import (const_eval, ConstEvalError,
                                         CONST_LENGTH_HINT)
@@ -422,18 +390,14 @@ class TypesMixin:
                         hint=CONST_LENGTH_HINT,
                         source_file=getattr(expr, 'source_file', None))
             if size < 0:
-                # DF-172k: a length that folded to a NEGATIVE number. `[UInt8;
-                # -1]` and `[UInt8; 2 - 3]` reached llvmlite as `[-1 x i8]` and
-                # came back as an "internal compiler error: LLVM IR parsing
-                # error", which is the one thing a user-written length must
-                # never produce. The repeat count has checked this since design
-                # 148 ("repeat count is negative"); the type position had not,
-                # and DF-172j gives the fold one more way to arrive here.
+                # A length that folded to a negative number (`[UInt8; -1]`,
+                # `[UInt8; 2 - 3]`) would reach llvmlite as `[-1 x i8]`; report
+                # it as the user error it is, as the repeat count does.
                 from .core import CodegenUserError
-                # A folded length (design 148 / DF-172j) arrives with its
-                # expression; a length that was already a number when the type
-                # was built does not, so the anchor has to tolerate its absence
-                # rather than turn a clean diagnostic into a crash.
+                # A folded length arrives with its expression; a length that
+                # was already a number when the type was built does not, so the
+                # anchor has to tolerate its absence rather than turn a clean
+                # diagnostic into a crash.
                 expr = saw_type.array_size_expr
                 raise CodegenUserError(
                     f"array length is negative (`{size}`)",
@@ -453,8 +417,8 @@ class TypesMixin:
             # dropping = `if dtor: dtor(env)` (releases owned captures + frees the
             # heap env exactly once).
             param_types = [self._get_llvm_type(t) for t in (saw_type.param_types or [])]
-            # design 228 leg 3 deliberately does NOT reach here: a function TYPE
-            # is a REPRESENTATION, not a declaration — see
+            # The declared-return funnel deliberately does not reach here: a
+            # function type is a representation, not a declaration; see
             # `_lower_declared_return`'s docstring for why `Never` stays the i8
             # placeholder in it.
             if saw_type.func_return_type and saw_type.func_return_type.kind != TypeKind.VOID:
@@ -478,8 +442,8 @@ class TypesMixin:
                     and self._primitive_self_llvm_type(
                         self.self_type_context) is None):
                 raise ValueError(f"Self type refers to undefined struct: {self.self_type_context}")
-            # Design 145: `-> Self` in an ENUM extension resolves to the enum's
-            # own LLVM type, alongside the primitive and struct receivers.
+            # `-> Self` in an enum extension resolves to the enum's own LLVM
+            # type, alongside the primitive and struct receivers.
             return self._ext_self_types(self.self_type_context)[0]
         else:
             raise ValueError(f"Unknown type: {saw_type}")
@@ -487,7 +451,7 @@ class TypesMixin:
     def _funcpointer_signature(self, saw_type: SawType):
         """`F` out of a `FuncPointer<F>` SawType, substituted, or None.
 
-        THE ONE PLACE codegen unwraps the type (design 226). Substituting
+        The one place codegen unwraps the type (design 226). Substituting
         against the active monomorphization context is what lets a
         `FuncPointer<F>` written inside a generic body reach a concrete
         signature — the same first step every other generic arm here takes.
@@ -502,12 +466,12 @@ class TypesMixin:
         return f if f is not None and f.kind == TypeKind.FUNCTION else None
 
     def _funcpointer_llvm_fn_type(self, f: SawType) -> ir.FunctionType:
-        """The BARE LLVM function type of a `FuncPointer`'s signature `F`.
+        """The bare LLVM function type of a `FuncPointer`'s signature `F`.
 
         The closure lowering with the environment removed: parameters exactly
         as written, no leading `env_ptr`. Read by the type lowering, by the
-        coerced-literal emission (which defines a function OF this type) and by
-        the indirect call (which calls THROUGH one), so the three cannot drift.
+        coerced-literal emission (which defines a function of this type) and by
+        the indirect call (which calls through one), so the three cannot drift.
         """
         param_types = [self._get_llvm_type(t) for t in (f.param_types or [])]
         if f.func_return_type and f.func_return_type.kind != TypeKind.VOID:
@@ -553,8 +517,8 @@ class TypesMixin:
     def _estimate_type_size(self, llvm_type: ir.Type) -> int:
         """Estimate the size of an LLVM type in bytes (conservative estimate).
 
-        Used for calculating enum payload sizes. This is a simplified version
-        that doesn't account for alignment - in production, use LLVM's DataLayout.
+        Ignores alignment and assumes 64-bit pointers, so it is wrong for real
+        layout; nothing outside its own recursion calls it.
         """
         if isinstance(llvm_type, ir.IntType):
             return (llvm_type.width + 7) // 8  # Round up to nearest byte

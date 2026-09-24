@@ -76,11 +76,11 @@ class ConditionalsMixin:
             return None
 
         # Case A: both branches yield same-typed values -> phi merge. A Void
-        # type is NEVER phi-able (LLVM: "void type only allowed for function
-        # results"), so a void merge — both branches are void calls, or a void
-        # if/else-chain in tail position of a Void-returning fn/closure — must
-        # skip the phi and just wire the branches (design 59 C). Falls through to
-        # the "Otherwise" wiring below, which yields no consumable value.
+        # type is never phi-able (LLVM: "void type only allowed for function
+        # results"), so a void merge (both branches are void calls, or a void
+        # if/else-chain in tail position of a Void-returning fn/closure) must
+        # skip the phi and just wire the branches. Falls through to the
+        # "Otherwise" wiring below, which yields no consumable value.
         if (then_val is not None and else_val is not None
                 and then_val.type == else_val.type
                 and not isinstance(then_val.type, ir.VoidType)):
@@ -129,7 +129,7 @@ class ConditionalsMixin:
             return self.builder.load(result_alloca, name="iftmp")
 
         # Case B-mirror: the then-branch diverges (terminated with no value, e.g.
-        # `if cond { panic(...) } else { v }`, design 49) while the else-branch
+        # `if cond { panic(...) } else { v }`) while the else-branch
         # yields a value. Only the else path reaches the merge; route its value
         # through an entry-block slot so the load at the merge dominates (the then
         # path never stores, but it never reaches the merge either).
@@ -165,52 +165,45 @@ class ConditionalsMixin:
         self.builder.position_at_start(merge_bb)
 
         # A Void merge produces no consumable value (a phi would be illegal), so
-        # report None — the same "no value" contract the match lowering uses.
+        # report None: the same "no value" contract the match lowering uses.
         # then_val here is at most a void call instr that must not escape upward.
         if then_val is not None and isinstance(then_val.type, ir.VoidType):
             return None
         return then_val
 
     def _optional_binding_owns(self, node) -> bool:
-        """Whether an `if let` / `guard let` binding OWNS the payload it bound —
+        """Whether an `if let` / `guard let` binding owns the payload it bound,
         and must therefore release it when its scope ends.
 
         Four ways the payload becomes the binding's: a `move` scrutinee handed
         the whole optional over, a fresh temporary minted a value nobody else
-        holds, the design-131 place rule retained a second reference out of a
-        place the scrutinee keeps, or the coroutine transform already settled
-        the question and said `move`. A plain read of a trivial payload owns
-        nothing (there is nothing to release), and a non-retained read out of a
-        place is still owned by that place — releasing it here would double-free.
+        holds, the place rule retained a second reference out of a place the
+        scrutinee keeps (design 131), or the coroutine transform already
+        settled the question and said `move`. A plain read of a trivial payload
+        owns nothing, and a non-retained read out of a place is still owned by
+        that place; releasing it here would double-free.
 
-        The fourth is the one that cannot be read off the AST. Inside a
-        coroutine body the transform rewrites `move opt` into a read of the
-        frame field `opt` paired with a `__saw_forget` that clears the field's
-        drop flag — so the `MoveExpr` the first test looks for is GONE by the
-        time codegen runs, and for a `self_opt`-encoded field what stands in its
-        place is a bare `self.opt` MemberAccess, which is not a temporary
-        either. All three tests answered "borrowed", nothing dropped the
-        payload, and the forget had already told the frame not to: `if let v =
-        move opt` leaked in every driven function, whether or not any suspension
-        came near either binding (DF-217b). `frame_move_read` is the transform's
-        own answer, stamped by `_read_field` on whatever shape the read takes.
+        The fourth cannot be read off the AST: inside a coroutine body the
+        transform rewrites `move opt` into a read of the frame field (a bare
+        `self.opt` for a `self_opt`-encoded field) paired with a `__saw_forget`
+        that clears the field's drop flag, so no `MoveExpr` remains.
+        `frame_move_read`, stamped by `_read_field`, is the transform's answer.
         """
         src = node.optional_expr
         return (self._optional_source_hands_over(src)
                 or node.payload_needs_copy)
 
     def _optional_source_hands_over(self, src) -> bool:
-        """Whether an optional-binding SCRUTINEE hands its payload to whatever
-        binds it — because it was `move`d, or because it was a fresh temporary
+        """Whether an optional-binding scrutinee hands its payload to whatever
+        binds it: because it was `move`d (in source, or by the coroutine
+        transform's `frame_move_read`), or because it was a fresh temporary
         nobody else holds.
 
         Split out of `_optional_binding_owns` because the `_` arms need exactly
-        this and NOT the `payload_needs_copy` term: `_` binds nothing, so no
+        this and not the `payload_needs_copy` term: `_` binds nothing, so no
         retain is ever emitted for it, and dropping on the strength of a retain
-        that did not happen would double-free. They asked only
-        `_is_owned_temporary`, so `if let _ = move opt` (and its `guard let`
-        twin) released nothing at all — a leak of a spec-blessed idiom with no
-        coroutine anywhere in sight. DF-217l.
+        that did not happen would double-free. The tuple-pattern arms ask it
+        too, as their source-ownership answer.
         """
         return (isinstance(src, MoveExpr)
                 or getattr(src, 'frame_move_read', False)
@@ -245,15 +238,15 @@ class ConditionalsMixin:
         inner_saw = (opt_type.inner_type if opt_type and opt_type.kind == TypeKind.OPTIONAL
                      and opt_type.inner_type else None)
 
-        # Design 100: an if-let binding may SHADOW an enclosing binding of the
-        # same name (`if let x = x` is the blessed unwrap). Snapshot the shadowed
-        # entries now so they can be RESTORED (not deleted) at the end of the
-        # then-branch — otherwise the outer binding would vanish from codegen's
-        # flat name maps and a later use of it would ICE ("Undefined variable").
+        # An if-let binding may shadow an enclosing binding of the same name
+        # (`if let x = x` is the blessed unwrap). Snapshot the shadowed entries
+        # now so they can be restored (not deleted) at the end of the
+        # then-branch; otherwise the outer binding would vanish from codegen's
+        # flat name maps and a later use of it would ICE (design 100).
         if expr.pattern is not None:
             _shadow_names = self._pattern_binding_names(expr.pattern)
         elif expr.name == "_":
-            _shadow_names = []  # design 111 rider: `_` binds nothing
+            _shadow_names = []  # `_` binds nothing
         else:
             _shadow_names = [expr.name]
         _shadow_save = [
@@ -263,48 +256,37 @@ class ConditionalsMixin:
              self.drop_flags.get(nm, _SHADOW_MISSING))
             for nm in _shadow_names]
 
-        # THE BINDING'S OWN CLEANUP SCOPE (DF-218x). An `if let` / `if var` /
-        # `while let` / `while var` binding lives for the THEN-BRANCH and no
-        # longer, so the branch gets a cleanup scope of its own — exactly the
-        # treatment a `match` arm's payload bindings get (match.py's per-arm
-        # scope). Every binding below registers into it through
-        # `_register_cleanup`, the one funnel for "this binding owns a value",
-        # and it is released at whichever edge the branch leaves through: the
-        # fall-through pops and cleans it, while `return` (`_cleanup_all_scopes`),
-        # `break` and `continue` (`_cleanup_to_depth` at the loop's depth) reach
-        # it on their own edges because it is now ON the stack they walk.
-        #
-        # Before this the binding was in NO scope at all — an ad-hoc alloca plus
-        # a drop flag, dropped inline at the end of the branch behind an
-        # `is_terminated` test whose comment claimed "return/break cleaned all
-        # scopes". That was false for precisely this binding, so every terminated
-        # exit skipped the drop and LEAKED it, at all five spellings above; the
-        # `guard let` twin (whose binding belongs to the enclosing scope) and the
-        # match-arm payloads were the working controls. Pushed BEFORE the binding
-        # is created so the design-63 tuple pattern's leaves land here too, rather
-        # than in the ENCLOSING scope, where they outlived the branch that owned
-        # them.
+        # The binding's own cleanup scope. An `if let` / `if var` / `while let`
+        # / `while var` binding lives for the then-branch and no longer, so the
+        # branch gets a cleanup scope of its own, exactly as a `match` arm's
+        # payload bindings do. Every binding below registers into it through
+        # `_register_cleanup`, and it is released at whichever edge the branch
+        # leaves through: the fall-through pops and cleans it, while `return`
+        # (`_cleanup_all_scopes`), `break` and `continue` (`_cleanup_to_depth`
+        # at the loop's depth) reach it on their own edges because it is on the
+        # stack they walk. Pushed before the binding is created so a tuple
+        # pattern's leaves land here too, not in the enclosing scope.
         self.cleanup_stack.append([])
 
-        # Tuple pattern (design 63): destructure the unwrapped tuple into its
-        # bindings, which register into the branch scope pushed above.
+        # Tuple pattern: destructure the unwrapped tuple into its bindings,
+        # which register into the branch scope pushed above.
         pattern_names = []
         if expr.pattern is not None:
             # The source-ownership answer is the `_` arm's own question (see the
-            # `guard let` twin): a scrutinee that KEEPS its payload lends each
+            # `guard let` twin): a scrutinee that keeps its payload lends each
             # leaf rather than handing it over, so every owning leaf retains and
-            # a `_` leaf consumes nothing. A hardcoded `False` here asserted the
-            # opposite at every scrutinee.
+            # a `_` leaf consumes nothing.
             keeps = not self._optional_source_hands_over(expr.optional_expr)
             self._destructure_bind(expr.pattern, inner_val, inner_saw,
                                    expr.mutable, keeps)
             pattern_names = self._pattern_binding_names(expr.pattern)
         elif expr.name == "_":
-            # Design 111 rider: `if let _ = opt` binds nothing. Drop the unwrapped
-            # payload immediately when the source HANDED IT OVER — a fresh owned
-            # temporary, or a `move` that retired the whole binding (a named/field
-            # source keeps owning it, and dropping there would double-free). This
-            # is how a `Void?` is consumed (its unit payload is trivial).
+            # `if let _ = opt` binds nothing. Drop the unwrapped payload
+            # immediately when the source handed it over: a fresh owned
+            # temporary, or a `move` that retired the whole binding (a
+            # named/field source keeps owning it, and dropping there would
+            # double-free). This is how a `Void?` is consumed (its unit payload
+            # is trivial).
             if (inner_saw is not None
                     and self._optional_source_hands_over(expr.optional_expr)
                     and self._needs_cleanup(inner_saw)):
@@ -312,13 +294,12 @@ class ConditionalsMixin:
                 self.builder.store(inner_val, slot)
                 self._emit_drop_at(slot, inner_saw)
         else:
-            # For 'if let', create a copy; for 'if var', we store and use reference
-            # Currently, we always create a local variable (copy semantics for if let)
-            # For if var reference semantics, we'd need to track the original optional's alloca
-            # design 131: out of a PLACE scrutinee the binding is a value read,
-            # so it takes its own reference to the payload (the scrutinee keeps
-            # its). That makes the binding an owner, which `owns_binding` below
-            # picks up so it is released at the end of the then-branch.
+            # Both `if let` and `if var` bind a fresh local holding the payload;
+            # neither aliases the scrutinee's storage. Out of a place scrutinee
+            # the binding is a value read, so it takes its own reference to the
+            # payload (the scrutinee keeps its). That makes the binding an
+            # owner, which `owns_binding` below picks up so it is released at
+            # the end of the then-branch (design 131).
             bound_val = self._retain_read_payload(expr, inner_val)
             alloca = self._entry_alloca(bound_val.type, name=expr.name)
             self.builder.store(bound_val, alloca)
@@ -328,15 +309,16 @@ class ConditionalsMixin:
             if inner_saw is not None:
                 self.variable_types[expr.name] = inner_saw
 
-        # The if-let binding is released at the end of the then-branch scope (brief
-        # 23 item 2), but ONLY when the optional source is a fresh owned temporary:
-        # then the unwrapped value is solely owned by this binding. A named/field
-        # optional is owned elsewhere (its own cleanup runs), so releasing here
-        # would double-free it. When the binding IS owned here, register it in the
-        # branch scope — `_register_cleanup` gives it the runtime drop flag
-        # (design 42) BEFORE the branch body, so a `move` of the binding inside the
-        # branch clears it and the scope-exit drop does not double-free a moved-out
-        # value (notably an erased `Box<any T>`, whose second teardown aborts).
+        # The if-let binding is released at the end of the then-branch scope,
+        # but only when it owns the payload (`_optional_binding_owns`: a moved
+        # or fresh-temporary source, or a place-rule retain). A non-retained
+        # read of a named/field optional is owned elsewhere (its own cleanup
+        # runs), so releasing here would double-free it. When the binding is
+        # owned here, register it in the branch scope: `_register_cleanup`
+        # gives it the runtime drop flag (design 42) before the branch body, so
+        # a `move` of the binding inside the branch clears it and the
+        # scope-exit drop does not double-free a moved-out value (notably an
+        # erased `Box<any T>`, whose second teardown aborts).
         inner_type = self.variable_types.get(expr.name) if expr.pattern is None else None
         owns_binding = (inner_type is not None
                         and self._optional_binding_owns(expr)
@@ -346,19 +328,20 @@ class ConditionalsMixin:
 
         then_val = self._generate_block(expr.then_branch)
 
-        # Release the branch scope. A TERMINATED branch already ran this scope
-        # through `_cleanup_all_scopes` / `_cleanup_to_depth` on its own edge, so
-        # there is only the stack to balance — the two are different CFG paths and
-        # each drops at most once (DF-218x). Popped before the else branch is
-        # generated, which sees no binding at all.
+        # Release the branch scope. A terminated branch emits no fall-through
+        # drop: a `return`/`break`/`continue` already ran this scope through
+        # `_cleanup_all_scopes` / `_cleanup_to_depth` on its own edge, and a
+        # panic ends in `unreachable` with nothing left to drop. Either way
+        # only the compile-time stack needs balancing. Popped before the else
+        # branch is generated, which sees no binding at all.
         if not self.builder.block.is_terminated:
             self._cleanup_scope(self.cleanup_stack.pop())
         else:
             self.cleanup_stack.pop()
 
         # Restore the shadowed enclosing binding(s), or remove the if-let binding
-        # if it shadowed nothing (design 100). This replaces the old unconditional
-        # delete, which dropped an outer binding of the same name.
+        # if it shadowed nothing. An unconditional delete would drop an outer
+        # binding of the same name.
         for nm, sv, st, sf in _shadow_save:
             if sv is _SHADOW_MISSING:
                 self.variables.pop(nm, None)
@@ -388,10 +371,10 @@ class ConditionalsMixin:
 
         # A branch that produces only a Void value (e.g. a void call tail like
         # `foo(x)` in `if let x = opt { foo(x) } else { foo(0) }`) yields no
-        # consumable result — normalize it to None so the result-capturing logic
+        # consumable result; normalize it to None so the result-capturing logic
         # below never allocas a Void slot (an alloca of a Void type asserts inside
-        # llvmlite: "not isinstance(pointee, VoidType)"). Mirrors the Void contract
-        # `_generate_if_expression` already enforces (DF7).
+        # llvmlite). Mirrors the Void contract `_generate_if_expression`
+        # enforces.
         if then_val is not None and isinstance(then_val.type, ir.VoidType):
             then_val = None
         if else_val is not None and isinstance(else_val.type, ir.VoidType):
@@ -580,23 +563,20 @@ class ConditionalsMixin:
         inner_saw = (opt_type.inner_type if opt_type and opt_type.kind == TypeKind.OPTIONAL
                      and opt_type.inner_type else None)
 
-        # Tuple pattern (design 63): destructure the unwrapped tuple into its
-        # bindings. The source-ownership answer is the one the `_` arm below
-        # already asks — whether the scrutinee HANDED its payload over (a
-        # `move`, or a fresh temporary nobody else holds) or KEEPS it (a local,
-        # a field, a place read). This used to pass a hardcoded `False`, which
-        # asserts "the source handed over" at every scrutinee, contradicting the
-        # comment that stood right here; over a scrutinee that keeps its payload
-        # the leaves then bound as bitwise aliases and the branch's scope exit
-        # released references the scrutinee still owned.
+        # Tuple pattern: destructure the unwrapped tuple into its bindings. The
+        # source-ownership answer is the one the `_` arm below asks: whether
+        # the scrutinee handed its payload over (a `move`, or a fresh temporary
+        # nobody else holds) or keeps it (a local, a field, a place read). Over
+        # a scrutinee that keeps its payload each owning leaf must retain, or
+        # its scope exit releases references the scrutinee still owns.
         if stmt.pattern is not None:
             keeps = not self._optional_source_hands_over(stmt.optional_expr)
             self._destructure_bind(stmt.pattern, inner_val, inner_saw,
                                    stmt.mutable, keeps)
             return
 
-        # Design 111 rider: `guard let _ = opt else { ... }` binds nothing. Drop the
-        # unwrapped payload immediately when the source handed it over — a fresh
+        # `guard let _ = opt else { ... }` binds nothing. Drop the
+        # unwrapped payload immediately when the source handed it over: a fresh
         # owned temporary or a `move` (a named/field source keeps owning it).
         # Consumes a `Void?` (trivial unit).
         if stmt.name == "_":
@@ -608,9 +588,9 @@ class ConditionalsMixin:
                 self._emit_drop_at(slot, inner_saw)
             return
 
-        # Store in a local variable. design 131: a place scrutinee makes this a
-        # value read, so the binding takes its own reference (see the if-let
-        # twin) and becomes an owner in the cleanup registration below.
+        # Store in a local variable. A place scrutinee makes this a value read,
+        # so the binding takes its own reference (see the if-let twin) and
+        # becomes an owner in the cleanup registration below (design 131).
         bound_val = self._retain_read_payload(stmt, inner_val)
         alloca = self._entry_alloca(bound_val.type, name=stmt.name)
         self.builder.store(bound_val, alloca)
@@ -620,15 +600,14 @@ class ConditionalsMixin:
         if inner_saw is not None:
             self.variable_types[stmt.name] = inner_saw
 
-        # Register the guard binding for cleanup in the ENCLOSING scope (brief 23
-        # item 2). A guard binding deliberately outlives the guard and lives to
-        # the end of the surrounding block, so -- unlike an if-let binding -- its
-        # cleanup belongs to the enclosing scope, not a guard-local one. It owns
-        # its payload either because the source was a fresh temporary (which
-        # handed the payload over) or because the design-131 place rule retained
-        # it here; a non-retained read out of a named/field optional is cleaned
-        # by that optional's own binding, so registering it here would
-        # double-free.
+        # Register the guard binding for cleanup in the enclosing scope. A
+        # guard binding deliberately outlives the guard and lives to the end of
+        # the surrounding block, so, unlike an if-let binding, its cleanup
+        # belongs to the enclosing scope. It owns its payload when the source
+        # handed it over (a `move` or a fresh temporary) or the place rule
+        # retained it here; a non-retained read out of a named/field optional
+        # is cleaned by that optional's own binding, so registering it here
+        # would double-free.
         inner_type = self.variable_types.get(stmt.name)
         if (inner_type is not None
                 and self._optional_binding_owns(stmt)

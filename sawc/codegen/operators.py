@@ -44,24 +44,17 @@ class OperatorsMixin:
         the message and aborts; in the freestanding profile the environment
         provides saw_panic.
 
-        Design 122 unit I: every one of these carries the SAME
-        `panic at FILE:LINE: ` prefix `panic()`/`assert()` already used. A trap
-        that cannot say which line trapped is the weak link in a safety story
-        built on trapping instead of corrupting memory. `line` is the panicking
-        expression's own line when the caller has an AST node to read; otherwise
-        it is the line of the statement being lowered, which is what a check
-        emitted deep inside an operator helper has to fall back on.
+        Every one of these carries the same `panic at FILE:LINE: ` prefix
+        `panic()`/`assert()` use (design 122). `line` is the panicking
+        expression's own line when the caller has an AST node to read;
+        otherwise it is the line of the statement being lowered.
 
         The location folds into the message constant rather than becoming extra
         arguments, so a panic site still costs one relocation and one call; the
-        constants are interned by TEXT (via `_raw_bytes_ptr`), so repeated
-        checks on one line share a single global.
-
-        The format is the same in EVERY profile. Gating the FILE half behind
-        `freestanding` was measured and rejected: it saves only
-        `len(basename) - 4` bytes per site (4 bytes for a `main.saw`-sized name)
-        because what actually costs size is that a per-site LINE makes each
-        message unique, which the freestanding build pays either way.
+        constants are interned by text (via `_raw_bytes_ptr`), so repeated
+        checks on one line share a single global. The format is the same in
+        every profile: the per-site line already makes each message unique, so
+        dropping the file name in freestanding builds would save little.
         """
         message = self._panic_location_prefix(line or self._di_current_line()) + message
         if not message.endswith("\n"):
@@ -73,13 +66,11 @@ class OperatorsMixin:
     def _alloc_or_panic(self, size: int, align: int, what: str, line: int = 0):
         """Call the allocation seam, panicking if it refuses (design 123).
 
-        The compiler's OWN allocation sites — a spawned task's control block and
-        an escaping closure's heap environment — have no signature to report a
-        failure through, so they sit in the infallible tier alongside
-        `Box.make`. Before this the returned NULL was bitcast and stored through
-        immediately: a segfault with no message, where the policy asks for a
-        named panic. Returns the (non-null) block; the builder is left in the
-        continuation block.
+        The compiler's own allocation sites (a spawned task's control block and
+        an escaping closure's heap environment) have no signature to report a
+        failure through, so a refusal is a named panic rather than a NULL
+        stored through. Returns the (non-null) block; the builder is left in
+        the continuation block.
 
         `_emit_panic` builds its message from an interned byte constant rather
         than allocating one, so the failure path does not need the allocator
@@ -107,11 +98,10 @@ class OperatorsMixin:
         builder positioned in the continue block, where the raw sdiv/srem is
         then generated. Needed because arm64 does not trap on integer
         divide-by-zero, so without this the program silently returns garbage.
-        (INT_MIN / -1 overflow is intentionally NOT handled here; integer
-        overflow semantics are an open spec question — see todo_jul26.md #5/#7.)
+        The signed `INT_MIN / -1` overflow is `_check_div_no_overflow`'s.
 
         `line` is the dividing expression's own source line for the panic
-        message (design 122 unit I); 0 falls back to the statement's line.
+        message; 0 falls back to the statement's line.
         """
         zero = ir.Constant(divisor.type, 0)
         is_zero = self.builder.icmp_signed('==', divisor, zero, name="divzero_check")
@@ -126,30 +116,24 @@ class OperatorsMixin:
         self.builder.position_at_end(cont_bb)
 
     def _int_type_is_signed(self, saw_type) -> bool:
-        """THE signedness authority: whether a Saw integer TYPE is signed.
+        """The signedness authority: whether a Saw integer type is signed.
 
-        One question, one answer, one place (design 252). Substitutes the active
-        monomorphization FIRST and resolves type aliases SECOND, in that order --
-        a type parameter instantiated at a distinct alias over an unsigned
-        underlying (`T = Byte`) is unsigned, and resolving before substituting
-        would see a bare `T` and miss it. Anything not explicitly one of the
-        unsigned kinds -- including `None`, which is how an unannotated
-        expression arrives -- is SIGNED, matching the codebase's signed-centric
-        integer handling. Only genuine unsigned types, which are reliably
-        annotated, switch; deferring to signed elsewhere is correct for `Int`.
+        Substitutes the active monomorphization first and resolves type
+        aliases second, in that order: a type parameter instantiated at a
+        distinct alias over an unsigned underlying (`T = Byte`) is unsigned,
+        and resolving before substituting would see a bare `T` and miss it.
+        Anything not explicitly one of the unsigned kinds, including `None`
+        (an unannotated expression), is signed; only genuine unsigned types,
+        which are reliably annotated, switch (design 252).
 
-        ENTRY POINTS (obligation 1 -- this is the funnel, and these are its
-        doors; a new signedness decision joins the list rather than growing a
-        copy):
-        - `_int_is_signed(expr)` below, which is the OPERAND door: checked
-          arithmetic (`+ - *`), `/`, `%`, `>>`, the ordered comparison icmp,
-          compound assignment (`statements.py`), the fixed-array bounds check,
-          and an optional-chain compound write (`optionals.py`).
-        - `_emit_compare` / `_emit_enum_compare`, the three-way `Comparable`
-          ordering: the operand TYPE for a primitive integer, the declared RAW
-          BACKING for a raw-backed enum's tag.
-        - `_widen_int_value` (`calls.py`), the implicit-widening extension.
-        - `_coerce_int_to_field` (`structs.py`), the struct-field coercion.
+        Entry points (a new signedness decision joins the list rather than
+        growing a copy):
+          `_int_is_signed` -- the operand door: checked `+ - *`, `/`, `%`, `>>`, compound assignment, the array bounds-panic index, an optional-chain compound write
+          `_generate_binary_op` -- the ordered-comparison icmp
+          `_emit_compare` -- a primitive integer's three-way ordering
+          `_enum_tag_is_signed` -- a raw-backed enum's tag ordering
+          `_widen_int_value` (calls.py) -- implicit widening
+          `_coerce_int_to_field` (structs.py) -- struct-field coercion
         """
         if saw_type is None:
             return True
@@ -197,7 +181,7 @@ class OperatorsMixin:
         the non-overflowing continuation block and returns the wrapped result.
 
         `line` is the arithmetic expression's own source line for the panic
-        message (design 122 unit I); 0 falls back to the statement's line.
+        message; 0 falls back to the statement's line.
         """
         intrinsic = self._overflow_intrinsic(op, signed, left.type.width)
         agg = self.builder.call(intrinsic, [left, right], name="ovf")
@@ -222,10 +206,10 @@ class OperatorsMixin:
         UB, and a hardware trap on some targets). Panics with "integer overflow"
         for both `/` and `%` (see design 31: `%`'s mathematically-zero result is
         defined via the same panic for consistency with division). Emitted beside
-        the existing zero-divisor check; leaves the builder in the continue block.
+        the zero-divisor check; leaves the builder in the continue block.
 
         `line` is the dividing expression's own source line for the panic
-        message (design 122 unit I); 0 falls back to the statement's line.
+        message; 0 falls back to the statement's line.
         """
         ty = dividend.type
         int_min = ir.Constant(ty, -(1 << (ty.width - 1)))
@@ -278,8 +262,7 @@ class OperatorsMixin:
         so a large amount can't be truncated down into the legal range first.
         `>>` lowers to `ashr` (arithmetic) for a signed left operand, `lshr`
         (logical) for an unsigned one. `line` is the shifting expression's own
-        source line for the panic message (design 122 unit I); 0 falls back to
-        the statement's line.
+        source line for the panic message; 0 falls back to the statement's line.
         """
         width = left.type.width
         wconst = ir.Constant(right.type, width)
@@ -305,37 +288,21 @@ class OperatorsMixin:
     def _emit_array_bounds_check(self, index_val, count, index_expr):
         """Panic if a fixed-array index is out of range (design 63 T1b).
 
-        `0 <= i < N` folded into one UNSIGNED compare `i >= N`: a negative index
+        `0 <= i < N` folded into one unsigned compare `i >= N`: a negative index
         reinterpreted as unsigned is enormous, so it is caught by the same test.
-        N is the compile-time array length. ALWAYS ON, every profile, no disable
-        flag (the same posture as integer overflow, design 31). A CONSTANT index
-        never reaches here — an out-of-range constant is already a compile error
-        and an in-range one needs no guard — so this only guards genuinely
-        dynamic indices, and the optimizer folds it away where it can prove the
-        index in range (hot-loop tests stay clean). Raw-pointer / UnsafeMemory
-        indexing is deliberately NOT routed here (the explicit unsafe escape).
+        N is the compile-time array length. Always on, every profile, no
+        disable flag (the same posture as integer overflow). A constant index
+        never reaches here (an out-of-range constant is a compile error and an
+        in-range one needs no guard), and the optimizer folds the check away
+        where it can prove the index in range. Raw-pointer / UnsafeMemory
+        indexing is deliberately not routed here (the explicit unsafe escape).
 
-        DF-249a — THE BOUNDS-PANIC WORDING FAMILY. The message is
-        `<what>: index out of range: <i> (len <n>)`, the one shape every
-        bounds/range panic in the language spells: this trap (`<what>` is
-        `array`, the only name a fixed array has) and std's hand-written
-        accessor prologues (`Vector.[]`, `Data.set`, `String.byte_at`, …), which
-        write the same text with `panic("...: index out of range: {} (len {})",
-        i, n)`. Both numbers are in hand at the trap and neither used to be
-        printed: the index is the value just compared, the length is the
-        constant it was compared against. Rendered through design 137's
-        alloc-free format path, the same one the checked cast and `try!` use, so
-        the message costs no allocation on any profile.
-
-        The index is rendered at its OWN signedness rather than the unsigned
-        reading the compare folds it to, so `a[-1]` says `-1` rather than
-        18446744073709551615 — the compare's trick is an implementation detail
-        and the author's value is what is actionable.
-
-        ARITHMETIC traps are deliberately NOT in this family (ruled Aug 24,
-        v1): overflow, shift range and division by zero report a CONDITION over
-        operands whose formatting is its own question, and they keep their
-        fixed text.
+        The message is `array: index out of range: <i> (len <n>)`, the shape
+        std's hand-written accessor prologues (`Vector.[]`, `Data.set`,
+        `String.byte_at`, ...) also spell. It renders through the alloc-free
+        format path, so it costs no allocation on any profile. The index is
+        rendered at its own signedness, so `a[-1]` says `-1`, not the unsigned
+        reading the compare folds it to. Arithmetic traps keep their fixed text.
         """
         if isinstance(index_expr, IntLiteral):
             return
@@ -364,11 +331,11 @@ class OperatorsMixin:
         bitwise (&, |, ^, <<, >>), comparison (==, !=, <, >, <=, >=), and
         logical (&&, ||) operators.
         """
-        # DF-235a/b: a CONSTANT expression that adopted a fixed-width slot. The
+        # A constant expression that adopted a fixed-width slot. The
         # typechecker folded it and range-checked the result there (the same
-        # check a bare literal takes), so what is owed here is the value AT the
-        # declared width — emitting the operation instead would compute it at
-        # platform width and leave the store to narrow it, which is the gap.
+        # check a bare literal takes), so what is owed here is the value at the
+        # declared width; emitting the operation instead would compute it at
+        # platform width and leave the store to narrow it.
         folded_type = expr.resolved_type or expr.expected_type
         if expr.const_folded_value is not None and folded_type is not None:
             return ir.Constant(self._get_llvm_type(folded_type),
@@ -383,12 +350,12 @@ class OperatorsMixin:
         left = self._generate_expression(expr.left)
         right = self._generate_expression(expr.right)
 
-        # design 81 rider: a bare integer literal mixed with a fixed-width integer
-        # operand adopts that operand's width (the typechecker already
-        # range-checked it and typed the result as the fixed-width type). Without
-        # this the checked-arith intrinsic sees `i32` vs the platform-width `i64`
-        # literal and ICEs "arg mismatch". Both operand orders; only when both are
-        # integers of different widths and the wide side is a bare literal.
+        # A bare integer literal mixed with a fixed-width integer operand adopts
+        # that operand's width (the typechecker already range-checked it and
+        # typed the result as the fixed-width type); the checked-arith
+        # intrinsic needs both operands at one width. Both operand orders; only
+        # when both are integers of different widths and one side is a bare
+        # literal.
         if (isinstance(left.type, ir.IntType) and isinstance(right.type, ir.IntType)
                 and left.type.width != right.type.width):
             r_lit = (isinstance(expr.right, IntLiteral)
@@ -456,9 +423,8 @@ class OperatorsMixin:
             # Integer division: panic on a zero divisor instead of returning
             # garbage (arm64 does not trap). Signed division also panics on the
             # INT_MIN / -1 overflow and uses sdiv; unsigned division has no such
-            # overflow and must use udiv (design 41 item 0 / design 40 L6 sidecar
-            # -- an unsigned operand with the high bit set gives the wrong result
-            # under sdiv).
+            # overflow and must use udiv: an unsigned operand with the high bit
+            # set gives the wrong result under sdiv.
             self._check_divisor_nonzero(right, line=expr.line)
             if self._int_is_signed(expr.left):
                 self._check_div_no_overflow(left, right, line=expr.line)
@@ -496,20 +462,20 @@ class OperatorsMixin:
                 return self.builder.fcmp_ordered(expr.op, left, right, name="fcmptmp")
             # String / struct / (payload-free or payload) enum: order via
             # `compare()`. Everything else (integers, raw pointers) uses icmp.
-            # `st` is ALIAS-RESOLVED (design 252), so a distinct alias over a
-            # primitive underlying kinds as that underlying and lands in the icmp
-            # branch: a distinct alias has no operator surface of its own, and
-            # the STRUCT kind it carries used to route `Byte(255) <= Byte(127)`
-            # into the `compare()` path, which answered TRUE.
+            # `st` is alias-resolved, so a distinct alias over a primitive
+            # underlying kinds as that underlying and lands in the icmp branch:
+            # a distinct alias has no operator surface of its own, and the
+            # STRUCT kind it carries would route `Byte(255) <= Byte(127)` into
+            # the `compare()` path (design 252).
             if st is not None and st.kind in (TypeKind.STRING, TypeKind.STRUCT,
                                               TypeKind.ENUM):
                 return self._ordering_to_bool(expr.op,
                                               self._emit_compare(left, right, st))
             # Unsigned integer operands must compare with icmp_unsigned: under a
             # signed compare a UInt with the high bit set reads as negative, so
-            # `UInt64.max > 1` would be false (design 41 / mirror of the udiv
-            # split above). Only genuine unsigned kinds switch; Int and raw
-            # pointers stay signed as before.
+            # `UInt64.max > 1` would be false (the mirror of the udiv split
+            # above). Only genuine unsigned kinds switch; Int and raw pointers
+            # stay signed.
             icmp = (self.builder.icmp_signed if self._int_type_is_signed(st)
                     else self.builder.icmp_unsigned)
             return icmp(expr.op, left, right, name="icmptmp")
@@ -562,10 +528,10 @@ class OperatorsMixin:
                 return self._emit_array_equals(left, right, st)
             if k == TypeKind.STRUCT and not isinstance(lt, ir.IntType):
                 return self._emit_struct_equals(left, right, st)
-            # A payload-carrying enum is `{i32, [M x iK]}`; design 246 Unit B
-            # makes that an IDENTIFIED struct, so the test is the struct-ness
-            # rather than the literal spelling. A payload-free enum is a bare
-            # integer and falls through to the tag compare below.
+            # A payload-carrying enum is `{i32, [M x iK]}` as an identified
+            # struct, so the test is the struct-ness rather than the literal
+            # spelling. A payload-free enum is a bare integer and falls through
+            # to the tag compare below (design 246).
             if k == TypeKind.ENUM and isinstance(lt, ir.BaseStructType):
                 return self._emit_enum_deep_equals(left, right, st)
 
@@ -575,7 +541,7 @@ class OperatorsMixin:
 
         # Fallback for values reaching here without a Saw type (compiler-
         # synthesized comparisons): an enum-shaped {i32, [M x iK]} value compares
-        # tags (the historical behavior); a bare pointer compares by identity.
+        # tags only; a bare pointer compares by identity.
         if (isinstance(lt, ir.BaseStructType) and lt.elements
                 and len(lt.elements) == 2
                 and isinstance(lt.elements[0], ir.IntType)
@@ -590,9 +556,9 @@ class OperatorsMixin:
 
     def _emit_string_equals(self, left, right):
         """String `==` is content equality via the stdlib `String.equals`."""
-        # String stays by value (design 261 §4: `self` IS the `i8*`), so the
-        # `_self_operand` funnel is a no-op here — routed through it anyway so
-        # the rule has ONE reader.
+        # String stays by value (`self` is the `i8*`), so the `_self_operand`
+        # funnel is a no-op here; routed through it anyway so the rule has one
+        # reader (design 261).
         fn = self.functions.get(self._mangle_method_name("String", "equals"))
         if fn is None:
             # String.equals not linked (String stdlib absent): fall back to
@@ -603,17 +569,16 @@ class OperatorsMixin:
                  self._retain_comparison_operand(right)], name="streq")
 
     def _retain_comparison_operand(self, right):
-        """Retain the RIGHT operand of a synthesized String comparison
-        (DF-217m).
+        """Retain the right operand of a synthesized String comparison.
 
-        `String.equals`/`String.compare` take `other` BY VALUE — design 239's
-        one recorded asymmetry, because `String` conforms builtin rather than
-        through a written conformance and `s.equals("literal")` has to work. A
-        by-value owning parameter is the CALLEE's to drop, and every ordinary
-        call site already retains what it hands over (`_gen_transfer_value`);
-        these two synthesized sites handed the operand straight through, which
-        balanced only while an instance method leaked its parameters. Now that
-        it drops them, the retain is what the operand's owner is owed.
+        `String.equals`/`String.compare` take `other` by value (design 239's
+        one recorded asymmetry: `String` conforms builtin rather than through a
+        written conformance, and `s.equals("literal")` has to work). A by-value
+        owning parameter is the callee's to drop. An ordinary call site settles
+        that ownership through `_gen_transfer_value`: a Copy read out of
+        existing storage is retained, a fresh owned result hands over its
+        existing reference. These synthesized sites retain the operand
+        unconditionally, so its owner keeps its own reference.
         """
         return self._emit_copy_value(right, SawType(TypeKind.STRING))
 
@@ -653,9 +618,9 @@ class OperatorsMixin:
 
         The by-value branch is not dead code. `String.equals`/`String.compare`
         are String's own public API rather than a declared conformance (String
-        conforms builtin, and 200 corpus call sites pass a LITERAL, which has no
-        address to take), so they keep taking `other: String` and this reads the
-        callee's real parameter type rather than assuming.
+        conforms builtin, and callers pass literals, which have no address to
+        take), so they keep taking `other: String` and this reads the callee's
+        real parameter type rather than assuming.
         """
         params = fn.function_type.args
         if len(params) < 2 or not isinstance(params[1], ir.PointerType):
@@ -820,14 +785,12 @@ class OperatorsMixin:
     def _comparison_operand_type(self, expr: BinaryOp):
         """The Saw type a `< <= > >=` operand was checked at (same extraction as
         the equality path), substituted for the active monomorphization and
-        ALIAS-RESOLVED.
+        alias-resolved.
 
-        The resolution is what keeps the ordering dispatch honest (design 252).
         A distinct alias over a primitive carries `TypeKind.STRUCT`, and the
-        dispatch reads the kind to decide icmp-vs-`compare()`; unresolved, a
-        `Byte` operand took the `compare()` path, whose three-way integer
-        compare was unconditionally signed. The equality path resolves inside
-        `_emit_equals` instead, which is why `==` was never wrong here."""
+        dispatch reads the kind to decide icmp-vs-`compare()`, so an
+        unresolved `Byte` operand would take the wrong path (design 252). The
+        equality path resolves inside `_emit_equals` instead."""
         st = self._equality_operand_type(expr)
         return self._resolve_type_alias(st) if st is not None else None
 
@@ -857,17 +820,15 @@ class OperatorsMixin:
 
     def _emit_int_compare(self, left, right, signed: bool = True):
         """Three-way integer compare -> Ordering tag (i32), at the operand's own
-        SIGNEDNESS (design 252).
+        signedness (design 252).
 
-        This is the ordering half of the icmp split `/` and `%` have carried
-        since design 41: an unsigned value with the high bit set reads as
-        negative under `icmp_signed`, so `UInt.max.compare(&1)` answered `Less`
-        and every `Comparable`-bounded generic, sort and raw-backed-enum
-        ordering over unsigned keys inherited that. The signedness is the
-        CALLER's to supply because this emitter sees LLVM values only; every
-        caller reads it off `_int_type_is_signed`, and `signed=True` is the
-        default for the tag compares whose operand is a compiler-assigned
-        non-negative ordinal (where both readings agree)."""
+        An unsigned value with the high bit set reads as negative under
+        `icmp_signed`, so the split matters for every `Comparable`-bounded
+        generic, sort and raw-backed-enum ordering over unsigned keys. The
+        signedness is the caller's to supply because this emitter sees LLVM
+        values only; every caller reads it off `_int_type_is_signed`, and
+        `signed=True` is the default for the tag compares whose operand is a
+        compiler-assigned non-negative ordinal (where both readings agree)."""
         less, equal, greater = self._ordering_tags()
         i32 = ir.IntType(32)
         icmp = self.builder.icmp_signed if signed else self.builder.icmp_unsigned
@@ -910,23 +871,20 @@ class OperatorsMixin:
         return self._emit_int_compare(left, right, self._int_type_is_signed(st))
 
     def _generate_bound_comparison_call(self, expr):
-        """`a.equals(&b)` / `a.compare(&b)` reached through a trait BOUND.
+        """`a.equals(&b)` / `a.compare(&b)` reached through a trait bound.
 
         The typechecker stamps `comparison_dispatch` when the method resolved
-        against an `Equatable`/`Comparable` bound on a type parameter (design
-        239); this lowers it with the SAME emitter the operator uses, which is
-        what makes it total. Mangling a per-type symbol instead was an ICE at
-        the instantiations a bound exists to serve: `Int` and every other
-        primitive have no `equals` method at all (`Undefined method: Int.equals`
-        — the shape predates this brief), and `String.equals` is String's own
-        by-value API rather than the requirement's body, so it took the operand
-        by value where the requirement lends it.
+        against an `Equatable`/`Comparable` bound on a type parameter; this
+        lowers it with the same emitter the operator uses, which is what makes
+        it total. A per-type symbol would not be: `Int` and the other
+        primitives have no `equals` method at all, and `String.equals` takes
+        its operand by value where the requirement lends it (design 239).
 
         `equals` yields the i1 the requirement returns; `compare` yields the
-        i32 that IS an `Ordering` (a payload-free enum is its tag). Both
-        operands arrive as VALUES — reading a `&T` binding yields the value, and
-        the `&` a caller writes at the argument is a spelling the borrow checker
-        wanted, not a second indirection for this lowering to unwrap.
+        i32 that is an `Ordering` (a payload-free enum is its tag). Both
+        operands arrive as values: the `&` a caller writes at the argument is a
+        spelling the borrow checker wants, not a second indirection for this
+        lowering to unwrap.
         """
         left = self._generate_expression(expr.object)
         arg = expr.arguments[0].value
@@ -962,8 +920,8 @@ class OperatorsMixin:
             # String.compare not linked: fall back to Equal so codegen stays total.
             _, equal, _ = self._ordering_tags()
             return ir.Constant(ir.IntType(32), equal)
-        # The retain the by-value `other` is owed — see
-        # `_retain_comparison_operand` (DF-217m).
+        # The retain the by-value `other` is owed; see
+        # `_retain_comparison_operand`.
         return self.builder.call(
             fn, [self._self_operand(fn, left, name="strcmp_self"),
                  self._retain_comparison_operand(right)], name="strcmp")
@@ -1012,10 +970,10 @@ class OperatorsMixin:
         return acc
 
     def _enum_tag_is_signed(self, saw_type) -> bool:
-        """Whether a payload-free enum's tag orders signed: its DECLARED RAW
-        BACKING's signedness (design 145 unit B2 makes the enum BE that integer),
-        or signed for an unbacked enum, whose tags are non-negative ordinals.
-        Reads the backing the same way the `as` cast lowering does."""
+        """Whether a payload-free enum's tag orders signed: its declared raw
+        backing's signedness (a raw-backed enum is that integer), or signed for
+        an unbacked enum, whose tags are non-negative ordinals. Reads the
+        backing the same way the `as` cast lowering does."""
         name = getattr(saw_type, 'enum_name', None)
         sym = self.namespace.lookup_enum(name) if name else None
         raw = getattr(sym, 'raw_type', None) if sym else None
@@ -1032,14 +990,12 @@ class OperatorsMixin:
         i32 = ir.IntType(32)
         less, equal, greater = self._ordering_tags()
 
-        # Payload-free enum: the value IS the tag; compare tags three-way, at
-        # the DECLARED BACKING's signedness (design 252). A raw backing pins the
-        # tag values, so `enum E: UInt8` with a case past 127 is a genuinely
-        # unsigned tag -- it read as negative under the old unconditional signed
-        # compare, and `Backed.High(200) > Backed.Low(1)` answered false. An
-        # unbacked enum's tags are compiler-assigned non-negative ordinals, where
-        # both readings agree, so it keeps the signed default.
-        # design 246 Unit B: a payload-carrying enum is an IDENTIFIED struct.
+        # Payload-free enum: the value is the tag; compare tags three-way, at
+        # the declared backing's signedness. A raw backing pins the tag values,
+        # so `enum E: UInt8` with a case past 127 is a genuinely unsigned tag.
+        # An unbacked enum's tags are compiler-assigned non-negative ordinals,
+        # where both readings agree, so it keeps the signed default. A
+        # payload-carrying enum is an identified struct (design 246).
         if not isinstance(llvm_enum_type, ir.BaseStructType):
             return self._emit_int_compare(left, right,
                                           self._enum_tag_is_signed(saw_type))
@@ -1176,7 +1132,7 @@ class OperatorsMixin:
             if k == TypeKind.STRUCT and not isinstance(lt, ir.IntType):
                 self._emit_struct_hash(value, st, hasher_ptr)
                 return
-            # design 246 Unit B: a payload-carrying enum is an IDENTIFIED struct.
+            # A payload-carrying enum is an identified struct (design 246).
             if k == TypeKind.ENUM and isinstance(lt, ir.BaseStructType):
                 self._emit_enum_hash(value, st, hasher_ptr)
                 return
@@ -1285,19 +1241,17 @@ class OperatorsMixin:
         self.builder.position_at_end(merge_bb)
 
     def _confine_short_circuit_temps(self, temp_mark):
-        """Drop the statement temps created since `temp_mark` in the CURRENT
-        block, and remove them from the enclosing statement's temp list (SL-236).
+        """Drop the statement temps created since `temp_mark` in the current
+        block, and remove them from the enclosing statement's temp list.
 
-        THE THIRD ENTRY POINT of design 94's block confinement (obligation 1) —
-        `_generate_block`'s tail and a loop body being the other two. The `&&`/
-        `||` RHS is evaluated in a CONDITIONALLY-taken block, so an owned
-        statement temp created while generating it (a method-call receiver whose
-        field/method is then read — `token().value`) must be dropped on the path
-        that CONSTRUCTS it. Left to the enclosing statement's cleanup drain, it
-        was dropped at the statement's merge — a point the SHORT-CIRCUIT path
-        also reaches, where the temp's slot was never stored — so a destructor
-        ran over an uninitialized alloca (a garbage `String` pointer -> SIGBUS).
-        `temp_mark` is None when there is no statement-temp context to confine."""
+        The same confinement `_generate_block`'s tail applies. The `&&`/`||` RHS is
+        evaluated in a conditionally-taken block, so an owned statement temp
+        created while generating it (a receiver whose field is then read,
+        `token().value`) must be dropped on the path that constructs it. The
+        statement's own drain runs at the merge, which the short-circuit path
+        also reaches with the temp's slot never stored, so a destructor would
+        run over an uninitialized alloca. `temp_mark` is None when
+        there is no statement-temp context to confine."""
         if temp_mark is None or self.builder.block.is_terminated:
             return
         branch_temps = self.statement_temps[temp_mark:]
@@ -1328,8 +1282,8 @@ class OperatorsMixin:
         # Branch: if left is false, go to merge with false; else evaluate right
         self.builder.cbranch(left, eval_right_block, merge_block)
 
-        # Evaluate right operand. SL-236: confine any owned temp created for the
-        # RHS to this conditionally-taken block — see `_confine_short_circuit_temps`.
+        # Evaluate right operand. Confine any owned temp created for the RHS
+        # to this conditionally-taken block; see `_confine_short_circuit_temps`.
         self.builder.position_at_end(eval_right_block)
         temp_mark = (len(self.statement_temps)
                      if self.statement_temps is not None else None)
@@ -1367,8 +1321,8 @@ class OperatorsMixin:
         # Branch: if left is true, go to merge with true; else evaluate right
         self.builder.cbranch(left, merge_block, eval_right_block)
 
-        # Evaluate right operand. SL-236: confine any owned temp created for the
-        # RHS to this conditionally-taken block — see `_confine_short_circuit_temps`.
+        # Evaluate right operand. Confine any owned temp created for the RHS
+        # to this conditionally-taken block; see `_confine_short_circuit_temps`.
         self.builder.position_at_end(eval_right_block)
         temp_mark = (len(self.statement_temps)
                      if self.statement_temps is not None else None)
@@ -1387,10 +1341,10 @@ class OperatorsMixin:
 
     def _generate_unary_op(self, expr: UnaryOp):
         """Generate code for unary operations (-, not)."""
-        # DF-235a/b: a folded constant expression at a fixed-width slot — the
-        # same rule `_generate_binary_op` opens with, and the reason the operand
-        # is not generated at all here (`-(1 << 7)` at `Int8` would negate a
-        # magnitude the width cannot hold).
+        # A folded constant expression at a fixed-width slot: the same rule
+        # `_generate_binary_op` opens with, and the reason the operand is not
+        # generated at all here (`-(1 << 7)` at `Int8` would negate a magnitude
+        # the width cannot hold).
         folded_type = expr.resolved_type or expr.expected_type
         if expr.const_folded_value is not None and folded_type is not None:
             return ir.Constant(self._get_llvm_type(folded_type),
@@ -1401,8 +1355,8 @@ class OperatorsMixin:
         if expr.op == '-':
             if isinstance(operand.type, ir.DoubleType):
                 return self.builder.fneg(operand, name="negtmp")
-            # Negating an integer LITERAL folds to the negated constant at the
-            # operand's width (design 77 item 8): this makes `-128i8` the value
+            # Negating an integer literal folds to the negated constant at the
+            # operand's width: this makes `-128i8` the value
             # Int8.min directly rather than a runtime negation of the i8 bit
             # pattern `128` (= -128), which would overflow and panic. The
             # typechecker range-checked the negated value against the target.
@@ -1430,12 +1384,12 @@ class OperatorsMixin:
 
     def _generate_move_expr(self, expr: MoveExpr):
         """Generate code for move expression - transfers ownership without copying."""
-        # design 219 unit A2: `move ptr[i]` — the pointer-place transfer
-        # spelling. The typechecker admits a `path` only for a pointer-rooted
-        # index, and the pointer place is ownership-neutral, so this lowers to
-        # EXACTLY what the bare read has always lowered to: one GEP + one load.
-        # No retain (nothing is duplicated) and no drop-flag store (the pointer
-        # BINDING did not move — it is the base of the place, not the value).
+        # `move ptr[i]`, the pointer-place transfer spelling. The typechecker
+        # admits a `path` only for a pointer-rooted index, and the pointer place
+        # is ownership-neutral, so this lowers to exactly what the bare read
+        # lowers to: one GEP + one load. No retain (nothing is duplicated) and
+        # no drop-flag store (the pointer binding did not move; it is the base
+        # of the place, not the value) (design 219).
         if expr.path is not None:
             return self._generate_expression(expr.path)
 
@@ -1444,11 +1398,8 @@ class OperatorsMixin:
             # A local whose type instantiated to `Void` has no storage, so there
             # is nothing to load, nothing to retire and no deinit to suppress —
             # moving it yields no value, exactly as reading it does
-            # (`visit_Identifier`). Design 132 unit C taught the READ path this
-            # and stopped there, so `move x` on the same binding raised
-            # "Undefined variable" from codegen — an internal error at an
-            # instantiation far from the definition, which is precisely what
-            # unit C's instantiation-uniformity rule exists to prevent.
+            # (`visit_Identifier`). Raising here would be an internal error at
+            # an instantiation far from the definition (design 132).
             if var_name in self.void_variables:
                 self.moved_variables.add(var_name)
                 return None
@@ -1457,10 +1408,10 @@ class OperatorsMixin:
         # Load the value
         value = self.builder.load(self.variables[var_name], name=f"{var_name}_moved")
 
-        # design 131: `move o!` yields the PAYLOAD of the moved optional. The
-        # binding is retired exactly as `move o` retires it (flag cleared below,
-        # no writeback), so this is a pure projection of the already-loaded
-        # value — plus the force-unwrap's None panic.
+        # `move o!` yields the payload of the moved optional. The binding is
+        # retired exactly as `move o` retires it (flag cleared below, no
+        # writeback), so this is a pure projection of the already-loaded value,
+        # plus the force-unwrap's None panic (design 131).
         if expr.unwrap:
             is_some = self.builder.extract_value(value, 0, name="move_is_some")
             func = self.builder.function
@@ -1516,35 +1467,28 @@ class OperatorsMixin:
                 raise ValueError("'self' not available in this context")
             return self.variables["self"]
         elif isinstance(inner_expr, MemberAccess):
-            # `&mod.STATIC` / `&var mod.STATIC` (DF-232d): the qualified
-            # spelling of the `&STATIC` lend the Identifier arm above gives,
-            # asked before the field GEP — which would resolve the qualifier as
-            # a value and find it names none.
+            # `&mod.STATIC` / `&var mod.STATIC`: the qualified spelling of the
+            # `&STATIC` lend the Identifier arm above gives, asked before the
+            # field GEP, which would resolve the qualifier as a value and find
+            # it names none.
             gv = self._static_global(inner_expr)
             if gv is not None:
                 return gv
             # Reference to struct field - get GEP pointer
             return self._get_member_pointer(inner_expr)
         elif isinstance(inner_expr, ArrayIndex):
-            # `&arr[i]` / `&var arr[i]` — the element's REAL slot, addressed
-            # through the same `_get_lvalue_pointer` funnel the write spelling
-            # `arr[i] = v` goes through (SL-226).
-            #
-            # This used to call a private `_get_array_element_pointer` that kept
-            # its OWN base dispatch — Identifier, `self`, MemberAccess, nested
-            # ArrayIndex — and materialized a COPY for every other base, so a
-            # BORROW and a WRITE of one place disagreed about where that place
-            # is. Three bases fell in the hole, each a silent lost write: a
-            # ForceUnwrap (`&var o![1]`, and with it EVERY `&var arr[i]` in a
-            # suspending body, since the transform rewrites a frame local into
-            # `self.arr!`), a TupleIndex (`&var t.0[1]`), and a reference-typed
-            # identifier (`&var a[i]` on a `&var [T; N]` param), which GEP'd at
-            # array granularity and reached LLVM as a type mismatch.
+            # `&arr[i]` / `&var arr[i]`: the element's real slot, addressed
+            # through the same element-pointer funnel the write spelling
+            # `arr[i] = v` goes through, so a borrow and a write of one place
+            # agree about where it is. A private base dispatch would copy for
+            # the bases it misses (a ForceUnwrap such as a frame local's
+            # `self.arr!`, a TupleIndex, a reference-typed identifier), and a
+            # `&var` through the copy is a silently lost write.
             return self._get_element_pointer(inner_expr)
         elif isinstance(inner_expr, TupleIndex):
-            # `&t.0` / `&var t.0` (DF-151j) — a tuple element is storage like a
-            # struct field, so lend its slot. Without this the `else` below
-            # spilled a COPY and a `&var` callee mutated the copy.
+            # `&t.0` / `&var t.0`: a tuple element is storage like a struct
+            # field, so lend its slot. The `else` below would spill a copy, and
+            # a `&var` callee would mutate the copy.
             return self._get_tuple_element_pointer(inner_expr)
         elif isinstance(inner_expr, ForceUnwrap):
             # `&(opt!)` — a pointer into the optional's payload slot (guarded by a
@@ -1582,20 +1526,17 @@ class OperatorsMixin:
         """The `i1` "this value has a representation in `to_llvm`", or None when
         it always does (design 170).
 
-        ONE predicate behind both spellings — the checked `as` panics on its
-        false edge, `T.from(x)` returns that same edge as `None` — so the two
+        One predicate behind both spellings (the checked `as` panics on its
+        false edge, `T.from(x)` returns that same edge as `None`), so the two
         can never come to different conclusions about the same value.
 
-        Two shapes, picked by what can actually go wrong:
-
-        * NARROWING (`to_bits < from_bits`) — the ROUND TRIP. Truncate to the
-          target, extend back by the TARGET's signedness, and demand the
+        * Narrowing (`to_bits < from_bits`): the round trip. Truncate to the
+          target, extend back by the target's signedness, and demand the
           original. That single equality is the exact representability test for
-          every sign combination at once: `-1 as UInt8` fails (0xFF zero-extends
-          to 255, not -1), `200 as UInt8` passes, `200u as Int8` fails (0xC8
-          sign-extends to -56). Four range comparisons would be four chances to
-          get a boundary wrong.
-        * SIGN CHANGE at or above the source width — the HIGH BIT. Both
+          every sign combination: `-1 as UInt8` fails (0xFF zero-extends to
+          255, not -1), `200 as UInt8` passes, `200u as Int8` fails (0xC8
+          sign-extends to -56).
+        * Sign change at or above the source width: the high bit. Both
           directions reduce to the same test: a signed source must not be
           negative, and an unsigned source must not have reached the target's
           sign bit, which is `icmp sge value, 0` either way.
@@ -1719,8 +1660,8 @@ class OperatorsMixin:
 
             # Determine signedness from Saw type
             signed_kinds = {TypeKind.INT, TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64}
-            # A raw-backed enum casts as its BACKING (design 145 unit B2), so
-            # widening `enum E: Int8` sign-extends while `enum E: UInt8` zeroes.
+            # A raw-backed enum casts as its backing, so widening
+            # `enum E: Int8` sign-extends while `enum E: UInt8` zeroes.
             if from_saw_type is not None and from_saw_type.kind == TypeKind.ENUM:
                 _sym = self.namespace.lookup_enum(from_saw_type.enum_name)
                 _raw = getattr(_sym, 'raw_type', None) if _sym else None
@@ -1729,10 +1670,10 @@ class OperatorsMixin:
             from_signed = bool(from_saw_type
                                and from_saw_type.kind in signed_kinds)
 
-            # Design 170: the checked edge. The typechecker stamped this only
-            # where a source value can fail to have a target representation and
-            # the operand did not fold, so a widening cast and a provably
-            # in-range one reach the conversion below untouched.
+            # The checked edge. The typechecker stamped this only where a
+            # source value can fail to have a target representation and the
+            # operand did not fold, so a widening cast and a provably in-range
+            # one reach the conversion below untouched (design 170).
             if expr.cast_check:
                 to_resolved = self._resolve_type_alias(to_type)
                 self._emit_cast_range_check(

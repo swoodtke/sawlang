@@ -41,14 +41,16 @@ class StaticAssertError(Exception):
 
 
 class CodegenUserError(Exception):
-    """A rejected PROGRAM discovered during code generation (design 176).
+    """A rejected PROGRAM discovered during code generation.
 
     Codegen's other failures are compiler-invariant violations and rightly
-    surface as internal errors. This one is not: the only way an untyped `None`
-    reaches codegen is that no slot in the program pinned its payload type
-    (DF-146l), which is the author's to fix, so it is reported at the literal
-    with a hint rather than as an ICE. Same shape as `StaticAssertError` — a
-    user error the driver renders, not a traceback.
+    surface as internal errors. This one is the author's to fix — e.g. an
+    untyped `None` no slot pinned, an invalid `@section`, a non-constant or
+    negative array length, `@align` on a `Void` binding, an `extern` that
+    disagrees with a compiler-declared symbol — so it is
+    reported with a hint rather than as an ICE, anchored at the source when a
+    position is available (otherwise at 0:0). Same shape as
+    `StaticAssertError` — a user error the driver renders, not a traceback.
     """
     def __init__(self, message: str, line: int, column: int,
                  hint: str = None, source_file: str = None):
@@ -86,8 +88,8 @@ def _install_volatile_ir_support():
     """Teach llvmlite's textual IR to render `volatile` on loads/stores.
 
     llvmlite 0.48 has no first-class volatile flag: `builder.load`/`store` emit a
-    plain `load`/`store`. design 46 needs volatile MMIO accesses that survive the
-    O1 pipeline, so we honor a per-instruction `.volatile = True` by splicing the
+    plain `load`/`store`. Volatile MMIO accesses must survive the O1
+    pipeline, so we honor a per-instruction `.volatile = True` by splicing the
     keyword into the rendered instruction. The bit is then set on the real LLVM
     instruction when `binding.parse_assembly` re-reads the text, and every opt
     pass preserves it (the not-elided oracle). Idempotent; applied once at import.
@@ -122,51 +124,29 @@ def _install_volatile_ir_support():
 _install_volatile_ir_support()
 
 
-#: Design 265 U1 — THE OPTIMIZATION-LEVEL FUNNEL.
+#: THE OPTIMIZATION-LEVEL FUNNEL.
 #:
 #: ONE table maps a level to every back-end knob it moves, so a level cannot
-#: mean one thing in the pipeline and another in the object. Its entry points,
-#: all of them:
+#: mean one thing in the pipeline and another in the object. ENTRY POINTS:
 #:
-#:   * `CodeGenerator._run_optimization_passes` reads `speed_level` — the
-#:     module pipeline llvmlite builds (`buildPerModuleDefaultPipeline`).
-#:   * `CodeGenerator._stamp_optimization_attributes` reads
-#:     `function_attributes` and puts them on every DEFINED function, from
-#:     `emit_ir` and `compile_to_object` alike.
-#:   * `sawc.py`'s `-O0/-O1/-O2/-Os/-Oz` are the only producers of a level
-#:     string; `compile_saw(opt_level=...)` carries it here.
+#:   * `CodeGenerator._run_optimization_passes` (`speed_level`)
+#:   * `CodeGenerator._stamp_optimization_attributes` (`function_attributes`)
+#:   * `CodeGenerator._make_target_machine` (`codegen_level`)
+#:   * `sawc.py`'s `-O0/-O1/-O2/-Os/-Oz`, the only producers of a level string
 #:
-#: WHY THE SIZE LEVELS ARE ATTRIBUTES rather than a pipeline argument
-#: (probed Sep 4 2026 against llvmlite 0.48 / LLVM 22.1): llvmlite's
-#: `PipelineTuningOptions` exposes `speed_level` ALONE, and its
-#: `buildPerModuleDefaultPipeline(pb, speed_level)` has no size-level
-#: parameter — LLVM's `OptimizationLevel::Os`/`Oz` cannot be requested through
-#: the binding at all. `optsize`/`minsize` are the same signal by another
-#: door: every size-sensitive decision in LLVM (inliner threshold, unrolling,
-#: vectorization, and the MACHINE OUTLINER, which runs on `minsize` functions
-#: with no command-line option needed) reads the function attribute. Measured
-#: on `json_value_roundtrip.saw`, host arm64: O1 266,232 B of `.text`, O2
-#: 265,284, Os 225,256 (-15.4%), Oz 183,672 (-31.0%) with 783 outlined-body
-#: references where O1 has none.
+#: WHY THE SIZE LEVELS ARE ATTRIBUTES rather than a pipeline argument:
+#: llvmlite's `buildPerModuleDefaultPipeline(pb, speed_level)` has no
+#: size-level parameter, so LLVM's `Os`/`Oz` cannot be requested through the
+#: binding. `optsize`/`minsize` are the same signal by another door: every
+#: size-sensitive decision in LLVM (inliner threshold, unrolling,
+#: vectorization, and the machine outliner, which runs on `minsize`
+#: functions) reads the function attribute (design 265).
 #:
-#: The TargetMachine's CODEGEN opt level is the table's fourth knob (added by
-#: the Sep 10 2026 perf measurement; design 265 U1 had left it out because
-#: moving it for the default level would change that level's output).
-#: `_make_target_machine` reads it. Every level except `-O0` keeps llvmlite's
-#: default of 2, so the default level and every size level emit byte-identical
-#: objects to before; `-O0` alone drops to 0.
-#:
-#: WHY `-O0` MOVES. `-O0` skipped the IR pipeline and then ran the BACK END at
-#: full strength anyway, so a debug build paid for optimized instruction
-#: selection and scheduling it had explicitly asked not to have. Measured on
-#: the sawtracker server (6 modules, 2,015 emitted functions, 31.7 MB of IR),
-#: host arm64: `TargetMachine.emit_object` takes 79.3 s at codegen level 2 and
-#: 12.4 s at 0 — 6.4x, on the phase that is 80% of that compile. The cost
-#: concentrates in the coroutine transform's frame `resume` bodies, which are
-#: thousands of tiny basic blocks each (`__Frame_mutate_patch_resume`: 5,394
-#: blocks over 19,940 instructions), and LLVM's Machine Instruction Scheduler
-#: — half the back-end time at level 2, off entirely at level 0 — pays a
-#: per-region cost across every one of them.
+#: `codegen_level` is the TargetMachine's opt level: 2 (llvmlite's default)
+#: for every level except `-O0`, which drops to 0 so a debug build does not
+#: pay for optimized instruction selection and scheduling. That cost is
+#: largest on the coroutine frames' `resume` bodies, which hold thousands of
+#: tiny basic blocks.
 OptimizationLevel = namedtuple(
     "OptimizationLevel", "flag speed_level function_attributes codegen_level")
 
@@ -178,8 +158,8 @@ OPTIMIZATION_LEVELS = {
     "z": OptimizationLevel("-Oz", 2, ("optsize", "minsize"), 2),
 }
 
-#: The level a compile runs at when nobody says otherwise. Unchanged by design
-#: 265: `--freestanding` does not imply a size level either.
+#: The level a compile runs at when nobody says otherwise. `--freestanding`
+#: does not imply a size level.
 DEFAULT_OPTIMIZATION_LEVEL = "1"
 
 
@@ -190,38 +170,38 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                  target_features: Optional[str] = None,
                  strip_unreachable: bool = False,
                  opt_level: str = DEFAULT_OPTIMIZATION_LEVEL):
-        # Unified namespace from type checker (Phase 0 of module system)
+        # Unified namespace from the type checker.
         self.namespace = namespace
 
-        # design 265 U1: the optimization LEVEL this compile runs at, as the
-        # key into `OPTIMIZATION_LEVELS` (that table's docstring names every
-        # knob a level moves and every place one is read).
+        # The optimization LEVEL this compile runs at, as the key into
+        # `OPTIMIZATION_LEVELS` (that table's comment names every knob a level
+        # moves and every place one is read).
         if opt_level not in OPTIMIZATION_LEVELS:
             raise ValueError(f"unknown optimization level {opt_level!r}")
         self.opt_level = opt_level
 
-        # design 168 unit 2: emit only the bodies the program reaches. Off by
-        # default so a caller that builds an object somebody ELSE links keeps
-        # every symbol; `compile_saw` turns it on for whole-program builds.
+        # Emit only the bodies the program reaches. Off by default so a caller
+        # that builds an object somebody ELSE links keeps every symbol;
+        # `compile_saw` turns it on for whole-program builds (design 168).
         self._init_reachability(strip_unreachable)
 
-        # Profile flag (design 19/20): freestanding emits the runtime seams as
-        # declarations only (no hosted libc-backed defaults) and gates hosted
-        # facilities (Float printing, hosted std modules).
+        # Profile flag. In codegen it selects per-function sections plus
+        # internalize, non-PIC target machines, and keeps the backtrace table
+        # out of a named section. (The driver separately links no hosted
+        # runtime or std for freestanding.)
         self.freestanding = freestanding
 
-        # Runtime-build mode (design 113b): this module IS a per-host runtime —
-        # it `@export`s the `__saw_rt_*` seam bodies. So the compiler emits the
-        # seams as DECLARATIONS only (the module's own `@export` definitions
-        # collapse into them via the design-58 declaration/definition unify), and
+        # Runtime-build mode: this module IS a per-host runtime — it
+        # `@export`s the `__saw_rt_*` seam bodies. The module's own `@export`
+        # definitions collapse into the seam declarations (the
+        # declaration/definition unify in `_declare_function`), and
         # every non-exported definition is internalized so the runtime object
         # carries only its exported seams (+ their private helpers) — no
         # duplicate `__saw_string_*`/argv symbols across the runtime + the user
         # program at link time.
         self.runtime_build = runtime_build
-        # The seams are declaration-only whenever the compiler is NOT the one
-        # providing their bodies: the freestanding profile (environment supplies
-        # them) and the runtime-build mode (the Saw runtime provides them).
+        # Nothing reads this: `_declare_seams` declares the seams external in
+        # every profile, since the compiler never provides their bodies.
         self._seams_external_only = freestanding or runtime_build
 
         # LLVM core init is automatic; targets still need explicit registration.
@@ -243,10 +223,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # divide instruction, so an integer `/` becomes a `__divsi3` libcall the
         # freestanding profile has no library to satisfy. Formatting an integer
         # needs division, so a kernel that logs a number cannot link without
-        # this (design 137).
+        # this.
         #
         # The freestanding profile supplies ONE default of its own — aarch64's
-        # `-neon,-fp-armv8` (DF-162a) — because a bare-metal AArch64 core traps
+        # `-neon,-fp-armv8` — because a bare-metal AArch64 core traps
         # Advanced SIMD out of reset and the failure is a hang rather than a link
         # error. `--target-features` overrides it. See `effective_target_features`.
         from target_info import effective_target_features
@@ -258,8 +238,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # `context.global_context`, whose `identified_types` registry caches
         # every named struct type (`get_identified_type`) for the life of the
         # process. In a one-shot `sawc` invocation that is harmless, but a
-        # long-lived process that compiles more than once in-process (the design
-        # 115 persistent test-worker; a future compile-server/LSP) would hit
+        # long-lived process that compiles more than once in-process (the
+        # persistent test-worker; a future compile-server/LSP) would hit
         # "<StructName> is already defined" on the SECOND compile when it
         # re-registers a builtin/std identified type (e.g. `Device`). Isolating
         # each compile in its own `ir.Context` makes the identified-type registry
@@ -267,22 +247,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.module = ir.Module(name="__saw_module", context=ir.Context())
         self.module.triple = self.triple
 
-        # ...and the LLVM-side twin of it (DF-220a). The paragraph above
-        # isolates llvmlite's PYTHON identified-type registry; this isolates
-        # LLVM's own. Every `binding.parse_assembly` of this compile lands here
-        # instead of in the process-global `LLVMContext`, whose named-struct
-        # registry is likewise never cleared.
-        #
-        # What the global context did: `StructType::setName` renames an
-        # ALREADY-REGISTERED name to `Name.<NamedStructTypesUniqueID++>`, and
-        # the ABI-layout queries below re-parse this compile's whole
-        # identified-type table on every call (~92 parses x ~45 types), so a
-        # SECOND in-process compile found every one of its struct names taken
-        # and got `.NNNN` suffixes throughout its optimized IR. Objects and the
-        # unoptimized sidecar were byte-identical — the divergence was the
-        # optimized IR text alone — but it broke design 115's bit-identity
-        # claim from compile 2 on, and it leaked ~45 types and ~4200 uniquings
-        # into a persistent worker per compile, permanently.
+        # ...and the LLVM-side twin of it. The paragraph above isolates
+        # llvmlite's PYTHON identified-type registry; this isolates LLVM's own.
+        # Every `binding.parse_assembly` of this compile lands here instead of
+        # in the process-global `LLVMContext`, whose named-struct registry is
+        # never cleared: `StructType::setName` renames an ALREADY-REGISTERED
+        # name to `Name.<N>`, and the ABI-layout queries below re-parse this
+        # compile's identified-type table, so a second in-process compile
+        # would get `.N` suffixes throughout its optimized IR and leak types
+        # into a persistent worker on every compile.
         #
         # Held on `self` because it must OUTLIVE every `ModuleRef` and
         # `TargetMachine` this compile parses into it: llvmlite disposes a
@@ -302,25 +275,20 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # silent disagreement for any struct whose field offsets differ between
         # the two (e.g. an `i1` followed by an aggregate containing an `i64`, as
         # in a coroutine frame `{ i1, { i1, T }, i64, i64 }`). The optimized IR
-        # then reads/writes a field at the wrong byte offset (the coroutine state
-        # word never advances → the driver loop spins forever). Setting the layout
-        # makes optimization and emission agree.
+        # would then read/write a field at the wrong byte offset (a coroutine
+        # state word that never advances spins the driver loop forever).
+        # Setting the layout makes optimization and emission agree.
         self.module.data_layout = str(target_machine.target_data)
 
-        # Design 47: Int/UInt are POINTER-WIDTH — 64-bit on x86-64/aarch64,
-        # 32-bit on riscv32 (ESP32-P4) — matching Swift's model and the spec's
-        # long-standing promise. `self.int_type` is the single derived LLVM type
-        # for platform `Int`/`UInt`; every platform-Int lowering (literals,
-        # arithmetic + overflow intrinsics, sizeof/alignof/len results, loop
-        # induction, Range items, UnsafeMemory addresses) uses it instead of a
-        # hardcoded i64. Fixed-width Int8..Int64/UInt8..UInt64 keep their own
-        # widths (stable layouts), and the runtime ABI seams (saw_alloc/write/
-        # panic sizes, String header + refcount, Arc atomic refcount) stay
-        # pinned at i64 — see the audit split in designs/47. The width comes
-        # from the target's address-space-0 pointer size in the data layout, so
-        # it always agrees with the target machine used for optimization and
-        # object emission. Hosted targets are 64-bit, so `int_type is i64` there
-        # and every migrated site is byte-identical to the pre-47 compiler.
+        # Int/UInt are POINTER-WIDTH — 64-bit on x86-64/aarch64, 32-bit on
+        # riscv32. `self.int_type` is the single derived LLVM type for platform
+        # `Int`/`UInt`; every platform-Int lowering (literals, arithmetic +
+        # overflow intrinsics, sizeof/alignof/len results, loop induction,
+        # Range items, UnsafeMemory addresses) uses it instead of a hardcoded
+        # i64. Fixed-width Int8..Int64/UInt8..UInt64 keep their own widths
+        # (stable layouts). The width comes from the target's address-space-0
+        # pointer size in the data layout, so it always agrees with the target
+        # machine used for optimization and object emission (design 47).
         self.int_width = self._pointer_size_bits(self.module.data_layout)
         self.int_type = ir.IntType(self.int_width)
 
@@ -330,16 +298,16 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Symbol table for variables (name -> alloca instruction)
         self.variables: dict = {}
 
-        # Locals whose type instantiated to `Void` (design 132 unit C). They get
-        # no alloca — LLVM has no void storage — so they live here instead and
-        # read back as Void. Only a generic local can land in this state; a
-        # concrete `let n = <Void expr>` is a typechecker error (design 122).
+        # Locals whose type instantiated to `Void`. They get no alloca — LLVM
+        # has no void storage — so they live here instead and read back as
+        # Void. Only a generic local can land in this state; a concrete
+        # `let n = <Void expr>` is a typechecker error.
         self.void_variables: set = set()
 
         # Function table
         self.functions: dict = {}
 
-        # DF-225a: the C symbols codegen DECLARES for its own lowering, mapped
+        # The C symbols codegen DECLARES for its own lowering, mapped
         # to the LLVM function type it declared each with. A user `extern "C"`
         # of one of these names is a second declaration of one symbol, so it is
         # answered by the ordinary rule — the same signature unifies, a
@@ -348,8 +316,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # `_declare_external_functions`; read by `_declare_extern_function`.
         self.compiler_declared_c_symbols: dict = {}
 
-        # Module-level static globals (design 41): simple name -> LLVM
-        # GlobalVariable. Reads of a static load through the matching global.
+        # Module-level static globals: codegen symbol and simple name -> LLVM
+        # GlobalVariable (see `_emit_static_global`). Reads of a static load
+        # through the matching global.
         self.static_globals: dict = {}
 
         # Struct types (name -> (LLVM type, field_order))
@@ -360,18 +329,17 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # resolves owning fields (e.g. Map's `slots: Vector<..., A>`) through the
         # value's OWN allocator `A`, not a default.
         self.mono_struct_args: dict = {}
-        # The same pair for a monomorphized generic ENUM (design 145). Kept
-        # apart from the struct map because `_receiver_saw_type` has to rebuild
-        # the right KIND — a STRUCT-kinded `Code<Int>` has no variants, so every
+        # The same pair for a monomorphized generic ENUM. Kept apart from the
+        # struct map because `_receiver_saw_type` has to rebuild the right
+        # KIND — a STRUCT-kinded `Code<Int>` has no variants, so every
         # `match self` in its methods would fail to resolve.
         self.mono_enum_args: dict = {}
-        # design 218 unit 1.5: the monomorphization phase's INSTANCE REGISTRY,
-        # attached by `sawc._prepare_codegen` after the fixpoint has run. None
-        # for a code generator nobody ran the phase for (the builtin compile, a
-        # tool). It is the ANSWER now, not a second opinion: every function and
-        # method instantiation is a lookup here whose miss is an internal error
-        # — the standing decides-vs-lowers gate — and stage 1's shadow
-        # comparison retired at stage 5 with nothing left to compare.
+        # The monomorphization phase's INSTANCE REGISTRY, attached by
+        # `sawc._prepare_codegen` after the fixpoint has run. None for a code
+        # generator nobody ran the phase for (the builtin compile, a tool). It
+        # is the answer, not a second opinion: every function and method
+        # instantiation is a lookup here whose miss is an internal error
+        # (design 218).
         self.mono_registry = None
 
         # Enum types (name -> (LLVM type, variant_tags, variant_info))
@@ -379,7 +347,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # variant_info: dict[variant_name, list[(param_name, SawType)]]
         self.enum_types: dict = {}
 
-        # design 261: `_receiver_is_aggregate`'s answer per type name. Memoized
+        # `_receiver_is_aggregate`'s answer per type name. Memoized
         # because the receiver ABI is read at the DECLARATION and again in the
         # BODY, and the two must be handed the same answer even if the type
         # maps grow in between — a signature and a body that disagree about
@@ -391,20 +359,20 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self._abi_size_cache: dict = {}
         self._abi_align_cache: dict = {}
 
-        # design 246 Unit B. Concrete declarations this unit owns that no type
-        # has been registered for yet, by identity — what `_demand_register_type`
+        # Concrete declarations this unit owns that no type has been
+        # registered for yet, by identity — what `_demand_register_type`
         # registers out of order when a member of a CYCLE names one. And the
         # bodies waiting for a member to become sized: `_set_registered_body`
-        # parks one here and `_drain_deferred_type_bodies` lands it.
+        # parks one here and `_drain_deferred_type_bodies` lands it (design 246).
         self._unregistered_type_decls: dict = {}
         self._deferred_type_bodies: list = []
         self._draining_type_bodies: bool = False
 
         # String constants (raw C strings: [N x i8] globals for printf etc.)
         self.string_constants: dict = {}
-        # Saw String literal globals: value -> {i64 refcount(=-1), i64 len, [N+1 x i8]}
+        # Saw String literal globals: value -> {word refcount(=-1), word len, [N+1 x i8]}
         self.string_literal_globals: dict = {}
-        # design 168 unit 3: how many synthesized globals have claimed one base
+        # How many synthesized globals have claimed one base
         # name. Every base is derived from content or from an owner + position,
         # so this stays 1 per base in practice; it exists so a duplicate is
         # disambiguated by a rule that lives here rather than by llvmlite's
@@ -434,7 +402,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Stores specialized extensions keyed by (struct_name, type_args_tuple)
         # e.g., ("Vector", ("String",)) -> [Extension for Vector<String>]
         self.specialized_extensions: dict[tuple, List[Extension]] = {}
-        # Design 40 item 9 (C6): generic METHODS declared on a NON-generic-type
+        # Generic METHODS declared on a NON-generic-type
         # extension (e.g. `extension String { func withCString<R>(...) }`).
         # Their type params are unbound until the call site supplies method type
         # args, so they are indexed here (struct_name -> method_name -> Method)
@@ -443,13 +411,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Tracks which monomorphized functions have been generated
         self.generated_instantiations: set[str] = set()
 
-        # design 126 R1: llvmlite values codegen produces for a ClosureExpr and
-        # then needs again at the `spawn` site (the generated body function, the
-        # env pointer, the env destructor), keyed by `ClosureExpr.node_id`.
-        # These used to be stamped ONTO the AST node, which made codegen a
-        # mutator of the tree the effect and monomorphization passes walk -- and
-        # under Saw's ownership rules would force `&var Program` through the
-        # whole back end for what is really a side table.
+        # llvmlite values codegen produces for a ClosureExpr and then needs
+        # again at the `spawn` site (the generated body function, the env
+        # pointer, the env destructor), keyed by `ClosureExpr.node_id`. A side
+        # table rather than fields on the node, so codegen never mutates the
+        # tree the effect and monomorphization passes walk (and a Saw port
+        # need not thread `&var Program` through the back end).
         self.closure_values: dict[int, tuple] = {}
 
         # Variable types for closure captures (name -> SawType)
@@ -457,14 +424,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # Default parameter values: mangled_name -> list of default Expression (or None)
         self.method_defaults: dict[str, list] = {}
-        # Free-function default parameter values (design 53): the self.functions
+        # Free-function default parameter values: the self.functions
         # lookup key -> list of default Expression (or None), one per parameter.
         self.func_defaults: dict[str, list] = {}
 
         # Resource management: variable lifetime tracking
         # Stack of scopes, each scope is a list of (var_name, saw_type) for variables needing cleanup
         self.cleanup_stack: List[List[tuple[str, SawType]]] = []
-        # design 51: `any Trait` existential state (vtables, thunks, destructors).
+        # `any Trait` existential state (vtables, thunks, destructors).
         self._existential_init()
         # Cache: type_name -> cleanup behavior ('none', 'deinit', 'implicit_copy', 'no_copy')
         self.type_cleanup_behavior: dict[tuple, str] = {}
@@ -477,10 +444,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Names bound to storage this frame BORROWS rather than owns. A
         # reference closure parameter is the case `variable_types` cannot
         # describe (it holds the referent's type, because the name IS the
-        # pointer), and consuming one would release a value the caller still
-        # owns — which is what a `match` through a `with_ref` borrow did.
+        # pointer), and consuming one — say, a `match` through a `with_ref`
+        # borrow — would release a value the caller still owns.
         self.borrowed_variables: set[str] = set()
-        # Runtime drop flags (design 42): name -> i1 alloca (1 = still needs drop).
+        # Runtime drop flags: name -> i1 alloca (1 = still needs drop).
         # A binding that MIGHT be `move`d on some control-flow paths but not others
         # (a conditional move) cannot have its cleanup decided statically — the
         # flat `moved_variables` set would suppress the drop on the not-moved path
@@ -491,7 +458,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # saved/restored around nested (closure/generic) codegen, like `variables`.
         self.drop_flags: dict[str, ir.Value] = {}
 
-        # Statement-scoped temporaries (item 4): owned Deinit-needing values
+        # Statement-scoped temporaries: owned Deinit-needing values
         # produced mid-statement that are neither bound, returned, nor
         # transferred onward (e.g. the receiver of `makeResource().use()`).
         # None outside a statement; a list (LIFO drop at statement end) while a
@@ -502,18 +469,18 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Maps function name -> inner SawType (unwrapped from optional)
         self.extern_optional_returns: dict[str, SawType] = {}
 
-        # design 58: `@export`ed functions/statics to anchor against DCE via an
+        # `@export`ed functions/statics to anchor against DCE via an
         # `@llvm.used` appending global (emitted once at the end of codegen).
         self._exported_llvm_globals: list = []
 
         # Current return type (for implicit optional wrapping)
         self.current_return_type: Optional[SawType] = None
 
-        # design 69: DWARF debug-info (line tables). Initialize state now; the
+        # DWARF debug-info (line tables). Initialize state now; the
         # module-level metadata (flags + compile unit) is emitted in generate().
         self._di_init(source_path)
 
-        # Declare external functions (printf for print)
+        # Declare the C functions codegen's own lowering calls (printf, abort, ...)
         self._declare_external_functions()
 
     # Built-in type names for detecting specialized extensions
@@ -525,18 +492,16 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         Returns tuple of type arg names if specialized (e.g., ("String",)),
         or empty tuple if it's a generic extension.
 
-        DF-286a: the rule and its rationale live in
+        The rule and its rationale live in
         `mono_identity.extension_specialization_key`, which the monomorphization
         phase calls too — the phase decides the instance set and codegen only
-        looks instances up, so the two would answer "is this extension a
-        specialization" separately if the answer lived here. Its own copy read
-        `Extension.type_args`, a field the parser never fills for an extension
-        head, and so called every specialization generic.
+        looks instances up, so the two must not answer "is this extension a
+        specialization" separately.
         """
         return extension_specialization_key(self._identity_env, extension)
 
     def _pad_spec_key_with_defaults(self, struct_name, spec_key, struct_type_params_by_name):
-        """Design 37: extend a specialized-extension key with the struct's
+        """Extend a specialized-extension key with the struct's
         declared trailing default type-arg names, so a spec extension written
         against the default-omitted form matches the fully-applied lookup key.
         `extension Vector<String>` -> `("String", "GlobalAllocator")`."""
@@ -555,21 +520,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def _declare_external_functions(self):
         """Declare the C symbols codegen calls for its own lowering.
 
-        DF-225a: these five were the ONLY compiler-declared symbols with no
-        typechecker-visible declaration mirroring them. Every other one — the
-        `__saw_rt_*` seams, the `__saw_string_*` helpers, `memcpy`, `strlen` —
-        is declared as an `extern` in std too, so a user redeclaration met the
-        ordinary multi-declaration check and got a clean answer (probed: nine
-        names, one control). These five met llvmlite's redeclaration path
-        unguarded, and `extern "C" { func printf(...) }` alone, never called,
-        was `internal compiler error: printf`.
-
-        They are registered in `self.functions` now, exactly as every other
-        compiler-declared symbol is, so the extern pass's "already declared"
-        skip covers them — and `compiler_declared_c_symbols` records the TYPE
-        each was declared with, so a user declaration that DISAGREES is a clean,
-        located refusal instead of a silently-unified call through the wrong
-        signature. See `_declare_extern_function`.
+        Unlike the `__saw_rt_*` seams and `__saw_string_*` helpers, these have
+        no `extern` in std, so the typechecker's multi-declaration check never
+        sees them. They are registered in `self.functions`, so the extern
+        pass's "already declared" skip covers them, and
+        `compiler_declared_c_symbols` records the TYPE each was declared with,
+        so a user declaration that DISAGREES is a clean, located refusal
+        instead of a silently-unified call through the wrong signature. See
+        `_declare_extern_function`.
         """
         i8ptr = ir.PointerType(ir.IntType(8))
         i32 = ir.IntType(32)
@@ -600,27 +558,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             self.functions[fn.name] = fn
             self.compiler_declared_c_symbols[fn.name] = fn.function_type
 
-    # _get_llvm_type is now in codegen_types.py (TypesMixin)
-
-    # Resource management methods are now in codegen_resources.py (ResourcesMixin)
-
     def _entry_alloca(self, llvm_type, name="", align=None):
         """Create an alloca in the current function's entry block.
 
         `align` STRENGTHENS the slot's alignment: the emitted number is the
         maximum of the request and the type's own ABI alignment, so a caller
         can only ever ask for more than the type would get and never for less
-        (DF-300b — a `@align(2)` on an `Int64` local must not produce a
-        2-aligned slot the loads would then fault on).
-
-        Payload scratch used to pass
-        `align=8` for a reason design 265 U2 removed: an enum payload was typed
-        `[N x i8]` (ABI align 1) and bitcast-and-loaded as the active variant's
-        field struct, whose pointers and `i64`s require 8-alignment, so a
-        1-aligned slot landed the payload on an odd offset and the wider load
-        alignment-faulted on arm64. The union is now typed at its payload's own
-        alignment, so `_payload_scratch_alloca` asks the TYPE instead of
-        hard-coding a number.
+        (a `@align(2)` on an `Int64` local must not produce a 2-aligned slot
+        the loads would then fault on).
 
         Every stack slot must be allocated in the entry block, for two reasons:
         - mem2reg/SROA only promote allocas that live in the entry block, so
@@ -655,9 +600,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         encoded = (value + '\0').encode('utf-8')
         str_type = ir.ArrayType(ir.IntType(8), len(encoded))
 
-        # design 168 unit 3 (DF-164c), same rule as `.sawstr` below: the cache is
-        # keyed by content, so the name is too. (This is the C-string half —
-        # DF-164c enumerated four counters and there were five.)
+        # Same rule as `.sawstr` below: the cache is keyed by content, so the
+        # name is too, and the IR does not depend on what else was compiled.
         name = self._synth_symbol(f".str.{content_tag(encoded)}")
 
         global_str = ir.GlobalVariable(self.module, str_type, name=name)
@@ -669,32 +613,31 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return global_str
 
     # =========================================================================
-    # Refcounted String runtime (design 07/11)
+    # Refcounted String runtime
     # =========================================================================
     #
     # A `String` value lowers to a single `i8*` pointing at the `bytes` field of
     # a heap block laid out as:
     #
-    #     { i64 refcount, i64 len, i8 bytes[len], i8 NUL }
+    #     { word refcount, word len, i8 bytes[len], i8 NUL }
     #
-    # The header lives at NEGATIVE offsets from the String pointer (refcount at
-    # ptr-16, len at ptr-8). Pointing at `bytes` (not the header) keeps every
-    # existing char*-consuming site working unchanged: `s as UnsafePointer<Int8>`
-    # is a no-op bitcast, the bytes stay NUL-terminated for FFI, and printf %s
-    # reads them directly. String literals use an immortal sentinel refcount of
-    # -1 and are never retained/released (a plain load + branch guards every
-    # atomic, so literals incur zero atomic traffic).
+    # The header lives at NEGATIVE offsets from the String pointer (refcount two
+    # words before it, len one word before). Pointing at `bytes` (not the
+    # header) keeps every char*-consuming site working: `s as
+    # UnsafePointer<Int8>` is a no-op bitcast, the bytes stay NUL-terminated for
+    # FFI, and printf %s reads them directly. String literals use an immortal
+    # sentinel refcount of -1 and are never retained/released (a plain load +
+    # branch guards every atomic, so literals incur zero atomic traffic).
 
     @staticmethod
     def _pointer_size_bits(data_layout: str) -> int:
-        """The platform `Int`/`UInt` width (design 47) — see
+        """The platform `Int`/`UInt` width — see
         `target_info.pointer_size_bits`.
 
-        This body used to be a second copy whose docstring said it was "kept
-        identical on purpose". Two copies of a must-agree rule is the shape
-        design 194 exists to remove: the front end range-checks a literal
-        against its answer and codegen emits against its own, so a drift
-        between them is a literal the checker accepted and the backend wrapped.
+        Delegates rather than copying: the front end range-checks a literal
+        against that answer and codegen emits against this one, so a drift
+        between two copies would be a literal the checker accepted and the
+        backend wrapped.
         """
         from target_info import pointer_size_bits
         return pointer_size_bits(data_layout)
@@ -703,12 +646,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         """Return (block_start_i8ptr, refcount_ptr, len_ptr) for a String bytes
         pointer `p`.
 
-        Design 47: the String header `{ isize refcount, isize len, bytes }` is
+        The String header `{ isize refcount, isize len, bytes }` is
         platform-width (the stdlib types `__saw_string_len`/`_alloc` and String's
         refcount protocol as `Int`), so the header is two machine words: refcount
-        at `p - 2*wordbytes`, len at `p - wordbytes`. On a 64-bit target this is
-        the pre-47 `-16`/`-8`/i64 layout byte-for-byte; on riscv32 it is a
-        `-8`/`-4`/i32 header, and the refcount atomics run at the native width.
+        at `p - 2*wordbytes`, len at `p - wordbytes` — `-16`/`-8` on a 64-bit
+        target, `-8`/`-4` on riscv32, where the refcount atomics run at the
+        native width.
         """
         i64 = ir.IntType(64)  # GEP byte offsets (index width is immaterial)
         word = self.int_type
@@ -721,36 +664,26 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return block, rc_ptr, len_ptr
 
     def _declare_seams(self):
-        """Emit the four runtime seams (design 19 §2, design 20 item 1).
+        """Declare the core runtime seams codegen itself calls.
 
-        These are the ONLY runtime boundary between compiled Saw code and the
-        environment:
-          - saw_alloc(size, align) -> i8*        (global allocator)
-          - saw_dealloc(ptr, size, align)        (global deallocator)
-          - saw_write(ptr, len)                  (output primitive behind print)
-          - saw_panic(msg, len) -> !             (noreturn panic handler)
-
-        Hosted profile (default): emitted as `weak` DEFINITIONS wrapping libc,
-        so a user object may override any of them at link time without a flag.
-        The hosted defaults deliberately share C stdio (fwrite to stdout) with
-        the still-printf-based Float path so print ordering is preserved.
-
-        Freestanding profile: DECLARATIONS only — the user's environment (kernel,
-        bootloader, RTOS) provides the definitions at link time.
+        The allocator, deallocator, output, panic, sleep and clock seams
+        (`__saw_rt_alloc`, `__saw_rt_dealloc`, `__saw_rt_write`,
+        `__saw_rt_panic` (noreturn), `__saw_rt_sleep_ns`,
+        `__saw_rt_clock_monotonic_nanos`, `__saw_rt_unix_timestamp_secs`).
+        Every profile gets DECLARATIONS only: hosted builds link the Saw
+        runtime under `sawc/rt/`, and a freestanding environment supplies its
+        own definitions (rt/ABI.md).
 
         Registered in self.functions BEFORE extern blocks and the String runtime
-        are declared, so the stdlib's `extern func saw_alloc(...)` declarations
-        resolve to these (the extern pass skips names already present) and the
+        are declared, so the stdlib's `extern` declarations of these names
+        resolve to them (the extern pass skips names already present) and the
         compiler-emitted allocation helpers can call them directly.
         """
         i8 = ir.IntType(8)
         i8ptr = i8.as_pointer()
-        # Design 47: the seam sizes/aligns/lengths are size_t/usize quantities —
-        # the stdlib declares them `Int` (e.g. `saw_alloc(size: Int, align: Int)`
-        # in std/alloc.saw), so they are platform-width. `i64` below is bound to
-        # the platform Int (i64 on hosted, i32 on riscv32); on hosted this is the
-        # pre-47 i64 seam ABI byte-for-byte. The hosted libc wrappers (malloc /
-        # free / fwrite) take/return size_t, which is likewise pointer-width.
+        # The seam sizes/aligns/lengths are size_t/usize quantities — the
+        # stdlib declares them `Int` — so they are platform-width. `i64` below
+        # is bound to the platform Int (i64 on hosted, i32 on riscv32).
         i64 = self.int_type
         void = ir.VoidType()
 
@@ -763,28 +696,28 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         saw_panic = ir.Function(self.module, ir.FunctionType(void, [i8ptr, i64]),
                                 name="__saw_rt_panic")
         saw_panic.attributes.add("noreturn")
-        # design 45 / 180: the cooperative executor's timer seam.
-        # `saw_sleep_ns(ns)` parks the current OS thread for `ns` nanoseconds,
-        # read as unsigned. Behind `sleep(Duration)` and the executor's timed
-        # waits; freestanding supplies its own (a WFI/hardware-timer wait). The
-        # parameter is Int64 on EVERY target, not `self.int_type` — a span is a
-        # u64 nanosecond count, and narrowing it on a 32-bit host is the wrap
-        # design 180 removed.
+        # The cooperative executor's timer seam. `__saw_rt_sleep_ns(ns)` parks
+        # the current OS thread for `ns` nanoseconds, read as unsigned. Behind
+        # `sleep(Duration)` and the executor's timed waits; freestanding
+        # supplies its own (a WFI/hardware-timer wait). The parameter is Int64
+        # on EVERY target, not `self.int_type` — a span is a u64 nanosecond
+        # count, and narrowing it on a 32-bit target would wrap.
         ns_type = ir.IntType(64)
         saw_sleep_ns = ir.Function(self.module, ir.FunctionType(void, [ns_type]),
                                    name="__saw_rt_sleep_ns")
-        # design 57 (std.time): the monotonic + wall-clock seams. Both return a
-        # TRUE i64 on every target — ABI.md says `Int64` and std declares
-        # `-> Int64` — not the platform word `i64` is bound to above.
-        # `saw_clock_monotonic_nanos` reads a monotonic clock as nanoseconds
-        # since an arbitrary epoch (behind Instant.now()); `saw_unix_timestamp_secs`
-        # reads the wall clock as seconds since the Unix epoch. Keeping the
-        # struct-timespec layout and the macOS/Linux CLOCK_MONOTONIC constant
-        # variance INSIDE the shim (like saw_sleep_ns) is what lets std.time stay
-        # pure Saw. Hosted-only (std.time is never imported freestanding), but the
-        # DECLARATION is emitted on every target, and an `@export` of the same
-        # symbol UNIFIES with it — so a 32-bit word here made a runtime's
-        # `-> Int64` body emit `define i32` (DF-158c).
+        # The monotonic + wall-clock seams. Both return a TRUE i64 on every
+        # target — ABI.md says `Int64` and std declares `-> Int64` — not the
+        # platform word `i64` is bound to above.
+        # `__saw_rt_clock_monotonic_nanos` reads a monotonic clock as
+        # nanoseconds since an arbitrary epoch (behind Instant.now());
+        # `__saw_rt_unix_timestamp_secs` reads the wall clock as seconds since
+        # the Unix epoch. Keeping the struct-timespec layout and the
+        # macOS/Linux CLOCK_MONOTONIC constant variance INSIDE the runtime is
+        # what lets std.time stay pure Saw. Hosted-only (std.time is never
+        # imported freestanding), but the DECLARATION is emitted on every
+        # target, and an `@export` of the same symbol UNIFIES with it — so a
+        # 32-bit word here would make a runtime's `-> Int64` body emit
+        # `define i32`.
         true_i64 = ir.IntType(64)
         saw_clock_monotonic_nanos = ir.Function(
             self.module, ir.FunctionType(true_i64, []),
@@ -805,13 +738,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         _seams = (saw_alloc, saw_dealloc, saw_write, saw_panic, saw_sleep_ns,
                   saw_clock_monotonic_nanos, saw_unix_timestamp_secs)
-        # design 113b: these seam BODIES are now authored in Saw + shim.c under
-        # `sawc/rt/` (common/mem.saw, common/sleep.saw, host_*/clock.saw,
-        # shim.c) and linked into hosted builds by rt_build.py; the compiler only
-        # DECLARES them (external), exactly as the freestanding profile always
-        # did. A user program links the runtime; a `--runtime-build` module's
-        # `@export` of the same name collapses into the declaration (design-58
-        # unify). No profile synthesizes these bodies in IR anymore.
+        # The seam BODIES are authored in Saw + shim.c under `sawc/rt/`
+        # (common/mem.saw, common/sleep.saw, host_*/clock.saw, shim.c) and
+        # linked into hosted builds by rt_build.py; the compiler only DECLARES
+        # them (external). A `--runtime-build` module's `@export` of the same
+        # name collapses into the declaration (design 113b).
         for fn in _seams:
             fn.linkage = "external"
 
@@ -820,21 +751,18 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return "apple" in t or "darwin" in t or "macos" in t or "ios" in t
 
     def _checked_section(self, sec, node):
-        """The `@section` specifier to stamp, or a clean refusal (DF-225f).
+        """The `@section` specifier to stamp, or a clean refusal.
 
         THE ONE PLACE a section name is validated (obligation 1). ENTRY POINTS:
-        the `@section` stamp on a `static` (`_emit_static_global`) and on a
-        function (`_declare_function`) — the only two positions the attribute is
-        legal in.
+          - `_emit_static_global` (a `static`)
+          - `_declare_function` (a function)
 
         A mach-O target takes `SEGMENT,section` and NOTHING else. LLVM does not
         report a bad one as an error a front end can catch: it calls
-        `report_fatal_error` and the PROCESS dies (`LLVM ERROR: ... invalid
-        section specifier ...`, exit -6), with no location and no way to tell
-        which declaration did it. So the ELF-shaped `@section(".vector_table")`
-        a reader copies from the spec's freestanding examples killed the
-        compiler on macOS instead of being refused. Checking here is what keeps
-        it a diagnostic.
+        `report_fatal_error` and the PROCESS dies, with no location and no way
+        to tell which declaration did it. So an ELF-shaped
+        `@section(".vector_table")` on macOS must be refused here, where it can
+        still be a diagnostic.
 
         ELF targets are untouched — a bare `.name` is exactly right there, and a
         comma'd one is legal too, so there is nothing to check on that side.
@@ -855,35 +783,18 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def _declare_print_runtime(self):
         """Emit the two integer `print` formatters, `__saw_print_int` (signed)
-        and `__saw_print_uint` (unsigned).
+        and `__saw_print_uint` (unsigned), and the itoa pair under them.
 
-        These replace printf("%lld\\n", n) for the whole integer family. The value
-        is formatted at the platform Int width (`self.int_type`) — design 47.
-        Callers first bring the value to that width with exactly the sign-/zero-
-        extension the old printf path used (sext for signed, zext for unsigned
-        narrower than the word), so on a 64-bit target the argument matches
-        %lld's bit-for-bit and formatting reproduces printf output byte-for-byte
-        across the full i64 range, INT64_MIN included. Formatting at the platform
-        width is also what keeps this libcall-free on riscv32: the digit-extract
-        udiv/urem run at 32 bits (native), never pulling __udivdi3.
+        The value is formatted at the platform Int width (`self.int_type`);
+        callers sign- or zero-extend narrower values first. Formatting at the
+        platform width keeps this libcall-free on riscv32: the digit-extract
+        udiv/urem run at 32 bits, never pulling `__udivdi3`. The UNSIGNED twin
+        exists because a same-width `UInt` has nothing to zero-extend, so a
+        signed sign test would print `UInt.max` as `-1`.
 
-        MIN handling (signed): the magnitude is computed as an *unsigned* value
-        (`select(neg, 0 - n, n)` — the wrapping negation of the signed minimum is
-        itself, which read unsigned is its magnitude), and digits are extracted
-        with unsigned udiv/urem, so no signed overflow occurs.
-
-        The UNSIGNED twin exists because a same-width `UInt`/`UInt64` reaches the
-        formatter unchanged (nothing to zero-extend), so the signed sign test read
-        `UInt.max` as -1 and printed `-1` (DF-119b, closed by design 122 unit G).
-        It is the same body with the sign logic dropped: the magnitude IS the
-        value, and the digit loop was already unsigned.
-
-        Design 137 split the itoa out into `__saw_fmt_int`/`__saw_fmt_uint`,
-        which render into a CALLER-PROVIDED buffer and return the byte count.
-        The alloc-free formatting path (`print("n = {}", n)`, a panic message
-        assembled on the stack) needs the digits somewhere other than straight
-        down the output seam, and one itoa serving both keeps `print(n)` and
-        `print("{}", n)` byte-identical by construction. `__saw_print_*` is now
+        `__saw_fmt_int`/`__saw_fmt_uint` render into a CALLER-PROVIDED buffer,
+        which the alloc-free `{}` path also uses, so `print(n)` and
+        `print("{}", n)` are byte-identical by construction. `__saw_print_*` is
         that call plus a newline plus one write.
         """
         self._emit_fmt_int_fn("__saw_fmt_int", signed=True)
@@ -899,15 +810,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         """The itoa that renders a `value_width`-bit integer, emitting it once.
 
         THE ONE PLACE a rendering picks its formatter (obligation 1). ENTRY
-        POINTS: `_render_int_value` (every `{}` format argument, every panic
-        message that names a number) and `_generate_print`'s integer arm.
+        POINTS:
+          - `_render_int_value` (every `{}` format argument, every panic
+            message that names a number, `print`'s wider-than-word arm)
 
         Up to the platform word the answer is the pair `_declare_print_runtime`
         always emits. WIDER than the word it is a second pair at the value's own
-        width, emitted lazily on first use — DF-238b: `print("{}", v)` at an
-        `Int64` on riscv32 used to TRUNCATE the value into `__saw_fmt_int`'s
-        platform-`Int` parameter and print its low word, silently, because on a
-        64-bit host the two widths coincide and the narrowing is invisible.
+        width, emitted lazily on first use; passing an `Int64` to the
+        platform-`Int` formatter on riscv32 would silently print its low word.
         Lazy because the wide pair's digit loop lowers to `__udivdi3`/`__umoddi3`
         on a 32-bit target: a program that never renders a wide value should not
         acquire that link dependency, and one that does is asking for arithmetic
@@ -931,10 +841,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         `value_width` is the width of the VALUE being formatted, defaulting to
         the platform word. The returned LENGTH is platform-width whatever the
-        value's width is (design 47: a length is a `word` quantity, and it feeds
-        the write seam and the panic buffer's offsets). The two are the same
-        number on a 64-bit target, which is why they were one variable until
-        DF-238b needed them apart.
+        value's width is (a length is a `word` quantity, and it feeds the write
+        seam and the panic buffer's offsets). The two coincide on a 64-bit
+        target, so only a 32-bit target exercises the difference.
+
+        Signed MIN: the magnitude is `select(neg, 0 - n, n)` read UNSIGNED (the
+        wrapping negation of the minimum is itself, which read unsigned is its
+        magnitude), and digits come from unsigned udiv/urem, so no signed
+        overflow occurs.
         """
         i8 = ir.IntType(8)
         i8ptr = i8.as_pointer()
@@ -993,7 +907,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             startp = b.select(neg, signp, newwritep, name="startp")
         else:
             startp = newwritep
-        # Lengths are platform-width (design 47), matching the write seam.
+        # Lengths are platform-width, matching the write seam.
         length = b.sub(b.ptrtoint(endp, word), b.ptrtoint(startp, word), name="len")
         # Copy the run forward into the caller's buffer with an explicit loop.
         # A `memcpy` call here would have to be declared before the stdlib's own
@@ -1047,20 +961,19 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         i8 = ir.IntType(8)
         i8ptr = i8.as_pointer()
         i64 = ir.IntType(64)   # pointer-arithmetic GEP byte offsets (index width)
-        # Design 47: the String header `{ isize refcount, isize len, bytes }` is
+        # The String header `{ isize refcount, isize len, bytes }` is
         # platform-width — the stdlib types `__saw_string_len`/`_alloc`/refcount
         # as `Int` — so refcount, len, and allocation sizes use `word`, and the
-        # header spans two machine words (`hb` = header bytes). Hosted (word=i64,
-        # hb=16) reproduces the pre-47 layout byte-for-byte.
+        # header spans two machine words (`hb` = header bytes).
         word = self.int_type
         wb = self.int_width // 8      # bytes per machine word
         hb = 2 * wb                   # header bytes (refcount + len)
         void = ir.VoidType()
         null = ir.Constant(i8ptr, None)
 
-        # String buffers now route through the seams (design 20 item 1) rather
-        # than libc malloc/free directly. memcpy stays a libc/compiler builtin
-        # (it is not a seam and is available freestanding via compiler-rt).
+        # String buffers allocate through the runtime seams, not libc
+        # malloc/free. memcpy stays a libc/compiler builtin (it is not a seam
+        # and is available freestanding via compiler-rt).
         saw_alloc_fn = self.functions["__saw_rt_alloc"]
         saw_dealloc_fn = self.functions["__saw_rt_dealloc"]
         saw_panic_fn = self.functions["__saw_rt_panic"]
@@ -1098,7 +1011,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 # allocator MAY eventually trap on the double free (macOS does,
                 # glibc does not), so the panic here is the one deterministic,
                 # platform-independent report. Fixed interned constant for the
-                # same no-recursion reason as the OOM panic above.
+                # same no-recursion reason as the OOM panic in
+                # `__saw_string_alloc` below.
                 with b.if_then(b.icmp_signed('<', old, ir.Constant(word, 1))):
                     _saved_builder = getattr(self, "builder", None)
                     self.builder = b
@@ -1120,15 +1034,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b.ret_void()
 
         # ---- __saw_string_alloc(word len) -> i8*  (PANICS on OOM) -----------
-        # Design 123: `String` is an infallible-tier type — it takes no
-        # allocator type parameter and every producer of one (literal concat,
-        # interpolation, `_substring`, `StringBuilder.build`, every
-        # `__saw_string_from_bytes` caller in std) has a non-optional `String`
-        # return, so there is nowhere to surface a failure. Returning NULL made
-        # `__saw_string_len` read 0 and the whole library degrade to `""` —
-        # `to_uppercase` losing its text, `Env.get` reporting a set variable as
-        # empty, `StringBuilder.build` discarding everything appended. One panic
-        # HERE is the tier-1 answer for the entire String layer.
+        # `String` is an infallible-tier type — it takes no allocator type
+        # parameter and every producer of one (literal concat, interpolation,
+        # `_substring`, `StringBuilder.build`, every `__saw_string_from_bytes`
+        # caller in std) has a non-optional `String` return, so there is
+        # nowhere to surface a failure. Returning NULL would make
+        # `__saw_string_len` read 0 and every producer silently yield `""`.
+        # One panic HERE is the answer for the entire String layer.
         #
         # The message is a fixed interned constant handed straight to the panic
         # seam rather than assembled through `_emit_runtime_panic`, because that
@@ -1173,8 +1085,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         src = fn.args[0]; src.name = "src"
         length = fn.args[1]; length.name = "len"
         b = ir.IRBuilder(fn.append_basic_block("entry"))
-        # `__saw_string_alloc` panics rather than returning NULL (design 123),
-        # so the destination is always live and the old null guard is gone.
+        # `__saw_string_alloc` panics rather than returning NULL, so the
+        # destination is always live and needs no null guard.
         bytes_ptr = b.call(self.functions["__saw_string_alloc"], [length], name="dst")
         b.call(memcpy_fn, [bytes_ptr, src, length])
         b.ret(bytes_ptr)
@@ -1216,12 +1128,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b.ret_void()
 
     def _declare_argv_runtime(self):
-        """Command-line argument access, unified across platforms (design 81
-        CI rider). The C entry `main(argc, argv)` stashes its two arguments into
-        private module globals at startup (see the main prologue in methods.py);
+        """Command-line argument access, unified across platforms. The C entry
+        `main(argc, argv)` stashes its two arguments into private module
+        globals at startup (see the main prologue in methods.py);
         `Env.argc`/`Env.arg` read them through the accessor seams here on EVERY
-        target. This replaces the Apple-only `_NSGetArgc`/`_NSGetArgv` externs,
-        which failed to link on Linux.
+        target.
 
         `__saw_argv` holds `char**` (the argv value main received); `__saw_argc`
         holds the `i32` count. The accessors are plain loads."""
@@ -1239,14 +1150,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         argv_g.initializer = ir.Constant(i8ptrptr, None)
         self._argv_global = argv_g
 
-        # ---- __saw_get_argc() -> i32 ----------------------------------------
+        # ---- __saw_rt_get_argc() -> i32 -------------------------------------
         fn = ir.Function(self.module, ir.FunctionType(i32, []),
                          name="__saw_rt_get_argc")
         self.functions["__saw_rt_get_argc"] = fn
         b = ir.IRBuilder(fn.append_basic_block("entry"))
         b.ret(b.load(argc_g, name="argc"))
 
-        # ---- __saw_get_argv() -> char** -------------------------------------
+        # ---- __saw_rt_get_argv() -> char** ----------------------------------
         fn = ir.Function(self.module, ir.FunctionType(i8ptrptr, []),
                          name="__saw_rt_get_argv")
         self.functions["__saw_rt_get_argv"] = fn
@@ -1254,9 +1165,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b.ret(b.load(argv_g, name="argv"))
 
     def _declare_atomic_runtime(self):
-        """Emit the atomic seams the Arc/Channel refcount protocol needs
-        (design 21 item 2; ordering per design 07). These are thin wrappers over
-        LLVM atomic ops, exposed to the stdlib as `extern` i64-pointer helpers:
+        """Emit the atomic seams the Arc/Channel refcount protocol needs.
+        These are thin wrappers over LLVM atomic ops, exposed to the stdlib as
+        `extern` word-pointer helpers:
 
           - __saw_atomic_add_i64(ptr, delta) -> old   (monotonic/relaxed): a live
             reference keeps the object alive, so a retain needs no ordering.
@@ -1269,7 +1180,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         Emitted as real definitions BEFORE extern blocks so the stdlib's
         `extern func __saw_atomic_*` declarations resolve to these.
 
-        Design 47: the refcount these operate on is a platform-`Int` counter —
+        The refcount these operate on is a platform-`Int` counter —
         the stdlib types the seams `(ptr: UnsafePointer<Int>, delta: Int) -> Int`
         and both Arc's control block and Channel's shared block store the count
         as `Int`. So the atomic width follows the platform word (i64 hosted, i32
@@ -1307,7 +1218,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b.ret_void()
 
     def _static_mangled_name(self, name: str) -> str:
-        """The LLVM global name for a static (design 41). Prefixed so it never
+        """The LLVM global name for a static. Prefixed so it never
         clashes with a like-named function in the shared LLVM value symbol
         table."""
         return f"saw.static.{name}"
@@ -1315,7 +1226,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def _static_global(self, expr):
         """The LLVM global for an expression naming a module static, or None.
 
-        DF-140f: prefer the symbol the typechecker stamped. Codegen sees one
+        Prefer the symbol the typechecker stamped. Codegen sees one
         merged namespace, so two modules' private `PT_LOAD`s are
         indistinguishable by name here — the stamp is the resolution, made where
         the importing module's own namespace was in hand. The simple-name
@@ -1327,7 +1238,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         name = getattr(expr, 'name', None)
         if name is not None and name in self.static_globals:
             return self.static_globals[name]
-        # DF-232d: the MODULE-QUALIFIED spelling, `mod.NAME`. The typechecker
+        # The MODULE-QUALIFIED spelling, `mod.NAME`. The typechecker
         # tags the member on the member access exactly as it stamps the bare
         # name on an identifier, so both spellings answer here and every
         # write/reference position gets the address rather than trying to
@@ -1339,12 +1250,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def _identifier_storage(self, expr):
         """Storage for an identifier used as a PLACE: a local's alloca, or the
-        LLVM global behind a module static (design 149 unit a).
+        LLVM global behind a module static.
 
-        A static is not a scope binding, so every write path keyed on
-        `self.variables` raised "Undefined variable" for one. Reads already had
-        their own lookup and `&STATIC` already had its own; this is the same
-        answer for the places an `unsafe static var` is written.
+        A static is not a scope binding, so a write path keyed on
+        `self.variables` alone would find nothing for one. Reads and `&STATIC`
+        have their own lookups; this is the same answer for the places an
+        `unsafe static var` is written.
         """
         name = getattr(expr, 'name', None)
         if name is not None and name in self.variables:
@@ -1355,64 +1266,42 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         raise ValueError(f"Undefined variable: {name}")
 
     def _type_has_interior_mutability(self, saw_type) -> bool:
-        """Whether `saw_type` is CELL-CARRYING (design 186).
+        """Whether `saw_type` is CELL-CARRYING: do this value's own bytes
+        include an `UnsafeMutableInterior<T>` (`Atomic`'s cell among them)?
 
-        One question, asked on the namespace so the typechecker and codegen can
-        never disagree about it. Until design 186 this was the name `Atomic`
-        plus a walk over struct fields; it is now "does this value's own bytes
-        include an `UnsafeMutableInterior<T>`", which is the same answer for
-        `Atomic` (whose cell is now a real field) and an answer at all for a
-        type the compiler has never heard of.
-
-        Two consumers here: a static of a cell-carrying type must be a
-        NON-constant global (it is written in place, so rodata would fault),
-        and the receiver ABI below.
+        Asked on the namespace so the typechecker and codegen can never
+        disagree about it. The consumer here is the static rule: a static of a
+        cell-carrying type must be a NON-constant global (it is written in
+        place, so rodata would fault). The receiver ABI asks the struct-name
+        twin below (design 186).
         """
         return self.namespace.is_cell_carrying(saw_type)
 
     def _struct_has_interior_mutability(self, struct_name) -> bool:
-        """Whether the struct named `struct_name` is cell-carrying (design 186)."""
+        """Whether the struct named `struct_name` is cell-carrying."""
         return self.namespace.struct_is_cell_carrying(struct_name)
 
     def _self_by_pointer_for(self, struct_name, method) -> bool:
-        """Does this method receive `self` as a POINTER? (design 149, DF-149a.)
+        """Does this method receive `self` as a POINTER?
 
         `ast_nodes.self_by_pointer` answers the two spellings that say so on the
-        declaration — `&var self` and a `borrows` accessor. This adds the one the
-        TYPE says: a CELL-CARRYING receiver arrives as storage even for a plain
-        `&self`, because interior mutability is mutation THROUGH a shared borrow
-        and the write has to reach the caller's cell.
-
-        Passed by value it did not. `struct Counter { n: Atomic<Int> }` with a
-        `func bump(&self) { self.n.fetch_add(1) }` incremented the callee's copy
-        and dropped it at the return — silently, no error anywhere, the count
-        just stayed 0. std worked around it by writing slab's bookkeeping as free
-        functions over a `&SlabHead` parameter (a reference param IS a pointer)
-        rather than as methods on the type. Methods work now, which is what lets
-        `SpinLock` put its word and its payload inline and still be locked
-        through a shared borrow — the whole point of a lock.
-
-        Design 186 generalized the question from "contains an `Atomic`" to
-        "contains an `UnsafeMutableInterior`", so a futex mutex, a `Once` or a
-        user-written `Cell` gets the same guarantee without the compiler knowing
-        its name. That guarantee is what a cell's `ptr()` is worth: without it
-        the address would be the callee copy's, and every write through it would
-        be dropped at the return.
+        declaration — `&var self` and a `borrows` accessor. This adds what the
+        TYPE says:
+          - A CELL-CARRYING receiver (one holding an `UnsafeMutableInterior`)
+            arrives as storage even for a plain `&self`: interior mutability is
+            mutation THROUGH a shared borrow, and passed by value the write
+            (an `Atomic` increment, a `SpinLock` acquire, a cell's `ptr()`)
+            would land in the callee's copy and be dropped at the return.
+          - Every other AGGREGATE receiver also passes by pointer, to avoid a
+            field-by-field copy per call. Sound because the language refuses
+            every spelling of a write through a shared receiver — the direct
+            write, the `&var self.<field>` projection, the `&var self` method
+            call, and the place-window write — so by-value versus by-pointer is
+            unobservable in safe code (design 261).
 
         Decided per (struct name, method) and read at BOTH the declaration and
         the body, so the two always agree; call sites read the convention off the
         emitted signature, so they follow automatically.
-
-        DESIGN 261 WIDENED THE LAST DISJUNCT TO EVERY AGGREGATE RECEIVER. All
-        references pass by pointer; the plain `&self` on a struct or a
-        payload-carrying enum was the one holdout, and every method call on a
-        kernel-sized struct paid a full unrolled field-by-field copy for it.
-        Safe because designs 146/176/200 closed every spelling of a write
-        through a shared receiver — the direct write, the `&var self.<field>`
-        projection, the `&var self` method call, and the place-window write —
-        so by-value versus by-pointer is unobservable in safe code, and in the
-        unsafe domain it turns the `FixedBuf.ptr()` gotcha from a footgun into
-        the answer every author wanted.
         """
         return (self_by_pointer(method)
                 or self._struct_has_interior_mutability(struct_name)
@@ -1421,14 +1310,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def _receiver_is_aggregate(self, struct_name) -> bool:
         """Does `extension <struct_name>`'s `self` have AGGREGATE storage?
 
-        The question design 261 turns the receiver ABI on, and the one place
-        that answers it. Aggregate means a struct or an array with at least one
-        member — storage a pointer can point INTO.
+        The question the receiver ABI turns on, and the one place that answers
+        it. Aggregate means a struct or an array with at least one member —
+        storage a pointer can point INTO.
 
         THREE THINGS ARE NOT AGGREGATES, and each stays by value for the same
         reason: `self` IS the value, so a pointer buys nothing and costs a
         spill at every call site.
-          - A PRIMITIVE pseudo-struct (design 57). `Int` is an i64, `Float` a
+          - A PRIMITIVE pseudo-struct. `Int` is a word, `Float` a
             double, `String` an `i8*`. String is the one to watch: its `&var
             self` receiver is an `i8**`, and `calls.py` reads that second level
             of indirection to tell mutable from shared — a by-pointer `&self`
@@ -1437,7 +1326,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             payload-CARRYING enum is `{tag, [M x iK]}` and does flip.
           - A ZERO-SIZED aggregate. `GlobalAllocator` has no fields, and
             `GlobalAllocator().alloc(...)` monomorphizes to a direct call with
-            no allocator value materialized at all (design 19 option C). A
+            no allocator value materialized at all. A
             pointer receiver would need an alloca to address, so the empty
             struct would start costing what it exists not to cost.
 
@@ -1470,7 +1359,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def _mark_readonly_arg(self, arg) -> bool:
         """Stamp `readonly` on a pointer argument, if llvmlite can spell it.
 
-        DF-293b. `readonly` is a valid LLVM PARAMETER attribute, but
+        `readonly` is a valid LLVM PARAMETER attribute, but
         `llvmlite.ir.values.ArgumentAttributes._known` does not list it (it
         lists the function-level `readonly`, which means something else — that
         the whole function writes no memory, which is false for essentially
@@ -1478,14 +1367,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         there is no supported spelling to emit here, and reaching into the
         dependency's table to add one is not a thing this compiler should do.
 
-        Not stamping it costs little IN PRACTICE and the cost is measurable:
-        sawc emits ONE module and runs its own pipeline over it, so LLVM's own
-        FunctionAttrs pass sees every receiver's body and infers `readonly`
-        (and `memory(argmem: read)`) itself — the corpus already shows
-        `ptr readonly captures(none) %self` on the `borrows` accessors, which
-        have been by-pointer since design 146 and were never stamped either.
-        `noalias` is the half inference CANNOT supply — it is a promise about
-        the caller, not a property of the body — so that half is stated.
+        Not stamping it costs little: sawc emits ONE module and runs its own
+        pipeline over it, so LLVM's FunctionAttrs pass sees every receiver's
+        body and infers `readonly` itself (the unstamped by-pointer `borrows`
+        accessors come out `ptr readonly`). `noalias` is the half inference
+        CANNOT supply — it is a promise about the caller, not a property of
+        the body — so that half is stated.
 
         Returns whether the attribute was actually applied, so a future
         llvmlite that lists it starts working with no other edit.
@@ -1497,10 +1384,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return False
 
     def _self_pointer_is_shared_borrow(self, struct_name, method) -> bool:
-        """Is this receiver pointer a SHARED, READ-ONLY borrow (design 261)?
+        """Is this receiver pointer a SHARED, READ-ONLY borrow?
 
-        True exactly for the receivers the flip created: a plain `&self` on an
-        aggregate. Those are the ones that may carry `noalias readonly`, and
+        True exactly for a plain `&self` on a non-cell-carrying aggregate.
+        Those are the ones that may carry `noalias readonly`, and
         the two exclusions are exclusions because each WRITES through the
         receiver pointer.
           - `self_by_pointer` covers `&var self` (which mutates by definition)
@@ -1508,9 +1395,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             so an exclusive one writes through the very pointer the prologue
             was handed).
           - A CELL-CARRYING receiver is interior mutability: `cell.ptr()` is a
-            GEP off `self` and the write lands there. That is the whole
-            guarantee design 186 bought by passing it by pointer, and marking
-            it `readonly` would hand LLVM a promise the type exists to break.
+            GEP off `self` and the write lands there. That is why it passes by
+            pointer at all, and marking it `readonly` would hand LLVM a promise
+            the type exists to break.
         """
         if self_by_pointer(method):
             return False
@@ -1520,36 +1407,28 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def _self_operand(self, fn, receiver, name="self_operand"):
         """The `self` ARGUMENT a call passes, in whichever shape the callee's
-        EMITTED SIGNATURE declares (design 261).
+        EMITTED SIGNATURE declares.
 
         Two conventions exist and `_self_by_pointer_for` decides between them
-        per (struct name, method). A hand-written call site never re-decides:
-        it reads `fn`'s parameter 0 and adapts, which is what keeps every
-        caller in step with the declaration by construction rather than by two
-        rules being kept aligned by hand. `_comparison_operand_ptr` is the same
-        move at parameter 1, for `other: &Self` (design 239).
+        per (struct name, method). A synthesized call site never re-decides:
+        it reads `fn`'s parameter 0 and adapts — a spill when the callee wants
+        storage, a load when it wants the value, nothing when the shapes agree
+        — so every caller stays in step with the declaration by construction.
+        `_comparison_operand_ptr` is the same move at parameter 1, for
+        `other: &Self`.
 
-        Adapting is one instruction either way — a spill of a value the caller
-        holds when the callee wants storage, a load when it wants the value —
-        and NOTHING when the shapes already agree, which is every call under
-        the convention that produced the receiver in the first place.
-
-        ENTRY POINTS (obligation 1: this is a funnel, so its callers are named
-        here). All of them are COMPILER-SYNTHESIZED calls — a call the source
-        does not write, which is exactly the family that used to assume a
-        by-value receiver because the by-value receiver was all there was:
-          - `operators._emit_struct_equals` / `_emit_struct_compare` /
-            `_emit_struct_hash`, and their String twins
-          - `resources._emit_retain_at` / `_generate_copy` /
-            `_emit_element_deep_copy` / `_emit_drop_at` (the drop glue)
-          - `methods._generate_derived_copy_body` (a field's own `copy`)
-          - `calls._generate_method_call`'s `.hash(&h)` intercept
+        ENTRY POINTS (obligation 1), all COMPILER-SYNTHESIZED calls:
+          - `operators._emit_struct_equals` / `_emit_string_equals`
+          - `operators._emit_struct_compare` / `_emit_string_compare`
+          - `operators._emit_struct_hash` / `_emit_string_hash`
+          - `resources._emit_retain_at` / `_emit_copy_value` / `_emit_drop_at`
+          - `methods._generate_derived_copy_body`
+          - `calls._generate_method_call` (the `.hash(&h)` intercept)
           - `calls._forward_self_arg` (the `Arc`/`Box` payload forward)
-          - `existentials._vtable_thunk` (the erased dispatch thunk)
-          - `loops` (`Iterator.next` in a `for`)
-        The ORDINARY method-call path does not come through here: it builds the
-        receiver from the AST and reads the same signature itself
-        (`calls.py`'s `is_mutable_self`).
+          - `existentials._get_vtable_thunk`
+          - `loops._generate_for_loop` / `_generate_for_loop_value`
+        The ORDINARY method-call path builds the receiver from the AST and
+        reads the same signature itself (`calls.py`'s `is_mutable_self`).
         """
         params = fn.function_type.args
         if not params:
@@ -1569,8 +1448,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return receiver
 
     # ------------------------------------------------------------------
-    # design 261 U2 — an aggregate copy is ONE memcpy
-    # design 263 L2/L2r — a field read is a GEP and one scalar load
+    # An aggregate copy is ONE memcpy; a field read is a GEP and one scalar
+    # load.
     #
     # THE STORE-SIDE BOOL INVARIANT, and everything resting on it.
     #
@@ -1586,16 +1465,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     #
     # Two things rest on it, both of them ELIMINATIONS of a renormalization
     # that only exists because LLVM cannot see the invariant:
-    #   - design 261 U2 (`_store_transfer`): an aggregate copy is one memcpy,
-    #     so no per-field `i1` load/store pair is created and no `andi 1` is
-    #     attached to one.
-    #   - design 263 L2r (`_load_field`): a `Bool` field is read as its BYTE
-    #     with `!range !{i8 0, i8 2}` and truncated, so the backend knows the
-    #     high bits are already clear. Loading it as an `i1` instead makes the
-    #     RISC-V backend mask every read (2,527 `andi …, 0x1` in one sos kernel
-    #     image), because an `i1` load has no way to say what the byte holds.
-    # A future reader breaking the invariant — a store funnel that writes a
-    # `Bool` field without going through an `i1` — breaks BOTH.
+    #   - `_store_transfer`: an aggregate copy is one memcpy, so no per-field
+    #     `i1` load/store pair is created and no `andi 1` is attached to one.
+    #   - `_load_field`: a `Bool` field is read as its BYTE with
+    #     `!range !{i8 0, i8 2}` and truncated, so the backend knows the high
+    #     bits are already clear. Loaded as an `i1`, the RISC-V backend masks
+    #     every read, because an `i1` load has no way to say what the byte
+    #     holds.
+    # A store funnel that writes a `Bool` field without going through an
+    # `i1` breaks the invariant, and BOTH of these with it (design 263).
     # ------------------------------------------------------------------
 
     # Below two words a memcpy is strictly worse than the scalar pair it would
@@ -1603,10 +1481,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     _MEMCPY_MIN_BYTES = 16
 
     def _load_field(self, field_ptr, name=""):
-        """Load ONE field from its address (design 263 L2).
+        """Load ONE field from its address.
 
         The single load the narrow field read emits. A `Bool` field takes the
-        L2r path — its byte, carrying the store-side 0/1 invariant as `!range`,
+        byte path — its byte, carrying the store-side 0/1 invariant as `!range`,
         truncated to the `i1` the rest of codegen expects — and every other
         field is an ordinary typed load.
         """
@@ -1649,20 +1527,17 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def _store_transfer(self, value, ptr):
         """Store a by-value transfer — as ONE `llvm.memcpy` when it is a COPY.
 
-        Design 261 U2. sawc emits an aggregate copy as a first-class LLVM
-        aggregate: `%v = load %T, ptr %src` then `store %T %v, ptr %dst`.
-        InstCombine UNPACKS both halves into one load and one store per field,
-        and for a struct holding a `Bool` each `i1` field arrives with a
-        renormalization (`andi 1` on riscv) that stops the walk being
-        recognized as a memcpy afterwards. The kernel that motivated this brief
-        is two thirds load/store by instruction count for exactly that reason.
+        sawc emits an aggregate copy as a first-class LLVM aggregate:
+        `%v = load %T, ptr %src` then `store %T %v, ptr %dst`. InstCombine
+        UNPACKS both halves into one load and one store per field, and for a
+        struct holding a `Bool` each `i1` field arrives with a renormalization
+        (`andi 1` on riscv) that stops the walk being recognized as a memcpy
+        afterwards.
 
         Emitting the memcpy HERE means the walk is never created, so there is
-        nothing for the renormalization to attach to and nothing for a later
-        pass to have to re-recognize. The bool question the brief asks about
-        answers itself: a memcpy copies the bytes verbatim, so whatever a
-        `Bool` field's store funnel put in that byte is what arrives, and no
-        per-field renormalization is emitted to drop.
+        nothing for the renormalization to attach to. A memcpy copies the bytes
+        verbatim, so whatever a `Bool` field's store funnel put in that byte is
+        what arrives (design 261).
 
         Applies only when the value IS a copy of memory — an aggregate the
         immediately preceding instructions just loaded, with nothing that
@@ -1690,8 +1565,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                                       ir.IdentifiedStructType,
                                       ir.ArrayType)):
             return None
-        # A bodyless identified type is reachable while a design-246 cycle is
-        # being registered; `_abi_size` refuses it rather than aborting LLVM.
+        # A bodyless identified type is reachable while a type cycle is being
+        # registered; `_abi_size` refuses it rather than aborting LLVM.
         try:
             size = self._abi_size(llvm_type)
         except Exception:
@@ -1748,12 +1623,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             fn, [dst, src, size, ir.Constant(ir.IntType(1), 0)])
 
     def _const_from_expr(self, expr, saw_type):
-        """Build an LLVM constant for a static initializer (design 41 item 2).
+        """Build an LLVM constant for a static initializer.
 
-        Handles exactly the const-init forms the typechecker admits: numeric /
-        Bool literals, a negated numeric literal, constant fixed-array literals,
-        POD struct literals with constant fields, and `Atomic(<int>)`. `saw_type`
-        drives the target LLVM type (widths, aggregate layout).
+        Handles the const-init forms the typechecker admits, among them:
+        numeric / Bool literals, a negated numeric literal, a resolved `#line`,
+        constant fixed-array literals, POD struct literals with constant
+        fields, `Atomic(<int>)`, an interior cell, `UnsafeMemory(<addr>)`, a
+        `FuncPointer`, a leaf naming another const-initialized static, and any
+        constant expression the evaluator folds. `saw_type` drives the target LLVM type
+        (widths, aggregate layout).
         """
         from ast_nodes import (IntLiteral, FloatLiteral, BoolLiteral, UnaryOp,
                                 ArrayLiteral, StructInit, FunctionCall,
@@ -1763,13 +1641,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # a large region gets ONE spelling of its size. `_get_llvm_type` follows
         # the alias on its own, but the STRUCTURAL reads below
         # (`array_element_type`, `struct_name`) come off the SawType, and on an
-        # alias node they are None — so the array arm recursed with `None` as
-        # the element type and died as `internal compiler error: 'NoneType'
-        # object has no attribute 'kind'` (DF-172g). Resolve once, here, and
-        # every arm sees the type the alias stands for.
+        # alias node they are None. Resolve once, here, and every arm sees the
+        # type the alias stands for.
         saw_type = self._resolve_type_alias(saw_type)
         llvm_type = self._get_llvm_type(saw_type)
-        # design 226: a `FuncPointer` static. Its initializer is a LINK-TIME
+        # A `FuncPointer` static. Its initializer is a LINK-TIME
         # constant — the address of a symbol this module emits — which is
         # exactly what an LLVM global initializer may be, so it needs no runtime
         # store and the static stays rodata-eligible like every other one here.
@@ -1789,7 +1665,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 return fn
         if isinstance(expr, IntLiteral):
             return ir.Constant(llvm_type, expr.value)
-        # A resolved `#line` literal (design 98) is an Int compile-time constant.
+        # A resolved `#line` literal is an Int compile-time constant.
         if isinstance(expr, SourceLocationLiteral):
             return ir.Constant(llvm_type, expr.resolved_int)
         if isinstance(expr, FloatLiteral):
@@ -1801,7 +1677,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         if isinstance(expr, ArrayLiteral):
             elem_saw = saw_type.array_element_type
             if expr.repeat_count is not None:
-                # `static BUF: [Int8; 4096] = [0; 4096]` (design 148). An
+                # `static BUF: [Int8; 4096] = [0; 4096]`. An
                 # all-zero repeat is `zeroinitializer` and lands in .bss, which
                 # is what makes a large zeroed static free; a non-zero one is
                 # spelled out, since .data has to carry the bytes regardless.
@@ -1818,28 +1694,27 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             elems = [self._const_from_expr(e, elem_saw) for e in expr.elements]
             return ir.Constant(llvm_type, elems)
         if isinstance(expr, FunctionCall) and expr.is_atomic_construct:
-            # Atomic<Int> is `{ i64 }`; initialize the value slot. (Its field is
-            # an interior cell since design 186, and a cell is layout-transparent,
-            # so the slot's type is unchanged.)
+            # Atomic<Int> is `{ word }`; initialize the value slot. (Its field
+            # is an interior cell, and a cell is layout-transparent, so the
+            # slot's type is the word.)
             val = self._const_from_expr(expr.arguments[0].value, SawType(TypeKind.INT))
             return ir.Constant(llvm_type, [val])
         if isinstance(expr, FunctionCall) and expr.is_interior_cell_construct:
-            # design 186: an interior cell IS its `T`, so the constant is the
+            # An interior cell IS its `T`, so the constant is the
             # payload's, emitted at the payload's type.
             payload = (saw_type.type_args or [None])[0]
             return self._const_from_expr(expr.arguments[0].value, payload)
         if isinstance(expr, FunctionCall) and expr.is_unsafe_mem_construct:
-            # design 46: UnsafeMemory<T, Use> is one word — the raw address. Its
-            # LLVM type is i64 (`llvm_type` here), so the const is just the literal.
+            # UnsafeMemory<T, Use> is one word — the raw address. Its LLVM
+            # type is the word (`llvm_type` here), so the const is just the literal.
             return self._const_from_expr(expr.arguments[0].value, SawType(TypeKind.INT))
         if isinstance(expr, StructInit):
             base = saw_type.struct_name
             # A GENERIC struct's static literal (`static W: Wrap<Int> =
             # Wrap<Int>(v: 3)`) reaches here under its TEMPLATE name, which
             # `struct_types` has never heard of — the monomorphization is keyed
-            # by the mangled one. Asking for it here is what `_get_llvm_type`
-            # already did a line above; without it this was a bare `KeyError`
-            # surfacing as `internal compiler error: 'Wrap'` (DF-186b).
+            # by the mangled one, so ask for it here as `_get_llvm_type` did
+            # above.
             fields = self.namespace.get_struct_fields(base) or {}
             if saw_type.type_args and base not in self.struct_types:
                 sym = self.namespace.lookup_struct(base)
@@ -1853,7 +1728,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             by_name = {n: v for n, v in expr.field_inits}
             elems = [self._const_from_expr(by_name[fn], fields[fn]) for fn in field_order]
             return ir.Constant(llvm_type, elems)
-        # DF-294c: a leaf NAMING another module `static`, at a type the evaluator
+        # A leaf NAMING another module `static`, at a type the evaluator
         # folds to no number. The typechecker admitted it because the named
         # static is itself const-initialized, and what an alias means is the same
         # bytes — so the constant IS the one already emitted for that global,
@@ -1877,7 +1752,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                         f"has not been emitted yet — statics must be emitted in "
                         f"declaration order")
                 return gv.initializer
-        # The CONSTANT-EXPRESSION tier (design 186 unit 7): the typechecker
+        # The CONSTANT-EXPRESSION tier: the typechecker
         # admitted this initializer because the one evaluator folds it, so what
         # lands in the image is the FOLDED VALUE, not the expression as written.
         # Reached only for a scalar destination — every aggregate shape is
@@ -1888,7 +1763,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return ir.Constant(llvm_type, int(folded))
 
     def _emit_llvm_used(self):
-        """design 58: emit `@llvm.used` listing every `@export`ed function and
+        """Emit `@llvm.used` listing every `@export`ed function and
         static, so they survive DCE/global-DCE at the default -O1 pipeline even
         when nothing in the compilation unit references them (the `_start` /
         vector-table shape). `@llvm.used` is the linker-agnostic keep-alive
@@ -1905,13 +1780,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         elems = [g.bitcast(i8ptr) for g in self._exported_llvm_globals]
         used.initializer = ir.Constant(arr_ty, elems)
 
-    # design 158: the section the backtrace table asks for, per object format.
-    # Mach-O needs a `SEGMENT,section` pair; ELF takes a bare name. The
-    # freestanding and runtime-build profiles are deliberately left alone —
-    # `_apply_section_layout` gives every global its own `.rodata.<name>` there,
-    # which is what `--gc-sections` and the kernel linker scripts already
-    # understand, and a bespoke section name would need a linker-script edit in
-    # every downstream kernel to be placed at all.
+    # The backtrace table's symbol. Its hosted section (see `_emit_bt_table`)
+    # is per object format: Mach-O needs a `SEGMENT,section` pair; ELF takes a
+    # bare name. The freestanding profile is deliberately left alone —
+    # `_apply_section_layout` gives every global its own `.rodata.<name>`
+    # there, which is what `--gc-sections` and the kernel linker scripts
+    # already understand, and a bespoke section name would need a
+    # linker-script edit in every downstream kernel to be placed at all.
     BT_TABLE_SYMBOL = "__saw_bt_table"
 
     # std/taskgroup.saw's executor-aware panic sink, looked up in
@@ -1921,7 +1796,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     BT_PANIC_SINK = "__saw_bt_panic"
 
     def _panic_sink(self):
-        """The function a panic site calls (design 158).
+        """The function a panic site calls.
 
         `__saw_bt_panic` when this program links the cooperative executor: it
         writes the message, then every live task's logical backtrace, then hands
@@ -1942,17 +1817,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def _panic_sink_is_bt(self) -> bool:
         """Whether `_panic_sink` answers the executor's sink rather than the raw
         seam — asked the SAME way `_panic_sink` asks it, so the two can never
-        disagree (SL-274).
+        disagree.
 
-        `_panic_helper` keys its outlined assembly routine on this, and used to
-        decide it by comparing `sink.name` against the literal
-        `"__saw_bt_panic"` — the EMITTED LLVM symbol of a Saw free function
-        (`std/taskgroup.saw`). SL-274 mangles free-function symbols, and while
-        std's own keep the names the author wrote, a name comparison there is a
-        latent merge of two families the `_panic_helper` docstring says are
-        deliberately separate: any rename would have silently routed every
-        executor-sink site into the `"rt"` family, and the first site to arrive
-        would have decided the panic behaviour of the rest. Ask the identity."""
+        `_panic_helper` keys its outlined assembly routine on this. Comparing
+        the sink's emitted LLVM NAME instead would break silently if the Saw
+        free function's symbol were ever mangled: every executor-sink site
+        would fall into the `"rt"` family, which the `_panic_helper` docstring
+        says is deliberately separate. Ask the identity."""
         return self.functions.get(self.BT_PANIC_SINK) is not None
 
     def _emit_bt_table(self, program):
@@ -1968,7 +1839,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         from backtrace_table import build_table
 
         if self.runtime_build:
-            # A `--runtime-build` object is sync-only (design 113b), so it can
+            # A `--runtime-build` object is sync-only, so it can
             # hold no coroutine frame and has nothing to describe — and it is
             # linked BESIDE the program that does, one object per rt source.
             # Emitting an empty table in each would be a dozen duplicate
@@ -1992,7 +1863,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     BT_VTABLES_SYMBOL = "__saw_bt_vtables"
 
     def _emit_bt_vtables(self):
-        """Emit the frame-index -> `Resumable` vtable pointer array (design 158).
+        """Emit the frame-index -> `Resumable` vtable pointer array.
 
         A DEBUGGER identifies a live task's frame type by the vtable word in its
         erased `Box<any Resumable>`, and has no other way: the in-process walker
@@ -2029,11 +1900,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self._root_symbol(gv.name)
 
     def _emit_static_global(self, static):
-        """Emit the LLVM global for one module-level static (design 41 item 3).
+        """Emit the LLVM global for one module-level static.
 
-        Immutable POD statics become `global_constant` globals (rodata); a static
-        whose type carries an `Atomic` cell is a mutable global (its cell is
-        written in place via atomics). A bare declaration (no initializer) is a
+        A static whose storage is never written and carries non-zero bytes
+        becomes a `global_constant` (rodata); the rule below lists what makes
+        one mutable. A bare declaration (no initializer) is a
         `zeroinitializer`. Reads resolve through `self.static_globals`.
         """
         from ast_nodes import (is_exported, export_symbol, section_name,
@@ -2043,11 +1914,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         llvm_type = self._get_llvm_type(static.type)
         # An @export static takes the exact C data symbol; otherwise the mangled
-        # module-local name (design 41).
-        # DF-140f: the typechecker stamps the static's codegen symbol, which is
-        # module-qualified for a private static outside the root module. Two
-        # dependencies may then each declare a private `PT_LOAD` without landing
-        # on one LLVM global.
+        # module-local name. The typechecker stamps the static's codegen
+        # symbol, which is module-qualified for a private static outside the
+        # root module, so two dependencies may each declare a private `PT_LOAD`
+        # without landing on one LLVM global.
         stamped = static.mangled_symbol
         gname = c_symbol if c_symbol else (
             stamped or self._static_mangled_name(static.name))
@@ -2064,17 +1934,18 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Constant (rodata-eligible) ONLY when the storage is genuinely never
         # written AND carries bytes worth sharing. Four things say otherwise:
         #
-        #  - an interior-mutable static (an `Atomic` cell) is written in place;
+        #  - an interior-mutable static (a cell, e.g. `Atomic`) is written in
+        #    place;
         #  - a BARE-DECLARED zero-init static is scratch storage a slab (or other
-        #    raw-pointer-mediated region — design 42) writes through
+        #    raw-pointer-mediated region) writes through
         #    `&STATIC as UnsafePointer<...>`;
-        #  - an `unsafe static var` (design 149 unit a) is written by name;
-        #  - an ALL-ZERO initializer (design 149 unit b). LLVM leaves a constant
-        #    zero global in a readonly section so it can be shared, which means
-        #    the image carries every one of those bytes: the canonical
-        #    `[0; 65536]` arena cost 64 KiB of file. Zeros are the one initializer
-        #    an image never has to store, so this drops the flag and lets the
-        #    global classify as .bss — same value, no bytes.
+        #  - an `unsafe static var` is written by name;
+        #  - an ALL-ZERO initializer. LLVM leaves a constant zero global in a
+        #    readonly section so it can be shared, which means the image
+        #    carries every one of those bytes. Zeros are the one initializer
+        #    an image never has to store, so this drops the flag and, under
+        #    default placement, lets the global classify as .bss — same
+        #    value, no bytes. An explicit `@section` still decides.
         #
         # Source-level immutability still holds either way: the typechecker
         # rejects `STATIC = ...` / `&var STATIC` on everything but an
@@ -2085,18 +1956,19 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             and not self._type_has_interior_mutability(static.type)
             and not self._is_zero_constant(gv.initializer))
 
-        # design 58: an @export static gets a named object-file section (if any)
-        # and is anchored against DCE via @llvm.used.
+        # A static's `@section` names its object-file section; an @export
+        # static is anchored against DCE via @llvm.used below.
         sec = self._checked_section(section_name(static), static)
         if sec:
             gv.section = sec
-        # DF-300b: `@align(N)`, already folded and validated by the
-        # typechecker's align funnel. Maximum with the type's own ABI
-        # alignment, exactly as `_entry_alloca` does for the local half, so an
-        # `@align` only ever strengthens. This composes with `@section` above
-        # and with the design-149 zerofill rule below it: llvmlite renders
-        # `section` and `align` side by side, and an all-zero aligned static
-        # still lands in `.bss` and still costs no image bytes.
+        # `@align(N)`, already folded and validated by the typechecker's align
+        # funnel. Maximum with the type's own ABI alignment, exactly as
+        # `_entry_alloca` does for the local half, so an `@align` only ever
+        # strengthens. This composes with `@section` above and with the
+        # zerofill rule: llvmlite renders `section` and `align` side by side,
+        # and under default placement an all-zero aligned static still lands
+        # in `.bss` and still costs no image bytes. An explicit `@section`
+        # stays authoritative, so zerofill is up to the section it names.
         align = requested_align(static)
         if align is not None:
             gv.align = max(align, self._abi_align(gv.value_type))
@@ -2112,38 +1984,33 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.static_globals.setdefault(static.name, gv)
 
     def _declare_pthread_runtime(self):
-        """Emit thin pthread wrappers the concurrency stdlib links against
-        (design 21 item 4). These exist so the stdlib never has to spell a NULL
+        """Declare the thread seams the concurrency stdlib links against.
+
+        The runtime wrappers exist so the stdlib never has to spell a NULL
         attr pointer at the Saw level (Saw has no null-pointer literal, and an
         optional-pointer extern param would be an ABI mismatch); the wrapper
         passes the platform-correct NULL and forwards the rest.
 
-        pthread symbols resolve from libSystem on macOS and libc/libpthread on
-        Linux; clang's default link line pulls them in.
-
-        Task launch (design 21b item 5; consolidated by design 117):
-        `__saw_rt_thread_spawn` supplies the NULL attr, takes the trampoline as
-        a `i8*(i8*)` start routine plus its env arg, and RETURNS the OS thread
-        handle (pointer-sized `pthread_t`). `__saw_rt_thread_join` takes that
-        handle BY VALUE (pthread_t is pointer-sized on both macOS and glibc).
-        `__saw_rt_thread_spawn` is called by spawn codegen (which holds the
-        trampoline `ir.Function`) — it stores the returned handle into the task
-        control block's first slot; `__saw_rt_thread_join` is called from
-        `Task.join`/`Task.deinit` in std/task.saw.
+        `__saw_rt_thread_spawn` takes the trampoline as an `i8*(i8*)` start
+        routine plus its env arg and RETURNS the OS thread handle
+        (pointer-sized `pthread_t` on both macOS and glibc); spawn codegen
+        stores it into the task control block's first slot.
+        `__saw_rt_thread_join` takes that handle BY VALUE and is called from
+        `PosixThread.join` in std/task.saw.
         """
         i8ptr = ir.IntType(8).as_pointer()
         void = ir.VoidType()
 
         # Trampoline type: void* start_routine(void* arg). Spawn codegen shapes
-        # its trampolines to this and hands them to __saw_rt_pthread_create.
+        # its trampolines to this and hands them to __saw_rt_thread_spawn.
         self.pthread_tramp_type = ir.FunctionType(i8ptr, [i8ptr])
         tramp_ptr_ty = self.pthread_tramp_type.as_pointer()
 
-        # design 113b/117: the thread seam BODIES are authored in Saw + shim.c
+        # The thread seam BODIES are authored in Saw + shim.c
         # (common/pthread.saw for mutex/cond init + thread_join; shim.c for
-        # thread_spawn — DF-113b, a raw C function pointer). The compiler only
+        # thread_spawn, which needs a raw C function pointer). The compiler only
         # DECLARES them (external) and links the runtime; a `--runtime-build`
-        # module's `@export` collapses into the declaration (design-58 unify).
+        # module's `@export` collapses into the declaration.
         #
         # `__saw_rt_thread_spawn`'s start-routine param: in a user program the
         # spawn codegen passes a real trampoline `ir.Function` (the fn-ptr type);
@@ -2153,24 +2020,16 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # caller in this compilation so llvmlite's strict type check is satisfied.
         start_ty = i8ptr if self.runtime_build else tramp_ptr_ty
         word = self.int_type
-        # design 117: the thread surface is consolidated to spawn/join.
-        # `__saw_rt_thread_spawn(entry, env) -> handle` returns the OS thread
-        # handle (a pointer-sized `pthread_t` word) rather than writing a
-        # caller slot; `__saw_rt_thread_join(handle)` takes that handle by value.
-        # The control-block layout is unchanged — spawn codegen stores the
-        # returned handle into the same 8-byte slot pthread_create wrote before.
         decls = [
             ("__saw_rt_pthread_mutex_init_default", ir.FunctionType(void, [i8ptr])),
             ("__saw_rt_pthread_cond_init_default", ir.FunctionType(void, [i8ptr])),
             ("__saw_rt_thread_spawn",
              ir.FunctionType(word, [start_ty, i8ptr])),
             ("__saw_rt_thread_join", ir.FunctionType(void, [word])),
-            # design 242 ruling 4: the daemon-thread fate. ADDITIVE — one new
-            # symbol beside the two above, no existing signature moved (the
-            # design-234 `__saw_rt_last_raw_code` precedent). It takes the
-            # CONTROL BLOCK, not the handle, because it does two things: it
-            # detaches the OS thread, and it takes over the block's ownership
-            # handshake with the thread's own exit path (rt/ABI.md).
+            # The daemon-thread fate. It takes the CONTROL BLOCK, not the
+            # handle, because it does two things: it detaches the OS thread,
+            # and it takes over the block's ownership handshake with the
+            # thread's own exit path (rt/ABI.md).
             ("__saw_rt_thread_detach", ir.FunctionType(void, [i8ptr])),
         ]
         for name, fty in decls:
@@ -2297,22 +2156,22 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                               name="__saw_rt_env_set")
         env_unset = ir.Function(self.module, ir.FunctionType(word, [i8ptr]),
                                 name="__saw_rt_env_unset")
-        # design 89-c: the cooperative op-count budget seam. `saw_op_budget_tick()`
+        # The cooperative op-count budget seam. `__saw_rt_op_budget_tick()`
         # decrements the process-global work budget and returns 1 (with a reset to
         # the default) when it is exhausted — the caller then force-yields — else 0.
-        # `saw_op_budget_reset()` restores the default (called on a genuine park).
+        # `__saw_rt_op_budget_reset()` restores the default (called on a genuine park).
         budtick = ir.Function(self.module, ir.FunctionType(word, []),
                               name="__saw_rt_op_budget_tick")
         budreset = ir.Function(self.module, ir.FunctionType(void, []),
                                name="__saw_rt_op_budget_reset")
-        # design 103 (A6) + 183: the blocking-extern offload shims.
-        # `saw_offload_start(fn, argp, argc)` copies the call's argument slots into
-        # the job and spawns a thread-per-call that runs `fn` over them and signals
-        # a self-pipe; `saw_offload_done`/`saw_offload_pipe_fd`/`saw_offload_take`
-        # poll / expose the readable fd / join+collect+free. `saw_blocking_sleep(ms)`
-        # is the reference blocking primitive (a real thread-blocking sleep returning
-        # its argument) the offload path and its tests exercise via a `blocking func`
-        # extern declaration.
+        # The blocking-extern offload seams. `__saw_rt_offload_start(fn, argp,
+        # argc)` copies the call's argument slots into the job and spawns a
+        # thread-per-call that runs `fn` over them and signals a self-pipe;
+        # `__saw_rt_offload_done` / `_pipe_fd` / `_take` poll / expose the
+        # readable fd / join+collect+free. `__saw_rt_blocking_sleep(ms)` is the
+        # reference blocking primitive (a real thread-blocking sleep returning
+        # its argument) the offload path and its tests exercise via a
+        # `blocking func` extern declaration (design 103).
         offload_start = ir.Function(self.module,
                                     ir.FunctionType(word, [word, word, word]),
                                     name="__saw_rt_offload_start")
@@ -2332,27 +2191,23 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                   blocking_sleep)
         for fn in io_fns:
             self.functions[fn.name] = fn
-        # design 113b/117: every io seam body now lives in Saw + shim.c under
-        # `sawc/rt/` (host_*/reactor.saw, host_*/net_os.saw, common/op_budget.saw,
-        # common/offload.saw; set_nonblocking in shim.c — DF-113c). The compiler
-        # only DECLARES them (external) and links the runtime; the reactor's last
-        # synthesized bodies (the DF-113d per-call stack-buffer blocker) are GONE —
-        # the instance now owns a per-call heap poll buffer, which Saw can express.
-        # In `--runtime-build` a module's `@export` of a seam collapses into these
-        # declarations (design-58 unify).
+        # Every io seam body lives in Saw + shim.c under `sawc/rt/`
+        # (host_*/reactor.saw, host_*/net_os.saw, common/op_budget.saw,
+        # common/offload.saw; set_nonblocking in shim.c). The compiler only
+        # DECLARES them (external) and links the runtime. In `--runtime-build`
+        # a module's `@export` of a seam collapses into these declarations.
         for fn in io_fns:
             fn.linkage = "external"
 
-        # design 118 stage 3: the process-global reactor instance singleton is now
-        # fully in Saw — `__saw_host_reactor()` (std/taskgroup.saw) does the lazy
-        # `reactor_create` + CAS-publish over an `Atomic<Int>` static, and returns
-        # the hosted `SystemReactor` (the `Reactor` trait impl the executor consumes).
-        # The compiler no longer synthesizes a `__saw_reactor()` getter nor injects
-        # an instance at seam call sites; `create`/`destroy` are called from Saw.
+        # The process-global reactor instance is Saw's: `__saw_host_reactor()`
+        # (std/taskgroup.saw) does the lazy `reactor_create` + CAS-publish over
+        # an `Atomic<Int>` static and returns the hosted `SystemReactor` (the
+        # `Reactor` trait impl the executor consumes). The compiler injects no
+        # instance at seam call sites; `create`/`destroy` are called from Saw.
 
     def _positional_local(self, expr, prefix: str) -> str:
         """A compiler-introduced LOCAL binding's name, keyed by source position
-        (design 168 unit 3).
+        (design 168).
 
         These names reach the emitted IR as SSA value names, so anything
         process-global in them (a `node_id`, an `id()`) makes the same source
@@ -2386,7 +2241,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def _create_string_literal_global(self, value: str) -> ir.GlobalVariable:
         """Create (or reuse) an immortal Saw String literal block.
 
-        Layout: { i64 refcount = -1, i64 len, [len+1 x i8] bytes (NUL-terminated) }.
+        Layout: { word refcount = -1, word len, [len+1 x i8] bytes (NUL-terminated) }.
         Returned global's `bytes` field address is the String value.
         """
         if value in self.string_literal_globals:
@@ -2395,17 +2250,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         encoded = value.encode('utf-8')
         n = len(encoded)
         arr_type = ir.ArrayType(ir.IntType(8), n + 1)
-        # Design 47: header words are platform-width (isize), matching the String
-        # runtime layout. On hosted this is the pre-47 { i64, i64, bytes } block.
+        # Header words are platform-width (isize), matching the String
+        # runtime layout.
         word = self.int_type
         hdr_type = ir.LiteralStructType([word, word, arr_type])
 
-        # design 168 unit 3 (DF-164c): named after the CONTENT. One counter used
-        # to number every string literal in the compilation unit, std's and the
-        # user's alike, so adding a single string to a program renumbered every
-        # std reference and std's emitted IR was program-dependent for no reason.
-        # The global is already content-keyed (`string_literal_globals`), so the
-        # content is the name it should always have had.
+        # Named after the CONTENT, as the global is already content-keyed
+        # (`string_literal_globals`). A counter would renumber every std
+        # reference whenever a program added one string, making std's emitted
+        # IR program-dependent (design 168).
         name = self._synth_symbol(f".sawstr.{content_tag(encoded)}")
         g = ir.GlobalVariable(self.module, hdr_type, name=name)
         g.linkage = 'private'
@@ -2435,7 +2288,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def generate(self, program: Program) -> str:
         # Type aliases are already in namespace from typechecker
 
-        # design 69: emit debug-info module flags + compile unit before any
+        # Emit debug-info module flags + compile unit before any
         # function subprogram references them.
         self._di_setup_module()
 
@@ -2464,7 +2317,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # This must happen before struct registration since structs with generic
         # field types (e.g., Vector<Foo>) trigger monomorphization which needs
         # access to generic extensions.
-        # Design 37: a specialized extension written against the default-omitted
+        # A specialized extension written against the default-omitted
         # form (`extension Vector<String>`) must key by the FULLY-APPLIED type
         # args (`("String", "GlobalAllocator")`) so it matches a lookup on the resolved
         # `Vector<String, Global>`. Pad the concrete spec key with the struct's
@@ -2489,7 +2342,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                         self.generic_extensions[extension.struct_name] = []
                     self.generic_extensions[extension.struct_name].append(extension)
             else:
-                # Non-generic-type extension. Design 40 item 9 (C6): any generic
+                # Non-generic-type extension. Any generic
                 # METHOD it declares still needs per-method-arg monomorphization
                 # (its type params are unbound), so index it for the call-site
                 # specializer; the eager declare/generate passes skip it.
@@ -2501,8 +2354,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Register types in dependency order (structs and enums can reference each other)
         self._register_types_in_order(program.structs, program.enums)
 
-        # …then every INSTANCE the monomorphization registry holds (census row
-        # S5). Up front, because the phase splices an instantiation's methods in
+        # …then every INSTANCE the monomorphization registry holds. Up front,
+        # because the phase splices an instantiation's methods in
         # as an extension whose `struct_name` is the MANGLED name, and the
         # declaration pass below reads that name straight out of `struct_types`
         # / `enum_types` to type the `self` parameter — a layout registered
@@ -2520,14 +2373,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Declare all functions (skip generic functions)
         for func in program.functions:
             if func.type_params:
-                # Store generic function for later instantiation. Design 105: a
-                # generic overload in a 2+ generic set carries a distinct `$OL$`
+                # Store generic function for later instantiation. A generic
+                # overload in a 2+ generic set carries a distinct `$OL$`
                 # base symbol (registration) so its template is stored/looked up
                 # under that base, not the collision-prone plain name.
                 self.generic_functions[
                     func.mangled_symbol or func.name] = func
             else:
-                # Overloading (design 55): a member of a 2+ overload set is
+                # Overloading: a member of a 2+ overload set is
                 # emitted under its type-signature-suffixed symbol (stamped on
                 # the AST node by the typechecker); others keep the plain name.
                 self._declare_function(func, name_override=func.mangled_symbol)
@@ -2537,28 +2390,26 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             if not extension.type_params:
                 self._declare_extension_methods(extension)
 
-        # Emit module-level static globals (design 41). Done after types/functions
+        # Emit module-level static globals. Done after types/functions
         # are declared so const initializers can reference them; before function
         # bodies so reads resolve.
         for static in program.statics:
             self._emit_static_global(static)
 
-        # Design 53: evaluate top-level `static_assert`s now that statics/types
+        # Evaluate top-level `static_assert`s now that statics/types
         # exist (so sizeof/alignof and const-static references resolve). A false
         # assertion is a clean compile error; a true one emits nothing.
         for sa in program.static_asserts:
             self._eval_static_assert(sa)
 
-        # design 158: the logical-backtrace table. Emitted HERE — after every
+        # The logical-backtrace table. Emitted HERE — after every
         # type is registered (the layouts it encodes are final) and before any
         # body (a body may name it through the `__saw_bt_table()` intrinsic).
         self._emit_bt_table(program)
 
-        # Fifth pass: function bodies. design 168 unit 2 — REGISTERED here, not
-        # generated: `_emit_bodies` decides which of them the program reaches.
-        # Registration order is the order the old eager passes ran in, and with
-        # the strip off the registry drains in exactly that order, so a
-        # non-whole-program build emits a byte-identical module.
+        # Function bodies — REGISTERED here, not generated: `_emit_bodies`
+        # decides which of them the program reaches. With stripping off, it
+        # emits every one, in registration order (design 168).
         for func in program.functions:
             if not func.type_params:
                 self._defer_function_body(func)
@@ -2568,33 +2419,28 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         self._seed_reachability_roots()
 
-        # Emit the bodies, draining the monomorphization queue (design 40) and
-        # the `any Trait` vtable queue (design 51) to a fixpoint — both are fed
+        # Emit the bodies, draining the monomorphization queue and
+        # the `any Trait` vtable queue to a fixpoint — both are fed
         # from INSIDE body generation, and a vtable's thunks call their impls.
         self._emit_bodies()
 
-        # design 158: the frame -> vtable map, emitted AFTER bodies because a
+        # The frame -> vtable map, emitted AFTER bodies because a
         # vtable only exists once something erased that frame.
         self._emit_bt_vtables()
 
-        # design 58: anchor `@export`ed symbols against DCE.
+        # Anchor `@export`ed symbols against DCE.
         self._emit_llvm_used()
 
-        # design 112: in the freestanding profile, place every function in its
-        # own `.text.<name>` section so a kernel linker (`ld.lld --gc-sections`)
-        # can garbage-collect the unreachable stdlib methods. Codegen emits EVERY
-        # loaded extension method regardless of reachability, and freestanding
-        # still loads channel/mutex/task/float-print methods — which reference
-        # pthread/snprintf/float libcalls. Without per-function sections they all
-        # fuse into one `.text` that a single reachable call pins whole, so the
-        # link pulls in symbols a bare-metal target can't satisfy. Per-function
-        # sections + `--gc-sections` keeps only the transitively-reachable set
-        # (entry + `@llvm.used`). Guarded by `freestanding`: hosted builds are
-        # byte-identical to before.
+        # Freestanding: internalize, and place every function in its own
+        # `.text.<name>` section so a kernel linker (`ld.lld --gc-sections`)
+        # can drop what nothing reaches. Without per-function sections every
+        # emitted body fuses into one `.text` that a single reachable call
+        # pins whole, pulling in symbols a bare-metal target can't satisfy.
+        # See `_apply_section_layout`.
         if self.freestanding:
             self._apply_section_layout()
         elif self.runtime_build:
-            # design 113b: a runtime-build object keeps ONLY its `@export`ed
+            # A runtime-build object keeps ONLY its `@export`ed
             # seams external; every other definition (String/atomic/print/argv
             # helpers pulled in with the prelude, the runtime's own private
             # globals) is internalized so it never collides with the user
@@ -2604,32 +2450,29 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             # -O1 globaldce already strips the unreferenced internal defs.
             self._apply_section_layout(place_sections=False)
         else:
-            # SL-274: the HOSTED profile internalizes on exactly the terms the
-            # other two already did — `@export` is the only way out, so no
-            # definition this module did not publish can be bound from outside
-            # it. That is the linkage half of the ruling whose mangling half is
-            # `typechecker/registration.py::_free_function_symbol_base`; it is
-            # what makes a user `func read(...)` unable to capture the `read`
-            # the runtime's own seam calls, whatever the symbol is spelled.
+            # The HOSTED profile internalizes on the same terms as the other
+            # two — `@export` is the only way out, so no definition this module
+            # did not publish can be bound from outside it. That is what makes
+            # a user `func read(...)` unable to capture the `read` the
+            # runtime's own seam calls, whatever the symbol is spelled.
             #
             # Gated on `_strip_unreachable`, which is `sawc.py`'s
             # `whole_program`: an executable link or an object that already
             # internalizes everything but its `@export`s. A plain hosted `-c`
             # object is SOMEBODY ELSE'S to link, so it keeps external linkage.
             #
-            # Sections stay design 168 unit 1 (DF-164b): a HOSTED ELF link gets
-            # per-symbol sections so `ld --gc-sections` (added to the clang link
-            # line in sawc.py) can drop what nothing reaches. Mach-O needs none
-            # of it — `ld64 -dead_strip` works at symbol granularity and rejects
-            # the ELF section spelling — so apple triples take the linkage half
-            # alone.
+            # A HOSTED ELF link gets per-symbol sections so `ld --gc-sections`
+            # (on the clang link line in sawc.py) can drop what nothing
+            # reaches. Mach-O needs none of it — `ld64 -dead_strip` works at
+            # symbol granularity and rejects the ELF section spelling — so
+            # apple triples take the linkage half alone.
             place = not self._is_apple_triple()
             if place or self._strip_unreachable:
                 self._apply_section_layout(
                     place_sections=place,
                     internalize=self._strip_unreachable)
 
-        # design 246 Unit B: nothing may leave here with a body still waiting.
+        # Nothing may leave here with a type body still waiting.
         # A monomorphization reached during BODY generation registers types too,
         # so the check at the end of `_register_types_in_order` is not the last
         # word — this is.
@@ -2638,54 +2481,34 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def _apply_section_layout(self, place_sections: bool = True,
                               internalize: bool = True):
-        """Prepare the module for dead-code-free linking (design 112, 168) and
-        decide every definition's LINKAGE (SL-274).
+        """Prepare the module for dead-code-free linking: the final
+        internalization and section-placement policy, when enabled.
 
-        THE ONE PLACE a definition's linkage is decided (obligation 1 — a funnel
-        names its entries). ENTRY POINTS, all three in `generate`'s tail:
+        Each definition's initial linkage is set where it is emitted; this
+        pass is THE ONE PLACE that internalizes definitions outside the
+        keep-set (obligation 1). ENTRY POINTS, all in `generate`'s tail:
+          * `--freestanding`: sections + internalize
+          * `--runtime-build`: internalize only (host-linked; mach-O rejects
+            the ELF `.text.<name>` spelling)
+          * hosted: internalize when `_strip_unreachable`, sections on ELF; a
+            hosted Apple build without `_strip_unreachable` does not run it
 
-          * `--freestanding`: sections + internalize (design 112).
-          * `--runtime-build`: internalize only, `place_sections=False` — the
-            object is host-linked by clang and the mach-O host rejects the ELF
-            `.text.<name>` spelling (design 113b).
-          * HOSTED: internalize when this compile owns the whole program
-            (`_strip_unreachable`), plus sections on ELF (design 168 unit 1).
-            A plain hosted `-c` object is somebody else's to link and keeps
-            external linkage, so it passes `internalize=False`.
-
-        The keep-set is the same in every one of them: `@export`ed globals plus
-        the C `main`. That is what SL-274's ruling means by "collisions become
-        impossible by construction" — a Saw free function nothing published can
-        no longer be bound by the linker at all, so it cannot capture the libc
-        symbol of the same name for the runtime seam that calls it.
-
-        Codegen emits EVERY loaded stdlib method (and its closure/vtable
-        descriptor globals + backend constant pools) regardless of reachability,
-        and the freestanding profile still loads channel/mutex/task/float-print
-        methods — which reference pthread/snprintf/float/atomic symbols a
-        bare-metal target cannot satisfy. Two composing mechanisms strip them so a
-        kernel links only what it uses:
-
-        1. INTERNALIZE every definition that is not an `@export` keep-root (nor the
-           C `main`). With external linkage the O1 `globaldce` must treat each as a
-           root; internal linkage lets it delete everything unreachable from the
-           exported entry (`kmain`) + `@llvm.used`. This is the primary mechanism
-           and removes the dead methods' fused backend constant pools too — the
-           part per-section splitting alone cannot reach (llvmlite exposes no
-           backend function/data-sections knob).
-        2. PER-SYMBOL SECTIONS (`.text.<n>` / `.rodata.<n>` / `.data.<n>`) so a
-           `ld.lld --gc-sections` link trims any residue (and covers `-O0`, where
-           globaldce does not run). Only definitions without an explicit
-           `@section` are placed; declarations and `llvm.*` anchors are left alone.
-
-        Note what (1) settles for `@section` WITHOUT `@export`: the attribute
-        promises PLACEMENT and nothing else (LANGUAGE_SPEC reserves external
-        linkage for `@export`), and a `@section`'d function is not in the
-        keep-set, so it internalizes like any other. Freestanding always read
-        that way; the hosted profile agrees since SL-274.
+        The keep-set is `_exported_llvm_globals` (the `@export`ed functions
+        and statics plus the synthesized backtrace roots) plus the C `main`,
+        so a Saw free function nothing published cannot be bound by the
+        linker at all, and cannot capture the libc symbol a runtime seam calls. `@section` alone
+        promises placement, not linkage, so it internalizes too. Two
+        mechanisms let a kernel link only what it uses: INTERNALIZE (so O1
+        `globaldce` can delete everything unreachable from the exports and
+        `@llvm.used`, fused constant pools included) and PER-SYMBOL SECTIONS
+        for `--gc-sections` (which also covers `-O0`, where globaldce does not
+        run). Declarations, `llvm.*` anchors and explicit `@section`s are not
+        placed.
         """
-        # Keep-roots: the exported functions/statics (already anchored in
-        # `@llvm.used`) plus the C `main` if present. Everything else internalizes.
+        # Keep-roots: `_exported_llvm_globals` (the `@export`ed functions and
+        # statics plus the synthesized backtrace roots, all anchored in
+        # `@llvm.used`) plus the C `main` if present. Everything else
+        # internalizes.
         keep = {g.name for g in self._exported_llvm_globals}
         keep.add("main")
 
@@ -2715,14 +2538,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 # linker script catches all three; `--gc-sections` drops the
                 # unreferenced ones.
                 #
-                # The `.bss` case is design 149 unit b, and it has to be spelled
-                # HERE rather than left to LLVM: naming a section at all is what
-                # suppresses LLVM's own zerofill classification, so before this
-                # every zero global in the freestanding profile — the profile
-                # where it matters most — was placed in `.data` and the kernel
-                # image carried the zeros. A 64 KiB arena cost 64 KiB of image.
-                # `.bss.*` is a name LLVM recognizes as SHT_NOBITS, so this keeps
-                # the per-symbol `--gc-sections` granularity AND the zerofill.
+                # The `.bss` case has to be spelled HERE rather than left to
+                # LLVM: naming a section at all suppresses LLVM's own zerofill
+                # classification, so a zero global named `.data.<n>` would make
+                # the kernel image carry its zeros. `.bss.*` is a name LLVM
+                # recognizes as SHT_NOBITS, so this keeps the per-symbol
+                # `--gc-sections` granularity AND the zerofill.
                 if gv.global_constant:
                     prefix = ".rodata"
                 elif self._is_zero_constant(gv.initializer):
@@ -2731,7 +2552,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                     prefix = ".data"
                 gv.section = f"{prefix}.{gv.name}"
 
-    # ---- design 53: static_assert compile-time evaluation ----
+    # ---- static_assert compile-time evaluation ----
 
     def _eval_static_assert(self, sa):
         """Evaluate one `static_assert(cond, "msg")`. A false result raises a
@@ -2742,9 +2563,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 f"static assertion failed: {sa.message}", sa.line, sa.column)
 
     def _const_eval(self, expr, sa):
-        """Compile-time-evaluate a `static_assert` condition (design 53).
+        """Compile-time-evaluate a `static_assert` condition.
 
-        The evaluation itself lives in `const_eval.py` (design 148), which is
+        The evaluation itself lives in `const_eval.py`, which is
         also what an array length and a repeat count go through — one grammar,
         one set of arithmetic semantics, no drift. Codegen supplies the two
         things only it has: the ABI layout oracle behind `sizeof`/`alignof`, and
@@ -2784,16 +2605,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         `type_param_context` maps every parameter of the current instantiation
         to its argument; the const ones carry a value rather than a type, and
-        only those become names an expression may read (design 148).
+        only those become names an expression may read.
 
-        A SPLICED INSTANCE has no context to read (DF-286c face 1): design 218
-        unit 1.5 stage 3c makes it an ordinary concrete declaration, generated
-        by the ordinary path, and the live `type_param_context` that used to
-        answer `N` is gone with the path that built it. The binding rides on the
+        A SPLICED INSTANCE is an ordinary concrete declaration with no live
+        `type_param_context` to answer `N`. The binding rides on the
         declaration instead — `mono_const_bindings`, filled by the
         materialization funnel and read by the typechecker's own
         `_enter_const_params` — so the two sides answer `N` from one place.
-        `_current_decl` is design 192's breadcrumb, set by every body generator
+        `_current_decl` is the ICE breadcrumb, set by every body generator
         and saved across a closure, which is exactly the scope this question has.
         """
         env = {}
@@ -2822,7 +2641,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return ir.Constant(self._get_llvm_type(saw), env[expr.name])
 
     # ---------------------------------------------------------------------
-    # ABI layout queries (design 115 re-entrancy; DF-220a).
+    # ABI layout queries.
     #
     # `ir.Type.get_abi_size`/`get_abi_alignment` compute layout by rendering the
     # type into a THROWAWAY module and parsing it. Two contexts are in play and
@@ -2835,9 +2654,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     #     reference and the parse fails ("use of undefined type named ...").
     #   * the LLVM `LLVMContext` the parse lands in. `llvmlite.ir.Type`'s own
     #     `_get_ll_global_value_type` accepts the first and hard-codes the
-    #     second to the process-global one — which is DF-220a, since each of a
-    #     compile's ~92 queries registers its whole ~45-type table there and
-    #     the next compile's names come back uniqued `Name.NNNN`.
+    #     second to the process-global one, where every query registers the
+    #     compile's type table and the next in-process compile's names come
+    #     back uniqued `Name.N`.
     #
     # So sawc owns the query. `_ll_layout_type` is llvmlite's two lines with the
     # context passed through; ROUTE EVERY LAYOUT QUERY THROUGH THE TWO HELPERS
@@ -2857,9 +2676,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return llmod.get_global_variable(gv.name).global_value_type
 
     # A layout query PARSES a probe module (see `_ll_layout_type`), which is far
-    # too expensive to repeat: design 261 U2 asks the size of every aggregate it
-    # considers copying, which is a hot path where the frame-layout and
-    # backtrace-table callers were one-shot. The type's rendered form determines
+    # too expensive to repeat: `_copy_source_pointer` asks the size of every
+    # aggregate it considers copying, a hot path. The type's rendered form determines
     # its layout for a given target, and the target is fixed for a compile, so
     # it is the whole key. Identified types are uniquely named within a module,
     # and literal ones render structurally.
@@ -2885,9 +2703,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def _require_sized(self, llvm_type, what: str):
         """LLVM ABORTS the process on a layout query about an unsized type
         (`Cannot getTypeInfo() on a type that is unsized!`), which is not a
-        diagnostic anybody can act on. Design 246 Unit B makes a bodyless
-        identified type reachable while a cycle is being registered, so ask
-        first and report through the ordinary internal-compiler-error path."""
+        diagnostic anybody can act on. A bodyless identified type is reachable
+        while a type cycle is being registered, so ask first and report through
+        the ordinary internal-compiler-error path."""
         if self._embeds_unsized_type(llvm_type):
             raise ValueError(
                 f"the {what} of `{llvm_type}` was asked for while it still "
@@ -2904,36 +2722,33 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return self._abi_size(llvm_type)
         return self._abi_align(llvm_type)
 
-    # _resolve_type_alias is now in codegen_types.py (TypesMixin)
-
     def _register_types_in_order(self, structs, enums):
         """Register structs and enums in dependency order using topological sort."""
         from ast_nodes import TypeKind
 
-        # Build maps for quick lookup. Keyed by design-144 IDENTITY, which is
-        # what the field/variant SawTypes below name and what the layout
+        # Build maps for quick lookup. Keyed by module-qualified IDENTITY, which
+        # is what the field/variant SawTypes below name and what the layout
         # registry is keyed by — two modules' `Header`s are two entries here.
         struct_map = {decl_identity(s): s for s in structs}
         enum_map = {decl_identity(e): e for e in enums}
         # DECLARATION order, not set order. Every structure below (the dependency
         # map, the in-degree map, Kahn's initial queue, the cycle-breaking tail)
-        # is seeded by iterating this, so seeding it from a `set` of names made
-        # the emitted type -- and therefore function -- order depend on the
-        # process's string hash seed, i.e. the compiler did not produce identical
-        # IR twice (design 126 R2). `all_types` stays a set for membership tests
-        # only.
+        # is seeded by iterating this; seeding it from a `set` of names would
+        # make the emitted type -- and therefore function -- order depend on
+        # the process's string hash seed, so the compiler would not produce
+        # identical IR twice. `all_types` stays a set for membership tests only.
         type_order = list(struct_map.keys()) + [
             n for n in enum_map.keys() if n not in struct_map]
         all_types = set(type_order)
-        # DF-256a: a GENERIC struct's own fields are dependencies too, and the
-        # walk below cannot see them — the graph is built over non-generic
-        # declarations only (a template has no layout), so a field of type
-        # `Task<Int>` contributed the name `Task` and stopped. `Task<T>`'s
-        # `group_ptr: UnsafePointer<TaskGroup>` is a CONCRETE dependency of every
-        # instantiation, and registering the container asks
-        # `_ensure_monomorphized_struct` to build the instantiation right there —
-        # which needs `TaskGroup` already registered. Reaching through the
-        # template is what makes that edge visible. Substitution is not needed:
+        # A GENERIC struct's own fields are dependencies too, and the graph
+        # below is built over non-generic declarations only (a template has no
+        # layout), so a field of type `Task<Int>` would contribute the name
+        # `Task` and stop. `Task<T>`'s `group_ptr: UnsafePointer<TaskGroup>` is
+        # a CONCRETE dependency of every instantiation, and registering the
+        # container asks `_ensure_monomorphized_struct` to build the
+        # instantiation right there — which needs `TaskGroup` already
+        # registered. Reaching through the template is what makes that edge
+        # visible. Substitution is not needed:
         # a field typed by a type PARAMETER names no registered type, and one
         # typed by a concrete struct names the same struct at every
         # instantiation.
@@ -2970,10 +2785,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                     deps.update(get_deps(elem, _through))
             # Check the element type of a fixed array `[T; N]`: a struct field of
             # array type depends on its element type's layout being registered
-            # first (design 33). Missing this let the topological sort place a
-            # container struct before its array element type, so building the
-            # container's LLVM type failed with "Undefined struct" nondeterministically
-            # (the order depended on set iteration / hash seed).
+            # first, so the sort must not place a container before its array
+            # element type.
             if saw_type.kind == TypeKind.ARRAY and saw_type.array_element_type:
                 deps.update(get_deps(saw_type.array_element_type, _through))
             return deps
@@ -2996,23 +2809,18 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # Topological sort using Kahn's algorithm.
         #
-        # design 246 Unit B: this sort is now an ORDERING HEURISTIC and nothing
-        # more. `get_deps` above states a hard edge for every type ARGUMENT of a
-        # generic field, including the ones a container reaches only through a
-        # pointer — `Vector<T>`'s own fields are a pointer and two `Int`s, so its
-        # layout never needs `T`'s. That edge set is a strict SUPERSET of the
-        # layout relation, which is what used to drop a cyclic type into the
-        # tail below and then into `Undefined enum/struct` (DF-260a).
-        #
-        # It is deliberately left overstated. Registration no longer depends on
-        # the order at all: a member naming an unregistered type registers it
-        # (`_demand_register_type`), and a body whose members are not sized yet
-        # waits (`_finish_or_defer`). Narrowing the edges to the inline-embedding
-        # relation Unit A computes would reshuffle the emitted type order across
-        # the whole corpus and buy no correctness — while KEEPING it means the
-        # acyclic majority is still emitted in the order every existing IR
-        # baseline was recorded under. What the edge set must never become again
-        # is a claim about layout; it is a hint about emission order.
+        # This sort is an ORDERING HEURISTIC and nothing more. `get_deps` above
+        # states a hard edge for every type ARGUMENT of a generic field,
+        # including the ones a container reaches only through a pointer —
+        # `Vector<T>`'s own fields are a pointer and two `Int`s, so its layout
+        # never needs `T`'s. That edge set is a strict SUPERSET of the layout
+        # relation, and it is deliberately left overstated: registration does
+        # not depend on the order (a member naming an unregistered type
+        # registers it via `_demand_register_type`, and a body whose members
+        # are not sized yet waits in `_finish_or_defer`). Narrowing the edges
+        # would reshuffle the emitted type order and buy no correctness. The
+        # edge set is a hint about emission order, never a claim about layout
+        # (design 246).
         in_degree = {name: 0 for name in type_order}
         for name, type_deps in deps.items():
             for dep in type_deps:
@@ -3035,11 +2843,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                         queue.append(other_name)
 
         # The remaining types form CYCLES, so no order puts every one of them
-        # after its members. The sort stays as the ordering heuristic it always
-        # was — it is what keeps the emitted type order stable for the acyclic
-        # majority — and the cycle members are simply appended in declaration
-        # order; what makes them work is publish-before-lower plus the demand
-        # registration below (design 246 Unit B), not the position they land in.
+        # after its members. They are appended in declaration order; what makes
+        # them work is publish-before-lower plus the demand registration below,
+        # not the position they land in.
         for name in type_order:
             if name not in sorted_types:
                 sorted_types.append(name)
@@ -3075,7 +2881,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def _demand_register_type(self, identity: str) -> bool:
         """Register the concrete declaration `identity` names, right now.
 
-        Design 246 Unit B: the answer to a CYCLE. A cycle has no order in which
+        The answer to a type CYCLE. A cycle has no order in which
         every type follows its members, so a member type will always name one
         that is not registered yet — `enum Expr { case Group(g: Vector<Term>) }`
         beside `enum Term { case Nested(e: Vector<Expr>) }` reaches `Term` while
@@ -3099,7 +2905,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def _register_struct(self, struct: Struct):
         """Register a struct type with LLVM."""
-        # Design 144: the layout registry, the LLVM identified type and the
+        # The layout registry, the LLVM identified type and the
         # generic-template store are all keyed by the struct's IDENTITY.
         identity = decl_identity(struct)
         # Skip generic structs - they'll be monomorphized when used
@@ -3107,15 +2913,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             self.generic_structs[identity] = struct
             return
 
-        # PUBLISH BEFORE LOWER (design 246 Unit B). The identified type and its
-        # registry entry go in FIRST, still bodyless; the field types are
-        # lowered afterwards and become the body. A field that reaches back to
-        # this same type — `next: Box<Node>?` — then finds the published
-        # handle instead of raising `Undefined struct: Node` (DF-260a), and a
-        # pointer to a bodyless identified type is legal and sized, which is
-        # what identified types exist for. An ALL-INLINE cycle would try to
-        # embed a bodyless type by value; design 246 Unit A refuses that at the
-        # declaration, so it never arrives here.
+        # PUBLISH BEFORE LOWER. The identified type and its registry entry go
+        # in FIRST, still bodyless; the field types are lowered afterwards and
+        # become the body. A field that reaches back to this same type —
+        # `next: Box<Node>?` — then finds the published handle instead of
+        # raising `Undefined struct: Node`, and a pointer to a bodyless
+        # identified type is legal and sized, which is what identified types
+        # exist for. An ALL-INLINE cycle would try to embed a bodyless type by
+        # value; the finite-size check refuses that at the declaration, so it
+        # never arrives here (design 246).
         llvm_struct_type = self.module.context.get_identified_type(identity)
         field_order = [field.name for field in struct.fields]
         self.struct_types[identity] = (llvm_struct_type, field_order)
@@ -3167,17 +2973,16 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                                 raw_type=None):
         """Register a concrete (non-generic or monomorphized) enum type with LLVM.
 
-        Design 145 unit B2: when `raw_type` is set the enum IS its tag at the
-        declared width, and the tag values are the ones written in source rather
-        than declaration ordinals — the point of declaring a backing is that
-        reordering the cases cannot renumber them.
+        When `raw_type` is set the enum IS its tag at the declared width, and
+        the tag values are the ones written in source rather than declaration
+        ordinals — the point of declaring a backing is that reordering the
+        cases cannot renumber them.
 
-        PUBLISH BEFORE LOWER (design 246 Unit B). A payload-carrying enum is an
-        IDENTIFIED struct `{i32, [M x iK]}` rather than a literal one, so the
-        registry entry can be published while it is still bodyless and a
-        payload that reaches back to this enum — `case Items(items:
-        Vector<Json>)` — resolves to the published handle instead of raising
-        `Undefined enum: Json` (DF-260a). The tags and the variant table are
+        PUBLISH BEFORE LOWER. A payload-carrying enum is an IDENTIFIED struct
+        `{i32, [M x iK]}` rather than a literal one, so the registry entry can
+        be published while it is still bodyless and a payload that reaches
+        back to this enum — `case Items(items: Vector<Json>)` — resolves to the
+        published handle instead of raising `Undefined enum: Json`. The tags and the variant table are
         computed first because neither lowers a type. Payload-free and
         raw-backed enums stay bare integers: with no payload there is no member
         edge, so no cycle can reach them.
@@ -3194,7 +2999,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         if not self._enum_carries_payload(variants, raw_type):
             if raw_type is not None:
-                # Raw-backed (design 145 unit B2): the enum IS its tag, at the
+                # Raw-backed: the enum IS its tag, at the
                 # declared width. Payload-free by construction — the typechecker
                 # rejects a backing on an enum with payloads.
                 llvm_enum_type = self._get_llvm_type(raw_type)
@@ -3211,8 +3016,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         for variant in variants:
             # Calculate payload size for this variant
             if variant.associated_types:
-                # A Void-typed payload field carries no data (design 92:
-                # `Result<Void, E>` — the Ok arm is dataless). Drop it so the
+                # A Void-typed payload field carries no data
+                # (`Result<Void, E>` — the Ok arm is dataless). Drop it so the
                 # variant struct never contains an illegal `{void}` member; an
                 # all-Void variant contributes a zero-size (payload-free) arm.
                 variant_types = [self._get_llvm_type(typ) for _, typ in variant.associated_types
@@ -3229,7 +3034,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             # `Arc<T>` (an optional pointer `{i1, ptr}` = 16 bytes, sum 9)
             # or an `Int8` before a wide field — undersizes the array and
             # both TRUNCATES the aggregate on construction and reads OOB on
-            # extraction (design 65, L17 symptom 2).
+            # extraction.
             max_payload_size = max(
                 (self._abi_size(vs) for vs in variant_structs), default=0)
             max_payload_align = max(
@@ -3241,49 +3046,32 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # The SIZE of a payload is what waits, not just the body: an enum whose
         # payload is a container of itself asks for that container's layout, and
-        # the container is what published this enum's demand in the first place
-        # (design 246 Unit B).
+        # the container is what published this enum's demand in the first place.
         self._finish_or_defer(name, variant_structs, finish)
 
     def _enum_payload_union_type(self, size: int, align: int):
         """THE payload union's type: `[M x iK]` at the payload's own alignment.
 
-        design 265 U2 / DF-300a. ONE function decides the union's element type,
-        and the TYPE is the funnel — every position that touches a payload
-        (construction, match-arm extraction, the Result Ok/Err unpack, a
-        by-value argument or return, a move, a release walk) reads this type
-        out of `enum_types` and copies at ITS granularity. There is no
-        per-site conversion to keep in step and no position at which the old
-        spelling can regrow, which is what obligation 1 asks for
-        structurally.
+        ONE function decides the union's element type, and the TYPE is the
+        funnel — every position that touches a payload (construction,
+        match-arm extraction, the Result Ok/Err unpack, a by-value argument or
+        return, a move, a release walk) reads this type out of `enum_types`
+        and copies at ITS granularity, so no per-site conversion has to be kept
+        in step (obligation 1).
 
         The rule: `K = 8 * <the largest variant payload's natural alignment>`,
         `M = ceil(size / align)`. So a pointerful or `Int` payload is
         `[M x i64]` on a 64-bit host and `[M x i32]` on riscv32, an
         `Int16`-class payload is `[M x i16]`, and a `Byte`/`Bool`-class
-        payload keeps `[N x i8]` exactly as before. No name-based special
-        case: `Result`, `Optional` and every user or kernel enum get the
-        granularity their own payload earns.
+        payload is `[N x i8]`, with no name-based special case.
 
-        WHY, measured (DF-300a): an `[N x i8]` payload member has ABI
-        alignment 1, so the payload sat UNDER-ALIGNED at offset 4 and codegen
-        compensated by round-tripping every payload access through a separate
-        `align 8` scratch alloca — array stores and loads at byte type, which
-        SROA then shredded into per-byte `lshr`/`trunc`/`store i8` chains. The
-        `Vector<Int>.map` instantiation spent 75 of its 160 instructions on
-        that. Typed at the payload's own alignment, the slot is correctly
-        placed in situ and every one of those copies is a word copy that SROA
-        decomposes into word loads and stores.
-
-        COST, and it is not zero: the tag pads to the payload's alignment, so
-        an 8-aligned payload moves from offset 4 to offset 8 on a 64-bit host
-        (+4 B per such enum; riscv32 pays nothing, since word alignment is 4
-        and the tag already fills it). Payload ROUNDING is zero whenever the
-        largest variant is also the most-aligned one, which the design-265 U0
-        census found true for 39 of 40 std enums; where it is not
-        (`Result<JsonValue, DecodeError>`: a 52-byte align-4 Ok beside an
-        align-8 Err) the array rounds 52 up to 56 and the enum grows +8
-        rather than +4. Accepted at the ruling.
+        An `[N x i8]` member for a wider payload would sit UNDER-ALIGNED at
+        offset 4, and SROA shreds byte-typed copies into per-byte
+        `lshr`/`trunc`/`store i8` chains; typed at the payload's alignment,
+        every copy is a word copy. The cost: the tag pads to the payload's
+        alignment (+4 B for an 8-aligned payload on a 64-bit host), and the
+        array rounds up when the largest variant is not also the most-aligned
+        one (design 265).
         """
         if align <= 1:
             return ir.ArrayType(ir.IntType(8), size)
@@ -3293,23 +3081,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def _payload_scratch_alloca(self, union_type, name: str):
         """The scratch slot a BY-VALUE payload conversion round-trips through.
 
-        design 265 U2. An enum whose value is an SSA aggregate has to convert
-        between the union's array type and the active variant's field struct,
-        and LLVM has no bitcast between aggregate VALUES — the conversion is a
-        store at one type and a load at the other, which needs storage. So
-        this slot remains where the enum is a value rather than a place: the
-        construction sites (`_generate_enum_init`, the Result Ok/Err
-        constructors) and the extraction sites (a match arm's payload, the
-        Result Ok/Err unpack), each of which is handed an SSA enum with no
-        pointer to GEP into.
-
-        What design 265 U2 removed is not the slot but the SHRED: the slot is
-        typed as the union (see `_enum_payload_union_type`), so at the payload
-        alignment the store and the load are WORD copies that SROA decomposes
-        into word loads and stores, where the old `[N x i8]` spelling made
-        SROA shred each word into `lshr`/`trunc`/`store i8`. Measured on the
-        `Vector<Int>.map` instantiation: 160 instructions with 75 of them
-        shred-family, down to 69 with 6.
+        An enum whose value is an SSA aggregate has to convert between the
+        union's array type and the active variant's field struct, and LLVM has
+        no bitcast between aggregate VALUES — the conversion is a store at one
+        type and a load at the other, which needs storage. So this slot exists
+        where the enum is a value rather than a place: the construction sites
+        (`_generate_enum_init`, the Result Ok/Err constructors) and the
+        extraction sites (a match arm's payload, the Result Ok/Err unpack).
+        The slot is typed as the union (see `_enum_payload_union_type`), so the
+        store and the load are word copies SROA decomposes cleanly.
 
         The alignment comes from the TYPE rather than a constant, which is the
         invariant that makes the reinterpreting load legal: the union is at
@@ -3322,9 +3102,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def _enum_carries_payload(self, variants, raw_type) -> bool:
         """Whether this enum's LLVM shape is `{i32, [M x iK]}` rather than a
         bare integer tag — asked BEFORE any payload type is lowered, because
-        the answer decides which shape gets PUBLISHED (design 246 Unit B).
+        the answer decides which shape gets PUBLISHED.
 
-        A raw backing forbids payloads outright (design 145 unit B2). Otherwise
+        A raw backing forbids payloads outright. Otherwise
         the question is whether any payload carries data, and the one shape that
         declares a payload and carries none is the all-`Void` enum
         (`Result<Void, Void>`): `_register_concrete_enum` drops a Void field so
@@ -3361,7 +3141,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return False
 
     def _set_registered_body(self, llvm_type, member_types, identity: str):
-        """Give a PUBLISHED identified type its body (design 246 Unit B).
+        """Give a PUBLISHED identified type its body (design 246).
 
         The one place the second half of publish-before-lower happens — both
         registration helpers and both monomorphization helpers reach it — and
@@ -3373,7 +3153,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         crosses `Vector`'s pointer — it is only the ORDER that is wrong, so the
         body waits here and lands as soon as what it names is sized. Setting any
         body drains the waiting ones, which is what makes the order irrelevant.
-        A body that could NEVER land is an all-inline cycle; Unit A's
+        A body that could NEVER land is an all-inline cycle; the
         finite-size check refuses those at the declaration, and
         `_assert_no_deferred_type_bodies` is the breadcrumb if one ever gets
         past it.
@@ -3389,8 +3169,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         error: a legal cycle simply has no order in which every type is
         finished after its members, so the last one to become sized is what
         releases the rest. `_assert_no_deferred_type_bodies` is the backstop for
-        a park that can never be released, which is the all-inline cycle Unit A
-        refuses at the declaration.
+        a park that can never be released, which is the all-inline cycle the
+        finite-size check refuses at the declaration.
         """
         if any(self._embeds_unsized_type(b) for b in blockers):
             self._deferred_type_bodies.append((identity, list(blockers), finish))
@@ -3443,7 +3223,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def _assert_no_deferred_type_bodies(self):
         """Every published type has a body by now, or the finite-size check has
-        a hole (design 246 Unit A) and the module would not verify.
+        a hole and the module would not verify.
 
         The breadcrumbed report, per the `icebreadcrumb` convention: a named
         internal compiler error naming both types, never a silent opaque type
@@ -3461,9 +3241,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             f"finite layout. The finite-size check (design 246 Unit A) is "
             f"supposed to refuse this at the declaration")
 
-    # _estimate_type_size is now in codegen_types.py (TypesMixin)
-
-    # design 221 unit B4 (DF-220b + DF-220c): the exit funnel.
+    # The synthesized Saw function that turns a `Result` from `main` into an
+    # exit status (see `_emit_main_exit_return`).
     MAIN_EXIT_FUNNEL = "__saw_main_exit_code"
 
     def _is_c_entry(self, llvm_func) -> bool:
@@ -3478,14 +3257,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         """Return `value` from `main` as the process exit status.
 
         THE ONE PLACE a `main` result becomes the C entry's `i32`, for every
-        shape `main` can take. ENTRY POINTS (obligation 1): the fall-through
-        epilogue of `main` (`codegen/methods.py:_generate_function`) and every
-        `return` inside it (`codegen/statements.py:_generate_return_statement`).
+        shape `main` can take. ENTRY POINTS (obligation 1):
+          - `codegen/methods.py:_generate_function` (the fall-through epilogue)
+          - `codegen/statements.py:_generate_return_statement` (a `return`)
+          - `codegen/results.py:_generate_try_propagate` (a `try` in `main`)
         Both synthesized entry executors arrive here too, because each IS the
         emitted `main` — the single-frame one carrying whatever the user's
         `main` returned, the ambient one carrying the `Int` its cell produced.
 
-        The mapping (design 221 Part C):
+        The mapping (design 221):
 
             Void      -> 0
             Int       -> the value
@@ -3495,7 +3275,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         The `Result` rows are a layer up, in the synthesized Saw funnel, because
         the ambient executor must apply them BEFORE its value reaches the cell
-        (design 221 unit B3) and a rule written twice is a rule that drifts.
+        and a rule written twice is a rule that drifts.
         This is the C boundary: it does the two rows that ARE the boundary, and
         calls that funnel for the two that are not.
 
@@ -3523,25 +3303,22 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def _mark_noalias_params(self, llvm_func, saw_types, arg_offset=0):
         """Mark `&var` (mutable-reference) parameters `noalias`.
 
-        The Law of Exclusivity (brief 10) statically guarantees a `&var` binding
-        is the only live access path to its referent for the whole call, so
-        LLVM's `noalias` contract -- this pointer does not alias any other
-        pointer the function accesses -- holds by construction. Declaring it lets
-        the optimizer keep loads/stores through the reference in registers rather
+        The Law of Exclusivity statically guarantees a `&var` binding is the
+        only live access path to its referent for the whole call, so LLVM's
+        `noalias` contract -- this pointer does not alias any other pointer the
+        function accesses -- holds by construction. Declaring it lets the
+        optimizer keep loads/stores through the reference in registers rather
         than reloading defensively. Immutable `&` params are intentionally NOT
         marked: multiple `&` readers of the same value may legitimately coexist.
 
-        design 186 audit — the cell-carrying property's third clause is that
-        codegen makes NO shared-borrow-immutability assumption across
-        cell-carrying storage, and it holds here BY CONSTRUCTION rather than by
-        a carve-out. This is the only place the backend states anything about a
-        borrow, and it states it about `&var` alone: no `readonly`, no
-        `readnone`, no `noalias` and no `!invariant.load` is ever attached to a
-        shared borrow or to the by-pointer `&self` receiver a cell-carrying type
-        gets. Rust needs its `Freeze` carve-out precisely because it DOES mark
-        `&T` readonly+noalias; we never did, so a cell behind a `&` is already
-        safe from the optimizer. Anything added here later must ask
-        `Namespace.is_cell_carrying` first.
+        Codegen makes NO shared-borrow-immutability assumption across
+        CELL-CARRYING storage (design 186): nothing here marks a shared
+        borrow, and the `noalias` (plus an attempted `readonly`, which
+        llvmlite cannot yet spell) that `_declare_extension_methods` puts on
+        an aggregate `&self` receiver is withheld from a cell-carrying
+        one (`_self_pointer_is_shared_borrow`). Rust needs its `Freeze`
+        carve-out because it marks every `&T` readonly+noalias. Anything that
+        adds such an attribute must ask `Namespace.is_cell_carrying` first.
 
         `saw_types` is the parameter SawTypes in LLVM-arg order; `arg_offset`
         skips leading synthetic args (e.g. a closure's env pointer at arg 0).
@@ -3550,7 +3327,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             if (st is not None
                     and st.kind == TypeKind.REFERENCE
                     and st.reference_mutable
-                    # `&var any Trait` (design 51) is a fat STRUCT, not a pointer;
+                    # `&var any Trait` is a fat STRUCT, not a pointer;
                     # `noalias` is a pointer-only attribute, so skip it there.
                     and not (st.inner_type is not None
                              and st.inner_type.kind == TypeKind.EXISTENTIAL)):
@@ -3559,7 +3336,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def _declare_function(self, func: Function, name_override: str = None):
         """Declare a function. If name_override is provided, use it instead of func.name.
 
-        design 58: an `@export`ed function keeps `func_name` as the lookup key
+        An `@export`ed function keeps `func_name` as the lookup key
         Saw-side callers use, but its LLVM symbol is the requested C name
         (`@export` / `@export("sym")`) — unmangled, external linkage, kept alive
         against DCE. `@section("...")` places it in a named object-file section.
@@ -3574,20 +3351,18 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # The C entry `main` receives (argc, argv) from the runtime. A Saw `main`
         # is always declared no-arg, so give the emitted `main` the C entry
         # signature and stash the two arguments into the argv globals in its
-        # prologue (design 81 CI rider) — the cross-platform argc/argv source.
+        # prologue — the cross-platform argc/argv source.
         if func_name == "main" and not func.parameters:
             param_types = [ir.IntType(32), ir.IntType(8).as_pointer().as_pointer()]
         # A `-> Never` function diverges: lower to `void` + `noreturn` (the
         # `_start`/noreturn C shape). The body terminates with `unreachable`.
         return_type, is_never = self._lower_declared_return_of(func)
 
-        # The C entry returns `int`, WHATEVER `main` was declared to return
-        # (design 221 unit B4). It used to be overridden only for `Void`, so a
-        # `main` returning anything else was emitted as declared: `-> Int` got
-        # an `i64 @main` that worked by ABI accident on arm64 and x86-64, and
-        # `-> Result<Int, E>` got a struct-returning `@main` against a C ABI
-        # expecting `int`, which is DF-220c's stable-and-meaningless exit 138.
-        # `_emit_main_exit_return` is the other half: the value's own crossing.
+        # The C entry returns `int`, WHATEVER `main` was declared to return: a
+        # `-> Int` main as `i64 @main` would work only by ABI accident, and a
+        # struct-returning `@main` against a C ABI expecting `int` yields a
+        # meaningless exit status. `_emit_main_exit_return` is the other half:
+        # the value's own crossing.
         if func_name == "main" and not func.parameters:
             return_type = ir.IntType(32)
 
@@ -3622,9 +3397,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         self.functions[func_name] = llvm_func
         self._mark_noalias_params(llvm_func, [p.type for p in func.parameters])
-        # Function return types are now in namespace
 
-        # Track default parameter values (design 53) so an omitted trailing
+        # Track default parameter values so an omitted trailing
         # argument is filled at the call site.
         defaults = [p.default_value for p in func.parameters]
         if any(d is not None for d in defaults):
@@ -3640,12 +3414,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         if saw_return_type.kind == TypeKind.OPTIONAL and saw_return_type.inner_type:
             self.extern_optional_returns[extern_func.name] = saw_return_type.inner_type
 
-        # DF-225a: a name CODEGEN declares for its own lowering. The typechecker
+        # A name CODEGEN declares for its own lowering. The typechecker
         # cannot see these — they exist only as LLVM declarations — so its
-        # multi-declaration check has nothing to compare against and the second
-        # `ir.Function` of one name reached llvmlite unguarded:
-        # `extern "C" { func printf(...) }` alone, never called, was
-        # `internal compiler error: printf`. The rule here is the ordinary one,
+        # multi-declaration check has nothing to compare against, and a second
+        # `ir.Function` of one name would reach llvmlite's redeclaration path
+        # as an internal compiler error. The rule here is the ordinary one,
         # asked in the terms that decide correctness: the same LLVM signature
         # UNIFIES (so the author's declaration names the compiler's symbol and
         # calls through it), and a different one is a clean refusal, because a
@@ -3688,25 +3461,19 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def _extern_llvm_type(self, extern_func: ExternFunction, saw_return_type):
         """The LLVM function type an `extern "C"` declaration denotes.
 
-        ONE construction, two readers (DF-225a): the DECLARATION below it, and
-        the collision check above it, which compares an author's declaration
-        against the compiler's own for a symbol codegen already declared. Split
-        out so the two cannot answer differently about one signature.
+        ONE construction, two readers: the declaration in
+        `_declare_extern_function`, and its collision check, which compares an
+        author's declaration against the compiler's own for a symbol codegen
+        already declared. Split out so the two cannot answer differently about
+        one signature.
 
         `extern "C" { func abort_now() -> Never }` is the C `noreturn`
-        declaration, and design 58 says a `-> Never` signature lowers to
-        `void` + `noreturn`. `_declare_function` does exactly this for a
-        DEFINITION; without the same answer here the DECLARATION took
-        `_get_llvm_type`'s i8 placeholder, and the two disagreed about one
-        symbol's C ABI.
-
-        It reached further than a declaration, because an `@export`ed
-        definition UNIFIES with a pre-existing bodyless declaration of the
-        same symbol (in `_declare_function`) and inherits its type. So a
-        `-> Never` seam DEFINED in a module the entry file also `extern`s —
-        the SOS `sos_rt_abort` shape, design 172 part 2 — emitted
-        `define noundef i8 @sos_rt_abort(...)` while the ABI document and every
-        other spelling said `void` (DF-172h).
+        declaration, so a `-> Never` signature lowers to `void` + `noreturn`
+        here exactly as `_declare_function` lowers a DEFINITION. The two must
+        agree beyond the declaration too: an `@export`ed definition UNIFIES
+        with a pre-existing bodyless declaration of the same symbol and
+        inherits its type, so a disagreement here would give a `-> Never`
+        runtime seam the wrong C ABI.
         """
         param_types = [self._get_llvm_type(p.type)
                        for p in extern_func.parameters]
@@ -3717,8 +3484,6 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return_type = self._get_llvm_type(saw_return_type.inner_type)
         return ir.FunctionType(return_type, param_types,
                                var_arg=extern_func.is_variadic)
-
-    # Generic methods moved to codegen_generics.py (GenericsMixin)
 
     def _declare_extension_methods(self, extension: Extension):
         """Declare all methods in an extension."""
@@ -3731,12 +3496,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.self_type_context = extension.struct_name
 
         for method in extension.methods:
-            # Design 40 item 9 (C6): a generic method's signature can't be
+            # A generic method's signature can't be
             # declared until its type params are bound at the call site; skip it
             # here (it is indexed in plain_generic_methods and specialized then).
             if method.type_params and not method.is_init:
                 continue
-            # Create mangled name. Overloading (design 55): a member of a 2+
+            # Create mangled name. Overloading: a member of a 2+
             # method overload set carries a type-signature symbol stamped on the
             # AST node; use it so the definition matches the resolved call site.
             overload_symbol = method.mangled_symbol
@@ -3758,7 +3523,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                     raise ValueError("Cannot define init methods on String")
                 param_types = [self._get_llvm_type(p.type) for p in method.parameters]
                 # Return type is the struct being initialized — or, for the
-                # fallible form, the `Result` it declares (DF-245a).
+                # fallible form, the `Result` it declares.
                 struct_type, _ = self.struct_types[extension.struct_name]
                 return_type = self._init_llvm_return_type(method, struct_type)
             elif method.is_static:
@@ -3777,9 +3542,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                         llvm_type = self_llvm_type
                     else:
                         llvm_type = self._get_llvm_type(p.type)
-                    # If first param is self and it's mutable, make it a pointer
-                    # (design 146: a `borrows` accessor's receiver too — its
-                    # window writes through it).
+                    # If first param is self and `_self_by_pointer_for` says
+                    # so (`&var self`, a `borrows` accessor, a cell-carrying
+                    # or aggregate receiver), make it a pointer.
                     if (i == 0 and p.name == "self"
                             and self._self_by_pointer_for(extension.struct_name, method)):
                         llvm_type = llvm_type.as_pointer()
@@ -3789,11 +3554,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             # Create function type
             func_type = ir.FunctionType(return_type, param_types)
             llvm_func = ir.Function(self.module, func_type, name=mangled_name)
-            # design 228 leg 3: a `-> Never` METHOD is `void` + `noreturn` like
-            # every other `-> Never` declaration. Without it the method was
-            # emitted as `define i8 @T_die`, so a caller read an i8 result out
-            # of a call that produced nothing and `_terminate_after_noreturn`
-            # could never fire on it — the declaration leg of DF-178d.
+            # A `-> Never` METHOD is `void` + `noreturn` like every other
+            # `-> Never` declaration; `_terminate_after_noreturn` reads the
+            # attribute to end the caller's block after the call.
             self._mark_noreturn(llvm_func, is_never)
 
             # Mark &var params noalias. Explicit &var value params carry a
@@ -3808,12 +3571,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                     and llvm_func.args
                     and self._self_pointer_is_shared_borrow(
                         extension.struct_name, method)):
-                # design 261: the attributes the by-value copy was silently
-                # buying LLVM, now stated. `noalias` because the Law of
-                # Exclusivity is one `&var` XOR many `&` over the whole call,
-                # and `readonly` because a `&self` method may not write its own
-                # receiver's storage in any of the four spellings designs
-                # 146/176/200 closed. Writing through a pointer the body LOADS
+                # A shared `&self` aggregate receiver: `noalias` because the
+                # Law of Exclusivity is one `&var` XOR many `&` over the whole
+                # call, and `readonly` because a `&self` method may not write
+                # its own receiver's storage in any spelling (see
+                # `_self_by_pointer_for`). Writing through a pointer the body LOADS
                 # OUT of `self` — `Vector`'s heap buffer, the carve-out those
                 # rules name explicitly — is a store to a different object and
                 # is untouched by either attribute.
@@ -3822,7 +3584,6 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
             # Store in functions table
             self.functions[mangled_name] = llvm_func
-            # Method return types and static method info are in namespace
 
             # Track default parameter values
             defaults = [p.default_value for p in method.parameters]
@@ -3831,9 +3592,6 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # Restore Self type context
         self.self_type_context = old_self_context
-
-    # Method/function generation moved to codegen_methods.py (MethodsMixin)
-    # Statement generation moved to codegen_statements.py (StatementsMixin)
 
     def _generate_expression(self, expr: Expression, need_result: bool = True):
         """Generate code for an expression.
@@ -3847,8 +3605,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         old_need_result = getattr(self, '_need_result', True)
         self._need_result = need_result
 
-        # design 192 unit 2: the breadcrumb. Every raise below this point — the
-        # ~94 bare `raise ValueError` sites in codegen included — is reported by
+        # The breadcrumb. Every raise below this point — the bare
+        # `raise ValueError` sites in codegen included — is reported by
         # sawc.py's catch-all, which reads this to say WHERE the compiler broke
         # and on what. Two dispatches stamp it (this one and
         # `_generate_statement`); see `sawc._ice_location`. Restored only on the
@@ -3871,14 +3629,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     # ===== Expression Visitor Methods =====
 
     def visit_IntLiteral(self, expr: IntLiteral):
-        # Design 47: an integer literal is a platform `Int`, materialized at the
+        # An integer literal is a platform `Int`, materialized at the
         # target's pointer width. A literal that does not fit the platform word
         # (signed low bound through unsigned high bound, so both Int.min's
         # magnitude and the full UInt range are admitted) is a compile error at
         # the literal — on a 32-bit target this loudly rejects a constant that
-        # would otherwise silently truncate. Hosted targets are 64-bit, so every
-        # literal the pre-47 compiler accepted still fits.
-        # Design 53: a suffixed literal (`255u8`) is materialized at the suffix's
+        # would otherwise silently truncate.
+        # A suffixed literal (`255u8`) is materialized at the suffix's
         # fixed width. Its value was range-checked at lex time; emit the bit
         # pattern masked to the width (a high-bit signed literal like `255i8`
         # reads back as -1, matching the two's-complement interpretation).
@@ -3887,7 +3644,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             width = {'i8': 8, 'i16': 16, 'i32': 32, 'i64': 64,
                      'u8': 8, 'u16': 16, 'u32': 32, 'u64': 64}[suffix]
             return ir.Constant(ir.IntType(width), expr.value & ((1 << width) - 1))
-        # Design 87: a bare literal that adopted a fixed-width type (the
+        # A bare literal that adopted a fixed-width type (the
         # typechecker stamped `resolved_type` via expected-type propagation, and
         # already range-checked it) is materialized at that width — so it stores,
         # compares, and overflow-checks at the slot's width with no downstream
@@ -3917,7 +3674,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def visit_StringLiteral(self, expr: StringLiteral):
         # Immortal refcounted String literal: pointer to the `bytes` field of a
-        # static { i64 -1, i64 len, [N+1 x i8] } block. refcount == -1 makes
+        # static { word -1, word len, [N+1 x i8] } block. refcount == -1 makes
         # retain/release no-ops, so literals are never freed and cost no atomics.
         g = self._create_string_literal_global(expr.value)
         zero = ir.Constant(ir.IntType(32), 0)
@@ -3925,7 +3682,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return self.builder.gep(g, [zero, two, zero], inbounds=True)
 
     def visit_SourceLocationLiteral(self, expr):
-        """A `#file`/`#line`/`#function` literal (design 98) — the typechecker
+        """A `#file`/`#line`/`#function` literal — the typechecker
         froze it to a compile-time constant at its definition site, so this
         emits exactly a plain Int (platform-width) or String literal. Zero
         runtime cost."""
@@ -3949,15 +3706,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         zero = ir.Constant(ir.IntType(32), 0)
         i8 = ir.IntType(8)
         i8ptr = i8.as_pointer()
-        # Design 47: strlen returns size_t and __saw_string_alloc takes a
+        # strlen returns size_t and __saw_string_alloc takes a
         # platform-width length, so the length math runs at the platform word.
         i64 = self.int_type
 
         # Convert every interpolated expression to a C string pointer once; the
         # same pointers are reused for both the length pass and the build pass.
-        # Builtins keep the existing fast lowering (byte-identical). A non-builtin
-        # Printable piece is rendered via its `to_string()` -> owned String (a
-        # NUL-terminated i8*), spliced in like any String piece (design 56).
+        # Builtins take the fast lowering. A non-builtin Printable piece is
+        # rendered via its `to_string()` -> owned String (a NUL-terminated
+        # i8*), spliced in like any String piece.
         piece_ptrs = []
         for sub_expr in expr.expressions:
             saw_type = self._expr_type(sub_expr)
@@ -4023,10 +3780,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         THE float rendering, and the only one (design 253). Every position that
         shows a float goes through here — `print(f)`, `"{f}"`, `print("{}", f)`,
         a `panic`/`assert` argument, `f.to_string()` and `f.format(into:)` — so
-        one number has one spelling. Before design 253 there were two: `print`
-        was `printf("%f")` (six FRACTIONAL digits) and everything else was
-        `snprintf("%g")` (six SIGNIFICANT ones), so `print(1.0)` said
-        `1.000000` and `print("{}", 1.0)` said `1`, and neither round-tripped.
+        one number has one spelling, the shortest that round-trips.
 
         The work is in Saw, in `sawc/std/float.saw`: `__float_to_chars` writes
         through a fixed `StringBuilder` and answers the byte count. Nothing here
@@ -4046,7 +3800,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return buf_ptr, length
 
     def _value_to_string(self, value, saw_type: SawType):
-        """Convert an LLVM value to a string pointer using snprintf."""
+        """Convert an LLVM value to a NUL-terminated C string pointer
+        (integers via snprintf, floats via the Saw float formatter)."""
         zero = ir.Constant(ir.IntType(32), 0)
 
         if saw_type is None:
@@ -4090,10 +3845,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return buf_ptr
 
         elif saw_type.kind == TypeKind.FLOAT:
-            # The shortest round-trip rendering, in Saw (design 253). This used
-            # to be `snprintf("%g")`, which showed six significant digits — so
-            # `"{0.1 + 0.2}"` read `0.3` and nothing that came out of here could
-            # be read back.
+            # The shortest round-trip rendering, in Saw (`_render_float_value`).
             float_ptr, _length = self._render_float_value(value)
             return float_ptr
 
@@ -4109,9 +3861,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     })
 
     def _is_builtin_interp_type(self, saw_type: SawType) -> bool:
-        """Whether an interpolation piece uses the builtin fast lowering (design
-        56). None is treated as builtin so callers with unresolved types keep the
-        old <?>-fallback behaviour rather than attempting a Printable dispatch. A
+        """Whether an interpolation piece uses the builtin fast lowering. None
+        is treated as builtin so callers with unresolved types get the <?>
+        fallback rather than attempting a Printable dispatch. A
         type alias flows to its underlying type (a `type MyInt = Int` stays a
         builtin fast path)."""
         if saw_type is None:
@@ -4121,7 +3873,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def _emit_to_string(self, value, saw_type: SawType):
         """Render a builtin (primitive / String) value to an owned Saw String
-        (design 56 `to_string`). Reuses the interpolation `_value_to_string`
+        (`to_string`). Reuses the interpolation `_value_to_string`
         C-string rendering, then copies the bytes into a fresh refcount=1 String
         via `__saw_string_from_bytes` — so the result never aliases the receiver
         (a String receiver is duplicated, not shared)."""
@@ -4166,23 +3918,22 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return bytes_ptr, len_slot
 
     # Widest rendering `_value_to_string` can produce for the `<?>` unknown-type
-    # fallback, plus room for a NUL. Integers never reach that path here — they
-    # append directly — and neither does a Float since design 253, which
-    # streams one through `StringBuilder.append(value: Float)`.
+    # fallback, plus room for a NUL. Integers and Floats never reach that path
+    # here — they append directly through a `StringBuilder.append` overload.
     FLOAT_FMT_MAX = 64
 
     def _emit_format(self, value, saw_type: SawType, sb_ptr):
-        """Stream a builtin value's rendering into a StringBuilder (design 56
-        `format`). `sb_ptr` is the `&var StringBuilder` receiver pointer that
+        """Stream a builtin value's rendering into a StringBuilder
+        (`format`). `sb_ptr` is the `&var StringBuilder` receiver pointer that
         `append`'s `&var self` expects.
 
-        Design 135 unit A: this ALLOCATES NOTHING. It used to render through
-        `_emit_to_string` — a fresh heap String per call, never released — which
-        put an allocation and a leak in the middle of design 137's alloc-free
-        path: `print("{}", tag)` hands `Tag.format` a fixed stack builder, and a
-        body written `self.n.format(into: &var into)` allocated four times on the
-        way. Every case now reaches an existing `StringBuilder.append` overload
-        instead, and Float renders into a frame-resident immortal String."""
+        This builds no intermediate heap String: every case reaches an existing
+        `StringBuilder.append` overload, and the unknown-type fallback renders
+        into a frame-resident immortal String. Any allocation is the builder's
+        own growth, so with a fixed builder the path is allocation-free, which
+        the alloc-free `{}` path relies on: `print("{}", tag)` hands
+        `Tag.format` a fixed stack builder (design 135). A growable builder
+        passed to `.format(into:)` may allocate as it appends."""
         from codegen.mangle import mangle_overload
         word = self.int_type
         i8ptr = ir.IntType(8).as_pointer()
@@ -4215,7 +3966,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         if kind in signed or kind in unsigned:
             # `StringBuilder.append(Int)` / `append(UInt)` render digits straight
-            # into the builder (design 137), so the platform-width value is all
+            # into the builder, so the platform-width value is all
             # they need — same extension `print` uses, so the bytes agree.
             is_unsigned = kind in unsigned
             if value.type.width < self.int_width:
@@ -4228,11 +3979,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return
 
         if kind == TypeKind.FLOAT:
-            # `StringBuilder.append(value: Float)` IS the formatter (design
-            # 253), so this is the same one-call shape the integer arm above
-            # has. It used to render to C bytes and copy them into a
-            # frame-resident String, which was the shape a snprintf rendering
-            # forced.
+            # `StringBuilder.append(value: Float)` IS the formatter, so this is
+            # the same one-call shape the integer arm above has.
             append(TypeKind.FLOAT, value)
             return
 
@@ -4251,7 +3999,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         append(TypeKind.STRING, bytes_ptr)
 
     def visit_Identifier(self, expr: Identifier):
-        # design 226, construction form 2: this name is a NAMED FUNCTION taken
+        # This name is a NAMED FUNCTION taken
         # as a `FuncPointer<F>`, and its value is the function's address. The
         # typechecker resolved WHICH declaration (the overload set is selected
         # against `F`) and stamped the symbol, exactly as it does for a static —
@@ -4266,18 +4014,18 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 fn, self._get_llvm_type(expr.funcpointer_target),
                 name=f"funcptr_{expr.name}")
         if expr.name not in self.variables:
-            # A const generic parameter (design 148) is a compile-time value
+            # A const generic parameter is a compile-time value
             # with no storage: this instantiation's argument becomes a literal
             # right here, which is what makes `N` free at runtime.
             if expr.const_param_name is not None:
                 return self._const_param_constant(expr)
-            # A local whose type instantiated to `Void` has no storage to load
-            # (design 132 unit C): it names no value, so reading it yields none.
+            # A local whose type instantiated to `Void` has no storage to load:
+            # it names no value, so reading it yields none.
             # The block-tail and return paths already treat a valueless result as
             # `ret_void`.
             if expr.name in self.void_variables:
                 return None
-            # Module-level static (design 41): load through its global.
+            # Module-level static: load through its global.
             gv = self._static_global(expr)
             if gv is not None:
                 return self.builder.load(gv, name=expr.name)
@@ -4286,7 +4034,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Check if this is a reference type - if so, auto-dereference
         var_type = self.variable_types.get(expr.name)
         if var_type and var_type.kind == TypeKind.REFERENCE:
-            # `&any Trait` (design 51) is a FAT POINTER, not a thin pointer: the
+            # `&any Trait` is a FAT POINTER, not a thin pointer: the
             # alloca holds the two-word value directly, so a single load yields it
             # (no second deref — the fat struct is not a pointer to load through).
             if (var_type.inner_type is not None
@@ -4318,7 +4066,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return self._generate_function_call(expr)
 
     def visit_ScopedBlock(self, expr):
-        """SL-333: the `#lend_var` fold's selected branch — one block, always
+        """The `#lend_var` fold's selected branch — one block, always
         entered, whose value is the block's own.
 
         `_generate_block` is the SAME path a value-carrying `if` branch takes,
@@ -4382,7 +4130,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return self._generate_self_expr(expr)
 
     def visit_LendsExpr(self, expr):
-        """`lends self` (design 275 U3) — the receiver's ADDRESS.
+        """`lends self` — the receiver's ADDRESS.
 
         A producer's receiver travels by pointer (`place_self_by_pointer`, set
         by the place transform for exactly this reason), so `self` in
@@ -4409,24 +4157,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def visit_ClosureExpr(self, expr: ClosureExpr):
         return self._generate_closure(expr)
 
-    # Operator methods moved to codegen_operators.py (OperatorsMixin)
-
-    # Function call methods moved to codegen_calls.py (CallsMixin)
-    # Conditional methods moved to codegen_conditionals.py (ConditionalsMixin)
-    # Collection methods moved to codegen_collections.py (CollectionsMixin)
-    # Struct methods moved to codegen_structs.py (StructsMixin)
-    # Optional methods moved to codegen_optionals.py (OptionalsMixin)
-    # Method call methods moved to codegen_calls.py (CallsMixin)
-    # Enum init moved to codegen_calls.py (CallsMixin)
-    # Match expression moved to codegen_match.py (MatchMixin)
-    # Closure methods moved to codegen_closures.py (ClosuresMixin)
-
     def _run_optimization_passes(self, mod, target_machine):
         """Run this compile's module pipeline on a parsed binding module.
 
-        Uses llvmlite 0.48's new pass manager (the legacy PassManagerBuilder
-        was removed in this release). The level's `speed_level` selects the
-        default pipeline: 1 (the unchanged default) includes mem2reg/SROA
+        Uses llvmlite 0.48's new pass manager (llvmlite 0.48 has no legacy
+        PassManagerBuilder). The level's `speed_level` selects the
+        default pipeline: 1 (the default) includes mem2reg/SROA
         (promoting the entry-block allocas into SSA registers), instcombine,
         simplifycfg, GVN; 2 is what `-O2`, `-Os` and `-Oz` run, with the size
         levels distinguished by the function attributes
@@ -4471,8 +4207,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         The machine's CODEGEN opt level comes from the level funnel
         (`OPTIMIZATION_LEVELS[...].codegen_level`), so `-O0` gets a back end
-        that matches the pipeline it already asked for; see that table for the
-        measurement that moved it.
+        that matches the pipeline it already asked for; see that table.
 
         Hosted builds request the PIC relocation model: modern Linux toolchains
         (ubuntu-latest) link PIE by default, and LLVM's default reloc for

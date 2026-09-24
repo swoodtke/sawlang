@@ -28,22 +28,17 @@ class MatchMixin:
 
     def _generate_match_expr(self, expr: MatchExpr):
         """Generate code for match expression."""
-        # design 63 T1d: value/tuple/guarded matches use the general if-chain
-        # lowering; classic enum matches keep the switch below.
+        # Value/tuple/guarded matches use the general if-chain lowering;
+        # classic enum matches keep the switch below.
         if expr.use_general_match:
             return self._generate_match_general(expr)
 
-        # An arm may `lend` one of its payload bindings (design 146, DF-146d).
-        # The binding is still EXTRACTED into an alloca, and the arm stores it
-        # back into the scrutinee when the window closes. Copy-in/copy-out is
+        # An arm may `lend` one of its payload bindings (design 146). The
+        # binding is still extracted into an alloca, and the arm stores it back
+        # into the scrutinee when the window closes. Copy-in/copy-out is
         # indistinguishable from aliasing here: a place window borrows the
-        # scrutinee's ROOT for its whole extent, so the Law of Exclusivity
+        # scrutinee's root for its whole extent, so the Law of Exclusivity
         # guarantees nothing else can read the slot while the payload is out.
-        # (The original reason was alignment — the payload union used to be
-        # `[N x i8]`, so a pointer into it carried the tag's alignment and was
-        # under-aligned for whatever the payload held. design 265 U2 types the
-        # union at the payload's own alignment and that reason is gone; the
-        # exclusivity one above is what keeps the shape.)
         lends_payload = any(getattr(arm, 'lent_bindings', None)
                             for arm in expr.arms)
         scrut_ptr = None
@@ -70,29 +65,30 @@ class MatchMixin:
         if matched_enum_type is not None:
             # Substitute the active monomorphization's type params first, so a
             # match on a generic enum inside a generic body (e.g.
-            # `HashSlot<K, V>` in HashMap's methods, design 48) resolves to the
-            # concrete registered name rather than `HashSlot$2$K$V`.
+            # `HashSlot<K, V>` in HashMap's methods) resolves to the concrete
+            # registered name rather than `HashSlot$2$K$V`.
             if self.type_param_context:
                 matched_enum_type = matched_enum_type.substitute(self.type_param_context)
             # Canonicalize before mangling so the lookup key matches the name the
-            # enum was REGISTERED under (design 68). Codegen normalizes an erased
+            # enum was registered under (design 68). Codegen normalizes an erased
             # `Box<any Trait>` to its native arity-1 form and fills other omitted
             # defaults; the typechecker-stamped `matched_enum_type` uses arity-2
             # `Box<any Trait, Global>`, so without this a `match` on e.g.
             # `Result<T, Box<any Error>>` mangle-misses and the LLVM-type fallback
-            # below silently picks a same-sized WRONG monomorphization.
+            # below silently picks a same-sized wrong monomorphization.
             matched_enum_type = self._canonicalize_type_kind(matched_enum_type)
             # Canonical mangled name for a (possibly generic) enum, matching the
             # name under which it was registered (see codegen/mangle.py).
             enum_name = mangle_named(matched_enum_type.enum_name, matched_enum_type.type_args)
         else:
             enum_name = None
-        # Design 145: `match self` inside a monomorphized method of a GENERIC
-        # enum. The typechecker stamps the argument-free base (`Maybe`), which
-        # is not a registered name — but the enclosing extension context already
-        # names the concrete instantiation (`Maybe$1$Int`). Consult it before
-        # the LLVM-type scan below, which would otherwise match any same-shaped
-        # enum (every payload-free enum is a bare `i32`) and pick a wrong one.
+        # `match self` inside a monomorphized method of a generic enum. The
+        # typechecker stamps the argument-free base (`Maybe`), which is not a
+        # registered name, but the enclosing extension context names the
+        # concrete instantiation (`Maybe$1$Int`). Consult it before the
+        # LLVM-type scan below, which would otherwise match any same-shaped
+        # enum (every unbacked payload-free enum is a bare `i32`) and pick a
+        # wrong one.
         if ((enum_name is None or enum_name not in self.enum_types)
                 and isinstance(expr.matched_expr, SelfExpr)
                 and self.self_type_context in self.enum_types):
@@ -106,17 +102,17 @@ class MatchMixin:
                     enum_name = name
                     break
 
-        # Ownership model for an OWNED enum scrutinee (design 61, L14/L15).
+        # Ownership model for an owned enum scrutinee (design 61).
         #
         # When the matched enum has variants carrying owning (cleanup-needing)
-        # payload, a `match owned_value { case V(a, b) -> ... }` CONSUMES the
+        # payload, a `match owned_value { case V(a, b) -> ... }` consumes the
         # scrutinee: the payload's ownership passes to the arm's bindings. Each
         # owning binding is registered for arm-scope cleanup, so a binding that
         # is not `move`d out is dropped exactly once when the arm ends, and a
         # `move`d one clears its drop flag (the normal conditional-move path) so
-        # ownership leaves cleanly. The scrutinee itself is then NOT dropped (its
-        # payload is gone), which is what makes Map/Set remove/overwrite/grow —
-        # all of which move a slot out and destructure it — release each value
+        # ownership leaves cleanly. The scrutinee itself is then not dropped (its
+        # payload is gone), which is what makes Map/Set remove/overwrite/grow
+        # (all of which move a slot out and destructure it) release each value
         # exactly once instead of double-freeing (scrutinee drop + moved copy).
         #
         # Gated to owning enums so payload-free / trivial enums (Ordering, the
@@ -135,40 +131,33 @@ class MatchMixin:
         scrut_saw = matched_enum_type
         if scrut_saw is None or scrut_saw.kind != TypeKind.ENUM:
             scrut_saw = self._expr_type(expr.matched_expr)
-        # WHICH ENUMS CONSUME (DF-190d). Consuming is a COPY-TIER rule, not an
-        # "owns something" one, and this gate used to read `enum_has_owning`
-        # alone. A Copy-tier enum (`enum Holder { case Full(a:
+        # Which enums consume. Consuming is a copy-tier rule, not an "owns
+        # something" one. A Copy-tier enum (`enum Holder { case Full(a:
         # Arc<Res>) }` + `@synthesize extension Holder: Copy {}`) owns a
-        # refcounted payload and copies for FREE — so the typechecker does NOT
-        # mark its scrutinee moved (design 193 u1 / DF-190a) and a second
-        # `match h` is legal source. Codegen still handed the payload to the arm
-        # bindings and released it at the first arm's end while `h` was live:
-        # the second match walked freed memory, silently, exit 0.
+        # refcounted payload and copies for free, so the typechecker does not
+        # mark its scrutinee moved and a second `match h` is legal source; the
+        # first match must not release the payload while `h` is live.
         #
-        # Two modes now, the scrutinee's tier picking between them:
-        #
-        # * CONSUME (owning tiers — NoCopy/ExplicitCopy, and anything whose tier
+        # Two modes, the scrutinee's tier picking between them:
+        # * Consume (owning tiers: NoCopy/ExplicitCopy, and anything whose tier
         #   is not knowable here): ownership passes to the arm bindings and the
-        #   scrutinee's own drop is suppressed. Unchanged.
-        # * RETAIN (the Copy tier): the match BORROWS. Each owning
-        #   binding is retained at extraction and released at arm end, and the
-        #   scrutinee keeps its own reference and drops at ITS scope end — one
-        #   allocation, one release, and matching twice is fine.
+        #   scrutinee's own drop is suppressed.
+        # * Retain (the Copy tier): the match borrows. Each owning binding is
+        #   retained at extraction and released at arm end, and the scrutinee
+        #   keeps its own reference and drops at its own scope end.
         #
-        # Only a NAMED, non-borrowed local can be in retain mode: a TEMPORARY
+        # Only a named, non-borrowed local can be in retain mode: a temporary
         # scrutinee (`match f() {...}`) is owned by nobody whatever its tier, so
-        # it keeps taking the consume path below, which is what releases it
-        # exactly once.
-        # `read_policy` is the shared derivation of design 131's table from
-        # design 139's tiers (namespace.py) — the same oracle the typechecker's
-        # payload reads and place_uses' value reads ask.
+        # it takes the consume path below, which releases it exactly once.
+        # `read_policy` is the shared derivation of the payload-read table from
+        # the copy tiers (namespace.py), the same oracle the typechecker's
+        # payload reads and place_uses' value reads ask (design 131).
         scrut_policy = self.namespace.read_policy(scrut_saw)
-        # The scrutinee is consumable only when it is an OWNED binding in scope
-        # (a `let`/param/if-let local). A field/temporary/borrow is left alone —
-        # and a borrow is the case that hid: matching through a `&T`/`&var T`
-        # binding took the consume path, so `case Occupied(_)` released a
-        # payload the container still owned. That reached every `match` inside
-        # a `with_ref` body and, since design 146, every match through a place.
+        # The scrutinee is consumable only when it is an owned binding in scope
+        # (a `let`/param/if-let local). A field/borrow is left alone: matching
+        # through a `&T`/`&var T` binding (every `match` inside a `with_ref`
+        # body or through a place) must not release a payload the container
+        # still owns. An owned temporary is claimed separately below.
         scrut_is_local = (isinstance(expr.matched_expr, Identifier)
                           and expr.matched_expr.name in self.variables
                           and not self._is_borrowed_name(expr.matched_expr.name))
@@ -177,22 +166,20 @@ class MatchMixin:
         consume_name = None
         if enum_has_owning and scrut_is_local and not retain_mode:
             consume_name = expr.matched_expr.name
-        # DF-151d: a TEMPORARY scrutinee (`match f() { ... }`, `match E.A(x)`)
-        # is owned by NOBODY. It is not a binding, so it was never registered
-        # for cleanup, and it is not an lvalue, so the consume path above did
-        # not claim it either — its payload simply leaked, silently, on every
-        # arm. Give it the storage a named local would have had and run it
-        # through the SAME consume model, so `match f() {...}` and
-        # `let s = f(); match s {...}` differ only in whether the value has a
-        # name. The spill is what makes the drops below addressable: every one
-        # of them needs a pointer to the scrutinee, and a temporary has none.
+        # A temporary scrutinee (`match f() { ... }`, `match E.A(x)`) is owned
+        # by nobody: it is not a binding, so it is not registered for cleanup,
+        # and it is not an lvalue, so the consume path above does not claim it.
+        # Give it the storage a named local would have had and run it through
+        # the consume model whatever its tier, so it is released exactly once.
+        # (A named Copy-tier local takes retain mode instead, so `let s = f();
+        # match s {...}` is not the same lowering.) The spill is what makes
+        # the drops below addressable: every one of them needs a pointer to
+        # the scrutinee, and a temporary has none.
         temp_scrut_name = None
         if (consume_name is None and enum_has_owning
                 and self._is_owned_temporary(expr.matched_expr)):
-            # design 168 unit 3 (DF-164a): from the scrutinee's source position.
-            # This was `id(expr)` — a raw heap ADDRESS, the exact thing design
-            # 126 R2 removed everywhere else, and unreproducible between two runs
-            # of the same compiler on the same file.
+            # Named from the scrutinee's source position, never from `id(expr)`
+            # (a heap address), so two runs on the same file agree.
             temp_scrut_name = self._positional_local(expr, "__match_scrutinee")
             scrut_slot = self._entry_alloca(matched_val.type,
                                             name="match_scrutinee")
@@ -234,15 +221,15 @@ class MatchMixin:
                 if arm.variant_name == "_":
                     continue
                 tag_value = variant_tags[arm.variant_name]
-                # The case constant must be the SCRUTINEE's width: a raw-backed
-                # enum's tag is its declared backing, not i32 (design 145 B2).
+                # The case constant must be the scrutinee's width: a raw-backed
+                # enum's tag is its declared backing, not i32.
                 tag_const = ir.Constant(tag.type, tag_value)
                 switch.add_case(tag_const, arm_block)
 
         # Generate code for each arm
         arm_results = []
-        # A Void match (every reaching arm is a void call / void block) must NOT
-        # build a phi (design 59 C). Void arms below are replaced with an i32
+        # A Void match (every reaching arm is a void call / void block) must not
+        # build a phi. Void arms below are replaced with an i32
         # placeholder so a value-match phi stays well-formed; this flag records
         # whether ANY arm actually produced a real (non-void) value, so a purely
         # void match returns None instead of an i32 phi over placeholders.
@@ -253,21 +240,20 @@ class MatchMixin:
             # When we take ownership of an owning scrutinee's payload (consume
             # mode), each owning binding is registered into a per-arm cleanup
             # scope so an un-`move`d binding drops exactly once at arm end and an
-            # early exit cleans it on its own edge — `return` via
-            # `_cleanup_all_scopes`, `break`/`continue` via
-            # `_cleanup_to_loop_boundary` (DF-218r).
+            # early exit cleans it on its own edge: `return` via
+            # `_cleanup_all_scopes`, `break`/`continue` via `_cleanup_to_depth`.
             arm_scope_pushed = False
             owning_bindings = []
             # The arm's lent payload bindings, as (payload field index, alloca)
-            # pairs, plus the struct type the payload is read through — what the
-            # write-back below needs (design 146, DF-146d).
+            # pairs, plus the struct type the payload is read through: what the
+            # write-back below needs.
             arm_lent = list(getattr(arm, 'lent_bindings', None) or [])
             lent_slots = []
             param_struct_type = None
 
             # Extract and bind associated values if any (not for wildcard).
-            # A fully Void payload (design 92: the Ok arm of `Result<Void, E>`)
-            # carries no data — there is nothing to extract, so treat a
+            # A fully Void payload (the Ok arm of `Result<Void, E>`) carries
+            # no data: there is nothing to extract, so treat a
             # `case Ok(_)` on it like a payload-free arm.
             _mv_variant_params = (self.enum_types[enum_name][2].get(arm.variant_name)
                                   if not isinstance(matched_val.type, ir.IntType)
@@ -278,14 +264,12 @@ class MatchMixin:
             arm_extracts = (arm.variant_name != "_" and arm.bindings
                             and not isinstance(matched_val.type, ir.IntType)
                             and not _mv_all_void)
-            # An arm that CLAIMS NOTHING leaves the scrutinee's payload
+            # An arm that claims nothing leaves the scrutinee's payload
             # unclaimed: the consume model suppressed the scrutinee's own drop
             # on the strength of the bindings taking it, and this arm has none.
-            # A `case _` over an owning variant leaked exactly this way whether
-            # the scrutinee was a temporary or a named local — the wildcard is
-            # the shape where the compiler cannot know which variant it holds,
+            # For a wildcard the compiler cannot know which variant it holds,
             # so the whole scrutinee is dropped and its own tag switch decides
-            # what runs. A named variant arm is dropped only when THAT variant
+            # what runs. A named variant arm is dropped only when that variant
             # actually owns something, so a payload-free `case B` costs nothing.
             if consume_name is not None and not arm_extracts:
                 unclaimed = (arm.variant_name == "_"
@@ -308,8 +292,7 @@ class MatchMixin:
                 param_struct_type = ir.LiteralStructType(param_types)
 
                 # Store the union to memory, then read it as the variant's
-                # struct (design 265 U2: word-granular, see
-                # `_payload_scratch_alloca`).
+                # struct (word-granular; see `_payload_scratch_alloca`).
                 payload_alloca = self._payload_scratch_alloca(
                     llvm_enum_type.elements[1], "payload_alloca")
                 self.builder.store(payload_bytes, payload_alloca)
@@ -321,9 +304,9 @@ class MatchMixin:
                     self.cleanup_stack.append([])
                     arm_scope_pushed = True
 
-                # The arm's `_`-DISCARDED owning payload fields, collected as
+                # The arm's `_`-discarded owning payload fields, collected as
                 # (alloca, SawType) in binding order and dropped after the loop
-                # in REVERSE (DF-218y — see the flush below).
+                # in reverse (see the flush below).
                 discarded_fields = []
 
                 # Create variables for bindings
@@ -342,24 +325,26 @@ class MatchMixin:
                     if binding_name in arm_lent:
                         lent_slots.append((i, var_alloca))
 
-                    # In consume mode the binding OWNS its payload field: register
+                    # In consume mode the binding owns its payload field: register
                     # cleanup-needing bindings so they drop once at arm end unless
                     # `move`d out (which clears the drop flag). The scrutinee's own
                     # drop was already suppressed above. A `_` discard binding is
-                    # NOT registered: it names no value to own, so an owning field
-                    # matched `_` is simply not dropped here (used by the Map probe
-                    # helpers to inspect a by-value, non-retained slot copy without
-                    # releasing its live payload).
+                    # not registered: it names no value to own. Outside consume
+                    # mode an owning field matched `_` is not dropped by this
+                    # match: the scrutinee's owner still holds it and drops it
+                    # (the Map probe helpers inspect a by-value, non-retained
+                    # slot copy that way without releasing its live payload);
+                    # in consume mode the branch below drops it.
                     if arm_scope_pushed and binding_name != "_" and i < len(variant_params):
                         btype = variant_params[i][1]
                         if self._needs_cleanup(btype):
-                            # RETAIN mode (DF-190d): the scrutinee keeps its own
-                            # reference, so the binding takes one of its OWN
-                            # before the cleanup registration below releases it
-                            # at arm end. This is design 131's value-read row
-                            # for the Copy tier — the same retain
-                            # `let a = o!` takes out of an optional — applied at
-                            # the one point an enum payload becomes a binding.
+                            # Retain mode: the scrutinee keeps its own reference,
+                            # so the binding takes one of its own before the
+                            # cleanup registration below releases it at arm
+                            # end. This is the Copy tier's value-read row (the
+                            # same retain `let a = o!` takes out of an
+                            # optional) applied at the one point an enum
+                            # payload becomes a binding (design 131).
                             if retain_mode:
                                 self._emit_retain_at(var_alloca, btype)
                             self.variable_types[binding_name] = btype
@@ -369,38 +354,29 @@ class MatchMixin:
                           and binding_name == "_"
                           and i < len(variant_params)
                           and self._needs_cleanup(variant_params[i][1])):
-                        # design 65 (L17): an owning payload field discarded with
-                        # `_` under the consume model is UNCLAIMED — the scrutinee's
-                        # own drop is suppressed, so nothing else drops it. DROP it
-                        # inline: it is registered in NO cleanup scope (a `_`
-                        # names no binding to register), so no scope exit — not the
-                        # arm's own, not the `return`/`break`/`continue` unwinds —
-                        # would ever reach it. Named bindings ARE registered and are
-                        # released by whichever edge the arm leaves through
-                        # (DF-218r gave `break`/`continue` their unwind); the timing
-                        # difference between inline and arm-end is observable only
-                        # when the deinit has side effects, which the test below
-                        # documents.
+                        # An owning payload field discarded with `_` under the
+                        # consume model is unclaimed: the scrutinee's own drop is
+                        # suppressed, so nothing else drops it. Drop it at the
+                        # arm's start: it is registered in no cleanup scope (a
+                        # `_` names no binding), so no scope exit, neither the
+                        # arm's own nor a `return`/`break`/`continue` unwind,
+                        # would ever reach it. Named bindings are registered and
+                        # released by whichever edge the arm leaves through; the
+                        # timing difference is observable only when the deinit
+                        # has side effects.
                         #
                         # `_emit_drop_at` is correct here: a consumed payload is
-                        # OWNED, not retained, and its deinit must fire. For Copy
+                        # owned, not retained, and its deinit must fire. For Copy
                         # types (String, Arc) `_emit_drop_at` and
                         # `_emit_release_at` converge to the same refcount decrement.
                         discarded_fields.append((var_alloca, variant_params[i][1]))
 
-                # Drop the discarded fields, in REVERSE binding order (DF-218y,
-                # ruled Aug 22: discard order is reverse-declaration everywhere).
-                # Collected above rather than dropped in the loop, because a
-                # forward emission cannot spell a reverse order. This walked
-                # forward until the ruling, which made it the ONE drop path in
-                # the language that was not reverse-declaration: the enum's own
-                # synthesized deinit is reverse (design 128), so the driven twin
-                # — which releases the frame temp as a whole value through that
-                # deinit — disagreed with this loop about a `case Pair(_, _)`.
-                # The named bindings beside it were never in question; they are
-                # registered above in declaration order and the scope releases
-                # them in reverse, which is what `case Trip(x, y, z)` has always
-                # done and is the oracle this now matches.
+                # Drop the discarded fields in reverse binding order: discard
+                # order is reverse-declaration everywhere, matching the enum's
+                # own synthesized deinit (design 128), which the driven twin
+                # releases the frame temp through. Collected above rather than
+                # dropped in the loop, because a forward emission cannot spell
+                # a reverse order.
                 for slot, field_type in reversed(discarded_fields):
                     self._emit_drop_at(slot, field_type)
 
@@ -418,16 +394,16 @@ class MatchMixin:
                     match_produces_value = True
             else:
                 # Route the arm result through the value-transfer path (not a raw
-                # expression read): a bare owning binding that ESCAPES as the match
+                # expression read): a bare owning binding that escapes as the match
                 # value (`case A(s) -> s`, a Copy String/Arc payload) must
-                # be RETAINED here, because the consume-mode arm cleanup below
-                # releases that same binding — without the retain the escaped value
-                # is freed out from under the match result (DF12). `move s` clears
+                # be retained here, because the consume-mode arm cleanup below
+                # releases that same binding, which would free the escaped value
+                # out from under the match result. `move s` clears
                 # the binding's drop flag instead (no retain), and a fresh temporary
                 # (`case B -> ""`) is not aliasing, so neither is over-copied.
                 arm_result = self._gen_transfer_value(arm.body)
                 if arm_result is None or isinstance(arm_result.type, ir.VoidType):
-                    # No value (e.g. a diverging `panic(...)` arm, design 49) or a
+                    # No value (e.g. a diverging `panic(...)` arm) or a
                     # Void expression — use a placeholder. A diverging arm has
                     # already terminated its block with `unreachable`, so this
                     # placeholder is never added to the phi below.
@@ -435,11 +411,11 @@ class MatchMixin:
                 else:
                     match_produces_value = True
 
-            # The window has closed, so write each LENT payload binding back
-            # into the scrutinee (design 146, DF-146d) — that is what makes a
-            # write through the place reach the enum's own storage. `align=1`:
-            # the payload byte array sits behind the tag, so its address is not
-            # promised to carry the payload type's natural alignment.
+            # The window has closed, so write each lent payload binding back
+            # into the scrutinee: that is what makes a write through the place
+            # reach the enum's own storage. `align=1` is conservative: it
+            # promises nothing about the payload address's alignment, although
+            # the payload union is typed at the payload's own alignment.
             if lent_slots and scrut_ptr is not None and not self.builder.block.is_terminated:
                 payload_ptr = self.builder.gep(
                     scrut_ptr,
@@ -488,7 +464,7 @@ class MatchMixin:
 
         # The spilled temporary scrutinee's slot is dead now: every arm either
         # handed its payload to bindings or dropped it. Retire the synthetic
-        # name so nothing downstream can resolve it (DF-151d).
+        # name so nothing downstream can resolve it.
         if temp_scrut_name is not None:
             self.variables.pop(temp_scrut_name, None)
             self.moved_variables.discard(temp_scrut_name)
@@ -497,8 +473,8 @@ class MatchMixin:
         self.builder.position_at_end(merge_block)
 
         # Create phi node to merge results. A purely void match (no arm produced
-        # a real value — the arm_results hold only i32 placeholders) yields no
-        # consumable value and must NOT build a phi (design 59 C).
+        # a real value; the arm_results hold only i32 placeholders) yields no
+        # consumable value and must not build a phi.
         if arm_results and match_produces_value:
             result_type = arm_results[0][0].type
             phi = self.builder.phi(result_type, name="match_result")
@@ -509,7 +485,7 @@ class MatchMixin:
             # Match doesn't produce a value
             return None
 
-    # ===== General pattern match (design 63 T1d) =====
+    # ===== General pattern match (design 63) =====
 
     _SIGNED_INT_KINDS = {
         TypeKind.INT, TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
@@ -528,21 +504,21 @@ class MatchMixin:
         if scrut_type is not None and self.type_param_context:
             scrut_type = scrut_type.substitute(self.type_param_context)
 
-        # DF-151d: this lowering BORROWS its scrutinee — every binding it hands
-        # an arm is an alias into the value, and nothing here consumes it. That
-        # is already right for a named local, whose own scope drops it; a
-        # TEMPORARY (`match f() { ... }`, a guarded or tuple or literal match on
-        # a call result) has no owner at all, so its payload leaked. Give it a
-        # slot and a cleanup scope of its own, spanning the whole match: the
-        # aliases stay valid for every arm, the merge block drops it once on
-        # every falling-through path, and an arm that `return`s reaches it
-        # through `_cleanup_all_scopes` — after the return value has been
-        # transferred, so a returned alias is retained before the drop runs.
+        # This lowering borrows its scrutinee: every binding it hands an arm is
+        # an alias into the value, and nothing here consumes it. That is right
+        # for a named local, whose own scope drops it; a temporary (`match f()
+        # { ... }`, a guarded or tuple or literal match on a call result) has
+        # no owner at all. Give it a slot and a cleanup scope of its own,
+        # spanning the whole match: the aliases stay valid for every arm, the
+        # merge block drops it once on every falling-through path, and an arm
+        # that `return`s reaches it through `_cleanup_all_scopes`, after the
+        # return value has been transferred, so a returned alias is retained
+        # before the drop runs.
         #
         # A scope rather than a statement temporary because a match is an
-        # EXPRESSION and can be a function body's tail, where there is no
-        # enclosing statement to hang a temporary on (`statement_temps` is None
-        # there, so registering one silently did nothing).
+        # expression and can be a function body's tail, where there is no
+        # enclosing statement to hang a temporary on (`statement_temps` is
+        # None there, so registering one would silently do nothing).
         scrut_scope_pushed = False
         if (self._is_owned_temporary(expr.matched_expr)
                 and scrut_type is not None
@@ -598,12 +574,10 @@ class MatchMixin:
 
             # Arm body. A bare-expression body goes through the value-transfer
             # path, not a raw expression read, for the same reason the enum
-            # lowering does (DF12): an arm binding is an ALIAS into the
-            # scrutinee, so a binding that ESCAPES as the match's value must be
-            # RETAINED — the scrutinee's own drop (its binding's scope, or the
+            # lowering does: an arm binding is an alias into the scrutinee, so
+            # a binding that escapes as the match's value must be retained,
+            # because the scrutinee's own drop (its binding's scope, or the
             # match scope pushed above) releases that same payload afterwards.
-            # Without the retain `case A(x) if k > 0 -> x` handed back a value
-            # that was freed on the way out.
             if isinstance(arm.body, Block):
                 arm_result = self._generate_block(arm.body)
             else:
@@ -634,10 +608,10 @@ class MatchMixin:
             phi = self.builder.phi(result_type, name="match_result")
             for val, block in arm_results:
                 phi.add_incoming(val, block)
-        # The temporary scrutinee dies with the match. Merge dominates every arm
-        # that fell through, so one drop here covers all of them; an arm that
-        # returned already dropped it through `_cleanup_all_scopes` (DF-151d).
-        # AFTER the phi — a phi has to lead its block, and the arm result it
+        # The temporary scrutinee dies with the match. Every arm that falls
+        # through reaches merge, so one drop here covers all of them; an arm that
+        # returned already dropped it through `_cleanup_all_scopes`.
+        # After the phi: a phi has to lead its block, and the arm result it
         # merges was already retained by the transfer above, so releasing the
         # scrutinee behind it is safe.
         if scrut_scope_pushed:
@@ -714,14 +688,14 @@ class MatchMixin:
             enum_name = mangle_named(rt.enum_name, rt.type_args)
         if (enum_name is None or enum_name not in self.enum_types) \
                 and self.self_type_context in self.enum_types:
-            # design 145: `match self` inside a monomorphized method of a generic
-            # enum stamps the argument-free base, which is not a registered name.
-            # The classic switch path consults this BEFORE the shape scan for the
-            # reason below; so does this one now.
+            # `match self` inside a monomorphized method of a generic enum
+            # stamps the argument-free base, which is not a registered name.
+            # Consult the extension context before the shape scan, for the
+            # reason below, as the classic switch path does.
             enum_name = self.self_type_context
         if enum_name is None or enum_name not in self.enum_types:
-            # Fall back by LLVM type shape — and by whether the enum actually HAS
-            # the variant. EVERY payload-free enum is a bare integer of the same
+            # Fall back by LLVM type shape and by whether the enum actually has
+            # the variant. Payload-free enums are bare integers, most of one
             # width, so shape alone picks an arbitrary one of them; requiring the
             # variant name narrows it to enums the pattern could belong to.
             for name, (llvm_type, tags, _) in self.enum_types.items():
@@ -731,12 +705,10 @@ class MatchMixin:
         if enum_name is None or enum_name not in self.enum_types:
             return ir.Constant(ir.IntType(1), 0), []
         llvm_enum_type, variant_tags, variant_info = self.enum_types[enum_name]
-        # An enum whose cases ALL carry no payload lowers to a bare integer, not
-        # the `{tag, payload}` aggregate — the value IS the tag. Reading element 0
-        # of it died with `Can't index at [0] in i32` (DF-198a), reached by a
-        # GUARD or a tuple pattern, both of which route the match off the classic
-        # switch and onto this path. The classic path has had this shape test all
-        # along; this is the general one growing the same test.
+        # An enum whose cases all carry no payload lowers to a bare integer, not
+        # the `{tag, payload}` aggregate: the value is the tag. A guard or a
+        # tuple pattern routes such a match onto this path, so it needs the
+        # same shape test the classic switch has.
         if isinstance(value.type, ir.IntType):
             tag = value
         else:

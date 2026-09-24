@@ -531,7 +531,8 @@ class StructsMixin:
         `dest_ptr=None` is the SSA-only path used by returns, ordinary by-value
         call arguments and operands.  Every known-memory entry routes here:
         let/var initializers and every assignment target in `statements.py`,
-        nested memberwise fields below, fixed-array/tuple stored elements in
+        an optional-chain write in `optionals.py`, nested memberwise fields
+        below, fixed-array/tuple stored elements in
         `collections.py`, and compiler-marked collection or boxed-frame
         transfers through `_gen_transfer_value`.
 
@@ -564,8 +565,8 @@ class StructsMixin:
         field_indices = {name: i for i, name in enumerate(field_order)}
 
         if dest_ptr is None:
-            # Preserve the original SSA path exactly where no memory destination
-            # exists.  Evaluation follows source order; insertion follows layout.
+            # The SSA path, where no memory destination exists. Evaluation
+            # follows source order; insertion follows layout.
             field_values = {}
             for field_name, value_expr in expr.field_inits:
                 i = field_indices[field_name]
@@ -686,11 +687,9 @@ class StructsMixin:
         A bare integer literal (an i64 platform word on a hosted build) assigned
         to a narrower/wider fixed-width field is retyped to the field's width. A
         constant that does not fit the field is rejected with the standard range
-        error (never an ICE); a runtime integer is truncated, or WIDENED through
-        the design-195 funnel — by the SOURCE's signedness, which is what
-        preserves the value. This arm read the FIELD's signedness until then, so
-        an unsigned value flowing into a wider signed field sign-extended
-        (DF-195a's field position).
+        error (never an ICE); a runtime integer is truncated, or widened through
+        `_widen_int_value` by the source's signedness, which is what preserves
+        the value (design 195).
         """
         resolved = self._resolve_type_alias(field_type) if field_type is not None else field_type
         if resolved is None or resolved.kind not in self._INT_KINDS:
@@ -717,19 +716,19 @@ class StructsMixin:
         return self._widen_int_value(
             value, field_llvm, getattr(value_expr, 'resolved_type', None))
 
-    # Design 53 integer limits: (type name) -> (bit width or None for platform,
-    # is_signed). Shared with the constant evaluator (design 148), so the value
-    # a `static_assert` folds and the value this emits can never disagree.
+    # Integer limits: (type name) -> (bit width or None for platform,
+    # is_signed). Shared with the constant evaluator, so the value a
+    # `static_assert` folds and the value this emits can never disagree.
     _INT_LIMIT_SPECS = INT_LIMIT_SPECS
 
     # ------------------------------------------------------------------
-    # design 263 L2 — a field read is a GEP and one scalar load
+    # A field read is a GEP and one scalar load (design 263)
     # ------------------------------------------------------------------
 
     def _struct_field_index(self, obj_type, member):
         """Position of `member` in the struct LLVM type `obj_type`, or None.
 
-        THE struct-field resolution both member-access paths share: identified
+        The struct-field resolution both member-access paths share: identified
         types answer by name, literal ones by layout string. Split out of
         `_generate_member_access` so the narrow read and the value projection
         cannot disagree about which field a name denotes.
@@ -753,19 +752,17 @@ class StructsMixin:
         """Whether `_get_lvalue_pointer` reaches `expr`'s real storage.
 
         The narrow read may only run over shapes that address storage the
-        program already has. `_get_lvalue_pointer`'s last resort MATERIALIZES a
-        temporary and stores the whole value into it — for a read that would be
+        program already has. `_get_lvalue_pointer`'s last resort materializes a
+        temporary and stores the whole value into it, which for a read would be
         strictly worse than the aggregate load it replaces, so every shape that
         would land there is refused here instead.
 
-        The list is `_is_owned_temporary`'s borrows: an identifier, `self`, a
-        field of one of those, and — since design 263 U3b — a FIXED-ARRAY
-        element of one of those. `_get_element_pointer` emits the very same
-        `_emit_array_bounds_check` the value read emits, over the same count, so
-        addressing the element changes nothing a program can observe.
-
-        A `TupleIndex` base is deliberately absent: the evidence that drove U3b
-        is fixed arrays, and a tuple slot has no measured case behind it.
+        Admitted: an identifier, `self`, a field of one of those, a fixed-array
+        element of one of those, and a frame-place `ForceUnwrap` of one of
+        those. `_get_element_pointer` emits the same `_emit_array_bounds_check`
+        the value read emits, over the same count, so addressing the element
+        changes nothing a program can observe. A `TupleIndex` base is
+        deliberately absent: no measured case motivates it (design 263).
         """
         if isinstance(expr, SelfExpr):
             return "self" in self.variables
@@ -773,11 +770,11 @@ class StructsMixin:
             return (expr.name in self.variables
                     or self._static_global(expr) is not None)
         if isinstance(expr, ArrayIndex):
-            # Only a FIXED array: that is the one container whose element
+            # Only a fixed array: that is the one container whose element
             # `_get_element_pointer` reaches with a two-index GEP and the
-            # ordinary bounds check. A `Vector`/`Map` subscript is a design-146
-            # place with its own lowering, and an `UnsafePointer` buffer is
-            # unchecked by construction — neither belongs on this path.
+            # ordinary bounds check. A `Vector`/`Map` subscript is a place with
+            # its own lowering, and an `UnsafePointer` buffer is unchecked by
+            # construction; neither belongs on this path.
             if expr.um_projection:
                 return False
             if not self._addressable_place(expr.array_expr):
@@ -808,21 +805,20 @@ class StructsMixin:
     def _narrow_field_read(self, expr: MemberAccess):
         """`place.field` as a GEP and one scalar load, or None when it does not apply.
 
-        Design 263 L2. sawc read a field by loading the WHOLE aggregate and
-        `extractvalue`-ing one member out of the SSA value — 825 aggregate loads
-        in the sos kernel IR, 58 of them 64 bytes or more, to read one word.
-        InstCombine unpacks such a load into a scalar load per field, so the
-        cost is not just the bytes moved: it is a load for every field the
-        reader did not ask for, plus a `Bool` renormalization on each flag.
+        Loading the whole aggregate and `extractvalue`-ing one member costs a
+        load for every field the reader did not ask for (InstCombine unpacks
+        such a load into a scalar load per field), plus a `Bool`
+        renormalization on each flag (design 263).
 
-        Two ways the storage is in hand. The object expression may itself
-        EVALUATE to a pointer — design 261 made every aggregate `&self` arrive
-        that way, which is the kernel's dominant shape — or it may be an
-        `_addressable_place` whose storage `_get_lvalue_pointer` names. Both end
-        at the same GEP.
+        The storage is in hand when the object is an identifier, `self`, a
+        field or a fixed-array element that is an `_addressable_place`, whose
+        storage `_get_lvalue_pointer` names; a binding that holds a pointer is
+        stepped through once. A direct frame-place `ForceUnwrap` object takes
+        the value path even though `_addressable_place` admits it.
 
         Returns None whenever the field cannot be named from the pointee type,
-        which leaves the value projection below to answer exactly as it did.
+        or the object is not one of those shapes or not an addressable place;
+        the value projection in `_generate_member_access` answers then.
         """
         obj = expr.object
         if isinstance(obj, (Identifier, SelfExpr, MemberAccess, ArrayIndex)):
@@ -836,16 +832,10 @@ class StructsMixin:
             if isinstance(pointee, ir.PointerType):
                 base_ptr = self.builder.load(base_ptr, name="deref_ptr")
         else:
-            # Anything else takes the VALUE path below, which is where the
-            # ownership machinery lives: an owned temporary owes
-            # `_register_stmt_temp` the whole value, and `_is_owned_temporary`
-            # is what decides whether it is one.
-            #
-            # SL-213: this arm used to restate that predicate's node list
-            # VERBATIM — a second copy of a list that had already gone stale
-            # once. Both spellings answered `None` identically, so the
-            # duplicate bought nothing and could only drift; the one question
-            # is now asked in the one place that owns it.
+            # Anything else takes the value path in `_generate_member_access`,
+            # which is where the ownership machinery lives: an owned temporary
+            # owes `_register_stmt_temp` the whole value, and
+            # `_is_owned_temporary` is what decides whether it is one.
             return None
 
         if not isinstance(base_ptr.type, ir.PointerType):
@@ -863,19 +853,19 @@ class StructsMixin:
 
     def _generate_member_access(self, expr: MemberAccess):
         """Generate code for member access on structs or enum variant access."""
-        # design 257 §2: a LONE raw-backed enum case the adoption funnel folded
-        # into an integer slot. The same opening `_generate_binary_op` and
-        # `_generate_unary_op` have (DF-235a/b), and for the same reason: the
-        # typechecker range-checked the value AT the slot's type, so emit the
-        # constant there rather than building an enum value at the backing
-        # width for the store to reconcile.
+        # A lone raw-backed enum case the adoption funnel folded into an
+        # integer slot. The same opening `_generate_binary_op` and
+        # `_generate_unary_op` have, for the same reason: the typechecker
+        # range-checked the value at the slot's type, so emit the constant
+        # there rather than building an enum value at the backing width for
+        # the store to reconcile (design 257).
         folded_type = expr.resolved_type or expr.expected_type
         if expr.const_folded_value is not None and folded_type is not None:
             return ir.Constant(self._get_llvm_type(folded_type),
                                expr.const_folded_value)
 
-        # Design 53: integer limits `Int.max`/`Int.min` (and every fixed-width
-        # type). Platform `Int`/`UInt` use the target word width so a riscv32
+        # Integer limits `Int.max`/`Int.min` (and every fixed-width type).
+        # Platform `Int`/`UInt` use the target word width so a riscv32
         # build gets 32-bit bounds; fixed-width types use their own width.
         limit = expr.int_limit
         if limit is not None:
@@ -892,29 +882,29 @@ class StructsMixin:
                 value = -(1 << (width - 1)) if signed else 0
             return ir.Constant(llvm_ty, value)
 
-        # Named-tuple field access (design 63): the typechecker stamped the
-        # resolved position; extract that element from the tuple value.
+        # Named-tuple field access: the typechecker stamped the resolved
+        # position; extract that element from the tuple value.
         tfi = expr.tuple_field_index
         if tfi is not None:
             obj_val = self._generate_expression(expr.object)
             return self.builder.extract_value(obj_val, tfi, name=f"tup_{expr.member}")
 
-        # design 46: UnsafeMemory projection — `UM<Struct, Use>.field` computes
-        # base + compile-time field offset WITHOUT loading the aggregate.
+        # UnsafeMemory projection: `UM<Struct, Use>.field` computes base +
+        # compile-time field offset without loading the aggregate (design 46).
         if expr.um_projection:
             return self._generate_um_member_projection(expr)
 
-        # Module-qualified static read (design 41): `mod.NAME`. The typechecker
-        # tagged the member; codegen resolves the static by simple name in the
-        # merged module and loads through its global.
+        # Module-qualified static read `mod.NAME`. The typechecker tagged the
+        # member; codegen resolves the static by simple name in the merged
+        # module and loads through its global.
         static_name = expr.resolved_static_name
         if static_name is not None and static_name in self.static_globals:
             gv = self.static_globals[static_name]
             return self.builder.load(gv, name=static_name)
 
-        # Design 144: the typechecker resolved this variant literal's enum and
-        # stamped its identity. Take that over any name matching below — the
-        # written `Color` may denote a different enum in a different module.
+        # The typechecker resolved this variant literal's enum and stamped its
+        # identity. Take that over any name matching below: the written `Color`
+        # may denote a different enum in a different module (design 144).
         _eid = expr.resolved_type_identity
         if _eid is not None and (_eid in self.enum_types
                                  or _eid in self.generic_enums):
@@ -960,30 +950,25 @@ class StructsMixin:
                 )
                 return self._generate_enum_init(enum_init)
 
-        # design 263 L2: the field lives in memory, so read THAT field — a GEP
-        # and one scalar load — instead of loading the whole aggregate into an
-        # SSA value and projecting one member out of it.
+        # The field lives in memory, so read that field (a GEP and one scalar
+        # load) instead of loading the whole aggregate into an SSA value and
+        # projecting one member out of it.
         narrow = self._narrow_field_read(expr)
         if narrow is not None:
             return narrow
 
         obj_val = self._generate_expression(expr.object)
 
-        # DF-217m: a statement-scoped temporary RECEIVER, exactly as a method
-        # call registers one (`makeResource().use()`). `mk(3).n` builds a value
-        # nobody else owns — it is not bound, returned or transferred onward —
-        # and reading a field out of it left the value itself unreleased. An
-        # lvalue object (an identifier, `self`, a field, an element) is owned by
-        # its binding and is NOT registered here, which would double-free it.
+        # A statement-scoped temporary receiver, exactly as a method call
+        # registers one (`makeResource().use()`). `mk(3).n` builds a value
+        # nobody else owns (it is not bound, returned or transferred onward),
+        # and reading a field out of it must still release the value. An
+        # lvalue object (an identifier, `self`, a field, an element) is owned
+        # by its binding and is not registered here, which would double-free it.
         if self._is_owned_temporary(expr.object):
             self._register_stmt_temp(obj_val, self._expr_type(expr.object))
 
-        # Determine the struct type
-        # For now, we need to infer the struct type from the object expression
-        # This is a bit hacky, but works for simple cases
-        # In a more sophisticated system, we'd track type info through the codegen
-
-        # For now, assume the object is a struct and find which one based on its LLVM type
+        # The struct is identified from the object's LLVM type.
         obj_type = obj_val.type
 
         # Handle pointer to struct (e.g., var self methods). The narrow read

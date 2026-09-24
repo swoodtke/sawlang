@@ -1,24 +1,17 @@
 """
-Generic type LOWERING for the Saw code generator.
+Generic type lowering for the Saw code generator.
 
-WHAT IS LEFT HERE, AND WHAT LEFT (design 218 unit 1.5 stage 3c-2c). This module
-used to DECIDE which instantiations exist and then build their bodies from the
-template under a live `type_param_context`. It decides nothing now: the
-monomorphization phase (`sawc/monomorphize.py`) walks the demand fixpoint,
-materializes every instance through one funnel — the substituting copier, then
-the §1c instance check with errors real — and splices each one into the merged
-program as an ordinary concrete declaration. So what survives is the LAYOUT of a
-type instance, the MANGLING both sides share, and lookups that raise an internal
-error on a miss.
-
-The generators that went (census row M6): `_monomorphize_extension`,
-`_monomorphize_single_extension`, `_declare_monomorphized_method`,
-`_generate_method_generic`, `_generate_init_method_generic` and the
-`pending_method_bodies` queue. A monomorphized method's body is now emitted by
-`_generate_method` / `_generate_init_method` / `_generate_static_method` — the
-same generators a hand-written extension's methods go through, which is what
-gives an instance the param-cleanup registration, the `variable_types` scope and
-the design-192 ICE breadcrumb the generic twins never had (DF-251b).
+Codegen decides no instantiations. The monomorphization phase
+(`sawc/monomorphize.py`) walks the demand fixpoint, materializes every instance
+through one funnel (the substituting copier, then the instance check with
+errors real) and splices each one into the merged program as an ordinary
+concrete declaration. A monomorphized method's body is emitted by
+`_generate_method` / `_generate_init_method` / `_generate_static_method`, the
+same generators a hand-written extension's methods go through, so an instance
+gets the same param-cleanup registration, `variable_types` scope and ICE
+breadcrumb. What lives here is the layout of a type instance, the mangling
+both sides share, and lookups that raise an internal error on a miss
+(design 218).
 
 Usage:
     class CodeGenerator(GenericsMixin, ...):
@@ -60,22 +53,17 @@ class GenericsMixin:
 
     def _instantiate_generic_function(self, func_name: str,
                                       type_args: List[SawType]) -> str:
-        """The MANGLED SYMBOL of a generic free function's instantiation.
+        """The mangled symbol of a generic free function's instantiation.
 
-        A LOOKUP since design 218 unit 1.5 stage 3c, and the name is kept for
-        its call sites rather than for what it used to do. Phase 2 decides which
-        instances exist, materializes each one through the single funnel
-        (`monomorphize.materialize_instance` — copier, then the §1c instance
-        check with errors real) and splices it into the merged program as an
-        ordinary concrete function, which the eager declaration pass has already
-        declared by the time any body is generated. So there is nothing to
-        instantiate here: codegen lowers, it no longer decides.
+        A lookup, despite the name. The monomorphization phase decides which
+        instances exist, materializes each one (`monomorphize.materialize_instance`)
+        and splices it into the merged program as an ordinary concrete
+        function, which the eager declaration pass has already declared by the
+        time any body is generated.
 
-        A MISS IS AN INTERNAL ERROR, and that is the standing decides-vs-lowers
-        gate. It means the fixpoint failed to enumerate a demand this lowering
-        makes — the one thing shadow mode existed to prove could not happen —
-        so it names the pair rather than quietly building a body nothing
-        checked.
+        A miss is an internal error: the standing decides-vs-lowers gate. It
+        means the fixpoint failed to enumerate a demand this lowering makes, so
+        it names the pair rather than quietly building a body nothing checked.
         """
         mangled_name = self._mangle_generic_name(func_name, type_args)
         if mangled_name in self.functions:
@@ -99,20 +87,16 @@ class GenericsMixin:
 
         Delegates to the canonical mangler (see codegen/mangle.py). For a
         generic method (`func map<U>(...)`), `method_type_args` composes the
-        method's own type arguments into the symbol (brief 36).
+        method's own type arguments into the symbol (design 36).
         """
         return mangle_method(struct_name, method_name, param_names, method_type_args)
 
-    # `_mono_shadow` (218c stage 1's registry-completeness proof) is GONE,
-    # retired at stage 5 along with `SAWC_MONO_SHADOW` itself. It existed to
-    # compare every codegen site that DECIDED an instantiation against the
-    # registry while both pipelines coexisted; no such site is left. Every
-    # `_ensure_*` / `_instantiate_*` entry for a function or a method is a
-    # lookup whose miss is an internal error, so the comparison IS the lookup.
-    # The two type entries below still MINT a layout on demand — by design, and
-    # the one thing shadow mode had left to say — but a layout is minted from
-    # the registry's own set up front and this is its lazy re-entry under a
-    # different demand path, not a second opinion about which instances exist.
+    # Every `_ensure_*` / `_instantiate_*` entry for a function or a method is
+    # a lookup whose miss is an internal error. The two type entries below do
+    # mint a layout on demand, by design: layouts are minted from the
+    # registry's own set up front (`_register_registry_type_instances`), and
+    # these are its lazy re-entry under a different demand path, not a second
+    # opinion about which instances exist.
 
     @property
     def _identity_env(self):
@@ -128,14 +112,12 @@ class GenericsMixin:
         return env
 
     def _fill_default_type_args(self, base_name: str, type_args: List[SawType]) -> List[SawType]:
-        """Design 37 — append declared defaults for omitted trailing type args.
+        """Append declared defaults for omitted trailing type args (design 37).
 
         The rule and its rationale live in `mono_identity`, which the
-        monomorphization phase calls too: design 218 unit 1.5 makes that phase
-        DECIDE the instance set and leaves codegen only looking instances up,
-        so the two would answer "what is this instance" separately if the
-        answer lived here. This method survives because it has many call sites
-        and reads better as one.
+        monomorphization phase calls too, so codegen and that phase give one
+        answer to "what is this instance". This method is a convenience for
+        codegen's many call sites.
         """
         return fill_default_type_args(self._identity_env, base_name, type_args)
 
@@ -186,12 +168,11 @@ class GenericsMixin:
                 return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=new_type_args)
             return saw_type
         elif saw_type.kind == TypeKind.ARRAY:
-            # design 148. This arm did not exist, so a `[T; N]` field of a
-            # generic struct reached `_get_llvm_type` with `T` unsubstituted —
-            # latent before const generics, since nothing in the tree had one,
-            # and immediately load-bearing now that `struct FixedBuf<const N:
-            # Int> { data: [UInt8; N] }` is writable. `SawType.substitute` does
-            # the length; only the element needs this walker's `type_mapping`.
+            # A `[T; N]` field of a generic struct (`struct FixedBuf<const N:
+            # Int> { data: [UInt8; N] }`) needs both its element and its length
+            # substituted before `_get_llvm_type` sees it. `_substituted_length`
+            # does the length; the element needs this walker's `type_mapping`
+            # (design 148).
             if saw_type.array_element_type is None:
                 return saw_type
             new_elem = self._substitute_saw_type(saw_type.array_element_type,
@@ -209,37 +190,37 @@ class GenericsMixin:
             return saw_type
 
     def _canonicalize_type_kind(self, saw_type: SawType) -> SawType:
-        """Re-tag a STRUCT-kinded name that denotes an ENUM (design 61 L14) and
-        normalize an erased box to arity 1 (design 51).
+        """Re-tag a STRUCT-kinded name that denotes an ENUM and normalize an
+        erased box to arity 1 (design 51).
 
         Delegates to `mono_identity`, which the monomorphization phase calls
-        too — see `_fill_default_type_args` for why the answer moved there.
+        too; see `_fill_default_type_args` for why the answer lives there.
         """
         return canonicalize_type_kind(self._identity_env, saw_type)
 
     def _mark_stored_closure_escaping(self, saw_type: SawType) -> SawType:
-        """Mark a function TYPE bound to a container's type parameter as
-        escaping (design 77 item 3). Delegates to `mono_identity`."""
+        """Mark a function type bound to a container's type parameter as
+        escaping. Delegates to `mono_identity`."""
         return mark_stored_closure_escaping(saw_type)
 
     def _ensure_monomorphized_struct(self, struct_name: str, type_args: List[SawType]) -> str:
         """Ensure a monomorphized version of a generic struct exists.
         Returns the mangled name of the monomorphized struct."""
-        # Design 37: fill omitted trailing type args from defaults BEFORE building
-        # the type mapping, so `Vector<Int>` binds A=Global (not leaving A
-        # unbound) and produces the same struct identity as `Vector<Int, Global>`.
+        # Fill omitted trailing type args from defaults before building the
+        # type mapping, so `Vector<Int>` binds A=Global (not leaving A unbound)
+        # and produces the same struct identity as `Vector<Int, Global>`.
         type_args = self._fill_default_type_args(struct_name, type_args)
-        # design 61 (L14): re-tag any STRUCT-kinded arg that is really an enum so
-        # the binding stored in the monomorphization context carries kind ENUM,
-        # and enum drop glue is selected for owning enum-payload elements. Kind is
-        # not part of the mangling, so identity is unchanged.
+        # Re-tag any STRUCT-kinded arg that is really an enum so the binding
+        # stored in the monomorphization context carries kind ENUM, and enum
+        # drop glue is selected for owning enum-payload elements. Kind is not
+        # part of the mangling, so identity is unchanged.
         type_args = [self._canonicalize_type_kind(a) for a in type_args]
-        # A function TYPE bound to a container's type param is a STORED (escaping)
-        # closure: it lives in the buffer, so its env must be retained on copy and
-        # released at teardown. The escaping bit is not part of the mangling and
-        # is lost when a type arg is reconstructed from a mangled name, so restore
-        # it here (design 77 item 3) — else `_needs_cleanup`/copy-bound treat the
-        # element as non-owning and the env leaks / is not retained.
+        # A function type bound to a container's type param is a stored
+        # (escaping) closure: it lives in the buffer, so its env must be
+        # retained on copy and released at teardown. The escaping bit is not
+        # part of the mangling and is lost when a type arg is reconstructed
+        # from a mangled name, so restore it here; otherwise the element reads
+        # as non-owning and the env leaks or is not retained.
         type_args = [self._mark_stored_closure_escaping(a) for a in type_args]
         mangled_name = self._mangle_generic_struct_name(struct_name, type_args)
 
@@ -262,10 +243,10 @@ class GenericsMixin:
         old_context = self.type_param_context
         self.type_param_context = type_mapping
 
-        # PUBLISH BEFORE LOWER (design 246 Unit B), on the same terms as
-        # `_register_struct`. The discipline lives HERE, in the registration
-        # helper, rather than at the call sites: design 218 unit 1.5 relocates
-        # the callers, and a rule written at a call site would not travel.
+        # Publish before lowering, on the same terms as `_register_struct`
+        # (design 246). The discipline lives here, in the registration helper,
+        # rather than at the call sites, so it travels with the helper wherever
+        # it is called from.
         llvm_struct_type = self.module.context.get_identified_type(mangled_name)
         field_order = [field.name for field in generic_struct.fields]
         self.struct_types[mangled_name] = (llvm_struct_type, field_order)
@@ -276,28 +257,25 @@ class GenericsMixin:
             substituted = self._substitute_saw_type(field.type, type_mapping)
             field_types.append(self._get_llvm_type(substituted))
         self._set_registered_body(llvm_struct_type, field_types, mangled_name)
-        # Record base name + concrete args so a monomorphized deinit can rebuild
-        # its receiver's SawType for appended field cleanup (allocator leak fix).
+        # Record base name + concrete args so a monomorphized method can rebuild
+        # its receiver's SawType (`_receiver_saw_type`), e.g. for a deinit's
+        # appended field cleanup.
         self.mono_struct_args[mangled_name] = (struct_name, list(type_args))
 
         # Restore context.
         self.type_param_context = old_context
 
-        # NOTHING FOLLOWS. Until design 218 unit 1.5 stage 3c-2c this went on to
-        # monomorphize the struct's extensions — which is codegen DECIDING that
-        # a set of method instances exists. The monomorphization phase decides
-        # that now, materializes each body through its one funnel and splices it
-        # in as an ordinary concrete extension method, so what is left here is
-        # the LAYOUT and nothing else.
+        # Layout only: the struct's method instances are the monomorphization
+        # phase's to decide and splice in.
         return mangled_name
 
     def _ensure_monomorphized_enum(self, enum_name: str, type_args: List[SawType]) -> str:
         """Ensure a monomorphized version of a generic enum exists.
         Returns the mangled name of the monomorphized enum."""
-        # Design 37: fill omitted trailing type args from defaults (identity rule).
+        # Fill omitted trailing type args from defaults (identity rule).
         type_args = self._fill_default_type_args(enum_name, type_args)
-        # design 61 (L14): re-tag STRUCT-kinded args that are really enums (e.g.
-        # a `MapSlot<K, V>` payload type) so nested enum drop glue is selected.
+        # Re-tag STRUCT-kinded args that are really enums (e.g. a
+        # `MapSlot<K, V>` payload type) so nested enum drop glue is selected.
         type_args = [self._canonicalize_type_kind(a) for a in type_args]
         mangled_name = self._mangle_generic_struct_name(enum_name, type_args)
 
@@ -322,15 +300,13 @@ class GenericsMixin:
 
         # Create substituted variants.
         #
-        # DF-232i: the RAW BACKING rides along. Substitution rebuilds each
-        # variant, and rebuilding it without `raw_value` silently dropped the
-        # declared tag — `_register_concrete_enum` then fell back to ordinals,
-        # so `Code<Int>.Warn as UInt8` gave 1 where the source said 20. A
-        # declared backing is a WIRE FORMAT (design 145 unit B2: "the point of
-        # declaring a backing is that reordering the cases cannot renumber
-        # them"), so the corruption was silent and had no diagnostic. Only the
-        # PAYLOAD types depend on the instantiation; the tag values are the
-        # enum's own and are identical in every instantiation.
+        # The raw backing rides along. Substitution rebuilds each variant, and
+        # rebuilding it without `raw_value` would silently drop the declared
+        # tag: `_register_concrete_enum` would fall back to ordinals, so
+        # `Code<Int>.Warn as UInt8` would give 1 where the source says 20. A
+        # declared backing is a wire format, so that corruption would have no
+        # diagnostic (design 145). Only the payload types depend on the
+        # instantiation; the tag values are the enum's own.
         substituted_variants = []
         for variant in generic_enum.variants:
             substituted_types = []
@@ -349,33 +325,31 @@ class GenericsMixin:
         self.type_param_context = old_context
 
         # Register the monomorphized enum. The backing type is the enum's, not
-        # the instantiation's — never a type parameter — so it passes through
-        # unsubstituted (DF-232i: omitting it made `_register_concrete_enum`
-        # take its ordinal path however good the variants were).
+        # the instantiation's (never a type parameter), so it passes through
+        # unsubstituted; without it `_register_concrete_enum` takes its ordinal
+        # path whatever the variants say.
         self._register_concrete_enum(mangled_name, substituted_variants,
                                      raw_type=generic_enum.raw_type)
         # The struct map's twin, and what `_receiver_saw_type` reads to rebuild
         # an ENUM-kinded receiver for the methods spliced onto this
-        # instantiation (design 145's extensions, which the monomorphization
-        # phase now materializes).
+        # instantiation.
         self.mono_enum_args[mangled_name] = (enum_name, list(type_args))
 
         return mangled_name
 
     def _receiver_saw_type(self, type_name: str) -> SawType:
-        """The RECEIVER's own `SawType` for an extension on `type_name`.
+        """The receiver's own `SawType` for an extension on `type_name`.
 
-        A MANGLED NAME IS A SYMBOL, NOT A TYPE. `Vector$2$Int$GlobalAllocator`
+        A mangled name is a symbol, not a type. `Vector$2$Int$GlobalAllocator`
         answers no field lookup, resolves no variant and selects no drop glue;
         the base plus its concrete arguments do all three, and
         `mono_struct_args` / `mono_enum_args` are where that pair was recorded
-        when the instantiation registered its layout. Design 218 unit 1.5 stage
-        3c-2c makes this load-bearing: every monomorphized method body is now
-        generated by the ORDINARY generators, which are handed the receiver's
-        name and ask this for the type behind it.
+        when the instantiation registered its layout. Every monomorphized
+        method body is generated by the ordinary generators, which are handed
+        the receiver's name and ask this for the type behind it.
 
         A name no instantiation registered is not monomorphized, and its answer
-        is `_ext_self_types`' — which is what it always was.
+        is `_ext_self_types`'.
         """
         base_args = self.mono_struct_args.get(type_name)
         if base_args is not None:
@@ -390,20 +364,20 @@ class GenericsMixin:
         return self._ext_self_types(type_name)[1]
 
     def _register_registry_type_instances(self):
-        """Register the LAYOUT of every type instance the registry holds.
+        """Register the layout of every type instance the registry holds.
 
-        Census row S5, and the reason it has to happen UP FRONT: the
-        monomorphization phase splices each instantiation's methods in as an
-        ordinary concrete extension whose `struct_name` is the MANGLED name, and
-        `_declare_extension_methods` reads that name straight out of
-        `struct_types` / `enum_types` to type the `self` parameter. Lazily
-        registering the layout at the first use of the TYPE cannot serve a
-        declaration pass keyed on the symbol.
+        This has to happen up front: the monomorphization phase splices each
+        instantiation's methods in as an ordinary concrete extension whose
+        `struct_name` is the mangled name, and `_declare_extension_methods`
+        reads that name straight out of `struct_types` / `enum_types` to type
+        the `self` parameter. Lazily registering the layout at the first use of
+        the type cannot serve a declaration pass keyed on the symbol.
 
-        Registration order is the registry's discovery order, which is the
-        program's own declaration order (see `Instance.demand`) — an irdet
-        obligation, since it is now the order the module's identified types are
-        created in.
+        Registration order is the registry's discovery order: first demands
+        in a walk of the roots in declaration order, then of each demanded
+        instance in FIFO worklist order. It is the order the module's
+        identified types are created in, so it must stay deterministic
+        (irdet).
         """
         registry = getattr(self, 'mono_registry', None)
         if registry is None:
@@ -427,19 +401,16 @@ class GenericsMixin:
 
     @staticmethod
     def _compose_overload_suffix(mangled_name: str, method) -> str:
-        """Carry a method's OVERLOAD signature onto its monomorphized symbol.
+        """Carry a method's overload signature onto its monomorphized symbol.
 
-        The typechecker stamps an overload's codegen symbol against the GENERIC
+        The typechecker stamps an overload's codegen symbol against the generic
         type's name (`Holder_take$OL$String`), because that is the only name a
-        declaration has. Monomorphization then built `Holder$1$Int_take` from the
-        specialized name and dropped the signature — so two overloads in a
-        generic extension declared ONE symbol between them, and the call, which
-        looks up the stamped one, found nothing at all ("Undefined method:
-        Holder$1$Int.take"). Overloaded methods in a generic extension were
-        simply not callable.
-
-        Both sides now compose the same way: specialized base + the stamped
-        signature. A non-overloaded method has no tag and is untouched.
+        declaration has. The monomorphized symbol is the specialized base plus
+        that stamped signature (`Holder$1$Int_take$OL$String`); without the
+        signature, two overloads in a generic extension would share one
+        symbol. A non-overloaded method has no tag and is untouched. Called by
+        `calls.py`'s two method-call paths when the stamped symbol misses;
+        `monomorphize.py` composes the same key itself (`_OVERLOAD_TAG`).
         """
         stamped = getattr(method, 'mangled_symbol', None)
         if not stamped or GenericsMixin._OVERLOAD_TAG not in stamped:
@@ -450,21 +421,16 @@ class GenericsMixin:
     def _ensure_monomorphized_generic_method(self, mangled_struct_name: str,
                                              recv_type: SawType, method_name: str,
                                              method_type_args: List[SawType]) -> str:
-        """The MANGLED SYMBOL of a generic method's instantiation (brief 36).
+        """The mangled symbol of a generic method's instantiation (design 36).
 
-        A LOOKUP since design 218 unit 1.5 stage 3c-2c, on
-        `_instantiate_generic_function`'s terms and for its reason: the
+        A lookup, on `_instantiate_generic_function`'s terms: the
         monomorphization phase decides which (receiver args, method args) pairs
-        exist, materializes each body through the one funnel — the substituting
-        copier, then the §1c instance check with errors real — and splices it in
-        as an ordinary concrete method of a concrete extension, which the eager
-        declaration pass has already declared. `recv_type` survives in the
-        signature because the call sites read better passing it, and because a
-        MISS report is worth what it names.
+        exist, materializes each body and splices it in as an ordinary concrete
+        method of a concrete extension, which the eager declaration pass has
+        already declared. `recv_type` names the base in a miss report.
 
-        A MISS IS AN INTERNAL ERROR — the standing decides-vs-lowers gate. It
-        says the fixpoint failed to enumerate a demand this lowering makes,
-        which is the one thing shadow mode existed to prove could not happen.
+        A miss is an internal error: the standing decides-vs-lowers gate. It
+        says the fixpoint failed to enumerate a demand this lowering makes.
         """
         mangled_name = self._mangle_method_name(mangled_struct_name, method_name,
                                                 method_type_args=method_type_args)

@@ -54,13 +54,12 @@ name is terminated by the `$<arity>$` that follows it or by the end of the
 string.
 
 Const generics (design 148): the monomorphization key is
-`mangle_named(base, type_args)` and the extension point is `type_args`. Design
-144 fused the defining module into `base`, which is the half that is fixed at
-DECLARATION; a value argument is a type-argument-list member and appends there,
-alongside the type arguments. That is exactly what landed — `TypeKind.CONST_VALUE`
-with the `$C$` arm below — so `FixedBuf<256>` mangles as `FixedBuf$1$$C$256` and
-`FixedBuf<256>` vs `FixedBuf<512>` are two monomorphizations by construction,
-through the same code path that already separated `Box<Int>` from `Box<String>`.
+`mangle_named(base, type_args)`. The defining module is fused into `base`, the
+half fixed at declaration; a const value argument is a member of `type_args`
+(`TypeKind.CONST_VALUE`, the `$C$` arm below), so `FixedBuf<256>` mangles as
+`FixedBuf$1$$C$256` and `FixedBuf<256>` vs `FixedBuf<512>` are two
+monomorphizations through the same path that separates `Box<Int>` from
+`Box<String>`.
 """
 
 import hashlib
@@ -69,15 +68,15 @@ from ast_nodes import SawType, TypeKind
 
 
 def content_tag(data: bytes) -> str:
-    """A short, PROCESS-STABLE tag for a blob of bytes (design 168 unit 3).
+    """A short, process-stable tag for a blob of bytes.
 
-    Names a compiler-synthesized global after WHAT IS IN IT rather than after
+    Names a compiler-synthesized global after what is in it rather than after
     how many came before it, so the same literal gets the same symbol in every
     program that contains it.
 
     `hashlib`, never the builtin `hash()`: string and bytes hashing is salted by
-    `PYTHONHASHSEED`, which `tools/irdet.py` deliberately varies (seeds 1 and
-    424242) precisely to catch a name that leaked it.
+    `PYTHONHASHSEED`, which the irdet harness (`devtools/irdet/`) deliberately
+    varies to catch a name that leaked it.
     """
     return hashlib.blake2b(data, digest_size=8).hexdigest()
 
@@ -208,11 +207,11 @@ def mangle_overload(base: str, param_types, param_names=None) -> str:
     to `base$OL$` (two zero-arg overloads are a declaration-site error, so the
     empty body is never ambiguous).
 
-    Design 66 permits two overloads with identical parameter TYPES but different
-    LABELS. When the caller detects such a type-collision within an overload set
-    it passes `param_names`, which are appended with a `$LB$` tag so the symbols
+    Two overloads may have identical parameter types but different labels.
+    When the caller detects such a type-collision within an overload set it
+    passes `param_names`, which are appended with a `$LB$` tag so the symbols
     stay distinct. The names are only appended when needed, so a set whose
-    members already differ by type keeps its design-55 symbols (no churn).
+    members already differ by type keeps its type-only symbols.
     """
     body = "$".join(mangle_type(p) for p in param_types) if param_types else ""
     sym = f"{base}$OL${body}"
@@ -234,8 +233,8 @@ def mangle_method(struct_name: str, method_name: str, param_names=None,
     name-based key uniquely identifies the selected init; a same-names/
     different-types collision is unreachable in the current language.
 
-    For a method-level GENERIC method (`func map<U>(...)`, brief 36), the
-    explicit method type arguments are appended with the same length-prefixed
+    For a method-level generic method (`func map<U>(...)`, design 36), the
+    resolved method type arguments (explicit or inferred) are appended with the same length-prefixed
     scheme `mangle_named` uses, so the symbol composes (struct args) x (method
     args): `Vector$1$Int.map<String>` -> `Vector$1$Int_map$1$String`. The `_`
     separates the struct-mangle from the method, and the trailing `$n$...` is the

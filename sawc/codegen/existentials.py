@@ -1,15 +1,17 @@
 """
 `any Trait` existential codegen (design 51).
 
-An erased value is a FAT POINTER — a two-word `{ i8* data, i8* vtable }` value —
+An erased value is a fat pointer, a two-word `{ i8* data, i8* vtable }` value,
 used identically for a borrowed `&any Trait` and an owned `Box<any Trait, A>`.
 The vtable is a per-(concrete type, trait) const global laid out as
 
-    { void(i8*)* destructor, isize size, isize align, <method thunks...> }
+    { void(i8*)* destructor, isize size, isize align, isize type_id,
+      <method thunks...> }
 
 with the method thunks in trait declaration order. Each thunk adapts the uniform
-`(i8* self, args...) -> ret` dispatch ABI to the concrete method (loading the
-value for a by-value `&self` receiver, or passing the pointer for `&var self`).
+`(i8* self, args...) -> ret` dispatch ABI to the concrete method, passing the
+receiver in the shape the method's own signature declares (a loaded value or
+the pointer).
 Vtables/thunks/destructors are emitted lazily on first use and drained at the
 end of module generation, mirroring the monomorphization pending queue.
 
@@ -42,9 +44,9 @@ class ExistentialsMixin:
         self._vtable_thunks = {}
         # queued (concrete_saw, trait_name, global, vtable_llvm_type) to fill/drain
         self._pending_vtables = []
-        # concrete_mangle -> stable per-concrete-type id (design 72 downcasting).
-        # Memoized by mangled name so the id the vtable BAKES IN matches the one
-        # `is<T>()`/`take<T>()` COMPUTE for the same concrete type (design 87 §2).
+        # concrete_mangle -> stable per-concrete-type id (for downcasting).
+        # Memoized by mangled name so the id the vtable bakes in matches the one
+        # `is<T>()`/`take<T>()` compute for the same concrete type.
         self._type_ids = {}
 
     # FNV-1a 64-bit (the same constants as the runtime Hasher in builtin.saw).
@@ -53,51 +55,41 @@ class ExistentialsMixin:
     _FNV64_MASK = (1 << 64) - 1
 
     def _erased_identity(self, concrete_saw):
-        """THE ONE canonical spelling a concrete type takes when it is ERASED.
+        """The one canonical spelling a concrete type takes when it is erased.
 
-        Four identities are derived from an erased type's mangled name — the
+        Four identities are derived from an erased type's mangled name (the
         vtable global, the destructor it points at, the impl symbol each method
-        thunk calls, and the `type_id` a downcast compares — so all four have to
-        spell the same type the same way. `_canonicalize_type_kind` is that
+        thunk calls, and the `type_id` a downcast compares), so all four have
+        to spell the same type the same way. `_canonicalize_type_kind` is that
         spelling (design 68): it fills omitted trailing default type args at
         every nesting level and normalizes an erased `Box<any Trait, Global>`
         back down to codegen's native arity-1 form, which is what
         `_ensure_monomorphized_struct` registers the type and its methods under.
+        A bypass mangles a second name for one type, and the thunk's impl
+        lookup misses.
 
-        THE FUNNEL, and its entry points (design 190 obligation 1):
-        `_get_or_emit_vtable` — which covers everything `_fill_vtable` then
-        derives, i.e. `_get_vtable_dtor`, `_get_vtable_thunk` and the
-        size/align header — and `_type_id_for`, which is called from BOTH sides
-        of a downcast (the id the vtable bakes in, and the id `is<T>()` /
-        `take<T>()` compare against it). Any new way to reach a vtable belongs
-        here too, or it mangles a second name for one type.
-
-        DF-192b is what a bypass costs: spawning a function that returns an
-        erased `Result<T, Box<any Error>>` monomorphized its result cell as
-        `__ResultCell<Result<Int, Box<any Error>>>` and then asked for a vtable
-        over the arity-2 `Box<any Error, GlobalAllocator>` spelling of the same
-        type, so the thunk's impl lookup missed by a name and the compiler died
-        with a bare `KeyError`.
+        Entry points (any new way to reach a vtable belongs here too):
+          `_get_or_emit_vtable` -- and so `_fill_vtable`'s dtor, thunks and size/align header
+          `_type_id_for` -- both sides of a downcast
         """
         return self._canonicalize_type_kind(concrete_saw)
 
     def _type_id_for(self, concrete_saw):
-        """A STABLE, deterministic type-id: the FNV-1a hash of the mangled type
-        name (design 87 §2, replacing design-72's per-compilation MONOTONIC
-        COUNTER). Because the id is a pure function of the mangled name, the SAME
-        concrete type hashes to the SAME id in EVERY compilation — so a future
-        separate-compilation unit would agree on `is<T>()`/`take<T>()`, not just
-        the current whole-program build. The vtable slot the id bakes into and
-        the downcast compare against it both call here, so they always agree.
+        """A stable, deterministic type-id: the FNV-1a hash of the mangled type
+        name (design 87). Because the id is a pure function of the mangled
+        name, the same concrete type hashes to the same id in every
+        compilation, so separately compiled units would agree on
+        `is<T>()`/`take<T>()`. The vtable slot the id bakes into and the
+        downcast compare against it both call here, so they always agree.
 
         Masked to the platform word so it fits the vtable's `int_type` type_id
-        slot (i64 hosted, i32 on riscv32). COLLISION POSTURE: distinct mangled
-        names over a 64-bit FNV space make an accidental clash negligible (a
-        birthday clash needs ~2^32 conforming types in one program); ids are only
-        ever compared for EQUALITY, never used as a sentinel, so `0` is a legal id
-        (unlike the old counter, which reserved it). A hypothetical collision
-        would let one type's `is<T>()` spuriously accept another — acceptable for
-        a v1 downcast until a wider/perfect scheme is warranted."""
+        slot (i64 hosted, i32 on riscv32). Collision posture: over the 64-bit
+        hash an accidental clash is negligible (a birthday clash needs ~2^32
+        conforming types in one program); over a 32-bit word it needs ~2^16.
+        Ids are only ever compared for equality, never used as a sentinel, so
+        `0` is a legal id. A collision would let one type's `is<T>()`
+        spuriously accept another; that is accepted for the current downcast
+        until a wider/perfect scheme is warranted."""
         cm = mangle_type(self._erased_identity(concrete_saw))
         tid = self._type_ids.get(cm)
         if tid is None:
@@ -138,8 +130,8 @@ class ExistentialsMixin:
         # param_types[0] is the VOID `self` placeholder; the rest are real params.
         arg_llvm = [self._get_llvm_type(pt)
                     for pt in (tmethod.param_types or [])[1:]]
-        # design 228 leg 3: a `-> Never` requirement's slot is `void` through
-        # the one funnel. Slot type and thunk type both come from here, so they
+        # A `-> Never` requirement's slot is `void` through the declared-return
+        # funnel. Slot type and thunk type both come from here, so they
         # cannot drift apart, and the thunk's own `unreachable` comes from the
         # `noreturn` on the conformer it tail-calls.
         ret_llvm, _ = self._lower_declared_return(tmethod.return_type)
@@ -147,7 +139,7 @@ class ExistentialsMixin:
 
     def _vtable_llvm_type(self, trait_name):
         """`{ dtor*, isize size, isize align, isize type_id, method0*, ... }` for a
-        trait. The `type_id` header slot (design 72) backs erased downcasting."""
+        trait. The `type_id` header slot backs erased downcasting."""
         fields = [ir.PointerType(ir.FunctionType(ir.VoidType(), [self._i8ptr()])),
                   self.int_type, self.int_type, self.int_type]
         for _name, tmethod in self._trait_dispatch_methods(trait_name):
@@ -232,9 +224,9 @@ class ExistentialsMixin:
 
     def _get_vtable_thunk(self, concrete_saw, trait_name, mname, tmethod):
         """Adapt the uniform `(i8* self, args...) -> ret` ABI to the concrete
-        impl: bitcast the data pointer to the concrete type, then either load the
-        value (by-value `&self`) or pass the pointer (`&var self`) as the impl's
-        receiver, forwarding remaining args unchanged."""
+        impl: bitcast the data pointer to the concrete type, then pass the
+        receiver as a loaded value or as the pointer, whichever the impl's
+        signature takes, forwarding remaining args unchanged."""
         cm = mangle_type(concrete_saw)
         key = (cm, trait_name, mname)
         existing = self._vtable_thunks.get(key)
@@ -252,13 +244,11 @@ class ExistentialsMixin:
         try:
             concrete_llvm = self._get_llvm_type(concrete_saw)
             data_ptr = self.builder.bitcast(thunk.args[0], concrete_llvm.as_pointer())
-            # Read the convention off the IMPL's own signature rather than the
-            # trait requirement's spelling: `&var self` and a `borrows` accessor
-            # take a pointer, and so does a plain `&self` on a receiver carrying
-            # an `Atomic` cell (design 149). The emitted parameter type is the one
-            # answer all three agree on.
-            # Design 261 turned that read into the `_self_operand` funnel; the
-            # answer here is unchanged, and now nothing re-derives it.
+            # Read the convention off the impl's own signature (through the
+            # `_self_operand` funnel) rather than the trait requirement's
+            # spelling: `&var self` and a `borrows` accessor take a pointer,
+            # and so can a plain `&self` (a receiver carrying an `Atomic` cell,
+            # for one) (design 261).
             self_arg = self._self_operand(impl, data_ptr, name="vt_self")
             call_args = [self_arg] + list(thunk.args[1:])
             res = self.builder.call(impl, call_args)
@@ -330,13 +320,12 @@ class ExistentialsMixin:
         args = [data]
         for arg in expr.arguments:
             args.append(self._gen_transfer_value(arg.value))
-        # design 228 legs 2 + 5: dispatch is a call like any other — a diverging
-        # ARGUMENT aborts it, and a `-> Never` requirement terminates after it.
-        # The callee is a loaded fn POINTER with no attribute list, so the
-        # divergence answer comes from the call expression, as it does for a
-        # closure. Sound here for the same reason: design 141 admits no
-        # `borrows` trait requirements, so this call's type IS the callee's
-        # return type.
+        # Dispatch is a call like any other: a diverging argument aborts it,
+        # and a `-> Never` requirement terminates after it. The callee is a
+        # loaded fn pointer with no attribute list, so the divergence answer
+        # comes from the call expression, as it does for a closure. Sound
+        # because no `borrows` trait requirement is admitted, so this call's
+        # type is the callee's return type (design 228).
         result = self._emit_call(fn_ptr, args, "anydispatch", closure_call=expr,
                                  coerce=False)
         if result is None or isinstance(fn_ptr.type.pointee.return_type, ir.VoidType):
@@ -346,10 +335,10 @@ class ExistentialsMixin:
     # ------------------------------------------- erased Box construct (4) / teardown (5)
     def _generate_erased_box_make(self, expr):
         """`Box<any Trait>.make(v)` built erased-directly (design 51): allocate a
-        chunk sized to the CONCRETE value through the box's `A`, placement-move the
+        chunk sized to the concrete value through the box's `A`, placement-move the
         value in, and return the fat pointer { data, vtable }. Size/align are the
         concrete type's (statically known here); teardown later recovers them from
-        the vtable. OOM panics (the infallible tier), matching `Box<T>.make`."""
+        the vtable. Allocation failure panics."""
         info = expr.erased_box_make
         trait_name = info['trait']
         concrete_saw = info['concrete']
@@ -362,7 +351,7 @@ class ExistentialsMixin:
         """Box an already-lowered concrete `value` behind `trait_name` through
         `alloc_saw`, returning the fat pointer { data, vtable }. Shared by
         `Box<any T>.make(v)` and auto-erasure of a concrete error at a return /
-        propagation edge (design 56). OOM panics (the infallible tier)."""
+        propagation edge (design 56). Allocation failure panics."""
         i8 = self._i8ptr()
         concrete_llvm = self._get_llvm_type(concrete_saw)
         size = ir.Constant(self.int_type, self._abi_size(concrete_llvm))
@@ -386,9 +375,9 @@ class ExistentialsMixin:
         cont_block = self.builder.append_basic_block("anybox_cont")
         self.builder.cbranch(is_some, ok_block, fail_block)
 
-        # Success: placement-move the value into the fresh chunk.  Route an
-        # aggregate load through the transfer-store funnel so a compiler-marked
-        # frame staged by SL-350 becomes one memcpy, not a backend-flattened
+        # Success: placement-move the value into the fresh chunk. Route an
+        # aggregate load through the transfer-store funnel so a staged
+        # compiler-marked frame becomes one memcpy, not a backend-flattened
         # aggregate load/store pair.
         self.builder.position_at_end(ok_block)
         typed = self.builder.bitcast(raw, concrete_llvm.as_pointer())
@@ -400,7 +389,7 @@ class ExistentialsMixin:
         self.builder.store(fat, result_slot)
         self.builder.branch(cont_block)
 
-        # Failure: the infallible tier panics (Box<T>.make parity).
+        # Failure: panic.
         self.builder.position_at_end(fail_block)
         self._emit_panic("allocation failed")  # terminates with unreachable
 
@@ -422,7 +411,7 @@ class ExistentialsMixin:
 
     def _erased_dealloc_shell(self, data, vtable_ptr, alloc_saw):
         """Slots 1/2: read size/align from the vtable and free the chunk through
-        `A`. Does NOT run the payload destructor — the caller either ran it (drop)
+        `A`. Does not run the payload destructor: the caller either ran it (drop)
         or moved the payload out (take-on-hit)."""
         zero = ir.Constant(self.int_type, 0)
         size_gep = self.builder.gep(vtable_ptr, [zero, ir.Constant(ir.IntType(32), 1)])
@@ -437,7 +426,7 @@ class ExistentialsMixin:
     def _emit_erased_box_drop(self, box_ptr, box_saw):
         """Drop a `Box<any Trait, A>` at `box_ptr` (a pointer to the fat value):
         run the payload's destructor (from the vtable) in place, then dealloc the
-        chunk through `A` with the vtable's size/align. Exactly-once — the fat
+        chunk through `A` with the vtable's size/align. Exactly once: the fat
         pointer owns one live payload."""
         alloc_saw = self._box_allocator_saw(box_saw)
         trait_name = (box_saw.type_args or [])[0].existential_trait
@@ -453,14 +442,14 @@ class ExistentialsMixin:
     def _generate_erased_downcast(self, expr):
         """`b.is<T>()` / `b.take<T>()` on a `Box<any Trait, A>` (design 72).
 
-        `is` LOADS the box's vtable type-id and compares it to the compile-time
-        id for the concrete `T`, yielding `Bool` (a borrow — the box stays live).
+        `is` loads the box's vtable type-id and compares it to the compile-time
+        id for the concrete `T`, yielding `Bool` (a borrow: the box stays live).
 
-        `take` CONSUMES the box (the typechecker marked the receiver moved and
-        codegen clears its drop flag). On an id HIT it moves the payload out of
-        the chunk (loads the concrete `T`), frees the shell WITHOUT running the
+        `take` consumes the box (the typechecker marked the receiver moved and
+        codegen clears its drop flag). On an id hit it moves the payload out of
+        the chunk (loads the concrete `T`), frees the shell without running the
         payload destructor (ownership transferred), and yields `Some(T)`. On a
-        MISS it runs the full box drop (dtor + dealloc) and yields `None` — the
+        miss it runs the full box drop (dtor + dealloc) and yields `None`; the
         box is consumed either way (`is<T>()` first lets callers branch without
         consuming). Returns a `T?` optional."""
         info = expr.erased_downcast

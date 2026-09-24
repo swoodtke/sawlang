@@ -1,6 +1,6 @@
-"""DWARF debug-info emission (design 69, Part 1).
+"""DWARF debug-info emission (design 69).
 
-Line tables ONLY (no variable/type info): every emitted instruction in a user
+Line tables only (no variable/type info): every emitted instruction in a user
 function carries the source line of the Saw statement it lowers, so a debugger
 (lldb/gdb) can set line breakpoints and print `file:line` backtraces — including
 for panics, which abort through `saw_panic`.
@@ -13,12 +13,12 @@ Mechanism (llvmlite 0.48 debug metadata):
   - a DILocation per (function, line) attached to instructions through the
     builder's `debug_metadata` attribute (set once per statement)
 
-Re-entrancy: the active subprogram is looked up by the CURRENT builder's llvm
+Re-entrancy: the active subprogram is looked up by the current builder's llvm
 function name (`_di_func_subprograms`), never a single "current" field, so a
 nested body generation (closure / monomorphization) can never bleed one
 function's scope onto another's instructions. A function without a subprogram
-(runtime seams, drop glue, closures) simply gets no `!dbg` — which the LLVM
-verifier accepts (only functions that HAVE a subprogram must carry locations).
+(runtime seams, drop glue, closures) simply gets no `!dbg`, which the LLVM
+verifier accepts (only functions that have a subprogram must carry locations).
 """
 
 import os
@@ -38,10 +38,10 @@ class DebugInfoMixin:
         self._di_func_basename = {}         # llvm func name -> source basename
         self._di_loc_cache = {}             # (func name, line, col) -> DILocation
         # llvm func name -> the source line of the statement last lowered in it.
-        # Tracked for the runtime-check PANIC messages (design 122 unit I): a
+        # Tracked for the runtime-check panic messages (design 122): a
         # bounds / overflow / shift / div-zero check is emitted deep inside an
         # operator helper with no AST node to read a line off, so it reads the
-        # line the statement walk last announced. Keyed by FUNCTION for the same
+        # line the statement walk last announced. Keyed by function for the same
         # re-entrancy reason the subprogram map is (see the module docstring): a
         # nested body generation must not bleed its line onto the function it
         # was generated inside of.
@@ -95,9 +95,10 @@ class DebugInfoMixin:
         """Attach a DISubprogram to `llvm_func` and prime the builder location.
 
         Idempotent-safe per llvm function (each is generated once). Sets the
-        builder's initial debug location to `line or 1` so EVERY instruction —
-        including a fully synthesized method's, whose statements may carry line 0
-        — gets a valid `!dbg` (required once the function has a subprogram)."""
+        builder's initial debug location to `line or 1` so every instruction
+        (including a fully synthesized method's, whose statements may carry
+        line 0) gets a valid `!dbg` (required once the function has a
+        subprogram)."""
         if not getattr(self, "_di_enabled", False):
             return
         di_file = self._di_file(source_file)
@@ -130,8 +131,8 @@ class DebugInfoMixin:
         if self.builder is None:
             return
         fname = self.builder.function.name
-        # Recorded ahead of the `_di_enabled`/subprogram guards: the design-122
-        # panic prefix wants the statement line whether or not this function
+        # Recorded ahead of the `_di_enabled`/subprogram guards: the panic
+        # prefix wants the statement line whether or not this function
         # carries debug metadata (a closure or synthesized body has none).
         self._di_stmt_lines[fname] = line
         if not getattr(self, "_di_enabled", False):
@@ -150,8 +151,8 @@ class DebugInfoMixin:
     def _di_current_line(self):
         """Source line of the statement currently being lowered, or 0.
 
-        The line half of a compiler-emitted panic's `FILE:LINE` (design 122 unit
-        I). Read at the point the check is emitted, so a bounds/overflow trap
+        The line half of a compiler-emitted panic's `FILE:LINE` (design 122).
+        Read at the point the check is emitted, so a bounds/overflow trap
         buried in an operator helper still names the statement it came from.
         """
         if self.builder is None:
@@ -162,8 +163,8 @@ class DebugInfoMixin:
         """Give a nested body the enclosing function's source file + line.
 
         A closure gets its own llvm function but no DISubprogram, so without
-        this its panics would pair the ENTRY file's basename (the fallback in
-        `_di_current_basename`) with a line from the closure body — a wrong
+        this its panics would pair the entry file's basename (the fallback in
+        `_di_current_basename`) with a line from the closure body: a wrong
         FILE:LINE pair in any multi-module build. Seeding both halves from the
         function the closure is written inside of keeps them consistent; the
         closure's own statements then refine the line as they are lowered.

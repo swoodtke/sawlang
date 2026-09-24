@@ -10,7 +10,7 @@ from enum import Enum, auto
 
 
 def annotation(default=None, **kwargs):
-    """Declare a cross-pass ANNOTATION field (design 126 R1).
+    """Declare a cross-pass ANNOTATION field (design 126).
 
     An annotation is metadata one pass stamps for a later one -- a resolved
     symbol, a dispatch decision, a plan -- as opposed to tree STRUCTURE (an
@@ -22,7 +22,8 @@ def annotation(default=None, **kwargs):
         hold a derived node that a later pass rebuilds, so following one makes a
         walker visit the same call twice or visit a stale copy.
       * `substitute_ast_types` (the monomorphizer) must visit EVERYTHING,
-        annotations included -- that is exactly the RC-2 bug R1 fixes.
+        annotations included, or a type stamped on a generic template survives
+        unsubstituted into its instantiation.
 
     So annotations stay declared, typed and visible to `dataclasses.fields()`,
     and child walkers filter them out with `structural_fields()`.
@@ -42,16 +43,16 @@ def structural_fields(node):
 def self_by_pointer(method) -> bool:
     """Does this method receive `self` as a POINTER rather than by value?
 
-    Two spellings say yes. `&var self` is the obvious one (design 40): the
-    method mutates its receiver, so it needs the caller's storage.
+    Two spellings say yes. `&var self` is the obvious one: the method mutates
+    its receiver, so it needs the caller's storage.
 
     A `borrows` accessor is the other, and it is the one place in the language
-    where a `&self` spelling does not mean shared-only (design 146, DF-146b).
-    A borrows body lends a place OUT of the receiver, and design 141 decision 3
-    puts the window's mutability at the USE SITE, not on the declaration -- so
-    the receiver has to arrive as storage whichever flavor the use site picks,
-    or `v[i].n += 1` would write to the callee's copy. The polymorphism stops
-    at the `lend`: everything else in the body is ordinary `&self` code.
+    where a `&self` spelling does not mean shared-only. A borrows body lends a
+    place OUT of the receiver, and the window's mutability is chosen at the USE
+    SITE, not on the declaration -- so the receiver has to arrive as storage
+    whichever flavor the use site picks, or `v[i].n += 1` would write to the
+    callee's copy. The polymorphism stops at the `lend`: everything else in the
+    body is ordinary `&self` code (design 146).
     """
     return bool(getattr(method, 'self_mutable', False)
                 or getattr(method, 'place_self_by_pointer', False))
@@ -75,19 +76,19 @@ class TypeKind(Enum):
     POINTER = auto()     # For raw pointers: UnsafePointer<T>, UnsafeMutablePointer<T>
     MODULE = auto()      # For module references during qualified access
     REFERENCE = auto()   # For reference types: &T (immutable), &var T (mutable)
-    EXISTENTIAL = auto() # For `any Trait` type-erased existentials (design 51)
-    CONST_VALUE = auto() # A const generic ARGUMENT: the `256` in `FixedBuf<256>`
-                         # (design 148). It rides the type-argument list because
-                         # that is what it is — a member of the tuple that
-                         # identifies an instantiation — so substitution,
-                         # mangling and type equality all reach it through
-                         # machinery that already existed. `const_value` holds
-                         # the integer; `inner_type` its declared Int/UInt type.
+    EXISTENTIAL = auto() # For `any Trait` type-erased existentials
+    CONST_VALUE = auto() # A const generic ARGUMENT: the `256` in `FixedBuf<256>`.
+                         # It rides the type-argument list because that is what
+                         # it is — a member of the tuple that identifies an
+                         # instantiation — so substitution, mangling and type
+                         # equality all reach it through the type machinery.
+                         # `const_value` holds the integer; `inner_type` its
+                         # declared Int/UInt type (design 148).
     NEVER = auto()       # Bottom type: the result of a diverging expression
                          # (`panic(...)`). Assignable to any expected type; a
-                         # function body ending in one needs no return value
-                         # (design 49). NOT a full Never type system — just the
-                         # divergence marker the typechecker/codegen need.
+                         # function body ending in one needs no return value.
+                         # Not a full Never type system — just the divergence
+                         # marker the typechecker/codegen need (design 49).
     # Fixed-width integers
     INT8 = auto()
     INT16 = auto()
@@ -102,24 +103,15 @@ class TypeKind(Enum):
 # THE PRIMITIVE-EXTENSION TABLE — which written names an `extension <name>` may
 # put a primitive receiver behind, and which `TypeKind` each one IS.
 #
-# ONE map, three readers (obligation 1), because it had been three maps and one
-# of them went stale. ENTRY POINTS: the typechecker's
-# `_primitive_ext_self_type` (the `self` SawType inside such a body), codegen's
-# `_primitive_self_llvm_type` / `_primitive_ext_name` (the receiver's LLVM type
-# and the pseudo-struct a primitive receiver dispatches under), and
-# `Namespace._PRIMITIVE_CONFORMANCE_KEYS` (the key an `extension Int: Fooable`
-# conformance is registered under), which is this map inverted.
-#
-# DF-225d: design 176 widened primitive extensions from {Int, Float, String} to
-# EVERY primitive, and widened the codegen and conformance copies — the
-# typechecker's stayed at three. So inside `extension UInt8` the receiver was a
-# STRUCT named "UInt8" while `-> UInt8` was `TypeKind.UINT8`, and `self` was
-# unusable as a value of its own type: `func encoded(&self) -> UInt8 { self }`
-# was ``method `encoded` should return `UInt8` but returns `UInt8` ``, `self * 2`
-# was ``operator `*` cannot be applied to `UInt8` and `Int` ``, and
-# `self == other` was ``cannot compare `UInt8` with `UInt8` ``. Every position
-# printed the two types identically, because they ARE the same type spelled two
-# ways.
+# One map with several readers (obligation 1). If a reader kept its own copy
+# and the copies disagreed, `self` inside `extension UInt8` would be a STRUCT
+# named "UInt8" while `-> UInt8` is `TypeKind.UINT8`, and every use of `self`
+# as a value of its own type would be refused. ENTRY POINTS:
+#   - `_primitive_ext_self_type` (typechecker: `self`'s SawType)
+#   - `_primitive_self_llvm_type` (codegen: the receiver's LLVM type)
+#   - `_primitive_ext_name` (codegen: the pseudo-struct it dispatches under)
+#   - `_ext_self_types`, `_type_method_base` (codegen: resources.py)
+#   - `Namespace._PRIMITIVE_CONFORMANCE_KEYS` (this map inverted)
 PRIMITIVE_EXT_KINDS = {
     "Int": TypeKind.INT,
     "UInt": TypeKind.UINT,
@@ -188,17 +180,9 @@ def specialization_key(type_args) -> tuple:
     """The key a SPECIALIZED extension is registered and looked up under: one
     string per type argument, or `()` for an argument this scheme cannot name.
 
-    ONE definition, because the typechecker and codegen must agree exactly
-    (design 194 unit 2, DF-190c). They did not: codegen learned design 148's
-    const-value arguments and the typechecker's copy kept dropping them to an
-    empty key. The probe that preceded this unification found the divergence
-    LATENT and, today, unreachable from either end — a const-generic
-    specialization cannot be WRITTEN (`extension Ring<4>` is a parse error,
-    "Expected type parameter name"), so no const key is ever registered, and
-    over the whole corpus the typechecker's copy saw a `CONST_VALUE` argument
-    zero times in 219,689 calls. The moment the grammar admits one the two
-    copies would have disagreed about which methods exist, which is the kind of
-    bug that reaches a user as a missing symbol rather than as a diagnostic.
+    ONE definition, because the typechecker and the monomorphization phase
+    must agree exactly: two copies that disagree about which methods exist
+    reach a user as a missing symbol rather than as a diagnostic (design 194).
 
     `()` means "no specialization can match this", which is why an argument the
     scheme cannot name (an enum, a nested generic, a type parameter) aborts the
@@ -213,10 +197,10 @@ def specialization_key(type_args) -> tuple:
         elif t.kind == TypeKind.STRUCT and t.struct_name:
             key_parts.append(t.struct_name)
         elif t.kind == TypeKind.CONST_VALUE and t.const_value is not None:
-            # A const generic VALUE argument (design 148). Tagged so a
-            # `FixedBuf<256>` specialization can never be confused with a type
-            # named `256`, which is unwritable but the tag costs nothing and
-            # keeps the key total.
+            # A const generic VALUE argument. Tagged so a `FixedBuf<256>`
+            # specialization can never be confused with a type named `256`,
+            # which is unwritable but the tag costs nothing and keeps the key
+            # total.
             key_parts.append(f"#{t.const_value}")
         else:
             return ()
@@ -225,23 +209,22 @@ def specialization_key(type_args) -> tuple:
 
 def ext_param_aliases(ext_type_params, declared_type_params):
     """The extension's name for each of the type's declared parameters, where
-    the two DIFFER (DF-216h).
+    the two DIFFER.
 
     ONE definition, for the same reason `specialization_key` above has one: the
-    typechecker and codegen must agree exactly about what a renamed parameter
-    binds, or a signature that type-checks fails to monomorphize. An extension
-    re-declares its type's parameters POSITIONALLY and is free to rename them —
-    `extension Pair<U>` over `struct Pair<A>` — so every consumer that binds
-    "the type's parameters" by NAME has to bind the extension's aliases beside
-    them, or the method's whole signature stays abstract.
+    typechecker and the monomorphization phase must agree exactly about what a
+    renamed parameter binds, or a signature that type-checks fails to
+    monomorphize. An extension re-declares its type's parameters POSITIONALLY
+    and is free to rename them — `extension Pair<U>` over `struct Pair<A>` — so
+    every consumer that binds "the type's parameters" by NAME has to bind the
+    extension's aliases beside them, or the method's whole signature stays
+    abstract.
 
     Returns `(declared_name, alias_name)` pairs, EMPTY when the extension
-    repeats the type's own names (the overwhelming majority, and the only case
-    that worked before this). Consumers: the typechecker's definition-side
+    repeats the type's own names. Consumers: the typechecker's definition-side
     rename (`_ext_rename_subst`) and its call-side receiver binding
-    (`_receiver_type_subst`, which serves all four call shapes); codegen's two
-    monomorphization sites (`_monomorphize_single_extension` and
-    `_ensure_monomorphized_generic_method`).
+    (`_receiver_type_subst`); the monomorphization phase's `_process_type`,
+    `_process_method` and `_materialize_type_instance` (monomorphize.py).
     """
     pairs = []
     declared = list(declared_type_params or ())
@@ -260,7 +243,7 @@ class SawType:
     kind: TypeKind
     # For tuple types, this holds the element types
     element_types: Optional[List['SawType']] = None
-    # For NAMED tuple types (design 63): field names aligned with element_types
+    # For NAMED tuple types: field names aligned with element_types
     # (`(x: Int, y: Int)`). None for a positional tuple. Names + order + types are
     # all part of the type; a named and a positional tuple of the same shape are
     # mutually compatible (labels are a view over the positional layout).
@@ -278,8 +261,8 @@ class SawType:
     # For array types, this holds the element type and size
     array_element_type: Optional['SawType'] = None
     array_size: Optional[int] = None
-    # For an array whose length is written as something other than a literal
-    # (design 148): the const expression as parsed. `array_size` is filled in
+    # For an array whose length is written as something other than a literal:
+    # the const expression as parsed. `array_size` is filled in
     # the moment the expression can be evaluated — at type resolution for a
     # ground length like `[Int8; 2 * 128]`, at substitution for a symbolic one
     # like `[UInt8; N]`. Everything downstream reads `array_size`, so an array
@@ -292,11 +275,11 @@ class SawType:
     param_types: Optional[List['SawType']] = None
     func_return_type: Optional['SawType'] = None
     # For function types (FUNCTION): True for a `sync` function type
-    # (`sync (Int) -> Int`) — a checked suspension-free effect context (design
-    # 22). Calls through a sync-typed value do not mark the caller suspending; a
+    # (`(Int) sync -> Int`) — a checked suspension-free effect context. Calls
+    # through a sync-typed value do not mark the caller suspending; a
     # closure/function assigned to it is checked transitively suspension-free.
     func_is_sync: bool = False
-    # For function types (FUNCTION): True when the type is ESCAPING (design 16/29).
+    # For function types (FUNCTION): True when the type is ESCAPING.
     # A closure-typed function PARAMETER is non-escaping by default (`(Int) ->
     # Void`); the `escaping` marker in the post-parameter slot opts out
     # (`(Int) escaping -> Void`, composing as `(Int) sync escaping -> Void`).
@@ -310,22 +293,22 @@ class SawType:
     # Did `_stamp_escaping_roles` set `func_is_escaping`, as opposed to the
     # author writing the marker? The redundancy error must fire only for what
     # the AUTHOR wrote, and type resolution can run over one declared type more
-    # than once — the coroutine transform re-enters the front half, and design
-    # 146 made that the norm rather than the exception. Without this the SECOND
-    # pass reads the compiler's own stamp as a redundant marker and rejects a
-    # correct program. Same shape as DF-146a's `_derivation_slot`.
+    # than once (the coroutine transform re-enters the front half). Without
+    # this the second pass reads the compiler's own stamp as a redundant marker
+    # and rejects a correct program.
     func_escaping_stamped: bool = False
     # For function types (FUNCTION): True for an `unsafe` function type
-    # (`(UnsafePointer<T>) unsafe sync -> R`, design 130). A closure whose own
-    # body names an unsafe type is an unsafe closure (rule 3 judged per body), so
-    # only an `unsafe`-typed slot accepts it; a safe closure flows into either.
+    # (`(UnsafePointer<T>) unsafe sync -> R`). A closure whose own body names an
+    # unsafe type is an unsafe closure (rule 3 judged per body), so only an
+    # `unsafe`-typed slot accepts it; a safe closure flows into either
+    # (design 130).
     func_is_unsafe: bool = False
     # For function types (FUNCTION): True for a `borrows` function type
-    # (`(Int) borrows -> T`, design 141). A borrows function yields a PLACE of T
-    # for a window rather than a T value, so the marker is signature-level. v1
-    # has no borrows function VALUES: the bit exists so the type grammar can
-    # PARSE the spelling and the typechecker can refuse it by name instead of
-    # with a syntax error.
+    # (`(Int) borrows -> T`). A borrows function yields a PLACE of T for a
+    # window rather than a T value, so the marker is signature-level. There are
+    # no borrows function VALUES: the bit exists so the type grammar can PARSE
+    # the spelling and the typechecker can refuse it by name instead of with a
+    # syntax error (design 141).
     func_is_borrows: bool = False
     # For pointer types (POINTER), True = UnsafePointer (mutable), False = UnsafeConstPointer
     pointer_mutable: Optional[bool] = None
@@ -333,25 +316,23 @@ class SawType:
     module_name: Optional[str] = None
     # For reference types (REFERENCE), True = &var T (mutable), False = &T (immutable)
     reference_mutable: bool = False
-    # For EXISTENTIAL types (`any Trait`, design 51): the trait name being erased
-    # to. Legal only as `&any Trait` or `Box<any Trait, A>` (unsized discipline);
+    # For EXISTENTIAL types (`any Trait`): the trait name being erased to.
+    # Legal only as `&any Trait` or `Box<any Trait, A>` (unsized discipline);
     # represented at runtime as a fat pointer (data ptr, vtable ptr).
     existential_trait: Optional[str] = None
     # Direct reference to type symbol (StructSymbol, EnumSymbol, etc.)
     symbol: Optional[Any] = None
-    # WRITTEN-FORM PROVENANCE (design 194 unit 4, DF-193d). The name the AUTHOR
-    # wrote at this position, exactly as written — bare (`Data`) or qualified
-    # (`data.Data`) — plus where they wrote it. `None` means the compiler built
-    # this type, and every rule that judges what a USER SPELLED reads that as
-    # "not mine to judge".
+    # WRITTEN-FORM PROVENANCE. The name the AUTHOR wrote at this position,
+    # exactly as written — bare (`Data`) or qualified (`data.Data`) — plus
+    # where they wrote it. `None` means the compiler built this type, and every
+    # rule that judges what a USER SPELLED reads that as "not mine to judge".
     #
     # It exists because the spelling is DESTROYED before any check can see it:
-    # `_canonicalize_module_types` rewrites `struct_name` to the design-144
-    # identity in place, and `_register_function`'s design-68 write-back
-    # replaces the annotation object outright. After either one a legal
-    # qualified `data.Data` and a bare unimported `Data` are the same string, so
-    # the prelude gate could not tell them apart and 193 unit 7 backed out of
-    # running it on annotations at all.
+    # `_canonicalize_module_types` rewrites `struct_name` to the module-qualified
+    # identity in place, and `_register_function`'s write-back replaces the
+    # annotation object outright. After either one a legal qualified
+    # `data.Data` and a bare unimported `Data` are the same string, so the
+    # prelude gate could not tell them apart (design 194).
     #
     # `written_file` is the fourth part of the position, and it is load-bearing
     # rather than cosmetic: a rule about USER source has to tell a user's file
@@ -367,7 +348,7 @@ class SawType:
     written_column: int = field(default=0, compare=False)
 
     def __repr__(self):
-        # Design 144: a named type's slot holds its module-qualified IDENTITY
+        # A named type's slot holds its module-qualified IDENTITY
         # (`Header$m$dep`). This is the RENDERING, so it shows the short name —
         # what the author wrote, in every diagnostic, doc page and AST dump that
         # goes through `str(t)`. Anything comparing types must compare
@@ -388,8 +369,8 @@ class SawType:
         if self.kind == TypeKind.OPTIONAL and self.inner_type:
             return f"{self.inner_type}?"
         if self.kind == TypeKind.ENUM and self.enum_name:
-            # The multi-error catch union (design 30 Ruling 2) is a compiler-
-            # synthesized, unnameable enum named `_CatchError_<id>`. Never surface
+            # The multi-error catch union is a compiler-synthesized,
+            # unnameable enum named `_CatchError_<id>`. Never surface
             # that internal name (nor its non-deterministic id) in diagnostics —
             # render it as what it is so the message stays stable and the type
             # reads as unwritable.
@@ -415,7 +396,7 @@ class SawType:
             return f"[{self.array_element_type}; {size}]"
         if self.kind == TypeKind.FUNCTION:
             params = ", ".join(str(t) for t in (self.param_types or []))
-            # Canonical post-parameter effect-slot order (designs 136, 141):
+            # Canonical post-parameter effect-slot order:
             # `unsafe sync escaping borrows`.
             effects = ""
             if self.func_is_unsafe:
@@ -454,11 +435,9 @@ class SawType:
             TypeKind.BOOL: "Bool",
             TypeKind.STRING: "String",
             TypeKind.VOID: "Void",
-            # The bottom type is WRITTEN `Never` (design 49), so a diagnostic
-            # about it has to spell it the way the author would. Without this
-            # entry the fallback printed the enum member name, `NEVER`, and hints
-            # like "conform it with `extension NEVER: Printable`" named a type
-            # nobody can write.
+            # The bottom type is WRITTEN `Never`, so a diagnostic about it has
+            # to spell it the way the author would; the fallback below would
+            # print the enum member name `NEVER`, a type nobody can write.
             TypeKind.NEVER: "Never",
         }
         return display_names.get(self.kind, self.kind.name)
@@ -568,14 +547,12 @@ class SawType:
             # Check if struct name is actually a type parameter
             if self.struct_name in type_map:
                 return type_map[self.struct_name]
-            # Substitute in type arguments. The `symbol` RIDES ALONG (DF-289b):
-            # only the arguments changed, so the head still names the same
-            # declaration — and that symbol is design 144's identity, which
-            # `_resolve_type` prefers over whichever declaration the asking
-            # module's view maps the bare name to. Dropping it here is what
-            # let a substituted `Slot<Res>` re-point at `std.compiler.frame`'s
-            # `Slot` inside a std body and report ``expects `Slot<Res>` but got
-            # `Slot<Res>` ``.
+            # Substitute in type arguments. The `symbol` RIDES ALONG: only the
+            # arguments changed, so the head still names the same declaration,
+            # and `_resolve_type` prefers that symbol over whichever declaration
+            # the asking module's view maps the bare name to. Dropping it would
+            # let a substituted type re-point at a same-named type in another
+            # module.
             if self.type_args:
                 substituted_args = [t.substitute(type_map) for t in self.type_args]
                 return SawType(TypeKind.STRUCT, struct_name=self.struct_name,
@@ -611,10 +588,9 @@ class SawType:
             return SawType(TypeKind.TUPLE, element_types=substituted_elements,
                            tuple_field_names=self.tuple_field_names)
 
-        # Handle array types. The LENGTH substitutes too since design 148: a
-        # `[UInt8; N]` field of a const-generic struct becomes `[UInt8; 256]`
-        # here, which is what lets every reader downstream keep treating
-        # `array_size` as the plain int it always was.
+        # Handle array types. The LENGTH substitutes too: a `[UInt8; N]` field
+        # of a const-generic struct becomes `[UInt8; 256]` here, which is what
+        # lets every reader downstream treat `array_size` as a plain int.
         if self.kind == TypeKind.ARRAY and self.array_element_type:
             substituted_element = self.array_element_type.substitute(type_map)
             size, size_expr = self._substituted_length(type_map)
@@ -656,7 +632,7 @@ class SawType:
         return value
 
     def _substituted_length(self, type_map):
-        """Resolve an array length against a substitution (design 148).
+        """Resolve an array length against a substitution.
 
         Returns `(size, size_expr)`. A length that was already a number stays
         one. A symbolic length whose parameters are all bound by `type_map`
@@ -685,20 +661,21 @@ class TypeParameter:
     """A type parameter in a generic function, struct, or enum (e.g., T in func foo<T>)."""
     name: str
     bounds: List[str] = field(default_factory=list)  # Trait bounds (Phase 3)
-    # Default type for an omitted trailing argument (design 37): the `Global` in
-    # `struct Vector<T, A: Allocator = Global>`. TYPES only — no value defaults.
-    # When a reference site omits this (and every following) parameter, the
-    # default is substituted BEFORE mangling, so `Vector<Int>` and
-    # `Vector<Int, Global>` collapse to one identity / one monomorphization.
+    # Default for an omitted trailing argument: the `Global` in
+    # `struct Vector<T, A: Allocator = Global>`, or a const parameter's
+    # evaluated value (below). When a reference site omits this (and every
+    # following) parameter, the default is substituted BEFORE mangling, so
+    # `Vector<Int>` and `Vector<Int, Global>` collapse to one identity / one
+    # monomorphization.
     default: Optional['SawType'] = None
     line: int = 0
     column: int = 0
     # A const VALUE parameter — the `const N: Int` in `struct FixedBuf<const N:
-    # Int>` (design 148). `const_type` is its declared Int/UInt type;
-    # `const_default_expr` is the `= 256` as parsed. The typechecker evaluates
-    # that default into `default` as a CONST_VALUE `SawType`, which is what lets
-    # a value default ride design 37's default-argument machinery unchanged —
-    # the fillers substitute `tp.default` whatever kind it is.
+    # Int>`. `const_type` is its declared Int/UInt type; `const_default_expr`
+    # is the `= 256` as parsed. The typechecker evaluates that default into
+    # `default` as a CONST_VALUE `SawType`, so a value default rides the same
+    # default-argument machinery — the fillers substitute `tp.default` whatever
+    # kind it is (design 148).
     is_const: bool = False
     const_type: Optional['SawType'] = None
     const_default_expr: Optional[Any] = None
@@ -721,28 +698,29 @@ class ImportDecl:
     is_glob: bool = False              # For import foo.*
     line: int = 0
     column: int = 0
-    # Per-symbol aliases for selective imports (design 53): original name ->
+    # Per-symbol aliases for selective imports: original name ->
     # local name, e.g. `import std.io.{Read as R}` -> {"Read": "R"}. A symbol
     # with no alias is absent here (imported under its own name).
     symbol_aliases: Optional[dict] = None
-    # `public import` (design 229): this import is RE-EXPORTED — what it binds
-    # joins this module's own surface, so an importer of this module reaches it
-    # through here. Legal on every form. False (the default) is the ordinary
-    # import, private to the module that writes it.
+    # `public import`: this import is RE-EXPORTED — what it binds joins this
+    # module's own surface, so an importer of this module reaches it through
+    # here. Legal on every form. False (the default) is the ordinary import,
+    # private to the module that writes it (design 229).
     is_public: bool = False
 
 
 @dataclass
 class StaticAssert:
-    """Compile-time assertion `static_assert(<const-expr>, "message")` (design
-    53). Legal at top level and in statement position. The condition is
-    evaluated by the const evaluator; a false result is a compile error carrying
-    the message, a true result emits no code."""
+    """Compile-time assertion `static_assert(<const-expr>, "message")`.
+
+    Legal at top level and in statement position. The condition is evaluated
+    by the const evaluator; a false result is a compile error carrying the
+    message, a true result emits no code."""
     condition: 'Expression'
     message: str
     line: int = 0
     column: int = 0
-    # The file this assertion was written in (design 204). A top-level
+    # The file this assertion was written in. A top-level
     # `static_assert` is checked in a whole-program pass with no declaration in
     # hand, and its condition may name a FILE-PRIVATE type
     # (`static_assert((State.Unset as Int) == 0, ...)` in `std/once.saw`), so
@@ -777,20 +755,20 @@ class ExportDecl:
     column: int = 0
 
 
-# Base AST Node (design 126 R1). Every node carries its source position and its
-# identity. The base is `kw_only` so these fields never occupy a positional slot:
-# subclasses keep declaring their own payload fields positionally, exactly as
-# before, and `line=`/`column=`/`node_id=` are always passed by keyword.
+# Base AST Node. Every node carries its source position and its identity. The
+# base is `kw_only` so these fields never occupy a positional slot: subclasses
+# declare their own payload fields positionally, and `line=`/`column=`/
+# `node_id=` are always passed by keyword.
 #
-# `node_id` (design 126 R2) is the compiler's ONLY node identity. Nothing may key
-# a map or derive a generated name from Python's `id()`, which is an address:
-# neither stable across runs (so compiler output was not reproducible) nor
-# expressible in the eventual Saw port.
+# `node_id` is the compiler's ONLY node identity. Nothing may key a map or
+# derive a generated name from Python's `id()`, which is an address: neither
+# stable across runs (so compiler output would not be reproducible) nor
+# expressible in the eventual Saw port (design 126).
 #
 # It is assigned from ONE process-global counter, via `default_factory`, so every
 # node gets a distinct id no matter who builds it -- the parser, the interpolation
-# sub-parser, a per-module parser, or the ~180 nodes the coroutine transform
-# synthesizes. A per-instance counter would collide across modules, and a plain
+# sub-parser, a per-module parser, or the coroutine transform's synthesized
+# nodes. A per-instance counter would collide across modules, and a plain
 # `= 0` default would give every synthesized node the same id.
 _NEXT_NODE_ID = 1
 
@@ -803,7 +781,7 @@ def _next_node_id() -> int:
 
 
 def current_node_id_bound() -> int:
-    """The highest id issued so far (design 168 unit 4).
+    """The highest id issued so far (design 168).
 
     Stored beside a serialized std graph so a later process can restore it
     without walking it: every node in the blob has an id at or below this.
@@ -812,15 +790,14 @@ def current_node_id_bound() -> int:
 
 
 def seed_node_ids(bound: int) -> None:
-    """Advance the allocator past a restored graph (design 168 unit 4).
+    """Advance the allocator past a restored graph (design 168).
 
     `pickle` preserves `node_id` verbatim, so a restored std graph arrives
     holding ids the counter would otherwise hand out again. A collision is
     SILENT: `effects.py` merges two functions' suspend analysis under one key,
     and the coroutine transform's entry-vs-std membership test misfiles a std
-    extension as user code. Design 164's prototype hit exactly that on 13 of
-    1,114 examples. One assignment closes it, which is why the restore has to
-    happen before anything else is parsed.
+    extension as user code. So the restore has to happen before anything else
+    is parsed.
     """
     global _NEXT_NODE_ID
     if bound >= _NEXT_NODE_ID:
@@ -832,32 +809,26 @@ class ASTNode:
     line: int = 0
     column: int = 0
     node_id: int = field(default_factory=_next_node_id)
-    #: THE NODE THIS ONE WAS CLONED FROM (design 270, SL-212). `node_id` is
-    #: per-node and deliberately fresh on every copy -- which is what keeps two
+    #: THE NODE THIS ONE WAS CLONED FROM. `node_id` is per-node and
+    #: deliberately fresh on every copy -- which is what keeps two
     #: instantiations apart, and is also what detaches a clone from every
     #: side-table record keyed to its template. This field is the one hop back.
     #:
-    #: Stamped by the two producers of a cloned node and by nothing else:
-    #: `ASTNode.__deepcopy__` (below) and `mono_copy._copy_node` (the
-    #: substituting copier).
+    #: Stamped by the two producers of a cloned node: `ASTNode.__deepcopy__`
+    #: (below) and `mono_copy._copy_node` (the substituting copier).
+    #: `coro_transform._read_field` OVERWRITES it with the pre-transform node it
+    #: is replacing, when there is one, which is a node in the checked tree.
     #:
     #: A clone of a clone records the ROOT of its chain, not its immediate
-    #: parent, and the reason is measured rather than stylistic: an instance
-    #: body is cloned from a PRISTINE SNAPSHOT of its template, and the snapshot
-    #: is itself a copy that nothing ever type-checks. Naming the immediate
-    #: parent therefore pointed every instance decision at a node no decision
-    #: exists for — 1 of 2175 links resolved. The root is the nearest node the
-    #: checker actually saw, which is the only antecedent an audit can use.
-    #: (`coro_transform._read_field` OVERWRITES this with the pre-transform node
-    #: it is replacing, which is a node in the checked tree and so a better
-    #: antecedent still; see design 270.)
+    #: parent: an instance body is cloned from a PRISTINE SNAPSHOT of its
+    #: template, and the snapshot is itself a copy that nothing ever
+    #: type-checks, so the immediate parent is a node no decision exists for.
+    #: The root is the nearest node the checker actually saw.
     #:
-    #: It is NOT a way to inherit a decision. Design 270's whole argument is
-    #: that a decision holds the tier and the types OF THE BODY IT WAS MADE IN,
-    #: so a clone must be judged afresh; this exists so the preservation audit
-    #: can CHECK that it was, and tell a resolved deferral from a reused one.
-    #: Never read by codegen, never emitted, so `irdet` and `reemit` cannot see
-    #: it.
+    #: It is NOT a way to inherit a decision: a decision holds the tier and the
+    #: types OF THE BODY IT WAS MADE IN, so a clone must be judged afresh. This
+    #: exists so the preservation audit can CHECK that it was. Never read by
+    #: codegen, never emitted (design 270).
     origin_node_id: Optional[int] = annotation(None)
 
     def __deepcopy__(self, memo):
@@ -875,8 +846,8 @@ class ASTNode:
 
         The fresh id is also what DETACHES the copy from anything keyed to the
         original, which is why `origin_node_id` is stamped in the same two
-        lines: design 270's audit needs the hop back, and the only place that
-        can record it is the copy itself.
+        lines: the preservation audit needs the hop back, and the only place
+        that can record it is the copy itself.
         """
         cls = self.__class__
         new = cls.__new__(cls)
@@ -897,51 +868,47 @@ class ASTNode:
 # than grafting it at runtime is what lets `dataclasses.fields()`-driven walkers
 # -- above all `substitute_ast_types`, the monomorphizer -- actually SEE it, so a
 # generic template's types are substituted into its instantiation instead of
-# surviving stale (design 126 R1; the RC-2 bug).
+# surviving stale (design 126).
 @dataclass(kw_only=True)
 class Expression(ASTNode):
     resolved_type: Optional['SawType'] = None
-    # Annotations the typechecker may stamp on ANY expression, verified by
-    # walking the AST of 220 corpus programs (design 126 R1):
+    # Annotations the typechecker may stamp on ANY expression:
     #   autowrap_to_optional -- a bare `T` passed where `T?` is expected: holds
     #                           the FULL `T?` type codegen builds around the
-    #                           value (design 57 DF3); None = no wrap
-    #   autowrap_to_result   -- the same at the other payload kind (DF-218f): a
-    #                           bare `T` (or `E`) passed where `Result<T, E>` is
+    #                           value; None = no wrap
+    #   autowrap_to_result   -- the same at the other payload kind: a bare `T`
+    #                           (or `E`) passed where `Result<T, E>` is
     #                           expected, holding the FULL Result type.
     #                           `autowrap_result_err` says WHICH side, since
     #                           the type alone cannot when `T` and `E` differ
     #                           only by position. Both may ride WITH
     #                           `autowrap_to_optional`: `Result<T?, E>` fed a
-    #                           bare `T` is the double wrap DF-140d settled for
-    #                           the return position, and codegen applies them
-    #                           inner-first
+    #                           bare `T` is a double wrap in the return
+    #                           position, and codegen applies them inner-first
     #   expected_type        -- the type pushed down from context, kept for
     #                           literals/collection literals that need it
     #   needs_copy           -- the move checker decided this operand is copied
     #   closure_lend         -- a closure operand is lent, not transferred
-    #   payload_needs_copy   -- design 131: this node EXTRACTS a payload out of
-    #                           storage the source keeps -- an optional's (`o!`,
-    #                           the `??` left operand, an `if let` binding) or,
-    #                           since design 269, a `Result`'s Ok payload (`try
-    #                           r` over a binding or field) -- and the place
-    #                           rule says the extraction retains. The retain
-    #                           happens AT the extraction, not at the enclosing
-    #                           transfer site, so that a `let` initializer --
-    #                           which never reaches the transfer-site copy path
-    #                           -- is covered too.
+    #   payload_needs_copy   -- this node EXTRACTS a payload out of storage the
+    #                           source keeps -- an optional's (`o!`, the `??`
+    #                           left operand, an `if let` binding) or a
+    #                           `Result`'s Ok payload (`try r` over a binding
+    #                           or field) -- and the place rule says the
+    #                           extraction retains. The retain happens AT the
+    #                           extraction, not at the enclosing transfer site,
+    #                           so that a `let` initializer -- which never
+    #                           reaches the transfer-site copy path -- is
+    #                           covered too.
     #                           THAT IS ALSO WHAT MAKES IT PATH-SPECIFIC, which
     #                           is why a `try` uses it rather than `needs_copy`:
     #                           an inline `catch` produces its own value on the
     #                           Err path, and an obligation recorded at the
     #                           enclosing transfer would be paid on THAT path
-    #                           too, copying the handler's value a second time
-    #                           (SL-211 review r1).
-    #   frame_place_read     -- design 131: the coroutine transform synthesized
-    #                           this place out of a frame field. Its ownership
-    #                           was settled on the pre-transform AST, so the
-    #                           place rule must not re-judge it on the second
-    #                           type-check pass.
+    #                           too, copying the handler's value a second time.
+    #   frame_place_read     -- the coroutine transform synthesized this place
+    #                           out of a frame field. Its ownership was settled
+    #                           on the pre-transform AST, so the place rule must
+    #                           not re-judge it on the second type-check pass.
     #   frame_move_read      -- and the way it was settled was a `move`: the
     #                           paired `__saw_forget` hands the frame's own
     #                           reference over, so the reader OWNS what it
@@ -955,8 +922,8 @@ class Expression(ASTNode):
     #                           reference) — and a consumer that asks the AST
     #                           SHAPE whether a source was a `move` gets the
     #                           wrong answer for all three, since the rewrite
-    #                           is what erased the `MoveExpr` (DF-217b).
-    #   enum_variant_literal -- design 139: this MemberAccess spells a
+    #                           is what erased the `MoveExpr`.
+    #   enum_variant_literal -- this MemberAccess spells a
     #                           payload-free enum variant (`Slot.Empty`), so it
     #                           CONSTRUCTS a fresh value rather than reading one
     #                           out of storage. It shares a node type with real
@@ -972,7 +939,7 @@ class Expression(ASTNode):
     frame_place_read: bool = annotation(False)
     frame_move_read: bool = annotation(False)
     enum_variant_literal: bool = annotation(False)
-    #   resolved_type_identity -- design 144: the module-qualified IDENTITY of
+    #   resolved_type_identity -- the module-qualified IDENTITY of
     #                           the type this node's WRITTEN name resolved to
     #                           (an enum-variant literal's enum, a
     #                           `mod.Point(...)` construction's struct). Codegen
@@ -980,13 +947,13 @@ class Expression(ASTNode):
     #                           against its tables, where two modules' `Color`s
     #                           both live.
     resolved_type_identity: Optional[str] = annotation(None)
-    #   place_value_read     -- design 141/146: this node is the read that turns
-    #                           a lent PLACE back into a value, inside the window
-    #                           body the place lowering synthesized. Codegen owes
-    #                           it the container-slot duplication rule -- the
-    #                           element stays in the container, so an owning one
-    #                           is retained here.
-    #   place_abstract_read  -- DF-146e: that read sits in a GENERIC body, where
+    #   place_value_read     -- this node is the read that turns a lent PLACE
+    #                           back into a value, inside the window body the
+    #                           place lowering synthesized. Codegen owes it the
+    #                           container-slot duplication rule -- the element
+    #                           stays in the container, so an owning one is
+    #                           retained here.
+    #   place_abstract_read  -- that read sits in a GENERIC body, where
     #                           the element's copy tier is not known yet. The tier
     #                           is a property of the INSTANTIATION, so the copy is
     #                           emitted there, in the same phase that emits the
@@ -995,19 +962,19 @@ class Expression(ASTNode):
     #                           onto the read the lowering builds from it.
     place_value_read: bool = annotation(False)
     place_abstract_read: bool = annotation(False)
-    #   embed_preserved      -- design 210: this subtree was RESOLVED at its
-    #                           declaration site and the coroutine transform
-    #                           spliced it, unchanged, into a driven frame. The
+    #   embed_preserved      -- this subtree was RESOLVED at its declaration
+    #                           site and the coroutine transform spliced it,
+    #                           unchanged, into a driven frame. The
     #                           post-transform pass must not re-resolve it: it
     #                           runs under the ENTRY module's namespace, and the
     #                           answers stored here were given under the
     #                           CALLEE's — which is where its private siblings
-    #                           are names (DF-206e). The mark says "the answers
-    #                           travel with the node"; the transform's own
-    #                           rewrites are unmarked by construction and get
-    #                           typed as ordinary glue. See `THE EMBED CONTRACT`
-    #                           in coro_transform.py.
-    #   frame_slot_op        -- design 218: this node is a `Slot` READ the
+    #                           are names. The mark says "the answers travel
+    #                           with the node"; the transform's own rewrites are
+    #                           unmarked by construction and get typed as
+    #                           ordinary glue. See `THE EMBED CONTRACT` in
+    #                           coro_transform.py.
+    #   frame_slot_op        -- this node is a `Slot` READ the
     #                           coroutine transform built over a frame field
     #                           (`self.x.value()` / `self.x.take()`). It is the
     #                           second kind of graft the embed contract admits:
@@ -1026,21 +993,17 @@ class Expression(ASTNode):
     #                           the checker has stamped `place_struct` on it.
     embed_preserved: bool = annotation(False)
     frame_slot_op: bool = annotation(False)
-    #   source_file          -- DF-232g's residue: the file this expression was
-    #                           WRITTEN in. Every declaration node carries one
-    #                           (a `Function`, a `StructDecl`, a `StaticDecl`),
-    #                           and a diagnostic raised while checking a BODY
-    #                           reads it off the enclosing declaration — but a
-    #                           refusal raised in CODEGEN, over an expression
-    #                           that is not inside any body, has no enclosing
-    #                           declaration to ask. A DECLARED array length is
-    #                           exactly that: `[UInt8; MUT]` in a dependency's
-    #                           struct field reported `--> line 14:46` with no
-    #                           file at all, so the reader got a line number and
-    #                           nothing to open. Stamped by the pass that walks a
-    #                           module's declared types (`_stamp_declared_type_
-    #                           sources`), which is the one place that knows both
-    #                           the expression and the module it came from.
+    #   source_file          -- the file this expression was WRITTEN in. A
+    #                           diagnostic raised while checking a BODY reads
+    #                           the file off the enclosing declaration, but a
+    #                           refusal raised in CODEGEN over an expression
+    #                           outside any body — a DECLARED array length such
+    #                           as `[UInt8; MUT]` in a dependency's struct field
+    #                           — has no enclosing declaration to ask, and would
+    #                           name a line with no file. Stamped by the pass
+    #                           that walks a module's declared types
+    #                           (`_stamp_declared_type_sources`), the one place
+    #                           that knows both the expression and its module.
     source_file: Optional[str] = annotation(None)
 
 
@@ -1111,10 +1074,10 @@ class FormatPlaceholder(Expression):
 class Identifier(Expression):
     name: str
     type_args: Optional[List['SawType']] = None  # For generic type access: Option<Int>
-    # Set when this name resolved to a const generic PARAMETER (design 148), so
-    # codegen emits the instantiation's value instead of looking for storage.
+    # Set when this name resolved to a const generic PARAMETER, so codegen
+    # emits the instantiation's value instead of looking for storage.
     const_param_name: Optional[str] = annotation(None)
-    # DF-172j: this name resolved, in a const-required position, to a module
+    # This name resolved, in a const-required position, to a module
     # `static` the typechecker could fold — an `Int`/`UInt` one initialized by a
     # plain integer literal. `const_static_reject` is the other half: the name IS
     # such a static and is NOT foldable, carrying the reason so the diagnostic
@@ -1124,14 +1087,14 @@ class Identifier(Expression):
     # namespace of its own.
     const_static_value: Optional[int] = annotation(None)
     const_static_reject: Optional[str] = annotation(None)
-    # DF-140f: this name resolved to a module `static`, and this is the CODEGEN
+    # This name resolved to a module `static`, and this is the CODEGEN
     # symbol it resolved to. Resolution happens in the typechecker, against the
     # importing module's own namespace, which is the only place that knows which
     # of two same-named module-private statics was meant; codegen works from one
     # merged namespace and could not tell them apart. Also stamped on the TARGET
     # of an assignment to a static, by the same rule.
     resolved_static_symbol: Optional[str] = annotation(None)
-    # design 226, construction form 2: this name is not a variable at all — it
+    # This name is not a variable at all — it
     # is a NAMED FUNCTION written in a `FuncPointer<F>`-expected position, and
     # the expression's value is its code address. `funcpointer_target` holds
     # the full `FuncPointer<F>` type; `funcpointer_symbol` holds the codegen
@@ -1140,7 +1103,7 @@ class Identifier(Expression):
     # signature, and codegen works from one merged namespace.
     funcpointer_target: Optional['SawType'] = annotation(None)
     funcpointer_symbol: Optional[str] = annotation(None)
-    # design 267 (SL-210 review): the `VariableInfo.binding_id` this name
+    # The `VariableInfo.binding_id` this name
     # resolved to, stamped WHERE IT RESOLVES — `_check_identifier`, inside the
     # scope that owns the binding. It rides the node for the reason
     # `resolved_static_symbol` does: resolution is scope-sensitive and the
@@ -1159,7 +1122,7 @@ class BinaryOp(Expression):
     op: str
     left: Expression
     right: Expression
-    # DF-235a/b: this whole operation is a CONSTANT EXPRESSION that reached a
+    # This whole operation is a CONSTANT EXPRESSION that reached a
     # fixed-width slot, so `_apply_literal_expected_type` folded it (through the
     # one `const_eval`), range-checked the result against the slot exactly as it
     # range-checks a bare literal, and stamped the value here with the slot's
@@ -1173,11 +1136,11 @@ class BinaryOp(Expression):
 class UnaryOp(Expression):
     op: str
     operand: Expression
-    # DF-235a/b, the same stamp `BinaryOp` carries and for the same reason: a
-    # constant `~mask` or a negated constant expression (`-(1 << 7)`) is folded
-    # and range-checked AT the fixed-width slot it lands in, and codegen emits
-    # the value. Negation is what makes it necessary rather than tidy — the
-    # check has to see `-128`, not the `128` underneath it.
+    # The same stamp `BinaryOp` carries and for the same reason: a constant
+    # `~mask` or a negated constant expression (`-(1 << 7)`) is folded and
+    # range-checked AT the fixed-width slot it lands in, and codegen emits the
+    # value. Negation is what makes it necessary rather than tidy — the check
+    # has to see `-128`, not the `128` underneath it.
     const_folded_value: Optional[int] = annotation(None)
 
 
@@ -1188,64 +1151,54 @@ class MoveExpr(Expression):
     `variable` names the root binding (always present). `path` is set only for
     a *partial* move like `move p.x`, `move p.x.y`, or `move arr[i]`: it holds
     the projected lvalue expression rooted at `variable`. Partial moves are
-    forbidden on every struct (design 35) -- the parser accepts the syntax so a
-    deliberate typechecker diagnostic (naming the field and base) can reject it,
-    rather than a bare parse error or silent mis-handling.
+    forbidden on every struct -- the parser accepts the syntax so a deliberate
+    typechecker diagnostic (naming the field and base) can reject it, rather
+    than a bare parse error or silent mis-handling.
     """
     variable: str  # The root binding name being moved
     path: Optional['Expression'] = None  # Projected lvalue for a partial move
-    # design 131: `move o!` — the move is spelled at an optional PROJECTION.
+    # `move o!` — the move is spelled at an optional PROJECTION.
     # It still retires the whole binding (there is no husk state and no partial
     # move); the `!` only says the result is the payload, and it still panics if
     # the optional is dynamically None.
     unwrap: bool = False
-    # design 260 §3 (Option A): the receiver FIELD this `move` extracts, when
-    # the consuming carve-out licensed it. Stamped on the first check and read
+    # The receiver FIELD this `move` extracts, when a `consumes` method's
+    # carve-out licensed it (design 260). Stamped on the first check and read
     # on every later one, because the coroutine transform REWRITES the path —
     # a frame-resident receiver becomes `self.__recv.deref(…).<field>`, which
-    # no longer matches the `self.<field>` shape the rule is written in. The
+    # does not match the `self.<field>` shape the rule is written in. The
     # stamp is what keeps the post-transform re-check (and the all-paths walk
     # it re-runs) answering the same way as the pass that decided it.
     consumes_field: Optional[str] = annotation(None)
     # …and the type that field resolved to, stamped with it. The re-check
     # cannot re-derive it: post-transform `self` names the coroutine FRAME, so
-    # the receiver's field table is no longer reachable from this node.
+    # the receiver's field table is not reachable from this node.
     consumes_field_type: Optional['SawType'] = annotation(None)
-    # design 267 (SL-210 review): the `VariableInfo.binding_id` of the ROOT
-    # binding this `move` retires, stamped in `_check_move_expr` where the name
-    # resolves. `variable` is a NAME, so the ownership ledger cannot recover the
-    # identity later — and a `move` tail is exactly the case that recorded
-    # `retire-source` with no source identified. Same rule as `Identifier`'s.
+    # The `VariableInfo.binding_id` of the ROOT binding this `move` retires,
+    # stamped in `_check_move_expr` where the name resolves. `variable` is a
+    # NAME, so the ownership ledger cannot recover the identity later (a `move`
+    # tail would record `retire-source` with no source identified). Same rule
+    # as `Identifier`'s.
     resolved_binding_id: Optional[int] = annotation(None)
 
 
 @dataclass
 class LendsExpr(Expression):
-    """`lends self` — the ORIGIN PROOF at a borrowing struct's construction
-    (design 275 U3).
+    """`lends self` — the ORIGIN PROOF at a borrowing struct's construction.
 
     A `borrows` signature says a borrow EXISTS; this says WHERE IT CAME FROM,
-    at the one site the compiler needs to know: the initializer of a reference
-    field of a `borrows struct`. The call site then charges the receiver
-    PLACE's root, through design 141's root attribution, for the window's
-    extent.
+    at the initializer of a reference field of a `borrows struct`. The call
+    site then charges the receiver PLACE's root for the window's extent.
 
-    U3 admits exactly ONE origin, and the parser therefore accepts exactly one
-    spelling: `lends self`. A projection (`lends self.buffer`), another
-    reference parameter, or a local would each name a root the call site cannot
-    attribute, so each is refused at the `lends` rather than admitted and
-    approximated. The node keeps a `place` field anyway — it is what the
-    follow-up brief that widens the origin would fill, and what the refusal
-    renders — so widening the rule does not mean changing the shape of the
-    tree.
+    Exactly one origin is admitted, so the parser accepts one spelling:
+    `lends self`. A projection, another reference parameter or a local would
+    name a root the call site cannot attribute. `place` still holds the
+    operand, so widening the rule does not change the tree's shape.
 
-    `lends` is a CONTEXTUAL keyword, matched by value exactly as `import`,
-    `module` and `export` are: the pair `lends self` is otherwise a parse error
-    in every position, so no user binding named `lends` stops compiling and
-    neither lexer's keyword table changes (which is what keeps `lexdiff` and
-    the selfhost lexer out of this unit).
+    `lends` is a CONTEXTUAL keyword, matched by value as `import` is, so no
+    user binding named `lends` stops compiling (design 275).
     """
-    place: Expression = None      # `self` — the only spelling U3 accepts
+    place: Expression = None      # `self` — the only accepted spelling
     # The typechecker stamps the receiver's type here, so codegen knows what
     # the reference points at without re-resolving `self`.
     referent_type: Optional['SawType'] = annotation(None)
@@ -1258,28 +1211,28 @@ class ReferenceExpr(Expression):
     Used when passing arguments to functions that take reference parameters.
     The mutable flag indicates whether this is a mutable reference (&var).
     `in_argument_position` is set by the parser when the reference is the whole
-    of a call/method/init argument; a `&var` reference anywhere else (design 34)
-    is rejected by the typechecker.
+    of a call/method/init argument; a `&var` reference anywhere else is
+    rejected by the typechecker.
     """
     expr: Expression
     mutable: bool = False  # True for &var, False for &
     in_argument_position: bool = False  # Set by the parser for call arguments
 
-    # Erasure of a concrete referent to `&any Trait` (design 51 / 126 R1): the
-    # concrete type being erased and the trait it is erased to.
+    # Erasure of a concrete referent to `&any Trait`: the concrete type being
+    # erased and the trait it is erased to.
     erase_concrete: Optional['SawType'] = annotation(None)
     erase_to_trait: Optional[str] = annotation(None)
 
-    # This `&var` is the one the place transform built out of a `lend` (design
-    # 141/146). It is the single exception to the rule that a `&var` projection
+    # This `&var` is the one the place transform built out of a `lend`. It is
+    # the single exception to the rule that a `&var` projection
     # out of a `&self` receiver is an error: a borrows accessor's receiver is
     # passed by POINTER precisely so the window can write through it, and the
     # window's flavor is chosen at each use site. See `self_by_pointer`.
     from_lend: bool = annotation(False)
 
     # This reference is the operand of a cast to `UnsafePointer<T>` /
-    # `UnsafeConstPointer<T>` — the sanctioned crossing into the unsafe tier
-    # (DF-163f), and the only address-of the language has. Set by the
+    # `UnsafeConstPointer<T>` — the sanctioned crossing into the unsafe tier,
+    # and the only address-of the language has. Set by the
     # typechecker's cast check, which is the node that knows the parent.
     to_pointer_cast: bool = annotation(False)
 
@@ -1290,18 +1243,18 @@ class CastExpr(Expression):
     expr: Expression
     target_type: 'SawType'
 
-    # Design 170: does this integer cast need the runtime representability
-    # check? Stamped by the typechecker, which is the pass that knows the Saw
-    # types on both sides; codegen emits the compare-and-panic when it is set.
-    # False means one of three things, all costing nothing: the pair is TOTAL
-    # (widening, or an identity), the operand folded to a value that provably
-    # fits, or the node was SYNTHESIZED after type checking (the coroutine
-    # transform's pointer and frame casts). That last case is why the default is
-    # False rather than True -- an unstamped node keeps the pre-170 lowering
-    # instead of acquiring a check nobody reasoned about.
+    # Does this integer cast need the runtime representability check? Stamped
+    # by the typechecker, which is the pass that knows the Saw types on both
+    # sides; codegen emits the compare-and-panic when it is set. False means
+    # one of three things, all costing nothing: the pair is TOTAL (widening, or
+    # an identity), the operand folded to a value that provably fits, or the
+    # node was SYNTHESIZED after type checking (the coroutine transform's
+    # pointer and frame casts). That last case is why the default is False
+    # rather than True -- an unstamped node never acquires a check nobody
+    # reasoned about (design 170).
     cast_check: bool = annotation(False)
 
-    # DF-299a: does this cast hand back the OPERAND'S OWN STORAGE, rather than
+    # Does this cast hand back the OPERAND'S OWN STORAGE, rather than
     # producing a new value? Stamped by the typechecker on the three arms of
     # `_check_cast_expr` that forward (the distinct-alias partial projection,
     # the String/Float/Bool identity, and the struct identity); every other arm
@@ -1325,23 +1278,23 @@ class FunctionCall(Expression):
     arguments: List[Argument]
     type_args: Optional[List['SawType']] = None  # For generic calls: identity<Int>(x)
 
-    # --- typechecker -> codegen call plan (design 126 R1) ---------------------
-    # Binding of source arguments to the callee's LOGICAL parameters (design 66):
-    # one slot per parameter holding the source-argument index, or None for a
-    # slot the callee fills from its default. None (the whole field) means the
-    # legacy positional path -- arguments already line up.
+    # --- typechecker -> codegen call plan -------------------------------------
+    # Binding of source arguments to the callee's LOGICAL parameters: one slot
+    # per parameter holding the source-argument index, or None for a slot the
+    # callee fills from its default. None (the whole field) means the
+    # positional path -- arguments already line up.
     arg_plan: Optional[List[Optional[int]]] = annotation(None)
     # The callee's mangled symbol, once overload resolution has picked one.
     resolved_symbol: Optional[str] = annotation(None)
     # Set when the call resolves to a STRUCT initializer rather than a function;
-    # holds the init's parameter names (design 126 R1 note: distinct from
+    # holds the init's parameter names (distinct from
     # StructInit.resolved_init_params, which is the same idea on the literal).
     resolved_init_params: Optional[List[str]] = annotation(None)
     resolved_field_inits: Optional[List[tuple]] = annotation(None)
     # Builtin construction forms the typechecker recognizes by name.
     is_atomic_construct: bool = annotation(False)
     is_unsafe_mem_construct: bool = annotation(False)
-    # design 186: `UnsafeMutableInterior(v)`. The cell is layout-transparent —
+    # `UnsafeMutableInterior(v)`. The cell is layout-transparent —
     # it IS its `T` — so codegen emits the payload and nothing else, and a cell
     # is as const-initializable as the value it holds.
     is_interior_cell_construct: bool = annotation(False)
@@ -1350,21 +1303,22 @@ class FunctionCall(Expression):
     # `_restore_authored_callee`: the rewrite is not idempotent and the front
     # half runs more than once over the same AST.
     authored_callee: Optional[tuple] = annotation(None)
-    # `UserId(42)`: the distinct `type` alias this call constructs (design 63).
+    # `UserId(42)`: the distinct `type` alias this call constructs.
     # An alias IS its underlying representationally, so codegen compiles the one
     # operand and emits no conversion.
     alias_construction: Optional[str] = annotation(None)
-    # `spawn(f(...))`: f's return type, needed to build the task handle.
+    # `Thread.spawn { ... }`: the closure's result type, needed to build the
+    # thread handle.
     spawn_result_type: Optional['SawType'] = annotation(None)
-    # `Task.spawn(f(...))`: the spawned root's name (design 242 ruling 10 —
-    # the background form is a `FunctionCall`, where `group.spawn`'s is a
-    # `MethodCall`). Consumed by the coroutine transform, which rewrites the
-    # site to `__bgspawn_<f>(args...)`. Same meaning as `MethodCall.spawn_root`.
+    # `Task.spawn(f(...))`: the spawned root's name (the background form is a
+    # `FunctionCall`, where `group.spawn`'s is a `MethodCall`). Consumed by the
+    # coroutine transform, which rewrites the site to `__bgspawn_<f>(args...)`.
+    # Same meaning as `MethodCall.spawn_root`.
     spawn_root: Optional[str] = annotation(None)
     # True once generic type arguments were INFERRED rather than written.
     type_args_inferred: bool = annotation(False)
-    # `__saw_blk_take(job)`: the blocking extern whose result this collects
-    # (design 183 unit 2). The job carries one result WORD; the extern's
+    # `__saw_blk_take(job)`: the blocking extern whose result this collects.
+    # The job carries one result WORD; the extern's
     # declared return type says what that word is, so both the re-typecheck and
     # codegen read it from here rather than assuming `Int`.
     blk_extern: Optional[str] = annotation(None)
@@ -1375,18 +1329,18 @@ class IfExpr(Expression):
     condition: Expression
     then_branch: 'Block'
     else_branch: Optional['Block'] = None
-    # SL-273/SL-278: the coroutine transform must CFG-SPLIT this `if` because it
-    # carries a `break`/`continue` for an enclosing suspension-spanning loop
-    # (design 96 DF6's clause). Stamped by `_mark_ob_block`, read through
-    # `_FrameBuilder._is_split` — see that method for why the decision is
-    # recorded on the node rather than recomputed per consumer.
+    # The coroutine transform must CFG-SPLIT this `if` because it carries a
+    # `break`/`continue` for an enclosing suspension-spanning loop. Stamped by
+    # `_mark_ob_block`, read through `_FrameBuilder._is_split` — see that
+    # method for why the decision is recorded on the node rather than
+    # recomputed per consumer.
     _coro_split: bool = annotation(False)
 
 
 @dataclass
 class TupleLiteral(Expression):
     elements: List[Expression]
-    # Field labels for a NAMED tuple literal (design 63): `(x: 3, y: 4)`. None
+    # Field labels for a NAMED tuple literal: `(x: 3, y: 4)`. None
     # for a positional literal; all-or-nothing (the parser rejects a mix).
     field_names: Optional[List[str]] = None
 
@@ -1399,26 +1353,24 @@ class TupleIndex(Expression):
 
 @dataclass
 class ArrayLiteral(Expression):
-    """Array literal: [1, 2, 3], or the repeat literal [v; N] (design 148).
+    """Array literal: [1, 2, 3], or the repeat literal [v; N].
 
     By default lowers to a fixed-size array. When the EXPECTED type (from a
     binding annotation, parameter, return, or struct field) is `Vector<T, A>`,
     the typechecker stamps `vector_container_type` and it builds a Vector
-    instead (design 54 Part 4).
+    instead.
 
     A REPEAT literal sets `repeat_count` and holds its single value in
-    `elements[0]`. Keeping it on this node rather than minting a second one is
-    what it is — an array literal whose elements are all the same — and it means
-    every walker that already visits `elements` keeps visiting the value with no
-    change. The count is a compile-time constant, so it contains no call and no
+    `elements[0]`, so every walker that visits `elements` visits the value too.
+    The count is a compile-time constant, so it contains no call and no
     suspension and needs no walker of its own."""
     elements: List[Expression]
 
     # Set when the expected type made this literal build a Vector rather than a
-    # fixed array (design 54 Part 4 / design 126 R1).
+    # fixed array.
     vector_container_type: Optional['SawType'] = annotation(None)
 
-    # `N` in `[v; N]` (design 148): the count expression as written.
+    # `N` in `[v; N]`: the count expression as written.
     #
     # Declared as an ANNOTATION even though the author wrote it, because the
     # classification is about what WALKERS should do with a field, and this one
@@ -1454,10 +1406,10 @@ class ArrayIndex(Expression):
     array_expr: Expression
     index: Expression  # Can be any expression that evaluates to Int
 
-    # Projection into an UnsafeMemory register block (design 112, R1).
+    # Projection into an UnsafeMemory register block.
     um_projection: bool = annotation(False)
 
-    # design 219 unit A2: this index names a place behind a RAW POINTER
+    # This index names a place behind a RAW POINTER
     # (`ptr[i]`), the one place kind the language tracks no occupancy for.
     # Stamped where the container's kind is known — `_check_array_index`'s
     # POINTER arm — and read by the two rules that key on the place's ROOT: the
@@ -1465,7 +1417,7 @@ class ArrayIndex(Expression):
     # `move ptr[i]` fixit.
     pointer_place: bool = annotation(False)
 
-    # A PLACE use (design 141/146): this index resolved to a `[]` borrows
+    # A PLACE use: this index resolved to a `[]` borrows
     # accessor, so it names storage rather than producing a value. The checker
     # stamps these and `place_uses.py` turns the node into the window call.
     # `place_elem_type` is a real type and must be substituted along with every
@@ -1483,45 +1435,43 @@ class MemberAccess(Expression):
     object: Expression
     member: str
 
-    # --- typechecker -> codegen (design 126 R1) ---
+    # --- typechecker -> codegen ---
     # A qualified access `mod.name` that resolved through a module.
     resolved_module: Optional[str] = annotation(None)
     resolved_module_symbol: Optional[Any] = annotation(None)
     resolved_static_name: Optional[str] = annotation(None)
     resolved_struct_name: Optional[str] = annotation(None)
-    # DF-236a: True when this member access NAMES A TYPE (`mod.Struct`,
-    # `mod.Color`, `pkg.mod.Struct`) rather than YIELDING a value of one (a
-    # field read whose type happens to be that struct or enum). Both produce a
-    # STRUCT/ENUM `SawType`, so the TYPE alone cannot tell a receiver that is a
-    # type from a receiver that is a value — and a method call that decided on
-    # the type dropped a field-access receiver on the floor and shifted its
-    # arguments by one. Stamped by `_check_member_access` at every point it
-    # resolves a member access to a type SYMBOL, read by `_check_method_call`.
+    # True when this member access NAMES A TYPE (`mod.Struct`, `mod.Color`,
+    # `pkg.mod.Struct`) rather than YIELDING a value of one (a field read whose
+    # type happens to be that struct or enum). Both produce a STRUCT/ENUM
+    # `SawType`, so the TYPE alone cannot tell a type receiver from a value
+    # receiver, and a method call deciding on the type alone would drop a
+    # field-access receiver and shift its arguments by one. Stamped by
+    # `_check_member_access` at every point it resolves a member access to a
+    # type SYMBOL, read by `_check_method_call`.
     names_type: bool = annotation(False)
     # `.0` / `.x` on a tuple: the positional index it projects.
     tuple_field_index: Optional[int] = annotation(None)
     # A builtin integer bound (`Int.max`): (type name, member).
     int_limit: Optional[tuple] = annotation(None)
-    # A raw-backed enum CASE (`SysOp.Shutdown`): the tag value it denotes
-    # (design 145 unit B2). Stamped only when the enum declared a backing, which
-    # is exactly when the value is part of the type rather than an ordinal the
-    # compiler may renumber — so this is the constant a `static_assert` may
-    # read, and an unbacked enum's case stays non-constant.
+    # A raw-backed enum CASE (`SysOp.Shutdown`): the tag value it denotes.
+    # Stamped only when the enum declared a backing, which is exactly when the
+    # value is part of the type rather than an ordinal the compiler may
+    # renumber — so this is the constant a `static_assert` may read, and an
+    # unbacked enum's case stays non-constant.
     enum_raw_value: Optional[int] = annotation(None)
-    # design 257 §2: the same stamp `BinaryOp`/`UnaryOp` carry (DF-235a/b), for
-    # the leaf case. A LONE raw-backed enum case in an integer slot IS that
-    # slot's type, folded to its declared value and range-checked there, so
-    # codegen emits the constant rather than building an enum value the store
-    # would then have to narrow.
+    # The same stamp `BinaryOp`/`UnaryOp` carry, for the leaf case. A LONE
+    # raw-backed enum case in an integer slot IS that slot's type, folded to
+    # its declared value and range-checked there, so codegen emits the
+    # constant rather than building an enum value the store would then have to
+    # narrow.
     const_folded_value: Optional[int] = annotation(None)
-    # The QUALIFIED spelling of DF-172j's stamps: `dep.REGION_SIZE` in a
-    # constant. Same two halves and same reader as the `Identifier` pair — the
-    # bare and qualified spellings of one name have to fold to one number, which
-    # is what DF-172l filed (design 185 unit 2 gave the type position a grammar
-    # that reaches the member access; this is the resolution behind it).
+    # The QUALIFIED spelling of `Identifier`'s const-static stamps:
+    # `dep.REGION_SIZE` in a constant. Same two halves and same reader — the
+    # bare and qualified spellings of one name have to fold to one number.
     const_static_value: Optional[int] = annotation(None)
     const_static_reject: Optional[str] = annotation(None)
-    # Projection into an UnsafeMemory register block (design 112).
+    # Projection into an UnsafeMemory register block.
     um_projection: bool = annotation(False)
 
 
@@ -1533,9 +1483,9 @@ class StructInit(Expression):
     type_args: Optional[List['SawType']] = None  # For generic structs: Box<Int> has type_args=[Int]
     # Resolution metadata (filled in by type checker)
     resolved_init_params: Optional[List[str]] = None  # None = field init, List = custom init params
-    # The literal actually resolved to a custom `init`, i.e. a call (design 126 R1).
+    # The literal actually resolved to a custom `init`, i.e. a call.
     as_function_call: Optional['FunctionCall'] = annotation(None)
-    # SL-350: compiler-synthesized aggregate materialization metadata.
+    # Compiler-synthesized aggregate materialization metadata.
     #
     # `materialize_for_transfer` names the few by-value consumers (frame boxing
     # and collection insertion) that have a memory home even though their
@@ -1546,7 +1496,7 @@ class StructInit(Expression):
     # `present_optional_fields` proves that a source value initializes the
     # payload of an added frame-occupancy Optional/Slot wrapper, so
     # materialization may write that wrapper's tag and payload directly.
-    # A legacy `self_opt` field that directly stores its declared Optional is
+    # A `self_opt` field that directly stores its declared Optional is
     # not such a proof: its own tag must be preserved. Source syntax cannot set
     # these annotations.
     materialize_for_transfer: bool = annotation(False)
@@ -1564,18 +1514,18 @@ class NoneLiteral(Expression):
 
 @dataclass
 class SourceLocationLiteral(Expression):
-    """A `#file` / `#line` / `#function` source-location magic literal (design 98).
+    """A `#file` / `#line` / `#function` source-location magic literal.
 
     Resolved at type-check time to an ordinary compile-time constant at its
     DEFINITION site (where the token appears in source): `#file` -> the source
-    BASENAME (String, matching the design-69 panic prefix), `#line` -> the
-    1-based token line (Int), `#function` -> the enclosing function/method bare
-    name (String; module scope -> `<module>`). Zero runtime cost, freestanding-
-    safe, valid in const/static/default-value positions.
+    BASENAME (String, matching the panic prefix), `#line` -> the 1-based token
+    line (Int), `#function` -> the enclosing function/method bare name
+    (String; module scope -> `<module>`). Zero runtime cost, freestanding-safe,
+    valid in const/static/default-value positions.
 
     `source_file` is stamped by the parser (the file the token appears in);
     `line`/`column` are the token position (rebased into real source
-    coordinates for an interpolation sub-expression, design 99). The typechecker
+    coordinates for an interpolation sub-expression). The typechecker
     (`visit_SourceLocationLiteral`) fills `resolved_kind` + the value fields
     exactly once, freezing the definition-site value so the coroutine transform
     cannot distort it; codegen emits it as a plain Int/String literal."""
@@ -1595,8 +1545,7 @@ class LendVarLiteral(Expression):
     shared copy, `true` in the exclusive one. A body that mentions it compiles
     TWICE — `place_transform` folds the constant and prunes the branch it
     decides, so each copy reaches the type checker as an ordinary method with
-    no trace of the other. A body that never mentions it compiles once, exactly
-    as before.
+    no trace of the other. A body that never mentions it compiles once.
 
     Nothing downstream of the place transform can see one: every LEGAL
     occurrence is folded away before checking, so the type checker's visitor is
@@ -1609,7 +1558,7 @@ class ForceUnwrap(Expression):
     """Force unwrap: expr!
 
     `frame_owning_read` marks a non-`move` whole-binding read of an opt-encoded
-    frame field (design 124 / 131): the frame KEEPS the field, so codegen must
+    frame field: the frame KEEPS the field, so codegen must
     retain at the transfer site. It lives HERE and not on `Expression` because
     the `!` is precisely what creates the need — the ownership checkpoint
     recognizes bare place expressions and would judge a plain `self.name`
@@ -1630,9 +1579,10 @@ class NilCoalesce(Expression):
 
 @dataclass
 class OptionalChain(Expression):
-    """Optional chaining: expr?.member (legacy single-hop node, no longer emitted
-    by the parser — full chains lower to BindOptional / OptionalEvalExpr below).
-    Kept for back-compat of imports; its visitors are unreachable."""
+    """Optional chaining: expr?.member, as a single-hop node. The parser never
+    produces it — chains lower to BindOptional / OptionalEvalExpr below. Kept
+    because the typechecker and codegen still import it; its visitors are
+    unreachable."""
     expr: Expression
     member: str
 
@@ -1662,7 +1612,7 @@ class OptionalChainAssign(Expression):
     place iff every optional hop is non-None. Types to `Void?` (None = skipped,
     Some(unit) = written); silently discardable in statement position.
 
-    `op` carries the COMPOUND spelling `x?.y += v` (design 227 unit 4): the
+    `op` carries the COMPOUND spelling `x?.y += v`: the
     operator without its `=`, or None for a plain write. It means the same
     thing about the same storage — read the field, apply, write back — on the
     non-None path only, so the None path still evaluates no RHS."""
@@ -1723,7 +1673,7 @@ class ResultErrWrap(Expression):
 @dataclass
 class ErasedErrWrap(Expression):
     """Wraps a concrete error value E into Result<T, Box<any Error>> as Err,
-    erasing E into a `Box<any Trait>` first (design 56 N3 erased Results).
+    erasing E into a `Box<any Trait>` first.
 
     Inserted by the typechecker when a concrete `E: Error` is returned from a
     function declared to return an erased Result. Codegen boxes the value
@@ -1754,18 +1704,18 @@ class TryExpr(Expression):
     variant: str  # "propagate", "optional", or "force"
     catch_block: Optional['Block'] = None  # For inline catch: try expr catch { ... }
 
-    # design 234 §3 — the ERROR-ROUTING clause, `try(as LocalError.Alloc) f()`.
+    # The ERROR-ROUTING clause, `try(as LocalError.Alloc) f()`.
     # The dotted path AS WRITTEN: the last segment is the enum CASE, everything
     # ahead of it names the enum (a module qualifier included), so
     # `["LocalError", "Alloc"]` and `["errors", "LocalError", "Alloc"]` are the
     # two shapes. None when no clause was written. PREFIX position is
-    # load-bearing: a trailing `as` stays design 63's value projection.
+    # load-bearing: a trailing `as` stays the value projection (design 234).
     route_path: Optional[List[str]] = None
 
-    # --- typechecker -> codegen (design 126 R1) ---
+    # --- typechecker -> codegen ---
     # The concrete Result enum this `try` unwraps.
     result_enum_type: Optional['SawType'] = annotation(None)
-    # design 234 §3: the resolved routing target — the enum the error channel is
+    # The resolved routing target — the enum the error channel is
     # converted INTO, and the case that carries it. Codegen builds that case
     # around the extracted error before propagating.
     route_target: Optional['SawType'] = annotation(None)
@@ -1789,15 +1739,13 @@ class TryCatchExpr(Expression):
     catch_block: 'Block'
     error_binding: Optional[str] = None  # Optional name for caught error (default: "error")
 
-    # The catch's error type (design 30 Ruling 2). For a MULTI-error catch this
-    # is the synthesized `_CatchError_<id>` union enum and `error_types` lists
-    # its members (design 126 R1).
+    # The catch's error type. For a MULTI-error catch this is the synthesized
+    # `_CatchError_<id>` union enum and `error_types` lists its members.
     error_type: Optional['SawType'] = annotation(None)
     error_types: Optional[List['SawType']] = annotation(None)
-    # SL-273/SL-278: the coroutine transform must CFG-SPLIT this try/catch
-    # because it carries a `break`/`continue` for an enclosing
-    # suspension-spanning loop (design 96 DF6's clause). Stamped by
-    # `_mark_ob_block`, read through `_FrameBuilder._is_split` — which is what
+    # The coroutine transform must CFG-SPLIT this try/catch because it carries
+    # a `break`/`continue` for an enclosing suspension-spanning loop. Stamped
+    # by `_mark_ob_block`, read through `_FrameBuilder._is_split` — which is what
     # keeps the `error` binding's FRAME FIELD and the split decision in
     # agreement.
     _coro_split: bool = annotation(False)
@@ -1813,66 +1761,62 @@ class MethodCall(Expression):
     object: Expression
     method_name: str
     arguments: List[Argument]
-    # Explicit method-level type arguments (brief 36): `v.map<Int>(...)`. None
-    # when the call supplies none. Inference is future work, so a generic method
-    # requires these to be written explicitly.
+    # Method-level type arguments: `v.map<Int>(...)`. None when the call writes
+    # none; the checker infers an omitted list and stamps the solution here.
     type_args: Optional[List['SawType']] = None
 
-    # --- typechecker -> codegen call plan (design 126 R1) ---------------------
+    # --- typechecker -> codegen call plan -------------------------------------
     # See FunctionCall.arg_plan / .resolved_symbol -- same meaning here.
     arg_plan: Optional[List[Optional[int]]] = annotation(None)
     resolved_symbol: Optional[str] = annotation(None)
-    # SL-208 / DF-300e: this MethodCall is a MODULE-QUALIFIED FREE-FUNCTION call
-    # (`mod.f(...)`), not an instance/static method call — the parser cannot
-    # tell the two apart, and only the typechecker knows `mod` names a module
-    # and `f` a free function in it. Holds the callee's codegen name (the same
+    # This MethodCall is a MODULE-QUALIFIED FREE-FUNCTION call (`mod.f(...)`),
+    # not an instance/static method call — the parser cannot tell the two
+    # apart, and only the typechecker knows `mod` names a module and `f` a free
+    # function in it. Holds the callee's codegen name (the same
     # `resolved_symbol or method_name` string `_generate_module_function_call`
     # resolves against `self.functions`). The coroutine transform reads it to
     # embed a CROSS-MODULE suspending free callee exactly as it embeds a
-    # same-module one — a same-module `f()` is a `FunctionCall` the free-function
-    # classifier already handled, and without this the qualified spelling was a
-    # `MethodCall` no owner could name, so it lowered as a plain call and its
-    # park silently no-op'd / wedged the reactor (the SL-208 wedge root cause).
+    # same-module `f()`; without it the qualified call would lower as a plain
+    # call and its park would run outside any frame.
     module_free_call: Optional[str] = annotation(None)
     # Dispatch shape decided during checking.
     existential_dispatch: Optional[str] = annotation(None)   # trait name, for `any Trait` vtable dispatch
-    # design 239: `"Equatable"` / `"Comparable"` when this is an `equals` /
-    # `compare` call reached through a BOUND on a type parameter. The comparison
-    # requirements have no callable body of their own at most types — `Int` has
-    # no `equals` method and `String`'s is its own by-value API — so a call
-    # through the bound lowers with the SAME emitter the operator uses
+    # `"Equatable"` / `"Comparable"` when this is an `equals` / `compare` call
+    # reached through a BOUND on a type parameter. The comparison requirements
+    # have no callable body of their own at most types — `Int` has no `equals`
+    # method and `String`'s is its own by-value API — so a call through the
+    # bound lowers with the SAME emitter the operator uses
     # (`_emit_equals`/`_emit_compare`), which is total over every conforming
-    # type. Without it a generic `a.equals(&b)` mangled a per-type symbol and
-    # ICEd wherever none existed or its ABI differed.
+    # type.
     comparison_dispatch: Optional[str] = annotation(None)
     is_field_call: bool = annotation(False)                  # calling a closure-typed FIELD, not a method
     field_call_unwrap: bool = annotation(False)
-    # design 226: that field holds a `FuncPointer<F>` rather than a closure, so
+    # That field holds a `FuncPointer<F>` rather than a closure, so
     # the call is a plain indirect one — nothing to unpack, no env to prepend.
     # Holds the full `FuncPointer<F>` type; None for a closure-typed field.
     funcpointer_target: Optional['SawType'] = annotation(None)
     array_builtin: Optional[str] = annotation(None)          # "len" | "swap" on a fixed array
     is_chan_recv: bool = annotation(False)                   # cooperative Channel.receive()
-    # design 260: this call reaches a `consumes` method, so the CALLEE owns the
+    # This call reaches a `consumes` method, so the CALLEE owns the
     # release of the receiver's referent. Codegen reads it to keep the receiver
     # out of the statement-temporary cleanup list (the callee already ends it)
     # and to address the moved binding's own storage rather than a relocated
     # copy. Stamped by `_check_consuming_receiver`, the one funnel.
     is_consuming_call: bool = annotation(False)
-    # design 260: …and this consuming call's receiver is a TEMPORARY (a call
+    # …and this consuming call's receiver is a TEMPORARY (a call
     # result, a constructor, an enum-variant literal) rather than a binding, so
     # it needs no `move` and there is no caller storage to address. Codegen
     # spills the produced value to a slot and hands the callee that pointer —
     # which is also the slot the callee's end-of-body release runs over.
     consuming_temp_receiver: bool = annotation(False)
-    # design 131: `o.take()` — `Optional.take(&var self) -> T?`. Swaps `None`
+    # `o.take()` — `Optional.take(&var self) -> T?`. Swaps `None`
     # into the receiver place and returns the payload owned.
     optional_take: bool = annotation(False)
-    # DF-218a: `o.is_some()` / `o.is_none()` — `Optional`'s tag-only reads.
+    # `o.is_some()` / `o.is_none()` — `Optional`'s tag-only reads.
     # `"is_some"` or `"is_none"`; the payload is never touched, so the answer is
     # the same at every copy tier and codegen owes no retain and no drop.
     optional_presence: Optional[str] = annotation(None)
-    # design 170: `UInt8.from(x)` / `UInt8.from(truncating: x)` — the conversion
+    # `UInt8.from(x)` / `UInt8.from(truncating: x)` — the conversion
     # family beside the checked cast. `(target TypeKind, is_truncating,
     # source_is_signed)`; there is no symbol to call, so codegen lowers it
     # inline from this plan. The source signedness rides along because the
@@ -1883,8 +1827,8 @@ class MethodCall(Expression):
     # Arc<T> / Box<T> when the method lives on T rather than on the wrapper.
     arc_forward_payload_type: Optional['SawType'] = annotation(None)
     box_forward_payload_type: Optional['SawType'] = annotation(None)
-    # Erased-existential operations (design 56 N3): the box/downcast descriptors
-    # codegen needs. Dicts today; their shape lives at the writer sites.
+    # Erased-existential operations: the box/downcast descriptors codegen
+    # needs, as dicts whose shape lives at the writer sites.
     erased_box_make: Optional[Dict[str, Any]] = annotation(None)
     erased_downcast: Optional[Dict[str, Any]] = annotation(None)
     # The call turned out to be an enum-variant construction.
@@ -1892,17 +1836,18 @@ class MethodCall(Expression):
     # `group.spawn(f(...))`: the spawned root's name, consumed by the coroutine
     # transform to build f's frame.
     spawn_root: Optional[str] = annotation(None)
-    # design 223 unit 1: the FRAME KEY of the suspending method this call embeds,
-    # when naming it took a monomorphization the call site does not spell — a
-    # method on a generic struct (`Box2<String>.describe`) or a method-level
-    # generic (`Holder.wrap<String>`). Stamped by
+    # The FRAME KEY of the suspending method this call embeds, when naming it
+    # took a monomorphization the call site does not spell — a method on a
+    # generic struct (`Box2<String>.describe`) or a method-level generic
+    # (`Holder.wrap<String>`). Stamped (through
+    # `FrameLedger.stamp_method_frame_key`) by
     # `coro_transform._promote_nested_generic_methods`, which built the
-    # instantiation; read by `_suspending_method_target`, which otherwise cannot
-    # tell a generic receiver it CAN name from one it cannot. An unstamped
-    # generic receiver is the classifier's UNSUPPORTED answer, and UNSUPPORTED
-    # raises rather than degrading to a plain call.
+    # instantiation; read by `FrameLedger.method_target`, which otherwise
+    # cannot tell a generic receiver it CAN name from one it cannot. An
+    # unstamped generic receiver is the classifier's UNSUPPORTED answer, and
+    # UNSUPPORTED raises rather than degrading to a plain call.
     coro_frame_key: Optional[str] = annotation(None)
-    # --- UnsafeMemory method plan (design 81/112) ---
+    # --- UnsafeMemory method plan ---
     um_method: Optional[str] = annotation(None)
     um_scalar_type: Optional['SawType'] = annotation(None)
     um_volatile: bool = annotation(False)
@@ -1910,7 +1855,7 @@ class MethodCall(Expression):
     # Canonical memberwise fields for a module-qualified construction. `None`
     # means this call is not a memberwise constructor.
     resolved_field_inits: Optional[List[tuple]] = annotation(None)
-    # A PLACE use (design 141/146): this call resolved to a named `borrows`
+    # A PLACE use: this call resolved to a named `borrows`
     # accessor (`v.get(i)`, `v.first()`), so it names storage rather than
     # returning a value. See ArrayIndex for what each field carries.
     place_struct: Optional[str] = annotation(None)
@@ -1921,11 +1866,11 @@ class MethodCall(Expression):
     # accessor's window call, with the closures supplied, so the place path must
     # not claim it a second time on the re-check.
     place_lowered: bool = annotation(False)
-    # Design 141 decision 3: mutability comes from the USE SITE, so the window
-    # this call opens — not the accessor's `&self` declaration — says whether
-    # the root is borrowed shared or exclusively.
+    # Mutability comes from the USE SITE, so the window this call opens — not
+    # the accessor's `&self` declaration — says whether the root is borrowed
+    # shared or exclusively.
     place_window_exclusive: bool = annotation(False)
-    # SL-333 R4: how this window call borrows its RECEIVER, which is a second
+    # How this window call borrows its RECEIVER, which is a second
     # fact from the window's own mode. A shared window through a SHARED-ELIGIBLE
     # accessor borrows the receiver shared (so it works on a `let` root and two
     # such windows compose); a window of either flavor through an EXCLUSIVE-ONLY
@@ -1934,25 +1879,25 @@ class MethodCall(Expression):
     # `place_receiver_mutation`, and read by the checker where a `&var self`
     # call's receiver mode is read.
     place_receiver_exclusive: bool = annotation(False)
-    # SL-333 R4: the mutating construct that made the accessor exclusive-only,
+    # The mutating construct that made the accessor exclusive-only,
     # for the diagnostic that refuses it on a `let` root.
     place_receiver_mutation: Optional[str] = annotation(None)
-    # DF-184a: this call resolved to a STATIC method (`Struct.make(...)`), and
+    # This call resolved to a STATIC method (`Struct.make(...)`), and
     # `static_receiver` is the name of the type that owns it. A static call has
     # no receiver EXPRESSION, so `object.resolved_type` — the thing every
     # instance-call path reads a struct name off — is absent; the coroutine
     # transform keys a suspending static method's frame off these instead.
     is_static_method_call: bool = annotation(False)
     static_receiver: Optional[str] = annotation(None)
-    # design 186: `cell.ptr()` on an `UnsafeMutableInterior`. The cell is
+    # `cell.ptr()` on an `UnsafeMutableInterior`. The cell is
     # layout-transparent, so the address of its storage IS the receiver's —
     # codegen takes the caller's storage and skips the final field GEP.
     interior_cell_ptr: bool = annotation(False)
-    # design 145 unit B2: `E.from(raw: u)` on a raw-backed enum, holding `E`.
+    # `E.from(raw: u)` on a raw-backed enum, holding `E`.
     # The typechecker resolved this to the synthesized lookup, so there is no
     # symbol to call — codegen lowers it inline as a tag lookup.
     enum_from_raw: Optional[str] = annotation(None)
-    # design 114 / DF-127b: this `yield_now()` resolved to `std.task.yield_now`,
+    # This `yield_now()` resolved to `std.task.yield_now`,
     # so the coroutine transform lowers it as the cooperative-yield INTRINSIC
     # rather than as a cross-module call it cannot embed.
     is_yield_intrinsic: bool = annotation(False)
@@ -1970,7 +1915,7 @@ class SelfExpr(Expression):
 class IfLetExpr(Expression):
     """Optional binding: if let/var x = optional { ... } else { ... }
 
-    `pattern` (design 63) is set when the binding is a tuple pattern over an
+    `pattern` is set when the binding is a tuple pattern over an
     `(T, U)?` scrutinee (`if let (x, y) = maybe_pair`); `name` is unused then."""
     name: str
     optional_expr: Expression
@@ -1978,7 +1923,7 @@ class IfLetExpr(Expression):
     then_branch: 'Block'
     else_branch: Optional['Block'] = None
     pattern: Optional['Pattern'] = None
-    # design 233: this `if let` IS a `while let`'s binding — the parser lowered
+    # This `if let` IS a `while let`'s binding — the parser lowered
     # `while let x = SCRUT { BODY }` to a conditionless loop over
     # `if let x = SCRUT { BODY } else { break }`, so that every binding rule
     # already written for `if let` governs `while let` by being the same code
@@ -1986,8 +1931,7 @@ class IfLetExpr(Expression):
     # the AUTHOR wrote: diagnostics name `while let`, and the branch-merge
     # (whose `else` is a synthesized `break` the author never wrote) is skipped.
     while_let: bool = False
-    # The coroutine transform CFG-split this binding across a suspension
-    # (design 104 item 1 / design 126 R1).
+    # The coroutine transform CFG-split this binding across a suspension.
     _coro_split: bool = annotation(False)
 
 
@@ -1995,17 +1939,16 @@ class IfLetExpr(Expression):
 class GuardLetStatement(ASTNode):
     """Guard statement: guard let/var x = optional else { return }
 
-    `pattern` (design 63) is set for a tuple pattern over an `(T, U)?`
+    `pattern` is set for a tuple pattern over an `(T, U)?`
     scrutinee (`guard let (x, y) = maybe_pair else { ... }`)."""
     name: str
     optional_expr: Expression
     mutable: bool  # True for 'guard var', False for 'guard let'
     else_branch: 'Block'  # Must contain early exit (return, break, etc.)
     pattern: Optional['Pattern'] = None
-    # The coroutine transform CFG-split this binding across a suspension
-    # (design 104 item 1 / design 126 R1).
+    # The coroutine transform CFG-split this binding across a suspension.
     _coro_split: bool = annotation(False)
-    # design 131: the bound payload is read out of a place the scrutinee keeps,
+    # The bound payload is read out of a place the scrutinee keeps,
     # and the place rule says the binding retains it (and therefore owns it, so
     # it is released at the end of the guarded scope). See `Expression`.
     payload_needs_copy: bool = annotation(False)
@@ -2026,12 +1969,12 @@ class EnumInit(Expression):
     enum_symbol: Optional[Any] = None  # For module-qualified enums: direct symbol reference
 
 
-# ===== Patterns (design 63 T1d) =====
+# ===== Patterns =====
 # A Pattern is the refutable/irrefutable shape tested by a match arm (and the
 # irrefutable subset by `let`/`var`/`if let`/`guard let` destructuring). The
-# classic enum-variant match keeps using MatchArm.variant_name/bindings so its
-# switch lowering (design 61 consume model + the coroutine CFG walk) is
-# untouched; the new pattern forms flow through MatchArm.pattern instead.
+# enum-variant match uses MatchArm.variant_name/bindings, which its switch
+# lowering and the coroutine CFG walk read; the other pattern forms flow
+# through MatchArm.pattern instead.
 @dataclass
 class Pattern(ASTNode):
     pass
@@ -2086,18 +2029,18 @@ class EnumPattern(Pattern):
 class MatchArm(ASTNode):
     """Match arm: case VariantName(binding1, binding2) -> expression
 
-    Legacy enum-variant / wildcard arms populate `variant_name` + `bindings`
-    (and the switch lowering reads those). New pattern forms (literals, ranges,
-    tuples, guards) populate `pattern` and optionally `guard`; the general
-    if-chain lowering reads those. The parser fills both when an arm is a plain
-    enum-variant/wildcard so either lowering can consume it."""
+    Enum-variant / wildcard arms populate `variant_name` + `bindings`
+    (and the switch lowering reads those). The other pattern forms (literals,
+    ranges, tuples, guards) populate `pattern` and optionally `guard`; the
+    general if-chain lowering reads those. The parser fills both when an arm is
+    a plain enum-variant/wildcard so either lowering can consume it."""
     variant_name: str
     bindings: List[str]  # Variable names to bind associated values to
     body: Expression  # Can be an expression or a Block
     pattern: Optional['Pattern'] = None
     guard: Optional['Expression'] = None
 
-    # --- place transform -> codegen (design 146, DF-146d) ---
+    # --- place transform -> codegen ---
     # The arm's own payload bindings that a `lend` in this arm hands out as a
     # PLACE. Codegen writes each one back into the scrutinee's payload when the
     # window closes, so a write through the window reaches the enum's storage.
@@ -2110,17 +2053,17 @@ class MatchExpr(Expression):
     matched_expr: Expression
     arms: List[MatchArm]
 
-    # --- typechecker -> codegen match plan (design 126 R1) ---
-    # The enum being switched on, for the classic variant lowering.
+    # --- typechecker -> codegen match plan ---
+    # The enum being switched on, for the enum-variant lowering.
     matched_enum_type: Optional['SawType'] = annotation(None)
     # Set when the arms need the GENERAL pattern lowering (literals, ranges,
     # tuples, guards) rather than the enum-variant switch; then
     # `matched_scrutinee_type` carries the scrutinee's type.
     use_general_match: bool = annotation(False)
     matched_scrutinee_type: Optional['SawType'] = annotation(None)
-    # SL-273/SL-278: the coroutine transform must CFG-SPLIT this `match` because
-    # it carries a `break`/`continue` for an enclosing suspension-spanning loop
-    # (design 96 DF6's clause). Stamped by `_mark_ob_block`, read through
+    # The coroutine transform must CFG-SPLIT this `match` because it carries a
+    # `break`/`continue` for an enclosing suspension-spanning loop. Stamped by
+    # `_mark_ob_block`, read through
     # `_FrameBuilder._is_split` — which is what keeps the arm PAYLOAD BINDINGS'
     # frame fields and the split decision in agreement.
     _coro_split: bool = annotation(False)
@@ -2128,8 +2071,8 @@ class MatchExpr(Expression):
 
 @dataclass
 class RangeExpr(Expression):
-    """Range expression: `start..end` (exclusive) or `start..=end` (inclusive,
-    design 53). An inclusive range lowers to the Int.max-safe `RangeInclusive`
+    """Range expression: `start..end` (exclusive) or `start..=end`
+    (inclusive). An inclusive range lowers to the Int.max-safe `RangeInclusive`
     iterator, never to a `start..(end + 1)` desugar."""
     start: Expression
     end: Expression
@@ -2143,14 +2086,13 @@ class ClosureParam:
     type_annotation: Optional[SawType] = None
     is_reference: bool = False       # True for `&data` / `&var data` params
     reference_mutable: bool = False  # True for `&var data`
-    # Design 176 (DF-175b): set on the parameter of a SHARED place window that
-    # `place_uses` synthesizes. Every accessor is lowered with one `(&var T)`
-    # window closure — the flavor is a property of the use site, not of the
-    # declaration — so the shared flavor used to receive a mutable reference and
-    # soundness rested entirely on the use-site classifier being complete. The
-    # binding is read-only whatever the closure's TYPE says, which turns a
-    # misclassification into a compile error instead of a silent write through
-    # storage the root holds immutably. No source spells this.
+    # Set on the parameter of a SHARED place window that `place_uses`
+    # synthesizes. Every accessor is lowered with one `(&var T)` window
+    # closure — the flavor is a property of the use site, not of the
+    # declaration — so the shared flavor's parameter has a mutable TYPE. This
+    # bit makes the binding read-only whatever that type says, which turns a
+    # use-site misclassification into a compile error instead of a silent write
+    # through storage the root holds immutably. No source spells this.
     place_shared_window: bool = False
     line: int = 0
     column: int = 0
@@ -2158,22 +2100,22 @@ class ClosureParam:
 
 @dataclass
 class CaptureSpec:
-    """One entry in a closure's bracketed capture list (design 16/29):
+    """One entry in a closure's bracketed capture list:
     `[&var sum, move conn, copy v, x]`. `mode` is one of:
       'ref'      — `&name`     immutable borrow (env-of-references)
       'ref_var'  — `&var name` mutable borrow  (env-of-references)
       'move'     — `move name` ownership transfer into the env
       'copy'     — `copy name` explicit deep copy into the env
-      'plain'    — `name`      today's transfer rules (bitwise / retain / error)
+      'plain'    — `name`      the default transfer rules (bitwise / retain / error)
     Borrow captures ('ref'/'ref_var') are legal ONLY in a closure literal passed
     directly to a non-escaping parameter.
 
-    `materialized` is PROVENANCE, not a mode (SL-267): the coroutine transform
-    sets it when it has already performed this capture's duplication while
+    `materialized` is PROVENANCE, not a mode: the coroutine transform sets it
+    when it has already performed this capture's duplication while
     materializing a frame-resident local for the closure to name. The mode stays
     what the AUTHOR wrote, because the mode is what says whether the capture is
-    reusable — re-typing a `copy` to `move` selects DF-218h's deferred one-shot
-    protocol and makes the second invocation panic. Codegen reads this to skip
+    reusable — re-typing a `copy` to `move` would select the deferred one-shot
+    protocol and make the second invocation panic. Codegen reads this to skip
     the SECOND duplication only; it still decides ownership itself, from whether
     the closure escapes.
     """
@@ -2203,25 +2145,25 @@ class ClosureExpr(Expression):
     captures: List[str] = field(default_factory=list)  # Filled by type checker
     # Filled by type checker: name -> effective capture mode (see CaptureSpec).
     capture_modes: Dict[str, str] = field(default_factory=dict)
-    has_reference_params: bool = False  # Filled by type checker (design 21 item 3)
-    escapes: bool = False  # Filled by type checker (design 21b E1): the closure
+    has_reference_params: bool = False  # Filled by type checker
+    escapes: bool = False  # Filled by type checker: the closure
                            # value outlives its creating frame (bound/returned/
                            # passed to spawn), so its env is heap-allocated.
-    # design 226: this literal appeared in a `FuncPointer<F>`-EXPECTED position
+    # This literal appeared in a `FuncPointer<F>`-EXPECTED position
     # and COERCED — it captures nothing, so it is emitted under `F`'s BARE ABI
     # (no env parameter, no closure triple) and the expression's value is the
     # code address alone. Holds the full `FuncPointer<F>` type; None for every
     # ordinary closure. Codegen reads it to pick the emission.
     funcpointer_target: Optional['SawType'] = annotation(None)
-    # DF-169h: this literal is a PLACE WINDOW body, synthesized by
+    # This literal is a PLACE WINDOW body, synthesized by
     # `place_uses._window_call`. No source spells it, and it is not a closure in
-    # the language's sense at all — it is how design 141's "run this while the
-    # window is open" is written down. So every enclosing binding its body names
-    # is captured BY BORROW rather than by value: the author wrote that code in
+    # the language's sense at all — it is how "run this while the window is
+    # open" is written down. So every enclosing binding its body names is
+    # captured BY BORROW rather than by value: the author wrote that code in
     # the enclosing scope, and it must run against the live bindings there.
     # `place_window_root` is the receiver's own root NAME, which is the one
     # binding NOT borrowed — a second access to the window's own root, from
-    # inside the open window, is what design 188 refuses.
+    # inside the open window, is refused (design 188).
     is_place_window: bool = annotation(False)
     place_window_root: Optional[str] = annotation(None)
 
@@ -2238,27 +2180,26 @@ class LetStatement(Statement):
     type_annotation: Optional[SawType]
     value: Expression
     mutable: bool = False
-    # design 107, via design 218b's E-REDEF edge: the EFFECTIVE name of the
-    # same-scope binding this `let` REPLACES, when the coroutine transform's
-    # alpha-renaming (`_uniquify_bindings`, DF-151a) gave the two bindings
-    # different names. Codegen's `_drop_redefined_same_scope` matches by name,
-    # so without this a renamed redefinition reads as two unrelated locals and
-    # the replaced value survives to the scope's end instead of dropping at the
-    # redefinition point. `None` on every un-transformed body, where the two
-    # bindings still share their source name.
+    # The EFFECTIVE name of the same-scope binding this `let` REPLACES, when
+    # the coroutine transform's alpha-renaming (`_uniquify_bindings`) gave the
+    # two bindings different names. Codegen's `_drop_redefined_same_scope`
+    # matches by name, so without this a renamed redefinition reads as two
+    # unrelated locals and the replaced value survives to the scope's end
+    # instead of dropping at the redefinition point. `None` on every
+    # un-transformed body, where the two bindings still share their source name.
     coro_redefines: Optional[str] = annotation(None)
-    # DF-300b: `@align(N)` lines written ahead of this `let`/`var`. The only
+    # `@align(N)` lines written ahead of this `let`/`var`. The only
     # attribute a LOCAL accepts; the parser refuses every other name here.
     attributes: List['Attribute'] = field(default_factory=list)
 
 
 @dataclass
 class DestructuringLet(Statement):
-    """`let (a, b) = pair` / `var (x, y) = point` (design 63 T1d).
+    """`let (a, b) = pair` / `var (x, y) = point`.
 
     `pattern` must be irrefutable — a TuplePattern of bindings / wildcards /
     nested irrefutable tuples (per-position `_` is a discard). Destructuring
-    consumes the whole source tuple (design 35 L1); each component moves out."""
+    consumes the whole source tuple; each component moves out."""
     pattern: 'Pattern'
     value: Expression
     mutable: bool = False
@@ -2309,14 +2250,13 @@ class WhileExpr(Expression):
     condition: Optional[Expression]  # None for infinite loop
     body: 'Block'
     result_type: Optional['SawType'] = None  # Set by typechecker for expression context
-    # design 233: this conditionless loop is a `while let`'s — its body is the
-    # single `if let … else { break }` the parser lowered the header into, and
-    # its exit edge is that binding failing. Carried so the construct can be
-    # REFUSED in value position (v1: its result could only come from
-    # `break <value>`, and the conditional-loop value story is unchanged) and so
-    # the AST dump names what the author wrote.
+    # This conditionless loop is a `while let`'s — its body is the single
+    # `if let … else { break }` the parser lowered the header into, and its
+    # exit edge is that binding failing. Carried so the construct can be
+    # REFUSED in value position (its result could only come from
+    # `break <value>`) and so the AST dump names what the author wrote.
     is_while_let: bool = False
-    # design 177: does this loop DIVERGE? True for the conditionless
+    # Does this loop DIVERGE? True for the conditionless
     # `while { ... }` whose body holds no `break` targeting it — nothing ever
     # takes the loop's exit edge, so the expression types `Never` exactly as
     # `panic(...)` does and codegen terminates the (predecessor-less) exit block
@@ -2344,15 +2284,15 @@ class ForLoop(Statement):
     iterable: Expression  # Usually a RangeExpr
     body: 'Block'
     result_type: Optional['SawType'] = None  # Set by typechecker for expression context
-    element_type: Optional['SawType'] = None  # Loop-variable type (design 65: drop owning loop var per iteration)
-    # design 275 U3: the STATEMENT WINDOW this `for` opened, when its head
-    # produced a borrowing struct — a `windows.StatementWindow`, minted and
-    # closed by the one chokepoint (`windows.WindowTable`). `for` is the
-    # chokepoint's only client today; the field lives on this node because a
-    # window's EXTENT is a statement and this statement is the extent.
+    element_type: Optional['SawType'] = None  # Loop-variable type (an owning loop var drops per iteration)
+    # The STATEMENT WINDOW this `for` opened, when its head produced a
+    # borrowing struct — a `windows.StatementWindow`, minted and closed by the
+    # one chokepoint (`windows.WindowTable`). `for` is the chokepoint's only
+    # client so far; the field lives on this node because a window's EXTENT is a
+    # statement and this statement is the extent.
     #
     # The transform and codegen read the RECORD, never this node's own shape:
-    # the frame field for the window's resource, the design-88 pointer
+    # the frame field for the window's resource, its pointer
     # encoding, the referent-pinning assertion and the exit-route cleanup are
     # all properties of the window. `None` on a range `for` and on an
     # OWNED-iterator `for` — neither opens one.
@@ -2362,37 +2302,19 @@ class ForLoop(Statement):
 @dataclass
 class ScopedBlock(Expression):
     """A block that RUNS UNCONDITIONALLY, carries its own scope, and YIELDS ITS
-    BLOCK'S VALUE (SL-333).
+    BLOCK'S VALUE.
 
-    The language has no syntax for one — the parser never produces this. The
-    `#lend_var` fold does: when it selects a branch whose body BINDS something,
-    it cannot lift those statements into the enclosing block (a `let` would
-    shadow the enclosing binding of the same name and its deinit would move to
-    the wrong boundary), and it cannot leave an `if` of any condition either
-    (the selected branch would then read as conditional to the lend-coverage
-    rule, which is exactly what it is not). So the selected branch becomes
-    THIS: one block, always entered, with its own lexical and destruction
-    boundaries.
+    No syntax produces one; the `#lend_var` fold does. A selected branch that
+    BINDS something cannot be lifted into the enclosing block (a `let` would
+    shadow a same-named binding and move its deinit), nor left as an `if` (the
+    lend-coverage rule would read it as conditional). It is an EXPRESSION
+    because the branch may be a block tail in value position. Its value is the
+    block's `final_expr`, read by the same paths a value-carrying `if` branch
+    uses (`_check_block`, `_generate_block`); the cleanup scope pops after the
+    tail is evaluated, so the branch's locals die before the value leaves.
 
-    IT IS AN EXPRESSION because the branch it replaces was one. A `#lend_var`
-    branch can be the tail of a block in VALUE position — `let slot = if
-    #lend_var { let s = 0  s } else { let s = 1  s }` — and a fold that turned
-    that into a statement turned a value-producing block into `Void`, which is
-    not behaviour preservation however it is disclosed (codex, SL-333.p1 r3).
-    The value is the block's own `final_expr`, read by the SAME paths a
-    value-carrying `if` branch already uses: `_check_block` for the type,
-    `_generate_block` for the value, and that is also where the branch's locals
-    are destroyed — the cleanup scope pops after the tail is evaluated, so the
-    value leaves an already-closed scope. In statement position it is the same
-    node with its value unused.
-
-    Being a container that owns a `Block`, it joins `ast_walk.CONTAINER_KINDS`
-    and `coro_shapes.CONTAINERS` like every other — that enumeration is the one
-    design 275 U2 made total, and a shape outside it is an invariant failure.
-    Its split is the simplest there is: one block, no branch, no merge. Being
-    an EXPRESSION, it joins the producer taxonomy too, as a BRANCHES node with
-    one arm: the value is the tail's, judged where the tail is written, which
-    is exactly the answer the `if` branch it came from already gave.
+    It is listed in `ast_walk.CONTAINER_KINDS`, `coro_shapes.CONTAINERS` and
+    the producer taxonomy (a BRANCHES node with one arm) like every container.
     """
     block: 'Block' = None
 
@@ -2418,55 +2340,42 @@ class StructField:
     """A field in a struct declaration."""
     name: str
     type: SawType
-    # Member visibility (design 80, amended by design 258): the tier this field
-    # was DECLARED with. Meaningful only when `visibility_written` is True — a
-    # bare field inherits its declaring type's tier, and the one place that is
-    # decided is `effective_field_visibility` below. Never read this attribute
-    # directly to answer "how visible is this field".
+    # The tier this field was DECLARED with. Meaningful only when
+    # `visibility_written` is True — a bare field inherits its declaring type's
+    # tier, and the one place that is decided is `effective_field_visibility`
+    # below. Never read this attribute directly to answer "how visible is this
+    # field".
     visibility: 'Visibility' = Visibility.PRIVATE
-    # Design 258: did the author WRITE a modifier on this field? `public` /
+    # Did the author WRITE a modifier on this field? `public` /
     # `public(package)` / `public(parent)` / `private` all set it; a bare field
     # leaves it False, which is what makes inheritance distinguishable from an
-    # explicit narrowing. Before 258 the two were one state (PRIVATE), which is
-    # exactly why the default could not be changed without this bit.
+    # explicit `private` narrowing.
     visibility_written: bool = False
     line: int = 0
     column: int = 0
-    # Doc comment (design 121): the `///` block immediately preceding the field,
+    # Doc comment: the `///` block immediately preceding the field,
     # markers stripped and lines joined with "\n". None when undocumented.
     doc: Optional[str] = None
 
 
 def effective_field_visibility(field_decl, struct_visibility) -> 'Visibility':
-    """THE FIELD-VISIBILITY FUNNEL (design 258, obligation 1).
+    """THE FIELD-VISIBILITY FUNNEL (obligation 1).
 
     A struct field's EFFECTIVE tier: the marker the author wrote, else the tier
     of the type DECLARING it. `private` is the narrowing spelling and lands here
-    as a written PRIVATE, so a marked field means exactly what a bare one meant
-    before 258 and an unmarked one now rides its type.
+    as a written PRIVATE.
 
-    ENTRY POINTS — every place a field's tier is read, each asking at a
-    different moment, and the reason this is a function rather than four
-    agreeing constants:
-      * `TypeChecker._register_struct` — builds `StructSymbol.field_visibility`,
-        the map the design-80 gate (`_check_field_visible`) reads, which is what
-        covers the field READ, the field WRITE and the cross-module memberwise
-        LITERAL in one place.
-      * `SignatureVisibilityMixin._signature_visibility_positions` — the
-        design-193 "a public API needs public types" walk, whose struct-field
-        row judges the field's TYPE against the field's reach. Inheriting the
-        tier is what turns a public struct's bare field of a private type from
-        legal into a refusal (ruling 5).
-      * `DocsEmitter._struct_item` — the `--emit-docs` surface, which both
-        FILTERS on the tier and REPORTS it. A bare field of a public struct is
-        part of that surface now and must be listed as `public`.
-      * `Namespace.register_struct`'s callers reach it through the first entry
-        point; nothing rebuilds the map independently.
+    ENTRY POINTS — every place a field's tier is read:
+      * `TypeChecker._register_struct` (builds `StructSymbol.field_visibility`
+        for `_check_field_visible`: field read, write, memberwise literal)
+      * `SignatureVisibilityMixin._signature_visibility_positions` (the
+        struct-field row of the "public API needs public types" walk)
+      * `DocsBuilder._struct_item` (the `--emit-docs` surface)
 
     Widening stays capped elsewhere, not here: a field marked wider than its
-    struct is legal-but-inert by design 80's own rule (gotcha 3), which
-    `_decl_reach`'s `cap` and the gate's own relation already apply. This
-    answers only "which tier was chosen", never "how far does it reach".
+    struct is legal-but-inert, which `_decl_reach`'s `cap` and the gate's own
+    relation already apply. This answers only "which tier was chosen", never
+    "how far does it reach" (design 258).
     """
     if getattr(field_decl, 'visibility_written', False):
         return getattr(field_decl, 'visibility', Visibility.PRIVATE) \
@@ -2481,42 +2390,42 @@ class Struct(ASTNode):
     fields: List[StructField]
     type_params: List['TypeParameter'] = field(default_factory=list)
     visibility: 'Visibility' = Visibility.PRIVATE
-    # `unsafe struct` (design 130): this type is UNSAFE. A function that names,
-    # binds, receives or returns one of its values is unsafe (rule 3). Unsafety
-    # is NOT transitive — a safe struct with an unsafe FIELD stays safe, and only
-    # the methods that touch the field are unsafe. The compiler requires an
-    # unsafe type's name to start with `Unsafe`.
+    # `unsafe struct`: this type is UNSAFE. A function that names, binds,
+    # receives or returns one of its values is unsafe (rule 3). Unsafety is NOT
+    # transitive — a safe struct with an unsafe FIELD stays safe, and only the
+    # methods that touch the field are unsafe. The compiler requires an unsafe
+    # type's name to start with `Unsafe` (design 130).
     is_unsafe: bool = False
-    # `borrows struct` (design 275 U3): this type HOLDS A LENT PLACE. It is
-    # design 130's `unsafe struct` shape — the type declares its nature at its
-    # declaration, every signature that carries it echoes it, and `--emit-docs`
-    # carries it as a type attribute — with no name convention, because a
-    # borrowing struct appears only as a window head where the syntax and the
-    # producing `borrows` already say so.
+    # `borrows struct`: this type HOLDS A LENT PLACE. It follows the
+    # `unsafe struct` shape — the type declares its nature at its declaration,
+    # every signature that carries it echoes it, and `--emit-docs` carries it
+    # as a type attribute — with no name convention, because a borrowing
+    # struct appears only as a window head where the syntax and the producing
+    # `borrows` already say so.
     #
     # What it LICENSES: a field whose type is a plain SHARED reference (`&T`),
-    # which every other struct is refused (DF-163d). What it COSTS: the value
+    # which every other struct is refused. What it COSTS: the value
     # may live only inside its window — never a `let`, an argument, a field, a
     # type argument or an existential — which `typechecker/borrowing.py`'s one
     # rejector enforces at every other position.
     is_borrowing: bool = False
     source_file: str = ""
     doc: Optional[str] = None
-    # Design 144: the module-qualified IDENTITY the typechecker stamps here at
+    # The module-qualified IDENTITY the typechecker stamps here at
     # registration (`Header$m$dep`), empty when the declaring module does not
     # qualify. `name` stays the name the author wrote — diagnostics, docs and
     # the AST dump render that — while codegen keys its layout, its
-    # monomorphizations and its method symbols off the identity.
+    # monomorphizations and its method symbols off the identity (design 144).
     type_identity: str = ""
-    # design 204: this struct was SYNTHESIZED by the compiler (a coroutine
-    # frame), not written by an author. The compiler names such a type by
-    # string at its declaration and at every reference, so it never carries a
+    # This struct was SYNTHESIZED by the compiler (a coroutine frame), not
+    # written by an author. The compiler names such a type by string at its
+    # declaration and at every reference, so it never carries a
     # module-qualified identity — the qualifier would rename the declaration
     # out from under the string that builds the reference. Matches
-    # `Function.is_synthesized`, which the visibility and unsafe rules already
-    # read for the same reason.
+    # `Function.is_synthesized`, which the visibility and unsafe rules read for
+    # the same reason.
     is_synthesized: bool = False
-    # design 163 (measurement): on a coroutine FRAME struct, the state-machine
+    # On a coroutine FRAME struct, the state-machine
     # facts the `--emit-frame-layout` report needs — the state count, and for
     # each embedded sub-frame field the single state in which it is live. Set by
     # the coroutine transform, read only by the report; no code generation
@@ -2530,16 +2439,16 @@ class EnumVariant:
     name: str
     associated_types: List[tuple[str, SawType]]  # [(param_name, type), ...]
     doc: Optional[str] = None
-    # Raw backing value (design 145 unit B2): the explicit `= <int>` a case
-    # carries under a declared backing type. Required for every case when the
-    # enum declares one, and absent otherwise — declaring a backing claims the
-    # numbers are ABI, so nothing is auto-assigned.
+    # Raw backing value: the explicit `= <int>` a case carries under a
+    # declared backing type. Required for every case when the enum declares
+    # one, and absent otherwise — declaring a backing claims the numbers are
+    # ABI, so nothing is auto-assigned.
     raw_value: Optional[int] = None
-    # DF-232c: the unfolded initializer, when the case's value is a const
-    # EXPRESSION rather than a literal (`case ThreadCreate = 1 << 8`). The
-    # parser fills exactly one of this and `raw_value`; the pre-registration
-    # pass `_fold_enum_raw_values` folds this one INTO `raw_value`, so every
-    # consumer downstream still reads a plain int and none of them changed.
+    # The unfolded initializer, when the case's value is a const EXPRESSION
+    # rather than a literal (`case ThreadCreate = 1 << 8`). The parser fills
+    # exactly one of this and `raw_value`; the pre-registration pass
+    # `_fold_enum_raw_values` folds this one INTO `raw_value`, so every
+    # consumer downstream reads a plain int.
     raw_value_expr: Optional['Expression'] = None
     # Source position of the `= <value>`, for the duplicate-value diagnostic.
     raw_line: int = 0
@@ -2555,31 +2464,31 @@ class Enum(ASTNode):
     visibility: 'Visibility' = Visibility.PRIVATE
     source_file: str = ""
     doc: Optional[str] = None
-    # Declared integer backing (design 145 unit B2): `enum SysError: UInt8`.
+    # Declared integer backing: `enum SysError: UInt8`.
     # Pins the representation — width and tag values — so the enum is castable
     # to the backing with `as` and legal as a field of an `UnsafeMemory`-viewed
     # struct. Payload-free enums only.
     raw_type: Optional[SawType] = None
-    # Design 144: see Struct.type_identity.
+    # See Struct.type_identity.
     type_identity: str = ""
 
 
 @dataclass
 class TraitMethod(ASTNode):
-    """Method signature in a trait, optionally with a default body (design 56)."""
+    """Method signature in a trait, optionally with a default body."""
     name: str
     parameters: List[Parameter]  # includes self
     return_type: SawType
     self_mutable: bool = False  # True for '&var self'
     self_is_reference: bool = False  # True for '&self' or '&var self'
     is_sync: bool = False  # `func m(...) sync` — a checked suspension-free method
-    is_unsafe: bool = False  # `unsafe func m(...)` — an unsafe requirement (design 130)
-    # design 236: a STATIC requirement spells `static func` (it is called on the
+    is_unsafe: bool = False  # `func m(...) unsafe` — an unsafe requirement
+    # A STATIC requirement spells `static func` (it is called on the
     # type, so there is no receiver to dispatch on and the trait cannot be
     # erased to `any`). The parser refuses a disagreement with the parameter
     # list, so this and "has no `self` parameter" are the same fact.
     is_static: bool = False
-    # Default method body (design 56): a trait method declared WITH a `{ ... }`
+    # Default method body: a trait method declared WITH a `{ ... }`
     # body is a default. Conformers may omit it (the compiler synthesizes a
     # per-conformer Method from this body) or override it. None = required method.
     body: Optional['Block'] = None
@@ -2604,7 +2513,7 @@ class Trait(ASTNode):
     visibility: 'Visibility' = Visibility.PRIVATE
     source_file: str = ""
     doc: Optional[str] = None
-    # Design 144: see Struct.type_identity.
+    # See Struct.type_identity.
     type_identity: str = ""
 
 
@@ -2622,11 +2531,9 @@ class Extension(ASTNode):
     For generic extensions like `extension Vector<T>`, type_params contains [T].
     For specialized extensions like `extension Vector<String>`, type_args contains [String].
 
-    NO `visibility` field, deliberately (design 240 item 3): an extension head
-    cannot carry a modifier, because an extension is not a nameable entity and
-    has nothing to be visible. Each METHOD carries its own. The field existed
-    and was parsed for a long time with exactly one consumer — the docs
-    emitter's signature string — so it read like a rule and was none.
+    NO `visibility` field, deliberately: an extension head cannot carry a
+    modifier, because an extension is not a nameable entity and has nothing to
+    be visible. Each METHOD carries its own (design 240).
     """
     struct_name: str
     methods: List['Method']
@@ -2636,11 +2543,12 @@ class Extension(ASTNode):
     type_assignments: List[TypeAssignment] = field(default_factory=list)  # Associated type assignments
     source_file: str = ""
     doc: Optional[str] = None
-    # Declaration attributes (design 58 machinery, design 128): `@synthesize`.
+    # Declaration attributes: `@synthesize`.
     attributes: List['Attribute'] = field(default_factory=list)
-    # Design 144: the IDENTITY of the type this extension extends — the
-    # receiver every method here mangles against. `struct_name` stays the name
-    # the author wrote.
+    # The IDENTITY of the type this extension extends — the
+    # receiver every method here mangles against. Registration rewrites
+    # `struct_name` from the written name to this canonical identity, then
+    # mirrors it here, so after checking the two are equal.
     type_identity: str = ""
 
 
@@ -2658,7 +2566,7 @@ class Method(ASTNode):
     self_mutable: bool = False  # True for '&var self'
     self_is_reference: bool = False  # True for '&self' or '&var self'
     is_static: bool = False  # True for methods without 'self' parameter
-    # design 236: the member-head `static` keyword the author WROTE. `is_static`
+    # The member-head `static` keyword the author WROTE. `is_static`
     # above is the DERIVED fact (no `self` parameter) every downstream pass
     # reads; this is the declaration, and the parser refuses any disagreement
     # between the two. A compiler-SYNTHESIZED method carries the derived bit
@@ -2666,73 +2574,70 @@ class Method(ASTNode):
     declared_static: bool = False
     is_derived_copy: bool = False  # True for a compiler-synthesized memberwise copy()
     is_derived_equals: bool = False  # True for a compiler-synthesized memberwise equals()
-    is_derived_compare: bool = False  # True for a compiler-synthesized lexicographic compare() (design 48)
-    is_derived_hash: bool = False  # True for a compiler-synthesized field-streaming hash() (design 48)
-    # Compiler-derived serialization (design 169). Unlike the four above, these
+    is_derived_compare: bool = False  # True for a compiler-synthesized lexicographic compare()
+    is_derived_hash: bool = False  # True for a compiler-synthesized field-streaming hash()
+    # Compiler-derived serialization. Unlike the four above, these
     # two carry a real synthesized BODY (built in typechecker/serde.py once every
     # type is registered) rather than an empty block codegen fills from the
     # layout, so they are typechecked and lowered like any hand-written method.
     is_derived_serialize: bool = False
     is_derived_deserialize: bool = False
     is_sync: bool = False  # True for a `sync func` method (checked suspension-free)
-    # design 219 unit A1 (DF-217r): the copy-policy trait whose RETAIN HOOK this
+    # The copy-policy trait whose RETAIN HOOK this
     # hand-written `copy()` is ("Copy" / "ExplicitCopy"), stamped at
     # registration on the body an author wrote inside the conformance. The
     # compiler INSERTS calls to it at silent transfers, where no source construct
     # names a call, so it is a `sync` context: the effect pass reads this to give
     # the node a `sync_reason` and refuse a suspending body AT the declaration.
     copy_policy_hook: Optional[str] = annotation(None)
-    # design 219 wave C: the TIER REQUIREMENT this body places on each type
+    # The TIER REQUIREMENT this body places on each type
     # parameter in scope — `{param_name: (requirement, reason, line)}`, where
     # the requirement is `'move'` (every tier satisfies it) or `'copy'` (the
     # body duplicates a value of that parameter with nothing written, so only
     # the silent tier does). Inferred while the body is checked; discharged at
     # every call site. See `typechecker/tierreq.py`.
     tier_requirements: Optional[dict] = annotation(None)
-    # `unsafe func` / `unsafe init` (design 130): this method touches an unsafe
-    # type. Declared, never inferred — the trigger rule checks the declaration
-    # against the body rather than supplying it.
+    # Declared `unsafe` (`func m(...) unsafe`, `init(...) unsafe`): this method
+    # touches an unsafe type. Declared, never inferred — the trigger rule
+    # checks the declaration against the body rather than supplying it.
     is_unsafe: bool = False
-    # design 218 stage 3: this SYNTHESIZED declaration is held to the design-130
-    # trigger rule anyway. Its producer decided `is_unsafe` from what the
-    # declaration actually touches, so a wrong answer must be an error rather
-    # than a thing `is_synthesized` waves through — which is what retiring the
-    # E2 whole-pass exemption means (and design 222 unit 4 retired it: there is
-    # no post-transform unsafe exemption left, so this bit is what separates a
-    # declaration the transform ANSWERED FOR from a derived body nobody can
-    # mark). Set by the coroutine transform on the declarations it emits; see
-    # `_needs_unsafe_decl`.
+    # This SYNTHESIZED declaration is held to the unsafe trigger rule anyway.
+    # Its producer decided `is_unsafe` from what the declaration actually
+    # touches, so a wrong answer must be an error rather than a thing
+    # `is_synthesized` waves through. This bit is what separates a declaration
+    # the transform ANSWERED FOR from a derived body nobody can mark. Set by
+    # `coro_transform._declare_unsafe` on the declarations the transform emits;
+    # read by `_unsafe_check_exempt`.
     unsafe_decl_checked: bool = False
-    # `borrows` (design 141): this method yields a PLACE of `return_type` for a
+    # `borrows`: this method yields a PLACE of `return_type` for a
     # window rather than a value. Its body lends exactly once per path; the
     # place transform rewrites it into the window-closure form and records the
     # lent type in `place_type`, leaving this bit set as the declaration's own
     # record of what the author wrote.
     is_borrows: bool = False
-    # design 275 U3: THE ORIGIN SUMMARY of a `borrows` method that RETURNS A
-    # BORROWING STRUCT rather than lending a place — `'receiver root'`, the one
-    # origin U3 admits, or None for every other method.
+    # THE ORIGIN SUMMARY of a `borrows` method that RETURNS A BORROWING STRUCT
+    # rather than lending a place — `'receiver root'`, the one admitted origin,
+    # or None for every other method.
     #
-    # It is a DECLARED annotation field (design 126's AST contract) and not a
-    # re-derivation, for the same reason `is_reference` is one: it must ride
+    # It is a DECLARED annotation field and not a re-derivation: it must ride
     # `substitute_ast_types` through monomorphization and travel with an
     # IMPORTED declaration, whose body the call site never sees. The call site
-    # reads it and substitutes it onto the RECEIVER PLACE's root through design
-    # 141's root attribution — `v.iter()` charges `v`, `st.patches.iter()`
-    # charges the path `st.patches`.
+    # reads it and substitutes it onto the RECEIVER PLACE's root — `v.iter()`
+    # charges `v`, `st.patches.iter()` charges the path `st.patches`
+    # (design 275).
     borrow_origin: Optional[str] = annotation(None)
-    # `consumes` (design 260): this `&var self` method ENDS its receiver. The
+    # `consumes`: this `&var self` method ENDS its receiver. The
     # exclusive borrow's contract changes at its ending — the CALLEE releases
     # what remains of the referent at body end, and the caller's binding is
     # moved-from past the call (which is why the call site spells
-    # `(move b).finish()`). Declared, never inferred.
+    # `(move b).finish()`). Declared, never inferred (design 260).
     is_consumes: bool = False
-    # design 260 §3 (Option A): the receiver FIELDS this consuming body moves
-    # out, as a tuple of names in declaration order. Decided statically by the
-    # every-path-or-no-path rule, so the end-of-body release covers exactly the
-    # unmoved remainder with no drop flags. Empty on every other method.
+    # The receiver FIELDS this consuming body moves out, as a tuple of names in
+    # declaration order. Decided statically by the every-path-or-no-path rule,
+    # so the end-of-body release covers exactly the unmoved remainder with no
+    # drop flags. Empty on every other method.
     consumes_moved_fields: tuple = annotation(())
-    # Set by the place transform (design 141) on a rewritten borrows method: the
+    # Set by the place transform on a rewritten borrows method: the
     # type of the place it lends, i.e. the `T` the author wrote after `->`
     # (unwrapped from `T?` for a conditional lend, with `place_optional` set).
     # Cross-pass ANNOTATIONS, not structure: `place_type` aliases a type node
@@ -2740,7 +2645,7 @@ class Method(ASTNode):
     # that followed it would visit the same subtree twice.
     place_type: Optional['SawType'] = annotation(None)
     place_optional: bool = annotation(False)
-    # SL-333 R1/R2. `place_lend_declared_mutable` is the MAXIMUM window mode the
+    # `place_lend_declared_mutable` is the MAXIMUM window mode the
     # author wrote after `borrows ->`: True for `&var T` (either flavor may be
     # opened), False for `&T` (shared only, and a write through one is refused
     # at the use site). It is the same on both specializations, because it is a
@@ -2750,7 +2655,7 @@ class Method(ASTNode):
     # once — and it is what the `lend` hands `__window`.
     place_lend_declared_mutable: bool = annotation(False)
     place_lend_mutable: bool = annotation(False)
-    # SL-333 R4: the RECEIVER ACCESS this accessor requires at a call, as a fact
+    # The RECEIVER ACCESS this accessor requires at a call, as a fact
     # about its BODY rather than about the window it opens. None while unknown;
     # a string naming the mutating construct once the checker has seen one, in
     # which case the accessor is EXCLUSIVE-ONLY — every use site borrows the
@@ -2761,9 +2666,9 @@ class Method(ASTNode):
     place_receiver_mutation: Optional[str] = annotation(None)
     # Set with `place_type` on a lowered borrows METHOD: its receiver travels as
     # a POINTER even when the author wrote `&self`, because the window may write
-    # through it (design 146, DF-146b). See `self_by_pointer`.
+    # through it. See `self_by_pointer`.
     place_self_by_pointer: bool = annotation(False)
-    # `#lend_var` (design 179). `place_lend_var` marks the AUTHORED declaration
+    # `#lend_var`. `place_lend_var` marks the AUTHORED declaration
     # whose body named the constant — it is the SHARED specialization, folded
     # with the constant false. `place_var_twin` marks the synthesized exclusive
     # sibling: same body folded true, `self_mutable` set, a reserved name no
@@ -2772,7 +2677,7 @@ class Method(ASTNode):
     # original.
     place_lend_var: bool = annotation(False)
     place_var_twin: bool = annotation(False)
-    # design 200: WHERE this accessor lends from, as hop chains rooted at the
+    # WHERE this accessor lends from, as hop chains rooted at the
     # receiver — `(('member', 'cells'), ('index',))` for `lend self.cells[i]`.
     # One entry per lending path; a path that reaches through an INDIRECTION the
     # receiver merely points at (std `Vector`'s `if let buf = self.buffer { lend
@@ -2781,41 +2686,40 @@ class Method(ASTNode):
     # receiver-inline storage", which is what tells `place_uses` that a window
     # write in a `&self` body reaches the caller rather than the copy.
     place_lend_paths: tuple = annotation(())
-    # Method-level generic type params (brief 36): the `U` in `func map<U>(...)`,
+    # Method-level generic type params: the `U` in `func map<U>(...)`,
     # distinct from and in addition to the enclosing extension's own type params.
     type_params: List['TypeParameter'] = field(default_factory=list)
-    # Member visibility (design 80): private-by-default outside the defining
-    # module, for extension methods (incl. init + static). A method satisfying a
-    # trait requirement is callable wherever the conformance is visible regardless.
+    # Member visibility: private-by-default outside the defining module, for
+    # extension methods (incl. init + static). A method satisfying a trait
+    # requirement is callable wherever the conformance is visible regardless.
     visibility: 'Visibility' = Visibility.PRIVATE
-    # Compiler-synthesized (design 80): coroutine-transform-generated methods
-    # (frame `resume`/`wake_reason`) are exempt from the member-visibility gate.
+    # Compiler-synthesized: coroutine-transform-generated methods (frame
+    # `resume`/`wake_reason`) are exempt from the member-visibility gate.
     is_synthesized: bool = False
     source_file: str = ""
     doc: Optional[str] = None
     # The per-overload / per-instantiation codegen symbol, stamped by
-    # registration once overloads are numbered; None means "use `name`"
-    # (design 126 R1).
+    # registration once overloads are numbered; None means "use `name`".
     mangled_symbol: Optional[str] = annotation(None)
-    # design 70 (A5): this method is a SYNTHESIZED instantiation of a generic
-    # template, cloned and substituted for per-instantiation effect re-inference
-    # rather than written by an author. See Function.is_mono_instance.
+    # This method is a SYNTHESIZED instantiation of a generic template, cloned
+    # and substituted rather than written by an author. See
+    # Function.is_mono_instance.
     is_mono_instance: bool = annotation(False)
-    # design 218c, DF-286c face 1: see Function.mono_const_bindings.
+    # See Function.mono_const_bindings.
     mono_const_bindings: Optional[dict] = annotation(None)
-    # design 218c, design 30 Ruling 1: see Function.mono_result_roles.
+    # See Function.mono_result_roles.
     mono_result_roles: Optional[dict] = annotation(None)
-    # design 218c, design 228 leg 3: see Function.mono_substituted_never.
+    # See Function.mono_substituted_never.
     mono_substituted_never: bool = annotation(False)
 
 
 @dataclass
 class Attribute(ASTNode):
-    """A Swift-style declaration attribute (design 58): `@name` or `@name(arg)`.
+    """A Swift-style declaration attribute: `@name` or `@name(arg)`.
 
     Attached to the declaration immediately following it. The legal names are
     `export` and `section` (on a top-level func/static), `synthesize` (on an
-    extension, design 128) and `align` (DF-300b: on a `static` or on a local
+    extension) and `align` (on a `static` or on a local
     `let`/`var`); `export` takes zero args or one string literal, `section`
     requires exactly one string literal, `synthesize` takes none, and `align`
     requires exactly one CONSTANT INTEGER EXPRESSION.
@@ -2831,7 +2735,7 @@ class Attribute(ASTNode):
     # `@align(N)`'s argument, before folding. Parser-set, so a declared field
     # rather than an annotation.
     expr_arg: Optional['Expression'] = None
-    # DF-300b: the folded, validated `N`. Stamped by
+    # The folded, validated `N`. Stamped by
     # `TypeChecker._check_align_attribute` — the ONE place that folds, range
     # checks and power-of-two checks an `@align` — and read by codegen. None
     # until that check runs, and None on any attribute that is not `@align`.
@@ -2848,7 +2752,7 @@ STATIC_ATTRIBUTES = ("export", "section", "align")
 EXTENSION_ATTRIBUTES = ("synthesize",)
 LOCAL_ATTRIBUTES = ("align",)
 
-# DF-300b: the largest alignment `@align(N)` will accept. Chosen as one page on
+# The largest alignment `@align(N)` will accept. Chosen as one page on
 # every target Saw builds for — an alignment beyond a page is not something a
 # stack slot or an ordinary global can honour anyway, and a cap keeps a typo
 # (`@align(4096000)`) a compile error instead of a linker failure or a frame
@@ -2856,9 +2760,9 @@ LOCAL_ATTRIBUTES = ("align",)
 MAX_ALIGN = 4096
 
 # The sentence every `@align` position refusal ends with. Written once because
-# the refusal is reported from four places (a function, an extension, a struct
-# field, a parameter) and a reader who meets it in one of them is asking the
-# same question in all four.
+# the refusal is reported from several positions (a function, an extension, a
+# struct field, a parameter) and a reader who meets it in one of them is
+# asking the same question in all of them.
 ALIGN_SURFACE_HINT = (
     "`@align(N)` is accepted on a `static` declaration and on a local "
     "`let`/`var`. A field, a parameter or a type cannot state an alignment "
@@ -2912,7 +2816,7 @@ def section_name(node: 'ASTNode') -> Optional[str]:
 
 
 def requested_align(node: 'ASTNode') -> Optional[int]:
-    """The alignment `@align(N)` requests on `node`, or None (DF-300b).
+    """The alignment `@align(N)` requests on `node`, or None.
 
     THE reader (obligation 1). Codegen asks this at the two emission sites the
     attribute reaches — a local's `alloca` and a `static`'s global — and never
@@ -2926,52 +2830,38 @@ def requested_align(node: 'ASTNode') -> Optional[int]:
 
 
 def has_synthesize(node: 'ASTNode') -> bool:
-    """True if `node` carries the `@synthesize` attribute (design 128): the
-    author's explicit buy-in to a compiler-derived conformance body."""
+    """True if `node` carries the `@synthesize` attribute: the author's
+    explicit buy-in to a compiler-derived conformance body."""
     return find_attribute(node, 'synthesize') is not None
 
 
 def expr_diverges(expr) -> bool:
     """Does evaluating `expr` never fall through?
 
-    THE divergence question (design 228), asked by TYPE and not by spelling.
-    The typechecker stamps the bottom type `Never` on every expression that
-    diverges — `panic(...)`, a call to a `-> Never` function in ANY of its
-    callee shapes (plain, overloaded, module-private, imported, `extern "C"`,
-    extension method, closure, generic instantiation), and a break-less
-    `while { }` (design 177) — so one test covers all of them at once.
-
-    Entry points (obligation 1: this is the funnel, and these are its named
-    entries):
-      - `TypeChecker._diverges` (typechecker/registration.py), itself reached
-        from `_block_has_early_exit` (a statement or trailing expression) and
-        `_arm_diverges` (a match arm's body). Those two are entered from
-        `guard ... else` (typechecker/statements.py), the value `if` arms
-        (typechecker/expressions.py `_check_if_expression` /
-        `_check_if_let_expression`) and the three `match` checkers.
-      - `typechecker.statements._statement_diverges`, the STATEMENT-shaped
-        door: a block whose last statement diverges has the bottom type too.
-      - `coro_transform._is_never_expr`, which asks it to decide that a
-        diverging expression has no value to store into a frame's `__result`
-        (DF-158a).
-
-    CODEGEN does NOT ask this one, on purpose. Once lowering has begun the
-    sound question is the BUILDER's — "did emitting that expression terminate
-    this block" — because an expression can be typed `Never` and still fall
-    through: design 141's place accessor returns the WINDOW's result `__R`,
-    which is `Never` whenever the window body never falls out, while the
-    accessor itself returns normally. See `_terminate_after_noreturn`
-    (codegen/calls.py) and the `return` site in codegen/statements.py.
+    THE divergence question, asked by TYPE and not by spelling. The
+    typechecker stamps the bottom type `Never` on every expression that
+    diverges — `panic(...)`, a call to a `-> Never` function in any callee
+    shape, and a break-less `while { }` — so one test covers all of them. A
+    `WhileExpr` is answered from its `diverges` flag instead: in STATEMENT
+    position no type is stamped on it.
 
     ORDERING HAZARD: the answer is read off `resolved_type`, so a caller must
-    have CHECKED the expression first. Every entry above checks its block, arm
-    or operand before asking — the same discipline `WhileExpr.diverges`
-    documents for the design-177 flag, which is stamped while the loop is
-    checked.
+    have CHECKED the expression first.
 
-    A `WhileExpr` is answered from that flag rather than from its stamped type:
-    a diverging loop in STATEMENT position is a statement, and no type is
-    stamped on it there.
+    An expression can be typed `Never` and still fall through: a `borrows`
+    accessor's call is typed by its WINDOW's result `__R`, while the accessor
+    returns normally. So codegen asks this only for a call through a function
+    pointer, which cannot be an accessor; elsewhere it reads the callee's
+    `noreturn` attribute or whether emitting the expression terminated the
+    block (design 228).
+
+    ENTRY POINTS (obligation 1):
+      - `TypeChecker._diverges` (via `_block_has_early_exit`, `_arm_diverges`)
+      - `typechecker.statements._statement_diverges`
+      - `TypeChecker._check_value_transfer`
+      - `TypeChecker._consumes_walk_value`
+      - `coro_transform._is_never_expr`
+      - `codegen.calls._terminate_after_noreturn` (closure / `any` calls)
     """
     if isinstance(expr, WhileExpr):
         return expr.diverges
@@ -2987,57 +2877,51 @@ class Function(ASTNode):
     body: Block
     type_params: List[TypeParameter] = field(default_factory=list)  # Generic type parameters
     visibility: 'Visibility' = Visibility.PRIVATE
-    # `sync func` declaration (design 22): body checked transitively
-    # suspension-free at definition (ISR/callback style).
+    # `sync` declaration: body checked transitively suspension-free at
+    # definition (ISR/callback style).
     is_sync: bool = False
-    # design 219 wave C: see `Method.tier_requirements`.
+    # See `Method.tier_requirements`.
     tier_requirements: Optional[dict] = annotation(None)
-    # `unsafe func` declaration (design 130): see Method.is_unsafe.
+    # Declared `unsafe`: see Method.is_unsafe.
     is_unsafe: bool = False
-    # design 218 stage 3: see Method.unsafe_decl_checked.
+    # See Method.unsafe_decl_checked.
     unsafe_decl_checked: bool = False
-    # `borrows func` declaration (design 141): see Method.is_borrows.
+    # `borrows func` declaration: see Method.is_borrows.
     is_borrows: bool = False
     place_type: Optional[SawType] = annotation(None)
     place_optional: bool = annotation(False)
-    # See Method.place_lend_declared_mutable / place_lend_mutable (SL-333).
+    # See Method.place_lend_declared_mutable / place_lend_mutable.
     place_lend_declared_mutable: bool = annotation(False)
     place_lend_mutable: bool = annotation(False)
-    # See Method.place_receiver_mutation (SL-333 R4). Always None here: a free
+    # See Method.place_receiver_mutation. Always None here: a free
     # `borrows` function has no receiver to require access to.
     place_receiver_mutation: Optional[str] = annotation(None)
-    # See Method.place_lend_paths (design 200). Always empty here: a free
+    # See Method.place_lend_paths. Always empty here: a free
     # `borrows` function has no receiver, so it can lend nothing that outlives
     # its frame — `_check_rooted_in_receiver` refuses every such body.
     place_lend_paths: tuple = annotation(())
-    # Declaration attributes (design 58): `@export` / `@section(...)` lines.
+    # Declaration attributes: `@export` / `@section(...)` lines.
     attributes: List['Attribute'] = field(default_factory=list)
-    # Compiler-synthesized (design 80): coroutine-transform-generated functions
+    # Compiler-synthesized: coroutine-transform-generated functions
     # (spawn/drive wrappers, synthesized main) access std internals by
     # construction, so their member access is EXEMPT from the visibility gate —
     # the gate enforces source-level access only.
     is_synthesized: bool = False
     source_file: str = ""
     doc: Optional[str] = None
-    # See Method.mangled_symbol (design 126 R1).
+    # See Method.mangled_symbol.
     mangled_symbol: Optional[str] = annotation(None)
-    # design 70 (A5): this function is a SYNTHESIZED instantiation of a generic
-    # template — the effect pass cloned the pristine snapshot, substituted the
-    # type arguments and re-checked the body with errors suppressed, to harvest
-    # per-instantiation effect edges. The passes that walk module declarations
-    # read it to skip re-registering, re-snapshotting or re-checking a clone as
-    # if it were something the author wrote.
+    # This function is a SYNTHESIZED instantiation of a generic template:
+    # cloned from its pristine snapshot with the type arguments substituted,
+    # by the effect pass (to harvest per-instantiation effect edges) or by the
+    # monomorphization phase. The passes that walk module declarations read it
+    # to skip re-registering, re-snapshotting or re-checking a clone as if it
+    # were something the author wrote.
     is_mono_instance: bool = annotation(False)
-    # design 218c, DF-286c FACE 1 — A CONST GENERIC PARAMETER IS A VALUE, and a
-    # clone carries no type parameters to read it off.
-    #
-    # `<const N: Int>` puts `N` in the body as an ordinary integer expression
-    # (design 148). Codegen's old path answered it from a LIVE
-    # `type_param_context`, so nothing ever had to be carried; a substituted
-    # clone has `type_params = []` and `SawType.substitute` reaches only types,
-    # so `N` came out an undefined variable — 78 raw diagnostics over 20
-    # templates in the Sep-1 census, std's own `FixedBuf`/`FixedStringBuilder`
-    # among them.
+    # A CONST GENERIC PARAMETER IS A VALUE, and a clone carries no type
+    # parameters to read it off: a substituted clone has `type_params = []`
+    # and `SawType.substitute` reaches only types, so `N` would be an
+    # undefined variable.
     #
     # NAME -> (declared const type, the bound `CONST_VALUE` argument). The
     # instance materializer fills it at the clone; `_enter_const_params` reads
@@ -3048,30 +2932,29 @@ class Function(ASTNode):
     # precedence — a local named `N` shadows the parameter in a template body,
     # and only a scope walk knows that.
     mono_const_bindings: Optional[dict] = annotation(None)
-    # design 218c + design 30 Ruling 1 — THE GENERIC LOCK-IN, carried.
+    # THE GENERIC LOCK-IN, carried.
     #
     # `func wrapErr<T, E>(e: E) -> Result<T, E> { return e }` decides Err
     # ABSTRACTLY, from the spelling: `e`'s declared type is the return's Err
     # parameter. At `T = E = Int` both payloads accept the value and the
-    # decision is no longer derivable — the instantiation must inherit the one
-    # the abstract layer made, which is what "monomorphizes consistently even
-    # when an instantiation makes T == E" means.
+    # decision is not derivable — the instantiation must inherit the one
+    # the abstract layer made.
     #
     # PARAMETER NAME -> `'ok'` | `'err'`, computed at the clone from the
     # TEMPLATE's own annotations (which name the abstract parameters even in a
     # pristine, never-checked snapshot) and read by `_autowrap_into_result`.
     mono_result_roles: Optional[dict] = annotation(None)
-    # design 218c + design 228 leg 3 — A `Never` THAT ARRIVED BY SUBSTITUTION.
+    # A `Never` THAT ARRIVED BY SUBSTITUTION.
     #
     # `-> Never` is a DECLARATION about control flow: it lowers to `void` plus
     # `noreturn`, and the caller terminates after the call. A `Never` that
     # arrives by substituting a type PARAMETER is not that declaration — it is
-    # an ordinary value type, exactly as design 132 rules for a substituted
-    # `Void`. Design 141's place accessor is the case: a window closure's result
-    # `__R` is `Never` whenever the window body never falls through, so
-    # `Slot<ArcE>.value<Never>` is a real function that returns a value nobody
-    # reads, and lowering it to `void noreturn` made its caller `unreachable`
-    # after a call that DOES return — a silent trap at run time.
+    # an ordinary value type, as a substituted `Void` is. A `borrows`
+    # accessor is the case: a window closure's result `__R` is `Never` whenever
+    # the window body never falls through, so `Slot<ArcE>.value<Never>` is a
+    # real function that returns a value nobody reads. Lowering it to
+    # `void noreturn` would make its caller `unreachable` after a call that
+    # DOES return — a silent trap at run time.
     #
     # True on a clone whose TEMPLATE did not write `Never`, and read by the
     # declaration funnel `_lower_declared_return_of`. The template's own
@@ -3087,20 +2970,20 @@ class TypeDefinition(ASTNode):
     visibility: 'Visibility' = Visibility.PRIVATE
     source_file: str = ""
     doc: Optional[str] = None
-    # Design 144: see Struct.type_identity.
+    # See Struct.type_identity.
     type_identity: str = ""
 
 
 @dataclass
 class StaticDecl(ASTNode):
-    """Module-level static declaration: static NAME: Type = initializer (design 41).
+    """Module-level static declaration: static NAME: Type = initializer.
 
     Statics are const-initialized and immortal (never deinit). An immutable one
     is Sync-only — global mutation flows through interior-synchronized types
-    (`Atomic<Int>`, and since design 149 `SpinLock<T>`), which is still the
-    recommendation for single-word state several tasks update independently.
+    (`Atomic<Int>`, `SpinLock<T>`), which is the recommendation for
+    single-word state several tasks update independently.
 
-    `unsafe static var` (design 149 unit a) is the compound case Atomics cannot
+    `unsafe static var` is the compound case Atomics cannot
     express: a handle table of multi-word slots, a bitmap paired with the queues
     it indexes, an arena's backing storage. Its consistency comes from a
     serialization argument the compiler cannot see (interrupts off, single core,
@@ -3117,20 +3000,18 @@ class StaticDecl(ASTNode):
     type: 'SawType'
     initializer: Optional['Expression'] = None
     visibility: 'Visibility' = Visibility.PRIVATE
-    # design 149: `unsafe static var` — a MUTABLE static. Always set together.
+    # `unsafe static var` — a MUTABLE static. Always set together.
     is_var: bool = False
     is_unsafe: bool = False
-    # Declaration attributes (design 58): `@export` / `@section(...)` lines.
+    # Declaration attributes: `@export` / `@section(...)` / `@align(...)` lines.
     attributes: List['Attribute'] = field(default_factory=list)
     source_file: str = ""
     doc: Optional[str] = None
-    # DF-140f: the LLVM global's name. A module-PRIVATE static outside the root
-    # module takes a module-local symbol, so two dependencies that both declare
-    # a private `PT_LOAD` stop colliding in the merged codegen namespace;
+    # The LLVM global's name. A module-PRIVATE static outside the root module
+    # takes a module-local symbol, so two dependencies that both declare a
+    # private `PT_LOAD` do not collide in the merged codegen namespace;
     # registration stamps it and codegen keys `static_globals` by it. Same name
-    # and same job as Function/Method.mangled_symbol, and declared late (design
-    # 194 unit 5) because the graft gate's name rule accepted it as "declared
-    # somewhere" on the strength of those two.
+    # and same job as Function/Method.mangled_symbol.
     mangled_symbol: Optional[str] = annotation(None)
 
 
@@ -3141,15 +3022,16 @@ class ExternFunction(ASTNode):
     parameters: List[Parameter]
     return_type: 'SawType'
     is_variadic: bool = False  # True for functions like printf, open that take ...
-    # `extern blocking func` (design 18/22): an unbounded FFI call. For this
-    # prototype it is simply a suspension source; the pool-offload machinery
-    # (hosted) / freestanding-hazard handling is future work.
+    # `extern blocking func`: an unbounded FFI call, and a suspension source.
+    # From a task, a hosted call runs on an offload thread while the task parks
+    # (design 103); a `Thread.spawn` body (sync, but blocking-permitted) calls
+    # it directly; other sync contexts refuse the call; the freestanding
+    # profile refuses the declaration.
     is_blocking: bool = False
     # The file this declaration was written in, stamped by the parser like every
-    # other declaration's. Two diagnostics anchor on it and both read it
-    # defensively today: DF-181f's `blocking` disagreement and DF-225a's
-    # compiler-symbol collision, each of which can be raised while checking a
-    # DEPENDENCY and would otherwise name the entry file or no file at all.
+    # other declaration's. Diagnostics about an extern read it because they can
+    # be raised while checking a DEPENDENCY, and would otherwise name the entry
+    # file or no file at all.
     source_file: str = ""
 
 
@@ -3174,13 +3056,13 @@ class Program(ASTNode):
     imports: List['ImportDecl'] = field(default_factory=list)
     module_decls: List['ModuleDecl'] = field(default_factory=list)
     exports: List['ExportDecl'] = field(default_factory=list)  # For init.saw facades
-    static_asserts: List['StaticAssert'] = field(default_factory=list)  # design 53
+    static_asserts: List['StaticAssert'] = field(default_factory=list)
     source_path: Optional[str] = None      # Path to source file
     module_path: Optional[List[str]] = None  # Fully qualified module path
-    # Module doc comment (design 121): the `//!` block(s) at the top of the file,
+    # Module doc comment: the `//!` block(s) at the top of the file,
     # markers stripped and lines joined with "\n". None when undocumented.
     module_doc: Optional[str] = None
-    # design 121: on a MERGED program (the std tree, or a multi-file module), the
+    # On a MERGED program (the std tree, or a multi-file module), the
     # per-file `//!` docs, keyed by source path. Merging flattens the files into
     # one Program, so each file's own `module_doc` would otherwise be lost; the
     # docs emitter reads this to attribute a module doc back to its file. Survives

@@ -5,7 +5,7 @@ This module provides mixin methods for generating code that handles Result<T, E>
 types and try expressions (try, try?, try!).
 
 Result representation (same as enums):
-- Tagged union: { i32, [max_bytes x i8] }
+- Tagged union: { i32, [M x iK] } (see `_enum_payload_union_type`)
 - Ok = tag 0, Err = tag 1
 
 Usage:
@@ -37,8 +37,8 @@ class ResultsMixin:
 
         # Resolve the concrete Result instantiation. Prefer the typechecker
         # annotation (the concrete `Result<T, E>` SawType): matching by LLVM type
-        # alone is AMBIGUOUS because distinct instantiations share a layout —
-        # `Result<Int, Int>` and `Result<String, E>` are both `{ i32, [8 x i8] }`,
+        # alone is ambiguous because distinct instantiations share a layout
+        # (`Result<Int, Int>` and `Result<String, E>` are both one-word unions),
         # so LLVM-type matching would pick whichever was registered first and
         # extract the Ok/Err payload as the wrong type (e.g. an Int read as a
         # String pointer -> crash). The name-based path keys off the actual type.
@@ -108,50 +108,31 @@ class ResultsMixin:
 
     def _emit_try_force_panic(self, result_val, expr: TryExpr,
                               result_enum_name: str):
-        """Panic out of a `try!` that met an `Err`, NAMING the error (DF-245b).
+        """Panic out of a `try!` that met an `Err`, naming the error.
 
-        `try!` is the only consumer of a `Result` that does not hand the payload
-        on — `try`, `try?`, `catch` and `main`'s Err exit all do — so it was the
-        one place a failure arrived complete and was reported as `try! failed`
-        and nothing else. That is also the spelling design 234 migrates a call
-        site to when it does not want to handle the failure, which is what makes
-        the message quality the point rather than a papercut: `try! v.push(x)`
-        must say what `Vector.push`'s panic said.
-
-        The error is rendered after the fixed text, through the SAME stack-scratch
-        walk `panic("...{}", e)` uses (`_render_argument` -> design 137), so the
-        alloc-free and denied-allocator paths keep working and an erased
-        `Box<any Error>` renders through its vtable exactly as `"{e}"` does. The
-        scratch lands in THIS block, not the entry block: it ends in
-        `unreachable`, so a function that merely contains a `try!` pays no frame
-        bytes for the message.
-
-        An error type the format walk cannot render — a struct or enum with no
-        `Printable` conformance, which `E` is not bounded to have — keeps the
-        bare text. Nothing is guessed about a type that never said how it reads.
+        `try!` is the spelling a call site uses when it does not want to handle
+        the failure: where `try`, `catch` and `main`'s Err exit hand the error
+        on and `try?` turns it into `None`, `try!` ends the program, so
+        `try! v.push(x)` must say what the error said. The rendering is
+        `_emit_forced_result_panic`'s.
         """
         self._emit_forced_result_panic(result_val, result_enum_name,
                                        "try! failed", expr.line, expr.column)
 
     def _emit_forced_result_panic(self, result_val, result_enum_name: str,
                                   what: str, line: int, column: int):
-        """Panic out of a FORCED `Result` that met an `Err`, naming the error.
+        """Panic out of a forced `Result` that met an `Err`, naming the error.
 
-        The rendering half of DF-245b, shared by every site that consumes a
-        `Result` it cannot hand on. ENTRY POINTS (obligation 1 — this is the one
-        chokepoint, and these are all of them):
+        Shared by the two forced-error sites. Entry points:
+          `_emit_try_force_panic` -- the `try!` a caller wrote (`what` is `try! failed`)
+          `_force_synthesized_result` -- a compiler-synthesized call (`what` names the construct)
 
-          * `_emit_try_force_panic` — the `try!` a caller wrote (`what` is
-            `try! failed`);
-          * `_force_synthesized_result` — a call the COMPILER synthesized, which
-            has no expression a `try` could sit on (`what` names the construct).
-
-        The error is rendered after `what` through the SAME stack-scratch walk
-        `panic("...{}", e)` uses (`_render_argument` -> design 137), so the
-        alloc-free and denied-allocator paths keep working and an erased
-        `Box<any Error>` renders through its vtable. The scratch lands in THIS
-        block, not the entry block: it ends in `unreachable`, so a function that
-        merely contains one pays no frame bytes for the message.
+        The error is rendered after `what` through the same stack-scratch walk
+        `panic("...{}", e)` uses (`_render_argument`), so the alloc-free and
+        denied-allocator paths keep working and an erased `Box<any Error>`
+        renders through its vtable. The scratch lands in this block, not the
+        entry block: it ends in `unreachable`, so a function that merely
+        contains one pays no frame bytes for the message (design 137).
 
         An error type the format walk cannot render — a struct or enum with no
         `Printable` conformance, which `E` is not bounded to have — keeps the
@@ -175,28 +156,22 @@ class ResultsMixin:
             self._argument_step(rendered, in_entry=False)])
 
     def _synthesized_result_enum(self, value, ok_saw, err_spelling="AllocError"):
-        """The registered `Result$…` enum a COMPILER-SYNTHESIZED call returned,
+        """The registered `Result$…` enum a compiler-synthesized call returned,
         or `None` when the call returned something else.
 
         A synthesized call has no AST node the typechecker annotated, so the
-        instantiation cannot be read off `expr.result_enum_type` the way
-        `_generate_try_expr` reads it. It is recovered from the LLVM layout and
-        DISAMBIGUATED by BOTH payload spellings — which the caller knows by
-        construction — because same-layout instantiations are exactly what a
-        layout match alone cannot separate. Both halves are load-bearing: a
-        `Result<Void, AllocError>` shares its layout with
-        `Result<Arc<DataBuf>, AllocError>` (same Err, different Ok) and with
-        `Result<Void, DecodeError>` (same Ok, different Err), so either key
-        alone still leaves three candidates in an ordinary program.
+        instantiation is recovered from the LLVM layout and disambiguated by
+        both payload spellings, which the caller knows by construction. Both
+        halves are load-bearing: `Result<Void, AllocError>` shares its layout
+        with `Result<Arc<DataBuf>, AllocError>` (same Err, different Ok) and
+        with `Result<Void, DecodeError>` (same Ok, different Err).
 
-        `ok_saw` is `None` for a `Result<Void, E>` (design 92: a dataless Ok
-        arm); `err_spelling` defaults to the leaf every flipped container op
-        reports (design 234 §1's narrowest-type rule).
+        `ok_saw` is `None` for a `Result<Void, E>` (a dataless Ok arm);
+        `err_spelling` defaults to the leaf every fallible container op reports
+        (design 234).
 
-        ENTRY POINTS: `_build_collection_literal` — the per-element
-        `push`/`insert` of a vector/map/set literal (design 54), which is the
-        only synthesized call site design 234's flip reaches. A second entry
-        belongs here rather than beside it.
+        Entry points (a second synthesized site belongs here, not beside it):
+          `_build_collection_literal` -- the per-element `push`/`insert` of a vector/map/set literal
         """
         candidates = []
         for name, (llvm_type, _tags, info) in self.enum_types.items():
@@ -233,14 +208,12 @@ class ResultsMixin:
                                   what: str, line: int, column: int):
         """Consume a synthesized call's `Result`: yield the Ok value, panic on Err.
 
-        design 234 §5 — a site with no expression to hang a `try` on cannot
-        report a failure, so it panics, and the panic says what the `Result`
-        said. That is the whole difference from the tier this replaces: design
-        123's `panic("Vector.push: allocation failed")` named the method and
-        nothing about the request, while this renders the `AllocError` the call
-        actually produced.
+        A site with no expression to hang a `try` on cannot report a failure,
+        so it panics, and the panic renders the error the call actually
+        produced (design 234).
 
-        ENTRY POINTS: `_build_collection_literal`.
+        Entry points:
+          `_build_collection_literal`
         """
         func = self.builder.function
         ok_bb = func.append_basic_block(name="synth_ok")
@@ -257,7 +230,7 @@ class ResultsMixin:
                                        line, column)
 
         self.builder.position_at_end(ok_bb)
-        # NOT `_try_ok_payload`: a SYNTHESIZED call has no `try` node, so there
+        # Not `_try_ok_payload`: a synthesized call has no `try` node, so there
         # is no subject to alias and no obligation to honor. The value is a
         # fresh temporary the collection literal already owns.
         return self._extract_result_ok_value(result_val, result_enum_name)
@@ -279,7 +252,7 @@ class ResultsMixin:
         ok_end_bb = self.builder.block
 
         # Err block - return None. A `Result<Void, E>`'s Ok extracts to no
-        # value (DF-281a); its `Void?` carries the i8 placeholder payload
+        # value; its `Void?` carries the i8 placeholder payload
         # `_wrap_in_optional` built on the Some side, so match it here.
         self.builder.position_at_end(err_bb)
         none_result = self._create_none_for_type(
@@ -312,11 +285,11 @@ class ResultsMixin:
         _, _, result_variant_info = self.enum_types[result_enum_name]
         concrete_err_type = result_variant_info["Err"][0][1]
 
-        # design 234 §3: the ROUTING clause `try(as LocalError.Alloc) f()`
-        # converts the error channel before anything downstream looks at it —
-        # the caller's signature, an enclosing catch's union, an erasure into
-        # `Box<any Error>`. So it happens FIRST, and everything below runs on
-        # the routed value exactly as it would on an unrouted one.
+        # The routing clause `try(as LocalError.Alloc) f()` converts the error
+        # channel before anything downstream looks at it (the caller's
+        # signature, an enclosing catch's union, an erasure into `Box<any
+        # Error>`), so it happens first, and everything below runs on the
+        # routed value exactly as on an unrouted one (design 234).
         if expr.route_target is not None and expr.route_case is not None:
             err_value = self._build_enum_case_value(
                 err_value, expr.route_target, expr.route_case)
@@ -325,7 +298,7 @@ class ResultsMixin:
         # Check if we have an enclosing catch block
         catch_ctx = getattr(self, '_catch_context', None)
         if catch_ctx:
-            # Unpack context - may have 2, 4 or 5 elements depending on version
+            # Unpack context (2, 4 or 5 elements).
             if len(catch_ctx) == 5:
                 (catch_bb, err_alloca_ptr, error_type, error_types,
                  catch_cleanup_depth) = catch_ctx
@@ -357,18 +330,14 @@ class ResultsMixin:
                 self.builder.position_at_end(saved_block)
 
             self.builder.store(value_to_store, err_alloca_ptr[0])
-            # DF-218v: the try body's locals die on THIS edge, exactly as they
-            # would on the fall-through out of the same block. The error edge
-            # was the THIRD nonlocal exit that is not a return (after DF-218r's
-            # `break` and `continue`), and the only one that LEAKED: the OK path
-            # popped the scope normally and the propagating no-catch shape below
-            # runs `_cleanup_all_scopes`, so this branch alone left the block
-            # with nothing dropped.
+            # The try body's locals die on this edge, exactly as they would on
+            # the fall-through out of the same block: the error edge is a
+            # nonlocal exit like `break` and `continue`.
             #
-            # Order: the in-flight error is COPIED into `caught_error` above,
+            # Order: the in-flight error is copied into `caught_error` above,
             # before any drop runs, so what the catch receives is already out of
             # the scopes being released. Statement temporaries are drained
-            # first, then the scopes innermost-first — the same sequence
+            # first, then the scopes innermost-first: the same sequence
             # `return` and `break` run.
             if catch_cleanup_depth is not None:
                 if self.statement_temps:
@@ -378,22 +347,20 @@ class ResultsMixin:
                 self._cleanup_to_depth(catch_cleanup_depth)
             self.builder.branch(catch_bb)
         else:
-            # No enclosing catch - propagate to caller. Erased Result (design
-            # 56): if the enclosing function returns `Result<_, Box<any Trait>>`
-            # and this callee's error is concrete, erase it into a fresh box at
-            # the propagation edge (re-box). A callee already returning the box
-            # passes straight through (no re-box) — no erase_propagate is set.
+            # No enclosing catch - propagate to caller. Erased Result: if the
+            # enclosing function returns `Result<_, Box<any Trait>>` and this
+            # callee's error is concrete, erase it into a fresh box at the
+            # propagation edge. A callee already returning the box passes
+            # straight through (no erase_propagate is set) (design 56).
             erase = expr.erase_propagate
             if erase is not None:
                 err_value = self._erase_value_to_box(
                     err_value, erase['concrete'], erase['trait'], erase['allocator'])
             caller_result = self._create_result_err_for_return(err_value)
             self._cleanup_all_scopes()
-            # design 221 unit B4: a `try` inside `main` is a RETURN, and the
-            # third position that leaves the C entry — the funnel's own sweep
-            # of `builder.ret` sites turned it up. Unrouted, it emitted
-            # `ret {i32, [8 x i8]}` out of an `i32` function and llvmlite
-            # refused the module.
+            # A `try` inside `main` is a return that leaves the C entry, so it
+            # goes through the same `i32` exit funnel as `return` and the
+            # fall-through epilogue.
             if self._is_c_entry(func):
                 self._emit_main_exit_return(caller_result)
             else:
@@ -443,12 +410,9 @@ class ResultsMixin:
             # Type mismatch - should have been caught by typechecker
             pass
 
-        # A DIVERGING catch arm — `try f() catch { return fallback }`, or one
-        # ending in a `panic`/`break`/`continue` — already terminated its block,
-        # so it reaches no merge and contributes no incoming value. Branching
-        # anyway asserted inside llvmlite and surfaced as an internal compiler
-        # error with an EMPTY message (DF-196c). The block form of try/catch has
-        # guarded this since it was written; this one had not.
+        # A diverging catch arm (`try f() catch { return fallback }`, or one
+        # ending in a `panic`/`break`/`continue`) already terminated its block,
+        # so it reaches no merge and contributes no incoming value.
         catch_diverged = self.builder.block.is_terminated
         if not catch_diverged:
             self.builder.branch(merge_bb)
@@ -456,11 +420,9 @@ class ResultsMixin:
 
         # Merge
         self.builder.position_at_end(merge_bb)
-        # A `Result<Void, E>`'s Ok extracts to no value (DF-281a), so the
-        # branches carry control only and the whole expression is Void — a
-        # value position was already refused by the typechecker. DF-196c
-        # guarded this merge against a DIVERGING catch; the Void Ok is the
-        # same merge's other unmergeable half.
+        # A `Result<Void, E>`'s Ok extracts to no value, so the branches carry
+        # control only and the whole expression is Void; a value position was
+        # already refused by the typechecker.
         if ok_value is None:
             return None
         phi = self.builder.phi(ok_value.type, name="try_catch_result")
@@ -502,11 +464,11 @@ class ResultsMixin:
         # Save old catch context and set new one.
         # Context: (catch_bb, err_alloca_ptr, error_type, error_types,
         #           cleanup_depth).
-        # DF-218v: the depth is recorded HERE, before `_generate_block` pushes
-        # the try body's own scope, so the error edge unwinds everything the
-        # body opened and nothing outside it. Same discipline as a loop's entry
-        # depth on `loop_stack` (DF-218r) — a catch block is a SIBLING scope,
-        # not a nested one, so the branch to it really does leave them all.
+        # The depth is recorded here, before `_generate_block` pushes the try
+        # body's own scope, so the error edge unwinds everything the body
+        # opened and nothing outside it. Same discipline as a loop's entry
+        # depth on `loop_stack`: a catch block is a sibling scope, not a
+        # nested one, so the branch to it leaves them all.
         old_catch_ctx = getattr(self, '_catch_context', None)
         self._catch_context = (catch_bb, err_alloca_ptr, error_type,
                                error_types, len(self.cleanup_stack))
@@ -526,11 +488,11 @@ class ResultsMixin:
         # Generate catch block
         self.builder.position_at_end(catch_bb)
 
-        # Make the caught error available under the binding's own NAME. Usually
+        # Make the caught error available under the binding's own name. Usually
         # `error`; the coroutine transform renames it when two catch blocks in
-        # one body would otherwise share a frame field (design 196 unit 3), and
-        # the typechecker defines the same `error_binding or "error"` name in the
-        # catch scope — so reading it from the node is what keeps the two agreed.
+        # one body would otherwise share a frame field, and the typechecker
+        # defines the same `error_binding or "error"` name in the catch scope,
+        # so reading it from the node keeps the two agreed.
         error_name = expr.error_binding or "error"
         if err_alloca_ptr[0] is not None:
             old_error = self.variables.get(error_name)
@@ -569,39 +531,29 @@ class ResultsMixin:
         return try_result
 
     def _is_void_payload(self, params) -> bool:
-        """Whether a Result arm's payload is dataless — every field lowers to
-        Void (design 92: the Ok arm of `Result<Void, E>`). Such an arm carries
-        the tag only."""
+        """Whether a Result arm's payload is dataless: every field lowers to
+        Void (the Ok arm of `Result<Void, E>`). Such an arm carries the tag
+        only."""
         if not params:
             return True
         return all(isinstance(self._get_llvm_type(t), ir.VoidType) for _, t in params)
 
     def _try_ok_payload(self, expr: TryExpr, result_val, result_enum_name: str):
-        """Extract a `try`'s Ok payload, honoring its retain — ON THE OK PATH.
+        """Extract a `try`'s Ok payload, honoring its retain, on the Ok path.
 
-        THE FUNNEL for a `try`'s Ok value (SL-211 review r1). Its four entry
-        points are the four variants, and each calls it from inside its own
-        `ok_bb`, which is what makes the retain path-specific:
+        The funnel for a `try`'s Ok value. Each entry point calls it from
+        inside its own `ok_bb`, which is what makes the retain path-specific:
+          `_generate_try_force` -- `try!`, Err panics
+          `_generate_try_optional` -- `try?`, Err yields `None`
+          `_generate_try_propagate` -- `try`, Err returns early
+          `_generate_try_with_inline_catch` -- `try … catch { }`, Err runs the handler
 
-          1. `_generate_try_force`      — `try!`, Err panics.
-          2. `_generate_try_optional`   — `try?`, Err yields `None`.
-          3. `_generate_try_propagate`  — `try`, Err returns early.
-          4. `_generate_try_with_inline_catch` — `try … catch { }`, whose Err
-             path runs the HANDLER and produces the handler's own value.
-
-        Entry point 4 is why this exists. Design 269 made a `try` over an
-        aliasing subject take the transfer checkpoint, and the checkpoint used
-        to record the resulting duplication as a node-level `needs_copy` — one
-        obligation on the MERGED result. The enclosing transfer then copied
-        whatever came out of the phi, so the catch handler's value was copied
-        HERE as well as by its own `_generate_block` transfer: two retains, one
-        release, an owning `Copy` value leaked on the Err path.
-
-        Reading `payload_needs_copy` instead, at the extraction, is design
-        131's discipline — the same one `ForceUnwrap` uses, and for the same
-        reason: the retain belongs where the payload comes OUT of the
-        container, not where the expression's result lands, so a path that
-        never extracts can never pay for it.
+        The retain is read from `payload_needs_copy` at the extraction, as
+        `ForceUnwrap` does (design 131): it belongs where the payload comes out
+        of the container, not where the expression's result lands. A
+        node-level retain on the merged result would also copy the catch
+        handler's value, which its own block transfer already retained, and
+        leak it on the Err path.
         """
         payload = self._extract_result_ok_value(result_val, result_enum_name)
         if payload is None or not getattr(expr, 'payload_needs_copy', False):
@@ -631,9 +583,9 @@ class ResultsMixin:
         llvm_enum_type, variant_tags, variant_info = self.enum_types[result_enum_name]
         ok_params = variant_info["Ok"]
 
-        # design 92: a `Result<Void, E>` Ok arm carries no value — there is
-        # nothing to extract. Return None (the Void placeholder); callers in a
-        # Void context (e.g. `try!` as a statement) discard it.
+        # A `Result<Void, E>` Ok arm carries no value: there is nothing to
+        # extract. Return None (the Void placeholder); callers in a Void
+        # context (e.g. `try!` as a statement) discard it.
         if self._is_void_payload(ok_params):
             return None
 
@@ -645,7 +597,7 @@ class ResultsMixin:
         param_struct_type = ir.LiteralStructType(param_types)
 
         # Store the union to memory, then read it as the Ok variant's struct
-        # (design 265 U2: word-granular, see `_payload_scratch_alloca`).
+        # (word-granular; see `_payload_scratch_alloca`).
         payload_alloca = self._payload_scratch_alloca(
             llvm_enum_type.elements[1], "ok_payload_alloca")
         self.builder.store(payload_bytes, payload_alloca)
@@ -673,7 +625,7 @@ class ResultsMixin:
         param_struct_type = ir.LiteralStructType(param_types)
 
         # Store the union to memory, then read it as the Err variant's struct
-        # (design 265 U2: word-granular, see `_payload_scratch_alloca`).
+        # (word-granular; see `_payload_scratch_alloca`).
         payload_alloca = self._payload_scratch_alloca(
             llvm_enum_type.elements[1], "err_payload_alloca")
         self.builder.store(payload_bytes, payload_alloca)
@@ -701,9 +653,9 @@ class ResultsMixin:
         `result_type` overrides `current_return_type`: the coroutine transform
         rewrites `return <ResultErrWrap>` into a store to the frame's result slot
         inside `resume` (whose own return type is `Poll`, not the Result), so
-        the wrap node's stored `result_type` is the authority there (design 92)."""
-        # Prefer current_return_type — during generic monomorphization it is the
-        # SUBSTITUTED concrete Result (the wrap node still carries the generic
+        the wrap node's stored `result_type` is the authority there."""
+        # Prefer current_return_type: during generic monomorphization it is the
+        # substituted concrete Result (the wrap node still carries the generic
         # template). Fall back to the node's type only when current_return_type is
         # not a Result: the coroutine-transform resume case, where `return` was
         # rewritten to a result-slot store and current_return_type is `Poll`.
@@ -733,13 +685,12 @@ class ResultsMixin:
         param_struct = self.builder.insert_value(param_struct, err_value, 0)
 
         # Convert the Err struct into the payload union's type. The scratch
-        # slot MUST be sized to the FULL union (the biggest variant), not the
+        # slot must be sized to the full union (the biggest variant), not the
         # smaller Err variant struct: the load below reads the whole union, so
-        # an alloca of only the variant struct is read out of bounds past the
-        # slot (design 94 — the create/extract asymmetry). Alloca the full
-        # payload, store the variant struct into its front, load the whole
-        # thing back (design 265 U2: word-granular, see
-        # `_payload_scratch_alloca`).
+        # an alloca of only the variant struct would be read out of bounds.
+        # Alloca the full payload, store the variant struct into its front,
+        # load the whole thing back (word-granular; see
+        # `_payload_scratch_alloca`) (design 94).
         payload_type = llvm_enum_type.elements[1]
         payload_alloca = self._payload_scratch_alloca(
             payload_type, "err_struct_alloca")
@@ -773,8 +724,8 @@ class ResultsMixin:
         ok_tag = ir.Constant(ir.IntType(32), variant_tags["Ok"])
         result_val = self.builder.insert_value(result_val, ok_tag, 0)
 
-        # design 92: a `Result<Void, E>` Ok has no payload — the tag alone is
-        # the whole value (the byte array stays undef; the Err arm sizes it).
+        # A `Result<Void, E>` Ok has no payload: the tag alone is the whole
+        # value (the payload array stays undef; the Err arm sizes it).
         ok_params = variant_info["Ok"]
         if self._is_void_payload(ok_params):
             return result_val
@@ -787,8 +738,8 @@ class ResultsMixin:
         param_struct = self.builder.insert_value(param_struct, ok_value, 0)
 
         # Convert the Ok struct into the payload union's type. Size the scratch
-        # to the FULL union, not the smaller Ok variant struct — see
-        # _create_result_err_for_return (design 94: the load reads it whole).
+        # to the full union, not the smaller Ok variant struct; see
+        # _create_result_err_for_return (the load reads it whole).
         payload_type = llvm_enum_type.elements[1]
         payload_alloca = self._payload_scratch_alloca(
             payload_type, "ok_struct_alloca")
@@ -806,16 +757,15 @@ class ResultsMixin:
         This is inserted by the typechecker when a value of type T
         is returned from a function with return type Result<T, E>.
 
-        Design 40 item 5 (L10): the inner value escapes into the Ok payload —
-        this is a transfer site. Generate it through _gen_transfer_value so an
-        owned Copy value (`return s` where `s: String`) is retained
-        exactly as a direct return would retain it. Without the retain, scope
-        cleanup releases the local and frees the buffer the payload still points
-        at (premature free). `return move s` still works: the MoveExpr inside is
+        The inner value escapes into the Ok payload, so this is a transfer
+        site. Generate it through _gen_transfer_value so an owned Copy value
+        (`return s` where `s: String`) is retained exactly as a direct return
+        would retain it; without the retain, scope cleanup releases the local
+        and frees the buffer the payload still points at. `return move s` is
         not retained and the local is marked moved so cleanup skips it.
         """
-        # design 92: a value-less Ok (bare `return` in a `Result<Void, E>`
-        # function) has no inner expression to transfer — the Ok is the tag alone.
+        # A value-less Ok (bare `return` in a `Result<Void, E>` function) has
+        # no inner expression to transfer: the Ok is the tag alone.
         rtype = expr.result_type
         if expr.value is None:
             return self._create_result_ok_for_return(None, rtype)
@@ -828,8 +778,8 @@ class ResultsMixin:
         This is inserted by the typechecker when a value of type E
         is returned from a function with return type Result<T, E>.
 
-        The Err payload is a transfer site too (design 40 item 5): retain an
-        owned Copy error value so scope cleanup does not free it early.
+        The Err payload is a transfer site too: retain an owned Copy error
+        value so scope cleanup does not free it early.
         """
         value = self._gen_transfer_value(expr.value)
         return self._create_result_err_for_return(value, expr.result_type)
@@ -842,13 +792,12 @@ class ResultsMixin:
         alloc_saw = expr.allocator or SawType(TypeKind.STRUCT, struct_name="GlobalAllocator")
         fat = self._erase_value_to_box(value, expr.concrete_err,
                                        expr.trait_name, alloc_saw)
-        # Pass the wrap's OWN `result_type`, exactly as `visit_ResultErrWrap`
+        # Pass the wrap's own `result_type`, exactly as `visit_ResultErrWrap`
         # does. `current_return_type` still wins where it is a Result (the
         # generic-monomorphization case), and the node's type is the authority
-        # where it is not — the coroutine transform rewrites `return <wrap>` into
+        # where it is not: the coroutine transform rewrites `return <wrap>` into
         # a store to the frame's result slot inside `resume`, whose return type
-        # is `Poll`. Omitting it made an erased-error return in a SUSPENDING
-        # body an ICE (DF-192c) while its concrete sibling worked.
+        # is `Poll`.
         return self._create_result_err_for_return(fat, expr.result_type)
 
     def _get_result_enum_name(self, result_type: SawType) -> str:
@@ -859,13 +808,13 @@ class ResultsMixin:
         ok_type = result_type.unwrap_result_ok()
         err_type = result_type.unwrap_result_err()
 
-        # Build the canonical mangled name. This MUST match the name under which
+        # Build the canonical mangled name. This must match the name under which
         # the monomorphized Result enum is registered (via _ensure_monomorphized_enum
         # -> mangle_named), so producer and consumer never diverge. Canonicalize the
-        # payload types first — filling omitted trailing default type args at every
-        # nesting level, e.g. a raw method-annotation `Box<any Error>` -> arity-2
-        # `Box<any Error, Global>` (design 68) — so the name computed here from a
-        # raw `current_return_type` matches the registration, which canonicalizes.
+        # payload types first, filling omitted trailing default type args at every
+        # nesting level (a raw method-annotation `Box<any Error>` -> arity-2
+        # `Box<any Error, Global>`), so the name computed here from a raw
+        # `current_return_type` matches the registration, which canonicalizes.
         ok_type = self._canonicalize_type_kind(ok_type)
         err_type = self._canonicalize_type_kind(err_type)
         return mangle_named("Result", [ok_type, err_type])
@@ -931,7 +880,7 @@ class ResultsMixin:
 
         Two callers, one construction: the multi-error catch's synthesized union
         (`_wrap_error_in_union`, which picks the case by the concrete error's
-        NAME) and design 234 §3's routing clause (`_generate_try_propagate`,
+        name) and the `try(as ...)` routing clause (`_generate_try_propagate`,
         which takes the case the author wrote).
         """
         enum_name = enum_type.enum_name
@@ -960,8 +909,8 @@ class ResultsMixin:
         param_struct = self.builder.insert_value(param_struct, value, 0)
 
         # Convert the struct into the payload union's type. Size the scratch to
-        # the FULL union, not the smaller variant struct — see
-        # _create_result_err_for_return (design 94: the load reads it whole).
+        # the full union, not the smaller variant struct; see
+        # _create_result_err_for_return (the load reads it whole).
         payload_type = llvm_enum_type.elements[1]
         payload_alloca = self._payload_scratch_alloca(
             payload_type, "union_err_alloca")

@@ -116,15 +116,14 @@ class CollectionsMixin:
         the return is dropped like a discarded call result so a duplicate-key map
         literal with owning values does not leak the shadowed value.
 
-        `element_ok_type` is that same value's type once design 234's flip makes
-        the element op return `Result<_, AllocError>` — `None` for `push`, whose
-        Ok arm is `Void`. A LITERAL cannot report a refused allocation: the
-        `push`/`insert` calls below are synthesized, so there is no expression a
-        `try` could sit on, which is §5's hidden-allocation boundary reached from
-        the other side. The Result is FORCED here and the panic names the error
-        (conformance row A16). The container's own nullary `init` allocates
-        nothing for any of the three types, so the construction above it stays a
-        plain value."""
+        `element_ok_type` is the Ok type of the element op's
+        `Result<_, AllocError>`: `None` for `push`, whose Ok arm is `Void`. A
+        literal cannot report a refused allocation: the `push`/`insert` calls
+        below are synthesized, so there is no expression a `try` could sit on.
+        The Result is forced here and the panic names the error (conformance
+        row A16, `alloc_collection_literal_panics_named.saw`). The container's
+        own nullary `init` allocates nothing for any of the three types, so the
+        construction stays a plain value (design 234)."""
         ct = container_type
         if ct is not None and self.type_param_context:
             ct = ct.substitute(self.type_param_context)
@@ -143,13 +142,10 @@ class CollectionsMixin:
         tmp_ptr = self._entry_alloca(cont_val.type, name=type_name.lower() + "lit")
         self.builder.store(cont_val, tmp_ptr)
 
-        # design 168 unit 3 (DF-164a): named from the literal's own SOURCE
-        # POSITION, not its `node_id`. A node id is a process-global counter, so
-        # this name shifted with how much had been parsed before the literal —
-        # two compiles of one file in one process emitted `%"__collit_14189"` and
-        # `%"__collit_29638"`, and any std cache (which changes the order ids are
-        # allocated in) moved every one of them. A position is a property of the
-        # source and nothing else.
+        # Named from the literal's own source position, not its `node_id`: a
+        # node id is a process-global counter that shifts with how much was
+        # parsed before the literal (and with any std cache), while a position
+        # is a property of the source alone, so the IR stays deterministic.
         tmpname = self._positional_local(expr, "__collit")
         self.variables[tmpname] = tmp_ptr
         self.variable_types[tmpname] = ct
@@ -170,10 +166,10 @@ class CollectionsMixin:
                     arguments=[Argument(value=a, name=None) for a in arg_list],
                     line=expr.line, column=expr.column)
                 res = self._generate_expression(mc)
-                # design 234: the element op reports a refused allocation now.
-                # Force it here — a synthesized call has nowhere to propagate to
-                # — and panic naming the error (row A16). Inert while the op
-                # still returns its bare value.
+                # The element op reports a refused allocation. Force it here (a
+                # synthesized call has nowhere to propagate to) and panic
+                # naming the error (row A16). Inert for an op that returns a
+                # bare value.
                 if res is not None:
                     ok_saw = (element_ok_type.substitute(self.type_param_context)
                               if (element_ok_type is not None
@@ -217,8 +213,8 @@ class CollectionsMixin:
         """Lower a set literal `{a, b, ...}` (design 54)."""
         ct = expr.resolved_type
         # `Set.insert` answers whether the value was newly added, so its Ok arm
-        # is `Bool` once design 234 makes it fallible — the key that tells its
-        # `Result` apart from a same-layout one.
+        # is `Bool`: the key that tells its `Result` apart from a same-layout
+        # one.
         return self._build_collection_literal(
             ct, expr, "insert", [[e] for e in expr.elements],
             element_ok_type=SawType(TypeKind.BOOL))
@@ -276,13 +272,13 @@ class CollectionsMixin:
     def _generate_array_literal(self, expr: ArrayLiteral):
         """Generate code for array literal.
 
-        Design 54 Part 4: when the typechecker stamped a `Vector<T, A>` expected
-        type, build a Vector (per-element push) instead of a fixed-size array."""
+        When the typechecker stamped a `Vector<T, A>` expected type, build a
+        Vector (per-element push) instead of a fixed-size array (design 54)."""
         vec_ct = expr.vector_container_type
         if vec_ct is not None:
-            # `Vector.push` answers nothing, so its Ok arm is `Void` once design
-            # 234 makes it fallible — `element_ok_type=None` is that, not an
-            # omission (design 92: a dataless Ok arm carries the tag only).
+            # `Vector.push` answers nothing, so its Ok arm is `Void`:
+            # `element_ok_type=None` is that, not an omission (a dataless Ok arm
+            # carries the tag only).
             return self._build_collection_literal(
                 vec_ct, expr, "push", [[e] for e in expr.elements],
                 element_ok_type=None)
@@ -296,9 +292,8 @@ class CollectionsMixin:
         arr_saw = getattr(expr, 'resolved_type', None)
         elem_saw = arr_saw.array_element_type if arr_saw is not None else None
 
-        # Only the position-quantified R1 case changes shape: if an element is a
-        # memberwise struct literal, the fixed array supplies its destination.
-        # Arrays without one retain the SSA sequence they already used.
+        # If an element is a memberwise struct literal, the fixed array
+        # supplies its destination. Arrays without one use the SSA sequence.
         if any(self._can_materialize_struct_init(e) for e in expr.elements):
             array_type = self._get_llvm_type(arr_saw)
             array_ptr = self._entry_alloca(array_type, name="array.init")
@@ -335,14 +330,14 @@ class CollectionsMixin:
         `zeroinitializer` (which is the memset — `[0; 4096]` is one store); a
         small non-zero constant becomes a constant array; anything else stores
         the value into an alloca through a counted loop. The value expression is
-        evaluated EXACTLY ONCE either way, which is what makes the element's
+        evaluated exactly once either way, which is what makes the element's
         copy policy the typechecker's business rather than a surprise here.
         """
         arr_saw = expr.resolved_type
         count = arr_saw.array_size if arr_saw is not None else None
         if count is None:
             # An abstract generic body stamped a length it could not evaluate;
-            # this instantiation can (design 148 unit C).
+            # this instantiation can.
             count = const_eval(expr.repeat_count, env=self._const_param_env(),
                                metric=self._const_type_metric,
                                width=self.int_width)
@@ -423,11 +418,11 @@ class CollectionsMixin:
     def _is_zero_constant(cls, value) -> bool:
         """Whether an LLVM constant is the all-zero bit pattern.
 
-        Aggregates count (design 149 unit b): a static's initializer decides
-        whether the global can be zerofill, and the zero cases that matter there
-        are `zeroinitializer` — which llvmlite spells as a Constant carrying no
-        payload — and an element list that is zeros all the way down, which is
-        what a spelled-out struct or array of zeros arrives as.
+        Aggregates count: a static's initializer decides whether the global can
+        be zerofill, and the zero cases that matter there are `zeroinitializer`
+        (which llvmlite spells as a Constant carrying no payload) and an element
+        list that is zeros all the way down, which is what a spelled-out struct
+        or array of zeros arrives as (design 149).
         """
         if not isinstance(value, ir.Constant):
             return False
@@ -444,34 +439,25 @@ class CollectionsMixin:
 
     def _generate_array_index(self, expr: ArrayIndex):
         """Generate code for array or tuple indexing with [index] syntax."""
-        # design 46: UnsafeMemory region indexing projects to an element address.
+        # UnsafeMemory region indexing projects to an element address (design 46).
         if expr.um_projection:
             return self._generate_um_index_projection(expr)
 
-        # design 263 U3b: when the container is real storage, address the
-        # element in it. The old path LOADED THE WHOLE ARRAY as an SSA value and
-        # spilled it to an `arr_tmp` alloca just to have something to GEP into,
-        # so reading one byte out of a two-element table of 1.2 KB structs
-        # copied 2.4 KB — three times over in sos's `reclaim_process_slot`,
-        # which reads `PROCESSES[slot].state` and `.refs`. `_get_element_pointer`
-        # emits the SAME `_emit_array_bounds_check` over the same count and
-        # loads the same element; only the copy disappears. It is also the path
-        # every WRITE already takes, so this makes the read agree with the
-        # write about how an element is reached.
+        # When the container is real storage, address the element in it rather
+        # than loading the whole array as an SSA value and spilling it to a
+        # temporary to GEP into, which copies the entire array to read one
+        # element. `_get_element_pointer` emits the same
+        # `_emit_array_bounds_check` over the same count and loads the same
+        # element. It is also the path every write takes, so the read agrees
+        # with the write about how an element is reached (design 263).
         #
-        # The one ordering difference — the container's VALUE is read after the
-        # index expression instead of before it — is the RULING (DF-296a, user,
-        # Sep 3): an indexed read addresses the LIVE container, so an index
-        # expression that writes the container is observed by the read that
-        # indexes it. U3b landed with an `_index_reads_only` allowlist that kept
-        # the old snapshot for a call-bearing index; that made the read disagree
-        # with the write, which has always resolved `arr` through
-        # `_get_lvalue_pointer` before evaluating the index, and it cost 12,996 B
-        # of sos image to preserve the disagreement. Every indexed position now
-        # agrees: this one, `arr[i].field` (`_narrow_field_read`), the
-        # compound-assignment reads in statements.py, and
-        # `_generate_array_builtin`'s `swap` all reach the element through
-        # `_get_element_pointer`.
+        # An indexed read addresses the live container, so an index expression
+        # that writes the container is observed by the read that indexes it.
+        # Every indexed position agrees on this: this one and `arr[i].field`
+        # (`_narrow_field_read`) reach the element through
+        # `_get_element_pointer`, and the compound-assignment reads in
+        # statements.py and `_generate_array_builtin`'s `swap` read through the
+        # container's storage rather than a snapshot of its value.
         if self._addressable_place(expr):
             return self.builder.load(self._get_element_pointer(expr),
                                      name="elem")
@@ -483,8 +469,8 @@ class CollectionsMixin:
             # Array indexing - need to allocate, store, and use GEP
             index_val = self._generate_expression(expr.index)
 
-            # Dynamic bounds check (design 63 T1b): panic on an out-of-range
-            # index into a fixed array before the GEP/load.
+            # Dynamic bounds check: panic on an out-of-range index into a fixed
+            # array before the GEP/load.
             self._emit_array_bounds_check(index_val, container_val.type.count, expr.index)
 
             # Allocate space for the array on stack

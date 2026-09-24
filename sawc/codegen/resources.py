@@ -57,10 +57,9 @@ class ResourcesMixin:
             return saw_type.enum_name
         return None
 
-    # Every primitive pseudo-struct an extension may be written on (design 57,
-    # widened to the whole set by design 176 / DF-169d), and the `SawType` kind
-    # its `self` carries.
-    # DF-225d: THE table, not a copy of it — see `ast_nodes.PRIMITIVE_EXT_KINDS`.
+    # Every primitive pseudo-struct an extension may be written on, and the
+    # `SawType` kind its `self` carries. This is the one table in
+    # `ast_nodes.PRIMITIVE_EXT_KINDS`, not a copy of it.
     _PRIMITIVE_EXT_KINDS = PRIMITIVE_EXT_KINDS
 
     def _primitive_ext_name(self, saw_type):
@@ -79,21 +78,20 @@ class ResourcesMixin:
 
     def _primitive_self_llvm_type(self, struct_name: str):
         """The LLVM `self` type for a method in an extension on a primitive
-        pseudo-struct (design 57), or None for an ordinary struct. String is
-        i8*; the integers are their own widths; Float is a double."""
+        pseudo-struct, or None for an ordinary struct. String is i8*; the
+        integers are their own widths; Float is a double."""
         kind = self._PRIMITIVE_EXT_KINDS.get(struct_name)
         if kind is None:
             return None
         return self._get_llvm_type(SawType(kind))
 
     def _enum_tag_llvm_type(self, enum_name: str):
-        """The LLVM integer type of an enum's TAG.
+        """The LLVM integer type of an enum's tag.
 
-        `i32` for every ordinary enum, so existing IR is byte-identical. A
-        RAW-BACKED enum (design 145 unit B2) is exactly its declared backing
-        width, because the backing pins the representation: `enum E: UInt8` is
-        one byte, which is what makes it legal as a field of an
-        `UnsafeMemory`-viewed wire struct."""
+        `i32` for every ordinary enum. A raw-backed enum is exactly its declared
+        backing width, because the backing pins the representation: `enum E:
+        UInt8` is one byte, which is what makes it legal as a field of an
+        `UnsafeMemory`-viewed wire struct (design 145)."""
         entry = self.enum_types.get(enum_name)
         if entry is None:
             return ir.IntType(32)
@@ -107,11 +105,11 @@ class ResourcesMixin:
         """The `(llvm_type, saw_type)` pair for `self` in `extension <type_name>`.
 
         One place that knows all three receiver shapes: a primitive
-        pseudo-struct (design 57), an ENUM (design 145 — its LLVM type is a bare
-        `i32` tag when payload-free, or `{i32, [M x iK]}` with payloads), and an
-        ordinary struct. Getting the SawType KIND right matters as much as the
-        LLVM type: a STRUCT-kinded `self` on an enum has no variants, so every
-        `match self` in the body would fail to resolve its cases."""
+        pseudo-struct, an enum (a bare tag when payload-free, or
+        `{tag, [M x iK]}` with payloads), and an ordinary struct. Getting the
+        SawType kind right matters as much as the LLVM type: a STRUCT-kinded
+        `self` on an enum has no variants, so every `match self` in the body
+        would fail to resolve its cases."""
         prim = self._primitive_self_llvm_type(type_name)
         if prim is not None:
             return prim, SawType(self._PRIMITIVE_EXT_KINDS[type_name])
@@ -124,32 +122,25 @@ class ResourcesMixin:
     def _type_method_base(self, saw_type: SawType) -> Optional[str]:
         """Base symbol for a type's compiler-invoked methods (deinit / copy).
 
-        This must match the name the method was REGISTERED under. Monomorphized
+        This must match the name the method was registered under. Monomorphized
         methods are registered as `mangle_method(mangle_named(base, args), m)`
         (e.g. `Box<Int>.deinit` -> `Box$1$Int_deinit`), so the base here is the
         canonical `mangle_type` of the (struct/enum) type. String's compiler-
         provided methods use the base 'String'. Non-generic types mangle to
-        their plain name, so their symbols are unchanged.
+        their plain name.
 
-        DEFAULT TYPE ARGUMENTS ARE FILLED FIRST (design 37, DF-128c). A field
-        written `Vector<Int>` DENOTES `Vector<Int, GlobalAllocator>`, and that
-        full form is what the monomorphized methods are registered under —
-        `Vector$2$Int$GlobalAllocator_deinit`. Mangling the written form gave
-        `Vector$1$Int`, and every consumer reads the resulting miss as "this
-        type has no deinit of its own" and falls back to structural glue. So a
-        struct holding a `Vector` field never ran the vector's own deinit: its
-        elements leaked and its buffer was never freed. generics.py documents
-        this chokepoint — every mangling of a named type funnels through
-        `_fill_default_type_args` — and this caller was the one that skipped it.
-
-        It could not be fixed alone. The missing drop CANCELLED `Vector.get`
-        handing out a non-retained alias of a move-only element (DF-132a): the
-        alias ran the element's deinit, the container's field glue did not, and
-        each element was freed exactly once by accident. Fixing either half by
-        itself frees twice. `get` is a place now, so this lands with it.
+        Default type arguments are filled first. A field written `Vector<Int>`
+        denotes `Vector<Int, GlobalAllocator>`, and the monomorphized methods
+        are registered under that full form
+        (`Vector$2$Int$GlobalAllocator_deinit`). A consumer that misses its
+        method takes its own fallback (the drop path structural glue, the
+        copy/retain paths a structural or trivial copy), so mangling the
+        written form would silently skip the type's own method: for `deinit`
+        its elements leak and its buffer is never freed. This lookup therefore
+        fills defaults through `_fill_default_type_args` (design 37); plain
+        `mangle_type` does not.
         """
-        # Primitive pseudo-structs carrying method extensions (design 57, the
-        # whole set since design 176 / DF-169d).
+        # Primitive pseudo-structs carrying method extensions.
         for _name, _kind in self._PRIMITIVE_EXT_KINDS.items():
             if saw_type.kind == _kind:
                 return _name
@@ -189,12 +180,12 @@ class ResourcesMixin:
         - 'no_copy': Type implements NoCopy, cannot be copied
 
         Results are cached in self.type_cleanup_behavior. The cache key carries
-        the TYPE ARGUMENTS, because one of the answers below is structural: a
+        the type arguments, because one of the answers below is structural: a
         generic enum's tier comes from its instantiated payloads, so `Slot<K>`
-        and `Slot<Res>` are two different answers under one base name. Keying on
-        the base name alone let whichever was seen first decide for both — the
-        abstract form always answers "none", so a concrete `Slot<Res>` read
-        emitted no copy and DF-146e's over-release followed.
+        and `Slot<Res>` are two different answers under one base name. Keyed
+        on the base name alone, whichever was seen first would decide for both;
+        the abstract form answers "none", so a concrete `Slot<Res>` read would
+        emit no copy and be over-released.
         """
         type_name = self._get_type_name_for_conformance(saw_type)
         if type_name is None:
@@ -214,21 +205,15 @@ class ResourcesMixin:
         elif self.namespace.names_copy_tier(conformances):
             behavior = "implicit_copy"
         elif self.namespace.is_structurally_implicit_copy(saw_type):
-            # The UNDECLARED Copy tier, structs and enums alike
-            # (design 159). An enum cannot declare Copy at all, so an
-            # owning-payload enum (`DepSource { PathDep(String) }`) has always
-            # been classified here (DF12). A STRUCT whose owning members are
-            # all trivial/Copy — `struct P { name: String }`, a struct
-            # holding a closure — is on exactly the same footing: the
-            # containment checks deliberately exempt it from declaring a
-            # policy, so the tier is automatic and this is the only place that
-            # can report it.
-            #
-            # Answering "none" for that struct (DF-151b) is what made a copy
-            # emit no retain while its per-binding drop still released every
-            # field. `copy_tier` is the one oracle both kinds now ask, so
-            # there is a single answer to "copy this composite" regardless of
-            # how the tier arose.
+            # The undeclared Copy tier, structs and enums alike. An enum
+            # cannot declare Copy at all, so an owning-payload enum
+            # (`DepSource { PathDep(String) }`) is classified here. A struct
+            # whose owning members are all trivial/Copy (`struct P { name:
+            # String }`, a struct holding a closure) is on the same footing:
+            # the containment checks exempt it from declaring a policy, so the
+            # tier is automatic and this is the only place that can report it.
+            # Answering "none" would make a copy emit no retain while the
+            # per-binding drop still releases every field (design 159).
             behavior = "implicit_copy"
         elif "ExplicitCopy" in conformances:
             # ExplicitCopy has a deinit and is never implicitly copied (the
@@ -247,16 +232,14 @@ class ResourcesMixin:
         """Re-tag a STRUCT-kinded type that actually names an ENUM.
 
         A named type reaches codegen still tagged STRUCT whenever nothing
-        re-resolved it (design 61, L14: the parser cannot know which it is, and
-        not every path canonicalizes). A STRUCT FIELD is the case that matters:
+        re-resolved it (the parser cannot know which it is, and not every path
+        canonicalizes). A struct field is the case that matters:
         `namespace.get_struct_fields` hands back the raw parsed annotation, so
         `struct Holder { slot: Slot }` describes its enum field as a struct.
 
         Every value-lifecycle dispatch below is keyed on `kind`, so a
-        mis-tagged type falls off the end of the chain and emits NOTHING — no
-        drop, no retain, no release. That is why an enum-typed struct field
-        leaked its payload: the field was correctly judged cleanup-needing and
-        then dropped by a path that had no idea it was looking at an enum.
+        mis-tagged type falls off the end of the chain and emits nothing: no
+        drop, no retain, no release, and the enum's payload leaks.
         """
         if (saw_type is not None and saw_type.kind == TypeKind.STRUCT
                 and saw_type.struct_name
@@ -272,27 +255,27 @@ class ResourcesMixin:
         A type needs cleanup if it declares a resource trait (Deinit / NoCopy /
         Copy / ExplicitCopy) OR -- even with no declared conformance --
         it transitively holds a value needing cleanup:
-        - a struct with a cleanup-needing field (brief 17);
-        - an enum whose any variant carries a cleanup-needing payload field
-          (brief 23 item 1) -- enums dodge the containment rules entirely, so
-          this "needs cleanup" test is what makes an undeclared enum holding a
-          Deinit payload get its active variant released at scope exit;
-        - an `Optional<T>` whose inner `T` needs cleanup (brief 23 item 1 probe).
+        - a struct with a cleanup-needing field;
+        - an enum any of whose variants carries a cleanup-needing payload
+          field. Enums dodge the containment rules entirely, so this test is
+          what makes an undeclared enum holding a Deinit payload get its active
+          variant released at scope exit;
+        - an `Optional<T>` whose inner `T` needs cleanup;
+        - a fixed array or tuple whose elements do, and an escaping closure.
         """
-        # `Box<any Trait, A>` (design 51) always owns a heap payload: its erased
-        # teardown (vtable destructor + dealloc) must run at scope death.
+        # `Box<any Trait, A>` always owns a heap payload: its erased teardown
+        # (vtable destructor + dealloc) must run at scope death.
         if self._is_erased_box(saw_type):
             return True
         # Left tagged STRUCT this would fall to the struct-field path below,
-        # which finds no fields AND poisons the shared cache under the bare name
-        # with `False` — so the enum's own `_enum_needs_variant_cleanup` then reads
-        # that stale `False` and an owning enum payload (e.g. an `Arc` inside a
-        # `Vector<enum>` slot) is treated as non-owning: leaked drop glue, and (for
-        # design 65's copy-with-retain) no retain. Re-tag to ENUM first.
+        # which finds no fields and poisons the shared cache under the bare name
+        # with `False`; `_enum_needs_variant_cleanup` would then read that stale
+        # `False` and treat an owning enum payload (an `Arc` inside a
+        # `Vector<enum>` slot) as non-owning: no drop glue and no retain.
         saw_type = self._retag_enum(saw_type)
         if self._get_cleanup_behavior(saw_type) != "none":
             return True
-        # An escaping closure value (design 71) is an OWNING value: it may carry a
+        # An escaping closure value (design 71) is an owning value: it may carry a
         # heap environment whose destructor releases owned captures and frees the
         # block. Its drop glue null-checks the value's carried dtor pointer, so a
         # non-owning closure (no captures / borrow-only) is a safe no-op. A
@@ -310,16 +293,12 @@ class ResourcesMixin:
             return (saw_type.array_element_type is not None
                     and self._needs_cleanup(saw_type.array_element_type))
         if saw_type.kind == TypeKind.TUPLE:
-            # A tuple owns its elements exactly as a struct owns its fields
-            # (design 139: a composite takes its strongest element's tier), so
-            # it needs cleanup iff any element does. Named tuples included —
-            # the names are a projection convenience, not a different type.
-            # This arm was MISSING (DF-151f), and its absence was silent in
-            # both directions: `_needs_cleanup` answered False, so no binding
-            # ever registered a tuple for cleanup, and `_emit_drop_at` fell
-            # through to the struct-field path, which finds no fields. A
-            # `(Arc<Res>, Int)` local leaked its Arc with no error and no
-            # crash.
+            # A tuple owns its elements exactly as a struct owns its fields (a
+            # composite takes its strongest element's tier), so it needs
+            # cleanup iff any element does. Named tuples included: the names
+            # are a projection convenience, not a different type. Without this
+            # arm a tuple falls to the struct-field path, which finds no
+            # fields, and a `(Arc<Res>, Int)` local leaks silently (design 139).
             return any(self._needs_cleanup(e)
                        for e in (saw_type.element_types or [])
                        if e is not None)
@@ -426,23 +405,19 @@ class ResourcesMixin:
     def _is_owned_temporary(self, expr) -> bool:
         """Whether `expr` produces a fresh, owned value that no binding holds.
 
-        A value nobody holds must be registered as a statement-scoped temporary
-        (item 4), or nothing will ever release it. A value an existing binding
-        DOES hold must not be, or its owner's cleanup and this one both run --
+        A value nobody holds must be registered as a statement-scoped
+        temporary, or nothing will ever release it. A value an existing binding
+        does hold must not be, or its owner's cleanup and this one both run --
         a double free. So this is an ownership question with two wrong answers,
-        and it is the PRODUCER question design 269 made total: "does this
+        and it is the producer question design 269 made total: "does this
         expression name storage an existing owner keeps, or mint a value the
         reader owns?"
 
-        THE ANSWER IS THE CHECKER'S, NOT CODEGEN'S (SL-213, unit D of SL-209).
-        This used to be an isinstance list of eight node classes -- a second,
-        independent opinion with exactly the failure mode design 269 documents:
-        a node that mints a value and is not on the list answers False, and the
-        value leaks. Six shapes did, and they were one mechanism rather than
-        six bugs: `(try! f()).x` and `f()!.x` (SL-220), `(move r).x`, a value
-        `if` / `match` receiver, and a `??` receiver. The list is now
-        `typechecker.producers`, whose gate fails the build when a node class is
-        unclassified, so a new expression form cannot silently leak here.
+        The answer is the checker's, not codegen's: `typechecker.producers`
+        classifies every node class, and its gate fails the build when one is
+        unclassified, so a new expression form cannot silently leak here. A
+        second, independent codegen list would answer False for any node it
+        forgot, and that value would leak.
 
         The mapping, one line per kind:
 
@@ -456,45 +431,43 @@ class ResourcesMixin:
                        reader's own.
           REWRAPS   -- the same value under a wider type; recurse to the
                        operand, which is the value that actually transferred.
-          BRANCHES  -- every arm is a transfer into the merged home (DF-299b),
-                       so the merged value is the reader's whichever arm ran:
-                       a fresh arm hands over a temporary, and an arm that READS
-                       a binding retains at the arm. Both owe a release here.
-          BUILDS    -- a fresh value, including the aggregate LITERALS DF-151d
-                       added: each builds its elements through
-                       `_gen_transfer_value` and so holds references it took
-                       itself.
-          OWN_ARM   -- `move x` RETIRES the source binding, so nobody else will
+          BRANCHES  -- every arm is a transfer into the merged home, so the
+                       merged value is the reader's whichever arm ran: a fresh
+                       arm hands over a temporary, and an arm that READS a
+                       binding retains at the arm. Both owe a release here.
+          BUILDS    -- a fresh value, including the aggregate literals: each
+                       builds its elements through `_gen_transfer_value` and
+                       so holds references it took itself.
+          OWN_ARM   -- `move x` retires the source binding, so nobody else will
                        release the value; `&x` grants no ownership at all.
 
-        Called from the seven positions that consume a value without binding it
-        (obligation 1's named entry points): a member-access object
-        (`structs.py`), a method-call receiver and a field-call receiver
-        (`calls.py`), an expression STATEMENT (`statements.py`), an
-        `if let` / `guard let` scrutinee (`conditionals.py`), and a `match`
-        scrutinee in both its lowerings (`match.py`).
+        Entry points (the positions that consume a value without binding it):
+          `_generate_member_access` (structs.py) -- a member-access object
+          `_generate_method_call` (calls.py) -- a method-call receiver
+          `_generate_optional_presence` (calls.py) -- an `is_some`/`is_none` receiver
+          `visit_ExpressionStatement` (statements.py) -- an expression statement
+          `_optional_source_hands_over` (conditionals.py) -- an `if let`/`guard let` scrutinee
+          `_generate_match_expr` (match.py) -- a `match` scrutinee
+          `_generate_match_general` (match.py) -- a `match` scrutinee
         """
         # The typechecker/codegen seam is crossed function-locally, as
         # `typechecker`'s own `from codegen.mangle import ...` calls do. The
-        # module is a pure classification over node-local annotations -- it
-        # holds no state and reads no scope -- so asking it here answers the
-        # same question the checkpoint asked, about the same node.
+        # module is a pure classification over node-local annotations (no
+        # state, no scope), so asking it here answers the same question the
+        # checkpoint asked, about the same node.
         from typechecker import producers
         from .calls import PreparedValue
 
-        # CODEGEN'S OWN SYNTHESIZED NODES ARE CODEGEN'S TO ANSWER FOR. The
-        # taxonomy's universe is the AUTHORED tree -- `ast_nodes`' `Expression`
-        # subclasses, which is what its gate enumerates -- and codegen declares
-        # `Expression` subclasses of its own that no gate has ever seen. Asking
-        # about one is a question the checker was never posed, so it is answered
-        # here, by name, with its reason; anything else still reaches the
-        # taxonomy and is still LOUD when unclassified, which is the property
-        # design 269 exists to hold.
+        # Codegen's own synthesized nodes are codegen's to answer for. The
+        # taxonomy's universe is the authored tree (`ast_nodes`' `Expression`
+        # subclasses, which its gate enumerates); codegen declares `Expression`
+        # subclasses no gate has seen, so each is answered here, by name, with
+        # its reason. Anything else still reaches the taxonomy and is still
+        # loud when unclassified (design 269).
         #
-        # `PreparedValue` (design 137) wraps an LLVM value its BUILDER already
-        # owns -- a stack `StringBuilder` for `format(into:)`, a rendered error
-        # -- so its lifetime is that builder's and a release here would be a
-        # second one.
+        # `PreparedValue` wraps an LLVM value its builder already owns (a stack
+        # `StringBuilder` for `format(into:)`, a rendered error), so its
+        # lifetime is that builder's and a release here would be a second one.
         if isinstance(expr, PreparedValue):
             return False
 
@@ -512,10 +485,10 @@ class ResourcesMixin:
             if kind == producers.READS:
                 return False
             if kind == producers.PROJECTS:
-                # Design 269's P1: a Copy-tier payload duplicated AT THE
-                # EXTRACTION is a fresh reference this position owns. Without
-                # the stamp the extraction is a borrow of the operand's
-                # storage, so the operand's owner answers.
+                # A Copy-tier payload duplicated at the extraction is a fresh
+                # reference this position owns. Without the stamp the
+                # extraction is a borrow of the operand's storage, so the
+                # operand's owner answers.
                 if getattr(node, 'payload_needs_copy', False):
                     return True
                 node = producers.projected_operand(node)
@@ -526,7 +499,7 @@ class ResourcesMixin:
             if kind == producers.OWN_ARM:
                 return isinstance(node, MoveExpr)
             return True
-        # A wrap around no value at all (design 92's bare `return` in a
+        # A wrap around no value at all (a bare `return` in a
         # `Result<Void, E>` body) transfers nothing and owns nothing.
         return False
 
@@ -552,15 +525,10 @@ class ResourcesMixin:
         cleanup-needing fields directly.
 
         The drop is guarded exactly as scope exit guards its own (design 42): a
-        binding that was MOVED OUT no longer owns anything, and `var x = ...;
-        sink.push(move x); x = fresh` is the language's own revival idiom — the
-        `move` transferred the value to the vector, so dropping it again at the
-        reassignment frees what the vector holds. That double free was invisible
-        while a `Vector` FIELD had no drop glue (DF-128c): the spurious drop
-        reached a struct whose fields were never released, so it did nothing.
-        Restoring the glue made it real, and it is what crashed blade's manifest
-        reader — `TomlDoc.parse` moves its `current_section` into the document
-        and starts a fresh one on every `[header]` line.
+        binding that was moved out no longer owns anything, and `var x = ...;
+        sink.push(move x); x = fresh` is the language's own revival idiom. The
+        `move` transferred the value to the vector, so an unguarded drop at the
+        reassignment would free what the vector holds.
         """
         var_ptr = self.variables.get(var_name)
         if var_ptr is None:
@@ -569,7 +537,7 @@ class ResourcesMixin:
                                   self.drop_flags.get(var_name))
 
     def _revive_assigned_binding(self, var_name: str, saw_type: SawType):
-        """A moved `var` REVIVES on reassignment — so it owns again.
+        """A moved `var` revives on reassignment, so it owns again.
 
         `move x` clears the binding's drop flag and marks it moved, which is
         what stops the scope from dropping a value it handed away. Assigning a
@@ -787,7 +755,7 @@ class ResourcesMixin:
 
     def _emit_enum_cleanup_at(self, enum_ptr, saw_type: SawType):
         """Release the active variant's cleanup-needing payload fields of the enum
-        at `enum_ptr`, by switching on the runtime tag (brief 23 item 1).
+        at `enum_ptr`, by switching on the runtime tag.
 
         The enum is laid out `{ i32 tag, [M x iK] payload }`. For each variant
         that carries any cleanup-needing field we emit a switch case that bitcasts
@@ -850,8 +818,8 @@ class ResourcesMixin:
         self.builder.position_at_end(cont_bb)
 
     def _emit_optional_cleanup_at(self, opt_ptr, saw_type: SawType):
-        """Release the payload of an `Optional<T>` at `opt_ptr` when present (brief
-        23 item 1 probe). Optionals are `{ i1 is_some, T }`: branch on the flag and
+        """Release the payload of an `Optional<T>` at `opt_ptr` when present.
+        Optionals are `{ i1 is_some, T }`: branch on the flag and
         drop the inner value only on the Some path. A None optional (flag 0, e.g. a
         moved-out or never-set slot) is skipped, so this never over-releases.
         """
@@ -876,15 +844,15 @@ class ResourcesMixin:
 
         self.builder.position_at_end(cont_bb)
 
-    # ===== Copy-with-retain glue (design 65, L17) =====
+    # ===== Copy-with-retain glue (design 65) =====
     #
-    # The exact mirror of the drop glue above. `_emit_drop_at` RELEASES an owning
-    # value's refcounts; `_emit_retain_at` BUMPS them, in place, so a bitwise
+    # The exact mirror of the drop glue above. `_emit_drop_at` releases an owning
+    # value's refcounts; `_emit_retain_at` bumps them, in place, so a bitwise
     # duplicate of an aggregate becomes a genuinely-owned independent copy whose
     # eventual drop is balanced. Used to copy-with-retain a struct/enum read out
     # of a container it stays in (e.g. a `Vector` slot via `.get()`): the whole
     # value is not a clean Copy (it may be a NoCopy enum like `MapSlot`),
-    # but its owning FIELDS (String/Arc/nested owners) must each be retained so
+    # but its owning fields (String/Arc/nested owners) must each be retained so
     # the map still owns its live payload after the peek.
 
     def _deep_copy_value(self, value, saw_type: SawType):
@@ -914,9 +882,10 @@ class ResourcesMixin:
             copy_name = self._mangle_method_name(method_base, "copy")
             fn = self.functions.get(copy_name)
             if fn is not None:
-                # design 261: the receiver's shape is the callee's to declare.
-                # This site already HOLDS the storage, so a by-pointer `copy`
-                # takes `ptr` straight and only a by-value one needs the load.
+                # The receiver's shape is the callee's to declare:
+                # `_self_operand` passes the loaded value to a by-value `copy`
+                # and spills it to a fresh slot for a by-pointer one
+                # (design 261).
                 v = self.builder.load(ptr, name="retain_leaf")
                 v2 = self.builder.call(
                     fn, [self._self_operand(fn, v, name="retain_self")],
@@ -1063,7 +1032,7 @@ class ResourcesMixin:
         self.builder.position_at_end(cont_bb)
 
     def _emit_enum_deep_copy(self, value, saw_type: SawType):
-        """Copy an enum VALUE payload-deep (design 139).
+        """Copy an enum value payload-deep (design 139).
 
         The derived body behind `@synthesize extension E: Copy {}` /
         `: ExplicitCopy {}`. The active variant is a runtime choice, so the copy
@@ -1150,16 +1119,14 @@ class ResourcesMixin:
 
     # --- Release: the exact inverse of `_emit_retain_at` -----------------------
     #
-    # Releases the value at `ptr` DOWN TO exactly what `_emit_retain_at` would
-    # have retained — i.e. only refcounted (Copy) leaves and the owning
-    # fields reachable through them. Crucially it does NOT run the deinit of a
+    # Releases the value at `ptr` down to exactly what `_emit_retain_at` would
+    # have retained: only refcounted (Copy) leaves and the owning fields
+    # reachable through them. It does NOT run the deinit of a
     # NoCopy-with-side-effect leaf (a `Deinit` struct that carries no refcount,
-    # e.g. a `Val { id: Int }` counter): retain never bumped it (there is nothing
-    # to bump), so release must not fire it. This is what lets an owning payload
-    # field DISCARDED with `_` in a probe match (`Map._slot_state`,
-    # `Map._key_eq`'s value) release a retained String/Arc without over-counting a
-    # non-refcounted `Deinit` value — the design-61 exactly-once VALUE tests stay
-    # green while owning KEYS/refcounted values are now balanced (design 65).
+    # e.g. a `Val { id: Int }` counter): retain never bumped it, so release must
+    # not fire it. This lets an owning payload field discarded with `_` in a
+    # probe match release a retained String/Arc without over-counting a
+    # non-refcounted `Deinit` value (design 65).
 
     def _emit_release_at(self, ptr, saw_type: SawType):
         if not self._needs_cleanup(saw_type):
@@ -1324,41 +1291,29 @@ class ResourcesMixin:
             saw_type = saw_type.substitute(self.type_param_context)
 
         # Everything below the substitution is `_emit_copy_value`'s, and this is
-        # one of its named entry points (design 271): the transfer site's only
-        # extra job is resolving the type to the active monomorphization, so the
-        # funnel's own arms can look up the concrete struct/enum layout. The arm
-        # list this function used to carry was the SAME list, maintained
-        # separately — the drift that shape invites is what SL-265 was.
+        # one of its named entry points: the transfer site's only extra job is
+        # resolving the type to the active monomorphization, so the funnel's
+        # own arms can look up the concrete struct/enum layout. A second arm
+        # list here would drift from the funnel's (design 271).
         return self._emit_copy_value(value, saw_type)
 
     def _transfer_type_for(self, value, dest_saw: SawType) -> SawType:
         """The SawType that actually describes `value` at a transfer whose
-        DESTINATION is `dest_saw` (DF-151c).
+        destination is `dest_saw`.
 
-        Retain and drop glue are both driven off the type they are HANDED, so
-        that type must describe the value in hand. Every transfer site — a
-        local, a field, an array element, a `&var` referent, a struct-literal
-        field, a `let _` discard — has only the DESTINATION's type conveniently
-        available, and at each of them the destination may be opt-encoded (`T?`)
+        Retain and drop glue are both driven off the type they are handed, so
+        that type must describe the value in hand. Every transfer site has only
+        the destination's type available, and the destination may be `T?`
         while the value is still the bare payload `T`: the optional wrap happens
-        AFTER the copy, so a `T`-shaped value is what the glue sees. Driving it
-        with `T?` walks Optional layout over a value that has no tag word — it
-        reads a payload out of the payload itself and hands `T.copy`/`T.deinit`
-        garbage (`i8* != i8` out of `_emit_optional_retain_at`). Unwrap to the
-        payload in exactly the case the wrap will fire, so glue and wrap agree
-        on what the value is.
+        after the copy. Driving the glue with `T?` walks Optional layout over a
+        value with no tag word. So unwrap to the payload in exactly the case
+        the wrap will fire.
 
-        Keyed on the LLVM shape rather than on the source expression, for two
-        reasons: it is the same test the wrap itself uses, and it holds for the
-        synthesized nodes (coroutine frame stores) that carry no `resolved_type`
-        to consult.
-
-        "Same test as the wrap" is the load-bearing part, so it asks the question
-        the way `_fit_optional_slot` now does: the value is the PAYLOAD when its
-        LLVM type is the payload's. A bare shape test could not see that at a
-        NESTED optional — an `Int?` value bound for an `Int??` destination is
-        itself optional-shaped, so the glue was driven with `Int??` over a value
-        that has one tag word, not two (DF-174b's family).
+        Keyed on the LLVM shape, as `_fit_optional_slot` is, because that is
+        the wrap's own test and it holds for synthesized nodes (coroutine frame
+        stores) with no `resolved_type`. The value is the payload when its LLVM
+        type is the payload's; a bare "is it optional-shaped" test would
+        misread an `Int?` value bound for an `Int??` destination.
         """
         if (dest_saw is not None and dest_saw.is_optional()
                 and dest_saw.inner_type is not None):
@@ -1375,52 +1330,41 @@ class ResourcesMixin:
         return self._generate_copy(value, self._transfer_type_for(value, dest_saw))
 
     def _emit_copy_value(self, value, saw_type: SawType):
-        """THE COPY-EMISSION FUNNEL (design 271) — produce an independent copy of
-        a VALUE of `saw_type`, at that type's own copy tier.
+        """The copy-emission funnel: an independent copy of a value of
+        `saw_type`, at that type's own copy tier (design 271).
 
-        Obligation 1: "duplicate this value" is a rule quantified over every
-        position a duplicate is emitted, so it is ONE chokepoint. ITS ENTRY
-        POINTS, all of them:
+        A caller that keeps its own arm list re-implements this one
+        incompletely and falls through to a bitwise copy for what it missed;
+        an automatic Copy-tier aggregate (members all trivial/Copy, no declared
+        policy) then aliases its `String` fields and is released twice.
 
-        - `_generate_copy` (below) — every transfer site the typechecker marked
-          `needs_copy`, after monomorphization substitution.
-        - `_emit_array_deep_copy` / `_emit_tuple_deep_copy` /
-          `_emit_optional_deep_copy` (below) — the per-element recursions.
-        - `_emit_enum_deep_copy` (above) — the per-payload-field recursion.
-        - `codegen/calls.py`'s `.copy()` method-call interception — a SOURCE
-          `.copy()` whose receiver owns no emitted `copy` symbol.
-        - `codegen/methods.py`'s `_generate_derived_copy_body` — the per-field
-          duplication inside a `@synthesize`d memberwise `copy()`.
+        Entry points:
+          `_generate_copy` -- every transfer site marked `needs_copy`
+          `_emit_array_deep_copy` -- per-element recursion
+          `_emit_tuple_deep_copy` -- per-element recursion
+          `_emit_optional_deep_copy` -- payload recursion
+          `_emit_enum_deep_copy` -- per-payload-field recursion
+          `calls._generate_method_call` -- a source `.copy()` with no emitted `copy` symbol
+          `methods._generate_derived_copy_body` -- a `@synthesize`d memberwise `copy()`
+          `closures._generate_closure` -- a `[copy x]` capture
+          `operators._retain_comparison_operand` -- a String comparison's `other`
 
-        The last two used to carry hand-maintained arm lists of their own, each
-        an incomplete re-implementation of this one, and each fell through to a
-        BITWISE copy for whatever it had no arm for. That is SL-265: an
-        AUTOMATIC Copy-tier aggregate (design 159 — a struct or enum whose
-        members are all trivial/Copy, declaring nothing and owing nothing) owns
-        retainable members and matches no "declares a policy" test, so both
-        chains aliased its `String` fields and the duplicate's drop released
-        storage the original still owned.
+        The arms, in order:
+        1. Array / tuple / optional: recurse per element so every element
+           copies at its own tier.
+        2. An escaping closure: Copy over a refcounted heap env; the value
+           bytes are unchanged, only the env refcount moves.
+        3. A real `copy` symbol (String, Arc, a declared Copy/ExplicitCopy
+           conformance, a hand-written hook), asked before the trivial test
+           because a hand-written `copy()` on a POD receiver must run.
+        4. Trivially copyable: bitwise.
+        5. An aggregate with no `copy` of its own that still owns
+           cleanup-needing members: `_deep_copy_value` retains each through
+           `_emit_retain_at`, the mirror of the drop glue (design 159).
+        6. A leaf with nothing to retain: bitwise.
 
-        The arms, in order, and why the order is this one:
-
-        1. ARRAY / TUPLE / OPTIONAL — the positional wrappers, each recursing
-           per element so every element copies at ITS own tier (design 139).
-        2. An escaping CLOSURE — Copy over a refcounted heap env (design 73);
-           the value bytes are unchanged, only the env refcount moves.
-        3. A real `copy` SYMBOL (String, Arc, a declared Copy/ExplicitCopy
-           conformance, a hand-written hook) — asked BEFORE the trivial test,
-           because a hand-written `copy()` on a POD receiver is the author's
-           body and must run.
-        4. Trivially copyable — bitwise, nothing owed.
-        5. The design-159 arm: an aggregate with no `copy` of its own that
-           still OWNS cleanup-needing members. `_deep_copy_value` retains each
-           through `_emit_retain_at`, the exact mirror of the drop glue, so the
-           duplicate's eventual drop is balanced.
-        6. A genuine leaf with nothing to retain — bitwise.
-
-        A type that cannot be duplicated at all never reaches here: the
-        typechecker refuses it, and the two call sites above raise before
-        delegating.
+        A type that cannot be duplicated never reaches here: the typechecker
+        refuses it.
         """
         if saw_type.kind == TypeKind.ARRAY:
             return self._emit_array_deep_copy(value, saw_type)
@@ -1431,7 +1375,7 @@ class ResourcesMixin:
         # An escaping closure is Copy (design 73): duplicating it bumps the
         # shared heap env's refcount and returns the same (aliased) value, so
         # the duplicate and the original each release exactly once. A null-env /
-        # non-owning closure retains as a no-op; a NON-escaping closure is a
+        # non-owning closure retains as a no-op; a non-escaping closure is a
         # borrow and is bitwise.
         if saw_type.kind == TypeKind.FUNCTION:
             if (saw_type.func_is_escaping
@@ -1451,7 +1395,7 @@ class ResourcesMixin:
                     name="elem_copy")
         if self.namespace.is_trivially_copyable(saw_type):
             return value
-        # An aggregate with no copy() of its own but with OWNING members — the
+        # An aggregate with no copy() of its own but with owning members: the
         # undeclared Copy tier (design 159). `[p; 3]` on a
         # `struct P { name: String }` would otherwise splat one String into
         # three slots with no retain and release it three times.
@@ -1462,7 +1406,7 @@ class ResourcesMixin:
         return value
 
     def _emit_optional_deep_copy(self, value, saw_type: SawType):
-        """Copy an `Optional<T>` VALUE by copying its payload (design 139).
+        """Copy an `Optional<T>` value by copying its payload (design 139).
 
         None copies to None; Some copies to Some of the payload's own copy, so
         the tier the payload provides is the tier the optional provides —
@@ -1520,10 +1464,10 @@ class ResourcesMixin:
         return result
 
     def _emit_tuple_deep_copy(self, value, saw_type: SawType):
-        """Copy a tuple VALUE element by element, in position order (DF-151f).
+        """Copy a tuple value element by element, in position order.
 
-        The exact counterpart of `_emit_array_deep_copy`: each element is
-        duplicated through `_emit_copy_value`, so every element copies at ITS
+        The counterpart of `_emit_array_deep_copy`: each element is
+        duplicated through `_emit_copy_value`, so every element copies at its
         own tier — a String or `Arc` element retains, a `Vector<Int>` element
         deep-copies into an independent buffer, a trivial one is bitwise, and a
         nested tuple recurses. The result is a tuple whose eventual drop
@@ -1550,42 +1494,25 @@ class ResourcesMixin:
         The value-transfer checkpoint marks `expr.needs_copy = True` on any
         Copy value read out of an existing binding, so codegen invokes
         `copy()` uniformly at every transfer site instead of re-deciding per
-        site.
+        site; `_transfer_needs_copy` re-derives only the cases the checker
+        records no decision for. `_generate_copy` runs at most once per
+        transfer.
 
-        Two transfer sites the typechecker checkpoint does NOT mark are also
-        handled here, because they alias an owned Copy value that then
-        escapes into a new home:
-        - `self` (a `&self` borrow returned/passed on) — SelfExpr is not in the
-          checkpoint's aliasing set;
-        - an inner-block tail expression (an if / if-let / match branch result
-          that is a plain binding) — only function/method-body tails are
-          checkpointed. Without the retain, the block's scope cleanup releases
-          the local and frees the value before its consumer reads it.
-        For Copy `copy()` == retain, so re-deriving the decision here
-        (instead of relying solely on `needs_copy`) yields the same result at
-        already-checkpointed sites and closes these two gaps. It never
-        double-copies: `_generate_copy` is invoked at most once per transfer.
-
-        DIVERGENCE (design 228 leg 5): a transfer into a block that is already
-        terminated produces nothing. This is where an argument list meets a
-        DIVERGING earlier argument — `takes(1, die(1), x + y)` lowers its three
-        arguments through here in order, and once `die(1)` has written the
-        block's `unreachable` the third one has nowhere to emit. Left to run it
-        did emit, into a terminated block: llvmlite's own assertion for a
-        `cbranch` (the checked `+`), reported as an `internal compiler error`
-        with an empty message, or plain `expected instruction opcode` from the
-        IR parser for a straight-line one. Asking here rather than in each of
-        the dozen argument loops is what makes the rule hold for every call
-        shape, the planned/labeled path and default-filled arguments included —
-        and for the other transfer homes (an aggregate element, a return value)
-        on the same terms.
+        A transfer into a block that is already terminated produces nothing.
+        This is where an argument list meets a diverging earlier argument:
+        once `die(1)` in `takes(1, die(1), x + y)` has written the block's
+        `unreachable`, the third argument has nowhere to emit, and emitting
+        into a terminated block is invalid IR. Asking here rather than in each
+        argument loop makes the rule hold for every call shape and for the
+        other transfer homes (an aggregate element, a return value)
+        (design 228).
         """
         if self.builder is not None and self.builder.block.is_terminated:
             return None
-        # design 51: erase `&concrete` to `&any Trait` at the call boundary. The
+        # Erase `&concrete` to `&any Trait` at the call boundary. The
         # typechecker tagged this argument; the underlying expression lowers to a
         # pointer to the concrete value, which we wrap into a fat pointer with the
-        # (concrete, trait) vtable attached. A borrow — no move/copy.
+        # (concrete, trait) vtable attached. A borrow — no move/copy (design 51).
         erase_trait = getattr(value_expr, 'erase_to_trait', None)
         if erase_trait is not None:
             data_ptr = self._generate_expression(value_expr)
@@ -1596,10 +1523,10 @@ class ResourcesMixin:
         if getattr(value_expr, "materialize_for_transfer", False):
             staged_struct = self._as_memberwise_struct_init(value_expr)
         if staged_struct is not None:
-            # SL-350's by-value adapters have an actual memory home. Build both
-            # the memberwise value and its checked Optional/Result transfer
+            # A by-value adapter with an actual memory home. Build both the
+            # memberwise value and its checked Optional/Result transfer
             # wrappers there; returning the staged load directly avoids wrapping
-            # the same annotations a second time below.
+            # the same annotations a second time below (SL-350).
             value = self._materialize_struct_value(
                 value_expr, name="transfer.init",
                 apply_optional_wrap=apply_optional_wrap)
@@ -1611,22 +1538,22 @@ class ResourcesMixin:
             return None
         if self._transfer_needs_copy(value_expr):
             value = self._generate_copy(value, self._expr_type(value_expr))
-            # DF3 (design 57): a copied/retained value wrapped into an optional
-            # parameter — the Some(...) owns the fresh reference.
+            # A copied/retained value wrapped into an optional parameter: the
+            # Some(...) owns the fresh reference.
             return self._maybe_autowrap_optional(
                 value_expr, value, apply_optional_wrap=apply_optional_wrap)
         elif getattr(value_expr, 'closure_lend', False):
-            # An escaping closure LENT into a non-escaping (borrowing) slot (design
-            # 73): the callee borrows and never drops it, so the caller KEEPS
-            # ownership — do not clear its drop flag, or the env leaks. Pass the
-            # value by value (a shared env pointer); the caller drops it once.
+            # An escaping closure lent into a non-escaping (borrowing) slot: the
+            # callee borrows and never drops it, so the caller keeps ownership.
+            # Clearing its drop flag would leak the env. Pass the value by value
+            # (a shared env pointer); the caller drops it once (design 73).
             pass
         elif isinstance(value_expr, Identifier):
             # No copy/retain was needed, yet the value is being transferred into a
-            # NEW home — for a named owned (ExplicitCopy/NoCopy) binding that means
-            # its ownership is MOVING out (e.g. a tail-return `result` or
+            # new home: for a named owned (ExplicitCopy/NoCopy) binding that means
+            # its ownership is moving out (e.g. a tail-return `result` or
             # `return v` written without an explicit `move`, which the language
-            # permits). The source must therefore NOT be dropped at scope exit:
+            # permits). The source must therefore not be dropped at scope exit:
             # clear its drop flag (design 42) and mark it moved for the unflagged
             # fallback path. A Copy source took the `needs_copy` branch
             # above (retain — the source stays live), so it never reaches here.
@@ -1644,12 +1571,11 @@ class ResourcesMixin:
         `value_expr`, around the already-materialized (and move/copy-resolved)
         `value`. Returns `value` unchanged when there is none.
 
-        Two marks, applied INNER FIRST, because a `Result<T?, E>` fed a bare
+        Two marks, applied inner first, because a `Result<T?, E>` fed a bare
         `T` carries both (`_arg_result_wrap_ok`): the Optional wrap makes the
-        Ok payload, then the Result wrap makes the Result. The name keeps its
-        design-57 spelling because every caller asks the same question — "does
-        this transfer owe a wrapper" — and there is exactly one place to ask
-        it."""
+        Ok payload, then the Result wrap makes the Result. The name says
+        "optional" but this is the one place every caller asks "does this
+        transfer owe a wrapper"."""
         opt_type = (getattr(value_expr, 'autowrap_to_optional', None)
                     if apply_optional_wrap else None)
         if opt_type is not None:
@@ -1662,10 +1588,10 @@ class ResourcesMixin:
         res_type = getattr(value_expr, 'autowrap_to_result', None)
         if res_type is None:
             return value
-        # DF-218f: the same wrap at the other payload kind. The two builders are
-        # the ones `ResultOkWrap` / `ResultErrWrap` use at the return position,
-        # so an argument-edge Result is laid out by the same code that lays out
-        # a returned one.
+        # The same wrap at the other payload kind. The two builders are the
+        # ones `ResultOkWrap` / `ResultErrWrap` use at the return position, so
+        # an argument-edge Result is laid out by the same code that lays out a
+        # returned one.
         if getattr(value_expr, 'autowrap_result_err', False):
             return self._create_result_err_for_return(value, res_type)
         return self._create_result_ok_for_return(value, res_type)
@@ -1673,83 +1599,55 @@ class ResourcesMixin:
     def _transfer_needs_copy(self, value_expr) -> bool:
         """Whether transferring `value_expr` into a new owner must copy/retain.
 
-        THE CHECKER'S ANSWER COMES FIRST AND IS AUTHORITATIVE. `needs_copy` is
-        written by `_stamp_retain`, the ONE writer of the retain annotations
-        (design 270), and the preservation audit proves the stamp survives
-        every lowering — so when it is there, nothing below is consulted.
+        The checker's answer comes first and is authoritative. `_stamp_retain`
+        is the sole writer of the `needs_copy` decision (design 270); a
+        lowering that rebuilds a node only carries the stamp across, and the
+        preservation audit proves the stamp survives every lowering, so when
+        it is there nothing below is consulted. The arms below answer only
+        where the checker records no decision:
 
-        WHAT THE ARMS BELOW ARE FOR, and what they are NOT (SL-213, unit D of
-        SL-209). SL-213's premise was that the shape/tier tail is a second
-        opinion to be retired wholesale. Measured, it is not one thing:
-
-          * the `place_value_read` and `frame_owning_read` arms answer for the
-            two funnels that record NO decision of their own — design 146's
-            place read and design 270 §4c/4d's coroutine frame, where the
-            transform is the stated authority. There is no checker answer to
-            migrate onto, by construction, until unit B/E gives those funnels
-            decisions and design 218's `Slot` migration retires the frame
-            encodings. They stay, and this is the documented reason.
-
-          * the isinstance TAIL is the only answer inside a MONOMORPHIZED
-            GENERIC BODY. The checker files `deferred` there, with
-            `discharge = tier-requirement:<instance>.<param>` — design 219
-            wave C discharges the requirement AT THE CALL SITES, so no
-            `needs_copy` is ever stamped on the instance body's own nodes.
-            Measured before touching it: disabling the tail leaves
-            `V32_copy_bound_is_tier_derived` compiling and SILENTLY WRONG —
-            its `Arc.strong_count()` oracle reads 6 where it must read 1.
-            Retiring it is gated on wave C's discharge materializing as an
-            annotation on the instance body, which is unit E's ground, not
-            this one's.
-
-        WHAT DID CHANGE HERE is the tail's stated justification, which had gone
-        stale and would have misled the next reader into deleting the wrong
-        thing. It used to read "`self` and inner-block tails aren't marked by
-        the checkpoint" — true when it was written, false since unit B (design
-        269): `SelfExpr` joined `PRODUCER_READS` (SL-218) and DF-299b's branch
-        recursion stamps inner-block arm tails, so BOTH of those carve-outs are
-        now the checker's and reach the `needs_copy` arm above. Neither is why
-        the tail still exists.
+          * `place_value_read` and `frame_owning_read`: the place read and the
+            coroutine frame read, two funnels that record no decision of their
+            own (for the frame read the transform is the authority).
+          * the isinstance tail: a monomorphized generic body. The checker
+            files `deferred` there and discharges the tier requirement at the
+            call sites (design 219), so no `needs_copy` is stamped on the
+            instance body's nodes; the tail re-derives the answer against the
+            concrete type. Disabling it miscompiles silently
+            (`V32_copy_bound_is_tier_derived` pins it).
         """
         if getattr(value_expr, 'needs_copy', False):
             return True
-        # design 146: a place VALUE READ. Reading a place out as a value is
-        # reading a CONTAINER SLOT the container still owns — the same
-        # duplication `v[i]` and `obj.field` are, and it gets the same rule.
-        # The lowering turns the read into a window closure returning its
-        # parameter, so the read arrives here as a bare Identifier and the
-        # container-slot arm below would never fire for it: an owning-but-
-        # undeclared element (a `Path`, whose only field is a String) came out
-        # as a bitwise alias, and the binding's drop freed the string the vector
-        # still held.
+        # A place value read. Reading a place out as a value is reading a
+        # container slot the container still owns: the same duplication
+        # `v[i]` and `obj.field` are, and it gets the same rule. The lowering
+        # turns the read into a window closure returning its parameter, so the
+        # read arrives here as a bare Identifier and the container-slot arm
+        # below would never fire for it (design 146).
         #
-        # It also answers DF-146e rule 2. When the element type mentions a type
-        # PARAMETER its tier is not knowable from the written type — only the
-        # bounds are, and the use site already proved from them that every
-        # instantiation can be copied. WHICH copy is a question for the
-        # instantiation, which is where the matching DROP is emitted, so it is
-        # answered here: `_generate_copy` substitutes the monomorphization
-        # context and emits the concrete type's own copy.
+        # When the element type mentions a type parameter its tier is not
+        # knowable from the written type, only from the bounds, and the use
+        # site already proved from them that every instantiation can be
+        # copied. Which copy is a question for the instantiation, which is
+        # where the matching drop is emitted: `_generate_copy` substitutes the
+        # monomorphization context and emits the concrete type's own copy.
         if getattr(value_expr, 'place_value_read', False):
             if getattr(value_expr, 'place_abstract_read', False):
                 return True
             return self._slot_read_needs_copy(self._expr_type(value_expr))
-        # design 124: a coroutine frame holds an across-suspend local in a
-        # `T?`-encoded field and reads it as `self.name!`. The ForceUnwrap hides
-        # the underlying field access from every check below (and from the
-        # typechecker's transfer checkpoint), so such a transfer used to take a
-        # non-retaining alias while the field kept its drop flag — the frame then
-        # released the payload out from under the value it had handed on. The
-        # frame keeps ownership of its field, so this read is a DUPLICATION,
-        # exactly like `v[i]` / `obj.field` below; the `move` spelling of the same
-        # read is not marked (it transfers the frame's own reference via
-        # `__saw_forget` instead).
+        # A coroutine frame holds an across-suspend local in a `T?`-encoded
+        # field and reads it as `self.name!`. The ForceUnwrap hides the
+        # underlying field access from every check below (and from the
+        # typechecker's transfer checkpoint). The frame keeps ownership of its
+        # field, so this read is a duplication, exactly like `v[i]` /
+        # `obj.field` below; the `move` spelling of the same read is not marked
+        # (it transfers the frame's own reference via `__saw_forget` instead)
+        # (design 124).
         if getattr(value_expr, 'frame_owning_read', False):
             return self._frame_read_needs_copy(value_expr)
-        # THE GENERIC-INSTANCE ARM (see the docstring). A body checked at an
-        # abstract tier carries no `needs_copy` — design 219 wave C discharges
-        # the requirement at the CALL SITES — so this re-derives the answer
-        # against the instance's CONCRETE type, which `type_param_context`
+        # The generic-instance arm (see the docstring). A body checked at an
+        # abstract tier carries no `needs_copy`, so this re-derives the answer
+        # against the instance's concrete type, which `type_param_context`
         # supplies below. A non-generic transfer that owes a retain was already
         # answered by the `needs_copy` arm above.
         if isinstance(value_expr, (Identifier, MemberAccess, ArrayIndex,
@@ -1764,30 +1662,27 @@ class ResourcesMixin:
                 t = t.substitute(self.type_param_context)
             if self._get_cleanup_behavior(t) == "implicit_copy":
                 return True
-            # design 65 (L17), extended (DF12): reading an owning aggregate (a
-            # struct/enum/optional with cleanup-needing fields) OUT OF A CONTAINER
-            # SLOT it stays in — an indexed element (`v[i]`), a struct FIELD
-            # (`obj.field`), or a tuple element (`t.0`) — duplicates it while the
-            # source keeps ownership. Moving out of such a projection is forbidden
-            # (L1), so the read is always a duplication: its owning fields must be
-            # retained (copy-with-retain in `_generate_copy`) so the copy's later
-            # drop is balanced. Without this, passing e.g. a `Path`/`DepSource`
-            # FIELD by value bitwise-aliased its `String`, which was then released
-            # by the receiver's drop while the container still owned it -> double
-            # free (DF12). A whole-binding read (a bare `Identifier`) is NOT here:
-            # it may be a move, and a Copy one is already caught above.
+            # Reading an owning aggregate (a struct/enum/optional/tuple with
+            # cleanup-needing fields) out of a container slot it stays in (an
+            # indexed element `v[i]`, a struct field `obj.field`, a tuple
+            # element `t.0`) duplicates it while the source keeps ownership.
+            # Moving out of such a projection is forbidden, so the read is
+            # always a duplication: its owning fields must be retained
+            # (copy-with-retain in `_generate_copy`) so the copy's later drop
+            # is balanced. A whole-binding read (a bare `Identifier`) is not
+            # here: it may be a move, and a Copy one is already caught above
+            # (design 65).
             if (isinstance(value_expr, (ArrayIndex, MemberAccess, TupleIndex))
                     and self._needs_cleanup(t)
                     and t.kind in (TypeKind.STRUCT, TypeKind.ENUM,
                                    TypeKind.OPTIONAL, TypeKind.TUPLE)):
                 return True
             # An escaping closure read out of a container slot (`buf[i]` inside
-            # `Vector<() -> Int>.get`, a closure struct FIELD) is Copy —
-            # its env must be retained so the read-out copy's later drop is
-            # balanced. Without this the shared env was freed twice (design 77
-            # item 3 follow-up: a use-after-free at teardown). A bare Identifier
-            # closure (a whole-binding move or a borrow-LEND) is NOT here — those
-            # keep their existing move/lend handling.
+            # `Vector<() -> Int>.get`, a closure struct field) is Copy: its env
+            # must be retained so the read-out copy's later drop is balanced,
+            # or the shared env is freed twice. A bare Identifier closure (a
+            # whole-binding move or a borrow-lend) is not here; those keep
+            # their move/lend handling.
             if (isinstance(value_expr, (ArrayIndex, MemberAccess, TupleIndex))
                     and t.kind == TypeKind.FUNCTION
                     and getattr(t, 'func_is_escaping', False)):
@@ -1796,10 +1691,10 @@ class ResourcesMixin:
         return False
 
     def _slot_read_needs_copy(self, t: SawType) -> bool:
-        """The container-slot rule, as a question about a TYPE.
+        """The container-slot rule, as a question about a type.
 
-        Reading a value out of storage its container keeps is a DUPLICATION —
-        the two rules below are the `v[i]` / `obj.field` arms above, lifted so a
+        Reading a value out of storage its container keeps is a duplication;
+        the rules below are the `v[i]` / `obj.field` arms above, lifted so a
         place value read can ask them without being spelled as one of those
         nodes.
         """
@@ -1828,15 +1723,14 @@ class ResourcesMixin:
         """Whether a design-124-marked frame-field read must retain its payload.
 
         Mirrors the container-slot rules in `_transfer_needs_copy`, applied to the
-        UNWRAPPED payload type: retain a Copy value (`copy()` == a
+        unwrapped payload type: retain a Copy value (`copy()` == a
         refcount bump), an owning aggregate, or an escaping closure env. A NoCopy
         payload is never duplicated — it can only leave the frame through an
         explicit `move`, which takes the `__saw_forget` path instead.
 
         An un-annotated node is left alone: some synthesized frame reads never
         pass the typechecker, and without a resolved type there is nothing to
-        copy against — the pre-124 aliasing behavior is what the rest of the
-        pipeline already expects there."""
+        copy against; the rest of the pipeline expects an alias there."""
         if getattr(value_expr, 'resolved_type', None) is None:
             return False
         t = self._expr_type(value_expr)
@@ -1851,13 +1745,12 @@ class ResourcesMixin:
             return True
         if t.kind == TypeKind.FUNCTION and getattr(t, 'func_is_escaping', False):
             return True
-        # TUPLE belongs on this list for the same reason the others do, and its
-        # absence is what made DF-151f's fix crash before it landed: an owning
-        # tuple read out of a coroutine frame slot took a non-retaining alias
-        # while the frame kept its own reference, so the new drop glue released
-        # the same `Arc` twice. There is no `_get_cleanup_behavior` answer for a
-        # tuple to catch it earlier — a structural type has no name to look a
-        # conformance up under — so this kind list is the whole decision.
+        # TUPLE belongs on this list for the same reason the others do: an
+        # owning tuple read out of a frame slot that took a non-retaining alias
+        # would have its `Arc` released twice. There is no
+        # `_get_cleanup_behavior` answer for a tuple to catch it earlier (a
+        # structural type has no name to look a conformance up under), so this
+        # kind list is the whole decision.
         return (self._needs_cleanup(t)
                 and t.kind in (TypeKind.STRUCT, TypeKind.ENUM,
                                TypeKind.OPTIONAL, TypeKind.TUPLE))
@@ -1866,32 +1759,23 @@ class ResourcesMixin:
         """Whether a memberwise struct literal's field initializer must
         copy/retain the value it reads.
 
-        TWO QUESTIONS, and only the first one is this site's own. The DESTINATION
-        question — does a field of this type owe a retain at all — is the tier
+        Two questions, and only the first is this site's own. The destination
+        question (does a field of this type owe a retain at all) is the tier
         gate below, and it is what distinguishes this boundary from every other
-        transfer site. The SOURCE question — does this expression read storage
-        somebody else keeps owning — is the shared oracle's
+        transfer site. The source question (does this expression read storage
+        somebody else keeps owning) is the shared oracle's
         (`_transfer_site_needs_copy` -> `_transfer_needs_copy`), which reads the
         checker's stamped `needs_copy` first and re-derives only what codegen
-        owns.
-
-        The two arms the oracle absorbed when SL-275 routed this site through it,
-        recorded because each was earned by a bug:
-        - a `move` source transfers ownership and copies nothing (the oracle's
-          isinstance tail does not list `MoveExpr`, so it answers False);
-        - design 124's frame-field read (`self.name!`) initializing a field is
-          the same duplication a `MemberAccess` source is — without the retain a
-          `Wrap(s: s)` built in a driven body aliased the frame's `s`, which
-          eager teardown then freed. The oracle's `frame_owning_read` arm is the
-          same `_frame_read_needs_copy` call this site used to make itself.
+        owns. Through it, a `move` source copies nothing and a frame-field read
+        (`self.name!`) retains like a `MemberAccess` source does.
         """
-        # A field type is copy-on-init when it implements Copy — OR when
-        # it is an aggregate with no whole-type copy() that still OWNS
+        # A field type is copy-on-init when it implements Copy, or when it is
+        # an aggregate with no whole-type copy() that still owns
         # cleanup-needing payloads (an `Optional<String>`, an owning-payload
         # tuple/struct/enum): initializing such a field from an existing binding
-        # is a DUPLICATION, and without the recursive retain the stored copy
+        # is a duplication, and without the recursive retain the stored copy
         # aliases the binding's buffers, which the binding's scope-exit release
-        # then frees under the aggregate (DF-116a use-after-free).
+        # then frees under the aggregate.
         # `_generate_copy` dispatches these to `_deep_copy_value`. NoCopy and
         # ExplicitCopy sources never reach here as bare identifiers (the
         # typechecker forces `move`/`.copy()` first).
@@ -1900,28 +1784,14 @@ class ResourcesMixin:
                 behavior != "no_copy" and self._needs_cleanup(field_type)):
             return False
 
-        # THE SOURCE QUESTION IS THE SHARED ORACLE'S (SL-275). It used to be an
-        # inline node-type list — `Identifier` or `MemberAccess` needs a copy,
-        # anything else does not — which AGREES with the checker on a bare
-        # binding and DISAGREES on every other PROJECTION: a tuple element
-        # (`t.0`) and an indexed element (`arr[i]`) read storage their container
-        # keeps and therefore owe a retain, and both were simply absent from the
-        # list, so `Wrap(s: t.0)` stored a non-retaining alias that the source's
-        # own scope-exit release then freed under the built struct.
-        # `SelfExpr` was the third gap and the one that was LIVE in std:
-        # `StringBytes(s: self, ...)` promises in its own comment that the
-        # iterator holds its own retain, and emitted none — so an iterator built
-        # on a temporary receiver read a released payload and `heap(1).bytes()`
-        # summed to 0, silently, at exit 0.
-        #
-        # What stays here is the FIELD-type tier gate above: this site asks a
-        # question the other transfer sites do not — whether the DESTINATION
-        # field owes a retain at all — and only then asks the shared oracle
-        # about the source.
+        # The source question is the shared oracle's. A local node-type list
+        # would disagree with the checker on projections (`t.0`, `arr[i]`,
+        # `self`), each of which reads storage its owner keeps and owes a
+        # retain.
         return self._transfer_site_needs_copy(value_expr)
 
     def _register_cleanup(self, var_name: str, saw_type: SawType):
-        """Register a MOVABLE binding (let, param, if-let/guard binding) for
+        """Register a movable binding (let, param, if-let/guard binding) for
         scope-exit cleanup, with a runtime drop flag (design 42).
 
         The flag (i1, initialized 1 = needs-drop) is set to 0 by `move` so that a
@@ -1935,9 +1805,9 @@ class ResourcesMixin:
         flag = self._entry_alloca(ir.IntType(1), name=f"{var_name}.dropflag")
         self.builder.store(ir.Constant(ir.IntType(1), 1), flag)
         self.drop_flags[var_name] = flag
-        # Capture the binding's storage + drop flag NOW (design 100). A later
-        # inner binding may SHADOW this name in `self.variables`/`self.drop_flags`;
-        # resolving by name at scope-exit would then clean up the WRONG (inner,
+        # Capture the binding's storage + drop flag now (design 100). A later
+        # inner binding may shadow this name in `self.variables`/`self.drop_flags`;
+        # resolving by name at scope-exit would then clean up the wrong (inner,
         # already-freed) storage — a double-free. The captured pointers pin this
         # exact binding regardless of subsequent shadowing.
         var_ptr = self.variables.get(var_name)
@@ -1995,26 +1865,20 @@ class ResourcesMixin:
     def _emit_consumes_aware_drop(self, var_ptr, saw_type: SawType):
         """The end-of-body release of a `consumes` receiver (design 260).
 
-        TWO things separate it from the ordinary `_emit_drop_at`, and both fall
-        out of one ruling — the consuming body OCCUPIES the design-131 prefix
-        slot a hand-written `deinit` body would have taken:
+        The consuming body occupies the prefix slot a hand-written `deinit`
+        body would have taken, so two things differ from `_emit_drop_at`:
+        1. The type's own `deinit` is not called: the consuming body already
+           did whatever teardown its author intended (possibly none, which is
+           what makes `File.into_fd()`-style extraction writable). The
+           replacement is per endpoint, not per type; every other drop of the
+           type is untouched.
+        2. The field sweep skips the fields the body moved out; their new owner
+           releases them. Reverse declaration order holds among the rest. This
+           is decided statically: the every-path-or-no-path rule is what buys
+           the flag-free lowering.
 
-        1. The type's own `deinit` is NOT called. The consuming body already
-           ran where that body would have, doing whatever manual teardown its
-           author intended — including deliberately none, which is what makes
-           `File.into_fd()`-style extraction writable. Calling it here would
-           run the type's teardown twice over one endpoint. Every OTHER drop of
-           the same type is untouched: the replacement is per-ENDPOINT, not
-           per-type, so a plain scope exit still runs body-then-drops.
-        2. The synthesized sweep SKIPS the fields Option A moved out — their
-           values left with the move and are released once, by their new owner,
-           wherever they went. Reverse declaration order holds among the rest.
-           Statically decided; the every-path-or-no-path rule is what buys the
-           flag-free lowering.
-
-        Keyed on the receiver's own pointer, so nothing else in the frame is
-        affected: a non-consuming binding falls through to `_emit_drop_at`
-        exactly as before.
+        Keyed on the receiver's own pointer, so a non-consuming binding falls
+        through to `_emit_drop_at`.
         """
         entry = getattr(self, '_consumes_release_self', None)
         if entry is None or var_ptr is not entry[0]:
@@ -2032,19 +1896,20 @@ class ResourcesMixin:
         self._emit_drop_at(var_ptr, saw_type)
 
     def _drop_redefined_same_scope(self, var_name: str):
-        """Design 107: a DERIVED same-scope redefinition (`var d = read();
-        let d = parse(move d)` / `let d = d.copy()`) REPLACES the old binding.
-        If the old binding still OWNS a value here — a `.copy()`-style
-        derivation — drop it at THIS point, deterministically; a `move`-style
-        derivation already cleared its drop flag, so the guarded drop is a
-        no-op. Its scope-exit cleanup entry is retired either way, so the old
-        storage is never dropped twice.
+        """Drop the binding a derived same-scope redefinition replaces.
 
-        Detection is precise: an entry for `var_name` in the INNERMOST cleanup
-        scope means a prior owning binding of this name in the same lexical
-        scope (an enclosing-scope shadow lives in an OUTER frame and keeps
-        living). Called after the initializer is generated (so `move` has
-        settled the flag) and before the replacing binding is registered."""
+        `var d = read(); let d = parse(move d)` / `let d = d.copy()` replaces
+        the old binding. If the old binding still owns a value here (a
+        `.copy()`-style derivation), drop it at this point; a `move`-style
+        derivation already cleared its drop flag, so the guarded drop is a
+        no-op. Its scope-exit entry is retired either way, so the old storage
+        is never dropped twice.
+
+        An entry for `var_name` in the innermost cleanup scope means a prior
+        owning binding in the same lexical scope (an enclosing-scope shadow
+        lives in an outer frame and keeps living). Called after the
+        initializer is generated (so `move` has settled the flag) and before
+        the replacing binding is registered (design 107)."""
         if not self.cleanup_stack:
             return
         current = self.cleanup_stack[-1]
@@ -2061,23 +1926,23 @@ class ResourcesMixin:
         self._emit_scope_var_drop(var_name, saw_type, var_ptr, flag)
 
     def _cleanup_to_depth(self, cleanup_depth: int):
-        """Release every scope a NONLOCAL EXIT leaves, innermost first, down to
+        """Release every scope a nonlocal exit leaves, innermost first, down to
         (and not including) `cleanup_depth`.
 
-        THE FUNNEL for "this edge leaves some scopes; drop what they own". Its
-        entry points, all of them:
-          - `_cleanup_all_scopes` (depth 0) — a `return`, and the `try`
-            propagation edge that IS a return.
-          - `_generate_break_statement` / `_generate_continue_statement`
-            (loops.py) — bounded at the loop's entry depth, recorded on
-            `loop_stack` BEFORE the loop's own bindings register, so a `for`'s
-            design-65 owning loop variable is inside the unwind (DF-218r).
-          - `_generate_try_propagate`'s CATCH edge (results.py) — bounded at
-            the try BLOCK's entry depth, recorded in `_catch_context`
-            (DF-218v). The catch block is a sibling scope, not a nested one, so
-            everything the try body opened is left by that branch.
+        The funnel for "this edge leaves some scopes; drop what they own".
+        Entry points:
+          `_cleanup_all_scopes` -- depth 0: a `return`, and the `try` propagation edge that is a return
+          `_generate_break_statement` (loops.py) -- bounded at the loop's entry depth
+          `_generate_continue_statement` (loops.py) -- bounded at the loop's entry depth
+          `_generate_try_propagate` (results.py) -- the catch edge, bounded at the try block's entry depth
 
-        Nothing is POPPED: the fall-through edge out of the same body still
+        A loop's depth is recorded on `loop_stack` before the loop's own
+        bindings register, so a `for`'s owning loop variable is inside the
+        unwind. The try block's depth is recorded in `_catch_context`; the
+        catch block is a sibling scope, so everything the try body opened is
+        left by that branch.
+
+        Nothing is popped: the fall-through edge out of the same body still
         owes its own cleanup, and a drop is guarded by the binding's runtime
         drop flag, so the two edges are independent CFG paths dropping at most
         once each.
