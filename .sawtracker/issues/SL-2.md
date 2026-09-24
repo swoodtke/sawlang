@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":27,"sequence":1447,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790262641"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":28,"sequence":1452,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790263928"}
 ---
 
 
@@ -598,4 +598,92 @@ Gates:
 
 <!-- sawtracker:comment {"author":"agent:sawtracker-tests","body_bytes":37,"created":"1790262641","id":"c23"} -->
 Tests passed for SL-2.p2 (revision 2)
+
+<!-- sawtracker:comment {"author":"agent:codex","body_bytes":8828,"created":"1790263928","id":"c24"} -->
+Requested changes on patch SL-2.p2 (revision 2)
+
+REQUEST CHANGES — SL-2.p2 r2
+
+Exact revision: base b86b660c, applied 257a8e19, reconstructed tree eb2510c8b1926ebcb704f3ee589b9d2b4b75ca3c. Server tests PASSED. Three independent Sol reviews covered depth/coordinates/gate, grammar/docs, and both lexers. Parent adjudicated and ran only new bounded frontend probes on this fixed-SL350-descendant tree. No LLVM, native negative execution, old compiler, repeated battery, or known backend reproducer.
+
+1. P1 — flat ASTs still exhaust Python recursion during parsing; the new tree-walk exemption is unsound.
+
+Locations: sawc/parser/expressions.py:2053-2080 (_stamp_unset_positions), :2082-2163 (_count_shorthand_params, especially visit_expr at :2095-2097); tools/test_parser_depth_funnel.py:36-45,59-98,131-137,238-247.
+
+A left-associative binary chain is parsed iteratively and has constant source nesting, but its AST has an arbitrarily deep left spine. The interpolation-position walker traverses that spine recursively. The closure shorthand-parameter walker does the same through local visit_expr/visit_block functions. A seen set prevents graph cycles, not stack exhaustion.
+
+Exact-r2 Parser API probes (no AST dump/typechecking/backend):
+- `flat = ' + '.join(['1'] * 12000)` — accepted as BinaryOp through EOF, 47,997 bytes.
+- `'"{' + flat + '}"'` — caught RecursionError, 48,001 bytes, despite only one interpolation level. Python headroom was 10,192; the parser counter unwound to zero.
+- `'{ ' + flat + ' }'` — independently caught RecursionError, 48,001 bytes. Captured final frames are expressions.py:2096 / visit_expr. Counter also unwound to zero.
+
+The walkers are inherited; r2 newly certifies the interpolation walk with the claim that charges bound the depth of a built AST. Flat syntax disproves that premise. The gate explicitly excludes the stamp walk's self-edge; the shorthand walk's local-function recursion is invisible to its self-method graph.
+
+Make these finite AST traversals iterative and correct the exemption/gate coverage. Do NOT charge flat operators as semantic nesting or increase a limit to mask the problem. The SCC check is useful for recursive-descent cycles, but is not proof that all parser work is stack-bounded.
+
+Evidence: local://sl2-p2-r2-flat-interpolation-probe.json and local://sl2-p2-r2-depth-boundary-probes.json.
+
+2. P2 — non-recursive branches still bypass the exact 257th-construct refusal.
+
+Locations: expressions.py:361-440 (move), :827-836 (empty expression tuple); types.py:408-436 (empty parenthesized type). Contract: LANGUAGE_SPEC.md:279-286 and the nested() entry census in core.py:425-445.
+
+An empty expression tuple returns before entering nested(). A parenthesized type charges only while parsing an element, so `()` never charges. The move prefix branch also never charges its own token. Each method charges elsewhere, so the method-level documentation census passes; none of these branches needs an uncharged recursive edge, so the SCC oracle passes too.
+
+Parent confirmed through EOF on exact r2:
+- 256 empty parenthesis pairs — accepts, the control.
+- 257 empty parenthesis pairs — wrongly accepts as TupleLiteral.
+- The same 257 pairs parsed as a type — wrongly accepts as SawType.
+- 256 parenthesized groups around `move x` — wrongly accepts as MoveExpr.
+
+Each last case has a listed 257th construct whose opener is at 1:257. These are incomplete inherited branches, not a new r2 runtime regression. Charge the specified constructs before the empty/leaf return, including the special move-place paths, and retain exact parser-only boundary coverage. Do not equate a charged method/cycle with every branch being charged.
+
+Evidence: local://sl2-p2-r2-depth-boundary-probes.json.
+
+3. P2 — N7 still points at a CLOSED multiline interpolation instead of the missing quote.
+
+Locations: sawc/lexer.py:472-493; selfhost/lexer/src/lib.saw:858-876. Both lexers retain a closed interpolation's opener merely because it opened on the quote's line and closed on a later line.
+
+New exact-r2 frontend probe, with one actual newline:
+
+    "a {(1 +
+    2)}
+
+Actual: `Lexer error at 1:4: unterminated interpolation ...`.
+Required under N7: the unterminated STRING at quote 1:1.
+Adding ONLY the final outer quote makes this expression parse as StringInterpolation through EOF. The expression and braces are valid and balanced; line crossing is not evidence of a stray brace.
+
+This case was also wrong under r1. R2 fixes the same-line case but codifies a narrower unsupported heuristic, so c20 finding 5 is only partially closed. Both lexers contain the same mechanism; I executed Python only, not the selfhost lexer.
+
+Preserve both settled contracts: N7's quote anchor and DF-116d's stray-interpolation diagnostic. The DF-116d pin has a swallowed unmatched quote in its raw interpolation; the valid multiline counterexample does not. Distinguish those cases rather than using line layout alone. If the intended contract instead gives a heuristic precedence over structurally balanced interpolation, that needs an explicit ruling before freezing it; c22's author proposal is not such a ruling. The current counterexample does not justify deleting the DF-116d pin or silently changing the diagnostic contract.
+
+Evidence: local://sl2-p2-r2-multiline-quote-probe.json. Governing sources: designs/259-selfhost-parser.md:87 and designs/119-lexer-pilot-followups.md:47-56.
+
+4. P2 — finish the grammar documentation cutover before freezing the oracle.
+
+These are documentation defects; the reviewed nondepth parser behavior is correct.
+
+- docs/AST_DUMP.md:98-104 and _parse_name_call's docstring at expressions.py:1007-1010 categorically call a labelled call a StructInit. A labelled list WITH A TRAILING CLOSURE instead produces FunctionCall, preserving the named arguments followed by the closure. Parent confirmed both `f(n: 0) { 1 }` and `(f)(n: 0) { 1 }` return FunctionCall through EOF. Narrow the initializer rule to the no-trailing-closure case and document the exception.
+- LANGUAGE_SPEC.md:117-121 says a bare arm ends at its comma or line end, then gives a same-line comma-free next-case example. :735-738 still says comma-separated. The skill at :433-437 repeats the boundary claim. Parent confirmed `match n { case 0 -> return 9 case _ -> 1 }` parses both arms through EOF. Describe one statement/expression under the normal continuation rules, with the optional comma/next case/match close as appropriate; commas are not mandatory.
+- SKILL.md:511-518 lists if/while/guard conditions and for iterables as trailing-closure exceptions, but omits match scrutinees and match-arm guards. expressions.py:1213-1241 also disables attachment in those positions. Include them, and align LANGUAGE_SPEC.md's new trailing-closure scope teaching.
+
+Evidence for the first two facts: local://sl2-p2-r2-doc-contract-probes.json. The match-head exception was verified by source review, not execution.
+
+Closure of the original c20 findings
+
+1. PARTIAL: the named module, guard and tuple/variant-pattern recursive-descent gaps are fixed. The further stack/branch classes above remain.
+2. CLOSED: the interpolation sub-lexer starts at real source coordinates; fatal depth refusals propagate unwrapped. No double rebasing found. Accepted c22's 1932-file position comparison without rerun.
+3. CLOSED in behavior: plain/grouped labelled calls use the same classifier.
+4. CLOSED: generic free-name trailing closures and try operands retain type arguments.
+5. PARTIAL: same-line balanced interpolation is fixed; multiline case above remains.
+6. CLOSED under SL-309 c2, which supersedes c1's teaching. Coalesce-first/convert-after is now the right note; the whitespace-blind refusal is unchanged. No demand to restore the unusable old optional-cast examples.
+7. PARTIAL: the old operator-wins/expression-only/nonwrapping/parenthesized-try claims are gone; remaining contract inaccuracies are listed above.
+
+The owed bare-lend/braced twin, N2 cells including EOL and nested-optional parser controls, and trailing-?? wrap row are present. General non-name calls remain SL-73; grouped generic/bare-closure expansion was not requested.
+
+Verification and ownership limits
+
+Accepted c22's terminal battery, rebase gates, N2-specific gates, lead spot checks, and server pass without repeating them. All new negative probes stopped in lexing/parsing and caught failures in a fresh subprocess; no source files were modified and no probe source/binary artifacts need cleanup. Scripts and results are retained in the four local evidence artifacts above.
+
+Prototype fixture/inventory reconciliation and M21 alignment were NOT performed for this still-unaccepted r2. Prior r1 alignment evidence is not relabelled as r2 evidence. No prototype edits, self-approval of SL-328, commit, or merge.
+
 
