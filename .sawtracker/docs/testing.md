@@ -1,0 +1,120 @@
+# Testing: `@test`
+
+Part of the language lockdown that precedes the self-hosted compiler. This
+describes the language that compiler will implement. It was decided in
+conversation on Sep 24 2026, and every item here is ruled unless marked
+otherwise.
+
+## 1. Why tests live in the source
+
+The self-hosted compiler is built test-first: focused tests that each take one
+aspect of the design and cover every spelling of it. Tests sit next to the code
+and the rules they pin, and one test mode serves everyone. The compiler's own
+language suite and a user's library tests are run the same way.
+
+## 2. The forms
+
+`@test` is a compiler directive, like `@synthesize`. It changes whether a
+declaration exists in a given build. Spelling it with `@` also leaves `test`
+free as an ordinary name.
+
+What follows `@test` decides the form:
+
+```saw
+@test "an expired token is refused" {           // a test case: runs
+    let clock = FakeClock(now: 1000)
+    …
+}
+
+@test(panics) "indexing past the end panics" {  // passes only if the body panics
+    let v: Vector<Int> = [1, 2, 3]
+    let x = v[10]
+}
+
+@test(refuses: "use after move") "a moved value cannot be used again" {
+    let x = Res()                               // passes only if the compiler
+    let a = move x                              // refuses this block, and its
+    let b = move x                              // first error contains the text
+}
+
+@test func sample_doc() -> Document { … }       // a test-only declaration
+
+@test {                                          // a group of test-only declarations
+    struct FakeClock { now: Int }
+    extension FakeClock: Clock { … }
+    @test "a fake clock never advances" { … }   // cases may nest inside a group
+}
+```
+
+- **A string makes a case.** Its body is statements, and it runs.
+- **`{` makes a group.** Its body is declarations. Functions inside a group are
+  helpers and are never run as tests.
+- **A declaration makes that one declaration test-only:** `@test func`,
+  `@test struct`, `@test extension`.
+
+## 3. What each form does
+
+| Form | Normal build | Test build |
+|---|---|---|
+| `@test "name" { … }` | typechecked, not emitted | compiled and run in its own process |
+| `@test(panics) "name" { … }` | typechecked, not emitted | passes only if the body panics |
+| `@test(refuses: "text") "name" { … }` | skipped; only its braces are matched | checked on its own; passes only if its first error contains the text |
+| `@test func` / `@test { … }` | typechecked, not emitted | compiled; visible only to test code |
+
+## 4. Rules
+
+- **Placement and access.** `@test` declarations sit at top level in any file,
+  and can reach their module's private members, so white-box testing works.
+- **No rot.** Ordinary cases and test-only declarations are typechecked in every
+  build, so they cannot silently decay. They are emitted only in test builds.
+- **Test-only means test-only.** A reference to a test-only declaration from
+  ordinary code is a compile error: "`FakeClock` exists only in test builds".
+  This keeps a fake from leaking into production code, such as a counting
+  allocator in a real path or a fixed clock in a kernel.
+- **Each test runs in its own process.** A Saw panic aborts the process (there
+  is no unwinding), so isolation is what lets one failing test fail alone.
+  Tests run in parallel, and `@test(panics)` works because of it.
+- **One test mode.** `sawc --test <paths>` and `blade test` run the same mode.
+  "Compiler testing" is that mode pointed at the language's own test files
+  (e.g. `tests/lang/`). Library authors get tests that prove misuse is
+  refused, which Rust needs a separate tool (`trybuild`) for.
+- **Target.** Test builds run on the host first. Running tests on freestanding
+  targets under QEMU comes later.
+
+## 5. Refusal tests (`@test(refuses: …)`)
+
+- A refusing block is checked **on its own, as a unit**, like a small inline
+  module. It may contain declarations, because many refusals are about
+  declarations:
+  ```saw
+  @test(refuses: "may not be a reference") "a struct field cannot hold a reference" {
+      struct Holder { r: &Int }
+  }
+  ```
+- Its errors are expected and contained. They never fail the build or leak into
+  the rest of the file.
+- **Matching is precise.** The block must produce errors, and the *first*
+  error must contain the given text, so a block refused for an unrelated reason
+  (a typo) fails the test instead of passing. An optional `at:` argument can pin
+  the line within the block.
+- **What cannot live in a file**, and so stays as corpus files with an
+  EXPECT-ERROR header, one refusal per file:
+  - parse-level refusals, because a block whose body does not parse cannot even
+    be delimited;
+  - multi-file refusals: imports and module layout.
+- **Compiler constraint:** diagnostics are collected per checking unit, never
+  thrown in a way that aborts compilation. The new compiler adopts this from
+  the start.
+
+## 6. How the test-first suite is organised (Proposed)
+
+- Tests are grouped by **aspect**: one aspect per file, each going deep on every
+  spelling of that aspect in every position.
+- Each test names the spec rule it pins, so every rule can be traced to its
+  tests and every test to its rule.
+- The spec's own `saw-error` examples, checked by docverify, are the canonical
+  refusal for each rule. The in-file and corpus tests are the full matrix.
+- The existing `examples/` corpus, about 2,700 programs with EXPECT directives,
+  does not depend on which compiler runs it. It becomes the new compiler's
+  measure of progress from the first day, with the frozen Python compiler as a
+  differential oracle.
