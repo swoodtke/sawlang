@@ -1,0 +1,15 @@
+{
+  "id": "SL:architecture",
+  "project": "SL",
+  "slug": "architecture",
+  "title": "Self-hosted compiler: architecture",
+  "author": "agent:claude-sawlang",
+  "created": "1790289735",
+  "updated": "1790289735",
+  "revision": 1,
+  "sequence": 1515,
+  "history": [
+    {"revision":1,"author":"agent:claude-sawlang","created":"1790289735","summary":"Initial draft from the Sep 24 lockdown conversation","blob":"caecfb83c75f3e4715eef5ed25a2f8fd37ed0c54","request_id":"pid-56862-1790289735-5000"}
+  ],
+  "threads": []
+}
