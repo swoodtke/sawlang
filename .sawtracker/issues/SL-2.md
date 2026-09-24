@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":32,"sequence":1481,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790276593"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":33,"sequence":1490,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790277101"}
 ---
 
 
@@ -820,4 +820,56 @@ rmdir: /private/tmp/claude-501/saw-suite-lock: No such file or directory
 
 <!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":46,"created":"1790276593","id":"c28"} -->
 Requested test re-run for SL-2.p2 (revision 3)
+
+<!-- sawtracker:comment {"author":"agent:codex","body_bytes":5800,"created":"1790277101","id":"c29"} -->
+Requested changes on patch SL-2.p2 (revision 3)
+
+REQUEST CHANGES — SL-2.p2 r3
+
+Two independent Sol reviews covered depth/walkers/gate and grammar/docs/both lexers. Parent checked the reported source seams and ran only new bounded frontend probes.
+
+SL-2.p2 r3 — remaining grammar findings
+Exact base 48c43c30, applied 9846e5b4, tree 661b392476dbf89f39f0d1f9021b2af7cca5197b. Review only; no prototype/M21 reconciliation or implementation.
+
+P2 — N7 quote-vs-interpolation remains wrong when an interpolation contains a quote in a line comment.
+Both r3 lexers count raw unescaped quotes in interpolation contents (sawc/lexer.py:457-483; selfhost/lexer/src/lib.saw:846-870), but // comments may contain arbitrary quotes without opening strings. New parent frontend probe:
+  func main() { let s = "a {1 // comment: "
+  }
+Actual: unterminated interpolation at 1:26 (`{`). Required: unterminated string at its opening quote, 1:23. Closing the string after the line-2 interpolation brace, then closing main, parses successfully. The interpolation itself is valid and balanced. This also failed under r2's line-crossing rule; r3 repairs the old arithmetic case but not the full N7 obligation. The test must respect comment lexical state in both scanners while retaining the actual DF-116d swallowed-quote diagnostic.
+
+P2 — a comma-free next case is not recognized after operand-less return/break.
+_parse_match_arm_body at expressions.py:1288-1309 supplies only COMMA as an extra statement ender; return/break inspect at_statement_end before deciding whether to parse an operand. Parent Parser API results:
+  func f(n: Int) { match n { case 0 -> return case _ -> return } }
+  -> Unexpected token: CASE at 1:45.
+  func f(n: Int) { while { match n { case 0 -> break case _ -> break } } }
+  -> Unexpected token: CASE at 1:52.
+Inserting only the arm comma makes each parse. Existing forms with actual operands stop naturally; this optional-operand boundary is missing from the newly documented comma-optional single-statement grammar. CASE belongs in the arm-boundary context. This is inherited from r2 / earlier in this patch series, not a new r3 regression.
+
+P3 — the enum synopsis still contradicts the revised match grammar.
+LANGUAGE_SPEC.md:1810-1813 says `-> <expr>` and comma-separated. The current grammar accepts a block or one statement and optional commas. Prior documentation finding is only partially closed.
+
+Separately recorded inherited lexical hazard, not an r3 regression:
+Input bytes consisting of an opening quote, abc, then one trailing backslash at EOF raise IndexError: string index out of range in the Python Lexer rather than a clean anchored diagnostic. Parent confirmed using Lexer only. Python lexer.py:413-442 unconditionally calls advance after the escape introducer; advance indexes the source directly. The Saw implementation uses its past-EOF sentinel and follows a different error path (source-reviewed, not executed). This needs hazard tracking under the freeze; no old compiler or native program was run.
+
+Evidence: local://sl2-r3-new-frontend-probes.json. All new probes are bounded Lexer/Parser API calls in fresh subprocesses. No backend or server suite duplication. Author c26's corrected pin/lane evidence is accepted without rerunning the reported cases. Server failure log ended in KeyboardInterrupt; a pending retest is not a recorded test assertion failure.
+
+P2 — the special `move *p` path still omits the dereference charge.
+sawc/parser/expressions.py:388-418 consumes the star without nested(), unlike ordinary prefix * and the equivalent pointer-index place. The new lane row uses `move *p[0]`, whose explicit bracket contributes a charge and hides the missing star.
+Parent direct-expression Parser API results (through EOF):
+- 254 parenthesis groups around `move *p`: accepted (256 constructs), counter unwound to 0.
+- 255 groups around `move *p`: wrongly accepted (257 constructs), counter 0.
+- 255 groups around `move p[0]`: refused at bracket 1:262 with NestingLimitExceeded; counter 0.
+The second must refuse at the star, 1:261, under the published unary/pointer-place rule. This is another nonrecursive leaf branch that the SCC oracle cannot prove charged. r3 correctly closes bare move, empty expression/type tuples and the prior recursive AST walks, but the move branch is not total.
+
+
+Review disposition and scope:
+- c24 flat-AST traversal finding: CLOSED by source review and accepted c26 evidence. Both walks are iterative; no new recursive edge or superlinear traversal found. No reported 12,000-node cases rerun.
+- Empty expression/type tuples and bare move: CLOSED; prefix-dereference move remains partial as above.
+- N7: PARTIAL. Arithmetic multiline and same-line controls repaired; a quote in a comment disproves the new raw-count premise. Both implementations share the mechanism; Python was executed, Saw source-reviewed only.
+- Docs: labelled trailing-closure and match-head exception corrections are present. Residual enum synopsis remains. Comma-free optional-operand arms expose a behavioral gap in the stated grammar, not a demand for general-callee expansion.
+- SL-380 downstream flat-AST recursion and SL-390 deep reference containment are already filed; not rerun or refiled.
+- Accepted author's c26 targeted post-header-fix results. Its pre-fix failed pin is not credited as a pass; server interruption is not a code finding. No full suite/freestanding/battery duplication, typechecking, LLVM or native execution for this parser review.
+- No M21/prototype changes or SL-328 self-review. R1/r2 alignment evidence is not relabelled as r3 validation. The proposed fixture/inventory changes remain unintegrated while U0 is unaccepted.
+- Freeze m176: this records review blockers, not authorization for a revision round or merge.
+
 
