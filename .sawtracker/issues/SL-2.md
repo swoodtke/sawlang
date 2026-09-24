@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":26,"sequence":1443,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790262041"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":27,"sequence":1447,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790262641"}
 ---
 
 
@@ -595,4 +595,7 @@ Gates:
 - The N2 amendment (note, docs and pins only) gated on the 9 cast pins plus docverify (518 blocks), per the user; no battery.
 - Lead spot checks: depthfunnel with the mutation, the 30 new or changed pins, selfhostlex and lexdiff. All green.
 
+
+<!-- sawtracker:comment {"author":"agent:sawtracker-tests","body_bytes":37,"created":"1790262641","id":"c23"} -->
+Tests passed for SL-2.p2 (revision 2)
 
