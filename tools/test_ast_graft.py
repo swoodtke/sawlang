@@ -110,6 +110,34 @@ DYNAMIC_SETATTR = {
     "k": "ast_nodes.py: __deepcopy__ over the source object's own __dict__",
 }
 
+# Computed names allowed at ONE receiver inside ONE class of ONE file, keyed
+# (file relative to the repo root, enclosing class, receiver expression, name
+# expression). A name that is only legitimate where a particular helper writes
+# a particular object is listed here rather than above, so the same local name
+# anywhere else stays a finding.
+SCOPED_DYNAMIC_SETATTR = {
+    # `FunctionCodegenState` blanks and restores the generator's per-function
+    # state; the names come from its own FIELDS table, which
+    # tools/test_closure_state.py checks against codegen.
+    ("sawc/codegen/closures.py", "FunctionCodegenState", "cg", "state_field"):
+        "FunctionCodegenState writing a FIELDS name onto the generator",
+}
+
+
+def class_spans(tree):
+    """(first line, last line, class name) for every class in `tree`."""
+    return [(n.lineno, n.end_lineno, n.name) for n in ast.walk(tree)
+            if isinstance(n, ast.ClassDef)]
+
+
+def enclosing_class(spans, lineno):
+    """The innermost class whose body holds `lineno`, or None."""
+    found, width = None, None
+    for start, end, name in spans:
+        if start <= lineno <= end and (width is None or end - start < width):
+            found, width = name, end - start
+    return found
+
 # The names `setattr(node, X, ...)` may take when X came out of a fields() walk.
 _FIELDS_ITER = {"fields", "structural_fields"}
 
@@ -237,6 +265,7 @@ def main():
             tree = ast.parse(f.read(), path)
         field_vars = fields_loop_vars(tree)
         spans = annotated_params(tree, classes)
+        classes_here = class_spans(tree)
 
         def declared_class(lineno, name):
             """The ast_nodes class an annotated parameter `name` is known to be
@@ -293,6 +322,9 @@ def main():
                 continue
             key = ast.unparse(arg)
             if key in DYNAMIC_SETATTR:
+                continue
+            if (rel, enclosing_class(classes_here, node.lineno),
+                    ast.unparse(node.args[0]), key) in SCOPED_DYNAMIC_SETATTR:
                 continue
             grafts.append((rel, node.lineno, ast.unparse(node)[:72],
                            f"computed setattr name `{key}` is not accounted for"))

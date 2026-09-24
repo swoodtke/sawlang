@@ -63,6 +63,7 @@ STAGES=(
     "lexdiff|no|the Saw lexer against sawc's, over every tracked .saw|$PY tools/lexdiff.py"
     "astdiff|no|every .saw dumps completely and byte-stably|$PY tools/astdiff.py"
     "astgraft|no|no pass stamps an AST attribute no class declares|$PY tools/test_ast_graft.py"
+    "closurestate|no|a nested body hands back every kind of per-function codegen state|$PY tools/test_closure_state.py"
     "transferdecisions|no|every ownership boundary carries an explicit decision|$PY tools/test_transfer_decisions.py"
     "producertaxonomy|no|every value-position node says how it produces a value|$PY tools/test_producer_taxonomy.py"
     "corodiscovery|no|one ledger answers every coroutine frame decision|$PY tools/test_coro_discovery.py"

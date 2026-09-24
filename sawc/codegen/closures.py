@@ -18,6 +18,109 @@ from llvmlite import ir
 from ast_nodes import ClosureExpr, TypeKind
 
 
+class FunctionCodegenState:
+    """The per-function codegen state a nested body must neither inherit nor leak.
+
+    ONE table drives every half — `capture` takes each entry off the generator,
+    `blank` installs what a fresh body starts from, `restore` puts the
+    enclosing function's back — so a kind of state cannot reach one half and
+    miss another (SL-356). Each entry carries two independent policies: how
+    the enclosing value is taken (a snapshot the restore rolls back to, or the
+    object itself when a frame above holds an alias to it) and what a fresh
+    body starts from (an empty container, nothing, or a value the entry point
+    installs itself).
+
+    ENTRY POINTS: `_generate_closure`, `_generate_env_dtor`.
+    """
+
+    __slots__ = ("_saved",)
+
+    # Capture policies. A snapshot is a shallow copy, so `restore` rolls the
+    # container back to what the enclosing function had; identity hands back
+    # the very object, for state some frame above still holds a reference to.
+    SNAPSHOT = "snapshot"
+    IDENTITY = "identity"
+    # The fresh-body factory that means "the entry point installs its own".
+    INSTALLED = None
+
+    # (attribute, capture policy, fresh-body factory). Every attribute the
+    # generator holds is here, in `SHARED_WITH_NESTED_BODIES`, or module-wide
+    # state; `tools/test_closure_state.py` is what holds that classification
+    # to the code.
+    FIELDS = (
+        ("builder", IDENTITY, INSTALLED),
+        ("current_return_type", IDENTITY, INSTALLED),
+        ("variables", SNAPSHOT, dict),
+        ("void_variables", SNAPSHOT, set),
+        ("variable_types", SNAPSHOT, dict),
+        ("cleanup_stack", SNAPSHOT, list),
+        ("drop_flags", SNAPSHOT, dict),
+        ("moved_variables", SNAPSHOT, set),
+        ("borrowed_variables", SNAPSHOT, set),
+        # Its entries name blocks of the enclosing llvm function; a `break`
+        # inside a nested body can only mean the body's own loops.
+        ("loop_stack", SNAPSHOT, list),
+        # Handed back by identity: `_generate_block` keeps a local alias to
+        # the live list it drains at a body's tail, so a copy would leave the
+        # enclosing function appending to a list nobody drains. A fresh body
+        # starts outside any statement, and its own tail opens a list.
+        ("statement_temps", IDENTITY, lambda: None),
+        # An error propagating inside a nested body returns that body's own
+        # Result; the enclosing `try`/`catch`'s block belongs to another
+        # function and is not a branch target here.
+        ("_catch_context", IDENTITY, lambda: None),
+    )
+
+    # Attributes codegen scopes to some extent of generation that a nested body
+    # sees on purpose, each with the reason it is safe. The gate lane reads this
+    # table, so an entry here is a claim under review.
+    SHARED_WITH_NESTED_BODIES = {
+        "_current_decl": "a closure body has no declaration of its own: the ICE "
+                         "breadcrumb names the one it is written in, and that "
+                         "instance's const bindings and substituted-Never "
+                         "return are the body's too",
+        "_consumes_release_self": "keyed on the receiver's own pointer, which a "
+                                  "nested body's fresh allocas cannot match",
+        "type_param_context": "a nested body is monomorphized with the function "
+                              "it is written in, so its type parameters are the "
+                              "enclosing instantiation's",
+        "self_type_context": "`Self` inside a body nested in a method is the "
+                             "method's receiver type",
+        "_current_node": "scoped per node by the expression and statement "
+                         "dispatches' own save and restore; the stamp names the "
+                         "innermost node being lowered, wherever the body sits",
+        "_need_result": "scoped per expression beside `_current_node`, by the "
+                        "same save and restore",
+    }
+
+    def __init__(self, saved):
+        self._saved = saved
+
+    @classmethod
+    def capture(cls, cg):
+        """Take the enclosing function's state before a nested body starts."""
+        saved = {}
+        for state_field, policy, _factory in cls.FIELDS:
+            # A context first assigned mid-generation has no initializer, and
+            # absent means the same as None for every entry here.
+            value = getattr(cg, state_field, None)
+            if policy == cls.SNAPSHOT and value is not None:
+                value = type(value)(value)
+            saved[state_field] = value
+        return cls(saved)
+
+    def blank(self, cg):
+        """Start the nested body from fresh state of every kind carried here."""
+        for state_field, _policy, factory in self.FIELDS:
+            if factory is not self.INSTALLED:
+                setattr(cg, state_field, factory())
+
+    def restore(self, cg):
+        """Put the enclosing function's state back, every kind of it."""
+        for state_field, _policy, _factory in self.FIELDS:
+            setattr(cg, state_field, self._saved[state_field])
+
+
 class ClosuresMixin:
     """Mixin providing closure generation methods for CodeGenerator.
 
@@ -211,27 +314,19 @@ class ClosuresMixin:
         self._mark_noalias_params(closure_fn, param_saw_types,
                                   arg_offset=arg_offset)
 
-        # Save current builder and variables
-        saved_builder = self.builder
-        saved_variables = self.variables.copy()
-        saved_variable_types = self.variable_types.copy()
-        saved_cleanup_stack = self.cleanup_stack[:]
-        saved_drop_flags = self.drop_flags
-        saved_moved_variables = self.moved_variables
-        saved_borrowed_variables = self.borrowed_variables
-        # design 213, codegen half: a closure is a callable, so inside its body
-        # `current_return_type` is the CLOSURE's return type. It used to stay
-        # the enclosing function's, so a `return`/`try` in a closure declared
-        # `-> Result<T, E>` asked the wrong signature ("Cannot create Result.Err
-        # outside Result-returning function" when the outer one returned a plain
-        # value). Mirrors the typechecker's `_return_target` funnel.
+        # The whole per-function state, saved as one record so the restore
+        # below cannot fall behind it (SL-356).
+        saved_state = FunctionCodegenState.capture(self)
+        # A closure is a callable, so inside its body `current_return_type` is
+        # the CLOSURE's return type — what a `return`/`try` in a body declared
+        # `-> Result<T, E>` asks for. Mirrors the typechecker's `_return_target`
+        # funnel (design 213).
         # The resolved signature can still carry the TEMPLATE's type parameter
         # (`Mutex.lock<R>(body: () -> R)`), which is not a return type codegen
         # can use — installing one reaches monomorphization unsubstituted. So
         # substitute against the active context and, when that still leaves a
         # bare parameter, leave the enclosing value in place: there is nothing
         # better to say, and no Result flows through an unsolved `R`.
-        saved_return_type = self.current_return_type
         closure_ret = ret_saw_type
         if closure_ret is not None:
             closure_ret = self._substitute_saw_type(
@@ -244,16 +339,10 @@ class ClosuresMixin:
         # design 122 unit I: carry the enclosing function's file + line into the
         # closure so a panic raised inside it names a consistent FILE:LINE (the
         # closure has no DISubprogram of its own).
-        if saved_builder is not None:
-            self._di_inherit_location(closure_fn, saved_builder.function.name)
+        if self.builder is not None:
+            self._di_inherit_location(closure_fn, self.builder.function.name)
+        saved_state.blank(self)
         self.builder = ir.IRBuilder(entry)
-        self.variables = {}
-        self.void_variables = set()
-        self.variable_types = {}
-        self.cleanup_stack = []
-        self.drop_flags = {}
-        self.moved_variables = set()
-        self.borrowed_variables = set()
 
         # A deferred-move capture becomes an OWNED local of the body, so the body
         # owes it a scope: without one the value it took would never be dropped
@@ -417,14 +506,7 @@ class ClosuresMixin:
                     self.builder.ret(ir.Constant(ret_type, ir.Undefined))
 
         # Restore context
-        self.builder = saved_builder
-        self.variables = saved_variables
-        self.borrowed_variables = saved_borrowed_variables
-        self.variable_types = saved_variable_types
-        self.cleanup_stack = saved_cleanup_stack
-        self.drop_flags = saved_drop_flags
-        self.moved_variables = saved_moved_variables
-        self.current_return_type = saved_return_type
+        saved_state.restore(self)
 
         # Build the environment and copy captured values in. A NON-escaping
         # closure (a direct call argument, e.g. Mutex.lock's body) keeps its env
@@ -640,7 +722,10 @@ class ClosuresMixin:
 
         fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
                          name=f"{closure_name}_env_dtor")
-        saved_builder = self.builder
+        # The same record the closure body uses: this body reads the enclosing
+        # function's `variable_types` for a capture's type, so it keeps that
+        # state rather than blanking it, and rolls back whatever it touches.
+        saved_state = FunctionCodegenState.capture(self)
         b = ir.IRBuilder(fn.append_basic_block("entry"))
         self.builder = b
         cap_saw_types = cap_saw_types or {}
@@ -661,7 +746,7 @@ class ClosuresMixin:
         b.call(self.functions["__saw_rt_dealloc"],
                [fn.args[0], ir.Constant(i64, env_size), ir.Constant(i64, 16)])
         b.ret_void()
-        self.builder = saved_builder
+        saved_state.restore(self)
         return fn
 
     def _generate_closure_call(self, closure_val, arguments):

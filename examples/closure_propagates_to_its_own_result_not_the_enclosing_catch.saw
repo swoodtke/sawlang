@@ -1,0 +1,74 @@
+// A closure body is its own return context: an error propagating inside it
+// becomes the closure's own `Err`, and the `try`/`catch` enclosing the closure
+// LITERAL is not a branch target from the body — the body is a second
+// function, with no edge into the first. A body with a catch of its own keeps
+// it, and the enclosing try's own propagation still reaches the enclosing
+// catch (SL-356).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// closure err 7
+// outer continued
+// tail err 8
+// inner caught 9
+// inner ok 0
+// outer caught 10
+// after catch
+
+struct E { code: Int }
+
+extension E: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.code) }
+}
+
+extension E: Error {}
+
+func fail(code: Int) sync -> Result<Int, E> { E(code: code) }
+
+func invoke(body: () sync -> Result<Int, E>) sync -> Result<Int, E> { body() }
+
+func report(label: String, r: Result<Int, E>) {
+    match r {
+        case Ok(value) -> { print("{} ok {}", label, value) },
+        case Err(error) -> { print("{} err {}", label, error.code) }
+    }
+}
+
+func main() {
+    // `return try` inside a closure built inside a try.
+    try {
+        let result = invoke({ return try fail(code: 7) })
+        report("closure", result)
+        print("outer continued")
+    } catch {
+        print("wrong outer catch")
+    }
+
+    // The propagation as the body's TAIL expression rather than a return.
+    try {
+        let result = invoke({ try fail(code: 8) })
+        report("tail", result)
+    } catch {
+        print("wrong outer catch")
+    }
+
+    // A body with its own catch inside the enclosing try: the body's catch
+    // takes the body's error, and the enclosing try's own `try` still reaches
+    // the enclosing catch afterwards.
+    try {
+        let result = invoke({
+            var got = 0
+            try {
+                got = try fail(code: 9)
+            } catch {
+                print("inner caught {}", error.code)
+            }
+            got
+        })
+        report("inner", result)
+        let v = try fail(code: 10)
+        print("unreachable {}", v)
+    } catch {
+        print("outer caught {}", error.code)
+    }
+    print("after catch")
+}

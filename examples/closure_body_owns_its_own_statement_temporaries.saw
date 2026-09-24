@@ -1,0 +1,85 @@
+// A closure body is a second function: the temporaries its statements build
+// belong to the body, and the statement enclosing the closure LITERAL keeps its
+// own list untouched — a body whose tail diverges leaves the enclosing
+// function nothing from another function to drop, the enclosing statement
+// still drains what it built beside the closure, and a later statement's
+// temporaries drain as before (SL-356).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// not invoked
+// made 2
+// made 3
+// drop 3
+// drop 2
+// beside 5
+// made 4
+// drop 4
+// after 8
+// made 5
+// made 6
+// drop 6
+// drop 5
+// nested 11
+// made 7
+// drop 7
+// tail 9
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.id) }
+}
+
+func make(id: Int) sync -> Res {
+    print("made {}", id)
+    Res(id: id)
+}
+
+func halt(value: Int) sync -> Never { panic("halt {}", value) }
+
+// A never-invoked closure whose whole body is a diverging tail over a
+// temporary.
+func never_invoked() {
+    let f: () sync -> Int = { halt(make(1).id) }
+    print("not invoked")
+    let _ = move f
+}
+
+func take(n: Int, body: () sync -> Int) sync -> Int { n + body() }
+
+// The enclosing statement builds a temporary of its own beside the closure:
+// the body's tail temporary drops inside the body at each call, the enclosing
+// statement's at its own end.
+func beside() {
+    let total = take(make(2).id, { make(3).id })
+    print("beside {}", total)
+}
+
+// A statement after the closure still drains its temporary.
+func after() {
+    let double = { n: Int in n * 2 }
+    let doubled = double(make(4).id)
+    print("after {}", doubled)
+}
+
+// A body nested in a body: each tail drains its own temporary, innermost first.
+func nested() {
+    let inner = { make(6).id }
+    let outer = { make(5).id + inner() }
+    print("nested {}", outer())
+}
+
+// A body that IS a tail expression, with a temporary built after the closure
+// literal: the tail drains the list it opened, so the enclosing function has
+// to get that very list back — a copy would leave the temporary undropped.
+func tail_after() -> Int {
+    take(1, { 1 }) + make(7).id
+}
+
+func main() {
+    never_invoked()
+    beside()
+    after()
+    nested()
+    print("tail {}", tail_after())
+}

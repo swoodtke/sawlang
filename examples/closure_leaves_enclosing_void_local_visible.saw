@@ -1,0 +1,82 @@
+// A closure body starts from empty codegen state and must hand the enclosing
+// function's state back exactly as it found it — its ZERO-SIZED bindings
+// included, which is what a generic local at `R = Void` is. One saved-state
+// record covers every kind of state, so a closure cannot forget one of them
+// (SL-356).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// hi
+// 6
+// two
+// 8
+// between
+// 33
+// method
+// 14
+// drive
+// driven: 5
+// 5
+
+import std.task.*
+
+// One closure between the Void local and its read.
+func keep<R>(make: () -> R) -> R {
+    let r = make()
+    let later = { n: Int in n * 2 }
+    print("{}", later(3))
+    return r
+}
+
+// TWO nested closures — the state has to survive every one of them, not just
+// the last.
+func twice<R>(make: () -> R) -> R {
+    let r = make()
+    let add = { n: Int in n + 1 }
+    let triple = { n: Int in n * 3 }
+    print("{}", add(1) + triple(2))
+    return r
+}
+
+// The local is declared BETWEEN the two closures, so it is recorded while one
+// closure body has already been generated.
+func between<R>(make: () -> R) -> R {
+    let first = { n: Int in n + 10 }
+    let r = make()
+    let second = { n: Int in n + 20 }
+    print("{}", first(1) + second(2))
+    return r
+}
+
+struct Holder { tag: Int }
+
+extension Holder {
+    func run<R>(&self, make: () -> R) -> R {
+        let r = make()
+        let bump = { n: Int in n * 2 }
+        print("{}", bump(self.tag))
+        return r
+    }
+}
+
+// A driven body: the local lives in the coroutine frame rather than on the
+// stack, and the closure sits between its definition and its read. The read is
+// a rebinding rather than a `return` because a suspending generic cannot yet
+// return its own local at `R = Void` (SL-365), which is a separate question
+// from whether the binding is still in scope.
+func driven<R>(make: () sync -> R) -> Int {
+    let r = make()
+    yield_now()
+    let scale = { n: Int in n * 5 }
+    let echo = r
+    print("driven: {}", scale(1))
+    return 5
+}
+
+func main() {
+    keep({ print("hi") })
+    twice({ print("two") })
+    between({ print("between") })
+    let h = Holder(tag: 7)
+    h.run({ print("method") })
+    print("{}", __saw_drive(driven({ print("drive") })))
+}
