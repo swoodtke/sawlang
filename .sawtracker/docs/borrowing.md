@@ -1,0 +1,305 @@
+# Borrowing, subscripts and slices
+
+Part of the language lockdown that precedes the self-hosted compiler. The Python
+compiler is frozen, so this describes the language that compiler will
+implement, not what `sawc` does today.
+
+Each decision below is marked **Ruled** (the user decided), **Proposed** (the
+lead's recommendation, not yet ruled), or **Deferred**. Everything was decided
+in conversation on Sep 24 2026.
+
+## 1. Principles
+
+- **A reader can tell a copy from a borrow by looking.** Anything that touches
+  storage in place says `borrow`. Anything that looks like a copy is a copy.
+  (Ruled: "if it looks like a copy, then just copy".)
+- **Modes are declared, never inferred.** Whether a borrow is shared or
+  exclusive is read from declarations, not from how the code happens to use a
+  place. (Ruled.)
+- **One construct, no hidden windows.** A `borrows` function can be called only
+  through the `borrow` construct. The inline place uses of today's language
+  (`g[4].weight += 1`, `bump(&var g[4])`, `m[k]?.field = v`) are gone. (Ruled:
+  this "eliminates any confusion a user might have about what exactly is
+  happening by just reading the code".)
+
+## 2. The `borrow` construct
+
+### 2.1 Block form (Ruled)
+
+```saw
+borrow var slot = v[i] { slot.count += 1 }
+borrow let entry = doc.section("net") { print(entry.name) }
+borrow var n = counter.lock() { n += 1 }
+```
+
+- `borrow let` gives a read-only place; `borrow var` gives a writable one.
+- The binding is always named. Inside the block, only the name reaches the
+  place. The head expression (`v[i]`) cannot be used there, so the place the
+  body works on is always the one that was borrowed.
+- The head is evaluated once and may be any expression, calls included
+  (`v[next_index()]`, `counter.lock()`).
+- There is no `else` clause. The binding carries whatever the accessor lends:
+  a conditional lend binds an optional place, and the body discriminates it with
+  `if let` or `match` (§2.4).
+
+### 2.2 Statement form (Ruled)
+
+For in-place work that fits in one statement, `borrow` prefixes the place
+directly, and the borrow lasts exactly that statement:
+
+```saw
+borrow var grid[r][c].weight += bias
+borrow var queues[k].push(job)
+print(borrow let doc.section("net").name)
+```
+
+- The prefix covers the place expression up to and including its `borrows`
+  call. What follows (`.weight`, `.push(job)`) acts on the lent place.
+- Several borrows in one statement are checked together, so
+  `borrow var a[i].x = borrow let b[j].x` is fine and
+  `borrow var v[i].x = borrow let v[j].x` is an exclusivity error.
+- A conditional lend used inline needs `!` (panic if absent) or `?` (skip if
+  absent), since there is no block in which to discriminate it.
+
+### 2.3 Several bindings (Proposed)
+
+```saw
+borrow var row = grid[r], var cell = row[c] { cell.weight += bias }
+```
+
+- Bindings open left to right. They close in reverse order on every exit:
+  falling off the end, `return`, `break` or `continue` out of the block, and a
+  propagating `try`.
+- A later binding may borrow through an earlier one. That freezes the earlier
+  binding while the later one is live (an ordinary reborrow).
+
+### 2.4 Conditional lends (Ruled: no `else`; Proposed: path-sensitivity)
+
+An accessor declared `borrows -> &var V?` lends an optional place:
+
+```saw
+borrow var e = m.find(k) {
+    if let entry = e { entry.count += 1 }
+    else { m.insert(k, Entry(count: 1)) }   // see below
+}
+```
+
+On the absent path no borrow was ever opened, so touching the root there is
+sound. **Proposed:** the borrow checker is path-sensitive on the MIR control-flow
+graph and knows that an absent arm of the binding holds no borrow. The common
+get-or-insert case does not need this, because the `default:` subscript (§5.4)
+covers it.
+
+### 2.5 Suspension (Proposed)
+
+A borrow may stay open across a suspension unless its accessor is `sync`. A
+lock accessor is `sync`, so a lock body cannot suspend. The machinery for a
+borrow held across a suspension already exists.
+
+## 3. Declared modes and the root charge (Ruled)
+
+Two independent facts, both read from the accessor's declaration:
+
+- **The binding keyword is a capability on the place.** `let` means the body
+  only reads the place, and is always allowed. `var` means the body may write
+  it, and requires a `&var` lend.
+- **The root charge follows the declaration.** A root is held EXCLUSIVELY for
+  the whole borrow if the accessor takes `&var self` or lends `&var T`. It is
+  held shared only for `(&self) borrows -> &T`.
+
+| Declaration | `borrow let` | `borrow var` | Root |
+|---|---|---|---|
+| `(&self) borrows -> &T` | read-only place | error: the lend is read-only | shared |
+| `(&var self) borrows -> &T` | read-only place | error: the lend is read-only | exclusive |
+| `(&var self) borrows -> &var T` | read-only place | writable place | exclusive |
+| `(&self) borrows -> &var T` (cell-carrying types only, e.g. `Mutex.lock`) | read-only place | writable place | exclusive |
+
+- Under a shared root, other shared reads of the root are allowed. Under an
+  exclusive root, the body cannot touch the root at all.
+- **Why it is declarative:** an exclusive accessor narrowed to "shared" at the
+  use site is unsound when its prologue or epilogue writes `self`, because two
+  paused accessor frames would each hold `&var self`. This retires the
+  use-site mode inference of designs 141 and 146.
+
+## 4. `@synthesize(shared)` (Ruled)
+
+`@synthesize(shared)` on a `(&var self) borrows -> &var T` accessor derives the
+`(&self) borrows -> &T` twin. It works by typechecking the same body again
+under the shared signature. If the body writes `self`, the synthesis is refused
+by the ordinary type error, so there is no separate "does it mutate?" analysis.
+
+`borrow let` picks the `&self` variant when one exists, the least privilege
+that works. Otherwise it uses the exclusive accessor, and the root is exclusive.
+
+```saw
+extension Vector<T> {
+    @synthesize(shared)
+    public func [](&var self, i: Int) borrows -> &var T {
+        if i < 0 || i >= self.len() { panic("index out of range") }
+        lend self.buffer[i]
+    }
+}
+```
+
+## 5. Subscripts
+
+### 5.1 Three roles (Ruled)
+
+| Role | Declared as | Used as | Meaning |
+|---|---|---|---|
+| getitem | `func [](&self, key: K) -> V` | `m[k]` | copy the value out; panics if absent |
+| setitem | `func []=(&var self, key: K, value: V)` | `m[k] = v` | store: insert or replace (Map), replace (Vector, panics out of range) |
+| place | `func [](…) borrows -> &var V` | `borrow var e = m[k] { … }` | lend the storage in place |
+
+- Plain subscripts are values and `borrow` subscripts are places; the spelling
+  at the call site picks the role.
+- `counts[k] += 1` is getitem then setitem, and panics if `k` is absent.
+- `Map`'s getitem panics on a missing key, consistent with `Vector` and with
+  the direct-accessor rule. `m.get(k)` is the optional form. (Ruled: the user
+  "really dislike[s] the map's [] operator returning an optional".)
+- An optional *place* is a named accessor such as `m.find(k)` lending
+  `&var V?`, because `[]` in a `borrow` panics on absence, like getitem.
+
+### 5.2 Declaration form (Proposed)
+
+Separate methods, not a `subscript { get set borrow }` block. Every role is an
+ordinary method, so its receiver mode, effects, visibility, overloads, doc
+comment and `@synthesize` apply unchanged, and the compiler has one less
+special form. The block form could be added later as sugar.
+
+**Derivation.** If a type declares only the place accessor, getitem and setitem
+are derived:
+- getitem is a shared lend plus a copy. It applies to Copy-tier values only,
+  and only from a `&self` place accessor (declared or `@synthesize(shared)`),
+  so a plain read never locks the root exclusively or runs a prologue that
+  writes `self`.
+- setitem is an exclusive lend plus an assignment (replace).
+
+`Map` declares its getitem, setitem and `default:` pair explicitly, because it
+inserts.
+
+### 5.3 Multi-argument subscripts (Ruled)
+
+```saw
+extension Matrix {
+    func [](&self, row: Int, col: Int) -> Float
+    func []=(&var self, row: Int, col: Int, value: Float)
+    func [](&var self, row: Int, col: Int) borrows -> &var Float
+}
+```
+
+- Arguments follow the ordinary call rules, labels included.
+- The setter's `value` is its last parameter, so `m[r, c] = x` calls
+  `[]=(r, c, value: x)`.
+- **Family consistency:** for one family, the key parameter lists of `[]`, of
+  `[]=` without its `value`, and of the place accessor must match, and
+  `value`'s type must equal the getter's return type.
+- `m[r, c]` (two arguments) and `m[(r, c)]` (one tuple argument) are different
+  signatures.
+
+### 5.4 The `default:` subscript (Ruled)
+
+```saw
+counts[word, default: 0] += 1
+if names[id, default: ""] == "admin" { … }
+borrow var e = sessions[id, default: Session()] { e.hits += 1 }
+```
+
+A getitem/setitem pair: the getter returns `m.get(k) ?? default`, and the
+setter inserts. It is plain value code for Copy values, with no borrow. Missing
+keys are handled per call. A default parameter value on the getter would
+silently undo the missing-key panic, so there is none. A per-instance default
+(`defaultdict`) could be library sugar later.
+
+## 6. Slices (Ruled)
+
+- **Type.** `&[T]` and `&var [T]` are reference-like. They appear only as
+  parameters and `borrow` bindings, and are never stored in a field or returned.
+  Their representation is a pointer and a length.
+- **Views.** `borrow let header = packet[0..20] { parse(header) }`, and
+  `checksum(&buf[4..])` at a call site.
+- **Whole containers coerce.** Passing `&v` where `&[T]` is expected works for
+  a whole `Vector`, `[T; N]` or `Data`.
+- **Copies follow the parent's copy policy.**
+  - `let h = vec[0..20]` is refused for an ExplicitCopy parent (`Vector`):
+    write `.copy()` for an owned copy, or `borrow` for a view.
+  - A Copy-tier refcounted parent (`Data`, `String`) copies implicitly. The
+    copy shares the parent's storage as an offset and length, so it is O(1).
+    The known cost: a small slice keeps a large parent buffer alive.
+  - Slicing a fixed array with a runtime range copies to a `Vector`, so it is
+    ExplicitCopy.
+- **Strings** are byte-indexed and panic if a cut lands inside a UTF-8
+  character.
+- **Access.** `s[i]` panics out of range and `s.get(i)` is optional. `&var [T]`
+  allows element writes, `swap`, `sort` and `fill`, but never `push`: a
+  borrowed range cannot grow. An extern call receives a pointer and a length.
+  Holding a slice across a suspension is an ordinary borrow.
+
+## 7. Lending several places at once (Ruled)
+
+A `borrows` accessor may lend a tuple of places, under one exclusive root
+charge:
+
+```saw
+extension Vector<T> {
+    func split_at(&var self, k: Int) borrows -> (&var [T], &var [T]) {
+        lend (self.buffer[0..k], self.buffer[k..self.len()])
+    }
+    func pair(&var self, i: Int, j: Int) borrows -> (&var T, &var T) {
+        if i == j { panic("pair: the same index twice") }
+        lend (self.buffer[i], self.buffer[j])
+    }
+}
+
+borrow var (left, right) = v.split_at(mid) { merge(&var left, &var right) }
+```
+
+The compiler proves that distinct fields are disjoint. For indices and ranges
+the accessor guarantees it: `split_at` by construction, `pair` with a runtime
+panic.
+
+## 8. Locks (Ruled)
+
+- **No recursive locks.** A re-entrant lock would hand out two live `&var T`
+  to one payload.
+- **Re-entry through the same name is a compile error.** `Mutex.lock` lends
+  `&var T`, so the mutex is held exclusively for the borrow, and a second
+  `m.lock()` in its own body is refused.
+- **Re-entry through another name panics at runtime**, for example through two
+  `Arc` clones of the same mutex. The lock keeps the one-word lock that is
+  unlocked at zero, and gains error-checking semantics in that word:
+  - macOS `os_unfair_lock` already stores its owner and traps on re-entry;
+  - on Linux the futex word holds the owner's thread id (the PI-futex
+    convention), and `acquire` panics when it sees its own.
+  - `pthread_mutex_t` with `PTHREAD_MUTEX_ERRORCHECK` was considered and
+    rejected. It is 40–64 bytes, has a nonzero static initialiser on Darwin,
+    and does not exist on freestanding targets.
+- The runtime contract: re-acquiring a held lock must fail loudly and never
+  deadlock, on freestanding runtimes too.
+
+## 9. Retired from today's language
+
+- Inline place use: `g[4].weight += 1`, `bump(&var g[4])`, `m[k]?.field = v`.
+- Use-site inference of shared versus exclusive (designs 141 and 146).
+- `Map.[]` returning an optional.
+- **Proposed:** closure-based borrowing APIs (`with_ref`, `with_var_ref`,
+  `Mutex.lock` taking a closure, `Arc.with_unique`) become `borrows` accessors.
+  That removes the class of closure-capture exclusivity bugs (SL-345, SL-385,
+  SL-386, SL-387).
+
+## 10. Deferred
+
+- Computed properties (`var area: Int { get set borrow }`). They are additive,
+  so settle the field and property namespace when they are added.
+- The `subscript { get set borrow }` block, as sugar over §5.2.
+- A per-instance map default (`defaultdict`).
+- `errdefer` and a library `Undo` guard. The library shape, if it is ever
+  needed: a NoCopy struct holding the undo closure, whose deinit runs it, plus
+  a `consumes func keep()` that ends it without running it. Its limits: the
+  closure escapes, so it cannot capture references; it allocates; and a
+  forgotten `keep()` rolls back on success.
+
+## 11. Open
+
+- Run a read-only survey of real borrow shapes (sawc/std, blade, libs,
+  devtools, sawos) to test these rules against actual code?
