@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":31,"sequence":1480,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790276310"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":32,"sequence":1481,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790276593"}
 ---
 
 
@@ -817,4 +817,7 @@ KeyboardInterrupt
 rmdir: /private/tmp/claude-501/saw-suite-lock: No such file or directory
 
 ```
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":46,"created":"1790276593","id":"c28"} -->
+Requested test re-run for SL-2.p2 (revision 3)
 
