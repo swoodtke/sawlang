@@ -1,0 +1,89 @@
+// Compound `/=` and `%=` on an unsigned target divide unsigned, in every
+// position a compound assignment reaches (SL-370). The binary operator's twin
+// is uint_division_signedness.saw. Each value has the high bit set, so a signed
+// divide gives a different answer.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 66 4
+// 21845 1
+// 1431655765 3
+// 9223372036854775800 0
+// 5000000000000000000 0
+// field 66 4
+// index 66 4
+// chain 66 4
+// ref 66 4
+// signed -66 -4
+
+struct Cell { v: UInt8 }
+
+struct Holder { cell: Cell? }
+
+func divide_in_place(n: &var UInt8) {
+    n /= 3
+}
+
+func remainder_in_place(n: &var UInt8) {
+    n %= 7
+}
+
+func main() {
+    var a8: UInt8 = 200
+    var m8: UInt8 = 200
+    a8 /= 3
+    m8 %= 7
+    print("{} {}", a8, m8)
+
+    var a16: UInt16 = 65535
+    var m16: UInt16 = 65535
+    a16 /= 3
+    m16 %= 7
+    print("{} {}", a16, m16)
+
+    var a32: UInt32 = 4294967295
+    var m32: UInt32 = 4294967295
+    a32 /= 3
+    m32 %= 7
+    print("{} {}", a32, m32)
+
+    var a64: UInt64 = 18446744073709551600
+    var m64: UInt64 = 18446744073709551600
+    a64 /= 2
+    m64 %= 2
+    print("{} {}", a64, m64)
+
+    var au: UInt = 10000000000000000000
+    var mu: UInt = 10000000000000000000
+    au /= 2
+    mu %= 2
+    print("{} {}", au, mu)
+
+    var c = Cell(v: 200)
+    c.v /= 3
+    var d = Cell(v: 200)
+    d.v %= 7
+    print("field {} {}", c.v, d.v)
+
+    var xs: Vector<UInt8> = [200, 200]
+    xs[0] /= 3
+    xs[1] %= 7
+    print("index {} {}", xs[0], xs[1])
+
+    var h = Holder(cell: Cell(v: 200))
+    h.cell?.v /= 3
+    var k = Holder(cell: Cell(v: 200))
+    k.cell?.v %= 7
+    print("chain {} {}", h.cell!.v, k.cell!.v)
+
+    var r: UInt8 = 200
+    divide_in_place(&var r)
+    var s: UInt8 = 200
+    remainder_in_place(&var s)
+    print("ref {} {}", r, s)
+
+    var n: Int = -200
+    var q: Int = -200
+    n /= 3
+    q %= 7
+    print("signed {} {}", n, q)
+}

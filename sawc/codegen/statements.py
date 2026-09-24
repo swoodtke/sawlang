@@ -1054,15 +1054,19 @@ class StatementsMixin:
         elif op == '/':
             if is_float:
                 return self.builder.fdiv(left, right, name="divtmp")
+            # The same signed/unsigned split as the binary operator: sdiv with
+            # the INT_MIN / -1 check, or udiv for an unsigned target (SL-370).
             self._check_divisor_nonzero(right)
             if signed:
                 self._check_div_no_overflow(left, right)
-            return self.builder.sdiv(left, right, name="divtmp")
+                return self.builder.sdiv(left, right, name="divtmp")
+            return self.builder.udiv(left, right, name="udivtmp")
         elif op == '%':
             self._check_divisor_nonzero(right)
             if signed:
                 self._check_div_no_overflow(left, right)
-            return self.builder.srem(left, right, name="modtmp")
+                return self.builder.srem(left, right, name="modtmp")
+            return self.builder.urem(left, right, name="umodtmp")
         elif op in ('&', '|', '^'):
             # Bitwise compound assignment (design 50): `x &= y` is `x = x & y`.
             return self._emit_bitwise(op, left, right)
