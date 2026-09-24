@@ -54,8 +54,9 @@ compiler in Saw is the occasion. The architecture is the point.
 
 ```
 source ─► lex ─► parse ─► resolve ─► typecheck ─► lower to MIR ─► borrow check
-       ─► drop elaboration ─► monomorphize ─► coroutine lowering ─► emit LLVM IR (text)
-       ─► clang/llc + link against the Saw runtime
+       ─► drop elaboration ─► monomorphize ─► coroutine lowering ─► lowered MIR
+lowered MIR ─► LLVM IR (text) ─► clang + link against the Saw runtime
+            └► VM bytecode ─► interpreter (planned; see §3.10)
 ```
 
 Each stage is outlined here and fleshed out later.
@@ -120,11 +121,49 @@ Each stage is outlined here and fleshed out later.
   and the resume function.
 - **Operates on MIR,** not source, so it never re-typechecks generated code.
   Borrows across suspensions are windows in the frame.
+- **Suspension is visible to the borrow check.** Effects are known after type
+  checking, so suspension points already appear in the MIR the borrow check
+  sees, and coroutine lowering introduces no new ownership operations. SL-385,
+  SL-386, SL-315 and SL-256 were all a borrow or capture crossing a suspension
+  in a transform that rewrote source.
+- **The executor protocol is MIR primitives, correct by construction.** One
+  `park(root_token, fd, dir)` op, whose single lowering records the park word
+  and then arms readiness, and one propagation op, whose single lowering merges
+  a child's wake reason. There is nothing to verify by pattern-matching emitted
+  code. SL-353's lost wake came from arming before recording, and SL-355's
+  after-the-fact verifier had holes in three successive review rounds.
 
-### 3.10 Code generation
-- **In:** coroutine-lowered MIR. **Out:** textual LLVM IR, compiled and linked
-  by clang against the Saw runtime.
-- **A mechanical translation** that makes no language decisions.
+### 3.10 Backends
+- **The backend boundary is lowered MIR:** after monomorphization and coroutine
+  lowering, everything is concrete and every ownership operation is explicit.
+  Every backend consumes exactly this and nothing earlier.
+- **LLVM backend (the primary one):** textual LLVM IR, compiled and linked by
+  clang against the Saw runtime.
+- **VM backend (planned, and the design must keep it possible):** MIR to VM
+  bytecode, run by an interpreter. Requirements this places on the earlier
+  stages:
+  - the MIR stays target-independent: no LLVM types leak into it, and layout
+    comes from one target-description module that every backend queries;
+  - coroutines are already state machines in the MIR, so the VM needs no native
+    coroutine support;
+  - runtime seams (`__saw_rt_*`) reach a VM through a host-call table, and
+    extern calls through an FFI bridge;
+  - the VM's call stack must hold the language's nesting bound (256) times the
+    compiler's per-level frames, so bounded recursion stays safe inside it.
+- **A MIR interpreter also serves compile-time evaluation.** `const func` (if
+  adopted) can run on the same interpreter, as Rust's const evaluation runs on
+  MIR, so a VM backend and compile-time evaluation share one engine.
+- **Every backend is a mechanical translation** that makes no language
+  decisions. MIR invariants enforce that:
+  - **operator semantics are resolved once.** `x op= y` lowers to the same typed
+    binary op as `x op y`, plus a store, with signedness and checked/wrapping
+    behaviour carried on the op, never re-derived at emission (SL-370: compound
+    `/=` picked `sdiv` independently of `/`'s `udiv`);
+  - **receivers are places.** Every call's receiver is an explicit MIR place or
+    value, so no backend chooses "load, then spill" (SL-368: an Atomic store
+    through `p[i]` hit a copy);
+  - **no per-function mutable state in a backend** beyond its builder (SL-356:
+    a hand-maintained save/restore list missed a member).
 
 ### 3.11 Runtime
 - The existing Saw-authored runtime (`sawc/rt/`) behind the frozen ABI
@@ -143,6 +182,14 @@ frozen compiler builds correctly: arena indices rather than references in data
 structures, no closures with captures, no coroutines, shallow types. It avoids
 every shape in the hazards ledger.
 
+**The subset is enforced mechanically, not by convention.** "Avoid every shape"
+as a convention is the same one-rule-many-sites discipline §1 diagnoses. A small
+checker, a battery lane over the compiler's own source, refuses the ledger's
+shapes. Examples: a closure argument to `with_ref`/`with_var_ref`/`each` that
+names the borrowed root (SL-345), an Atomic or cell method called directly on
+`p[i]` (SL-368), any coroutine, any closure capture. Each ledger entry says
+whether the checker covers it.
+
 ## 5. Testing, per stage
 
 | Stage | Test surface |
@@ -154,6 +201,16 @@ every shape in the hazards ledger.
 | Drop elaboration | drop-order and drop-count tests (printing deinits) |
 | Monomorphization, coroutines, codegen | runtime `@test` cases; the `examples/` corpus |
 | Whole compiler | the `examples/` corpus (~2,700 programs), differential against the frozen compiler; the bootstrap fixpoint |
+| Backends | the same cases run on every backend (LLVM, and the VM when it exists), compared with each other, as the prototype's multi-engine harness already does |
+
+**The frozen compiler is an oracle with known wrong answers.** Everything parked
+under the freeze stays wrong in it: SL-368 (an Atomic through `p[i]` acts on a
+copy), SL-345 (the capture use-after-free compiles), SL-387 (nested captures lose
+writes), SL-353 (a lost wake), and any hazard not yet found. A mismatch is
+adjudicated against the EXPECT directives and the spec, never assumed to be the
+new compiler's bug. The hazards ledger doubles as the list of places the oracle
+is known to be wrong, and a per-case "oracle known wrong: SL-nnn" annotation
+keeps that auditable.
 
 ## 6. Open questions
 
