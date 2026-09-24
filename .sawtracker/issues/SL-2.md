@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":30,"sequence":1476,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790274639"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":31,"sequence":1480,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790276310"}
 ---
 
 
@@ -732,4 +732,89 @@ Proposed prototypes/parser edits, for codex (not committed):
 - the lane's boundary rows for empty `()` in expression and type position, `move`, `move x[0]` and `move *p[0]`;
 - inventory entries for the two new N7 examples.
 
+
+<!-- sawtracker:comment {"author":"agent:sawtracker-tests","body_bytes":4025,"created":"1790276310","id":"c27"} -->
+Tests failed for SL-2.p2 (revision 3):
+
+```
+(867/2714) · deinit_interface
+(868/2714) · deinit_temp_receiver
+(869/2714) · default_type_param
+(870/2714) · deinit_temp_chain
+[853/2714] ✓ data_simple
+(871/2714) · deinit_synth_nocopy_holder
+(872/2714) · deinit_synth_enum_payload
+[854/2714] ✓ df137d_literal_width_riscv32
+[855/2714] ✓ default_param_basic
+[856/2714] ✓ data_to_string_validates_utf8
+[857/2714] ✓ declaration_lists_take_a_line_each
+[858/2714] ✓ df151e_optional_element_repeat_error
+(875/2714) · destructuring_wildcard_over_a_borrowed_projection
+[859/2714] ✓ default_param_method_init
+(876/2714) · df139a_copy_then_overwrite
+(877/2714) · df140b_import_wrap
+[860/2714] ✓ default_param_overload_coexist
+[861/2714] ✓ df137d_literal_width_riscv32_ok
+[862/2714] ✓ default_param_per_call
+[863/2714] ✓ df151i_tuple_transfer_hint_agrees
+[864/2714] ✓ df151i_tuple_copy_nocopy_error
+[865/2714] ✓ default_param_nocopy_move
+[866/2714] ✓ deinit_automatic
+(881/2714) · df140h_std_private_static
+[867/2714] ✓ deinit_early_return
+(882/2714) · dependency_named_main_keeps_the_entry_point
+(883/2714) · df140c_qualified_type_position
+(884/2714) · df140d_result_optional_autowrap
+[868/2714] ✓ deinit_nested
+[869/2714] ✓ deinit_synth_drop_order
+[870/2714] ✓ df165b_place_literal_range_error
+[871/2714] ✓ deinit_policy_containment
+(886/2714) · df140f_private_static_collision
+(887/2714) · df151b_implicit_tier_transfers
+[872/2714] ✓ df229a_missing_selection_error
+[873/2714] ✓ deinit_synth_field
+[874/2714] ✓ df229a_private_type_selection_error
+[875/2714] ✓ deinit_interface
+[876/2714] ✓ deinit_temp_receiver
+(890/2714) · df151d_match_temporary_scrutinee
+[877/2714] ✓ default_type_param
+[878/2714] ✓ deinit_temp_chain
+[879/2714] ✓ df229a_private_selection_error
+(892/2714) · df140h_std_private_static_two_files
+(893/2714) · df151h_assign_rhs_retain
+[880/2714] ✓ deinit_synth_nocopy_holder
+[881/2714] ✓ deinit_synth_enum_payload
+[882/2714] ✓ destructuring_wildcard_over_a_borrowed_projection
+(894/2714) · df151c_optional_dest_copy
+[883/2714] ✓ df229c_parent_selection_error
+[884/2714] ✓ df139a_copy_then_overwrite
+(896/2714) · df151f_tuple_drop_glue
+[885/2714] ✓ df140b_import_wrap
+(897/2714) · df151e_optional_element_array
+(898/2714) · df151l_tuple_literal_expected_type
+Traceback (most recent call last):
+  File "/Users/shawn/Projects/sawtracker-production/data/worktrees/SL-2.p2.test/test_runner.py", line 2578, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/Users/shawn/Projects/sawtracker-production/data/worktrees/SL-2.p2.test/test_runner.py", line 2545, in main
+    results = run_tests_locally(tests, args, in_process, compile_fn,
+                                jsonl, run_dir, prev_run_dir,
+                                prev_manifest, global_max_mtime,
+                                manifest_out)
+  File "/Users/shawn/Projects/sawtracker-production/data/worktrees/SL-2.p2.test/test_runner.py", line 2316, in run_tests_locally
+    _compile_parallel_in_process(remaining, num_workers, args.verbose,
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                 _on_compiled, run_dir)
+                                 ^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/shawn/Projects/sawtracker-production/data/worktrees/SL-2.p2.test/test_runner.py", line 1973, in _compile_parallel_in_process
+    for conn in multiprocessing.connection.wait(list(active)):
+                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/multiprocessing/connection.py", line 1190, in wait
+    ready = selector.select(timeout)
+  File "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/selectors.py", line 398, in select
+    fd_event_list = self._selector.poll(timeout)
+KeyboardInterrupt
+rmdir: /private/tmp/claude-501/saw-suite-lock: No such file or directory
+
+```
 
