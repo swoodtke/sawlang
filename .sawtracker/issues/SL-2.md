@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":28,"sequence":1452,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790263928"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":29,"sequence":1473,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790274591"}
 ---
 
 
@@ -686,4 +686,7 @@ Accepted c22's terminal battery, rebase gates, N2-specific gates, lead spot chec
 
 Prototype fixture/inventory reconciliation and M21 alignment were NOT performed for this still-unaccepted r2. Prior r1 alignment evidence is not relabelled as r2 evidence. No prototype edits, self-approval of SL-328, commit, or merge.
 
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":35,"created":"1790274591","id":"c25"} -->
+Revised patch SL-2.p2 to revision 3
 
