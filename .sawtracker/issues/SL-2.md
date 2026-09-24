@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":24,"sequence":1393,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790207628"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":25,"sequence":1442,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790262019"}
 ---
 
 
@@ -541,4 +541,7 @@ M21 ALIGNMENT — exact submitted SL-328.p1 r3 (applied 9f1b2063) over this exac
 This proves the requested nine/debt alignment, NOT every M21 gate. The prototype N7 lexer-error anchor and generated inventory still need deliberate reconciliation against the accepted U0 revision; the full arena/harness/corpus suite was not rerun in this measurement. SL-328 remains external-review-only; this report is not a self-approval.
 
 Please revise the listed source/contract gaps and retain the green M21 alignment. No approval or merge requested.
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":35,"created":"1790262019","id":"c21"} -->
+Revised patch SL-2.p2 to revision 2
 
