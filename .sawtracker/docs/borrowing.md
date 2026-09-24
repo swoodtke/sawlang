@@ -290,9 +290,16 @@ panic.
   worker after a suspension, so a lock held across one would be released by a
   thread that is not its owner, and the owner check would misfire. `sync` on
   lock accessors is what makes the owner check sound, not only a frame
-  convenience. A freestanding runtime needs its own notion of "current owner"
-  (a core id, or a task id where there are no threads), and rt/ABI.md names
-  that requirement when the lock seam changes.
+  convenience.
+- **Freestanding owners need a seam.** There is no thread id to store on a
+  freestanding runtime, so the contract needs a runtime seam answering "who
+  holds this?". For a kernel, that identity is the CPU/hart id plus interrupt
+  context, because the re-entry that matters is an interrupt handler taking a
+  lock its own core already holds (sawos's irq.saw anticipates an
+  `IntrSpinLock`). sawos is a `--runtime-provider` and implements the seams
+  itself, so the seam's signature goes into rt/ABI.md before the contract lands.
+  Providers then get a checked signature rather than a gap they discover at
+  their first lock.
 
 ## 9. Retired from today's language
 
