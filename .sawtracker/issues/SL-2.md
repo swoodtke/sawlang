@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":25,"sequence":1442,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790262019"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":26,"sequence":1443,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790262041"}
 ---
 
 
@@ -544,4 +544,55 @@ Please revise the listed source/contract gaps and retain the green M21 alignment
 
 <!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":35,"created":"1790262019","id":"c21"} -->
 Revised patch SL-2.p2 to revision 2
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":5416,"created":"1790262041","id":"c22"} -->
+SL-2.p2 r2 submitted: one commit f04c2455, directly on origin/main 454207de. It answers c20 point by point.
+
+1. Depth funnel, P1.
+   The mechanism: nothing checked that the funnel covered every cycle. A new `depthfunnel` battery lane (tools/test_parser_depth_funnel.py) builds the self-method call graph across sawc/parser/, sub-parsers included. It fails in two cases:
+   - any cycle among the uncharged edges;
+   - any disagreement, in either direction, between the `nested` docstring's ENTRY POINTS list and the methods that actually charge.
+   Run against r1, the lane reports codex's three gaps plus two more: parse_struct_init charged but was unlisted, and the rebase walk.
+   The fixes:
+   - `guard` charges at its keyword.
+   - An inline module charges at `module` (or `public`).
+   - A tuple pattern's `(` and a variant payload's `(` each charge.
+   - The ENTRY POINTS list is 20 entries and matches the source.
+   - A nesting refusal stops batched recovery.
+   Each newly charged construct is pinned at 256 accepted / 257 refused, with the exact coordinate. Patterns at 256 are parse-accepted only, because the typechecker caps type nesting at 32.
+   Lead check: removing the guard charge fails the lane, naming the exact cycle; the restored tree passes.
+2. The interpolation refusal is rebased. The sub-lexer now starts at the text's real source position, so every node and refusal is already in source coordinates. UnrecoverableParseError propagates unwrapped.
+   - The probe reads r1 1:256, branch 3:270; the pin is at 12:262.
+   - All 1932 tracked .saw files with an interpolation parse with identical (class, line, column) for every node.
+3. `(f)(n: 0)` and `f(n: 0)` go through one classifier, `_parse_name_call` (ENTRY POINTS: parse_primary, parse_postfix). Both dump StructInit f.
+4. `run<Int> { 1 }` keeps its type arguments before a trailing closure's `{`, the same follow set as a method name. `try! run<Int> { 1 }` is fixed the same way.
+5. N7 is refined. codex's literal rule would break the DF-116d pin, whose stray `{` is closed by a later block's `}`. The rule instead: anchor at an interpolation only if it opens on the quote's line and its `}` came from a later line; otherwise anchor at the quote.
+   - The quote's coordinates have their own variables in Python.
+   - Both lexers follow the same rule; lexdiff shows zero mismatches.
+   - New selfhost/lexer/tests/errors.saw cases fail on r1 and pass here.
+6. N2: the user amended SL-309's TEACHING half (SL-309 c2). The two ruled spellings parse but can never typecheck, because `as` never produces an optional; even `Int? as Int?` is refused. The refusal is unchanged: whitespace-blind, at the same token, and a single `?` is still the type's. The note now teaches coalesce-then-convert, verbatim:
+   "a cast target ends at its type: this `?` is neither part of `Int?` nor the start of a coalescing operator, and spacing does not decide between them. A cast never produces an optional, so coalesce first and then convert: `(<expr> ?? <default>) as Int`"
+   - New runtime pin: coalesce_then_cast_converts_the_payload.saw.
+   - The two old-spelling pins are renamed for what they really pin: parenthesized_cast_keeps_its_one_question, and cast_target_question_inside_generic_arguments_parses. Each expects the typechecker's cast refusal.
+   - The typechecker's message for an optional cast target is filed as SL-377.
+7. LANGUAGE_SPEC.md and the saw-lang skill now state the settled rules:
+   - arm bodies may be a single statement;
+   - binary wrapping, a new nesting-depth subsection, and free-function, generic and try-operand trailing closures;
+   - the cast-target rule. The operator-wins and "binary expressions do not wrap" teachings are gone.
+   docs/AST_DUMP.md has the grouped labelled call and the generic trailing closure.
+Coverage rows: a bare `lend` arm (in match_arm_takes_a_single_statement); SL-309's four cells plus Int??-at-EOL and the Optional<Int?> row; a trailing-`??` wrap row.
+
+Proposed prototypes/parser edits, for codex to merge (not committed here):
+- canonical fixtures for `(f)(n: 0)` → StructInit f, and `run<Int> { 1 }` / `try! run<Int> { 1 }` → FunctionCall run<Int>();
+- the new nesting refusals with their coordinates;
+- the N7 anchor fixture on the refined rule: `"x {1}` at EOF → 1:1; `"a {b"` + newline + `}` → 1:4; `"a` + newline + `{b` + newline + `}` → 1:1;
+- inventory entries for the new example files;
+- check whether prototypes/minivm/src/frontend.saw's "unterminated string literal" carries the old first-interpolation heuristic.
+
+Gates:
+- Implementer's full battery on the pre-amendment tree: 33/33 green, 4280s. suite 2698 passed / 9 xfailed. Lanes: icebreadcrumb, lexdiff, astdiff, astgraft, depthfunnel (new), transferdecisions, producertaxonomy, corodiscovery, corototality, windowseam, stdseed, citations, forgetgate, ircontract, preludegate, docverify, moduletag, stdtypes, toolchain, floatvectors, abidoc, bttable, fuzz, corodiff, bench, selfhostlex, minivm, reemit, irdet --all, gmgate, bootstrap, freestanding (36).
+- Re-gate after rebasing over SL-356: suite 2702/9, astgraft, closurestate, depthfunnel and freestanding, all green.
+- The N2 amendment (note, docs and pins only) gated on the 9 cast pins plus docverify (518 blocks), per the user; no battery.
+- Lead spot checks: depthfunnel with the mutation, the 30 new or changed pins, selfhostlex and lexdiff. All green.
+
 
