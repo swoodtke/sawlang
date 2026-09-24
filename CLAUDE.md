@@ -321,8 +321,11 @@ All issue tracking AND merge gating live in sawtracker, a webserver at
 `PORT`/`ACTOR`; agents identify as `--actor agent:<name>`). Projects:
 SL (sawlang), SO (sawos). `.sawtracker/` in this repo is the SERVER'S
 state (`issues/`, `events/`, `project.md`) — read freely, NEVER edit —
-with ONE exception that is ours: `.sawtracker/tests.json`, which tells
-the server how to test a submitted patch (`./build.sh test`).
+with TWO exceptions that are ours: `.sawtracker/tests.json`, which tells
+the server how to test a submitted patch (`./build.sh test`), and
+`.sawtracker/version`, the release tag name (ST-46): a patch that changes it
+(next to a `SAWC_VERSION` bump in `sawc/version.py`) makes the server create
+that annotated tag at its merge commit. Never reuse a name.
 
 **THE MERGE PATH (user, Sep 8 2026): GitHub is DOWNSTREAM of
 sawtracker.** This checkout's deploy key (`.claude/sawlang_deploy_key`,
