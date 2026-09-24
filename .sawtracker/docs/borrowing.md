@@ -55,6 +55,11 @@ print(borrow let doc.section("net").name)
 
 - The prefix covers the place expression up to and including its `borrows`
   call. What follows (`.weight`, `.push(job)`) acts on the lent place.
+- A chain with several `borrows` calls (`grid[r][c]`) is a chain of nested
+  reborrows, exactly like §2.3's `borrow var row = grid[r], var cell = row[c]`:
+  the root is charged first, then each reborrow, and they close in reverse at
+  the end of the statement. The statement form has no semantics of its own
+  beyond the block form's.
 - Several borrows in one statement are checked together, so
   `borrow var a[i].x = borrow let b[j].x` is fine and
   `borrow var v[i].x = borrow let v[j].x` is an exclusivity error.
@@ -153,7 +158,12 @@ extension Vector<T> {
 
 - Plain subscripts are values and `borrow` subscripts are places; the spelling
   at the call site picks the role.
-- `counts[k] += 1` is getitem then setitem, and panics if `k` is absent.
+- `counts[k] += 1` is getitem then setitem, and panics if `k` is absent. The
+  receiver and every key expression are evaluated exactly once, even though
+  getitem and setitem are two calls, so `counts[next_key()] += 1` calls
+  `next_key()` once. The new compiler gets this by construction from MIR
+  temporaries. (SL-368 needed the same rule for receivers reached through a
+  pointer index or a call.)
 - `Map`'s getitem panics on a missing key, consistent with `Vector` and with
   the direct-accessor rule. `m.get(k)` is the optional form. (Ruled: the user
   "really dislike[s] the map's [] operator returning an optional".)
@@ -276,6 +286,13 @@ panic.
     and does not exist on freestanding targets.
 - The runtime contract: re-acquiring a held lock must fail loudly and never
   deadlock, on freestanding runtimes too.
+- **Why lock bodies must be `sync` (§2.5).** A task can resume on a different
+  worker after a suspension, so a lock held across one would be released by a
+  thread that is not its owner, and the owner check would misfire. `sync` on
+  lock accessors is what makes the owner check sound, not only a frame
+  convenience. A freestanding runtime needs its own notion of "current owner"
+  (a core id, or a task id where there are no threads), and rt/ABI.md names
+  that requirement when the lock seam changes.
 
 ## 9. Retired from today's language
 
