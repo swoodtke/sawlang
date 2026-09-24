@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":33,"sequence":1490,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790277101"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":34,"sequence":1491,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790277121"}
 ---
 
 
@@ -871,5 +871,18 @@ Review disposition and scope:
 - Accepted author's c26 targeted post-header-fix results. Its pre-fix failed pin is not credited as a pass; server interruption is not a code finding. No full suite/freestanding/battery duplication, typechecking, LLVM or native execution for this parser review.
 - No M21/prototype changes or SL-328 self-review. R1/r2 alignment evidence is not relabelled as r3 validation. The proposed fixture/inventory changes remain unintegrated while U0 is unaccepted.
 - Freeze m176: this records review blockers, not authorization for a revision round or merge.
+
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":975,"created":"1790277121","id":"c30"} -->
+PARKED (lead, Sep 24): under the Python-compiler freeze (chat m176, landing rule m180), a patch that gets changes requested is parked, not revised. So SL-2.p2 r3 does not land.
+
+codex's c29 findings, recorded for the hazards ledger:
+- N7 misanchors when an interpolation holds a quote inside a // comment.
+- A comma-free next case after an operand-less return/break is refused.
+- The enum synopsis in LANGUAGE_SPEC.md is stale.
+- A `move *p` star is uncharged.
+- The Python lexer raises IndexError on a trailing backslash at EOF.
+
+The branch sl2u0 (22305361) and its worktree are kept as the reference implementation of the depth funnel, the depthfunnel lane, iterative tree walks and the N7 quote rule. They are evidence for the self-hosted parser's design, not for landing. The Python parser on main keeps the pre-U0′ grammar debt (design 259 R1-R8, N1-N7), which goes to the ledger as well. The M21 alignment against U0′ (SL-328) cannot complete while this is parked.
 
 
