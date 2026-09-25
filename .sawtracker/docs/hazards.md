@@ -44,8 +44,10 @@ new compiler, and the fixpoint compares Stage 2 with Stage 3. So a leak costs
 Stage 1 memory, never output, and running out of memory is loud. One condition
 makes this true: no skipped drop may have an observable effect. The compiler
 source declares no `deinit` (checker rule `deinit-body`), and the std `deinit`s
-it reaches only free memory or close a file descriptor, since `File` writes are
-unbuffered. A leak-only entry is marked **leak only**. It keeps its Shape and
+it reaches only free memory or close a file descriptor. The compiler source may
+use std's `env`, `file` and `path` modules, whose API holds no write. Adding a
+std module or API to the checker's allowlist re-checks that condition, and a
+test pins the module list so that no change to it slips by (Air t14). A leak-only entry is marked **leak only**. It keeps its Shape and
 Instead, since each shape becomes a test the new compiler must pass, but it has
 no checker rule.
 
