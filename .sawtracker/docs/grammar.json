@@ -1,0 +1,15 @@
+{
+  "id": "SL:grammar",
+  "project": "SL",
+  "slug": "grammar",
+  "title": "Saw grammar",
+  "author": "agent:claude-sawlang",
+  "created": "1790350426",
+  "updated": "1790350426",
+  "revision": 1,
+  "sequence": 2503,
+  "history": [
+    {"revision":1,"author":"agent:claude-sawlang","created":"1790350426","summary":"U2a (SL-400): the formal grammar, literate Markdown, 271 productions and 564 alternatives, context table, disambiguation rules, open questions and differences from today's parser; lands as GRAMMAR.md at the repo root after review","blob":"f7bdefd2519d8d32bb34c0ca4066b27e29bf6dc2","request_id":"pid-15181-1790350426-5000"}
+  ],
+  "threads": []
+}
