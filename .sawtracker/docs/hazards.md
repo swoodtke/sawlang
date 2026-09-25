@@ -147,14 +147,30 @@ syntax, so the rule and the recipe above agree (codex t5):
   already refused because the condition runs again (SL-399 r3 review, probes
   b04b, b04c, b04d and q1).
 
-  A memberwise *struct* construction is the exception: its earlier fields are
-  dropped. That holds whether they are temporaries, literals or `move r`, and
-  for generic structs, fields out of declaration order, nested constructions,
-  and a `try` inside a later field's nested call. `Plain(r: make_res("x"),
-  n: try fail_it())` drops the `Res` (reproduced on main 2fa71814; the Air's
-  q5). The construction itself is still an owned temporary when it is passed
-  as an argument. An enum payload construction is not exempt, even though its
-  labels are its fields' names.
+  A memberwise *struct* construction drops its earlier fields only where the
+  construction is bound: as a `let` or `var` initializer, an assignment's right
+  side, a tuple element, or a field of another bound memberwise construction.
+  Passed as an argument, returned, used as a receiver or a payload,
+  interpolated, or used as an `if` arm's value, it leaks like any other
+  temporary (SL-399 r4 review, probes m6, n3, n4, n6, n8 and n12). An enum
+  payload construction always leaks.
+
+  Two more faces leak the same way:
+  - **A named value passed by value.** A Copy-tier owning value, such as a
+    local `String` or a struct holding one, that is passed by value before a
+    failing `try` leaks its retain. That holds when the value is read again
+    afterwards, and when it is a by-value parameter passed on. In
+    `sink_s(s, try fail_it())`, 1000 failures leak 1001 allocations, against 1
+    for the hoisted control (probes o2, o5, o8 and o9; reproduced on main
+    2fa71814).
+  - **A temporary receiver under a failing `try`.** In
+    `let n = try make_res("x").fail()`, the receiver is never dropped when
+    `fail()` errs. It is dropped with no `try`, when the `try` succeeds, and
+    when the receiver is bound first. A temporary *argument* is dropped by the
+    callee (probes q8 and q8b; reproduced).
+
+  A checker that traces which operands own something has missed a face in each
+  review round, so the subset enforces the Instead structurally (Checker).
 - **SL-74** (loud): a `move` inside a `catch` block that diverges (`return`,
   `panic`) still retires the binding on the fall-through path, so the next use
   is refused. All three `catch` forms do this.
@@ -165,25 +181,32 @@ var r = Res(name: "kept")
 let n = sink_rev(move r, try fail())   // fail() errors: `r` is never dropped
 ```
 
-**Instead:** bind every `try … catch` value to a named local. Hoist each `try`
-into its own `let` before any expression that moves a value *or builds an owned
-temporary*, such as a call's result passed as an argument:
+**Instead:** bind every `try … catch` value to a named local. Hoist every
+propagating `try` into its own `let`, over a call on a name or a field path,
+before the expression that uses its value. In particular, hoist it before any
+expression that moves a value, builds an owned temporary, or passes an owning
+value by value:
 `let k = try fail()`, then `sink_rev(move r, k)`; and
 `let k = try fail_it()`, then `sink2(make_res("fresh"), k)` (Air t10). When an error path must
 consume a local, `match` on the `Result` instead of writing `move` in a
 `catch`.
 
-**Checker:** yes: refuse an expression statement that is a `try … catch`, an
-expression that contains both `move` and `try`, and `move` inside a `catch`
-block. Also refuse an owned temporary evaluated before a `try` in the same
-expression, in every position the Shape lists. A temporary is a call's
-result, a struct literal or an interpolated string. It leaks the same way with
-no `move` written: `sink2(make_res("fresh"), try fail_it())` never drops the
-fresh value (Air, SL-399 review, probe p24). An operand that owns nothing,
-such as a Copy struct literal or an `Int` result, is not a temporary here.
-Nor are a memberwise struct construction's own fields: the checker reads a
-construction of a build type whose labels are exactly its field names as
-memberwise, since Stage 0 refuses an `init` with those labels.
+**Checker:** yes, structurally, with no type tracing. It enforces the Instead
+(Air, SL-399 r4 review):
+- **Where a propagating `try` may stand.** Only as the whole of a `let` or
+  `var` initializer, the right side of a plain `=`, a `return` operand, or an
+  expression statement. Anywhere else it is refused and must be hoisted into
+  its own `let`: an argument, an operand, a literal element, an interpolation,
+  a head, a compound assignment, or under another `try`.
+- **What may sit under it.** The call directly under the `try` must be a free
+  function call, or a method call whose receiver is a name or a field path
+  (`self.pos`, `a.b.c`). Its arguments may be anything, since the callee
+  drops them.
+- **Also refused:** an expression statement that is a `try … catch`, and
+  `move` inside a `catch` block.
+
+This one rule covers the moved-value, owned-temporary, named-value and
+temporary-receiver faces alike.
 
 ### S4. Whole-call exclusivity (SL-284, SL-294, SL-111)
 
@@ -623,6 +646,30 @@ call, as C3 advises. Compute anything longer into a `let` first.
 
 **Checker:** yes: refuse any line break inside an interpolation's braces.
 
+### S22. Types declared in an inline module (SL-403)
+
+**Shape:** Stage 0 never drops a value whose type is declared inside an inline
+`module name { }`. Its `deinit` never runs, and its synthesized field drops are
+missing, so an owning field leaks. The same code drops correctly at top level
+or in a file module (Air, SL-399 r4 review, probes c03c, c03d and c04c;
+reproduced on main 2fa71814).
+
+**Example:**
+```saw
+module mod_b {
+    public struct Res { name: String }
+    extension Res: NoCopy {
+        func deinit(&var self) { print("drop {self.name}") }
+    }
+    public func scope_end() { let r = Res(name: "x") }   // prints nothing
+}
+```
+
+**Instead:** use file modules. Inline modules have also cost the checker four
+scope and name-resolution findings, and the compiler source needs none.
+
+**Checker:** yes: refuse every inline `module name { }` in the compiler source.
+
 ## Loud hazards
 
 ### L1. Integer literal adoption (SL-13, SL-53, SL-56, SL-70, SL-75, SL-84, SL-194)
@@ -1012,13 +1059,14 @@ blanket rules).
 
 **Shape:** `extension Gen { … }` or `extension Gen: NoCopy {}` on a generic
 `struct Gen<T>` makes Stage 0 crash with `internal compiler error: 'Gen'`
-(Air, SL:hazards t13; reproduced on main 2fa71814). Whether a bare generic
-name is valid in an extension head at all is SL-66's question.
+(Air, SL:hazards t13; reproduced on main 2fa71814). A std generic type crashes
+the same way: `extension Vector { … }` (SL-399 r4 review, probe g3). Whether a
+bare generic name is valid in an extension head at all is SL-66's question.
 
 **Instead:** write the parameters: `extension Gen<T> { … }`.
 
-**Checker:** yes: refuse an extension head that names a generic build type
-without type arguments.
+**Checker:** yes: refuse an extension head that names a generic type, whether
+the build's or std's, without type arguments.
 
 ## Cases with no issue
 
@@ -1090,7 +1138,7 @@ well. Loud.
 
 ## Inventory
 
-Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and two found since, mapped to its entry. "Call" is this
+Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and three found since, mapped to its entry. "Call" is this
 ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 
 | Issue | Entry | Call |
@@ -1183,6 +1231,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-390 | S19 Type walks bounded by a depth count | silent (promoted after review) |
 | SL-401 | S21 A line break inside an interpolation | silent (found in the compiler-skeleton review) |
 | SL-402 | L18 An extension of a generic type without its parameters | loud (found in the compiler-skeleton review) |
+| SL-403 | S22 Types declared in an inline module | silent (found in the compiler-skeleton review) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
