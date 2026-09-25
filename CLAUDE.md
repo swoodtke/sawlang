@@ -4,7 +4,9 @@ Saw: a systems language (Rust safety + Swift ergonomics, no lifetimes,
 deterministic destruction). This file covers HOW TO DEVELOP the
 compiler/tooling. For HOW TO WRITE Saw code, load the **saw-lang
 skill** (`.claude/skills/saw-lang/`); the authoritative language
-reference is **LANGUAGE_SPEC.md**. Open work: **designs/todo.md**
+reference is **LANGUAGE_SPEC.md**, and **GRAMMAR.md** is the formal
+grammar (how each construct is spelled, its stable `syntax.*` name, and
+the positions it may appear in). Open work: **designs/todo.md**
 (tracker); decided designs: `designs/NN-*.md`.
 
 ## Repo map
