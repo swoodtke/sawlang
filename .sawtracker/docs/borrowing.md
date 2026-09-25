@@ -173,6 +173,20 @@ borrow var n = counter.lock() {
   and can be added when something needs it.
 - `borrows(sync)` combines with the other effects in the slot:
   `unsafe borrows(sync)`, `sync borrows(sync)`.
+- **Substitution** (follows from the above; codex t18). A caller holding a plain
+  `borrows` loan is entitled to suspend, so a `borrows(sync)` accessor can never
+  stand in for a plain one. The reverse is fine.
+  - A plain `borrows` implementation satisfies a `borrows(sync)` requirement.
+  - A `borrows(sync)` implementation never satisfies a plain `borrows`
+    requirement. For example, a lock-backed map whose `find` is `borrows(sync)`
+    cannot conform to `KeyedPlace` (§5.4).
+  - The restriction survives every indirection: trait and `any Trait` dispatch
+    follow the requirement's declaration, a `@synthesize(shared)` twin keeps
+    it, and a function value of a `borrows(sync)` type does not convert to a
+    plain `borrows` type.
+  - The direction is the reverse of function `sync`, where a `sync`
+    implementation satisfies a plain requirement. Function `sync` constrains
+    the callee's body, while `borrows(sync)` constrains the consumer's.
 
 ### 2.6 `for` is a borrow scope (Ruled)
 
