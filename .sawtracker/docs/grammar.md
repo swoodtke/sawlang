@@ -9,8 +9,9 @@ belongs to, so the two can be checked against each other. A few forms are
 settled by the locked-down design documents SL:borrowing, SL:testing and
 SL:architecture before the spec carries them; those productions also cite the
 document and section in a `ref=` field. Rulings that live in tracker issues are
-cited the same way. Where the spec's text still shows an older spelling, §15
-lists it, and this document's spelling holds.
+cited the same way. Where the spec's text still shows an older spelling, or does
+not yet show a ruled one, §15 lists the passage, and this document's spelling
+holds.
 
 Tests cite a construct by its stable name, for example
 `// rule: syntax.expr.trailing-call` or
@@ -72,7 +73,9 @@ alternative-name    ::= production-name
   same tokens, the disambiguation table (§13) decides, and names the rule that
   does.
 - **Status.** `current` is the language as specified today. `lockdown` is new
-  or changed by SL:borrowing, SL:testing or SL:architecture. `retired` still
+  or changed by SL:borrowing, SL:testing or SL:architecture, or by a ruling on
+  this grammar recorded on SL-400; its `ref=` names the document section or
+  the ruling. `retired` still
   parses, and a later stage refuses it with a hint naming the new spelling.
   `removed` is a spelling the parser recognizes only to refuse it with a
   dedicated diagnostic, whether it was valid once or never; §10 says why each
@@ -104,7 +107,7 @@ whitespace, so CRLF files lex like LF files.
 
 | kind | spelling | notes |
 |---|---|---|
-| IDENT | a letter or `_`, then letters, digits and `_` | Keywords (§2.2) are not identifiers. Contextual words are. `_` alone is an identifier. Which letters count is open (§15). |
+| IDENT | an ASCII letter or `_`, then ASCII letters, digits and `_` | Keywords (§2.2) are not identifiers. Contextual words are. `_` alone is an identifier. Identifiers are ASCII only (syntax.lex.ascii-identifier). |
 | INT | decimal digits, or `0x`, `0b`, `0o` and digits of that base, with `_` separators, and an optional width suffix | Suffixes are `i8 i16 i32 i64 u8 u16 u32 u64`, optionally after one `_`. |
 | FLOAT | digits, `.`, digits | A digit is required on both sides of the point. There is no exponent and no suffix. |
 | STRING | `"…"` with no interpolation | The token's value is the decoded content. |
@@ -126,12 +129,14 @@ the grammar as a quoted terminal:
 | logical and bitwise | `&&` `\|\|` `&` `\|` `^` `~` |
 | assignment | `=` `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` |
 | optional | `?` `??` `?.` `!` |
-| range | `..` `..=` `...` |
-| delimiters | `(` `)` `{` `}` `[` `]` `,` `:` `;` `->` `.` `@` |
+| range | `..` `..=` |
+| delimiters | `(` `)` `{` `}` `[` `]` `,` `:` `;` `->` `.` `...` `@` |
 | directives | `#file` `#line` `#function` `#lend_var` |
 
 The lexer has no `<<` or `>>` token, so that `Vector<Vector<Int>>` closes two
-lists. `<<=` and `>>=` are single tokens.
+lists. `<<=` and `>>=` are single tokens. `...` ends a variadic extern parameter
+list; between two operands it is refused, since a range is `..` or `..=`
+(syntax.expr.refused-ellipsis-range).
 
 ### 2.2 Keywords and contextual words
 
@@ -148,14 +153,14 @@ everywhere else:
 
 | word | position | production |
 |---|---|---|
-| `import` `export` `module` | the head of a top-level item | syntax.decl.import, syntax.decl.export, syntax.decl.module |
+| `import` `export` `module` | the head of a top-level item; `export` only to be refused | syntax.decl.import, syntax.decl.refused-export, syntax.decl.module |
 | `package` `parent` | inside `public(…)` | syntax.decl.visibility |
 | `private` | before a struct field's name | syntax.decl.field-visibility |
 | `type` | followed by a name, at a declaration head | syntax.decl.type-alias, syntax.decl.assoc-type, syntax.decl.type-assign |
-| `const` | followed by a name, in a generic parameter list; followed by `func`, only to be refused | syntax.generic.param, syntax.decl.refused-const-func |
+| `const` | followed by a name, in a generic parameter list; in a declaration head before `func` or `init`, only to be refused | syntax.generic.param, syntax.decl.refused-effect-prefix |
 | `any` | followed by a name, in a type | syntax.type.any |
-| `sync` `consumes` `escaping` | after a parameter list | syntax.decl.effects, syntax.type.func-effects |
-| `constexpr` | after a parameter list | syntax.decl.constexpr |
+| `sync` `consumes` `escaping` | after a parameter list; `sync` and `consumes` also in a declaration head before `func` or `init`, only to be refused | syntax.decl.effects, syntax.type.func-effects, syntax.decl.refused-effect-prefix |
+| `constexpr` | after a parameter list; in a declaration head before `func` or `init`, only to be refused | syntax.decl.constexpr, syntax.decl.refused-effect-prefix |
 | `blocking` | before `func` in an extern block | syntax.decl.extern-func |
 | `copy` | a capture-list mode | syntax.expr.capture |
 | `lends` | followed by `self` or a name | syntax.expr.lends |
@@ -165,7 +170,7 @@ everywhere else:
 | `_` | a pattern or a discarded binding | syntax.pat.wildcard, syntax.stmt.refused-var-discard |
 | `export` `section` `synthesize` `align` `test` | after `@` | syntax.attr.attribute, syntax.test.case |
 | `shared` | inside `@synthesize(…)` | syntax.attr.synthesize-shared |
-| `panics` `refuses` `warns` `text` `at` `none` | inside `@test(…)` | syntax.test.panics, syntax.test.refuses, syntax.test.warns |
+| `panics` `refuses` `warns` `text` `at` `none` | inside `@test(…)` | syntax.test.panics, syntax.test.refuses, syntax.test.warns, syntax.test.text, syntax.test.at |
 
 `deinit`, `Self`, `Void`, `Never` and the primitive type names are ordinary
 identifiers. The planned reservations `and`, `defer`, `do`, `generic`, `macro`,
@@ -199,7 +204,8 @@ Newlines are tokens. Whether one ends a statement is the parser's decision:
    syntax.rule.generic-or-less), every `NEWLINE` is insignificant.
 3. A `NEWLINE` directly after an infix operator of the expression tiers is
    insignificant, so a line ending in `+`, `&&` or `??` continues. A line that
-   starts with an operator or a `.` does not continue the line before it.
+   starts with an operator or a `.` does not continue the line before it; a
+   leading `.name` is an implicit member (§7.4).
 4. Every other `NEWLINE` is a token the grammar sees. The grammar writes
    `NEWLINE*` where line breaks are allowed: before a body's `{`, around `else`
    and `catch`, and inside the brace-delimited lists of fields, cases, arms,
@@ -232,15 +238,17 @@ never enter the token stream, and are attached by position. A run of `///`
 lines documents the next declaration: a `func`, `struct`, `enum`, `trait`,
 `extension`, `type` alias or `static`, a struct field, an enum case, a method or
 `init`, or a trait requirement. Attributes and `public` between the comment and
-the declaration do not matter. `//!` lines are legal only before the file's
-first token. A doc comment that documents nothing is an error. `////` and a
+the declaration do not matter. A test case is not documentable, so a `///` run
+before one is an error. `//!` lines are legal only before the file's first
+token. A doc comment that documents nothing is an error. `////` and a
 `///` after code on the same line are ordinary comments.
 
 ### 2.7 Lexical rules
 
 | rule | statement | source |
 |---|---|---|
-| syntax.lex.longest-match | The lexer takes the longest token at each position. `o!= 5` is a comparison, `a&-b` is a wrapping subtraction, and `Vector<Int>= v` lexes `>=`. | Appendix B: Operators |
+| syntax.lex.longest-match | The lexer takes the longest token at each position. `o!= 5` is a comparison and `a&-b` is a wrapping subtraction, and a warning flags both. `Vector<Int>= v` lexes `>=`, which the parser splits where it closes a generic list (syntax.rule.generic-close-split). | Appendix B: Operators |
+| syntax.lex.ascii-identifier | An identifier is ASCII: letters `A` to `Z` and `a` to `z`, digits and `_`. A letter outside ASCII cannot start or continue one, so it is an error outside a string literal or a comment. | SL-400 c6 |
 | syntax.lex.shift-adjacent | A shift is two `<` or two `>` tokens in expression position with no space between them. With a space they are an error, never a comparison. | Bitwise and Shift Operators |
 | syntax.lex.double-question | In a type, a `??` token is two optional layers. In an expression it is the coalescing operator. | Optionals |
 | syntax.lex.tuple-index | Digits after a member `.` are a tuple index (§2.3). | Composite Types |
@@ -267,13 +275,12 @@ top-level-list ::= top-level-item ( NEWLINE+ top-level-item )* NEWLINE*
 
 # syntax.file.item  status=current  spec="8. Module System"  node=-
 top-level-item ::= import-decl  @syntax.file.item.import
-    | export-decl  @syntax.file.item.export
     | module-decl  @syntax.file.item.module
     | static-assert  @syntax.file.item.static-assert
     | declaration-item  @syntax.file.item.declaration
     | test-item  @syntax.file.item.test
+    | refused-export  @syntax.file.item.refused-export
     | refused-unsafe-prefix  @syntax.file.item.refused-unsafe
-    | refused-borrows-prefix  @syntax.file.item.refused-borrows
     | refused-visibility-prefix  @syntax.file.item.refused-visibility
 ```
 
@@ -293,7 +300,7 @@ declaration-item ::= attribute-list? visibility? func-decl  @syntax.decl.item.fu
     | extern-block  @syntax.decl.item.extern
     | refused-static  @syntax.decl.item.refused-static
     | refused-array-extension  @syntax.decl.item.refused-array-extension
-    | refused-const-func  @syntax.decl.item.refused-const-func
+    | refused-effect-prefix  @syntax.decl.item.refused-effect-prefix
 
 # syntax.decl.visibility  status=current  spec="Visibility"  node=Visibility
 visibility ::= "public"  @syntax.decl.visibility.public
@@ -302,6 +309,9 @@ visibility ::= "public"  @syntax.decl.visibility.public
 ```
 
 ### 3.1 Imports and modules
+
+`public import` is the one re-export form; an `export` declaration is refused
+(§10).
 
 ```ebnf
 # syntax.decl.import  status=current  spec="Imports"  node=Import
@@ -321,11 +331,6 @@ import-symbol-list ::= import-symbol ( "," NEWLINE* import-symbol )* ( "," NEWLI
 # syntax.decl.import-symbol  status=current  spec="Imports"  node=ImportSymbol
 import-symbol ::= IDENT NEWLINE*  @syntax.decl.import-symbol.name
     | IDENT "as" IDENT NEWLINE*  @syntax.decl.import-symbol.alias
-
-# syntax.decl.export  status=current  spec="Imports"  node=Export
-export-decl ::= 'export' path  @syntax.decl.export.symbol
-    | 'export' path "as" IDENT  @syntax.decl.export.alias
-    | 'export' path "." "*"  @syntax.decl.export.glob
 
 # syntax.decl.module  status=current  spec="Module Declaration"  node=ModuleDecl
 module-decl ::= "public"? 'module' IDENT  @syntax.decl.module.file
@@ -370,7 +375,11 @@ The effect slot follows the parameter list. Its words appear in one order, each
 at most once (§13, syntax.rule.effect-slot). `constexpr` declares a function
 that compile-time evaluation may call, and takes `sync`'s place in the order.
 It implies `sync`. `constexpr sync`, `unsafe constexpr` and `constexpr borrows`
-parse, and a later stage refuses each with a hint.
+parse, and a later stage refuses each with a hint. `constexpr` stands in every
+effect slot, a trait requirement's included, where a later stage refuses it; a
+function type does not take it. An effect word written in a declaration head,
+before `func` or `init`, is refused wherever it stands there
+(syntax.decl.refused-effect-prefix).
 
 ```ebnf
 # syntax.decl.effects  status=current  spec="Consuming method receivers (`consumes`)"  node=-
@@ -390,7 +399,7 @@ borrows-sync-effect ::= "borrows" "(" 'sync' ")"
 ### 3.3 Structs and enums
 
 A struct's fields, and an enum's cases, are separated by a comma, a line break,
-or both.
+or both, so two on one line need a comma between them (§14).
 
 ```ebnf
 # syntax.decl.struct  status=current  spec="Structs"  node=Struct
@@ -439,6 +448,10 @@ raw-value ::= "=" expr
 
 ### 3.4 Traits and extensions
 
+An extension head and a trait's parent list take qualified paths, as every
+other position that names a type does. A trait requirement takes generic
+parameters as a method does, and a later stage refuses them.
+
 ```ebnf
 # syntax.decl.trait  status=current  spec="Traits"  node=Trait
 trait-decl ::= "trait" IDENT generic-params? trait-parents? NEWLINE* "{" NEWLINE* trait-member-list? "}"
@@ -452,7 +465,7 @@ trait-member-list ::= trait-member ( NEWLINE+ trait-member )* NEWLINE*
 # syntax.decl.trait-member  status=current  spec="Traits"  node=-
 trait-member ::= assoc-type-decl  @syntax.decl.trait-member.assoc-type
     | requirement  @syntax.decl.trait-member.requirement
-    | refused-member-unsafe  @syntax.decl.trait-member.refused-unsafe
+    | refused-effect-prefix  @syntax.decl.trait-member.refused-effect-prefix
     | refused-member-private  @syntax.decl.trait-member.refused-private
 
 # syntax.decl.assoc-type  status=current  spec="Traits"  node=AssocType
@@ -478,7 +491,7 @@ extension-member ::= type-assign-decl  @syntax.decl.extension-member.type-assign
     | visibility? method-decl  @syntax.decl.extension-member.method
     | synthesize-shared-attr visibility? method-decl  @syntax.decl.extension-member.synthesized-method
     | visibility? init-decl  @syntax.decl.extension-member.init
-    | refused-member-unsafe  @syntax.decl.extension-member.refused-unsafe
+    | refused-effect-prefix  @syntax.decl.extension-member.refused-effect-prefix
     | refused-member-static  @syntax.decl.extension-member.refused-static
     | refused-member-private  @syntax.decl.extension-member.refused-private
 
@@ -559,7 +572,9 @@ synthesize-shared-attr ::= "@" 'synthesize' "(" 'shared' ")" NEWLINE*
 
 `@test` decides whether a declaration exists in a given build. What follows it
 decides the form: a string makes a case, `{` makes a group, and a declaration
-makes that declaration test-only.
+makes that declaration test-only. The string after `panics:` always names a
+panic's rule, and a user `panic("…")` has a rule of its own. An optional
+`text:` adds a check on the panic's message, as it does for `refuses:`.
 
 ```ebnf
 # syntax.test.item  status=lockdown  spec="Attributes (design 58)"  node=-  ref="SL:testing §2"
@@ -574,7 +589,11 @@ test-case ::= "@" 'test' STRING NEWLINE* block  @syntax.test.case.run
     | "@" 'test' "(" test-refuses ")" STRING NEWLINE* refusal-body  @syntax.test.case.refuses
 
 # syntax.test.panics  status=lockdown  spec="Attributes (design 58)"  node=-  ref="SL:testing §4"
-test-panics ::= 'panics' ":" STRING test-at?
+test-panics ::= 'panics' ":" STRING test-at?  @syntax.test.panics.rule
+    | panics-text  @syntax.test.panics.text
+
+# syntax.test.panics-text  status=lockdown  spec="Attributes (design 58)"  node=-  ref="SL-400 c6"
+panics-text ::= 'panics' ":" STRING test-text test-at?
 
 # syntax.test.warns  status=lockdown  spec="Compiler warnings"  node=-  ref="SL:testing §5"
 test-warns ::= 'warns' ":" STRING  @syntax.test.warns.key
@@ -620,13 +639,19 @@ refusal-unit-item ::= top-level-item  @syntax.test.refusal-unit-item.declaration
 
 ## 5. Types and generics
 
-A type is an atom followed by optional-layer suffixes. `?` wraps once, and a
-`??` token wraps twice, so `Int??` and `Optional<Int?>` are one type. A suffix
-binds to the whole atom before it: `&Int?` is a reference to an optional.
+A type is a reference, a function type, or an atom followed by optional-layer
+suffixes. `?` wraps once, and a `??` token wraps twice, so `Int??` and
+`Optional<Int?>` are one type. A reference and a function type are not atoms,
+so a suffix after `&` or `->` belongs to the type that follows: `&Int?` is a
+reference to an optional, and `(Int) -> Int?` returns an optional (§13,
+syntax.rule.prefix-type-suffix).
 
 ```ebnf
 # syntax.type.type  status=current  spec="3. Type System"  node=-
-type ::= type-atom type-suffix*
+type ::= ref-type  @syntax.type.type.ref
+    | func-type  @syntax.type.type.func
+    | type-atom type-suffix*  @syntax.type.type.suffixed
+    | refused-func-consumes  @syntax.type.type.refused-func-consumes
 
 # syntax.type.suffix  status=current  spec="Optionals"  node=OptionalType
 type-suffix ::= "?"  @syntax.type.suffix.optional
@@ -634,14 +659,12 @@ type-suffix ::= "?"  @syntax.type.suffix.optional
 
 # syntax.type.atom  status=current  spec="3. Type System"  node=-
 type-atom ::= named-type  @syntax.type.atom.named
-    | ref-type  @syntax.type.atom.ref
     | slice-type  @syntax.type.atom.slice
     | array-type  @syntax.type.atom.array
     | tuple-type  @syntax.type.atom.tuple
+    | single-tuple-type  @syntax.type.atom.single-tuple
     | paren-type  @syntax.type.atom.paren
-    | func-type  @syntax.type.atom.func
     | any-type  @syntax.type.atom.any
-    | refused-func-consumes  @syntax.type.atom.refused-func-consumes
     | refused-partial-named-tuple-type  @syntax.type.atom.refused-partial-named
 
 # syntax.type.named  status=current  spec="Generics"  node=NamedType
@@ -660,13 +683,22 @@ array-type ::= "[" type ";" expr "]"
 
 # syntax.type.tuple  status=current  spec="Composite Types"  node=TupleType
 tuple-type ::= "(" ")"  @syntax.type.tuple.unit
-    | "(" type "," ( type ( "," type )* ","? )? ")"  @syntax.type.tuple.positional
+    | "(" type ( "," type )+ ","? ")"  @syntax.type.tuple.positional
     | "(" tuple-type-field ( "," tuple-type-field )* ","? ")"  @syntax.type.tuple.named
 
 # syntax.type.tuple-field  status=current  spec="Composite Types"  node=TupleField
 tuple-type-field ::= IDENT ":" type
+```
 
-# syntax.type.paren  status=pending  spec="Composite Types"  node=-
+A one-element tuple type is written with its comma, `(T,)`. Without the comma,
+the parentheses group, so `((Int) -> Int)?` is an optional function (§13,
+syntax.rule.paren-type).
+
+```ebnf
+# syntax.type.single-tuple  status=lockdown  spec="Composite Types"  node=TupleType  ref="SL-400 c6"
+single-tuple-type ::= "(" type "," ")"
+
+# syntax.type.paren  status=lockdown  spec="Composite Types"  node=-  ref="SL-400 c6"
 paren-type ::= "(" type ")"
 
 # syntax.type.func  status=current  spec="The effect on a function type"  node=FuncType
@@ -688,17 +720,22 @@ any-type ::= 'any' path
 
 A cast target is a type that takes at most one `?`. A `??` token or a second
 `?` after it is refused at that token, whatever the spacing (§13,
-syntax.rule.cast-target-question).
+syntax.rule.cast-target-question). A reference or function type is a cast
+target too, and a later stage decides which casts exist.
 
 ```ebnf
 # syntax.type.cast-target  status=current  spec="Optionals"  node=-  ref="SL-309"
 cast-target ::= type-atom  @syntax.type.cast-target.plain
     | type-atom "?"  @syntax.type.cast-target.optional
+    | ref-type  @syntax.type.cast-target.ref
+    | func-type  @syntax.type.cast-target.func
 ```
 
 ### 5.1 Generic parameters and arguments
 
-A generic list ignores line breaks and takes no trailing comma.
+A generic list ignores line breaks and takes no trailing comma. A `>=` or `>>=`
+token whose `>` closes the list is split there (§13,
+syntax.rule.generic-close-split).
 
 ```ebnf
 # syntax.generic.params  status=current  spec="Generics"  node=-
@@ -933,13 +970,17 @@ lend-stmt ::= "lend" expr
 
 ### 6.4 Guard
 
+A `guard` takes an optional binding or a boolean condition. Its `else` block
+must leave the enclosing scope, which a later stage checks. A `guard` takes no
+borrow binding.
+
 ```ebnf
 # syntax.stmt.guard  status=current  spec="Control Flow"  node=Guard
 guard-stmt ::= "guard" "let" binding-target "=" binding-subject NEWLINE* "else" NEWLINE* block  @syntax.stmt.guard.let
     | "guard" "var" binding-target "=" binding-subject NEWLINE* "else" NEWLINE* block  @syntax.stmt.guard.var
     | guard-condition  @syntax.stmt.guard.condition
 
-# syntax.stmt.guard-condition  status=pending  spec="Control Flow"  node=Guard  ref="SL-58"
+# syntax.stmt.guard-condition  status=lockdown  spec="Control Flow"  node=Guard  ref="SL-400 c6"
 guard-condition ::= "guard" head-expr NEWLINE* "else" NEWLINE* block
 
 # syntax.stmt.binding-subject  status=current  spec="Optionals"  node=-
@@ -966,22 +1007,26 @@ syntax.rule.flat-chains). Postfix chains stay nested, one node per hop.
 | 5 | `+` `-` `&+` `&-` | left, flat | syntax.expr.additive |
 | 6 | `<<` `>>` | left, flat | syntax.expr.shift |
 | 7 | `..` `..=` | none | syntax.expr.range |
-| 8 | `==` `!=` `<` `>` `<=` `>=` | flat | syntax.expr.compare |
+| 8 | `==` `!=` `<` `>` `<=` `>=` | none | syntax.expr.compare |
 | 9 | `&` | left, flat | syntax.expr.bitand |
 | 10 | `^` | left, flat | syntax.expr.bitxor |
 | 11 | `\|` | left, flat | syntax.expr.bitor |
 | 12 | `&&` | left, flat | syntax.expr.and |
 | 13 | `\|\|` | left, flat | syntax.expr.or |
-| 14 | `??` | flat | syntax.expr.coalesce |
+| 14 | `??` | right, flat | syntax.expr.coalesce |
 
 `if`, `match`, `while`, `for`, a `try` block, a `borrow` block and a closure
 are primaries, so each can be an operand, an argument or a receiver.
 
+A range may omit either bound: `a..`, `..b`, `..=b` and `..` are range
+expressions, and a later stage decides which positions accept an open range.
+
 A line that ends in an operator of tiers 4 to 14 continues onto the next line.
-Three rows of the table await a ruling: whether the prefix operators bind
-tighter than `as` (syntax.rule.prefix-or-cast), how far `try` reaches
-(syntax.rule.try-extent), and how the flat `??` and comparison chains group
-(syntax.rule.coalesce-grouping, syntax.rule.compare-chain).
+The prefix operators, `try` included, bind tighter than `as`
+(syntax.rule.prefix-or-cast, syntax.rule.try-extent). A `??` chain is one flat
+node whose operands group right to left (syntax.rule.coalesce-grouping). A
+comparison takes exactly two operands, and a chain of comparisons is refused
+(syntax.rule.compare-chain).
 
 ```ebnf
 # syntax.expr.expr  status=current  spec="Appendix B: Operators"  node=-
@@ -1009,7 +1054,8 @@ bitxor-expr ::= bitand-expr ( "^" NEWLINE* bitand-expr )*
 bitand-expr ::= compare-expr ( "&" NEWLINE* compare-expr )*
 
 # syntax.expr.compare  status=current  spec="Ordering (`Comparable`)"  node=Binary
-compare-expr ::= range-expr ( compare-op NEWLINE* range-expr )*
+compare-expr ::= range-expr ( compare-op NEWLINE* range-expr )?  @syntax.expr.compare.pair
+    | refused-compare-chain  @syntax.expr.compare.refused-chain
 
 # syntax.expr.compare-op  status=current  spec="Appendix B: Operators"  node=-
 compare-op ::= "=="  @syntax.expr.compare-op.equal
@@ -1023,6 +1069,7 @@ compare-op ::= "=="  @syntax.expr.compare-op.equal
 range-expr ::= shift-expr ( range-op NEWLINE* shift-expr )?  @syntax.expr.range.closed
     | range-from  @syntax.expr.range.from
     | range-upto  @syntax.expr.range.upto
+    | refused-ellipsis-range  @syntax.expr.range.refused-ellipsis
 
 # syntax.expr.range-op  status=current  spec="Control Flow"  node=-
 range-op ::= ".."  @syntax.expr.range-op.exclusive
@@ -1031,7 +1078,7 @@ range-op ::= ".."  @syntax.expr.range-op.exclusive
 # syntax.expr.range-from  status=lockdown  spec="Composite Types"  node=Range  ref="SL:borrowing §6"
 range-from ::= shift-expr ".."
 
-# syntax.expr.range-upto  status=pending  spec="Composite Types"  node=Range  ref="SL:borrowing §6"
+# syntax.expr.range-upto  status=lockdown  spec="Composite Types"  node=Range  ref="SL-400 c6"
 range-upto ::= ".." shift-expr  @syntax.expr.range-upto.exclusive
     | "..=" shift-expr  @syntax.expr.range-upto.inclusive
     | ".."  @syntax.expr.range-upto.full
@@ -1209,12 +1256,20 @@ force-hop ::= "!"
 
 ### 7.4 Primaries
 
+An implicit member, `.North`, names a case of the enum its position expects. A
+payload is an ordinary call hop on it, as in `.Move(x: 1, y: 2)`. It names enum
+cases only, and a later stage resolves it only where the expected type is
+determined (§13, syntax.rule.implicit-member). A line that starts with `.` does
+not continue the line before it (§2.4), so a leading `.name` begins a new
+statement as an implicit member. A pattern names a case bare, never with a `.`.
+
 ```ebnf
 # syntax.expr.primary  status=current  spec="Appendix B: Operators"  node=-
 primary-expr ::= literal  @syntax.expr.primary.literal
     | interp-string  @syntax.expr.primary.interpolation
     | source-location  @syntax.expr.primary.source-location
     | name-expr  @syntax.expr.primary.name
+    | implicit-member  @syntax.expr.primary.implicit-member
     | self-expr  @syntax.expr.primary.self
     | shorthand-param  @syntax.expr.primary.shorthand-param
     | paren-expr  @syntax.expr.primary.paren
@@ -1273,6 +1328,9 @@ name-expr ::= IDENT generic-args?
 
 # syntax.expr.name-ref  status=current  spec="Move-Only Types"  node=Name
 name-ref ::= IDENT
+
+# syntax.expr.implicit-member  status=lockdown  spec="Enums (Algebraic Data Types)"  node=ImplicitMember  ref="SL-400 c7"
+implicit-member ::= "." IDENT
 
 # syntax.expr.self  status=current  spec="Type Extensions"  node=SelfExpr
 self-expr ::= "self"
@@ -1431,7 +1489,8 @@ for-expr ::= "for" binding-name "in" head-expr NEWLINE* block  @syntax.expr.for.
 Patterns appear after `case`, and as the target of a destructuring `let`,
 `if let`, `guard let`, `while let` and a `borrow` binding. A bare name is a
 binding or a payload-free variant; which one is decided by name resolution, not
-by the parser (§13, syntax.rule.name-pattern).
+by the parser (§13, syntax.rule.name-pattern). `None` is the pattern for an
+absent optional.
 
 ```ebnf
 # syntax.pat.pattern  status=current  spec="Control Flow"  node=-
@@ -1443,6 +1502,7 @@ pattern ::= wildcard-pattern  @syntax.pat.pattern.wildcard
     | name-pattern  @syntax.pat.pattern.name
     | none-pattern  @syntax.pat.pattern.none
     | refused-qualified-variant-pattern  @syntax.pat.pattern.refused-qualified-variant
+    | refused-dot-variant-pattern  @syntax.pat.pattern.refused-dot-variant
 
 # syntax.pat.wildcard  status=current  spec="Control Flow"  node=WildcardPat
 wildcard-pattern ::= '_'
@@ -1476,7 +1536,7 @@ payload-pattern ::= pattern  @syntax.pat.payload.pattern
 # syntax.pat.name  status=current  spec="Enums (Algebraic Data Types)"  node=NamePat
 name-pattern ::= IDENT
 
-# syntax.pat.none  status=pending  spec="Optionals"  node=NonePat
+# syntax.pat.none  status=lockdown  spec="Optionals"  node=NonePat  ref="SL-400 c6"
 none-pattern ::= "None"
 ```
 
@@ -1488,6 +1548,10 @@ statement, or for a call when written as an argument. The forms are told apart
 by what follows `let` or `var` (§13, syntax.rule.borrow-form). The place form's
 operand is a postfix expression, so it binds tighter than every binary operator,
 `as` and `=` (§13, syntax.rule.borrow-extent).
+
+A borrow binding stands in four places: a `borrow` block, an `if` or `else if`
+head, a `for` head, and a variant's payload pattern. A `guard`, a `while`, the
+top level of a `case` pattern and a tuple pattern take none.
 
 ```ebnf
 # syntax.borrow.block  status=lockdown  spec="Places (`borrows` and `lend`)"  node=BorrowBlock  ref="SL:borrowing §2.1"
@@ -1523,15 +1587,19 @@ The parser recognizes each spelling below only to refuse it, with a diagnostic
 that names the valid form. Each is `removed`.
 
 ```ebnf
+# syntax.decl.refused-effect-prefix  status=removed  spec="Spelling"  node=Error
+refused-effect-prefix ::= attribute-list? ( visibility | "static" )* ( "unsafe" | 'sync' | 'constexpr' | "borrows" | 'consumes' | 'const' ) ( visibility | "static" | "unsafe" | 'sync' | 'constexpr' | "borrows" | 'consumes' | 'const' )* "func" method-name generic-params? "(" param-list? ")" effect-slot return-clause? default-body?  @syntax.decl.refused-effect-prefix.func
+    | attribute-list? ( visibility | "static" )* ( "unsafe" | 'sync' | 'constexpr' | "borrows" | 'consumes' | 'const' ) ( visibility | "static" | "unsafe" | 'sync' | 'constexpr' | "borrows" | 'consumes' | 'const' )* "init" "(" param-list? ")" effect-slot return-clause? default-body?  @syntax.decl.refused-effect-prefix.init
+
 # syntax.decl.refused-unsafe-prefix  status=removed  spec="Spelling"  node=Error
-refused-unsafe-prefix ::= "unsafe" func-decl  @syntax.decl.refused-unsafe-prefix.func
-    | "unsafe" visibility func-decl  @syntax.decl.refused-unsafe-prefix.public-func
-    | "unsafe" enum-decl  @syntax.decl.refused-unsafe-prefix.enum
+refused-unsafe-prefix ::= "unsafe" enum-decl  @syntax.decl.refused-unsafe-prefix.enum
     | "unsafe" trait-decl  @syntax.decl.refused-unsafe-prefix.trait
     | "unsafe" extension-decl  @syntax.decl.refused-unsafe-prefix.extension
 
-# syntax.decl.refused-borrows-prefix  status=removed  spec="Borrowing structs"  node=Error
-refused-borrows-prefix ::= "borrows" func-decl
+# syntax.decl.refused-export  status=removed  spec="Re-export"  node=Error  ref="SL-400 c6"
+refused-export ::= 'export' path  @syntax.decl.refused-export.symbol
+    | 'export' path "as" IDENT  @syntax.decl.refused-export.alias
+    | 'export' path "." "*"  @syntax.decl.refused-export.glob
 
 # syntax.decl.refused-visibility-prefix  status=removed  spec="Member visibility"  node=Error
 refused-visibility-prefix ::= 'private' declaration-item  @syntax.decl.refused-visibility-prefix.private
@@ -1545,16 +1613,8 @@ refused-static ::= "static" "var" IDENT ":" type static-init?  @syntax.decl.refu
 # syntax.decl.refused-array-extension  status=removed  spec="Composite Types"  node=Error
 refused-array-extension ::= "extension" array-type NEWLINE* "{" NEWLINE* extension-member-list? "}"
 
-# syntax.decl.refused-const-func  status=removed  spec="Compile-Time Evaluation"  node=Error  ref="SL:architecture §3.10"
-refused-const-func ::= visibility? 'const' func-decl
-
 # syntax.decl.refused-scoped-import  status=removed  spec="Re-export"  node=Error
 refused-scoped-import ::= "public" "(" IDENT ")" 'import' import-target
-
-# syntax.decl.refused-member-unsafe  status=removed  spec="Spelling"  node=Error
-refused-member-unsafe ::= "unsafe" method-decl  @syntax.decl.refused-member-unsafe.method
-    | "unsafe" init-decl  @syntax.decl.refused-member-unsafe.init
-    | "unsafe" requirement  @syntax.decl.refused-member-unsafe.requirement
 
 # syntax.decl.refused-member-static  status=removed  spec="Static methods"  node=Error
 refused-member-static ::= "static" init-decl  @syntax.decl.refused-member-static.init
@@ -1602,6 +1662,12 @@ refused-try-route ::= "try" "!" try-route prefix-expr  @syntax.expr.refused-try-
     | "try" "?" try-route prefix-expr  @syntax.expr.refused-try-route.optional
     | "try" try-route prefix-expr catch-clause  @syntax.expr.refused-try-route.with-catch
 
+# syntax.expr.refused-compare-chain  status=removed  spec="Ordering (`Comparable`)"  node=Error  ref="SL-400 c6"
+refused-compare-chain ::= range-expr compare-op NEWLINE* range-expr ( compare-op NEWLINE* range-expr )+
+
+# syntax.expr.refused-ellipsis-range  status=removed  spec="Control Flow"  node=Error
+refused-ellipsis-range ::= shift-expr "..." shift-expr
+
 # syntax.expr.refused-move-self  status=removed  spec="Moving a field out"  node=Error
 refused-move-self ::= "move" "self"
 
@@ -1640,20 +1706,22 @@ refused-named-tuple-pattern ::= "(" IDENT ":" pattern ( "," IDENT ":" pattern )*
 
 # syntax.pat.refused-qualified-variant  status=removed  spec="Enums (Algebraic Data Types)"  node=Error
 refused-qualified-variant-pattern ::= IDENT ( "." IDENT )+ ( "(" ( payload-pattern ( "," payload-pattern )* )? ")" )?
+
+# syntax.pat.refused-dot-variant  status=removed  spec="Enums (Algebraic Data Types)"  node=Error  ref="SL-400 c8"
+refused-dot-variant-pattern ::= "." IDENT ( "(" ( payload-pattern ( "," payload-pattern )* )? ")" )?
 ```
 
 Each refused form, why it is refused, and what its diagnostic suggests:
 
 | construct | why | write instead |
 |---|---|---|
-| syntax.decl.refused-unsafe-prefix | Unsafety is declared in the effect slot after the parameters. Only `struct` and `static var` take `unsafe` in front. | `func f(…) unsafe -> T` |
-| syntax.decl.refused-borrows-prefix | On a function, `borrows` is an effect after the parameters. The prefix belongs to `borrows struct`. | `func f(…) borrows -> &T` |
+| syntax.decl.refused-effect-prefix | A function's and an initializer's effects are written in the slot after the parameters, whatever the declaration's position, and the compile-time effect is spelled `constexpr`. Only `struct` and `static var` take `unsafe` in front, and only `struct` takes `borrows`. | the word in the effect slot: `func f(…) unsafe -> T`, `init(…) unsafe`, `func f(…) constexpr -> T` for `const` |
+| syntax.decl.refused-unsafe-prefix | An enum, a trait or an extension is not unsafe as a whole. Only `struct` and `static var` take `unsafe` in front. | `unsafe` in the effect slot of each function that needs it |
+| syntax.decl.refused-export | `public import` is the one re-export form. | `public import m.{name}`, `public import m.{name as alias}`, or `public import m.*` |
 | syntax.decl.refused-visibility-prefix | A declaration with no modifier is already module-private, and an extension has no name to be visible. | delete `private`; put the visibility on each member |
 | syntax.decl.refused-static | A mutable static is `unsafe static var`, and `unsafe` on a static marks a mutable one. | `unsafe static var X: T = …`, or `static X: T = …` |
 | syntax.decl.refused-array-extension | A fixed array has only the builtin `len()` and `swap(i, j)`, and takes no extension. | a free function |
-| syntax.decl.refused-const-func | Compile-time evaluation is an effect, written after the parameters (SL:architecture §3.10). | `func f(…) constexpr -> T` |
 | syntax.decl.refused-scoped-import | `public import` is the only re-export form. | `public import m` |
-| syntax.decl.refused-member-unsafe | As on a function, `unsafe` goes in the effect slot. | `init(…) unsafe` |
 | syntax.decl.refused-member-static | An initializer takes no receiver by construction, and `static` follows the visibility. | `init(…)`, or `public static func` |
 | syntax.decl.refused-member-private | A member with no modifier is already module-private. `private` narrows only a field. | delete `private` |
 | syntax.decl.refused-receiver | A receiver is a reference, `&self` or `&var self`, and a reference parameter carries `&` on its type. | `&self`, `&var self`, or `x: &T` |
@@ -1666,6 +1734,8 @@ Each refused form, why it is refused, and what its diagnostic suggests:
 | syntax.expr.refused-unsafe | Unsafety belongs to a declaration, not to a line. | mark the enclosing function `unsafe` |
 | syntax.expr.refused-lend-var | A body never tests its lend mode. When the shared and exclusive bodies differ, both are written (SL:borrowing §4). | two accessors, or `@synthesize(shared)` |
 | syntax.expr.refused-try-route | `try!` panics and `try?` discards, so neither has an error to route, and a routed `try` leaves no error for a `catch`. | `try(as E.Case) f()` alone |
+| syntax.expr.refused-compare-chain | A comparison takes two operands. A chain would compare the first result, a `Bool`, with the next operand. | `a < b && b < c` |
+| syntax.expr.refused-ellipsis-range | Saw's ranges are `..` and `..=`; `...` only ends a variadic extern parameter list. | `a..=b` |
 | syntax.expr.refused-move-self | A receiver is borrowed. Only a consuming body moves out of it, one field at a time. | `move self.field` in a `consumes` method |
 | syntax.expr.refused-capture-self | `self` may be captured only as a borrow. | `[&self]` or `[&var self]` |
 | syntax.expr.refused-partial-named-tuple | A named tuple labels every element or none. | label every element, or none |
@@ -1678,6 +1748,7 @@ Each refused form, why it is refused, and what its diagnostic suggests:
 | syntax.stmt.refused-bare-lend | `lend` hands out a place, so it needs one. | `lend place` |
 | syntax.pat.refused-named-tuple | Patterns destructure tuples by position only. | `(a, b)` |
 | syntax.pat.refused-qualified-variant | A variant pattern names the case alone, and the scrutinee's type supplies the enum. | `case Red` |
+| syntax.pat.refused-dot-variant | A variant pattern names the case bare; the `.` of an implicit member belongs to expressions. | `case North` |
 
 ### 10.1 Retired shapes
 
@@ -1753,6 +1824,7 @@ of top-level items, and the `?` suffixes of a type.
 | syntax.type.slice | 1 | its `]` |
 | syntax.type.array | 1 for the `[` | its `]` |
 | syntax.type.tuple | 1 for the list, including `()` | its `)` |
+| syntax.type.single-tuple | 1 | its `)` |
 | syntax.type.paren | 1 | its `)` |
 | syntax.type.func | 1 for the parameter list | its return type's end |
 | syntax.generic.args | 1 per list | its `>` |
@@ -1811,8 +1883,8 @@ generator covers every construct in every context the table allows.
 In a **head** context, the parser does not attach a trailing closure at the
 outer level of the expression, because a `{` there begins the construct's body
 (§13, syntax.rule.head-restriction). Restrictions nest: a construct inside an
-operand of a head expression is still in the head, until a bracket intervenes
-(syntax.rule.head-reset).
+operand of a head expression is still in the head, until a bracket, a closure
+body or an interpolation segment intervenes (syntax.rule.head-reset).
 
 Each cell says whether the construct in the row may stand in the context of the
 column:
@@ -1834,6 +1906,7 @@ column:
 | syntax.expr.interpolation | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | N | Y | Y | S | Y | Y | S | S | S | N | S | S | S | N |
 | syntax.expr.source-location | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | N | Y | Y | S | Y | Y | K | K | K | N | K | K | K | N |
 | syntax.expr.name | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | H | H | H | H | H | H | H | Y | Y | Y | T | Y | Y | Y | Y | Y | K | K | K | C | K | K | K | N |
+| syntax.expr.implicit-member | S | Y | S | S | Y | Y | Y | Y | Y | Y | Y | Y | S | S | S | S | S | S | S | S | Y | Y | S | N | Y | S | S | S | Y | K | S | S | N | S | S | S | N |
 | syntax.expr.self | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | T | Y | Y | S | Y | S | S | S | S | N | S | S | S | N |
 | syntax.expr.shorthand-param | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | N | Y | Y | S | Y | S | S | S | S | N | S | S | S | N |
 | syntax.expr.paren | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | N | Y | Y | Y | Y | Y | K | K | K | C | K | K | K | N |
@@ -1905,45 +1978,48 @@ decides. The constructs column names the productions a rule governs.
 | rule | constructs | resolution | source | status |
 |---|---|---|---|---|
 | syntax.rule.generic-or-less | syntax.expr.name, syntax.expr.member, syntax.expr.optional-member, syntax.generic.args, syntax.expr.compare | After a name or a member in an expression, `<` starts a speculative generic list. It is kept only if it parses and its `>` is followed by `(`, `.`, or, where a trailing closure may attach, `{`. Otherwise the tokens are re-read as comparisons. Once kept, the list ignores line breaks, and an error inside it, such as a trailing comma, is reported rather than re-read. So `f < g > (x)` is the generic call `f<g>(x)`, `show(a < b, c > (d))` calls `a<b, c>(d)`, and `FixedBuf<1 << 4>()` compares, because a shift is not in the constant grammar. Parenthesize a comparison to force it. In a type, `<` always opens a generic list. | Layout; SL:architecture §3.2 | current |
-| syntax.rule.trailing-closure | syntax.expr.call, syntax.expr.trailing-call, syntax.expr.closure | A closure literal right after a call's `)`, or right after a name or member, is a trailing-closure argument when its `{` is on the same line and the position allows one (syntax.rule.head-restriction). A name takes one bare (`run { 10 }`), with or without generic arguments. Only a name or member callee takes a trailing closure; `foo() { }` attaches to `foo`, and a general callee such as `foo()(1)` takes none. There is at most one trailing closure. A line break before the `{` ends the call. | Functions; SL-310; SL-73 | current |
+| syntax.rule.generic-close-split | syntax.generic.args, syntax.generic.params, syntax.type.named | The lexer keeps longest match (syntax.lex.longest-match). Where the first `>` of a `>=` or `>>=` token closes a generic list the parser has committed to, the parser splits the token after that `>`, and splits what remains the same way when it closes an enclosing list: `let v: Vector<Int>= w` closes the list and assigns, and `let m: Map<K, Vector<V>>= w` closes both lists and assigns. `>>` needs no split, because the lexer has no `>>` token. Elsewhere longest match stands, and a warning, never an error, flags the two spellings whose longest-match reading may not be the one meant: `o!= 5`, a comparison written directly after what reads as a postfix `!`, compares where `o! = 5` writes the payload; and `a&-b`, a wrapping operator written where a unary minus could follow `&`, subtracts where `a & -b` is a bitwise and of a negation. The warnings' category name is not part of the grammar. | Appendix B: Operators; SL-400 c6 | lockdown |
+| syntax.rule.trailing-closure | syntax.expr.call, syntax.expr.trailing-call, syntax.expr.closure, syntax.expr.implicit-member | A closure literal right after a call's `)`, or right after a name, a member or an implicit member, is a trailing-closure argument when its `{` is on the same line and the position allows one (syntax.rule.head-restriction). A name takes one bare (`run { 10 }`), with or without generic arguments. Only a name, member or implicit-member callee takes a trailing closure, and `.Case` takes one exactly as `Enum.Case` does; `foo() { }` attaches to `foo`, and a general callee such as `foo()(1)` takes none. There is at most one trailing closure. A line break before the `{` ends the call. | Functions; SL-310; SL-73 | current |
 | syntax.rule.head-restriction | syntax.expr.head, syntax.expr.if-head, syntax.expr.while, syntax.expr.while-let, syntax.expr.for, syntax.expr.match, syntax.expr.arm-guard, syntax.stmt.guard, syntax.stmt.binding-subject, syntax.borrow.binding, syntax.borrow.unwrap, syntax.borrow.for | In a head context (an `if`, `else if` or `while` condition, a binding subject, a `match` scrutinee, a match-arm guard, a `for` iterable, a `borrow` head) no trailing closure attaches at the outer level, because a `{` there begins the construct's body. `if v.any { $0 } { }` is refused; write `if v.any({ $0 }) { }`. | Control Flow; SL-2 c24 | current |
-| syntax.rule.head-reset | syntax.expr.head, syntax.expr.paren, syntax.expr.tuple, syntax.expr.array, syntax.expr.closure, syntax.expr.args, syntax.expr.subscript, syntax.expr.interpolation | Inside a head, any bracket, a closure body and an interpolation segment start a fresh level where trailing closures attach again, so `if f(v.map { $0 }) { }` and `if (v.any { $0 > 1 }) { }` parse. | Control Flow | pending |
+| syntax.rule.head-reset | syntax.expr.head, syntax.expr.paren, syntax.expr.tuple, syntax.expr.array, syntax.expr.closure, syntax.expr.args, syntax.expr.subscript, syntax.expr.interpolation | Inside a head, any bracket, a closure body and an interpolation segment start a fresh level where trailing closures attach again, so `if f(v.map { $0 }) { }` and `if (v.any { $0 > 1 }) { }` parse. | Control Flow; SL-400 c6 | lockdown |
 | syntax.rule.interpolation-segment | syntax.expr.interpolation, syntax.expr.interp-segment | Each expression segment of an interpolated string is parsed on its own as `interp-segment`. A blank segment is a format placeholder. Positions are source positions, and the nesting depth continues from the string's. | String; SL:architecture §3.1 | current |
-| syntax.rule.static-head | syntax.decl.static, syntax.decl.method, syntax.decl.requirement | At a top-level item, `static` followed by a name declares a static. In an extension or trait body, `static` must be followed by `func`, and marks a static method. | Static methods | current |
+| syntax.rule.static-head | syntax.decl.static, syntax.decl.method, syntax.decl.requirement, syntax.decl.refused-effect-prefix | At a top-level item, `static` followed by a name declares a static, so `static sync: Int = 0` names a static `sync`. In an extension or trait body, `static` must be followed by `func`, and marks a static method. In either place, an effect word after `static` that is followed by `func`, `init`, a visibility, `static` or another effect word begins a refused head (syntax.rule.contextual-words). | Static methods | current |
 | syntax.rule.brace | syntax.expr.map, syntax.expr.set, syntax.expr.closure, syntax.stmt.block, syntax.expr.arm-body | Where a block is required, `{` opens a block: every construct body, and an arm body that starts with `{`. Elsewhere a `{` in expression position is decided by what follows it: `{:}` is an empty map; a capture list followed by `in`, or names followed by `in`, is a closure; otherwise the first `:` or `,` at the brace's own level makes a map or a set; `{}`, `{expr}` and a statement body are closures. There is no bare block statement, and an interpolation's braces belong to its string. | Composite Types | current |
 | syntax.rule.statement-separator | syntax.stmt.body, syntax.stmt.sep | A statement ends at a line break, a `;`, the enclosing `}` or the end of input. `;` separates two statements on one line and never ends one, so a `;` before a line break, before `}`, at the end of input, doubled, or at the start of a line is refused. | Statement Boundaries; SL-347 | current |
 | syntax.rule.juxtaposition | syntax.stmt.body, syntax.expr.closure, syntax.file.list | Two statements on one line with nothing between them are refused at the second statement's first token, so `x = 1 y` and `let a = b (c)` are errors. | Statement Boundaries; SL-347 | current |
 | syntax.rule.declaration-separator | syntax.file.list, syntax.decl.trait-members, syntax.decl.extension-members, syntax.decl.extern-funcs | Declarations take a line each. A `;` between two declarations, or two on one line, is refused. | Statement Boundaries; SL-347 | current |
-| syntax.rule.operator-continuation | syntax.expr.coalesce, syntax.expr.or, syntax.expr.and, syntax.expr.bitor, syntax.expr.bitxor, syntax.expr.bitand, syntax.expr.compare, syntax.expr.range, syntax.expr.shift, syntax.expr.additive, syntax.expr.multiplicative | A line ending in a binary operator continues onto the next. A line starting with an operator or a `.` begins a new statement, so a leading `-` is a unary minus. | Layout; design 259 R3 | current |
+| syntax.rule.operator-continuation | syntax.expr.coalesce, syntax.expr.or, syntax.expr.and, syntax.expr.bitor, syntax.expr.bitxor, syntax.expr.bitand, syntax.expr.compare, syntax.expr.range, syntax.expr.shift, syntax.expr.additive, syntax.expr.multiplicative | A line ending in a binary operator continues onto the next. A line starting with an operator or a `.` begins a new statement, so a leading `-` is a unary minus and a leading `.name` is an implicit member (syntax.rule.implicit-member). | Layout; design 259 R3 | current |
+| syntax.rule.implicit-member | syntax.expr.implicit-member, syntax.expr.member, syntax.pat.refused-dot-variant | `.` followed by a name at the start of an operand is an implicit member, and after an operand it is a member hop. A line that starts with `.` does not continue the line before it (syntax.rule.operator-continuation), so `let n = s` followed by `.len()` on the next line is two statements, and the second is an implicit member. A later stage resolves an implicit member only where its position's expected type is determined. When one that starts a line fails to resolve, the diagnostic names the chain reading, that a method chain continues onto another line only inside parentheses, beside the `Enum.Case` fixit. In a pattern, `case .North` is refused; a pattern names the case bare, `case North`. | Enums (Algebraic Data Types); SL-400 c7; SL-400 c8 | lockdown |
 | syntax.rule.leading-minus | syntax.stmt.body, syntax.expr.unary, syntax.expr.if | A line break after a construct that ends in `}` ends the statement, so `if c { return 1 }` followed by `-1` on the next line is two statements. On one line, `if c { 1 } else { 2 } - 1` is a subtraction whose left operand is the `if`. | Statement Boundaries; design 259 R2 | current |
 | syntax.rule.continuation-keywords | syntax.expr.else-if, syntax.expr.else, syntax.expr.catch, syntax.expr.try-block, syntax.stmt.guard | `else` and `catch` may start the line after the `}` they follow, and the construct continues. A body's `{` may start the line after its head. | Control Flow | current |
 | syntax.rule.cast-target-question | syntax.type.cast-target, syntax.type.refused-cast-question | A cast target takes at most one `?`. A `??` token or a second `?` directly after it is refused at that token, whatever the spacing: `n as Int? ?? 9`, `n as Int?? 9`, `n as Int ?? 9` and `n as Int? ?` are all errors. Write `(n ?? 9) as Int`. Types nested inside the target, `x as Vector<Int??>`, are unaffected. | Optionals; SL-309 | current |
-| syntax.rule.block-tail | syntax.stmt.body, syntax.stmt.expr, syntax.expr.while, syntax.expr.while-let, syntax.expr.for | A block's last statement is its tail when it is an expression statement. A loop that starts a statement is a statement, never the tail. `if`, `match` and a `try` block at the start of a statement are expression statements, so they can be the tail and can continue on their line as an operand. | Statement Boundaries | current |
+| syntax.rule.block-tail | syntax.stmt.body, syntax.stmt.expr, syntax.expr.while, syntax.expr.while-let, syntax.expr.for, syntax.borrow.block | A block's last statement is its tail when it is an expression statement. A loop that starts a statement is a statement, never the tail. `if`, `match`, a `try` block and a `borrow` block at the start of a statement are expression statements, so they can be the tail and can continue on their line as an operand: `borrow var it = v[i] { it.hits }` at the end of a body is the body's value, and `borrow let e = m[k] { e.n } + 1` continues on its line. | Statement Boundaries | current |
 | syntax.rule.arm-body | syntax.expr.arm-body, syntax.expr.match-arm | An arm body is a block, an expression, or one statement; the statement parser decides, with no keyword list. A body that starts with `{` is a block, so a closure, map or set literal there needs parentheses. A statement arm means what the same statement in braces means. The body starts on the line of its `->`. | Control Flow; SL-59 | current |
 | syntax.rule.arm-statement-end | syntax.expr.arm-body, syntax.stmt.return, syntax.stmt.break | In an unbraced arm body, `,` and `case` also end a statement, so `case 0 -> return case _ -> 1` is two arms and `return` has no operand. | Control Flow; SL-59 | current |
 | syntax.rule.one-call-node | syntax.expr.call, syntax.expr.argument | `Name(…)` is one call node whether `Name` is a function, a type, an enum case or a value; the tree records the arguments with their labels, and resolution decides. Labelled and positional arguments mix freely, so `f(a: 1, 2)` parses. | Functions; SL:architecture §3.2 | current |
 | syntax.rule.flat-else-if | syntax.expr.if, syntax.expr.else-if, syntax.expr.else | An `if` with its `else if` arms and final `else` is one node with an ordered arm list. `else if let` and `else if borrow` arms join the same list. | Control Flow; SL:architecture §3.2; SL-380 | current |
-| syntax.rule.flat-chains | syntax.expr.coalesce, syntax.expr.or, syntax.expr.and, syntax.expr.bitor, syntax.expr.bitxor, syntax.expr.bitand, syntax.expr.compare, syntax.expr.shift, syntax.expr.additive, syntax.expr.multiplicative, syntax.const.expr, syntax.const.term | A chain of one precedence tier is one node holding its operands and the operator between each pair. The tree's depth follows source nesting, not chain length. | SL:architecture §3.2; SL-380 | current |
-| syntax.rule.coalesce-grouping | syntax.expr.coalesce | A `??` chain is flat. Whether `a ?? b ?? c` means `(a ?? b) ?? c` or `a ?? (b ?? c)` is a question of how the flat chain is typed. Proposed: right to left, so `a ?? b ?? 0` works over two optionals. | Optionals | pending |
-| syntax.rule.compare-chain | syntax.expr.compare | Whether a comparison chain such as `a < b < c` is accepted. Proposed: refused, so `a == b == c` cannot silently compare a `Bool`. | Ordering (`Comparable`) | pending |
-| syntax.rule.prefix-or-cast | syntax.expr.cast, syntax.expr.unary, syntax.expr.ref, syntax.expr.deref | A prefix operator binds tighter than `as`, following Appendix B: `-x as Int8` is `(-x) as Int8`, and `~b as UInt64` complements `b` before widening it. | Appendix B: Operators | pending |
-| syntax.rule.try-extent | syntax.expr.try, syntax.expr.cast | `try`, `try?` and `try!` apply to the prefix expression after them, so `try f() as T` casts the unwrapped value and `try f() + 1` adds to it. | Error routing at `try` | pending |
+| syntax.rule.flat-chains | syntax.expr.coalesce, syntax.expr.or, syntax.expr.and, syntax.expr.bitor, syntax.expr.bitxor, syntax.expr.bitand, syntax.expr.shift, syntax.expr.additive, syntax.expr.multiplicative, syntax.const.expr, syntax.const.term | A chain of one precedence tier is one node holding its operands and the operator between each pair. The tree's depth follows source nesting, not chain length. | SL:architecture §3.2; SL-380 | current |
+| syntax.rule.coalesce-grouping | syntax.expr.coalesce | A `??` chain is one flat node, and its operands group right to left: `a ?? b ?? 0` means `a ?? (b ?? 0)`, so it works over two optionals. | Optionals; SL-400 c6 | lockdown |
+| syntax.rule.compare-chain | syntax.expr.compare, syntax.expr.refused-compare-chain | A comparison takes exactly two operands. A chain such as `a < b < c` or `a == b == c` is refused, with the fixit `a < b && b < c`, so no comparison silently compares a `Bool`. | Ordering (`Comparable`); SL-400 c6 | lockdown |
+| syntax.rule.prefix-or-cast | syntax.expr.cast, syntax.expr.unary, syntax.expr.ref, syntax.expr.deref | A prefix operator binds tighter than `as`, following Appendix B: `-x as Int8` is `(-x) as Int8`, and `~b as UInt64` is `(~b) as UInt64`, which complements `b` before widening it. | Appendix B: Operators; SL-400 c6 | lockdown |
+| syntax.rule.try-extent | syntax.expr.try, syntax.expr.cast | `try`, `try?` and `try!` sit at the prefix tier and apply to the prefix expression after them, so `try parse_id() as UserId` casts the unwrapped value and `try f() + 1` adds to it. | Error routing at `try`; SL-400 c6 | lockdown |
 | syntax.rule.postfix-per-hop | syntax.expr.postfix, syntax.expr.cast | A postfix chain stays nested, one node per hop, and every hop charges one nesting level until the chain ends (§11). | SL:architecture §3.2; SL-380 | current |
 | syntax.rule.depth-limit | syntax.expr.postfix, syntax.expr.prefix, syntax.expr.primary, syntax.type.type, syntax.pat.pattern | Nesting deeper than 256 levels is refused at the opener of the 257th, as §11 counts. | Layout; design 259 R4 | current |
 | syntax.rule.borrow-form | syntax.borrow.block, syntax.borrow.place, syntax.borrow.unwrap, syntax.borrow.for | `borrow` followed by `let` or `var` is the borrow construct; otherwise `borrow` is an identifier. After `let` or `var`, a name followed by `=`, or a parenthesized pattern followed by `=`, is a binding: a `borrow` block, or at an `if` head an optional-place unwrap. Anything else is the place form. After `for`, `borrow let` and `borrow var` bind the loop name. | Places (`borrows` and `lend`); SL:borrowing §2 | lockdown |
 | syntax.rule.borrow-extent | syntax.borrow.place, syntax.borrow.optional-target | The place form's operand is a postfix expression, whatever its hops, so it binds tighter than `as`, every binary operator and `=`. Where the `borrows` call falls inside the operand is decided by typing, not by the parser. `borrow let doc.section_at(x).get("k") ?? ""` coalesces the borrowed read, and `borrow var v[i].x = borrow let v[j].x` assigns between two place forms. | Places (`borrows` and `lend`); SL:borrowing §2.2 | lockdown |
 | syntax.rule.optional-chain-run | syntax.expr.optional-member, syntax.stmt.optional-assign, syntax.stmt.optional-chain-target | A `?.` hop opens a run that continues over member, optional, call and trailing-closure hops. A `!`, a subscript, a tuple index, or the end of the postfix expression closes it; one short-circuit skips the whole run. An assignment whose target ends in an open run is an optional assignment of type `Void?`; `a?.b[0] = 1` closes the run first and is a plain assignment. | Optionals | current |
 | syntax.rule.label-or-tuple | syntax.expr.argument, syntax.expr.tuple, syntax.expr.tuple-field, syntax.type.tuple | At the start of a call argument, a name followed by `:` is a label. Inside grouping parentheses, a name followed by `:` begins a named tuple, which labels every element or none. | Composite Types | current |
-| syntax.rule.paren-type | syntax.type.func, syntax.type.tuple, syntax.type.paren | In a type, a parenthesized list followed by effect words and `->` is a function type. Otherwise `()` is the empty tuple, a list with a comma or labels is a tuple, and `(T)` groups `T`, so `((Int) -> Int)?` is an optional function. | Composite Types | pending |
+| syntax.rule.paren-type | syntax.type.func, syntax.type.tuple, syntax.type.single-tuple, syntax.type.paren | In a type, a parenthesized list followed by effect words and `->` is a function type. Otherwise `()` is the empty tuple, a list with a comma or labels is a tuple, `(T,)` is a one-element tuple, and `(T)` groups `T`, so `((Int) -> Int)?` is an optional function. | Composite Types; SL-400 c6 | lockdown |
+| syntax.rule.prefix-type-suffix | syntax.type.type, syntax.type.ref, syntax.type.func, syntax.type.slice, syntax.type.suffix | A reference and a function type are not atoms, so a `?` or `??` after `&`, `&var` or a function type's `->` belongs to the type that follows: `&T?` is `Ref(Optional(T))`, and `(A) -> B?` is a function returning an optional. A slice is one atom, and `[T]` alone is not a type, so `&[T]?` is `Optional(Slice(T))`. Parentheses make a suffix apply to a whole function type, as in `((A) -> B)?`. A later stage, the reader of a `borrows` return type, reads `&T?` and `&[T]?` there as the conditional lend. | Optionals; Reference passing | current |
 | syntax.rule.generic-arg-value | syntax.generic.arg, syntax.const.expr, syntax.const.layout-query | A generic argument that starts with an integer, `-`, `sizeof` or `alignof` is a value. One that parses as a type and is then followed by `+ - * / %` is re-read as a value, so `Ring<N + 1>` works. Otherwise it is a type, and a bare name such as `N` is decided against the parameter it fills. `sizeof` and `alignof` are written bare, `Ring<sizeof<UInt64>()>`. A shift cannot appear, because `<` and `>` delimit the list; name a `static` instead. | Generics | current |
 | syntax.rule.deref-or-multiply | syntax.expr.deref, syntax.expr.multiplicative | `*` before an operand is a dereference, and `*` between operands is a multiplication, so `a * *p` multiplies by the pointee. | Prefix `*` — the pointer place, spelled | current |
 | syntax.rule.tuple-index-dot | syntax.expr.tuple-index, syntax.expr.member | A tuple index never takes a following `.` as a decimal point, so `t.0.1` is two hops and `t.0.name` a member of element 0. | Composite Types | current |
 | syntax.rule.name-pattern | syntax.pat.name, syntax.pat.wildcard, syntax.pat.variant | `_` is the wildcard. Any other lone name is a name pattern, and resolution decides whether it names a payload-free variant or binds. A name followed by `(` is a variant pattern. | Enums (Algebraic Data Types) | current |
-| syntax.rule.contextual-words | syntax.decl.field-visibility, syntax.decl.type-alias, syntax.decl.assoc-type, syntax.generic.param, syntax.type.any, syntax.expr.lends, syntax.decl.static-assert, syntax.decl.effects, syntax.decl.constexpr, syntax.decl.refused-const-func | A contextual word is recognized only in its position and by one token of lookahead: `private` before a field name, `type` followed by a name at a declaration head, `const` followed by a name in a generic list or by `func` at a declaration head, `any` followed by a name in a type, `lends` followed by `self` or a name, `static_assert` followed by `(`, and the effect words (`consumes`, `constexpr`, `sync`, `escaping`) after a parameter list. Elsewhere each is an identifier. | Appendix A: Keywords | current |
-| syntax.rule.effect-slot | syntax.decl.effects, syntax.decl.constexpr, syntax.decl.borrows-effect, syntax.type.func-effects | Effect words appear in one order, each at most once: `consumes unsafe sync borrows` after a declaration's parameters, with `constexpr` in `sync`'s place, and `unsafe sync escaping borrows` in a function type. Another order is refused naming the canonical one. `consumes` is legal only on a method with a `&var self` receiver, and `borrows` is not legal on `init`. The pairs `consumes borrows`, `constexpr sync`, `unsafe constexpr` and `constexpr borrows` parse, with `constexpr` written before `sync`; a later stage refuses each. | Spelling; Consuming method receivers (`consumes`); SL:architecture §3.10 | lockdown |
+| syntax.rule.contextual-words | syntax.decl.field-visibility, syntax.decl.type-alias, syntax.decl.assoc-type, syntax.generic.param, syntax.type.any, syntax.expr.lends, syntax.decl.static-assert, syntax.decl.effects, syntax.decl.constexpr, syntax.decl.refused-effect-prefix | A contextual word is recognized only in its position and by one token of lookahead: `private` before a field name, `type` followed by a name at a declaration head, `const` followed by a name in a generic list, `any` followed by a name in a type, `lends` followed by `self` or a name, `static_assert` followed by `(`, and the effect words (`consumes`, `constexpr`, `sync`, `escaping`) after a parameter list. In a declaration head, `const`, `consumes`, `constexpr` and `sync` are recognized when the token after the word is `func`, `init`, a visibility, `static` or another effect word, and only to be refused (syntax.decl.refused-effect-prefix). Elsewhere each is an identifier. | Appendix A: Keywords | current |
+| syntax.rule.effect-slot | syntax.decl.effects, syntax.decl.constexpr, syntax.decl.borrows-effect, syntax.type.func-effects, syntax.decl.refused-effect-prefix | Effect words appear in one order, each at most once: `consumes unsafe sync borrows` after a declaration's parameters, with `constexpr` in `sync`'s place, and `unsafe sync escaping borrows` in a function type. Another order is refused naming the canonical one. `consumes` is legal only on a method with a `&var self` receiver, and `borrows` is not legal on `init`. The pairs `consumes borrows`, `constexpr sync`, `unsafe constexpr` and `constexpr borrows` parse, with `constexpr` written before `sync`; a later stage refuses each. An effect word in a declaration head, before `func` or `init`, is refused with a fixit that moves it into the slot (syntax.decl.refused-effect-prefix). | Spelling; Consuming method receivers (`consumes`); SL:architecture §3.10 | lockdown |
 | syntax.rule.subscript-declaration | syntax.decl.method-name, syntax.decl.setitem-name | A method named `[]` with a `borrows` effect is a place accessor; without one it is a getitem. A method named `[]=` is a setitem, and its last parameter is the value. | Places (`borrows` and `lend`); SL:borrowing §5 | lockdown |
 | syntax.rule.subscript-arguments | syntax.expr.subscript, syntax.expr.multi-subscript | A subscript with one unlabelled argument is a single subscript; one with a label or a second argument follows the call-argument rules, so `m[r, c]`, `m[(r, c)]` and `m[k, default: 0]` are three different forms. `default:` is an ordinary label here. | Composite Types; SL:borrowing §5.3 | lockdown |
-| syntax.rule.range-open-end | syntax.expr.range-from, syntax.expr.range | A range's upper bound is omitted, as in `buf[4..]`, only when the token after `..` is `]`, `)`, `,`, `;`, a line break, `}` or the end of input. | Composite Types; SL:borrowing §6 | lockdown |
+| syntax.rule.range-open-end | syntax.expr.range-from, syntax.expr.range-upto, syntax.expr.range | A range's upper bound is omitted, as in `buf[4..]` and `buf[..]`, only when the token after `..` is `]`, `)`, `,`, `;`, a line break, `}` or the end of input. | Composite Types; SL:borrowing §6 | lockdown |
 | syntax.rule.move-place | syntax.expr.move, syntax.expr.move-hop | `move` takes a place path and stops at the first token that is not a field, tuple-index or subscript hop, so `move x.f()` does not call `f`. | Move-Only Types | current |
 | syntax.rule.assignment-target | syntax.stmt.assign, syntax.stmt.compound-assign, syntax.stmt.assign-target, syntax.stmt.compound-target | The target is parsed as an expression, then checked against the place shapes. `a = b = c` and `(a, b) = t` are refused, and `self` is not a compound-assignment target. | Reference passing | current |
 | syntax.rule.attribute-position | syntax.attr.attribute, syntax.attr.synthesize-shared, syntax.decl.item, syntax.stmt.attributed-local, syntax.decl.extension-member | `@export` and `@section` go on a top-level `func` or `static`, `@align` on a `static` or a local `let` or `var` that binds one name, `@synthesize` on an extension, and `@synthesize(shared)` on a method. An attribute elsewhere, an unknown name, a repeat, or the wrong argument shape is refused. | Attributes (design 58) | current |
@@ -1951,7 +2027,7 @@ decides. The constructs column names the productions a rule governs.
 | syntax.rule.extern-abi | syntax.decl.extern-block | The ABI string is `"C"`. | C FFI | current |
 | syntax.rule.module-inline | syntax.decl.module | `module name` followed by `{`, on its line or the next, is an inline module. | Module Declaration | current |
 | syntax.rule.try-block | syntax.expr.try-block, syntax.expr.try | `try` directly followed by `{` is a try block, never a `try` applied to a closure. | Block Try-Catch | current |
-| syntax.rule.test-form | syntax.test.item, syntax.test.case, syntax.test.group, syntax.test.declaration | After `@test`, a string makes a case, `{` makes a group, and anything else makes the declaration that follows test-only. `refuses:`, `panics:` and `warns:` go only on a case. A group holds declarations and cases, never statements. `@test` items stand at top level or in a group. | Attributes (design 58); SL:testing §2 | lockdown |
+| syntax.rule.test-form | syntax.test.item, syntax.test.case, syntax.test.group, syntax.test.declaration | After `@test`, a string makes a case, `{` makes a group, and anything else makes the declaration that follows test-only. `refuses:`, `panics:` and `warns:` go only on a case. A group holds declarations and cases, never statements. `@test` items stand at top level or in a group, never in an ordinary extension. On a declaration, `@test` comes before its other attributes, and a later stage refuses a combination that means nothing. | Attributes (design 58); SL:testing §2 | lockdown |
 | syntax.rule.refusal-body | syntax.test.refusal-body, syntax.test.refusal-unit | In a normal build a refusal case's body is matched by braces only. In a test build its tokens are parsed as a unit of their own, and its errors belong to the case. | Attributes (design 58); SL:testing §5 | lockdown |
 | syntax.rule.requirement-borrows | syntax.decl.requirement, syntax.decl.borrows-effect | A trait requirement may be `borrows` or `borrows(sync)`. It may not be `consumes`. | Traits; SL:borrowing §5.4 | lockdown |
 | syntax.rule.reference-position | syntax.expr.ref | `&x` and `&var x` stand only as a call argument, or as the operand of a cast to a pointer type. | Reference passing | current |
@@ -1962,14 +2038,14 @@ decides. The constructs column names the productions a rule governs.
 
 ## 14. Not in the grammar
 
-These forms appear in the spec as planned or illustrative, or were removed
-earlier, and no production accepts them:
+These forms appear in the spec as planned or illustrative, were removed
+earlier, or are refused by construction, and no production accepts them:
 
 - `loop`: the infinite loop is `while { }` (design 55).
 - `const` declarations (`const NAME: T = …`), macros, `@derive`, `@inline` and
   compile-time reflection: planned. Compile-time evaluation is the effect word
   `constexpr` (syntax.decl.constexpr), and the spec's planned `const func` is
-  refused (syntax.decl.refused-const-func).
+  refused (syntax.decl.refused-effect-prefix).
 - `where` clauses, generic type aliases (`type H<T> = …`) and computed
   properties: planned.
 - A `subscript { get set borrow }` block: deferred; the three subscript roles
@@ -1979,121 +2055,53 @@ earlier, and no production accepts them:
 - `unsafe { }` blocks and a line-level `unsafe` marker: removed (§10).
 - A conformance in a struct header, `struct X: Trait`: conformance is written as
   an extension.
+- Two struct fields or enum cases on one line with nothing between them, as in
+  `struct P { x: Int y: Int }`. A field or case list is separated by a comma or
+  a line break (syntax.decl.list-sep), so the second field is a syntax error.
 - Or-patterns and struct destructuring patterns. Qualified variant patterns
-  (`case Color.Red`), named tuple patterns and tuple destructuring in a `for`
-  head are refused with a diagnostic (§10).
+  (`case Color.Red`), dotted variant patterns (`case .North`), named tuple
+  patterns and tuple destructuring in a `for` head are refused with a
+  diagnostic (§10).
 - Parameter labels distinct from parameter names, and labels in function types.
 - Declarations inside a function body, and bare block statements.
 - Character literals, exponent floats, and block comments.
 
-## 15. Open questions
+## 15. Spec text to update
 
-Each question below is unsettled or contradicted by the spec. Productions and
-rules that depend on one are marked `pending`, and show the proposed answer.
+The spec's text differs from this grammar in the passages below, or does not
+yet show a spelling the grammar has. Until the spec is updated, this document's
+spelling holds. The spec still:
 
-1. **Prefix operators against `as`** (syntax.rule.prefix-or-cast). Appendix B
-   puts prefix operators above `as`, so `-x as Int8` is `(-x) as Int8`. The
-   reference compiler binds `as` tighter, and a prototype test pins
-   `~b as UInt64` as `~(b as UInt64)`. Options: follow Appendix B (proposed), or
-   amend Appendix B to put `as` above the prefix operators.
-2. **The extent of `try`** (syntax.rule.try-extent). "Error routing at `try`"
-   reads `try parse_id() as UserId` as a cast of the unwrapped value, which
-   needs `try` at the prefix tier. The reference compiler gives `try` the whole
-   expression to its right. Options: prefix tier (proposed), or whole
-   expression, with the spec's example corrected.
-3. **Grouping of `??`** (syntax.rule.coalesce-grouping). The spec does not say.
-   The reference compiler folds left, which refuses `a ?? b ?? 0` over two
-   optionals. Options: right to left (proposed), or left to right.
-4. **Comparison chains** (syntax.rule.compare-chain). The spec does not say
-   whether `a < b < c` parses. Options: refuse chains (proposed), or accept a
-   left-to-right chain.
-5. **`(T)` in a type** (syntax.type.paren). The reference compiler reads `(T)`
-   as a one-element tuple, so `((Int) -> Int)?` is an optional tuple. Options:
-   grouping, with `(T,)` as the one-element tuple (proposed), or keep the
-   tuple reading.
-6. **`case None`** (syntax.pat.none). `None` is a keyword, so no pattern names
-   the absent case, and code writes `case _`. Options: add the pattern
-   (proposed), or leave the wildcard as the only spelling.
-7. **Boolean `guard`** (syntax.stmt.guard-condition, SL-58). Only `guard let`
-   and `guard var` exist. Options: add `guard cond else { … }` (proposed), or
-   rule the omission deliberate.
-8. **Trailing closures inside a head** (syntax.rule.head-reset). The spec lists
-   the head positions but not whether a bracket inside one allows trailing
-   closures again. The reference compiler keeps them off inside parentheses.
-   Options: brackets, closure bodies and interpolations reset (proposed), or
-   the whole head stays restricted.
-9. **Open ranges** (syntax.expr.range-upto). SL:borrowing shows `buf[4..]`
-   only. Options: add `..b`, `..=b` and `..` for slices (proposed), or keep
-   only `a..`.
-10. **Fields and cases on one line.** The grammar requires a comma or a line
-    break between two struct fields or enum cases, as it does between
-    statements. The reference compiler also accepts `struct P { x: Int y: Int }`.
-    Options: refuse it (the grammar's choice), or accept it.
-11. **Qualified names in an extension head and a trait's parents.** Design 150
-    says a qualifier works wherever a name appears, but the spec's list of
-    declaration positions omits these two, and the reference compiler takes a
-    bare name. The grammar takes a qualified path in both.
-12. **`borrow` as a keyword.** The grammar keeps `borrow` contextual, recognized
-    only before `let` or `var`, so existing identifiers named `borrow` still
-    work. Option: reserve it as a keyword.
-13. **Variant or binding.** The grammar leaves a lone name in a pattern to
-    resolution. The reference compiler decides by capitalization: a capitalized
-    name is a variant. Options: resolution (the grammar's choice), or
-    capitalization.
-14. **`export` declarations.** `export path`, `export path as name` and
-    `export path.*` exist in the corpus, for package facades, and not in the
-    spec. Options: specify them, or retire them in favor of `public import`.
-15. **Implicit members.** The spec's prose writes `.Less` and
-    `clock_get(type: .Monotonic)`, which no production accepts. The prose needs
-    the qualified spelling.
-16. **Panic keys for a user `panic`.** SL:testing says a compiler-inserted
-    panic is named by its key and a user `panic("…")` by its text. The grammar
-    gives `panics:` one string and an optional `at:`, and reads the string as
-    the key or, for a user panic, its text. Option: add a `text:` slot to
-    `panics:`, as `refuses:` has.
-17. **`@test` with other attributes.** Whether `@test` may combine with
-    `@export` or `@synthesize` on one declaration, whether a test-only method
-    may sit inside an ordinary extension, and whether a `///` comment may
-    document a case, are not stated. The grammar accepts the first, and not the
-    second or third.
-18. **Borrow bindings elsewhere.** SL:borrowing rules `if borrow` and a borrow
-    binding inside a payload pattern. It does not mention `guard borrow`,
-    `while borrow`, a borrow binding at the top of a `case`, or one inside a
-    tuple pattern. The grammar admits none of them.
-19. **Spellings that depend on spacing.** Longest match makes `o!= 5` a
-    comparison where `o! = 5` is a payload write, `a&-b` a wrapping subtraction
-    where `a & -b` is a bitwise and, and `Vector<Int>= v` a lexing error.
-    Options: keep longest match and let a warning flag the first two, or split
-    the tokens.
-20. **Identifier characters.** The reference compiler accepts Unicode letters
-    in identifiers; the Saw lexer accepts ASCII only. The spec does not say.
-21. **A call's charge.** §11 charges one level per call hop, covering its
-    argument list. An earlier accounting charged the argument list separately.
-    Confirm that nested calls count one level each.
-22. **`constexpr` beyond a declaration** (syntax.decl.constexpr).
-    SL:architecture §3.10 puts `constexpr` in a declaration's effect slot, and
-    has no `constexpr` trait requirements in the first version. It does not say
-    whether a function type carries the word. The grammar accepts `constexpr`
-    wherever the effect slot appears, requirements included, and leaves the
-    requirement refusal to a later stage; a function type does not take it.
-    Options: as the grammar has it, or add `constexpr` to function types.
-23. **Generic trait requirements** (syntax.decl.requirement). The grammar
-    accepts generic parameters on a trait requirement, as on any method. The
-    reference compiler refuses them, and the spec does not say. Options: accept
-    them (the grammar's choice), or refuse them in the grammar.
-24. **Spec text to update.** The spec still:
-    - says that a match arm's bare body is an expression (SL-59 makes it a
-      statement too);
-    - teaches `x as Int? ?? y` (SL-309 refuses it);
-    - says `@synthesize` takes no argument, that traits cannot require a
-      `borrows` method, that there are no `borrows` function values, and that a
-      borrowing struct holds shared references only (SL:borrowing changes all
-      four);
-    - describes a consuming `self` "declared without `&`" (the receiver is
-      `&var self`);
-    - shows the planned `const func` and gives the slot order as
-      `consumes unsafe sync`, where SL:architecture §3.10 adds `constexpr` in
-      `sync`'s place.
+- says that a match arm's bare body is an expression, where it may also be one
+  statement (syntax.rule.arm-body);
+- teaches `x as Int? ?? y`, which is refused (syntax.rule.cast-target-question);
+- says `@synthesize` takes no argument, that traits cannot require a `borrows`
+  method, that there are no `borrows` function values, and that a borrowing
+  struct holds shared references only (SL:borrowing changes all four);
+- describes a consuming `self` "declared without `&`", where the receiver is
+  `&var self`;
+- shows the planned `const func`, and gives the slot order as
+  `consumes unsafe sync` without `constexpr` in `sync`'s place
+  (syntax.rule.effect-slot);
+- shows enum values only as `Enum.Case`, and does not describe implicit members:
+  `.Case` and `.Case(…)` where the expected type is determined, and never in a
+  pattern (syntax.expr.implicit-member, syntax.rule.implicit-member). Its `.Less`
+  in "Ordering (`Comparable`)" and its `clock_get(type: .Monotonic)` in
+  Appendix A are valid as written;
+- does not say, under "Re-export", that an `export` declaration is refused in
+  favour of `public import` (syntax.decl.refused-export);
+- leaves `try`, `try?` and `try!` out of Appendix B's precedence table. They sit
+  at the prefix tier, above `as`, which is how "Error routing at `try`" reads
+  `try parse_id() as UserId` (syntax.rule.try-extent);
+- does not say in Appendix B that `??` groups right to left, that a comparison
+  chain is refused, or that a range may omit its lower bound, as in `..b`,
+  `..=b` and `..` (syntax.rule.coalesce-grouping, syntax.rule.compare-chain,
+  syntax.expr.range-upto);
+- does not give the one-element tuple type's spelling, `(T,)`, or say that `(T)`
+  in a type groups (syntax.rule.paren-type);
+- does not show the `case None` pattern or the boolean
+  `guard cond else { … }`, and does not say that identifiers are ASCII only
+  (syntax.pat.none, syntax.stmt.guard-condition, syntax.lex.ascii-identifier).
 
 ## 16. Differences from today's parser
 
@@ -2108,12 +2116,11 @@ the two disagree, a row below says which way and why. Where a grammar rule
 - `earlier`: the grammar refuses the form while parsing, and today's compiler
   refuses it in a later stage.
 - `defect`: today's parser departs from the spec.
-- `open`: the answer depends on an open question (§15).
 
 | construct | this grammar | today's parser | kind | source |
 |---|---|---|---|---|
 | syntax.borrow.block, syntax.borrow.place, syntax.borrow.unwrap, syntax.borrow.for, syntax.pat.borrow-binding | parses every `borrow let` and `borrow var` form | refuses them | ruled | SL:borrowing §2 |
-| syntax.type.slice, syntax.expr.range-from | parses `&[T]`, `&var [T]` and `buf[4..]` | refuses them | ruled | SL:borrowing §6 |
+| syntax.type.slice, syntax.expr.range-from, syntax.rule.prefix-type-suffix | parses `&[T]`, `&var [T]`, the optional slice `&[T]?`, and `buf[4..]` | refuses them | ruled | SL:borrowing §6 |
 | syntax.expr.multi-subscript, syntax.rule.subscript-arguments | parses `m[r, c]` and `m[k, default: 0]` | refuses a second subscript argument | ruled | SL:borrowing §5.3 |
 | syntax.decl.setitem-name, syntax.rule.subscript-declaration | parses `func []=`, and `func []` without `borrows` as a getitem | refuses both | ruled | SL:borrowing §5.1 |
 | syntax.decl.borrows-sync, syntax.type.func-borrows | parses `borrows(sync)`, and `borrows` in a function type | refuses both | ruled | SL:borrowing §2.5 |
@@ -2123,16 +2130,32 @@ the two disagree, a row below says which way and why. Where a grammar rule
 | syntax.attr.synthesize-shared | parses `@synthesize(shared)` | wants a string argument | ruled | SL:borrowing §4 |
 | syntax.expr.refused-lend-var | refuses `#lend_var` | parses it; std's `data.saw` and several examples use it | ruled | SL:borrowing §4 |
 | syntax.test.item | parses every `@test` form | refuses `@test` as an unknown attribute | ruled | SL:testing §2 |
-| syntax.decl.constexpr, syntax.decl.refused-const-func | parses `constexpr` in the effect slot; refuses `const func` | refuses `constexpr` | ruled | SL:architecture §3.10 |
+| syntax.decl.constexpr | parses `constexpr` in the effect slot | refuses `constexpr` | ruled | SL:architecture §3.10 |
 | syntax.rule.arm-body, syntax.rule.arm-statement-end | parses a statement arm, `case 0 -> return` | refuses `return` and `lend` there | ruled | design 259 R7′; SL-59 |
 | syntax.rule.operator-continuation | continues a line that ends in a binary operator | refuses the line break | ruled | design 259 R3; SL-83 |
 | syntax.expr.call | parses a call on any postfix operand, `(f)(x)`, `f(1)(2)` and `{ … }()` | refuses them | ruled | SL-73 |
 | syntax.rule.trailing-closure, syntax.expr.trailing-call | attaches a bare trailing closure to a name, as in `run { 10 }`, after `try!`, and in a `static` initializer | refuses them | ruled | SL-310 |
 | syntax.rule.one-call-node | builds one call node, with labelled and positional arguments mixed | parses a labelled call as a struct literal and refuses the mix | ruled | SL:architecture §3.2 |
 | syntax.type.refused-cast-question, syntax.rule.cast-target-question | refuses `n as Int? ?` and every `??` after a cast target | parses `n as Int? ?` | ruled | SL-309 |
-| syntax.type.ref | parses `&T` wherever a type goes | refuses a reference type outside a parameter, whatever the declaration | later | Reference passing; SL:borrowing §2.6 |
+| syntax.rule.prefix-or-cast | reads `-x as Int8` as `(-x) as Int8`, and `~b as UInt64` as `(~b) as UInt64` | binds `as` tighter: `-(x as Int8)` and `~(b as UInt64)` | ruled | Appendix B: Operators; SL-400 c6 |
+| syntax.rule.try-extent | reads `try parse_id() as UserId` as a cast of the unwrapped value, `(try parse_id()) as UserId` | gives `try` the whole expression, `try (parse_id() as UserId)` | ruled | Error routing at `try`; SL-400 c6 |
+| syntax.rule.coalesce-grouping | groups `a ?? b ?? 0` right to left, `a ?? (b ?? 0)` | folds left, `(a ?? b) ?? 0` | ruled | Optionals; SL-400 c6 |
+| syntax.rule.compare-chain, syntax.expr.refused-compare-chain | refuses `a < b < c` and `a == b == c`, with the fixit `a < b && b < c` | parses a chain, nested left: `(a < b) < c` | ruled | Ordering (`Comparable`); SL-400 c6 |
+| syntax.type.paren, syntax.type.single-tuple | reads `(T)` as grouping and `(T,)` as a one-element tuple, so `((Int) -> Int)?` is an optional function | reads `(T)` and `(T,)` alike as a one-element tuple, so `((Int) -> Int)?` is an optional tuple | ruled | Composite Types; SL-400 c6 |
+| syntax.decl.list-sep | refuses two fields or cases on one line with nothing between them, as in `struct P { x: Int y: Int }` | accepts them | ruled | Structs; SL-400 c6 |
+| syntax.decl.refused-export | refuses `export m.f`, `export m.f as g` and `export m.*`, with the fixit `public import` | parses them, and a later stage refuses them outside a package's `init.saw` | ruled | Re-export; SL-400 c6 |
+| syntax.expr.implicit-member | parses `.Case` and `.Case(…)` as an implicit member, including at the start of a line | refuses a leading `.` ("Unexpected token: DOT") | ruled | Enums (Algebraic Data Types); SL-400 c7 |
+| syntax.rule.generic-close-split | splits a `>=` or `>>=` whose `>` closes a generic list, so `let v: Vector<Int>= w` parses; warns on `o!= 5` and `a&-b` | refuses the unsplit token ("Expected '>' after type arguments"), and gives no warning | ruled | Appendix B: Operators; SL-400 c6 |
+| syntax.pat.none, syntax.stmt.guard-condition, syntax.expr.range-upto | parses `case None`, a boolean `guard`, and the open ranges `..b`, `..=b` and `..` | refuses them | ruled | SL-400 c6; SL-58 |
+| syntax.rule.head-reset | attaches trailing closures again inside a bracket in a head, as in `if f(v.map { $0 }) { }` and `if (v.any { $0 > 1 }) { }` | keeps them off inside parentheses | ruled | Control Flow; SL-400 c6 |
+| syntax.decl.extension, syntax.decl.trait | takes a qualified path in an extension head and a trait's parents | takes a bare name | ruled | Type Extensions; SL-400 c6 |
+| syntax.lex.ascii-identifier | takes ASCII identifiers only | also takes Unicode letters | ruled | SL-400 c6 |
+| syntax.decl.refused-effect-prefix | refuses `unsafe` and `borrows` before `func` or `init` in every head position, with the effect-slot fixit | gives a dedicated error for `unsafe` except after `static` at top level ("Expected static name") and after a visibility in a trait, and for `borrows` only at top level and not after `static`; elsewhere a generic one, such as "Expected 'type', 'func', or 'init' in extension, got BORROWS" | ruled | Spelling |
+| syntax.decl.refused-effect-prefix | refuses `sync`, `constexpr`, `consumes` and `const` before `func` or `init` in every head position, with the effect-slot fixit | gives a generic error in every position, such as "Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration" | ruled | Spelling |
+| syntax.type.ref | parses `&T` wherever a type goes | refuses a reference type outside a parameter, whatever the declaration | later | Reference passing; SL:borrowing §2.6; SL-400 c6 |
 | syntax.rule.effect-slot | parses `consumes` beside `borrows` | refuses the pair | later | Consuming method receivers (`consumes`) |
 | syntax.stmt.lend, syntax.expr.closure | parses `lend` as a closure-body statement | refuses it | later | `lend` suspends the accessor; it does not return |
+| syntax.decl.requirement | parses generic parameters on a trait requirement | refuses them | later | Traits; SL-400 c6 |
 | syntax.expr.refused-try-route | refuses a routing clause on `try!` or `try?`, and beside `catch` | parses them, and the type checker refuses them | earlier | Error routing at `try` |
 | syntax.rule.interpolation-whole | refuses a segment that is not one expression, such as `"{1F600}"` | keeps the first token and drops the rest, which `selfhost/lexer/tests/escapes.saw` relies on | defect | String |
 | syntax.stmt.guard, syntax.expr.closure | parses `guard` as a closure-body statement | refuses it | defect | Closures |
@@ -2140,11 +2163,3 @@ the two disagree, a row below says which way and why. Where a grammar rule
 | syntax.type.func-effects | refuses effect words out of order in a function type | accepts any order | defect | Spelling |
 | syntax.decl.extern-params.variadic | wants `, ...` | also accepts `T ...` with no comma | defect | C FFI |
 | syntax.type.func-params | refuses labels in a function type | accepts `(x: Int) -> Int` | defect | The effect on a function type |
-| syntax.decl.list-sep | wants a comma or a line break between fields and cases | also accepts juxtaposed fields | open | Structs |
-| syntax.decl.extension, syntax.decl.trait | takes a qualified path in an extension head and a trait's parents | takes a bare name | open | Type Extensions |
-| syntax.decl.requirement | parses generic parameters on a trait requirement | refuses them | open | Traits |
-| syntax.pat.none, syntax.stmt.guard-condition, syntax.expr.range-upto | parses `case None`, a boolean `guard`, and `..b` | refuses them | open | Optionals |
-| syntax.type.paren | reads `(T)` as grouping | reads a one-element tuple | open | Composite Types |
-| syntax.rule.head-reset | attaches trailing closures again inside a bracket in a head | keeps them off | open | Control Flow |
-| syntax.rule.prefix-or-cast, syntax.rule.try-extent, syntax.rule.coalesce-grouping | puts prefix operators and `try` above `as`, and groups `??` right to left | binds `as` tighter, gives `try` the whole expression, folds `??` left | open | Appendix B: Operators |
-| syntax.expr.name | takes ASCII identifiers | also takes Unicode letters | open | (the spec does not say) |
