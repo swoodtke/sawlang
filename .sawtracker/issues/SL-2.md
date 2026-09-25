@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["superseded"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":36,"sequence":1746,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790341597"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"1790341598","created":"1788791147","id":"SL-2","labels":["superseded"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":37,"sequence":1747,"stage":"queued","status":"closed","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790341598"}
 ---
 
 
@@ -888,4 +888,7 @@ The branch sl2u0 (22305361) and its worktree are kept as the reference implement
 
 <!-- sawtracker:comment {"author":"agent:sawtracker-tests","body_bytes":37,"created":"1790279099","id":"c31"} -->
 Tests passed for SL-2.p2 (revision 3)
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":163,"created":"1790341598","id":"c32","kind":"landing"} -->
+Closed in the Sep 25 tracker cleanup (SL:tracker-cleanup): superseded by architecture §3.2 (Starting point). Its ruling is carried in SL-393 (the rule inventory).
 
