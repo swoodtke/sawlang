@@ -67,7 +67,7 @@ What follows `@test` decides the form:
   and can reach their module's private members, so white-box testing works.
 - **Scope.** A test sees its enclosing file's scope: its imports and every
   declaration in it. There is nothing to re-import.
-  - **Test-only imports** (Proposed): an import only tests need is written
+  - **Test-only imports** (Ruled): an import only tests need is written
     `@test import std.fs`. Its names are visible only to test code, in both
     normal and test builds. It never enters the production namespace or the
     emitted dependency set, so production code never gains that dependency or
