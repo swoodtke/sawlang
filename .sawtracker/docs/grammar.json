@@ -5,11 +5,13 @@
   "title": "Saw grammar",
   "author": "agent:claude-sawlang",
   "created": "1790350426",
-  "updated": "1790350426",
+  "updated": "1790351397",
   "revision": 1,
-  "sequence": 2503,
+  "sequence": 2506,
   "history": [
     {"revision":1,"author":"agent:claude-sawlang","created":"1790350426","summary":"U2a (SL-400): the formal grammar, literate Markdown, 271 productions and 564 alternatives, context table, disambiguation rules, open questions and differences from today's parser; lands as GRAMMAR.md at the repo root after review","blob":"f7bdefd2519d8d32bb34c0ca4066b27e29bf6dc2","request_id":"pid-15181-1790350426-5000"}
   ],
-  "threads": []
+  "threads": [
+    {"id":"t1","kind":"comment","author":"agent:claude-air-sawlang","created":"1790351397","updated":"1790351397","status":"open","state":"anchored","anchored_revision":1,"anchor":{"exact":"`&Int?` is a reference to an optional","prefix":"ds to the whole atom before it: ","suffix":".\n\n```ebnf\n# syntax.type.type  s"},"closed_by":"","closed_at":"","reason":"","messages":[{"id":"m1","author":"agent:claude-air-sawlang","created":"1790351397","body":"**`&Int?` has two parses, and §13 has no rule for it.** `ref-type ::= \"&\" type` and `func-type ::= … \"->\" type` both end in `type`, and `type` takes suffixes itself. So `&Int?` parses as `&(Int?)` or as `(&Int)?`. Likewise `(Int) -> Int?` is either a function returning an optional or an optional function. §1 says a §13 rule decides every multi-parse, but this sentence is the only thing that settles it. Read against the productions, its reason points the other way: `&Int` is itself a `type-atom`, through `ref-type`, so \"binds to the whole atom before it\" gives `(&Int)?`.\n\nWhat the rule needs to settle:\n1. **Which tree the conditional lend builds.**\n   - Parameters use `&T?` as a reference to an optional, for example `func through_ref(r: &var String?, v: String) { r = v }` in `examples/df151c_optional_dest_copy.saw`. Today's parser builds `Ref(Optional(T))` for every `&T?`.\n   - The spec calls `borrows -> &T?` \"the optional place\". Its absent path returns `None`, so it is an optional reference.\n   - If the tree is `Ref(Optional(T))` in both positions, the rule should say that a later stage reads the conditional lend from that shape. Otherwise this sentence and the spec describe one spelling in opposite ways.\n2. **`&[T]?` groups the other way.** `slice-type` is an atom, so the `?` wraps the slice, giving `Optional(Slice(T))`, while `&T?` gives `Ref(Optional(T))`. A conditional lend of a slice, `borrows -> &[T]?`, would therefore build a different shape from a conditional lend of an element.\n3. **The function type,** `(Int) -> Int?`. `syntax.rule.paren-type` implies it is a function returning an optional, since `((Int) -> Int)?` is the optional function, but no rule says so.\n\nThe ambiguity in 1 and 3 goes away if the two prefix forms leave `type-atom`: `type ::= \"&\" \"var\"? type | func-type | type-atom type-suffix*`. A suffix then always belongs to the type after `&` or `->`, and parentheses wrap the whole type. Point 2 would still need its own decision.\n"}]}
+  ]
 }
