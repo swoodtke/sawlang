@@ -65,6 +65,17 @@ What follows `@test` decides the form:
 
 - **Placement and access.** `@test` declarations sit at top level in any file,
   and can reach their module's private members, so white-box testing works.
+- **Scope.** A test sees its enclosing file's scope: its imports and every
+  declaration in it. There is nothing to re-import.
+  - **Test-only imports** (Proposed): an import only tests need is written
+    `@test import std.fs`. It exists only in test builds, so production code
+    never gains that dependency or those names. It is the same rule as
+    test-only declarations.
+  - A sidecar sees its module's scope as if it were appended to the
+    implementation file, imports included.
+- **Runtime state is not shared.** Compile-time scope is shared, but each test
+  runs in its own process, so statics start fresh for every test, and no test
+  can leave state behind that changes another's result.
 - **Test sidecars** (Proposed; codex's architecture t6). Sometimes tests cannot
   sit in the implementation file. The self-hosted compiler is the main case:
   its source must stay in the subset the frozen compiler parses, which has no
