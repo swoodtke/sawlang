@@ -217,7 +217,7 @@ frozen compiler builds correctly: arena indices rather than references in data
 structures, no closures with captures, no coroutines, shallow types. It avoids
 every shape in the hazards ledger.
 
-**What source Stage 0 builds** (Proposed; codex's question in t6). The frozen
+**What source Stage 0 builds** (Ruled Sep 24; codex's question in t6). The frozen
 compiler cannot parse the new forms (`borrow`, `@test`) and must not be
 unfrozen to learn them. So:
 - The compiler's own source is written in the **intersection** of the two
