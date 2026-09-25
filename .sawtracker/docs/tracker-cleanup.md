@@ -29,8 +29,12 @@ recommendations"), and for decision 9 ruled "close the remote worker issues".
   SL-340.p1 stays with its pinned issue.
 - **Architecture corrections are in SL:architecture r17 and r18.**
 - **Result:** 103 open SL issues, all in the backlog: 39 `language`,
-  18 `runtime`, 16 `product`, 15 `std`, 10 pinned and 5 `tooling`.
-- **Still to come:** SL:hazards, drafted from the 82-ID inventory below.
+  18 `runtime`, 16 `product`, 15 `std`, 10 pinned and 5 `tooling`. (SL-398 and
+  SL-399, the new compiler's epic and its first unit, were created afterwards.)
+- **SL:hazards is published,** and it grew from the 82-ID handoff to 86 entries
+  after the Air's review. SL-68, SL-71, SL-83 and SL-390 were promoted. The
+  `hazard` label now covers exactly those 86 issues, SL-14 and SL-107 included
+  (Air t5).
 
 ## Summary
 
@@ -161,8 +165,8 @@ Closed issues stay readable, but these items must also live somewhere current:
      a guard-page handler;
    - SL-182: `noalias` from exclusivity.
 
-   Still to add: SL-99, closure symbols named by content rather than source
-   line, so object-cache keys stay stable (§3.0).
+   Added since (r19–r20): SL-99, closure symbols named by content rather than
+   source line (§3.0).
 6. **Epic SL-367** closes. Its runtime members SL-354 and SL-355 stay.
 7. **How each closing issue is marked:** a label (`frozen`, `superseded`,
    `done` or `duplicate`) and a short comment pointing here, plus the doc
