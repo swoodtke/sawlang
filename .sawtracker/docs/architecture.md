@@ -613,7 +613,7 @@ caching.
   function suspends if it contains a park or statically calls one that
   suspends. Typecheck's conservative "may suspend" (§3.4) served the borrow
   check. A function that turns out not to suspend gets no frame.
-- **Every spawn root gets a frame, even when its function is sync** (Air t22).
+- **Every cooperative spawn root gets a frame, even when its function is sync** (Air t22; `Thread.spawn` is not one, §3.8).
   A task-root item (§3.8) is a separate specialization of its target, produced
   here. It always has a frame, and its op-budget points stay live (below). The
   ordinary item for the same function, called directly from sync code, keeps no
