@@ -193,7 +193,16 @@ What follows `@test` decides the form:
 - Tests are grouped by **aspect**: one aspect per file, each going deep on every
   spelling of that aspect in every position.
 - Each test names the spec rule it pins, so every rule can be traced to its
-  tests and every test to its rule.
+  tests and every test to its rule. **Rules have stable names** (Ruled), such as
+  `borrow.root-charge` or `copy-tier.explicit-transfer`, anchored in the spec
+  text. Inserting a rule never renumbers the others, and a test cites one as
+  `// rule: borrow.root-charge`. A lane checks both directions: every rule has a
+  test, and every cited rule exists.
+- **The rule inventory is the coverage target.** Every rule in the spec and the
+  lockdown docs gets its name. The existing tests (`examples/`, the conformance
+  suite, the spec's checked examples) are then mapped onto the inventory, and
+  the gaps are filled, one aspect at a time. A test states the intended
+  behaviour, whether or not the frozen compiler passes it.
 - The spec's own `saw-error` examples, checked by docverify, are the canonical
   refusal for each rule. The in-file and corpus tests are the full matrix.
 - The existing `examples/` corpus, about 2,700 programs with EXPECT directives,
