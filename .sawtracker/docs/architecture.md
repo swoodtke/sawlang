@@ -826,8 +826,15 @@ into a few rules that are cheap to check, and the subset is defined by them:
 - selective imports only;
 - no `init` in a generic extension;
 - no overloads that differ by a non-`Int` integer parameter;
-- no `any`, `Box`, cells, raw pointers or fixed-size arrays; arena indices
-  instead;
+- no `any`, `Box`, cells (`Mutex`, `SpinLock`, `Once`,
+  `UnsafeMutableInterior`, `Atomic`, `Arc`), raw pointers or fixed-size arrays;
+  arena indices instead;
+- in a field type that nests a generic, every defaulted type argument written,
+  or better, fields one generic deep (SL:hazards S13: nested defaulted
+  generics in fields never drop);
+- written types under 8 levels of nesting, `T?` rather than `Optional<T>`, and
+  no `Self` inside a tuple type (S19);
+- no float literals (S20);
 - no value-position loops, and no statement arms without braces;
 - no `borrow` and no `@test` outside test sidecars;
 - std imports only from an allowlist, which keeps the compiler's std cone small
