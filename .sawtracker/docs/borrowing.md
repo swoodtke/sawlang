@@ -232,14 +232,37 @@ evaluation is a silent bug in exactly the shapes that matter:
   lookup;
 - `cache[k, default: try load(k)]` would do I/O, and could fail, on every hit.
 
-**The mechanism** (Proposed by the lead and the Air, independently): `default:`
-is a compiler-known argument label with `??` semantics, not a general
-lazy-parameter feature. `m[k, default: e]` is defined as `m.get(k) ?? e`. On the
-setter and place side, `e` is inserted only on a miss. There is no new
-parameter kind and no closure, so nothing is captured or allocated, and
-laziness stays confined to the one spelling whose reading already promises it.
-The cost: a user-defined subscript family gets the lazy behaviour by declaring
-the same `default:` shape.
+**The mechanism** (Proposed; the lead and the Air independently, refined per
+codex t4): `default:` is a compiler-known argument label with `??` semantics,
+not a general lazy-parameter feature. There is no new parameter kind and no
+closure, so nothing is captured or allocated.
+
+**The protocol is a declared trait**, not a method name the compiler guesses.
+A type offers `default:` by conforming to a stdlib trait, for example
+`KeyedStorage<K, V>`, whose requirements are the operations the compiler
+composes:
+
+```saw
+trait KeyedStorage<K, V> {
+    func get(&self, key: K) -> V?                          // presence-aware read
+    func []=(&var self, key: K, value: V)                  // store: insert or replace
+    func find(&var self, key: K) borrows -> &var V?        // optional place (for the place form)
+}
+```
+
+**Per-role meaning.** The receiver and key are always evaluated exactly once,
+first:
+
+| Spelling | Meaning | When `e` is evaluated |
+|---|---|---|
+| `m[k, default: e]` (read) | `m.get(k) ?? e` | only on a miss |
+| `m[k, default: e] op= r` | `let old = m.get(k) ?? e`, then `r`, then `m[k] = old op r` | only on a miss. The *result* is stored, so `counts[k, default: 0] += 1` stores `1` on a miss |
+| `m[k, default: e] = v` | `m[k] = v` | **never**. A pure store ignores the default; writing one there draws a `-W` warning |
+| `borrow var x = m[k, default: e] { … }` | `find(k)`; on a miss, evaluate `e`, store it with `m[k] = e`, then lend the stored entry | only on a miss |
+
+The place form therefore always works on storage in the map, never on a
+temporary. A user-defined type gets `default:` by conforming to the trait,
+which states exactly which of its operations are used.
 
 The **place** overload, `borrow var e = m[k, default: v] { … }`, is a third
 accessor with its own meaning: on a miss it *inserts* `v` into the map, then
