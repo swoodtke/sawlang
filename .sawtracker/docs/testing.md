@@ -102,8 +102,9 @@ What follows `@test` decides the form:
     message;
   - an ID names the rule, not whoever checks it. When std enforces a language
     guarantee in Saw, as `Vector.[]` checks its own bounds, it raises that
-    guarantee's catalog ID through a std-only panic form that takes the ID
-    (the hidden-std tier). So `v[99]` and a fixed array's `arr[99]` both fail
+    guarantee's catalog ID through `panic(rule: "index.out-of-range", "…")`,
+    an overload only std can call (the hidden-std tier). So `v[99]` and a
+    fixed array's `arr[99]` both fail
     with `index.out-of-range`, and a test pinning the accessor rule cites that
     one ID. A std message string is never a test's key.
 
