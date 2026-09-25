@@ -9,6 +9,11 @@ and classified against SL:borrowing as of r4–r5. Later rulings (r7–r9:
 `default:` is lazy, static roots are the `unsafe` author's obligation) postdate
 the classification. No tracked file was changed.
 
+**Status (Sep 25).** This is a snapshot, and its K list is now settled.
+SL:borrowing r15–r17 settles K1–K16, and its §11 says where each went. Where
+this survey says "not addressed by the doc" or "unspecified", read it as the
+state of r4–r5. K17 is a count reconciliation, not a design item.
+
 **Coverage, and what a zero means.** The instrument is the compiler's own
 place-lowering pass. Each site was recorded at
 `place_uses._PlaceUses._window_call` after a full typecheck of a real entry
