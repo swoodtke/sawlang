@@ -149,9 +149,10 @@ What follows `@test` decides the form:
     A parse failure that prevents discovery is a *build failure* for the whole
     file, never an empty, passing suite. The runner runs the runnable cases
     whether or not others failed, and its aggregate result fails if any case
-    failed or was blocked. It reads the manifest, never the compiler's exit
-    status, which cannot express a partial build. A file with no runnable cases
-    needs no binary;
+    failed or was blocked. It reads the manifest, not the compiler's exit status
+    alone, which cannot express a partial build. A compiler crash or timeout, or
+    a missing or incomplete manifest, is still a build failure for the file,
+    even if some output exists. A file with no runnable cases needs no binary;
   - setup for a group runs inside each case's process. A fixture is a value, and
     its deinit is the teardown. Sharing an expensive setup across cases (for
     example by forking from a post-setup parent) can be added later if
