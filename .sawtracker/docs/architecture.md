@@ -43,10 +43,16 @@ compiler in Saw is the occasion. The architecture is the point.
 5. **Diagnostics are values.** Errors are collected per checking unit, never
    thrown in a way that aborts compilation. This is what lets `@test(refuses:)`
    blocks be checked on their own.
-6. **Nothing depends on recursion depth.** Walks over the program's trees and
-   graphs use explicit worklists, and depth limits are language rules with a
-   clean diagnostic, never an accident of the implementation's stack (SL-380,
-   SL-390).
+6. **No accidental stack exhaustion on valid input.**
+   - Depth limits are language rules with a clean diagnostic, never an accident
+     of the implementation's stack (SL-380, SL-390).
+   - Flat constructs (operator chains, `else if` chains, statement lists) are
+     flat in the tree and handled by loops.
+   - Recursion is allowed only where every recursive cycle crosses the depth
+     funnel, so it is bounded by the 256 nesting rule.
+   - A syntax level is not one call frame, so the worst mixed-depth call chain
+     is measured on every supported native and VM stack before 256 is claimed
+     as supported.
 7. **Every stage has its own test surface** (§5), so a defect is caught in the
    stage that owns it.
 
@@ -70,19 +76,33 @@ Each stage is outlined here and fleshed out later.
 ### 3.2 Parser
 - **In:** tokens. **Out:** an arena-indexed AST: nodes in a flat array, children
   by index, every node carrying its span.
-- **Invariants:** nesting beyond 256 is a clean refusal at the opener (one
-  depth funnel); flat chains (operators, `else if`) are flat lists (SL-380); no
-  recursion on source depth.
-- **Starting point** (Ruled: yes, with codex asked to comment). Take from the
-  M18–M21 prototype (`prototypes/parser/`):
-  - its **arena AST**: nodes in one flat array, children as index ranges, a span
-    on every node;
-  - its **test harness**: canonical dumps, the same cases on several engines,
-    and invariant checks on the arena;
-  - its **fixtures**, as the first tests for constructs whose grammar did not
-    change;
-  - from U0′ (branch `sl2u0`), the complete depth funnel, the lane proving every
+- **Invariants:**
+  - nesting beyond 256 is a clean refusal at the opener, through one depth
+    funnel;
+  - flat chains (operators, `else if`) are flat lists, parsed by loops (SL-380);
+  - recursion only through the funnel, as principle 6 describes, with every
+    recursive call cycle proved to cross it.
+- **Starting point** (Ruled; codex concurs, architecture t8). Carry over from the
+  M18–M21 prototype (`prototypes/parser/`), as contracts and infrastructure:
+  - **arena invariants:** backward edges, contiguous ordered child ranges,
+    unique child ownership and reachability, and span checks;
+  - **independently authored fixtures:** precedence, delimiters, statement
+    versus tail, newline lookahead, and syntax-only acceptance;
+  - **the harness:** lossless framed dumps, exact cross-engine comparisons,
+    deterministic batching, and failure artifacts. M21's renderer profiling and
+    batching work stand on their own, independent of its parser control stack;
+  - from U0′ (branch `sl2u0`): the complete depth funnel, the lane proving every
     recursive path is charged, and the quote-anchor rule.
+- **Carried over, but not as-is:**
+  - M21 stores `else if` as nested If/Block/FinalExpression wrappers and charges
+    each active `else if` against the depth budget. The new contract makes
+    `else if` a flat list, so those arena and depth expectations change
+    explicitly, even where the source grammar is unchanged;
+  - the canonical dump schema and the engine adapters migrate on purpose. Byte
+    parity is not kept blanket;
+  - prototype spans are token-index ranges and the tree keeps neither source
+    nor tokens. Replacing per-node text with spans into the source needs an
+    explicit owner for the source buffer, and a file identity.
 - **Not taken:** the fully iterative continuation-stack parsing. It exists
   because the prototype runs inside the mini-VM, whose call stack is small, and
   it costs several work kinds and frames per construct (`if`/`else` alone took
@@ -225,7 +245,10 @@ unfrozen to learn them. So:
   a plain `v[i]` copy read, arena indices, explicit methods rather than inline
   place writes, and no `borrow` or `@test`.
 - The compiler's **own tests** live in separate files that only Stage 1 onward
-  compiles, so the first test-first build has no dependency cycle.
+  compiles, so the first test-first build has no dependency cycle. Each is a
+  **test sidecar** of the module it tests: it is part of that module in test
+  builds, so its tests keep white-box access, and it is never in Stage 0's
+  source set. See SL:testing §4.
 - The subset checker (below) enforces the intersection over the compiler
   source, so Stage 0 always sees code it builds correctly.
 - The alternative, a bootstrap projection tool that strips `@test` blocks and
