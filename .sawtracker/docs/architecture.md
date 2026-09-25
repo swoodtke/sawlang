@@ -48,8 +48,13 @@ compiler in Saw is the occasion. The architecture is the point.
      of the implementation's stack (SL-380, SL-390).
    - Flat constructs (operator chains, `else if` chains, statement lists) are
      flat in the tree and handled by loops.
-   - Recursion is allowed only where every recursive cycle crosses the depth
-     funnel, so it is bounded by the 256 nesting rule.
+   - **In syntax parsing,** recursion is allowed only where every recursive
+     cycle crosses the depth funnel, so it is bounded by the 256 nesting rule.
+   - **Semantic dependency graphs are not bounded by source nesting.** A long
+     chain of shallow type aliases or generic dependencies has no deeply nested
+     source, and a call graph can be arbitrarily deep. So these graphs are
+     walked with worklists and identity-based cycle detection, never with a
+     depth budget. Imposing the parser's budget on them would recreate SL-390.
    - A syntax level is not one call frame, so the worst mixed-depth call chain
      is measured on every supported native and VM stack before 256 is claimed
      as supported.
