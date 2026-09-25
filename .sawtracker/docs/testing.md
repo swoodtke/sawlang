@@ -68,9 +68,17 @@ What follows `@test` decides the form:
 - **Scope.** A test sees its enclosing file's scope: its imports and every
   declaration in it. There is nothing to re-import.
   - **Test-only imports** (Proposed): an import only tests need is written
-    `@test import std.fs`. It exists only in test builds, so production code
-    never gains that dependency or those names. It is the same rule as
-    test-only declarations.
+    `@test import std.fs`. Its names are visible only to test code, in both
+    normal and test builds. It never enters the production namespace or the
+    emitted dependency set, so production code never gains that dependency or
+    those names. It is the same rule as test-only declarations.
+  - **Consistency with no-rot** (codex t7): a normal build still typechecks
+    in-file tests, so it must still *resolve* their test imports. For std
+    modules that costs nothing. For a package, Blade must have the test
+    dependency available (a dev-dependency) to typecheck, even though nothing is
+    linked against it. Skipping test dependencies entirely in normal builds
+    would need an explicit exception to no-rot, as sidecars have. That is not
+    proposed.
   - A sidecar sees its module's scope as if it were appended to the
     implementation file, imports included.
 - **Runtime state is not shared.** Compile-time scope is shared, but each test
