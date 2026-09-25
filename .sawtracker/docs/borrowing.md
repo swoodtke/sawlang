@@ -288,14 +288,28 @@ borrow var (left, right) = v.split_at(mid) { merge(&var left, &var right) }
 It does not prove the lent places are disjoint from *each other*, so:
 - A safe accessor may lend a tuple only of places the compiler proves disjoint:
   distinct fields, or distinct constant indices of a fixed array.
-- Lending index- or range-based places together (`buffer[i]` and `buffer[j]`)
-  requires unsafe code, whose author owns disjointness. The stdlib's `split_at`
-  and `pair` are written that way, over the raw buffer: `split_at` is disjoint
-  by construction, and `pair` panics when `i == j`. They are the safe wrappers
-  that establish the invariant.
-- A safe accessor cannot gain that trust merely by declaring `borrows`. A safe
-  `pair` that forgot the `i == j` check would be refused, because the compiler
-  cannot prove `buffer[i]` and `buffer[j]` disjoint.
+- **The escape valve is an `unsafe` accessor** (Ruled: "unsafe requires the user
+  to enforce the safety"). An accessor declared `unsafe`, in the effect slot
+  beside `borrows`, may lend a tuple of places the compiler cannot prove
+  disjoint, such as index- or range-based places. Its author enforces
+  disjointness under Saw's existing unsafe rule: an unsafe function whose
+  parameters are all safe types must be sound for *every* input, so it checks
+  what it relies on, and a precondition it cannot check is spelled as an
+  unsafe-typed parameter. Callers need no ceremony. It is available to user code,
+  not only the stdlib:
+  ```saw
+  extension Grid {
+      func cells(&var self, a: Int, b: Int) unsafe borrows -> (&var Cell, &var Cell) {
+          if a == b { panic("cells: the same cell twice") }
+          lend (self.slots[a], self.slots[b])
+      }
+  }
+  ```
+- The stdlib's `split_at` and `pair` are instances: `split_at` is disjoint by
+  construction, and `pair` panics when `i == j`.
+- Without `unsafe`, declaring `borrows` confers no such trust. A non-`unsafe`
+  accessor that lends `buffer[i]` and `buffer[j]` together is refused, because
+  the compiler cannot prove them disjoint.
 
 ## 8. Locks (Ruled)
 
