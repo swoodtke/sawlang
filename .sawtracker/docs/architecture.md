@@ -384,7 +384,7 @@ caching.
 
 ### 3.5 MIR lowering
 - **In:** typed IR, one function at a time. **Out:** MIR.
-- **The MIR's shape** (Proposed; §6): place-based and not SSA, like Rust's MIR.
+- **The MIR's shape** (Ruled): place-based and not SSA, like Rust's MIR.
   - A function is a set of locals plus basic blocks.
   - A *place* is a local with a projection path: field, index, deref, enum
     payload.
@@ -416,7 +416,7 @@ caching.
     copied out (SL:borrowing §2.2).
   - `for` is a window on its head plus a loop calling `next`.
   - A plain `&x` argument is a `ref(shared | exclusive, place)` rvalue.
-- **An accessor is lowered as two halves around `lend`** (Proposed). The
+- **An accessor is lowered as two halves around `lend`** (Ruled). The
   prologue runs at `window_open` and produces the lent reference. The epilogue
   runs at `window_close`. The accessor's locals that live across `lend` form a
   small state record in the caller's frame. That is the shape coroutine lowering
@@ -599,7 +599,7 @@ caching.
   An internal error is reserved for a broken compiler invariant, never for an
   invalid concrete argument.
 - **Unbounded instantiation** (polymorphic recursion: `f<T>` calling
-  `f<Box<T>>`) has no identity cycle to detect. Proposed: refuse it before
+  `f<Box<T>>`) has no identity cycle to detect. Ruled: refuse it before
   mono, with a check on the generic call graph. A cycle is refused if its
   composed substitution maps a parameter to a type that strictly contains it
   (§6).
@@ -634,7 +634,7 @@ caching.
   finite frame, so it is refused with the cycle named, as today. A dispatch
   through `any Trait` to a suspending implementation is refused likewise,
   pending heap-allocated frames (spec: suspension).
-- **Frame layout is computed here, sized by the high-water mark** (Proposed).
+- **Frame layout is computed here, sized by the high-water mark** (Ruled).
   Frames are laid out callees first, over the suspending call graph, which is
   acyclic. Within a frame, two values may share bytes only when their *storage
   lifetimes* never intersect (codex t16). A storage lifetime runs from
@@ -1032,7 +1032,7 @@ compiler's coroutine transform is where most of SL:hazards lives. So:
   - the switch is a named milestone: the new compiler accepts sawos's flag list
     (§5). The name, the resolver and the pin move together.
 
-**Stage 0 moves after self-hosting** (Proposed). Once the new compiler builds
+**Stage 0 moves after self-hosting** (Ruled). Once the new compiler builds
 itself, a pinned release of it can replace the frozen Python compiler as
 Stage 0, the way Rust bootstraps from its previous release. From then on the
 compiler and its std may use the full new language, and the intersection rule
@@ -1141,8 +1141,18 @@ keeps that auditable.
 
 ## 6. Open questions
 
-- **The MIR's exact shape.** §3.5 proposes place-based and not SSA. Still open:
-  how an accessor's two halves and their state record appear in it.
+Settled since the first draft:
+- the MIR is place-based;
+- accessors are lowered as two halves;
+- frames are sized by the high-water mark;
+- polymorphic recursion is refused statically;
+- Stage 0 moves after self-hosting;
+- the build order is the parser first, then bootstrap on the subset (user, Sep 25; epic SL-398);
+- the prototype carry-over is §3.2's starting point, and M21 and the minivm are closed or paused.
+
+Still open:
+- **How an accessor's two halves and their state record appear in the MIR:**
+  the representation detail behind §3.5's ruling.
 - **Generic bodies type-checked once.** §3.4 depends on it. A sweep is owed for
   any language feature that today relies on checking per instantiation, beyond
   the two named: design 219's inferred Copy requirement, and value obligations
@@ -1154,8 +1164,6 @@ keeps that auditable.
   refused, even if every instantiation is sync. Is that acceptable, or should
   such a requirement be declared `sync`? Calls through a function value or
   `any Trait` are not affected, since they never suspend.
-- **Polymorphic recursion** (§3.8): the proposed static refusal on the generic
-  call graph.
 - **Heap-allocated frames,** which the spec leaves pending for suspending
   recursion and for suspending dispatch through `any Trait`. The frame design
   must leave room for them.
@@ -1163,8 +1171,5 @@ keeps that auditable.
   versioning, and whether it shares a schema with the text dumps.
 - **What `#file` renders** once no IR holds an absolute path: a
   package-relative path, or something else.
-- How much of the M18–M21 prototype carries over directly.
-- The order of stages built: front to back, or a thin end-to-end slice first so
-  the corpus runs early.
-- Where the language spec lives. (Its rules get stable names, not numbers,
-  which tests cite: SL:testing §6.)
+- **Where the language spec lives.** Its rules get stable names, not numbers,
+  which tests cite (SL:testing §6). The formal grammar is SL:grammar (SL-400).
