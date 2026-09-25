@@ -1172,4 +1172,5 @@ Still open:
 - **What `#file` renders** once no IR holds an absolute path: a
   package-relative path, or something else.
 - **Where the language spec lives.** Its rules get stable names, not numbers,
-  which tests cite (SL:testing §6). The formal grammar is SL:grammar (SL-400).
+  which tests cite (SL:testing §6). The formal grammar is `GRAMMAR.md` at the
+  repository root, beside the spec (SL-400).
