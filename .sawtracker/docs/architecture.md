@@ -141,9 +141,13 @@ caching.
   by index, every node carrying its span.
 - **Mechanism:**
   - recursive descent for declarations, statements and nesting. Binary
-    operators are parsed by precedence climbing in a loop. Postfix chains
-    (calls, members, subscripts, `?.`, `!`) are parsed by a loop into one flat
-    chain node (SL-380);
+    operators and `else if` chains are parsed by loops into flat lists
+    (SL-380);
+  - postfix chains (calls, members, subscripts, `?.`, `!`, `as` casts) stay
+    nested, and each hop charges one level of the 256 depth budget until the
+    chain ends (Ruled, SL-380 c2). The 257th hop is refused at that hop. They
+    stay nested because they mix node kinds, and real code never chains that
+    deep;
   - **the tree records syntax only.** The parser records what was written,
     never what it means. `name(…)` is one `Call` node whatever `name` turns out
     to be, so there is no guess to undo later (§3.3);
@@ -157,7 +161,8 @@ caching.
 - **Invariants:**
   - nesting beyond 256 is a clean refusal at the opener, through one depth
     funnel;
-  - flat chains (operators, `else if`) are flat lists, parsed by loops (SL-380);
+  - flat chains (operators, `else if`) are flat lists, parsed by loops, and
+    postfix hops are charged per hop (SL-380);
   - recursion only through the funnel, as principle 6 describes, with every
     recursive call cycle proved to cross it.
 - **Starting point** (Ruled; codex concurs, architecture t8). Carry over from the
@@ -300,9 +305,22 @@ caching.
   - suspension is inferred, since Saw has no async colouring. A function *may
     suspend* if it contains a park, or statically calls something that may.
     This is a fixpoint over the call graph, computed by a worklist because
-    recursion makes cycles. A call through a generic bound (`t.greet()` for
-    `T: Greeter`) may suspend unless the requirement is `sync`, because its
-    implementation is known only after mono;
+    recursion makes cycles;
+  - **a generic function's effects are conditions over its type arguments,**
+    because the language infers suspension per instantiation: `run<Slow>` may
+    suspend while `run<Fast>` does not, and a `sync` caller may call the second
+    (spec: suspension, "inference runs per instantiation"). The body is still
+    checked once. Its summary records the condition, for example "`run<T>`
+    may suspend if `T.step` may", the same way design 219's inferred Copy
+    requirement is recorded. Each call site evaluates the condition with its own
+    type arguments:
+    - where they are concrete, the answer is exact, for the `sync` check and
+      for the borrow check alike;
+    - where the caller is itself generic, the condition composes into the
+      caller's own summary;
+    - only *inside* a generic body is a call through a bound (`t.greet()` for
+      `T: Greeter`) a conservative "may suspend", unless the requirement is
+      declared `sync`;
   - a call through a function value, or a dispatch through `any Trait`, never
     suspends. A closure body cannot suspend, and a dispatch to a suspending
     implementation is refused (spec: suspension);
@@ -634,6 +652,9 @@ caching.
     convention for `extern` calls.
   - The optimisation level passes through the one `speed_level` funnel
     (design 265).
+  - Exclusivity facts the borrow check proves can become LLVM `noalias`
+    attributes on `&var` parameters (SL-182), added when measurement shows the
+    win.
 - **VM backend (planned, and the design must keep it possible):** MIR to VM
   bytecode, run by an interpreter. Requirements this places on the earlier
   stages:
@@ -644,7 +665,9 @@ caching.
   - runtime seams (`__saw_rt_*`) reach a VM through a host-call table, and
     extern calls through an FFI bridge;
   - the VM has an explicit frame stack with defined exhaustion behaviour: a
-    stack overflow is a clean panic, as on native targets. The 256 nesting
+    stack overflow is a clean panic. Native targets owe the same: today a
+    native overflow is a bare SIGSEGV, and the runtime needs a guard-page
+    handler that reports it as a panic (SL-313). The 256 nesting
     limit bounds source syntax, not runtime call depth, since a shallow function
     can recurse as deeply as its input drives it. So the limit cannot size the
     VM stack for general programs. It only sizes the parser's own recursion,
@@ -826,11 +849,12 @@ keeps that auditable.
   any language feature that today relies on checking per instantiation, beyond
   the two named: design 219's inferred Copy requirement, and value obligations
   like `static_assert` (§3.8).
-- **Suspension through a generic bound.** The borrow check sees `t.greet()` for
-  `T: Greeter` as a possible suspension unless the requirement is `sync`
-  (§3.4). So a `borrows(sync)` window held across such a call is refused, even
-  if every instantiation is sync. Is that imprecision acceptable, or should
-  such a trait requirement be declared `sync`? Calls through a function value or
+- **Suspension through a generic bound, inside a generic body.** Call sites with
+  concrete type arguments are exact (§3.4). Inside a generic body, `t.greet()`
+  for `T: Greeter` is a possible suspension unless the requirement is `sync`.
+  So a `borrows(sync)` window held across such a call *in a generic body* is
+  refused, even if every instantiation is sync. Is that acceptable, or should
+  such a requirement be declared `sync`? Calls through a function value or
   `any Trait` are not affected, since they never suspend.
 - **Polymorphic recursion** (§3.8): the proposed static refusal on the generic
   call graph.
