@@ -300,21 +300,40 @@ caching.
   - Inside a body, the expected type flows down: a literal adopts it, a
     closure's parameters take it, and a zero-argument construction takes the
     declared slot type (design 207). Argument types flow up.
-  - **The expected-type funnel.** An implicit member, `.Case` or
-    `.Case(…)`, names an enum case of the expected type (SL-400 c7). One
-    function answers "what type does this position expect". It looks through
-    an optional, and its docstring lists the positions that supply one:
-    - an annotated `let` or `var`, and an assignment to a typed place;
-    - an argument to a non-generic parameter;
-    - `return`, and a match arm's result;
-    - a field initializer, and a collection literal element;
-    - the side of `==` or `!=` opposite a typed operand;
-    - the right side of `??`, and a default argument value.
+  - **The expected-type funnel.** One function answers "what does this
+    position expect?". It serves a literal's adoption, a constant
+    expression's, a zero-argument construction, and an implicit member (`.Case`
+    or `.Case(…)`, an enum case of the expected type; SL-400 c7). Its docstring
+    lists the entry points, which are the literal-adoption positions (spec,
+    Primitive Types; design 87):
+    - an annotated `let` or `var`, and every assignment-target kind;
+    - a parameter, a field, an `init` argument, and a default value;
+    - `return` and a body's tail, with the `if`, `else` and `match` arm results
+      that merge into them;
+    - an enum payload, and a compound-assignment right side;
+    - every collection-literal element, key and value;
+    - a closure body's tail, arm results and `return`, when the closure's type
+      is known;
+    - a mixed binary operator's other operand; for an enum, that means `==` and
+      `!=`.
 
-    A position the list does not name has no expected type, and an implicit
-    member there is refused with the fixit `Enum.Case`. An implicit member
-    never selects an overload: the overload filter treats it as fitting any
-    enum with that case, so two such candidates are an ambiguity error.
+    A parameter counts when its type is known before its argument is checked:
+    `v.push(.North)` on a `Vector<Direction>` expects `Direction`, since the
+    receiver fixed `T`. A type parameter that the call itself infers expects
+    nothing.
+  - **Peeling, the same for every client:**
+    - The expected type's own members are looked up first.
+    - An optional slot peels to its innermost payload.
+    - A `Result` slot peels to the unique payload that can take the value,
+      which also picks `Ok` or `Err`. When both payloads can take it, the
+      compiler refuses and names both.
+    - An abstract generic peels nothing.
+    - A generic enum's type arguments come from the expected type:
+      `let r: Result<Int, E> = .Ok(value: 5)`.
+  - **Where nothing is expected,** an implicit member is refused with the fixit
+    `Enum.Case`. An implicit member never selects an overload: the overload
+    filter treats it as fitting any enum with that case, so two such candidates
+    are an ambiguity error.
   - **The accessor-signature reader.** A `borrows` accessor's return type
     `&T?` parses as `Ref(Optional(T))`, and `&[T]?` as
     `Optional(Slice(T))` (SL:grammar §13). One reader classifies both as the
