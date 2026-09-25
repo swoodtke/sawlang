@@ -334,7 +334,11 @@ caching.
     - A generic enum's type arguments come from the expected type:
       `let r: Result<Int, E> = .Ok(value: 5)`.
   - **Where nothing is expected,** an implicit member is refused with the fixit
-    `Enum.Case`. An implicit member never selects an overload: the overload
+    `Enum.Case`. Only its payload call may follow it, and the expected type
+    reaches the member through that call. Any other hop, as in
+    `.North.opposite()`, leaves the member in a position that expects nothing,
+    so it is refused with the fixit `Direction.North.opposite()` (SL:grammar
+    t5). An implicit member never selects an overload: the overload
     filter treats it as fitting any enum with that case, so two such candidates
     are an ambiguity error.
   - **The accessor-signature reader.** A `borrows` accessor's return type
