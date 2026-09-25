@@ -26,19 +26,19 @@ What follows `@test` decides the form:
     …
 }
 
-@test(panics: index.out-of-range) "indexing past the end panics" {
+@test(panics: "index.out-of-range") "indexing past the end panics" {
     let v: Vector<Int> = [1, 2, 3]              // passes only if the body panics,
     let x = v[10]                               // with that panic
 }
 
-@test(refuses: move.use-after-move) "a moved value cannot be used again" {
+@test(refuses: "move.use-after-move") "a moved value cannot be used again" {
     let x = Res()                               // passes only if the compiler
     let a = move x                              // refuses this block, and its
     let b = move x                              // first error has that ID
 }
 
-@test(warns: default.ignored-on-store) "a pure store ignores the default" {
-    var counts: Map<String, Int> = [:]          // passes only if the block compiles
+@test(warns: "default.ignored-on-store") "a pure store ignores the default" {
+    var counts: Map<String, Int> = {:}          // passes only if the block compiles
     counts["a", default: 0] = 1                 // and emits that warning
 }
 
@@ -64,8 +64,8 @@ What follows `@test` decides the form:
 | `@test "name" { … }` | typechecked, not emitted | compiled and run in its own process |
 | `@test(panics: ID) "name" { … }` | typechecked, not emitted | passes only if the body panics with that panic |
 | `@test(refuses: ID) "name" { … }` | skipped; only its braces are matched | checked on its own; passes only if its first error has that ID |
-| `@test(warns: ID) "name" { … }` | skipped, like a refusal | checked on its own with the category enabled; passes only if it compiles and emits that warning (Proposed) |
-| `@test(warns: none) "name" { … }` | skipped, like a refusal | passes only if it compiles with every category enabled and emits no warning (Proposed) |
+| `@test(warns: ID) "name" { … }` | typechecked, not emitted, like an ordinary case (no rot; warnings are off by default) | checked on its own with the category enabled; passes only if it compiles and emits that warning (Proposed) |
+| `@test(warns: none) "name" { … }` | typechecked, not emitted | passes only if it compiles with every category enabled and emits no warning (Proposed) |
 | `@test func` / `@test { … }` | typechecked, not emitted | compiled; visible only to test code |
 
 ## 4. Rules
@@ -77,10 +77,16 @@ What follows `@test` decides the form:
   `TaskGroup`. In a test build, the runner's entry drives each case, and a
   file's own `main` is not the entry.
 - **One key per diagnostic** (Air t12). A refusal's ID, a panic's ID and a
-  warning's ID are the rule's stable name (§6): `@test(refuses: borrow.root-charge)`.
+  warning's ID are the rule's stable name (§6): `@test(refuses: "borrow.root-charge")`.
   There is no second catalog of `E_…` codes. The error text shows the name, as
   Rust shows `E0499`. The same key serves `refuses:`, `panics:`, `warns:` and
   `// rule:` citations.
+- **A key is written as a string literal** (Air t16):
+  `@test(refuses: "move.use-after-move")`. Rule names are dotted and
+  hyphenated, so a bare `move.use-after-move` would lex as a keyword and
+  subtractions. The optional `text:` and `at:` arguments are separate labelled
+  slots, so the parser always knows which one it is reading, and a text alone
+  is still not accepted.
 - **`panics:` names which panic** (Air t10; Proposed). A bare `@test(panics)`
   would pass on an unrelated panic, such as a bounds check in the setup or a
   `try!` on a fixture, and silently stop testing its subject. So the form takes
@@ -218,9 +224,12 @@ What follows `@test` decides the form:
   declarations are invisible to ordinary code.
   - **Consequences** (Air t14; Proposed). *Running* a hosted test of a
     freestanding module compiles the module's production code hosted too. So a
-    module keeps tests in-file only if its production code is
-    hosted-compilable. Kernel modules that are not (`@section`, raw addresses,
-    `unsafe static var` slabs, a real `hal`) are tested in the QEMU suite.
+    module keeps tests in-file only if its production code is hosted-runnable
+    along the paths its tests exercise (Air t16). Compiling hosted is rarely
+    the limit: `unsafe static var` slabs, `@section` and addresses held as
+    `UInt` all compile. What cannot run on a host is dereferencing an MMIO or
+    physical address, or a real `hal`. Logic that needs those is tested in the
+    QEMU suite.
   - For the same reason, a normal freestanding build checks such a module
     twice: its production code for the real target (a 32-bit `Int` on riscv32,
     for example), and its production code plus tests for the host test profile.
@@ -238,7 +247,7 @@ What follows `@test` decides the form:
   module. It may contain declarations, because many refusals are about
   declarations:
   ```saw
-  @test(refuses: field.no-reference) "a struct field cannot hold a reference" {
+  @test(refuses: "field.no-reference") "a struct field cannot hold a reference" {
       struct Holder { r: &Int }
   }
   ```
@@ -251,7 +260,7 @@ What follows `@test` decides the form:
 - **Matching is on a stable diagnostic ID** (Ruled: yes, provided the expected
   errors form a finite, enumerable set, which they do). The ID is the rule's
   name (§4, "One key per diagnostic"), for example
-  `@test(refuses: closure.exclusive-capture) "…" { … }`. **The ID is required**
+  `@test(refuses: "closure.exclusive-capture") "…" { … }`. **The ID is required**
   (Air t9). An optional `text:` argument adds a substring check on the message.
   A text alone is not accepted, since it would bring back the churn that IDs
   remove. The block must produce errors, and its *first* error must carry that
@@ -275,9 +284,11 @@ What follows `@test` decides the form:
     because a test build parses the block as its own unit;
   - multi-file refusals: imports and module layout.
 - **Warnings are tested in-file too** (Air t11; Proposed), with `warns:` (§3).
-  A `warns:` case is checked as a unit, like a refusal, with its category
-  enabled for that unit, and passes only if the block compiles and emits that
-  warning. `warns: none` passes only if the block compiles with every category
+  Unlike a refusal, a `warns:` case is valid code, so a normal build
+  typechecks it like an ordinary case (no rot), and adds no noise, since
+  warnings are off by default. In a test build it is checked as a unit with its
+  category enabled, and passes only if the block compiles and emits that
+  warning (Air t16). `warns: none` passes only if the block compiles with every category
   enabled and emits nothing, since a warning that should not fire is the usual
   regression. The rules whose whole behaviour is a warning, such as
   SL:borrowing §5.4's ignored default and §8a's static-root warning, get their
