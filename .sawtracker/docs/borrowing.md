@@ -222,7 +222,14 @@ borrow var e = sessions[id, default: Session()] { e.hits += 1 }
 ```
 
 A getitem/setitem pair: the getter returns `m.get(k) ?? default`, and the
-setter inserts. It is plain value code for Copy values, with no borrow. Missing
+setter inserts. It is plain value code for Copy values, with no borrow.
+
+The **place** overload, `borrow var e = m[k, default: v] { … }`, is a third
+accessor with its own meaning: on a miss it *inserts* `v` into the map, then
+lends the stored entry under an exclusive root. The body therefore always works
+on storage in the map. It never works on an owned fallback temporary that is
+written back later, which would behave differently (for example, if the body
+reads the map's length). Missing
 keys are handled per call. A default parameter value on the getter would
 silently undo the missing-key panic, so there is none. A per-instance default
 (`defaultdict`) could be library sugar later.
@@ -232,8 +239,15 @@ silently undo the missing-key panic, so there is none. A per-instance default
 - **Type.** `&[T]` and `&var [T]` are reference-like. They appear only as
   parameters and `borrow` bindings, and are never stored in a field or returned.
   Their representation is a pointer and a length.
-- **Views.** `borrow let header = packet[0..20] { parse(header) }`, and
-  `checksum(&buf[4..])` at a call site.
+- **Views go through `borrow`, like every other place.**
+  `borrow let header = packet[0..20] { parse(header) }`, or the statement form
+  at a call site: `checksum(borrow let buf[4..])`. A range subscript is a
+  `borrows` call, so there is no exception for slices. `&buf[4..]` is refused,
+  as `bump(&var g[4])` is, with a hint naming the `borrow let` form.
+- **A view is not a copy.** `borrow let s = buf[4..]` is a view into `buf`. A
+  plain `buf[4..]` follows the copy rules below and produces an owned value;
+  to pass a reference to such a copy, bind it first (`let c = buf[4..].copy()`,
+  then `f(&c)`).
 - **Whole containers coerce.** Passing `&v` where `&[T]` is expected works for
   a whole `Vector`, `[T; N]` or `Data`.
 - **Copies follow the parent's copy policy.**
@@ -270,9 +284,18 @@ extension Vector<T> {
 borrow var (left, right) = v.split_at(mid) { merge(&var left, &var right) }
 ```
 
-The compiler proves that distinct fields are disjoint. For indices and ranges
-the accessor guarantees it: `split_at` by construction, `pair` with a runtime
-panic.
+**The safety boundary.** One exclusive root charge keeps *outside* accesses out.
+It does not prove the lent places are disjoint from *each other*, so:
+- A safe accessor may lend a tuple only of places the compiler proves disjoint:
+  distinct fields, or distinct constant indices of a fixed array.
+- Lending index- or range-based places together (`buffer[i]` and `buffer[j]`)
+  requires unsafe code, whose author owns disjointness. The stdlib's `split_at`
+  and `pair` are written that way, over the raw buffer: `split_at` is disjoint
+  by construction, and `pair` panics when `i == j`. They are the safe wrappers
+  that establish the invariant.
+- A safe accessor cannot gain that trust merely by declaring `borrows`. A safe
+  `pair` that forgot the `i == j` check would be refused, because the compiler
+  cannot prove `buffer[i]` and `buffer[j]` disjoint.
 
 ## 8. Locks (Ruled)
 
