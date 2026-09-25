@@ -1,15 +1,23 @@
 # Borrow survey: the trees measured against SL:borrowing
 
-This is the read-only survey approved in SL:borrowing §11. It lists every
-current place use and every closure-borrow call in the trees below, sorts each
-by the form it takes under the ruled design, and flags the shapes the rules
-make awkward or refuse. The measurements were taken on 2026-09-24 against
-sawlang `main` (338914a5) and sawos 7bc6d3c. No tracked file was changed.
+This is the read-only survey approved in SL:borrowing §11. It lists the place
+uses and closure-borrow calls OBSERVED by today's pre-coroutine place-lowering
+funnel in the trees below, sorts each by the form it takes under the ruled
+design, and flags the shapes the rules make awkward or refuse. The measurements
+were taken on 2026-09-24 against sawlang `main` (338914a5) and sawos 7bc6d3c,
+and classified against SL:borrowing as of r4–r5. Later rulings (r7–r9:
+`default:` is lazy, static roots are the `unsafe` author's obligation) postdate
+the classification. No tracked file was changed.
 
-The instrument is the compiler's own place-lowering pass. Each site was
-recorded at `place_uses._PlaceUses._window_call`, the one funnel that every
-place use in today's compiler passes through, after a full typecheck of a real
-entry point. None of the counts below comes from grep. A grep was used once, as
+**Coverage, and what a zero means.** The instrument is the compiler's own
+place-lowering pass. Each site was recorded at
+`place_uses._PlaceUses._window_call` after a full typecheck of a real entry
+point. That funnel does not see trait default bodies, static initializers,
+default parameter values, entries that fail to typecheck, or synthesized and
+monomorphized declarations, and the root-capture check (E-345) matches names,
+so it misses aliases (see §Limitations). A zero below means **none observed
+within this coverage**, not evidence that the form does not exist. Bypassed
+funnels are exactly where earlier bugs hid. None of the counts below comes from grep. A grep was used once, as
 a cross-check on the sawos total, and it agreed exactly (see §Methodology).
 
 **Headline numbers:**
@@ -24,9 +32,9 @@ a cross-check on the sawos total, and it agreed exactly (see §Methodology).
 - The examples corpus has 907 place uses in files that are not error tests.
   It is also where every Map-subscript, `?.`-write and presence-test shape
   lives. The trees contain none of those.
-- None of the closure-borrow calls in the typechecked trees captures its own
-  root (the SL-345 shape). No borrow in the typechecked trees is held across
-  a suspension.
+- No closure-borrow call observed in the typechecked trees captures its own
+  root by name (the SL-345 shape; aliases are not detected). No borrow
+  observed in the typechecked trees is held across a suspension.
 
 ## Summary table
 
@@ -375,13 +383,21 @@ then by root. There are 79 groups:
 
 Each item gives the sites, then one line on why.
 
-1. **Data.[]'s copy-on-write body cannot be synthesized shared as written.**
-   `sawc/std/data.saw:185-196`. The CoW separation
-   (`self._make_ready(...)`) is gated by `#lend_var`, and §4 synthesizes by
-   typechecking "the same body again" under `&self`. The doc does not mention
-   `#lend_var`. The ungated shape under a shared signature is refused today:
-   ``error: cannot call `&var self` method `make_ready` on a `&self` receiver: `self` is borrowed SHARED here`` (`probe_f_shared.saw:42`).
-   Data getitem (std `cbor.saw:239-240`, 39 example sites) depends on this.
+1. **Whether `@synthesize(shared)` understands Data.[]'s `#lend_var` gate is unspecified.**
+   - `sawc/std/data.saw:185-196`. The checked-in accessor gates its CoW
+     separation (`self._make_ready(...)`) with `#lend_var`, and §4 synthesizes
+     by typechecking "the same body again" under `&self`. The doc does not
+     mention `#lend_var`.
+   - What the probe shows: with the gate REMOVED, that body under a shared
+     signature is refused (``cannot call `&var self` method `make_ready` on a
+     `&self` receiver``, `probe_f_shared.saw:42`). It does not show that the
+     gated current body is refused. The open contract is whether
+     specialization understands `#lend_var`.
+   - It need not block Data getitem (std `cbor.saw:239-240`, 39 example
+     sites): the design already admits an explicitly written shared accessor
+     that bounds-checks and lends without CoW separation, paired with the
+     exclusive accessor that separates. Writable-lend separation stays the
+     invariant. (Thread t4.)
 2. **Lend forwarding is not addressed.**
    - Sites: `libs/toml/src/lib.saw:162, 358, 372` (`lend self.sections[i]`);
      `sawc/std/map.saw:265, 285, 417, 425`
@@ -390,7 +406,11 @@ Each item gives the sites, then one line on why.
    - §1 says a `borrows` function is called only through `borrow`. A `lend`
      whose operand is another accessor's place is such a call, and the doc
      says nothing about it.
-3. **Borrowing-struct accessors have no §3 row.**
+3. **Borrowing-struct accessors have no §3 row.** K3 and K4 are semantic
+   migration prerequisites, not just awkward spellings (thread t3). They
+   should be decided together with K2 (forwarding) and K5 (value-yielding
+   borrow blocks), using today's generic and NoCopy cases as acceptance
+   examples.
    - The accessors are `Vector.iter` / `Vector.enumerated`
      (`(&self) borrows -> VectorIterator<T, A>`, `vector.saw:487, 494`).
    - Their `for`-head window has 15 sites in the trees, 267 in the examples,
@@ -407,6 +427,15 @@ Each item gives the sites, then one line on why.
      `pair` shape with no index guard.
    - `map.saw:320-322` records why they are closures: "a window's body is
      `sync`, which would force `sync` onto every visitor's closure type".
+   - Replacing a visitor with `for` over `iter()` is NOT equivalent today:
+     `iter`/`enumerated` yield owned elements under `T: Copy`
+     (`vector.saw:478-495`), while `each`/`each_indexed` lend `&T` with no
+     Copy bound (`vector.saw:464-467`), so NoCopy element types would lose
+     traversal. `sort_by` also needs a caller-supplied comparator, which no
+     single-place accessor provides. So the design must either specify
+     borrowed-element traversal or explicitly retain these higher-order APIs.
+     Moving the one-shot guard APIs (`with_ref`, `with_var_ref`, `lock`,
+     `with_unique`) to `borrows` does not by itself replace the visitors.
 5. **Some closure bodies whose value is used touch the place more than once.**
    - `taskgroup.saw:1554` and `:2106` call
      `__park_io_runnable(f!.wake_reason(), f!.is_cancelled(), f!.io_deadline(), now)`.
@@ -450,10 +479,12 @@ Each item gives the sites, then one line on why.
       than deadlocking". §8 makes it a compile error, so the pin changes kind.
 11. **Every sawos borrow is rooted in an `unsafe static var`.**
     - Scope: all 644 sites, over 13 `Slab` statics.
-    - The open §11 / t9 ruling therefore decides the whole kernel migration.
-      The block form holds `&var` into a static across any call in the
-      block, and a per-function exclusivity check cannot see a static
-      reached from a callee.
+    - SETTLED since the survey ran (SL:borrowing r7, §8a): a borrow rooted in
+      an `unsafe static var` is the `unsafe` author's obligation, with an
+      optional `-W` warning. The fact it rests on remains: the block form
+      holds `&var` into a static across any call in the block, and a
+      per-function exclusivity check cannot see a static reached from a
+      callee. The kernel authors carry that obligation for all 644 sites.
 12. **`EXCHANGES[x].body_addr()` returns the address of the slot's storage.**
     - Site: `sawos/kernel/core/objects.saw:2149`. `body_addr` is `&var self`
       (`objects.saw:2031`) and returns a `UInt` address of the element's
@@ -466,7 +497,7 @@ Each item gives the sites, then one line on why.
     - Sites: sawos 410 G2 reads (`PROCESSES[p].state`, etc.), std 22
       (cbor/json level stacks), devtools 28.
     - Each becomes a whole-element getitem copy unless it is written
-      `borrow let`. No perf measurement was taken here; for sawos it comes free (thread t1: the gate's image-size diff on the migration patch shows whether -Oz folds the copy, and a growth means those reads should be `borrow let`). The observable result is
+      `borrow let`. No perf measurement was taken here. For sawos (thread t1), keep the gate's per-image size diff on the migration patch as a budget, but it cannot show whether a given copy was folded: an extra memcpy or a larger stack slot can cost little image size, unrelated changes can grow or cancel it, and growth alone does not attribute cause to G2. Whether `-Oz` turns a whole-slot copy plus a one-field read into one load is answered by optimized IR or disassembly of representative G2 reads, with stack/frame evidence where relevant. The observable result is
       unchanged: no G2 chain calls a method that returns an address.
 14. **`get` changes from an optional place to an optional value.**
     - Today `v.get(i)!.n += 10` writes in place: `probe_k_forced.saw` prints
