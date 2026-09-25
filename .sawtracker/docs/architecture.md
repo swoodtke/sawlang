@@ -873,8 +873,9 @@ depends on. The boundary (codex t19):
 itself, a pinned release of it can replace the frozen Python compiler as
 Stage 0, the way Rust bootstraps from its previous release. From then on the
 compiler and its std may use the full new language, and the intersection rule
-lifts. Until then, everything in the compiler's cone stays in the
-intersection.
+lifts. Until then, the compiler's own source stays in the intersection, since
+Stage 0 builds it. The new std stays in the bootstrap language (the subset plus
+the named low-level features), since only the new compiler builds it.
 
 **Where the compiler lives** (Ruled). The new compiler is the top-level
 `compiler/` directory, one directory per stage (`lex/`, `parse/`, and so on,
