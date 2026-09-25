@@ -97,7 +97,15 @@ What follows `@test` decides the form:
     `text:` slot, the same slot `refuses:` has, checks its message:
     `@test(panics: "panic.explicit", text: "queue drained") "…" { … }`. So
     every panic test names an ID, and a key is never mistaken for a message
-    (SL:grammar, SL-400 c6 Q16).
+    (SL:grammar, SL-400 c6 Q16);
+  - a failed `assert(cond, "…")` is `panic.assert`, and `text:` checks its
+    message;
+  - an ID names the rule, not whoever checks it. When std enforces a language
+    guarantee in Saw, as `Vector.[]` checks its own bounds, it raises that
+    guarantee's catalog ID through a std-only panic form that takes the ID
+    (the hidden-std tier). So `v[99]` and a fixed array's `arr[99]` both fail
+    with `index.out-of-range`, and a test pinning the accessor rule cites that
+    one ID. A std message string is never a test's key.
 
   The structured panic record already carries `panic at FILE:LINE: message`
   (design 122), so matching costs nothing.
