@@ -141,8 +141,10 @@ let n = sink_rev(move r, try fail())   // fail() errors: `r` is never dropped
 ```
 
 **Instead:** bind every `try … catch` value to a named local. Hoist each `try`
-into its own `let` before any expression that moves a value:
-`let k = try fail()`, then `sink_rev(move r, k)`. When an error path must
+into its own `let` before any expression that moves a value *or builds an owned
+temporary*, such as a call's result passed as an argument:
+`let k = try fail()`, then `sink_rev(move r, k)`; and
+`let k = try fail_it()`, then `sink2(make_res("fresh"), k)` (Air t10). When an error path must
 consume a local, `match` on the `Result` instead of writing `move` in a
 `catch`.
 
