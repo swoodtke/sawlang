@@ -123,26 +123,56 @@ graph and knows that an absent arm of the binding holds no borrow. The common
 get-or-insert case does not need this, because the `default:` subscript (§5.4)
 covers it.
 
-### 2.5 Suspension (Ruled: all borrows may span suspensions; Proposed: the lock exception)
+### 2.5 Suspension and `borrows(sync)` (Ruled)
 
 Any borrow may stay open across a suspension: block form, statement form,
 `for` (§2.6) and a borrowed argument alike. A borrow held across a suspension
 lives in the coroutine frame like any other live value, and the borrow check is
 suspension-aware (SL:architecture).
 
-**Proposed exception: `sync` accessors, which today means locks.** A task can
-resume on a different worker after a suspension. A lock held across one breaks
-twice:
-- The owner check misfires. The lock word records a thread (§8), so the release
-  would come from a thread that is not the owner, and another task on the
-  original worker would look like a re-entry.
-- It can deadlock. A task spinning for the lock can occupy the worker the holder
-  needs in order to resume.
+**The declared opt-out is `borrows(sync)`** (Ruled: "a clear indication that
+this borrow cannot be held across a suspension, in the same way the sync
+function decoration means this function cannot call suspending operations").
 
-So a lock accessor is declared `sync`, and the body of a borrow through it
-cannot suspend. A lock that may be held across a suspension is a different type:
-its owner is the task, and its waiters park rather than spin. It can be added
-when something needs it.
+```saw
+extension SpinLock<T> {
+    func lock(&self) sync borrows(sync) -> &var T { … }
+}
+
+borrow var n = counter.lock() {
+    n += 1
+    sleep(Duration.ms(5))    // error: `n` is a `borrows(sync)` borrow from `SpinLock.lock`,
+}                            //        which cannot be held across a suspension
+```
+
+- **Two different things are `sync`.** The function's `sync` effect says the
+  accessor's own body, before and after `lend`, does not suspend.
+  `borrows(sync)` says the *borrow* does not: the caller's block cannot suspend
+  while the place is lent. The two are independent:
+  - `Vector.[]`'s body never suspends, but its borrow may span a suspension;
+  - a task-owned async mutex would suspend in its body while waiting, but its
+    borrow could span a suspension;
+  - a spin lock is `sync borrows(sync)`.
+- **It is declared, not inferred**, like every mode (§1). Nothing extra is
+  written at the use site. Suspending inside such a borrow is a compile error
+  that names the accessor.
+- **Where it is used:** locks (§8); thread-local storage, since a task can
+  resume on another thread; sawos's per-CPU data and interrupt-disabled sections
+  (`IntrSpinLock`); anything whose validity is tied to the current thread or
+  CPU.
+- **Why a lock needs it.** A task can resume on a different worker after a
+  suspension, so a lock held across one breaks twice:
+  - The owner check misfires. The lock word records a thread (§8), so the
+    release would come from a thread that is not the owner, and another task on
+    the original worker would look like a re-entry.
+  - It can deadlock. A task spinning for the lock can occupy the worker the
+    holder needs in order to resume.
+
+  A lock that may be held across a suspension is a different type: its owner is
+  the task, and its waiters park rather than spin. It declares plain `borrows`,
+  and can be added when something needs it.
+- `borrows(sync)` combines with the other effects in the slot:
+  `unsafe borrows(sync)`, `sync borrows(sync)`.
 
 ### 2.6 `for` is a borrow scope (Ruled)
 
@@ -150,7 +180,8 @@ when something needs it.
 `for x in v.iter() { … }`, the head `v.iter()` is borrowed for the whole loop,
 exactly as a `borrow` block's head is. The body runs once per `next`, until
 `next` returns `None`. The root charge follows §3 (shared for an `&self`
-accessor), and the borrow may span suspensions (§2.5).
+accessor), and the borrow may span suspensions (§2.5) unless the head's
+accessor is `borrows(sync)`, in which case the loop body cannot suspend.
 
 **Borrowing each element** (Proposed; codex, borrowing-survey t3). Today
 `v.iter()` yields copies, so it works only for Copy elements. A loop over
@@ -208,18 +239,20 @@ lend of §7.
   ```
   A `lend` inside a `borrow` block keeps that block's borrow open for as long as
   the outer lend is open, exactly as a forwarded operand does.
-- **A `sync` borrow open at a `lend` makes the accessor `sync`** (Proposed, with
-  the lock exception of §2.5; codex t17). If any borrow still open at a `lend`
-  forbids suspension, the accessor must itself be declared `sync`, and
-  otherwise that `lend` is refused. Forwarding a lock's place
-  (`lend self.guard.lock()`) is one case. Another is a wrapper that holds an
-  unrelated global lock and lends its own buffer: it forwards nothing, but the
-  lock is still held while the consumer runs. A lock borrow closed before the
-  `lend` imposes nothing. The suspension that would break the lock happens in
-  the *consumer's* body while the accessor is paused at `lend`. So the ordinary
-  rule that a `sync` function cannot call a suspending one does not catch it,
-  and the check sits at the one place a borrow's lifetime is visible: the
-  `lend`.
+- **A `borrows(sync)` borrow open at a `lend` makes the accessor
+  `borrows(sync)`** (Ruled with §2.5; codex t17). If any borrow still open at a
+  `lend` comes from a `borrows(sync)` accessor, the lending accessor must itself
+  be declared `borrows(sync)`, and otherwise that `lend` is refused.
+  - Forwarding a lock's place (`lend self.guard.lock()`) is one case.
+  - Another is a wrapper that holds an unrelated global lock and lends its own
+    buffer. It forwards nothing, but the lock is still held while the consumer
+    runs.
+  - A lock borrow closed before the `lend` imposes nothing.
+
+  The suspension that would break the lock happens in the *consumer's* body,
+  while the accessor is paused at `lend`. The function-level `sync` check cannot
+  see it, so the restriction travels with the declaration, and the check sits
+  at the one place a borrow's lifetime is visible: the `lend`.
 
 ## 3. Declared modes and the root charge (Ruled)
 
@@ -536,11 +569,11 @@ It does not prove the lent places are disjoint from *each other*, so:
     and does not exist on freestanding targets.
 - The runtime contract: re-acquiring a held lock must fail loudly and never
   deadlock, on freestanding runtimes too.
-- **Why lock bodies must be `sync` (§2.5).** A task can resume on a different
-  worker after a suspension, so a lock held across one would be released by a
-  thread that is not its owner, and the owner check would misfire. `sync` on
-  lock accessors is what makes the owner check sound, not only a frame
-  convenience.
+- **Lock accessors are `borrows(sync)` (§2.5).** A task can resume on a
+  different worker after a suspension, so a lock held across one would be
+  released by a thread that is not its owner, and the owner check would
+  misfire. `borrows(sync)` on lock accessors is what makes the owner check
+  sound, not only a frame convenience.
 - **Freestanding owners need a seam.** There is no thread id to store on a
   freestanding runtime, so the contract needs a runtime seam answering "who
   holds this?". For a kernel, that identity is the CPU/hart id plus interrupt
@@ -665,10 +698,10 @@ in them. Each note says what the migrated code looks like.
 - **Survey: done** (SL:borrow-survey). Its seven design gaps are settled in
   this revision: K1 (§4), K2 (§2.7), K3 and K4 (§2.6, §3), K5 (§2.1), K6
   (§2.2) and K13 (§5.2). §8a settles K11, and §9.1 covers the rest.
-- **Still Proposed:** several bindings (§2.3), path-sensitivity (§2.4), the
-  lock exception to suspension (§2.5) and the `sync` requirement it puts on
-  forwarding (§2.7), `for borrow let|var` for per-element
+- **Still Proposed:** several bindings (§2.3), path-sensitivity (§2.4),
+  `for borrow let|var` for per-element
   borrows (§2.6), separate subscript methods (§5.2), and the `Void?` statement
   form (§9.1, K9).
 - (Settled: `default:` is lazy (§5.4); static roots are the unsafe author's
-  obligation, with an optional warning (§8a).)
+  obligation, with an optional warning (§8a); `borrows(sync)` is the declared
+  opt-out from spanning suspensions (§2.5).)
