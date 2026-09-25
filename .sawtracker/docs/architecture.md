@@ -774,9 +774,38 @@ caching.
     can recurse as deeply as its input drives it. So the limit cannot size the
     VM stack for general programs. It only sizes the parser's own recursion,
     which is a capacity estimate for running the compiler itself inside the VM.
-- **A MIR interpreter also serves compile-time evaluation.** `const func` (if
-  adopted) can run on the same interpreter, as Rust's const evaluation runs on
-  MIR, so a VM backend and compile-time evaluation share one engine.
+- **A MIR interpreter is the compile-time evaluator** (Ruled, Sep 25). Functions
+  declared `constexpr` run on it, as Rust's const evaluation runs on MIR, so a
+  VM backend and compile-time evaluation share one engine.
+  - **The spelling is `constexpr` in the effect slot**, beside `unsafe` and
+    `sync`: `func buffer_size(pages: Int) constexpr -> Int`. It is a contextual
+    keyword. It implies `sync`, since compile-time code cannot suspend, so
+    writing `sync` beside it is refused with a hint.
+  - **It is declared, not inferred,** like `sync`: it promises callers that
+    use the function in a constant position. Typecheck checks the body
+    against the allowed set.
+  - **The first version allows:** arithmetic, control flow, locals, structs,
+    enums, tuples, fixed arrays, and calls to other `constexpr` functions,
+    generic ones included.
+  - **It refuses:** I/O, externs, `unsafe`, suspension, writing a `static`,
+    `borrows` accessors, dispatch through `any Trait`, and heap allocation.
+    Allocation can come later, once there is a rule for how a compile-time
+    `Vector` becomes a constant.
+  - **One evaluator for every constant position:** const-generic arguments,
+    array lengths, repeat counts, `static` initializers, `static_assert` and
+    enum raw values. Today's special-purpose folder goes away. Default parameter
+    values stay run-time expressions.
+  - **Evaluation is deterministic.** It uses the *target's* layout and `Int`
+    width, never the host's. A step budget turns a runaway loop into a clean
+    diagnostic, a panic during evaluation is a compile error with the
+    evaluation trace, and results feed §3.12's cache keys.
+  - **The one exception to the staged order.** Typecheck can need a constant
+    before it finishes, as in `[Int; buffer_size(pages: 2)]`. So a `constexpr`
+    function is lowered to MIR, borrow-checked and interpreted on demand, ahead
+    of the normal order. The `constexpr` functions that types depend on must
+    form an acyclic graph, and a cycle is a clean error.
+  - **It is not in the bootstrap subset,** since the frozen compiler cannot
+    build it. It lands in the widening phase, after self-hosting.
 - **Every backend is a mechanical translation** that makes no language
   decisions. MIR invariants enforce that:
   - **operator semantics are resolved once.** `x op= y` lowers to the same typed
