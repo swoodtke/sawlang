@@ -806,6 +806,38 @@ caching.
     form an acyclic graph, and a cycle is a clean error.
   - **It is not in the bootstrap subset,** since the frozen compiler cannot
     build it. It lands in the widening phase, after self-hosting.
+  - **The bootstrap slice still has constant positions** (Air t34): `static`
+    initializers with arithmetic (`1 << PAGE_SHIFT`), enum raw values, and
+    `static_assert`. The bootstrap slice builds the MIR interpreter scoped to
+    exactly those, straight-line arithmetic with no calls, rather than a
+    separate folder, and widening extends the same engine. There is one
+    mechanism from the start.
+  - **Constant arithmetic is ordinary typed arithmetic** (Proposed, pending the
+    user). The evaluator runs the same MIR as run-time code, so a constant
+    expression adopts its literal types and then applies typed operations,
+    exactly as it would at run time. That retires design 185's rule of folding
+    in the signed platform `Int` domain. For example,
+    `static X: UInt64 = 1 << 63` becomes 2^63 where today it is refused. Today's
+    refusals of that kind (design 185, DF-283c) are annotated
+    "language changed" in the corpus.
+  - **`sizeof` of a struct in a constant position** (Proposed, pending the
+    user). With the evaluator using the target description (§3.10's one layout
+    source), `sizeof<Region>()` becomes legal in an array length. Today the spec
+    refuses it, because layout is decided after lengths. Two consequences:
+    - a struct's layout is computed on demand during typecheck;
+    - the acyclicity rule widens to one dependency graph over layouts and
+      constants, so `struct A { x: [Int; sizeof<A>()] }` is the same clean cycle
+      error as two `constexpr` functions that depend on each other.
+
+    This settles SL-4 ("one aggregate layout oracle for all const positions"):
+    the oracle is the target-description module.
+  - **Generic `constexpr` bodies** may not call a method through a trait bound
+    in the first version. There are no `constexpr` trait requirements yet, and
+    checking each instantiation would break "checked once" (§3.4).
+  - **Effect order:** `constexpr` takes `sync`'s place in the canonical order,
+    `unsafe sync|constexpr borrows`, followed by `consumes`. `unsafe constexpr`
+    and `constexpr borrows` are refused in the first version, as is
+    `constexpr sync`.
 - **Every backend is a mechanical translation** that makes no language
   decisions. MIR invariants enforce that:
   - **operator semantics are resolved once.** `x op= y` lowers to the same typed
