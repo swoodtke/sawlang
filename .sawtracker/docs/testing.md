@@ -135,6 +135,23 @@ What follows `@test` decides the form:
   - **a case that fails to compile fails alone.** Each case is its own checking
     unit, so the compiler reports that case and still builds the rest of the
     file (SL:architecture §3.0: a unit with errors is poisoned and skipped);
+  - **the test compile writes a manifest, and the runner reads it** (codex t8).
+    `--list` on the binary cannot be the inventory, since it omits refusal cases
+    and cases that failed to compile. The manifest accounts for every case the
+    compile discovered, each with exactly one outcome:
+    - *runnable*, naming the binary;
+    - *refusal*, with its verdict and the diagnostic it produced;
+    - *compile failure*, with its diagnostics;
+    - *blocked*, naming the failing shared declaration it depends on. A bad
+      helper, import or fixture is an error in *its* unit, and every case that
+      uses it is blocked by name, never silently dropped.
+
+    A parse failure that prevents discovery is a *build failure* for the whole
+    file, never an empty, passing suite. The runner runs the runnable cases
+    whether or not others failed, and its aggregate result fails if any case
+    failed or was blocked. It reads the manifest, never the compiler's exit
+    status, which cannot express a partial build. A file with no runnable cases
+    needs no binary;
   - setup for a group runs inside each case's process. A fixture is a value, and
     its deinit is the teardown. Sharing an expensive setup across cases (for
     example by forking from a post-setup parent) can be added later if
