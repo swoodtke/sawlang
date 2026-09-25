@@ -363,24 +363,52 @@ the local.
 
 **Checker:** yes: refuse `any` in type position.
 
-### S13. Explicit nested type arguments at a construction (SL-382)
+### S13. Nested generics with defaulted parameters (SL-382)
 
-**Shape:** a generic struct built with an explicit nested type argument,
-`Plain<Vector<Noisy>>(v: move v)`, never drops its field. The inner type is
-mangled without its default arguments (`Vector`'s allocator), so the deinit
-lookup misses. The inferred spelling `Plain(v: move v)` drops correctly. The
-same mangling feeds retain, copy and static lookups; those are unswept.
+**Shape:** a type that nests a generic with a defaulted parameter is mangled
+without the default (`Vector`'s allocator), so the deinit lookup misses and the
+contents never drop. The same mangling feeds retain, copy and static lookups.
+It has two faces:
+- **Construction:** `Plain<Vector<Noisy>>(v: move v)`, with the nested type
+  argument written explicitly. The inferred `Plain(v: move v)` drops correctly.
+- **Fields, the likelier face** (Air t6, probed against the frozen compiler).
+  A *field* whose type nests such a generic never drops its contents, however
+  the value was built: `struct Outer { p: Plain<Vector<Noisy>> }`,
+  `vv: Vector<Vector<Rec>>`, `m: Map<String, Vector<Rec>>`. These are the
+  ordinary shapes of symbol tables and per-scope lists. The controls drop
+  exactly once:
+  - a field one generic deep (`v: Vector<Noisy>`);
+  - a nested generic with nothing defaulted (`p: Plain<Noisy>`);
+  - the default written out (`Plain<Vector<Noisy, GlobalAllocator>>`);
+  - the same nested types as locals, parameters or return types.
+
+  Deriving copy over such a field is loud:
+  ``internal compiler error: no `copy` symbol for field `vv` of type `Vector<Vector<Rec>>` ``.
+  With the default written out, the derived copy is deep and both copies drop.
 
 **Example:**
 ```saw
-let w = Plain<Vector<Noisy>>(v: move v)   // never dropped: a leak
-let x = Plain(v: move u)                  // dropped once
+struct Scopes { names: Vector<Vector<Name>> }   // the inner vectors never drop: a leak
+struct Scopes { names: Vector<Vector<Name, GlobalAllocator>> }   // drops once
 ```
 
-**Instead:** let construction type arguments be inferred.
+**Instead:**
+- Let construction type arguments be inferred.
+- In a field type that nests a generic, write every defaulted type argument
+  (`Vector<Vector<Rec, GlobalAllocator>>`). Better still, keep fields one
+  generic deep, with arena indices into a flat `Vector`, which is the subset's
+  layout anyway.
 
-**Checker:** yes: refuse an explicit type-argument list on a construction
-expression when one of the arguments is itself generic.
+**Checker:** yes, syntactically:
+- refuse an explicit type-argument list on a construction expression when one
+  of the arguments is itself generic;
+- refuse a field type in which a generic with defaulted parameters (`Vector`,
+  `Map`, `Set`, `Box`) appears as a type argument without those arguments
+  written.
+
+L15's ICE text matches the copy face here, so L15 (SL-389) may be a second
+trigger of the same missing-symbol path. Check that once before trusting L15's
+candidate shape.
 
 ### S14. Argument labels the frozen compiler does not check (SL-285, SL-297)
 
@@ -484,6 +512,43 @@ module-local helpers with the module's name (`lex_`, `parse_`).
 
 **Checker:** yes: collect free-function and `static` names across the
 compiler source and `sawc/std/`, and refuse duplicates.
+
+### S19. Type walks bounded by a depth count (SL-390)
+
+**Shape:** several of the frozen compiler's type walks stop at a fixed depth
+instead of detecting cycles, so a written type nested past the bound skips the
+rule the walk enforces (SL-390 c1, Air t7). The members the subset can reach:
+- **Silent:** a reference nested 13 or more levels deep in a field's type
+  escapes the no-reference-field refusal (SL-390 itself).
+- **Silent:** a private type nested 9 deep in a public signature compiles, so
+  the visibility rule is skipped (`sigvis._check_signature_type`, bound 8).
+- **Silent:** a `Result` discarded through 33 forwarding `match`/`if` levels
+  compiles, so design 151 is skipped (`statements._result_discard_culprits`,
+  bound 32).
+- **Silent:** the no-move-type test gives up past 13 wraps
+  (`types._is_no_move_type`, bound 12).
+- **Loud:** `struct R { x: Optional<Int> }` is an ICE ("Unknown generic struct:
+  Optional").
+- **Loud:** `(Self, Int)` in a trait signature is an ICE, because
+  `_names_self` skips tuple elements.
+- **Loud:** 63 nested `as` casts are a RecursionError (see L14).
+
+**Instead:** keep every written type under 8 levels of nesting, the lowest
+silent bound. Use no alias chains (S9 bans aliases outright). Write `T?`, never
+`Optional<T>`, in type position. Put no `Self` inside a tuple type.
+
+**Checker:** yes: the syntactic nesting depth of every written type (as L14
+measures blocks), `Optional<` in a type, and `Self` inside a tuple type.
+
+### S20. Float literals out of range (SL-68)
+
+**Shape:** an unrepresentable float literal silently becomes `inf` or `0.0`.
+It is S7's float twin (Air t8).
+
+**Instead:** the compiler source needs no float literals, so the subset has
+none. If one is ever needed, keep it well inside `Float`'s range.
+
+**Checker:** yes: refuse a float literal token in the compiler source.
 
 ## Loud hazards
 
@@ -618,8 +683,9 @@ let chosen: Result<Int, String> = if ok { 9 } else { "no" }   // refused
 **Instead:** bind a collection literal to an annotated local before returning
 it. Construct Results explicitly in assignments and branch arms:
 `Result<Int, String>.Ok(value: 9)`, `Result<Int, String>.Err(error: "no")`.
-Test presence with `.is_none()`/`.is_some()` on a call result,
-`i >= 0 && i < v.len()` for a vector index (both bounds: `Vector.get` returns
+Test presence with `.is_none()`/`.is_some()` on a call result, except a `get`
+result, since a method chained directly on `.get(…)` is SL-46's broken shape
+(Air t9). Use `i >= 0 && i < v.len()` for a vector index (both bounds: `Vector.get` returns
 `None` for a negative index, and `i < v.len()` alone is true for -1; codex t3),
 and `m.contains_key(k)` for a map.
 
@@ -651,7 +717,11 @@ func attempt() -> Result<Void, Unreadable> { return Unreadable() }   // ICE
   accepted as a `Map` value.
 - **SL-381**: a bounded extension, `extension Box1<T: ExplicitCopy>`, is
   instantiated for a type argument that fails the bound (`Vector<NoCopyT>`),
-  and the compile fails inside it. `Mutex<Vector<Noisy>>` hits it through std.
+  and the compile fails inside it. The likeliest face for compiler source is
+  `Vector<Vector<T>>` with a move-only `T`: `Vector<Vector<T>>.copy` is
+  instantiated although `T` fails `ExplicitCopy`, so it does not compile at
+  all (Air t9, found by the S13 probe). `Mutex<Vector<Noisy>>` hits the same
+  path through std.
 - **SL-114** (fixed on main): an automatically Copy-tier struct failing a
   `T: Copy` bound was fixed by design 219 B2. Conformance row V32 pins it. The
   tracker issue is stale.
@@ -739,7 +809,11 @@ extension Holder { func carry<T>(&self, v: T) -> T { v } }   // ICE at the metho
 parameters so they match no declared type. Give static and instance methods
 different names.
 
-**Checker:** yes: compare the declared names across the source.
+**Checker:** yes: compare the declared names across the compiler source *and*
+`sawc/std/`, as S18 does (Air t9). SL-5's collision is with any generic free
+function in the program, std's included: `std.cbor` and `std.json` each declare
+`encode<T>`, so a generic method named `encode` in the compiler source would
+hit it whenever either module is compiled in.
 
 ### L10. Static trait requirement through a type parameter (SL-113)
 
@@ -831,6 +905,36 @@ no copy.
 **Checker:** no, not until the shape is confirmed. A lint could flag the
 candidate shape meanwhile.
 
+### L16. A long expression cannot wrap outside brackets (SL-83)
+
+**Shape:** a binary expression cannot continue on the next line unless brackets
+already enclose it. Design 259 R3 rules trailing-operator continuation legal,
+and the frozen parser refuses it. Every long `&&`/`||` condition or arithmetic
+expression meets this (Air t8).
+
+**Example:**
+```saw
+if kind == TokenKind.Ident &&     // refused at Stage 0
+   next.is_open_paren() { … }
+```
+
+**Instead:** wrap a multi-line expression in parentheses:
+`if (kind == TokenKind.Ident &&` on one line, then `next.is_open_paren()) { … }`.
+
+**Checker:** not needed. The frozen parser refuses it loudly, and the entry
+exists so authors don't each rediscover the spelling.
+
+### L17. A type named like a prelude type (SL-71)
+
+**Shape:** a type in a dependency module named like a prelude type (`Token`
+is fine; `Result`, `Vector`, `Duration`, `Path` are not) silently resolves to the
+builtin at a use site, and draws a nonsense refusal.
+
+**Instead:** no compiler type reuses a prelude type name (SL:architecture §4's
+blanket rules).
+
+**Checker:** yes: compare each declared type name against the prelude list.
+
 ## Cases with no issue
 
 These four come from codex's review of the parked SL-2.p2 r3 (SL-2 c29, with
@@ -901,7 +1005,7 @@ well. Loud.
 
 ## Inventory
 
-Each of the 82 issues the sweep flagged, mapped to its entry. "Call" is this
+Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review, mapped to its entry. "Call" is this
 ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 
 | Issue | Entry | Call |
@@ -930,13 +1034,16 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-62 | L8 `Box`-linked types | loud |
 | SL-63 | L8 `Box`-linked types | loud |
 | SL-65 | L2 Closure literals and call syntax | loud |
+| SL-68 | S20 Float literals out of range | silent (promoted after review) |
 | SL-70 | L1 Integer literal adoption | loud |
+| SL-71 | L17 A type named like a prelude type | loud (promoted after review) |
 | SL-73 | L2 Closure literals and call syntax | loud |
 | SL-74 | S3 Owned values around `try` and `catch` | loud |
 | SL-75 | L1 Integer literal adoption | loud |
 | SL-77 | S9 Type aliases | loud |
 | SL-78 | L3 Module-qualified spellings | loud |
 | SL-80 | S1 `init` in a generic extension | silent |
+| SL-83 | L16 A long expression cannot wrap outside brackets | loud (promoted after review) |
 | SL-84 | L1 Integer literal adoption | loud |
 | SL-85 | L5 Zero-sized `Result` payloads | loud |
 | SL-88 | L12 Leading minus after a block | loud |
@@ -988,6 +1095,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-383 | S9 Type aliases | loud |
 | SL-384 | S9 Type aliases | loud |
 | SL-389 | L15 Unreduced ICE | loud (shape unconfirmed) |
+| SL-390 | S19 Type walks bounded by a depth count | silent (promoted after review) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
@@ -1019,20 +1127,17 @@ exclusion mechanical.
 - **SL-14**: only its DF-226c half, a qualified `FuncPointer`, is a hazard.
   DF-226b concerns a `borrows` function type, which is invalid code anyway.
 
-**Hazard candidates outside the 82:**
-- **SL-68** (DF-276a): an unrepresentable float literal silently becomes `inf`
-  or `0.0`. It is the float twin of SL-299, and the sweep marked it no. A
-  lexical range check would cover it.
-- **SL-83** (design 259 R3): a binary expression cannot wrap lines outside
-  brackets. R3 rules trailing-operator continuation legal and the frozen parser
-  refuses it, so this is loud. The spelling is to wrap the expression in
-  parentheses.
+**Hazard candidates outside the 82.** SL-68, SL-83, SL-71 and SL-390 are
+promoted to entries S20, L16, L17 and S19 (Air t7, t8), and added to the
+inventory. The rest stay out, each for the reason given:
+- **SL-68** (DF-276a): promoted to S20.
+- **SL-83** (design 259 R3): promoted to L16.
 - **SL-66**, frozen half: a bare reference to an all-defaulted generic may lose
   its defaults. The census could not reproduce it at a parameter, and SL-382
   is the confirmed neighbor.
-- **SL-71** (census N9): a type in a dependency module named like a prelude
-  type silently resolves to the builtin and draws a nonsense refusal. It is
-  loud. The rule is that no compiler type reuses a prelude type name.
+- **SL-71** (census N9): promoted to L17.
+- **SL-390:** promoted to S19, with the members of its c1 sweep that the subset
+  can reach.
 - **Closure-capture bugs** (SL-26, SL-30, SL-345, SL-387) are excluded by "no
   captures". Architecture §4 names SL-345 as a checker example; the
   refuse-every-capture rule covers it.
@@ -1051,10 +1156,18 @@ exclusion mechanical.
    - selective imports only;
    - no `init` in a generic extension;
    - no overloads with a non-`Int` integer parameter;
-   - no `any`, `Box`, cells, pointers or fixed arrays;
+   - no `any`, `Box`, cells, pointers or fixed arrays. The cells are named once,
+     here (Air t9): `Mutex`, `SpinLock`, `Once`, `UnsafeMutableInterior`,
+     `Atomic` and `Arc`. `Arc` is not in the subset's feature list, since the
+     compiler needs no shared ownership;
    - closures with annotated parameters, passed in parentheses;
    - no value-position loops;
-   - no statement arms without braces.
+   - no statement arms without braces;
+   - added after the Air's review (t6–t8): in a field type that nests a generic,
+     every defaulted type argument written, or fields one generic deep (S13);
+     written types under 8 levels of nesting, `T?` rather than `Optional<T>`,
+     and no `Self` inside a tuple type (S19); no float literals (S20); no type
+     named like a prelude type (L17).
 
    Adopting them as the subset's definition makes most `yes` checker lines one
    rule each.
