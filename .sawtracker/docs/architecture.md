@@ -834,23 +834,40 @@ into a few rules that are cheap to check, and the subset is defined by them:
   (next).
 
 **The bootstrap std** (user, Sep 25: revisit std so it uses the same simplified
-Saw). Self-hosting means the new compiler compiles the std modules the compiler
-imports, and Stage 0 must build them too:
-- **The cone is small and enumerated:** the subset checker's import allowlist
-  (collections, strings, `Optional` and `Result`, file reading, arguments,
-  process exit).
-- **Its implementation needs a little more than the compiler's subset:** raw
-  memory and pointers for buffers, allocator parameters, the runtime's extern
-  seams, and `borrows` accessors with `lend`. So the std cone's language is the
-  subset plus a short, named list of low-level features. The bootstrap slice
-  implements exactly that union and nothing more.
-- **It is a new std for the new compiler.** The lockdown changes std's API
-  (`Map.[]` panics, `get` returns a value, closure-borrow APIs become
-  accessors), so the new std is seeded from `sawc/std` and kept in the
-  intersection while Stage 0 builds it. `sawc/std` stays frozen with the Python
-  compiler.
-- The runtime (`sawc/rt/`) is in the same position, and the new compiler builds
-  it too, eventually.
+Saw). Self-hosting means the new compiler compiles the std its own source
+depends on. The boundary (codex t19):
+- **Each stage builds against its own std.** Stage 0 always builds against
+  `sawc/std`, because the frozen compiler's prelude (`Vector`, `String`,
+  `Optional` and the rest) is built in from it and cannot be redirected. From
+  Stage 1 on, the new compiler builds against the new std. So the new std never
+  has to pass through the frozen compiler. What the two must share is the *API*
+  the compiler source uses, with the same meaning in both.
+- **The cone is the resolved transitive dependency set, not the import list.**
+  The subset checker's import allowlist is only its source-level entry. The cone
+  also includes the prelude and builtins the source uses without importing,
+  what those modules import in turn, and the calls the compiler synthesizes:
+  interpolation's builder, the panic and bounds-check seams, drop and copy glue,
+  `Result` and `Optional` machinery. A tool computes it from a real build, and a
+  lane fails when it grows without review.
+- **The new std's language is the subset plus a short, named list of low-level
+  features:** raw memory and pointers for buffers, allocator parameters, the
+  runtime's extern seams, and `borrows` accessors with `lend`. The bootstrap
+  slice implements exactly that union.
+- **The cone gets its own hazard review.** Once pointers and accessors enter
+  through std, bans on the compiler's source alone no longer show that hazards
+  such as S15 are unreachable in the bootstrap build. The `sawc/std` bodies
+  that Stage 0 compiles into the Stage 1 executable are reviewed once against
+  SL:hazards. The checker's rules then run over them with a listed exception
+  per rule, and each exception is recorded as a trust obligation.
+- **What "frozen" means for `sawc/std` and `sawc/rt`** (codex t20). The freeze
+  covers the Python compiler (`sawc/*.py`), and `sawc/std`'s *API*: no
+  lockdown migration happens there, since the new API lives in the new std.
+  Maintenance fixes are allowed in two cases. One is where the shared runtime
+  needs them to keep its ABI matched, as SL-355's register return type must
+  match `sawc/std/taskgroup.saw`. The other is where they block the new
+  compiler. The kept std issues are fixed in the new std as it is seeded, and
+  each one names its target std when scheduled. The runtime is shared by both
+  compilers until the new one builds its own (§3.11).
 
 **Stage 0 moves after self-hosting** (Proposed). Once the new compiler builds
 itself, a pinned release of it can replace the frozen Python compiler as
