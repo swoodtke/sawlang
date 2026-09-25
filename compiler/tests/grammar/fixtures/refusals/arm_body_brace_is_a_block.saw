@@ -1,0 +1,8 @@
+// refuses: syntax.rule.arm-body
+// verdict: FAIL 5:19 refused by syntax.rule.arm-body
+func main() {
+    match x {
+        case 1 -> { a: 1 }
+        case _ -> 2
+    }
+}

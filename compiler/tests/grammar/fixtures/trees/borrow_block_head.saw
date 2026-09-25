@@ -1,0 +1,6 @@
+// rule: syntax.rule.borrow-form
+func main() {
+    borrow let e = m.find(&k) {
+        e.n
+    }
+}

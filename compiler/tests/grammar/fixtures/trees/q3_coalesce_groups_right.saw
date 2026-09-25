@@ -1,0 +1,3 @@
+func pick(a: Int?, b: Int?) -> Int {
+    a ?? b ?? 0
+}

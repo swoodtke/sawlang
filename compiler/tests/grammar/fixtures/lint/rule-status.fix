@@ -1,0 +1,7 @@
+Why: a rule status the notation does not define
+Expect: 99 rule-status
+--- replace
+| Spelling | current |
+--- with
+| Spelling | draft |
+--- end

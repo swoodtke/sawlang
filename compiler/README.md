@@ -28,7 +28,13 @@ compiler/
     run.py            the test runner
     lex/              golden token fixtures
     subset/           the subset checker's own fixtures
+    grammar/          the tools over GRAMMAR.md: extract.py, lint.py, the
+                      reference recognizer (recognize.py, contexts.py) and the
+                      corpus lane (corpus.py, corpus_expected.tsv)
 ```
+
+The parser corpus derived from the grammar, `tests/parse/`, arrives in phase 2
+of SL-406.
 
 Each stage has its own directory and is a package, with its source under
 `src/`. The others import it as `<package>.src.<module>`, through
@@ -57,7 +63,7 @@ A lex error prints one `ERROR` record and exits 1. A usage or I/O failure exits 
 
 The runner prints each failure on its own line, then one summary line, and exits
 1 if anything failed. Its output is deterministic. The battery's `compiler` lane
-runs it, and so does every per-patch gate run (`./build.sh test`). It checks four
+runs it, and so does every per-patch gate run (`./build.sh test`). It checks five
 things.
 
 - **Unit programs**: `compiler/<stage>/tests/*.saw`. These are small programs in
@@ -81,6 +87,13 @@ things.
   `err`/`err_at` calls.
 - **The subset checker**, over the compiler's source and over its own fixtures
   (below).
+- **The grammar tools** in `tests/grammar/`: the lint over `GRAMMAR.md`, with a
+  fixture per check that injects one defect and names the line the check must
+  report, and the reference recognizer's pinned trees, coverage records and
+  refusals, with a fixture each rule it applies is seen deciding. Its
+  full-corpus run, `tests/grammar/corpus.py`, is the battery's `grammarcorpus`
+  lane: every tracked `.saw` file's verdict against
+  `tests/grammar/corpus_expected.tsv`.
 
 ## The subset
 

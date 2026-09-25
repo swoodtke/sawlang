@@ -1,0 +1,7 @@
+Why: a start symbol with no production
+Expect: 12 start-symbol
+--- replace
+**Start symbols.** `source-file` is a source file.
+--- with
+**Start symbols.** `source-file` is a source file, and `unit` is one item.
+--- end

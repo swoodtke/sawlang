@@ -1,0 +1,7 @@
+Why: a status the notation does not define
+Expect: 56 status
+--- replace
+# syntax.mini.expr  status=current
+--- with
+# syntax.mini.expr  status=draft
+--- end

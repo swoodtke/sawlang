@@ -1,0 +1,7 @@
+Why: an alternative named outside its production
+Expect: 50 alternative-prefix
+--- replace
+@syntax.mini.item.group
+--- with
+@syntax.mini.group
+--- end

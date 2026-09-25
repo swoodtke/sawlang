@@ -1,0 +1,7 @@
+Why: a bare @ inside an alternative's sequence
+Expect: 48 alternative-text
+--- replace
+"let" IDENT  @syntax.mini.item.let
+--- with
+"let" IDENT @ IDENT  @syntax.mini.item.let
+--- end

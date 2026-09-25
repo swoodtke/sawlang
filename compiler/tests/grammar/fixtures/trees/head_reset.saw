@@ -1,0 +1,9 @@
+// rule: syntax.rule.head-reset
+func main() {
+    if f(v.map { $0 }) {
+    }
+    if (v.any { $0 > 1 }) {
+    }
+    while v[w.first { $0 }] {
+    }
+}

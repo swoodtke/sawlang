@@ -1,0 +1,168 @@
+path	verdict	reason
+compiler/lex/tests/escapes.saw	SEGFAIL	c-conflict: 72:63 {1F600}
+compiler/tests/grammar/fixtures/refusals/arm_body_brace_is_a_block.saw	FAIL	a-error: 5:19 refused by syntax.rule.arm-body
+compiler/tests/grammar/fixtures/refusals/attribute_on_the_wrong_declaration.saw	FAIL	a-error: 3:1 refused by syntax.rule.attribute-position
+compiler/tests/grammar/fixtures/refusals/attribute_repeated.saw	FAIL	a-error: 4:1 refused by syntax.rule.attribute-position
+compiler/tests/grammar/fixtures/refusals/borrow_binding_without_a_block.saw	FAIL	a-error: 4:5 refused by syntax.rule.borrow-form
+compiler/tests/grammar/fixtures/refusals/cast_target_then_coalesce.saw	FAIL	c-conflict: 4:22 refused by syntax.rule.cast-target-question
+compiler/tests/grammar/fixtures/refusals/consumes_on_a_free_function.saw	FAIL	a-error: 3:16 refused by syntax.rule.effect-slot
+compiler/tests/grammar/fixtures/refusals/consumes_on_a_requirement.saw	FAIL	a-error: 4:23 refused by syntax.rule.requirement-borrows
+compiler/tests/grammar/fixtures/refusals/doc_comment_documents_nothing.saw	FAIL	a-error: 3:1 refused by syntax.lex.doc-attach
+compiler/tests/grammar/fixtures/refusals/extern_abi_not_c.saw	FAIL	a-error: 3:8 refused by syntax.rule.extern-abi
+compiler/tests/grammar/fixtures/refusals/generic_list_without_a_call.saw	FAIL	a-error: 4:14 refused by syntax.rule.generic-or-less
+compiler/tests/grammar/fixtures/refusals/import_binds_a_name_twice.saw	FAIL	a-error: 3:14 refused by syntax.rule.import-names
+compiler/tests/grammar/fixtures/refusals/method_without_a_receiver.saw	FAIL	a-error: 4:5 refused by syntax.rule.receiver-and-static
+compiler/tests/grammar/fixtures/refusals/module_doc_after_a_token.saw	LEXERR	a-error: 5:1 refused by syntax.lex.module-doc
+compiler/tests/grammar/fixtures/refusals/open_range_before_an_operator.saw	FAIL	a-error: 4:17 refused by syntax.rule.range-open-end
+compiler/tests/grammar/fixtures/refusals/shift_with_a_space.saw	FAIL	a-error: 4:17 near LT '<'
+compiler/tests/grammar/fixtures/refusals/static_method_with_a_receiver.saw	FAIL	a-error: 4:19 refused by syntax.rule.receiver-and-static
+compiler/tests/grammar/fixtures/refusals/trailing_closure_in_a_head.saw	FAIL	a-error: 4:17 refused by syntax.rule.head-restriction
+compiler/tests/grammar/fixtures/refusals/trailing_closure_on_a_call_result.saw	FAIL	a-error: 4:14 refused by syntax.rule.trailing-closure
+compiler/tests/grammar/fixtures/refusals/try_before_a_brace.saw	FAIL	a-error: 4:17 refused by syntax.rule.try-block
+compiler/tests/grammar/fixtures/refusals/try_route_without_a_case.saw	FAIL	a-error: 4:20 refused by syntax.rule.try-route-case
+compiler/tests/grammar/fixtures/refusals/var_discard.saw	FAIL	a-removed: syntax.stmt.refused-var-discard
+compiler/tests/grammar/fixtures/trees/t6_const.saw	FAIL	a-removed: syntax.decl.refused-const
+compiler/tests/grammar/fixtures/trees/t6_local_const.saw	FAIL	a-removed: syntax.stmt.refused-local-const
+compiler/tests/lex/comments.saw	FAIL	a-error: 2:1 near IDENT 'x'
+compiler/tests/lex/directives.saw	FAIL	a-error: 2:1 near HASH_DIRECTIVE 'file'
+compiler/tests/lex/doc_comments.saw	LEXERR	a-error: 4:1 refused by syntax.lex.module-doc
+compiler/tests/lex/error_base_without_digits.saw	LEXERR	a-error: Lexer error at 2:3: integer literal has no digits after '0x'
+compiler/tests/lex/error_decimal_range.saw	LEXERR	a-error: Lexer error at 2:1: integer literal 18446744073709551616 is out of range for a 64-bit integer (max 18446744073709551615)
+compiler/tests/lex/error_dollar_without_digits.saw	LEXERR	a-error: Lexer error at 2:2: Expected number after '$' for shorthand closure parameter
+compiler/tests/lex/error_empty_directive.saw	LEXERR	a-error: Lexer error at 2:1: expected a directive name after `#` (one of #file, #line, #function, #lend_var)
+compiler/tests/lex/error_hex_range.saw	LEXERR	a-error: Lexer error at 2:1: integer literal 18446744073709551616 is out of range for a 64-bit integer (max 18446744073709551615)
+compiler/tests/lex/error_suffix_range.saw	LEXERR	a-error: Lexer error at 2:1: integer literal 256u8 is out of range for `u8` (max 255)
+compiler/tests/lex/error_unexpected_character.saw	LEXERR	a-error: Lexer error at 2:1: Unexpected character: `
+compiler/tests/lex/error_unicode_unterminated.saw	LEXERR	a-error: Lexer error at 2:7: unterminated `\\u{...}` escape
+compiler/tests/lex/error_unicode_without_brace.saw	LEXERR	a-error: Lexer error at 2:4: expected `{` after `\\u` in a Unicode escape (write `\\u{1F600}`)
+compiler/tests/lex/error_unknown_directive.saw	LEXERR	a-error: Lexer error at 2:1: unknown directive `#foo` (expected one of #file, #line, #function, #lend_var)
+compiler/tests/lex/error_unknown_escape.saw	LEXERR	a-error: Lexer error at 2:4: unknown escape `\\q` in a string literal (supported: \\\\ \\" \\n \\t \\r \\0 \\u{...})
+compiler/tests/lex/error_unterminated_interpolation.saw	LEXERR	a-error: Lexer error at 2:4: unterminated interpolation in string literal, opened at this `{` (write `\\{` for a literal brace)
+compiler/tests/lex/error_unterminated_string.saw	LEXERR	a-error: Lexer error at 2:5: Unterminated string
+compiler/tests/lex/escapes.saw	FAIL	a-error: 2:1 near STRING 'a\\nb'
+compiler/tests/lex/interpolation.saw	FAIL	a-error: 2:1 near INTERP_STRING 'hi {name}'
+compiler/tests/lex/lexer_unterminated_interpolation.saw	LEXERR	a-error: Lexer error at 11:22: unterminated interpolation in string literal, opened at this `{` (write `\\{` for a literal brace)
+compiler/tests/lex/literals.saw	FAIL	a-error: 2:1 near INT '42'
+compiler/tests/lex/operators.saw	FAIL	a-error: 2:1 near PLUS_ASSIGN '+='
+compiler/tests/lex/ranges.saw	FAIL	a-error: 2:1 near INT '0'
+compiler/tests/lex/unicode_escape_malformed_error.saw	LEXERR	a-error: Lexer error at 7:16: `\\u{}` must contain 1–6 hexadecimal digits
+compiler/tests/lex/unicode_escape_oversized_error.saw	LEXERR	a-error: Lexer error at 8:22: `\\u{110000}` is greater than the maximum Unicode scalar 0x10FFFF
+compiler/tests/lex/unicode_escape_surrogate_error.saw	LEXERR	a-error: Lexer error at 8:20: `\\u{D800}` is a surrogate code point, which is not a valid Unicode scalar
+compiler/tests/lex/unsafe_expression_marker_removed.saw	FAIL	a-removed: syntax.expr.refused-unsafe
+compiler/tests/subset/cast-then-optional.interpolation.saw	SEGFAIL	c-conflict: 6:17 {n as Int ?? 9} 1:10 refused by syntax.rule.cast-target-question
+compiler/tests/subset/cast-then-optional.newline.saw	FAIL	c-conflict: 15:14 refused by syntax.rule.cast-target-question
+compiler/tests/subset/cast-then-optional.saw	FAIL	c-conflict: 3:23 refused by syntax.rule.cast-target-question
+compiler/tests/subset/interpolation-line-break.saw	SEGFAIL	c-conflict: 5:17 {x\n        + 3}
+compiler/tests/subset/lex.saw	LEXERR	a-error: Lexer error at 3:9: unknown escape `\\q` in a string literal (supported: \\\\ \\" \\n \\t \\r \\0 \\u{...})
+compiler/tests/subset/parse.interpolation-escape.saw	SEGLEX	a-error: 6:14 Lexer error at 1:3: Unexpected character: \\
+compiler/tests/subset/parse.saw	FAIL	a-error: 3:9 near ASSIGN '='
+examples/array_no_extension_error.saw	FAIL	a-removed: syntax.decl.refused-array-extension
+examples/attr_bad_arity_error.saw	FAIL	a-error: 5:9 near NEWLINE '\\n'
+examples/attr_duplicate_error.saw	FAIL	a-error: 6:1 refused by syntax.rule.attribute-position
+examples/attr_export_on_extension_error.saw	FAIL	a-error: 8:1 refused by syntax.rule.attribute-position
+examples/attr_on_local_error.saw	FAIL	a-error: 9:5 refused by syntax.rule.attribute-position
+examples/attr_on_method_error.saw	FAIL	a-error: 8:6 near IDENT 'export'
+examples/attr_on_struct_error.saw	FAIL	a-error: 7:1 near STRUCT 'struct'
+examples/attr_synthesize_arg_error.saw	FAIL	a-error: 7:13 near STRING 'deep'
+examples/attr_synthesize_on_func_error.saw	FAIL	a-error: 6:1 refused by syntax.rule.attribute-position
+examples/attr_unknown_error.saw	FAIL	a-error: 5:2 near IDENT 'inline'
+examples/borrows_fold_preserves_lexical_scope.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+examples/conformance/K128_cow_gate_survives_the_var_self_spelling.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+examples/conformance/K129_forwarded_lend_carries_the_window_mode.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+examples/conformance/M34_lend_var_gated_place_write.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+examples/const_generic_specialized_extension_unsupported.saw	FAIL	a-error: 30:16 near INT '4'
+examples/discard_var_error.saw	FAIL	a-removed: syntax.stmt.refused-var-discard
+examples/doc_comment_module_placement_error.saw	LEXERR	a-error: 11:1 refused by syntax.lex.module-doc
+examples/doc_comment_unattached_error.saw	FAIL	a-error: 10:1 refused by syntax.lex.doc-attach
+examples/errors/align_on_function.saw	FAIL	a-error: 6:1 refused by syntax.rule.attribute-position
+examples/errors/align_on_struct_field.saw	FAIL	a-error: 7:5 near AT '@'
+examples/errors/borrows_effect_slot_order.saw	FAIL	a-error: 14:43 near IDENT 'sync'
+examples/errors/capture_self_move_requires_borrow_sigil.saw	FAIL	a-removed: syntax.expr.refused-capture-self
+examples/errors/capture_self_requires_borrow_sigil.saw	FAIL	a-removed: syntax.expr.refused-capture-self
+examples/errors/consumes_free_function.saw	FAIL	a-error: 12:21 refused by syntax.rule.effect-slot
+examples/errors/consumes_function_type.saw	FAIL	a-removed: syntax.type.refused-func-consumes
+examples/errors/consumes_needs_a_receiver.saw	FAIL	a-error: 15:32 refused by syntax.rule.effect-slot
+examples/errors/consumes_needs_var_self.saw	FAIL	a-error: 13:24 refused by syntax.rule.effect-slot
+examples/errors/consumes_trait_requirement.saw	FAIL	a-error: 13:28 refused by syntax.rule.requirement-borrows
+examples/errors/fold_selected_tail_is_an_ownership_transfer.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+examples/errors/lend_var_in_shared_lend_accessor.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+examples/errors/lend_var_outside_borrows.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+examples/errors/lend_var_ungated_receiver_mutation.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+examples/errors/lend_var_write_needs_var_root.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+examples/errors/semicolon_at_end_of_file.saw	FAIL	a-error: 12:22 near SEMICOLON ';'
+examples/errors/semicolon_at_line_start.saw	FAIL	a-error: 13:5 near SEMICOLON ';'
+examples/errors/semicolon_before_closing_brace.saw	FAIL	a-error: 12:21 near RBRACE '}'
+examples/errors/semicolon_before_newline.saw	FAIL	a-error: 11:15 near NEWLINE '\\n'
+examples/errors/semicolon_between_declarations.saw	FAIL	a-error: 11:24 near SEMICOLON ';'
+examples/errors/semicolon_doubled.saw	FAIL	a-error: 11:15 near SEMICOLON ';'
+examples/errors/shadow_for_tuple_pattern.saw	FAIL	a-removed: syntax.expr.refused-for-tuple
+examples/errors/statement_juxtaposition_in_closure_and_module_scope.saw	FAIL	a-error: 20:26 near IDENT 'c'
+examples/errors/statement_juxtaposition_in_control_flow_bodies.saw	FAIL	a-error: 20:28 near IDENT 'sum'
+examples/errors/statement_juxtaposition_in_declaration_lists.saw	FAIL	a-error: 32:50 near PUBLIC 'public'
+examples/errors/statement_juxtaposition_in_function_and_method_bodies.saw	FAIL	a-error: 28:15 near IDENT 'print'
+examples/errors/statement_juxtaposition_in_match_guard_and_try_blocks.saw	FAIL	a-error: 23:29 near IDENT 'print'
+examples/errors/static236_enum_method_no_receiver.saw	FAIL	a-error: 12:5 refused by syntax.rule.receiver-and-static
+examples/errors/static236_generic_extension_no_receiver.saw	FAIL	a-error: 12:5 refused by syntax.rule.receiver-and-static
+examples/errors/static236_static_init.saw	FAIL	a-removed: syntax.decl.refused-member-static
+examples/errors/static236_static_with_receiver.saw	FAIL	a-error: 12:21 refused by syntax.rule.receiver-and-static
+examples/errors/static236_struct_method_no_receiver.saw	FAIL	a-error: 17:5 refused by syntax.rule.receiver-and-static
+examples/errors/static236_trait_default_no_receiver.saw	FAIL	a-error: 13:5 refused by syntax.rule.receiver-and-static
+examples/errors/static236_trait_requirement_no_receiver.saw	FAIL	a-error: 11:5 refused by syntax.rule.receiver-and-static
+examples/errors/static_in_function.saw	FAIL	a-error: 7:5 near STATIC 'static'
+examples/errors/static_var_without_unsafe.saw	FAIL	a-removed: syntax.decl.refused-static
+examples/errors/string_interpolation_unescaped_brace.saw	SEGLEX	a-error: 8:27 Lexer error at 1:1: Unexpected character: \\
+examples/errors/string_unknown_escape.saw	LEXERR	a-error: Lexer error at 8:16: unknown escape `\\d` in a string literal (supported: \\\\ \\" \\n \\t \\r \\0 \\u{...})
+examples/errors/trailing_dot_float.saw	FAIL	a-error: 8:15 near NEWLINE '\\n'
+examples/errors/unknown_directive.saw	LEXERR	a-error: Lexer error at 8:13: unknown directive `#foobar` (expected one of #file, #line, #function, #lend_var)
+examples/errors/unsafe_effect_slot_order.saw	FAIL	a-error: 8:26 near UNSAFE 'unsafe'
+examples/errors/unsafe_expression_marker_removed.saw	FAIL	a-removed: syntax.expr.refused-unsafe
+examples/errors/unsafe_keyword_before_decl.saw	FAIL	a-removed: syntax.decl.refused-effect-prefix
+examples/errors/unsafe_modifier_on_enum.saw	FAIL	a-removed: syntax.decl.refused-unsafe-prefix
+examples/errors/unsafe_prefix_on_init.saw	FAIL	a-removed: syntax.decl.refused-effect-prefix
+examples/errors/unsafe_static_without_var.saw	FAIL	a-removed: syntax.decl.refused-static
+examples/errors/var_self_receiver.saw	FAIL	a-removed: syntax.decl.refused-receiver
+examples/escaping_on_declaration_rejected.saw	FAIL	a-removed: syntax.decl.refused-escaping
+examples/export229_scoped_import_error.saw	FAIL	a-removed: syntax.decl.refused-scoped-import
+examples/export_outside_init_error.saw	FAIL	a-removed: syntax.decl.refused-export
+examples/extension_head_visibility_error.saw	FAIL	a-removed: syntax.decl.refused-visibility-prefix
+examples/extension_head_visibility_package_error.saw	FAIL	a-removed: syntax.decl.refused-visibility-prefix
+examples/int_literal_out_of_range.saw	LEXERR	a-error: Lexer error at 8:19: integer literal 18446744073709551616 is out of range for a 64-bit integer (max 18446744073709551615)
+examples/lend_var_both_branches.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+examples/lend_var_conditional_lend.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+examples/lend_var_coro_and_forwarding.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+examples/lend_var_epilogue_nesting.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+examples/lend_var_generic_and_match.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+examples/lend_var_two_specializations.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+examples/lexer_unterminated_interpolation.saw	LEXERR	a-error: Lexer error at 10:22: unterminated interpolation in string literal, opened at this `{` (write `\\{` for a literal brace)
+examples/literal_suffix_out_of_range_error.saw	LEXERR	a-error: Lexer error at 7:13: integer literal 256u8 is out of range for `u8` (max 255)
+examples/module_tests/test_import_alias_collision_error.saw	FAIL	a-error: 6:25 refused by syntax.rule.import-names
+examples/modules/test_package/init.saw	FAIL	a-removed: syntax.decl.refused-export
+examples/named_tuple_mixed_labeling_error.saw	FAIL	a-removed: syntax.expr.refused-partial-named-tuple
+examples/named_tuple_pattern_deferred_error.saw	FAIL	a-removed: syntax.pat.refused-named-tuple
+examples/newline_generic_call_trailing_comma_error.saw	FAIL	a-removed: syntax.generic.refused-arg-comma
+examples/newline_generic_param_trailing_comma_error.saw	FAIL	a-removed: syntax.generic.refused-param-comma
+examples/newline_generic_trailing_comma_error.saw	FAIL	a-removed: syntax.generic.refused-arg-comma
+examples/newline_unclosed_bracket_error.saw	FAIL	a-error: 12:1 near RBRACE '}'
+examples/newline_unclosed_paren_at_brace_error.saw	FAIL	a-error: 12:1 near RBRACE '}'
+examples/newline_unclosed_paren_error.saw	FAIL	a-error: 17:5 near IDENT 'print'
+examples/parse_recovery_two_errors.saw	FAIL	a-error: 10:7 near NEWLINE '\\n'
+examples/try_routing_clause_needs_a_case.saw	FAIL	a-error: 27:19 refused by syntax.rule.try-route-case
+examples/try_routing_clause_refusals.saw	FAIL	a-removed: syntax.expr.refused-try-route
+examples/type_alias_in_function_body_refused.saw	FAIL	a-removed: syntax.stmt.refused-local-type-alias
+examples/unicode_escape_malformed_error.saw	LEXERR	a-error: Lexer error at 6:16: `\\u{}` must contain 1–6 hexadecimal digits
+examples/unicode_escape_oversized_error.saw	LEXERR	a-error: Lexer error at 7:22: `\\u{110000}` is greater than the maximum Unicode scalar 0x10FFFF
+examples/unicode_escape_surrogate_error.saw	LEXERR	a-error: Lexer error at 7:20: `\\u{D800}` is a surrogate code point, which is not a valid Unicode scalar
+examples/vis258_private_on_a_function_error.saw	FAIL	a-removed: syntax.decl.refused-visibility-prefix
+examples/visibility_invalid.saw	FAIL	a-error: 5:8 near IDENT 'invalid'
+examples/while_let_no_else_clause.saw	FAIL	a-removed: syntax.expr.refused-while-let-else
+prototypes/minivm/examples/enums/match_qualified.saw	FAIL	a-removed: syntax.pat.refused-qualified-variant
+prototypes/minivm/examples/enums/reject_wrong_qualifier.saw	FAIL	a-removed: syntax.pat.refused-qualified-variant
+prototypes/minivm/examples/lexer_completion/reject_var_discard.saw	FAIL	a-removed: syntax.stmt.refused-var-discard
+prototypes/minivm/examples/numbers/reject_spaced_shift.saw	FAIL	a-error: 1:25 near LT '<'
+prototypes/minivm/examples/owning_records/reject_string_match_interpolation.saw	FAIL	a-error: 4:14 near INTERP_STRING '{value}'
+prototypes/minivm/examples/receivers/reject_value_receiver.saw	FAIL	a-removed: syntax.decl.refused-receiver
+prototypes/minivm/examples/reject_large_literal.saw	LEXERR	a-error: Lexer error at 2:11: integer literal 999999999999999999999999999999999999999999999999999999999999 is out of range for a 64-bit integer (max 18446744073709551615)
+prototypes/minivm/examples/reject_semicolon.saw	FAIL	a-error: 1:25 near RBRACE '}'
+prototypes/minivm/examples/reject_truncated.saw	FAIL	a-error: 3:1 near EOF ''
+prototypes/minivm/examples/vectors/reject_optional_constructor.saw	FAIL	a-error: 1:34 near QUESTION '?'
+sawc/std/data.saw	FAIL	a-removed: syntax.expr.refused-lend-var

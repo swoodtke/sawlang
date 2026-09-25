@@ -1,0 +1,5 @@
+// refuses: syntax.lex.module-doc
+// verdict: LEXERR 5:1 refused by syntax.lex.module-doc
+func main() {
+}
+//! Too late.

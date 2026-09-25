@@ -1,0 +1,4 @@
+contexts.saw: 1 tree(s)
+  File(Static(static LIMIT : NamedType(Path(Int)) = Binary(IntLit(4) + IntLit(1))) \n \n Func(func pick ( Param(a : Optional(NamedType(Path(Int)))) , Param(b : Optional(NamedType(Path(Int))) = NoneLit(None)) ) -> NamedType(Path(Int)) Block({ \n Let(let BindingName(x) = Coalesce(Name(a) ?? Name(b) ?? IntLit(0))) \n Let(var BindingName(v) : ArrayType([ NamedType(Path(Int)) ; IntLit(3) ]) = Repeat([ Name(x) ; IntLit(3) ])) \n CompoundAssign(Name(v) Subscript([ IntLit(0) ]) += Member(Call(Name(f) ( Arg(Name(x)) , Arg(n : IntLit(2)) )) . y)) \n ExprStmt(If(if LetArm(let BindingName(y) = Name(a)) Block({ ExprStmt(Call(Name(print) ( Arg(Interp({y + 1})) ))) }))) \n ExprStmt(For(for BindingName(i) in Range(IntLit(0) .. Name(LIMIT)) Block({ }))) \n Return(return Member(Binary(Name(x) && Name(y)) . z)) \n })) \n )
+contexts.saw segment 7:27: 1 tree(s)
+  Binary(Name(y) + IntLit(1))

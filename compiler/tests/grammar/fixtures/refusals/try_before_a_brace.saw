@@ -1,0 +1,5 @@
+// refuses: syntax.rule.try-block
+// verdict: FAIL 4:17 refused by syntax.rule.try-block
+func main() {
+    let c = try { 1 }
+}

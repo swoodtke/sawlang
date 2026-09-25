@@ -1,0 +1,7 @@
+Why: a contextual word's production cell names an alternative
+Expect: 32 word-production
+--- replace
+item's name | syntax.mini.item |
+--- with
+item's name | syntax.mini.item.var |
+--- end

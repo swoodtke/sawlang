@@ -1,0 +1,5 @@
+// refuses: syntax.rule.generic-or-less
+// verdict: FAIL 4:14 refused by syntax.rule.generic-or-less
+func main() {
+    let x = a<b>
+}

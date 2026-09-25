@@ -1,0 +1,11 @@
+Why: a table of no known schema
+Expect: 110 unknown-table
+--- replace
+| syntax.mini.item.var, syntax.rule.group | parses `var x sync` | refuses it | ruled | SL-400 c6 |
+--- with
+| syntax.mini.item.var, syntax.rule.group | parses `var x sync` | refuses it | ruled | SL-400 c6 |
+
+| a | b |
+|---|---|
+| 1 | 2 |
+--- end

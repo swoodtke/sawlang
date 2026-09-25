@@ -1,0 +1,7 @@
+Why: a lexical rule outside syntax.lex
+Expect: 36 lexical-rule-id
+--- replace
+| syntax.lex.longest-match |
+--- with
+| syntax.mini.longest-match |
+--- end

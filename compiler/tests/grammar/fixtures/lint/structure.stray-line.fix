@@ -1,0 +1,8 @@
+Why: a line in an ebnf block that is no header, rule or continuation
+Expect: 46 structure
+--- replace
+item-list ::= item ( NEWLINE+ item )*
+--- with
+item-list ::= item ( NEWLINE+ item )*
+items are separated by line breaks
+--- end

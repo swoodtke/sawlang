@@ -1,0 +1,152 @@
+parse file
+cell syntax.expr.additive sinit 1:21
+cell syntax.expr.literal opnd 1:21
+cell syntax.expr.literal opnd 1:25
+cell syntax.expr.literal dflt 3:30
+cell syntax.stmt.let stmt 4:5
+cell syntax.expr.coalesce init 4:13
+cell syntax.expr.name opnd 4:13
+cell syntax.expr.name rhs 4:18
+cell syntax.expr.literal rhs 4:23
+cell syntax.stmt.let stmt 5:5
+cell syntax.expr.literal alen 5:18
+cell syntax.expr.repeat init 5:23
+cell syntax.expr.name elem 5:24
+cell syntax.expr.literal rcnt 5:27
+cell syntax.stmt.compound-assign stmt 6:5
+cell syntax.expr.name recv 6:5
+cell syntax.expr.subscript atgt 6:6
+cell syntax.expr.literal idx 6:7
+cell syntax.expr.name recv 6:13
+cell syntax.expr.call recv 6:14
+cell syntax.expr.name arg 6:15
+cell syntax.expr.literal larg 6:21
+cell syntax.expr.member crhs 6:23
+cell syntax.expr.if stmt 7:5
+cell syntax.expr.optional-binding cond 7:8
+cell syntax.expr.name subj 7:16
+cell syntax.expr.name recv 7:20
+cell syntax.expr.call tail 7:25
+cell syntax.expr.interpolation arg 7:26
+cell syntax.expr.for stmt 8:5
+cell syntax.expr.range iter 8:14
+cell syntax.expr.literal rend 8:14
+cell syntax.expr.name rend 8:17
+cell syntax.stmt.return stmt 9:5
+cell syntax.expr.paren recv 9:12
+cell syntax.expr.and recv paren 9:13
+cell syntax.expr.name opnd 9:13
+cell syntax.expr.name rhs 9:18
+cell syntax.expr.member ret 9:20
+alternative syntax.decl.effects 1
+alternative syntax.decl.func 1
+alternative syntax.decl.item.func 1
+alternative syntax.decl.item.static 1
+alternative syntax.decl.param.default 1
+alternative syntax.decl.param.plain 1
+alternative syntax.decl.params 1
+alternative syntax.decl.return 1
+alternative syntax.decl.static-init 1
+alternative syntax.decl.static.immutable 1
+alternative syntax.expr.add-op.plus 1
+alternative syntax.expr.additive 23
+alternative syntax.expr.and 21
+alternative syntax.expr.args 2
+alternative syntax.expr.argument.labelled 1
+alternative syntax.expr.argument.positional 2
+alternative syntax.expr.bitand 22
+alternative syntax.expr.bitor 22
+alternative syntax.expr.bitxor 22
+alternative syntax.expr.call.paren 2
+alternative syntax.expr.cast 24
+alternative syntax.expr.coalesce 19
+alternative syntax.expr.compare.pair 22
+alternative syntax.expr.expr 19
+alternative syntax.expr.for.plain 1
+alternative syntax.expr.head 2
+alternative syntax.expr.hop.call 2
+alternative syntax.expr.hop.member 2
+alternative syntax.expr.if 1
+alternative syntax.expr.if-head.binding 1
+alternative syntax.expr.int 8
+alternative syntax.expr.interpolation 1
+alternative syntax.expr.literal.int 8
+alternative syntax.expr.literal.none 1
+alternative syntax.expr.member 2
+alternative syntax.expr.multiplicative 24
+alternative syntax.expr.name 11
+alternative syntax.expr.none 1
+alternative syntax.expr.optional-binding.let 1
+alternative syntax.expr.or 21
+alternative syntax.expr.paren 1
+alternative syntax.expr.postfix 24
+alternative syntax.expr.prefix.postfix 24
+alternative syntax.expr.primary.for 1
+alternative syntax.expr.primary.if 1
+alternative syntax.expr.primary.interpolation 1
+alternative syntax.expr.primary.literal 9
+alternative syntax.expr.primary.name 11
+alternative syntax.expr.primary.paren 1
+alternative syntax.expr.primary.repeat 1
+alternative syntax.expr.range-op.exclusive 1
+alternative syntax.expr.range.closed 22
+alternative syntax.expr.repeat 1
+alternative syntax.expr.shift 23
+alternative syntax.expr.subscript.single 1
+alternative syntax.file.item.declaration 2
+alternative syntax.file.list 1
+alternative syntax.file.source 1
+alternative syntax.stmt.binding-name 4
+alternative syntax.stmt.binding-subject.value 1
+alternative syntax.stmt.binding-target.name 1
+alternative syntax.stmt.block 3
+alternative syntax.stmt.body 3
+alternative syntax.stmt.compound-assign 1
+alternative syntax.stmt.compound-op.add 1
+alternative syntax.stmt.compound-target.projection 1
+alternative syntax.stmt.expr 3
+alternative syntax.stmt.let.immutable 1
+alternative syntax.stmt.let.mutable 1
+alternative syntax.stmt.non-expr.compound-assign 1
+alternative syntax.stmt.non-expr.let 2
+alternative syntax.stmt.non-expr.return 1
+alternative syntax.stmt.place-hop.subscript 1
+alternative syntax.stmt.projection-target 1
+alternative syntax.stmt.return 1
+alternative syntax.stmt.sep.newline 5
+alternative syntax.stmt.statement.expr 3
+alternative syntax.stmt.statement.other 4
+alternative syntax.stmt.type-annotation 1
+alternative syntax.type.array 1
+alternative syntax.type.atom.array 1
+alternative syntax.type.atom.named 5
+alternative syntax.type.named 5
+alternative syntax.type.path 5
+alternative syntax.type.suffix.optional 2
+alternative syntax.type.type.suffixed 6
+parse 7:27
+cell syntax.expr.additive interp 1:1
+cell syntax.expr.name opnd 1:1
+cell syntax.expr.literal opnd 1:5
+alternative syntax.expr.add-op.plus 1
+alternative syntax.expr.additive 1
+alternative syntax.expr.and 1
+alternative syntax.expr.bitand 1
+alternative syntax.expr.bitor 1
+alternative syntax.expr.bitxor 1
+alternative syntax.expr.cast 2
+alternative syntax.expr.coalesce 1
+alternative syntax.expr.compare.pair 1
+alternative syntax.expr.expr 1
+alternative syntax.expr.int 1
+alternative syntax.expr.interp-segment.expr 1
+alternative syntax.expr.literal.int 1
+alternative syntax.expr.multiplicative 2
+alternative syntax.expr.name 1
+alternative syntax.expr.or 1
+alternative syntax.expr.postfix 2
+alternative syntax.expr.prefix.postfix 2
+alternative syntax.expr.primary.literal 1
+alternative syntax.expr.primary.name 1
+alternative syntax.expr.range.closed 1
+alternative syntax.expr.shift 1

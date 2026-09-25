@@ -1,0 +1,7 @@
+Why: an alternative name with a capital letter
+Expect: 48 name-format
+--- replace
+"let" IDENT  @syntax.mini.item.let
+--- with
+"let" IDENT  @syntax.mini.item.Let
+--- end

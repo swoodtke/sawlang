@@ -1,0 +1,7 @@
+Why: a matrix column that is not a defined context
+Expect: 91 context-columns
+--- replace
+| construct | stmt | grp |
+--- with
+| construct | stmt | group |
+--- end

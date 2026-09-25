@@ -1,0 +1,6 @@
+// refuses: syntax.rule.receiver-and-static
+// verdict: FAIL 4:19 refused by syntax.rule.receiver-and-static
+extension P {
+    static func m(&self) {
+    }
+}

@@ -1,0 +1,2 @@
+borrow_block_head.saw: 1 tree(s)
+  File(\n Func(func main ( ) Block({ \n ExprStmt(BorrowBlock(borrow BorrowBinding(let BindingName(e) = Call(Member(Name(m) . find) ( Arg(Ref(& Name(k))) ))) Block({ \n ExprStmt(Member(Name(e) . n)) \n }))) \n })) \n )

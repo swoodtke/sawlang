@@ -1,0 +1,7 @@
+Why: a node kind in lower case
+Expect: 47 node-kind
+--- replace
+node=Item
+--- with
+node=item
+--- end

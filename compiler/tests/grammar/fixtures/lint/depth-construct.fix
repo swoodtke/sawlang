@@ -1,0 +1,7 @@
+Why: a depth row naming an alternative
+Expect: 77 depth-construct
+--- replace
+| syntax.mini.item | 1 for the
+--- with
+| syntax.mini.item.group | 1 for the
+--- end

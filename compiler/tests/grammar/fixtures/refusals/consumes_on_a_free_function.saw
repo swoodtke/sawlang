@@ -1,0 +1,4 @@
+// refuses: syntax.rule.effect-slot
+// verdict: FAIL 3:16 refused by syntax.rule.effect-slot
+func f(x: Int) consumes {
+}

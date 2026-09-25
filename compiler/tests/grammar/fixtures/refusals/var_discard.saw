@@ -1,0 +1,5 @@
+// refuses: syntax.rule.discard-binding
+// verdict: FAIL 4:9 refused by syntax.rule.discard-binding
+func main() {
+    var _ = e
+}

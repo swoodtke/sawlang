@@ -1,0 +1,5 @@
+// rule: syntax.rule.generic-arg-value
+func main() {
+    let v: Vector<Int> = Ring<N>()
+    let r = Ring<N + 1>()
+}

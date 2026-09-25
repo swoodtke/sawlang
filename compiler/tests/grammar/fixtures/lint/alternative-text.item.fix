@@ -1,0 +1,7 @@
+Why: an item that is no nonterminal, token kind or terminal
+Expect: 48 alternative-text
+--- replace
+"let" IDENT  @syntax.mini.item.let
+--- with
+"let" Name  @syntax.mini.item.let
+--- end

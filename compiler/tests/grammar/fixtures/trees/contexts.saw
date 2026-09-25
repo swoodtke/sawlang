@@ -1,0 +1,10 @@
+static LIMIT: Int = 4 + 1
+
+func pick(a: Int?, b: Int? = None) -> Int {
+    let x = a ?? b ?? 0
+    var v: [Int; 3] = [x; 3]
+    v[0] += f(x, n: 2).y
+    if let y = a { print("{y + 1}") }
+    for i in 0..LIMIT { }
+    return (x && y).z
+}

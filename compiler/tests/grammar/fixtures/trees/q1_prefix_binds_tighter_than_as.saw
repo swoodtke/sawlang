@@ -1,0 +1,4 @@
+func widen(x: Int, b: UInt8) {
+    let y = -x as Int8
+    let z = ~b as UInt64
+}

@@ -1,0 +1,10 @@
+Why: a production nothing uses
+Expect: 63 unused-nonterminal
+--- replace
+refused-item ::= "var" "|"
+--- with
+refused-item ::= "var" "|"
+
+# syntax.mini.spare  status=current  spec="Spelling"  node=-
+spare ::= IDENT
+--- end

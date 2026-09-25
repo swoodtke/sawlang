@@ -2169,7 +2169,7 @@ the two disagree, a row below says which way and why. Where a grammar rule
 | syntax.stmt.lend, syntax.expr.closure | parses `lend` as a closure-body statement | refuses it | later | `lend` suspends the accessor; it does not return |
 | syntax.decl.requirement | parses generic parameters on a trait requirement | refuses them | later | Traits; SL-400 c6 |
 | syntax.expr.refused-try-route | refuses a routing clause on `try!` or `try?`, and beside `catch` | parses them, and the type checker refuses them | earlier | Error routing at `try` |
-| syntax.rule.interpolation-whole | refuses a segment that is not one expression, such as `"{1F600}"` | keeps the first token and drops the rest, which `selfhost/lexer/tests/escapes.saw` relies on | defect | String |
+| syntax.rule.interpolation-whole | refuses a segment that is not one expression, such as `"{1F600}"` | keeps the first token and drops the rest, which `compiler/lex/tests/escapes.saw` relies on | defect | String |
 | syntax.stmt.guard, syntax.expr.closure | parses `guard` as a closure-body statement | refuses it | defect | Closures |
 | syntax.expr.try-block, syntax.rule.try-block | refuses `try? { … } catch { … }` | parses it as a plain `try` block and drops the `?` | defect | Block Try-Catch |
 | syntax.type.func-effects | refuses effect words out of order in a function type | accepts any order | defect | Spelling |

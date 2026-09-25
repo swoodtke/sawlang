@@ -1,0 +1,5 @@
+// rule: syntax.rule.trailing-closure
+func main() {
+    v.each() { print($0) }
+    run { 10 }
+}

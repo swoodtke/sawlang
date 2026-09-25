@@ -1,0 +1,12 @@
+func main() {
+    let n = 1
+    let max = 5
+    let m = 2
+    var ok = false
+    var big = false
+    ok = n < max
+    big = m > 0
+    print("{ok} {big}")
+    f(a < b)
+    g(c > d)
+}

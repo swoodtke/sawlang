@@ -60,7 +60,8 @@ fi
 STAGES=(
     "suite|no|the compiler test suite (zero UNCITED xfails is the bar)|$PY test_runner.py"
     "icebreadcrumb|no|an internal compiler error reports one located line|$PY tools/test_ice_breadcrumb.py"
-    "compiler|no|the self-hosted compiler: unit programs, golden fixtures, the subset checker|$PY compiler/tests/run.py"
+    "compiler|no|the self-hosted compiler: unit programs, golden fixtures, the subset checker, the grammar lint|$PY compiler/tests/run.py"
+    "grammarcorpus|no|every tracked .saw against GRAMMAR.md: its recorded verdict, one tree when accepted|$PY compiler/tests/grammar/corpus.py"
     "astdiff|no|every .saw dumps completely and byte-stably|$PY tools/astdiff.py"
     "astgraft|no|no pass stamps an AST attribute no class declares|$PY tools/test_ast_graft.py"
     "closurestate|no|a nested body hands back every kind of per-function codegen state|$PY tools/test_closure_state.py"

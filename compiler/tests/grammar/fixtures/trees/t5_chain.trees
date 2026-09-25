@@ -1,0 +1,2 @@
+t5_chain.saw: 1 tree(s)
+  File(Enum(enum Direction { \n Case(case North) , \n Case(case South) \n }) \n \n Func(func main ( ) Block({ \n Let(let BindingName(d) : NamedType(Path(Direction)) = ImplicitMember(. North)) \n Let(let BindingName(e) : NamedType(Path(Direction)) = Call(Member(ImplicitMember(. North) . opposite) ( ))) \n })) \n )

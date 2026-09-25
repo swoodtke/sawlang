@@ -1,0 +1,8 @@
+func main() {
+    let s = buf[4..]
+    let p = (a..)
+    f(a.., b)
+    let r = a..; let t = ..
+    let u = if c { a.. } else { ..b }
+    print("{a..}")
+}

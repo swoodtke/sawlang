@@ -1,0 +1,9 @@
+Why: the header's fields are one space apart
+Expect: 62 header
+--- replace
+refused-item ::= "var" "|"
+--- with
+refused-item ::= "var" "|"
+
+# syntax.mini.expr status=current spec="Spelling" node=-
+--- end

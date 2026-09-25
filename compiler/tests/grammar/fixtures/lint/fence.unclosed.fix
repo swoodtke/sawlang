@@ -1,0 +1,9 @@
+Why: an ebnf fence opened at the end of the file is never closed
+Expect: 110 fence
+--- replace
+| syntax.mini.item.var, syntax.rule.group | parses `var x sync` | refuses it | ruled | SL-400 c6 |
+--- with
+| syntax.mini.item.var, syntax.rule.group | parses `var x sync` | refuses it | ruled | SL-400 c6 |
+
+```ebnf
+--- end

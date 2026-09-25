@@ -1,0 +1,2 @@
+func take(r: &var String?, f: (Int) -> Int?, s: &[Int]?) {
+}

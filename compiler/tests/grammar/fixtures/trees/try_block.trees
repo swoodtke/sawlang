@@ -1,0 +1,2 @@
+try_block.saw: 1 tree(s)
+  File(\n Func(func main ( ) Block({ \n ExprStmt(TryBlock(try Block({ \n Let(let BindingName(n) = Try(try Call(Name(parse) ( Arg(BoolLit(true)) )))) \n ExprStmt(Call(Name(print) ( Arg(Name(n)) ))) \n }) catch Block({ \n ExprStmt(Call(Name(print) ( Arg(IntLit(0)) ))) \n }))) \n })) \n )

@@ -1,0 +1,6 @@
+// rule: syntax.rule.generic-or-less
+func main() {
+    let doc = Object(fields: Map<String, Value>())
+    show(a < b, c > (d))
+    let small = a < b
+}

@@ -1,0 +1,7 @@
+Why: a context row with an extra cell
+Expect: 93 table-width
+--- replace
+| syntax.mini.expr | N | Y |
+--- with
+| syntax.mini.expr | N | Y | Y |
+--- end

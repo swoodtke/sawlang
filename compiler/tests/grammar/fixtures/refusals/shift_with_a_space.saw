@@ -1,0 +1,5 @@
+// refuses: syntax.lex.shift-adjacent
+// verdict: FAIL 4:17 near LT '<'
+func main() {
+    let s = a < < 2
+}

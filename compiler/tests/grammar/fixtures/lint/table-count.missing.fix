@@ -1,0 +1,10 @@
+Why: the retired-shapes table is gone
+Expect: 1 table-count
+--- replace
+| shape | parses as | replacement |
+|---|---|---|
+| `var x sync` | syntax.mini.item | `let x` |
+
+
+--- with
+--- end

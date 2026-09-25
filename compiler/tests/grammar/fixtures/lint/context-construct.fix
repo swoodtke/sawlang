@@ -1,0 +1,7 @@
+Why: a context row naming an alternative, not a production
+Expect: 93 context-construct
+--- replace
+| syntax.mini.expr | N | Y |
+--- with
+| syntax.mini.item.let | N | Y |
+--- end

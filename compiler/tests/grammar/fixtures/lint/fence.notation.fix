@@ -1,0 +1,15 @@
+Why: a second ebnf-notation fence
+Expect: 12 fence
+--- replace
+```ebnf-notation
+status              ::= "current" | "lockdown" | "retired" | "removed" | "pending"
+```
+--- with
+```ebnf-notation
+status              ::= "current" | "lockdown" | "retired" | "removed" | "pending"
+```
+
+```ebnf-notation
+status              ::= "current" | "lockdown" | "retired" | "removed" | "pending"
+```
+--- end

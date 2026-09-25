@@ -1,0 +1,5 @@
+// refuses: syntax.rule.extern-abi
+// verdict: FAIL 3:8 refused by syntax.rule.extern-abi
+extern "Rust" {
+    func f()
+}

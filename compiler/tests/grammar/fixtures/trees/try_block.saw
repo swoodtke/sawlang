@@ -1,0 +1,9 @@
+// rule: syntax.rule.try-block
+func main() {
+    try {
+        let n = try parse(true)
+        print(n)
+    } catch {
+        print(0)
+    }
+}

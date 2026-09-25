@@ -1,0 +1,7 @@
+// rule: syntax.rule.name-pattern
+func sign(x: Int) -> Int {
+    match x {
+        case 0 -> 0
+        case _ -> 1
+    }
+}

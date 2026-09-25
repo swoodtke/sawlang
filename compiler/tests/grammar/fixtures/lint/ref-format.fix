@@ -1,0 +1,7 @@
+Why: a ref= that names no section, issue or design
+Expect: 53 ref-format
+--- replace
+ref="SL-400 c6"
+--- with
+ref="the review"
+--- end

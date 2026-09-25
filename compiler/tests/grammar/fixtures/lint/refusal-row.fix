@@ -1,0 +1,8 @@
+Why: a refusal row for a production that is not removed
+Expect: 70 refusal-row
+--- replace
+| syntax.mini.refused | A bar is not an item. | `let x` |
+--- with
+| syntax.mini.refused | A bar is not an item. | `let x` |
+| syntax.mini.item | Not refused. | `let x` |
+--- end

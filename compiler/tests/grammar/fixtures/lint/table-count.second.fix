@@ -1,0 +1,18 @@
+Why: a second context-codes table
+Expect: 91 table-count
+--- replace
+| code | meaning |
+|---|---|
+| Y | allowed |
+| N | not allowed |
+--- with
+| code | meaning |
+|---|---|
+| Y | allowed |
+| N | not allowed |
+
+| code | meaning |
+|---|---|
+| Y | allowed |
+| N | not allowed |
+--- end

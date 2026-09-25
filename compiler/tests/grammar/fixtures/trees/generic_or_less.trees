@@ -1,0 +1,2 @@
+generic_or_less.saw: 1 tree(s)
+  File(\n Func(func main ( ) Block({ \n Let(let BindingName(doc) = Call(Name(Object) ( Arg(fields : Call(Name(Map < NamedType(Path(String)) , NamedType(Path(Value)) >) ( ))) ))) \n ExprStmt(Call(Name(show) ( Arg(Call(Name(a < NamedType(Path(b)) , NamedType(Path(c)) >) ( Arg(Name(d)) ))) ))) \n Let(let BindingName(small) = Binary(Name(a) < Name(b))) \n })) \n )

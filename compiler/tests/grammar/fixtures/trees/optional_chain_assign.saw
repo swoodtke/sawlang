@@ -1,0 +1,4 @@
+// rule: syntax.rule.optional-chain-run
+func main() {
+    op?.target() = 5
+}

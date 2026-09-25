@@ -1,0 +1,7 @@
+Why: a line that ends in a space
+Expect: 1 trailing-whitespace
+--- replace
+# Mini grammar
+--- with
+# Mini grammar␠
+--- end

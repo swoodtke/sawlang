@@ -1,0 +1,7 @@
+Why: two alternatives share a name
+Expect: 50 duplicate-name
+--- replace
+@syntax.mini.item.group
+--- with
+@syntax.mini.item.let
+--- end

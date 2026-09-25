@@ -1,0 +1,7 @@
+Why: a token kind the token-kind table does not list
+Expect: 48 token-kind
+--- replace
+"let" IDENT  @syntax.mini.item.let
+--- with
+"let" NAME  @syntax.mini.item.let
+--- end

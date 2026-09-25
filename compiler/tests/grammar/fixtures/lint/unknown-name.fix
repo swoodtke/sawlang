@@ -1,0 +1,7 @@
+Why: prose cites a name nothing defines
+Expect: 3 unknown-name
+--- replace
+The lint fixtures edit a copy of this file.
+--- with
+The lint fixtures edit a copy of this file (syntax.mini.nothing).
+--- end

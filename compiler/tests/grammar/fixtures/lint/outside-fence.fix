@@ -1,0 +1,9 @@
+Why: a production written in prose
+Expect: 14 outside-fence
+--- replace
+**Start symbols.** `source-file` is a source file.
+--- with
+**Start symbols.** `source-file` is a source file.
+
+stray ::= IDENT
+--- end

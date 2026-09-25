@@ -1,0 +1,9 @@
+enum Direction {
+    case North,
+    case South
+}
+
+func main() {
+    let d: Direction = .North
+    let e: Direction = .North.opposite()
+}

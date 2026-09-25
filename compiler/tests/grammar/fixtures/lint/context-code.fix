@@ -1,0 +1,7 @@
+Why: a context cell that is not a defined code
+Expect: 93 context-code
+--- replace
+| syntax.mini.expr | N | Y |
+--- with
+| syntax.mini.expr | N | Q |
+--- end

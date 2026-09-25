@@ -1,0 +1,10 @@
+Why: a second production defines expr
+Expect: 63 duplicate-nonterminal
+--- replace
+refused-item ::= "var" "|"
+--- with
+refused-item ::= "var" "|"
+
+# syntax.mini.expr-again  status=current  spec="Spelling"  node=-
+expr ::= IDENT
+--- end

@@ -1,0 +1,7 @@
+Why: a lockdown production without its ref=
+Expect: 53 lockdown-ref
+--- replace
+node=-  ref="SL-400 c6"
+--- with
+node=-
+--- end

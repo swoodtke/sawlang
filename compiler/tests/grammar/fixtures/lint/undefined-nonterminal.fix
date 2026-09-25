@@ -1,0 +1,7 @@
+Why: an alternative uses a nonterminal nothing defines
+Expect: 48 undefined-nonterminal
+--- replace
+"let" IDENT  @syntax.mini.item.let
+--- with
+"let" name  @syntax.mini.item.let
+--- end

@@ -1,0 +1,4 @@
+// refuses: syntax.lex.doc-attach
+// verdict: FAIL 3:1 refused by syntax.lex.doc-attach
+/// An import is not documented.
+import m

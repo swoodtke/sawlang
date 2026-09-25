@@ -1,0 +1,5 @@
+// refuses: syntax.rule.attribute-position
+// verdict: FAIL 3:1 refused by syntax.rule.attribute-position
+@align(8)
+func g() {
+}

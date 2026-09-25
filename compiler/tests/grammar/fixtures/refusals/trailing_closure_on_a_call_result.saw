@@ -1,0 +1,5 @@
+// refuses: syntax.rule.trailing-closure
+// verdict: FAIL 4:14 refused by syntax.rule.trailing-closure
+func main() {
+    foo()(1) { 2 }
+}

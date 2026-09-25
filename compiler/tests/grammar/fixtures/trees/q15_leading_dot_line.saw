@@ -1,0 +1,5 @@
+func count(s: String) -> Int {
+    let n = s
+    .len()
+    return n
+}

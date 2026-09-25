@@ -1,0 +1,5 @@
+// refuses: syntax.rule.cast-target-question
+// verdict: FAIL 4:22 refused by syntax.rule.cast-target-question
+func main() {
+    let y = n as Int ?? 9
+}

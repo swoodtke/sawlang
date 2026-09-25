@@ -1,0 +1,9 @@
+Why: a context defined twice
+Expect: 85 context-columns
+Expect: 92 context-columns
+--- replace
+| grp | inside a group | head |
+--- with
+| grp | inside a group | head |
+| stmt | again | none |
+--- end

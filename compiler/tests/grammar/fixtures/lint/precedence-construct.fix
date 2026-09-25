@@ -1,0 +1,7 @@
+Why: a precedence tier naming a nonterminal, not a production
+Expect: 65 precedence-construct
+--- replace
+| left, flat | syntax.mini.expr |
+--- with
+| left, flat | expr |
+--- end

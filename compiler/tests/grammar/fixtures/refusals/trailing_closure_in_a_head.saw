@@ -1,0 +1,7 @@
+// refuses: syntax.rule.head-restriction
+// verdict: FAIL 4:17 refused by syntax.rule.head-restriction
+func main() {
+    guard v.any { $0 } else {
+        return
+    }
+}

@@ -1,0 +1,7 @@
+Why: prose cites a name with an uppercase letter, which nothing defines
+Expect: 3 unknown-name
+--- replace
+The lint fixtures edit a copy of this file.
+--- with
+The lint fixtures edit a copy of this file (syntax.mini.Item).
+--- end

@@ -1,0 +1,7 @@
+Why: one alternative of four has no name
+Expect: 48 unnamed-alternative
+--- replace
+"let" IDENT  @syntax.mini.item.let
+--- with
+"let" IDENT
+--- end

@@ -1,0 +1,7 @@
+Why: head-expr derives more than expr
+Expect: 54 head-expr
+--- replace
+head-expr ::= expr
+--- with
+head-expr ::= expr ","
+--- end

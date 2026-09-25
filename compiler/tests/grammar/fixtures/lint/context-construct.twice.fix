@@ -1,0 +1,8 @@
+Why: a production with two context rows
+Expect: 94 context-construct
+--- replace
+| syntax.mini.expr | N | Y |
+--- with
+| syntax.mini.expr | N | Y |
+| syntax.mini.expr | Y | N |
+--- end

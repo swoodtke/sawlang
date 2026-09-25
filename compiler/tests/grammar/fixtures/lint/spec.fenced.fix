@@ -1,0 +1,7 @@
+Why: a spec= naming a `#` comment inside the spec's code fence
+Expect: 44 spec
+--- replace
+# syntax.mini.items  status=current  spec="Spelling"
+--- with
+# syntax.mini.items  status=current  spec="Not a heading"
+--- end

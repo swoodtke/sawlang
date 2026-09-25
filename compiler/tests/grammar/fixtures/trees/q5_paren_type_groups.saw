@@ -1,0 +1,2 @@
+func apply(f: ((Int) -> Int)?, g: (Int), t: (Int,)) {
+}

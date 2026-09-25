@@ -1,0 +1,7 @@
+Why: a quoted terminal that is no keyword or listed spelling
+Expect: 50 spelling
+--- replace
+"(" head-expr ")"
+--- with
+"[" head-expr ")"
+--- end

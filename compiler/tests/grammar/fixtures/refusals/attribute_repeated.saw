@@ -1,0 +1,6 @@
+// refuses: syntax.rule.attribute-position
+// verdict: FAIL 4:1 refused by syntax.rule.attribute-position
+@export
+@export
+func g() {
+}

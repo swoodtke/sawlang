@@ -1,0 +1,2 @@
+name_pattern_wildcard.saw: 1 tree(s)
+  File(\n Func(func sign ( Param(x : NamedType(Path(Int))) ) -> NamedType(Path(Int)) Block({ \n ExprStmt(Match(match Name(x) { \n MatchArm(case LiteralPat(0) -> IntLit(0)) \n MatchArm(case WildcardPat(_) -> IntLit(1)) \n })) \n })) \n )

@@ -1,0 +1,9 @@
+Why: a header with no rule line under it
+Expect: 62 structure
+--- replace
+refused-item ::= "var" "|"
+--- with
+refused-item ::= "var" "|"
+
+# syntax.mini.spare  status=current  spec="Spelling"  node=-
+--- end

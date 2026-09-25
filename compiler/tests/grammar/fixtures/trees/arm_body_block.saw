@@ -1,0 +1,9 @@
+// rule: syntax.rule.arm-body
+func show(x: Int) {
+    match x {
+        case 0 -> {
+            print("zero")
+        }
+        case n -> print(n)
+    }
+}

@@ -1,0 +1,8 @@
+// rule: syntax.rule.generic-close-split
+func main() {
+    let v: Vector<Int>= w
+    let r: &Vector<Int>= w
+    let q: std.Vector<Int>= w
+    let f: () -> Vector<Int>= w
+    let m: Map<K, Vector<V>>= w
+}

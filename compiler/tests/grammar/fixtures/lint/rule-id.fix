@@ -1,0 +1,9 @@
+Why: a disambiguation rule outside syntax.rule, which the differences row still cites
+Expect: 99 rule-id
+Expect: 108 unknown-name
+Expect: 108 difference-construct
+--- replace
+| syntax.rule.group | syntax.mini.item,
+--- with
+| syntax.mini.group | syntax.mini.item,
+--- end

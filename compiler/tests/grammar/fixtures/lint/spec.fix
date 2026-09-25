@@ -1,0 +1,7 @@
+Why: a spec= heading the spec does not have
+Expect: 44 spec
+--- replace
+# syntax.mini.items  status=current  spec="Spelling"
+--- with
+# syntax.mini.items  status=current  spec="Spelling rules"
+--- end

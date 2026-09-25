@@ -1,0 +1,2 @@
+q1_prefix_binds_tighter_than_as.saw: 1 tree(s)
+  File(Func(func widen ( Param(x : NamedType(Path(Int))) , Param(b : NamedType(Path(UInt8))) ) Block({ \n Let(let BindingName(y) = Cast(Unary(- Name(x)) as NamedType(Path(Int8)))) \n Let(let BindingName(z) = Cast(Unary(~ Name(b)) as NamedType(Path(UInt64)))) \n })) \n )

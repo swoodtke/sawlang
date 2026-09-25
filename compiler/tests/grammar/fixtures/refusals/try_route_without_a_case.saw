@@ -1,0 +1,5 @@
+// refuses: syntax.rule.try-route-case
+// verdict: FAIL 4:20 refused by syntax.rule.try-route-case
+func main() {
+    let n = try(as E) f()
+}

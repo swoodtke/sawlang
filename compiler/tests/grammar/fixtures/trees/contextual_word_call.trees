@@ -1,0 +1,2 @@
+contextual_word_call.saw: 1 tree(s)
+  File(\n Func(func main ( ) Block({ \n Let(let BindingName(n) = Call(Name(lends) ( Arg(IntLit(3)) ))) \n StaticAssert(static_assert ( Binary(Name(N) > IntLit(0)) , a ring needs room )) \n })) \n )

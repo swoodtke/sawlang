@@ -1,0 +1,4 @@
+func load() -> LoadResult {
+    let id = try parse_id() as UserId
+    return id
+}

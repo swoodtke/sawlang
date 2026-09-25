@@ -1,0 +1,7 @@
+Why: a keyword quoted as a contextual word
+Expect: 48 contextual-word
+--- replace
+"let" IDENT  @syntax.mini.item.let
+--- with
+'let' IDENT  @syntax.mini.item.let
+--- end

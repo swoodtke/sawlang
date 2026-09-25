@@ -1,0 +1,5 @@
+// refuses: syntax.rule.requirement-borrows
+// verdict: FAIL 4:23 refused by syntax.rule.requirement-borrows
+trait T {
+    func m(&var self) consumes
+}

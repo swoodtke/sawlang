@@ -1,0 +1,7 @@
+Why: a group that is never closed
+Expect: 57 parentheses
+--- replace
+expr ::= IDENT ( "," IDENT )*
+--- with
+expr ::= IDENT ( "," IDENT *
+--- end

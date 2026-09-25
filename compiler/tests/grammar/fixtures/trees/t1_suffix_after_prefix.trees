@@ -1,0 +1,2 @@
+t1_suffix_after_prefix.saw: 1 tree(s)
+  File(Func(func take ( Param(r : RefType(& var Optional(NamedType(Path(String))))) , Param(f : FuncType(( NamedType(Path(Int)) ) -> Optional(NamedType(Path(Int))))) , Param(s : Optional(SliceType(& [ NamedType(Path(Int)) ]))) ) Block({ \n })) \n )

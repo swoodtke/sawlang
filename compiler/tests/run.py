@@ -5,9 +5,10 @@
 
 Builds `sawc2` and the unit programs with the frozen compiler and runs the unit
 programs; compares `sawc2 lex` with the golden fixtures in `lex/`, whose token
-kinds and lex errors must cover the lexer's; and runs the subset checker over
-the compiler source and its own fixtures in `subset/`. Each failure prints one
-line in a fixed order, the summary comes last, and any failure exits 1.
+kinds and lex errors must cover the lexer's; runs the subset checker over the
+compiler source and its own fixtures in `subset/`; and runs the grammar lint and
+the reference recognizer's own tests in `grammar/`. Each failure prints one line
+in a fixed order, the summary comes last, and any failure exits 1.
 """
 import collections
 import concurrent.futures
@@ -21,14 +22,18 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 COMPILER = os.path.dirname(HERE)
 REPO = os.path.dirname(COMPILER)
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
+sys.path.insert(0, os.path.join(HERE, "grammar"))
 
 import build  # noqa: E402
 import subset_check  # noqa: E402
 import ast_nodes as A  # noqa: E402  (on sys.path through subset_check)
+import test_lint  # noqa: E402
+import test_recognize  # noqa: E402
 
 UNIT_OUT = os.path.join(REPO, ".build", "compiler-tests")
 LEX_FIXTURES = os.path.join(HERE, "lex")
 SUBSET_FIXTURES = os.path.join(HERE, "subset")
+GRAMMAR_FIXTURES = os.path.join(HERE, "grammar", "fixtures")
 LEXER_SOURCE = os.path.join(COMPILER, "lex", "src", "lib.saw")
 RUN_TIMEOUT = 60
 
@@ -107,18 +112,19 @@ def check_fixture_whitespace(run):
     """No fixture line ends in whitespace, and no fixture ends in a blank line.
     `git apply --whitespace=fix` (the patch server's setting) and editors strip
     both, which would change a fixture on its way into the tree."""
-    for directory in (LEX_FIXTURES, SUBSET_FIXTURES):
-        for path in sorted(glob.glob(os.path.join(directory, "*"))):
-            rel = os.path.relpath(path, REPO)
-            with open(path, "rb") as fh:
-                data = fh.read()
-            for lineno, line in enumerate(data.split(b"\n"), 1):
-                if line.endswith((b" ", b"\t", b"\r")):
-                    run.fail("fixture %s:%d: the line ends in whitespace, which "
-                             "`git apply --whitespace=fix` and editors strip" % (rel, lineno))
-            if data.endswith(b"\n\n"):
-                run.fail("fixture %s: ends in a blank line, which `git apply "
-                         "--whitespace=fix` strips" % rel)
+    paths = [p for d in (LEX_FIXTURES, SUBSET_FIXTURES) for p in glob.glob(os.path.join(d, "*"))]
+    paths += glob.glob(os.path.join(GRAMMAR_FIXTURES, "**", "*.*"), recursive=True)
+    for path in sorted(paths):
+        rel = os.path.relpath(path, REPO)
+        with open(path, "rb") as fh:
+            data = fh.read()
+        for lineno, line in enumerate(data.split(b"\n"), 1):
+            if line.endswith((b" ", b"\t", b"\r")):
+                run.fail("fixture %s:%d: the line ends in whitespace, which "
+                         "`git apply --whitespace=fix` and editors strip" % (rel, lineno))
+        if data.endswith(b"\n\n"):
+            run.fail("fixture %s: ends in a blank line, which `git apply "
+                     "--whitespace=fix` strips" % rel)
 
 
 def run_golden(run):
@@ -277,6 +283,17 @@ def check_subset_fixture(run, path):
                      % (rel, line, name, want, have))
 
 
+def run_grammar(run):
+    """The grammar lint with its fixtures, and the recognizer's unit tests; the
+    full-corpus recognizer run is the battery's `grammarcorpus` lane."""
+    for module in (test_lint, test_recognize):
+        failures, counts = module.run()
+        for failure in failures:
+            run.fail(failure)
+        for key, n in counts.items():
+            run.count(key, n)
+
+
 def main():
     run = Run()
     ok, output = build.build_sawc2()
@@ -287,6 +304,7 @@ def main():
     if ok:
         run_golden(run)
     run_subset(run)
+    run_grammar(run)
     for failure in run.failures:
         print(failure)
     summary = ", ".join("%d %s" % (n, key) for key, n in sorted(run.counts.items()))

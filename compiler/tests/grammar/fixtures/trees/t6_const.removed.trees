@@ -1,0 +1,2 @@
+t6_const.saw: 1 tree(s)
+  File(Error(const MAX_DEPTH : NamedType(Path(Int)) = IntLit(256)) \n \n Func(func main ( ) Block({ \n Let(let BindingName(d) = Name(MAX_DEPTH)) \n })) \n )

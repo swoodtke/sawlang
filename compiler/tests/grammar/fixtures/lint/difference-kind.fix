@@ -1,0 +1,7 @@
+Why: a difference kind section 16 does not define
+Expect: 108 difference-kind
+--- replace
+| refuses it | ruled |
+--- with
+| refuses it | ruling |
+--- end

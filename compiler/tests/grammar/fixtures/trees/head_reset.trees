@@ -1,0 +1,2 @@
+head_reset.saw: 1 tree(s)
+  File(\n Func(func main ( ) Block({ \n ExprStmt(If(if Call(Name(f) ( Arg(Call(Member(Name(v) . map) Closure({ ExprStmt(ShorthandParam($0)) }))) )) Block({ \n }))) \n ExprStmt(If(if Call(Member(Name(v) . any) Closure({ ExprStmt(Binary(ShorthandParam($0) > IntLit(1))) })) Block({ \n }))) \n ExprStmt(While(while Subscript(Name(v) [ Call(Member(Name(w) . first) Closure({ ExprStmt(ShorthandParam($0)) })) ]) Block({ \n }))) \n })) \n )

@@ -1,0 +1,7 @@
+Why: a retired shape that parses as prose, not a production
+Expect: 73 retired-construct
+--- replace
+| `var x sync` | syntax.mini.item | `let x` |
+--- with
+| `var x sync` | the item rule | `let x` |
+--- end

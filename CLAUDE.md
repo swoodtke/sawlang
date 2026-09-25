@@ -3,11 +3,12 @@
 Saw: a systems language (Rust safety + Swift ergonomics, no lifetimes,
 deterministic destruction). This file covers HOW TO DEVELOP the
 compiler/tooling. For HOW TO WRITE Saw code, load the **saw-lang
-skill** (`.claude/skills/saw-lang/`); the authoritative language
-reference is **LANGUAGE_SPEC.md**, and **GRAMMAR.md** is the formal
-grammar (how each construct is spelled, its stable `syntax.*` name, and
-the positions it may appear in). Open work: **designs/todo.md**
-(tracker); decided designs: `designs/NN-*.md`.
+skill** (`.claude/skills/saw-lang/`). **LANGUAGE_SPEC.md** is
+authoritative for meaning, and **GRAMMAR.md** for spelling: it is the
+formal grammar (how each construct is spelled, its stable `syntax.*`
+name, and the positions it may appear in), and where the spec's text
+shows an older spelling, the grammar's holds. Open work:
+**designs/todo.md** (tracker); decided designs: `designs/NN-*.md`.
 
 ## Repo map
 ```
@@ -37,6 +38,14 @@ compiler/          # The self-hosted compiler, in Saw (epic SL-398; README.md):
                    # in) and tests/ (run.py: unit programs, golden fixtures,
                    # the checker's fixtures). prototypes/ holds the paused
                    # minivm and the parser prototype that seeds its parser.
+  tests/grammar/   # The tools over GRAMMAR.md (SL-406): extract.py (one model),
+                   # lint.py (its self-consistency, a fixture per check),
+                   # recognize.py (the reference Earley recognizer, with
+                   # contexts.py's coverage record) and corpus.py, whose
+                   # corpus_expected.tsv records every refused tracked .saw.
+                   # The parser corpus derived from the grammar (the canonical
+                   # AST dump, a snippet per alternative, the coverage lane)
+                   # arrives as tests/parse/ in SL-406 phase 2.
 examples/          # Compiler test suite programs (test_runner.py)
 blade/             # Blade package manager (written in Saw)
 libs/              # Real Saw library packages (semver, toml)
@@ -115,9 +124,12 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   `tests/{cbor,float}_vectors/`, `tests/freestanding/`, `blade/`, `libs/`,
   the runners — a new input a runner reads is added there), when the gate itself
   changes (`build.sh`, `tools/patch_gate.py`, `.sawtracker/`), or when
-  the changed paths are unknown. It prints each decision and why;
-  `./build.sh test --dry-run --diff FILE` shows a patch's decision
-  without running anything.
+  the changed paths are unknown. The full `grammarcorpus` run follows the
+  same rule over its inputs (`GRAMMAR.md`, `LANGUAGE_SPEC.md`,
+  `compiler/tests/grammar/`, `sawc/`); without it, each changed `.saw`
+  file is checked against `corpus_expected.tsv` alone, in seconds. It
+  prints each decision and why; `./build.sh test --dry-run --diff FILE`
+  shows a patch's decision without running anything.
 - **PER-COMMIT GATE POLICY (user, Sep 24): run only the tests a change
   affects, and never duplicate what the server runs.** The per-patch gate
   above runs the full suite and freestanding (both arches) on every patch
@@ -202,8 +214,12 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   ```
   Stages: `suite`, `icebreadcrumb`, `compiler` (`compiler/tests/run.py`:
   the self-hosted compiler's unit programs, its golden token fixtures with
-  their kind coverage, and the subset checker over its source and its own
-  fixtures), `astdiff`, `astgraft`,
+  their kind coverage, the subset checker over its source and its own
+  fixtures, and the grammar lint and recognizer tests),
+  `grammarcorpus` (`compiler/tests/grammar/corpus.py`: every tracked .saw
+  recognized with GRAMMAR.md, its verdict compared with
+  `corpus_expected.tsv`, and exactly one tree required of an accepted one;
+  `--write` records a deliberate change for review), `astdiff`, `astgraft`,
   `corodiscovery` (design 275 U1: ONE ledger answers every coroutine frame
   decision — `tools/test_coro_discovery.py` parses `coro_transform.py` and
   fails on any site outside the ledger's builder that reads a raw discovery

@@ -1,0 +1,7 @@
+Why: a difference row whose construct cell is prose
+Expect: 108 difference-construct
+--- replace
+| syntax.mini.item.var, syntax.rule.group |
+--- with
+| syntax.mini.item.var, the group rule |
+--- end

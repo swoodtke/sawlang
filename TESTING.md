@@ -397,7 +397,36 @@ full; in short, the runner:
   appears in no fixture;
 - runs the subset checker (`compiler/tools/subset_check.py`) over the compiler's
   own source, and over its fixtures in `compiler/tests/subset/`, whose
-  `// refuses: RULE` markers name exactly what each must report.
+  `// refuses: RULE` markers name exactly what each must report;
+- runs the grammar lint (`compiler/tests/grammar/lint.py`) over `GRAMMAR.md`,
+  and each lint check's fixture, which injects one defect into a small grammar
+  and names the line the check must report;
+- runs the reference recognizer's own tests: the trees and coverage records
+  pinned in `compiler/tests/grammar/fixtures/trees/`, the refusals pinned in
+  `compiler/tests/grammar/fixtures/refusals/`, and for every rule the recognizer
+  applies, a fixture it is seen deciding: switched off, the fixture's tree
+  count changes or its refused text parses.
+
+The full-corpus recognizer run is the battery's `grammarcorpus` lane:
+
+```bash
+./.venv/bin/python compiler/tests/grammar/corpus.py            # the lane
+./.venv/bin/python compiler/tests/grammar/corpus.py FILE...    # these files only
+./.venv/bin/python compiler/tests/grammar/corpus.py --write    # record the corpus
+```
+
+It recognizes every tracked `.saw` file with the grammar and compares each
+verdict with `compiler/tests/grammar/corpus_expected.tsv`. The record is a
+statement about `GRAMMAR.md`, so the recognizer refuses what the grammar's
+productions and its section-13 rules refuse, naming the rule. The record lists
+each refused file with its verdict and a classified reason: `a-removed` names
+the removed form the file uses, `a-error` is a file the frozen parser refuses
+too, and `c-conflict` one it accepts, which a ruling must explain. A file that a
+rule the recognizer does not model yet refuses is listed by hand, as
+`UNMODELLED` with the reason `unmodelled: RULE`, never left unlisted. A file the
+record does not list must be accepted with exactly one tree. When a change
+moves a verdict on purpose, run `--write`, which keeps the `UNMODELLED` rows,
+and review the record's diff.
 
 It prints one line per failure, then one summary line, and exits 1 on any
 failure. The golden fixtures replaced the lexer differential (`lexdiff`): they
@@ -415,6 +444,10 @@ decision is `tools/patch_gate.py`'s:
   runner itself);
 - the freestanding suite runs when a changed path is one of its runner's inputs
   (`sawc/`, `tests/freestanding/`, `blade/`, `libs/`, the runner itself);
+- the full grammar corpus runs when `GRAMMAR.md`, `LANGUAGE_SPEC.md` (whose
+  headings `spec=` names), `compiler/tests/grammar/` or `sawc/` (the reference
+  lexer and the classifying parser) changes; otherwise each changed `.saw` file
+  is checked against `corpus_expected.tsv` on its own;
 - a change to the gate itself (`build.sh`, `tools/patch_gate.py`,
   `.sawtracker/`) runs everything, and so does a run whose changed paths are
   unknown.

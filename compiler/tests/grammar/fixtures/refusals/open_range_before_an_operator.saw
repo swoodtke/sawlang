@@ -1,0 +1,5 @@
+// refuses: syntax.rule.range-open-end
+// verdict: FAIL 4:17 refused by syntax.rule.range-open-end
+func main() {
+    let b = a.. == c
+}

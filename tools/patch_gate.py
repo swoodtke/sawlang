@@ -4,10 +4,12 @@
     ./build.sh test [--changed-since REV | --diff FILE] [--dry-run]
 
 `build.sh` bootstraps the venv and holds the suite lock around this script. The
-self-hosted compiler's tests always run. The Python suite and the freestanding
-suite run only when a changed path is one they read (`SUITE_INPUTS`). With no
-source of changed paths, or when git cannot name them, everything runs.
-`--dry-run` prints the decision and runs nothing.
+self-hosted compiler's tests always run. The Python suite, the freestanding
+suite and the full grammar corpus run only when a changed path is one they read
+(`SUITE_INPUTS`); otherwise each changed .saw file is checked against the
+grammar's recorded verdicts on its own. With no source of changed paths, or when
+git cannot name them, everything runs. `--dry-run` prints the decision and runs
+nothing.
 """
 import argparse
 import os
@@ -35,14 +37,27 @@ SUITE_INPUTS = {
         "libs/",                    # against toml, semver and imgformat
         "tools/freestanding_runner.py",
     ),
+    "grammar corpus": (
+        "GRAMMAR.md",               # the grammar it recognizes with
+        "LANGUAGE_SPEC.md",         # the headings spec= names
+        "compiler/tests/grammar/",  # the tools and corpus_expected.tsv
+        "sawc/",                    # the reference lexer, and the parser that classifies
+    ),
 }
+
+GRAMMAR_CORPUS = "compiler/tests/grammar/corpus.py"
 
 # (name, command) in running order. The first always runs.
 PARTS = (
     ("compiler tests", ["compiler/tests/run.py"]),
     ("python suite", ["test_runner.py"]),
     ("freestanding", ["tools/freestanding_runner.py"]),
+    ("grammar corpus", [GRAMMAR_CORPUS]),
 )
+
+# Checks each changed .saw file against the recorded verdicts when the full
+# grammar corpus does not run; its command takes the files.
+CHANGED_SAW = "grammar: changed .saw files"
 
 
 def git(*args):
@@ -87,23 +102,35 @@ def _strip_side(side):
 
 
 def plan(paths, source):
-    """[(part name, run?, reason)] for the changed `paths` (None = unknown)."""
-    decisions = [(PARTS[0][0], True, "always")]
-    for name, _ in PARTS[1:]:
+    """[(part name, run?, reason, command)] for the changed `paths` (None = unknown)."""
+    decisions = [(PARTS[0][0], True, "always", PARTS[0][1])]
+    for name, command in PARTS[1:]:
         if paths is None:
-            decisions.append((name, True, "the changed paths are unknown: %s" % source))
+            decisions.append((name, True, "the changed paths are unknown: %s" % source, command))
             continue
         hit = _first_hit(paths, GATE_DEFINITION)
         if hit:
-            decisions.append((name, True, "%s changes the gate itself" % hit))
+            decisions.append((name, True, "%s changes the gate itself" % hit, command))
             continue
         hit = _first_hit(paths, SUITE_INPUTS[name])
         if hit:
-            decisions.append((name, True, "%s is one of its inputs" % hit))
+            decisions.append((name, True, "%s is one of its inputs" % hit, command))
         else:
             decisions.append((name, False, "no changed path is one of its inputs: %s"
-                              % ", ".join(SUITE_INPUTS[name])))
+                              % ", ".join(SUITE_INPUTS[name]), command))
+    decisions.append(_changed_saw(paths, decisions))
     return decisions
+
+
+def _changed_saw(paths, decisions):
+    """The per-file grammar check, which the full corpus run makes redundant."""
+    if any(name == "grammar corpus" and run for name, run, _, _ in decisions):
+        return (CHANGED_SAW, False, "the full grammar corpus runs", None)
+    saw = sorted(p for p in paths if p.endswith(".saw"))
+    if not saw:
+        return (CHANGED_SAW, False, "no .saw file changed", None)
+    shown = ", ".join(saw[:5]) + (", ..." if len(saw) > 5 else "")
+    return (CHANGED_SAW, True, "%d changed: %s" % (len(saw), shown), [GRAMMAR_CORPUS] + saw)
 
 
 def _first_hit(paths, prefixes):
@@ -142,19 +169,18 @@ def main():
     else:
         print("gate: changed paths: %d, %s" % (len(paths), how))
     decisions = plan(paths, how)
-    for name, run, reason in decisions:
+    for name, run, reason, _ in decisions:
         print("gate: %s: %s (%s)" % (name, "run" if run else "skip", reason))
     if args.dry_run:
         return 0
 
-    commands = dict(PARTS)
     results = []
-    for name, run, _ in decisions:
+    for name, run, _, command in decisions:
         if not run:
             results.append("%s skipped" % name)
             continue
         print("gate: ---- %s ----" % name, flush=True)
-        rc = subprocess.run([sys.executable] + commands[name], cwd=REPO).returncode
+        rc = subprocess.run([sys.executable] + command, cwd=REPO).returncode
         results.append("%s %s" % (name, "passed" if rc == 0 else "FAILED (exit %d)" % rc))
     print("gate: " + "; ".join(results))
     return 1 if any("FAILED" in r for r in results) else 0

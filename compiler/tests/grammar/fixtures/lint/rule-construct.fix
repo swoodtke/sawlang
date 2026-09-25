@@ -1,0 +1,7 @@
+Why: a rule governing an alternative, not a production
+Expect: 99 rule-construct
+--- replace
+syntax.mini.item, syntax.mini.head |
+--- with
+syntax.mini.item, syntax.mini.item.let |
+--- end
