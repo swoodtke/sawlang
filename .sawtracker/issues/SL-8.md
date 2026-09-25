@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":5911,"created":"1788791150","id":"SL-8","labels":["todo-import","backlog","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":1,"sequence":8,"status":"open","title":"DF-297a: Share namespace symbols when snapshotting generic templates","updated":"1788791150"}
+{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":5911,"closed":"","created":"1788791150","id":"SL-8","labels":["frozen"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":2,"sequence":1757,"stage":"backlog","status":"open","title":"DF-297a: Share namespace symbols when snapshotting generic templates","updated":"1790341599"}
 ---
 
 
