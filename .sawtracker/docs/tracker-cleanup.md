@@ -48,6 +48,7 @@ Each has the lead's recommendation.
    reference.** SL:architecture §3.2 takes M21's fixtures and harness when the
    parser work starts, and declines its iterative control stack. The minivm
    pauses; the planned VM backend can revisit it.
+   **Ruled: yes** (user, t3).
 3. **SL-355: the SL-353 fix brief.** SL:architecture §3.9 settles R1–R4.
    **Recommend: keep it open as `runtime`,** carrying the ruled R5 (the atomic
    wake word with a CAS latch) for the runtime, which carries over. Delete the
