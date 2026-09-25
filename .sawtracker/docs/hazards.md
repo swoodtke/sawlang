@@ -38,6 +38,17 @@ check (code Stage 0 accepts and Stage 1 refuses). **Loud** means Stage 0
 refuses valid code or crashes, so the build fails visibly and the entry mainly
 gives the spelling that works.
 
+**Leaks are tolerated in Stage 1** (the user's ruling on SL-399). Stage 1 runs
+to compile the compiler source and is then replaced: Stage 2 is built by the
+new compiler, and the fixpoint compares Stage 2 with Stage 3. So a leak costs
+Stage 1 memory, never output, and running out of memory is loud. One condition
+makes this true: no skipped drop may have an observable effect. The compiler
+source declares no `deinit` (checker rule `deinit-body`), and the std `deinit`s
+it reaches only free memory or close a file descriptor, since `File` writes are
+unbuffered. A leak-only entry is marked **leak only**. It keeps its Shape and
+Instead, since each shape becomes a test the new compiler must pass, but it has
+no checker rule.
+
 Issues that share one mechanism, or one rule that avoids them, form one entry.
 A family with any silent member is listed under silent hazards, and each issue
 in it is tagged. Entry codes (S1, L1, C1) are what the inventory maps to.
@@ -191,22 +202,9 @@ value by value:
 consume a local, `match` on the `Result` instead of writing `move` in a
 `catch`.
 
-**Checker:** yes, structurally, with no type tracing. It enforces the Instead
-(Air, SL-399 r4 review):
-- **Where a propagating `try` may stand.** Only as the whole of a `let` or
-  `var` initializer, the right side of a plain `=`, a `return` operand, or an
-  expression statement. Anywhere else it is refused and must be hoisted into
-  its own `let`: an argument, an operand, a literal element, an interpolation,
-  a head, a compound assignment, or under another `try`.
-- **What may sit under it.** The call directly under the `try` must be a free
-  function call, or a method call whose receiver is a name or a field path
-  (`self.pos`, `a.b.c`). Its arguments may be anything, since the callee
-  drops them.
-- **Also refused:** an expression statement that is a `try … catch`, and
-  `move` inside a `catch` block.
-
-This one rule covers the moved-value, owned-temporary, named-value and
-temporary-receiver faces alike.
+**Checker:** no: **leak only**. SL-240 and SL-348 leak, and SL-74 is loud.
+Hoisting each `try` into its own `let` remains good style, but nothing
+enforces it.
 
 ### S4. Whole-call exclusivity (SL-284, SL-294, SL-111)
 
@@ -669,6 +667,25 @@ module mod_b {
 scope and name-resolution findings, and the compiler source needs none.
 
 **Checker:** yes: refuse every inline `module name { }` in the compiler source.
+The drop failure alone is **leak only**. The refusal stands because inline
+modules also defeat the checker's own name resolution.
+
+### S23. An owned temporary in a control-flow head (SL-404)
+
+**Shape (leak only):** a temporary the head does not bind is dropped late, and
+an early `return` skips the drop, with or without a `try`. That covers a
+receiver (`if make_res("x").size() > 0 { return 1 }`) and an operator operand
+(`if make_s(k) == "never" { … }`) in the head of an `if`, `while`, `match` or
+`for`. A temporary passed by value as an argument is dropped by its callee. An
+owned `match` or `if let` scrutinee that the pattern binds drops correctly. In
+`leaks --atExit` over 1000 calls, an operand counts 2001 leaks (two heads per
+call), a receiver 1001, and a by-value argument 1, the baseline (reproduced on
+main 2fa71814).
+
+**Instead:** bind the temporary with a `let` before the head, where it
+matters.
+
+**Checker:** no: leak only.
 
 ## Loud hazards
 
@@ -1138,7 +1155,7 @@ well. Loud.
 
 ## Inventory
 
-Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and three found since, mapped to its entry. "Call" is this
+Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and four found since, mapped to its entry. "Call" is this
 ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 
 | Issue | Entry | Call |
@@ -1197,7 +1214,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-194 | L1 Integer literal adoption | loud |
 | SL-195 | S18 Names shared program-wide | loud |
 | SL-199 | L3 Module-qualified spellings | loud |
-| SL-240 | S3 Owned values around `try` and `catch` | silent |
+| SL-240 | S3 Owned values around `try` and `catch` | silent, leak only |
 | SL-264 | S10 Nested optionals | silent |
 | SL-270 | L6 Copy tier and conditional conformance | loud |
 | SL-284 | S4 Whole-call exclusivity | silent |
@@ -1217,7 +1234,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-310 | L2 Closure literals and call syntax | loud |
 | SL-319 | S18 Names shared program-wide | silent or loud |
 | SL-340 | S11 Owning payloads in cells | silent |
-| SL-348 | S3 Owned values around `try` and `catch` | silent |
+| SL-348 | S3 Owned values around `try` and `catch` | silent, leak only |
 | SL-352 | L2 Closure literals and call syntax | loud |
 | SL-358 | L3 Module-qualified spellings | loud |
 | SL-363 | L7 Fixed-size arrays | loud |
@@ -1231,7 +1248,8 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-390 | S19 Type walks bounded by a depth count | silent (promoted after review) |
 | SL-401 | S21 A line break inside an interpolation | silent (found in the compiler-skeleton review) |
 | SL-402 | L18 An extension of a generic type without its parameters | loud (found in the compiler-skeleton review) |
-| SL-403 | S22 Types declared in an inline module | silent (found in the compiler-skeleton review) |
+| SL-403 | S22 Types declared in an inline module | silent, leak only (found in the compiler-skeleton review) |
+| SL-404 | S23 An owned temporary in a control-flow head | silent, leak only (found in the compiler-skeleton review) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
