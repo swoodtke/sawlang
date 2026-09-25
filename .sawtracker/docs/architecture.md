@@ -73,8 +73,30 @@ Each stage is outlined here and fleshed out later.
 - **Invariants:** nesting beyond 256 is a clean refusal at the opener (one
   depth funnel); flat chains (operators, `else if`) are flat lists (SL-380); no
   recursion on source depth.
-- **Existing work:** the M18–M21 prototype parser (arena AST, iterative parsing)
-  and U0′'s depth funnel and quote-anchor rules (branch `sl2u0`).
+- **Starting point** (Ruled: yes, with codex asked to comment). Take from the
+  M18–M21 prototype (`prototypes/parser/`):
+  - its **arena AST**: nodes in one flat array, children as index ranges, a span
+    on every node;
+  - its **test harness**: canonical dumps, the same cases on several engines,
+    and invariant checks on the arena;
+  - its **fixtures**, as the first tests for constructs whose grammar did not
+    change;
+  - from U0′ (branch `sl2u0`), the complete depth funnel, the lane proving every
+    recursive path is charged, and the quote-anchor rule.
+- **Not taken:** the fully iterative continuation-stack parsing. It exists
+  because the prototype runs inside the mini-VM, whose call stack is small, and
+  it costs several work kinds and frames per construct (`if`/`else` alone took
+  about 660 lines). The new parser is **bounded recursive descent**: recursion
+  is capped at 256 by the language's depth rule, and flat chains are loops. The
+  VM backend's stack is sized for that bound (§3.10).
+- **Also rework:**
+  - first-error-only failure becomes per-unit diagnostics (principle 5);
+  - the global scans when closing blocks and collecting arguments;
+  - the append-only frame snapshots;
+  - per-node text copies, which become spans into the source.
+- **The oracle changes.** Parity with the Python parser holds only for
+  constructs whose grammar did not change. The spec's numbered rules are the
+  authority for `borrow`, `@test`, subscripts and slices.
 
 ### 3.3 Name resolution
 - **In:** the AST. **Out:** every name bound to a declaration id; imports,
