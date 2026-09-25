@@ -64,8 +64,8 @@ What follows `@test` decides the form:
 | `@test "name" { … }` | typechecked, not emitted | compiled and run in its own process |
 | `@test(panics: ID) "name" { … }` | typechecked, not emitted | passes only if the body panics with that panic |
 | `@test(refuses: ID) "name" { … }` | skipped; only its braces are matched | checked on its own; passes only if its first error has that ID |
-| `@test(warns: ID) "name" { … }` | typechecked, not emitted, like an ordinary case (no rot; warnings are off by default) | checked on its own with the category enabled; passes only if it compiles and emits that warning (Proposed) |
-| `@test(warns: none) "name" { … }` | typechecked, not emitted | passes only if it compiles with every category enabled and emits no warning (Proposed) |
+| `@test(warns: ID) "name" { … }` | typechecked, not emitted, like an ordinary case (no rot; warnings are off by default) | checked on its own with the category enabled; passes only if it compiles and emits that warning |
+| `@test(warns: none) "name" { … }` | typechecked, not emitted | passes only if it compiles with every category enabled and emits no warning |
 | `@test func` / `@test { … }` | typechecked, not emitted | compiled; visible only to test code |
 
 ## 4. Rules
@@ -87,7 +87,7 @@ What follows `@test` decides the form:
   subtractions. The optional `text:` and `at:` arguments are separate labelled
   slots, so the parser always knows which one it is reading, and a text alone
   is still not accepted.
-- **`panics:` names which panic** (Air t10; Proposed). A bare `@test(panics)`
+- **`panics:` names which panic** (Air t10; Ruled). A bare `@test(panics)`
   would pass on an unrelated panic, such as a bounds check in the setup or a
   `try!` on a fixture, and silently stop testing its subject. So the form takes
   the panic's key, and optionally `at:` to pin the line, as refusals do:
@@ -222,7 +222,7 @@ What follows `@test` decides the form:
   separate suite: the sawos gate under QEMU is the model. A fake `hal` inside an
   `@test { … }` group still cannot leak into the kernel, because test-only
   declarations are invisible to ordinary code.
-  - **Consequences** (Air t14; Proposed). *Running* a hosted test of a
+  - **Consequences** (Air t14; Ruled). *Running* a hosted test of a
     freestanding module compiles the module's production code hosted too. So a
     module keeps tests in-file only if its production code is hosted-runnable
     along the paths its tests exercise (Air t16). Compiling hosted is rarely
@@ -283,7 +283,7 @@ What follows `@test` decides the form:
     parse error sits in a brace-balanced body, so it can be tested in-file,
     because a test build parses the block as its own unit;
   - multi-file refusals: imports and module layout.
-- **Warnings are tested in-file too** (Air t11; Proposed), with `warns:` (§3).
+- **Warnings are tested in-file too** (Air t11; Ruled), with `warns:` (§3).
   Unlike a refusal, a `warns:` case is valid code, so a normal build
   typechecks it like an ordinary case (no rot), and adds no noise, since
   warnings are off by default. In a test build it is checked as a unit with its
@@ -297,7 +297,7 @@ What follows `@test` decides the form:
   thrown in a way that aborts compilation. The new compiler adopts this from
   the start.
 
-## 6. How the test-first suite is organised (Proposed)
+## 6. How the test-first suite is organised (Ruled)
 
 - Tests are grouped by **aspect**: one aspect per file, each going deep on every
   spelling of that aspect in every position.
