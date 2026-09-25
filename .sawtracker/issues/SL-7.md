@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":3482,"closed":"","created":"1788791149","id":"SL-7","labels":["frozen","hazard"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":2,"sequence":1755,"stage":"backlog","status":"open","title":"DF-301b: Infer closure parameters from an annotated function-type let","updated":"1790341599"}
+{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":3482,"closed":"1790341599","created":"1788791149","id":"SL-7","labels":["frozen","hazard"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":3,"sequence":1756,"stage":"backlog","status":"closed","title":"DF-301b: Infer closure parameters from an annotated function-type let","updated":"1790341599"}
 ---
 
 
@@ -66,4 +66,7 @@ same question, at the one slot that is a binding rather than a call.
 
 
 ## Comments
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":367,"created":"1790341599","id":"c1","kind":"landing"} -->
+Closed in the Sep 25 tracker cleanup (SL:tracker-cleanup): a defect in the Python compiler, which is frozen (Sep 24). The frozen compiler stays the differential oracle, and this issue is its "oracle known wrong" reference. Its shape is carried into SL:hazards, so the new compiler's own source avoids it. Test-coverage aspect: `closure.param-inference.annotated-let`.
 
