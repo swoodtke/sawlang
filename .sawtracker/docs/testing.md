@@ -122,6 +122,23 @@ What follows `@test` decides the form:
 - **Each test runs in its own process.** A Saw panic aborts the process (there
   is no unwinding), so isolation is what lets one failing test fail alone.
   Tests run in parallel, and `@test(panics)` works because of it.
+- **One compile per file, one process per case** (Ruled). Compiling is the
+  expensive part, not starting processes. The Python compiler spends about
+  2.5 s per compile before reading the test at all, and a compiled case runs in
+  about 3 ms. So related tests live together in large aspect files, each file
+  compiles once into one test binary, and the runner starts that binary once per
+  case:
+  - `--list` prints the binary's case names, and `--case <name>` runs exactly
+    one. The runner spawns the cases in parallel, with a timeout per case;
+  - refusal cases need no binary. The same compile checks each one as its own
+    unit and reports its verdict;
+  - **a case that fails to compile fails alone.** Each case is its own checking
+    unit, so the compiler reports that case and still builds the rest of the
+    file (SL:architecture §3.0: a unit with errors is poisoned and skipped);
+  - setup for a group runs inside each case's process. A fixture is a value, and
+    its deinit is the teardown. Sharing an expensive setup across cases (for
+    example by forking from a post-setup parent) can be added later if
+    measurement shows the need.
 - **A panic test needs evidence of a Saw panic, not just an abort.** An
   allocator assertion or an unrelated native crash can end a process the same
   way. So the test runtime's panic handler reports a structured record naming
