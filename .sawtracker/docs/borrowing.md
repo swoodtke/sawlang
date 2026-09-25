@@ -131,6 +131,9 @@ capability is written:
 - `if var x = e` on a place is refused, with a hint naming both forms. It
   would compile to a write to a copy of the entry, which is exactly the
   confusion §1 removes.
+- `if let _ = e` and `case Some(_)` bind nothing, so they read no payload and
+  copy nothing. They are presence tests at every copy tier, NoCopy payloads
+  included (Air t25; K8 relies on this).
 
 On the absent path no borrow was ever opened, so touching the root there is
 sound. **The borrow checker is path-sensitive** (Ruled) on the MIR control-flow
@@ -291,7 +294,7 @@ lend of §7.
   ```saw
   borrow var slot = self.slots[b] {
       match slot {
-          case Occupied(_, v) -> { lend v }
+          case Occupied(_, borrow var v) -> { lend v }
           …
       }
   }
