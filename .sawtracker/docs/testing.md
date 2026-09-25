@@ -93,7 +93,11 @@ What follows `@test` decides the form:
   the panic's key, and optionally `at:` to pin the line, as refusals do:
   - a compiler-inserted check (bounds, overflow, shift, unwrapping `None`,
     `try!`) has an ID from the same rule-named catalog;
-  - a user `panic("…")` is matched by its text.
+  - a user `panic("…")` has one ID of its own, `panic.explicit`. The optional
+    `text:` slot, the same slot `refuses:` has, checks its message:
+    `@test(panics: "panic.explicit", text: "queue drained") "…" { … }`. So
+    every panic test names an ID, and a key is never mistaken for a message
+    (SL:grammar, SL-400 c6 Q16).
 
   The structured panic record already carries `panic at FILE:LINE: message`
   (design 122), so matching costs nothing.
