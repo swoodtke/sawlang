@@ -148,7 +148,10 @@ consume a local, `match` on the `Result` instead of writing `move` in a
 
 **Checker:** yes: refuse an expression statement that is a `try … catch`, an
 expression that contains both `move` and `try`, and `move` inside a `catch`
-block.
+block. Also refuse an owned temporary, such as a call's result passed as an
+argument, that is evaluated before a `try` in the same expression. It leaks
+the same way with no `move` written: `sink2(make_res("fresh"), try fail_it())`
+never drops the fresh value (Air, SL-399 review, probe p24).
 
 ### S4. Whole-call exclusivity (SL-284, SL-294, SL-111)
 
@@ -432,7 +435,10 @@ arguments to the std `borrows` accessors (a list read from `sawc/std/`).
 `p[0].store(5)`, runs on a spilled copy, so a write through an `Atomic` or any
 cell is lost. These receivers are unswept: `&var self` methods on `p[i]`, and
 both receiver kinds on `v[i]`, `Data` places, tuple indexes and `borrows`
-places. Architecture §4 names this as a checker shape.
+places. Architecture §4 names this as a checker shape. Stage 0 evidence for the
+optional-chain receivers (Air, SL-399 review): `v.get(0)?.bump()` and
+`m["a"]?.bump()` silently lose the write (probes p05b and p08), while the
+refused `!` form works.
 
 **Example:**
 ```saw
