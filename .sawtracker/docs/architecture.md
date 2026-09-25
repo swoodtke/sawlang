@@ -306,7 +306,8 @@ caching.
     or `.Case(…)`, an enum case of the expected type; SL-400 c7). Its docstring
     lists the entry points, which are the literal-adoption positions (spec,
     Primitive Types; design 87):
-    - an annotated `let` or `var`, and every assignment-target kind;
+    - an annotated `let` or `var`, a `static` initializer, and every
+      assignment-target kind;
     - a parameter, a field, an `init` argument, and a default value;
     - `return` and a body's tail, with the `if`, `else` and `match` arm results
       that merge into them;
