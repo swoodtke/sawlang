@@ -812,16 +812,14 @@ caching.
     exactly those, straight-line arithmetic with no calls, rather than a
     separate folder, and widening extends the same engine. There is one
     mechanism from the start.
-  - **Constant arithmetic is ordinary typed arithmetic** (Proposed, pending the
-    user). The evaluator runs the same MIR as run-time code, so a constant
+  - **Constant arithmetic is ordinary typed arithmetic** (Ruled, Sep 25). The evaluator runs the same MIR as run-time code, so a constant
     expression adopts its literal types and then applies typed operations,
     exactly as it would at run time. That retires design 185's rule of folding
     in the signed platform `Int` domain. For example,
     `static X: UInt64 = 1 << 63` becomes 2^63 where today it is refused. Today's
     refusals of that kind (design 185, DF-283c) are annotated
     "language changed" in the corpus.
-  - **`sizeof` of a struct in a constant position** (Proposed, pending the
-    user). With the evaluator using the target description (§3.10's one layout
+  - **`sizeof` of a struct in a constant position** (Ruled, Sep 25). With the evaluator using the target description (§3.10's one layout
     source), `sizeof<Region>()` becomes legal in an array length. Today the spec
     refuses it, because layout is decided after lengths. Two consequences:
     - a struct's layout is computed on demand during typecheck;
