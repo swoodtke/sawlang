@@ -1021,6 +1021,16 @@ compiler's coroutine transform is where most of SL:hazards lives. So:
 - After self-hosting, the compiler may absorb these steps, through a sync spawn
   in the new std or its own coroutine support. The script stays the interface
   users call.
+- **The name moves at a milestone, not before** (Air t33). `sawc` already names
+  the frozen compiler. `bin/sawc` is design 238's install shim, and
+  `tools/toolchain.py` resolves `sawc` by name, from `$SAWC` or `$PATH` and
+  checked against a pinned version. That is how sawos and blade find their
+  compiler. So:
+  - the new driver script is `sawc2` until the switch, matching SL-399;
+  - `sawc` stays the frozen compiler's name, and what the resolver hands sawos
+    and blade;
+  - the switch is a named milestone: the new compiler accepts sawos's flag list
+    (§5). The name, the resolver and the pin move together.
 
 **Stage 0 moves after self-hosting** (Proposed). Once the new compiler builds
 itself, a pinned release of it can replace the frozen Python compiler as
