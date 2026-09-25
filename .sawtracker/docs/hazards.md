@@ -13,12 +13,24 @@ How the ledger is used:
 - **Authors** of the compiler source avoid every shape here and write the
   entry's **Instead** spelling.
 - **The subset checker**, a battery lane over the compiler source, refuses each
-  shape whose **Checker** line says `yes`. The rest are author discipline, and
-  Stage 1 catches what Stage 0 lets through.
+  shape whose **Checker** line says `yes`.
+- **What remains is a trust obligation, not a guarantee** (codex t1). Entries
+  whose Checker line says `no`, or covers the shape only in part, are the
+  obligations authors and reviewers carry by hand. Stage 1 recompiling the
+  source, the tests and the bootstrap fixpoint are evidence, not proof. The
+  Stage 1 executable is itself built by Stage 0, so a silent miscompile can
+  corrupt the very compiler that would catch it. A shape that cannot be checked
+  and is easy to avoid is excluded from the subset outright (SL:architecture
+  §4's blanket rules).
 - **Differential testing** uses it as the index of places the frozen compiler
-  is a known-wrong oracle. When the new compiler disagrees with the frozen one
-  on a case that has one of these shapes, annotate the case
-  `oracle known wrong: SL-N`.
+  is a known-wrong oracle, but a hazard shape in a case is not an exemption
+  (codex t2). When the new compiler disagrees with the frozen one, adjudicate
+  that specific mismatch: check the EXPECT directives and the spec, and
+  establish that the mismatch is the cited issue's failure. Only then annotate
+  it `oracle known wrong: SL-N`. The annotation records why the frozen result
+  is not authoritative for that mismatch. The new compiler is still checked
+  against the intended result, and any other mismatch in the same case is
+  judged on its own.
 
 **Silent** means Stage 0 accepts the code and does the wrong thing: a
 miscompile, a leak, a double free, a wrong type, a truncation, or a missing
@@ -87,14 +99,23 @@ func take_it(s: &var Slot) -> Owned {
 }
 ```
 
-**Instead:** pass an arm binding onward by `&`, or call a `&self` method on it.
-Never `move` it and never make it the scrutinee of another `match`. Where a
-nested read is needed, give the inner type a `&self` accessor. To move a
-payload out, match an owned local.
+**Instead:** when the scrutinee is borrowed, pass an arm binding onward by `&`,
+or call a `&self` method on it. Never `move` it and never make it the scrutinee
+of another `match`. Where a nested read is needed, give the inner type a `&self`
+accessor. To move a payload out, match an owned value: a local, or a by-value
+parameter.
 
-**Checker:** yes, over-approximated: refuse `move` of an arm binding, and a
-`match` whose scrutinee is an enclosing arm's binding. Telling a borrowed
-scrutinee from an owned one needs types.
+**Checker:** yes. The borrowed-versus-owned distinction is visible in the
+syntax, so the rule and the recipe above agree (codex t5):
+- **An owned scrutinee** is a plain name bound in the function by `let` or
+  `var`, a by-value parameter (its declared type is not `&T` or `&var T`),
+  `self` in a `consumes` method, or `move` of any of these. Saw has no
+  reference-typed locals outside `borrow` bindings, which the subset excludes.
+  `move` of an arm binding is allowed here.
+- **Anything else is treated as borrowed:** a reference parameter, `self` in a
+  `&self` or `&var self` method, a field path, an index, or a call. `move` of
+  an arm binding is refused there, as is a `match` whose scrutinee is an
+  enclosing arm's binding.
 
 ### S3. Owned values around `try` and `catch` (SL-240, SL-348, SL-74)
 
@@ -391,8 +412,16 @@ print(p[0].load())   // prints 0, not 5
 
 **Instead:** use no `UnsafePointer`, `Atomic` or cells in the compiler source.
 Call mutating methods only on a named local or a field path, never directly on
-`x[i]`. To change an element, read it into a local, change the local, and
-write it back with `v[i] = e`.
+`x[i]`. The recipe for changing an element depends on its copy tier (codex t4):
+- **A Copy element:** read it into a local, change the local, and write it back
+  with `v[i] = e`.
+- **A move-only element** (ExplicitCopy or NoCopy, such as a nested `Vector`)
+  cannot be read out that way, and moving out of `v[i]` is refused (spec:
+  moving out of a place). Prefer the subset's arena layout, where mutated
+  elements are Copy-tier records addressed by index. Where a nested owner is
+  unavoidable, exchange it out with `v.swap_out(i, placeholder)`, change it,
+  and put it back with `v.swap_out(i, move changed)`, discarding the
+  placeholder. Every transfer of the owned value is a spelled `move`.
 
 **Checker:** yes: refuse a method call whose receiver is an index expression,
 with an allowlist of known read-only methods.
@@ -586,8 +615,10 @@ let chosen: Result<Int, String> = if ok { 9 } else { "no" }   // refused
 **Instead:** bind a collection literal to an annotated local before returning
 it. Construct Results explicitly in assignments and branch arms:
 `Result<Int, String>.Ok(value: 9)`, `Result<Int, String>.Err(error: "no")`.
-Test presence with `.is_none()`/`.is_some()` on a call result, `i < v.len()`
-for a vector index, and `m.contains_key(k)` for a map.
+Test presence with `.is_none()`/`.is_some()` on a call result,
+`i >= 0 && i < v.len()` for a vector index (both bounds: `Vector.get` returns
+`None` for a negative index, and `i < v.len()` alone is true for -1; codex t3),
+and `m.contains_key(k)` for a map.
 
 **Checker:** yes for SL-42 (`== None`), SL-46 (a method chained directly on
 `.get(…)`) and SL-28 (a collection literal returned from a function declared
