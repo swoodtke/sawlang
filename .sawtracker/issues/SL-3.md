@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":2445,"closed":"","created":"1788791148","id":"SL-3","labels":["superseded"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":2,"sequence":1748,"stage":"backlog","status":"open","title":"Index the existing both-ways generic suspension conformance test","updated":"1790341598"}
+{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":2445,"closed":"1790341598","created":"1788791148","id":"SL-3","labels":["superseded"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":3,"sequence":1749,"stage":"backlog","status":"closed","title":"Index the existing both-ways generic suspension conformance test","updated":"1790341598"}
 ---
 
 
@@ -42,4 +42,7 @@ Historical closed subcases are context, not new work. Legacy DF/SL/SO numbers us
 
 
 ## Comments
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":257,"created":"1790341598","id":"c1","kind":"landing"} -->
+Closed in the Sep 25 tracker cleanup (SL:tracker-cleanup): superseded by SL:architecture §3.4 (r17): design 70's per-instantiation rule is kept, since a generic's effects are conditions over its type arguments. The conformance row joins the rule inventory.
 
