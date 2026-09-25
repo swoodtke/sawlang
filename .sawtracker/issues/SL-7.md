@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":3482,"created":"1788791149","id":"SL-7","labels":["todo-import","backlog","needs-verification","bug","plan"],"priority":"normal","project":"SL","revision":1,"sequence":7,"status":"open","title":"DF-301b: Infer closure parameters from an annotated function-type let","updated":"1788791149"}
+{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":3482,"closed":"","created":"1788791149","id":"SL-7","labels":["frozen","hazard"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":2,"sequence":1755,"stage":"backlog","status":"open","title":"DF-301b: Infer closure parameters from an annotated function-type let","updated":"1790341599"}
 ---
 
 
