@@ -232,7 +232,7 @@ against the receiver's root). The examples have two (see K10):
 | Vector.get `vector.saw:110` | `(&var self, index) unsafe borrows -> &var T?` | 3 (conditional) | expected to succeed |
 | Map.[] `map.saw:258`, Map.get `map.saw:280` | `(&var self, key) borrows -> &var V?` | 3 (conditional) | expected to succeed; forwards through Vector.[] (needs Vector's shared variant first) |
 | Map._key_ref / _value_ref `map.saw:416, 424` | `(&self, idx) borrows -> &K? / &V?` | 1 | already shared |
-| Data.[] `data.saw:185` | `(&var self, index) unsafe borrows -> &var UInt8` | 3 | **refused as written**: copy-on-write `_make_ready` under `#lend_var` (K1) |
+| Data.[] `data.saw:185` | `(&var self, index) unsafe borrows -> &var UInt8` | 3 | **unspecified**: whether synthesis understands the `#lend_var` gate on the copy-on-write `_make_ready`. The ungated probe is refused; an explicit shared accessor remains available (K1) |
 | Box.value `box.saw:50` | `(&var self) unsafe borrows -> &var T` | 3 | expected to succeed |
 | Slot.value `compiler/frame.saw:106` | `(&var self) borrows -> &var T` | 3 | expected to succeed |
 | UnsafeRef.deref `compiler/frame.saw:151` | `(&var self) unsafe borrows -> &var T` | 3 | expected to succeed |
