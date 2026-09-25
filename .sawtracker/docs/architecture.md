@@ -312,8 +312,9 @@ caching.
     its target is known not to suspend, or if its type declares `sync`: a
     `(Int) sync -> Void` function value, or a `sync` trait requirement, even
     through `any Trait` (spec: suspension). A call through a *non-`sync`*
-    function value or trait requirement never suspends, but it is not
-    sync-callable;
+    function value, or to a non-`sync` requirement through `any Trait`, never
+    suspends, but it is not sync-callable. The same requirement called through a
+    generic bound may suspend (above);
   - sync-callability is carried transitively, through ordinary helper calls and
     in interface summaries, separately from may-suspend. A helper that calls a
     non-`sync` callback is itself not sync-callable, even though it never
