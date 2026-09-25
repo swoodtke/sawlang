@@ -77,8 +77,8 @@ What follows `@test` decides the form:
     modules that costs nothing. For a package, Blade must have the test
     dependency available (a dev-dependency) to typecheck, even though nothing is
     linked against it. Skipping test dependencies entirely in normal builds
-    would need an explicit exception to no-rot, as sidecars have. That is not
-    proposed.
+    would need an explicit exception to no-rot. That is not proposed, and the
+    bootstrap's Stage 0 remains the only source set that omits test code.
   - A sidecar sees its module's scope exactly as an `@test { … }` group in the
     implementation file would, imports included.
 - **Runtime state is not shared.** Compile-time scope is shared, but each test
