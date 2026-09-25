@@ -540,6 +540,39 @@ caching.
   finite frame, so it is refused with the cycle named, as today. A dispatch
   through `any Trait` to a suspending implementation is refused likewise,
   pending heap-allocated frames (spec: suspension).
+- **Frame layout is computed here, sized by the high-water mark** (Proposed).
+  Frames are laid out callees first, over the suspending call graph, which is
+  acyclic. Within a frame, two values share bytes when they are never live at
+  the same suspension point. That applies to all three kinds of content:
+  - sequential suspending calls (`a()` then `b()`) overlay their child frames;
+  - exclusive branch arms overlay each other;
+  - a local or window record live only between two suspension points shares
+    with anything live only elsewhere.
+
+  A frame's size is then the largest set of values live at any one state. Since
+  each child frame is sized the same way, a task's size is its deepest live
+  call chain, not the sum of every call it could make.
+  - **One offset for a value's whole life.** A loan may point into a frame
+    value across a suspension, and a frame is never relocated (below). So slots
+    are assigned by packing values whose live ranges do not intersect, like
+    register allocation over states. Nothing is re-laid-out per state.
+  - **Teardown is keyed by state, by construction.** The cancel path at each
+    state drops exactly the values live in that state, generated from the same
+    liveness that assigned the slots. The Python compiler declined this
+    overlay (design 163) for lack of state-keyed teardown: its `__release`
+    reclaims children through the frame struct's memberwise drop, so sharing
+    storage would mean re-keying three teardown sites. That teardown path
+    produced silent double frees in designs 124, 131, 134 and 146.
+  - **Measured benefit** (design 163, on the Python compiler's corpus, where
+    frames are the sum of all children): 13% smaller overall, 36% for the
+    frames that can shrink. The sum model grows as branching^depth and the
+    overlay as depth: a branching-2 tree saves 45%, 69% and then 82% over
+    three levels, and a root with six suspending call sites goes from 6,768 B
+    to 928 B. The sawos kernel now runs Saw tasks, and freestanding targets
+    are memory-bound (the ESP32-C3 has 400 KiB of SRAM). There, a tight task
+    size known at compile time is a real guarantee.
+  - The per-frame report (`--emit-frame-layout`, design 163) comes from this
+    stage, and design 152's task-frame-size warning can hang off it.
 - **Each coroutine becomes** its frame type plus a resume function. The resume
   function switches on the frame's state to the code after each suspension
   point, polls each driven sub-frame, and has a cancel path.
@@ -565,7 +598,9 @@ caching.
   before this stage, so it cannot see the new resume, cancel and drop paths
   that lowering creates. A MIR verifier after lowering checks that:
   - a frame is never relocated while a live loan points into it;
-  - only initialised fields are dropped;
+  - no two values that share frame bytes are ever live in the same state;
+  - only initialised fields are dropped, and the cancel path at each state
+    drops exactly that state's live values;
   - cancellation closes active borrow windows and runs their epilogues in
     reverse order, exactly once.
   This checks that lowering preserved the earlier ownership decisions. It is
