@@ -67,10 +67,12 @@ print(borrow let doc.section("net").name)
 - The prefix covers the place expression up to and including its `borrows`
   call. What follows (`.weight`, `.push(job)`) acts on the lent place.
 - A chain with several `borrows` calls (`grid[r][c]`) is a chain of nested
-  reborrows, exactly like §2.3's `borrow var row = grid[r], var cell = row[c]`:
-  the root is charged first, then each reborrow, and they close in reverse at
-  the end of the statement. The statement form has no semantics of its own
-  beyond the block form's.
+  reborrows. The root is charged first, then each later call borrows through
+  the place the one before it lent, which freezes that place while the later
+  borrow is live. They close in reverse order at the end of the statement. This
+  is the same meaning as nesting block forms one inside another
+  (`borrow var row = grid[r] { borrow var cell = row[c] { … } }`), so it does
+  not depend on §2.3's several-bindings form (Air t24).
 - Several borrows in one statement are checked together, so
   `borrow var a[i].x = borrow let b[j].x` is fine.
 - **A borrow whose result is only copied closes as soon as the value is read**
@@ -197,7 +199,7 @@ exactly as a `borrow` block's head is. The body runs once per `next`, until
 accessor), and the borrow may span suspensions (§2.5) unless the head's
 accessor is `borrows(sync)`, in which case the loop body cannot suspend.
 
-**Borrowing each element** (Proposed; codex, borrowing-survey t3). Today
+**Borrowing each element** (Proposed; codex, SL:borrow-survey t3). Today
 `v.iter()` yields copies, so it works only for Copy elements. A loop over
 NoCopy elements, like a vector of `Session`s, borrows each element in turn:
 
@@ -311,12 +313,15 @@ that works. Otherwise it uses the exclusive accessor, and the root is exclusive.
 ```saw
 extension Vector<T> {
     @synthesize(shared)
-    public func [](&var self, i: Int) borrows -> &var T {
+    public func [](&var self, i: Int) unsafe borrows -> &var T {
         if i < 0 || i >= self.len() { panic("index out of range") }
         lend self.buffer[i]
     }
 }
 ```
+
+(`unsafe` because `buffer` is a raw pointer, as today, and design 130's rule
+applies: with all-safe parameters, the accessor checks the bounds it relies on.)
 
 **When the two bodies differ, both are written** (Ruled: "if there are
 differences between the exclusive and shared borrow implementations, they must
@@ -394,7 +399,7 @@ hook that counts copies would see the difference. Under that restriction the
 lowering is observably identical, so it is an allowed optimisation, not a
 language rule. sawos's slab elements qualify. A *declared* getitem is always
 called as written, since its body may have side effects. (Evidence for sawos's 410 such reads comes from the IR,
-not from a size delta alone: borrowing-survey K13.)
+not from a size delta alone: SL:borrow-survey K13.)
 
 ### 5.3 Multi-argument subscripts (Ruled)
 
@@ -435,8 +440,9 @@ evaluation is a silent bug in exactly the shapes that matter:
   lookup;
 - `cache[k, default: try load(k)]` would do I/O, and could fail, on every hit.
 
-**The mechanism** (Proposed; the lead and the Air independently, refined per
-codex t4): `default:` is a compiler-known argument label with `??` semantics,
+**The mechanism** (Ruled with its trait: "yes, one KeyedPlace trait for now";
+proposed by the lead and the Air independently, refined per codex t4):
+`default:` is a compiler-known argument label with `??` semantics,
 not a general lazy-parameter feature. There is no new parameter kind and no
 closure, so nothing is captured or allocated.
 
@@ -491,8 +497,9 @@ first:
 ## 6. Slices (Ruled)
 
 - **Type.** `&[T]` and `&var [T]` are reference-like. They appear only as
-  parameters and `borrow` bindings, and are never stored in a field or returned.
-  Their representation is a pointer and a length.
+  parameters and `borrow` bindings, and are never stored in a field or returned,
+  except as a `borrows` accessor's lend (§7). Their representation is a pointer
+  and a length.
 - **Views go through `borrow`, like every other place.**
   `borrow let header = packet[0..20] { parse(header) }`, or the statement form
   at a call site: `checksum(borrow let buf[4..])`. A range subscript is a
@@ -500,13 +507,16 @@ first:
   as `bump(&var g[4])` is, with a hint naming the `borrow let` form.
 - **A view is not a copy.** `borrow let s = buf[4..]` is a view into `buf`. A
   plain `buf[4..]` follows the copy rules below and produces an owned value;
-  to pass a reference to such a copy, bind it first (`let c = buf[4..].copy()`,
-  then `f(&c)`).
+  to pass a reference to such a copy, bind it first (`let c = buf[4..]` for a
+  Copy-tier `Data`, then `f(&c)`).
 - **Whole containers coerce.** Passing `&v` where `&[T]` is expected works for
   a whole `Vector`, `[T; N]` or `Data`.
 - **Copies follow the parent's copy policy.**
-  - `let h = vec[0..20]` is refused for an ExplicitCopy parent (`Vector`):
-    write `.copy()` for an owned copy, or `borrow` for a view.
+  - `let h = vec[0..20]` is refused for an ExplicitCopy parent (`Vector`).
+    Write `let h = borrow let vec[0..20].copy()` for an owned copy, or `borrow`
+    for a view. `.copy()` gets no exemption: it is a method call on a place
+    reached through a `borrows` accessor, so it is spelled with `borrow let`
+    like every other (Air t24).
   - A Copy-tier refcounted parent (`Data`, `String`) copies implicitly. The
     copy shares the parent's storage as an offset and length, so it is O(1).
     The known cost: a small slice keeps a large parent buffer alive.
@@ -526,10 +536,14 @@ charge:
 
 ```saw
 extension Vector<T> {
-    func split_at(&var self, k: Int) borrows -> (&var [T], &var [T]) {
+    func split_at(&var self, k: Int) unsafe borrows -> (&var [T], &var [T]) {
+        if k < 0 || k > self.len() { panic("split_at: {k} is outside 0...{self.len()}") }
         lend (self.buffer[0..k], self.buffer[k..self.len()])
     }
-    func pair(&var self, i: Int, j: Int) borrows -> (&var T, &var T) {
+    func pair(&var self, i: Int, j: Int) unsafe borrows -> (&var T, &var T) {
+        if i < 0 || i >= self.len() || j < 0 || j >= self.len() {
+            panic("pair: index out of range")
+        }
         if i == j { panic("pair: the same index twice") }
         lend (self.buffer[i], self.buffer[j])
     }
@@ -554,13 +568,18 @@ It does not prove the lent places are disjoint from *each other*, so:
   ```saw
   extension Grid {
       func cells(&var self, a: Int, b: Int) unsafe borrows -> (&var Cell, &var Cell) {
+          if a < 0 || a >= self.slots.len() || b < 0 || b >= self.slots.len() {
+              panic("cells: index out of range")
+          }
           if a == b { panic("cells: the same cell twice") }
           lend (self.slots[a], self.slots[b])
       }
   }
   ```
-- The stdlib's `split_at` and `pair` are instances: `split_at` is disjoint by
-  construction, and `pair` panics when `i == j`.
+- The stdlib's `split_at` and `pair` are instances, declared `unsafe borrows`
+  as the example above shows (Air t20). `split_at` is disjoint by construction
+  and panics unless `0 <= k <= len`. `pair` bounds-checks both indices, then
+  panics when `i == j`.
 - Without `unsafe`, declaring `borrows` confers no such trust. A non-`unsafe`
   accessor that lends `buffer[i]` and `buffer[j]` together is refused, because
   the compiler cannot prove them disjoint.
@@ -583,6 +602,10 @@ It does not prove the lent places are disjoint from *each other*, so:
     and does not exist on freestanding targets.
 - The runtime contract: re-acquiring a held lock must fail loudly and never
   deadlock, on freestanding runtimes too.
+- **`try_lock` panics on re-entry too** (Air t24). It returns `None` only when
+  *another* owner holds the lock, which is contention. When the caller already
+  holds it through another name, that is the same logic error as with `lock`,
+  and it panics. So K10's pin covers both calls.
 - **Lock accessors are `borrows(sync)` (§2.5).** A task can resume on a
   different worker after a suspension, so a lock held across one would be
   released by a thread that is not its owner, and the owner check would
