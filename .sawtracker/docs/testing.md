@@ -78,8 +78,17 @@ What follows `@test` decides the form:
   "Compiler testing" is that mode pointed at the language's own test files
   (e.g. `tests/lang/`). Library authors get tests that prove misuse is
   refused, which Rust needs a separate tool (`trybuild`) for.
-- **Target.** Test builds run on the host first. Running tests on freestanding
-  targets under QEMU comes later.
+- **Test code is checked under the test build's profile** (Ruled). A `@test`
+  inside a module built `--freestanding --no-hidden-alloc` is checked as hosted
+  test code, so it may print and interpolate. Freestanding testing is a
+  separate suite: the sawos gate under QEMU is the model. A fake `hal` inside an
+  `@test { … }` group still cannot leak into the kernel, because test-only
+  declarations are invisible to ordinary code.
+- **Stress tests are separate** (Ruled). In-file tests test *functionality*.
+  Stress and soak harnesses test *safety guarantees* under load, such as
+  oversubscription races, and stay separate tools (parksoak is the model).
+  SL-353's lost wake stalled 88 of 640 oversubscribed runs and never appeared in
+  a serial one, which no single `@test` process can see.
 
 ## 5. Refusal tests (`@test(refuses: …)`)
 
@@ -93,12 +102,24 @@ What follows `@test` decides the form:
   ```
 - Its errors are expected and contained. They never fail the build or leak into
   the rest of the file.
-- **Matching is precise.** The block must produce errors, and the *first*
-  error must contain the given text, so a block refused for an unrelated reason
-  (a typo) fails the test instead of passing. An optional `at:` argument can pin
-  the line within the block.
+- **Matching is on a stable diagnostic ID** (Ruled: yes, provided the expected
+  errors form a finite, enumerable set, which they do). For example,
+  `@test(refuses: E_EXCLUSIVE_CAPTURE) "…" { … }`. The text form is optional.
+  The block must produce errors, and its *first* error must carry that ID, so a
+  block refused for an unrelated reason (a typo) fails the test instead of
+  passing. An optional `at:` argument pins the line within the block.
+  - **Why IDs:** diagnostics get reworded often (SL-345's hint changed twice in
+    one review), and each rewording would churn every test pinning the phrase.
+    An ID also gives each spec rule a citable name.
+  - **The catalog is finite.** Every refusal is a site in the compiler. Today's
+    Python compiler has 22 coarse `ErrorKind`s over about 780 refusal sites
+    (about 700 in the typechecker, 75 in the parser), which is countable but
+    too fine-grained to reuse directly. In the new compiler, IDs are defined
+    with the spec rules: each rule that refuses something names its ID, and the
+    catalog is exactly the set of refusing rules.
 - **What cannot live in a file**, and so stays as corpus files with an
-  EXPECT-ERROR header, one refusal per file:
+  EXPECT-ERROR header (which also names the diagnostic ID), one refusal per
+  file:
   - parse-level refusals, because a block whose body does not parse cannot even
     be delimited;
   - multi-file refusals: imports and module layout.
