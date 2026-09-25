@@ -79,27 +79,31 @@ What follows `@test` decides the form:
     linked against it. Skipping test dependencies entirely in normal builds
     would need an explicit exception to no-rot, as sidecars have. That is not
     proposed.
-  - A sidecar sees its module's scope as if it were appended to the
-    implementation file, imports included.
+  - A sidecar sees its module's scope exactly as an `@test { … }` group in the
+    implementation file would, imports included.
 - **Runtime state is not shared.** Compile-time scope is shared, but each test
   runs in its own process, so statics start fresh for every test, and no test
   can leave state behind that changes another's result.
-- **Test sidecars** (Proposed; codex's architecture t6). Sometimes tests cannot
-  sit in the implementation file. The self-hosted compiler is the main case:
-  its source must stay in the subset the frozen compiler parses, which has no
-  `@test`. A sidecar file then carries them:
-  - a file `parser.test.saw` beside `parser.saw` is **part of module `parser` in
-    test builds only**, so its tests keep white-box access to the module's
-    private members;
-  - it adds nothing to normal builds, and is never in the bootstrap Stage 0
-    source set;
-  - it does not make anything public or weaken production visibility.
-  (An importing test module would not do: it gets no private access.)
-- **No rot.** Ordinary cases and test-only declarations *in an implementation
-  file* are typechecked in every build, so they cannot silently decay. They are
-  emitted only in test builds. The exception is a test sidecar (below): normal
-  builds do not load it, so its tests are checked only by test builds. The
-  compiler's own sidecars are covered by the Stage 1 test runs.
+- **Test sidecars** (Ruled: "parser.test.saw tests parser.saw like it was
+  @test { .. } defined in the parser.saw file"). A file `parser.test.saw` beside
+  `parser.saw` means exactly what an `@test { … }` group at the end of
+  `parser.saw` would mean:
+  - it is part of module `parser`, with white-box access to its private members
+    and the implementation file's imports;
+  - everything in it is test-only: typechecked in every build (no rot) and
+    emitted only in test builds;
+  - it makes nothing public and does not weaken production visibility.
+
+  The only difference is where the text lives. That matters for the
+  self-hosted compiler, whose implementation files must stay in the subset the
+  frozen compiler parses (no `@test`). The bootstrap's Stage 0 source set
+  excludes `*.test.saw`, and Stage 1 onward includes it. (An importing test
+  module would not do: it gets no private access.)
+- **No rot.** Ordinary cases and test-only declarations are typechecked in every
+  build, whether they are in the implementation file or its test sidecar (below),
+  so they cannot silently decay. They are emitted only in test builds. The only
+  source set that omits sidecars is the bootstrap's Stage 0, which is a
+  bootstrap step, not an ordinary build.
 - **Test-only means test-only.** A reference to a test-only declaration from
   ordinary code is a compile error: "`FakeClock` exists only in test builds".
   This keeps a fake from leaking into production code, such as a counting
