@@ -360,14 +360,18 @@ that works. Otherwise it uses the exclusive accessor, and the root is exclusive.
 extension Vector<T> {
     @synthesize(shared)
     public func [](&var self, i: Int) unsafe borrows -> &var T {
-        if i < 0 || i >= self.len() { panic("index out of range") }
+        if i < 0 || i >= self.len() { panic(rule: "index.out-of-range", "index {i} out of range") }
         lend self.buffer[i]
     }
 }
 ```
 
 (`unsafe` because `buffer` is a raw pointer, as today, and design 130's rule
-applies: with all-safe parameters, the accessor checks the bounds it relies on.)
+applies: with all-safe parameters, the accessor checks the bounds it relies on.
+`panic(rule:…)` is the std-only panic form: std raises the guarantee's catalog
+ID, so `v[99]` fails with `index.out-of-range` exactly as a fixed array's
+`arr[99]` does. User code calls plain `panic("…")`, which is `panic.explicit`
+(SL:testing §4).)
 
 **When the two bodies differ, both are written** (Ruled: "if there are
 differences between the exclusive and shared borrow implementations, they must
@@ -385,7 +389,7 @@ extension Data {
     public func [](&var self, index: Int) unsafe borrows -> &var UInt8 {
         self.check_index(index)
         if not self._make_ready(self.length) {    // separate shared bytes before a write
-            panic("Data.[]: allocation failed")
+            panic(rule: "alloc.failed", "Data.[]: allocation failed")
         }
         lend (self.byte_ptr() as UnsafePointer<UInt8>)[index]
     }
@@ -593,14 +597,14 @@ charge:
 ```saw
 extension Vector<T> {
     func split_at(&var self, k: Int) unsafe borrows -> (&var [T], &var [T]) {
-        if k < 0 || k > self.len() { panic("split_at: {k} is outside 0...{self.len()}") }
+        if k < 0 || k > self.len() { panic(rule: "index.out-of-range", "split_at: {k} is outside 0...{self.len()}") }
         lend (self.buffer[0..k], self.buffer[k..self.len()])
     }
     func pair(&var self, i: Int, j: Int) unsafe borrows -> (&var T, &var T) {
         if i < 0 || i >= self.len() || j < 0 || j >= self.len() {
-            panic("pair: index out of range")
+            panic(rule: "index.out-of-range", "pair: index out of range")
         }
-        if i == j { panic("pair: the same index twice") }
+        if i == j { panic(rule: "borrow.same-place-twice", "pair: the same index twice") }
         lend (self.buffer[i], self.buffer[j])
     }
 }
