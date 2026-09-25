@@ -1,3 +1,5 @@
+> **Landed as `GRAMMAR.md` at the repo root (SL-400, merged d34e8f1c).** This document is frozen at r4. Edit `GRAMMAR.md` by patch.
+
 # Saw grammar
 
 This document is the grammar of Saw: every construct a parser must accept, the
