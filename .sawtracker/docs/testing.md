@@ -65,6 +65,17 @@ What follows `@test` decides the form:
 
 - **Placement and access.** `@test` declarations sit at top level in any file,
   and can reach their module's private members, so white-box testing works.
+- **Test sidecars** (Proposed; codex's architecture t6). Sometimes tests cannot
+  sit in the implementation file. The self-hosted compiler is the main case:
+  its source must stay in the subset the frozen compiler parses, which has no
+  `@test`. A sidecar file then carries them:
+  - a file `parser.test.saw` beside `parser.saw` is **part of module `parser` in
+    test builds only**, so its tests keep white-box access to the module's
+    private members;
+  - it adds nothing to normal builds, and is never in the bootstrap Stage 0
+    source set;
+  - it does not make anything public or weaken production visibility.
+  (An importing test module would not do: it gets no private access.)
 - **No rot.** Ordinary cases and test-only declarations are typechecked in every
   build, so they cannot silently decay. They are emitted only in test builds.
 - **Test-only means test-only.** A reference to a test-only declaration from
