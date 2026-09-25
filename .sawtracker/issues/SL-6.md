@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":4014,"closed":"","created":"1788791149","id":"SL-6","labels":["frozen"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":2,"sequence":1753,"stage":"backlog","status":"open","title":"DF-301a: Emit valid frame types for generic-struct closure parameters","updated":"1790341599"}
+{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":4014,"closed":"1790341599","created":"1788791149","id":"SL-6","labels":["frozen"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":3,"sequence":1754,"stage":"backlog","status":"closed","title":"DF-301a: Emit valid frame types for generic-struct closure parameters","updated":"1790341599"}
 ---
 
 
@@ -77,4 +77,7 @@ nothing to xfail; the repro above is the pin when this is scheduled.
 
 
 ## Comments
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":277,"created":"1790341599","id":"c1","kind":"landing"} -->
+Closed in the Sep 25 tracker cleanup (SL:tracker-cleanup): a defect in the Python compiler, which is frozen (Sep 24). The frozen compiler stays the differential oracle, and this issue is its "oracle known wrong" reference. Test-coverage aspect: `coroutine.frame.closure-param`.
 
