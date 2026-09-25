@@ -464,12 +464,16 @@ struct Scopes { names: Vector<Vector<Name, GlobalAllocator>> }   // drops once
   generic deep, with arena indices into a flat `Vector`, which is the subset's
   layout anyway.
 
-**Checker:** yes, syntactically:
-- refuse an explicit type-argument list on a construction expression when one
-  of the arguments is itself generic;
-- refuse a field type in which a generic with defaulted parameters (`Vector`,
-  `Map`, `Set`, `Box`) appears as a type argument without those arguments
-  written.
+**Checker:** no: **leak only** (Air t15). The missed drop is a leak, and the
+copy face is a loud ICE. The retain and static lookups that the same mangling
+feeds showed no other symptom when probed on main 2fa71814:
+- a Copy-tier `Pair<Pair<String>>`, copied 200 times, reads every string
+  correctly and leaks one allocation per string, with no early free;
+- a static `Pair<Pair<Int>>`, a static method on `Holder<Holder<Int>>`, and a
+  `Vector<Vector<Int>>` literal all give correct values.
+
+So `Vector<Vector<Name>>` and `Map<String, Vector<Rec>>` are fine in the
+compiler source. The Instead's spellings remain the ones that drop.
 
 L15's ICE text matches the copy face here, so L15 (SL-389) may be a second
 trigger of the same missing-symbol path. Check that once before trusting L15's
@@ -1243,7 +1247,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-368 | S15 Methods called on an indexed element | silent |
 | SL-380 | L14 Nesting depth and chain length | loud |
 | SL-381 | L6 Copy tier and conditional conformance | loud |
-| SL-382 | S13 Explicit nested type arguments | silent |
+| SL-382 | S13 Explicit nested type arguments | silent, leak only |
 | SL-383 | S9 Type aliases | loud |
 | SL-384 | S9 Type aliases | loud |
 | SL-389 | L15 Unreduced ICE | loud (shape unconfirmed) |
