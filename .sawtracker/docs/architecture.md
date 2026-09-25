@@ -180,8 +180,12 @@ caching.
   - **the harness:** lossless framed dumps, exact cross-engine comparisons,
     deterministic batching, and failure artifacts. M21's renderer profiling and
     batching work stand on their own, independent of its parser control stack;
-  - from U0′ (branch `sl2u0`): the complete depth funnel, the lane proving every
-    recursive path is charged, and the quote-anchor rule.
+  - from U0′ (branch `sl2u0`): the depth funnel, the lane proving every
+    recursive path is charged, and the quote-anchor rule. They arrive with two
+    known gaps from that patch's review, which the new parser closes: the
+    funnel undercharges `move *p`, since the `*` must be charged (SL:hazards
+    C1); and the quote anchor misanchors on a quote inside a `//` comment in an
+    interpolation (C3).
 - **Carried over, but not as-is:**
   - M21 stores `else if` as nested If/Block/FinalExpression wrappers and charges
     each active `else if` against the depth budget. The new contract makes
@@ -224,7 +228,9 @@ caching.
   cycle detection (principle 6).
 - **Phase 3, signatures and bodies.** With every table complete, each name is
   resolved in its lexical scope, in design 150's order: locals, then module
-  declarations, then imported bare names, then qualifiers. Because phase 1
+  declarations, then imported bare names, then std names an import gate keeps
+  hidden (design 255's tier, which exists to give a precise "import it" error),
+  then qualifiers. Because phase 1
   finished first, a type can mention itself (`struct Node { next: Box<Node>? }`)
   and mutually recursive types and functions resolve in any order.
 - **A name resolves to** a local, a declaration, an overload set, an enum case,
@@ -234,7 +240,10 @@ caching.
   - `f(…)` resolves to an overload set;
   - `x(…)` resolves to a local holding a closure value;
   - `T(…)` resolves to a type parameter;
-  - `E.Case(…)` resolves to an enum case.
+  - `E.Case(…)` resolves to an enum case;
+  - a callee that is itself an expression, as in the general postfix call ruled
+    in SL-73 (`foo()(1)`, `(f)(1)`, `v[i](x)`), is a function-value call. Resolve
+    records that, and typecheck decides it from the callee's type.
 
   The Python compiler guesses from one token of lookahead (`name(ident:` is a
   struct init) and then converts in both directions in the typechecker (designs
@@ -271,12 +280,23 @@ caching.
   - every expression is marked as a place or a value;
   - every value use carries its transfer kind: a spelled `move`, an implicit
     copy, or the hand-off of an owned temporary (§3.5).
-- **Order.** Signatures first, program-wide: struct layouts, function
-  signatures, trait requirements and the conformance table. Then each function
-  body is its own checking unit, checked against signatures only. No body looks
-  inside another, so bodies can be checked in any order, or in parallel.
-- **Inference is local and bidirectional.**
-  - Signatures are always written. No inference crosses a function boundary.
+- **Order.** Signatures come first, program-wide: struct layouts, function
+  signatures, trait requirements and the conformance table. Then three phases
+  follow (Air t24), the same shape §3.12 uses across an import cycle:
+  1. **Type-check each body** as its own checking unit, against signatures
+     only. No body looks inside another, so this phase runs in any order, or in
+     parallel.
+  2. **Solve the body-derived summaries to a fixpoint:** may-suspend and
+     sync-callable (below), and each generic function's inferred Copy
+     requirement (design 219). They cross function boundaries by design, and
+     recursion makes cycles.
+  3. **Run the checks that consume the summaries:** a `sync` body calls only
+     sync-callable targets, and each call site satisfies its callee's inferred
+     requirement.
+- **Type inference is local and bidirectional.**
+  - Signatures are always written, and no *type* inference crosses a function
+    boundary. (Effects and the inferred Copy requirement do cross it, in
+    phase 2.)
   - Inside a body, the expected type flows down: a literal adopts it, a
     closure's parameters take it, and a zero-argument construction takes the
     declared slot type (design 207). Argument types flow up.
@@ -351,7 +371,13 @@ caching.
   - match exhaustiveness;
   - a discarded `Result` (design 151);
   - literal ranges;
-  - finite struct size: cycle detection on the by-value containment graph.
+  - finite struct size: cycle detection on the by-value containment graph;
+  - **borrowing-struct containment** (Air t21; spec: Borrowing structs). A
+    borrowing struct (`VectorIterator { vector: &Vector<T, A> }`) carries a
+    loan in a field. It may appear only where a `borrows` function lends it: a
+    `borrow` head or a `for` head. It cannot be bound elsewhere, stored in a
+    field, erased to `any`, returned plainly, or cross a function type. These
+    rules keep its loan inside one function, which is what keeps §3.6 local.
 - **Does not own:** where moves and drops happen (MIR lowering), or whether a
   borrow conflicts (the borrow check). It records transfers; MIR lowering
   places them.
@@ -395,6 +421,15 @@ caching.
   runs at `window_close`. The accessor's locals that live across `lend` form a
   small state record in the caller's frame. That is the shape coroutine lowering
   produces, so accessors reuse its machinery (§3.9).
+  - **An accessor's own body may suspend** (Air t23). SL:borrowing §2.5 admits
+    one, such as a task-owned async mutex whose prologue parks while waiting.
+    Its effects are inferred like any function's (§3.4). So `window_open` is a
+    suspension point when the prologue may suspend, and `window_close` is one
+    when the epilogue may. The borrow check checks the loans live at those
+    moments like any other suspension. The state record survives a suspension
+    *during* open or close as well as across the body, and the halves embed in
+    the caller's frame like any suspending callee (§3.9). An accessor declared
+    `sync` promises neither half suspends.
 - **A closure is an aggregate of its captures.** A by-value capture is a move or
   a copy into the closure's record. A reference capture (`[&x]`, `[&var x]`,
   `self`, a reference parameter) is a `ref` whose loan lasts while the closure
@@ -414,15 +449,21 @@ caching.
 - **Suspension points are marked.** A call to a function that may suspend
   (§3.4) is a *suspension point* in the MIR. §3.9 lowers it, but the borrow
   check sees it first.
-- **Op-budget points are placed here too** (design 127). In a function that may
-  suspend, every loop backedge gets a budget point:
-  - outside any `borrows(sync)` window it is a potential suspension point, which
-    the borrow check sees like any other;
-  - inside one it only charges the budget, and the yield waits for the next
-    budget point after the window closes.
+- **Op-budget points are placed here too** (design 127), on *every* loop
+  backedge of every function, not only of functions that may suspend (Air t22).
+  A pure-compute task body such as `while true { n += 1 }` has no suspending
+  call at all, and the budget is what gives it a place to yield. Each point
+  gets its class here, once:
+  - *yield-capable* outside any `borrows(sync)` window. The borrow check sees
+    it as a potential suspension point. Since no `borrows(sync)` loan can be
+    live there by construction, and every other loan may span a suspension,
+    it never adds a refusal;
+  - *charge-only* inside a `borrows(sync)` window. The yield waits for the next
+    yield-capable point after the window closes.
 
-  Coroutine lowering implements these points and never adds a suspension the
-  borrow check did not see.
+  Which points stay live is decided by how the function is used, after mono
+  (§3.9). Coroutine lowering removes or keeps points; it never adds a
+  suspension the borrow check did not see.
 - **The central invariant:** after this stage, nothing about ownership is
   implicit.
 
@@ -431,7 +472,8 @@ caching.
 - **It needs no lifetimes and never looks outside the function,** because a
   reference never escapes one. References are parameters, borrow bindings and
   non-escaping captures. They are never returned or stored in fields (spec, the
-  exclusivity section). The only way out of a function is `lend`, whose window
+  exclusivity section), except inside a borrowing struct, whose containment
+  rules (§3.4) confine it to the window that lent it. The only way out of a function is `lend`, whose window
   the *caller* opens and closes. So every loan starts and ends inside the
   function being checked.
 - **Two dataflow analyses over the control-flow graph:**
@@ -456,6 +498,16 @@ caching.
   - **Tracing.** Derefs and reborrows are traced back to the loan and root they
     came from, so an access through a reference is checked against the right
     root.
+  - **A loan can be carried by a struct value** (Air t21). When a window's
+    accessor lends a borrowing struct (an iterator), the struct value carries
+    the window's loan. Its uses, calls on it, and the per-element windows its
+    `next` opens are all traced back to that loan, the tracing rule extended to
+    a borrowing struct's fields. Each element window is a reborrow through the
+    struct, which freezes the struct while the element is live. The struct is
+    destroyed before the window's loan ends, so a hand-written `deinit` may read
+    through its reference. The spec orders it that way, and drop elaboration
+    keeps the order (§3.7). Typecheck's containment rules (§3.4) keep all of
+    this inside one function.
   - **Overlap is conservative.**
     - Distinct fields are disjoint, and so are distinct *constant* indices of a
       fixed array.
@@ -510,10 +562,18 @@ caching.
 - **Identity:** a type's identity is (defining module, name, canonical
   arguments) with defaults filled at every depth (SL-382).
 - **Mechanism: a worklist from the roots.** The roots are `main`, `@export`
-  functions, test cases in a test build, the runtime seams, and the methods of
-  every `any Trait` table that a concrete type is coerced into.
+  functions, test cases in a test build, the runtime seams, the methods of
+  every `any Trait` table that a concrete type is coerced into, and every
+  function named in the initializer of a `static` (Air t28). Design 226 makes a
+  named `sync` function a `FuncPointer` value in a static initializer, which is
+  what lets a dispatch table be a `static`. Those targets appear in no
+  function's MIR, only in the static's constant, and the `FuncPointer`'s type
+  selects the overload under the same identity rules as any item.
   - An item is (function, concrete arguments). Substituting into its MIR gives
     concrete MIR, whose calls add new items.
+  - A spawn site (`group.spawn(f(…))`, `Task.spawn`, `Thread.spawn`) adds a
+    *task-root* item for its target, separate from the target's ordinary item
+    (§3.9).
   - Items are deduplicated by identity and processed in a deterministic order.
 - **Trait calls become direct calls** to the implementing method. Each
   (concrete type, trait) pair coerced to `any Trait` gets its method table.
@@ -549,6 +609,12 @@ caching.
   function suspends if it contains a park or statically calls one that
   suspends. Typecheck's conservative "may suspend" (§3.4) served the borrow
   check. A function that turns out not to suspend gets no frame.
+- **Every spawn root gets a frame, even when its function is sync** (Air t22).
+  A task-root item (§3.8) is a separate specialization of its target, produced
+  here. It always has a frame, and its op-budget points stay live (below). The
+  ordinary item for the same function, called directly from sync code, keeps no
+  budget points and stays sync-callable. So a pure-compute task can still
+  yield, and a sync helper stays sync.
 - **Calls through a function value or `any Trait` stay unframed.** Mono makes
   type arguments concrete, not the target of a function value. Those calls
   never suspend, since closure bodies cannot and suspending dispatch is refused
@@ -616,8 +682,16 @@ caching.
 - **Accessors** that keep state across `lend` use the same frame machinery
   (§3.5).
 - **The op budget** (design 127) is implemented here, at the budget points MIR
-  lowering placed (§3.5). A budget point in a function that turns out not to
-  suspend is removed. No new suspension is created here.
+  lowering placed and classified (§3.5). They stay live, charging and, where
+  yield-capable, yielding, in three places, as the spec's "Pure compute" rule
+  requires:
+  - a task-root specialization;
+  - the suspending callees embedded into a task;
+  - a suspending `main`.
+
+  Everywhere else they are removed, including in the ordinary item of a sync
+  function. No new suspension is created here: every yield happens at a point
+  the borrow check already saw.
 - **Operates on MIR,** not source, so it never re-typechecks generated code.
   Borrows across suspensions are windows in the frame.
 - **Suspension is visible to the borrow check.** Effects are known after type
@@ -626,11 +700,29 @@ caching.
   SL-386, SL-315 and SL-256 were all a borrow or capture crossing a suspension
   in a transform that rewrote source.
 - **The executor protocol is MIR primitives, correct by construction.** One
-  `park(root_token, fd, dir)` op, whose single lowering records the park word
-  and then arms readiness, and one propagation op, whose single lowering merges
-  a child's wake reason. There is nothing to verify by pattern-matching emitted
-  code. SL-353's lost wake came from arming before recording, and SL-355's
-  after-the-fact verifier had holes in three successive review rounds.
+  `park(root_token, reason)` op, whose `reason` is a closed enum with one
+  lowering per case, each recording the park word before it arms anything. And
+  one propagation op, whose single lowering merges a child's wake reason. There
+  is nothing to verify by pattern-matching emitted code. SL-353's lost wake
+  came from arming before recording, and SL-355's after-the-fact verifier had
+  holes in three successive review rounds.
+  - **The reasons** (Air t25). Every way a task parks is a case, so none gets an
+    ad-hoc lowering:
+    - *fd readiness* (a socket or file descriptor);
+    - *a timer deadline* (`sleep`, and the `timeout:` twins of `accept`,
+      `read`, `read_into` and `connect`);
+    - *a channel wait* (design 230), woken by a send or a close on its own
+      channel;
+    - *an offload job* (design 103), an fd park with its own join-before-cancel
+      rule;
+    - *a signal watch* (design 272);
+    - *a ready yield* (`yield_now`, and the op budget's forced yield).
+  - **The deadlock walk's classification is part of each case's definition.**
+    The executor finds a deadlock by elimination, so each case states how that
+    walk counts it. The classification is taken from the current executor's
+    rules when the cases are specified, not re-derived. One constraint is
+    already known: a signal watch counts as I/O, because a lone signal watcher
+    is a correct state that only looks like a hang.
 - **Ownership preservation is verified, not re-decided.** The borrow check runs
   before this stage, so it cannot see the new resume, cancel and drop paths
   that lowering creates. A MIR verifier after lowering checks that:
@@ -697,6 +789,13 @@ caching.
 - The existing Saw-authored runtime (`sawc/rt/`) behind the frozen ABI
   (`rt/ABI.md`), shared with the Python compiler. Lock re-entry panics under the
   new contract (see the borrowing doc).
+- **ABI changes the lockdown already implies** (Air t29), each entering
+  `rt/ABI.md` before its contract lands:
+  - the freestanding lock-owner seam, answering "who holds this?" on targets
+    with no thread id: the CPU or hart id plus interrupt context
+    (SL:borrowing §8);
+  - the reactor register's new return type (0 or an errno), if SL-355's
+    runtime half is revived (SL-355 c19).
 
 ### 3.12 The driver, separate compilation and caching
 - **Caching lives in the driver, never in a stage.** Each stage is a pure
@@ -735,6 +834,10 @@ caching.
   - every flag that changes output: target triple and features,
     `--freestanding`, `--runtime-build` and `--runtime-provider`,
     `--no-hidden-alloc`, the test profile, and the optimisation level.
+
+  The enabled `-W` categories are deliberately *not* in the key (Air t29). A
+  cached module stores every warning it can produce, and replay filters them by
+  the categories enabled now. So turning a category on never forces a rebuild.
 
   A wrong key is a silent miscompile, so the key over-approximates
   (design 164, unit 5).
@@ -794,6 +897,26 @@ unfrozen to learn them. So:
   languages: code that is valid in both and means the same in both. Examples:
   a plain `v[i]` copy read, arena indices, explicit methods rather than inline
   place writes, and no `borrow` or `@test`.
+- **"Means the same" covers the std API, not only language forms** (Air t26).
+  Stage 0 builds against `sawc/std` and Stage 1 against the new std, so a call
+  that means one thing in each passes Stage 0 and breaks, or silently changes,
+  at Stage 1. The subset checker therefore carries an *API allowlist* beside
+  its import allowlist: the std members the compiler source may call, each
+  confirmed to mean the same in both stds. The calls the lockdown changes are
+  excluded:
+  - `m[k]` on a `Map`: an optional place in `sawc/std`, a panicking getitem in
+    the new std;
+  - a write or presence test through `get`: a place today, a value in the new
+    std (SL:borrowing K14). The silent case;
+  - `m[k]! = v`: a panic on a missing key today, an insert under the new
+    setitem (K7). Also silent;
+  - `with_ref`, `with_var_ref`, the closure-taking `Mutex.lock` and
+    `Arc.with_unique`, which are retired;
+  - `iter()` over non-Copy elements, since the Copy requirement moves from the
+    producer to the loop.
+
+  Stage 1 building the compiler catches the loud cases, but late. The silent
+  ones would only show up in output, which is why they are excluded up front.
 - The compiler's **own tests** live in separate files that only Stage 1 onward
   compiles, so the first test-first build has no dependency cycle. Each is a
   **test sidecar** of the module it tests (`parser.test.saw` beside
@@ -825,7 +948,9 @@ into a few rules that are cheap to check, and the subset is defined by them:
 - no `type` aliases, and no compiler type reusing a prelude type name;
 - selective imports only;
 - no `init` in a generic extension;
-- no overloads that differ by a non-`Int` integer parameter;
+- no overloading at all where an overload takes a non-`Int` integer parameter
+  (SL:hazards L1: overloads that *agree* on `UInt` still refuse
+  `b.put(len: 1)`);
 - no `any`, `Box`, cells (`Mutex`, `SpinLock`, `Once`,
   `UnsafeMutableInterior`, `Atomic`, `Arc`), raw pointers or fixed-size arrays;
   arena indices instead;
@@ -914,7 +1039,7 @@ When that cannot be determined, everything runs.
 | Stage | Test surface |
 |---|---|
 | Lexer | golden token dumps |
-| Parser | golden AST dumps; `@test(refuses:)` does not apply to parse errors, which stay as corpus files |
+| Parser | golden AST dumps; `@test(refuses:)` for parse errors in a brace-balanced body. Only lexer errors and unbalanced braces stay as corpus files (SL:testing §5) |
 | Resolution | resolution-table dumps; `@test(refuses:)` for name rules (shadowing, visibility, test-only names); multi-file refusals as corpus files |
 | Typecheck | `@test` and `@test(refuses:)` by aspect; typed-IR dumps |
 | MIR and its checks | MIR dumps, plus refusal matrices for borrow, move and exclusivity rules |
@@ -932,6 +1057,30 @@ agreement is snapshotted once into golden token and AST fixtures for the
 unchanged part of the language. After review, those fixtures are the oracle.
 The one live differential is whole-program behaviour on the `examples/` corpus,
 described next.
+
+**Two corpora, paired by file** (Air t27; Proposed). The new compiler refuses
+the spellings the lockdown retired, and SL:borrow-survey counts about 250 of
+them in `examples/`'s non-error programs: 158 retired place uses and about 95
+one-shot closure-borrow calls. A "language changed" annotation would explain
+their mismatches but never make them run, so they would never count as
+progress. So:
+- **`examples/` stays exactly as it is, as the frozen compiler's corpus.** The
+  Python suite in the path-aware gate keeps running on it, unchanged.
+- **The new compiler's corpus is a migrated copy** (for example
+  `tests/corpus/`), produced once by a mechanical rewriter:
+  - inline place writes become `borrow var`;
+  - `&var x[i]` arguments become `borrow var x[i]`;
+  - `m[k]?.f = v` becomes `borrow var m.find(&k)?.f = v`;
+  - Map optional reads become `get`;
+  - one-shot closure borrows become `borrow` blocks.
+
+  The rewriter flags what it cannot rewrite, for migration by hand. After that,
+  the copy is maintained as source, and new cases are written in the new
+  language only.
+- **The differential pairs the two by file name:** the frozen compiler on the
+  original, the new compiler on the migration, the outputs compared.
+- **Language-level `@test` files** live in `tests/lang/`, one aspect per file
+  (SL:testing §4 and §6), beside the migrated corpus.
 
 **Two kinds of expected mismatch, annotated separately.** When the new compiler
 disagrees with the frozen one, the difference is either the frozen compiler
