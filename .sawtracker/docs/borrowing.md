@@ -41,6 +41,17 @@ borrow var n = counter.lock() { n += 1 }
 - There is no `else` clause. The binding carries whatever the accessor lends:
   a conditional lend binds an optional place, and the body discriminates it with
   `if let` or `match` (§2.4).
+- **A block is an expression** (Ruled). Its value is its tail, as with `if` and
+  `match` blocks. The value must be owned or copied out. It can never carry the
+  borrow itself: no reference, slice or borrowing struct into the place.
+  ```saw
+  let outcome = borrow var task = frames[i] {
+      match task.resume() {
+          case Pending -> Outcome(done: false, wake: task.wake_reason())
+          case Ready -> Outcome(done: true, wake: Wake.None)
+      }
+  }
+  ```
 
 ### 2.2 Statement form (Ruled)
 
@@ -71,6 +82,17 @@ print(borrow let doc.section("net").name)
   in use.
 - A conditional lend used inline needs `!` (panic if absent) or `?` (skip if
   absent), since there is no block in which to discriminate it.
+- **In argument position it passes the place by reference** (Ruled).
+  `borrow var <place>` passes `&var`, and `borrow let <place>` passes `&`. The
+  prefix replaces the `&`/`&var` sigil at that argument, and the borrow lasts
+  for the call:
+  ```saw
+  bump(borrow var g[4])
+  checksum(borrow let buf[4..])
+  ```
+  A local, or a field path with no `borrows` accessor in it, is still passed as
+  `&x` / `&var s.field`. `borrow` is written only where a `borrows` accessor is
+  called.
 
 ### 2.3 Several bindings (Proposed)
 
@@ -101,11 +123,76 @@ graph and knows that an absent arm of the binding holds no borrow. The common
 get-or-insert case does not need this, because the `default:` subscript (§5.4)
 covers it.
 
-### 2.5 Suspension (Proposed)
+### 2.5 Suspension (Ruled: all borrows may span suspensions; Proposed: the lock exception)
 
-A borrow may stay open across a suspension unless its accessor is `sync`. A
-lock accessor is `sync`, so a lock body cannot suspend. The machinery for a
-borrow held across a suspension already exists.
+Any borrow may stay open across a suspension: block form, statement form,
+`for` (§2.6) and a borrowed argument alike. A borrow held across a suspension
+lives in the coroutine frame like any other live value, and the borrow check is
+suspension-aware (SL:architecture).
+
+**Proposed exception: `sync` accessors, which today means locks.** A task can
+resume on a different worker after a suspension. A lock held across one breaks
+twice:
+- The owner check misfires. The lock word records a thread (§8), so the release
+  would come from a thread that is not the owner, and another task on the
+  original worker would look like a re-entry.
+- It can deadlock. A task spinning for the lock can occupy the worker the holder
+  needs in order to resume.
+
+So a lock accessor is declared `sync`, and the body of a borrow through it
+cannot suspend. A lock that may be held across a suspension is a different type:
+its owner is the task, and its waiters park rather than spin. It can be added
+when something needs it.
+
+### 2.6 `for` is a borrow scope (Ruled)
+
+`for` is the repeating form of `borrow`, not a separate mechanism. In
+`for x in v.iter() { … }`, the head `v.iter()` is borrowed for the whole loop,
+exactly as a `borrow` block's head is. The body runs once per `next`, until
+`next` returns `None`. The root charge follows §3 (shared for an `&self`
+accessor), and the borrow may span suspensions (§2.5).
+
+**Borrowing each element** (Proposed; codex, borrowing-survey t3). Today
+`v.iter()` yields copies, so it works only for Copy elements. A loop over
+NoCopy elements, like a vector of `Session`s, borrows each element in turn:
+
+```saw
+for borrow let s in sessions.iter() { print(s.name) }
+for borrow var c in grid.cells() { c.weight += 1 }
+```
+
+- The iterator's `next` is itself an accessor:
+  `func next(&var self) borrows -> &var T?`, or `&T?` for a shared iterator.
+  Each iteration is one nested borrow, closed before the next `next`, so there is
+  never more than one element lent at a time.
+- The collection is charged for the whole loop, exclusively for `borrow var`, so
+  the body cannot push to the vector it is walking.
+- A plain `for x in …` copies each element and so needs Copy elements. The
+  `borrow` keyword keeps the in-place form visible (§1). `for var x in …` would
+  read as a mutable copy.
+
+**Visitor APIs stay** (Ruled: "closure based visitor APIs must be allowed").
+`each`, `each_indexed`, `map`, `fold`, `sort_by`, `Map.each`/`each_key`/
+`each_value` and `Set.each` remain closure-based, in std and in user code. Their
+closures' reference parameters and captures are ordinary MIR borrows (§9).
+`for` is the alternative for plain iteration, not a replacement. `sort_by`'s
+internals lend two elements of one root at once, which is the `unsafe` tuple
+lend of §7.
+
+### 2.7 Passing a borrow onward (Ruled)
+
+- **A bound place can be passed on.** Inside a borrow, `f(&var slot)` hands the
+  place to a callee as an ordinary reborrow for the duration of the call.
+- **A lend can forward another accessor's place** (Ruled: "forwarding a borrowed
+  reference via a function call is allowed"). Inside a `borrows` body, `lend`
+  may name a place reached through another accessor:
+  ```saw
+  lend self.sections[i]                                   // toml's section_at
+  match self.slots[b] { case Occupied(_, v) -> { lend v } … }   // Map's find
+  ```
+  The inner borrow opens for as long as the outer lend is open, nested inside
+  it, and closes in reverse order. `lend` is already the explicit borrow marker
+  inside an accessor, so no `borrow` keyword is written there.
 
 ## 3. Declared modes and the root charge (Ruled)
 
@@ -127,6 +214,11 @@ Two independent facts, both read from the accessor's declaration:
 
 - Under a shared root, other shared reads of the root are allowed. Under an
   exclusive root, the body cannot touch the root at all.
+- **An accessor may lend a borrowing struct** instead of a reference, such as
+  an iterator (`(&self) borrows -> VectorIterator<T, A>`). The same rule
+  charges its root: shared for `&self`, exclusive for `&var self`. It may be
+  called only as a `borrow` head or a `for` head (§2.6), and the struct cannot
+  leave that scope.
 - **Why it is declarative:** an exclusive accessor narrowed to "shared" at the
   use site is unsound when its prologue or epilogue writes `self`, because two
   paused accessor frames would each hold `&var self`. This retires the
@@ -148,6 +240,29 @@ extension Vector<T> {
     public func [](&var self, i: Int) borrows -> &var T {
         if i < 0 || i >= self.len() { panic("index out of range") }
         lend self.buffer[i]
+    }
+}
+```
+
+**When the two bodies differ, both are written** (Ruled: "if there are
+differences between the exclusive and shared borrow implementations, they must
+be explicitly defined"). `@synthesize(shared)` applies only when the same body
+is valid under both signatures. There is no mode test inside one body, like
+today's `#lend_var`. `Data` is the case: its exclusive `[]` must separate shared
+copy-on-write storage before lending, and its shared `[]` must not.
+
+```saw
+extension Data {
+    public func [](&self, index: Int) unsafe borrows -> &UInt8 {
+        self.check_index(index)
+        lend (self.byte_ptr() as UnsafePointer<UInt8>)[index]
+    }
+    public func [](&var self, index: Int) unsafe borrows -> &var UInt8 {
+        self.check_index(index)
+        if not self._make_ready(self.length) {    // separate shared bytes before a write
+            panic("Data.[]: allocation failed")
+        }
+        lend (self.byte_ptr() as UnsafePointer<UInt8>)[index]
     }
 }
 ```
@@ -191,8 +306,16 @@ are derived:
   writes `self`.
 - setitem is an exclusive lend plus an assignment (replace).
 
-`Map` declares its getitem, setitem and `default:` pair explicitly, because it
-inserts.
+`Map` declares its getitem and setitem explicitly, because it inserts.
+
+**Field reads of a derived getitem** (Ruled). Under "looks like a copy, is a
+copy", `PROCESSES[p].state` is a getitem of the whole element followed by a
+field read. When getitem is *derived* from a shared place accessor, the compiler
+may lower `v[i].f` as a shared borrow plus a copy of `f` alone. For Copy-tier
+elements that is observably identical, so it is an allowed optimisation, not a
+language rule. A *declared* getitem is always called as written, since its body
+may have side effects. (Evidence for sawos's 410 such reads comes from the IR,
+not from a size delta alone: borrowing-survey K13.)
 
 ### 5.3 Multi-argument subscripts (Ruled)
 
@@ -221,8 +344,9 @@ if names[id, default: ""] == "admin" { … }
 borrow var e = sessions[id, default: Session()] { e.hits += 1 }
 ```
 
-A getitem/setitem pair: the getter returns `m.get(k) ?? default`, and the
-setter inserts. It is plain value code for Copy values, with no borrow.
+On a miss, the read form yields the default and the other forms insert it.
+The read and compound forms are plain value code for Copy values, with no
+`borrow` written.
 
 **The default is lazy** (Ruled: "Python's eager evaluation has bit me in the
 past, so i think lazy defaults are the more expected behaviour"). The default
@@ -237,56 +361,50 @@ codex t4): `default:` is a compiler-known argument label with `??` semantics,
 not a general lazy-parameter feature. There is no new parameter kind and no
 closure, so nothing is captured or allocated.
 
-**The protocol is declared traits**, not a method name the compiler guesses.
-There are two capabilities, because an owning read cannot return an existing
-NoCopy value, while the place form works for any `V` (codex t4):
+**The protocol is one declared trait** (Ruled: "one KeyedPlace trait for
+now"), not a method name the compiler guesses:
 
 ```saw
-// The place form: any V, including NoCopy (e.g. Session).
 trait KeyedPlace<K, V> {
     func find(&var self, key: &K) borrows -> &var V?              // the existing entry, if any
     func insert(&var self, key: K, value: V) borrows -> &var V    // store, then lend what was stored
 }
-
-// Value forms (read, compound assignment): only where V may be copied out.
-trait KeyedValue<K, V> {
-    func get(&self, key: &K) -> V?                                // a presence-aware copy-out
-    func []=(&var self, key: K, value: V)                         // store: insert or replace
-}
 ```
 
-- **Keys are never silently duplicated.** Lookups take the key by reference
-  (`&K`). The one operation that stores, `insert` or `[]=`, takes it by value
-  as the key's *last* use. The saved key is therefore borrowed, then moved once,
-  and never copied behind the reader's back.
-- `KeyedValue` applies only where `V` may be copied out, which follows "if it
-  looks like a copy, it copies". For a NoCopy `V`, only the place form exists.
-- `Map` conforms to both. A user type can conform to either or both.
+- Every form of `default:` is built from these two operations. There is no
+  second, value-level trait: the value forms are the place forms plus a copy.
+- **A read holds the root shared when it can.** It borrows through `find`'s
+  `&self` twin when the conformer has one, written or `@synthesize(shared)`
+  (§4), and otherwise through the exclusive `find`, following §4's
+  least-privilege rule. `Map` synthesizes the twin.
+- **Keys are never silently duplicated.** `find` takes the key by reference
+  (`&K`). `insert`, the one operation that stores, takes it by value as the
+  key's *last* use. The saved key is therefore borrowed, then moved once, and
+  never copied behind the reader's back.
+- The value forms (read, compound assignment) need a Copy-tier `V`, following
+  "if it looks like a copy, it copies". For a NoCopy `V`, write the place form.
 
 **Per-role meaning.** The receiver and key are always evaluated exactly once,
 first:
 
 | Spelling | Meaning | When `e` is evaluated |
 |---|---|---|
-| `m[k, default: e]` (read; `KeyedValue`) | `m.get(&k) ?? e` | only on a miss |
-| `m[k, default: e] op= r` (`KeyedValue`) | `let old = m.get(&k) ?? e`, then `r`, then `m[k] = old op r`, which moves `k` | only on a miss. The *result* is stored, so `counts[k, default: 0] += 1` stores `1` on a miss |
-| `m[k, default: e] = v` | `m[k] = v` | **never**. A pure store ignores the default; writing one there draws a `-W` warning |
-| `borrow var x = m[k, default: e] { … }` (`KeyedPlace`) | `find(&k)`; on a miss, evaluate `e` and lend `insert(k, e)`, which moves `k` | only on a miss |
+| `m[k, default: e]` (read) | `find(&k)`: on a hit, copy the entry out; on a miss, yield `e`. Nothing is inserted | only on a miss |
+| `m[k, default: e] op= r` | evaluate `r`, then `find(&k)`; on a miss, evaluate `e` and `insert(k, e)`, which moves `k`; then `entry op= r` in place | only on a miss. The *result* is stored, so `counts[k, default: 0] += 1` stores `1` on a miss |
+| `m[k, default: e] = v` | `m[k] = v`, the type's own setitem | **never**. A pure store ignores the default; writing one there draws a `-W` warning |
+| `borrow var x = m[k, default: e] { … }` | `find(&k)`; on a miss, evaluate `e` and lend `insert(k, e)`, which moves `k` | only on a miss |
 
-The place form therefore always works on storage in the map, never on a
-temporary, and it needs no second lookup after inserting. A user-defined type
-gets `default:` by conforming to the traits, which state exactly which of its
-operations are used.
-
-The **place** overload, `borrow var e = m[k, default: v] { … }`, is a third
-accessor with its own meaning: on a miss it *inserts* `v` into the map, then
-lends the stored entry under an exclusive root. The body therefore always works
-on storage in the map. It never works on an owned fallback temporary that is
-written back later, which would behave differently (for example, if the body
-reads the map's length). Missing
-keys are handled per call. A default parameter value on the getter would
-silently undo the missing-key panic, so there is none. A per-instance default
-(`defaultdict`) could be library sugar later.
+- The compound form evaluates `r` before the borrow opens, as every assignment
+  does (§2.2), so `r` may read the map. On a miss, `e` runs where `find` lent
+  nothing, so it may read the map too (§2.4).
+- The place form always works on storage in the map, never on a temporary that
+  is written back later. That would behave differently, for example if the body
+  reads the map's length. It needs no second lookup after inserting.
+- A user-defined type gets `default:` by conforming to `KeyedPlace`, which
+  states exactly which of its operations are used.
+- Missing keys are handled per call. A default parameter value on the getter
+  would silently undo the missing-key panic, so there is none. A per-instance
+  default (`defaultdict`) could be library sugar later.
 
 ## 6. Slices (Ruled)
 
@@ -440,11 +558,16 @@ to validate safety.")
 ## 9. Retired from today's language
 
 - Inline place use: `g[4].weight += 1`, `bump(&var g[4])`, `m[k]?.field = v`.
+  They become `borrow var g[4].weight += 1`, `bump(borrow var g[4])` (§2.2) and
+  `borrow var m.find(k)?.field = v`.
 - Use-site inference of shared versus exclusive (designs 141 and 146).
+- A mode test inside one accessor body (`#lend_var`); differing bodies are
+  written as two accessors (§4).
 - `Map.[]` returning an optional.
 - **The stdlib's closure-based borrowing APIs** (`with_ref`, `with_var_ref`,
   `Mutex.lock` taking a closure, `Arc.with_unique`) become `borrows` accessors.
-  (Ruled: yes for the stdlib.)
+  (Ruled: yes for the stdlib.) The visitor APIs (`each`, `map`, `fold`,
+  `sort_by`, …) are not in this list. They stay (§2.6).
 - **User code may still hand references to closures.** A non-escaping closure
   that captures a reference, or receives one, stays a language feature, and
   nothing forbids a user library from offering a closure-based API. (Ruled: "no
@@ -454,6 +577,41 @@ to validate safety.")
   can run. The one borrow check sees them like any other borrow, so the SL-345
   class is handled structurally, not by a separate capture analysis that
   enumerates capture spellings.
+
+### 9.1 Migration notes (from SL:borrow-survey §K)
+
+The survey's other flagged items are consequences of the rules above, not gaps
+in them. Each note says what the migrated code looks like.
+
+- **`m[k]! = v` changes meaning (K7).** Today the `!` panics on an absent key.
+  `m[k] = v` is setitem and inserts. Code that relies on the panic writes the
+  place form, `borrow var e = m[k] { e = v }`, whose `[]` panics on absence
+  like getitem.
+- **Presence tests on NoCopy values (K8).** `if let _ = m["zz"]` has no value
+  form, since `get` would have to copy. Use `m.contains_key(k)` on a `Map`.
+  Elsewhere, a `find` block yields the answer as a value (§2.1):
+  `let present = borrow let e = c.find(k) { if let _ = e { true } else { false } }`.
+- **"Did it write" through a conditional lend (K9)** (Proposed). The statement
+  form with `?` has type `Void?`, as optional-chain assignment does today, so
+  `guard let _ = borrow var m.find(k)?.value = 7 else { … }` stays one line.
+- **Lock re-entry by the same name (K10).** `examples/spinlock_basic.saw` pins
+  "`try_lock` inside a critical section refuses rather than deadlocking". Under
+  §8 that is a compile error, so the pin becomes an `@test(refuses: …)` case,
+  and the runtime panic is pinned through two names for one lock.
+- **An address out of a slot (K12).** `EXCHANGES[x].body_addr()` stays a place
+  use, `borrow var EXCHANGES[x].body_addr()`, because a getitem copy's address
+  would be wrong. The returned `UInt` outlives the borrow, which is the unsafe
+  author's obligation (§8a).
+- **`get` returns an optional value, not a place (K14).** `v.get(i)!.n += 10`
+  wrote in place, and through a value `get` it would change only a copy.
+  Writes, presence tests and NoCopy chains through `get` move to `find` or
+  `borrow`.
+- **Generic std bodies (K15).** Map's probe paths read places of abstract `K`,
+  `V` and `MapSlot<K, V>`, which getitem cannot copy. They use `borrow let`,
+  with the block form for a `match`.
+- **toml section reads (K16).** Each `doc.section_at(x).get("k") ?? ""`
+  becomes `borrow let doc.section_at(x).get("k") ?? ""`. This is admitted as
+  is and flagged only for volume (34 sites).
 
 ## 10. Deferred
 
@@ -469,10 +627,12 @@ to validate safety.")
 
 ## 11. Open
 
-- **Survey: approved** (Ruled: "yes"). The Air runs a read-only survey of every
-  current place use and closure-borrow call across sawc/std, blade, libs,
-  devtools and sawos, classified by the form each becomes, with the awkward
-  shapes flagged. sawos's numbers are already in (borrowing t8): one accessor,
-  `Slab.[]`, used in 502 places.
+- **Survey: done** (SL:borrow-survey). Its seven design gaps are settled in
+  this revision: K1 (§4), K2 (§2.7), K3 and K4 (§2.6, §3), K5 (§2.1), K6
+  (§2.2) and K13 (§5.2). §8a settles K11, and §9.1 covers the rest.
+- **Still Proposed:** several bindings (§2.3), path-sensitivity (§2.4), the
+  lock exception to suspension (§2.5), `for borrow let|var` for per-element
+  borrows (§2.6), separate subscript methods (§5.2), and the `Void?` statement
+  form (§9.1, K9).
 - (Settled: `default:` is lazy (§5.4); static roots are the unsafe author's
   obligation, with an optional warning (§8a).)
