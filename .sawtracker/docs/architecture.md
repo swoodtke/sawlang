@@ -834,10 +834,11 @@ caching.
   - **Generic `constexpr` bodies** may not call a method through a trait bound
     in the first version. There are no `constexpr` trait requirements yet, and
     checking each instantiation would break "checked once" (§3.4).
-  - **Effect order:** `constexpr` takes `sync`'s place in the canonical order,
-    `unsafe sync|constexpr borrows`, followed by `consumes`. `unsafe constexpr`
-    and `constexpr borrows` are refused in the first version, as is
-    `constexpr sync`.
+  - **Effect order:** `constexpr` takes `sync`'s place in the spec's canonical
+    order, `consumes unsafe sync|constexpr`, then `borrows`. `consumes` comes
+    first, and `consumes` and `borrows` are mutually exclusive (spec: Consuming
+    method receivers). `unsafe constexpr`, `constexpr borrows` and
+    `constexpr sync` are refused in the first version (Air t34).
 - **Every backend is a mechanical translation** that makes no language
   decisions. MIR invariants enforce that:
   - **operator semantics are resolved once.** `x op= y` lowers to the same typed
