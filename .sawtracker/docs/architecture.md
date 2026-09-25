@@ -73,10 +73,11 @@ lowered MIR ─► LLVM IR (text) ─► clang + link against the Saw runtime
             └► VM bytecode ─► interpreter (planned; see §3.10)
 ```
 
-Everything up to drop elaboration works one module at a time, and inside a
-module mostly one function at a time. Monomorphization, coroutine lowering and
-linking work on the whole program being built. The driver (§3.12) runs the
-stages and owns caching.
+Everything up to drop elaboration works one module at a time, or one import
+cycle at a time where modules import each other (§3.12), and inside that mostly
+one function at a time. Monomorphization, coroutine lowering and linking work on
+the whole program being built. The driver (§3.12) runs the stages and owns
+caching.
 
 ### 3.0 What every stage shares
 
@@ -256,7 +257,9 @@ stages and owns caching.
   - every call has its resolved target and instantiation;
   - operators, subscript roles (getitem, setitem, place accessor;
     SL:borrowing §5), `default:` and `for` point at the declarations they call;
-  - every expression is marked as a place or a value.
+  - every expression is marked as a place or a value;
+  - every value use carries its transfer kind: a spelled `move`, an implicit
+    copy, or the hand-off of an owned temporary (§3.5).
 - **Order.** Signatures first, program-wide: struct layouts, function
   signatures, trait requirements and the conformance table. Then each function
   body is its own checking unit, checked against signatures only. No body looks
@@ -269,10 +272,15 @@ stages and owns caching.
   - A call site's generic type arguments are solved by local unification over
     its arguments and closure returns, with the later-argument fixpoint and the
     unique-solution rule for overload sets (designs 93 and 105).
-- **Generic bodies are checked once, against their bounds,** not per
-  instantiation. A body may use only what its bounds grant: a place read of `T`
-  needs `T: Copy`. So monomorphization cannot produce a type error, and a
-  generic library is fully checked before anyone instantiates it.
+- **Generic bodies are type-checked once,** not per instantiation. A body may
+  use only what its bounds grant, plus one requirement inferred from the body:
+  whether it duplicates a `T` with nothing written at the site. If it does, `T`
+  must be Copy-tier, and each call site is checked against the argument it
+  passes (design 219). The inferred requirement is part of the function's
+  signature summary. So monomorphization cannot produce a *type* error, and a
+  generic library is fully type-checked before anyone instantiates it.
+  Obligations that depend on a concrete value, such as a `static_assert` over a
+  const parameter, are checked per instantiation (§3.8).
 - **Overloads.** The candidates are resolve's overload set. Typecheck filters
   them by labels, arity and types. A unique best candidate wins; otherwise the
   call is refused.
@@ -290,10 +298,15 @@ stages and owns caching.
 - **Effects:**
   - `unsafe` is checked per declaration (designs 130 and 136);
   - suspension is inferred, since Saw has no async colouring. A function *may
-    suspend* if it contains a park or calls something that may. This is a
-    fixpoint over the call graph, computed by a worklist because recursion makes
-    cycles. A call through a non-`sync` function value, or a dispatch through
-    `any Trait`, is a conservative "may suspend";
+    suspend* if it contains a park, or statically calls something that may.
+    This is a fixpoint over the call graph, computed by a worklist because
+    recursion makes cycles. A call through a generic bound (`t.greet()` for
+    `T: Greeter`) may suspend unless the requirement is `sync`, because its
+    implementation is known only after mono;
+  - a call through a function value, or a dispatch through `any Trait`, never
+    suspends. A closure body cannot suspend, and a dispatch to a suspending
+    implementation is refused (spec: suspension). Both are still not *provably*
+    suspension-free, so a `sync` body may not make either call;
   - a `sync` function may not reach a suspension;
   - `borrows` and `borrows(sync)` accessor contracts, including the substitution
     rule (SL:borrowing §2.5);
@@ -319,10 +332,15 @@ stages and owns caching.
 
   LLVM's mem2reg builds SSA later, so the MIR does not need to.
 - **Every operand says move or copy.** A value use is `move p`, `copy p` or a
-  constant, and one funnel builds every operand from its type's copy tier:
-  - a Copy value copies;
-  - a last use, or an ExplicitCopy or NoCopy value, moves;
-  - an implicit copy of an ExplicitCopy value is refused, right there.
+  constant, and one funnel builds every operand from the transfer kind typecheck
+  recorded (§3.4). The funnel never invents a move:
+  - a spelled `move` moves;
+  - an owned temporary (a call's result, a construction) is handed off;
+  - a named place of a Copy type copies, running its `copy()` hook if one is
+    declared, even at its last use, since skipping the hook would be observable;
+  - a named ExplicitCopy or NoCopy place used without `move` is refused, since
+    every transfer of one is spelled (spec: the copy tiers);
+  - generic forwarding follows its own documented rule (design 219).
 
   Constructions, arguments, returns, captures and compiler-synthesized calls
   all pass through the funnel, so none can skip the transfer check (SL-340; the
@@ -360,6 +378,15 @@ stages and owns caching.
 - **Suspension points are marked.** A call to a function that may suspend
   (§3.4) is a *suspension point* in the MIR. §3.9 lowers it, but the borrow
   check sees it first.
+- **Op-budget points are placed here too** (design 127). In a function that may
+  suspend, every loop backedge gets a budget point:
+  - outside any `borrows(sync)` window it is a potential suspension point, which
+    the borrow check sees like any other;
+  - inside one it only charges the budget, and the yield waits for the next
+    budget point after the window closes.
+
+  Coroutine lowering implements these points and never adds a suspension the
+  borrow check did not see.
 - **The central invariant:** after this stage, nothing about ownership is
   implicit.
 
@@ -374,14 +401,32 @@ stages and owns caching.
 - **Two dataflow analyses over the control-flow graph:**
   - **Initialisation.** A forward analysis per place path: definitely
     initialised, maybe initialised, or moved. Using a place that may have been
-    moved is a use after move. A partial move leaves the other fields usable.
+    moved is a use after move. Moving out of a field is refused, except
+    `move self.<field>` inside a `consumes` body, where each field must leave on
+    every path or on none (spec: moving a field out). Tracking per place path
+    serves that exception and precise diagnostics. It does not authorise other
+    partial moves.
   - **Loans.** Every `ref` and every `window_open` creates a loan: shared or
     exclusive, on a place, charging its root as the accessor declares
     (SL:borrowing §3). A `ref` loan lives until its last use. A window's loan
-    lives until its `window_close`. At every access, including a move and a
-    drop, the live loans on overlapping places are checked: a write needs no
-    live loan, and a read needs no live exclusive one. Places overlap by path
-    prefix, so disjoint fields never conflict.
+    lives until its `window_close`. Every access, including a move and a drop,
+    is checked against the live loans.
+- **The conflict rules.** Checking whether two places "overlap" is only the base
+  case:
+  - **Authorisation.** An access *through* a loan (its binding, its reference,
+    or a reborrow of either) is the loan's own use and is allowed. An access to
+    the loaned place by any other path conflicts: with any live exclusive loan,
+    and, if the access is a write, with any live shared loan.
+  - **Tracing.** Derefs and reborrows are traced back to the loan and root they
+    came from, so an access through a reference is checked against the right
+    root.
+  - **Overlap is conservative.**
+    - Distinct fields are disjoint, and so are distinct *constant* indices of a
+      fixed array.
+    - Two dynamic indices (`v[i]`, `v[j]`) are assumed to overlap.
+    - A window loan charges its whole root as declared, whatever place was
+      lent, so field-disjointness never lets code touch the root under an
+      exclusive window.
 - **Path-sensitive.** Loans flow along edges, so the absent edge of a
   conditional lend carries no loan (SL:borrowing §2.4).
 - **Suspension.** At a suspension point, a live loan from a `borrows(sync)`
@@ -408,9 +453,10 @@ stages and owns caching.
     are boolean locals, set at initialisation and cleared at a move, created
     only for the places that need them.
 
-  After a partial move, the remaining fields are dropped one by one.
-  Temporaries are dropped at the end of their statement, in reverse order of
-  creation.
+  After a `consumes` body moves fields out of `self`, the end-of-body release
+  drops exactly the fields that stayed. Each field is decided on every path or
+  on none, so that needs no flag. Temporaries are dropped at the end of their
+  statement, in reverse order of creation.
 - **Must-consume types.** Some types forbid an implicit drop: a `Thread` or
   `Task` handle's fate must be written. A value of such a type that reaches an
   implicit drop is refused here, because this is the stage that knows exactly
@@ -418,8 +464,8 @@ stages and owns caching.
   for a handle dropped inside another value's glue.
 - **Placement is separate from glue.** This stage decides *where* a drop
   happens. *What* a drop does for a type is that type's glue: its `deinit` body,
-  then field drops in declaration order (design 131), or an enum's payload by
-  discriminant. One place decides a value's lifecycle glue (drop, retain, copy)
+  then its fields in reverse declaration order (design 131; spec: the Deinit
+  trait), or an enum's payload by discriminant. One place decides a value's lifecycle glue (drop, retain, copy)
   from its type, generated once per concrete type (§3.8). Which glue runs is
   kept separate from whether a value may be copied, the lesson of SL-340.
 
@@ -441,8 +487,17 @@ stages and owns caching.
   never re-derived.
 - **Const generics** are folded before identity is computed, so `[Int; 2 + 2]`
   and `[Int; 4]` are one type (design 148).
-- **No type errors can occur here,** since generic bodies were checked against
-  their bounds (§3.4). A failure here is an internal error.
+- **Instantiation validation.** No *type* error can occur here, since generic
+  bodies were type-checked once (§3.4). But some obligations depend on concrete
+  values and are checked here, per instantiation, as ordinary user diagnostics
+  with an instantiation trace:
+  - a `static_assert` over a const parameter, which the spec provides because
+    `where N > 0` is not expressible. The same body must accept `N = 1` and
+    report the author's diagnostic for `N = 0`;
+  - layout limits of a concrete type.
+
+  An internal error is reserved for a broken compiler invariant, never for an
+  invalid concrete argument.
 - **Unbounded instantiation** (polymorphic recursion: `f<T>` calling
   `f<Box<T>>`) has no identity cycle to detect. Proposed: refuse it before
   mono, with a check on the generic call graph. A cycle is refused if its
@@ -452,11 +507,18 @@ stages and owns caching.
 ### 3.9 Coroutine lowering
 - **In:** concrete MIR. **Out:** state-machine MIR: frames, suspension points,
   and the resume function.
-- **Which functions become coroutines is decided precisely here.** After mono
-  every call target is concrete. So *definitely suspends* is a fixpoint over the
-  concrete call graph: a function suspends if it contains a park or calls one
-  that suspends. Typecheck's conservative "may suspend" (§3.4) served the borrow
+- **Which functions become coroutines is decided precisely here.** After mono,
+  every *statically dispatched* call, including one through a generic bound, has
+  a concrete target. So *definitely suspends* is a fixpoint over those edges: a
+  function suspends if it contains a park or statically calls one that
+  suspends. Typecheck's conservative "may suspend" (§3.4) served the borrow
   check. A function that turns out not to suspend gets no frame.
+- **Calls through a function value or `any Trait` stay unframed.** Mono makes
+  type arguments concrete, not the target of a function value. Those calls
+  never suspend, since closure bodies cannot and suspending dispatch is refused
+  (§3.4). So they embed no frame, and the refusal of a suspending call inside a
+  closure body stays as it is (spec: suspension). Framing either one needs a
+  driving ABI first, which is the heap-frame design (§6).
 - **Frames embed by value.** A suspending function's frame holds:
   - its locals that are live across a suspension point (liveness on the MIR);
   - the state of its open borrow windows;
@@ -471,8 +533,9 @@ stages and owns caching.
   point, polls each driven sub-frame, and has a cancel path.
 - **Accessors** that keep state across `lend` use the same frame machinery
   (§3.5).
-- **The op budget** (design 127) is charged here, on loop backedges in
-  suspending functions.
+- **The op budget** (design 127) is implemented here, at the budget points MIR
+  lowering placed (§3.5). A budget point in a function that turns out not to
+  suspend is removed. No new suspension is created here.
 - **Operates on MIR,** not source, so it never re-typechecks generated code.
   Borrows across suspensions are windows in the frame.
 - **Suspension is visible to the borrow check.** Effects are known after type
@@ -553,10 +616,24 @@ stages and owns caching.
 
   | Artifact | Written after | Contents | Read by |
   |---|---|---|---|
-  | Module interface | typecheck | export table, signatures, conformances, copy-tier rules, may-suspend summaries, doc comments | resolve and typecheck of importing modules |
+  | Module interface | typecheck (final once its import cycle is solved) | export table, signatures, conformances, copy-tier rules, may-suspend summaries, generic functions' inferred Copy requirements, doc comments | resolve and typecheck of importing modules |
   | Module MIR | drop elaboration | the checked, elaborated MIR of every function, generic ones included | mono, in every program that uses the module |
   | Object code | the backend | concrete functions, per module or per instantiation | the linker |
 
+- **Import cycles are scheduled as one unit** (codex t14). Some of an
+  interface's facts come from bodies: may-suspend summaries, and a generic
+  function's inferred Copy requirement (§3.4). So modules that import each other
+  are processed together, one strongly connected component of the import graph
+  at a time, in dependency order:
+  1. collect the component's declarations, imports and signatures: a
+     *provisional* interface, enough for resolve and for checking bodies;
+  2. check every body in the component against those signatures and the
+     *final* interfaces of modules outside it;
+  3. solve the body-derived facts across the component to a fixpoint;
+  4. publish the *final* interfaces, then continue to MIR and the borrow check.
+
+  A module outside any cycle is a component of one. A cached summary of a module
+  being rebuilt in the same component is never used as a final fact.
 - **Interfaces give early cutoff.** An importer depends on the interfaces of
   what it imports, not on their bodies. Editing a body without changing the
   interface therefore does not re-check the importers. Generic bodies are the
@@ -571,9 +648,14 @@ stages and owns caching.
 
   A wrong key is a silent miscompile, so the key over-approximates
   (design 164, unit 5).
-- **Object code has one extra dependency: frames.** A suspending function's
-  code depends on the frame layouts of the callees it embeds, which may be in
-  other modules. Its key includes the digests of those layouts.
+- **Object code is keyed by its actual input** (codex t15): a digest of the
+  lowered MIR it is compiled from, plus the compiler and the flags. Lowered MIR
+  already contains everything that shapes the code: the imported generic
+  bodies it instantiated and the frame layouts of the callees it embeds. So an
+  edit to a generic body in module A invalidates module B's object that
+  specialized it, even though A's interface and B's source did not change.
+  Keying on B's source and imports would miss that. It works the same for a
+  package shipped as interface and MIR, with no source.
 - **Packages ship interfaces and MIR,** the analogue of a Rust `.rlib` or a
   compiled Swift module, so a dependent never re-parses or re-checks a
   dependency. std is the first such package. The Python compiler's std cache
@@ -591,10 +673,14 @@ stages and owns caching.
   - absolute paths baked into nodes.
 
   Each is impossible by construction here.
-- **A cold-versus-warm differential is part of the test surface** (§5). The
-  corpus is compiled with every cache empty and again with every cache warm, and
-  every artifact is compared byte for byte. Design 164 made this non-negotiable
-  for any cache that ships.
+- **Cache differentials are part of the test surface** (§5). Design 164 made
+  them non-negotiable for any cache that ships:
+  - **cold versus warm:** the corpus compiled with every cache empty and again
+    with every cache warm, every artifact compared byte for byte;
+  - **edit, then warm versus clean:** a warm build after an edit compared with a
+    clean build of the edited program. The edits include a body-only change, a
+    generic-body-only change and a frame-changing change, since identical inputs
+    cannot catch a key that misses a dependency.
 - **Staging:** the contracts hold from the first stage built. The caches
   themselves come later, driven by measurement. Plain data costs nothing now,
   and retrofitting it is what the Python compiler could not do.
@@ -649,7 +735,7 @@ whether the checker covers it.
 | MIR and its checks | MIR dumps, plus refusal matrices for borrow, move and exclusivity rules |
 | Drop elaboration | drop-order and drop-count tests (printing deinits) |
 | Monomorphization, coroutines, codegen | runtime `@test` cases; the `examples/` corpus |
-| Driver and caching | the cold-versus-warm differential (§3.12): every artifact byte-identical |
+| Driver and caching | the cache differentials (§3.12): cold versus warm, and edit-then-warm versus clean, every artifact byte-identical |
 | Whole compiler | the `examples/` corpus (~2,700 programs), differential against the frozen compiler; the bootstrap fixpoint |
 | Backends | the same cases run on every backend (LLVM, and the VM when it exists), compared with each other, as the prototype's multi-engine harness already does |
 | Freestanding (downstream) | the sawos gate: 382 QEMU cases across three profiles, about 25 minutes on the tracker server, pinned by sha. It covers what `examples/` mostly does not: freestanding riscv32 (`+m,+a,+c`) and aarch64 at `-Oz`, `--runtime-provider` seam checking, `--no-hidden-alloc`, `@export`/`@section`/`@align`, `unsafe static var` as the main state, Saw tasks inside the kernel (`tests/taskdump.saw`), and Blade-built packages in boot images. Each case checks its own console transcript (tools/sos_runner.py), so it is NOT differential, and a failure there is adjudicated by the case's assertion. Its flag list doubles as sawos's migration checklist: sawos stays on the frozen compiler until the new one accepts those flags |
@@ -675,13 +761,16 @@ keeps that auditable.
 
 - **The MIR's exact shape.** §3.5 proposes place-based and not SSA. Still open:
   how an accessor's two halves and their state record appear in it.
-- **Generic bodies checked once.** §3.4 depends on it. A sweep is owed for any
-  language feature that today relies on checking per instantiation.
-- **Suspension in higher-order generic code.** The borrow check sees a call
-  through a non-`sync` function value as a possible suspension (§3.4). So a
-  `borrows(sync)` window held across such a call is refused, even if no
-  instantiation ever passes a suspending closure. Is that imprecision
-  acceptable, or should the check wait for concrete types?
+- **Generic bodies type-checked once.** §3.4 depends on it. A sweep is owed for
+  any language feature that today relies on checking per instantiation, beyond
+  the two named: design 219's inferred Copy requirement, and value obligations
+  like `static_assert` (§3.8).
+- **Suspension through a generic bound.** The borrow check sees `t.greet()` for
+  `T: Greeter` as a possible suspension unless the requirement is `sync`
+  (§3.4). So a `borrows(sync)` window held across such a call is refused, even
+  if every instantiation is sync. Is that imprecision acceptable, or should
+  such a trait requirement be declared `sync`? Calls through a function value or
+  `any Trait` are not affected, since they never suspend.
 - **Polymorphic recursion** (§3.8): the proposed static refusal on the generic
   call graph.
 - **Heap-allocated frames,** which the spec leaves pending for suspending
