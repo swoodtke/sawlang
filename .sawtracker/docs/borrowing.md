@@ -111,7 +111,7 @@ borrow var row = grid[r], var cell = row[c] { cell.weight += bias }
 An accessor declared `borrows -> &var V?` lends an optional place:
 
 ```saw
-borrow var e = m.find(k) {
+borrow var e = m.find(&k) {
     if let entry = e { entry.count += 1 }
     else { m.insert(k, Entry(count: 1)) }   // see below
 }
@@ -362,7 +362,7 @@ extension Data {
 - `Map`'s getitem panics on a missing key, consistent with `Vector` and with
   the direct-accessor rule. `m.get(k)` is the optional form. (Ruled: the user
   "really dislike[s] the map's [] operator returning an optional".)
-- An optional *place* is a named accessor such as `m.find(k)` lending
+- An optional *place* is a named accessor such as `m.find(&k)` lending
   `&var V?`, because `[]` in a `borrow` panics on absence, like getitem.
 
 ### 5.2 Declaration form (Proposed)
@@ -641,7 +641,7 @@ to validate safety.")
 
 - Inline place use: `g[4].weight += 1`, `bump(&var g[4])`, `m[k]?.field = v`.
   They become `borrow var g[4].weight += 1`, `bump(borrow var g[4])` (§2.2) and
-  `borrow var m.find(k)?.field = v`.
+  `borrow var m.find(&k)?.field = v`.
 - Use-site inference of shared versus exclusive (designs 141 and 146).
 - A mode test inside one accessor body (`#lend_var`); differing bodies are
   written as two accessors (§4).
@@ -680,10 +680,10 @@ in them. Each note says what the migrated code looks like.
 - **Presence tests on NoCopy values (K8).** `if let _ = m["zz"]` has no value
   form, since `get` would have to copy. Use `m.contains_key(k)` on a `Map`.
   Elsewhere, a `find` block yields the answer as a value (§2.1):
-  `let present = borrow let e = c.find(k) { if let _ = e { true } else { false } }`.
+  `let present = borrow let e = c.find(&k) { if let _ = e { true } else { false } }`.
 - **"Did it write" through a conditional lend (K9)** (Proposed). The statement
   form with `?` has type `Void?`, as optional-chain assignment does today, so
-  `guard let _ = borrow var m.find(k)?.value = 7 else { … }` stays one line.
+  `guard let _ = borrow var m.find(&k)?.value = 7 else { … }` stays one line.
 - **Lock re-entry by the same name (K10).** `examples/spinlock_basic.saw` pins
   "`try_lock` inside a critical section refuses rather than deadlocking". Under
   §8 that is a compile error, so the pin becomes an `@test(refuses: …)` case,
