@@ -646,6 +646,14 @@ to validate safety.")
 - A mode test inside one accessor body (`#lend_var`); differing bodies are
   written as two accessors (§4).
 - `Map.[]` returning an optional.
+- **Writing through a pointer from `&self`** (design 200's carve-out; Ruled:
+  retired, SL-105). Today a `&self` method may write storage it reaches
+  through a pointer, such as `self.rows[0].push(9)`, because "the copy shares
+  the buffer". That is a write through a shared borrow: another holder of `&x`
+  may be reading `rows[0]` while the push reallocates it. `&self` is read-only
+  all the way down. Interior mutation goes only through cell types (`Mutex`,
+  `Atomic`, the cell-carrying `(&self) borrows -> &var T` of §3). Conformance
+  rows M28 and M32 become refusals, annotated "language changed".
 - **The stdlib's closure-based borrowing APIs** (`with_ref`, `with_var_ref`,
   `Mutex.lock` taking a closure, `Arc.with_unique`) become `borrows` accessors.
   (Ruled: yes for the stdlib.) The visitor APIs (`each`, `map`, `fold`,
