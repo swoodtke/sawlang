@@ -76,8 +76,11 @@ What follows `@test` decides the form:
     source set;
   - it does not make anything public or weaken production visibility.
   (An importing test module would not do: it gets no private access.)
-- **No rot.** Ordinary cases and test-only declarations are typechecked in every
-  build, so they cannot silently decay. They are emitted only in test builds.
+- **No rot.** Ordinary cases and test-only declarations *in an implementation
+  file* are typechecked in every build, so they cannot silently decay. They are
+  emitted only in test builds. The exception is a test sidecar (below): normal
+  builds do not load it, so its tests are checked only by test builds. The
+  compiler's own sidecars are covered by the Stage 1 test runs.
 - **Test-only means test-only.** A reference to a test-only declaration from
   ordinary code is a compile error: "`FakeClock` exists only in test builds".
   This keeps a fake from leaking into production code, such as a counting
