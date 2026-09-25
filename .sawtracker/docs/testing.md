@@ -26,15 +26,20 @@ What follows `@test` decides the form:
     …
 }
 
-@test(panics) "indexing past the end panics" {  // passes only if the body panics
-    let v: Vector<Int> = [1, 2, 3]
-    let x = v[10]
+@test(panics: index.out-of-range) "indexing past the end panics" {
+    let v: Vector<Int> = [1, 2, 3]              // passes only if the body panics,
+    let x = v[10]                               // with that panic
 }
 
-@test(refuses: "use after move") "a moved value cannot be used again" {
+@test(refuses: move.use-after-move) "a moved value cannot be used again" {
     let x = Res()                               // passes only if the compiler
     let a = move x                              // refuses this block, and its
-    let b = move x                              // first error contains the text
+    let b = move x                              // first error has that ID
+}
+
+@test(warns: default.ignored-on-store) "a pure store ignores the default" {
+    var counts: Map<String, Int> = [:]          // passes only if the block compiles
+    counts["a", default: 0] = 1                 // and emits that warning
 }
 
 @test func sample_doc() -> Document { … }       // a test-only declaration
@@ -57,14 +62,35 @@ What follows `@test` decides the form:
 | Form | Normal build | Test build |
 |---|---|---|
 | `@test "name" { … }` | typechecked, not emitted | compiled and run in its own process |
-| `@test(panics) "name" { … }` | typechecked, not emitted | passes only if the body panics |
-| `@test(refuses: "text") "name" { … }` | skipped; only its braces are matched | checked on its own; passes only if its first error contains the text |
+| `@test(panics: ID) "name" { … }` | typechecked, not emitted | passes only if the body panics with that panic |
+| `@test(refuses: ID) "name" { … }` | skipped; only its braces are matched | checked on its own; passes only if its first error has that ID |
+| `@test(warns: ID) "name" { … }` | skipped, like a refusal | checked on its own with the category enabled; passes only if it compiles and emits that warning (Proposed) |
+| `@test(warns: none) "name" { … }` | skipped, like a refusal | passes only if it compiles with every category enabled and emits no warning (Proposed) |
 | `@test func` / `@test { … }` | typechecked, not emitted | compiled; visible only to test code |
 
 ## 4. Rules
 
 - **Placement and access.** `@test` declarations sit at top level in any file,
-  and can reach their module's private members, so white-box testing works.
+  or inside an `@test { … }` group, and can reach their module's private
+  members, so white-box testing works.
+- **A case body is driven like `main`.** It may suspend, spawn tasks and use
+  `TaskGroup`. In a test build, the runner's entry drives each case, and a
+  file's own `main` is not the entry.
+- **One key per diagnostic** (Air t12). A refusal's ID, a panic's ID and a
+  warning's ID are the rule's stable name (§6): `@test(refuses: borrow.root-charge)`.
+  There is no second catalog of `E_…` codes. The error text shows the name, as
+  Rust shows `E0499`. The same key serves `refuses:`, `panics:`, `warns:` and
+  `// rule:` citations.
+- **`panics:` names which panic** (Air t10; Proposed). A bare `@test(panics)`
+  would pass on an unrelated panic, such as a bounds check in the setup or a
+  `try!` on a fixture, and silently stop testing its subject. So the form takes
+  the panic's key, and optionally `at:` to pin the line, as refusals do:
+  - a compiler-inserted check (bounds, overflow, shift, unwrapping `None`,
+    `try!`) has an ID from the same rule-named catalog;
+  - a user `panic("…")` is matched by its text.
+
+  The structured panic record already carries `panic at FILE:LINE: message`
+  (design 122), so matching costs nothing.
 - **Scope.** A test sees its enclosing file's scope: its imports and every
   declaration in it. There is nothing to re-import.
   - **Test-only imports** (Ruled): an import only tests need is written
@@ -92,7 +118,10 @@ What follows `@test` decides the form:
     and the implementation file's imports;
   - everything in it is test-only: typechecked in every build (no rot) and
     emitted only in test builds;
-  - it makes nothing public and does not weaken production visibility.
+  - it makes nothing public and does not weaken production visibility;
+  - it may add imports of its own. Since everything in a sidecar is test-only,
+    they are test-only imports, exactly as `@test import` is in the
+    implementation file.
 
   The only difference is where the text lives. That matters for the
   self-hosted compiler, whose implementation files must stay in the subset the
@@ -100,7 +129,7 @@ What follows `@test` decides the form:
   excludes `*.test.saw`, and Stage 1 onward includes it. (An importing test
   module would not do: it gets no private access.)
 - **No rot.** Ordinary cases and test-only declarations are typechecked in every
-  build, whether they are in the implementation file or its test sidecar (below),
+  build, whether they are in the implementation file or its test sidecar (above),
   so they cannot silently decay. They are emitted only in test builds. The only
   source set that omits sidecars is the bootstrap's Stage 0, which is a
   bootstrap step, not an ordinary build.
@@ -118,7 +147,11 @@ What follows `@test` decides the form:
   - a test may instantiate production generics with test-only types (a
     `FakeClock` passed to `func f<T: Clock>`), and that instantiation belongs to
     the test build;
-  - a test-only conformance that overlaps a production conformance is refused.
+  - a test-only conformance that overlaps a production conformance is refused;
+  - a test-only copy-family conformance (`Copy`, `ExplicitCopy`, `NoCopy`) on a
+    production type is refused outright (Air t15). Every type already has a
+    tier, so one would give a single type two tiers in one binary once a value
+    crossed from test code into a production generic.
 - **Each test runs in its own process.** A Saw panic aborts the process (there
   is no unwinding), so isolation is what lets one failing test fail alone.
   Tests run in parallel, and `@test(panics)` works because of it.
@@ -153,6 +186,12 @@ What follows `@test` decides the form:
     alone, which cannot express a partial build. A compiler crash or timeout, or
     a missing or incomplete manifest, is still a build failure for the file,
     even if some output exists. A file with no runnable cases needs no binary;
+  - **the manifest belongs to one invocation** (Air t13). A compile that dies
+    before writing would otherwise leave the previous run's complete manifest
+    and binary behind. So the runner deletes both before compiling and passes a
+    fresh token, which the manifest echoes. A manifest without the current
+    token is a build failure. Today's test runner needed the same guard, and
+    design 220 gives every invocation its own directory for this reason;
   - setup for a group runs inside each case's process. A fixture is a value, and
     its deinit is the teardown. Sharing an expensive setup across cases (for
     example by forking from a post-setup parent) can be added later if
@@ -160,7 +199,8 @@ What follows `@test` decides the form:
 - **A panic test needs evidence of a Saw panic, not just an abort.** An
   allocator assertion or an unrelated native crash can end a process the same
   way. So the test runtime's panic handler reports a structured record naming
-  the case, and `@test(panics)` passes only on that record, from that case.
+  the case and the panic, and `@test(panics: …)` passes only on that record,
+  from that case, naming the expected panic.
   These all FAIL a panic test: a crash, a timeout, any other abort, and a
   failure before the case starts. Otherwise a regression that turns a checked
   panic into a native crash would pass silently. Likewise, a compiler crash or
@@ -176,6 +216,16 @@ What follows `@test` decides the form:
   separate suite: the sawos gate under QEMU is the model. A fake `hal` inside an
   `@test { … }` group still cannot leak into the kernel, because test-only
   declarations are invisible to ordinary code.
+  - **Consequences** (Air t14; Proposed). *Running* a hosted test of a
+    freestanding module compiles the module's production code hosted too. So a
+    module keeps tests in-file only if its production code is
+    hosted-compilable. Kernel modules that are not (`@section`, raw addresses,
+    `unsafe static var` slabs, a real `hal`) are tested in the QEMU suite.
+  - For the same reason, a normal freestanding build checks such a module
+    twice: its production code for the real target (a 32-bit `Int` on riscv32,
+    for example), and its production code plus tests for the host test profile.
+    Literal ranges and constant folding are therefore checked on both targets,
+    and a mismatch between the two is a real portability error to report.
 - **Stress tests are separate** (Ruled). In-file tests test *functionality*.
   Stress and soak harnesses test *safety guarantees* under load, such as
   oversubscription races, and stay separate tools (parksoak is the model).
@@ -188,7 +238,7 @@ What follows `@test` decides the form:
   module. It may contain declarations, because many refusals are about
   declarations:
   ```saw
-  @test(refuses: "may not be a reference") "a struct field cannot hold a reference" {
+  @test(refuses: field.no-reference) "a struct field cannot hold a reference" {
       struct Holder { r: &Int }
   }
   ```
@@ -199,11 +249,14 @@ What follows `@test` decides the form:
   before failing are invisible to sibling units and to production code, so the
   order of cases can never change a result.
 - **Matching is on a stable diagnostic ID** (Ruled: yes, provided the expected
-  errors form a finite, enumerable set, which they do). For example,
-  `@test(refuses: E_EXCLUSIVE_CAPTURE) "…" { … }`. The text form is optional.
-  The block must produce errors, and its *first* error must carry that ID, so a
-  block refused for an unrelated reason (a typo) fails the test instead of
-  passing. An optional `at:` argument pins the line within the block.
+  errors form a finite, enumerable set, which they do). The ID is the rule's
+  name (§4, "One key per diagnostic"), for example
+  `@test(refuses: closure.exclusive-capture) "…" { … }`. **The ID is required**
+  (Air t9). An optional `text:` argument adds a substring check on the message.
+  A text alone is not accepted, since it would bring back the churn that IDs
+  remove. The block must produce errors, and its *first* error must carry that
+  ID, so a block refused for an unrelated reason (a typo) fails the test instead
+  of passing. An optional `at:` argument pins the line within the block.
   - **Why IDs:** diagnostics get reworded often (SL-345's hint changed twice in
     one review), and each rewording would churn every test pinning the phrase.
     An ID also gives each spec rule a citable name.
@@ -216,9 +269,19 @@ What follows `@test` decides the form:
 - **What cannot live in a file**, and so stays as corpus files with an
   EXPECT-ERROR header (which also names the diagnostic ID), one refusal per
   file:
-  - parse-level refusals, because a block whose body does not parse cannot even
-    be delimited;
+  - refusals the token-level brace match cannot delimit (Air t15): lexer errors,
+    such as an unterminated string or comment, and unbalanced braces. Any other
+    parse error sits in a brace-balanced body, so it can be tested in-file,
+    because a test build parses the block as its own unit;
   - multi-file refusals: imports and module layout.
+- **Warnings are tested in-file too** (Air t11; Proposed), with `warns:` (§3).
+  A `warns:` case is checked as a unit, like a refusal, with its category
+  enabled for that unit, and passes only if the block compiles and emits that
+  warning. `warns: none` passes only if the block compiles with every category
+  enabled and emits nothing, since a warning that should not fire is the usual
+  regression. The rules whose whole behaviour is a warning, such as
+  SL:borrowing §5.4's ignored default and §8a's static-root warning, get their
+  tests this way.
 - **Compiler constraint:** diagnostics are collected per checking unit, never
   thrown in a way that aborts compilation. The new compiler adopts this from
   the start.
