@@ -1,9 +1,9 @@
 # Self-hosted compiler: architecture
 
 The high-level design of the Saw compiler written in Saw. This is a **proposal**
-for review: the stages, their contracts, and the boundaries between them. Each
-section will be fleshed out when the work reaches it. It follows the Sep 24 2026
-freeze of the Python compiler.
+for review: the stages, their contracts, the boundaries between them, and, at a
+high level, the mechanism each stage uses. Details are fleshed out when the work
+reaches each stage. It follows the Sep 24 2026 freeze of the Python compiler.
 
 ## 1. Why a new architecture
 
@@ -60,6 +60,9 @@ compiler in Saw is the occasion. The architecture is the point.
      as supported.
 7. **Every stage has its own test surface** (§5), so a defect is caught in the
    stage that owns it.
+8. **Every stage's output is plain data.** It can be written out and read back
+   (§3.0), so any boundary can become a cache or a package format later
+   (§3.12) without changing a stage.
 
 ## 3. The pipeline
 
@@ -70,17 +73,86 @@ lowered MIR ─► LLVM IR (text) ─► clang + link against the Saw runtime
             └► VM bytecode ─► interpreter (planned; see §3.10)
 ```
 
-Each stage is outlined here and fleshed out later.
+Everything up to drop elaboration works one module at a time, and inside a
+module mostly one function at a time. Monomorphization, coroutine lowering and
+linking work on the whole program being built. The driver (§3.12) runs the
+stages and owns caching.
+
+### 3.0 What every stage shares
+
+- **Arenas and typed ids.** Every IR is nodes in flat arrays, referenced by
+  index. Ids are typed (`ExprId`, `DeclId`, `TypeId`, `LocalId`, `BlockId`) and
+  **module-local**: an id is an index within one module's arena, never a value
+  from a process-wide counter. This is also the bootstrap subset's requirement
+  (§4): arena indices, not references.
+- **No stage mutates its input.** A stage produces a new IR, or side tables
+  keyed by its input's ids (resolve's name table, typecheck's type table).
+  There is nothing to graft onto a node, so the AST-graft class that design 194
+  gates in the Python compiler cannot arise.
+- **Types are interned by structure.** A type is a `TypeId` into an interner
+  keyed by its canonical form: defining module, name, and canonical arguments
+  with defaults filled at every depth (SL-382). Two spellings of one type are one
+  id. Identity never depends on object identity or on the order in which types
+  were first seen.
+- **Cross-module references are symbolic.** Inside a module, a reference is an
+  index. Across modules it is (module identity, stable declaration path), where
+  the path is the qualified name plus, for an overload, its signature. It is
+  never an index into another module's arena.
+- **Spans are (file, byte range),** and a file is (package, package-relative
+  path). No IR contains an absolute path. Paths are rendered only when a
+  diagnostic is printed.
+- **Diagnostics are records:** a stable ID (SL:testing §5), severity, a primary
+  span, labelled secondary spans, notes and fix-its. They are collected per
+  checking unit. A unit with errors still produces output, marked poisoned, so
+  later stages skip it rather than cascade.
+- **Determinism.** Every iteration order is defined, by id or by source order,
+  never by hash order or thread timing. Output bytes are a function of the
+  inputs alone. The irdet lane enforces this on the Python compiler. For the new
+  one it is also what makes content-addressed caching sound (§3.12).
+- **Every boundary has a dump and a verifier.** Each IR has a canonical text
+  dump for tests (§5), and a structural verifier that debug builds run at the
+  boundary (principle 2).
+- **Serializable by construction.** Because every IR is plain data (arenas,
+  typed ids, interned keys, symbolic cross-module references, no pointers, no
+  closures, no process-global state), any stage's output can be written and read
+  back. §3.12 names the boundaries that are.
 
 ### 3.1 Lexer
 - **In:** bytes. **Out:** a token stream with source positions, and doc-comment
   trivia out of band.
+- **Mechanism:**
+  - a hand-written scanner over bytes, by longest match. A token is a kind and
+    a span. Contextual words (a `default:` label) stay identifiers;
+  - literals keep their text. The lexer checks only their form: a numeric
+    literal's type and range are fixed by the type it adopts in typecheck, and
+    float text converts to a value through the bit-exact routine of design 253;
+  - newlines are tokens. Whether one ends a statement depends on brackets, so
+    it is the parser's decision (design 129);
+  - an interpolated string becomes literal segments plus the token ranges of
+    its embedded expressions, which the parser parses;
+  - a bad character or an unterminated literal is a diagnostic, and lexing
+    continues.
 - **Existing work:** `selfhost/lexer` is already the Saw lexer, kept identical
   to the Python lexer by lexdiff.
 
 ### 3.2 Parser
 - **In:** tokens. **Out:** an arena-indexed AST: nodes in a flat array, children
   by index, every node carrying its span.
+- **Mechanism:**
+  - recursive descent for declarations, statements and nesting. Binary
+    operators are parsed by precedence climbing in a loop. Postfix chains
+    (calls, members, subscripts, `?.`, `!`) are parsed by a loop into one flat
+    chain node (SL-380);
+  - **the tree records syntax only.** The parser records what was written,
+    never what it means. `name(…)` is one `Call` node whatever `name` turns out
+    to be, so there is no guess to undo later (§3.3);
+  - generic arguments after an identifier use today's bounded speculative
+    parse, kept only when `(` or `.` follows;
+  - error recovery: on an error, record the diagnostic, skip to the next
+    statement or declaration boundary at the same bracket depth, and continue,
+    so one run reports every independent error in a file;
+  - a `@test(refuses:)` block has only its braces matched in a normal build. In
+    a test build its token range is parsed as a unit of its own (SL:testing §5).
 - **Invariants:**
   - nesting beyond 256 is a clean refusal at the opener, through one depth
     funnel;
@@ -107,7 +179,7 @@ Each stage is outlined here and fleshed out later.
     parity is not kept blanket;
   - prototype spans are token-index ranges and the tree keeps neither source
     nor tokens. Replacing per-node text with spans into the source needs an
-    explicit owner for the source buffer, and a file identity.
+    explicit owner for the source buffer, and a file identity (§3.0).
 - **Not taken:** the fully iterative continuation-stack parsing. It exists
   because the prototype runs inside the mini-VM, whose call stack is small, and
   it costs several work kinds and frames per construct (`if`/`else` alone took
@@ -124,48 +196,283 @@ Each stage is outlined here and fleshed out later.
   authority for `borrow`, `@test`, subscripts and slices.
 
 ### 3.3 Name resolution
-- **In:** the AST. **Out:** every name bound to a declaration id; imports,
-  visibility (design 80) and module identity resolved.
-- **Invariants:** no later stage looks a name up by its spelling.
+- **In:** the parsed modules being compiled, and the interfaces of the modules
+  they import (§3.12). **Out:** a resolution table binding every name
+  occurrence to what it denotes, each module's symbol and export tables, and
+  the import graph. The AST is not modified.
+- **Phase 1, collect.** Every module's top-level declarations go into its
+  symbol table before any name inside a signature or body is looked at: types,
+  functions (as overload sets), enum cases, traits, statics, extensions and
+  conformances. A module's own table never depends on its imports, so collection
+  order does not matter and import cycles are harmless. Duplicate declarations
+  are refused here.
+- **Phase 2, imports.** Each `import` binds names in the importing module, per
+  design 150: a qualifier, `.*`, or `.{A, B as C}`. What each module hands on
+  to its importers (design 229) is computed by a worklist to a fixpoint, with
+  cycle detection (principle 6).
+- **Phase 3, signatures and bodies.** With every table complete, each name is
+  resolved in its lexical scope, in design 150's order: locals, then module
+  declarations, then imported bare names, then qualifiers. Because phase 1
+  finished first, a type can mention itself (`struct Node { next: Box<Node>? }`)
+  and mutually recursive types and functions resolve in any order.
+- **A name resolves to** a local, a declaration, an overload set, an enum case,
+  a type parameter, a module or a trait.
+- **A call's head is classified here, once.**
+  - `Foo(…)` where `Foo` is a type resolves to that type's `init` set;
+  - `f(…)` resolves to an overload set;
+  - `x(…)` resolves to a local holding a closure value;
+  - `T(…)` resolves to a type parameter;
+  - `E.Case(…)` resolves to an enum case.
+
+  The Python compiler guesses from one token of lookahead (`name(ident:` is a
+  struct init) and then converts in both directions in the typechecker (designs
+  66 and 207). Here the question has one owner.
+- **What resolve leaves to typecheck** is anything that needs a type. For
+  `x.f(…)` on a value, finding `f` needs `x`'s type, and choosing an overload
+  needs argument types. Resolve supplies what that lookup needs: each module's
+  set of visible extensions, which is its own, its direct imports', and the
+  receiver's defining module's (design 142).
+- **Rules about names live here:**
+  - the visibility of path names (design 80);
+  - the shadowing rule: a redefinition is an error unless its initialiser
+    mentions the shadowed binding (designs 100 and 107);
+  - a test-only name referenced from ordinary code ("`FakeClock` exists only in
+    test builds");
+  - duplicate and orphan conformances. A conformance lives in its type's or its
+    trait's module (design 142).
+
+  Member visibility (fields, methods) needs the receiver's type, so typecheck
+  checks it, through the same visibility function.
+- **Invariant:** no later stage looks a name up by its spelling.
+- **Does not own:** whether a struct has a finite size.
+  `struct A { b: B }` with `struct B { a: A }` resolves without trouble. The
+  by-value containment cycle is refused by typecheck's layout check.
 
 ### 3.4 Type checking
-- **In:** the resolved AST. **Out:** typed IR, with every expression's type and
-  every call's resolved target and instantiation.
-- **Owns:** inference, trait resolution, overloads, copy-tier classification,
-  and effects (`sync`, `unsafe`, `borrows`, `consumes`).
-- **Does not own:** where moves and drops happen. It records transfers; MIR
-  lowering places them.
+- **In:** the resolved AST. **Out:** typed IR, in which:
+  - every expression has a type;
+  - every implicit conversion is an explicit node: auto-wrap into Optional or
+    Result, literal adoption, `&v` to `&[T]`;
+  - every call has its resolved target and instantiation;
+  - operators, subscript roles (getitem, setitem, place accessor;
+    SL:borrowing §5), `default:` and `for` point at the declarations they call;
+  - every expression is marked as a place or a value.
+- **Order.** Signatures first, program-wide: struct layouts, function
+  signatures, trait requirements and the conformance table. Then each function
+  body is its own checking unit, checked against signatures only. No body looks
+  inside another, so bodies can be checked in any order, or in parallel.
+- **Inference is local and bidirectional.**
+  - Signatures are always written. No inference crosses a function boundary.
+  - Inside a body, the expected type flows down: a literal adopts it, a
+    closure's parameters take it, and a zero-argument construction takes the
+    declared slot type (design 207). Argument types flow up.
+  - A call site's generic type arguments are solved by local unification over
+    its arguments and closure returns, with the later-argument fixpoint and the
+    unique-solution rule for overload sets (designs 93 and 105).
+- **Generic bodies are checked once, against their bounds,** not per
+  instantiation. A body may use only what its bounds grant: a place read of `T`
+  needs `T: Copy`. So monomorphization cannot produce a type error, and a
+  generic library is fully checked before anyone instantiates it.
+- **Overloads.** The candidates are resolve's overload set. Typecheck filters
+  them by labels, arity and types. A unique best candidate wins; otherwise the
+  call is refused.
+- **Traits.**
+  - The conformance table maps (type, trait) to its implementation, and default
+    bodies fill the gaps.
+  - `any Trait` is an existential whose method table is built after
+    monomorphization.
+  - Test-only conformances sit in a layer that production code never sees
+    (SL:testing §4).
+- **Copy tier.** One function classifies a type as Copy, ExplicitCopy or NoCopy
+  from its members, its declared conformances and the wrappers it passes through
+  (design 219). For a generic type, the result is a rule over the type's
+  arguments, which monomorphization evaluates.
+- **Effects:**
+  - `unsafe` is checked per declaration (designs 130 and 136);
+  - suspension is inferred, since Saw has no async colouring. A function *may
+    suspend* if it contains a park or calls something that may. This is a
+    fixpoint over the call graph, computed by a worklist because recursion makes
+    cycles. A call through a non-`sync` function value, or a dispatch through
+    `any Trait`, is a conservative "may suspend";
+  - a `sync` function may not reach a suspension;
+  - `borrows` and `borrows(sync)` accessor contracts, including the substitution
+    rule (SL:borrowing §2.5);
+  - `consumes`.
+- **Other checks that need only types:**
+  - match exhaustiveness;
+  - a discarded `Result` (design 151);
+  - literal ranges;
+  - finite struct size: cycle detection on the by-value containment graph.
+- **Does not own:** where moves and drops happen (MIR lowering), or whether a
+  borrow conflicts (the borrow check). It records transfers; MIR lowering
+  places them.
 
 ### 3.5 MIR lowering
-- **In:** typed IR. **Out:** MIR, a control-flow graph of basic blocks over
-  *places*, with every ownership operation explicit: `move`, `copy`, `drop`,
-  `borrow(shared|exclusive)`, `lend`/window open, and window close.
-- **Owns:** evaluation order, temporaries and their lifetimes, and the lowering
-  of `borrow`, `for`, `match`, `try` and closures.
+- **In:** typed IR, one function at a time. **Out:** MIR.
+- **The MIR's shape** (Proposed; §6): place-based and not SSA, like Rust's MIR.
+  - A function is a set of locals plus basic blocks.
+  - A *place* is a local with a projection path: field, index, deref, enum
+    payload.
+  - Statements assign an rvalue to a place.
+  - Each block ends in one terminator: goto, switch, call, return or
+    unreachable.
+
+  LLVM's mem2reg builds SSA later, so the MIR does not need to.
+- **Every operand says move or copy.** A value use is `move p`, `copy p` or a
+  constant, and one funnel builds every operand from its type's copy tier:
+  - a Copy value copies;
+  - a last use, or an ExplicitCopy or NoCopy value, moves;
+  - an implicit copy of an ExplicitCopy value is refused, right there.
+
+  Constructions, arguments, returns, captures and compiler-synthesized calls
+  all pass through the funnel, so none can skip the transfer check (SL-340; the
+  class of DF-216a).
+- **Borrow windows are explicit.**
+  - A `borrow` block lowers to `window_open(accessor, args)`, which yields the
+    lent reference on a *present* edge, plus an *absent* edge for a conditional
+    lend. Then comes the body, and a `window_close` on every edge that leaves
+    it.
+  - The statement form closes its window as soon as the statement's value is
+    copied out (SL:borrowing §2.2).
+  - `for` is a window on its head plus a loop calling `next`.
+  - A plain `&x` argument is a `ref(shared | exclusive, place)` rvalue.
+- **An accessor is lowered as two halves around `lend`** (Proposed). The
+  prologue runs at `window_open` and produces the lent reference. The epilogue
+  runs at `window_close`. The accessor's locals that live across `lend` form a
+  small state record in the caller's frame. That is the shape coroutine lowering
+  produces, so accessors reuse its machinery (§3.9).
+- **A closure is an aggregate of its captures.** A by-value capture is a move or
+  a copy into the closure's record. A reference capture (`[&x]`, `[&var x]`,
+  `self`, a reference parameter) is a `ref` whose loan lasts while the closure
+  value is live, so the borrow check sees captures as ordinary loans.
+- **Evaluation order is fixed here, once:**
+  - left to right;
+  - a receiver and every key expression evaluated exactly once, into
+    temporaries (SL-368);
+  - an assignment's right side before its left side's borrow opens;
+  - short-circuit operators, `??`, `?.` chains and `try` as explicit branches.
+- **`match`** compiles to a decision tree: switches on discriminants, and tests
+  on literals, ranges and guards.
+- **Scopes end in drops.** Every scope exit gets a `drop(local)` for each owned
+  local in scope, in reverse declaration order. It means "drop it if it is
+  still initialised", and drop elaboration makes it precise (§3.7). A panic
+  aborts (there is no unwinding), so no path needs cleanup edges.
+- **Suspension points are marked.** A call to a function that may suspend
+  (§3.4) is a *suspension point* in the MIR. §3.9 lowers it, but the borrow
+  check sees it first.
 - **The central invariant:** after this stage, nothing about ownership is
   implicit.
 
 ### 3.6 Borrow and exclusivity check
-- **In:** MIR. **Out:** accepted, or diagnostics.
-- **One pass** checks the law of exclusivity, use-after-move, and the root
-  charges of borrow windows (declared modes, see the borrowing doc). It is
-  path-sensitive: an absent conditional lend holds no borrow.
+- **In:** MIR, one function at a time. **Out:** accepted, or diagnostics.
+- **It needs no lifetimes and never looks outside the function,** because a
+  reference never escapes one. References are parameters, borrow bindings and
+  non-escaping captures. They are never returned or stored in fields (spec, the
+  exclusivity section). The only way out of a function is `lend`, whose window
+  the *caller* opens and closes. So every loan starts and ends inside the
+  function being checked.
+- **Two dataflow analyses over the control-flow graph:**
+  - **Initialisation.** A forward analysis per place path: definitely
+    initialised, maybe initialised, or moved. Using a place that may have been
+    moved is a use after move. A partial move leaves the other fields usable.
+  - **Loans.** Every `ref` and every `window_open` creates a loan: shared or
+    exclusive, on a place, charging its root as the accessor declares
+    (SL:borrowing §3). A `ref` loan lives until its last use. A window's loan
+    lives until its `window_close`. At every access, including a move and a
+    drop, the live loans on overlapping places are checked: a write needs no
+    live loan, and a read needs no live exclusive one. Places overlap by path
+    prefix, so disjoint fields never conflict.
+- **Path-sensitive.** Loans flow along edges, so the absent edge of a
+  conditional lend carries no loan (SL:borrowing §2.4).
+- **Suspension.** At a suspension point, a live loan from a `borrows(sync)`
+  window is refused. Every other loan may span it (SL:borrowing §2.5).
+- **Inside an accessor.** Between `lend` and the end of the body, the accessor
+  is paused. The lent place must be rooted in `self`, in a parameter, or in a
+  window opened in the body (SL:borrowing §2.7). A `borrows(sync)` loan still
+  live at `lend` requires the accessor to declare `borrows(sync)` itself.
+- **Statics.** A loan rooted in an `unsafe static var` is checked within the
+  function only. The rest is the unsafe author's obligation (SL:borrowing §8a).
+  The optional `-W` warning is a separate lint over the call graph.
+- **Diagnostics name both sides:** the conflicting access, and the loan it
+  conflicts with, including where the loan came from (a window, a capture or an
+  argument).
 
 ### 3.7 Drop elaboration
 - **In:** checked MIR. **Out:** MIR where every drop is a concrete operation on
   a concrete path, with drop flags only where control flow requires them.
-- **One place** decides a value's lifecycle glue (drop, retain, copy) from its
-  type. Which glue runs is kept separate from whether a value may be copied, the
-  lesson of SL-340.
+- **Mechanism.** It reuses the borrow check's initialisation analysis. A
+  scope-exit `drop(p)` becomes:
+  - a plain drop where `p` is definitely initialised;
+  - nothing where it is definitely moved;
+  - a drop guarded by a *drop flag* where it is only maybe initialised. Flags
+    are boolean locals, set at initialisation and cleared at a move, created
+    only for the places that need them.
+
+  After a partial move, the remaining fields are dropped one by one.
+  Temporaries are dropped at the end of their statement, in reverse order of
+  creation.
+- **Must-consume types.** Some types forbid an implicit drop: a `Thread` or
+  `Task` handle's fate must be written. A value of such a type that reaches an
+  implicit drop is refused here, because this is the stage that knows exactly
+  where implicit drops happen. Today's runtime drop panic stays as the backstop
+  for a handle dropped inside another value's glue.
+- **Placement is separate from glue.** This stage decides *where* a drop
+  happens. *What* a drop does for a type is that type's glue: its `deinit` body,
+  then field drops in declaration order (design 131), or an enum's payload by
+  discriminant. One place decides a value's lifecycle glue (drop, retain, copy)
+  from its type, generated once per concrete type (§3.8). Which glue runs is
+  kept separate from whether a value may be copied, the lesson of SL-340.
 
 ### 3.8 Monomorphization
 - **In:** elaborated MIR, generic. **Out:** concrete MIR per instantiation.
 - **Identity:** a type's identity is (defining module, name, canonical
   arguments) with defaults filled at every depth (SL-382).
+- **Mechanism: a worklist from the roots.** The roots are `main`, `@export`
+  functions, test cases in a test build, the runtime seams, and the methods of
+  every `any Trait` table that a concrete type is coerced into.
+  - An item is (function, concrete arguments). Substituting into its MIR gives
+    concrete MIR, whose calls add new items.
+  - Items are deduplicated by identity and processed in a deterministic order.
+- **Trait calls become direct calls** to the implementing method. Each
+  (concrete type, trait) pair coerced to `any Trait` gets its method table.
+- **Glue** (drop, copy, retain) is generated here, once per concrete type, by
+  the one glue function (§3.7).
+- **A concrete type's copy tier** is evaluated from typecheck's rule (§3.4),
+  never re-derived.
+- **Const generics** are folded before identity is computed, so `[Int; 2 + 2]`
+  and `[Int; 4]` are one type (design 148).
+- **No type errors can occur here,** since generic bodies were checked against
+  their bounds (§3.4). A failure here is an internal error.
+- **Unbounded instantiation** (polymorphic recursion: `f<T>` calling
+  `f<Box<T>>`) has no identity cycle to detect. Proposed: refuse it before
+  mono, with a check on the generic call graph. A cycle is refused if its
+  composed substitution maps a parameter to a type that strictly contains it
+  (§6).
 
 ### 3.9 Coroutine lowering
 - **In:** concrete MIR. **Out:** state-machine MIR: frames, suspension points,
   and the resume function.
+- **Which functions become coroutines is decided precisely here.** After mono
+  every call target is concrete. So *definitely suspends* is a fixpoint over the
+  concrete call graph: a function suspends if it contains a park or calls one
+  that suspends. Typecheck's conservative "may suspend" (§3.4) served the borrow
+  check. A function that turns out not to suspend gets no frame.
+- **Frames embed by value.** A suspending function's frame holds:
+  - its locals that are live across a suspension point (liveness on the MIR);
+  - the state of its open borrow windows;
+  - the frames of the suspending callees it drives.
+
+  So a task is one allocation. A cycle in the suspending-call graph has no
+  finite frame, so it is refused with the cycle named, as today. A dispatch
+  through `any Trait` to a suspending implementation is refused likewise,
+  pending heap-allocated frames (spec: suspension).
+- **Each coroutine becomes** its frame type plus a resume function. The resume
+  function switches on the frame's state to the code after each suspension
+  point, polls each driven sub-frame, and has a cancel path.
+- **Accessors** that keep state across `lend` use the same frame machinery
+  (§3.5).
+- **The op budget** (design 127) is charged here, on loop backedges in
+  suspending functions.
 - **Operates on MIR,** not source, so it never re-typechecks generated code.
   Borrows across suspensions are windows in the frame.
 - **Suspension is visible to the borrow check.** Effects are known after type
@@ -195,6 +502,14 @@ Each stage is outlined here and fleshed out later.
   Every backend consumes exactly this and nothing earlier.
 - **LLVM backend (the primary one):** textual LLVM IR, compiled and linked by
   clang against the Saw runtime.
+  - One LLVM function per concrete MIR function. Each MIR local is an
+    `alloca`, which LLVM's mem2reg promotes to registers.
+  - Checked arithmetic uses the overflow intrinsics, branching to the runtime's
+    panic with `FILE:LINE` (design 122).
+  - One target-description module owns layout and each target's C calling
+    convention for `extern` calls.
+  - The optimisation level passes through the one `speed_level` funnel
+    (design 265).
 - **VM backend (planned, and the design must keep it possible):** MIR to VM
   bytecode, run by an interpreter. Requirements this places on the earlier
   stages:
@@ -229,6 +544,60 @@ Each stage is outlined here and fleshed out later.
 - The existing Saw-authored runtime (`sawc/rt/`) behind the frozen ABI
   (`rt/ABI.md`), shared with the Python compiler. Lock re-entry panics under the
   new contract (see the borrowing doc).
+
+### 3.12 The driver, separate compilation and caching
+- **Caching lives in the driver, never in a stage.** Each stage is a pure
+  function of its inputs (§3.0), so the driver either runs it or loads its
+  output. No stage knows whether its input came from a cache.
+- **The front half caches per module, the back half per concrete function:**
+
+  | Artifact | Written after | Contents | Read by |
+  |---|---|---|---|
+  | Module interface | typecheck | export table, signatures, conformances, copy-tier rules, may-suspend summaries, doc comments | resolve and typecheck of importing modules |
+  | Module MIR | drop elaboration | the checked, elaborated MIR of every function, generic ones included | mono, in every program that uses the module |
+  | Object code | the backend | concrete functions, per module or per instantiation | the linker |
+
+- **Interfaces give early cutoff.** An importer depends on the interfaces of
+  what it imports, not on their bodies. Editing a body without changing the
+  interface therefore does not re-check the importers. Generic bodies are the
+  exception: mono reads their MIR, so changing one re-instantiates it, as in
+  Rust and Swift.
+- **Keys are content hashes** over:
+  - the artifact's inputs: the module's source, and the interfaces it imports;
+  - the compiler's own digest;
+  - every flag that changes output: target triple and features,
+    `--freestanding`, `--runtime-build` and `--runtime-provider`,
+    `--no-hidden-alloc`, the test profile, and the optimisation level.
+
+  A wrong key is a silent miscompile, so the key over-approximates
+  (design 164, unit 5).
+- **Object code has one extra dependency: frames.** A suspending function's
+  code depends on the frame layouts of the callees it embeds, which may be in
+  other modules. Its key includes the digests of those layouts.
+- **Packages ship interfaces and MIR,** the analogue of a Rust `.rlib` or a
+  compiled Swift module, so a dependent never re-parses or re-checks a
+  dependency. std is the first such package. The Python compiler's std cache
+  (design 168) approximates this with one pickle.
+- **The contracts carry what serialization needs from the start** (§3.0):
+  - module-local ids;
+  - types by canonical key;
+  - cross-module references by stable declaration path;
+  - spans by package-relative file;
+  - diagnostics as part of the output, so a cached module replays its warnings.
+
+  The Python std cache hit three silent failures:
+  - a global node-id counter that collided;
+  - types shared by object identity across two pickles;
+  - absolute paths baked into nodes.
+
+  Each is impossible by construction here.
+- **A cold-versus-warm differential is part of the test surface** (§5). The
+  corpus is compiled with every cache empty and again with every cache warm, and
+  every artifact is compared byte for byte. Design 164 made this non-negotiable
+  for any cache that ships.
+- **Staging:** the contracts hold from the first stage built. The caches
+  themselves come later, driven by measurement. Plain data costs nothing now,
+  and retrofitting it is what the Python compiler could not do.
 
 ## 4. Bootstrap
 
@@ -275,10 +644,12 @@ whether the checker covers it.
 |---|---|
 | Lexer | token dumps; lexdiff against the frozen lexer |
 | Parser | canonical AST dumps (the M21 format); `@test(refuses:)` does not apply to parse errors, which stay as corpus files |
-| Resolution / typecheck | `@test` and `@test(refuses:)` by aspect; type dumps |
+| Resolution | resolution-table dumps; `@test(refuses:)` for name rules (shadowing, visibility, test-only names); multi-file refusals as corpus files |
+| Typecheck | `@test` and `@test(refuses:)` by aspect; typed-IR dumps |
 | MIR and its checks | MIR dumps, plus refusal matrices for borrow, move and exclusivity rules |
 | Drop elaboration | drop-order and drop-count tests (printing deinits) |
 | Monomorphization, coroutines, codegen | runtime `@test` cases; the `examples/` corpus |
+| Driver and caching | the cold-versus-warm differential (§3.12): every artifact byte-identical |
 | Whole compiler | the `examples/` corpus (~2,700 programs), differential against the frozen compiler; the bootstrap fixpoint |
 | Backends | the same cases run on every backend (LLVM, and the VM when it exists), compared with each other, as the prototype's multi-engine harness already does |
 | Freestanding (downstream) | the sawos gate: 382 QEMU cases across three profiles, about 25 minutes on the tracker server, pinned by sha. It covers what `examples/` mostly does not: freestanding riscv32 (`+m,+a,+c`) and aarch64 at `-Oz`, `--runtime-provider` seam checking, `--no-hidden-alloc`, `@export`/`@section`/`@align`, `unsafe static var` as the main state, Saw tasks inside the kernel (`tests/taskdump.saw`), and Blade-built packages in boot images. Each case checks its own console transcript (tools/sos_runner.py), so it is NOT differential, and a failure there is adjudicated by the case's assertion. Its flag list doubles as sawos's migration checklist: sawos stays on the frozen compiler until the new one accepts those flags |
@@ -302,7 +673,24 @@ keeps that auditable.
 
 ## 6. Open questions
 
-- The MIR's exact shape: SSA or place-based, and how windows appear in it.
+- **The MIR's exact shape.** §3.5 proposes place-based and not SSA. Still open:
+  how an accessor's two halves and their state record appear in it.
+- **Generic bodies checked once.** §3.4 depends on it. A sweep is owed for any
+  language feature that today relies on checking per instantiation.
+- **Suspension in higher-order generic code.** The borrow check sees a call
+  through a non-`sync` function value as a possible suspension (§3.4). So a
+  `borrows(sync)` window held across such a call is refused, even if no
+  instantiation ever passes a suspending closure. Is that imprecision
+  acceptable, or should the check wait for concrete types?
+- **Polymorphic recursion** (§3.8): the proposed static refusal on the generic
+  call graph.
+- **Heap-allocated frames,** which the spec leaves pending for suspending
+  recursion and for suspending dispatch through `any Trait`. The frame design
+  must leave room for them.
+- **The serialization format** for §3.12's artifacts: its binary encoding, its
+  versioning, and whether it shares a schema with the text dumps.
+- **What `#file` renders** once no IR holds an absolute path: a
+  package-relative path, or something else.
 - How much of the M18–M21 prototype carries over directly.
 - The order of stages built: front to back, or a thin end-to-end slice first so
   the corpus runs early.
