@@ -1,0 +1,43 @@
+// A value-returning body whose fall-through path ends in a Void call (SL:hazards S6).
+func tail_void(x: Int) -> Int {   // refuses: function-exit
+    if x > 0 { return x }
+    print("fell off tail_void")
+}
+
+func arm_void(x: Int) -> Int {   // refuses: function-exit
+    match x {
+        case 0 -> { return 1 },
+        case _ -> { print("fell off arm_void") }
+    }
+}
+
+func else_void(x: Int) -> Int {   // refuses: function-exit
+    if x > 0 {
+        return 1
+    } else {
+        print("fell off else_void")
+    }
+}
+
+struct Log { n: Int }
+
+extension Log {
+    func note(&self) { print(self.n) }
+    func noted(&self) -> Int { self.n }
+
+    func tail_method(&self, x: Int) -> Int {   // refuses: function-exit
+        if x > 0 { return x }
+        self.note()
+    }
+
+    func tail_value(&self, x: Int) -> Int {
+        if x > 0 { return x }
+        self.noted()
+    }
+}
+
+func main() {
+    print(tail_void(0))
+    print(arm_void(5))
+    print(else_void(0))
+}

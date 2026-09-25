@@ -1,0 +1,21 @@
+// A generic method named like a generic function, a static and an instance
+// method sharing a name, and a type parameter spelled like a declared type.
+func carry<T>(v: T) -> T { v }   // refuses: name-collision
+
+struct Tote { n: Int }
+
+extension Tote {
+    func carry<T>(&self, v: T) -> T { v }   // refuses: name-collision
+    static func size() -> Int { 1 }   // refuses: name-collision
+    func size(&self) -> Int { 2 }   // refuses: name-collision
+    func map_it<T>(&self, v: T) -> T { v }
+}
+
+extension Tote {
+    func encode<T>(&self, v: T) -> T { v }   // refuses: name-collision
+}
+
+enum Cmd { case Go }
+
+struct Tray<Cmd> { v: Int }   // refuses: name-collision
+struct Shelf<Item> { v: Int }

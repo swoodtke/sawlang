@@ -1,0 +1,9 @@
+// `Box` in a type or an expression.
+struct Link { next: Box<Link>? }   // refuses: box-type
+
+func box_fixture() -> Int {
+    let b = Box<Int>.make(3)   // refuses: box-type std-api
+    1
+}
+
+struct Arena { next: Int }

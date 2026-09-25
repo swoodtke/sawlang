@@ -1,0 +1,14 @@
+// A repeated label, and a labeled call to a std `borrows` accessor.
+struct Twin { first: Int, second: Int }
+
+func pick_fixture(a: Int, b: Int) -> Int { a }
+
+func labels_fixture() -> Int {
+    let p = Twin(first: 1, second: 2, first: 3)   // refuses: argument-labels
+    let q = pick_fixture(a: 1, a: 2)   // refuses: argument-labels
+    let v: Vector<Int> = [1]
+    let g = v.get(index: 0)   // refuses: argument-labels
+    let h = v.get(0)
+    let r = Twin(first: 1, second: 2)
+    3
+}

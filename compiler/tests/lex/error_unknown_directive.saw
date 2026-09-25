@@ -1,0 +1,2 @@
+// Fixture: an unknown directive. Taken from the inputs of compiler/lex/tests/errors.saw.
+#foo

@@ -1,0 +1,8 @@
+// Fixed-size array types and repeat literals.
+struct Table { cells: [Int; 4] }   // refuses: fixed-array
+
+func array_fixture() -> Int {
+    let zeros = [0; 8]   // refuses: fixed-array fixed-array
+    let v: Vector<Int> = [1, 2]
+    v.len()
+}

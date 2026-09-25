@@ -1,0 +1,25 @@
+// A hand-written `equals` on an enum, in its conformance or apart from it.
+enum Bag { case Empty, case Full(k: Int) }
+
+extension Bag: Equatable {
+    func equals(&self, other: &Self) -> Bool { true }   // refuses: enum-equatable-body
+}
+
+enum Split { case One, case Two(k: Int) }
+
+extension Split {
+    func equals(&self, other: &Self) -> Bool { true }   // refuses: enum-equatable-body
+}
+
+extension Split: Equatable {}
+
+enum Tag { case A, case B }
+
+@synthesize
+extension Tag: Equatable {}
+
+struct Crate { n: Int }
+
+extension Crate: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.n == other.n }
+}

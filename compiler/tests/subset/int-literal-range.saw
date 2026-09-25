@@ -1,0 +1,11 @@
+// An unsuffixed integer literal above Int.max, outside a `UInt64` binding.
+func big_fixture() -> Int {
+    let a = 18446744073709551615   // refuses: int-literal-range
+    let b = 18446744073709551615u64
+    let c = 0xFFFF_FFFF_FFFF_FFFF   // refuses: int-literal-range
+    let d = 9223372036854775807
+    let e: Int = 9223372036854775808   // refuses: int-literal-range
+    let g = -9223372036854775809   // refuses: int-literal-range
+    print("big {18446744073709551615}")   // refuses: int-literal-range
+    3
+}

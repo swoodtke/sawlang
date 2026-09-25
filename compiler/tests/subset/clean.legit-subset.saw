@@ -1,0 +1,67 @@
+// Ordinary subset code, with nothing to refuse.
+enum ProbeKind { case Num(value: Int), case Add(left: Int, right: Int), case Neg(inner: Int) }
+
+struct ProbeNode { kind: ProbeKind, line: Int }
+
+struct ProbeArena { nodes: Vector<ProbeNode>, names: Map<String, Int> }
+
+extension ProbeArena: NoCopy {}
+
+enum ProbeError { case Unknown(name: String), case Deep(at: Int) }
+
+extension ProbeArena {
+    func push_node(&var self, kind: ProbeKind, line: Int) -> Int {
+        let index = self.nodes.len()
+        try! self.nodes.push(ProbeNode(kind: kind, line: line))
+        index
+    }
+
+    func eval_at(&self, index: Int, depth: Int) -> Result<Int, ProbeError> {
+        if depth > 64 {
+            return ProbeError.Deep(at: index)
+        }
+        let missing = ProbeNode(kind: ProbeKind.Num(value: 0), line: 0)
+        let node = self.nodes.get(index) ?? missing
+        match node.kind {
+            case Num(value) -> { return value },
+            case Add(left, right) -> {
+                let a = try self.eval_at(left, depth + 1)
+                let b = try self.eval_at(right, depth + 1)
+                return a + b
+            },
+            case Neg(inner) -> {
+                let v = try self.eval_at(inner, depth + 1)
+                return 0 - v
+            }
+        }
+    }
+}
+
+func probe_lookup(names: &Map<String, Int>, key: String) -> Result<Int, ProbeError> {
+    if let found = names.get(key) {
+        return found
+    }
+    return ProbeError.Unknown(name: key)
+}
+
+func probe_apply(f: (Int) -> Int, n: Int) -> Int { f(n) }
+
+func main() {
+    let empty: Map<String, Int> = {:}
+    let no_nodes: Vector<ProbeNode> = Vector()
+    var arena = ProbeArena(nodes: move no_nodes, names: move empty)
+    let one = arena.push_node(ProbeKind.Num(value: 1), 1)
+    let two = arena.push_node(ProbeKind.Num(value: 2), 1)
+    let sum = arena.push_node(ProbeKind.Add(left: one, right: two), 2)
+    let neg = arena.push_node(ProbeKind.Neg(inner: sum), 3)
+    let result = arena.eval_at(neg, 0)
+    match result {
+        case Ok(v) -> print(probe_apply({ x: Int in x * 10 }, v)),
+        case Err(e) -> print("error")
+    }
+    let looked = probe_lookup(&arena.names, "x")
+    match looked {
+        case Ok(v) -> print(v),
+        case Err(e) -> print("unknown")
+    }
+}

@@ -1,0 +1,2 @@
+// Fixture: a `$` with no digits. Taken from the inputs of compiler/lex/tests/errors.saw.
+$x

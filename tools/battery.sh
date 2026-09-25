@@ -60,7 +60,7 @@ fi
 STAGES=(
     "suite|no|the compiler test suite (zero UNCITED xfails is the bar)|$PY test_runner.py"
     "icebreadcrumb|no|an internal compiler error reports one located line|$PY tools/test_ice_breadcrumb.py"
-    "lexdiff|no|the Saw lexer against sawc's, over every tracked .saw|$PY tools/lexdiff.py"
+    "compiler|no|the self-hosted compiler: unit programs, golden fixtures, the subset checker|$PY compiler/tests/run.py"
     "astdiff|no|every .saw dumps completely and byte-stably|$PY tools/astdiff.py"
     "astgraft|no|no pass stamps an AST attribute no class declares|$PY tools/test_ast_graft.py"
     "closurestate|no|a nested body hands back every kind of per-function codegen state|$PY tools/test_closure_state.py"
@@ -84,7 +84,6 @@ STAGES=(
     "fuzz|no|corpus-mutation fuzzing, one oracle: no ICE, no traceback|$PY tools/sawfuzz.py --quick"
     "corodiff|no|coroutine twin parity: suspending vs non-suspending|$PY tools/corodiff.py --quick"
     "bench|no|warehouse benchmark: checksums gate, timing reports|__BENCH__"
-    "selfhostlex|no|the selfhost lexer's own tests compile and pass|__SELFHOSTLEX__"
     "minivm|no|the minivm prototype builds and its differential harness passes|__MINIVM__"
     "reemit|yes|two compiles in ONE process emit identical unopt IR, opt IR and object|$PY tools/reemitdiff.py"
     "irdet|yes|IR determinism over the WHOLE corpus (not a sample)|__IRDET__"
@@ -164,42 +163,16 @@ run_bench() {
     ./.build/benchdriver
 }
 
-# selfhost/lexer/tests was the one tree NO stage typechecked or ran (the
-# Aug-10 coverage sweep found it: lexdiff/astdiff only lex/parse it, and no
-# bootstrap-style runner exists for the package). Same exit-0-is-pass
-# contract as `blade test`. The lexdiff stage builds the package's src/
-# separately; this runs its TESTS.
-run_selfhostlex() {
-    local failed=0
-    mkdir -p .build/selfhostlex
-    for f in selfhost/lexer/tests/*.saw; do
-        local name
-        name="$(basename "$f" .saw)"
-        if ! "$PY" sawc/sawc.py "$f" -o ".build/selfhostlex/$name"; then
-            echo "selfhostlex: $name FAILED to compile"
-            failed=$((failed + 1))
-            continue
-        fi
-        if ! "./.build/selfhostlex/$name"; then
-            echo "selfhostlex: $name FAILED at run"
-            failed=$((failed + 1))
-        fi
-    done
-    echo "selfhostlex: $(ls selfhost/lexer/tests/*.saw | wc -l | tr -d ' ') test(s), $failed failing"
-    [ "$failed" -eq 0 ]
-}
-
-# prototypes/minivm was typechecked by NO stage (SL-266, Sep 11: lexdiff/
-# astdiff only lex/parse it, and neither the suite nor the server gate ever
-# opens it) — SL-238.p1 r1 shipped a minivm build break past every gate, and
-# only review caught it. This builds the prototype against the selfhost lexer
-# it consumes, then runs its full differential harness (VM + clang-native,
-# explicit expected-output oracles). Its own build dir: the lane must never
-# clobber a developer's .build/minivm.
+# prototypes/minivm is typechecked by no other stage: astdiff only parses it,
+# and neither the suite nor the server gate opens it (SL-266). This builds the
+# prototype against the compiler's lexer package, which it imports, then runs
+# its full differential harness (VM + clang-native, explicit expected-output
+# oracles). Its own build dir: the lane must never clobber a developer's
+# .build/minivm.
 run_minivm() {
     mkdir -p .build/minivm-battery
     "$PY" sawc/sawc.py prototypes/minivm/src/main.saw \
-        --module-path sawlex=selfhost/lexer \
+        --module-path sawlex=compiler/lex \
         -o .build/minivm-battery/minivm || return 1
     "$PY" prototypes/minivm/test_minivm.py --binary .build/minivm-battery/minivm
 }
@@ -227,8 +200,6 @@ for entry in "${STAGES[@]}"; do
         run_irdet
     elif [ "$cmd" = "__BENCH__" ]; then
         run_bench
-    elif [ "$cmd" = "__SELFHOSTLEX__" ]; then
-        run_selfhostlex
     elif [ "$cmd" = "__MINIVM__" ]; then
         run_minivm
     else

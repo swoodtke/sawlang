@@ -1,0 +1,21 @@
+// An extension head that names a generic build type's type parameters, for
+// methods and a conformance, and one on a non-generic type (SL:hazards L18).
+struct Gen<T> { item: T }
+
+enum Pick<T> { case One(item: T), case Empty }
+
+struct Flat { n: Int }
+
+extension Gen<T>: NoCopy {}
+
+extension Gen<T> {
+    func tag(&self) -> Int { 1 }
+}
+
+extension Pick<T> {
+    func tag(&self) -> Int { 2 }
+}
+
+extension Flat {
+    func tag(&self) -> Int { self.n }
+}

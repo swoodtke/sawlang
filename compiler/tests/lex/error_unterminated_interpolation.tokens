@@ -1,0 +1,1 @@
+ERROR	2:4	unterminated interpolation in string literal, opened at this `{` (write `\{` for a literal brace)

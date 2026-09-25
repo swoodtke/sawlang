@@ -1,0 +1,24 @@
+// A type name declared twice in one build: in two modules, or in this file and
+// a stage package. The checker keys its facts about a type by name, so each
+// declaration is refused (SL:hazards S18). `generic-extension-params` fires on
+// the bare extension because those facts see the generic `Gen`; the rename that
+// clears the duplicate clears that finding too.
+module mod_a {   // refuses: inline-module
+    public struct Gen<T> { v: T }   // refuses: program-unique-names
+}
+
+module mod_b {   // refuses: inline-module
+    public struct Gen { n: Int }   // refuses: program-unique-names
+
+    extension Gen {   // refuses: generic-extension-params
+        public func count(&self) -> Int { self.n }
+    }
+
+    public func five() -> Int { Gen(n: 5).count() }
+}
+
+struct LexResult { n: Int }   // refuses: program-unique-names
+
+func main() {
+    print(mod_b.five())
+}

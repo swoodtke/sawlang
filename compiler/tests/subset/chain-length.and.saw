@@ -1,0 +1,4 @@
+// A 150-term `&&` chain (SL:hazards L14).
+func and_chain(b: Bool) -> Bool {
+    b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b   // refuses: chain-length
+}

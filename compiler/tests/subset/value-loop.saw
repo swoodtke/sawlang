@@ -1,0 +1,12 @@
+// A loop used as a value: `break` with an operand.
+func loop_fixture() -> Int {
+    let n = while true {
+        break 5   // refuses: value-loop
+    }
+    var m = 0
+    while true {
+        m = 6
+        break
+    }
+    n + m
+}

@@ -1,0 +1,6 @@
+// `any` in a type.
+trait Shape { func area(&self) -> Int }
+
+func any_fixture(s: &any Shape) -> Int { s.area() }   // refuses: any-type
+
+func generic_fixture<S: Shape>(s: &S) -> Int { s.area() }

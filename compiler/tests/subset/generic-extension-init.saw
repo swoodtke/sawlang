@@ -1,0 +1,13 @@
+// An `init` in an extension with type parameters.
+struct Wrap<T> { value: T }
+
+extension Wrap<T> {
+    init(from: T) -> Wrap<T> { Wrap(value: from) }   // refuses: generic-extension-init
+    func unwrap_it(&self) -> Int { 1 }
+}
+
+struct Plain { n: Int }
+
+extension Plain {
+    init(seed: Int) -> Plain { Plain(n: seed) }
+}

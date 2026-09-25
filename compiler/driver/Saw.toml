@@ -1,0 +1,6 @@
+[package]
+name = "sawc2"
+version = "0.1.0"
+
+[dependencies]
+sawlex = { path = "../lex" }

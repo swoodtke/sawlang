@@ -1,0 +1,30 @@
+// Body rules inside a trait's default method bodies.
+func probe_run(f: (Int) -> Int) -> Int { f(1) }
+
+enum ProbeSlot { case Empty, case Full(item: String) }
+
+trait ProbeShape {
+    func area(&self) -> Int
+
+    func doubled(&self) -> Int {
+        let k = 2
+        probe_run({ x: Int in x * k })   // refuses: closure-capture
+    }
+
+    func falls(&self, x: Int) -> Int {   // refuses: function-exit
+        if x > 0 { return x }
+    }
+
+    func steal(&self, s: &var ProbeSlot) -> String {
+        match s {
+            case Empty -> "",
+            case Full(item) -> move item   // refuses: borrowed-match-payload
+        }
+    }
+
+    func dup_label(&self) -> Int {
+        probe_pick(a: 1, a: 2)   // refuses: argument-labels
+    }
+}
+
+func probe_pick(a: Int, b: Int) -> Int { a }

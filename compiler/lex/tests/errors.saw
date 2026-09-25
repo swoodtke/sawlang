@@ -1,0 +1,72 @@
+// Lex-error cases, one per kind of error the lexer reports, each checked at
+// its exact line:col.
+import src.lib.{lex}
+
+// Assert that lexing `s` fails at exactly line:col.
+func expect_err(s: String, line: Int, col: Int, why: String) {
+    match lex(s) {
+        case Ok(_) -> panic("expected a lex error ({why})"),
+        case Err(e) -> {
+            assert(e.line == line, "{why}: line {e.line} != {line} ({e.message})")
+            assert(e.col == col, "{why}: col {e.col} != {col} ({e.message})")
+        }
+    }
+}
+
+func main() {
+    // Unterminated string: quote + "abc" runs to EOF (col past the last byte).
+    var us = StringBuilder()
+    try! us.append(Byte(34))      // "
+    try! us.append("abc")
+    expect_err(us.build(), 1, 5, "unterminated string")
+
+    // Unbalanced interpolation `{`: a stray brace opens an interpolation that
+    // never closes; reported AT the brace, not at EOF (design 119 / DF-116d).
+    // The string is `"a {b` — the `{` is at column 4.
+    var interp = StringBuilder()
+    try! interp.append(Byte(34))      // "
+    try! interp.append("a ")
+    try! interp.append(Byte(123))     // {
+    try! interp.append("b")                  // no closing } or "
+    expect_err(interp.build(), 1, 4, "unterminated interpolation at the brace")
+
+    // Unknown escape `\q`: error at the escaped char position.
+    var be = StringBuilder()
+    try! be.append(Byte(34))      // "
+    try! be.append(Byte(92))      // backslash
+    try! be.append(Byte(113))     // q
+    try! be.append(Byte(34))      // "
+    expect_err(be.build(), 1, 4, "unknown escape")
+
+    // Stray `#name`: unknown directive, anchored at the `#`.
+    expect_err("#foo", 1, 1, "unknown hash directive")
+    // Bare `#` with no name: anchored at the `#`.
+    expect_err("#", 1, 1, "empty hash directive")
+    // `#` followed by a non-name (space): also an empty-name error at the `#`.
+    expect_err("# x", 1, 1, "hash then space")
+
+    // `$` with no digits: error just past the `$`.
+    expect_err("$x", 1, 2, "dollar without digits")
+
+    // Out-of-range suffixed literal: 256 does not fit u8 (anchored at the start).
+    expect_err("256u8", 1, 1, "256u8 out of range")
+    // A hex literal wider than 16 digits overflows a 64-bit integer.
+    expect_err("0x1_0000_0000_0000_0000", 1, 1, "hex > 2**64-1")
+
+    // Unexpected character (backtick is not in the grammar).
+    var bt = StringBuilder()
+    try! bt.append(Byte(96))      // `
+    expect_err(bt.build(), 1, 1, "unexpected char")
+
+    // A decimal literal past 2**64-1, anchored at its first digit.
+    expect_err("18446744073709551616", 1, 1, "decimal > 2**64-1")
+    // A base prefix with no digits after it: reported just past the prefix.
+    expect_err("0x", 1, 3, "no digits after 0x")
+
+    // Unicode escapes: `\u` with no brace, then one that runs to EOF, each
+    // reported where the lexer stopped.
+    expect_err("\"\\u41\"", 1, 4, "backslash-u without a brace")
+    expect_err("\"\\u\{41", 1, 7, "unterminated Unicode escape")
+
+    print("errors: ok")
+}

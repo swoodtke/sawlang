@@ -1,0 +1,34 @@
+// #file / #line / #function source-location directives, and NEWLINE tokens.
+import src.lib.{LexResult, format_token, lex}
+
+func lexed(s: String) -> LexResult {
+    let result = lex(s)
+    match result {
+        case Ok(r) -> move r,
+        case Err(e) -> panic("unexpected lex error at {e.line}:{e.col}: {e.message}")
+    }
+}
+
+func at(r: &LexResult, i: Int) -> String {
+    if let t = r.tokens.get(i) {
+        format_token(&t, &r.segments)
+    } else {
+        panic("no token at index {i}")
+    }
+}
+
+func main() {
+    // The value is the bare directive name.
+    let a = lexed("#file #line #function")
+    assert(at(&a, 0).equals("HASH_DIRECTIVE\t1:1\tfile"), "#file")
+    assert(at(&a, 1).equals("HASH_DIRECTIVE\t1:7\tline"), "#line")
+    assert(at(&a, 2).equals("HASH_DIRECTIVE\t1:13\tfunction"), "#function")
+
+    // A NEWLINE token carries the newline, and line/col advance across it.
+    let b = lexed("a\nb")
+    assert(at(&b, 0).equals("IDENT\t1:1\ta"), "line 1 ident")
+    assert(at(&b, 1).equals("NEWLINE\t1:2\t\\n"), "newline token, escaped value")
+    assert(at(&b, 2).equals("IDENT\t2:1\tb"), "line 2 ident at col 1")
+
+    print("directives: ok")
+}

@@ -1,0 +1,5 @@
+// Fixture: line comments. Taken from the inputs of compiler/lex/tests/comments.saw.
+x // comment here
+y
+// just a comment
+a / b

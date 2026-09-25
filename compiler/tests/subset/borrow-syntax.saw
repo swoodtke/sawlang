@@ -1,0 +1,10 @@
+// `borrow` is a keyword of the new language, so not a name here.
+func borrow_fixture() -> Int {
+    let borrow = 3   // refuses: borrow-syntax
+    borrow   // refuses: borrow-syntax
+}
+
+func borrowed_fixture() -> Int {
+    let borrowed = 3
+    borrowed
+}

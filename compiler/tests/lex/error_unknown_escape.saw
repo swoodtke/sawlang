@@ -1,0 +1,2 @@
+// Fixture: an unknown escape. Taken from the inputs of compiler/lex/tests/errors.saw.
+"\q"

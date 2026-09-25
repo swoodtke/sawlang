@@ -1,0 +1,20 @@
+// A line break inside an interpolation's braces (SL:hazards S21).
+func main() {
+    let x = 7
+    let s = "abc"
+    print("plus {x
+        + 3}")   // refuses: interpolation-line-break
+    print("paren {(x
+        + 3)}")   // refuses: interpolation-line-break
+    print("and {x > 0
+        && x > 9}")   // refuses: interpolation-line-break
+    print("minus {x
+        - 3}")   // refuses: interpolation-line-break
+    print("times {x
+        * 3}")   // refuses: interpolation-line-break
+    print("eq {x
+        == 8}")   // refuses: interpolation-line-break
+    print("len {s
+        .len()}")   // refuses: interpolation-line-break
+    print("one line {x + 3} and {s.len()}")
+}

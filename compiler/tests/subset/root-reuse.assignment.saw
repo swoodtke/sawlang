@@ -1,0 +1,29 @@
+// Assignments whose right side reads the target's root (SL:hazards S4). The
+// hazard's shape is an index write; a field write reading its root is accepted.
+struct Pair { a: Int, b: Int }
+
+struct Grid { cells: Vector<Int> }
+
+extension Grid: NoCopy {}
+
+extension Grid {
+    func total(&self) -> Int { self.cells.len() }
+
+    func scale(&var self, i: Int) {
+        self.cells[i] += self.cells[0]
+        self.cells[i] = self.cells[0] * 2   // refuses: root-reuse
+    }
+}
+
+func main() {
+    var p = Pair(a: 1, b: 2)
+    p.a = p.b + 1
+    print(p.a)
+    var v: Vector<Int> = [3, 4]
+    v[1] += v[0]
+    v[1] = v[0] + 1   // refuses: root-reuse
+    print(v[1])
+    var g = Grid(cells: [2, 5])
+    g.scale(1)
+    print(g.cells[1])
+}

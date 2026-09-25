@@ -1,0 +1,4 @@
+// Whole-module and glob imports.
+import std.file   // refuses: selective-imports
+import std.path.*   // refuses: selective-imports
+import std.env.{Env}

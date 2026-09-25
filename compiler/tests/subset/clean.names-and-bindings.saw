@@ -1,0 +1,25 @@
+// Subset code whose names and bindings resemble refused ones.
+enum Repeat { case Once, case Many }
+
+struct Timing { sleep: Int, cancelled: Bool }
+
+func bump_int(x: &var Int) { x = x + 1 }
+
+func run_ref(n: Int, f: (&var Int) -> Int) -> Int {
+    var k = n
+    f(&var k)
+}
+
+func probe_repeat(r: Repeat) -> Int {
+    match r {
+        case Once -> 1,
+        case Many -> 2
+    }
+}
+
+func main() {
+    let t = Timing(sleep: 3, cancelled: false)
+    print(t.sleep)
+    print(probe_repeat(Repeat.Once))
+    print(run_ref(4, { x: &var Int in bump_int(&var x); x }))
+}

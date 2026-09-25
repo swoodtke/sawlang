@@ -1,0 +1,7 @@
+// A comment, brace or string inside an interpolation.
+func interp_fixture(n: Int) -> String {
+    let a = "value {n // note}"   // refuses: interpolation-content
+    let b = "sum {n}"
+    let c = "len {b.len()}"
+    a
+}

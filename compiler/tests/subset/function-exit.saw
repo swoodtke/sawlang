@@ -1,0 +1,24 @@
+// A value-returning body that can fall off its end, and code after a return.
+func exit_fixture(x: Int) -> Int {   // refuses: function-exit
+    if x > 0 { return x }
+}
+
+func loop_end_fixture() -> Int {   // refuses: function-exit
+    while true { return 1 }
+}
+
+func after_return_fixture() -> Int {
+    return 1   // refuses: function-exit
+    2
+}
+
+func every_arm_fixture(x: Int) -> Int {
+    if x > 0 {
+        return x
+    } else {
+        match x {
+            case 0 -> 0,
+            case _ -> { return -x }
+        }
+    }
+}

@@ -1,0 +1,13 @@
+// A presence test through `get` written as a `match`.
+func probe_present(v: &Vector<Int>, i: Int) -> Bool {
+    match v.get(i) {   // refuses: std-api
+        case Some(_) -> true,
+        case _ -> false
+    }
+}
+
+func main() {
+    let v: Vector<Int> = [4]
+    print(probe_present(&v, 0))
+    print(probe_present(&v, 3))
+}

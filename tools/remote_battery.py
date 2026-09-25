@@ -6,8 +6,8 @@
 Submits the working tree as it stands and runs, on the worker, in order:
 
     test_runner.py          the full suite
-    tools/lexdiff.py        the two lexers agree
-    tools/astdiff.py        the two parsers agree
+    compiler/tests/run.py   the self-hosted compiler's tests
+    tools/astdiff.py        every .saw dumps completely and byte-stably
     irdet --all             every example compiles to byte-identical IR
 
 This is the agent-workflow half of design 160: the machine that just finished a
@@ -40,7 +40,7 @@ import worker_client  # noqa: E402
 
 LOCAL_BATTERY = (
     "./.venv/bin/python test_runner.py",
-    "./.venv/bin/python tools/lexdiff.py",
+    "./.venv/bin/python compiler/tests/run.py",
     "./.venv/bin/python tools/astdiff.py",
     # The harness is a compiled Saw binary (design 155); `make irdet-all`
     # builds it and runs it in one step.
@@ -109,7 +109,7 @@ def main() -> int:
             print(f"  {cmd}")
         return 1
     print(f"\nBATTERY GREEN on the worker in {elapsed:.0f}s "
-          f"(suite, lexdiff, astdiff, irdet --all)")
+          f"(suite, compiler, astdiff, irdet --all)")
     print("Still to run locally: ./.venv/bin/python tools/sos_runner.py")
     return 0
 

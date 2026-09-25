@@ -1,0 +1,15 @@
+// An overload set where one member takes a non-`Int` integer.
+func put_value(n: Int) -> Int { n }   // refuses: integer-overload
+func put_value(n: UInt8) -> Int { 1 }   // refuses: integer-overload
+
+func put_other(n: Int) -> Int { n }
+func put_other(s: String) -> Int { 2 }
+
+func put_single(n: UInt8) -> Int { 3 }
+
+struct Sink { n: Int }
+
+extension Sink {
+    func take(&self, n: Int) -> Int { n }   // refuses: integer-overload
+    func take(&self, n: UInt) -> Int { 1 }   // refuses: integer-overload
+}

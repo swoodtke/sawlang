@@ -1,0 +1,15 @@
+// An extension head naming a std generic type without its parameters crashes
+// Stage 0 as a build generic's does (SL:hazards L18; probe g3).
+trait Sized { func size(&self) -> Int }
+
+extension Vector {   // refuses: generic-extension-params
+    func first_or(&self, d: Int) -> Int { d }
+}
+
+extension Map: Sized {   // refuses: generic-extension-params
+    func size(&self) -> Int { 0 }
+}
+
+extension Vector<T> {
+    func second_or(&self, d: Int) -> Int { d }
+}

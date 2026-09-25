@@ -1,0 +1,19 @@
+// A receiver traced to a std type is judged against the allowlist: a match-arm
+// binding, a destructured tuple's element, a bounded type parameter.
+enum Named { case Label(text: String), case Nothing }
+
+func label_upper(n: &Named) -> String {
+    match n {
+        case Label(text) -> text.to_uppercase(),   // refuses: std-api
+        case Nothing -> ""
+    }
+}
+
+func pair_of() -> (String, Int) { ("pair", 2) }
+
+func pair_upper() -> String {
+    let (s, n) = pair_of()
+    s.to_uppercase()   // refuses: std-api
+}
+
+func order_of<T: Comparable>(a: &T, b: &T) -> Ordering { a.compare(&b) }   // refuses: std-api

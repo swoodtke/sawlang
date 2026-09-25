@@ -1,0 +1,9 @@
+DOC	2:1	doc	Returns the answer.
+DOC	4:1	module	The module.
+DOC	5:1	doc	 two spaces
+DOC	6:1	doc	no space
+DOC	7:1	doc	one
+DOC	8:1	doc
+DOC	9:1	doc	two
+DOC	13:5	doc	The value.
+DOC	16:1	doc	a\tb\\c

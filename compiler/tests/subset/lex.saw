@@ -1,0 +1,4 @@
+// The frozen lexer refuses an unknown escape, so nothing else is checked.
+func lex_fixture() -> String {
+    "a\qb"   // refuses: lex
+}

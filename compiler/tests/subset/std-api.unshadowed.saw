@@ -1,0 +1,8 @@
+// Std members off the API allowlist, with no same-named compiler method.
+func probe_calls(m: &var Map<String, Int>, v: &var Vector<Int>) -> Int {
+    let old = try! m.insert("k", 1)   // refuses: std-api
+    let last = v.pop()   // refuses: std-api
+    let keys = try! m.keys()   // refuses: std-api
+    v.sort()   // refuses: std-api
+    3
+}

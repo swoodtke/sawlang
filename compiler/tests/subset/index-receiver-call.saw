@@ -1,0 +1,17 @@
+// A mutating method called directly on an indexed element.
+struct Tally { n: Int }
+
+extension Tally {
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+func index_fixture() -> Int {
+    var v: Vector<Tally> = [Tally(n: 1)]
+    v[0].bump()   // refuses: index-receiver-call
+    let s: Vector<String> = ["a"]
+    let k = s[0].len()
+    var t = v[0]
+    t.bump()
+    v[0] = t
+    k
+}

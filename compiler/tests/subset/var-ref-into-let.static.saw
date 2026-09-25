@@ -1,0 +1,25 @@
+// `&var` into a `static`, mutable or not; its writes belong in a local `var`
+// (SL:hazards S5). The subset refuses `unsafe`, so a mutable one is refused
+// twice over.
+struct Counter { n: Int }
+
+extension Counter {
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+struct Holder { c: Counter }
+
+static PROBE_LIMIT: Int = 3
+
+unsafe static var PROBE_COUNT: Int = 0   // refuses: raw-pointer
+
+func bump_int(x: &var Int) { x = x + 1 }
+
+func bump_count() unsafe {   // refuses: raw-pointer
+    bump_int(&var PROBE_COUNT)   // refuses: var-ref-into-let
+}
+
+func main() {
+    bump_int(&var PROBE_LIMIT)   // refuses: var-ref-into-let
+    print(PROBE_LIMIT)
+}

@@ -1,0 +1,7 @@
+// A call on a call result (SL:hazards L2).
+func make_adder() -> (Int) -> Int { { x: Int in x + 1 } }
+
+func main() {
+    let b = make_adder()(4)   // refuses: parse
+    print(b)
+}

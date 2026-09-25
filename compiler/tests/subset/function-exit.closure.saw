@@ -1,0 +1,8 @@
+// A value-returning closure with a path that falls off its end (SL:hazards S6).
+func run_it(f: (Int) -> Int, n: Int) -> Int { f(n) }
+
+func main() {
+    print(run_it({ x: Int in   // refuses: function-exit
+        if x > 0 { return x }
+    }, 0))
+}

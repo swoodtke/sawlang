@@ -1,0 +1,4 @@
+// Fixture: source-location directives and newlines. Taken from the inputs of compiler/lex/tests/directives.saw.
+#file #line #function
+a
+b

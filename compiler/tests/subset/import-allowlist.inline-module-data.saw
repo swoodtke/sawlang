@@ -1,0 +1,15 @@
+// An import off the std allowlist, inside an inline module, which is itself
+// refused.
+module probe_tools {   // refuses: inline-module
+    import std.data.{Data}   // refuses: import-allowlist
+
+    public func get(n: Int) -> Int {
+        var d = Data()   // refuses: std-api
+        try! d.push(1u8)
+        n + d.len()
+    }
+}
+
+func main() {
+    print(probe_tools.get(4))
+}

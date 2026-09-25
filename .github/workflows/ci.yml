@@ -77,14 +77,12 @@ jobs:
           (cd libs/semver && "$BLADE" test)
           (cd libs/toml && "$BLADE" test)
           (cd libs/imgformat && "$BLADE" test)
-          # Design 116: the Saw lexer port ships its own blade test suite.
-          (cd selfhost/lexer && "$BLADE" test)
 
-  # Differential lexer harness (design 116): build the Saw lexer port
-  # (selfhost/lexer) and diff its canonical token dump against sawc's Python
-  # lexer over every tracked .saw file. Zero mismatches is the bar.
-  lexdiff:
-    name: lexdiff (ubuntu)
+  # The self-hosted compiler (compiler/README.md): sawc2 and its unit programs
+  # built by the frozen compiler, the golden token fixtures, and the subset
+  # checker over the compiler's own source.
+  compiler:
+    name: compiler (ubuntu)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -94,7 +92,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      # sawc links the Saw lexer binary with clang.
+      # sawc links sawc2 and the unit programs with clang.
       - name: Install clang
         run: sudo apt-get update && sudo apt-get install -y clang
 
@@ -103,13 +101,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r sawc/requirements.txt
 
-      - name: Differential lexer sweep (make lexdiff)
-        run: make lexdiff
+      - name: Compiler tests (compiler/tests/run.py)
+        run: python compiler/tests/run.py
 
   # AST dump acceptance harness (design 126 R11), the parser-port oracle: dump
   # every tracked .saw file and require the dump to be complete (no node type
-  # falls through a dispatcher) and byte-stable across runs. Parse-only, so
-  # unlike lexdiff it needs no clang and builds no Saw binary.
+  # falls through a dispatcher) and byte-stable across runs. Parse-only, so it
+  # needs no clang and builds no Saw binary.
   astdiff:
     name: astdiff (ubuntu)
     runs-on: ubuntu-latest

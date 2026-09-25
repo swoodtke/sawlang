@@ -1,0 +1,6 @@
+// A default parameter value that is not a literal.
+static FIXTURE_LIMIT: Int = 4
+
+func default_fixture(a: Int = FIXTURE_LIMIT) -> Int { a }   // refuses: default-value-literal
+
+func literal_fixture(a: Int = 4, b: String = "x", c: Int = -1) -> Int { a }

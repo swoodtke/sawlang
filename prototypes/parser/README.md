@@ -1,7 +1,7 @@
 # Prototype syntax parser
 
 This is the AST-generation step after the mini-VM lexer milestone: a parser
-written in Saw, using the unchanged selfhost lexer, with syntax stored in an
+written in Saw, using the compiler's lexer (`compiler/lex`), with syntax stored in an
 index arena. The design is [M18_AST.md](../minivm/M18_AST.md); work is tracked
 by SL-301 under the SL-300 parser epic. M20 (SL-303) adds name assignment;
 its design is [M20_PARSER_ASSIGNMENTS.md](../minivm/M20_PARSER_ASSIGNMENTS.md).

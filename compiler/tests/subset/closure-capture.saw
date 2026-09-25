@@ -1,0 +1,19 @@
+// A closure names an enclosing binding, `self`, or carries a capture list.
+struct Holder { n: Int }
+
+func run_fixture(body: (Int) -> Int) -> Int { body(1) }
+
+func capture_fixture(n: Int) -> Int {
+    let k = 2
+    let a = run_fixture({ x: Int in x + k })   // refuses: closure-capture
+    let b = run_fixture({ x: Int in x + n })   // refuses: closure-capture
+    let c = { [n] in 1 }   // refuses: closure-capture
+    let d = run_fixture({ x: Int in x + 1 })
+    a + b + d
+}
+
+extension Holder {
+    func capture_self(&self) -> Int {
+        run_fixture({ x: Int in x + self.n })   // refuses: closure-capture
+    }
+}

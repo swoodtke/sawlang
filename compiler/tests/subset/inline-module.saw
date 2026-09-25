@@ -1,0 +1,23 @@
+// An inline `module name { }`: Stage 0 never drops a value whose type is
+// declared in one, so neither its `deinit` nor its field drops run
+// (SL:hazards S22).
+module mod_b {   // refuses: inline-module
+    public struct Res { name: String }
+
+    extension Res: NoCopy {
+        func deinit(&var self) { print("drop {self.name}") }   // refuses: deinit-body
+    }
+
+    public func scope_end() {
+        let r = Res(name: "x")
+    }
+}
+
+public module mod_c {   // refuses: inline-module
+    public func twice(x: Int) -> Int { x * 2 }
+}
+
+func main() {
+    mod_b.scope_end()
+    print(mod_c.twice(2))
+}

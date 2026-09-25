@@ -1,0 +1,31 @@
+// `m[k]` on a Map, traced through a method's return type or used as an optional.
+struct Rec { n: Int }
+
+extension Rec {
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+struct Holder2 { n: Int }
+
+extension Holder2 {
+    func table(&self) -> Map<String, Rec> {
+        let t: Map<String, Rec> = {"a": Rec(n: 1)}
+        return move t
+    }
+}
+
+func probe_run(f: (&Map<String, Rec>) -> Int) -> Int {
+    let t: Map<String, Rec> = {"a": Rec(n: 7)}
+    f(&t)
+}
+
+func main() {
+    let h = Holder2(n: 0)
+    var t = h.table()
+    t["a"]?.n = 5   // refuses: std-api
+    print(t["a"]!.n)   // refuses: std-api
+    t.get("a")?.bump()   // refuses: std-api
+    print(t.get("a")!.n)
+    let seen = probe_run({ m: &Map<String, Rec> in if let r = m["zz"] { r.n } else { -1 } })   // refuses: std-api
+    print(seen)
+}

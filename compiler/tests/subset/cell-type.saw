@@ -1,0 +1,10 @@
+// The cells: Mutex, SpinLock, Once, UnsafeMutableInterior, Atomic, Arc.
+struct Shared {
+    lock: Mutex<Int>,   // refuses: cell-type
+    spin: SpinLock<Int>,   // refuses: cell-type
+    once: Once<Int>,   // refuses: cell-type
+    cell: UnsafeMutableInterior<Int>,   // refuses: cell-type
+    count: Atomic<Int>,   // refuses: cell-type
+    rc: Arc<Int>,   // refuses: cell-type
+    plain: Int,
+}

@@ -1,0 +1,74 @@
+// The build's own methods, named like std methods, on receivers whose type is
+// traced: `self` in a trait default body, a bounded type parameter, a match-arm
+// binding and a destructured tuple's elements.
+struct Tok { tag: Int, at: Int }
+
+extension Tok {
+    func kind(&self) -> Int { self.tag }
+}
+
+struct Cursor { i: Int }
+
+extension Cursor {
+    func peek(&self) -> Int { self.i }
+
+    func next(&var self) -> Int {
+        self.i = self.i + 1
+        self.i
+    }
+}
+
+struct Table { n: Int }
+
+extension Table {
+    func insert(&var self, k: Int) -> Int {
+        self.n = self.n + k
+        self.n
+    }
+
+    func count(&self) -> Int { self.n }
+}
+
+enum Node { case Leaf(tok: Tok), case Empty }
+
+trait Scanner {
+    func peek(&self) -> Int
+
+    func peek_twice(&self) -> Int { self.peek() + self.peek() }
+}
+
+extension Cursor: Scanner {}
+
+trait Sized2 {
+    func count(&self) -> Int
+}
+
+extension Table: Sized2 {}
+
+func total_of<T: Sized2>(x: &T) -> Int { x.count() }
+
+func make_pair() -> (Table, Cursor) { (Table(n: 1), Cursor(i: 0)) }
+
+func node_kind(n: &Node) -> Int {
+    match n {
+        case Leaf(tok) -> tok.kind(),
+        case Empty -> 0
+    }
+}
+
+func pair_use() -> Int {
+    var (t, c) = make_pair()
+    let a = t.insert(3)
+    let b = c.next()
+    a + b + t.count()
+}
+
+func main() {
+    let leaf = Node.Leaf(tok: Tok(tag: 5, at: 0))
+    print(node_kind(&leaf))
+    print(pair_use())
+    let c = Cursor(i: 4)
+    print(c.peek_twice())
+    let t = Table(n: 9)
+    print(total_of(&t))
+}

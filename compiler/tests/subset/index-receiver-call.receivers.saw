@@ -1,0 +1,22 @@
+// Mutating methods on receivers reached through an index, a tuple element or `m[k]?.`.
+struct Tally { n: Int }
+
+extension Tally {
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+struct Row { t: Tally }
+
+func main() {
+    var v: Vector<Row> = [Row(t: Tally(n: 1))]
+    v[0].t.bump()   // refuses: index-receiver-call
+    print(v[0].t.n)
+    var tup = (Tally(n: 1), 2)
+    tup.0.bump()   // refuses: index-receiver-call
+    print(tup.0.n)
+    var m: Map<String, Tally> = {"a": Tally(n: 1)}
+    m["a"]?.bump()   // refuses: index-receiver-call, std-api
+    print(m["a"]!.n)   // refuses: std-api
+    m.get("a")!.bump()   // refuses: std-api
+    print(m["a"]!.n)   // refuses: std-api
+}

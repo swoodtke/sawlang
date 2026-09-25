@@ -1,0 +1,15 @@
+// SL-284's shape through an optional-chain receiver (SL:hazards S4).
+struct Counter { n: Int }
+
+extension Counter {
+    func read_it(&self) -> Int { self.n }
+    func write_it(&var self, v: Int) { self.n = v }
+}
+
+func main() {
+    var plain = Counter(n: 7)
+    plain.write_it(plain.read_it())   // refuses: root-reuse
+    var maybe: Counter? = Counter(n: 7)
+    maybe?.write_it(maybe!.read_it() + 1)   // refuses: root-reuse
+    print(maybe!.n)
+}

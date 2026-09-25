@@ -18,7 +18,7 @@ import test_parser as arena
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-LEXER = REPO / "selfhost/lexer/src/lib.saw"
+LEXER = REPO / "compiler/lex/src/lib.saw"
 PARSER = HERE / "src/lib.saw"
 CANONICAL = HERE / "src/canonical.saw"
 DRIVER = HERE / "canonical_driver.saw"

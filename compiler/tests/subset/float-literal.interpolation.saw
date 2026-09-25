@@ -1,0 +1,5 @@
+// An out-of-range integer literal and a float literal inside interpolations.
+func main() {
+    print("big {18446744073709551615}")   // refuses: int-literal-range
+    print("float {1.5}")   // refuses: float-literal
+}

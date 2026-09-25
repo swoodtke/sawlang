@@ -1,0 +1,11 @@
+// Tasks, threads, channels and suspending calls. None is on the std API
+// allowlist either.
+func sync_fixture() {
+    var group = TaskGroup()   // refuses: sync-only std-api
+    sleep(Duration.ms(1))   // refuses: sync-only std-api std-api
+    let ch = Channel<Int>()   // refuses: sync-only std-api
+}
+
+extern "C" {
+    blocking func slow_fixture_call(n: Int) -> Int   // refuses: sync-only
+}

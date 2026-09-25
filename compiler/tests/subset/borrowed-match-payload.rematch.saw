@@ -1,0 +1,47 @@
+// Re-matching a payload reached through a borrow (SL:hazards S2).
+struct Noisy { id: Int }
+
+extension Noisy: NoCopy {}
+
+enum Pocket { case Empty, case Full(item: Noisy) }
+
+extension Pocket: NoCopy {}
+
+enum Outer { case Wrapped(inner: Pocket), case Bare }
+
+extension Outer: NoCopy {}
+
+struct Shelf { slot: Pocket? }
+
+extension Shelf: NoCopy {}
+
+func nested_arm(o: &Outer) -> Int {
+    match o {
+        case Wrapped(inner) -> {
+            match inner {   // refuses: borrowed-match-payload
+                case Empty -> 0,
+                case Full(item) -> item.id
+            }
+        },
+        case Bare -> 2
+    }
+}
+
+func nested_if_let(s: &Shelf) -> Int {
+    if let inner = s.slot {
+        match inner {   // refuses: borrowed-match-payload
+            case Empty -> 0,
+            case Full(item) -> item.id
+        }
+    } else {
+        -1
+    }
+}
+
+func main() {
+    let o = Outer.Wrapped(inner: Pocket.Full(item: Noisy(id: 1)))
+    print(nested_arm(&o))
+    let s = Shelf(slot: Pocket.Full(item: Noisy(id: 2)))
+    print(nested_if_let(&s))
+    print("end")
+}

@@ -1,0 +1,10 @@
+// A bound on an extension's type parameter.
+struct Keeper<T> { v: T }
+
+extension Keeper<T: Copy> {   // refuses: bounded-extension
+    func peek_value(&self) -> Int { 1 }
+}
+
+extension Keeper<T> {
+    func plain_value(&self) -> Int { 2 }
+}

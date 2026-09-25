@@ -1,0 +1,16 @@
+// Fixture: doc-comment trivia. Taken from the inputs of compiler/lex/tests/doc_comments.saw.
+/// Returns the answer.
+func answer() -> Int { 42 }
+//! The module.
+///  two spaces
+///no space
+/// one
+///
+/// two
+//// banner
+let x = 1 /// trailing
+struct S {
+    /// The value.
+    value: Int
+}
+/// a	b\c

@@ -1,0 +1,46 @@
+// Moving, or matching again, a payload of a borrowed scrutinee.
+enum Pocket { case Empty, case Full(item: String) }
+enum Outer { case Wrapped(inner: Pocket), case Bare }
+
+func take_fixture(p: &var Pocket) -> String {
+    match p {
+        case Empty -> "",
+        case Full(item) -> move item   // refuses: borrowed-match-payload
+    }
+}
+
+func nested_fixture(o: &Outer) -> Int {
+    match o {
+        case Wrapped(inner) -> {
+            match inner {   // refuses: borrowed-match-payload
+                case Empty -> 0,
+                case Full(item) -> 1
+            }
+        },
+        case Bare -> 2
+    }
+}
+
+func make_pocket() -> Pocket { Pocket.Empty }
+
+func call_fixture() -> String {
+    match make_pocket() {
+        case Empty -> "",
+        case Full(item) -> move item   // refuses: borrowed-match-payload
+    }
+}
+
+func owned_fixture(p: Pocket) -> String {
+    match p {
+        case Empty -> "",
+        case Full(item) -> move item
+    }
+}
+
+func local_fixture() -> String {
+    let made = make_pocket()
+    match made {
+        case Empty -> "",
+        case Full(item) -> move item
+    }
+}

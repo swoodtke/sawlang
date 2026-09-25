@@ -1,0 +1,12 @@
+// An inline module's function that falls off its end (SL:hazards S6). The
+// inline module is itself refused.
+module probe_inner {   // refuses: inline-module
+    public func get(x: Int) -> Int {   // refuses: function-exit
+        if x > 0 { return x }
+    }
+}
+
+func main() {
+    print(probe_inner.get(0))
+    print(probe_inner.get(7))
+}

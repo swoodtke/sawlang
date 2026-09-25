@@ -1,0 +1,23 @@
+// Body rules inside an inline `module m { ... }`, which is itself refused.
+module probe_inner {   // refuses: inline-module
+    public func encode(n: Int) -> Int { n + 100 }   // refuses: program-unique-names
+
+    public func apply_it(f: (Int) -> Int) -> Int { f(1) }
+
+    public func capture_in_module(n: Int) -> Int {
+        let k = 2
+        apply_it({ x: Int in x + k })   // refuses: closure-capture
+    }
+
+    public func exit_in_module(x: Int) -> Int {   // refuses: function-exit
+        if x > 0 { return x }
+    }
+
+    public func alias_free(v: &var Vector<Int>) {
+        v[0] = v[0] * 2   // refuses: root-reuse
+    }
+}
+
+func main() {
+    print(probe_inner.encode(1))
+}

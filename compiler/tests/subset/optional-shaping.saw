@@ -1,0 +1,24 @@
+// `== None`, a method on a `get` result, and a collection literal returned as a
+// `Result`.
+func find_fixture() -> Int? { None }
+
+func presence_fixture() -> Bool {
+    let v: Vector<Int> = [1]
+    let a = find_fixture() == None   // refuses: optional-shaping
+    let b = v.get(0).is_some()   // refuses: optional-shaping std-api std-api
+    let c = find_fixture().is_none()   // refuses: std-api
+    a && b && c
+}
+
+func result_fixture(flag: Bool) -> Result<Vector<Int>, String> {
+    if flag {
+        return [1, 2]   // refuses: optional-shaping
+    } else {
+        [3]   // refuses: optional-shaping
+    }
+}
+
+func bound_fixture() -> Result<Vector<Int>, String> {
+    let made: Vector<Int> = [4]
+    return move made
+}

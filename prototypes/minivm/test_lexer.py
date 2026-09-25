@@ -13,8 +13,8 @@ import tempfile
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-LEXER = REPO / "selfhost/lexer/src/lib.saw"
-LEXER_TESTS = REPO / "selfhost/lexer/tests"
+LEXER = REPO / "compiler/lex/src/lib.saw"
+LEXER_TESTS = REPO / "compiler/lex/tests"
 
 
 @dataclass(frozen=True)

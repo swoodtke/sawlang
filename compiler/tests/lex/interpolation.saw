@@ -1,0 +1,4 @@
+// Fixture: interpolated strings and their segments. Taken from the inputs of compiler/lex/tests/interpolation.saw.
+"hi {name}"
+"{a {b} c}"
+"{x}{y}"

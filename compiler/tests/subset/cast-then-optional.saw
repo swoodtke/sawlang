@@ -1,0 +1,7 @@
+// `?` or `??` directly after the type of an `as` cast.
+func cast_fixture(n: Int8, m: Int8?) -> Int {
+    let a = n as Int? ?? 9   // refuses: cast-then-optional
+    let b = n as Int ?? 9   // refuses: cast-then-optional
+    let c = (m ?? 9) as Int
+    c
+}

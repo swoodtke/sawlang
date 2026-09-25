@@ -1,0 +1,18 @@
+// A compiler-defined `borrows` accessor called with a wrong label (SL:hazards S14).
+struct Node { kind: Int }
+
+struct Arena { nodes: Vector<Node> }
+
+extension Arena: NoCopy {}
+
+extension Arena {
+    func at(&var self, index: Int) borrows -> &var Node {   // refuses: borrows-accessor
+        lend self.nodes[index]   // refuses: borrows-accessor
+    }
+}
+
+func main() {
+    var a = Arena(nodes: [Node(kind: 1), Node(kind: 2)])
+    a.at(position: 1).kind = 9   // refuses: argument-labels
+    print(a.nodes[1].kind)
+}

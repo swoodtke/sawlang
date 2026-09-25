@@ -1,0 +1,2 @@
+// Fixture: an unterminated string. Taken from the inputs of compiler/lex/tests/errors.saw.
+"abc

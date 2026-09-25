@@ -1,0 +1,2 @@
+// Fixture: a hex literal past 64 bits. Taken from the inputs of compiler/lex/tests/errors.saw.
+0x1_0000_0000_0000_0000

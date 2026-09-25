@@ -1,0 +1,8 @@
+// Brackets nested more than 30 levels: the body's brace and 30 parentheses.
+func deep_fixture() -> Int {
+    ((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))   // refuses: nesting-depth
+}
+
+func shallow_fixture() -> Int {
+    (((((((((((((((((((((((((((((1)))))))))))))))))))))))))))))
+}

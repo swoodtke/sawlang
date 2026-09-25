@@ -375,6 +375,63 @@ Three rules follow from that, and they bind anything touching this directory:
 Per design 190's third process rule, a brief that touches a safety guarantee
 adds or updates its conformance rows as its FIRST unit.
 
+## The Self-Hosted Compiler's Tests
+
+```bash
+./.venv/bin/python compiler/tests/run.py
+```
+
+The compiler written in Saw (`compiler/`, epic SL-398) has its own tests until
+it can run its own `@test` sidecars. `compiler/README.md` describes them in
+full; in short, the runner:
+
+- builds `sawc2` and every unit program (`compiler/<stage>/tests/*.saw`) with the
+  frozen compiler, and runs each unit program: exit 0 is a pass;
+- compares `sawc2 lex` with each golden fixture in `compiler/tests/lex/`
+  (`NAME.saw` beside its expected `NAME.tokens`, and `NAME.docs` for doc
+  trivia), byte for byte;
+- refuses a fixture line that ends in whitespace, or a fixture that ends in a
+  blank line, naming the file and line: the patch server applies patches with
+  `git apply --whitespace=fix`, which strips both;
+- fails if a token kind the lexer declares, or a kind of lex error it reports,
+  appears in no fixture;
+- runs the subset checker (`compiler/tools/subset_check.py`) over the compiler's
+  own source, and over its fixtures in `compiler/tests/subset/`, whose
+  `// refuses: RULE` markers name exactly what each must report.
+
+It prints one line per failure, then one summary line, and exits 1 on any
+failure. The golden fixtures replaced the lexer differential (`lexdiff`): they
+were checked once against the Python lexer, and they are the lexer's oracle now.
+
+### The per-patch gate
+
+`./build.sh test` is what sawtracker runs on every submitted patch, as
+`./build.sh test --changed-since HEAD^` (`.sawtracker/tests.json`). The
+decision is `tools/patch_gate.py`'s:
+
+- the compiler tests above always run;
+- the Python suite runs when a changed path is one of `test_runner.py`'s inputs
+  (`sawc/`, `examples/`, the vector files under `tests/` the examples read, the
+  runner itself);
+- the freestanding suite runs when a changed path is one of its runner's inputs
+  (`sawc/`, `tests/freestanding/`, `blade/`, `libs/`, the runner itself);
+- a change to the gate itself (`build.sh`, `tools/patch_gate.py`,
+  `.sawtracker/`) runs everything, and so does a run whose changed paths are
+  unknown.
+
+It prints each part's decision with its reason. `--dry-run` prints the decision
+and runs nothing, for a revision (`--changed-since REV`) or a patch file
+(`--diff FILE`), which is how to see what a squashed patch will cost before
+submitting it:
+
+```bash
+./build.sh test --dry-run --diff /tmp/patch.diff
+```
+
+`build.sh` holds the suite lock around everything the gate runs. From a
+worktree, point `SAW_PYTHON` at the main checkout's venv rather than letting it
+bootstrap one.
+
 ## The Gate Battery
 
 ```bash
@@ -548,17 +605,13 @@ a stand-in `$PATH`, a pre-populated fetch cache — so no step depends on what
 happens to be installed on the machine, and the fetch step is exercised without
 touching the network.
 
-### The selfhostlex stage
+### The compiler stage
 
-The Aug-10 coverage sweep mapped which battery stage semantically checks
-each test tree: `blade/tests` and `libs/*/tests` run inside `bootstrap`
-(and ONLY there — `--quick` skips them; `sos/tests` gated inside the
-`sos` stage until both left for the sawos repo at 238 unit 5), and
-`selfhost/lexer/tests` ran NOWHERE — nine passing tests no stage
-compiled. `selfhostlex` closes that: each `selfhost/lexer/tests/*.saw`
-is compiled and run, exit 0 = pass, same contract as `blade test`.
-(`tests/freestanding` joined that map with the `freestanding` stage above,
-and runs there only.)
+Runs `compiler/tests/run.py`, the self-hosted compiler's tests (above). It is
+where the compiler's unit programs are compiled and run; no other stage opens
+them. For the other test trees: `blade/tests` and `libs/*/tests` run inside
+`bootstrap` only (so `--quick` skips them), and `tests/freestanding` runs inside
+the `freestanding` stage only.
 
 ### The forgetgate stage
 
@@ -1312,7 +1365,7 @@ Put the token where the client can find it (`~/.config/saw-worker/token`, or
 # itself is Saw (devtools/irdet/); this driver builds it and splits the corpus.
 ./.venv/bin/python tools/irdet_remote.py --all --remote studio.local:8710
 
-# The whole battery on the worker: suite, lexdiff, astdiff, irdet --all
+# The whole battery on the worker: suite, compiler, astdiff, irdet --all
 ./.venv/bin/python tools/remote_battery.py --remote studio.local:8710
 ```
 

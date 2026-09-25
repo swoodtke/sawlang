@@ -1,0 +1,15 @@
+// An import and std calls off the allowlists, inside an inline module, which is
+// itself refused.
+module probe_tools {   // refuses: inline-module
+    import std.process.{Command}   // refuses: import-allowlist
+
+    public func get(n: Int) -> Int {
+        var c = Command(program: "/usr/bin/true")   // refuses: std-api
+        let code = try! c.run()   // refuses: std-api
+        n + (code as Int)
+    }
+}
+
+func main() {
+    print(probe_tools.get(4))
+}

@@ -1,0 +1,2 @@
+// The last line has no newline after it.
+func file_end_fixture() {}   // refuses: file-end

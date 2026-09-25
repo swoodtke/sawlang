@@ -15,7 +15,7 @@ import time
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-LEXER = REPO / "selfhost/lexer/src/lib.saw"
+LEXER = REPO / "compiler/lex/src/lib.saw"
 PARSER = HERE / "src/lib.saw"
 DRIVER = HERE / "driver.saw"
 FIXTURES = HERE / "fixtures/cases.json"

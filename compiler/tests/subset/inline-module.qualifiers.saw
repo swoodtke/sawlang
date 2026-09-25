@@ -1,0 +1,14 @@
+// Inline modules are refused, and only the modules themselves: calls through
+// one and two of their qualifiers reach the build's own functions, not std.
+module outer_mod {   // refuses: inline-module
+    public func outer_twice(x: Int) -> Int { x * 2 }
+
+    public module inner_mod {   // refuses: inline-module
+        public func inner_twice(x: Int) -> Int { x * 2 }
+    }
+}
+
+func main() {
+    print(outer_mod.outer_twice(3))
+    print(outer_mod.inner_mod.inner_twice(4))
+}

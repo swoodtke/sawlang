@@ -1,0 +1,23 @@
+// A `&var self` method through `?.` on an optional field or local writes in place.
+struct Inner { n: Int }
+
+extension Inner {
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+struct Outer { inner: Inner? }
+
+extension Outer {
+    func bump_inner(&var self) { self.inner?.bump() }
+}
+
+func main() {
+    var o = Outer(inner: Inner(n: 1))
+    o.inner?.bump()
+    print(o.inner!.n)
+    o.bump_inner()
+    print(o.inner!.n)
+    var local: Inner? = Inner(n: 10)
+    local?.bump()
+    print(local!.n)
+}

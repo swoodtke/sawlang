@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """AST dump acceptance harness (design 126 R11).
 
-The parser-stage twin of `tools/lexdiff.py`, and the acceptance oracle for the
-coming Saw parser port. Until that port exists there is no second implementation
-to diff against, so this harness pins the two properties the oracle itself must
-have before it can judge anything:
+The acceptance oracle for the Python parser's canonical AST dump. There is no
+second implementation to diff against, so this harness pins the two properties
+the oracle itself must have before it can judge anything:
 
   (a) COMPLETE -- every tracked `.saw` file dumps with no dispatcher fallback.
       A missing arm used to be invisible: the dump simply omitted the node (or
@@ -16,10 +15,6 @@ have before it can judge anything:
   (b) DETERMINISTIC -- dumping the same file twice, in fresh processes under
       differing PYTHONHASHSEED, is byte-identical. Python randomizes string
       hashing per process, so a single run cannot reveal a `set`-ordered dump.
-
-When the Saw parser lands, this grows a third sweep -- run the port, diff its
-dump against the Python one -- and the bar becomes zero mismatches over the
-corpus, exactly as lexdiff has today.
 
 Usage:
     python tools/astdiff.py [-v]

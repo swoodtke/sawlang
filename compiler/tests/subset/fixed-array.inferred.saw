@@ -1,0 +1,27 @@
+// An array literal with no written type to adopt is a fixed-size array.
+func take_vec(v: Vector<Int>) -> Int { v.len() }
+
+func pick<T>(x: T) -> T { x }
+
+func probe_sum() -> Int {
+    let a = [1, 2, 3]   // refuses: fixed-array
+    var total = 0
+    var i = 0
+    while i < 3 {
+        total += a[i]
+        i = i + 1
+    }
+    total
+}
+
+func other_positions() -> Int {
+    let t = ([4, 5, 6], 1)   // refuses: fixed-array
+    let b = if t.1 > 0 { [7] } else { [8] }   // refuses: fixed-array
+    print(pick([9, 10]).len())   // refuses: fixed-array
+    for x in [11, 12] {   // refuses: fixed-array
+        print(x)
+    }
+    let typed: Vector<Int> = [13, 14]
+    let nested: Vector<Vector<Int>> = [[15]]
+    take_vec([16, 17]) + typed.len() + nested.len() + b.len()
+}

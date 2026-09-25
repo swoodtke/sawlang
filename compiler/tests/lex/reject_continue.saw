@@ -1,0 +1,4 @@
+// Fixture: a tracked file, copied whole. Taken from prototypes/minivm/examples/lexer_completion/reject_continue.saw.
+func main() {
+    while true { continue }
+}

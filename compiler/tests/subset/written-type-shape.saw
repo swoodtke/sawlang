@@ -1,0 +1,10 @@
+// A written type nested 8 levels, `Optional<T>`, and `Self` inside a tuple.
+struct Deep {
+    a: Vector<Vector<Vector<Vector<Vector<Vector<Vector<Int>>>>>>>,   // refuses: written-type-shape
+    b: Optional<Int>,   // refuses: written-type-shape
+    c: Int?,
+}
+
+trait Splits {
+    func split(&self) -> (Self, Int)   // refuses: written-type-shape
+}

@@ -1,0 +1,4 @@
+// Any `type` alias.
+type Handle = Int   // refuses: type-alias
+
+struct Handle2 { index: Int }

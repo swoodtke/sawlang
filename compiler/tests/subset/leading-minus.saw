@@ -1,0 +1,19 @@
+// A line that begins with `-` after a token that can end an operand.
+func minus_fixture(b: Int) -> Int {
+    if b >= 48 { return b - 48 }
+    -1   // refuses: leading-minus
+}
+
+func return_minus_fixture(b: Int) -> Int {
+    if b >= 48 { return b - 48 }
+    return -1
+}
+
+func after_value_fixture(b: Int) -> Int {
+    let k = b
+    -k   // refuses: leading-minus
+}
+
+func first_in_block_fixture() -> Int {
+    -1
+}

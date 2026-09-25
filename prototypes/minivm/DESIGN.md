@@ -26,7 +26,7 @@ adds implicit tails and value-producing branches.
 
 ## Source contract
 
-* One source file; reuse selfhost/lexer via --module-path sawlex=selfhost/lexer.
+* One source file; reuse the compiler's lexer via --module-path sawlex=compiler/lex.
 * Functions: func name(p: Int32, flag: Bool) -> Int32/Bool { ... }, or omitted
   return type for Void. Exactly one main() returning Void; no parameters there.
 * Explicit return statements. No implicit value tails, overloads, imports,

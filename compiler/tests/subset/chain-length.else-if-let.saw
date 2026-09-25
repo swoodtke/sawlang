@@ -1,0 +1,306 @@
+// A 150-arm `else if let` chain (SL:hazards L14).
+func iflet_chain(o: Int?) -> Int {
+    if let a0 = o {   // refuses: chain-length
+        a0
+    } else if let a1 = o {
+        a1
+    } else if let a2 = o {
+        a2
+    } else if let a3 = o {
+        a3
+    } else if let a4 = o {
+        a4
+    } else if let a5 = o {
+        a5
+    } else if let a6 = o {
+        a6
+    } else if let a7 = o {
+        a7
+    } else if let a8 = o {
+        a8
+    } else if let a9 = o {
+        a9
+    } else if let a10 = o {
+        a10
+    } else if let a11 = o {
+        a11
+    } else if let a12 = o {
+        a12
+    } else if let a13 = o {
+        a13
+    } else if let a14 = o {
+        a14
+    } else if let a15 = o {
+        a15
+    } else if let a16 = o {
+        a16
+    } else if let a17 = o {
+        a17
+    } else if let a18 = o {
+        a18
+    } else if let a19 = o {
+        a19
+    } else if let a20 = o {
+        a20
+    } else if let a21 = o {
+        a21
+    } else if let a22 = o {
+        a22
+    } else if let a23 = o {
+        a23
+    } else if let a24 = o {
+        a24
+    } else if let a25 = o {
+        a25
+    } else if let a26 = o {
+        a26
+    } else if let a27 = o {
+        a27
+    } else if let a28 = o {
+        a28
+    } else if let a29 = o {
+        a29
+    } else if let a30 = o {
+        a30
+    } else if let a31 = o {
+        a31
+    } else if let a32 = o {
+        a32
+    } else if let a33 = o {
+        a33
+    } else if let a34 = o {
+        a34
+    } else if let a35 = o {
+        a35
+    } else if let a36 = o {
+        a36
+    } else if let a37 = o {
+        a37
+    } else if let a38 = o {
+        a38
+    } else if let a39 = o {
+        a39
+    } else if let a40 = o {
+        a40
+    } else if let a41 = o {
+        a41
+    } else if let a42 = o {
+        a42
+    } else if let a43 = o {
+        a43
+    } else if let a44 = o {
+        a44
+    } else if let a45 = o {
+        a45
+    } else if let a46 = o {
+        a46
+    } else if let a47 = o {
+        a47
+    } else if let a48 = o {
+        a48
+    } else if let a49 = o {
+        a49
+    } else if let a50 = o {
+        a50
+    } else if let a51 = o {
+        a51
+    } else if let a52 = o {
+        a52
+    } else if let a53 = o {
+        a53
+    } else if let a54 = o {
+        a54
+    } else if let a55 = o {
+        a55
+    } else if let a56 = o {
+        a56
+    } else if let a57 = o {
+        a57
+    } else if let a58 = o {
+        a58
+    } else if let a59 = o {
+        a59
+    } else if let a60 = o {
+        a60
+    } else if let a61 = o {
+        a61
+    } else if let a62 = o {
+        a62
+    } else if let a63 = o {
+        a63
+    } else if let a64 = o {
+        a64
+    } else if let a65 = o {
+        a65
+    } else if let a66 = o {
+        a66
+    } else if let a67 = o {
+        a67
+    } else if let a68 = o {
+        a68
+    } else if let a69 = o {
+        a69
+    } else if let a70 = o {
+        a70
+    } else if let a71 = o {
+        a71
+    } else if let a72 = o {
+        a72
+    } else if let a73 = o {
+        a73
+    } else if let a74 = o {
+        a74
+    } else if let a75 = o {
+        a75
+    } else if let a76 = o {
+        a76
+    } else if let a77 = o {
+        a77
+    } else if let a78 = o {
+        a78
+    } else if let a79 = o {
+        a79
+    } else if let a80 = o {
+        a80
+    } else if let a81 = o {
+        a81
+    } else if let a82 = o {
+        a82
+    } else if let a83 = o {
+        a83
+    } else if let a84 = o {
+        a84
+    } else if let a85 = o {
+        a85
+    } else if let a86 = o {
+        a86
+    } else if let a87 = o {
+        a87
+    } else if let a88 = o {
+        a88
+    } else if let a89 = o {
+        a89
+    } else if let a90 = o {
+        a90
+    } else if let a91 = o {
+        a91
+    } else if let a92 = o {
+        a92
+    } else if let a93 = o {
+        a93
+    } else if let a94 = o {
+        a94
+    } else if let a95 = o {
+        a95
+    } else if let a96 = o {
+        a96
+    } else if let a97 = o {
+        a97
+    } else if let a98 = o {
+        a98
+    } else if let a99 = o {
+        a99
+    } else if let a100 = o {
+        a100
+    } else if let a101 = o {
+        a101
+    } else if let a102 = o {
+        a102
+    } else if let a103 = o {
+        a103
+    } else if let a104 = o {
+        a104
+    } else if let a105 = o {
+        a105
+    } else if let a106 = o {
+        a106
+    } else if let a107 = o {
+        a107
+    } else if let a108 = o {
+        a108
+    } else if let a109 = o {
+        a109
+    } else if let a110 = o {
+        a110
+    } else if let a111 = o {
+        a111
+    } else if let a112 = o {
+        a112
+    } else if let a113 = o {
+        a113
+    } else if let a114 = o {
+        a114
+    } else if let a115 = o {
+        a115
+    } else if let a116 = o {
+        a116
+    } else if let a117 = o {
+        a117
+    } else if let a118 = o {
+        a118
+    } else if let a119 = o {
+        a119
+    } else if let a120 = o {
+        a120
+    } else if let a121 = o {
+        a121
+    } else if let a122 = o {
+        a122
+    } else if let a123 = o {
+        a123
+    } else if let a124 = o {
+        a124
+    } else if let a125 = o {
+        a125
+    } else if let a126 = o {
+        a126
+    } else if let a127 = o {
+        a127
+    } else if let a128 = o {
+        a128
+    } else if let a129 = o {
+        a129
+    } else if let a130 = o {
+        a130
+    } else if let a131 = o {
+        a131
+    } else if let a132 = o {
+        a132
+    } else if let a133 = o {
+        a133
+    } else if let a134 = o {
+        a134
+    } else if let a135 = o {
+        a135
+    } else if let a136 = o {
+        a136
+    } else if let a137 = o {
+        a137
+    } else if let a138 = o {
+        a138
+    } else if let a139 = o {
+        a139
+    } else if let a140 = o {
+        a140
+    } else if let a141 = o {
+        a141
+    } else if let a142 = o {
+        a142
+    } else if let a143 = o {
+        a143
+    } else if let a144 = o {
+        a144
+    } else if let a145 = o {
+        a145
+    } else if let a146 = o {
+        a146
+    } else if let a147 = o {
+        a147
+    } else if let a148 = o {
+        a148
+    } else if let a149 = o {
+        a149
+    } else {
+        0
+    }
+}

@@ -1,0 +1,18 @@
+// A call whose receiver is a type parameter.
+trait Maker {
+    static func make_it() -> Int
+}
+
+struct Brick { n: Int }
+
+extension Brick: Maker {
+    static func make_it() -> Int { 1 }
+}
+
+func build_fixture<M: Maker>(unused: Int) -> Int {
+    M.make_it()   // refuses: type-param-receiver
+}
+
+func concrete_fixture() -> Int {
+    Brick.make_it()
+}

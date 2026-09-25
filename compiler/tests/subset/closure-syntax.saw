@@ -1,0 +1,13 @@
+// Unannotated closure parameters, `$0`, trailing closures, and a function type
+// under `?`.
+func apply_fixture(f: (Int) -> Int) -> Int { f(1) }
+
+func maybe_fixture(g: ((Int) -> Int)?) -> Int { 1 }   // refuses: closure-syntax
+
+func closure_fixture() -> Int {
+    let a = apply_fixture({ x in x + 1 })   // refuses: closure-syntax
+    let b = apply_fixture({ $0 + 1 })   // refuses: closure-syntax
+    let c = apply_fixture() { x: Int in x }   // refuses: closure-syntax
+    let d = apply_fixture({ x: Int in x })
+    a + b + c + d
+}

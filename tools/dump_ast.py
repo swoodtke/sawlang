@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Canonical AST dump for one `.saw` file (design 126 R11).
 
-The parser-stage counterpart of `tools/dump_tokens.py`: lex + PARSE a file and
-emit `sawc/ast_dump.py`'s canonical text. This is what the coming Saw parser
+Lex + PARSE a file with the Python front end and emit `sawc/ast_dump.py`'s
+canonical text. This is what the coming Saw parser
 port is diffed against, so it is deliberately PARSE-ONLY -- no typechecking, no
 builtin/std merge, no module resolution. `sawc --emit-ast` dumps the typechecked
 tree instead (desugar nodes, resolved types, and all of `builtin.saw` merged in),
 which is the right thing for debugging and the wrong thing for a parser oracle.
 
 A file that does not lex or parse emits a single ERROR record instead of a tree,
-exactly as `dump_tokens.py` does, so the corpus's ~26 deliberate parse-error
+exactly as `sawc2 lex` does, so the corpus's ~26 deliberate parse-error
 examples become positive coverage of error POSITIONS rather than a hole:
 
     ERROR<TAB>line:col<TAB>message

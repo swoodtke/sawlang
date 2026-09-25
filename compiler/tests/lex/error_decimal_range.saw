@@ -1,0 +1,2 @@
+// Fixture: a decimal literal past 64 bits. Taken from the inputs of compiler/lex/tests/errors.saw.
+18446744073709551616

@@ -1,0 +1,8 @@
+// `from(raw:)` with a bare integer literal.
+enum Mark: UInt8 { case A = 1, case B = 2 }
+
+func raw_literal_fixture() -> Int {
+    let t = Mark.from(raw: 9)   // refuses: from-raw-literal
+    let u = Mark.from(raw: 9u8)
+    3
+}

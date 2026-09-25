@@ -1,0 +1,9 @@
+// An optional of an optional, and an optional element or value type.
+struct Maybe {
+    a: Int??,   // refuses: nested-optional
+    b: Vector<Int?>,   // refuses: nested-optional
+    c: Map<String, String?>,   // refuses: nested-optional
+    d: Set<Int?>,   // refuses: nested-optional
+    e: Int?,
+    f: Vector<Int>?,
+}

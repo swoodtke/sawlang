@@ -1,0 +1,10 @@
+// Literal, cast and name rules inside an interpolation (SL:hazards S7, S17, S20).
+func main() {
+    print("big {18446744073709551615}")   // refuses: int-literal-range
+    print("float {1.5}")   // refuses: float-literal
+    let n: Int8 = 3
+    print("cast {n as Int ?? 9}")   // refuses: cast-then-optional
+    print("first {n}, then {n as Int? ?? 9}")   // refuses: cast-then-optional
+    print("task {cancelled()}")   // refuses: std-api, sync-only
+    print("fine {(n as Int) + 1}")
+}

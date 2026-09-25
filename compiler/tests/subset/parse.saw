@@ -1,0 +1,4 @@
+// The frozen parser refuses a `let` with no name.
+func parse_fixture() {
+    let = 5   // refuses: parse
+}

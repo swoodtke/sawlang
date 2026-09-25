@@ -326,7 +326,7 @@ extension AstParser {
                     node = self.leaf(AstKind.IntegerLiteral, spelling, at)
                 }
                 else if t.kind == TokenKind.StringLit { node = self.leaf(AstKind.StringLiteral, t.value, at) }
-                else if t.kind == TokenKind.BoolLit || t.kind == TokenKind.True_ || t.kind == TokenKind.False_ {
+                else if t.kind == TokenKind.True_ || t.kind == TokenKind.False_ {
                     node = self.leaf(AstKind.BooleanLiteral, t.value, at)
                 }
                 else {

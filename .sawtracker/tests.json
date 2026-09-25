@@ -1,1 +1,1 @@
-{"command": ["sh", "-c", "./build.sh test"]}
+{"command": ["sh", "-c", "./build.sh test --changed-since HEAD^"]}

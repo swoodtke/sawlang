@@ -1,0 +1,2 @@
+// Fixture: an interpolation left open. Taken from the inputs of compiler/lex/tests/errors.saw.
+"a {b

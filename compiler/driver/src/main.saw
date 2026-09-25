@@ -1,0 +1,146 @@
+// sawc2, the driver of the self-hosted Saw compiler. Each stage is reached
+// through a subcommand; the lexer is the first.
+//
+//   sawc2 lex [--docs] <file.saw>   the token dump, or the doc-comment trivia
+//   sawc2 lex --kinds               every token kind's dump name, one per line
+//
+// The record formats are the lexer's canonical dump (compiler/lex/README.md).
+// A lex error prints one ERROR record and exits 1; a usage or I/O failure
+// prints a message and exits 2.
+
+import sawlex.src.lib.{LexResult, format_doc, format_error, format_token, kind_name, lex, token_kinds}
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+
+static DRIVER_EXIT_LEX_ERROR: Int = 1
+static DRIVER_EXIT_USAGE: Int = 2
+
+func driver_usage() -> Int {
+    print("usage: sawc2 lex [--docs] <file.saw>")
+    print("       sawc2 lex --kinds")
+    DRIVER_EXIT_USAGE
+}
+
+func main() -> Int {
+    let args = try! Env.args()
+    let command = args.get(1) ?? ""
+    if command.equals("lex") {
+        return driver_lex(&args)
+    }
+    driver_usage()
+}
+
+// `sawc2 lex`: the arguments after the subcommand name one file, or ask for
+// the kind list.
+func driver_lex(args: &Vector<String>) -> Int {
+    var docs_mode = false
+    var kinds_mode = false
+    var path = ""
+    var i = 2
+    while i < args.len() {
+        let arg = args.get(i) ?? ""
+        if arg.equals("--docs") {
+            docs_mode = true
+        } else if arg.equals("--kinds") {
+            kinds_mode = true
+        } else if arg.starts_with("--") || not path.equals("") {
+            return driver_usage()
+        } else {
+            path = arg
+        }
+        i = i + 1
+    }
+    if kinds_mode {
+        if docs_mode || not path.equals("") {
+            return driver_usage()
+        }
+        return driver_print_kinds()
+    }
+    if path.equals("") {
+        return driver_usage()
+    }
+    if let text = driver_read_source(path) {
+        driver_dump(text, docs_mode)
+    } else {
+        DRIVER_EXIT_USAGE
+    }
+}
+
+// The file's text, or None once the reason it could not be read is printed.
+func driver_read_source(path: String) -> String? {
+    let opened = File.open(Path(s: path))
+    var file = match opened {
+        case Ok(handle) -> move handle,
+        case Err(e) -> {
+            print("sawc2: cannot open {path}: {e}")
+            return None
+        }
+    }
+    let read = file.read()
+    let data = match read {
+        case Ok(bytes) -> move bytes,
+        case Err(e) -> {
+            print("sawc2: cannot read {path}: {e}")
+            return None
+        }
+    }
+    let decoded = data.to_string()
+    match decoded {
+        case Ok(text) -> text,
+        case Err(e) -> {
+            print("sawc2: {path} is not valid UTF-8 (byte {e.offset})")
+            None
+        }
+    }
+}
+
+func driver_dump(source: String, docs_mode: Bool) -> Int {
+    let lexed = lex(source)
+    match lexed {
+        case Ok(result) -> {
+            if docs_mode {
+                driver_print_docs(&result)
+            } else {
+                driver_print_tokens(&result)
+            }
+            0
+        },
+        case Err(e) -> {
+            print(format_error(&e))
+            DRIVER_EXIT_LEX_ERROR
+        }
+    }
+}
+
+func driver_print_tokens(result: &LexResult) {
+    var i = 0
+    while i < result.tokens.len() {
+        if let t = result.tokens.get(i) {
+            print(format_token(&t, &result.segments))
+        }
+        i = i + 1
+    }
+}
+
+func driver_print_docs(result: &LexResult) {
+    var i = 0
+    while i < result.docs.len() {
+        if let d = result.docs.get(i) {
+            print(format_doc(&d))
+        }
+        i = i + 1
+    }
+}
+
+func driver_print_kinds() -> Int {
+    let kinds = token_kinds()
+    var i = 0
+    while i < kinds.len() {
+        if let k = kinds.get(i) {
+            print(kind_name(k))
+        }
+        i = i + 1
+    }
+    0
+}

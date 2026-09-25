@@ -1,0 +1,16 @@
+DOC	2:1	module	Doc comments (design 121) attach to every documentable declaration: this
+DOC	3:1	module	module doc, and the `///` blocks below.
+DOC	9:1	doc	A point on the integer grid.
+DOC	11:5	doc	The horizontal coordinate.
+DOC	13:5	doc	The vertical coordinate.
+DOC	17:1	doc	How dark a shade is.
+DOC	19:5	doc	The lighter one.
+DOC	21:5	doc	The darker one.
+DOC	25:1	doc	A type that can report its own name.
+DOC	27:5	doc	Returns the name.
+DOC	31:1	doc	Construction and arithmetic for `Point`.
+DOC	33:5	doc	Builds the point at the given coordinates.
+DOC	36:5	doc	Returns the sum of the two coordinates.
+DOC	40:1	doc	A grid coordinate.
+DOC	43:1	doc	The coordinate every grid starts from.
+DOC	46:1	doc	Prints the total of a point built from the origin.

@@ -24,7 +24,7 @@ From the repository root, using a Python environment with Saw's dependencies:
 ```sh
 mkdir -p .build/minivm
 python sawc/sawc.py prototypes/minivm/src/main.saw \
-  --module-path sawlex=selfhost/lexer -o .build/minivm/minivm
+  --module-path sawlex=compiler/lex -o .build/minivm/minivm
 .build/minivm/minivm run prototypes/minivm/examples/factorial.saw
 .build/minivm/minivm emit-llvm prototypes/minivm/examples/factorial.saw > .build/minivm/factorial.ll
 clang .build/minivm/factorial.ll -o .build/minivm/factorial
@@ -206,7 +206,7 @@ Use `--section numbers`, `--section records`, `--section control`, or
 `--section lexer_completion` for an isolated
 integration gate.
 
-The whole-lexer gate concatenates the unchanged `selfhost/lexer/src/lib.saw`
+The whole-lexer gate concatenates the compiler's lexer, `compiler/lex/src/lib.saw`,
 with a generated driver and compares complete token/doc/segment/error records
 across the VM, native O0/O2/ASan and Python-sawc-built source:
 

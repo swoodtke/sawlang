@@ -1,0 +1,31 @@
+// A borrowed arm binding re-bound by a `let`, then matched (SL:hazards S2).
+struct Noisy { id: Int }
+
+extension Noisy: NoCopy {}
+
+enum Pocket { case Empty, case Full(item: Noisy) }
+
+extension Pocket: NoCopy {}
+
+enum Outer { case Wrapped(inner: Pocket), case Bare }
+
+extension Outer: NoCopy {}
+
+func nested_let(o: &Outer) -> Int {
+    match o {
+        case Wrapped(inner) -> {
+            let again = inner
+            match again {   // refuses: borrowed-match-payload
+                case Empty -> 0,
+                case Full(item) -> item.id
+            }
+        },
+        case Bare -> 2
+    }
+}
+
+func main() {
+    let a = Outer.Wrapped(inner: Pocket.Full(item: Noisy(id: 1)))
+    print(nested_let(&a))
+    print("end")
+}

@@ -1,0 +1,49 @@
+// A receiver bound from an overloaded build method or function. The checker does
+// not trace which overload a call picks, so when the overloads return different
+// types the receiver is untraced and a std name on it is judged as std's
+// (probe t1b). Overloads that agree still trace.
+struct Bag { n: Int }
+
+extension Bag {
+    func render(&self) -> Bag { Bag(n: self.n) }
+    func render(&self, full: Bool) -> Vector<Int> {
+        var v: Vector<Int> = Vector()
+        try! v.push(self.n)
+        return move v
+    }
+    func listing(&self) -> Vector<Int> { self.render(true) }
+    func twin(&self) -> Bag { Bag(n: self.n) }
+    func twin(&self, k: Int) -> Bag { Bag(n: k) }
+    func keys(&self) -> Int { self.n }
+}
+
+func make(k: Int) -> Bag { Bag(n: k) }
+
+func make(k: Int, m: Int) -> Vector<Int> {
+    var v: Vector<Int> = Vector()
+    try! v.push(k + m)
+    return move v
+}
+
+func no_overload(b: Bag) -> Int {
+    var v = b.listing()
+    v.sort()   // refuses: std-api
+    return v.len()
+}
+
+func method_overload(b: Bag) -> Int {
+    var v = b.render(true)
+    v.sort()   // refuses: std-api
+    return v.len()
+}
+
+func function_overload(k: Int) -> Int {
+    var v = make(k, 2)
+    v.sort()   // refuses: std-api
+    return v.len()
+}
+
+func shared_return(b: Bag) -> Int {
+    let t = b.twin(1)
+    return t.keys()
+}

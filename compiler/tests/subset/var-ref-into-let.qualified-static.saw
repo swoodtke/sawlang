@@ -1,0 +1,15 @@
+// `&var` into an immutable `static` reached through an inline module's
+// qualifier: the write is silently lost (SL:hazards S5). The inline module is
+// itself refused.
+module limits_mod {   // refuses: inline-module
+    public static LIMIT_VALUE: Int = 3
+}
+
+func bump_int(x: &var Int) { x = x + 1 }
+
+func main() {
+    bump_int(&var limits_mod.LIMIT_VALUE)   // refuses: var-ref-into-let
+    var local = limits_mod.LIMIT_VALUE
+    bump_int(&var local)
+    print(limits_mod.LIMIT_VALUE + local)
+}

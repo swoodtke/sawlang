@@ -1,0 +1,7 @@
+// A match arm whose body is a bare statement. The frozen parser refuses it too.
+func arm_fixture(n: Int) -> Int {
+    match n {
+        case 0 -> return 7,   // refuses: statement-arm parse
+        case _ -> 1
+    }
+}

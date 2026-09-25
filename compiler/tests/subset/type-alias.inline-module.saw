@@ -1,0 +1,44 @@
+// Declaration and build rules inside an inline module, which is itself refused.
+module probe_decls {   // refuses: inline-module
+    public struct Noisy { id: Int }
+
+    extension Noisy: NoCopy {}
+
+    public type Handle = Int   // refuses: type-alias
+
+    public struct Scopes { names: Vector<Vector<Noisy>> }
+
+    extension Scopes: NoCopy {}
+
+    public struct Unreadable {}   // refuses: empty-struct
+
+    public struct Duration { ticks: Int }   // refuses: prelude-type-name
+
+    public enum Bag { case Empty, case Full(k: Int) }
+
+    extension Bag: Equatable {
+        func equals(&self, other: &Self) -> Bool { true }   // refuses: enum-equatable-body
+    }
+
+    public func put(n: Int) -> Int { n }   // refuses: integer-overload
+
+    public func put(n: UInt8) -> Int { 1 }   // refuses: integer-overload
+
+    public func get(n: Int) -> Int {
+        let a = Bag.Full(k: 1)
+        let b = Bag.Full(k: 2)
+        let h: Handle = n
+        if a == b { 1 } else { 0 }
+    }
+
+    public func len(n: Int) -> Int {
+        let a = Bag.Full(k: 1)
+        let b = Bag.Full(k: 2)
+        if a.equals(&b) { 1 } else { 0 }
+    }
+}
+
+func main() {
+    print(probe_decls.get(9))
+    print(probe_decls.len(9))
+}

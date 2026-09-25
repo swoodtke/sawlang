@@ -1,0 +1,5 @@
+// Compiler types named like import-gated std types (SL:hazards L17 names `Path`).
+struct Path { segments: Int }   // refuses: prelude-type-name
+struct File { handle: Int }   // refuses: prelude-type-name
+struct Data { bytes: Int }   // refuses: prelude-type-name
+enum Instant { case Now, case Later }   // refuses: prelude-type-name

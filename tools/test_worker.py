@@ -430,7 +430,7 @@ class JobRunner:
     # (design 155 made irdet the first one).
     BATTERY = (
         ("suite", ["test_runner.py"], False),
-        ("lexdiff", ["tools/lexdiff.py"], False),
+        ("compiler", ["compiler/tests/run.py"], False),
         ("astdiff", ["tools/astdiff.py"], False),
         ("irdet", ["--all"], True),
     )

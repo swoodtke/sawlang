@@ -1,0 +1,16 @@
+// An extension head naming a generic build type without its type parameters,
+// for methods or a conformance: Stage 0 fails with an internal compiler error
+// (SL:hazards L18).
+struct Gen<T> { item: T }
+
+enum Pick<T> { case One(item: T), case Empty }
+
+extension Gen {   // refuses: generic-extension-params
+    func tag(&self) -> Int { 1 }
+}
+
+extension Gen: NoCopy {}   // refuses: generic-extension-params
+
+extension Pick {   // refuses: generic-extension-params
+    func tag(&self) -> Int { 2 }
+}

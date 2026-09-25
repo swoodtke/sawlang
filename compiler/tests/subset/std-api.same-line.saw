@@ -1,0 +1,10 @@
+// Two findings of one rule on one line, with different messages, are both
+// reported (probe t1).
+enum Holder { case Items(v: Vector<Int>), case Empty }
+
+func payloads(h: Holder) -> Int {
+    match h {
+        case Items(v) -> { var w = v.copy(); w.sort(); w.len() },   // refuses: std-api std-api
+        case Empty -> 0
+    }
+}

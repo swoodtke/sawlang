@@ -1,0 +1,30 @@
+// A `deinit` in an extension, a conformance or a trait body. Stage 1 may skip
+// drops, so none may have an effect (SL:hazards, leak tolerance).
+struct Tally { count: Int }
+
+extension Tally {
+    func deinit(&var self) { print("drop {self.count}") }   // refuses: deinit-body
+    func bump(&var self) { self.count += 1 }
+}
+
+struct Holder { id: Int }
+
+extension Holder: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }   // refuses: deinit-body
+}
+
+struct Stamp { id: Int }
+
+extension Stamp: NoCopy {}
+
+trait Closer {
+    func deinit(&var self)   // refuses: deinit-body
+}
+
+func main() {
+    var t = Tally(count: 0)
+    t.bump()
+    let h = Holder(id: 1)
+    let k = Stamp(id: 2)
+    print(h.id + k.id)
+}

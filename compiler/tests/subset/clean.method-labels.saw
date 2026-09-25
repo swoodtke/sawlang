@@ -1,0 +1,15 @@
+// The build's own ordinary methods named like std accessors, called with their
+// declared labels on a receiver traced to the build's type. Stage 0 checks
+// these labels; only a `borrows` accessor drops them (SL:hazards S14).
+struct Scope { base: Int }
+
+extension Scope {
+    func get(&self, depth: Int) -> Int { self.base + depth }
+    func value(&self, of: Int) -> Int { self.base * of }
+}
+
+func main() {
+    let s = Scope(base: 5)
+    print(s.get(depth: 1))
+    print(s.value(of: 2))
+}

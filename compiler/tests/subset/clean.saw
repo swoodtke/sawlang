@@ -1,0 +1,118 @@
+// Subset code the checker must accept: the spellings each rule's hazard entry
+// recommends, next to the shapes nearest its refusals.
+import std.file.{File}
+import std.path.{Path}
+import sawlex.src.lib.{lex, LexResult}
+
+struct CleanNode { kind: Int, first_child: Int, next: Int }
+
+struct CleanArena {
+    nodes: Vector<CleanNode>,
+    names: Map<String, Int>,
+    spelled: Vector<Vector<CleanNode, GlobalAllocator>>,
+}
+
+extension CleanArena: NoCopy {}
+
+enum CleanShape { case Leaf(value: Int), case Pair(left: Int, right: Int) }
+
+enum CleanError { case Missing(name: String), case Invalid(at: Int) }
+
+extension CleanArena {
+    func node_count(&self) -> Int { self.nodes.len() }
+
+    func push_node(&var self, kind: Int) -> Int {
+        let index = self.nodes.len()
+        try! self.nodes.push(CleanNode(kind: kind, first_child: -1, next: -1))
+        index
+    }
+
+    func kind_at(&self, index: Int) -> Int {
+        let missing = -1
+        if index >= 0 && index < self.nodes.len() {
+            self.nodes[index].kind
+        } else {
+            missing
+        }
+    }
+
+    func set_kind(&var self, index: Int, kind: Int) {
+        var node = self.nodes[index]
+        node.kind = kind
+        self.nodes[index] = node
+    }
+}
+
+func clean_describe(shape: CleanShape) -> Int {
+    match shape {
+        case Leaf(value) -> value,
+        case Pair(left, right) -> {
+            let sum = left + right
+            sum
+        }
+    }
+}
+
+func clean_lookup(names: &Map<String, Int>, key: String) -> Result<Int, CleanError> {
+    if let found = names.get(key) {
+        return found
+    }
+    return CleanError.Missing(name: key)
+}
+
+func clean_sum(values: &Vector<Int>) -> Int {
+    var total = 0
+    var i = 0
+    while i < values.len() {
+        if let v = values.get(i) {
+            total = total + v
+        }
+        i = i + 1
+    }
+    for k in 0..3 {
+        total += k
+    }
+    total
+}
+
+func clean_apply(f: (Int) -> Int, n: Int) -> Int { f(n) }
+
+func clean_closures(n: Int) -> Int {
+    let doubled = clean_apply({ x: Int in x * 2 }, n)
+    doubled
+}
+
+func clean_try(names: &Map<String, Int>) -> Result<Int, CleanError> {
+    let found = try clean_lookup(names, "a")
+    let fallback = try clean_lookup(names, "b") catch { 0 }
+    return found + fallback
+}
+
+func clean_counts(v: &var Vector<Int>) {
+    v[0] *= 2
+    let first = v.len()
+    try! v.push(first)
+}
+
+func clean_lex_count(source: String) -> Int {
+    let result = lex(source)
+    match result {
+        case Ok(r) -> r.tokens.len(),
+        case Err(e) -> 0
+    }
+}
+
+func clean_bytes(n: Int) -> UInt8 {
+    let small = 255u8
+    let cast = (n % 256) as UInt8
+    small & cast
+}
+
+func clean_is_open(text: String) -> Bool {
+    let first = text.byte_at(0)
+    first == 123u8
+}
+
+func clean_interpolation(n: Int, name: String) -> String {
+    "{name}: {n} of {name.len()}"
+}

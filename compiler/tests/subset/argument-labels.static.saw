@@ -1,0 +1,13 @@
+// A repeated label inside a `static` initializer or a `static_assert` (SL:hazards S14).
+struct Twin { first: Int, second: Int }
+
+static PROBE_TWIN: Twin = Twin(first: 1, second: 2, first: 3)   // refuses: argument-labels
+
+func probe_pick(a: Int, b: Int) -> Int { a }
+
+static_assert(probe_pick(a: 1, a: 2) == 1, "labels")   // refuses: argument-labels
+
+func main() {
+    print(PROBE_TWIN.first)
+    print(PROBE_TWIN.second)
+}

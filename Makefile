@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade blade-bootstrap install freestanding-test lexdiff astdiff astgraft irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest ircontract preludegate icebreadcrumb toolchain
+.PHONY: test test-verbose test-sequential clean help blade blade-bootstrap install freestanding-test compiler-test astdiff astgraft irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest ircontract preludegate icebreadcrumb toolchain
 
 # Default target
 all: test
@@ -63,11 +63,10 @@ install: blade
 freestanding-test:
 	@python3 tools/freestanding_runner.py
 
-# Differential lexer harness (design 116): build the Saw lexer, then diff its
-# canonical token dump against sawc's Python lexer over every tracked .saw file.
-# Zero mismatches is the acceptance bar.
-lexdiff:
-	@python3 tools/lexdiff.py
+# The self-hosted compiler's tests (compiler/README.md): its unit programs, the
+# golden token fixtures, and the subset checker over its own source.
+compiler-test:
+	@python3 compiler/tests/run.py
 
 # AST dump acceptance harness (design 126 R11), the parser-port oracle: dump
 # every tracked .saw file and require the dump to be COMPLETE (no node type
@@ -93,8 +92,8 @@ astgraft:
 # sitting in the tree unnoticed until adding two unrelated examples reshuffled
 # the sample onto one of them.
 # The harness itself is written in SAW (design 155, the first devtool port):
-# `devtools/irdet/`, built here the way lexdiff builds the Saw lexer. It still
-# drives the PYTHON sawc — the tool is Saw, the compiler under test is not.
+# `devtools/irdet/`, built here with the frozen compiler. It drives the PYTHON
+# sawc — the tool is Saw, the compiler under test is not.
 IRDET_BIN := .build/irdetbin
 
 $(IRDET_BIN): devtools/irdet/src/main.saw
@@ -210,7 +209,7 @@ help:
 	@echo "  make blade           - Build the package manager into .build/blade"
 	@echo "  make install         - Put sawc + blade on a PATH (PREFIX=~/.local/bin)"
 	@echo "  make freestanding-test - Build + run the freestanding feature suite under QEMU (riscv32 AND arm64)"
-	@echo "  make lexdiff         - Diff the Saw lexer against sawc's over the corpus"
+	@echo "  make compiler-test   - The self-hosted compiler's tests (compiler/)"
 	@echo "  make astdiff         - Dump every tracked .saw file and require stability"
 	@echo "  make astgraft        - No pass stamps an AST attribute no class declares"
 	@echo "  make irdet           - IR determinism over a 40-example sample (per commit)"

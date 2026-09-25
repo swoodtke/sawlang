@@ -1,0 +1,7 @@
+// Fixture: operators, compound assignments, punctuation, $-params. Taken from the inputs of compiler/lex/tests/operators.saw.
++= -> && &+ &- &* &= <<= >>= <= >= == != ?? ?. |= ^= %=
+<<
+& | ^ ~ ! ? < > ( ) [ ] ; , : . @
+{}
+$0 + $12
+x

@@ -1,0 +1,2 @@
+// Fixture: a suffixed literal out of range. Taken from the inputs of compiler/lex/tests/errors.saw.
+256u8

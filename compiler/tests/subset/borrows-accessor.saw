@@ -1,0 +1,39 @@
+// A borrowing struct and the `borrows` method that lends into it.
+struct Node { kind: Int }
+
+struct Arena { nodes: Vector<Node> }
+
+extension Arena: NoCopy {}
+
+borrows struct ArenaWalk {   // refuses: borrows-accessor
+    arena: &Arena
+    index: Int
+}
+
+extension ArenaWalk: Iterator {
+    type Item = Int
+
+    func next(&var self) -> Int? {
+        if self.index >= self.arena.nodes.len() {
+            return None
+        }
+        let k = self.arena.nodes[self.index].kind
+        self.index = self.index + 1
+        return k
+    }
+}
+
+extension Arena {
+    func walk(&self) borrows -> ArenaWalk {   // refuses: borrows-accessor
+        ArenaWalk(arena: lends self, index: 0)   // refuses: borrows-accessor
+    }
+}
+
+func main() {
+    let a = Arena(nodes: [Node(kind: 1), Node(kind: 2)])
+    var total = 0
+    for k in a.walk() {
+        total += k
+    }
+    print(total)
+}

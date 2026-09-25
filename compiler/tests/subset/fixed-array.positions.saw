@@ -1,0 +1,26 @@
+// An array literal with no written type to adopt, as a method receiver, as a
+// closure's value, and as a match scrutinee: each is a fixed-size array.
+func receiver_len() -> Int {
+    let n = [11, 12, 13].len()   // refuses: fixed-array
+    print([31, 32, 33].len())   // refuses: fixed-array
+    n
+}
+
+func closure_value() -> Int {
+    let f = { x: Int in [x, x, x] }   // refuses: fixed-array
+    let r = f(4)
+    r[0]
+}
+
+func run_gen<R>(f: (Int) -> R) -> R { f(3) }
+
+func generic_closure_value() -> Int {
+    let r = run_gen({ x: Int in [x, x] })   // refuses: fixed-array
+    r[0]
+}
+
+func scrutinee() -> Int {
+    match [21, 22, 23] {   // refuses: fixed-array
+        case _ -> 1
+    }
+}

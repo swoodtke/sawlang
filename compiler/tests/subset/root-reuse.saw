@@ -1,0 +1,23 @@
+// A call or an index write that reads a root it already borrows.
+struct Counter { n: Int }
+
+extension Counter {
+    func read_it(&self) -> Int { self.n }
+    func write_it(&var self, v: Int) { self.n = v }
+}
+
+func consume_fixture(a: &var Int, b: Int) {}
+
+func root_fixture() {
+    var c = Counter(n: 7)
+    c.write_it(c.read_it())   // refuses: root-reuse
+    let r = c.read_it()
+    c.write_it(r)
+    var value = 3
+    consume_fixture(&var value, value)   // refuses: root-reuse
+    let copy = value
+    consume_fixture(&var value, copy)
+    var v: Vector<Int> = [1, 2]
+    v[0] = v[0] * 2   // refuses: root-reuse
+    v[1] *= 2
+}

@@ -28,6 +28,13 @@ sawc/              # Compiler: Python + llvmlite
                    # builds. Design 117: the reactor is now Saw too
                    # (instance-based); the compiler only synthesizes the
                    # process-global __saw_reactor getter.
+compiler/          # The self-hosted compiler, in Saw (epic SL-398; README.md):
+                   # one dir per stage — lex/ (package sawlex) — plus driver/
+                   # (the sawc2 binary), tools/ (build.py builds it with sawc/,
+                   # subset_check.py enforces the subset its source is written
+                   # in) and tests/ (run.py: unit programs, golden fixtures,
+                   # the checker's fixtures). prototypes/ holds the paused
+                   # minivm and the parser prototype that seeds its parser.
 examples/          # Compiler test suite programs (test_runner.py)
 blade/             # Blade package manager (written in Saw)
 libs/              # Real Saw library packages (semver, toml)
@@ -95,22 +102,34 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   full compiler suite, ~1 min uncontended. Multi-pattern filter:
   `./.venv/bin/python test_runner.py -f test_a,test_b`.
 - `./build.sh test` — the sawtracker patch gate's entry point
-  (`.sawtracker/tests.json` runs it on every submitted patch):
-  bootstraps `.venv` if absent, then runs the compiler's per-commit
-  gate (full suite + freestanding, both arches) under the machine-wide
+  (`.sawtracker/tests.json` runs `./build.sh test --changed-since HEAD^`
+  on every submitted patch): bootstraps `.venv` if absent (or uses
+  `$SAW_PYTHON`), then runs `tools/patch_gate.py` under the machine-wide
   suite lock, so a server-side patch test and a local suite run never
-  overlap.
-- **PER-COMMIT GATE POLICY (user, Aug 17; amended Aug 21; NARROWED to
-  sawlang Aug 28 when design 238 unit 5 moved sos/ out):** a COMPILER
-  change gates on the full compiler suite AND
-  `tools/freestanding_runner.py` (both arches, ~80s) before every
-  commit — the design-238-unit-1 suite names the freestanding/
-  cross-target features directly and IS the compiler's cross-target
-  gate. TERMINAL gates: a compiler branch owes the FULL battery; the
-  suite runs once because new .saw files (tests, pins) join the corpus
-  and must prove they behave. Harness edits
-  (tools/freestanding_runner.py) and examples/ pin files do not make a
-  branch a compiler branch. SawOS work happens in the sawos repo under
+  overlap. **THE PER-PATCH GATE IS PATH-AWARE (user, Sep 25):**
+  `compiler/tests/run.py` always runs; the full suite and freestanding
+  (both arches) run only when a changed path is one of their runner's
+  inputs (`SUITE_INPUTS` in `tools/patch_gate.py`: `sawc/`, `examples/`,
+  `tests/{cbor,float}_vectors/`, `tests/freestanding/`, `blade/`, `libs/`,
+  the runners — a new input a runner reads is added there), when the gate itself
+  changes (`build.sh`, `tools/patch_gate.py`, `.sawtracker/`), or when
+  the changed paths are unknown. It prints each decision and why;
+  `./build.sh test --dry-run --diff FILE` shows a patch's decision
+  without running anything.
+- **PER-COMMIT GATE POLICY (user, Sep 24): run only the tests a change
+  affects, and never duplicate what the server runs.** The per-patch gate
+  above runs the full suite and freestanding (both arches) on every patch
+  that reaches their inputs, so NOBODY, implementer or lead, runs a
+  per-commit or pre-submit full suite or freestanding. Before a commit or
+  a submission, run the change's pins, targeted `test_runner.py -f`
+  subsets, and the battery lanes that touch the change's subject and that
+  the server does not run: `astgraft` and `transferdecisions` for the
+  typechecker or codegen, `bootstrap` for the blade/libs corpus,
+  `docverify` for spec prose, `compiler` and `citations` for `compiler/`,
+  `astdiff` for the parser; `irdet` and `reemit` only when the change can
+  reach them. No branch owes the full battery; it will run on main
+  periodically, never per merge, once sawtracker schedules it (ST-45, open).
+  SawOS work happens in the sawos repo under
   its own gate (`make sos-test` there) and its own CLAUDE.md. XFAIL policy (user, Aug 7): a
   `// XFAIL: reason` test is legal ONLY as a pin of a filed finding —
   the reason MUST cite the DF number, the body is the minimal repro
@@ -139,7 +158,7 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
 - IR determinism: the harness is **written in Saw** (`devtools/irdet/`,
   design 155 — the first devtool port; it still drives the PYTHON
   sawc). `make irdet` builds `.build/irdetbin` and samples 40 examples
-  — cheap enough per commit. **A brief's FINAL gate battery runs
+  — cheap enough per commit. **A change that can reach IR emission runs
   `irdet --all`** (the whole corpus; design 146 unit D):
   ```bash
   ./.venv/bin/python sawc/sawc.py devtools/irdet/src/main.saw -o .build/irdetbin
@@ -179,7 +198,10 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   tools/battery.sh suite fuzz     # named stages
   tools/battery.sh --list
   ```
-  Stages: `suite`, `icebreadcrumb`, `lexdiff`, `astdiff`, `astgraft`,
+  Stages: `suite`, `icebreadcrumb`, `compiler` (`compiler/tests/run.py`:
+  the self-hosted compiler's unit programs, its golden token fixtures with
+  their kind coverage, and the subset checker over its source and its own
+  fixtures), `astdiff`, `astgraft`,
   `corodiscovery` (design 275 U1: ONE ledger answers every coroutine frame
   decision — `tools/test_coro_discovery.py` parses `coro_transform.py` and
   fails on any site outside the ledger's builder that reads a raw discovery
@@ -230,8 +252,8 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   check, the refusal), `abidoc`, `bttable`,
   `fuzz` (`sawfuzz --quick`), `corodiff` (`--quick`), `bench` (the warehouse
   benchmark — checksums GATE, timing report-only; devtools/bench/ +
-  TESTING.md), `selfhostlex` (the selfhost lexer's own tests — the one tree
-  the Aug-10 coverage sweep found NO stage ran), `floatvectors` (design
+  TESTING.md), `minivm` (the paused prototype builds against compiler/lex
+  and its differential harness passes), `floatvectors` (design
   253: the committed Float↔text vectors, bit-exact, plus the Ryū table
   re-derivation), then the slow five
   `reemit` (design 221 A2: TWO compiles in ONE process, byte-comparing the
@@ -244,7 +266,11 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   number of failing stages. Adding a lane means editing `STAGES`.
   Coverage map (Aug-10 sweep): blade/tests + libs/*/tests are
   typechecked+run by `bootstrap` ONLY (so `--quick` skips them);
-  lexdiff/astdiff lex/parse EVERY tracked .saw but check no semantics.
+  compiler/*/tests by `compiler` only; astdiff parses EVERY tracked .saw
+  but checks no semantics. RETIRED (SL-399): the `lexdiff` and
+  `selfhostlex` lanes, with `tools/lexdiff.py` and `tools/dump_tokens.py`
+  — the golden token fixtures in compiler/tests/lex, snapshotted once
+  against the Python lexer, are the lexer's oracle now.
 - The AST contract (design 126, gated by design 194): every attribute a pass
   stamps on an AST node is a DECLARED `annotation(...)` field on the node
   class, never a runtime graft — `tools/test_ast_graft.py` (the `astgraft`
@@ -322,7 +348,8 @@ All issue tracking AND merge gating live in sawtracker, a webserver at
 SL (sawlang), SO (sawos). `.sawtracker/` in this repo is the SERVER'S
 state (`issues/`, `events/`, `project.md`) — read freely, NEVER edit —
 with TWO exceptions that are ours: `.sawtracker/tests.json`, which tells
-the server how to test a submitted patch (`./build.sh test`), and
+the server how to test a submitted patch
+(`./build.sh test --changed-since HEAD^`), and
 `.sawtracker/version`, the release tag name (ST-46): a patch that changes it
 (next to a `SAWC_VERSION` bump in `sawc/version.py`) makes the server create
 that annotated tag at its merge commit. Never reuse a name.
@@ -352,15 +379,15 @@ is gone with them. Tracker commits (`sawtracker: ...`) arrive from the
 server on every fetch; a fast-forward is the only merge local main ever
 does. Revise a patch with `patch revise SL-N.p1 --file <diff>`; inspect
 with `patch show`/`patch list`. The server's `./build.sh test` runs the
-per-commit gate (suite + freestanding) on the applied patch — but the
-lead still validates in the worktree first, and a compiler branch's
-TERMINAL battery obligation is unchanged and runs BEFORE submitting.
+path-aware per-patch gate (Testing, above) on the applied patch; the lead
+validates in the worktree first by review and spot checks, running only
+the targeted tests the per-commit gate policy names.
 
 ## Design-brief workflow
 Design decisions are made WITH the user, recorded as `designs/NN-*.md`
 briefs, implemented by dispatched agents (one at a time; concurrent
 only in isolated worktrees). Each finished brief unit reaches main as a
-squashed sawtracker patch (section above), full suite green.
+squashed sawtracker patch (section above), its server gate green.
 
 **DIVISION OF LABOR + MODELS (user rulings, Aug 13-18):** the user
 designs and RULES; the LEAD (session model) writes briefs, dispatches,
@@ -630,7 +657,7 @@ uses); `Deinit` is NON-declarable — a copy-policy conformance carries any
 hand-written deinit body, which PREFIXES the synthesized field drops (131).
 Doc comments (121):
 `///` (following decl) + `//!` (module) lexed as trivia in BOTH lexers
-(lexdiff parity, `--docs` dump), parser-attached with unattached-doc
+(`sawc2 lex --docs` dump), parser-attached with unattached-doc
 errors, `--emit-docs` JSON of the typechecked surface (design-80 gate on
 members); std.task + std.time docstringed; the saw-docs skill is the
 style guide for all user-facing doc text.

@@ -1,0 +1,15 @@
+// An `init` with a path that falls off its end (SL:hazards S6).
+struct Gauge { level: Int }
+
+extension Gauge {
+    init(raw: Int) -> Gauge {   // refuses: function-exit
+        if raw > 0 { return Gauge(level: raw) }
+    }
+}
+
+func main() {
+    let g = Gauge(raw: 0)
+    print(g.level)
+    let h = Gauge(raw: 5)
+    print(h.level)
+}

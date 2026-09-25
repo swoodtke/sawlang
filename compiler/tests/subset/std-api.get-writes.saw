@@ -1,0 +1,27 @@
+// Writes through `get`, which lends a place in sawc/std and returns a value in the new std.
+// value in the new std (SL:borrowing K14).
+struct Inner { n: Int }
+
+extension Inner {
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+struct Entry { n: Int, inner: Inner }
+
+extension Entry {
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+func main() {
+    var v: Vector<Entry> = [Entry(n: 1, inner: Inner(n: 1))]
+    v.get(0)?.n = 5   // refuses: std-api
+    print(v[0].n)
+    v.get(0)?.bump()   // refuses: std-api
+    print(v[0].n)
+    v.get(0)!.inner.bump()   // refuses: std-api
+    print(v[0].inner.n)
+    if var e = v.get(0) {
+        e.n = 100
+    }
+    print(v[0].n)
+}

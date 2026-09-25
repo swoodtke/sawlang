@@ -1,0 +1,7 @@
+// An escape inside an interpolation's braces: the frozen parser's error names
+// the interpolation's own line 1, and the checker reports the file's line
+// (probe i3).
+func main() {
+    let x = 7
+    print("v {x \n + 3}")   // refuses: parse
+}

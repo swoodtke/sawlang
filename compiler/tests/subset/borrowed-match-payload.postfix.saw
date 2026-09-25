@@ -1,0 +1,50 @@
+// The base SL-192 face, and one hidden behind a postfix step (SL:hazards S2).
+struct Noisy { id: Int }
+
+extension Noisy: NoCopy {}
+
+enum Pocket { case Empty, case Full(item: Noisy) }
+
+extension Pocket: NoCopy {}
+
+struct Bin { pocket: Pocket }
+
+extension Bin: NoCopy {}
+
+enum Outer { case Wrapped(inner: Pocket), case Boxed(bin: Bin), case Bare }
+
+extension Outer: NoCopy {}
+
+func nested_arm(o: &Outer) -> Int {
+    match o {
+        case Wrapped(inner) -> {
+            match inner {   // refuses: borrowed-match-payload
+                case Empty -> 0,
+                case Full(item) -> item.id
+            }
+        },
+        case Boxed(bin) -> 3,
+        case Bare -> 2
+    }
+}
+
+func nested_field(o: &Outer) -> Int {
+    match o {
+        case Wrapped(inner) -> 4,
+        case Boxed(bin) -> {
+            match bin.pocket {   // refuses: borrowed-match-payload
+                case Empty -> 0,
+                case Full(item) -> item.id
+            }
+        },
+        case Bare -> 2
+    }
+}
+
+func main() {
+    let a = Outer.Wrapped(inner: Pocket.Full(item: Noisy(id: 1)))
+    print(nested_arm(&a))
+    let b = Outer.Boxed(bin: Bin(pocket: Pocket.Full(item: Noisy(id: 2))))
+    print(nested_field(&b))
+    print("end")
+}

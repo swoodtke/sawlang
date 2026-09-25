@@ -1,0 +1,18 @@
+// An `init` in a specialized extension, which parses as a generic one (SL:hazards S1).
+struct Noisy { id: Int }
+
+extension Noisy: NoCopy {}
+
+struct Wrap<T> { value: T }
+
+extension Wrap<T>: NoCopy {}
+
+extension Wrap<Noisy> {   // refuses: name-collision
+    init(from: Noisy) -> Wrap<Noisy> { Wrap<Noisy>(value: move from) }   // refuses: generic-extension-init
+}
+
+func main() {
+    let w = Wrap<Noisy>(from: Noisy(id: 7))
+    print(w.value.id)
+    print("end")
+}

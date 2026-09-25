@@ -1,0 +1,30 @@
+// Std calls off the API allowlist, and the spellings whose meaning the new std
+// changes.
+struct Entry { n: Int }
+
+extension Entry {
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+func api_fixture(names: Map<String, Int>, v: Vector<Entry>, cell: Vector<Int>) -> Int {
+    let a = names["k"]   // refuses: std-api
+    let b = names["k"] ?? 0   // refuses: std-api
+    var w: Vector<Entry> = [Entry(n: 1)]
+    w.get(0)!.n = 5   // refuses: std-api
+    w.get(0)!.bump()   // refuses: std-api
+    if let _ = w.get(0) {   // refuses: std-api
+        print("present")
+    }
+    let has = w.get(0).is_some()   // refuses: std-api std-api optional-shaping
+    var m: Map<String, Int> = {"a": 1}
+    m["a"]! = 2   // refuses: std-api std-api
+    let c = w.iter()   // refuses: std-api
+    let d = v.with_ref(0, { e: &Entry in e.n })   // refuses: std-api
+    let g = cell.lock({ x: Int in x })   // refuses: std-api
+    let now = Instant.now()   // refuses: std-api
+    let e = w.get(0)
+    let n = w.len()
+    var local = Entry(n: 2)
+    local.bump()
+    n
+}

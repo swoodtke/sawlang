@@ -1,0 +1,20 @@
+// A trait default body that falls off its end (SL:hazards S6).
+trait ProbeShape {
+    func area(&self) -> Int
+
+    func clamp_area(&self, x: Int) -> Int {   // refuses: function-exit
+        if x > 0 { return x }
+    }
+}
+
+struct ProbeSquare { side: Int }
+
+extension ProbeSquare: ProbeShape {
+    func area(&self) -> Int { self.side * self.side }
+}
+
+func main() {
+    let s = ProbeSquare(side: 3)
+    print(s.clamp_area(0))
+    print(s.clamp_area(5))
+}

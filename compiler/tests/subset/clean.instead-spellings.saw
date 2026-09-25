@@ -1,0 +1,39 @@
+// The spellings SL:hazards recommends in place of a refused shape.
+static PROBE_FNV_BASIS: UInt64 = 14695981039346656037
+
+func probe_min() -> Int {
+    -9223372036854775808
+}
+
+func probe_bound() -> UInt64 {
+    let bound: UInt64 = 18446744073709551615
+    var top: UInt64 = 18446744073709551615
+    top = top - 1
+    bound - top + PROBE_FNV_BASIS
+}
+
+func choose(ok: Bool) -> Result<Int, String> {
+    let chosen: Result<Int, String> = if ok {
+        Result<Int, String>.Ok(value: 9)
+    } else {
+        Result<Int, String>.Err(error: "no")
+    }
+    return move chosen
+}
+
+func product(a: Int, b: Int) -> Int {
+    (a
+     * b)
+}
+
+func difference(a: Int, b: Int) -> Int {
+    (a
+     - b)
+}
+
+func sum(a: Int, b: Int) -> Int {
+    probe_pair(a,
+               -b)
+}
+
+func probe_pair(a: Int, b: Int) -> Int { a + b }

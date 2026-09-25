@@ -2,7 +2,7 @@
 
 The textual form of a parsed Saw program, emitted by `sawc/ast_dump.py`. It is
 the acceptance oracle for the Saw parser port, the way the canonical token dump
-(`selfhost/lexer/README.md`) is the oracle for the lexer port. The Python
+(`compiler/lex/README.md`) was the oracle for the lexer port. The Python
 parser's observable output is the correctness reference; `LANGUAGE_SPEC.md` is
 authoritative where the two disagree.
 
@@ -82,7 +82,7 @@ ERROR<TAB>line:col<TAB>message
 ```
 
 Positions and the fact of rejection are part of the contract; message prose is
-not (the harness compares the tag and position, as lexdiff does). The parser can
+not (the harness compares the tag and position only). The parser can
 report several errors from one file in recovery mode; the record carries the
 first.
 

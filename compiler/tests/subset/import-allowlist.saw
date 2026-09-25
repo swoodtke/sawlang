@@ -1,0 +1,7 @@
+// A std module off the allowlist, and a package that is neither std nor a
+// compiler stage.
+import std.net.{TcpStream}   // refuses: import-allowlist
+import blade.src.lib.{Manifest}   // refuses: import-allowlist
+import std.file.{File}
+import sawlex.src.lib.{lex}
+import src.lib.{helper}

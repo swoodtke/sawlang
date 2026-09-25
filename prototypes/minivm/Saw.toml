@@ -3,4 +3,4 @@ name = "minivm"
 version = "0.0.1"
 
 [dependencies]
-sawlex = { path = "../../selfhost/lexer" }
+sawlex = { path = "../../compiler/lex" }

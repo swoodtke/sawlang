@@ -1,0 +1,17 @@
+// Raw pointers, std's unsafe types, `unsafe`, and dereference.
+struct Buffer { data: UnsafePointer<Int8> }   // refuses: raw-pointer raw-pointer
+
+func raw_fixture(p: UnsafePointer<Int>) unsafe -> Int {   // refuses: raw-pointer raw-pointer raw-pointer
+    let a = *p   // refuses: raw-pointer
+    let b = move *p   // refuses: raw-pointer
+    a * b
+}
+
+func ref_fixture() -> Int {
+    let r: UnsafeRef<Int>? = None   // refuses: raw-pointer
+    3
+}
+
+func product_fixture(a: Int, b: Int) -> Int {
+    a * b
+}

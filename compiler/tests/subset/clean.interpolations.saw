@@ -1,0 +1,16 @@
+// Interpolations of ordinary subset expressions, each on one line: a unary
+// minus, a multiplication, `??`, a cast with no optional after it, tuple and
+// Vector element reads, and a `get` with a fallback.
+func main() {
+    let x = 3
+    let y: Int? = None
+    let n: Int8 = 4
+    let t = (1, 2)
+    let v: Vector<Int> = [7, 8]
+    print("neg {-x}")
+    print("mul {x * 2} and {x * 3}")
+    print("coalesce {y ?? 0}")
+    print("cast {n as Int}")
+    print("tuple {t.0} {t.1}")
+    print("elem {v[0]} {v.get(5) ?? -1}")
+}

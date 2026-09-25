@@ -1,0 +1,16 @@
+// `&var` into a binding that is not a `var`.
+struct Pair { a: Int, b: Int }
+
+func bump_fixture(x: &var Int) { x = x + 1 }
+
+func let_fixture(param: Pair) {
+    let p = Pair(a: 1, b: 2)
+    bump_fixture(&var p.a)   // refuses: var-ref-into-let
+    bump_fixture(&var param.b)   // refuses: var-ref-into-let
+    var q = Pair(a: 1, b: 2)
+    bump_fixture(&var q.a)
+}
+
+func forward_fixture(r: &var Pair) {
+    bump_fixture(&var r.a)
+}

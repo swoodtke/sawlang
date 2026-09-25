@@ -1,0 +1,6 @@
+// A free function or static named like one in std.
+func encode(n: Int) -> Int { n }   // refuses: program-unique-names
+static INFO_MASK: Int = 31   // refuses: program-unique-names
+
+func unique_fixture_encode(n: Int) -> Int { n }
+static UNIQUE_FIXTURE_MASK: Int = 31
