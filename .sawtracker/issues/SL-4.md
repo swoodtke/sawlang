@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":4200,"created":"1788791148","id":"SL-4","labels":["todo-import","backlog","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":1,"sequence":4,"status":"open","title":"DF-307b: Design one aggregate layout oracle for all const positions","updated":"1788791148"}
+{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":4200,"closed":"","created":"1788791148","id":"SL-4","labels":["language"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":2,"sequence":1750,"stage":"backlog","status":"open","title":"DF-307b: Design one aggregate layout oracle for all const positions","updated":"1790341598"}
 ---
 
 
