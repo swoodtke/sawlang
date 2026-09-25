@@ -185,14 +185,36 @@ lend of §7.
   place to a callee as an ordinary reborrow for the duration of the call.
 - **A lend can forward another accessor's place** (Ruled: "forwarding a borrowed
   reference via a function call is allowed"). Inside a `borrows` body, `lend`
-  may name a place reached through another accessor:
+  may name a place reached through another accessor. `lend` is already the
+  explicit borrow marker inside an accessor, so its own operand needs no
+  `borrow` keyword:
   ```saw
   lend self.sections[i]                                   // toml's section_at
-  match self.slots[b] { case Occupied(_, v) -> { lend v } … }   // Map's find
   ```
   The inner borrow opens for as long as the outer lend is open, nested inside
-  it, and closes in reverse order. `lend` is already the explicit borrow marker
-  inside an accessor, so no `borrow` keyword is written there.
+  it, and closes in reverse order.
+- **Only the `lend` operand is exempt.** A place reached some other way is an
+  ordinary borrow and is written as one (codex t16). A plain `self.slots[b]` is
+  a getitem: refused for a NoCopy or generic slot, and for a Copy slot it
+  matches a copy, not the map's storage. So Map's `find` opens a borrow of the
+  slot, matches the bound place, and lends its payload:
+  ```saw
+  borrow var slot = self.slots[b] {
+      match slot {
+          case Occupied(_, v) -> { lend v }
+          …
+      }
+  }
+  ```
+  A `lend` inside a `borrow` block keeps that block's borrow open for as long as
+  the outer lend is open, exactly as a forwarded operand does.
+- **Forwarding keeps a `sync` restriction** (Proposed, with the lock exception
+  of §2.5; codex t17). An accessor whose lend forwards a `sync` accessor's
+  place, such as one that lends through `mutex.lock()`, must itself be declared
+  `sync`. Otherwise it is refused. The suspension that would break the lock
+  happens in the *consumer's* body while the accessor is paused at `lend`. So
+  the ordinary rule that a `sync` function cannot call a suspending one does not
+  catch it, and the restriction has to travel with the declaration.
 
 ## 3. Declared modes and the root charge (Ruled)
 
@@ -311,10 +333,15 @@ are derived:
 **Field reads of a derived getitem** (Ruled). Under "looks like a copy, is a
 copy", `PROCESSES[p].state` is a getitem of the whole element followed by a
 field read. When getitem is *derived* from a shared place accessor, the compiler
-may lower `v[i].f` as a shared borrow plus a copy of `f` alone. For Copy-tier
-elements that is observably identical, so it is an allowed optimisation, not a
-language rule. A *declared* getitem is always called as written, since its body
-may have side effects. (Evidence for sawos's 410 such reads comes from the IR,
+may lower `v[i].f` as a shared borrow plus a copy of `f` alone, **but only when
+copying the element runs no code**: no declared `copy()` hook and no deinit
+anywhere in it, so the copy is a plain memory copy. Being Copy-tier is not
+enough (codex t15). A declared `copy()` is an executable retain hook, and its
+deinit is the release. Skipping the whole-element copy would skip both, and a
+hook that counts copies would see the difference. Under that restriction the
+lowering is observably identical, so it is an allowed optimisation, not a
+language rule. sawos's slab elements qualify. A *declared* getitem is always
+called as written, since its body may have side effects. (Evidence for sawos's 410 such reads comes from the IR,
 not from a size delta alone: borrowing-survey K13.)
 
 ### 5.3 Multi-argument subscripts (Ruled)
@@ -371,8 +398,11 @@ trait KeyedPlace<K, V> {
 }
 ```
 
-- Every form of `default:` is built from these two operations. There is no
-  second, value-level trait: the value forms are the place forms plus a copy.
+- The read, compound and place forms are built from these two operations.
+  There is no second, value-level trait: the value forms are the place forms
+  plus a copy. The pure store (below) is not a `KeyedPlace` operation. It needs
+  the type's ordinary setter, `[]=`, so a generic `KeyedPlace<K, V>` bound alone
+  does not allow it (codex t4).
 - **A read holds the root shared when it can.** It borrows through `find`'s
   `&self` twin when the conformer has one, written or `@synthesize(shared)`
   (§4), and otherwise through the exclusive `find`, following §4's
@@ -391,7 +421,7 @@ first:
 |---|---|---|
 | `m[k, default: e]` (read) | `find(&k)`: on a hit, copy the entry out; on a miss, yield `e`. Nothing is inserted | only on a miss |
 | `m[k, default: e] op= r` | evaluate `r`, then `find(&k)`; on a miss, evaluate `e` and `insert(k, e)`, which moves `k`; then `entry op= r` in place | only on a miss. The *result* is stored, so `counts[k, default: 0] += 1` stores `1` on a miss |
-| `m[k, default: e] = v` | `m[k] = v`, the type's own setitem | **never**. A pure store ignores the default; writing one there draws a `-W` warning |
+| `m[k, default: e] = v` | `m[k] = v`, the type's own setitem; requires `[]=` | **never**. A pure store ignores the default; writing one there draws a `-W` warning |
 | `borrow var x = m[k, default: e] { … }` | `find(&k)`; on a miss, evaluate `e` and lend `insert(k, e)`, which moves `k` | only on a miss |
 
 - The compound form evaluates `r` before the borrow opens, as every assignment
@@ -631,7 +661,8 @@ in them. Each note says what the migrated code looks like.
   this revision: K1 (§4), K2 (§2.7), K3 and K4 (§2.6, §3), K5 (§2.1), K6
   (§2.2) and K13 (§5.2). §8a settles K11, and §9.1 covers the rest.
 - **Still Proposed:** several bindings (§2.3), path-sensitivity (§2.4), the
-  lock exception to suspension (§2.5), `for borrow let|var` for per-element
+  lock exception to suspension (§2.5) and the `sync` requirement it puts on
+  forwarding (§2.7), `for borrow let|var` for per-element
   borrows (§2.6), separate subscript methods (§5.2), and the `Void?` statement
   form (§9.1, K9).
 - (Settled: `default:` is lazy (§5.4); static roots are the unsafe author's
