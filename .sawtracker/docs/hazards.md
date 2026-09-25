@@ -124,12 +124,23 @@ syntax, so the rule and the recipe above agree (codex t5):
 **Shape:**
 - **SL-240** (silent, leak): a statement-position `try f() catch { fallback }`
   whose value has an owning type is never dropped. The bound form,
-  `let kept = try f() catch { … }`, drops correctly.
+  `let kept = try f() catch { … }`, drops correctly, and so does the block form
+  `try { … } catch { … }` on both paths (Air, SL-399 r3 review, probes q2 and
+  q2b).
 - **SL-348** (silent, leak): a by-value `move` operand evaluated before a
   propagating `try` that fails in the same expression is released by nothing.
   The same leak happens in every position where a moved value precedes the
-  `try`: an earlier argument, a consumed receiver, an earlier tuple, array or
-  struct-literal element, or a `move` between two `try`s.
+  `try`:
+  - an earlier argument or a consumed receiver;
+  - an earlier tuple, array or struct-literal element;
+  - an earlier Map-literal key or value;
+  - an earlier interpolation segment;
+  - a `move` between two `try`s;
+  - the condition of a `while` as well as the heads of `if`, `match` and `for`.
+
+  An owned temporary with no `move` written leaks the same way. That covers a
+  call's result, a struct literal, and an interpolated string passed as an
+  argument (SL-399 r3 review, probes b04b, b04c, b04d and q1).
 - **SL-74** (loud): a `move` inside a `catch` block that diverges (`return`,
   `panic`) still retires the binding on the fall-through path, so the next use
   is refused. All three `catch` forms do this.
@@ -150,10 +161,12 @@ consume a local, `match` on the `Result` instead of writing `move` in a
 
 **Checker:** yes: refuse an expression statement that is a `try … catch`, an
 expression that contains both `move` and `try`, and `move` inside a `catch`
-block. Also refuse an owned temporary, such as a call's result passed as an
-argument, that is evaluated before a `try` in the same expression. It leaks
-the same way with no `move` written: `sink2(make_res("fresh"), try fail_it())`
-never drops the fresh value (Air, SL-399 review, probe p24).
+block. Also refuse an owned temporary evaluated before a `try` in the same
+expression, in every position the Shape lists. A temporary is a call's
+result, a struct literal or an interpolated string. It leaks the same way with
+no `move` written: `sink2(make_res("fresh"), try fail_it())` never drops the
+fresh value (Air, SL-399 review, probe p24). An operand that owns nothing,
+such as a Copy struct literal or an `Int` result, is not a temporary here.
 
 ### S4. Whole-call exclusivity (SL-284, SL-294, SL-111)
 
@@ -186,10 +199,16 @@ fields, which costs little.
 
 ### S5. `&var` into a `let` binding (SL-130)
 
-**Shape:** `&var` into a field, tuple element or fixed-array element whose root
-is a `let` binding compiles and writes through the `let`. The direct write
-`p.a = 2` is refused, so only the reference form slips through. Stage 1
-refuses it.
+**Shape:**
+- **The `let` face:** `&var` into a field, tuple element or fixed-array element
+  whose root is a `let` binding compiles, and writes through the `let`. The
+  direct write `p.a = 2` is refused, so only the reference form slips through.
+  Stage 1 refuses it.
+- **The qualified-static face:** `&var` into an immutable `static` reached
+  through a module qualifier compiles, and the write is silently lost:
+  `bump_int(&var limits_mod.LIMIT_VALUE)` leaves the value at 3 (SL-399 r3
+  review, probe b14; reproduced on main 2fa71814). The unqualified form is
+  refused.
 
 **Example:**
 ```saw
@@ -198,10 +217,11 @@ let p = Pair(a: 1, b: 2)
 bump(&var p.a)   // accepted; p.a is now 2
 ```
 
-**Instead:** declare the root `var` whenever any `&var` reaches into it.
+**Instead:** declare the root `var` whenever any `&var` reaches into it. Never
+take `&var` into a `static`; copy it into a local `var`.
 
-**Checker:** yes: resolve the root name to its local declaration and refuse
-`&var` into a `let`.
+**Checker:** yes: resolve the root name to its declaration, through any module
+qualifier, and refuse `&var` into a `let` or an immutable `static`.
 
 ### S6. Function exits (SL-298, SL-295)
 
@@ -557,6 +577,33 @@ It is S7's float twin (Air t8).
 none. If one is ever needed, keep it well inside `Float`'s range.
 
 **Checker:** yes: refuse a float literal token in the compiler source.
+
+### S21. A line break inside an interpolation (SL-401)
+
+**Shape:** when a line break falls inside an interpolation's braces, outside
+any brackets, Stage 0 evaluates only the segment's first line and drops the
+rest. Nothing is reported. This is the "keeps the first token and drops the
+rest" defect of SL:grammar §16, reached through a line break. With `x = 7`:
+- `"plus {x⏎ + 3}"` prints `plus 7`;
+- `"and {x > 0⏎ && x > 9}"` prints `and true`;
+- `"eq {x⏎ == 8}"` prints `eq 7`;
+- `"len {s⏎ .len()}"` prints `len abc`.
+
+A `-` or `*` on the next line is refused in some positions. Parenthesizing
+the segment gives the right answer (Air, SL-399 r3 review, probes b10, b10c and
+q3; reproduced on main 2fa71814).
+
+**Example:**
+```saw
+let x = 7
+print("and {x > 0
+    && x > 9}")   // prints `and true`
+```
+
+**Instead:** keep each interpolation on one line: a name, a field or a simple
+call, as C3 advises. Compute anything longer into a `let` first.
+
+**Checker:** yes: refuse any line break inside an interpolation's braces.
 
 ## Loud hazards
 
@@ -1013,7 +1060,7 @@ well. Loud.
 
 ## Inventory
 
-Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review, mapped to its entry. "Call" is this
+Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and one found since, mapped to its entry. "Call" is this
 ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 
 | Issue | Entry | Call |
@@ -1104,6 +1151,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-384 | S9 Type aliases | loud |
 | SL-389 | L15 Unreduced ICE | loud (shape unconfirmed) |
 | SL-390 | S19 Type walks bounded by a depth count | silent (promoted after review) |
+| SL-401 | S21 A line break inside an interpolation | silent (found in the compiler-skeleton review) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
