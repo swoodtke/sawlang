@@ -542,16 +542,29 @@ caching.
   pending heap-allocated frames (spec: suspension).
 - **Frame layout is computed here, sized by the high-water mark** (Proposed).
   Frames are laid out callees first, over the suspending call graph, which is
-  acyclic. Within a frame, two values share bytes when they are never live at
-  the same suspension point. That applies to all three kinds of content:
+  acyclic. Within a frame, two values may share bytes only when their *storage
+  lifetimes* never intersect (codex t16). A storage lifetime runs from
+  initialisation through the last thing that needs the bytes: the last use, the
+  drop (a deinit may be observable, so last-read liveness is not enough), a
+  window's epilogue, and any loan into the value. It covers the code that runs
+  between suspension points, the resume and cancel transitions included, not
+  only the parked states. A child frame is initialised and polled before its
+  first suspension, and its result is moved out before its teardown. Both need
+  its storage at moments no parked snapshot shows. That applies to all three
+  kinds of content:
   - sequential suspending calls (`a()` then `b()`) overlay their child frames;
   - exclusive branch arms overlay each other;
   - a local or window record live only between two suspension points shares
     with anything live only elsewhere.
 
-  A frame's size is then the largest set of values live at any one state. Since
-  each child frame is sized the same way, a task's size is its deepest live
-  call chain, not the sum of every call it could make.
+  The largest set of values live together is a *lower bound* and the packing's
+  goal, not a size formula (codex t17). With fixed offsets over a general
+  control-flow graph, the interference need not admit a packing that tight, and
+  alignment and padding add to it. The guarantee is the computed layout itself:
+  the aligned offsets and total extent that `--emit-frame-layout` reports. For
+  sequential child calls, the result is close to the deepest live call chain
+  rather than the sum of every call. Parent locals kept across a call, and
+  several accessor-window records open at once, still add to it.
   - **One offset for a value's whole life.** A loan may point into a frame
     value across a suspension, and a frame is never relocated (below). So slots
     are assigned by packing values whose live ranges do not intersect, like
@@ -598,7 +611,8 @@ caching.
   before this stage, so it cannot see the new resume, cancel and drop paths
   that lowering creates. A MIR verifier after lowering checks that:
   - a frame is never relocated while a live loan points into it;
-  - no two values that share frame bytes are ever live in the same state;
+  - no two values that share frame bytes have intersecting storage lifetimes,
+    over parked states and over the resume and cancel transitions alike;
   - only initialised fields are dropped, and the cancel path at each state
     drops exactly that state's live values;
   - cancellation closes active borrow windows and runs their epilogues in
