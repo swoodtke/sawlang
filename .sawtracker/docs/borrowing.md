@@ -96,7 +96,7 @@ print(borrow let doc.section("net").name)
   `&x` / `&var s.field`. `borrow` is written only where a `borrows` accessor is
   called.
 
-### 2.3 Several bindings (Proposed)
+### 2.3 Several bindings (Ruled)
 
 ```saw
 borrow var row = grid[r], var cell = row[c] { cell.weight += bias }
@@ -108,20 +108,33 @@ borrow var row = grid[r], var cell = row[c] { cell.weight += bias }
 - A later binding may borrow through an earlier one. That freezes the earlier
   binding while the later one is live (an ordinary reborrow).
 
-### 2.4 Conditional lends (Ruled: no `else`; Proposed: path-sensitivity)
+### 2.4 Conditional lends (Ruled)
 
 An accessor declared `borrows -> &var V?` lends an optional place:
 
 ```saw
 borrow var e = m.find(&k) {
-    if let entry = e { entry.count += 1 }
-    else { m.insert(k, Entry(count: 1)) }   // see below
+    if borrow var entry = e { entry.count += 1 }
+    else { let _ = try! m.insert(k, Entry(count: 1)) }   // see below
 }
 ```
 
+**Unwrapping an optional place says `borrow`** (Ruled; Air t21). Its payload is
+itself a place, a reborrow of the binding, and like every place use its
+capability is written:
+- `if borrow var entry = e { … }` and `if borrow let entry = e { … }`;
+- in a `match`, `case Some(borrow var entry) -> …`, and any payload pattern the
+  same way (`case Occupied(_, borrow var v) -> { lend v }`, §2.7);
+- a plain `if let x = e` or `case Some(x)` *copies* the payload, following
+  "looks like a copy, is a copy". It is refused for a non-copyable payload,
+  with a hint naming `borrow let`;
+- `if var x = e` on a place is refused, with a hint naming both forms. It
+  would compile to a write to a copy of the entry, which is exactly the
+  confusion §1 removes.
+
 On the absent path no borrow was ever opened, so touching the root there is
-sound. **Proposed:** the borrow checker is path-sensitive on the MIR control-flow
-graph and knows that an absent arm of the binding holds no borrow. The common
+sound. **The borrow checker is path-sensitive** (Ruled) on the MIR control-flow
+graph, and knows that an absent arm of the binding holds no borrow. The common
 get-or-insert case does not need this, because the `default:` subscript (§5.4)
 covers it.
 
@@ -199,7 +212,7 @@ exactly as a `borrow` block's head is. The body runs once per `next`, until
 accessor), and the borrow may span suspensions (§2.5) unless the head's
 accessor is `borrows(sync)`, in which case the loop body cannot suspend.
 
-**Borrowing each element** (Proposed; codex, SL:borrow-survey t3). Today
+**Borrowing each element** (Ruled; codex, SL:borrow-survey t3). Today
 `v.iter()` yields copies, so it works only for Copy elements. A loop over
 NoCopy elements, like a vector of `Session`s, borrows each element in turn:
 
@@ -217,6 +230,36 @@ for borrow var c in grid.cells() { c.weight += 1 }
 - A plain `for x in …` copies each element and so needs Copy elements. The
   `borrow` keyword keeps the in-place form visible (§1). `for var x in …` would
   read as a mutable copy.
+
+**Two iterator traits** (Ruled; Air t22):
+- **`Iterator`** hands out owned items, `func next(&var self) -> Item?`.
+  Ranges and generators implement it, as in `for i in 0..n`. It is unchanged
+  from today.
+- **`LendingIterator`** lends each element in turn,
+  `func next(&var self) borrows -> &var Item?` (or `&Item?` for a shared one).
+  Collections implement it.
+- `for borrow let|var x in …` requires a `LendingIterator`. A plain `for x in …`
+  over one copies each element out of the lent reference, so the Copy
+  requirement moves from the producer (`iter()`, today) to the loop.
+  `for borrow let i in 0..n` is refused, since a range has nothing to lend,
+  with a hint naming `for i in 0..n`.
+
+**Borrowing structs, the spec's refusals lifted** (Ruled; Air t22). The spec's
+Borrowing structs section refuses four things that this design needs. Each
+refusal's reason no longer holds:
+- **`&var` fields are allowed** (the spec: shared only). An iterator over
+  `&var Grid` is sound because the collection is charged exclusively for the
+  struct's whole life, and each `next` reborrows through the struct, which
+  freezes it while an element is live.
+- **A `&var self` accessor may lend one** (the spec: the origin is a `&self`
+  receiver). Its root charge is exclusive, as §3 declares.
+- **An iterator's item may be lent** (the spec: `Iterator.Item` is owned).
+  That is `LendingIterator`, above. `Iterator` keeps owned items.
+- **A temporary may be the head** (the spec: "a temporary has no persistent
+  storage for the window to point into"). `for x in make_vector().iter()` and
+  `borrow var x = make_grid()[0] { … }` are legal. MIR lowering gives the
+  temporary a local that lives until the borrow's scope ends, then drops it
+  (SL:architecture §3.5), so the storage the window points into persists.
 
 **Visitor APIs stay** (Ruled: "closure based visitor APIs must be allowed").
 `each`, `each_indexed`, `map`, `fold`, `sort_by`, `Map.each`/`each_key`/
@@ -369,8 +412,18 @@ extension Data {
   "really dislike[s] the map's [] operator returning an optional".)
 - An optional *place* is a named accessor such as `m.find(&k)` lending
   `&var V?`, because `[]` in a `borrow` panics on absence, like getitem.
+- **Allocation failure in the sugar forms is a documented panic boundary**
+  (Ruled; Air t23). A setitem that inserts (`m[k] = v`), and the compound and
+  place forms of `default:` (§5.4), may allocate and have no way to return an
+  error. They join the documented panic boundaries of design 234, beside
+  collection literals and `Data`'s copy-on-write subscript, as the sixth.
+  - The fallible spelling stays: `try m.insert(k, v)` returns
+    `Result<V?, AllocError>`, for code that must handle the failure.
+  - **A strict flag refuses the panicking forms,** in the spirit of
+    `--no-hidden-alloc`, so kernels and other code that must handle allocation
+    failure are held to the fallible spellings.
 
-### 5.2 Declaration form (Proposed)
+### 5.2 Declaration form (Ruled)
 
 Separate methods, not a `subscript { get set borrow }` block. Every role is an
 ordinary method, so its receiver mode, effects, visibility, overloads, doc
@@ -452,7 +505,7 @@ now"), not a method name the compiler guesses:
 ```saw
 trait KeyedPlace<K, V> {
     func find(&var self, key: &K) borrows -> &var V?              // the existing entry, if any
-    func insert(&var self, key: K, value: V) borrows -> &var V    // store, then lend what was stored
+    func insert_and_lend(&var self, key: K, value: V) borrows -> &var V    // store, then lend what was stored; panics if it cannot allocate
 }
 ```
 
@@ -466,7 +519,7 @@ trait KeyedPlace<K, V> {
   (§4), and otherwise through the exclusive `find`, following §4's
   least-privilege rule. `Map` synthesizes the twin.
 - **Keys are never silently duplicated.** `find` takes the key by reference
-  (`&K`). `insert`, the one operation that stores, takes it by value as the
+  (`&K`). `insert_and_lend`, the one operation that stores, takes it by value as the
   key's *last* use. The saved key is therefore borrowed, then moved once, and
   never copied behind the reader's back.
 - The value forms (read, compound assignment) need a Copy-tier `V`, following
@@ -478,9 +531,9 @@ first:
 | Spelling | Meaning | When `e` is evaluated |
 |---|---|---|
 | `m[k, default: e]` (read) | `find(&k)`: on a hit, copy the entry out; on a miss, yield `e`. Nothing is inserted | only on a miss |
-| `m[k, default: e] op= r` | evaluate `r`, then `find(&k)`; on a miss, evaluate `e` and `insert(k, e)`, which moves `k`; then `entry op= r` in place | only on a miss. The *result* is stored, so `counts[k, default: 0] += 1` stores `1` on a miss |
+| `m[k, default: e] op= r` | evaluate `r`, then `find(&k)`; on a miss, evaluate `e` and `insert_and_lend(k, e)`, which moves `k`; then `entry op= r` in place | only on a miss. The *result* is stored, so `counts[k, default: 0] += 1` stores `1` on a miss |
 | `m[k, default: e] = v` | `m[k] = v`, the type's own setitem; requires `[]=` | **never**. A pure store ignores the default; writing one there draws a `-W` warning |
-| `borrow var x = m[k, default: e] { … }` | `find(&k)`; on a miss, evaluate `e` and lend `insert(k, e)`, which moves `k` | only on a miss |
+| `borrow var x = m[k, default: e] { … }` | `find(&k)`; on a miss, evaluate `e` and lend `insert_and_lend(k, e)`, which moves `k` | only on a miss |
 
 - The compound form evaluates `r` before the borrow opens, as every assignment
   does (§2.2), so `r` may read the map. On a miss, `e` runs where `find` lent
@@ -669,6 +722,12 @@ to validate safety.")
 - A mode test inside one accessor body (`#lend_var`); differing bodies are
   written as two accessors (§4).
 - `Map.[]` returning an optional.
+- **Four of the spec's borrowing-struct refusals** (Ruled; §2.6): shared-only
+  reference fields, a `&self`-only origin, an owned-only iterator item, and a
+  temporary as the borrowed head. Each one's reason no longer holds.
+- **A plain `if let` or `case Some(x)` that reaches into an optional place,**
+  where today it binds the place. It now copies, and `borrow let|var` binds the
+  place (§2.4).
 - **Writing through a pointer from `&self`** (design 200's carve-out; Ruled:
   retired, SL-105). Today a `&self` method may write storage it reaches
   through a pointer, such as `self.rows[0].push(9)`, because "the copy shares
@@ -704,7 +763,7 @@ in them. Each note says what the migrated code looks like.
   form, since `get` would have to copy. Use `m.contains_key(k)` on a `Map`.
   Elsewhere, a `find` block yields the answer as a value (§2.1):
   `let present = borrow let e = c.find(&k) { if let _ = e { true } else { false } }`.
-- **"Did it write" through a conditional lend (K9)** (Proposed). The statement
+- **"Did it write" through a conditional lend (K9)** (Ruled). The statement
   form with `?` has type `Void?`, as optional-chain assignment does today, so
   `guard let _ = borrow var m.find(&k)?.value = 7 else { … }` stays one line.
 - **Lock re-entry by the same name (K10).** `examples/spinlock_basic.saw` pins
@@ -743,10 +802,10 @@ in them. Each note says what the migrated code looks like.
 - **Survey: done** (SL:borrow-survey). Its seven design gaps are settled in
   this revision: K1 (§4), K2 (§2.7), K3 and K4 (§2.6, §3), K5 (§2.1), K6
   (§2.2) and K13 (§5.2). §8a settles K11, and §9.1 covers the rest.
-- **Still Proposed:** several bindings (§2.3), path-sensitivity (§2.4),
-  `for borrow let|var` for per-element
-  borrows (§2.6), separate subscript methods (§5.2), and the `Void?` statement
-  form (§9.1, K9).
+- **Nothing is left Proposed** (Sep 25: the user approved every proposal, and
+  ruled the three design gaps from the Air's review: optional-place bindings
+  (§2.4), iterators and borrowing structs (§2.6), and allocation failure in
+  the sugar forms (§5.1)).
 - (Settled: `default:` is lazy (§5.4); static roots are the unsafe author's
   obligation, with an optional warning (§8a); `borrows(sync)` is the declared
   opt-out from spanning suspensions (§2.5).)
