@@ -71,9 +71,29 @@ What follows `@test` decides the form:
   ordinary code is a compile error: "`FakeClock` exists only in test builds".
   This keeps a fake from leaking into production code, such as a counting
   allocator in a real path or a fixed clock in a kernel.
+- **Test code cannot change what production code means**, in either build
+  mode. Name visibility alone is not enough, because a test-only extension can
+  supply a conformance or an overload without production code ever naming it.
+  So:
+  - production code is checked as if no test-only declaration existed: its
+    overload resolution, generic-bound satisfaction and copy-tier
+    classification never see test-only conformances;
+  - a test may instantiate production generics with test-only types (a
+    `FakeClock` passed to `func f<T: Clock>`), and that instantiation belongs to
+    the test build;
+  - a test-only conformance that overlaps a production conformance is refused.
 - **Each test runs in its own process.** A Saw panic aborts the process (there
   is no unwinding), so isolation is what lets one failing test fail alone.
   Tests run in parallel, and `@test(panics)` works because of it.
+- **A panic test needs evidence of a Saw panic, not just an abort.** An
+  allocator assertion or an unrelated native crash can end a process the same
+  way. So the test runtime's panic handler reports a structured record naming
+  the case, and `@test(panics)` passes only on that record, from that case.
+  These all FAIL a panic test: a crash, a timeout, any other abort, and a
+  failure before the case starts. Otherwise a regression that turns a checked
+  panic into a native crash would pass silently. Likewise, a compiler crash or
+  timeout never satisfies `@test(refuses:)`: only a real diagnostic with the
+  expected ID does.
 - **One test mode.** `sawc --test <paths>` and `blade test` run the same mode.
   "Compiler testing" is that mode pointed at the language's own test files
   (e.g. `tests/lang/`). Library authors get tests that prove misuse is
@@ -102,6 +122,10 @@ What follows `@test` decides the form:
   ```
 - Its errors are expected and contained. They never fail the build or leak into
   the rest of the file.
+- **It leaves no semantic state behind.** A refusing unit is checked against a
+  copy of the environment it can see. Declarations or conformances it registers
+  before failing are invisible to sibling units and to production code, so the
+  order of cases can never change a result.
 - **Matching is on a stable diagnostic ID** (Ruled: yes, provided the expected
   errors form a finite, enumerable set, which they do). For example,
   `@test(refuses: E_EXCLUSIVE_CAPTURE) "…" { … }`. The text form is optional.
