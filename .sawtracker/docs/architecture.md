@@ -1062,7 +1062,7 @@ unchanged part of the language. After review, those fixtures are the oracle.
 The one live differential is whole-program behaviour on the `examples/` corpus,
 described next.
 
-**Two corpora, paired by file** (Air t27; Proposed). The new compiler refuses
+**Two corpora, paired by file** (Air t27; Ruled: "the corpus/ for the tests is fine"). The new compiler refuses
 the spellings the lockdown retired, and SL:borrow-survey counts about 250 of
 them in `examples/`'s non-error programs: 158 retired place uses and about 95
 one-shot closure-borrow calls. A "language changed" annotation would explain
@@ -1070,8 +1070,8 @@ their mismatches but never make them run, so they would never count as
 progress. So:
 - **`examples/` stays exactly as it is, as the frozen compiler's corpus.** The
   Python suite in the path-aware gate keeps running on it, unchanged.
-- **The new compiler's corpus is a migrated copy** (for example
-  `tests/corpus/`), produced once by a mechanical rewriter:
+- **The new compiler's corpus is a migrated copy** in
+  `tests/corpus/`, produced once by a mechanical rewriter:
   - inline place writes become `borrow var`;
   - `&var x[i]` arguments become `borrow var x[i]`;
   - `m[k]?.f = v` becomes `borrow var m.find(&k)?.f = v`;
