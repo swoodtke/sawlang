@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":2445,"created":"1788791148","id":"SL-3","labels":["todo-import","backlog","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":1,"sequence":3,"status":"open","title":"Index the existing both-ways generic suspension conformance test","updated":"1788791148"}
+{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":2445,"closed":"","created":"1788791148","id":"SL-3","labels":["superseded"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":2,"sequence":1748,"stage":"backlog","status":"open","title":"Index the existing both-ways generic suspension conformance test","updated":"1790341598"}
 ---
 
 
