@@ -251,9 +251,10 @@ unfrozen to learn them. So:
   place writes, and no `borrow` or `@test`.
 - The compiler's **own tests** live in separate files that only Stage 1 onward
   compiles, so the first test-first build has no dependency cycle. Each is a
-  **test sidecar** of the module it tests: it is part of that module in test
-  builds, so its tests keep white-box access, and it is never in Stage 0's
-  source set. See SL:testing §4.
+  **test sidecar** of the module it tests (`parser.test.saw` beside
+  `parser.saw`), which means exactly what an `@test { … }` group in that file
+  would, white-box access included. Stage 0's source set excludes
+  `*.test.saw`. See SL:testing §4.
 - The subset checker (below) enforces the intersection over the compiler
   source, so Stage 0 always sees code it builds correctly.
 - The alternative, a bootstrap projection tool that strips `@test` blocks and
