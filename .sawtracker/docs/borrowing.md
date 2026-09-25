@@ -61,8 +61,14 @@ print(borrow let doc.section("net").name)
   the end of the statement. The statement form has no semantics of its own
   beyond the block form's.
 - Several borrows in one statement are checked together, so
-  `borrow var a[i].x = borrow let b[j].x` is fine and
-  `borrow var v[i].x = borrow let v[j].x` is an exclusivity error.
+  `borrow var a[i].x = borrow let b[j].x` is fine.
+- **A borrow whose result is only copied closes as soon as the value is read**
+  (Ruled: "if it can be copied, then yes"). The right side of an assignment is
+  evaluated before the left side's borrow opens, so
+  `borrow var v[i].x = borrow let v[j].x` works when `x` is copyable: the right
+  borrow opens, `x` is copied out, the right borrow closes, and only then does
+  the left borrow open. Two borrows are live together only when both are still
+  in use.
 - A conditional lend used inline needs `!` (panic if absent) or `?` (skip if
   absent), since there is no block in which to discriminate it.
 
@@ -306,10 +312,18 @@ panic.
 - Inline place use: `g[4].weight += 1`, `bump(&var g[4])`, `m[k]?.field = v`.
 - Use-site inference of shared versus exclusive (designs 141 and 146).
 - `Map.[]` returning an optional.
-- **Proposed:** closure-based borrowing APIs (`with_ref`, `with_var_ref`,
+- **The stdlib's closure-based borrowing APIs** (`with_ref`, `with_var_ref`,
   `Mutex.lock` taking a closure, `Arc.with_unique`) become `borrows` accessors.
-  That removes the class of closure-capture exclusivity bugs (SL-345, SL-385,
-  SL-386, SL-387).
+  (Ruled: yes for the stdlib.)
+- **User code may still hand references to closures.** A non-escaping closure
+  that captures a reference, or receives one, stays a language feature, and
+  nothing forbids a user library from offering a closure-based API. (Ruled: "no
+  to userspace not being able to use closures for refs (if they want)".)
+  Consequence for the compiler: a closure's reference captures are explicit
+  borrows in the MIR, charged against their roots for as long as the closure
+  can run. The one borrow check sees them like any other borrow, so the SL-345
+  class is handled structurally, not by a separate capture analysis that
+  enumerates capture spellings.
 
 ## 10. Deferred
 
@@ -325,5 +339,10 @@ panic.
 
 ## 11. Open
 
-- Run a read-only survey of real borrow shapes (sawc/std, blade, libs,
-  devtools, sawos) to test these rules against actual code?
+- **Survey: approved** (Ruled: "yes"). The Air runs a read-only survey of every
+  current place use and closure-borrow call across sawc/std, blade, libs,
+  devtools and sawos, classified by the form each becomes, with the awkward
+  shapes flagged. sawos's numbers are already in (borrowing t8): one accessor,
+  `Slab.[]`, used in 502 places.
+- **Is `default:` lazy?** (§5.4.) Awaiting a ruling.
+- **Borrows rooted in an `unsafe static var`.** Awaiting a ruling.
