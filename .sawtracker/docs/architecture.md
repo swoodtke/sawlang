@@ -844,5 +844,5 @@ keeps that auditable.
 - How much of the M18–M21 prototype carries over directly.
 - The order of stages built: front to back, or a thin end-to-end slice first so
   the corpus runs early.
-- Where the language spec lives, and how its rules are numbered so tests can
-  cite them.
+- Where the language spec lives. (Its rules get stable names, not numbers,
+  which tests cite: SL:testing §6.)
