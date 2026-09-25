@@ -108,12 +108,14 @@ parameter.
 **Checker:** yes. The borrowed-versus-owned distinction is visible in the
 syntax, so the rule and the recipe above agree (codex t5):
 - **An owned scrutinee** is a plain name bound in the function by `let` or
-  `var`, a by-value parameter (its declared type is not `&T` or `&var T`),
-  `self` in a `consumes` method, or `move` of any of these. Saw has no
+  `var`, a by-value parameter (its declared type is not `&T` or `&var T`), or
+  `move` of either. `self` is never one, not even in a `consumes` method: the
+  spec keeps a consuming receiver borrowed for `match`, and its one exception
+  is `move self.<field>` (codex t5). Saw has no
   reference-typed locals outside `borrow` bindings, which the subset excludes.
   `move` of an arm binding is allowed here.
-- **Anything else is treated as borrowed:** a reference parameter, `self` in a
-  `&self` or `&var self` method, a field path, an index, or a call. `move` of
+- **Anything else is treated as borrowed:** a reference parameter, `self` in
+  any method, a field path, an index, or a call. `move` of
   an arm binding is refused there, as is a `match` whose scrutinee is an
   enclosing arm's binding.
 
@@ -419,9 +421,10 @@ Call mutating methods only on a named local or a field path, never directly on
   cannot be read out that way, and moving out of `v[i]` is refused (spec:
   moving out of a place). Prefer the subset's arena layout, where mutated
   elements are Copy-tier records addressed by index. Where a nested owner is
-  unavoidable, exchange it out with `v.swap_out(i, placeholder)`, change it,
-  and put it back with `v.swap_out(i, move changed)`, discarding the
-  placeholder. Every transfer of the owned value is a spelled `move`.
+  unavoidable, exchange it out with `v.swap_out(i, move placeholder)` (or a
+  fresh construction in place of the named placeholder), change it, and put it
+  back with `v.swap_out(i, move changed)`, discarding the placeholder that comes
+  back. Every transfer of an owned move-only value is a spelled `move`.
 
 **Checker:** yes: refuse a method call whose receiver is an index expression,
 with an allowlist of known read-only methods.
