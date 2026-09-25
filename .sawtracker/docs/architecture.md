@@ -811,15 +811,54 @@ as a convention is the same one-rule-many-sites discipline §1 diagnoses. A smal
 checker, a battery lane over the compiler's own source, refuses the ledger's
 shapes. Examples: a closure argument to `with_ref`/`with_var_ref`/`each` that
 names the borrowed root (SL-345), an Atomic or cell method called directly on
-`p[i]` (SL-368), any coroutine, any closure capture. Each ledger entry says
-whether the checker covers it.
+`p[i]` (SL-368), any coroutine, any closure capture. Each entry in the hazards
+ledger (SL:hazards) says whether the checker covers it.
+
+**The subset's blanket rules** (from SL:hazards). Most ledger entries collapse
+into a few rules that are cheap to check, and the subset is defined by them:
+- sync code only: no coroutines, tasks, channels or suspending calls;
+- no closure captures. Closures have annotated parameters and are passed in
+  parentheses;
+- no `type` aliases, and no compiler type reusing a prelude type name;
+- selective imports only;
+- no `init` in a generic extension;
+- no overloads that differ by a non-`Int` integer parameter;
+- no `any`, `Box`, cells, raw pointers or fixed-size arrays; arena indices
+  instead;
+- no value-position loops, and no statement arms without braces;
+- no `borrow` and no `@test` outside test sidecars.
+
+**Where the compiler lives** (Ruled). The new compiler is the top-level
+`compiler/` directory, one directory per stage (`lex/`, `parse/`, and so on,
+with a `driver/`). The Saw lexer moves in from `selfhost/lexer`, and the parser
+is seeded from `prototypes/parser` (§3.2). `prototypes/minivm` stays where it
+is, paused. Its categorized examples feed the rule inventory, and its LLVM-text
+emitter is a reference for §3.10.
+
+**Its own tests until it self-hosts** (Ruled). `@test` sidecars need the new
+compiler to build the compiler, which only happens at self-hosting. Until then,
+the compiler's internals are tested two ways:
+- golden dump files (tokens, ASTs, later MIR), checked by a runner;
+- small test programs in the subset, built by the frozen compiler and linked
+  against the compiler's modules.
+
+Language-level `@test` files run on the new compiler as soon as it supports
+`@test` and the feature under test. Sidecars take over the internals once the
+compiler builds itself.
+
+**The per-patch gate is path-aware** (Ruled). `./build.sh test` always builds
+the new compiler and runs its tests. It runs the Python suite and the
+freestanding suite only when a patch touches `sawc/` (std and the runtime
+included) or `examples/`. The server tests the applied commit, whose parent is
+the patch's base, so `git diff --name-only HEAD^ HEAD` names the patch's files.
+When that cannot be determined, everything runs.
 
 ## 5. Testing, per stage
 
 | Stage | Test surface |
 |---|---|
-| Lexer | token dumps; lexdiff against the frozen lexer |
-| Parser | canonical AST dumps (the M21 format); `@test(refuses:)` does not apply to parse errors, which stay as corpus files |
+| Lexer | golden token dumps |
+| Parser | golden AST dumps; `@test(refuses:)` does not apply to parse errors, which stay as corpus files |
 | Resolution | resolution-table dumps; `@test(refuses:)` for name rules (shadowing, visibility, test-only names); multi-file refusals as corpus files |
 | Typecheck | `@test` and `@test(refuses:)` by aspect; typed-IR dumps |
 | MIR and its checks | MIR dumps, plus refusal matrices for borrow, move and exclusivity rules |
@@ -829,6 +868,14 @@ whether the checker covers it.
 | Whole compiler | the `examples/` corpus (~2,700 programs), differential against the frozen compiler; the bootstrap fixpoint |
 | Backends | the same cases run on every backend (LLVM, and the VM when it exists), compared with each other, as the prototype's multi-engine harness already does |
 | Freestanding (downstream) | the sawos gate: 382 QEMU cases across three profiles, about 25 minutes on the tracker server, pinned by sha. It covers what `examples/` mostly does not: freestanding riscv32 (`+m,+a,+c`) and aarch64 at `-Oz`, `--runtime-provider` seam checking, `--no-hidden-alloc`, `@export`/`@section`/`@align`, `unsafe static var` as the main state, Saw tasks inside the kernel (`tests/taskdump.saw`), and Blade-built packages in boot images. Each case checks its own console transcript (tools/sos_runner.py), so it is NOT differential, and a failure there is adjudicated by the case's assertion. Its flag list doubles as sawos's migration checklist: sawos stays on the frozen compiler until the new one accepts those flags |
+
+**The syntax diff lanes retire** (Ruled). `lexdiff` (the Saw lexer against the
+Python lexer) and the prototype parser's `compare_examples.py` stop being useful
+once the new syntax lands, since every file using it diverges. Their current
+agreement is snapshotted once into golden token and AST fixtures for the
+unchanged part of the language. After review, those fixtures are the oracle.
+The one live differential is whole-program behaviour on the `examples/` corpus,
+described next.
 
 **Two kinds of expected mismatch, annotated separately.** When the new compiler
 disagrees with the frozen one, the difference is either the frozen compiler
