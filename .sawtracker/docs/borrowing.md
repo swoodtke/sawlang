@@ -208,13 +208,18 @@ lend of §7.
   ```
   A `lend` inside a `borrow` block keeps that block's borrow open for as long as
   the outer lend is open, exactly as a forwarded operand does.
-- **Forwarding keeps a `sync` restriction** (Proposed, with the lock exception
-  of §2.5; codex t17). An accessor whose lend forwards a `sync` accessor's
-  place, such as one that lends through `mutex.lock()`, must itself be declared
-  `sync`. Otherwise it is refused. The suspension that would break the lock
-  happens in the *consumer's* body while the accessor is paused at `lend`. So
-  the ordinary rule that a `sync` function cannot call a suspending one does not
-  catch it, and the restriction has to travel with the declaration.
+- **A `sync` borrow open at a `lend` makes the accessor `sync`** (Proposed, with
+  the lock exception of §2.5; codex t17). If any borrow still open at a `lend`
+  forbids suspension, the accessor must itself be declared `sync`, and
+  otherwise that `lend` is refused. Forwarding a lock's place
+  (`lend self.guard.lock()`) is one case. Another is a wrapper that holds an
+  unrelated global lock and lends its own buffer: it forwards nothing, but the
+  lock is still held while the consumer runs. A lock borrow closed before the
+  `lend` imposes nothing. The suspension that would break the lock happens in
+  the *consumer's* body while the accessor is paused at `lend`. So the ordinary
+  rule that a `sync` function cannot call a suspending one does not catch it,
+  and the check sits at the one place a borrow's lifetime is visible: the
+  `lend`.
 
 ## 3. Declared modes and the root charge (Ruled)
 
