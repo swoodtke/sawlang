@@ -571,9 +571,13 @@ caching.
   selects the overload under the same identity rules as any item.
   - An item is (function, concrete arguments). Substituting into its MIR gives
     concrete MIR, whose calls add new items.
-  - A spawn site (`group.spawn(f(…))`, `Task.spawn`, `Thread.spawn`) adds a
+  - A cooperative spawn site (`group.spawn(f(…))`, `Task.spawn`) adds a
     *task-root* item for its target, separate from the target's ordinary item
-    (§3.9).
+    (§3.9). `Thread.spawn` does not (Air t30). Its body is `sync` and runs on
+    its own OS thread with no executor (design 242), so a forced budget yield
+    there would park a task nothing ever polls. It is an ordinary sync item run
+    on a new thread: no frame, no budget points, and it may call `blocking`
+    externs.
   - Items are deduplicated by identity and processed in a deterministic order.
 - **Trait calls become direct calls** to the implementing method. Each
   (concrete type, trait) pair coerced to `any Trait` gets its method table.
@@ -1074,9 +1078,18 @@ progress. So:
   - Map optional reads become `get`;
   - one-shot closure borrows become `borrow` blocks.
 
-  The rewriter flags what it cannot rewrite, for migration by hand. After that,
-  the copy is maintained as source, and new cases are written in the new
-  language only.
+  The rewriter flags what it cannot rewrite, for migration by hand. It refuses
+  by construction the spellings whose look-alike new spelling means something
+  else (Air t30), since a rewritten file would keep compiling with a different
+  result:
+  - `m[k]! = v`, which panics on a missing key, must not become `m[k] = v`,
+    which inserts (SL:borrowing K7). The faithful migration is
+    `borrow var e = m[k] { e = v }`;
+  - a write through `get`, such as `v.get(i)!.n += 10`, would become a write to
+    a copy (K14). It becomes a `borrow` of the place instead.
+
+  After that, the copy is maintained as source, and new cases are written in
+  the new language only.
 - **The differential pairs the two by file name:** the frozen compiler on the
   original, the new compiler on the migration, the outputs compared.
 - **Language-level `@test` files** live in `tests/lang/`, one aspect per file
