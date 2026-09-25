@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":10167,"created":"1788791150","id":"SL-9","labels":["todo-import","backlog","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":2,"sequence":203,"status":"open","title":"DF-300b: Design type-carried alignment for byte buffers","updated":"1788791294"}
+{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":10167,"closed":"","created":"1788791150","id":"SL-9","labels":["language"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":3,"sequence":1759,"stage":"backlog","status":"open","title":"DF-300b: Design type-carried alignment for byte buffers","updated":"1790341600"}
 ---
 
 
