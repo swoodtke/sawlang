@@ -314,7 +314,9 @@ What follows `@test` decides the form:
   behaviour, whether or not the frozen compiler passes it.
 - The spec's own `saw-error` examples, checked by docverify, are the canonical
   refusal for each rule. The in-file and corpus tests are the full matrix.
-- The existing `examples/` corpus, about 2,700 programs with EXPECT directives,
-  does not depend on which compiler runs it. It becomes the new compiler's
-  measure of progress from the first day, with the frozen Python compiler as a
-  differential oracle.
+- **Two corpora, paired by file** (Ruled: "the corpus/ for the tests is fine";
+  SL:architecture §5). The existing `examples/` corpus, about 2,700 programs
+  with EXPECT directives, stays unchanged as the frozen compiler's corpus. The
+  new compiler's measure of progress is its migrated copy in `tests/corpus/`,
+  in the new spellings. The behavioural differential runs the frozen compiler
+  on each original and the new compiler on its migration, and compares them.
