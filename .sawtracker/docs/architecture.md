@@ -829,7 +829,35 @@ into a few rules that are cheap to check, and the subset is defined by them:
 - no `any`, `Box`, cells, raw pointers or fixed-size arrays; arena indices
   instead;
 - no value-position loops, and no statement arms without braces;
-- no `borrow` and no `@test` outside test sidecars.
+- no `borrow` and no `@test` outside test sidecars;
+- std imports only from an allowlist, which keeps the compiler's std cone small
+  (next).
+
+**The bootstrap std** (user, Sep 25: revisit std so it uses the same simplified
+Saw). Self-hosting means the new compiler compiles the std modules the compiler
+imports, and Stage 0 must build them too:
+- **The cone is small and enumerated:** the subset checker's import allowlist
+  (collections, strings, `Optional` and `Result`, file reading, arguments,
+  process exit).
+- **Its implementation needs a little more than the compiler's subset:** raw
+  memory and pointers for buffers, allocator parameters, the runtime's extern
+  seams, and `borrows` accessors with `lend`. So the std cone's language is the
+  subset plus a short, named list of low-level features. The bootstrap slice
+  implements exactly that union and nothing more.
+- **It is a new std for the new compiler.** The lockdown changes std's API
+  (`Map.[]` panics, `get` returns a value, closure-borrow APIs become
+  accessors), so the new std is seeded from `sawc/std` and kept in the
+  intersection while Stage 0 builds it. `sawc/std` stays frozen with the Python
+  compiler.
+- The runtime (`sawc/rt/`) is in the same position, and the new compiler builds
+  it too, eventually.
+
+**Stage 0 moves after self-hosting** (Proposed). Once the new compiler builds
+itself, a pinned release of it can replace the frozen Python compiler as
+Stage 0, the way Rust bootstraps from its previous release. From then on the
+compiler and its std may use the full new language, and the intersection rule
+lifts. Until then, everything in the compiler's cone stays in the
+intersection.
 
 **Where the compiler lives** (Ruled). The new compiler is the top-level
 `compiler/` directory, one directory per stage (`lex/`, `parse/`, and so on,
