@@ -315,7 +315,9 @@ caching.
     - a closure body's tail, arm results and `return`, when the closure's type
       is known;
     - a mixed binary operator's other operand; for an enum, that means `==` and
-      `!=`.
+      `!=`;
+    - the right side of `??`, which expects the left side's payload type, as
+      in `cfg.dir ?? .North`.
 
     A parameter counts when its type is known before its argument is checked:
     `v.push(.North)` on a `Vector<Direction>` expects `Direction`, since the
