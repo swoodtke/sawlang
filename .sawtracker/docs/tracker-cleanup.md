@@ -3,7 +3,34 @@
 The Python compiler is frozen (Sep 24), so the SL tracker is being cleaned up for
 the new compiler's work. Six read-only sweep agents classified all 299 open SL
 issues. The lead reviewed their calls, and those corrections are applied below.
-**Nothing is changed until the user approves this table.**
+
+## Applied (Sep 25)
+
+The user approved every recommendation ("i agree with all your
+recommendations"), and for decision 9 ruled "close the remote worker issues".
+
+- **201 issues closed.** Each has a label (`frozen`, `superseded`, `done` or
+  `duplicate`, plus `hazard` where flagged) and a comment pointing here. The
+  SL-367 epic needed `--force`, because its child SL-340 stays open.
+- **98 issues kept,** relabelled `language`, `runtime`, `std`, `product` or
+  `tooling`, or `frozen` plus `pinned` for the ten pinned issues. Kept issues
+  that were queued moved to the backlog, so **the queue is empty** for the new
+  compiler's work.
+- **Five carry-forward issues created:**
+  - SL-393: the rule inventory's carried rulings and test inputs;
+  - SL-394: decompose the runtime functions marked wholly unsafe;
+  - SL-395: std gaps (bit intrinsics, checked and saturating arithmetic, radix
+    formatting, iterator adaptors);
+  - SL-396: decide `select` / receive with timeout;
+  - SL-397: `unix_timestamp` is documented but not public.
+- **Four parked patches deleted,** with the reason recorded: SL-2.p2, SL-345.p1,
+  SL-328.p1 and SL-355.p1. Deleted records still return their diffs.
+  SL-355.p1's runtime half is attached to SL-355 (c19), at the Air's request.
+  SL-340.p1 stays with its pinned issue.
+- **Architecture corrections are in SL:architecture r17 and r18.**
+- **Result:** 103 open SL issues, all in the backlog: 39 `language`,
+  18 `runtime`, 16 `product`, 15 `std`, 10 pinned and 5 `tooling`.
+- **Still to come:** SL:hazards, drafted from the 82-ID inventory below.
 
 ## Summary
 
