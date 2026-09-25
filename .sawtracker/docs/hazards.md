@@ -134,6 +134,8 @@ syntax, so the rule and the recipe above agree (codex t5):
   - an earlier argument or a consumed receiver, including the arguments of a
     custom `init` and of a labelled function call;
   - an earlier tuple or array element;
+  - an earlier enum-payload value, as in `Msg.Move(r: make_res("p"), n: try
+    fail_it())` (Air, probe q5);
   - an earlier Map-literal key or value;
   - an earlier interpolation segment;
   - a `move` between two `try`s;
@@ -145,11 +147,14 @@ syntax, so the rule and the recipe above agree (codex t5):
   already refused because the condition runs again (SL-399 r3 review, probes
   b04b, b04c, b04d and q1).
 
-  A memberwise struct construction is the exception: its earlier fields are
+  A memberwise *struct* construction is the exception: its earlier fields are
   dropped. That holds whether they are temporaries, literals or `move r`, and
-  for generic structs too. `Plain(r: make_res("x"), n: try fail_it())` drops
-  the `Res` (reproduced on main 2fa71814). The construction itself is still an
-  owned temporary when it is passed as an argument.
+  for generic structs, fields out of declaration order, nested constructions,
+  and a `try` inside a later field's nested call. `Plain(r: make_res("x"),
+  n: try fail_it())` drops the `Res` (reproduced on main 2fa71814; the Air's
+  q5). The construction itself is still an owned temporary when it is passed
+  as an argument. An enum payload construction is not exempt, even though its
+  labels are its fields' names.
 - **SL-74** (loud): a `move` inside a `catch` block that diverges (`return`,
   `panic`) still retires the binding on the fall-through path, so the next use
   is refused. All three `catch` forms do this.
@@ -176,7 +181,7 @@ result, a struct literal or an interpolated string. It leaks the same way with
 no `move` written: `sink2(make_res("fresh"), try fail_it())` never drops the
 fresh value (Air, SL-399 review, probe p24). An operand that owns nothing,
 such as a Copy struct literal or an `Int` result, is not a temporary here.
-Nor are a memberwise construction's own fields: the checker reads a
+Nor are a memberwise struct construction's own fields: the checker reads a
 construction of a build type whose labels are exactly its field names as
 memberwise, since Stage 0 refuses an `init` with those labels.
 
@@ -1003,6 +1008,18 @@ blanket rules).
 
 **Checker:** yes: compare each declared type name against the prelude list.
 
+### L18. An extension of a generic type written without its parameters (SL-402)
+
+**Shape:** `extension Gen { … }` or `extension Gen: NoCopy {}` on a generic
+`struct Gen<T>` makes Stage 0 crash with `internal compiler error: 'Gen'`
+(Air, SL:hazards t13; reproduced on main 2fa71814). Whether a bare generic
+name is valid in an extension head at all is SL-66's question.
+
+**Instead:** write the parameters: `extension Gen<T> { … }`.
+
+**Checker:** yes: refuse an extension head that names a generic build type
+without type arguments.
+
 ## Cases with no issue
 
 These four come from codex's review of the parked SL-2.p2 r3 (SL-2 c29, with
@@ -1073,7 +1090,7 @@ well. Loud.
 
 ## Inventory
 
-Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and one found since, mapped to its entry. "Call" is this
+Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and two found since, mapped to its entry. "Call" is this
 ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 
 | Issue | Entry | Call |
@@ -1165,6 +1182,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-389 | L15 Unreduced ICE | loud (shape unconfirmed) |
 | SL-390 | S19 Type walks bounded by a depth count | silent (promoted after review) |
 | SL-401 | S21 A line break inside an interpolation | silent (found in the compiler-skeleton review) |
+| SL-402 | L18 An extension of a generic type without its parameters | loud (found in the compiler-skeleton review) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
