@@ -1005,24 +1005,22 @@ depends on. The boundary (codex t19):
   each one names its target std when scheduled. The runtime is shared by both
   compilers until the new one builds its own (§3.11).
 
-**How the compiler runs clang during the bootstrap** (Air t32; Proposed, pending
-the user). The subset is sync-only, but std's only way to run a program,
-`std.process`'s `Command.run()` and `output()`, suspends. A `main` calling it
-becomes a coroutine, and the frozen compiler's coroutine transform is where
-most of SL:hazards lives. The options:
-- **Recommended: no process spawning in Saw until self-hosting.** The compiler
-  writes its textual LLVM IR and a link manifest (objects, runtime, flags) and
-  exits. A thin wrapper runs clang from the manifest. The Stage 1 = Stage 2
-  comparison is over the emitted IR and objects anyway, and Stage 0's build
-  then contains no suspending code at all. After self-hosting the compiler
-  absorbs linking, through a sync spawn in the new std or its own coroutine
-  support.
-- **One named suspending driver function** called from `main`, confined by a
-  checker rule, with its own SL:hazards entry. It works, but it puts the
-  coroutine transform on Stage 0's path.
-- **A sync spawn in the new std only.** This does not help Stage 0, which
-  builds against `sawc/std` and would need raw pointers for an extern
-  `posix_spawn`.
+**How the compiler runs clang during the bootstrap** (Air t32; Ruled: "the
+initial bootstrap can just emit the llvm ir and we can have a shell wrapper
+which calls clang and also calls the compiler first so 'sawc' is just a shell
+script which connects all the pieces"). The subset is sync-only, but std's
+only way to run a program, `std.process`'s `Command.run()` and `output()`,
+suspends. A `main` calling it would become a coroutine, and the frozen
+compiler's coroutine transform is where most of SL:hazards lives. So:
+- **The compiler binary spawns no processes.** It writes textual LLVM IR and a
+  link manifest (objects, the runtime, flags) and exits. Stage 0's build then
+  contains no suspending code at all.
+- **`sawc` is a shell script that connects the pieces:** it runs the compiler
+  binary, then clang on its IR, then the link. The Stage 1 = Stage 2
+  comparison is over the emitted IR and objects anyway.
+- After self-hosting, the compiler may absorb these steps, through a sync spawn
+  in the new std or its own coroutine support. The script stays the interface
+  users call.
 
 **Stage 0 moves after self-hosting** (Proposed). Once the new compiler builds
 itself, a pinned release of it can replace the frozen Python compiler as
