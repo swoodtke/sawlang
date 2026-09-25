@@ -41,6 +41,8 @@ Each has the lead's recommendation.
    **Recommend: retire it.** Interior mutation happens only through cell types
    (`Mutex`, `Atomic`, the `(&self) borrows -> &var T` shape of SL:borrowing
    §3). M28 and M32 become refusals, annotated "language changed".
+   **Ruled: retire it** (user, t2: "I agree"). Recorded in SL:borrowing §9.
+   SL-105 closes as superseded.
 2. **SL-328 and SL-289: the prototype track** (M21 parser, minivm).
    **Recommend: close both, delete SL-328.p1, and keep the branches as
    reference.** SL:architecture §3.2 takes M21's fixtures and harness when the
