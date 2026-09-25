@@ -111,7 +111,9 @@ caching.
   inputs alone. Generated symbol names (closures, instantiations, frames) are
   derived from what the code is, such as its enclosing declaration's path and a
   per-declaration ordinal, never from its source line. An edit above a closure
-  then leaves its symbol and its cache key unchanged (SL-99). The irdet lane enforces this on the Python compiler. For the new
+  then does not rename it (SL-99). That avoids symbol churn in other modules'
+  objects and in diffs. The edited module's own artifacts still rebuild, since
+  §3.12 keys them on its source. The irdet lane enforces this on the Python compiler. For the new
   one it is also what makes content-addressed caching sound (§3.12).
 - **Every boundary has a dump and a verifier.** Each IR has a canonical text
   dump for tests (§5), and a structural verifier that debug builds run at the
