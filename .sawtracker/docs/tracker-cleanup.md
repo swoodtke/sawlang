@@ -23,8 +23,11 @@ issues. The lead reviewed their calls, and those corrections are applied below.
 | Needs the user | 12 |
 
 So about **190 close** and about **95 stay**, along with the 12 decisions below.
-82 of the closing bugs are flagged as hazards for bootstrap Stage 0, and they
-become SL:hazards (Carried forward, item 2).
+82 issues are flagged as hazards for bootstrap Stage 0, and they become
+SL:hazards (Carried forward, item 2). The Hazard column of the frozen-bugs table
+shows 76 of them. The other six sit in tables without that column: four pinned
+issues (SL-38, SL-41, SL-80, SL-340) and two closing as done (SL-14, SL-107),
+whose shapes still count.
 
 ## Decisions for the user
 
@@ -81,9 +84,23 @@ Closed issues stay readable, but these items must also live somewhere current:
    - SL-45: design 259 R2.
    - SL-2: the rulings design 274 still owes (N2, U5′). B1 is settled: SL-347
      refuses `x = 1 y`.
-2. **Hazards,** which become SL:hazards: the 82 flagged issues, silent ones
-   first, plus SL-2's last comment (codex c29: an uncharged `move *p`, a lexer
-   crash on a trailing backslash at end of file, and others).
+2. **Hazards,** which become SL:hazards, silent ones first. The handoff is
+   checked against this inventory of unique IDs (codex t1), so closing an
+   original cannot hide a missing entry:
+   - **the 82 flagged issues:** SL-5, SL-7, SL-13, SL-14, SL-22, SL-28, SL-31,
+     SL-32, SL-36, SL-38, SL-41, SL-42, SL-45, SL-46, SL-49, SL-50, SL-52,
+     SL-53, SL-56, SL-59, SL-61, SL-62, SL-63, SL-65, SL-70, SL-73, SL-74,
+     SL-75, SL-77, SL-78, SL-80, SL-84, SL-85, SL-88, SL-96, SL-107, SL-111,
+     SL-113, SL-114, SL-115, SL-125, SL-130, SL-131, SL-132, SL-133, SL-156,
+     SL-191, SL-192, SL-194, SL-195, SL-199, SL-240, SL-264, SL-270, SL-284,
+     SL-285, SL-288, SL-290, SL-291, SL-292, SL-293, SL-294, SL-295, SL-297,
+     SL-298, SL-299, SL-308, SL-309, SL-310, SL-319, SL-340, SL-348, SL-352,
+     SL-358, SL-363, SL-368, SL-380, SL-381, SL-382, SL-383, SL-384, SL-389;
+   - **separately, the cases in SL-2's last comment** (codex c29), which have
+     no issue of their own: an uncharged `move *p`, a lexer crash on a
+     trailing backslash at end of file, a misanchored quote inside a `//`
+     comment in an interpolation, and a comma-free next case after an
+     operand-less `return` or `break`.
 3. **Test-plan inputs for the rule inventory:**
    - SL-214's interaction matrix (sources × copy tiers × positions ×
      generic/concrete × sync/suspending);
