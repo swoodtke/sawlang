@@ -131,8 +131,9 @@ syntax, so the rule and the recipe above agree (codex t5):
   propagating `try` that fails in the same expression is released by nothing.
   The same leak happens in every position where a moved value precedes the
   `try`:
-  - an earlier argument or a consumed receiver;
-  - an earlier tuple, array or struct-literal element;
+  - an earlier argument or a consumed receiver, including the arguments of a
+    custom `init` and of a labelled function call;
+  - an earlier tuple or array element;
   - an earlier Map-literal key or value;
   - an earlier interpolation segment;
   - a `move` between two `try`s;
@@ -143,6 +144,12 @@ syntax, so the rule and the recipe above agree (codex t5):
   argument. It also leaks in a `while` condition, where a moved value is
   already refused because the condition runs again (SL-399 r3 review, probes
   b04b, b04c, b04d and q1).
+
+  A memberwise struct construction is the exception: its earlier fields are
+  dropped. That holds whether they are temporaries, literals or `move r`, and
+  for generic structs too. `Plain(r: make_res("x"), n: try fail_it())` drops
+  the `Res` (reproduced on main 2fa71814). The construction itself is still an
+  owned temporary when it is passed as an argument.
 - **SL-74** (loud): a `move` inside a `catch` block that diverges (`return`,
   `panic`) still retires the binding on the fall-through path, so the next use
   is refused. All three `catch` forms do this.
@@ -169,6 +176,9 @@ result, a struct literal or an interpolated string. It leaks the same way with
 no `move` written: `sink2(make_res("fresh"), try fail_it())` never drops the
 fresh value (Air, SL-399 review, probe p24). An operand that owns nothing,
 such as a Copy struct literal or an `Int` result, is not a temporary here.
+Nor are a memberwise construction's own fields: the checker reads a
+construction of a build type whose labels are exactly its field names as
+memberwise, since Stage 0 refuses an `init` with those labels.
 
 ### S4. Whole-call exclusivity (SL-284, SL-294, SL-111)
 
