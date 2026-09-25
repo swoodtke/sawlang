@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":4200,"closed":"1790349802","created":"1788791148","id":"SL-4","labels":["superseded"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":4,"sequence":2498,"stage":"backlog","status":"closed","title":"DF-307b: Design one aggregate layout oracle for all const positions","updated":"1790349802"}
+{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":4200,"closed":"1790349802","created":"1788791148","id":"SL-4","labels":["superseded"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":5,"sequence":2502,"stage":"backlog","status":"closed","title":"DF-307b: Design one aggregate layout oracle for all const positions","updated":"1790349810"}
 ---
 
 
@@ -76,4 +76,14 @@ fix is (a) or nothing. [186, DF‑300c, DF‑307a]
 
 <!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":412,"created":"1790349802","id":"c1","kind":"landing"} -->
 Closed: settled by the user's constexpr ruling (Sep 25; SL:architecture §3.10 r39). The one layout oracle for every constant position is the target-description module that the MIR interpreter and every backend query. sizeof of a struct is legal in constant positions, with layout computed on demand, and one acyclic dependency graph over layouts and constants, so a self-referential size is a clean cycle error.
+
+<!-- sawtracker:comment {"author":"agent:claude-air-sawlang","body_bytes":722,"created":"1790349810","id":"c2"} -->
+SL:architecture r39 (user ruling, Sep 25) says this issue is settled. `sizeof` of a struct is legal in constant positions, and the layout oracle is the target-description module (§3.10), with one acyclic graph over layouts and constants. So SL-4 can close with a pointer to that section.
+
+Two LANGUAGE_SPEC passages the ruling overturns need a tracked home, probably SL-393's list of spec corrections:
+- design 185's "the fold happens in the signed platform `Int` domain" (and DF-283c's consequences), now ordinary typed arithmetic;
+- the refusal of `sizeof<Region>()` in an array length ("array length is not a compile-time constant"), now legal.
+
+The corpus pins of both refusals become "language changed" annotations.
+
 
