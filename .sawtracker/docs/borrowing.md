@@ -237,32 +237,46 @@ codex t4): `default:` is a compiler-known argument label with `??` semantics,
 not a general lazy-parameter feature. There is no new parameter kind and no
 closure, so nothing is captured or allocated.
 
-**The protocol is a declared trait**, not a method name the compiler guesses.
-A type offers `default:` by conforming to a stdlib trait, for example
-`KeyedStorage<K, V>`, whose requirements are the operations the compiler
-composes:
+**The protocol is declared traits**, not a method name the compiler guesses.
+There are two capabilities, because an owning read cannot return an existing
+NoCopy value, while the place form works for any `V` (codex t4):
 
 ```saw
-trait KeyedStorage<K, V> {
-    func get(&self, key: K) -> V?                          // presence-aware read
-    func []=(&var self, key: K, value: V)                  // store: insert or replace
-    func find(&var self, key: K) borrows -> &var V?        // optional place (for the place form)
+// The place form: any V, including NoCopy (e.g. Session).
+trait KeyedPlace<K, V> {
+    func find(&var self, key: &K) borrows -> &var V?              // the existing entry, if any
+    func insert(&var self, key: K, value: V) borrows -> &var V    // store, then lend what was stored
+}
+
+// Value forms (read, compound assignment): only where V may be copied out.
+trait KeyedValue<K, V> {
+    func get(&self, key: &K) -> V?                                // a presence-aware copy-out
+    func []=(&var self, key: K, value: V)                         // store: insert or replace
 }
 ```
+
+- **Keys are never silently duplicated.** Lookups take the key by reference
+  (`&K`). The one operation that stores, `insert` or `[]=`, takes it by value
+  as the key's *last* use. The saved key is therefore borrowed, then moved once,
+  and never copied behind the reader's back.
+- `KeyedValue` applies only where `V` may be copied out, which follows "if it
+  looks like a copy, it copies". For a NoCopy `V`, only the place form exists.
+- `Map` conforms to both. A user type can conform to either or both.
 
 **Per-role meaning.** The receiver and key are always evaluated exactly once,
 first:
 
 | Spelling | Meaning | When `e` is evaluated |
 |---|---|---|
-| `m[k, default: e]` (read) | `m.get(k) ?? e` | only on a miss |
-| `m[k, default: e] op= r` | `let old = m.get(k) ?? e`, then `r`, then `m[k] = old op r` | only on a miss. The *result* is stored, so `counts[k, default: 0] += 1` stores `1` on a miss |
+| `m[k, default: e]` (read; `KeyedValue`) | `m.get(&k) ?? e` | only on a miss |
+| `m[k, default: e] op= r` (`KeyedValue`) | `let old = m.get(&k) ?? e`, then `r`, then `m[k] = old op r`, which moves `k` | only on a miss. The *result* is stored, so `counts[k, default: 0] += 1` stores `1` on a miss |
 | `m[k, default: e] = v` | `m[k] = v` | **never**. A pure store ignores the default; writing one there draws a `-W` warning |
-| `borrow var x = m[k, default: e] { … }` | `find(k)`; on a miss, evaluate `e`, store it with `m[k] = e`, then lend the stored entry | only on a miss |
+| `borrow var x = m[k, default: e] { … }` (`KeyedPlace`) | `find(&k)`; on a miss, evaluate `e` and lend `insert(k, e)`, which moves `k` | only on a miss |
 
 The place form therefore always works on storage in the map, never on a
-temporary. A user-defined type gets `default:` by conforming to the trait,
-which states exactly which of its operations are used.
+temporary, and it needs no second lookup after inserting. A user-defined type
+gets `default:` by conforming to the traits, which state exactly which of its
+operations are used.
 
 The **place** overload, `borrow var e = m[k, default: v] { … }`, is a third
 accessor with its own meaning: on a miss it *inserts* `v` into the map, then
