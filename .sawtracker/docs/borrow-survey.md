@@ -466,7 +466,7 @@ Each item gives the sites, then one line on why.
     - Sites: sawos 410 G2 reads (`PROCESSES[p].state`, etc.), std 22
       (cbor/json level stacks), devtools 28.
     - Each becomes a whole-element getitem copy unless it is written
-      `borrow let`. No perf measurement was taken. The observable result is
+      `borrow let`. No perf measurement was taken here; for sawos it comes free (thread t1: the gate's image-size diff on the migration patch shows whether -Oz folds the copy, and a growth means those reads should be `borrow let`). The observable result is
       unchanged: no G2 chain calls a method that returns an address.
 14. **`get` changes from an optional place to an optional value.**
     - Today `v.get(i)!.n += 10` writes in place: `probe_k_forced.saw` prints
