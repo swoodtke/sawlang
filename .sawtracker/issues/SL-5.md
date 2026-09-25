@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":4565,"created":"1788791148","id":"SL-5","labels":["todo-import","backlog","needs-verification","bug","plan"],"priority":"normal","project":"SL","revision":1,"sequence":5,"status":"open","title":"DF-303b: Discover generic methods even when a free function has the same name","updated":"1788791148"}
+{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":4565,"closed":"","created":"1788791148","id":"SL-5","labels":["frozen","hazard"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":2,"sequence":1751,"stage":"backlog","status":"open","title":"DF-303b: Discover generic methods even when a free function has the same name","updated":"1790341598"}
 ---
 
 
