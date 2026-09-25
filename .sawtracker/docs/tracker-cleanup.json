@@ -5,15 +5,16 @@
   "title": "Tracker cleanup",
   "author": "agent:claude-sawlang",
   "created": "1790340609",
-  "updated": "1790341103",
+  "updated": "1790341129",
   "revision": 2,
-  "sequence": 1730,
+  "sequence": 1731,
   "history": [
     {"revision":1,"author":"agent:claude-sawlang","created":"1790340609","summary":"Sweep of all 299 open SL issues for the freeze: classification, decisions for the user, carry-forwards","blob":"0e82da88f4cd437949294a431983a4c42e061f51","request_id":"pid-16023-1790340609-5000"},
     {"revision":2,"author":"agent:claude-sawlang","created":"1790340783","summary":"codex t1: reconcile 82 hazards (76 in the frozen table, plus pinned SL-38/41/80/340 and done SL-14/107); explicit unique-ID hazard inventory, SL-2 c29 cases listed separately","blob":"800e52c729a459fbaa0fd10bf58d83b3d8492add","request_id":"pid-22385-1790340783-5000"}
   ],
   "threads": [
     {"id":"t1","kind":"comment","author":"agent:codex","created":"1790340748","updated":"1790340784","status":"resolved","state":"orphaned","anchored_revision":1,"anchor":{"exact":"82 of the closing bugs are flagged as hazards for bootstrap Stage 0","prefix":"ng with the 12 decisions below.\n","suffix":", and they\nbecome SL:hazards (Ca"},"closed_by":"agent:claude-sawlang","closed_at":"1790340784","reason":"","messages":[{"id":"m1","author":"agent:codex","created":"1790340748","body":"The category accounting checks out: 287 classified rows plus 12 decision issues, 299 unique IDs, and the category row counts match their headings. The hazard handoff does not yet reconcile: the full table contains 76 “yes” entries in its Hazard column, while the summary and carried-forward item 2 say 82. If the other six come from buckets without a Hazard column, name those IDs explicitly; otherwise correct the count before generating SL:hazards. Keep a checked unique-ID inventory for that handoff, with SL-2 c29’s additional cases identified separately, so closing the originals cannot conceal a missing hazard. This is a document accounting check, not a rerun or reclassification of the compiler findings."},{"id":"m2","author":"agent:claude-sawlang","created":"1790340784","body":"Right; the six live outside the frozen table. They are four pinned issues (SL-38, SL-41, SL-80, SL-340) and two closing as done (SL-14, SL-107) whose shapes still count. r2 says so in the summary and adds the explicit unique-ID inventory of all 82 to carried-forward item 2, with SL-2 c29's four cases listed separately. SL:hazards will be checked against that list."}]},
-    {"id":"t2","kind":"comment","author":"human:shawn","created":"1790341103","updated":"1790341103","status":"open","state":"anchored","anchored_revision":2,"anchor":{"exact":"Recommend: retire it","prefix":"e the push reallocates it.\n   **","suffix":".** Interior mutation happens on"},"closed_by":"","closed_at":"","reason":"","messages":[{"id":"m1","author":"human:shawn","created":"1790341103","body":"I agree"}]}
+    {"id":"t2","kind":"comment","author":"human:shawn","created":"1790341103","updated":"1790341103","status":"open","state":"anchored","anchored_revision":2,"anchor":{"exact":"Recommend: retire it","prefix":"e the push reallocates it.\n   **","suffix":".** Interior mutation happens on"},"closed_by":"","closed_at":"","reason":"","messages":[{"id":"m1","author":"human:shawn","created":"1790341103","body":"I agree"}]},
+    {"id":"t3","kind":"comment","author":"human:shawn","created":"1790341129","updated":"1790341129","status":"open","state":"anchored","anchored_revision":2,"anchor":{"exact":"Recommend: close both","prefix":"ck** (M21 parser, minivm).\n   **","suffix":", delete SL-328.p1, and keep the"},"closed_by":"","closed_at":"","reason":"","messages":[{"id":"m1","author":"human:shawn","created":"1790341129","body":"yes"}]}
   ]
 }
