@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":5911,"closed":"","created":"1788791150","id":"SL-8","labels":["frozen"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":2,"sequence":1757,"stage":"backlog","status":"open","title":"DF-297a: Share namespace symbols when snapshotting generic templates","updated":"1790341599"}
+{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":5911,"closed":"1790341599","created":"1788791150","id":"SL-8","labels":["frozen"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":3,"sequence":1758,"stage":"backlog","status":"closed","title":"DF-297a: Share namespace symbols when snapshotting generic templates","updated":"1790341599"}
 ---
 
 
@@ -96,4 +96,7 @@ batch. [218c Amendment C, C3's DF‑292b bullet]
 
 
 ## Comments
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":263,"created":"1790341599","id":"c1","kind":"landing"} -->
+Closed in the Sep 25 tracker cleanup (SL:tracker-cleanup): a defect in the Python compiler, which is frozen (Sep 24). The frozen compiler stays the differential oracle, and this issue is its "oracle known wrong" reference. Test-coverage aspect: `n/a (sawc perf)`.
 
