@@ -154,6 +154,15 @@ Each stage is outlined here and fleshed out later.
   a child's wake reason. There is nothing to verify by pattern-matching emitted
   code. SL-353's lost wake came from arming before recording, and SL-355's
   after-the-fact verifier had holes in three successive review rounds.
+- **Ownership preservation is verified, not re-decided.** The borrow check runs
+  before this stage, so it cannot see the new resume, cancel and drop paths
+  that lowering creates. A MIR verifier after lowering checks that:
+  - a frame is never relocated while a live loan points into it;
+  - only initialised fields are dropped;
+  - cancellation closes active borrow windows and runs their epilogues in
+    reverse order, exactly once.
+  This checks that lowering preserved the earlier ownership decisions. It is
+  not a second implementation of borrow policy.
 
 ### 3.10 Backends
 - **The backend boundary is lowered MIR:** after monomorphization and coroutine
@@ -170,8 +179,12 @@ Each stage is outlined here and fleshed out later.
     coroutine support;
   - runtime seams (`__saw_rt_*`) reach a VM through a host-call table, and
     extern calls through an FFI bridge;
-  - the VM's call stack must hold the language's nesting bound (256) times the
-    compiler's per-level frames, so bounded recursion stays safe inside it.
+  - the VM has an explicit frame stack with defined exhaustion behaviour: a
+    stack overflow is a clean panic, as on native targets. The 256 nesting
+    limit bounds source syntax, not runtime call depth, since a shallow function
+    can recurse as deeply as its input drives it. So the limit cannot size the
+    VM stack for general programs. It only sizes the parser's own recursion,
+    which is a capacity estimate for running the compiler itself inside the VM.
 - **A MIR interpreter also serves compile-time evaluation.** `const func` (if
   adopted) can run on the same interpreter, as Rust's const evaluation runs on
   MIR, so a VM backend and compile-time evaluation share one engine.
@@ -204,6 +217,21 @@ frozen compiler builds correctly: arena indices rather than references in data
 structures, no closures with captures, no coroutines, shallow types. It avoids
 every shape in the hazards ledger.
 
+**What source Stage 0 builds** (Proposed; codex's question in t6). The frozen
+compiler cannot parse the new forms (`borrow`, `@test`) and must not be
+unfrozen to learn them. So:
+- The compiler's own source is written in the **intersection** of the two
+  languages: code that is valid in both and means the same in both. Examples:
+  a plain `v[i]` copy read, arena indices, explicit methods rather than inline
+  place writes, and no `borrow` or `@test`.
+- The compiler's **own tests** live in separate files that only Stage 1 onward
+  compiles, so the first test-first build has no dependency cycle.
+- The subset checker (below) enforces the intersection over the compiler
+  source, so Stage 0 always sees code it builds correctly.
+- The alternative, a bootstrap projection tool that strips `@test` blocks and
+  rewrites new spellings, adds a tool and a second meaning for the same source.
+  It is not proposed.
+
 **The subset is enforced mechanically, not by convention.** "Avoid every shape"
 as a convention is the same one-rule-many-sites discipline §1 diagnoses. A small
 checker, a battery lane over the compiler's own source, refuses the ledger's
@@ -225,6 +253,14 @@ whether the checker covers it.
 | Whole compiler | the `examples/` corpus (~2,700 programs), differential against the frozen compiler; the bootstrap fixpoint |
 | Backends | the same cases run on every backend (LLVM, and the VM when it exists), compared with each other, as the prototype's multi-engine harness already does |
 | Freestanding (downstream) | the sawos gate: 382 QEMU cases across three profiles, about 25 minutes on the tracker server, pinned by sha. It covers what `examples/` mostly does not: freestanding riscv32 (`+m,+a,+c`) and aarch64 at `-Oz`, `--runtime-provider` seam checking, `--no-hidden-alloc`, `@export`/`@section`/`@align`, `unsafe static var` as the main state, Saw tasks inside the kernel (`tests/taskdump.saw`), and Blade-built packages in boot images. Each case checks its own console transcript (tools/sos_runner.py), so it is NOT differential, and a failure there is adjudicated by the case's assertion. Its flag list doubles as sawos's migration checklist: sawos stays on the frozen compiler until the new one accepts those flags |
+
+**Two kinds of expected mismatch, annotated separately.** When the new compiler
+disagrees with the frozen one, the difference is either the frozen compiler
+being known wrong (`oracle known wrong: SL-nnn`), or the language having
+changed on purpose (`language changed: <spec rule>`). Examples of the second:
+`Map.[]` no longer returns an optional, and the inline place spellings are
+retired. Any other mismatch is presumed to be a new-compiler bug until shown
+otherwise.
 
 **The frozen compiler is an oracle with known wrong answers.** Everything parked
 under the freeze stays wrong in it: SL-368 (an Atomic through `p[i]` acts on a
