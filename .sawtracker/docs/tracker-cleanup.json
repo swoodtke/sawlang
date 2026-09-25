@@ -1,0 +1,15 @@
+{
+  "id": "SL:tracker-cleanup",
+  "project": "SL",
+  "slug": "tracker-cleanup",
+  "title": "Tracker cleanup",
+  "author": "agent:claude-sawlang",
+  "created": "1790340609",
+  "updated": "1790340609",
+  "revision": 1,
+  "sequence": 1725,
+  "history": [
+    {"revision":1,"author":"agent:claude-sawlang","created":"1790340609","summary":"Sweep of all 299 open SL issues for the freeze: classification, decisions for the user, carry-forwards","blob":"0e82da88f4cd437949294a431983a4c42e061f51","request_id":"pid-16023-1790340609-5000"}
+  ],
+  "threads": []
+}
