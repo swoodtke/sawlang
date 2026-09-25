@@ -801,7 +801,10 @@ unfrozen to learn them. So:
   would, white-box access included. Stage 0's source set excludes
   `*.test.saw`. See SL:testing §4.
 - The subset checker (below) enforces the intersection over the compiler
-  source, so Stage 0 always sees code it builds correctly.
+  source wherever a shape can be checked. The shapes it cannot check are
+  explicit trust obligations, listed in SL:hazards. Stage 1, the tests and the
+  fixpoint are evidence that Stage 0 built the compiler correctly, not proof,
+  since the Stage 1 executable is itself built by Stage 0.
 - The alternative, a bootstrap projection tool that strips `@test` blocks and
   rewrites new spellings, adds a tool and a second meaning for the same source.
   It is not proposed.
