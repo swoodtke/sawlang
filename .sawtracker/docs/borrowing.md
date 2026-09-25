@@ -224,6 +224,23 @@ borrow var e = sessions[id, default: Session()] { e.hits += 1 }
 A getitem/setitem pair: the getter returns `m.get(k) ?? default`, and the
 setter inserts. It is plain value code for Copy values, with no borrow.
 
+**The default is lazy** (Ruled: "Python's eager evaluation has bit me in the
+past, so i think lazy defaults are the more expected behaviour"). The default
+expression is evaluated only when the key is absent, never on a hit. Eager
+evaluation is a silent bug in exactly the shapes that matter:
+- `borrow let id = ids[name, default: next_id()]` would burn an id on every
+  lookup;
+- `cache[k, default: try load(k)]` would do I/O, and could fail, on every hit.
+
+**The mechanism** (Proposed by the lead and the Air, independently): `default:`
+is a compiler-known argument label with `??` semantics, not a general
+lazy-parameter feature. `m[k, default: e]` is defined as `m.get(k) ?? e`. On the
+setter and place side, `e` is inserted only on a miss. There is no new
+parameter kind and no closure, so nothing is captured or allocated, and
+laziness stays confined to the one spelling whose reading already promises it.
+The cost: a user-defined subscript family gets the lazy behaviour by declaring
+the same `default:` shape.
+
 The **place** overload, `borrow var e = m[k, default: v] { … }`, is a third
 accessor with its own meaning: on a miss it *inserts* `v` into the map, then
 lends the stored entry under an exclusive root. The body therefore always works
@@ -344,6 +361,45 @@ It does not prove the lent places are disjoint from *each other*, so:
   Providers then get a checked signature rather than a gap they discover at
   their first lock.
 
+## 8a. Borrows rooted in an `unsafe static var` (Ruled)
+
+The compiler checks exclusivity inside one function. A static is reachable from
+any callee with no argument passed, so a borrow of a static cannot see a second
+borrow taken by a function it calls:
+
+```saw
+unsafe static var PROCESSES: Slab<Process> = …
+
+func exit_process(p: Int) unsafe {
+    borrow var proc = PROCESSES[p] {
+        proc.state = State.Exiting
+        release_handles(p)            // inside: borrow var PROCESSES[p].refs -= 1
+        proc.state = State.Dead       // two live `&var` into one slot
+    }
+}
+```
+
+**Ruled: the unsafe author's obligation.** ("Unsafe is unsafe and up to the user
+to validate safety.")
+- An `unsafe static var` is unsafe by declaration. Every function that touches
+  one is already declared `unsafe`, and its author owns soundness (designs 130
+  and 149).
+- For a borrow rooted in such a static, in either form, that obligation
+  explicitly includes this: no other access to the same place may happen while
+  the borrow is open. That covers callees, other harts, interrupt handlers,
+  indirect calls and extern code.
+- The block form widens the window the obligation covers, compared with a
+  single statement.
+- **An optional warning, off by default** (`-W` category): the compiler can
+  flag a direct call, inside a borrow of static `S`, to a function that
+  transitively touches `S`. That catches the common same-thread mistake above.
+  It is a hint, never a guarantee: it cannot see indirect calls, other harts,
+  interrupts or extern code.
+- **The safe path** for shared state that should be checked is a `static`
+  wrapped in `SpinLock` or `Mutex`. Borrowing through its lock is exclusive at
+  compile time, the lock excludes other harts at runtime, and re-entry panics
+  (§8).
+
 ## 9. Retired from today's language
 
 - Inline place use: `g[4].weight += 1`, `bump(&var g[4])`, `m[k]?.field = v`.
@@ -381,5 +437,5 @@ It does not prove the lent places are disjoint from *each other*, so:
   devtools and sawos, classified by the form each becomes, with the awkward
   shapes flagged. sawos's numbers are already in (borrowing t8): one accessor,
   `Slab.[]`, used in 502 places.
-- **Is `default:` lazy?** (§5.4.) Awaiting a ruling.
-- **Borrows rooted in an `unsafe static var`.** Awaiting a ruling.
+- (Settled: `default:` is lazy (§5.4); static roots are the unsafe author's
+  obligation, with an optional warning (§8a).)
