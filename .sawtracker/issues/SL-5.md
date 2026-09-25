@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":4565,"closed":"","created":"1788791148","id":"SL-5","labels":["frozen","hazard"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":2,"sequence":1751,"stage":"backlog","status":"open","title":"DF-303b: Discover generic methods even when a free function has the same name","updated":"1790341598"}
+{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":4565,"closed":"1790341598","created":"1788791148","id":"SL-5","labels":["frozen","hazard"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":3,"sequence":1752,"stage":"backlog","status":"closed","title":"DF-303b: Discover generic methods even when a free function has the same name","updated":"1790341598"}
 ---
 
 
@@ -91,4 +91,7 @@ comment citing this entry.
 
 
 ## Comments
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":364,"created":"1790341598","id":"c1","kind":"landing"} -->
+Closed in the Sep 25 tracker cleanup (SL:tracker-cleanup): a defect in the Python compiler, which is frozen (Sep 24). The frozen compiler stays the differential oracle, and this issue is its "oracle known wrong" reference. Its shape is carried into SL:hazards, so the new compiler's own source avoids it. Test-coverage aspect: `mono.generic-method-name-collision`.
 
