@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":4200,"closed":"","created":"1788791148","id":"SL-4","labels":["superseded"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":3,"sequence":2497,"stage":"backlog","status":"open","title":"DF-307b: Design one aggregate layout oracle for all const positions","updated":"1790349802"}
+{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":4200,"closed":"1790349802","created":"1788791148","id":"SL-4","labels":["superseded"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":4,"sequence":2498,"stage":"backlog","status":"closed","title":"DF-307b: Design one aggregate layout oracle for all const positions","updated":"1790349802"}
 ---
 
 
@@ -73,4 +73,7 @@ fix is (a) or nothing. [186, DF‑300c, DF‑307a]
 
 
 ## Comments
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":412,"created":"1790349802","id":"c1","kind":"landing"} -->
+Closed: settled by the user's constexpr ruling (Sep 25; SL:architecture §3.10 r39). The one layout oracle for every constant position is the target-description module that the MIR interpreter and every backend query. sizeof of a struct is legal in constant positions, with layout computed on demand, and one acyclic dependency graph over layouts and constants, so a self-referential size is a clean cycle error.
 
