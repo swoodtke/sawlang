@@ -305,9 +305,20 @@ caching.
     implementation is known only after mono;
   - a call through a function value, or a dispatch through `any Trait`, never
     suspends. A closure body cannot suspend, and a dispatch to a suspending
-    implementation is refused (spec: suspension). Both are still not *provably*
-    suspension-free, so a `sync` body may not make either call;
-  - a `sync` function may not reach a suspension;
+    implementation is refused (spec: suspension);
+  - **two effects are tracked, not one.** *May suspend* (above) is about real
+    suspension, and it drives the borrow check and framing. *Sync-callable* is
+    the conservative guarantee a `sync` body needs. A call is sync-callable if
+    its target is known not to suspend, or if its type declares `sync`: a
+    `(Int) sync -> Void` function value, or a `sync` trait requirement, even
+    through `any Trait` (spec: suspension). A call through a *non-`sync`*
+    function value or trait requirement never suspends, but it is not
+    sync-callable;
+  - sync-callability is carried transitively, through ordinary helper calls and
+    in interface summaries, separately from may-suspend. A helper that calls a
+    non-`sync` callback is itself not sync-callable, even though it never
+    suspends;
+  - a `sync` function may call only sync-callable targets;
   - `borrows` and `borrows(sync)` accessor contracts, including the substitution
     rule (SL:borrowing §2.5);
   - `consumes`.
@@ -616,7 +627,7 @@ caching.
 
   | Artifact | Written after | Contents | Read by |
   |---|---|---|---|
-  | Module interface | typecheck (final once its import cycle is solved) | export table, signatures, conformances, copy-tier rules, may-suspend summaries, generic functions' inferred Copy requirements, doc comments | resolve and typecheck of importing modules |
+  | Module interface | typecheck (final once its import cycle is solved) | export table, signatures, conformances, copy-tier rules, may-suspend and sync-callable summaries, generic functions' inferred Copy requirements, doc comments | resolve and typecheck of importing modules |
   | Module MIR | drop elaboration | the checked, elaborated MIR of every function, generic ones included | mono, in every program that uses the module |
   | Object code | the backend | concrete functions, per module or per instantiation | the linker |
 
