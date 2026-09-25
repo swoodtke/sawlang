@@ -110,8 +110,9 @@ caching.
   never by hash order or thread timing. Output bytes are a function of the
   inputs alone. Generated symbol names (closures, instantiations, frames) are
   derived from what the code is, such as its enclosing declaration's path and a
-  per-declaration ordinal, never from its source line. An edit above a closure
-  then does not rename it (SL-99). That avoids symbol churn in other modules'
+  per-declaration ordinal, never from its source line. An edit that only
+  shifts line numbers above a closure then does not rename it (SL-99). Adding
+  another closure earlier in the same declaration still shifts the ordinal. That avoids symbol churn in other modules'
   objects and in diffs. The edited module's own artifacts still rebuild, since
   §3.12 keys them on its source. The irdet lane enforces this on the Python compiler. For the new
   one it is also what makes content-addressed caching sound (§3.12).
