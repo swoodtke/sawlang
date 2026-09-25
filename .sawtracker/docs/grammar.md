@@ -157,7 +157,7 @@ everywhere else:
 | `package` `parent` | inside `public(…)` | syntax.decl.visibility |
 | `private` | before a struct field's name | syntax.decl.field-visibility |
 | `type` | followed by a name, at a declaration head | syntax.decl.type-alias, syntax.decl.assoc-type, syntax.decl.type-assign |
-| `const` | followed by a name, in a generic parameter list; in a declaration head before `func` or `init`, or at a top-level item's head before a name, only to be refused | syntax.generic.param, syntax.decl.refused-effect-prefix, syntax.decl.refused-const |
+| `const` | followed by a name, in a generic parameter list; in a declaration head before `func` or `init`, or before a name at a top-level item's head or a statement's, only to be refused | syntax.generic.param, syntax.decl.refused-effect-prefix, syntax.decl.refused-const, syntax.stmt.refused-local-const |
 | `any` | followed by a name, in a type | syntax.type.any |
 | `sync` `consumes` `escaping` | after a parameter list; `sync` and `consumes` also in a declaration head before `func` or `init`, only to be refused | syntax.decl.effects, syntax.type.func-effects, syntax.decl.refused-effect-prefix |
 | `constexpr` | after a parameter list; in a declaration head before `func` or `init`, only to be refused | syntax.decl.constexpr, syntax.decl.refused-effect-prefix |
@@ -842,6 +842,7 @@ non-expr-statement ::= let-stmt  @syntax.stmt.non-expr.let
     | refused-var-discard  @syntax.stmt.non-expr.refused-var-discard
     | refused-uninitialized  @syntax.stmt.non-expr.refused-uninitialized
     | refused-local-type-alias  @syntax.stmt.non-expr.refused-local-type-alias
+    | refused-local-const  @syntax.stmt.non-expr.refused-local-const
     | refused-compound-self  @syntax.stmt.non-expr.refused-compound-self
     | refused-bare-lend  @syntax.stmt.non-expr.refused-bare-lend
 ```
@@ -1699,6 +1700,9 @@ refused-uninitialized ::= "let" binding-name type-annotation  @syntax.stmt.refus
 # syntax.stmt.refused-local-type-alias  status=removed  spec="Appendix A: Keywords"  node=Error
 refused-local-type-alias ::= 'type' IDENT "=" type
 
+# syntax.stmt.refused-local-const  status=removed  spec="Variables and Mutability"  node=Error
+refused-local-const ::= 'const' IDENT ( ":" type )? "=" expr
+
 # syntax.stmt.refused-compound-self  status=removed  spec="Reference passing"  node=Error
 refused-compound-self ::= self-expr compound-op expr
 
@@ -1749,6 +1753,7 @@ Each refused form, why it is refused, and what its diagnostic suggests:
 | syntax.stmt.refused-var-discard | `_` binds nothing, so there is nothing to mutate. | `let _ = e` |
 | syntax.stmt.refused-uninitialized | Every binding is initialized where it is declared. | `var x: T = …` |
 | syntax.stmt.refused-local-type-alias | An alias is declared at module level, or as an associated type. | a module-level `type` |
+| syntax.stmt.refused-local-const | A local that never changes is a `let`. | `let x = 5` |
 | syntax.stmt.refused-compound-self | `self` is not a compound-assignment target; a receiver is replaced whole. | `self = …` |
 | syntax.stmt.refused-bare-lend | `lend` hands out a place, so it needs one. | `lend place` |
 | syntax.pat.refused-named-tuple | Patterns destructure tuples by position only. | `(a, b)` |
@@ -2020,7 +2025,7 @@ decides. The constructs column names the productions a rule governs.
 | syntax.rule.deref-or-multiply | syntax.expr.deref, syntax.expr.multiplicative | `*` before an operand is a dereference, and `*` between operands is a multiplication, so `a * *p` multiplies by the pointee. | Prefix `*` — the pointer place, spelled | current |
 | syntax.rule.tuple-index-dot | syntax.expr.tuple-index, syntax.expr.member | A tuple index never takes a following `.` as a decimal point, so `t.0.1` is two hops and `t.0.name` a member of element 0. | Composite Types | current |
 | syntax.rule.name-pattern | syntax.pat.name, syntax.pat.wildcard, syntax.pat.variant | `_` is the wildcard. Any other lone name is a name pattern, and resolution decides whether it names a payload-free variant or binds. A name followed by `(` is a variant pattern. | Enums (Algebraic Data Types) | current |
-| syntax.rule.contextual-words | syntax.decl.field-visibility, syntax.decl.type-alias, syntax.decl.assoc-type, syntax.generic.param, syntax.type.any, syntax.expr.lends, syntax.decl.static-assert, syntax.decl.effects, syntax.decl.constexpr, syntax.decl.refused-effect-prefix, syntax.decl.refused-const | A contextual word is recognized only in its position and by one token of lookahead: `private` before a field name, `type` followed by a name at a declaration head, `const` followed by a name in a generic list, `any` followed by a name in a type, `lends` followed by `self` or a name, `static_assert` followed by `(`, and the effect words (`consumes`, `constexpr`, `sync`, `escaping`) after a parameter list. In a declaration head, `const`, `consumes`, `constexpr` and `sync` are recognized when the token after the word is `func`, `init`, a visibility, `static` or another effect word, and only to be refused (syntax.decl.refused-effect-prefix). At a top-level item's head, `const` followed by a name is recognized only to be refused (syntax.decl.refused-const). Elsewhere each is an identifier. | Appendix A: Keywords | current |
+| syntax.rule.contextual-words | syntax.decl.field-visibility, syntax.decl.type-alias, syntax.decl.assoc-type, syntax.generic.param, syntax.type.any, syntax.expr.lends, syntax.decl.static-assert, syntax.decl.effects, syntax.decl.constexpr, syntax.decl.refused-effect-prefix, syntax.decl.refused-const, syntax.stmt.refused-local-const | A contextual word is recognized only in its position and by one token of lookahead: `private` before a field name, `type` followed by a name at a declaration head, `const` followed by a name in a generic list, `any` followed by a name in a type, `lends` followed by `self` or a name, `static_assert` followed by `(`, and the effect words (`consumes`, `constexpr`, `sync`, `escaping`) after a parameter list. In a declaration head, `const`, `consumes`, `constexpr` and `sync` are recognized when the token after the word is `func`, `init`, a visibility, `static` or another effect word, and only to be refused (syntax.decl.refused-effect-prefix). At a top-level item's head or a statement's, `const` followed by a name is recognized only to be refused (syntax.decl.refused-const, syntax.stmt.refused-local-const). Elsewhere each is an identifier. | Appendix A: Keywords | current |
 | syntax.rule.effect-slot | syntax.decl.effects, syntax.decl.constexpr, syntax.decl.borrows-effect, syntax.type.func-effects, syntax.decl.refused-effect-prefix | Effect words appear in one order, each at most once: `consumes unsafe sync borrows` after a declaration's parameters, with `constexpr` in `sync`'s place, and `unsafe sync escaping borrows` in a function type. Another order is refused naming the canonical one. `consumes` is legal only on a method with a `&var self` receiver, and `borrows` is not legal on `init`. The pairs `consumes borrows`, `constexpr sync`, `unsafe constexpr` and `constexpr borrows` parse, with `constexpr` written before `sync`; a later stage refuses each. An effect word in a declaration head, before `func` or `init`, is refused with a fixit that moves it into the slot (syntax.decl.refused-effect-prefix). | Spelling; Consuming method receivers (`consumes`); SL:architecture §3.10 | lockdown |
 | syntax.rule.subscript-declaration | syntax.decl.method-name, syntax.decl.setitem-name | A method named `[]` with a `borrows` effect is a place accessor; without one it is a getitem. A method named `[]=` is a setitem, and its last parameter is the value. | Places (`borrows` and `lend`); SL:borrowing §5 | lockdown |
 | syntax.rule.subscript-arguments | syntax.expr.subscript, syntax.expr.multi-subscript | A subscript with one unlabelled argument is a single subscript; one with a label or a second argument follows the call-argument rules, so `m[r, c]`, `m[(r, c)]` and `m[k, default: 0]` are three different forms. `default:` is an ordinary label here. | Composite Types; SL:borrowing §5.3 | lockdown |
@@ -2158,6 +2163,7 @@ the two disagree, a row below says which way and why. Where a grammar rule
 | syntax.decl.refused-effect-prefix | refuses `unsafe` and `borrows` before `func` or `init` in every head position, with the effect-slot fixit | gives a dedicated error for `unsafe` except after `static` at top level ("Expected static name") and after a visibility in a trait, and for `borrows` only at top level and not after `static`; elsewhere a generic one, such as "Expected 'type', 'func', or 'init' in extension, got BORROWS" | ruled | Spelling |
 | syntax.decl.refused-effect-prefix | refuses `sync`, `constexpr`, `consumes` and `const` before `func` or `init` in every head position, with the effect-slot fixit | gives a generic error in every position, such as "Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration" | ruled | Spelling |
 | syntax.decl.refused-const | refuses a top-level `const NAME: T = …` with the fixit `static` | gives the generic "Expected import, export, module, …" error | ruled | Module-level statics |
+| syntax.stmt.refused-local-const | refuses a statement `const x = 5` with the fixit `let` | reads `const` as an identifier and fails on the juxtaposition | ruled | Variables and Mutability |
 | syntax.type.ref | parses `&T` wherever a type goes | refuses a reference type outside a parameter, whatever the declaration | later | Reference passing; SL:borrowing §2.6; SL-400 c6 |
 | syntax.rule.effect-slot | parses `consumes` beside `borrows` | refuses the pair | later | Consuming method receivers (`consumes`) |
 | syntax.stmt.lend, syntax.expr.closure | parses `lend` as a closure-body statement | refuses it | later | `lend` suspends the accessor; it does not return |
