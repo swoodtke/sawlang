@@ -136,11 +136,13 @@ syntax, so the rule and the recipe above agree (codex t5):
   - an earlier Map-literal key or value;
   - an earlier interpolation segment;
   - a `move` between two `try`s;
-  - the condition of a `while` as well as the heads of `if`, `match` and `for`.
+  - the heads of `if`, `match` and `for`.
 
   An owned temporary with no `move` written leaks the same way. That covers a
   call's result, a struct literal, and an interpolated string passed as an
-  argument (SL-399 r3 review, probes b04b, b04c, b04d and q1).
+  argument. It also leaks in a `while` condition, where a moved value is
+  already refused because the condition runs again (SL-399 r3 review, probes
+  b04b, b04c, b04d and q1).
 - **SL-74** (loud): a `move` inside a `catch` block that diverges (`return`,
   `panic`) still retires the binding on the fall-through path, so the next use
   is refused. All three `catch` forms do this.
@@ -589,9 +591,10 @@ rest" defect of SL:grammar §16, reached through a line break. With `x = 7`:
 - `"eq {x⏎ == 8}"` prints `eq 7`;
 - `"len {s⏎ .len()}"` prints `len abc`.
 
-A `-` or `*` on the next line is refused in some positions. Parenthesizing
-the segment gives the right answer (Air, SL-399 r3 review, probes b10, b10c and
-q3; reproduced on main 2fa71814).
+A `-` or `*` on the next line is silent too: `"minus {x⏎ - 3}"` prints
+`minus 7`, and `{x⏎ * 3}` prints `3`. Parenthesizing the segment gives the
+right answer (Air, SL-399 r3 review, probes b09, b10, b10c and q3; reproduced
+on main 2fa71814).
 
 **Example:**
 ```saw
