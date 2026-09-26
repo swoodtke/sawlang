@@ -1,0 +1,374 @@
+// case: syntax.rule.statement-separator/semicolon-between-two-statements
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign (Name x) (IntLit 1))
+        (Assign (Name y) (IntLit 2))))))
+
+// case: syntax.rule.statement-separator/line-break-and-closing-brace-end-a-statement
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign (Name x) (IntLit 1))
+        (Assign (Name y) (IntLit 2))))))
+
+// case: syntax.rule.juxtaposition/spaced-call
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Call.paren
+            (Name b)
+            (Arg.positional (Name c))))
+        (Assign
+          (Name x)
+          (Call.paren
+            (IntLit 1)
+            (Arg.positional (Name c))))))))
+
+// case: syntax.rule.juxtaposition/line-break-before-a-parenthesis
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName a) (Name b))
+        (ExprStmt (Name c))))))
+
+// case: syntax.rule.declaration-separator/one-declaration-per-line
+(File
+  (Declaration.func
+    (Func a (Block)))
+  (Declaration.func
+    (Func b (Block)))
+  (Declaration.struct
+    (Struct P
+      (Field x
+        (NamedType (Path Int)))))
+  (Declaration.struct
+    (Struct Q
+      (Field y
+        (NamedType (Path Int))))))
+
+// case: syntax.rule.declaration-separator/members-one-per-line
+(File
+  (Declaration.trait
+    (Trait T
+      (Requirement a
+        (Param.receiver (Receiver.shared)))
+      (Requirement b
+        (Param.receiver (Receiver.shared)))))
+  (Declaration.extension
+    (Extension
+      (Path S)
+      (ExtensionMember.method
+        (Method a
+          (Param.receiver (Receiver.shared))
+          (Block)))
+      (ExtensionMember.method
+        (Method b
+          (Param.receiver (Receiver.shared))
+          (Block)))))
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.prompt a) (ExternFunc.prompt b))))
+
+// case: syntax.rule.operator-continuation/line-ending-in-an-operator
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName x)
+          (Binary
+            (Name a)
+            +
+            (Binary (Name b) * (Name c))))
+        (Let.immutable
+          (BindingName y)
+          (Binary
+            (Binary (Name p) && (Name q))
+            ||
+            (Name r)))
+        (Let.immutable
+          (BindingName z)
+          (Coalesce (Name o) ?? (Name d)))
+        (Let.immutable
+          (BindingName w)
+          (Binary.pair (Name a) == (Name b)))
+        (Let.immutable
+          (BindingName s)
+          (Binary (Name a) << (Name b)))))))
+
+// case: syntax.rule.operator-continuation/range-continues-inside-brackets
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name g)
+            (Arg.positional
+              (Range.closed (Name a) .. (Name b)))))))))
+
+// case: syntax.rule.operator-continuation/leading-operator-starts-a-statement
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName y) (Name a))
+        (ExprStmt
+          (Unary.negate (Name b)))))))
+
+// case: syntax.rule.operator-continuation/leading-dot-starts-a-statement
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName n) (Name s))
+        (ExprStmt
+          (Call.paren (ImplicitMember len)))))))
+
+// case: syntax.rule.leading-minus/after-a-closed-block
+(File
+  (Declaration.func
+    (Func f
+      (NamedType (Path Int))
+      (Block
+        (ExprStmt
+          (If
+            (Name c)
+            (Block
+              (Return (IntLit 1)))))
+        (ExprStmt
+          (Unary.negate (IntLit 1)))))))
+
+// case: syntax.rule.leading-minus/after-an-if-on-its-line
+(File
+  (Declaration.func
+    (Func f
+      (NamedType (Path Int))
+      (Block
+        (ExprStmt
+          (Binary
+            (If
+              (Name c)
+              (Block
+                (ExprStmt (IntLit 1)))
+              else
+              (Block
+                (ExprStmt (IntLit 2))))
+            -
+            (IntLit 1)))))))
+
+// case: syntax.rule.continuation-keywords/else-and-catch-on-the-next-line
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (Name a)
+            (Block)
+            (IfArm (Name b) (Block))
+            else
+            (Block)))
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt
+                (Call.paren (Name g))))
+            (Block)))
+        (Let.immutable
+          (BindingName v)
+          (Try.catch
+            (Call.paren (Name g))
+            (Catch
+              (Block
+                (ExprStmt (IntLit 0))))))))))
+
+// case: syntax.rule.continuation-keywords/body-brace-on-the-next-line
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If (Name a) (Block)))
+        (Guard.let
+          (BindingName x)
+          (Name y)
+          (Block (Return)))))))
+
+// case: syntax.rule.range-open-end/before-a-closing-token
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Subscript.single
+            (Name buf)
+            (Range.from (IntLit 4) ..)))
+        (Let.immutable
+          (BindingName b)
+          (Subscript.single (Name buf) (Range.upto ..)))
+        (Let.immutable
+          (BindingName c)
+          (Range.from (Name a) ..))
+        (ExprStmt
+          (Call.paren
+            (Name g)
+            (Arg.positional
+              (Range.from (Name a) ..))
+            (Arg.positional (Name b))))
+        (Let.immutable
+          (BindingName m)
+          (Closure
+            (ExprStmt
+              (Range.from (Name a) ..))))))))
+
+// case: syntax.rule.range-open-end/before-a-semicolon-a-line-break-and-the-end
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Range.from (Name x) ..))
+        (Let.immutable
+          (BindingName b)
+          (Range.from (Name y) ..))
+        (Let.immutable
+          (BindingName c)
+          (Range.from (Name z) ..))))))
+
+// case: syntax.rule.range-open-end/line-break-after-the-operator-ends-the-range
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Range.from (Name a) ..))
+        (ExprStmt (Name b))))))
+
+// case: syntax.rule.range-open-end/in-an-interpolation-segment
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name print)
+            (Arg.positional
+              (Interp
+                (Range.from (Name a) ..)))))))))
+
+// case: syntax.rule.block-tail/tail-expression
+(File
+  (Declaration.func
+    (Func f
+      (NamedType (Path Int))
+      (Block
+        (Let.immutable (BindingName a) (IntLit 1))
+        (ExprStmt
+          (Binary (Name a) + (IntLit 1)))))))
+
+// case: syntax.rule.block-tail/loop-at-the-end-is-a-statement
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren (Name g)))
+        (ExprStmt
+          (While.conditional (Name a) (Block)))))))
+
+// case: syntax.rule.block-tail/if-and-match-continue-as-an-operand
+(File
+  (Declaration.func
+    (Func f
+      (NamedType (Path Int))
+      (Block
+        (ExprStmt
+          (Binary
+            (If
+              (Name a)
+              (Block
+                (ExprStmt (IntLit 1)))
+              else
+              (Block
+                (ExprStmt (IntLit 2))))
+            +
+            (Match
+              (Name b)
+              (MatchArm (WildcardPat) (IntLit 3)))))))))
+
+// case: syntax.rule.block-tail/borrow-block-as-the-tail
+(File
+  (Declaration.func
+    (Func f
+      (NamedType (Path Int))
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.var
+              (BindingName it)
+              (Subscript.single (Name v) (Name i)))
+            (Block
+              (ExprStmt
+                (Member (Name it) hits)))))))))
+
+// case: syntax.rule.block-tail/borrow-block-continues-on-its-line
+(File
+  (Declaration.func
+    (Func f
+      (NamedType (Path Int))
+      (Block
+        (ExprStmt
+          (Binary
+            (BorrowBlock
+              (BorrowBinding.let
+                (BindingName e)
+                (Subscript.single (Name m) (Name k)))
+              (Block
+                (ExprStmt
+                  (Member (Name e) n))))
+            +
+            (IntLit 1)))))))
+
+// case: syntax.rule.block-tail/try-block-as-the-tail
+(File
+  (Declaration.func
+    (Func f
+      (NamedType (Path Int))
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt
+                (Call.paren (Name g))))
+            (Block
+              (ExprStmt (IntLit 0)))))))))
+
+// case: syntax.rule.module-inline/brace-on-the-same-line
+(File
+  (ModuleDecl.inline m
+    (Declaration.func
+      (Func f (Block)))))
+
+// case: syntax.rule.module-inline/brace-on-the-next-line
+(File (ModuleDecl.inline public m))
+
+// case: syntax.rule.module-inline/file-module
+(File (ModuleDecl.file m))
+
+// case: syntax.rule.range-open-end/omitted-bound-at-the-end-of-input
+(File
+  (Declaration.static
+    (Static.immutable a
+      (NamedType (Path Range))
+      =
+      (Range.from (Name x) ..))))

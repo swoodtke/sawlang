@@ -1,0 +1,53 @@
+// case: syntax.rule.compare-chain/less-than-chain
+func f() {
+    let ok = a < b < c
+}
+
+// case: syntax.rule.compare-chain/equality-chain
+func f() {
+    let ok = a == b == c
+}
+
+// case: syntax.rule.compare-chain/chain-across-a-line
+func f() {
+    let ok = a <=
+        b != c
+}
+
+// case: syntax.rule.try-extent/catch-after-a-cast
+// `try` takes a prefix expression, so no cast is ever followed by `catch`.
+func f() {
+    let v = try g() as Int catch {
+        0
+    }
+}
+
+// case: syntax.rule.cast-target-question/second-optional-token-after-a-cast
+func f() {
+    let y = n as Int? ?
+}
+
+// case: syntax.rule.cast-target-question/double-optional-token-after-a-cast
+func f() {
+    let y = n as Int??
+}
+
+// case: syntax.rule.cast-target-question/coalesce-after-an-optional-cast
+func f() {
+    let y = n as Int? ?? 9
+}
+
+// case: syntax.rule.cast-target-question/coalesce-touching-a-cast-target
+func f() {
+    let y = n as Int?? 9
+}
+
+// case: syntax.rule.cast-target-question/coalesce-after-a-cast
+func f() {
+    let y = n as Int ?? 9
+}
+
+// case: syntax.rule.cast-target-question/coalesce-after-a-generic-cast-target
+func f() {
+    let y = x as Box<Int> ?? z
+}

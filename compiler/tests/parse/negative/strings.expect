@@ -1,0 +1,11 @@
+// case: syntax.rule.interpolation-whole/two-names-in-a-segment
+refuses parse-error
+
+// case: syntax.rule.interpolation-whole/number-then-a-name
+refuses parse-error
+
+// case: syntax.rule.interpolation-whole/nested-segment-checked-on-its-own
+refuses parse-error
+
+// case: syntax.rule.interpolation-segment/statement-in-a-segment
+refuses parse-error

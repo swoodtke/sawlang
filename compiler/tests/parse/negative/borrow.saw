@@ -1,0 +1,29 @@
+// case: syntax.rule.borrow-form/binding-without-a-block
+func f() {
+    borrow var e = x
+}
+
+// case: syntax.rule.borrow-form/tuple-binding-without-a-block
+func f() {
+    borrow let (a, b) = t
+}
+
+// case: syntax.rule.borrow-form/borrow-binding-in-a-while-let
+func f() {
+    while borrow let x = m[k] {
+    }
+}
+
+// case: syntax.pat.borrow-binding/at-a-case-top-level
+func f() {
+    match o {
+        case borrow let x -> g(x)
+    }
+}
+
+// case: syntax.pat.borrow-binding/in-a-tuple-pattern
+func f() {
+    match t {
+        case (borrow let x, y) -> g(x)
+    }
+}

@@ -1,0 +1,586 @@
+// case: SL-400-c6-Q1/prefix-operators-bind-tighter-than-as
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName x)
+          (Cast
+            (Unary.negate (Name x))
+            as
+            (NamedType (Path Int8))))
+        (Let.immutable
+          (BindingName y)
+          (Cast
+            (Unary.complement (Name b))
+            as
+            (NamedType (Path UInt64))))))))
+
+// case: SL-400-c6-Q2/try-covers-its-operand-only
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName u)
+          (Cast
+            (Try.propagate
+              (Call.paren (Name parse_id)))
+            as
+            (NamedType (Path UserId))))))))
+
+// case: SL-400-c6-Q3/coalesce-is-one-flat-node
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Coalesce (Name a) ?? (Name b) ?? (IntLit 0)))))))
+
+// case: SL-400-c6-Q4/comparisons-joined-by-and
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName ok)
+          (Binary
+            (Binary.pair (Name a) < (Name b))
+            &&
+            (Binary.pair (Name b) < (Name c))))))))
+
+// case: SL-400-c6-Q5/parentheses-group-in-a-type
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName o)
+          (OptionalType
+            (FuncType
+              (NamedType (Path Int))
+              (NamedType (Path Int))))
+          (Name w))
+        (Let.immutable
+          (BindingName t)
+          (TupleType
+            (NamedType (Path Int)))
+          (Name w))
+        (Let.immutable
+          (BindingName g)
+          (NamedType (Path Int))
+          (Name w))))))
+
+// case: SL-400-c6-Q6/none-pattern
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name o)
+            (MatchArm (NonePat) (IntLit 0))
+            (MatchArm (WildcardPat) (IntLit 1))))))))
+
+// case: SL-400-c6-Q7/boolean-guard
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Guard.condition guard
+          (Name ok)
+          else
+          (Block (Return)))))))
+
+// case: SL-400-c6-Q8/head-reset-inside-brackets-and-segments
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (Call.paren
+              (Name f)
+              (Arg.positional
+                (Call
+                  (Member (Name v) map)
+                  (Closure
+                    (ExprStmt (ShorthandParam $0))))))
+            (Block)))
+        (ExprStmt
+          (If
+            (Call
+              (Member (Name v) any)
+              (Closure
+                (ExprStmt
+                  (Binary.pair (ShorthandParam $0) > (IntLit 1)))))
+            (Block)))
+        (ExprStmt
+          (If
+            (Binary.pair
+              (Interp
+                (Call
+                  (Member (Name v) map)
+                  (Closure
+                    (ExprStmt (ShorthandParam $0)))))
+              ==
+              (Name s))
+            (Block)))))))
+
+// case: SL-400-c6-Q8/head-reset-inside-a-closure-body
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (Call.paren
+              (Member (Name v) all)
+              (Arg.positional
+                (Closure
+                  (ClosureParam.value x)
+                  in
+                  (ExprStmt
+                    (Call
+                      (Member (Name x) any)
+                      (Closure
+                        (ExprStmt (ShorthandParam $0))))))))
+            (Block)))))))
+
+// case: SL-400-c6-Q9/open-ranges
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Subscript.single
+            (Name buf)
+            (Range.upto .. (Name b))))
+        (Let.immutable
+          (BindingName c)
+          (Subscript.single
+            (Name buf)
+            (Range.upto ..= (Name b))))
+        (Let.immutable
+          (BindingName d)
+          (Subscript.single (Name buf) (Range.upto ..)))))))
+
+// case: SL-400-c6-Q10/fields-on-one-line-take-a-comma
+(File
+  (Declaration.struct
+    (Struct P
+      (Field x
+        (NamedType (Path Int)))
+      (Field y
+        (NamedType (Path Int))))))
+
+// case: SL-400-c6-Q11/qualified-paths-in-extension-and-trait-heads
+(File
+  (Declaration.extension
+    (Extension (Path a B) (Path c D) (Path E)))
+  (Declaration.trait
+    (Trait T (Path m P) (Path Q))))
+
+// case: SL-400-c6-Q12/borrow-is-an-identifier-before-anything-but-let-or-var
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName borrow) (IntLit 1))
+        (Let.immutable
+          (BindingName b)
+          (Binary (Name borrow) + (IntLit 1)))
+        (ExprStmt
+          (Call.paren
+            (Name borrow)
+            (Arg.positional (Name x))))))))
+
+// case: SL-400-c6-Q13/lone-name-pattern
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name d)
+            (MatchArm (NamePat North) (IntLit 1))
+            (MatchArm (NamePat other) (IntLit 2))))))))
+
+// case: SL-400-c6-Q14/public-import-re-exports
+(File
+  (Import.reexport (Path m) . { (ImportSymbol.name f) })
+  (Import.reexport (Path m) . { (ImportSymbol.alias f g) })
+  (Import.reexport (Path m) . *))
+
+// case: SL-400-c6-Q16/panics-test-with-a-text-check
+(File
+  (TestCase.panics panics "panic.explicit" text "boom" "a user panic"
+    (Block
+      (ExprStmt
+        (Call.paren
+          (Name panic)
+          (Arg.positional (StringLit "boom")))))))
+
+// case: SL-400-c6-Q17/test-before-other-attributes
+(File
+  (TestOnly.item
+    (Declaration.func
+      (Attribute.export)
+      (Func f (Block)))))
+
+// case: SL-400-c6-Q18/borrow-binding-in-a-payload-pattern
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name o)
+            (MatchArm
+              (VariantPat Some (BorrowBindPat.var v))
+              (Call.paren
+                (Member (Name v) bump)))
+            (MatchArm
+              (NonePat)
+              (Call.paren (Name g)))))))))
+
+// case: SL-400-c6-Q19/generic-close-split
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (NamedType
+            (Path Vector)
+            (NamedType (Path Int)))
+          (Name w))
+        (Let.immutable
+          (BindingName m)
+          (NamedType
+            (Path Map)
+            (NamedType (Path K))
+            (NamedType
+              (Path Vector)
+              (NamedType (Path V))))
+          (Name w))))))
+
+// case: SL-400-c6-Q19/longest-match-stands-elsewhere
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Binary.pair (Name o) != (IntLit 5)))
+        (Let.immutable
+          (BindingName d)
+          (Binary (Name a) &- (Name b)))))))
+
+// case: SL-400-c6-Q22/constexpr-on-a-requirement
+(File
+  (Declaration.trait
+    (Trait T
+      (Requirement f
+        (Param.receiver (Receiver.shared))
+        constexpr
+        (NamedType (Path Int))))))
+
+// case: SL-400-c6-Q23/generic-parameters-on-a-requirement
+(File
+  (Declaration.trait
+    (Trait T
+      (Requirement g
+        (GenericParam.type U)
+        (Param.receiver (Receiver.shared))
+        (Param.plain x
+          (NamedType (Path U)))))))
+
+// case: SL-400-c6-U2a/reference-type-wherever-a-type-goes
+(File
+  (Declaration.struct
+    (Struct Cursor
+      (Field buf
+        (RefType.shared
+          (NamedType
+            (Path Vector)
+            (NamedType (Path Int)))))))
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName r)
+          (RefType.exclusive
+            (NamedType (Path Int)))
+          (Name w))))))
+
+// case: SL-400-c7/implicit-members
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName d)
+          (NamedType (Path Direction))
+          (ImplicitMember North))
+        (Let.immutable
+          (BindingName m)
+          (NamedType (Path Msg))
+          (Call.paren
+            (ImplicitMember Move)
+            (Arg.labelled x (IntLit 1))
+            (Arg.labelled y (IntLit 2))))))))
+
+// case: SL-400-c9/trailing-closure-on-an-implicit-member
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName r)
+          (NamedType (Path R))
+          (Call
+            (ImplicitMember Run)
+            (Closure
+              (ExprStmt (IntLit 1)))))))))
+
+// case: SL-400-c9/line-starting-with-a-dot-is-a-new-statement
+(File
+  (Declaration.func
+    (Func f
+      (NamedType (Path Int))
+      (Block
+        (Let.immutable (BindingName n) (Name s))
+        (ExprStmt
+          (Call.paren (ImplicitMember len)))))))
+
+// case: SL-406-c11-1/spaced-call-is-a-call
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Call.paren
+            (Name b)
+            (Arg.positional (Name c))))))))
+
+// case: SL-406-c11-1/line-break-before-a-parenthesis-ends-the-statement
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName d) (Name e))
+        (ExprStmt (Name c))))))
+
+// case: SL-406-c11-2/line-break-after-a-range-operator-ends-the-range
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Range.from (Name a) ..))
+        (ExprStmt (Name b))))))
+
+// case: SL-406-c11-2/range-continues-inside-brackets
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name g)
+            (Arg.positional
+              (Range.closed (Name a) .. (Name b)))))
+        (Let.immutable
+          (BindingName s)
+          (Subscript.single
+            (Name buf)
+            (Range.closed (Name a) ..= (Name b))))))))
+
+// case: SL-406-c11-3/head-reset-inside-a-nested-match
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (While.conditional
+            (Match
+              (Name mode)
+              (MatchArm
+                (NamePat Draining)
+                (Call
+                  (Member (Name queue) any)
+                  (Closure
+                    (ExprStmt
+                      (Member (ShorthandParam $0) urgent)))))
+              (MatchArm (WildcardPat) (BoolLit.false)))
+            (Block
+              (ExprStmt
+                (Call.paren (Name step))))))))))
+
+// case: SL-406-c17/cast-then-comparison
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName b)
+          (Binary.pair
+            (Cast
+              (Name n)
+              as
+              (NamedType (Path Int)))
+            <
+            (Name lim)))
+        (Let.immutable
+          (BindingName c)
+          (Binary.pair
+            (Cast
+              (Name n)
+              as
+              (NamedType (Path Count)))
+            <
+            (Name lim)))))))
+
+// case: SL-406-c17/tuple-of-comparisons-after-a-cast
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName t)
+          (Tuple.positional
+            (Binary.pair
+              (Cast
+                (Name n)
+                as
+                (NamedType (Path Int)))
+              <
+              (Name lim))
+            (Binary.pair (Name m) >= (IntLit 0))))))))
+
+// case: SL-406-c22/cast-target-list-then-an-operator
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name g)
+            (Arg.positional
+              (Binary
+                (Cast
+                  (Name x)
+                  as
+                  (NamedType
+                    (Path T)
+                    (NamedType (Path a))
+                    (NamedType (Path b))))
+                -
+                (Name c)))))))))
+
+// case: SL-406-c22/cast-target-list-across-lines
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName s)
+          (Cast
+            (Name x)
+            as
+            (NamedType
+              (Path Map)
+              (NamedType (Path String))
+              (NamedType (Path Int)))))))))
+
+// case: SL-406-c23/cast-target-list-decided-by-the-next-token
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName u)
+          (Tuple.positional
+            (Binary.pair
+              (Cast
+                (Name n)
+                as
+                (NamedType (Path Count)))
+              <
+              (Name lim))
+            (Binary.pair (Name m) > (IntLit 0))))))))
+
+// case: SL-406-c25/cast-target-list-before-a-head-brace
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Cast
+              (Name v)
+              as
+              (NamedType
+                (Path Result)
+                (NamedType (Path Int))
+                (NamedType (Path E))))
+            (MatchArm
+              (WildcardPat)
+              (Call.paren (Name g)))))
+        (ExprStmt
+          (For.plain
+            (BindingName e)
+            (Cast
+              (Name xs)
+              as
+              (NamedType
+                (Path Vector)
+                (NamedType (Path Int))))
+            (Block)))))))
+
+// case: SL-406-c25/cast-target-before-else-and-case
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Guard.let
+          (BindingName z)
+          (Cast
+            (Name y)
+            as
+            (OptionalType
+              (NamedType (Path Int))))
+          (Block (Return)))
+        (ExprStmt
+          (Match
+            (Name w)
+            (MatchArm
+              (NamePat A)
+              (Cast
+                (Name v)
+                as
+                (NamedType
+                  (Path Vector)
+                  (NamedType (Path Int)))))
+            (MatchArm (WildcardPat) (Name u))))))))
+
+// case: SL-406-c25/parenthesized-cast-before-catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Try.catch
+            (Cast
+              (Call.paren (Name g))
+              as
+              (NamedType (Path Int)))
+            (Catch
+              (Block
+                (ExprStmt (IntLit 0))))))))))

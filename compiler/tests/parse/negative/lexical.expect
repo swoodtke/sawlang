@@ -1,0 +1,68 @@
+// case: syntax.lex.ascii-identifier/non-ascii-letter-starting-a-name
+refuses parse-error
+
+// case: syntax.lex.module-doc/after-the-first-token
+refuses syntax.lex.module-doc at 3:1
+
+// case: syntax.lex.doc-attach/doc-before-an-import
+refuses syntax.lex.doc-attach at 1:1
+
+// case: syntax.lex.doc-attach/doc-before-a-local
+refuses syntax.lex.doc-attach at 2:5
+
+// case: syntax.lex.doc-attach/doc-at-the-end-of-input
+refuses syntax.lex.doc-attach at 3:1
+
+// case: syntax.lex.doc-attach/doc-before-an-extern-function
+refuses syntax.lex.doc-attach at 2:5
+
+// case: syntax.lex.doc-attach/doc-between-an-attribute-and-its-declaration
+refuses syntax.lex.doc-attach at 2:1
+
+// case: syntax.lex.shift-adjacent/spaced-shift
+refuses parse-error at 2:17
+
+// case: syntax.lex.float-point/trailing-point
+refuses parse-error at 2:15
+
+// case: syntax.lex.float-point/leading-point
+refuses parse-error at 2:14
+
+// case: syntax.lex.int-range/literal-past-its-suffix
+refuses parse-error
+
+// case: syntax.lex.escape/unknown-escape
+refuses parse-error
+
+// case: syntax.lex.directive/unknown-directive
+refuses parse-error
+
+// case: syntax.lex.directive/lend-var-is-refused
+refuses syntax.expr.refused-lend-var
+
+// case: syntax.lex.unterminated-string/no-closing-quote
+refuses parse-error
+
+// case: syntax.lex.unclosed-bracket/unclosed-parenthesis
+refuses parse-error
+
+// case: syntax.lex.unclosed-bracket/unclosed-brace
+refuses parse-error
+
+// case: syntax.lex.int-range/literal-past-64-bits
+refuses parse-error
+
+// case: syntax.lex.escape/surrogate-scalar
+refuses parse-error
+
+// case: syntax.lex.escape/scalar-past-the-maximum
+refuses parse-error
+
+// case: syntax.lex.escape/unicode-escape-with-no-digits
+refuses parse-error
+
+// case: syntax.lex.unterminated-string/closing-quote-swallowed-by-an-interpolation
+refuses parse-error
+
+// case: syntax.lex.unclosed-bracket/unclosed-square-bracket
+refuses parse-error

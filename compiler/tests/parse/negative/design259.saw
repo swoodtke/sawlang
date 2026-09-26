@@ -1,0 +1,7 @@
+// case: design259-R7/arm-body-on-the-next-line
+func f() {
+    match n {
+        case 0 ->
+            return
+    }
+}

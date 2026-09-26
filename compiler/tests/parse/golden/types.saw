@@ -1,0 +1,52 @@
+// case: syntax.rule.paren-type/function-type
+func f() {
+    let a: (Int) -> Int = w
+    let b: () -> Void = w
+    let c: (Int, Int) unsafe sync -> Int = w
+}
+
+// case: syntax.rule.paren-type/empty-tuple
+func f() {
+    let e: () = w
+}
+
+// case: syntax.rule.paren-type/tuple-with-a-comma-or-labels
+func f() {
+    let t: (Int, Int) = w
+    let n: (x: Int, y: Int) = w
+}
+
+// case: syntax.rule.paren-type/one-element-tuple
+func f() {
+    let t: (Int,) = w
+}
+
+// case: syntax.rule.paren-type/parentheses-group
+func f() {
+    let g: (Int) = w
+    let o: ((Int) -> Int)? = w
+}
+
+// case: syntax.rule.prefix-type-suffix/reference-to-an-optional
+func f(a: &Int?, b: &var Int?) {
+}
+
+// case: syntax.rule.prefix-type-suffix/function-returning-an-optional
+func f() {
+    let h: (Int) -> Int? = w
+}
+
+// case: syntax.rule.prefix-type-suffix/optional-slice
+func f(a: &[Int]?, b: &var [Int]) {
+}
+
+// case: syntax.rule.prefix-type-suffix/optional-function-in-parentheses
+func f() {
+    let o: ((Int) -> Int)?? = w
+}
+
+// case: syntax.rule.prefix-type-suffix/conditional-lend-return
+extension Map {
+    func find(&self, k: &K) borrows -> &V? {
+    }
+}

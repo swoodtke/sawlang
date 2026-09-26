@@ -447,7 +447,9 @@ decision is `tools/patch_gate.py`'s:
 - the full grammar corpus runs when `GRAMMAR.md`, `LANGUAGE_SPEC.md` (whose
   headings `spec=` names), `compiler/tests/grammar/` or `sawc/` (the reference
   lexer and the classifying parser) changes; otherwise each changed `.saw` file
-  is checked against `corpus_expected.tsv` on its own;
+  is checked against `corpus_expected.tsv` on its own, except the parser
+  corpus's case files under `compiler/tests/parse/`, which the compiler tests'
+  parse lane checks case by case;
 - a change to the gate itself (`build.sh`, `tools/patch_gate.py`,
   `.sawtracker/`) runs everything, and so does a run whose changed paths are
   unknown.

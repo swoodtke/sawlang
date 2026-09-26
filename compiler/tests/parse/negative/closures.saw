@@ -1,0 +1,55 @@
+// case: syntax.rule.trailing-closure/on-a-call-result
+func f() {
+    foo()(1) { 2 }
+}
+
+// case: syntax.rule.trailing-closure/on-a-called-closure
+func f() {
+    let x = { 1 }() { 2 }
+}
+
+// case: syntax.rule.trailing-closure/second-trailing-closure
+func f() {
+    let x = f { 1 } { 2 }
+}
+
+// case: syntax.rule.trailing-closure/on-a-subscript
+func f() {
+    v[0] { 1 }
+}
+
+// case: syntax.rule.head-restriction/trailing-closure-in-a-guard-condition
+func f() {
+    guard v.any { $0 } else {
+        return
+    }
+}
+
+// case: syntax.rule.head-restriction/trailing-closure-on-a-match-scrutinee
+func f() {
+    match f { a } {
+        case _ -> x
+    }
+}
+
+// case: syntax.rule.head-restriction/trailing-closure-in-an-arm-guard
+func f() {
+    match x {
+        case _ if v.any { $0 } -> x
+    }
+}
+
+// case: syntax.rule.head-restriction/generic-list-kept-by-the-body-brace
+func f() {
+    if a<b> {
+    }
+}
+
+// case: syntax.rule.head-reset/only-inside-the-nested-block
+// The block resets the head only inside its braces; the hop after it is
+// back in the head.
+func f() {
+    guard match m { case _ -> v }.any { $0 } else {
+        return
+    }
+}

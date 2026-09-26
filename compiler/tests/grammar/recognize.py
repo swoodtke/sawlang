@@ -98,6 +98,11 @@ FILTERS = [
     ("try-route", "_try_route_case", "syntax.rule.try-route-case"),
     ("import-target", "_import_names", "syntax.rule.import-names"),
 ]
+# The filters that decide by the token after the derivation they refuse, even
+# when they report a token inside it; the others decide by its own tokens, and
+# so do these wherever the refused token lies past the derivation.
+LOOKAHEAD_FILTERS = ("_generic_or_less", "_cast_list", "_generic_kept", "_borrow_form",
+                     "_cast_question", "_range_open_end")
 # Rules applied outside the two tables: in `prepare`, in the chart's terminals,
 # in the head walk, and against the doc comments.
 OTHER_RULES = ("syntax.rule.generic-close-split", "syntax.rule.head-reset",
@@ -163,8 +168,6 @@ DOCUMENTED = {"syntax.decl.item.func", "syntax.decl.item.static",
               "syntax.decl.extension-member.init", "syntax.decl.trait-member.requirement",
               "syntax.decl.field", "syntax.decl.case"}
 TEST_ONLY_DECLARATION = "syntax.test.declaration.item"
-# The alternatives that read a statement position as an expression.
-EXPRESSION_STATEMENTS = ("syntax.stmt.statement.expr", "syntax.expr.arm-body.expr")
 
 
 def is_nonterminal(sym):
@@ -888,6 +891,12 @@ class Forest:
         refused anything on the way to it. Every reading of the span failed, so
         each refusal under it explains one; like the chart's own error, the
         report is the reading that got furthest."""
+        found = self.refusals(key)
+        return max(found) if found else None
+
+    def refusals(self, key):
+        """Every (token index, rule) that refused a reading under a span with
+        no tree."""
         found = set()
         seen = {key}
         pending = [key]
@@ -900,7 +909,7 @@ class Forest:
                 if child not in seen:
                     seen.add(child)
                     pending.append(child)
-        return max(found) if found else None
+        return found
 
     def _refusal(self, d):
         for stands, rule in self.filters.get(d.nt, ()):
@@ -1073,13 +1082,16 @@ class Forest:
 
     def _static_assert_word(self, d):
         """A statement that starts `static_assert (` is the assertion, never a
-        call, and so is an arm body, which means what the same statement in
-        braces means (syntax.rule.contextual-words, syntax.rule.arm-body)."""
+        call, an assignment or any other statement, and so is an arm body,
+        which means what the same statement in braces means: one token of
+        lookahead decides (syntax.rule.contextual-words, syntax.rule.arm-body)."""
         toks = self.c.tokens
-        if self._alt(d) in EXPRESSION_STATEMENTS and toks[d.i].value == "static_assert" \
-                and toks[d.i].kind == "IDENT" and toks[d.i + 1].value == "(":
-            return d.i
-        return None
+        if toks[d.i].value != "static_assert" or toks[d.i].kind != "IDENT" \
+                or toks[d.i + 1].value != "(":
+            return None
+        if any(k.i == d.i for k in self._descendants(d, "static-assert")):
+            return None
+        return d.i
 
     def _arm_body(self, d):
         """An arm body that starts with `{` is a block (syntax.rule.arm-body)."""
@@ -1407,6 +1419,14 @@ class Parse:
         t = self.tokens[min(at, len(self.tokens) - 1)]
         return "%d:%d refused by %s" % (t.line, t.column, rule)
 
+    def refusal_rules(self):
+        """The rules that refused some reading of a text the chart accepts and
+        the rules leave no tree, sorted; `refusal` reports the furthest."""
+        if self.derivations() or self._forest is None:
+            return []
+        return sorted({rule for _, rule in
+                       self._forest.refusals((self.start, 0, len(self.tokens)))})
+
     def documented(self, derivation):
         """The token indices where a declaration a `///` run may document starts.
         `@test` before a declaration stands where its attributes do, so the run
@@ -1505,8 +1525,9 @@ def doc_attach_error(parse, derivation, docs):
     return None
 
 
-def check_source(g, src, trees=False, path=None):
-    """(verdict, detail) for one source text, read from `path` when it is given.
+def check_source(g, src, trees=False, path=None, start="source-file"):
+    """(verdict, detail) for one source text, read from `path` when it is given,
+    parsed from `start`.
 
     OK; LEXERR, a lex error, a non-ASCII identifier or a misplaced `//!`; FAIL,
     the chart refuses the tokens (detail: the furthest token reached), or the
@@ -1515,24 +1536,26 @@ def check_source(g, src, trees=False, path=None):
     finding: no tree, and no rule refused anything. With `trees`, a text whose
     tree, or a segment's, is not unique after the rules is AMBIGUOUS.
     """
-    checked = check(g, src, trees, path)
+    checked = check(g, src, trees, path, start)
     return checked.verdict, checked.detail
 
 
 class Checked:
-    """One text's verdict and detail (check_source), its doc comments, and the
+    """One text's verdict and detail (check_source), its doc comments, the
     parses behind an OK verdict: (origin, Parse) for the file, origin "", and
     each interpolation segment, origin its "line:col" as expression_segments
-    gives it."""
+    gives it; and, for a text the rules leave no tree, every rule that refused
+    one of its readings (Parse.refusal_rules)."""
 
-    def __init__(self, verdict, detail, parses=(), docs=()):
+    def __init__(self, verdict, detail, parses=(), docs=(), rules=()):
         self.verdict = verdict
         self.detail = detail
         self.parses = list(parses)
         self.docs = list(docs)
+        self.rules = list(rules)
 
 
-def check(g, src, trees=False, path=None):
+def check(g, src, trees=False, path=None, start="source-file"):
     """The Checked result of check_source for one text: every refusal it makes,
     the lexical ones included, is decided here once."""
     toks, docs, err = lex_with_docs(src, path)
@@ -1545,8 +1568,8 @@ def check(g, src, trees=False, path=None):
     misplaced = module_doc_error(toks, docs)
     if misplaced is not None:
         return Checked("LEXERR", misplaced)
-    toks = prepare(g, toks)
-    file_parse = Parse(g, "source-file", toks)
+    toks = prepare(g, toks, start)
+    file_parse = Parse(g, start, toks)
     if not file_parse.accepted:
         t = toks[min(file_parse.chart.furthest, len(toks) - 1)]
         return Checked("FAIL", "%d:%d near %s %r" % (t.line, t.column, t.kind, t.value))
@@ -1555,7 +1578,7 @@ def check(g, src, trees=False, path=None):
         refused = file_parse.refusal()
         if refused is None:
             return Checked("NOTREE", "no tree, and no rule refused one")
-        return Checked("FAIL", refused)
+        return Checked("FAIL", refused, rules=file_parse.refusal_rules())
     parses = [("", file_parse)]
     pending = expression_segments(toks, "")
     while pending:
@@ -1574,7 +1597,8 @@ def check(g, src, trees=False, path=None):
             refused = segment.refusal()
             if refused is None:
                 return Checked("NOTREE", "segment %s: no tree, and no rule refused one" % where)
-            return Checked("SEGFAIL", "%s {%s} %s" % (where, seg.text, refused))
+            return Checked("SEGFAIL", "%s {%s} %s" % (where, seg.text, refused),
+                           rules=segment.refusal_rules())
         parses.append((where, segment))
         pending[0:0] = expression_segments(stoks, where + "/")
     if trees:

@@ -1,0 +1,83 @@
+// case: syntax.rule.statement-separator/semicolon-before-a-line-break
+func f() {
+    x = 1;
+}
+
+// case: syntax.rule.statement-separator/semicolon-before-a-closing-brace
+func f() {
+    let g = { x = 1; }
+}
+
+// case: syntax.rule.statement-separator/semicolon-doubled
+func f() {
+    x = 1;; y = 2
+}
+
+// case: syntax.rule.statement-separator/semicolon-at-a-line-start
+func f() {
+    x = 1
+    ; y = 2
+}
+
+// case from refusal-unit: syntax.rule.statement-separator/semicolon-at-the-end-of-input
+x = 1;
+
+// case: syntax.rule.declaration-separator/semicolon-after-the-last-declaration
+func f() {
+};
+
+// case: syntax.rule.juxtaposition/two-statements-on-one-line
+func f() {
+    x = 1 y
+}
+
+// case: syntax.rule.juxtaposition/two-statements-in-a-closure
+func f() {
+    let c = { a b }
+}
+
+// case: syntax.rule.juxtaposition/exponent-is-an-identifier
+// `7e5` is the integer `7` and then the identifier `e5`: two operands side by side.
+func f() {
+    let b = 7e5
+}
+
+// case: syntax.rule.declaration-separator/two-declarations-on-one-line
+func a() {
+} func b() {
+}
+
+// case: syntax.rule.declaration-separator/semicolon-between-declarations
+struct P { x: Int }; struct Q { y: Int }
+
+// case: syntax.rule.declaration-separator/semicolon-between-requirements
+trait T {
+    func a(&self); func b(&self)
+}
+
+// case: syntax.rule.declaration-separator/two-externs-on-one-line
+extern "C" {
+    func a() func b()
+}
+
+// case: syntax.rule.operator-continuation/leading-plus-is-no-unary
+func f() {
+    let x = 1
+        + 2
+}
+
+// case: syntax.rule.range-open-end/open-range-before-an-operator
+func f() {
+    let b = a.. == c
+}
+
+// case: syntax.rule.range-open-end/inclusive-range-at-a-line-end
+func f() {
+    let v = a..=
+        b
+}
+
+// case: syntax.rule.range-open-end/inclusive-range-with-no-upper-bound
+func f() {
+    let a = buf[4..=]
+}

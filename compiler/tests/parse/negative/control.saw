@@ -1,0 +1,65 @@
+// case: syntax.rule.arm-body/map-in-an-arm-body
+func f() {
+    match x {
+        case 1 -> { a: 1 }
+        case _ -> 2
+    }
+}
+
+// case: syntax.rule.arm-body/set-in-an-arm-body
+func f() {
+    match x {
+        case 1 -> { a, b }
+        case _ -> 2
+    }
+}
+
+// case: syntax.rule.arm-body/body-on-the-next-line
+func f() {
+    match x {
+        case 1 ->
+            a
+    }
+}
+
+// case: syntax.rule.try-block/try-before-a-brace-without-catch
+func f() {
+    let c = try { 1 }
+}
+
+// case: syntax.rule.try-block/optional-try-block
+func f() {
+    try? {
+        g()
+    } catch {
+    }
+}
+
+// case: syntax.rule.try-route-case/one-segment
+func f() {
+    let n = try(as E) f()
+}
+
+// case: syntax.expr.refused-try-route/route-on-force-try
+func f() {
+    let n = try!(as E.Case) f()
+}
+
+// case: syntax.expr.refused-try-route/route-beside-catch
+func f() {
+    let n = try(as E.Case) f() catch {
+    }
+}
+
+// case: syntax.expr.refused-while-let-else/else-after-a-while-let
+func f() {
+    while let x = g() {
+    } else {
+    }
+}
+
+// case: syntax.expr.refused-for-tuple/tuple-pattern-in-a-for-head
+func f() {
+    for (a, b) in pairs {
+    }
+}

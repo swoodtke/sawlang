@@ -1,0 +1,604 @@
+// case: census-N1/nested-parentheses-past-the-frozen-parser
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName x) (IntLit 1))))))
+
+// case: census-N1/nested-parentheses-at-the-depth-limit
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName x) (IntLit 1))))))
+
+// case: census-N1/nested-ifs
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (BoolLit.true)
+            (Block
+              (ExprStmt
+                (If
+                  (BoolLit.true)
+                  (Block
+                    (ExprStmt
+                      (If
+                        (BoolLit.true)
+                        (Block
+                          (ExprStmt
+                            (If
+                              (BoolLit.true)
+                              (Block
+                                (ExprStmt
+                                  (If
+                                    (BoolLit.true)
+                                    (Block
+                                      (ExprStmt
+                                        (If
+                                          (BoolLit.true)
+                                          (Block
+                                            (ExprStmt
+                                              (If
+                                                (BoolLit.true)
+                                                (Block
+                                                  (ExprStmt
+                                                    (If
+                                                      (BoolLit.true)
+                                                      (Block
+                                                        (ExprStmt
+                                                          (If
+                                                            (BoolLit.true)
+                                                            (Block
+                                                              (ExprStmt
+                                                                (If
+                                                                  (BoolLit.true)
+                                                                  (Block
+                                                                    (ExprStmt
+                                                                      (If
+                                                                        (BoolLit.true)
+                                                                        (Block
+                                                                          (ExprStmt
+                                                                            (If
+                                                                              (BoolLit.true)
+                                                                              (Block
+                                                                                (ExprStmt
+                                                                                  (If
+                                                                                    (BoolLit.true)
+                                                                                    (Block
+                                                                                      (ExprStmt
+                                                                                        (If
+                                                                                          (BoolLit.true)
+                                                                                          (Block
+                                                                                            (ExprStmt
+                                                                                              (If
+                                                                                                (BoolLit.true)
+                                                                                                (Block
+                                                                                                  (ExprStmt
+                                                                                                    (If
+                                                                                                      (BoolLit.true)
+                                                                                                      (Block
+                                                                                                        (ExprStmt
+                                                                                                          (If
+                                                                                                            (BoolLit.true)
+                                                                                                            (Block
+                                                                                                              (ExprStmt
+                                                                                                                (If
+                                                                                                                  (BoolLit.true)
+                                                                                                                  (Block
+                                                                                                                    (ExprStmt
+                                                                                                                      (If
+                                                                                                                        (BoolLit.true)
+                                                                                                                        (Block
+                                                                                                                          (ExprStmt
+                                                                                                                            (If
+                                                                                                                              (BoolLit.true)
+                                                                                                                              (Block
+                                                                                                                                (ExprStmt
+                                                                                                                                  (If
+                                                                                                                                    (BoolLit.true)
+                                                                                                                                    (Block
+                                                                                                                                      (ExprStmt
+                                                                                                                                        (If
+                                                                                                                                          (BoolLit.true)
+                                                                                                                                          (Block
+                                                                                                                                            (ExprStmt
+                                                                                                                                              (If
+                                                                                                                                                (BoolLit.true)
+                                                                                                                                                (Block
+                                                                                                                                                  (ExprStmt
+                                                                                                                                                    (If
+                                                                                                                                                      (BoolLit.true)
+                                                                                                                                                      (Block
+                                                                                                                                                        (ExprStmt
+                                                                                                                                                          (If
+                                                                                                                                                            (BoolLit.true)
+                                                                                                                                                            (Block
+                                                                                                                                                              (ExprStmt
+                                                                                                                                                                (If
+                                                                                                                                                                  (BoolLit.true)
+                                                                                                                                                                  (Block
+                                                                                                                                                                    (ExprStmt
+                                                                                                                                                                      (If
+                                                                                                                                                                        (BoolLit.true)
+                                                                                                                                                                        (Block
+                                                                                                                                                                          (ExprStmt
+                                                                                                                                                                            (If
+                                                                                                                                                                              (BoolLit.true)
+                                                                                                                                                                              (Block
+                                                                                                                                                                                (ExprStmt
+                                                                                                                                                                                  (If
+                                                                                                                                                                                    (BoolLit.true)
+                                                                                                                                                                                    (Block
+                                                                                                                                                                                      (ExprStmt
+                                                                                                                                                                                        (If
+                                                                                                                                                                                          (BoolLit.true)
+                                                                                                                                                                                          (Block
+                                                                                                                                                                                            (ExprStmt
+                                                                                                                                                                                              (If
+                                                                                                                                                                                                (BoolLit.true)
+                                                                                                                                                                                                (Block
+                                                                                                                                                                                                  (ExprStmt
+                                                                                                                                                                                                    (If
+                                                                                                                                                                                                      (BoolLit.true)
+                                                                                                                                                                                                      (Block
+                                                                                                                                                                                                        (ExprStmt
+                                                                                                                                                                                                          (If
+                                                                                                                                                                                                            (BoolLit.true)
+                                                                                                                                                                                                            (Block
+                                                                                                                                                                                                              (ExprStmt
+                                                                                                                                                                                                                (If
+                                                                                                                                                                                                                  (BoolLit.true)
+                                                                                                                                                                                                                  (Block
+                                                                                                                                                                                                                    (ExprStmt
+                                                                                                                                                                                                                      (If
+                                                                                                                                                                                                                        (BoolLit.true)
+                                                                                                                                                                                                                        (Block
+                                                                                                                                                                                                                          (ExprStmt
+                                                                                                                                                                                                                            (If
+                                                                                                                                                                                                                              (BoolLit.true)
+                                                                                                                                                                                                                              (Block
+                                                                                                                                                                                                                                (ExprStmt
+                                                                                                                                                                                                                                  (If
+                                                                                                                                                                                                                                    (BoolLit.true)
+                                                                                                                                                                                                                                    (Block
+                                                                                                                                                                                                                                      (ExprStmt
+                                                                                                                                                                                                                                        (If
+                                                                                                                                                                                                                                          (BoolLit.true)
+                                                                                                                                                                                                                                          (Block
+                                                                                                                                                                                                                                            (ExprStmt
+                                                                                                                                                                                                                                              (If
+                                                                                                                                                                                                                                                (BoolLit.true)
+                                                                                                                                                                                                                                                (Block
+                                                                                                                                                                                                                                                  (ExprStmt
+                                                                                                                                                                                                                                                    (If
+                                                                                                                                                                                                                                                      (BoolLit.true)
+                                                                                                                                                                                                                                                      (Block
+                                                                                                                                                                                                                                                        (ExprStmt
+                                                                                                                                                                                                                                                          (If
+                                                                                                                                                                                                                                                            (BoolLit.true)
+                                                                                                                                                                                                                                                            (Block
+                                                                                                                                                                                                                                                              (ExprStmt
+                                                                                                                                                                                                                                                                (If
+                                                                                                                                                                                                                                                                  (BoolLit.true)
+                                                                                                                                                                                                                                                                  (Block
+                                                                                                                                                                                                                                                                    (ExprStmt
+                                                                                                                                                                                                                                                                      (If
+                                                                                                                                                                                                                                                                        (BoolLit.true)
+                                                                                                                                                                                                                                                                        (Block
+                                                                                                                                                                                                                                                                          (ExprStmt
+                                                                                                                                                                                                                                                                            (If
+                                                                                                                                                                                                                                                                              (BoolLit.true)
+                                                                                                                                                                                                                                                                              (Block
+                                                                                                                                                                                                                                                                                (ExprStmt
+                                                                                                                                                                                                                                                                                  (If
+                                                                                                                                                                                                                                                                                    (BoolLit.true)
+                                                                                                                                                                                                                                                                                    (Block
+                                                                                                                                                                                                                                                                                      (ExprStmt
+                                                                                                                                                                                                                                                                                        (If
+                                                                                                                                                                                                                                                                                          (BoolLit.true)
+                                                                                                                                                                                                                                                                                          (Block
+                                                                                                                                                                                                                                                                                            (ExprStmt
+                                                                                                                                                                                                                                                                                              (If
+                                                                                                                                                                                                                                                                                                (BoolLit.true)
+                                                                                                                                                                                                                                                                                                (Block
+                                                                                                                                                                                                                                                                                                  (ExprStmt
+                                                                                                                                                                                                                                                                                                    (If
+                                                                                                                                                                                                                                                                                                      (BoolLit.true)
+                                                                                                                                                                                                                                                                                                      (Block
+                                                                                                                                                                                                                                                                                                        (ExprStmt
+                                                                                                                                                                                                                                                                                                          (Call.paren (Name g)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
+// case: census-N1/nested-closures
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (ExprStmt
+              (Closure
+                (ExprStmt
+                  (Closure
+                    (ExprStmt
+                      (Closure
+                        (ExprStmt
+                          (Closure
+                            (ExprStmt
+                              (Closure
+                                (ExprStmt
+                                  (Closure
+                                    (ExprStmt
+                                      (Closure
+                                        (ExprStmt
+                                          (Closure
+                                            (ExprStmt
+                                              (Closure
+                                                (ExprStmt
+                                                  (Closure
+                                                    (ExprStmt
+                                                      (Closure
+                                                        (ExprStmt
+                                                          (Closure
+                                                            (ExprStmt
+                                                              (Closure
+                                                                (ExprStmt
+                                                                  (Closure
+                                                                    (ExprStmt
+                                                                      (Closure
+                                                                        (ExprStmt
+                                                                          (Closure
+                                                                            (ExprStmt
+                                                                              (Closure
+                                                                                (ExprStmt
+                                                                                  (Closure
+                                                                                    (ExprStmt
+                                                                                      (Closure
+                                                                                        (ExprStmt
+                                                                                          (Closure
+                                                                                            (ExprStmt
+                                                                                              (Closure
+                                                                                                (ExprStmt
+                                                                                                  (Closure
+                                                                                                    (ExprStmt
+                                                                                                      (Closure
+                                                                                                        (ExprStmt
+                                                                                                          (Closure
+                                                                                                            (ExprStmt
+                                                                                                              (Closure
+                                                                                                                (ExprStmt
+                                                                                                                  (Closure
+                                                                                                                    (ExprStmt
+                                                                                                                      (Closure
+                                                                                                                        (ExprStmt
+                                                                                                                          (Closure
+                                                                                                                            (ExprStmt
+                                                                                                                              (Closure
+                                                                                                                                (ExprStmt
+                                                                                                                                  (Closure
+                                                                                                                                    (ExprStmt
+                                                                                                                                      (Closure
+                                                                                                                                        (ExprStmt
+                                                                                                                                          (Closure
+                                                                                                                                            (ExprStmt
+                                                                                                                                              (Closure
+                                                                                                                                                (ExprStmt
+                                                                                                                                                  (Closure
+                                                                                                                                                    (ExprStmt
+                                                                                                                                                      (Closure
+                                                                                                                                                        (ExprStmt
+                                                                                                                                                          (Closure
+                                                                                                                                                            (ExprStmt
+                                                                                                                                                              (Closure
+                                                                                                                                                                (ExprStmt
+                                                                                                                                                                  (Closure
+                                                                                                                                                                    (ExprStmt
+                                                                                                                                                                      (Closure
+                                                                                                                                                                        (ExprStmt
+                                                                                                                                                                          (Closure
+                                                                                                                                                                            (ExprStmt
+                                                                                                                                                                              (Closure
+                                                                                                                                                                                (ExprStmt
+                                                                                                                                                                                  (Closure
+                                                                                                                                                                                    (ExprStmt
+                                                                                                                                                                                      (Closure
+                                                                                                                                                                                        (ExprStmt
+                                                                                                                                                                                          (Closure
+                                                                                                                                                                                            (ExprStmt
+                                                                                                                                                                                              (Closure
+                                                                                                                                                                                                (ExprStmt
+                                                                                                                                                                                                  (Closure
+                                                                                                                                                                                                    (ExprStmt
+                                                                                                                                                                                                      (Closure
+                                                                                                                                                                                                        (ExprStmt
+                                                                                                                                                                                                          (Closure
+                                                                                                                                                                                                            (ExprStmt
+                                                                                                                                                                                                              (Closure
+                                                                                                                                                                                                                (ExprStmt (IntLit 1))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
+// case: census-N2/cast-target-with-one-optional-layer
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName y)
+          (Cast
+            (Name n)
+            as
+            (OptionalType
+              (NamedType (Path Int)))))))))
+
+// case: census-N2/two-optional-layers-in-an-annotation
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (OptionalType
+            (OptionalType
+              (NamedType (Path Int))))
+          (NoneLit))
+        (Let.immutable
+          (BindingName b)
+          (OptionalType
+            (OptionalType
+              (NamedType (Path Int))))
+          (NoneLit))))))
+
+// case: census-N2/double-optional-nested-in-a-cast-target
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Cast
+            (Name x)
+            as
+            (NamedType
+              (Path Vector)
+              (OptionalType
+                (OptionalType
+                  (NamedType (Path Int)))))))))))
+
+// case: census-N2/coalesce-on-a-parenthesized-cast
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName y)
+          (Cast
+            (Coalesce (Name n) ?? (IntLit 9))
+            as
+            (NamedType (Path Int))))
+        (Let.immutable
+          (BindingName z)
+          (Coalesce
+            (Cast
+              (Name n)
+              as
+              (OptionalType
+                (NamedType (Path Int))))
+            ??
+            (IntLit 9)))))))
+
+// case: census-N3/bare-trailing-closure-on-a-free-function
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName r)
+          (Call
+            (Name run)
+            (Closure
+              (ExprStmt (IntLit 10)))))))))
+
+// case: census-N3/trailing-closure-after-a-labelled-argument-list
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName r)
+          (Call.paren-trailing
+            (Name runtag)
+            (Arg.labelled tag (IntLit 5))
+            (Closure
+              (ExprStmt (IntLit 10)))))))))
+
+// case: census-N3/bare-trailing-closure-on-a-method
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName r)
+          (Call
+            (Member
+              (Call.paren
+                (Name Box2)
+                (Arg.labelled n (IntLit 1)))
+              with)
+            (Closure
+              (ExprStmt (IntLit 10)))))))))
+
+// case: census-N4/lend-as-an-unbraced-arm-body
+(File
+  (Declaration.extension
+    (Extension
+      (Path Tree)
+      (ExtensionMember.method
+        (Method child
+          (Param.receiver (Receiver.shared))
+          borrows
+          (RefType.shared
+            (OptionalType
+              (NamedType (Path Int))))
+          (Block
+            (ExprStmt
+              (Match
+                (SelfExpr)
+                (MatchArm
+                  (VariantPat Leaf (NamePat n))
+                  (Lend (Name n)))
+                (MatchArm
+                  (VariantPat Node (BorrowBindPat.let m))
+                  (Lend (Name m)))))))))))
+
+// case: census-N4/lend-in-a-braced-arm-body
+(File
+  (Declaration.extension
+    (Extension
+      (Path Tree)
+      (ExtensionMember.method
+        (Method child
+          (Param.receiver (Receiver.shared))
+          borrows
+          (RefType.shared
+            (OptionalType
+              (NamedType (Path Int))))
+          (Block
+            (ExprStmt
+              (Match
+                (SelfExpr)
+                (MatchArm
+                  (VariantPat Leaf (NamePat n))
+                  (Block
+                    (Lend (Name n))))))))))))
+
+// case: census-N5/closed-brackets-nested-three-deep
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName x)
+          (Binary
+            (IntLit 1)
+            +
+            (Call.paren
+              (Member
+                (Array
+                  (IntLit 2)
+                  (Binary (IntLit 3) + (IntLit 4)))
+                len))))))))
+
+// case: census-N6/float-literals-with-a-digit-on-each-side
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName x) (FloatLit 0.5))
+        (Let.immutable (BindingName y) (FloatLit 1.0))))))
+
+// case: census-N7/terminated-strings-with-escapes
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName a) (StringLit "tab\t quote\" slash\\ brace\{ line\n"))
+        (Let.immutable (BindingName b) (StringLit "spans\x0atwo lines"))))))
+
+// case: census-N8/labelled-call-is-one-call-node
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name print)
+            (Arg.positional
+              (Call.paren
+                (Name f)
+                (Arg.labelled n (IntLit 0))))))
+        (Let.immutable
+          (BindingName h)
+          (Call.paren
+            (Name h)
+            (Arg.labelled b (IntLit 50))))))))
+
+// case: census-N9/prelude-name-declared-in-a-module
+(File
+  (Declaration.enum
+    (Enum JsonValue
+      (Case Null)
+      (Case Num \(
+        (PayloadField n
+          (NamedType (Path Int)))
+        \)))))
+
+// case: census-N9/prelude-name-used-in-a-module
+(File
+  (Declaration.extension
+    (Extension
+      (Path Maker)
+      (ExtensionMember.method
+        (Method static make
+          (Param.plain k
+            (NamedType (Path Int)))
+          (NamedType (Path JsonValue))
+          (Block
+            (ExprStmt
+              (Call.paren
+                (Member (Name JsonValue) Num)
+                (Arg.labelled n (Name k))))))))))
+
+// case: census-N10/cast-to-a-generic-target
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (NamedType
+            (Path Vector)
+            (NamedType (Path Int)))
+          (Array (IntLit 1) (IntLit 2) (IntLit 3)))
+        (Let.immutable
+          (BindingName w)
+          (Cast
+            (Name v)
+            as
+            (NamedType
+              (Path Vector)
+              (NamedType (Path Int)))))))))
+
+// case: census-N11/deep-recursion-is-a-runtime-matter
+(File
+  (Declaration.func
+    (Func down
+      (Param.plain n
+        (NamedType (Path Int)))
+      (NamedType (Path Int))
+      (Block
+        (ExprStmt
+          (If
+            (Binary.pair (Name n) == (IntLit 0))
+            (Block
+              (Return (IntLit 0)))))
+        (ExprStmt
+          (Binary
+            (Call.paren
+              (Name down)
+              (Arg.labelled n
+                (Binary (Name n) - (IntLit 1))))
+            +
+            (IntLit 1)))))))
+
+// case: census-N12/box-chain-declaration
+(File
+  (Declaration.struct
+    (Struct Chain
+      (Field next
+        (OptionalType
+          (NamedType
+            (Path Box)
+            (NamedType (Path Chain))))))))

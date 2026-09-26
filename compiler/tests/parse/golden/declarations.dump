@@ -1,0 +1,498 @@
+// case: syntax.rule.static-head/top-level-static-names-a-static
+(File
+  (Declaration.static
+    (Static.immutable sync
+      (NamedType (Path Int))
+      =
+      (IntLit 0)))
+  (Declaration.static
+    (Static.immutable limit
+      (NamedType (Path Int))
+      =
+      (IntLit 4))))
+
+// case: syntax.rule.static-head/static-method-in-an-extension-and-a-trait
+(File
+  (Declaration.extension
+    (Extension
+      (Path S)
+      (ExtensionMember.method
+        (Method static make
+          (NamedType (Path S))
+          (Block
+            (ExprStmt
+              (Call.paren (Name S))))))))
+  (Declaration.trait
+    (Trait T
+      (Requirement static make
+        (NamedType (Path Self))))))
+
+// case: syntax.rule.static-head/unsafe-static-var
+(File
+  (Declaration.static
+    (Static.unsafe-var counter
+      (NamedType (Path Int))
+      =
+      (IntLit 0))))
+
+// case: syntax.rule.contextual-words/each-word-in-its-position
+(File
+  (Declaration.struct
+    (Struct P
+      (Field private x
+        (NamedType (Path Int)))))
+  (Declaration.type-alias
+    (TypeAlias Alias
+      (NamedType (Path Int))))
+  (Declaration.func
+    (Func g
+      (GenericParam.const N
+        (NamedType (Path Int)))
+      (Param.plain a
+        (AnyType (Path Shape)))
+      (Block))))
+
+// case: syntax.rule.contextual-words/words-are-identifiers-elsewhere
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName private) (IntLit 1))
+        (Let.immutable (BindingName type) (IntLit 2))
+        (Let.immutable (BindingName const) (IntLit 3))
+        (Let.immutable (BindingName any) (IntLit 4))
+        (Let.immutable (BindingName sync) (IntLit 5))
+        (Let.immutable
+          (BindingName consumes)
+          (Binary (Name private) + (Name type) + (Name const) + (Name any) + (Name sync)))))))
+
+// case: syntax.rule.contextual-words/lends-before-self-or-a-name
+(File
+  (Declaration.struct
+    (Struct Cursor
+      (Field buf
+        (RefType.shared
+          (NamedType
+            (Path Vector)
+            (NamedType (Path Int)))))))
+  (Declaration.extension
+    (Extension
+      (Path Cursor)
+      (ExtensionMember.method
+        (Method view
+          (Param.receiver (Receiver.shared))
+          (NamedType (Path Cursor))
+          (Block
+            (ExprStmt
+              (Call.paren
+                (Name Cursor)
+                (Arg.labelled buf
+                  (Lends (SelfExpr))))))))
+      (ExtensionMember.method
+        (Method other
+          (Param.receiver (Receiver.shared))
+          (Param.plain b
+            (RefType.shared
+              (NamedType
+                (Path Vector)
+                (NamedType (Path Int)))))
+          (NamedType (Path Cursor))
+          (Block
+            (ExprStmt
+              (Call.paren
+                (Name Cursor)
+                (Arg.labelled buf
+                  (Lends (Name b)))))))))))
+
+// case: syntax.rule.contextual-words/lends-before-anything-else-is-a-name
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Call.paren
+            (Name lends)
+            (Arg.positional (Name x))))
+        (Let.immutable
+          (BindingName b)
+          (Member (Name lends) count))))))
+
+// case: syntax.rule.contextual-words/static-assert-at-a-statement
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (StaticAssert
+          (Binary.pair
+            (Call.paren
+              (Name sizeof
+                (NamedType (Path Int))))
+            ==
+            (IntLit 8))
+          "Int is 64 bits")))))
+
+// case: syntax.rule.contextual-words/static-assert-at-a-top-level-item
+(File
+  (StaticAssert
+    (Binary.pair (IntLit 1) == (IntLit 1))
+    "arithmetic"))
+
+// case: syntax.rule.contextual-words/static-assert-as-an-arm-body
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name n)
+            (MatchArm
+              (WildcardPat)
+              (StaticAssert
+                (Binary.pair (IntLit 1) == (IntLit 1))
+                "m"))))))))
+
+// case: syntax.rule.contextual-words/static-assert-in-an-expression-is-a-call
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName s)
+          (Call.paren
+            (Name static_assert)
+            (Arg.positional (Name x))))
+        (Let.immutable (BindingName t) (Name static_assert))))))
+
+// case: syntax.rule.contextual-words/static-assert-not-before-a-parenthesis-is-assigned
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign (Name static_assert) (Name x))
+        (CompoundAssign (Name static_assert) += (IntLit 1))
+        (Assign
+          (Member (Name static_assert) b)
+          (Name x))
+        (OptionalAssign.plain
+          (OptionalChain
+            (OptionalMember (Name static_assert) b))
+          (Name x))))))
+
+// case: syntax.rule.contextual-words/import-and-module-are-names-in-a-body
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName import) (IntLit 1))
+        (Let.immutable (BindingName module) (Name import))
+        (Let.immutable (BindingName export) (Name module))))))
+
+// case: syntax.rule.effect-slot/declaration-order
+(File
+  (Declaration.extension
+    (Extension
+      (Path S)
+      (ExtensionMember.method
+        (Method m
+          (Param.receiver (Receiver.exclusive))
+          consumes
+          unsafe
+          sync
+          (NamedType (Path Int))
+          (Block
+            (ExprStmt (IntLit 1)))))
+      (ExtensionMember.method
+        (Method n
+          (Param.receiver (Receiver.shared))
+          unsafe
+          sync
+          borrows
+          (RefType.shared
+            (NamedType (Path Int)))
+          (Block))))))
+
+// case: syntax.rule.effect-slot/constexpr-takes-the-place-of-sync
+(File
+  (Declaration.func
+    (Func f constexpr
+      (NamedType (Path Int))
+      (Block
+        (ExprStmt (IntLit 1)))))
+  (Declaration.func
+    (Func g unsafe constexpr
+      (NamedType (Path Int))
+      (Block
+        (ExprStmt (IntLit 2))))))
+
+// case: syntax.rule.effect-slot/pairs-a-later-stage-refuses
+(File
+  (Declaration.extension
+    (Extension
+      (Path S)
+      (ExtensionMember.method
+        (Method m
+          (Param.receiver (Receiver.exclusive))
+          consumes
+          borrows
+          (RefType.shared
+            (NamedType (Path Int)))
+          (Block)))
+      (ExtensionMember.method
+        (Method n
+          (Param.receiver (Receiver.shared))
+          constexpr
+          sync
+          (NamedType (Path Int))
+          (Block
+            (ExprStmt (IntLit 1)))))
+      (ExtensionMember.method
+        (Method o
+          (Param.receiver (Receiver.shared))
+          constexpr
+          borrows
+          (RefType.shared
+            (NamedType (Path Int)))
+          (Block))))))
+
+// case: syntax.rule.effect-slot/function-type-order
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName g)
+          (FuncType
+            (NamedType (Path Int))
+            unsafe
+            sync
+            escaping
+            borrows
+            (RefType.shared
+              (NamedType (Path Int))))
+          (Name w))
+        (Let.immutable
+          (BindingName h)
+          (FuncType borrows sync
+            (RefType.shared
+              (NamedType (Path Int))))
+          (Name w))))))
+
+// case: syntax.rule.effect-slot/borrows-sync-on-a-method
+(File
+  (Declaration.extension
+    (Extension
+      (Path S)
+      (ExtensionMember.method
+        (Method m
+          (Param.receiver (Receiver.shared))
+          borrows
+          sync
+          (RefType.shared
+            (NamedType (Path Int)))
+          (Block))))))
+
+// case: syntax.rule.subscript-declaration/getitem
+(File
+  (Declaration.extension
+    (Extension
+      (Path Grid)
+      (ExtensionMember.method
+        (Method [ ]
+          (Param.receiver (Receiver.shared))
+          (Param.plain i
+            (NamedType (Path Int)))
+          (NamedType (Path Int))
+          (Block
+            (ExprStmt (IntLit 0))))))))
+
+// case: syntax.rule.subscript-declaration/place-accessor
+(File
+  (Declaration.extension
+    (Extension
+      (Path Grid)
+      (ExtensionMember.method
+        (Method [ ]
+          (Param.receiver (Receiver.shared))
+          (Param.plain i
+            (NamedType (Path Int)))
+          borrows
+          (RefType.exclusive
+            (NamedType (Path Int)))
+          (Block))))))
+
+// case: syntax.rule.subscript-declaration/setitem
+(File
+  (Declaration.extension
+    (Extension
+      (Path Grid)
+      (ExtensionMember.method
+        (Method [ ] =
+          (Param.receiver (Receiver.exclusive))
+          (Param.plain i
+            (NamedType (Path Int)))
+          (Param.plain value
+            (NamedType (Path Int)))
+          (Block))))))
+
+// case: syntax.rule.attribute-position/export-and-section-on-functions-and-statics
+(File
+  (Declaration.func
+    (Attribute.export)
+    (Func a (Block)))
+  (Declaration.func
+    (Attribute.export-symbol "sym_b")
+    (Func b (Block)))
+  (Declaration.static
+    (Attribute.section ".data")
+    (Static.immutable S
+      (NamedType (Path Int))
+      =
+      (IntLit 0))))
+
+// case: syntax.rule.attribute-position/align-on-a-static-and-a-local
+(File
+  (Declaration.static
+    (Attribute.align (IntLit 64))
+    (Static.immutable Buffer
+      (ArrayType
+        (NamedType (Path UInt8))
+        (IntLit 64))
+      =
+      (Repeat (IntLit 0) (IntLit 64))))
+  (Declaration.func
+    (Func f
+      (Block
+        (AttributedLocal
+          (Attribute.align (IntLit 16))
+          (Let.immutable (BindingName x) (IntLit 1)))
+        (AttributedLocal
+          (Attribute.align (IntLit 16))
+          (Let.mutable (BindingName y) (IntLit 2)))))))
+
+// case: syntax.rule.attribute-position/synthesize-on-an-extension
+(File
+  (Declaration.extension
+    (Attribute.synthesize)
+    (Extension (Path P) (Path Equatable))))
+
+// case: syntax.rule.attribute-position/synthesize-shared-on-a-method
+(File
+  (Declaration.extension
+    (Extension
+      (Path Grid)
+      (ExtensionMember.synthesized-method synthesize shared
+        (Method [ ]
+          (Param.receiver (Receiver.shared))
+          (Param.plain i
+            (NamedType (Path Int)))
+          borrows
+          (RefType.exclusive
+            (NamedType (Path Int)))
+          (Block))))))
+
+// case: syntax.rule.attribute-position/two-different-attributes
+(File
+  (Declaration.func
+    (Attribute.export)
+    (Attribute.section ".text")
+    (Visibility.public)
+    (Func f (Block))))
+
+// case: syntax.rule.receiver-and-static/receiver-first-on-a-method
+(File
+  (Declaration.extension
+    (Extension
+      (Path S)
+      (ExtensionMember.method
+        (Method m
+          (Param.receiver (Receiver.shared))
+          (Param.plain x
+            (NamedType (Path Int)))
+          (Block)))
+      (ExtensionMember.method
+        (Method n
+          (Param.receiver (Receiver.exclusive))
+          (Block))))))
+
+// case: syntax.rule.receiver-and-static/static-without-a-receiver
+(File
+  (Declaration.extension
+    (Extension
+      (Path S)
+      (ExtensionMember.method
+        (Method static m
+          (Param.plain x
+            (NamedType (Path Int)))
+          (Block)))))
+  (Declaration.trait
+    (Trait T
+      (Requirement static m
+        (Param.plain x
+          (NamedType (Path Int))))
+      (Requirement n
+        (Param.receiver (Receiver.shared))))))
+
+// case: syntax.rule.extern-abi/c-block
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt puts
+        (Param s
+          (NamedType
+            (Path UnsafePointer)
+            (NamedType (Path UInt8))))
+        (NamedType (Path Int32)))
+      (ExternFunc.blocking read
+        (Param fd
+          (NamedType (Path Int32)))
+        (Param buf
+          (NamedType
+            (Path UnsafePointer)
+            (NamedType (Path UInt8))))
+        (Param n
+          (NamedType (Path Int)))
+        (NamedType (Path Int)))
+      (ExternFunc.prompt printf
+        (Param fmt
+          (NamedType
+            (Path UnsafePointer)
+            (NamedType (Path UInt8))))
+        ...
+        (NamedType (Path Int32))))))
+
+// case: syntax.rule.requirement-borrows/borrows-requirements
+(File
+  (Declaration.trait
+    (Trait Store
+      (Requirement get
+        (Param.receiver (Receiver.shared))
+        (Param.plain k
+          (NamedType (Path Int)))
+        borrows
+        (RefType.shared
+          (NamedType (Path Int))))
+      (Requirement peek
+        (Param.receiver (Receiver.shared))
+        (Param.plain k
+          (NamedType (Path Int)))
+        borrows
+        sync
+        (RefType.shared
+          (NamedType (Path Int)))))))
+
+// case: syntax.rule.import-names/each-local-name-once
+(File
+  (Import.private (Path m) . { (ImportSymbol.name a) (ImportSymbol.alias b c) })
+  (Import.private (Path n) . { (ImportSymbol.alias a b) (ImportSymbol.alias b a) }))
+
+// case: syntax.rule.discard-binding/let-discard
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName _) (Name e))
+        (Let.immutable
+          (BindingName _)
+          (NamedType (Path Int))
+          (Name e))))))

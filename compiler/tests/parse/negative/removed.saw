@@ -1,0 +1,266 @@
+// case: syntax.file.item.refused-export
+export a
+
+// case: syntax.file.item.refused-const
+const a
+
+// case: syntax.file.item.refused-unsafe
+unsafe enum a { }
+
+// case: syntax.file.item.refused-visibility
+private type a = b
+
+// case: syntax.decl.item.refused-static
+static var a: b
+
+// case: syntax.decl.item.refused-array-extension
+extension [a; b] { }
+
+// case: syntax.decl.item.refused-effect-prefix
+unsafe init ()
+
+// case: syntax.decl.import.refused-scoped
+public (a) import b
+
+// case: syntax.decl.param.refused-receiver
+extension a { func b(self) { } }
+
+// case: syntax.decl.trait-member.refused-effect-prefix
+trait a { unsafe init () }
+
+// case: syntax.decl.trait-member.refused-private
+trait a { private static func b() }
+
+// case: syntax.decl.extension-member.refused-effect-prefix
+extension a { unsafe init () }
+
+// case: syntax.decl.extension-member.refused-static
+extension a { static init () { } }
+
+// case: syntax.decl.extension-member.refused-private
+extension a { private static func b() }
+
+// case: syntax.type.type.refused-func-consumes
+type a = () consumes -> b
+
+// case: syntax.type.atom.refused-partial-named
+type a = (b: c, d)
+
+// case: syntax.generic.params.refused-comma
+enum a < b, > { }
+
+// case: syntax.generic.args.refused-comma
+type a = b < c, >
+
+// case: syntax.stmt.non-expr.refused-var-discard
+func a() { var _ = b }
+
+// case: syntax.stmt.non-expr.refused-uninitialized
+func a() { let b: c }
+
+// case: syntax.stmt.non-expr.refused-local-type-alias
+func a() { type b = c }
+
+// case: syntax.stmt.non-expr.refused-local-const
+func a() { const b = c }
+
+// case: syntax.stmt.non-expr.refused-compound-self
+func a() { self += b }
+
+// case: syntax.stmt.non-expr.refused-bare-lend
+func a() { lend }
+
+// case: syntax.expr.compare.refused-chain
+func a() { b == c == d }
+
+// case: syntax.expr.range.refused-ellipsis
+func a() { b ... c }
+
+// case: syntax.expr.prefix.refused-unsafe
+func a() { unsafe b }
+
+// case: syntax.expr.try.refused-route
+func a() { try! (as b.c) d }
+
+// case: syntax.expr.primary.refused-lend-var
+func a() { #lend_var }
+
+// case: syntax.expr.tuple.refused-partial-named
+func a() { (b: c, d) }
+
+// case: syntax.expr.capture.refused-self
+func a() { { [self] in } }
+
+// case: syntax.expr.while-let.refused-else
+func a() { while let b = c { } else { } }
+
+// case: syntax.expr.for.refused-tuple
+func a() { for () in b { } }
+
+// case: syntax.pat.pattern.refused-qualified-variant
+func a() { match b { case c.d -> e } }
+
+// case: syntax.pat.pattern.refused-dot-variant
+func a() { match b { case.c -> d } }
+
+// case: syntax.pat.tuple.refused-named
+func a() { while let (b: c) = d { } }
+
+// case: syntax.decl.refused-effect-prefix.func
+unsafe func a()
+
+// case: syntax.decl.refused-effect-prefix.init
+unsafe init ()
+
+// case: syntax.decl.refused-unsafe-prefix.enum
+unsafe enum a { }
+
+// case: syntax.decl.refused-unsafe-prefix.trait
+unsafe trait a { }
+
+// case: syntax.decl.refused-unsafe-prefix.extension
+unsafe extension a { }
+
+// case: syntax.decl.refused-export.symbol
+export a
+
+// case: syntax.decl.refused-export.alias
+export a as b
+
+// case: syntax.decl.refused-export.glob
+export a.*
+
+// case: syntax.decl.refused-const
+const a
+
+// case: syntax.decl.refused-visibility-prefix.private
+private type a = b
+
+// case: syntax.decl.refused-visibility-prefix.extension
+public extension a { }
+
+// case: syntax.decl.refused-visibility-prefix.attributed-extension
+@export public extension a { }
+
+// case: syntax.decl.refused-static.var-without-unsafe
+static var a: b
+
+// case: syntax.decl.refused-static.unsafe-without-var
+unsafe static a: b
+
+// case: syntax.decl.refused-array-extension
+extension [a; b] { }
+
+// case: syntax.decl.refused-scoped-import
+public (a) import b
+
+// case: syntax.decl.refused-member-static.init
+extension a { static init () { } }
+
+// case: syntax.decl.refused-member-static.before-visibility
+extension a { static public static func b() { } }
+
+// case: syntax.decl.refused-member-private.method
+extension a { private static func []() { } }
+
+// case: syntax.decl.refused-member-private.requirement
+extension a { private static func b() }
+
+// case: syntax.decl.refused-receiver.var-self
+extension a { func b(var self) { } }
+
+// case: syntax.decl.refused-receiver.by-value
+extension a { func b(self) { } }
+
+// case: syntax.decl.refused-receiver.ref-name
+extension a { func b(& c: d) { } }
+
+// case: syntax.decl.refused-receiver.ref-var-name
+extension a { func b(& var c: d) { } }
+
+// case: syntax.decl.refused-escaping
+func a() escaping { }
+
+// case: syntax.type.refused-func-consumes
+type a = () consumes -> b
+
+// case: syntax.type.refused-partial-named-tuple.named-first
+type a = (b: c, d)
+
+// case: syntax.type.refused-partial-named-tuple.positional-first
+type a = (b, c: d)
+
+// case: syntax.generic.refused-param-comma
+enum a < b, > { }
+
+// case: syntax.generic.refused-arg-comma
+type a = b < c, >
+
+// case: syntax.expr.refused-unsafe
+func a() { unsafe b }
+
+// case: syntax.expr.refused-lend-var
+func a() { #lend_var }
+
+// case: syntax.expr.refused-try-route.force
+func a() { try! (as b.c) d }
+
+// case: syntax.expr.refused-try-route.optional
+func a() { try? (as b.c) d }
+
+// case: syntax.expr.refused-try-route.with-catch
+func a() { try (as b.c) d catch { } }
+
+// case: syntax.expr.refused-compare-chain
+func a() { b == c == d }
+
+// case: syntax.expr.refused-ellipsis-range
+func a() { b ... c }
+
+// case: syntax.expr.refused-capture-self.value
+func a() { { [self] in } }
+
+// case: syntax.expr.refused-capture-self.move
+func a() { { [move self] in } }
+
+// case: syntax.expr.refused-partial-named-tuple.named-first
+func a() { (b: c, d) }
+
+// case: syntax.expr.refused-partial-named-tuple.positional-first
+func a() { (b, c: d) }
+
+// case: syntax.expr.refused-while-let-else
+func a() { while let b = c { } else { } }
+
+// case: syntax.expr.refused-for-tuple
+func a() { for () in b { } }
+
+// case: syntax.stmt.refused-var-discard
+func a() { var _ = b }
+
+// case: syntax.stmt.refused-uninitialized.let
+func a() { let b: c }
+
+// case: syntax.stmt.refused-uninitialized.var
+func a() { var b: c }
+
+// case: syntax.stmt.refused-local-type-alias
+func a() { type b = c }
+
+// case: syntax.stmt.refused-local-const
+func a() { const b = c }
+
+// case: syntax.stmt.refused-compound-self
+func a() { self += b }
+
+// case: syntax.stmt.refused-bare-lend
+func a() { lend }
+
+// case: syntax.pat.refused-named-tuple
+func a() { while let (b: c) = d { } }
+
+// case: syntax.pat.refused-qualified-variant
+func a() { match b { case c.d -> e } }
+
+// case: syntax.pat.refused-dot-variant
+func a() { match b { case.c -> d } }

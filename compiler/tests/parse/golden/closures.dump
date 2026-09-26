@@ -1,0 +1,556 @@
+// case: syntax.rule.trailing-closure/bare-on-a-name
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call
+            (Name run)
+            (Closure
+              (ExprStmt (IntLit 10)))))))))
+
+// case: syntax.rule.trailing-closure/on-a-name-with-generic-arguments
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call
+            (Name run
+              (NamedType (Path T)))
+            (Closure
+              (ExprStmt (IntLit 10)))))))))
+
+// case: syntax.rule.trailing-closure/on-a-member
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName d)
+          (Call
+            (Member (Name v) map)
+            (Closure
+              (ExprStmt
+                (Binary (ShorthandParam $0) * (IntLit 2))))))))))
+
+// case: syntax.rule.trailing-closure/on-an-optional-member
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName d)
+          (OptionalChain
+            (Call
+              (OptionalMember (Name v) map)
+              (Closure
+                (ExprStmt
+                  (Binary (ShorthandParam $0) * (IntLit 2)))))))))))
+
+// case: syntax.rule.trailing-closure/on-an-implicit-member
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName r)
+          (NamedType (Path R))
+          (Call
+            (ImplicitMember Run)
+            (Closure
+              (ExprStmt (IntLit 1)))))))))
+
+// case: syntax.rule.trailing-closure/after-an-argument-list
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren-trailing
+            (Name foo)
+            (Arg.positional (IntLit 1))
+            (Closure
+              (ExprStmt (IntLit 2)))))))))
+
+// case: syntax.rule.trailing-closure/line-break-before-the-brace-ends-the-call
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt (Name run))
+        (ExprStmt
+          (Closure
+            (ExprStmt (IntLit 10))))))))
+
+// case: syntax.rule.trailing-closure/general-callee-takes-a-parenthesized-closure
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Call.paren
+              (Call.paren (Name foo))
+              (Arg.positional (IntLit 1)))
+            (Arg.positional
+              (Closure
+                (ExprStmt (IntLit 2))))))))))
+
+// case: syntax.rule.head-restriction/closure-argument-in-a-head
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (Call.paren
+              (Member (Name v) any)
+              (Arg.positional
+                (Closure
+                  (ExprStmt (ShorthandParam $0)))))
+            (Block)))
+        (ExprStmt
+          (While.conditional
+            (Call.paren
+              (Member (Name v) any)
+              (Arg.positional
+                (Closure
+                  (ExprStmt (ShorthandParam $0)))))
+            (Block)))
+        (Guard.condition guard
+          (Call.paren
+            (Member (Name v) any)
+            (Arg.positional
+              (Closure
+                (ExprStmt (ShorthandParam $0)))))
+          else
+          (Block (Return)))))))
+
+// case: syntax.rule.head-restriction/brace-after-a-head-name-begins-the-body
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName x)
+            (Name items)
+            (Block
+              (ExprStmt
+                (Call.paren
+                  (Name g)
+                  (Arg.positional (Name x)))))))
+        (ExprStmt
+          (Match
+            (Name mode)
+            (MatchArm (WildcardPat) (IntLit 1))))
+        (ExprStmt
+          (If
+            (LetArm.let (BindingName x) (Name y))
+            (Block)))))))
+
+// case: syntax.rule.head-restriction/generic-list-in-a-head-kept-by-a-call
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (Call.paren
+              (Name a
+                (NamedType (Path b))))
+            (Block)))))))
+
+// case: syntax.rule.head-reset/inside-parentheses
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (Call
+              (Member (Name v) any)
+              (Closure
+                (ExprStmt
+                  (Binary.pair (ShorthandParam $0) > (IntLit 1)))))
+            (Block)))))))
+
+// case: syntax.rule.head-reset/inside-an-argument-list
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (Call.paren
+              (Name f)
+              (Arg.positional
+                (Call
+                  (Member (Name v) map)
+                  (Closure
+                    (ExprStmt (ShorthandParam $0))))))
+            (Block)))))))
+
+// case: syntax.rule.head-reset/inside-a-subscript
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (While.conditional
+            (Subscript.single
+              (Name a)
+              (Call
+                (Member (Name v) first)
+                (Closure
+                  (ExprStmt (ShorthandParam $0)))))
+            (Block)))))))
+
+// case: syntax.rule.head-reset/inside-an-array-and-a-tuple
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName x)
+            (Array
+              (Call
+                (Member (Name v) map)
+                (Closure
+                  (ExprStmt (ShorthandParam $0))))
+              (TupleIndex
+                (Tuple.positional
+                  (Call
+                    (Member (Name w) map)
+                    (Closure
+                      (ExprStmt (ShorthandParam $0))))
+                  (IntLit 1))
+                0))
+            (Block)))))))
+
+// case: syntax.rule.head-reset/inside-an-interpolation-segment
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (Binary.pair
+              (Interp
+                (Call
+                  (Member (Name v) map)
+                  (Closure
+                    (ExprStmt (ShorthandParam $0)))))
+              ==
+              (Name s))
+            (Block)))))))
+
+// case: syntax.rule.head-reset/inside-a-closure-body
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (Call.paren
+              (Member (Name v) all)
+              (Arg.positional
+                (Closure
+                  (ClosureParam.value x)
+                  in
+                  (ExprStmt
+                    (Call
+                      (Member (Name x) any)
+                      (Closure
+                        (ExprStmt (ShorthandParam $0))))))))
+            (Block)))))))
+
+// case: syntax.rule.head-reset/inside-a-nested-match
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (While.conditional
+            (Match
+              (Name mode)
+              (MatchArm
+                (NamePat Draining)
+                (Call
+                  (Member (Name queue) any)
+                  (Closure
+                    (ExprStmt
+                      (Member (ShorthandParam $0) urgent)))))
+              (MatchArm (WildcardPat) (BoolLit.false)))
+            (Block
+              (ExprStmt
+                (Call.paren (Name step))))))))))
+
+// case: syntax.rule.head-reset/inside-a-nested-if-block
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (If
+              (Name c)
+              (Block
+                (ExprStmt
+                  (Call
+                    (Member (Name v) any)
+                    (Closure
+                      (ExprStmt (ShorthandParam $0))))))
+              else
+              (Block
+                (ExprStmt (BoolLit.false))))
+            (Block)))))))
+
+// case: syntax.rule.head-reset/inside-try-and-catch-blocks-in-a-head
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (While.conditional
+            (TryBlock
+              (Block
+                (ExprStmt
+                  (Call
+                    (Member (Name v) any)
+                    (Closure
+                      (ExprStmt (ShorthandParam $0))))))
+              (Block
+                (ExprStmt
+                  (Call
+                    (Member (Name w) any)
+                    (Closure
+                      (ExprStmt (ShorthandParam $0)))))))
+            (Block)))))))
+
+// case: syntax.rule.head-reset/inside-a-loop-body-in-a-head
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (Binary.pair
+              (For.plain
+                (BindingName x)
+                (Name v)
+                (Block
+                  (ExprStmt
+                    (Call
+                      (Member (Name x) each)
+                      (Closure
+                        (ExprStmt (ShorthandParam $0)))))))
+              ==
+              (Tuple.unit))
+            (Block)))))))
+
+// case: syntax.rule.head-reset/inside-a-while-body-in-a-head
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (Binary.pair
+              (While.conditional
+                (Name a)
+                (Block
+                  (ExprStmt
+                    (Call
+                      (Member (Name v) each)
+                      (Closure
+                        (ExprStmt (ShorthandParam $0)))))))
+              ==
+              (Tuple.unit))
+            (Block)))))))
+
+// case: syntax.rule.head-reset/inside-a-borrow-block-in-a-head
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (BorrowBlock
+              (BorrowBinding.let
+                (BindingName e)
+                (Subscript.single (Name m) (Name k)))
+              (Block
+                (ExprStmt
+                  (Call
+                    (Member (Name e) all)
+                    (Closure
+                      (ExprStmt (ShorthandParam $0)))))))
+            (Block)))))))
+
+// case: syntax.rule.brace/empty-map
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName m) (Map.empty))))))
+
+// case: syntax.rule.brace/closure-with-a-parameter-head
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (ClosureParam.value n)
+            in
+            (ExprStmt
+              (Binary (Name n) + (IntLit 1)))))
+        (Let.immutable
+          (BindingName d)
+          (Closure
+            (ClosureParam.value n
+              (NamedType (Path Int)))
+            in
+            (ExprStmt
+              (Binary (Name n) + (IntLit 1)))))
+        (Let.immutable
+          (BindingName e)
+          (Closure
+            (ClosureParam.ref-exclusive acc)
+            (ClosureParam.value x)
+            in
+            (ExprStmt (Name acc))))))))
+
+// case: syntax.rule.brace/closure-with-a-capture-list
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName d)
+          (Closure
+            (Capture.value a)
+            in
+            (ExprStmt (Name a))))
+        (Let.immutable
+          (BindingName e)
+          (Closure
+            (Capture.value a)
+            (Capture.move b)
+            (ClosureParam.value n
+              (NamedType (Path Int)))
+            in
+            (ExprStmt
+              (Binary (Name n) + (Name a)))))))))
+
+// case: syntax.rule.brace/map-by-its-first-colon
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName g)
+          (Map.entries
+            (MapEntry (Name a) (IntLit 1))
+            (MapEntry (Name b) (IntLit 2))))))))
+
+// case: syntax.rule.brace/set-by-its-first-comma
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName h)
+          (Set (Name a) (Name b)))))))
+
+// case: syntax.rule.brace/empty-braces-and-a-lone-expression-are-closures
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName i) (Closure))
+        (Let.immutable
+          (BindingName j)
+          (Closure
+            (ExprStmt (Name a))))))))
+
+// case: syntax.rule.brace/comma-inside-a-call-leaves-a-closure
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (ExprStmt
+              (Call.paren
+                (Name g)
+                (Arg.positional (Name a))
+                (Arg.positional (Name b))))))))))
+
+// case: syntax.rule.brace/colon-inside-a-call-leaves-a-closure
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (ExprStmt
+              (Call.paren
+                (Name g)
+                (Arg.labelled a (IntLit 1))))))))))
+
+// case: syntax.rule.brace/statement-body-is-a-closure
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName l)
+          (Closure
+            (Let.immutable (BindingName x) (IntLit 1))
+            (ExprStmt (Name x))))))))
+
+// case: syntax.rule.brace/arm-body-brace-is-a-block
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name n)
+            (MatchArm
+              (WildcardPat)
+              (Block
+                (ExprStmt (Name a))))))))))
+
+// case: syntax.rule.brace/parenthesized-closure-in-an-arm-body
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name n)
+            (MatchArm
+              (LiteralPat.int 0)
+              (Closure
+                (ExprStmt (Name a))))
+            (MatchArm
+              (WildcardPat)
+              (Map.entries
+                (MapEntry (Name a) (IntLit 1))))))))))
+
+// case: syntax.rule.brace/statement-start-brace-is-a-closure
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Closure
+            (ExprStmt (Name a))))))))

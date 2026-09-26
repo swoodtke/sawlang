@@ -1,0 +1,108 @@
+// case: syntax.lex.doc-attach/every-documentable-declaration
+//! The module.
+//! Its second line.
+
+/// A function.
+public func f() {
+}
+
+/// A static.
+static S: Int = 0
+
+/// A struct.
+struct P {
+    /// A field.
+    x: Int
+}
+
+/// An enum.
+enum E {
+    /// A case.
+    case A
+}
+
+/// A trait.
+trait T {
+    /// A requirement.
+    func m(&self)
+}
+
+/// An extension.
+extension P {
+    /// A method.
+    func m(&self) {
+    }
+    /// An initializer.
+    init() {
+    }
+}
+
+/// An alias.
+type Alias = Int
+
+// case: syntax.lex.doc-attach/attributes-between-doc-and-declaration
+/// Exported.
+@export
+public func f() {
+}
+
+// case: syntax.lex.doc-attach/four-slashes-and-trailing-slashes-are-comments
+//// Not a doc comment.
+func f() { /// Not a doc comment either.
+}
+
+// case: syntax.lex.module-doc/before-the-first-token
+
+//! After a blank line, still before the first token.
+import m
+
+// case: syntax.lex.shift-adjacent/touching-halves-shift
+func f() {
+    let a = b << 2 >> c
+    x <<= 1
+    x >>= 1
+}
+
+// case: syntax.lex.double-question/two-layers-in-a-type-coalesce-in-an-expression
+func f() {
+    let a: Int?? = b ?? c
+}
+
+// case: syntax.lex.tuple-index/digits-after-a-dot
+func f() {
+    let a = t.0.1
+    let b = 7.to_string()
+    let c = 1..=9
+}
+
+// case: syntax.lex.float-point/digit-on-each-side
+func f() {
+    let a = 0.5
+    let b = 7.to_string()
+}
+
+// case: syntax.lex.int-range/literals-that-fit
+func f() {
+    let a = 18446744073709551615
+    let b = 255u8
+    let c = 0xFF_u8
+    let d = 0b1010
+    let e = 0o777
+    let g = 1_000_000
+}
+
+// case: syntax.lex.escape/every-escape
+func f() {
+    let s = "\\ \" \n \t \r \0 \u{1F600} \{ \}"
+}
+
+// case: syntax.lex.directive/source-location-literals
+func f() {
+    print(#file, #line, #function)
+}
+
+// case: syntax.lex.longest-match/operators-by-longest-match
+func f() {
+    let a = b &+ c &- d &* e
+    let f = p?.q ?? r
+}

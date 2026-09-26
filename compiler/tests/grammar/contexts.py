@@ -15,8 +15,10 @@ import extract
 INHERIT = "<inherit>"
 PAREN = "<inherit, parenthesized>"
 # The context a block gives its statements, by what owns the block; its last
-# expression statement is `tail` whatever the owner.
+# expression statement is `tail` whatever the owner, unless a loop starts it
+# (LOOP_WORDS), which makes it a statement (syntax.rule.block-tail).
 BLOCK_KINDS = ("stmt", "clos", "catch")
+LOOP_WORDS = ("while", "for")
 
 # Occurrences written through a production or alternative that is not itself a
 # matrix row: the constant grammar, the assignment target's bare name, and the
@@ -210,7 +212,8 @@ class Walker:
             for n, k in enumerate(stmts):
                 last = n == len(stmts) - 1
                 is_expr = self.g.info[k.nt].alternatives[k.ai].effective_name \
-                    == "syntax.stmt.statement.expr"
+                    == "syntax.stmt.statement.expr" \
+                    and self.tokens[k.i].value not in LOOP_WORDS
                 out.append((k, "tail" if last and is_expr else kind, False))
             return out
         if nt == "try-block":

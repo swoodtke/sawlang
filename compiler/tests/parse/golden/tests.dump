@@ -1,0 +1,105 @@
+// case: syntax.rule.test-form/string-makes-a-case
+(File
+  (TestCase.run "adds two numbers"
+    (Block
+      (ExprStmt
+        (Call.paren
+          (Name assert)
+          (Arg.positional
+            (Binary.pair
+              (Binary (IntLit 1) + (IntLit 1))
+              ==
+              (IntLit 2))))))))
+
+// case: syntax.rule.test-form/brace-makes-a-group
+(File
+  (TestGroup
+    (Import.private (Path helpers))
+    (Declaration.func
+      (Func helper
+        (NamedType (Path Int))
+        (Block
+          (ExprStmt (IntLit 1)))))
+    (TestCase.run "uses the helper"
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name assert)
+            (Arg.positional
+              (Binary.pair
+                (Call.paren (Name helper))
+                ==
+                (IntLit 1)))))))))
+
+// case: syntax.rule.test-form/declaration-becomes-test-only
+(File
+  (TestOnly.item
+    (Declaration.func
+      (Func helper
+        (NamedType (Path Int))
+        (Block
+          (ExprStmt (IntLit 1))))))
+  (TestOnly.import
+    (Import.private (Path helpers))))
+
+// case: syntax.rule.test-form/panics-warns-and-refuses-on-a-case
+(File
+  (TestCase.panics panics "index.bounds" "out of range"
+    (Block
+      (Let.immutable
+        (BindingName v)
+        (Array (IntLit 1)))
+      (ExprStmt
+        (Subscript.single (Name v) (IntLit 2)))))
+  (TestCase.warns warns "shadowed-qualifier" "warns" (Block))
+  (TestCase.warns warns none "warns nothing" (Block))
+  (TestCase.refuses refuses "syntax.rule.juxtaposition" text "two statements" at 2 "refused" (RefusalBody \x0a x = 1 y \x0a)))
+
+// case: syntax.rule.test-form/documented-test-only-declaration
+(File
+  (TestOnly.item
+    (Declaration.func
+      (Doc "A test-only helper.")
+      (Func helper (Block)))))
+
+// case: syntax.rule.test-form/test-before-other-attributes
+(File
+  (TestOnly.item
+    (Declaration.func
+      (Attribute.export)
+      (Func f (Block)))))
+
+// case: syntax.rule.refusal-body/body-is-matched-by-braces
+(File
+  (TestCase.refuses refuses "syntax.rule.statement-separator" "a stray semicolon" (RefusalBody \x0a let x = 1 ; \x0a { nested { } } \x0a)))
+
+// case from refusal-unit: syntax.rule.refusal-body/statements-parse-in-a-test-build
+(RefusalUnit
+  (Let.immutable
+    (BindingName a)
+    (NamedType (Path Int))
+    (StringLit "text"))
+  (ExprStmt
+    (Call.paren
+      (Member (Name a) push)
+      (Arg.positional (IntLit 1)))))
+
+// case from refusal-unit: syntax.rule.refusal-body/declarations-parse-in-a-test-build
+(RefusalUnit
+  (Declaration.struct
+    (Struct Q
+      (Field x
+        (NamedType (Path Int)))))
+  (Declaration.func
+    (Func g (Block))))
+
+// case from refusal-unit: syntax.rule.refusal-body/declarations-and-statements-mix
+(RefusalUnit
+  (Declaration.func
+    (Func g (Block)))
+  (ExprStmt
+    (Call.paren (Name g)))
+  (Let.immutable (BindingName x) (IntLit 1)))
+
+// case from refusal-unit: syntax.rule.refusal-body/empty-body
+(RefusalUnit)

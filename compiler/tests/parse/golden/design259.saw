@@ -1,0 +1,120 @@
+// case: design259-R1/closure-called-in-an-initializer
+func f() {
+    let x = { 1 }()
+}
+
+// case: design259-R1/closure-called-at-a-statement-start
+// There is no bare block statement: the brace opens a closure, and the call
+// applies to it.
+func f() {
+    { 1 }()
+}
+
+// case: design259-R1/closure-called-as-an-argument
+func f() {
+    g({ 1 }(), { x in x }(2))
+}
+
+// case: design259-R2/leading-minus-after-a-closed-block
+// A line break after a construct that ends in `}` ends the statement, so the
+// minus starts a statement of its own (syntax.rule.leading-minus).
+func f() -> Int {
+    if c { return 1 }
+    -1
+}
+
+// case: design259-R2/minus-after-an-if-on-its-line
+func f() -> Int {
+    if c { 1 } else { 2 } - 1
+}
+
+// case: design259-R3/line-ending-in-an-operator-continues
+func f() {
+    let x = a +
+        b
+    let y = p &&
+        q
+    let z = o ??
+        d
+}
+
+// case: design259-R3/line-starting-with-an-operator-is-a-statement
+func f() {
+    let y = a
+    - b
+}
+
+// case: design259-R3/line-starting-with-a-dot-is-an-implicit-member
+func f() {
+    let n = s
+    .len()
+}
+
+// case: design259-R4/nesting-at-the-depth-limit
+func f() {
+    let x = ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+}
+
+// case: design259-R5/cast-target-spelling-is-not-spacing
+// `Int?` is the one optional layer a cast target takes; the refused
+// spellings, spaced or not, are in the negative corpus.
+func f() {
+    let y = n as Int?
+    let z = n as Int ?
+}
+
+// case: design259-R6/bare-trailing-closure-on-a-free-function
+func f() {
+    run { 10 }
+}
+
+// case: design259-R7/every-transfer-as-an-unbraced-arm
+func f() -> Int {
+    while true {
+        match n {
+            case 0 -> return 1
+            case 1 -> break
+            case 2 -> continue
+            case _ -> g()
+        }
+    }
+    0
+}
+
+// case: design259-R7/lend-as-an-unbraced-arm
+extension Box {
+    func get(&self) borrows -> &Int {
+        match self {
+            case Full(borrow let v) -> lend v
+            case _ -> lend self.fallback
+        }
+    }
+}
+
+// case: design259-R7/statement-arms-in-a-value-match
+func f() -> Int {
+    let v = match n {
+        case 0 -> return 1,
+        case _ -> 2
+    }
+    v
+}
+
+// case: design259-R7/inert-let-arm
+func f() {
+    match n {
+        case _ -> let x = 5
+    }
+}
+
+// case: design259-R7/comma-after-a-statement-arm
+func f() {
+    match n { case 0 -> return, case _ -> g() }
+}
+
+// case: design259-R8/labelled-call-is-one-call-node
+func f() {
+    let a = f(n: 0)
+    let b = Point(x: 1, y: 2)
+    let c = f(a: 1, 2)
+}

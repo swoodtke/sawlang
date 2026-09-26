@@ -1,0 +1,153 @@
+// case: syntax.rule.generic-or-less/kept-before-a-call
+func f() {
+    let a = f<T>(x)
+    let d = a.b<T>(x)
+    let e = a?.b<T>()
+}
+
+// case: syntax.rule.generic-or-less/kept-before-a-member
+func f() {
+    let b = Vector<Int>.new()
+}
+
+// case: syntax.rule.generic-or-less/kept-before-a-trailing-closure
+func f() {
+    let c = run<T> { 1 }
+}
+
+// case: syntax.rule.generic-or-less/spaced-list-before-a-call-is-kept
+// `f < g > (x)` is the generic call `f<g>(x)`, and so is `a < b, c > (d)`
+// in an argument list.
+func f() {
+    let x = f < g > (x)
+    show(a < b, c > (d))
+}
+
+// case: syntax.rule.generic-or-less/re-read-as-comparisons
+func f() {
+    let x = a < b
+    let y = (a < b, c > d)
+    ok = n < max
+    big = m > 0
+}
+
+// case: syntax.rule.generic-or-less/kept-list-ignores-line-breaks
+func f() {
+    let v = Vector<
+        Int>()
+}
+
+// case: syntax.rule.generic-or-less/parenthesized-comparison
+func f() {
+    let t = f((a < b), (c > d))
+}
+
+// case: syntax.rule.generic-or-less/cast-target-list-kept
+func f() {
+    g(x as T<a, b> - c)
+    let p = n as UnsafePointer<UInt8>
+}
+
+// case: syntax.rule.generic-or-less/cast-target-list-before-a-question-or-another-cast
+func f() {
+    let o = x as Box<Int>?
+    let d = x as Box<Int> as Any
+}
+
+// case: syntax.rule.generic-or-less/cast-target-list-before-a-closing-parenthesis
+func f() {
+    g(x as Vector<Int>)
+}
+
+// case: syntax.rule.generic-or-less/cast-target-list-before-a-closing-bracket
+func f() {
+    let a = [x as Vector<Int>]
+}
+
+// case: syntax.rule.generic-or-less/cast-target-list-before-a-closing-brace
+func f() {
+    let c = { x as Vector<Int> }
+}
+
+// case: syntax.rule.generic-or-less/cast-target-list-before-a-comma
+func f() {
+    g(x as Vector<Int>, 1)
+}
+
+// case: syntax.rule.generic-or-less/cast-target-list-before-a-semicolon
+func f() {
+    a = x as Vector<Int>; b = 1
+}
+
+// case: syntax.rule.generic-or-less/cast-target-list-before-else
+func f() {
+    guard let z = y as Box<Int> else {
+        return
+    }
+}
+
+// case: syntax.rule.generic-or-less/cast-target-less-compares
+func f() {
+    let b = n as Int < lim
+    let t = (n as Count < lim, m >= 0)
+}
+
+// case: syntax.rule.generic-or-less/type-list-always-opens
+func f() {
+    let v: Vector<Int> = w
+    let m: Map<String, Vector<Int>> = w
+}
+
+// case: syntax.rule.generic-close-split/one-list-closed-by-greater-equal
+func f() {
+    let v: Vector<Int>= w
+}
+
+// case: syntax.rule.generic-close-split/two-lists-closed-by-shift-assign
+func f() {
+    let m: Map<K, Vector<V>>= w
+}
+
+// case: syntax.rule.generic-close-split/two-lists-closed-by-two-greaters
+func f() {
+    let v: Vector<Vector<Int>> = w
+}
+
+// case: syntax.rule.generic-close-split/longest-match-elsewhere
+func f() {
+    let c = o!= 5
+    let d = a&-b
+    let e = a >= b
+}
+
+// case: syntax.rule.generic-arg-value/integer-and-negation-are-values
+func f() {
+    let b: Ring<8> = w
+    let c: Ring<-1> = w
+}
+
+// case: syntax.rule.generic-arg-value/type-then-operator-is-a-value
+func f() {
+    let a: Ring<N + 1> = w
+    let g: A<N * 2 - M % 3> = w
+}
+
+// case: syntax.rule.generic-arg-value/layout-query-is-a-value
+func f() {
+    let d: Ring<sizeof<UInt64>()> = w
+    let e: Ring<alignof<UInt64>()> = w
+}
+
+// case: syntax.rule.generic-arg-value/bare-name-is-a-type
+func f() {
+    let e: A<N> = w
+    let h: A<(N)> = w
+}
+
+// case: syntax.rule.generic-arg-value/const-parameter-default
+func f<const N: Int = 4 * 2>() {
+}
+
+// case: syntax.rule.generic-or-less/cast-target-list-at-the-end-of-input
+// This case ends the file with no line break, so the end of input follows the list.
+static a: Int = x as Vector<Int>

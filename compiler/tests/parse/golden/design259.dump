@@ -1,0 +1,253 @@
+// case: design259-R1/closure-called-in-an-initializer
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName x)
+          (Call.paren
+            (Closure
+              (ExprStmt (IntLit 1)))))))))
+
+// case: design259-R1/closure-called-at-a-statement-start
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Closure
+              (ExprStmt (IntLit 1)))))))))
+
+// case: design259-R1/closure-called-as-an-argument
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name g)
+            (Arg.positional
+              (Call.paren
+                (Closure
+                  (ExprStmt (IntLit 1)))))
+            (Arg.positional
+              (Call.paren
+                (Closure
+                  (ClosureParam.value x)
+                  in
+                  (ExprStmt (Name x)))
+                (Arg.positional (IntLit 2))))))))))
+
+// case: design259-R2/leading-minus-after-a-closed-block
+(File
+  (Declaration.func
+    (Func f
+      (NamedType (Path Int))
+      (Block
+        (ExprStmt
+          (If
+            (Name c)
+            (Block
+              (Return (IntLit 1)))))
+        (ExprStmt
+          (Unary.negate (IntLit 1)))))))
+
+// case: design259-R2/minus-after-an-if-on-its-line
+(File
+  (Declaration.func
+    (Func f
+      (NamedType (Path Int))
+      (Block
+        (ExprStmt
+          (Binary
+            (If
+              (Name c)
+              (Block
+                (ExprStmt (IntLit 1)))
+              else
+              (Block
+                (ExprStmt (IntLit 2))))
+            -
+            (IntLit 1)))))))
+
+// case: design259-R3/line-ending-in-an-operator-continues
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName x)
+          (Binary (Name a) + (Name b)))
+        (Let.immutable
+          (BindingName y)
+          (Binary (Name p) && (Name q)))
+        (Let.immutable
+          (BindingName z)
+          (Coalesce (Name o) ?? (Name d)))))))
+
+// case: design259-R3/line-starting-with-an-operator-is-a-statement
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName y) (Name a))
+        (ExprStmt
+          (Unary.negate (Name b)))))))
+
+// case: design259-R3/line-starting-with-a-dot-is-an-implicit-member
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName n) (Name s))
+        (ExprStmt
+          (Call.paren (ImplicitMember len)))))))
+
+// case: design259-R4/nesting-at-the-depth-limit
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName x) (IntLit 1))))))
+
+// case: design259-R5/cast-target-spelling-is-not-spacing
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName y)
+          (Cast
+            (Name n)
+            as
+            (OptionalType
+              (NamedType (Path Int)))))
+        (Let.immutable
+          (BindingName z)
+          (Cast
+            (Name n)
+            as
+            (OptionalType
+              (NamedType (Path Int)))))))))
+
+// case: design259-R6/bare-trailing-closure-on-a-free-function
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call
+            (Name run)
+            (Closure
+              (ExprStmt (IntLit 10)))))))))
+
+// case: design259-R7/every-transfer-as-an-unbraced-arm
+(File
+  (Declaration.func
+    (Func f
+      (NamedType (Path Int))
+      (Block
+        (ExprStmt
+          (While.conditional
+            (BoolLit.true)
+            (Block
+              (ExprStmt
+                (Match
+                  (Name n)
+                  (MatchArm
+                    (LiteralPat.int 0)
+                    (Return (IntLit 1)))
+                  (MatchArm (LiteralPat.int 1) (Break))
+                  (MatchArm (LiteralPat.int 2) (Continue))
+                  (MatchArm
+                    (WildcardPat)
+                    (Call.paren (Name g))))))))
+        (ExprStmt (IntLit 0))))))
+
+// case: design259-R7/lend-as-an-unbraced-arm
+(File
+  (Declaration.extension
+    (Extension
+      (Path Box)
+      (ExtensionMember.method
+        (Method get
+          (Param.receiver (Receiver.shared))
+          borrows
+          (RefType.shared
+            (NamedType (Path Int)))
+          (Block
+            (ExprStmt
+              (Match
+                (SelfExpr)
+                (MatchArm
+                  (VariantPat Full (BorrowBindPat.let v))
+                  (Lend (Name v)))
+                (MatchArm
+                  (WildcardPat)
+                  (Lend
+                    (Member (SelfExpr) fallback)))))))))))
+
+// case: design259-R7/statement-arms-in-a-value-match
+(File
+  (Declaration.func
+    (Func f
+      (NamedType (Path Int))
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Match
+            (Name n)
+            (MatchArm
+              (LiteralPat.int 0)
+              (Return (IntLit 1)))
+            (MatchArm (WildcardPat) (IntLit 2))))
+        (ExprStmt (Name v))))))
+
+// case: design259-R7/inert-let-arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name n)
+            (MatchArm
+              (WildcardPat)
+              (Let.immutable (BindingName x) (IntLit 5)))))))))
+
+// case: design259-R7/comma-after-a-statement-arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name n)
+            (MatchArm (LiteralPat.int 0) (Return))
+            (MatchArm
+              (WildcardPat)
+              (Call.paren (Name g)))))))))
+
+// case: design259-R8/labelled-call-is-one-call-node
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Call.paren
+            (Name f)
+            (Arg.labelled n (IntLit 0))))
+        (Let.immutable
+          (BindingName b)
+          (Call.paren
+            (Name Point)
+            (Arg.labelled x (IntLit 1))
+            (Arg.labelled y (IntLit 2))))
+        (Let.immutable
+          (BindingName c)
+          (Call.paren
+            (Name f)
+            (Arg.labelled a (IntLit 1))
+            (Arg.positional (IntLit 2))))))))

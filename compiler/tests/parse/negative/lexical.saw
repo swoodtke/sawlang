@@ -1,0 +1,125 @@
+// case: syntax.lex.ascii-identifier/non-ascii-letter-starting-a-name
+func f() {
+    let π = 3
+}
+
+// case: syntax.lex.module-doc/after-the-first-token
+func f() {
+}
+//! Too late.
+
+// case: syntax.lex.doc-attach/doc-before-an-import
+/// An import is not documented.
+import m
+
+// case: syntax.lex.doc-attach/doc-before-a-local
+func f() {
+    /// A local.
+    let b = 1
+}
+
+// case: syntax.lex.doc-attach/doc-at-the-end-of-input
+func f() {
+}
+/// Nothing follows.
+
+// case: syntax.lex.doc-attach/doc-before-an-extern-function
+extern "C" {
+    /// A C function.
+    func g()
+}
+
+// case: syntax.lex.doc-attach/doc-between-an-attribute-and-its-declaration
+@export
+/// Exported.
+public func f() {
+}
+
+// case: syntax.lex.shift-adjacent/spaced-shift
+func f() {
+    let s = a < < 2
+}
+
+// case: syntax.lex.float-point/trailing-point
+func f() {
+    let x = 1.
+}
+
+// case: syntax.lex.float-point/leading-point
+func f() {
+    let x = .5
+}
+
+// case: syntax.lex.int-range/literal-past-its-suffix
+func f() {
+    let a = 256u8
+}
+
+// case: syntax.lex.escape/unknown-escape
+func f() {
+    let s = "\q"
+}
+
+// case: syntax.lex.directive/unknown-directive
+func f() {
+    let a = #column
+}
+
+// case: syntax.lex.directive/lend-var-is-refused
+extension P {
+    func m(&self) borrows -> &Int {
+        if #lend_var {
+        }
+    }
+}
+
+// case: syntax.lex.unterminated-string/no-closing-quote
+func f() {
+    let a = "no closing quote
+}
+
+// case: syntax.lex.unclosed-bracket/unclosed-parenthesis
+// an unclosed bracket, refused at its opener
+func f() {
+    let x = (1 + 2
+}
+
+// case: syntax.lex.unclosed-bracket/unclosed-brace
+// an unclosed bracket, refused at its opener
+func a() {
+    let x = 1
+
+func b() {
+}
+
+// case: syntax.lex.int-range/literal-past-64-bits
+func f() {
+    let a = 18446744073709551616
+}
+
+// case: syntax.lex.escape/surrogate-scalar
+func f() {
+    let s = "\u{D800}"
+}
+
+// case: syntax.lex.escape/scalar-past-the-maximum
+func f() {
+    let s = "\u{110000}"
+}
+
+// case: syntax.lex.escape/unicode-escape-with-no-digits
+func f() {
+    let s = "\u{}"
+}
+
+// case: syntax.lex.unterminated-string/closing-quote-swallowed-by-an-interpolation
+// The segment's odd quote swallows the literal's closing quote.
+func f() {
+    let s = "a {"b} c"
+}
+
+// case: syntax.lex.unclosed-bracket/unclosed-square-bracket
+// an unclosed bracket, refused at its opener
+func f() {
+    let x = [1, 2
+}

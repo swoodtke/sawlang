@@ -1,0 +1,29 @@
+// case: syntax.rule.compare-chain/less-than-chain
+refuses syntax.expr.refused-compare-chain
+
+// case: syntax.rule.compare-chain/equality-chain
+refuses syntax.expr.refused-compare-chain
+
+// case: syntax.rule.compare-chain/chain-across-a-line
+refuses syntax.expr.refused-compare-chain
+
+// case: syntax.rule.try-extent/catch-after-a-cast
+refuses parse-error at 3:28
+
+// case: syntax.rule.cast-target-question/second-optional-token-after-a-cast
+refuses syntax.rule.cast-target-question at 2:23
+
+// case: syntax.rule.cast-target-question/double-optional-token-after-a-cast
+refuses syntax.rule.cast-target-question at 2:21
+
+// case: syntax.rule.cast-target-question/coalesce-after-an-optional-cast
+refuses syntax.rule.cast-target-question at 2:23
+
+// case: syntax.rule.cast-target-question/coalesce-touching-a-cast-target
+refuses syntax.rule.cast-target-question at 2:21
+
+// case: syntax.rule.cast-target-question/coalesce-after-a-cast
+refuses syntax.rule.cast-target-question at 2:22
+
+// case: syntax.rule.cast-target-question/coalesce-after-a-generic-cast-target
+refuses syntax.rule.cast-target-question at 2:27

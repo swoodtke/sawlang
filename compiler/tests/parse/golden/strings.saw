@@ -1,0 +1,35 @@
+// case: syntax.rule.interpolation-segment/expression-segments
+func f() {
+    let s = "a {x} b {g(y) + 1} c"
+}
+
+// case: syntax.rule.interpolation-segment/format-placeholder
+func f() {
+    print("x = {}, y = {}", x, y)
+}
+
+// case: syntax.rule.interpolation-segment/nested-interpolation
+func f() {
+    print("nested: {"inner {a}"}")
+}
+
+// case: syntax.rule.interpolation-segment/value-if-in-a-segment
+func f() {
+    print("{if a > 0 { 1 } else { 2 }}")
+}
+
+// case: syntax.rule.interpolation-segment/head-restriction-stays-outside
+func f() {
+    if "{v.map { $0 }}" == s {
+    }
+}
+
+// case: syntax.rule.interpolation-segment/escaped-braces-are-text
+func f() {
+    let s = "\{ {x} \}"
+}
+
+// case: syntax.rule.interpolation-whole/one-expression-per-segment
+func f() {
+    let s = "{a.b(c)[0]}"
+}

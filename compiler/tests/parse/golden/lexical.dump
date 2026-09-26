@@ -1,0 +1,169 @@
+// case: syntax.lex.doc-attach/every-documentable-declaration
+(File
+  (Doc "The module." "Its second line.")
+  (Declaration.func
+    (Doc "A function.")
+    (Visibility.public)
+    (Func f (Block)))
+  (Declaration.static
+    (Doc "A static.")
+    (Static.immutable S
+      (NamedType (Path Int))
+      =
+      (IntLit 0)))
+  (Declaration.struct
+    (Doc "A struct.")
+    (Struct P
+      (Field
+        (Doc "A field.")
+        x
+        (NamedType (Path Int)))))
+  (Declaration.enum
+    (Doc "An enum.")
+    (Enum E
+      (Case (Doc "A case.") A)))
+  (Declaration.trait
+    (Doc "A trait.")
+    (Trait T
+      (Requirement
+        (Doc "A requirement.")
+        m
+        (Param.receiver (Receiver.shared)))))
+  (Declaration.extension
+    (Doc "An extension.")
+    (Extension
+      (Path P)
+      (ExtensionMember.method
+        (Doc "A method.")
+        (Method m
+          (Param.receiver (Receiver.shared))
+          (Block)))
+      (ExtensionMember.init
+        (Doc "An initializer.")
+        (Init (Block)))))
+  (Declaration.type-alias
+    (Doc "An alias.")
+    (TypeAlias Alias
+      (NamedType (Path Int)))))
+
+// case: syntax.lex.doc-attach/attributes-between-doc-and-declaration
+(File
+  (Declaration.func
+    (Doc "Exported.")
+    (Attribute.export)
+    (Visibility.public)
+    (Func f (Block))))
+
+// case: syntax.lex.doc-attach/four-slashes-and-trailing-slashes-are-comments
+(File
+  (Declaration.func
+    (Func f (Block))))
+
+// case: syntax.lex.module-doc/before-the-first-token
+(File
+  (Doc "After a blank line, still before the first token.")
+  (Import.private (Path m)))
+
+// case: syntax.lex.shift-adjacent/touching-halves-shift
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Binary (Name b) << (IntLit 2) >> (Name c)))
+        (CompoundAssign (Name x) <<= (IntLit 1))
+        (CompoundAssign (Name x) >>= (IntLit 1))))))
+
+// case: syntax.lex.double-question/two-layers-in-a-type-coalesce-in-an-expression
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (OptionalType
+            (OptionalType
+              (NamedType (Path Int))))
+          (Coalesce (Name b) ?? (Name c)))))))
+
+// case: syntax.lex.tuple-index/digits-after-a-dot
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (TupleIndex
+            (TupleIndex (Name t) 0)
+            1))
+        (Let.immutable
+          (BindingName b)
+          (Call.paren
+            (Member (IntLit 7) to_string)))
+        (Let.immutable
+          (BindingName c)
+          (Range.closed (IntLit 1) ..= (IntLit 9)))))))
+
+// case: syntax.lex.float-point/digit-on-each-side
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName a) (FloatLit 0.5))
+        (Let.immutable
+          (BindingName b)
+          (Call.paren
+            (Member (IntLit 7) to_string)))))))
+
+// case: syntax.lex.int-range/literals-that-fit
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName a) (IntLit 18446744073709551615))
+        (Let.immutable (BindingName b) (IntLit 255u8))
+        (Let.immutable (BindingName c) (IntLit 0xFF_u8))
+        (Let.immutable (BindingName d) (IntLit 0b1010))
+        (Let.immutable (BindingName e) (IntLit 0o777))
+        (Let.immutable (BindingName g) (IntLit 1_000_000))))))
+
+// case: syntax.lex.escape/every-escape
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName s) (StringLit "\\ \" \n \t \r \0 \u{1F600} \{ \}"))))))
+
+// case: syntax.lex.directive/source-location-literals
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name print)
+            (Arg.positional (SourceLoc.file))
+            (Arg.positional (SourceLoc.line))
+            (Arg.positional (SourceLoc.function))))))))
+
+// case: syntax.lex.longest-match/operators-by-longest-match
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Binary
+            (Name b)
+            &+
+            (Name c)
+            &-
+            (Binary (Name d) &* (Name e))))
+        (Let.immutable
+          (BindingName f)
+          (Coalesce
+            (OptionalChain
+              (OptionalMember (Name p) q))
+            ??
+            (Name r)))))))

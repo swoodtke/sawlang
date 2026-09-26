@@ -1,0 +1,241 @@
+// case: census-N1/nested-parentheses-past-the-frozen-parser
+// The frozen parser failed at 61 nested parentheses, well inside the depth
+// limit of 256 (GRAMMAR.md section 11).
+func f() {
+    let x = (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+}
+
+// case: census-N1/nested-parentheses-at-the-depth-limit
+// 256 levels: each `(` charges one, and nothing else here charges any.
+func f() {
+    let x = ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+}
+
+// case: census-N1/nested-ifs
+// The frozen parser failed at 48 nested `if` blocks.
+func f() {
+    if true {
+        if true {
+            if true {
+                if true {
+                    if true {
+                        if true {
+                            if true {
+                                if true {
+                                    if true {
+                                        if true {
+                                            if true {
+                                                if true {
+                                                    if true {
+                                                        if true {
+                                                            if true {
+                                                                if true {
+                                                                    if true {
+                                                                        if true {
+                                                                            if true {
+                                                                                if true {
+                                                                                    if true {
+                                                                                        if true {
+                                                                                            if true {
+                                                                                                if true {
+                                                                                                    if true {
+                                                                                                        if true {
+                                                                                                            if true {
+                                                                                                                if true {
+                                                                                                                    if true {
+                                                                                                                        if true {
+                                                                                                                            if true {
+                                                                                                                                if true {
+                                                                                                                                    if true {
+                                                                                                                                        if true {
+                                                                                                                                            if true {
+                                                                                                                                                if true {
+                                                                                                                                                    if true {
+                                                                                                                                                        if true {
+                                                                                                                                                            if true {
+                                                                                                                                                                if true {
+                                                                                                                                                                    if true {
+                                                                                                                                                                        if true {
+                                                                                                                                                                            if true {
+                                                                                                                                                                                if true {
+                                                                                                                                                                                    if true {
+                                                                                                                                                                                        if true {
+                                                                                                                                                                                            if true {
+                                                                                                                                                                                                if true {
+                                                                                                                                                                                                    g()
+                                                                                                                                                                                                }
+                                                                                                                                                                                            }
+                                                                                                                                                                                        }
+                                                                                                                                                                                    }
+                                                                                                                                                                                }
+                                                                                                                                                                            }
+                                                                                                                                                                        }
+                                                                                                                                                                    }
+                                                                                                                                                                }
+                                                                                                                                                            }
+                                                                                                                                                        }
+                                                                                                                                                    }
+                                                                                                                                                }
+                                                                                                                                            }
+                                                                                                                                        }
+                                                                                                                                    }
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                }
+                                                                                                            }
+                                                                                                        }
+                                                                                                    }
+                                                                                                }
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// case: census-N1/nested-closures
+// The frozen parser failed at 50 nested closures.
+func f() {
+    let c = { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { { 1 } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } }
+}
+
+// case: census-N2/cast-target-with-one-optional-layer
+// A cast target takes one `?` (syntax.rule.cast-target-question).
+func f() {
+    let y = n as Int?
+}
+
+// case: census-N2/two-optional-layers-in-an-annotation
+// Outside a cast target, a `??` token is two optional layers.
+func f() {
+    let a: Int?? = None
+    let b: Int? ? = None
+}
+
+// case: census-N2/double-optional-nested-in-a-cast-target
+// Types nested inside a cast target are unaffected.
+func f() {
+    let v = x as Vector<Int??>
+}
+
+// case: census-N2/coalesce-on-a-parenthesized-cast
+func f() {
+    let y = (n ?? 9) as Int
+    let z = (n as Int?) ?? 9
+}
+
+// case: census-N3/bare-trailing-closure-on-a-free-function
+func f() {
+    let r = run { 10 }
+}
+
+// case: census-N3/trailing-closure-after-a-labelled-argument-list
+func f() {
+    let r = runtag(tag: 5) { 10 }
+}
+
+// case: census-N3/bare-trailing-closure-on-a-method
+func f() {
+    let r = Box2(n: 1).with { 10 }
+}
+
+// case: census-N4/lend-as-an-unbraced-arm-body
+extension Tree {
+    func child(&self) borrows -> &Int? {
+        match self {
+            case Leaf(n) -> lend n,
+            case Node(borrow let m) -> lend m
+        }
+    }
+}
+
+// case: census-N4/lend-in-a-braced-arm-body
+extension Tree {
+    func child(&self) borrows -> &Int? {
+        match self {
+            case Leaf(n) -> { lend n }
+        }
+    }
+}
+
+// case: census-N5/closed-brackets-nested-three-deep
+func f() {
+    let x = ( 1 + [ 2, ( 3 + 4 ) ].len() )
+}
+
+// case: census-N6/float-literals-with-a-digit-on-each-side
+func f() {
+    let x = 0.5
+    let y = 1.0
+}
+
+// case: census-N7/terminated-strings-with-escapes
+func f() {
+    let a = "tab\t quote\" slash\\ brace\{ line\n"
+    let b = "spans
+two lines"
+}
+
+// case: census-N8/labelled-call-is-one-call-node
+// A labelled call is a call, whatever its callee turns out to be
+// (syntax.rule.one-call-node).
+func f() {
+    print(f(n: 0))
+    let h = h(b: 50)
+}
+
+// case: census-N9/prelude-name-declared-in-a-module
+// Which declaration a name resolves to is not the parser's concern: a
+// module's enum named like a prelude type parses as any enum does.
+enum JsonValue {
+    case Null,
+    case Num(n: Int)
+}
+
+// case: census-N9/prelude-name-used-in-a-module
+extension Maker {
+    static func make(k: Int) -> JsonValue {
+        JsonValue.Num(n: k)
+    }
+}
+
+// case: census-N10/cast-to-a-generic-target
+// Whether a cast copies is a later stage's; the parser reads a cast whose
+// target has a generic list, followed by a line break.
+func f() {
+    let v: Vector<Int> = [1, 2, 3]
+    let w = v as Vector<Int>
+}
+
+// case: census-N11/deep-recursion-is-a-runtime-matter
+func down(n: Int) -> Int {
+    if n == 0 {
+        return 0
+    }
+    down(n: n - 1) + 1
+}
+
+// case: census-N12/box-chain-declaration
+struct Chain {
+    next: Box<Chain>?
+}

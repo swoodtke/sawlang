@@ -257,3 +257,26 @@ def raw_spelling(source, starts, tok, after=None):
                                % (tok.line, tok.column, spelled, tok.value))
         return spelled
     return tok.value
+
+
+def spellings(text):
+    """The spelling of each token of `text` but EOF, as written, a line break
+    as "\\n", or None when the text does not lex."""
+    try:
+        toks, _ = lex_text(text)
+    except LexError:
+        return None
+    starts = line_starts(text)
+    out = []
+    for n, t in enumerate(toks):
+        if t.kind == "EOF":
+            continue
+        if t.kind in ("INT", "FLOAT", "STRING", "INTERP_STRING"):
+            out.append(raw_spelling(text, starts, t, toks[n + 1] if n + 1 < len(toks) else None))
+        elif t.kind == "HASH_DIRECTIVE":
+            out.append("#" + t.value)
+        elif t.kind == "NEWLINE":
+            out.append("\n")
+        else:
+            out.append(t.value)
+    return out

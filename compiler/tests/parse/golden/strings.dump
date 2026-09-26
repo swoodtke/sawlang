@@ -1,0 +1,99 @@
+// case: syntax.rule.interpolation-segment/expression-segments
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName s)
+          (Interp "a "
+            (Name x)
+            " b "
+            (Binary
+              (Call.paren
+                (Name g)
+                (Arg.positional (Name y)))
+              +
+              (IntLit 1))
+            " c"))))))
+
+// case: syntax.rule.interpolation-segment/format-placeholder
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name print)
+            (Arg.positional (Interp "x = " {} ", y = " {}))
+            (Arg.positional (Name x))
+            (Arg.positional (Name y))))))))
+
+// case: syntax.rule.interpolation-segment/nested-interpolation
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name print)
+            (Arg.positional
+              (Interp "nested: "
+                (Interp "inner " (Name a))))))))))
+
+// case: syntax.rule.interpolation-segment/value-if-in-a-segment
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name print)
+            (Arg.positional
+              (Interp
+                (If
+                  (Binary.pair (Name a) > (IntLit 0))
+                  (Block
+                    (ExprStmt (IntLit 1)))
+                  else
+                  (Block
+                    (ExprStmt (IntLit 2))))))))))))
+
+// case: syntax.rule.interpolation-segment/head-restriction-stays-outside
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (Binary.pair
+              (Interp
+                (Call
+                  (Member (Name v) map)
+                  (Closure
+                    (ExprStmt (ShorthandParam $0)))))
+              ==
+              (Name s))
+            (Block)))))))
+
+// case: syntax.rule.interpolation-segment/escaped-braces-are-text
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName s)
+          (Interp "\{ " (Name x) " \}"))))))
+
+// case: syntax.rule.interpolation-whole/one-expression-per-segment
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName s)
+          (Interp
+            (Subscript.single
+              (Call.paren
+                (Member (Name a) b)
+                (Arg.positional (Name c)))
+              (IntLit 0))))))))

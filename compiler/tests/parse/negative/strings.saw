@@ -1,0 +1,19 @@
+// case: syntax.rule.interpolation-whole/two-names-in-a-segment
+func f() {
+    print("{a b}")
+}
+
+// case: syntax.rule.interpolation-whole/number-then-a-name
+func f() {
+    print("{1F600}")
+}
+
+// case: syntax.rule.interpolation-whole/nested-segment-checked-on-its-own
+func f() {
+    print("{g("{a b}")}")
+}
+
+// case: syntax.rule.interpolation-segment/statement-in-a-segment
+func f() {
+    print("{let x = 1}")
+}

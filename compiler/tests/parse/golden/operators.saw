@@ -1,0 +1,120 @@
+// case: syntax.rule.flat-chains/one-node-per-tier-chain
+func f() {
+    let a = p + q - r + s
+    let b = p * q / r % s
+    let c = p && q && r
+    let d = p | q | r
+    let e = p << q >> r
+}
+
+// case: syntax.rule.flat-chains/tiers-nest-by-precedence
+func f() {
+    let a = p + q * r - s
+    let b = p || q && r
+}
+
+// case: syntax.rule.flat-chains/constant-chains
+func f() {
+    let v: Ring<N + 1 - M> = w
+    let u: Ring<N * 2 / K> = w
+}
+
+// case: syntax.rule.coalesce-grouping/one-flat-node
+func f() {
+    let c = a ?? b ?? 0
+}
+
+// case: syntax.rule.compare-chain/one-comparison
+func f() {
+    let a = p < q
+    let b = p == q
+}
+
+// case: syntax.rule.compare-chain/comparisons-joined-by-and
+func f() {
+    let ok = a < b && b < c
+}
+
+// case: syntax.rule.compare-chain/parenthesized-comparison-compared
+func f() {
+    let ok = (a < b) == c
+}
+
+// case: syntax.rule.prefix-or-cast/prefix-binds-tighter
+func f() {
+    let x = -x as Int8
+    let y = ~b as UInt64
+    let n = not c as Bool
+}
+
+// case: syntax.rule.prefix-or-cast/reference-and-dereference-then-cast
+func f() {
+    let p = &x as UnsafePointer<Int>
+    let q = *p as Int
+}
+
+// case: syntax.rule.try-extent/try-then-cast
+func f() {
+    let u = try parse_id() as UserId
+}
+
+// case: syntax.rule.try-extent/try-then-an-operator
+func f() {
+    let v = try f() + 1
+    let w = try? f() ?? 0
+    let z = try! f() * 2
+}
+
+// case: syntax.rule.try-extent/catch-follows-the-operand
+func f() {
+    let v = try g() catch {
+        0
+    }
+    let w = try (g() as Int) catch {
+        0
+    }
+}
+
+// case: syntax.rule.deref-or-multiply/prefix-is-a-dereference
+func f() {
+    let a = b * *p
+    *p = 1
+}
+
+// case: syntax.rule.postfix-per-hop/one-node-per-hop
+func f() {
+    let x = a.b(c)[d]!.e.0
+}
+
+// case: syntax.rule.postfix-per-hop/one-cast-per-as
+func f() {
+    let x = a as B as C
+}
+
+// case: syntax.rule.depth-limit/nesting-at-the-limit
+// 256 levels, the most section 11 allows: each `(` charges one.
+func f() {
+    let x = ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+}
+
+// case: syntax.rule.depth-limit/flat-chains-charge-nothing
+func f() {
+    let x = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1
+}
+
+// case: syntax.rule.cast-target-question/one-optional-layer
+func f() {
+    let y = n as Int?
+    let z = r as &Int?
+}
+
+// case: syntax.rule.cast-target-question/nested-types-are-unaffected
+func f() {
+    let v = x as Vector<Int??>
+}
+
+// case: syntax.rule.cast-target-question/coalesce-on-a-parenthesized-cast
+func f() {
+    let y = (n ?? 9) as Int
+    let z = (n as Int?) ?? 9
+}

@@ -794,6 +794,22 @@ def in_function(body):
     return "func f() {\n%s\n}\n" % "\n".join("    " + line for line in body.split("\n"))
 
 
+def splice(template, form):
+    """`template` with its HOLE replaced by `form`, with a space on a side
+    where the form's edge would join its neighbour into another token: `a..`
+    written before `..x` would read as `...` and `.x`. The lexer is the judge;
+    a form inside an interpolation segment is lexed on its own."""
+    before, after = template.split(HOLE)
+    text = before + form + after
+    if before.endswith('"{'):
+        return text
+    apart = lexdump.spellings(before + " " + form + " " + after)
+    for candidate in (text, before + " " + form + after, before + form + " " + after):
+        if lexdump.spellings(candidate) == apart:
+            return candidate
+    return before + " " + form + " " + after
+
+
 # The programs a context's cell is placed in, tried in order; HOLE marks the
 # construct. A construct binds tighter or looser than an operator, so the
 # operand and right-side contexts try one host operator after another until
@@ -879,7 +895,7 @@ def cell_case(gen, construct, ctx, code):
     found = None
     for form in forms:
         for template in CONTEXTS[ctx]:
-            text = template.replace(HOLE, form)
+            text = splice(template, form)
             if gen.valid(text) and (construct, ctx) in records(gen.checked(text))[1]:
                 found = text
                 break
@@ -1114,9 +1130,13 @@ def first_difference(have, want):
 
 WAIVERS = os.path.join(PARSE_DIR, "waivers.tsv")
 WAIVER_HEADER = "kind\titem\treason"
-# An `alternative` or a `cell` is a coverage item; a `case` is one case, by
-# name, that no program realizes.
-WAIVER_KINDS = ("alternative", "cell", "case")
+# An `alternative` or a `cell` is a coverage item of the generated corpus; a
+# `case` is one case, by name, that no program realizes. The rest are coverage
+# items of the golden and negative corpus (cases.coverage): a `removed`
+# alternative, an `n-cell`, a section-13 `rule` with no golden case, and a
+# `refusal`, a rule the recognizer refuses by name with no negative case.
+WAIVER_KINDS = ("alternative", "cell", "case", "removed", "n-cell", "rule", "refusal",
+                "source")
 
 
 def waived_case_names(path=WAIVERS):
@@ -1136,8 +1156,8 @@ def load_waivers(path=WAIVERS):
             continue
         cells = line.split("\t")
         if len(cells) != 3 or cells[0] not in WAIVER_KINDS or not cells[2].strip():
-            complaints.append("%s:%d: want `alternative`, `cell` or `case`, the item, and a "
-                              "reason, tab-separated" % (rel, n))
+            complaints.append("%s:%d: want a kind (%s), the item, and a reason, "
+                              "tab-separated" % (rel, n, ", ".join(WAIVER_KINDS)))
         elif (cells[0], cells[1]) in rows:
             complaints.append("%s:%d: %s is waived twice" % (rel, n, cells[1]))
         else:
@@ -1145,16 +1165,17 @@ def load_waivers(path=WAIVERS):
     return rows, complaints
 
 
-def coverage(g, cases, waivers):
+def coverage(g, cases, waivers, golden=()):
     """(failure lines, counts): each non-removed alternative must be used by a
-    case, and each allowed section-12 cell recorded by one, unless waived; a
-    waiver for a covered or unknown item fails too."""
+    case, a generated one or one of the golden cases' alternatives `golden`,
+    and each allowed section-12 cell recorded by a generated case, unless
+    waived; a waiver for a covered or unknown item fails too."""
     alternatives = sorted({g.alternative(p.nonterminal, ai).effective_name
                            for p in g.model.productions if p.nonterminal
                            for ai in range(len(p.alternatives))
                            if generated_alternative(g, p.nonterminal, ai)})
     cells = sorted({"%s %s" % (c, ctx) for c, ctx, _ in matrix(g.model)})
-    used_alts, used_cells = set(), set()
+    used_alts, used_cells = set(golden), set()
     for _, _, text, lines, alts, recorded in cases:
         if text is not None and isinstance(lines, list):
             used_alts.update(alts)
@@ -1187,16 +1208,22 @@ def coverage(g, cases, waivers):
     return out, counts
 
 
-def check(jobs_count=None):
+def check(jobs_count=None, golden=None):
     """(failure lines, counts): regenerating reproduces generated/, every case
-    has its program and dump, and coverage holds."""
+    has its program and dump, and coverage holds, the alternatives the golden
+    cases use counting too; `golden` is them, for a caller that has them."""
+    if golden is None:
+        import cases as golden_cases
+        evaluated = golden_cases.evaluate_files(golden_cases.case_files(golden_cases.GOLDEN),
+                                                jobs_count)
+        golden = {a for pairs in evaluated.values() for _, r in pairs for a in r[5]}
     cases = generate(jobs_count)
     waivers, failures = load_waivers()
     failures += problems(cases, waivers)
     failures += compare(area_files(cases))
     if not failures:
         failures += round_trip(cases)
-    covered, counts = coverage(recognize.Grammar(extract.extract()), cases, waivers)
+    covered, counts = coverage(recognize.Grammar(extract.extract()), cases, waivers, golden)
     failures += covered
     counts["generated cases"] = sum(1 for c in cases if c[2] is not None)
     return failures, counts

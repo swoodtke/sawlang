@@ -1,0 +1,3648 @@
+// case: syntax.expr.literal/cell:atgt
+func f() {
+    1 = x
+}
+
+// case: syntax.expr.literal/cell:cap
+func f() {
+    let c = { [1] in x }
+}
+
+// case: syntax.expr.interpolation/cell:atgt
+func f() {
+    "{a}" = x
+}
+
+// case: syntax.expr.interpolation/cell:cgen
+func f() {
+    let v: A<"{a}"> = w
+}
+
+// case: syntax.expr.interpolation/cell:cap
+func f() {
+    let c = { ["{a}"] in x }
+}
+
+// case: syntax.expr.source-location/cell:atgt
+func f() {
+    #line = x
+}
+
+// case: syntax.expr.source-location/cell:cgen
+func f() {
+    let v: A<#line> = w
+}
+
+// case: syntax.expr.source-location/cell:cap
+func f() {
+    let c = { [#line] in x }
+}
+
+// case: syntax.expr.name/cell:cap
+// parses as another construct
+func f() {
+    let c = { [a] in x }
+}
+
+// case: syntax.expr.implicit-member/cell:atgt
+func f() {
+    .a = x
+}
+
+// case: syntax.expr.implicit-member/cell:cgen
+func f() {
+    let v: A<.a> = w
+}
+
+// case: syntax.expr.implicit-member/cell:cap
+func f() {
+    let c = { [.a] in x }
+}
+
+// case: syntax.expr.self/cell:cgen
+func f() {
+    let v: A<self> = w
+}
+
+// case: syntax.expr.self/cell:cap
+func f() {
+    let c = { [self] in x }
+}
+
+// case: syntax.expr.shorthand-param/cell:atgt
+func f() {
+    $0 = x
+}
+
+// case: syntax.expr.shorthand-param/cell:cgen
+func f() {
+    let v: A<$0> = w
+}
+
+// case: syntax.expr.shorthand-param/cell:cap
+func f() {
+    let c = { [$0] in x }
+}
+
+// case: syntax.expr.paren/cell:atgt
+func f() {
+    (a) = x
+}
+
+// case: syntax.expr.paren/cell:cap
+func f() {
+    let c = { [(a)] in x }
+}
+
+// case: syntax.expr.tuple/cell:atgt
+func f() {
+    (a, b) = x
+}
+
+// case: syntax.expr.tuple/cell:cgen
+// parses as another construct
+func f() {
+    let v: A<(a, b)> = w
+}
+
+// case: syntax.expr.tuple/cell:cap
+func f() {
+    let c = { [(a, b)] in x }
+}
+
+// case: syntax.expr.array/cell:atgt
+func f() {
+    [a] = x
+}
+
+// case: syntax.expr.array/cell:cgen
+func f() {
+    let v: A<[a]> = w
+}
+
+// case: syntax.expr.array/cell:cap
+func f() {
+    let c = { [[a]] in x }
+}
+
+// case: syntax.expr.repeat/cell:atgt
+func f() {
+    [a; 2] = x
+}
+
+// case: syntax.expr.repeat/cell:cgen
+// parses as another construct
+func f() {
+    let v: A<[a; 2]> = w
+}
+
+// case: syntax.expr.repeat/cell:cap
+func f() {
+    let c = { [[a; 2]] in x }
+}
+
+// case: syntax.expr.map/cell:atgt
+func f() {
+    {a: b} = x
+}
+
+// case: syntax.expr.map/cell:cgen
+func f() {
+    let v: A<{a: b}> = w
+}
+
+// case: syntax.expr.map/cell:cap
+func f() {
+    let c = { [{a: b}] in x }
+}
+
+// case: syntax.expr.set/cell:atgt
+func f() {
+    {a, b} = x
+}
+
+// case: syntax.expr.set/cell:cgen
+func f() {
+    let v: A<{a, b}> = w
+}
+
+// case: syntax.expr.set/cell:cap
+func f() {
+    let c = { [{a, b}] in x }
+}
+
+// case: syntax.expr.closure/cell:atgt
+func f() {
+    { a } = x
+}
+
+// case: syntax.expr.closure/cell:cgen
+func f() {
+    let v: A<{ a }> = w
+}
+
+// case: syntax.expr.closure/cell:cap
+func f() {
+    let c = { [{ a }] in x }
+}
+
+// case: syntax.expr.call/cell:cap
+func f() {
+    let c = { [f()] in x }
+}
+
+// case: syntax.expr.trailing-call/cell:cond
+func f() {
+    guard f { a } else {
+        return
+    }
+}
+
+// case: syntax.expr.trailing-call/cell:subj
+func f() {
+    guard let x = f { a } else {
+        return
+    }
+}
+
+// case: syntax.expr.trailing-call/cell:scrut
+func f() {
+    match f { a } {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.trailing-call/cell:aguard
+func f() {
+    match x {
+        case _ if f { a } -> x
+    }
+}
+
+// case: syntax.expr.trailing-call/cell:atgt
+func f() {
+    f { a } = x
+}
+
+// case: syntax.expr.trailing-call/cell:cgen
+func f() {
+    let v: A<f { a }> = w
+}
+
+// case: syntax.expr.trailing-call/cell:cap
+func f() {
+    let c = { [f { a }] in x }
+}
+
+// case: syntax.expr.member/cell:cgen
+// parses as another construct
+func f() {
+    let v: A<a.b> = w
+}
+
+// case: syntax.expr.member/cell:cap
+func f() {
+    let c = { [a.b] in x }
+}
+
+// case: syntax.expr.tuple-index/cell:cgen
+func f() {
+    let v: A<a.0> = w
+}
+
+// case: syntax.expr.tuple-index/cell:cap
+func f() {
+    let c = { [a.0] in x }
+}
+
+// case: syntax.expr.optional-member/cell:cgen
+func f() {
+    let v: A<a?.b> = w
+}
+
+// case: syntax.expr.optional-member/cell:cap
+func f() {
+    let c = { [a?.b] in x }
+}
+
+// case: syntax.expr.subscript/cell:cgen
+func f() {
+    let v: A<a[b]> = w
+}
+
+// case: syntax.expr.subscript/cell:cap
+func f() {
+    let c = { [a[b]] in x }
+}
+
+// case: syntax.expr.force/cell:cgen
+func f() {
+    let v: A<a!> = w
+}
+
+// case: syntax.expr.force/cell:cap
+func f() {
+    let c = { [a!] in x }
+}
+
+// case: syntax.expr.unary/cell:atgt
+func f() {
+    -a = x
+}
+
+// case: syntax.expr.unary/cell:cap
+func f() {
+    let c = { [-a] in x }
+}
+
+// case: syntax.expr.deref/cell:cgen
+func f() {
+    let v: A<*a> = w
+}
+
+// case: syntax.expr.deref/cell:cap
+func f() {
+    let c = { [*a] in x }
+}
+
+// case: syntax.expr.ref/cell:atgt
+func f() {
+    &a = x
+}
+
+// case: syntax.expr.ref/cell:cgen
+// parses as another construct
+func f() {
+    let v: A<&a> = w
+}
+
+// case: syntax.expr.ref/cell:cap
+// parses as another construct
+func f() {
+    let c = { [&a] in x }
+}
+
+// case: syntax.expr.move/cell:atgt
+func f() {
+    move a = x
+}
+
+// case: syntax.expr.move/cell:cgen
+func f() {
+    let v: A<move a> = w
+}
+
+// case: syntax.expr.move/cell:cap
+// parses as another construct
+func f() {
+    let c = { [move a] in x }
+}
+
+// case: syntax.expr.try/cell:atgt
+func f() {
+    try f() = x
+}
+
+// case: syntax.expr.try/cell:cgen
+func f() {
+    let v: A<try f()> = w
+}
+
+// case: syntax.expr.try/cell:cap
+func f() {
+    let c = { [try f()] in x }
+}
+
+// case: syntax.expr.lends/cell:atgt
+func f() {
+    lends a = x
+}
+
+// case: syntax.expr.lends/cell:cgen
+func f() {
+    let v: A<lends a> = w
+}
+
+// case: syntax.expr.lends/cell:cap
+func f() {
+    let c = { [lends a] in x }
+}
+
+// case: syntax.expr.cast/cell:atgt
+func f() {
+    a as T = x
+}
+
+// case: syntax.expr.cast/cell:cgen
+func f() {
+    let v: A<a as T> = w
+}
+
+// case: syntax.expr.cast/cell:cap
+func f() {
+    let c = { [a as T] in x }
+}
+
+// case: syntax.expr.multiplicative/cell:atgt
+func f() {
+    a * b = x
+}
+
+// case: syntax.expr.multiplicative/cell:cap
+func f() {
+    let c = { [a * b] in x }
+}
+
+// case: syntax.expr.additive/cell:atgt
+func f() {
+    a + b = x
+}
+
+// case: syntax.expr.additive/cell:cap
+func f() {
+    let c = { [a + b] in x }
+}
+
+// case: syntax.expr.shift/cell:atgt
+func f() {
+    a << b = x
+}
+
+// case: syntax.expr.shift/cell:cgen
+func f() {
+    let v: A<a << b> = w
+}
+
+// case: syntax.expr.shift/cell:cap
+func f() {
+    let c = { [a << b] in x }
+}
+
+// case: syntax.expr.range/cell:rend
+func f() {
+    for i in a..b..x {
+    }
+}
+
+// case: syntax.expr.range/cell:atgt
+func f() {
+    a..b = x
+}
+
+// case: syntax.expr.range/cell:cgen
+func f() {
+    let v: A<a..b> = w
+}
+
+// case: syntax.expr.range/cell:cap
+func f() {
+    let c = { [a..b] in x }
+}
+
+// case: syntax.expr.range-from/cell:cond
+func f() {
+    if a.. {
+    }
+}
+
+// case: syntax.expr.range-from/cell:subj
+func f() {
+    if let x = a.. {
+    }
+}
+
+// case: syntax.expr.range-from/cell:scrut
+func f() {
+    match a.. {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.range-from/cell:aguard
+func f() {
+    match x {
+        case _ if a.. -> x
+    }
+}
+
+// case: syntax.expr.range-from/cell:iter
+func f() {
+    for i in a.. {
+    }
+}
+
+// case: syntax.expr.range-from/cell:rend
+func f() {
+    for i in a.. ..x {
+    }
+}
+
+// case: syntax.expr.range-from/cell:atgt
+func f() {
+    a.. = x
+}
+
+// case: syntax.expr.range-from/cell:cgen
+func f() {
+    let v: A<a..> = w
+}
+
+// case: syntax.expr.range-from/cell:cap
+func f() {
+    let c = { [a..] in x }
+}
+
+// case: syntax.expr.range-upto/cell:rend
+func f() {
+    for i in ..b..x {
+    }
+}
+
+// case: syntax.expr.range-upto/cell:atgt
+func f() {
+    ..b = x
+}
+
+// case: syntax.expr.range-upto/cell:cgen
+func f() {
+    let v: A<..b> = w
+}
+
+// case: syntax.expr.range-upto/cell:cap
+func f() {
+    let c = { [..b] in x }
+}
+
+// case: syntax.expr.compare/cell:atgt
+func f() {
+    a < b = x
+}
+
+// case: syntax.expr.compare/cell:cgen
+func f() {
+    let v: A<a < b> = w
+}
+
+// case: syntax.expr.compare/cell:cap
+func f() {
+    let c = { [a < b] in x }
+}
+
+// case: syntax.expr.bitand/cell:atgt
+func f() {
+    a & b = x
+}
+
+// case: syntax.expr.bitand/cell:cgen
+func f() {
+    let v: A<a & b> = w
+}
+
+// case: syntax.expr.bitand/cell:cap
+func f() {
+    let c = { [a & b] in x }
+}
+
+// case: syntax.expr.bitxor/cell:atgt
+func f() {
+    a ^ b = x
+}
+
+// case: syntax.expr.bitxor/cell:cgen
+func f() {
+    let v: A<a ^ b> = w
+}
+
+// case: syntax.expr.bitxor/cell:cap
+func f() {
+    let c = { [a ^ b] in x }
+}
+
+// case: syntax.expr.bitor/cell:atgt
+func f() {
+    a | b = x
+}
+
+// case: syntax.expr.bitor/cell:cgen
+func f() {
+    let v: A<a | b> = w
+}
+
+// case: syntax.expr.bitor/cell:cap
+func f() {
+    let c = { [a | b] in x }
+}
+
+// case: syntax.expr.and/cell:atgt
+func f() {
+    a && b = x
+}
+
+// case: syntax.expr.and/cell:cgen
+func f() {
+    let v: A<a && b> = w
+}
+
+// case: syntax.expr.and/cell:cap
+func f() {
+    let c = { [a && b] in x }
+}
+
+// case: syntax.expr.or/cell:atgt
+func f() {
+    a || b = x
+}
+
+// case: syntax.expr.or/cell:cgen
+func f() {
+    let v: A<a || b> = w
+}
+
+// case: syntax.expr.or/cell:cap
+func f() {
+    let c = { [a || b] in x }
+}
+
+// case: syntax.expr.coalesce/cell:atgt
+func f() {
+    a ?? b = x
+}
+
+// case: syntax.expr.coalesce/cell:cgen
+func f() {
+    let v: A<a ?? b> = w
+}
+
+// case: syntax.expr.coalesce/cell:cap
+func f() {
+    let c = { [a ?? b] in x }
+}
+
+// case: syntax.expr.if/cell:atgt
+func f() {
+    if a { b } else { c } = x
+}
+
+// case: syntax.expr.if/cell:cgen
+func f() {
+    let v: A<if a { b } else { c }> = w
+}
+
+// case: syntax.expr.if/cell:cap
+func f() {
+    let c = { [if a { b } else { c }] in x }
+}
+
+// case: syntax.expr.match/cell:atgt
+func f() {
+    match a { case _ -> b } = x
+}
+
+// case: syntax.expr.match/cell:cgen
+func f() {
+    let v: A<match a { case _ -> b }> = w
+}
+
+// case: syntax.expr.match/cell:cap
+func f() {
+    let c = { [match a { case _ -> b }] in x }
+}
+
+// case: syntax.expr.while/cell:tail
+// parses as another construct
+func f() {
+    while a { }
+}
+
+// case: syntax.expr.while/cell:atgt
+func f() {
+    while a { } = x
+}
+
+// case: syntax.expr.while/cell:cgen
+func f() {
+    let v: A<while a { }> = w
+}
+
+// case: syntax.expr.while/cell:cap
+func f() {
+    let c = { [while a { }] in x }
+}
+
+// case: syntax.expr.while-let/cell:tail
+// parses as another construct
+func f() {
+    while let x = a { }
+}
+
+// case: syntax.expr.while-let/cell:atgt
+func f() {
+    while let x = a { } = x
+}
+
+// case: syntax.expr.while-let/cell:cgen
+func f() {
+    let v: A<while let x = a { }> = w
+}
+
+// case: syntax.expr.while-let/cell:cap
+func f() {
+    let c = { [while let x = a { }] in x }
+}
+
+// case: syntax.expr.for/cell:tail
+// parses as another construct
+func f() {
+    for x in a { }
+}
+
+// case: syntax.expr.for/cell:atgt
+func f() {
+    for x in a { } = x
+}
+
+// case: syntax.expr.for/cell:cgen
+func f() {
+    let v: A<for x in a { }> = w
+}
+
+// case: syntax.expr.for/cell:cap
+func f() {
+    let c = { [for x in a { }] in x }
+}
+
+// case: syntax.borrow.for/cell:tail
+// parses as another construct
+func f() {
+    for borrow let x in a { }
+}
+
+// case: syntax.borrow.for/cell:atgt
+func f() {
+    for borrow let x in a { } = x
+}
+
+// case: syntax.borrow.for/cell:cgen
+func f() {
+    let v: A<for borrow let x in a { }> = w
+}
+
+// case: syntax.borrow.for/cell:cap
+func f() {
+    let c = { [for borrow let x in a { }] in x }
+}
+
+// case: syntax.expr.try-block/cell:atgt
+func f() {
+    try { a } catch { b } = x
+}
+
+// case: syntax.expr.try-block/cell:cgen
+func f() {
+    let v: A<try { a } catch { b }> = w
+}
+
+// case: syntax.expr.try-block/cell:cap
+func f() {
+    let c = { [try { a } catch { b }] in x }
+}
+
+// case: syntax.borrow.place/cell:cgen
+func f() {
+    let v: A<borrow let a[0]> = w
+}
+
+// case: syntax.borrow.place/cell:cap
+func f() {
+    let c = { [borrow let a[0]] in x }
+}
+
+// case: syntax.borrow.block/cell:atgt
+func f() {
+    borrow let x = a { x } = x
+}
+
+// case: syntax.borrow.block/cell:cgen
+func f() {
+    let v: A<borrow let x = a { x }> = w
+}
+
+// case: syntax.borrow.block/cell:cap
+func f() {
+    let c = { [borrow let x = a { x }] in x }
+}
+
+// case: syntax.expr.optional-binding/cell:stmt
+// parses as another construct
+func f() {
+    let x = a
+    x
+}
+
+// case: syntax.expr.optional-binding/cell:tail
+// parses as another construct
+func f() {
+    let x = a
+}
+
+// case: syntax.expr.optional-binding/cell:clos
+// parses as another construct
+func f() {
+    let c = {
+        let x = a
+        x
+    }
+}
+
+// case: syntax.expr.optional-binding/cell:catch
+// parses as another construct
+func f() {
+    try {
+        x
+    } catch {
+        let x = a
+        x
+    }
+}
+
+// case: syntax.expr.optional-binding/cell:arm
+// parses as another construct
+func f() {
+    match x {
+        case _ -> let x = a
+    }
+}
+
+// case: syntax.expr.optional-binding/cell:opnd
+func f() {
+    let v = let x = a * x
+}
+
+// case: syntax.expr.optional-binding/cell:rhs
+func f() {
+    let v = x && let x = a
+}
+
+// case: syntax.expr.optional-binding/cell:arg
+func f() {
+    f(let x = a)
+}
+
+// case: syntax.expr.optional-binding/cell:larg
+func f() {
+    f(a: let x = a)
+}
+
+// case: syntax.expr.optional-binding/cell:elem
+func f() {
+    let v = [let x = a]
+}
+
+// case: syntax.expr.optional-binding/cell:recv
+func f() {
+    let v = let x = a.b
+}
+
+// case: syntax.expr.optional-binding/cell:idx
+func f() {
+    let v = a[let x = a]
+}
+
+// case: syntax.expr.optional-binding/cell:interp
+func f() {
+    print("{let x = a}")
+}
+
+// case: syntax.expr.optional-binding/cell:subj
+func f() {
+    if let x = let x = a {
+    }
+}
+
+// case: syntax.expr.optional-binding/cell:scrut
+func f() {
+    match let x = a {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.optional-binding/cell:aguard
+func f() {
+    match x {
+        case _ if let x = a -> x
+    }
+}
+
+// case: syntax.expr.optional-binding/cell:iter
+func f() {
+    for i in let x = a {
+    }
+}
+
+// case: syntax.expr.optional-binding/cell:rend
+func f() {
+    for i in let x = a..x {
+    }
+}
+
+// case: syntax.expr.optional-binding/cell:bhead
+func f() {
+    borrow let x = let x = a {
+    }
+}
+
+// case: syntax.expr.optional-binding/cell:init
+func f() {
+    let v = let x = a
+}
+
+// case: syntax.expr.optional-binding/cell:asgn
+func f() {
+    v = let x = a
+}
+
+// case: syntax.expr.optional-binding/cell:crhs
+func f() {
+    v += let x = a
+}
+
+// case: syntax.expr.optional-binding/cell:atgt
+func f() {
+    let x = a = x
+}
+
+// case: syntax.expr.optional-binding/cell:ret
+func f() {
+    return let x = a
+}
+
+// case: syntax.expr.optional-binding/cell:brk
+func f() {
+    while x {
+        break let x = a
+    }
+}
+
+// case: syntax.expr.optional-binding/cell:lend
+func f() {
+    lend let x = a
+}
+
+// case: syntax.expr.optional-binding/cell:try
+func f() {
+    let v = try let x = a
+}
+
+// case: syntax.expr.optional-binding/cell:dflt
+func f(p: T = let x = a) {
+}
+
+// case: syntax.expr.optional-binding/cell:sinit
+static S: T = let x = a
+
+// case: syntax.expr.optional-binding/cell:alen
+func f() {
+    let v: [T; let x = a] = w
+}
+
+// case: syntax.expr.optional-binding/cell:rcnt
+func f() {
+    let v = [x; let x = a]
+}
+
+// case: syntax.expr.optional-binding/cell:cgen
+func f() {
+    let v: A<let x = a> = w
+}
+
+// case: syntax.expr.optional-binding/cell:raw
+enum E: T {
+    case A = let x = a
+}
+
+// case: syntax.expr.optional-binding/cell:aarg
+@align(let x = a)
+static S: T = x
+
+// case: syntax.expr.optional-binding/cell:sassert
+static_assert(let x = a, "m")
+
+// case: syntax.expr.optional-binding/cell:cap
+func f() {
+    let c = { [let x = a] in x }
+}
+
+// case: syntax.borrow.unwrap/cell:stmt
+func f() {
+    borrow let x = a
+    x
+}
+
+// case: syntax.borrow.unwrap/cell:tail
+func f() {
+    borrow let x = a
+}
+
+// case: syntax.borrow.unwrap/cell:clos
+func f() {
+    let c = {
+        borrow let x = a
+        x
+    }
+}
+
+// case: syntax.borrow.unwrap/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        borrow let x = a
+        x
+    }
+}
+
+// case: syntax.borrow.unwrap/cell:arm
+func f() {
+    match x {
+        case _ -> borrow let x = a
+    }
+}
+
+// case: syntax.borrow.unwrap/cell:opnd
+func f() {
+    let v = borrow let x = a * x
+}
+
+// case: syntax.borrow.unwrap/cell:rhs
+func f() {
+    let v = x && borrow let x = a
+}
+
+// case: syntax.borrow.unwrap/cell:arg
+func f() {
+    f(borrow let x = a)
+}
+
+// case: syntax.borrow.unwrap/cell:larg
+func f() {
+    f(a: borrow let x = a)
+}
+
+// case: syntax.borrow.unwrap/cell:elem
+func f() {
+    let v = [borrow let x = a]
+}
+
+// case: syntax.borrow.unwrap/cell:recv
+func f() {
+    let v = borrow let x = a.b
+}
+
+// case: syntax.borrow.unwrap/cell:idx
+func f() {
+    let v = a[borrow let x = a]
+}
+
+// case: syntax.borrow.unwrap/cell:interp
+func f() {
+    print("{borrow let x = a}")
+}
+
+// case: syntax.borrow.unwrap/cell:subj
+func f() {
+    if let x = borrow let x = a {
+    }
+}
+
+// case: syntax.borrow.unwrap/cell:scrut
+func f() {
+    match borrow let x = a {
+        case _ -> x
+    }
+}
+
+// case: syntax.borrow.unwrap/cell:aguard
+func f() {
+    match x {
+        case _ if borrow let x = a -> x
+    }
+}
+
+// case: syntax.borrow.unwrap/cell:iter
+func f() {
+    for i in borrow let x = a {
+    }
+}
+
+// case: syntax.borrow.unwrap/cell:rend
+func f() {
+    for i in borrow let x = a..x {
+    }
+}
+
+// case: syntax.borrow.unwrap/cell:bhead
+func f() {
+    borrow let x = borrow let x = a {
+    }
+}
+
+// case: syntax.borrow.unwrap/cell:init
+func f() {
+    let v = borrow let x = a
+}
+
+// case: syntax.borrow.unwrap/cell:asgn
+func f() {
+    v = borrow let x = a
+}
+
+// case: syntax.borrow.unwrap/cell:crhs
+func f() {
+    v += borrow let x = a
+}
+
+// case: syntax.borrow.unwrap/cell:atgt
+func f() {
+    borrow let x = a = x
+}
+
+// case: syntax.borrow.unwrap/cell:ret
+func f() {
+    return borrow let x = a
+}
+
+// case: syntax.borrow.unwrap/cell:brk
+func f() {
+    while x {
+        break borrow let x = a
+    }
+}
+
+// case: syntax.borrow.unwrap/cell:lend
+func f() {
+    lend borrow let x = a
+}
+
+// case: syntax.borrow.unwrap/cell:try
+func f() {
+    let v = try borrow let x = a
+}
+
+// case: syntax.borrow.unwrap/cell:dflt
+func f(p: T = borrow let x = a) {
+}
+
+// case: syntax.borrow.unwrap/cell:sinit
+static S: T = borrow let x = a
+
+// case: syntax.borrow.unwrap/cell:alen
+func f() {
+    let v: [T; borrow let x = a] = w
+}
+
+// case: syntax.borrow.unwrap/cell:rcnt
+func f() {
+    let v = [x; borrow let x = a]
+}
+
+// case: syntax.borrow.unwrap/cell:cgen
+func f() {
+    let v: A<borrow let x = a> = w
+}
+
+// case: syntax.borrow.unwrap/cell:raw
+enum E: T {
+    case A = borrow let x = a
+}
+
+// case: syntax.borrow.unwrap/cell:aarg
+@align(borrow let x = a)
+static S: T = x
+
+// case: syntax.borrow.unwrap/cell:sassert
+static_assert(borrow let x = a, "m")
+
+// case: syntax.borrow.unwrap/cell:cap
+func f() {
+    let c = { [borrow let x = a] in x }
+}
+
+// case: syntax.stmt.let/cell:tail
+// parses as another construct
+func f() {
+    let x = a
+}
+
+// case: syntax.stmt.let/cell:opnd
+func f() {
+    let v = let x = a * x
+}
+
+// case: syntax.stmt.let/cell:rhs
+func f() {
+    let v = x && let x = a
+}
+
+// case: syntax.stmt.let/cell:arg
+func f() {
+    f(let x = a)
+}
+
+// case: syntax.stmt.let/cell:larg
+func f() {
+    f(a: let x = a)
+}
+
+// case: syntax.stmt.let/cell:elem
+func f() {
+    let v = [let x = a]
+}
+
+// case: syntax.stmt.let/cell:recv
+func f() {
+    let v = let x = a.b
+}
+
+// case: syntax.stmt.let/cell:idx
+func f() {
+    let v = a[let x = a]
+}
+
+// case: syntax.stmt.let/cell:interp
+func f() {
+    print("{let x = a}")
+}
+
+// case: syntax.stmt.let/cell:cond
+// parses as another construct
+func f() {
+    if let x = a {
+    }
+}
+
+// case: syntax.stmt.let/cell:subj
+func f() {
+    if let x = let x = a {
+    }
+}
+
+// case: syntax.stmt.let/cell:scrut
+func f() {
+    match let x = a {
+        case _ -> x
+    }
+}
+
+// case: syntax.stmt.let/cell:aguard
+func f() {
+    match x {
+        case _ if let x = a -> x
+    }
+}
+
+// case: syntax.stmt.let/cell:iter
+func f() {
+    for i in let x = a {
+    }
+}
+
+// case: syntax.stmt.let/cell:rend
+func f() {
+    for i in let x = a..x {
+    }
+}
+
+// case: syntax.stmt.let/cell:bhead
+func f() {
+    borrow let x = let x = a {
+    }
+}
+
+// case: syntax.stmt.let/cell:init
+func f() {
+    let v = let x = a
+}
+
+// case: syntax.stmt.let/cell:asgn
+func f() {
+    v = let x = a
+}
+
+// case: syntax.stmt.let/cell:crhs
+func f() {
+    v += let x = a
+}
+
+// case: syntax.stmt.let/cell:atgt
+func f() {
+    let x = a = x
+}
+
+// case: syntax.stmt.let/cell:ret
+func f() {
+    return let x = a
+}
+
+// case: syntax.stmt.let/cell:brk
+func f() {
+    while x {
+        break let x = a
+    }
+}
+
+// case: syntax.stmt.let/cell:lend
+func f() {
+    lend let x = a
+}
+
+// case: syntax.stmt.let/cell:try
+func f() {
+    let v = try let x = a
+}
+
+// case: syntax.stmt.let/cell:dflt
+func f(p: T = let x = a) {
+}
+
+// case: syntax.stmt.let/cell:sinit
+static S: T = let x = a
+
+// case: syntax.stmt.let/cell:alen
+func f() {
+    let v: [T; let x = a] = w
+}
+
+// case: syntax.stmt.let/cell:rcnt
+func f() {
+    let v = [x; let x = a]
+}
+
+// case: syntax.stmt.let/cell:cgen
+func f() {
+    let v: A<let x = a> = w
+}
+
+// case: syntax.stmt.let/cell:raw
+enum E: T {
+    case A = let x = a
+}
+
+// case: syntax.stmt.let/cell:aarg
+@align(let x = a)
+static S: T = x
+
+// case: syntax.stmt.let/cell:sassert
+static_assert(let x = a, "m")
+
+// case: syntax.stmt.let/cell:cap
+func f() {
+    let c = { [let x = a] in x }
+}
+
+// case: syntax.stmt.destructure/cell:tail
+// parses as another construct
+func f() {
+    let (x, y) = a
+}
+
+// case: syntax.stmt.destructure/cell:opnd
+func f() {
+    let v = let (x, y) = a * x
+}
+
+// case: syntax.stmt.destructure/cell:rhs
+func f() {
+    let v = x && let (x, y) = a
+}
+
+// case: syntax.stmt.destructure/cell:arg
+func f() {
+    f(let (x, y) = a)
+}
+
+// case: syntax.stmt.destructure/cell:larg
+func f() {
+    f(a: let (x, y) = a)
+}
+
+// case: syntax.stmt.destructure/cell:elem
+func f() {
+    let v = [let (x, y) = a]
+}
+
+// case: syntax.stmt.destructure/cell:recv
+func f() {
+    let v = let (x, y) = a.b
+}
+
+// case: syntax.stmt.destructure/cell:idx
+func f() {
+    let v = a[let (x, y) = a]
+}
+
+// case: syntax.stmt.destructure/cell:interp
+func f() {
+    print("{let (x, y) = a}")
+}
+
+// case: syntax.stmt.destructure/cell:cond
+// parses as another construct
+func f() {
+    if let (x, y) = a {
+    }
+}
+
+// case: syntax.stmt.destructure/cell:subj
+func f() {
+    if let x = let (x, y) = a {
+    }
+}
+
+// case: syntax.stmt.destructure/cell:scrut
+func f() {
+    match let (x, y) = a {
+        case _ -> x
+    }
+}
+
+// case: syntax.stmt.destructure/cell:aguard
+func f() {
+    match x {
+        case _ if let (x, y) = a -> x
+    }
+}
+
+// case: syntax.stmt.destructure/cell:iter
+func f() {
+    for i in let (x, y) = a {
+    }
+}
+
+// case: syntax.stmt.destructure/cell:rend
+func f() {
+    for i in let (x, y) = a..x {
+    }
+}
+
+// case: syntax.stmt.destructure/cell:bhead
+func f() {
+    borrow let x = let (x, y) = a {
+    }
+}
+
+// case: syntax.stmt.destructure/cell:init
+func f() {
+    let v = let (x, y) = a
+}
+
+// case: syntax.stmt.destructure/cell:asgn
+func f() {
+    v = let (x, y) = a
+}
+
+// case: syntax.stmt.destructure/cell:crhs
+func f() {
+    v += let (x, y) = a
+}
+
+// case: syntax.stmt.destructure/cell:atgt
+func f() {
+    let (x, y) = a = x
+}
+
+// case: syntax.stmt.destructure/cell:ret
+func f() {
+    return let (x, y) = a
+}
+
+// case: syntax.stmt.destructure/cell:brk
+func f() {
+    while x {
+        break let (x, y) = a
+    }
+}
+
+// case: syntax.stmt.destructure/cell:lend
+func f() {
+    lend let (x, y) = a
+}
+
+// case: syntax.stmt.destructure/cell:try
+func f() {
+    let v = try let (x, y) = a
+}
+
+// case: syntax.stmt.destructure/cell:dflt
+func f(p: T = let (x, y) = a) {
+}
+
+// case: syntax.stmt.destructure/cell:sinit
+static S: T = let (x, y) = a
+
+// case: syntax.stmt.destructure/cell:alen
+func f() {
+    let v: [T; let (x, y) = a] = w
+}
+
+// case: syntax.stmt.destructure/cell:rcnt
+func f() {
+    let v = [x; let (x, y) = a]
+}
+
+// case: syntax.stmt.destructure/cell:cgen
+func f() {
+    let v: A<let (x, y) = a> = w
+}
+
+// case: syntax.stmt.destructure/cell:raw
+enum E: T {
+    case A = let (x, y) = a
+}
+
+// case: syntax.stmt.destructure/cell:aarg
+@align(let (x, y) = a)
+static S: T = x
+
+// case: syntax.stmt.destructure/cell:sassert
+static_assert(let (x, y) = a, "m")
+
+// case: syntax.stmt.destructure/cell:cap
+func f() {
+    let c = { [let (x, y) = a] in x }
+}
+
+// case: syntax.stmt.assign/cell:tail
+// parses as another construct
+func f() {
+    a = b
+}
+
+// case: syntax.stmt.assign/cell:opnd
+func f() {
+    let v = a = b * x
+}
+
+// case: syntax.stmt.assign/cell:rhs
+func f() {
+    let v = x && a = b
+}
+
+// case: syntax.stmt.assign/cell:arg
+func f() {
+    f(a = b)
+}
+
+// case: syntax.stmt.assign/cell:larg
+func f() {
+    f(a: a = b)
+}
+
+// case: syntax.stmt.assign/cell:elem
+func f() {
+    let v = [a = b]
+}
+
+// case: syntax.stmt.assign/cell:recv
+func f() {
+    let v = a = b.b
+}
+
+// case: syntax.stmt.assign/cell:idx
+func f() {
+    let v = a[a = b]
+}
+
+// case: syntax.stmt.assign/cell:interp
+func f() {
+    print("{a = b}")
+}
+
+// case: syntax.stmt.assign/cell:cond
+func f() {
+    if a = b {
+    }
+}
+
+// case: syntax.stmt.assign/cell:subj
+func f() {
+    if let x = a = b {
+    }
+}
+
+// case: syntax.stmt.assign/cell:scrut
+func f() {
+    match a = b {
+        case _ -> x
+    }
+}
+
+// case: syntax.stmt.assign/cell:aguard
+func f() {
+    match x {
+        case _ if a = b -> x
+    }
+}
+
+// case: syntax.stmt.assign/cell:iter
+func f() {
+    for i in a = b {
+    }
+}
+
+// case: syntax.stmt.assign/cell:rend
+func f() {
+    for i in a = b..x {
+    }
+}
+
+// case: syntax.stmt.assign/cell:bhead
+func f() {
+    borrow let x = a = b {
+    }
+}
+
+// case: syntax.stmt.assign/cell:init
+func f() {
+    let v = a = b
+}
+
+// case: syntax.stmt.assign/cell:asgn
+func f() {
+    v = a = b
+}
+
+// case: syntax.stmt.assign/cell:crhs
+func f() {
+    v += a = b
+}
+
+// case: syntax.stmt.assign/cell:atgt
+func f() {
+    a = b = x
+}
+
+// case: syntax.stmt.assign/cell:ret
+func f() {
+    return a = b
+}
+
+// case: syntax.stmt.assign/cell:brk
+func f() {
+    while x {
+        break a = b
+    }
+}
+
+// case: syntax.stmt.assign/cell:lend
+func f() {
+    lend a = b
+}
+
+// case: syntax.stmt.assign/cell:try
+func f() {
+    let v = try a = b
+}
+
+// case: syntax.stmt.assign/cell:dflt
+func f(p: T = a = b) {
+}
+
+// case: syntax.stmt.assign/cell:sinit
+static S: T = a = b
+
+// case: syntax.stmt.assign/cell:alen
+func f() {
+    let v: [T; a = b] = w
+}
+
+// case: syntax.stmt.assign/cell:rcnt
+func f() {
+    let v = [x; a = b]
+}
+
+// case: syntax.stmt.assign/cell:cgen
+func f() {
+    let v: A<a = b> = w
+}
+
+// case: syntax.stmt.assign/cell:raw
+enum E: T {
+    case A = a = b
+}
+
+// case: syntax.stmt.assign/cell:aarg
+@align(a = b)
+static S: T = x
+
+// case: syntax.stmt.assign/cell:sassert
+static_assert(a = b, "m")
+
+// case: syntax.stmt.assign/cell:cap
+func f() {
+    let c = { [a = b] in x }
+}
+
+// case: syntax.stmt.compound-assign/cell:tail
+// parses as another construct
+func f() {
+    a += b
+}
+
+// case: syntax.stmt.compound-assign/cell:opnd
+func f() {
+    let v = a += b * x
+}
+
+// case: syntax.stmt.compound-assign/cell:rhs
+func f() {
+    let v = x && a += b
+}
+
+// case: syntax.stmt.compound-assign/cell:arg
+func f() {
+    f(a += b)
+}
+
+// case: syntax.stmt.compound-assign/cell:larg
+func f() {
+    f(a: a += b)
+}
+
+// case: syntax.stmt.compound-assign/cell:elem
+func f() {
+    let v = [a += b]
+}
+
+// case: syntax.stmt.compound-assign/cell:recv
+func f() {
+    let v = a += b.b
+}
+
+// case: syntax.stmt.compound-assign/cell:idx
+func f() {
+    let v = a[a += b]
+}
+
+// case: syntax.stmt.compound-assign/cell:interp
+func f() {
+    print("{a += b}")
+}
+
+// case: syntax.stmt.compound-assign/cell:cond
+func f() {
+    if a += b {
+    }
+}
+
+// case: syntax.stmt.compound-assign/cell:subj
+func f() {
+    if let x = a += b {
+    }
+}
+
+// case: syntax.stmt.compound-assign/cell:scrut
+func f() {
+    match a += b {
+        case _ -> x
+    }
+}
+
+// case: syntax.stmt.compound-assign/cell:aguard
+func f() {
+    match x {
+        case _ if a += b -> x
+    }
+}
+
+// case: syntax.stmt.compound-assign/cell:iter
+func f() {
+    for i in a += b {
+    }
+}
+
+// case: syntax.stmt.compound-assign/cell:rend
+func f() {
+    for i in a += b..x {
+    }
+}
+
+// case: syntax.stmt.compound-assign/cell:bhead
+func f() {
+    borrow let x = a += b {
+    }
+}
+
+// case: syntax.stmt.compound-assign/cell:init
+func f() {
+    let v = a += b
+}
+
+// case: syntax.stmt.compound-assign/cell:asgn
+func f() {
+    v = a += b
+}
+
+// case: syntax.stmt.compound-assign/cell:crhs
+func f() {
+    v += a += b
+}
+
+// case: syntax.stmt.compound-assign/cell:atgt
+func f() {
+    a += b = x
+}
+
+// case: syntax.stmt.compound-assign/cell:ret
+func f() {
+    return a += b
+}
+
+// case: syntax.stmt.compound-assign/cell:brk
+func f() {
+    while x {
+        break a += b
+    }
+}
+
+// case: syntax.stmt.compound-assign/cell:lend
+func f() {
+    lend a += b
+}
+
+// case: syntax.stmt.compound-assign/cell:try
+func f() {
+    let v = try a += b
+}
+
+// case: syntax.stmt.compound-assign/cell:dflt
+func f(p: T = a += b) {
+}
+
+// case: syntax.stmt.compound-assign/cell:sinit
+static S: T = a += b
+
+// case: syntax.stmt.compound-assign/cell:alen
+func f() {
+    let v: [T; a += b] = w
+}
+
+// case: syntax.stmt.compound-assign/cell:rcnt
+func f() {
+    let v = [x; a += b]
+}
+
+// case: syntax.stmt.compound-assign/cell:cgen
+func f() {
+    let v: A<a += b> = w
+}
+
+// case: syntax.stmt.compound-assign/cell:raw
+enum E: T {
+    case A = a += b
+}
+
+// case: syntax.stmt.compound-assign/cell:aarg
+@align(a += b)
+static S: T = x
+
+// case: syntax.stmt.compound-assign/cell:sassert
+static_assert(a += b, "m")
+
+// case: syntax.stmt.compound-assign/cell:cap
+func f() {
+    let c = { [a += b] in x }
+}
+
+// case: syntax.stmt.return/cell:tail
+// parses as another construct
+func f() {
+    return a
+}
+
+// case: syntax.stmt.return/cell:opnd
+func f() {
+    let v = return a * x
+}
+
+// case: syntax.stmt.return/cell:rhs
+func f() {
+    let v = x && return a
+}
+
+// case: syntax.stmt.return/cell:arg
+func f() {
+    f(return a)
+}
+
+// case: syntax.stmt.return/cell:larg
+func f() {
+    f(a: return a)
+}
+
+// case: syntax.stmt.return/cell:elem
+func f() {
+    let v = [return a]
+}
+
+// case: syntax.stmt.return/cell:recv
+func f() {
+    let v = return a.b
+}
+
+// case: syntax.stmt.return/cell:idx
+func f() {
+    let v = a[return a]
+}
+
+// case: syntax.stmt.return/cell:interp
+func f() {
+    print("{return a}")
+}
+
+// case: syntax.stmt.return/cell:cond
+func f() {
+    if return a {
+    }
+}
+
+// case: syntax.stmt.return/cell:subj
+func f() {
+    if let x = return a {
+    }
+}
+
+// case: syntax.stmt.return/cell:scrut
+func f() {
+    match return a {
+        case _ -> x
+    }
+}
+
+// case: syntax.stmt.return/cell:aguard
+func f() {
+    match x {
+        case _ if return a -> x
+    }
+}
+
+// case: syntax.stmt.return/cell:iter
+func f() {
+    for i in return a {
+    }
+}
+
+// case: syntax.stmt.return/cell:rend
+func f() {
+    for i in return a..x {
+    }
+}
+
+// case: syntax.stmt.return/cell:bhead
+func f() {
+    borrow let x = return a {
+    }
+}
+
+// case: syntax.stmt.return/cell:init
+func f() {
+    let v = return a
+}
+
+// case: syntax.stmt.return/cell:asgn
+func f() {
+    v = return a
+}
+
+// case: syntax.stmt.return/cell:crhs
+func f() {
+    v += return a
+}
+
+// case: syntax.stmt.return/cell:atgt
+func f() {
+    return a = x
+}
+
+// case: syntax.stmt.return/cell:ret
+func f() {
+    return return a
+}
+
+// case: syntax.stmt.return/cell:brk
+func f() {
+    while x {
+        break return a
+    }
+}
+
+// case: syntax.stmt.return/cell:lend
+func f() {
+    lend return a
+}
+
+// case: syntax.stmt.return/cell:try
+func f() {
+    let v = try return a
+}
+
+// case: syntax.stmt.return/cell:dflt
+func f(p: T = return a) {
+}
+
+// case: syntax.stmt.return/cell:sinit
+static S: T = return a
+
+// case: syntax.stmt.return/cell:alen
+func f() {
+    let v: [T; return a] = w
+}
+
+// case: syntax.stmt.return/cell:rcnt
+func f() {
+    let v = [x; return a]
+}
+
+// case: syntax.stmt.return/cell:cgen
+func f() {
+    let v: A<return a> = w
+}
+
+// case: syntax.stmt.return/cell:raw
+enum E: T {
+    case A = return a
+}
+
+// case: syntax.stmt.return/cell:aarg
+@align(return a)
+static S: T = x
+
+// case: syntax.stmt.return/cell:sassert
+static_assert(return a, "m")
+
+// case: syntax.stmt.return/cell:cap
+func f() {
+    let c = { [return a] in x }
+}
+
+// case: syntax.stmt.break/cell:tail
+// parses as another construct
+func f() {
+    break
+}
+
+// case: syntax.stmt.break/cell:opnd
+func f() {
+    let v = break * x
+}
+
+// case: syntax.stmt.break/cell:rhs
+func f() {
+    let v = x && break
+}
+
+// case: syntax.stmt.break/cell:arg
+func f() {
+    f(break)
+}
+
+// case: syntax.stmt.break/cell:larg
+func f() {
+    f(a: break)
+}
+
+// case: syntax.stmt.break/cell:elem
+func f() {
+    let v = [break]
+}
+
+// case: syntax.stmt.break/cell:recv
+func f() {
+    let v = break.b
+}
+
+// case: syntax.stmt.break/cell:idx
+func f() {
+    let v = a[break]
+}
+
+// case: syntax.stmt.break/cell:interp
+func f() {
+    print("{break}")
+}
+
+// case: syntax.stmt.break/cell:cond
+func f() {
+    if break {
+    }
+}
+
+// case: syntax.stmt.break/cell:subj
+func f() {
+    if let x = break {
+    }
+}
+
+// case: syntax.stmt.break/cell:scrut
+func f() {
+    match break {
+        case _ -> x
+    }
+}
+
+// case: syntax.stmt.break/cell:aguard
+func f() {
+    match x {
+        case _ if break -> x
+    }
+}
+
+// case: syntax.stmt.break/cell:iter
+func f() {
+    for i in break {
+    }
+}
+
+// case: syntax.stmt.break/cell:rend
+func f() {
+    for i in break..x {
+    }
+}
+
+// case: syntax.stmt.break/cell:bhead
+func f() {
+    borrow let x = break {
+    }
+}
+
+// case: syntax.stmt.break/cell:init
+func f() {
+    let v = break
+}
+
+// case: syntax.stmt.break/cell:asgn
+func f() {
+    v = break
+}
+
+// case: syntax.stmt.break/cell:crhs
+func f() {
+    v += break
+}
+
+// case: syntax.stmt.break/cell:atgt
+func f() {
+    break = x
+}
+
+// case: syntax.stmt.break/cell:ret
+func f() {
+    return break
+}
+
+// case: syntax.stmt.break/cell:brk
+func f() {
+    while x {
+        break break
+    }
+}
+
+// case: syntax.stmt.break/cell:lend
+func f() {
+    lend break
+}
+
+// case: syntax.stmt.break/cell:try
+func f() {
+    let v = try break
+}
+
+// case: syntax.stmt.break/cell:dflt
+func f(p: T = break) {
+}
+
+// case: syntax.stmt.break/cell:sinit
+static S: T = break
+
+// case: syntax.stmt.break/cell:alen
+func f() {
+    let v: [T; break] = w
+}
+
+// case: syntax.stmt.break/cell:rcnt
+func f() {
+    let v = [x; break]
+}
+
+// case: syntax.stmt.break/cell:cgen
+func f() {
+    let v: A<break> = w
+}
+
+// case: syntax.stmt.break/cell:raw
+enum E: T {
+    case A = break
+}
+
+// case: syntax.stmt.break/cell:aarg
+@align(break)
+static S: T = x
+
+// case: syntax.stmt.break/cell:sassert
+static_assert(break, "m")
+
+// case: syntax.stmt.break/cell:cap
+func f() {
+    let c = { [break] in x }
+}
+
+// case: syntax.stmt.continue/cell:tail
+// parses as another construct
+func f() {
+    continue
+}
+
+// case: syntax.stmt.continue/cell:opnd
+func f() {
+    let v = continue * x
+}
+
+// case: syntax.stmt.continue/cell:rhs
+func f() {
+    let v = x && continue
+}
+
+// case: syntax.stmt.continue/cell:arg
+func f() {
+    f(continue)
+}
+
+// case: syntax.stmt.continue/cell:larg
+func f() {
+    f(a: continue)
+}
+
+// case: syntax.stmt.continue/cell:elem
+func f() {
+    let v = [continue]
+}
+
+// case: syntax.stmt.continue/cell:recv
+func f() {
+    let v = continue.b
+}
+
+// case: syntax.stmt.continue/cell:idx
+func f() {
+    let v = a[continue]
+}
+
+// case: syntax.stmt.continue/cell:interp
+func f() {
+    print("{continue}")
+}
+
+// case: syntax.stmt.continue/cell:cond
+func f() {
+    if continue {
+    }
+}
+
+// case: syntax.stmt.continue/cell:subj
+func f() {
+    if let x = continue {
+    }
+}
+
+// case: syntax.stmt.continue/cell:scrut
+func f() {
+    match continue {
+        case _ -> x
+    }
+}
+
+// case: syntax.stmt.continue/cell:aguard
+func f() {
+    match x {
+        case _ if continue -> x
+    }
+}
+
+// case: syntax.stmt.continue/cell:iter
+func f() {
+    for i in continue {
+    }
+}
+
+// case: syntax.stmt.continue/cell:rend
+func f() {
+    for i in continue..x {
+    }
+}
+
+// case: syntax.stmt.continue/cell:bhead
+func f() {
+    borrow let x = continue {
+    }
+}
+
+// case: syntax.stmt.continue/cell:init
+func f() {
+    let v = continue
+}
+
+// case: syntax.stmt.continue/cell:asgn
+func f() {
+    v = continue
+}
+
+// case: syntax.stmt.continue/cell:crhs
+func f() {
+    v += continue
+}
+
+// case: syntax.stmt.continue/cell:atgt
+func f() {
+    continue = x
+}
+
+// case: syntax.stmt.continue/cell:ret
+func f() {
+    return continue
+}
+
+// case: syntax.stmt.continue/cell:brk
+func f() {
+    while x {
+        break continue
+    }
+}
+
+// case: syntax.stmt.continue/cell:lend
+func f() {
+    lend continue
+}
+
+// case: syntax.stmt.continue/cell:try
+func f() {
+    let v = try continue
+}
+
+// case: syntax.stmt.continue/cell:dflt
+func f(p: T = continue) {
+}
+
+// case: syntax.stmt.continue/cell:sinit
+static S: T = continue
+
+// case: syntax.stmt.continue/cell:alen
+func f() {
+    let v: [T; continue] = w
+}
+
+// case: syntax.stmt.continue/cell:rcnt
+func f() {
+    let v = [x; continue]
+}
+
+// case: syntax.stmt.continue/cell:cgen
+func f() {
+    let v: A<continue> = w
+}
+
+// case: syntax.stmt.continue/cell:raw
+enum E: T {
+    case A = continue
+}
+
+// case: syntax.stmt.continue/cell:aarg
+@align(continue)
+static S: T = x
+
+// case: syntax.stmt.continue/cell:sassert
+static_assert(continue, "m")
+
+// case: syntax.stmt.continue/cell:cap
+func f() {
+    let c = { [continue] in x }
+}
+
+// case: syntax.stmt.lend/cell:tail
+// parses as another construct
+func f() {
+    lend a
+}
+
+// case: syntax.stmt.lend/cell:opnd
+func f() {
+    let v = lend a * x
+}
+
+// case: syntax.stmt.lend/cell:rhs
+func f() {
+    let v = x && lend a
+}
+
+// case: syntax.stmt.lend/cell:arg
+func f() {
+    f(lend a)
+}
+
+// case: syntax.stmt.lend/cell:larg
+func f() {
+    f(a: lend a)
+}
+
+// case: syntax.stmt.lend/cell:elem
+func f() {
+    let v = [lend a]
+}
+
+// case: syntax.stmt.lend/cell:recv
+func f() {
+    let v = lend a.b
+}
+
+// case: syntax.stmt.lend/cell:idx
+func f() {
+    let v = a[lend a]
+}
+
+// case: syntax.stmt.lend/cell:interp
+func f() {
+    print("{lend a}")
+}
+
+// case: syntax.stmt.lend/cell:cond
+func f() {
+    if lend a {
+    }
+}
+
+// case: syntax.stmt.lend/cell:subj
+func f() {
+    if let x = lend a {
+    }
+}
+
+// case: syntax.stmt.lend/cell:scrut
+func f() {
+    match lend a {
+        case _ -> x
+    }
+}
+
+// case: syntax.stmt.lend/cell:aguard
+func f() {
+    match x {
+        case _ if lend a -> x
+    }
+}
+
+// case: syntax.stmt.lend/cell:iter
+func f() {
+    for i in lend a {
+    }
+}
+
+// case: syntax.stmt.lend/cell:rend
+func f() {
+    for i in lend a..x {
+    }
+}
+
+// case: syntax.stmt.lend/cell:bhead
+func f() {
+    borrow let x = lend a {
+    }
+}
+
+// case: syntax.stmt.lend/cell:init
+func f() {
+    let v = lend a
+}
+
+// case: syntax.stmt.lend/cell:asgn
+func f() {
+    v = lend a
+}
+
+// case: syntax.stmt.lend/cell:crhs
+func f() {
+    v += lend a
+}
+
+// case: syntax.stmt.lend/cell:atgt
+func f() {
+    lend a = x
+}
+
+// case: syntax.stmt.lend/cell:ret
+func f() {
+    return lend a
+}
+
+// case: syntax.stmt.lend/cell:brk
+func f() {
+    while x {
+        break lend a
+    }
+}
+
+// case: syntax.stmt.lend/cell:lend
+func f() {
+    lend lend a
+}
+
+// case: syntax.stmt.lend/cell:try
+func f() {
+    let v = try lend a
+}
+
+// case: syntax.stmt.lend/cell:dflt
+func f(p: T = lend a) {
+}
+
+// case: syntax.stmt.lend/cell:sinit
+static S: T = lend a
+
+// case: syntax.stmt.lend/cell:alen
+func f() {
+    let v: [T; lend a] = w
+}
+
+// case: syntax.stmt.lend/cell:rcnt
+func f() {
+    let v = [x; lend a]
+}
+
+// case: syntax.stmt.lend/cell:cgen
+func f() {
+    let v: A<lend a> = w
+}
+
+// case: syntax.stmt.lend/cell:raw
+enum E: T {
+    case A = lend a
+}
+
+// case: syntax.stmt.lend/cell:aarg
+@align(lend a)
+static S: T = x
+
+// case: syntax.stmt.lend/cell:sassert
+static_assert(lend a, "m")
+
+// case: syntax.stmt.lend/cell:cap
+func f() {
+    let c = { [lend a] in x }
+}
+
+// case: syntax.stmt.guard/cell:tail
+// parses as another construct
+func f() {
+    guard let x = a else { return }
+}
+
+// case: syntax.stmt.guard/cell:opnd
+func f() {
+    let v = guard let x = a else { return } * x
+}
+
+// case: syntax.stmt.guard/cell:rhs
+func f() {
+    let v = x && guard let x = a else { return }
+}
+
+// case: syntax.stmt.guard/cell:arg
+func f() {
+    f(guard let x = a else { return })
+}
+
+// case: syntax.stmt.guard/cell:larg
+func f() {
+    f(a: guard let x = a else { return })
+}
+
+// case: syntax.stmt.guard/cell:elem
+func f() {
+    let v = [guard let x = a else { return }]
+}
+
+// case: syntax.stmt.guard/cell:recv
+func f() {
+    let v = guard let x = a else { return }.b
+}
+
+// case: syntax.stmt.guard/cell:idx
+func f() {
+    let v = a[guard let x = a else { return }]
+}
+
+// case: syntax.stmt.guard/cell:interp
+func f() {
+    print("{guard let x = a else { return }}")
+}
+
+// case: syntax.stmt.guard/cell:cond
+func f() {
+    if guard let x = a else { return } {
+    }
+}
+
+// case: syntax.stmt.guard/cell:subj
+func f() {
+    if let x = guard let x = a else { return } {
+    }
+}
+
+// case: syntax.stmt.guard/cell:scrut
+func f() {
+    match guard let x = a else { return } {
+        case _ -> x
+    }
+}
+
+// case: syntax.stmt.guard/cell:aguard
+func f() {
+    match x {
+        case _ if guard let x = a else { return } -> x
+    }
+}
+
+// case: syntax.stmt.guard/cell:iter
+func f() {
+    for i in guard let x = a else { return } {
+    }
+}
+
+// case: syntax.stmt.guard/cell:rend
+func f() {
+    for i in guard let x = a else { return }..x {
+    }
+}
+
+// case: syntax.stmt.guard/cell:bhead
+func f() {
+    borrow let x = guard let x = a else { return } {
+    }
+}
+
+// case: syntax.stmt.guard/cell:init
+func f() {
+    let v = guard let x = a else { return }
+}
+
+// case: syntax.stmt.guard/cell:asgn
+func f() {
+    v = guard let x = a else { return }
+}
+
+// case: syntax.stmt.guard/cell:crhs
+func f() {
+    v += guard let x = a else { return }
+}
+
+// case: syntax.stmt.guard/cell:atgt
+func f() {
+    guard let x = a else { return } = x
+}
+
+// case: syntax.stmt.guard/cell:ret
+func f() {
+    return guard let x = a else { return }
+}
+
+// case: syntax.stmt.guard/cell:brk
+func f() {
+    while x {
+        break guard let x = a else { return }
+    }
+}
+
+// case: syntax.stmt.guard/cell:lend
+func f() {
+    lend guard let x = a else { return }
+}
+
+// case: syntax.stmt.guard/cell:try
+func f() {
+    let v = try guard let x = a else { return }
+}
+
+// case: syntax.stmt.guard/cell:dflt
+func f(p: T = guard let x = a else { return }) {
+}
+
+// case: syntax.stmt.guard/cell:sinit
+static S: T = guard let x = a else { return }
+
+// case: syntax.stmt.guard/cell:alen
+func f() {
+    let v: [T; guard let x = a else { return }] = w
+}
+
+// case: syntax.stmt.guard/cell:rcnt
+func f() {
+    let v = [x; guard let x = a else { return }]
+}
+
+// case: syntax.stmt.guard/cell:cgen
+func f() {
+    let v: A<guard let x = a else { return }> = w
+}
+
+// case: syntax.stmt.guard/cell:raw
+enum E: T {
+    case A = guard let x = a else { return }
+}
+
+// case: syntax.stmt.guard/cell:aarg
+@align(guard let x = a else { return })
+static S: T = x
+
+// case: syntax.stmt.guard/cell:sassert
+static_assert(guard let x = a else { return }, "m")
+
+// case: syntax.stmt.guard/cell:cap
+func f() {
+    let c = { [guard let x = a else { return }] in x }
+}
+
+// case: syntax.stmt.guard-condition/cell:tail
+// parses as another construct
+func f() {
+    guard a else { return }
+}
+
+// case: syntax.stmt.guard-condition/cell:opnd
+func f() {
+    let v = guard a else { return } * x
+}
+
+// case: syntax.stmt.guard-condition/cell:rhs
+func f() {
+    let v = x && guard a else { return }
+}
+
+// case: syntax.stmt.guard-condition/cell:arg
+func f() {
+    f(guard a else { return })
+}
+
+// case: syntax.stmt.guard-condition/cell:larg
+func f() {
+    f(a: guard a else { return })
+}
+
+// case: syntax.stmt.guard-condition/cell:elem
+func f() {
+    let v = [guard a else { return }]
+}
+
+// case: syntax.stmt.guard-condition/cell:recv
+func f() {
+    let v = guard a else { return }.b
+}
+
+// case: syntax.stmt.guard-condition/cell:idx
+func f() {
+    let v = a[guard a else { return }]
+}
+
+// case: syntax.stmt.guard-condition/cell:interp
+func f() {
+    print("{guard a else { return }}")
+}
+
+// case: syntax.stmt.guard-condition/cell:cond
+func f() {
+    if guard a else { return } {
+    }
+}
+
+// case: syntax.stmt.guard-condition/cell:subj
+func f() {
+    if let x = guard a else { return } {
+    }
+}
+
+// case: syntax.stmt.guard-condition/cell:scrut
+func f() {
+    match guard a else { return } {
+        case _ -> x
+    }
+}
+
+// case: syntax.stmt.guard-condition/cell:aguard
+func f() {
+    match x {
+        case _ if guard a else { return } -> x
+    }
+}
+
+// case: syntax.stmt.guard-condition/cell:iter
+func f() {
+    for i in guard a else { return } {
+    }
+}
+
+// case: syntax.stmt.guard-condition/cell:rend
+func f() {
+    for i in guard a else { return }..x {
+    }
+}
+
+// case: syntax.stmt.guard-condition/cell:bhead
+func f() {
+    borrow let x = guard a else { return } {
+    }
+}
+
+// case: syntax.stmt.guard-condition/cell:init
+func f() {
+    let v = guard a else { return }
+}
+
+// case: syntax.stmt.guard-condition/cell:asgn
+func f() {
+    v = guard a else { return }
+}
+
+// case: syntax.stmt.guard-condition/cell:crhs
+func f() {
+    v += guard a else { return }
+}
+
+// case: syntax.stmt.guard-condition/cell:atgt
+func f() {
+    guard a else { return } = x
+}
+
+// case: syntax.stmt.guard-condition/cell:ret
+func f() {
+    return guard a else { return }
+}
+
+// case: syntax.stmt.guard-condition/cell:brk
+func f() {
+    while x {
+        break guard a else { return }
+    }
+}
+
+// case: syntax.stmt.guard-condition/cell:lend
+func f() {
+    lend guard a else { return }
+}
+
+// case: syntax.stmt.guard-condition/cell:try
+func f() {
+    let v = try guard a else { return }
+}
+
+// case: syntax.stmt.guard-condition/cell:dflt
+func f(p: T = guard a else { return }) {
+}
+
+// case: syntax.stmt.guard-condition/cell:sinit
+static S: T = guard a else { return }
+
+// case: syntax.stmt.guard-condition/cell:alen
+func f() {
+    let v: [T; guard a else { return }] = w
+}
+
+// case: syntax.stmt.guard-condition/cell:rcnt
+func f() {
+    let v = [x; guard a else { return }]
+}
+
+// case: syntax.stmt.guard-condition/cell:cgen
+func f() {
+    let v: A<guard a else { return }> = w
+}
+
+// case: syntax.stmt.guard-condition/cell:raw
+enum E: T {
+    case A = guard a else { return }
+}
+
+// case: syntax.stmt.guard-condition/cell:aarg
+@align(guard a else { return })
+static S: T = x
+
+// case: syntax.stmt.guard-condition/cell:sassert
+static_assert(guard a else { return }, "m")
+
+// case: syntax.stmt.guard-condition/cell:cap
+func f() {
+    let c = { [guard a else { return }] in x }
+}
+
+// case: syntax.decl.static-assert/cell:tail
+// parses as another construct
+func f() {
+    static_assert(a, "m")
+}
+
+// case: syntax.decl.static-assert/cell:opnd
+// parses as another construct
+func f() {
+    let v = static_assert(a, "m") * x
+}
+
+// case: syntax.decl.static-assert/cell:rhs
+// parses as another construct
+func f() {
+    let v = x && static_assert(a, "m")
+}
+
+// case: syntax.decl.static-assert/cell:arg
+// parses as another construct
+func f() {
+    f(static_assert(a, "m"))
+}
+
+// case: syntax.decl.static-assert/cell:larg
+// parses as another construct
+func f() {
+    f(a: static_assert(a, "m"))
+}
+
+// case: syntax.decl.static-assert/cell:elem
+// parses as another construct
+func f() {
+    let v = [static_assert(a, "m")]
+}
+
+// case: syntax.decl.static-assert/cell:recv
+// parses as another construct
+func f() {
+    let v = static_assert(a, "m").b
+}
+
+// case: syntax.decl.static-assert/cell:idx
+// parses as another construct
+func f() {
+    let v = a[static_assert(a, "m")]
+}
+
+// case: syntax.decl.static-assert/cell:interp
+// parses as another construct
+func f() {
+    print("{static_assert(a, "m")}")
+}
+
+// case: syntax.decl.static-assert/cell:cond
+// parses as another construct
+func f() {
+    if static_assert(a, "m") {
+    }
+}
+
+// case: syntax.decl.static-assert/cell:subj
+// parses as another construct
+func f() {
+    if let x = static_assert(a, "m") {
+    }
+}
+
+// case: syntax.decl.static-assert/cell:scrut
+// parses as another construct
+func f() {
+    match static_assert(a, "m") {
+        case _ -> x
+    }
+}
+
+// case: syntax.decl.static-assert/cell:aguard
+// parses as another construct
+func f() {
+    match x {
+        case _ if static_assert(a, "m") -> x
+    }
+}
+
+// case: syntax.decl.static-assert/cell:iter
+// parses as another construct
+func f() {
+    for i in static_assert(a, "m") {
+    }
+}
+
+// case: syntax.decl.static-assert/cell:rend
+// parses as another construct
+func f() {
+    for i in static_assert(a, "m")..x {
+    }
+}
+
+// case: syntax.decl.static-assert/cell:bhead
+// parses as another construct
+func f() {
+    borrow let x = static_assert(a, "m") {
+    }
+}
+
+// case: syntax.decl.static-assert/cell:init
+// parses as another construct
+func f() {
+    let v = static_assert(a, "m")
+}
+
+// case: syntax.decl.static-assert/cell:asgn
+// parses as another construct
+func f() {
+    v = static_assert(a, "m")
+}
+
+// case: syntax.decl.static-assert/cell:crhs
+// parses as another construct
+func f() {
+    v += static_assert(a, "m")
+}
+
+// case: syntax.decl.static-assert/cell:atgt
+func f() {
+    static_assert(a, "m") = x
+}
+
+// case: syntax.decl.static-assert/cell:ret
+// parses as another construct
+func f() {
+    return static_assert(a, "m")
+}
+
+// case: syntax.decl.static-assert/cell:brk
+// parses as another construct
+func f() {
+    while x {
+        break static_assert(a, "m")
+    }
+}
+
+// case: syntax.decl.static-assert/cell:lend
+// parses as another construct
+func f() {
+    lend static_assert(a, "m")
+}
+
+// case: syntax.decl.static-assert/cell:try
+// parses as another construct
+func f() {
+    let v = try static_assert(a, "m")
+}
+
+// case: syntax.decl.static-assert/cell:dflt
+// parses as another construct
+func f(p: T = static_assert(a, "m")) {
+}
+
+// case: syntax.decl.static-assert/cell:sinit
+// parses as another construct
+static S: T = static_assert(a, "m")
+
+// case: syntax.decl.static-assert/cell:alen
+// parses as another construct
+func f() {
+    let v: [T; static_assert(a, "m")] = w
+}
+
+// case: syntax.decl.static-assert/cell:rcnt
+// parses as another construct
+func f() {
+    let v = [x; static_assert(a, "m")]
+}
+
+// case: syntax.decl.static-assert/cell:cgen
+func f() {
+    let v: A<static_assert(a, "m")> = w
+}
+
+// case: syntax.decl.static-assert/cell:raw
+// parses as another construct
+enum E: T {
+    case A = static_assert(a, "m")
+}
+
+// case: syntax.decl.static-assert/cell:aarg
+// parses as another construct
+@align(static_assert(a, "m"))
+static S: T = x
+
+// case: syntax.decl.static-assert/cell:sassert
+// parses as another construct
+static_assert(static_assert(a, "m"), "m")
+
+// case: syntax.decl.static-assert/cell:cap
+func f() {
+    let c = { [static_assert(a, "m")] in x }
+}
+
+// case: syntax.stmt.attributed-local/cell:tail
+// parses as another construct
+func f() {
+    @align(8) let x = a
+}
+
+// case: syntax.stmt.attributed-local/cell:opnd
+func f() {
+    let v = @align(8) let x = a * x
+}
+
+// case: syntax.stmt.attributed-local/cell:rhs
+func f() {
+    let v = x && @align(8) let x = a
+}
+
+// case: syntax.stmt.attributed-local/cell:arg
+func f() {
+    f(@align(8) let x = a)
+}
+
+// case: syntax.stmt.attributed-local/cell:larg
+func f() {
+    f(a: @align(8) let x = a)
+}
+
+// case: syntax.stmt.attributed-local/cell:elem
+func f() {
+    let v = [@align(8) let x = a]
+}
+
+// case: syntax.stmt.attributed-local/cell:recv
+func f() {
+    let v = @align(8) let x = a.b
+}
+
+// case: syntax.stmt.attributed-local/cell:idx
+func f() {
+    let v = a[@align(8) let x = a]
+}
+
+// case: syntax.stmt.attributed-local/cell:interp
+func f() {
+    print("{@align(8) let x = a}")
+}
+
+// case: syntax.stmt.attributed-local/cell:cond
+func f() {
+    if @align(8) let x = a {
+    }
+}
+
+// case: syntax.stmt.attributed-local/cell:subj
+func f() {
+    if let x = @align(8) let x = a {
+    }
+}
+
+// case: syntax.stmt.attributed-local/cell:scrut
+func f() {
+    match @align(8) let x = a {
+        case _ -> x
+    }
+}
+
+// case: syntax.stmt.attributed-local/cell:aguard
+func f() {
+    match x {
+        case _ if @align(8) let x = a -> x
+    }
+}
+
+// case: syntax.stmt.attributed-local/cell:iter
+func f() {
+    for i in @align(8) let x = a {
+    }
+}
+
+// case: syntax.stmt.attributed-local/cell:rend
+func f() {
+    for i in @align(8) let x = a..x {
+    }
+}
+
+// case: syntax.stmt.attributed-local/cell:bhead
+func f() {
+    borrow let x = @align(8) let x = a {
+    }
+}
+
+// case: syntax.stmt.attributed-local/cell:init
+func f() {
+    let v = @align(8) let x = a
+}
+
+// case: syntax.stmt.attributed-local/cell:asgn
+func f() {
+    v = @align(8) let x = a
+}
+
+// case: syntax.stmt.attributed-local/cell:crhs
+func f() {
+    v += @align(8) let x = a
+}
+
+// case: syntax.stmt.attributed-local/cell:atgt
+func f() {
+    @align(8) let x = a = x
+}
+
+// case: syntax.stmt.attributed-local/cell:ret
+func f() {
+    return @align(8) let x = a
+}
+
+// case: syntax.stmt.attributed-local/cell:brk
+func f() {
+    while x {
+        break @align(8) let x = a
+    }
+}
+
+// case: syntax.stmt.attributed-local/cell:lend
+func f() {
+    lend @align(8) let x = a
+}
+
+// case: syntax.stmt.attributed-local/cell:try
+func f() {
+    let v = try @align(8) let x = a
+}
+
+// case: syntax.stmt.attributed-local/cell:dflt
+func f(p: T = @align(8) let x = a) {
+}
+
+// case: syntax.stmt.attributed-local/cell:sinit
+static S: T = @align(8) let x = a
+
+// case: syntax.stmt.attributed-local/cell:alen
+func f() {
+    let v: [T; @align(8) let x = a] = w
+}
+
+// case: syntax.stmt.attributed-local/cell:rcnt
+func f() {
+    let v = [x; @align(8) let x = a]
+}
+
+// case: syntax.stmt.attributed-local/cell:cgen
+func f() {
+    let v: A<@align(8) let x = a> = w
+}
+
+// case: syntax.stmt.attributed-local/cell:raw
+enum E: T {
+    case A = @align(8) let x = a
+}
+
+// case: syntax.stmt.attributed-local/cell:aarg
+@align(@align(8) let x = a)
+static S: T = x
+
+// case: syntax.stmt.attributed-local/cell:sassert
+static_assert(@align(8) let x = a, "m")
+
+// case: syntax.stmt.attributed-local/cell:cap
+func f() {
+    let c = { [@align(8) let x = a] in x }
+}
+
+// case: syntax.stmt.optional-assign/cell:tail
+// parses as another construct
+func f() {
+    a?.b = c
+}
+
+// case: syntax.stmt.optional-assign/cell:opnd
+func f() {
+    let v = a?.b = c * x
+}
+
+// case: syntax.stmt.optional-assign/cell:rhs
+func f() {
+    let v = x && a?.b = c
+}
+
+// case: syntax.stmt.optional-assign/cell:arg
+func f() {
+    f(a?.b = c)
+}
+
+// case: syntax.stmt.optional-assign/cell:larg
+func f() {
+    f(a: a?.b = c)
+}
+
+// case: syntax.stmt.optional-assign/cell:elem
+func f() {
+    let v = [a?.b = c]
+}
+
+// case: syntax.stmt.optional-assign/cell:recv
+func f() {
+    let v = a?.b = c.b
+}
+
+// case: syntax.stmt.optional-assign/cell:idx
+func f() {
+    let v = a[a?.b = c]
+}
+
+// case: syntax.stmt.optional-assign/cell:interp
+func f() {
+    print("{a?.b = c}")
+}
+
+// case: syntax.stmt.optional-assign/cell:cond
+func f() {
+    if a?.b = c {
+    }
+}
+
+// case: syntax.stmt.optional-assign/cell:scrut
+func f() {
+    match a?.b = c {
+        case _ -> x
+    }
+}
+
+// case: syntax.stmt.optional-assign/cell:aguard
+func f() {
+    match x {
+        case _ if a?.b = c -> x
+    }
+}
+
+// case: syntax.stmt.optional-assign/cell:iter
+func f() {
+    for i in a?.b = c {
+    }
+}
+
+// case: syntax.stmt.optional-assign/cell:rend
+func f() {
+    for i in a?.b = c..x {
+    }
+}
+
+// case: syntax.stmt.optional-assign/cell:bhead
+func f() {
+    borrow let x = a?.b = c {
+    }
+}
+
+// case: syntax.stmt.optional-assign/cell:init
+func f() {
+    let v = a?.b = c
+}
+
+// case: syntax.stmt.optional-assign/cell:asgn
+func f() {
+    v = a?.b = c
+}
+
+// case: syntax.stmt.optional-assign/cell:crhs
+func f() {
+    v += a?.b = c
+}
+
+// case: syntax.stmt.optional-assign/cell:atgt
+func f() {
+    a?.b = c = x
+}
+
+// case: syntax.stmt.optional-assign/cell:ret
+func f() {
+    return a?.b = c
+}
+
+// case: syntax.stmt.optional-assign/cell:brk
+func f() {
+    while x {
+        break a?.b = c
+    }
+}
+
+// case: syntax.stmt.optional-assign/cell:lend
+func f() {
+    lend a?.b = c
+}
+
+// case: syntax.stmt.optional-assign/cell:try
+func f() {
+    let v = try a?.b = c
+}
+
+// case: syntax.stmt.optional-assign/cell:dflt
+func f(p: T = a?.b = c) {
+}
+
+// case: syntax.stmt.optional-assign/cell:sinit
+static S: T = a?.b = c
+
+// case: syntax.stmt.optional-assign/cell:alen
+func f() {
+    let v: [T; a?.b = c] = w
+}
+
+// case: syntax.stmt.optional-assign/cell:rcnt
+func f() {
+    let v = [x; a?.b = c]
+}
+
+// case: syntax.stmt.optional-assign/cell:cgen
+func f() {
+    let v: A<a?.b = c> = w
+}
+
+// case: syntax.stmt.optional-assign/cell:raw
+enum E: T {
+    case A = a?.b = c
+}
+
+// case: syntax.stmt.optional-assign/cell:aarg
+@align(a?.b = c)
+static S: T = x
+
+// case: syntax.stmt.optional-assign/cell:sassert
+static_assert(a?.b = c, "m")
+
+// case: syntax.stmt.optional-assign/cell:cap
+func f() {
+    let c = { [a?.b = c] in x }
+}
+
+// case: syntax.expr.capture/cell:stmt
+// parses as another construct
+func f() {
+    a
+    x
+}
+
+// case: syntax.expr.capture/cell:tail
+// parses as another construct
+func f() {
+    a
+}
+
+// case: syntax.expr.capture/cell:clos
+// parses as another construct
+func f() {
+    let c = {
+        a
+        x
+    }
+}
+
+// case: syntax.expr.capture/cell:catch
+// parses as another construct
+func f() {
+    try {
+        x
+    } catch {
+        a
+        x
+    }
+}
+
+// case: syntax.expr.capture/cell:arm
+// parses as another construct
+func f() {
+    match x {
+        case _ -> a
+    }
+}
+
+// case: syntax.expr.capture/cell:opnd
+// parses as another construct
+func f() {
+    let v = a * x
+}
+
+// case: syntax.expr.capture/cell:rhs
+// parses as another construct
+func f() {
+    let v = x && a
+}
+
+// case: syntax.expr.capture/cell:arg
+// parses as another construct
+func f() {
+    f(a)
+}
+
+// case: syntax.expr.capture/cell:larg
+// parses as another construct
+func f() {
+    f(a: a)
+}
+
+// case: syntax.expr.capture/cell:elem
+// parses as another construct
+func f() {
+    let v = [a]
+}
+
+// case: syntax.expr.capture/cell:recv
+// parses as another construct
+func f() {
+    let v = a.b
+}
+
+// case: syntax.expr.capture/cell:idx
+// parses as another construct
+func f() {
+    let v = a[a]
+}
+
+// case: syntax.expr.capture/cell:interp
+// parses as another construct
+func f() {
+    print("{a}")
+}
+
+// case: syntax.expr.capture/cell:cond
+// parses as another construct
+func f() {
+    if a {
+    }
+}
+
+// case: syntax.expr.capture/cell:subj
+// parses as another construct
+func f() {
+    if let x = a {
+    }
+}
+
+// case: syntax.expr.capture/cell:scrut
+// parses as another construct
+func f() {
+    match a {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.capture/cell:aguard
+// parses as another construct
+func f() {
+    match x {
+        case _ if a -> x
+    }
+}
+
+// case: syntax.expr.capture/cell:iter
+// parses as another construct
+func f() {
+    for i in a {
+    }
+}
+
+// case: syntax.expr.capture/cell:rend
+// parses as another construct
+func f() {
+    for i in a..x {
+    }
+}
+
+// case: syntax.expr.capture/cell:bhead
+// parses as another construct
+func f() {
+    borrow let x = a {
+    }
+}
+
+// case: syntax.expr.capture/cell:init
+// parses as another construct
+func f() {
+    let v = a
+}
+
+// case: syntax.expr.capture/cell:asgn
+// parses as another construct
+func f() {
+    v = a
+}
+
+// case: syntax.expr.capture/cell:crhs
+// parses as another construct
+func f() {
+    v += a
+}
+
+// case: syntax.expr.capture/cell:atgt
+// parses as another construct
+func f() {
+    a = x
+}
+
+// case: syntax.expr.capture/cell:ret
+// parses as another construct
+func f() {
+    return a
+}
+
+// case: syntax.expr.capture/cell:brk
+// parses as another construct
+func f() {
+    while x {
+        break a
+    }
+}
+
+// case: syntax.expr.capture/cell:lend
+// parses as another construct
+func f() {
+    lend a
+}
+
+// case: syntax.expr.capture/cell:try
+// parses as another construct
+func f() {
+    let v = try a
+}
+
+// case: syntax.expr.capture/cell:dflt
+// parses as another construct
+func f(p: T = a) {
+}
+
+// case: syntax.expr.capture/cell:sinit
+// parses as another construct
+static S: T = a
+
+// case: syntax.expr.capture/cell:alen
+// parses as another construct
+func f() {
+    let v: [T; a] = w
+}
+
+// case: syntax.expr.capture/cell:rcnt
+// parses as another construct
+func f() {
+    let v = [x; a]
+}
+
+// case: syntax.expr.capture/cell:cgen
+// parses as another construct
+func f() {
+    let v: A<a> = w
+}
+
+// case: syntax.expr.capture/cell:raw
+// parses as another construct
+enum E: T {
+    case A = a
+}
+
+// case: syntax.expr.capture/cell:aarg
+// parses as another construct
+@align(a)
+static S: T = x
+
+// case: syntax.expr.capture/cell:sassert
+// parses as another construct
+static_assert(a, "m")

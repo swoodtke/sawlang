@@ -1,0 +1,266 @@
+// case: syntax.file.item.refused-export
+refuses syntax.decl.refused-export
+
+// case: syntax.file.item.refused-const
+refuses syntax.decl.refused-const
+
+// case: syntax.file.item.refused-unsafe
+refuses syntax.decl.refused-unsafe-prefix
+
+// case: syntax.file.item.refused-visibility
+refuses syntax.decl.refused-visibility-prefix
+
+// case: syntax.decl.item.refused-static
+refuses syntax.decl.refused-static
+
+// case: syntax.decl.item.refused-array-extension
+refuses syntax.decl.refused-array-extension
+
+// case: syntax.decl.item.refused-effect-prefix
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.decl.import.refused-scoped
+refuses syntax.decl.refused-scoped-import
+
+// case: syntax.decl.param.refused-receiver
+refuses syntax.decl.refused-receiver
+
+// case: syntax.decl.trait-member.refused-effect-prefix
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.decl.trait-member.refused-private
+refuses syntax.decl.refused-member-private
+
+// case: syntax.decl.extension-member.refused-effect-prefix
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.decl.extension-member.refused-static
+refuses syntax.decl.refused-member-static
+
+// case: syntax.decl.extension-member.refused-private
+refuses syntax.decl.refused-member-private
+
+// case: syntax.type.type.refused-func-consumes
+refuses syntax.type.refused-func-consumes
+
+// case: syntax.type.atom.refused-partial-named
+refuses syntax.type.refused-partial-named-tuple
+
+// case: syntax.generic.params.refused-comma
+refuses syntax.generic.refused-param-comma
+
+// case: syntax.generic.args.refused-comma
+refuses syntax.generic.refused-arg-comma
+
+// case: syntax.stmt.non-expr.refused-var-discard
+refuses syntax.stmt.refused-var-discard
+
+// case: syntax.stmt.non-expr.refused-uninitialized
+refuses syntax.stmt.refused-uninitialized
+
+// case: syntax.stmt.non-expr.refused-local-type-alias
+refuses syntax.stmt.refused-local-type-alias
+
+// case: syntax.stmt.non-expr.refused-local-const
+refuses syntax.stmt.refused-local-const
+
+// case: syntax.stmt.non-expr.refused-compound-self
+refuses syntax.stmt.refused-compound-self
+
+// case: syntax.stmt.non-expr.refused-bare-lend
+refuses syntax.stmt.refused-bare-lend
+
+// case: syntax.expr.compare.refused-chain
+refuses syntax.expr.refused-compare-chain
+
+// case: syntax.expr.range.refused-ellipsis
+refuses syntax.expr.refused-ellipsis-range
+
+// case: syntax.expr.prefix.refused-unsafe
+refuses syntax.expr.refused-unsafe
+
+// case: syntax.expr.try.refused-route
+refuses syntax.expr.refused-try-route
+
+// case: syntax.expr.primary.refused-lend-var
+refuses syntax.expr.refused-lend-var
+
+// case: syntax.expr.tuple.refused-partial-named
+refuses syntax.expr.refused-partial-named-tuple
+
+// case: syntax.expr.capture.refused-self
+refuses syntax.expr.refused-capture-self
+
+// case: syntax.expr.while-let.refused-else
+refuses syntax.expr.refused-while-let-else
+
+// case: syntax.expr.for.refused-tuple
+refuses syntax.expr.refused-for-tuple
+
+// case: syntax.pat.pattern.refused-qualified-variant
+refuses syntax.pat.refused-qualified-variant
+
+// case: syntax.pat.pattern.refused-dot-variant
+refuses syntax.pat.refused-dot-variant
+
+// case: syntax.pat.tuple.refused-named
+refuses syntax.pat.refused-named-tuple
+
+// case: syntax.decl.refused-effect-prefix.func
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.decl.refused-effect-prefix.init
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.decl.refused-unsafe-prefix.enum
+refuses syntax.decl.refused-unsafe-prefix
+
+// case: syntax.decl.refused-unsafe-prefix.trait
+refuses syntax.decl.refused-unsafe-prefix
+
+// case: syntax.decl.refused-unsafe-prefix.extension
+refuses syntax.decl.refused-unsafe-prefix
+
+// case: syntax.decl.refused-export.symbol
+refuses syntax.decl.refused-export
+
+// case: syntax.decl.refused-export.alias
+refuses syntax.decl.refused-export
+
+// case: syntax.decl.refused-export.glob
+refuses syntax.decl.refused-export
+
+// case: syntax.decl.refused-const
+refuses syntax.decl.refused-const
+
+// case: syntax.decl.refused-visibility-prefix.private
+refuses syntax.decl.refused-visibility-prefix
+
+// case: syntax.decl.refused-visibility-prefix.extension
+refuses syntax.decl.refused-visibility-prefix
+
+// case: syntax.decl.refused-visibility-prefix.attributed-extension
+refuses syntax.decl.refused-visibility-prefix
+
+// case: syntax.decl.refused-static.var-without-unsafe
+refuses syntax.decl.refused-static
+
+// case: syntax.decl.refused-static.unsafe-without-var
+refuses syntax.decl.refused-static
+
+// case: syntax.decl.refused-array-extension
+refuses syntax.decl.refused-array-extension
+
+// case: syntax.decl.refused-scoped-import
+refuses syntax.decl.refused-scoped-import
+
+// case: syntax.decl.refused-member-static.init
+refuses syntax.decl.refused-member-static
+
+// case: syntax.decl.refused-member-static.before-visibility
+refuses syntax.decl.refused-member-static
+
+// case: syntax.decl.refused-member-private.method
+refuses syntax.decl.refused-member-private
+
+// case: syntax.decl.refused-member-private.requirement
+refuses syntax.decl.refused-member-private
+
+// case: syntax.decl.refused-receiver.var-self
+refuses syntax.decl.refused-receiver
+
+// case: syntax.decl.refused-receiver.by-value
+refuses syntax.decl.refused-receiver
+
+// case: syntax.decl.refused-receiver.ref-name
+refuses syntax.decl.refused-receiver
+
+// case: syntax.decl.refused-receiver.ref-var-name
+refuses syntax.decl.refused-receiver
+
+// case: syntax.decl.refused-escaping
+refuses syntax.decl.refused-escaping
+
+// case: syntax.type.refused-func-consumes
+refuses syntax.type.refused-func-consumes
+
+// case: syntax.type.refused-partial-named-tuple.named-first
+refuses syntax.type.refused-partial-named-tuple
+
+// case: syntax.type.refused-partial-named-tuple.positional-first
+refuses syntax.type.refused-partial-named-tuple
+
+// case: syntax.generic.refused-param-comma
+refuses syntax.generic.refused-param-comma
+
+// case: syntax.generic.refused-arg-comma
+refuses syntax.generic.refused-arg-comma
+
+// case: syntax.expr.refused-unsafe
+refuses syntax.expr.refused-unsafe
+
+// case: syntax.expr.refused-lend-var
+refuses syntax.expr.refused-lend-var
+
+// case: syntax.expr.refused-try-route.force
+refuses syntax.expr.refused-try-route
+
+// case: syntax.expr.refused-try-route.optional
+refuses syntax.expr.refused-try-route
+
+// case: syntax.expr.refused-try-route.with-catch
+refuses syntax.expr.refused-try-route
+
+// case: syntax.expr.refused-compare-chain
+refuses syntax.expr.refused-compare-chain
+
+// case: syntax.expr.refused-ellipsis-range
+refuses syntax.expr.refused-ellipsis-range
+
+// case: syntax.expr.refused-capture-self.value
+refuses syntax.expr.refused-capture-self
+
+// case: syntax.expr.refused-capture-self.move
+refuses syntax.expr.refused-capture-self
+
+// case: syntax.expr.refused-partial-named-tuple.named-first
+refuses syntax.expr.refused-partial-named-tuple
+
+// case: syntax.expr.refused-partial-named-tuple.positional-first
+refuses syntax.expr.refused-partial-named-tuple
+
+// case: syntax.expr.refused-while-let-else
+refuses syntax.expr.refused-while-let-else
+
+// case: syntax.expr.refused-for-tuple
+refuses syntax.expr.refused-for-tuple
+
+// case: syntax.stmt.refused-var-discard
+refuses syntax.stmt.refused-var-discard
+
+// case: syntax.stmt.refused-uninitialized.let
+refuses syntax.stmt.refused-uninitialized
+
+// case: syntax.stmt.refused-uninitialized.var
+refuses syntax.stmt.refused-uninitialized
+
+// case: syntax.stmt.refused-local-type-alias
+refuses syntax.stmt.refused-local-type-alias
+
+// case: syntax.stmt.refused-local-const
+refuses syntax.stmt.refused-local-const
+
+// case: syntax.stmt.refused-compound-self
+refuses syntax.stmt.refused-compound-self
+
+// case: syntax.stmt.refused-bare-lend
+refuses syntax.stmt.refused-bare-lend
+
+// case: syntax.pat.refused-named-tuple
+refuses syntax.pat.refused-named-tuple
+
+// case: syntax.pat.refused-qualified-variant
+refuses syntax.pat.refused-qualified-variant
+
+// case: syntax.pat.refused-dot-variant
+refuses syntax.pat.refused-dot-variant

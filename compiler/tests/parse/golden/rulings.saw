@@ -1,0 +1,255 @@
+// case: SL-400-c6-Q1/prefix-operators-bind-tighter-than-as
+func f() {
+    let x = -x as Int8
+    let y = ~b as UInt64
+}
+
+// case: SL-400-c6-Q2/try-covers-its-operand-only
+func f() {
+    let u = try parse_id() as UserId
+}
+
+// case: SL-400-c6-Q3/coalesce-is-one-flat-node
+func f() {
+    let c = a ?? b ?? 0
+}
+
+// case: SL-400-c6-Q4/comparisons-joined-by-and
+// A chain `a < b < c` is refused; the negative corpus holds it.
+func f() {
+    let ok = a < b && b < c
+}
+
+// case: SL-400-c6-Q5/parentheses-group-in-a-type
+func f() {
+    let o: ((Int) -> Int)? = w
+    let t: (Int,) = w
+    let g: (Int) = w
+}
+
+// case: SL-400-c6-Q6/none-pattern
+func f() {
+    match o {
+        case None -> 0
+        case _ -> 1
+    }
+}
+
+// case: SL-400-c6-Q7/boolean-guard
+func f() {
+    guard ok else {
+        return
+    }
+}
+
+// case: SL-400-c6-Q8/head-reset-inside-brackets-and-segments
+func f() {
+    if f(v.map { $0 }) {
+    }
+    if (v.any { $0 > 1 }) {
+    }
+    if "{v.map { $0 }}" == s {
+    }
+}
+
+// case: SL-400-c6-Q8/head-reset-inside-a-closure-body
+func f() {
+    if v.all({ x in x.any { $0 } }) {
+    }
+}
+
+// case: SL-400-c6-Q9/open-ranges
+func f() {
+    let a = buf[..b]
+    let c = buf[..=b]
+    let d = buf[..]
+}
+
+// case: SL-400-c6-Q10/fields-on-one-line-take-a-comma
+struct P { x: Int, y: Int }
+
+// case: SL-400-c6-Q11/qualified-paths-in-extension-and-trait-heads
+extension a.B: c.D, E {
+}
+
+trait T: m.P, Q {
+}
+
+// case: SL-400-c6-Q12/borrow-is-an-identifier-before-anything-but-let-or-var
+func f() {
+    let borrow = 1
+    let b = borrow + 1
+    borrow(x)
+}
+
+// case: SL-400-c6-Q13/lone-name-pattern
+func f() {
+    match d {
+        case North -> 1
+        case other -> 2
+    }
+}
+
+// case: SL-400-c6-Q14/public-import-re-exports
+// An `export` declaration is refused; the negative corpus holds it.
+public import m.{f}
+
+public import m.{f as g}
+
+public import m.*
+
+// case: SL-400-c6-Q16/panics-test-with-a-text-check
+@test(panics: "panic.explicit", text: "boom") "a user panic" {
+    panic("boom")
+}
+
+// case: SL-400-c6-Q17/test-before-other-attributes
+@test
+@export
+func f() {
+}
+
+// case: SL-400-c6-Q18/borrow-binding-in-a-payload-pattern
+// A borrow binding stands in a variant's payload, never at a case's top
+// level or in a tuple pattern; the negative corpus holds those.
+func f() {
+    match o {
+        case Some(borrow var v) -> v.bump()
+        case None -> g()
+    }
+}
+
+// case: SL-400-c6-Q19/generic-close-split
+func f() {
+    let v: Vector<Int>= w
+    let m: Map<K, Vector<V>>= w
+}
+
+// case: SL-400-c6-Q19/longest-match-stands-elsewhere
+// `o!= 5` compares and `a&-b` subtracts; a warning, not the grammar, flags them.
+func f() {
+    let c = o!= 5
+    let d = a&-b
+}
+
+// case: SL-400-c6-Q22/constexpr-on-a-requirement
+trait T {
+    func f(&self) constexpr -> Int
+}
+
+// case: SL-400-c6-Q23/generic-parameters-on-a-requirement
+trait T {
+    func g<U>(&self, x: U)
+}
+
+// case: SL-400-c6-U2a/reference-type-wherever-a-type-goes
+// A later stage decides which positions take a reference type.
+struct Cursor {
+    buf: &Vector<Int>
+}
+func f() {
+    let r: &var Int = w
+}
+
+// case: SL-400-c7/implicit-members
+func f() {
+    let d: Direction = .North
+    let m: Msg = .Move(x: 1, y: 2)
+}
+
+// case: SL-400-c9/trailing-closure-on-an-implicit-member
+func f() {
+    let r: R = .Run { 1 }
+}
+
+// case: SL-400-c9/line-starting-with-a-dot-is-a-new-statement
+func f() -> Int {
+    let n = s
+    .len()
+}
+
+// case: SL-406-c11-1/spaced-call-is-a-call
+func f() {
+    let a = b (c)
+}
+
+// case: SL-406-c11-1/line-break-before-a-parenthesis-ends-the-statement
+func f() {
+    let d = e
+    (c)
+}
+
+// case: SL-406-c11-2/line-break-after-a-range-operator-ends-the-range
+func f() {
+    let v = a..
+    b
+}
+
+// case: SL-406-c11-2/range-continues-inside-brackets
+func f() {
+    g(a..
+      b)
+    let s = buf[a..=
+        b]
+}
+
+// case: SL-406-c11-3/head-reset-inside-a-nested-match
+func f() {
+    while match mode { case Draining -> queue.any { $0.urgent }, case _ -> false } { step() }
+}
+
+// case: SL-406-c17/cast-then-comparison
+func f() {
+    let b = n as Int < lim
+    let c = n as Count < lim
+}
+
+// case: SL-406-c17/tuple-of-comparisons-after-a-cast
+func f() {
+    let t = (n as Int < lim, m >= 0)
+}
+
+// case: SL-406-c22/cast-target-list-then-an-operator
+func f() {
+    g(x as T<a, b> - c)
+}
+
+// case: SL-406-c22/cast-target-list-across-lines
+func f() {
+    let s = x as Map<String,
+        Int>
+}
+
+// case: SL-406-c23/cast-target-list-decided-by-the-next-token
+// `0` cannot follow a cast, so the `<` compares.
+func f() {
+    let u = (n as Count < lim, m > 0)
+}
+
+// case: SL-406-c25/cast-target-list-before-a-head-brace
+func f() {
+    match v as Result<Int, E> {
+        case _ -> g()
+    }
+    for e in xs as Vector<Int> {
+    }
+}
+
+// case: SL-406-c25/cast-target-before-else-and-case
+func f() {
+    guard let z = y as Int? else {
+        return
+    }
+    match w {
+        case A -> v as Vector<Int> case _ -> u
+    }
+}
+
+// case: SL-406-c25/parenthesized-cast-before-catch
+// `catch` cannot follow a cast, since `try` takes a prefix expression; the
+// unparenthesized form is in the negative corpus.
+func f() {
+    let v = try (g() as Int) catch {
+        0
+    }
+}

@@ -1,0 +1,41 @@
+// case: syntax.rule.label-or-tuple/named-first-partial-tuple
+func f() {
+    let t = (a: 1, 2)
+}
+
+// case: syntax.rule.label-or-tuple/positional-first-partial-tuple
+func f() {
+    let t = (1, b: 2)
+}
+
+// case: syntax.rule.move-place/move-does-not-call
+func f() {
+    let v = move x.f()
+}
+
+// case: syntax.rule.assignment-target/chained-assignment
+func f() {
+    a = b = c
+}
+
+// case: syntax.rule.assignment-target/tuple-target
+func f() {
+    (a, b) = t
+}
+
+// case: syntax.rule.assignment-target/compound-self
+func f() {
+    self += 1
+}
+
+// case: syntax.rule.assignment-target/literal-target
+func f() {
+    1 = x
+}
+
+// case: syntax.rule.implicit-member/dotted-case-pattern
+func f() {
+    match d {
+        case .North -> 1
+    }
+}

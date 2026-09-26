@@ -1,0 +1,194 @@
+// case: syntax.rule.optional-chain-run/run-over-members-and-calls
+func f() {
+    let y = a?.b.c()
+    let z = a?.b?.c
+}
+
+// case: syntax.rule.optional-chain-run/run-over-a-trailing-closure
+func f() {
+    let y = a?.b.map { $0 }
+}
+
+// case: syntax.rule.optional-chain-run/parentheses-end-a-run
+func f() {
+    let y = (a?.b).c
+    let z = (a?.b)?.c
+}
+
+// case: syntax.rule.optional-chain-run/closers-end-a-run
+func f() {
+    let x = a?.b!
+    let y = a?.b[0]
+    let z = a?.b.0
+}
+
+// case: syntax.rule.optional-chain-run/new-run-after-a-closer
+func f() {
+    let x = a?.b!?.c
+}
+
+// case: syntax.rule.optional-chain-run/optional-assignment
+func f() {
+    x?.y = v
+    x?.y += 1
+    a?.b?.c = 1
+}
+
+// case: syntax.rule.optional-chain-run/closed-run-makes-a-plain-assignment
+func f() {
+    a?.b[0] = 1
+    a?.b! = 2
+}
+
+// case: syntax.rule.optional-chain-run/optional-assignment-as-a-binding-subject
+func f() {
+    if let _ = x?.y = v {
+    }
+    guard let _ = x?.y = v else {
+        return
+    }
+}
+
+// case: syntax.rule.tuple-index-dot/two-index-hops
+func f() {
+    let a = t.0.1
+}
+
+// case: syntax.rule.tuple-index-dot/member-of-an-element
+func f() {
+    let a = t.0.name
+    let b = t.1.2.len()
+}
+
+// case: syntax.rule.one-call-node/every-callee-one-node
+func f() {
+    let a = g(1)
+    let b = Point(x: 1, y: 2)
+    let c = Shape.Circle(r: 2)
+    let d = v(3)
+}
+
+// case: syntax.rule.one-call-node/labels-mix-freely
+func f() {
+    let a = f(a: 1, 2)
+    let b = f(1, b: 2, 3)
+}
+
+// case: syntax.rule.subscript-arguments/single
+func f() {
+    let a = m[i]
+}
+
+// case: syntax.rule.subscript-arguments/two-positional
+func f() {
+    let a = m[r, c]
+}
+
+// case: syntax.rule.subscript-arguments/parenthesized-tuple-is-single
+func f() {
+    let a = m[(r, c)]
+}
+
+// case: syntax.rule.subscript-arguments/labelled
+func f() {
+    let a = m[k, default: 0]
+    let b = m[key: k]
+    let c = m[key: k, default: 0]
+}
+
+// case: syntax.rule.implicit-member/at-an-operand-start
+func f() {
+    let d: Direction = .North
+    let e = d == .South
+}
+
+// case: syntax.rule.implicit-member/payload-call
+func f() {
+    let m: Msg = .Move(x: 1, y: 2)
+}
+
+// case: syntax.rule.implicit-member/member-hop-after-an-operand
+func f() {
+    let n = Direction.North
+}
+
+// case: syntax.rule.implicit-member/other-hop-parses
+// A later stage refuses a hop other than one call after an implicit member.
+func f() {
+    let n = .North.opposite()
+}
+
+// case: syntax.rule.implicit-member/line-start-is-a-new-statement
+func f() -> Int {
+    let n = s
+    .len()
+}
+
+// case: syntax.rule.label-or-tuple/label-in-an-argument
+func f() {
+    g(a: 1)
+}
+
+// case: syntax.rule.label-or-tuple/named-tuple-in-parentheses
+func f() {
+    let t = (a: 1, b: 2)
+}
+
+// case: syntax.rule.label-or-tuple/positional-tuple
+func f() {
+    let t = (1, 2)
+    let u = (1,)
+}
+
+// case: syntax.rule.move-place/place-path
+func f() {
+    let a = move x
+    let b = move self.buf[0].name
+    let c = move *p
+    let d = move o!
+    let e = move t.0
+}
+
+// case: syntax.rule.move-place/parenthesized-move-then-a-call
+func f() {
+    let r = (move b).finish()
+}
+
+// case: syntax.rule.assignment-target/place-shapes
+func f() {
+    a = b
+    self = c
+    a.b = c
+    a.0 = c
+    a[i] = c
+    *p = c
+    o! = c
+    borrow var v[i] = c
+}
+
+// case: syntax.rule.assignment-target/compound-place-shapes
+func f() {
+    a += 1
+    a.b -= 1
+    a[i] *= 2
+    *p <<= 1
+    borrow var v[i] |= 1
+}
+
+// case: syntax.rule.assignment-target/retired-accessor-call-target
+// It parses; a later stage refuses it with the `borrow var` spelling.
+func f() {
+    c.slot(i) = v
+}
+
+// case: syntax.rule.reference-position/call-argument-and-pointer-cast
+func f() {
+    g(&x, &var y)
+    let p = &x as UnsafePointer<Int>
+}
+
+// case: syntax.rule.reference-position/other-positions-parse
+// A later stage refuses a reference outside a call argument or a cast.
+func f() {
+    let r = &x
+}

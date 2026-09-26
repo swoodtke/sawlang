@@ -14,7 +14,9 @@ accepts what the grammar refuses, which a ruling explains. A file refused by a
 rule the recognizer does not model yet is listed by hand as UNMODELLED, with the
 reason `unmodelled: RULE`; the recognizer must accept it, and `--write` keeps
 the row while it does. An ambiguous file, or a listed file that is gone, always
-fails.
+fails. The parser corpus under compiler/tests/parse/ is skipped, given or not:
+its case files are no whole programs, and the parse lane in
+compiler/tests/run.py checks each case against its own expectation.
 """
 import argparse
 import json
@@ -32,6 +34,8 @@ REPO = extract.REPO
 # The frozen compiler, whose parser tells an error test from a conflict.
 SAWC = os.path.join(REPO, "sawc")
 EXPECTED = os.path.join(HERE, "corpus_expected.tsv")
+# The parser corpus, as a repository-relative prefix (owned_elsewhere).
+PARSE_CORPUS = "compiler/tests/parse/"
 HEADER = "path\tverdict\treason"
 FINDINGS = ("AMBIGUOUS", "NOTREE")
 UNMODELLED = "UNMODELLED"
@@ -42,7 +46,14 @@ WRITE_HINT = ("if the change is intended, run compiler/tests/grammar/corpus.py -
 def corpus_paths():
     r = subprocess.run(["git", "ls-files", "-z", "*.saw"], cwd=REPO, capture_output=True,
                        check=True)
-    return sorted(p for p in r.stdout.decode("utf-8").split("\0") if p)
+    return sorted(p for p in r.stdout.decode("utf-8").split("\0") if p and not owned_elsewhere(p))
+
+
+def owned_elsewhere(path):
+    """Whether the parse lane owns the file: a case file of the parser corpus
+    holds many programs, each checked against its own expectation there, and
+    is no whole program."""
+    return path.startswith(PARSE_CORPUS)
 
 
 def escape(text):
@@ -205,8 +216,9 @@ def main(argv=None):
         ap.error("--write records the whole corpus, so it takes no files")
     tracked = corpus_paths()
     if args.files:
-        present = [f for f in sorted(set(args.files)) if os.path.exists(os.path.join(REPO, f))]
-        gone = sorted(set(args.files) - set(present))
+        files = sorted(f for f in set(args.files) if not owned_elsewhere(f))
+        present = [f for f in files if os.path.exists(os.path.join(REPO, f))]
+        gone = sorted(set(files) - set(present))
     else:
         present, gone = tracked, []
     got = verdicts(present, args.jobs) if present else {}

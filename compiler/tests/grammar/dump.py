@@ -223,18 +223,19 @@ def flat(item):
     return "(" + " ".join([item[0]] + [flat(c) for c in item[1:]]) + ")"
 
 
-def source_dump(g, text=None, path=None, checked=None):
-    """The dump of a whole source text as a list of lines. It raises Failure
-    with check_source's detail, the refusing rule's id among it, for any text
-    the recognizer does not accept with exactly one tree, a lexical refusal
-    such as syntax.lex.doc-attach included. `checked` is the text's
-    recognize.check result, for a caller that checked it already."""
+def source_dump(g, text=None, path=None, checked=None, start="source-file"):
+    """The dump of a whole source text, parsed from `start`, as a list of
+    lines. It raises Failure with check_source's detail, the refusing rule's id
+    among it, for any text the recognizer does not accept with exactly one
+    tree, a lexical refusal such as syntax.lex.doc-attach included. `checked`
+    is the text's recognize.check result, for a caller that checked it already."""
     if text is None:
         # newline="" keeps a CRLF inside a string literal as written.
         with open(path, encoding="utf-8", newline="") as fh:
             text = fh.read()
     if checked is None:
-        checked = recognize.check(g, None if path else text, trees=True, path=path)
+        checked = recognize.check(g, None if path else text, trees=True, path=path,
+                                  start=start)
     if checked.verdict != "OK":
         raise Failure("%s: %s" % (checked.verdict, checked.detail))
     units = []

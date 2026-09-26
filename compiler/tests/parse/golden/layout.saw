@@ -1,0 +1,199 @@
+// case: syntax.rule.statement-separator/semicolon-between-two-statements
+func f() {
+    x = 1; y = 2
+}
+
+// case: syntax.rule.statement-separator/line-break-and-closing-brace-end-a-statement
+func f() {
+    x = 1
+    y = 2 }
+
+// case: syntax.rule.juxtaposition/spaced-call
+func f() {
+    let a = b (c)
+    x = 1 (c)
+}
+
+// case: syntax.rule.juxtaposition/line-break-before-a-parenthesis
+func f() {
+    let a = b
+    (c)
+}
+
+// case: syntax.rule.declaration-separator/one-declaration-per-line
+func a() {
+}
+func b() {
+}
+struct P { x: Int }
+struct Q { y: Int }
+
+// case: syntax.rule.declaration-separator/members-one-per-line
+trait T {
+    func a(&self)
+    func b(&self)
+}
+extension S {
+    func a(&self) {
+    }
+    func b(&self) {
+    }
+}
+extern "C" {
+    func a()
+    func b()
+}
+
+// case: syntax.rule.operator-continuation/line-ending-in-an-operator
+func f() {
+    let x = a +
+        b *
+        c
+    let y = p &&
+        q ||
+        r
+    let z = o ??
+        d
+    let w = a ==
+        b
+    let s = a <<
+        b
+}
+
+// case: syntax.rule.operator-continuation/range-continues-inside-brackets
+func f() {
+    g(a..
+      b)
+}
+
+// case: syntax.rule.operator-continuation/leading-operator-starts-a-statement
+func f() {
+    let y = a
+    - b
+}
+
+// case: syntax.rule.operator-continuation/leading-dot-starts-a-statement
+func f() {
+    let n = s
+    .len()
+}
+
+// case: syntax.rule.leading-minus/after-a-closed-block
+func f() -> Int {
+    if c { return 1 }
+    -1
+}
+
+// case: syntax.rule.leading-minus/after-an-if-on-its-line
+func f() -> Int {
+    if c { 1 } else { 2 } - 1
+}
+
+// case: syntax.rule.continuation-keywords/else-and-catch-on-the-next-line
+func f() {
+    if a {
+    }
+    else if b {
+    }
+    else {
+    }
+    try {
+        g()
+    }
+    catch {
+    }
+    let v = try g()
+    catch {
+        0
+    }
+}
+
+// case: syntax.rule.continuation-keywords/body-brace-on-the-next-line
+func f()
+{
+    if a
+    {
+    }
+    guard let x = y
+    else
+    {
+        return
+    }
+}
+
+// case: syntax.rule.range-open-end/before-a-closing-token
+func f() {
+    let a = buf[4..]
+    let b = buf[..]
+    let c = (a..)
+    g(a.., b)
+    let m = { a.. }
+}
+
+// case: syntax.rule.range-open-end/before-a-semicolon-a-line-break-and-the-end
+func f() {
+    let a = x..; let b = y..
+    let c = z..
+}
+
+// case: syntax.rule.range-open-end/line-break-after-the-operator-ends-the-range
+func f() {
+    let v = a..
+    b
+}
+
+// case: syntax.rule.range-open-end/in-an-interpolation-segment
+func f() {
+    print("{a..}")
+}
+
+// case: syntax.rule.block-tail/tail-expression
+func f() -> Int {
+    let a = 1
+    a + 1
+}
+
+// case: syntax.rule.block-tail/loop-at-the-end-is-a-statement
+func f() {
+    g()
+    while a {
+    }
+}
+
+// case: syntax.rule.block-tail/if-and-match-continue-as-an-operand
+func f() -> Int {
+    if a { 1 } else { 2 } + match b { case _ -> 3 }
+}
+
+// case: syntax.rule.block-tail/borrow-block-as-the-tail
+func f() -> Int {
+    borrow var it = v[i] { it.hits }
+}
+
+// case: syntax.rule.block-tail/borrow-block-continues-on-its-line
+func f() -> Int {
+    borrow let e = m[k] { e.n } + 1
+}
+
+// case: syntax.rule.block-tail/try-block-as-the-tail
+func f() -> Int {
+    try { g() } catch { 0 }
+}
+
+// case: syntax.rule.module-inline/brace-on-the-same-line
+module m {
+    func f() {
+    }
+}
+
+// case: syntax.rule.module-inline/brace-on-the-next-line
+public module m
+{
+}
+
+// case: syntax.rule.module-inline/file-module
+module m
+
+// case: syntax.rule.range-open-end/omitted-bound-at-the-end-of-input
+// This case ends the file with no line break, so the end of input follows the `..`.
+static a: Range = x..

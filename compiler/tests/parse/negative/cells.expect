@@ -1,0 +1,2873 @@
+// case: syntax.expr.literal/cell:atgt
+refuses parse-error at 2:7
+
+// case: syntax.expr.literal/cell:cap
+refuses parse-error at 2:19
+
+// case: syntax.expr.interpolation/cell:atgt
+refuses parse-error at 2:11
+
+// case: syntax.expr.interpolation/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.interpolation/cell:cap
+refuses parse-error at 2:23
+
+// case: syntax.expr.source-location/cell:atgt
+refuses parse-error at 2:11
+
+// case: syntax.expr.source-location/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.source-location/cell:cap
+refuses parse-error at 2:23
+
+// case: syntax.expr.name/cell:cap
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (Capture.value a)
+            in
+            (ExprStmt (Name x))))))))
+
+// case: syntax.expr.implicit-member/cell:atgt
+refuses parse-error at 2:8
+
+// case: syntax.expr.implicit-member/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.implicit-member/cell:cap
+refuses parse-error at 2:20
+
+// case: syntax.expr.self/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.self/cell:cap
+refuses syntax.expr.refused-capture-self
+
+// case: syntax.expr.shorthand-param/cell:atgt
+refuses parse-error at 2:8
+
+// case: syntax.expr.shorthand-param/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.shorthand-param/cell:cap
+refuses parse-error at 2:20
+
+// case: syntax.expr.paren/cell:atgt
+refuses parse-error at 2:9
+
+// case: syntax.expr.paren/cell:cap
+refuses parse-error at 2:21
+
+// case: syntax.expr.tuple/cell:atgt
+refuses parse-error at 2:12
+
+// case: syntax.expr.tuple/cell:cgen
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (NamedType
+            (Path A)
+            (TupleType.positional
+              (NamedType (Path a))
+              (NamedType (Path b))))
+          (Name w))))))
+
+// case: syntax.expr.tuple/cell:cap
+refuses parse-error at 2:24
+
+// case: syntax.expr.array/cell:atgt
+refuses parse-error at 2:9
+
+// case: syntax.expr.array/cell:cgen
+refuses parse-error at 2:16
+
+// case: syntax.expr.array/cell:cap
+refuses parse-error at 2:21
+
+// case: syntax.expr.repeat/cell:atgt
+refuses parse-error at 2:12
+
+// case: syntax.expr.repeat/cell:cgen
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (NamedType
+            (Path A)
+            (ArrayType
+              (NamedType (Path a))
+              (IntLit 2)))
+          (Name w))))))
+
+// case: syntax.expr.repeat/cell:cap
+refuses parse-error at 2:24
+
+// case: syntax.expr.map/cell:atgt
+refuses parse-error at 2:12
+
+// case: syntax.expr.map/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.map/cell:cap
+refuses parse-error at 2:24
+
+// case: syntax.expr.set/cell:atgt
+refuses parse-error at 2:12
+
+// case: syntax.expr.set/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.set/cell:cap
+refuses parse-error at 2:24
+
+// case: syntax.expr.closure/cell:atgt
+refuses parse-error at 2:11
+
+// case: syntax.expr.closure/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.closure/cell:cap
+refuses parse-error at 2:23
+
+// case: syntax.expr.call/cell:cap
+refuses parse-error at 2:21
+
+// case: syntax.expr.trailing-call/cell:cond
+refuses syntax.rule.head-restriction at 2:13
+
+// case: syntax.expr.trailing-call/cell:subj
+refuses syntax.rule.head-restriction at 2:21
+
+// case: syntax.expr.trailing-call/cell:scrut
+refuses syntax.rule.head-restriction at 2:13
+
+// case: syntax.expr.trailing-call/cell:aguard
+refuses syntax.rule.head-restriction at 3:21
+
+// case: syntax.expr.trailing-call/cell:atgt
+refuses parse-error at 2:13
+
+// case: syntax.expr.trailing-call/cell:cgen
+refuses parse-error at 2:16
+
+// case: syntax.expr.trailing-call/cell:cap
+refuses parse-error at 2:25
+
+// case: syntax.expr.member/cell:cgen
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (NamedType
+            (Path A)
+            (NamedType (Path a b)))
+          (Name w))))))
+
+// case: syntax.expr.member/cell:cap
+refuses parse-error at 2:21
+
+// case: syntax.expr.tuple-index/cell:cgen
+refuses parse-error at 2:16
+
+// case: syntax.expr.tuple-index/cell:cap
+refuses parse-error at 2:21
+
+// case: syntax.expr.optional-member/cell:cgen
+refuses parse-error at 2:15
+
+// case: syntax.expr.optional-member/cell:cap
+refuses parse-error at 2:22
+
+// case: syntax.expr.subscript/cell:cgen
+refuses parse-error at 2:15
+
+// case: syntax.expr.subscript/cell:cap
+refuses parse-error at 2:22
+
+// case: syntax.expr.force/cell:cgen
+refuses parse-error at 2:15
+
+// case: syntax.expr.force/cell:cap
+refuses parse-error at 2:20
+
+// case: syntax.expr.unary/cell:atgt
+refuses parse-error at 2:8
+
+// case: syntax.expr.unary/cell:cap
+refuses parse-error at 2:20
+
+// case: syntax.expr.deref/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.deref/cell:cap
+refuses parse-error at 2:20
+
+// case: syntax.expr.ref/cell:atgt
+refuses parse-error at 2:8
+
+// case: syntax.expr.ref/cell:cgen
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (NamedType
+            (Path A)
+            (RefType.shared
+              (NamedType (Path a))))
+          (Name w))))))
+
+// case: syntax.expr.ref/cell:cap
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (Capture.borrow a)
+            in
+            (ExprStmt (Name x))))))))
+
+// case: syntax.expr.move/cell:atgt
+refuses parse-error at 2:12
+
+// case: syntax.expr.move/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.move/cell:cap
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (Capture.move a)
+            in
+            (ExprStmt (Name x))))))))
+
+// case: syntax.expr.try/cell:atgt
+refuses parse-error at 2:13
+
+// case: syntax.expr.try/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.try/cell:cap
+refuses parse-error at 2:25
+
+// case: syntax.expr.lends/cell:atgt
+refuses parse-error at 2:13
+
+// case: syntax.expr.lends/cell:cgen
+refuses parse-error at 2:20
+
+// case: syntax.expr.lends/cell:cap
+refuses parse-error at 2:25
+
+// case: syntax.expr.cast/cell:atgt
+refuses parse-error at 2:12
+
+// case: syntax.expr.cast/cell:cgen
+refuses parse-error at 2:16
+
+// case: syntax.expr.cast/cell:cap
+refuses parse-error at 2:24
+
+// case: syntax.expr.multiplicative/cell:atgt
+refuses parse-error at 2:11
+
+// case: syntax.expr.multiplicative/cell:cap
+refuses parse-error at 2:23
+
+// case: syntax.expr.additive/cell:atgt
+refuses parse-error at 2:11
+
+// case: syntax.expr.additive/cell:cap
+refuses parse-error at 2:23
+
+// case: syntax.expr.shift/cell:atgt
+refuses parse-error at 2:12
+
+// case: syntax.expr.shift/cell:cgen
+refuses parse-error at 2:17
+
+// case: syntax.expr.shift/cell:cap
+refuses parse-error at 2:24
+
+// case: syntax.expr.range/cell:rend
+refuses parse-error at 2:18
+
+// case: syntax.expr.range/cell:atgt
+refuses parse-error at 2:10
+
+// case: syntax.expr.range/cell:cgen
+refuses parse-error at 2:15
+
+// case: syntax.expr.range/cell:cap
+refuses parse-error at 2:22
+
+// case: syntax.expr.range-from/cell:cond
+refuses syntax.rule.range-open-end at 2:12
+
+// case: syntax.expr.range-from/cell:subj
+refuses syntax.rule.range-open-end at 2:20
+
+// case: syntax.expr.range-from/cell:scrut
+refuses parse-error at 2:15
+
+// case: syntax.expr.range-from/cell:aguard
+refuses parse-error at 3:23
+
+// case: syntax.expr.range-from/cell:iter
+refuses syntax.rule.range-open-end at 2:18
+
+// case: syntax.expr.range-from/cell:rend
+refuses parse-error at 2:18
+
+// case: syntax.expr.range-from/cell:atgt
+refuses parse-error at 2:9
+
+// case: syntax.expr.range-from/cell:cgen
+refuses parse-error at 2:15
+
+// case: syntax.expr.range-from/cell:cap
+refuses parse-error at 2:21
+
+// case: syntax.expr.range-upto/cell:rend
+refuses parse-error at 2:17
+
+// case: syntax.expr.range-upto/cell:atgt
+refuses parse-error at 2:9
+
+// case: syntax.expr.range-upto/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.range-upto/cell:cap
+refuses parse-error at 2:21
+
+// case: syntax.expr.compare/cell:atgt
+refuses parse-error at 2:11
+
+// case: syntax.expr.compare/cell:cgen
+refuses parse-error at 2:21
+
+// case: syntax.expr.compare/cell:cap
+refuses parse-error at 2:23
+
+// case: syntax.expr.bitand/cell:atgt
+refuses parse-error at 2:11
+
+// case: syntax.expr.bitand/cell:cgen
+refuses parse-error at 2:16
+
+// case: syntax.expr.bitand/cell:cap
+refuses parse-error at 2:23
+
+// case: syntax.expr.bitxor/cell:atgt
+refuses parse-error at 2:11
+
+// case: syntax.expr.bitxor/cell:cgen
+refuses parse-error at 2:16
+
+// case: syntax.expr.bitxor/cell:cap
+refuses parse-error at 2:23
+
+// case: syntax.expr.bitor/cell:atgt
+refuses parse-error at 2:11
+
+// case: syntax.expr.bitor/cell:cgen
+refuses parse-error at 2:16
+
+// case: syntax.expr.bitor/cell:cap
+refuses parse-error at 2:23
+
+// case: syntax.expr.and/cell:atgt
+refuses parse-error at 2:12
+
+// case: syntax.expr.and/cell:cgen
+refuses parse-error at 2:16
+
+// case: syntax.expr.and/cell:cap
+refuses parse-error at 2:24
+
+// case: syntax.expr.or/cell:atgt
+refuses parse-error at 2:12
+
+// case: syntax.expr.or/cell:cgen
+refuses parse-error at 2:16
+
+// case: syntax.expr.or/cell:cap
+refuses parse-error at 2:24
+
+// case: syntax.expr.coalesce/cell:atgt
+refuses parse-error at 2:12
+
+// case: syntax.expr.coalesce/cell:cgen
+refuses parse-error at 2:19
+
+// case: syntax.expr.coalesce/cell:cap
+refuses parse-error at 2:24
+
+// case: syntax.expr.if/cell:atgt
+refuses parse-error at 2:27
+
+// case: syntax.expr.if/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.if/cell:cap
+refuses parse-error at 2:39
+
+// case: syntax.expr.match/cell:atgt
+refuses parse-error at 2:29
+
+// case: syntax.expr.match/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.match/cell:cap
+refuses parse-error at 2:41
+
+// case: syntax.expr.while/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (While.conditional (Name a) (Block)))))))
+
+// case: syntax.expr.while/cell:atgt
+refuses parse-error at 2:17
+
+// case: syntax.expr.while/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.while/cell:cap
+refuses parse-error at 2:29
+
+// case: syntax.expr.while-let/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (WhileLet.let (BindingName x) (Name a) (Block)))))))
+
+// case: syntax.expr.while-let/cell:atgt
+refuses parse-error at 2:25
+
+// case: syntax.expr.while-let/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.while-let/cell:cap
+refuses parse-error at 2:37
+
+// case: syntax.expr.for/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain (BindingName x) (Name a) (Block)))))))
+
+// case: syntax.expr.for/cell:atgt
+refuses parse-error at 2:20
+
+// case: syntax.expr.for/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.for/cell:cap
+refuses parse-error at 2:32
+
+// case: syntax.borrow.for/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.borrow
+            (ForBorrow.let (BindingName x) (Name a) (Block))))))))
+
+// case: syntax.borrow.for/cell:atgt
+refuses parse-error at 2:31
+
+// case: syntax.borrow.for/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.borrow.for/cell:cap
+refuses parse-error at 2:43
+
+// case: syntax.expr.try-block/cell:atgt
+refuses parse-error at 2:27
+
+// case: syntax.expr.try-block/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.try-block/cell:cap
+refuses parse-error at 2:39
+
+// case: syntax.borrow.place/cell:cgen
+refuses parse-error at 2:21
+
+// case: syntax.borrow.place/cell:cap
+refuses parse-error at 2:33
+
+// case: syntax.borrow.block/cell:atgt
+refuses parse-error at 2:28
+
+// case: syntax.borrow.block/cell:cgen
+refuses parse-error at 2:21
+
+// case: syntax.borrow.block/cell:cap
+refuses parse-error at 2:40
+
+// case: syntax.expr.optional-binding/cell:stmt
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName x) (Name a))
+        (ExprStmt (Name x))))))
+
+// case: syntax.expr.optional-binding/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName x) (Name a))))))
+
+// case: syntax.expr.optional-binding/cell:clos
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (Let.immutable (BindingName x) (Name a))
+            (ExprStmt (Name x))))))))
+
+// case: syntax.expr.optional-binding/cell:catch
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (Let.immutable (BindingName x) (Name a))
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.expr.optional-binding/cell:arm
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              (Let.immutable (BindingName x) (Name a)))))))))
+
+// case: syntax.expr.optional-binding/cell:opnd
+refuses parse-error at 2:13
+
+// case: syntax.expr.optional-binding/cell:rhs
+refuses parse-error at 2:18
+
+// case: syntax.expr.optional-binding/cell:arg
+refuses parse-error at 2:7
+
+// case: syntax.expr.optional-binding/cell:larg
+refuses parse-error at 2:10
+
+// case: syntax.expr.optional-binding/cell:elem
+refuses parse-error at 2:14
+
+// case: syntax.expr.optional-binding/cell:recv
+refuses parse-error at 2:13
+
+// case: syntax.expr.optional-binding/cell:idx
+refuses parse-error at 2:15
+
+// case: syntax.expr.optional-binding/cell:interp
+refuses parse-error
+
+// case: syntax.expr.optional-binding/cell:subj
+refuses parse-error at 2:16
+
+// case: syntax.expr.optional-binding/cell:scrut
+refuses parse-error at 2:11
+
+// case: syntax.expr.optional-binding/cell:aguard
+refuses parse-error at 3:19
+
+// case: syntax.expr.optional-binding/cell:iter
+refuses parse-error at 2:14
+
+// case: syntax.expr.optional-binding/cell:rend
+refuses parse-error at 2:14
+
+// case: syntax.expr.optional-binding/cell:bhead
+refuses parse-error at 2:20
+
+// case: syntax.expr.optional-binding/cell:init
+refuses parse-error at 2:13
+
+// case: syntax.expr.optional-binding/cell:asgn
+refuses parse-error at 2:9
+
+// case: syntax.expr.optional-binding/cell:crhs
+refuses parse-error at 2:10
+
+// case: syntax.expr.optional-binding/cell:atgt
+refuses parse-error at 2:15
+
+// case: syntax.expr.optional-binding/cell:ret
+refuses parse-error at 2:12
+
+// case: syntax.expr.optional-binding/cell:brk
+refuses parse-error at 3:15
+
+// case: syntax.expr.optional-binding/cell:lend
+refuses parse-error at 2:10
+
+// case: syntax.expr.optional-binding/cell:try
+refuses parse-error at 2:17
+
+// case: syntax.expr.optional-binding/cell:dflt
+refuses parse-error at 1:15
+
+// case: syntax.expr.optional-binding/cell:sinit
+refuses parse-error at 1:15
+
+// case: syntax.expr.optional-binding/cell:alen
+refuses parse-error at 2:16
+
+// case: syntax.expr.optional-binding/cell:rcnt
+refuses parse-error at 2:17
+
+// case: syntax.expr.optional-binding/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.expr.optional-binding/cell:raw
+refuses parse-error at 2:14
+
+// case: syntax.expr.optional-binding/cell:aarg
+refuses parse-error at 1:8
+
+// case: syntax.expr.optional-binding/cell:sassert
+refuses parse-error at 1:15
+
+// case: syntax.expr.optional-binding/cell:cap
+refuses parse-error at 2:16
+
+// case: syntax.borrow.unwrap/cell:stmt
+refuses parse-error at 2:5
+
+// case: syntax.borrow.unwrap/cell:tail
+refuses parse-error at 2:5
+
+// case: syntax.borrow.unwrap/cell:clos
+refuses parse-error at 3:9
+
+// case: syntax.borrow.unwrap/cell:catch
+refuses parse-error at 5:9
+
+// case: syntax.borrow.unwrap/cell:arm
+refuses parse-error at 3:19
+
+// case: syntax.borrow.unwrap/cell:opnd
+refuses parse-error at 3:1
+
+// case: syntax.borrow.unwrap/cell:rhs
+refuses parse-error at 3:1
+
+// case: syntax.borrow.unwrap/cell:arg
+refuses parse-error at 2:23
+
+// case: syntax.borrow.unwrap/cell:larg
+refuses parse-error at 2:26
+
+// case: syntax.borrow.unwrap/cell:elem
+refuses parse-error at 2:30
+
+// case: syntax.borrow.unwrap/cell:recv
+refuses parse-error at 3:1
+
+// case: syntax.borrow.unwrap/cell:idx
+refuses parse-error at 2:31
+
+// case: syntax.borrow.unwrap/cell:interp
+refuses parse-error
+
+// case: syntax.borrow.unwrap/cell:subj
+refuses parse-error at 4:1
+
+// case: syntax.borrow.unwrap/cell:scrut
+refuses parse-error at 3:9
+
+// case: syntax.borrow.unwrap/cell:aguard
+refuses parse-error at 3:36
+
+// case: syntax.borrow.unwrap/cell:iter
+refuses parse-error at 4:1
+
+// case: syntax.borrow.unwrap/cell:rend
+refuses parse-error at 4:1
+
+// case: syntax.borrow.unwrap/cell:bhead
+refuses parse-error at 2:5
+
+// case: syntax.borrow.unwrap/cell:init
+refuses parse-error at 3:1
+
+// case: syntax.borrow.unwrap/cell:asgn
+refuses parse-error at 3:1
+
+// case: syntax.borrow.unwrap/cell:crhs
+refuses parse-error at 3:1
+
+// case: syntax.borrow.unwrap/cell:atgt
+refuses parse-error at 2:22
+
+// case: syntax.borrow.unwrap/cell:ret
+refuses parse-error at 3:1
+
+// case: syntax.borrow.unwrap/cell:brk
+refuses parse-error at 4:5
+
+// case: syntax.borrow.unwrap/cell:lend
+refuses parse-error at 3:1
+
+// case: syntax.borrow.unwrap/cell:try
+refuses parse-error at 3:1
+
+// case: syntax.borrow.unwrap/cell:dflt
+refuses parse-error at 1:31
+
+// case: syntax.borrow.unwrap/cell:sinit
+refuses parse-error at 2:1
+
+// case: syntax.borrow.unwrap/cell:alen
+refuses parse-error at 2:32
+
+// case: syntax.borrow.unwrap/cell:rcnt
+refuses parse-error at 2:33
+
+// case: syntax.borrow.unwrap/cell:cgen
+refuses parse-error at 2:21
+
+// case: syntax.borrow.unwrap/cell:raw
+refuses parse-error at 3:1
+
+// case: syntax.borrow.unwrap/cell:aarg
+refuses parse-error at 1:24
+
+// case: syntax.borrow.unwrap/cell:sassert
+refuses parse-error at 1:33
+
+// case: syntax.borrow.unwrap/cell:cap
+refuses parse-error at 2:32
+
+// case: syntax.stmt.let/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName x) (Name a))))))
+
+// case: syntax.stmt.let/cell:opnd
+refuses parse-error at 2:13
+
+// case: syntax.stmt.let/cell:rhs
+refuses parse-error at 2:18
+
+// case: syntax.stmt.let/cell:arg
+refuses parse-error at 2:7
+
+// case: syntax.stmt.let/cell:larg
+refuses parse-error at 2:10
+
+// case: syntax.stmt.let/cell:elem
+refuses parse-error at 2:14
+
+// case: syntax.stmt.let/cell:recv
+refuses parse-error at 2:13
+
+// case: syntax.stmt.let/cell:idx
+refuses parse-error at 2:15
+
+// case: syntax.stmt.let/cell:interp
+refuses parse-error
+
+// case: syntax.stmt.let/cell:cond
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (LetArm.let (BindingName x) (Name a))
+            (Block)))))))
+
+// case: syntax.stmt.let/cell:subj
+refuses parse-error at 2:16
+
+// case: syntax.stmt.let/cell:scrut
+refuses parse-error at 2:11
+
+// case: syntax.stmt.let/cell:aguard
+refuses parse-error at 3:19
+
+// case: syntax.stmt.let/cell:iter
+refuses parse-error at 2:14
+
+// case: syntax.stmt.let/cell:rend
+refuses parse-error at 2:14
+
+// case: syntax.stmt.let/cell:bhead
+refuses parse-error at 2:20
+
+// case: syntax.stmt.let/cell:init
+refuses parse-error at 2:13
+
+// case: syntax.stmt.let/cell:asgn
+refuses parse-error at 2:9
+
+// case: syntax.stmt.let/cell:crhs
+refuses parse-error at 2:10
+
+// case: syntax.stmt.let/cell:atgt
+refuses parse-error at 2:15
+
+// case: syntax.stmt.let/cell:ret
+refuses parse-error at 2:12
+
+// case: syntax.stmt.let/cell:brk
+refuses parse-error at 3:15
+
+// case: syntax.stmt.let/cell:lend
+refuses parse-error at 2:10
+
+// case: syntax.stmt.let/cell:try
+refuses parse-error at 2:17
+
+// case: syntax.stmt.let/cell:dflt
+refuses parse-error at 1:15
+
+// case: syntax.stmt.let/cell:sinit
+refuses parse-error at 1:15
+
+// case: syntax.stmt.let/cell:alen
+refuses parse-error at 2:16
+
+// case: syntax.stmt.let/cell:rcnt
+refuses parse-error at 2:17
+
+// case: syntax.stmt.let/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.stmt.let/cell:raw
+refuses parse-error at 2:14
+
+// case: syntax.stmt.let/cell:aarg
+refuses parse-error at 1:8
+
+// case: syntax.stmt.let/cell:sassert
+refuses parse-error at 1:15
+
+// case: syntax.stmt.let/cell:cap
+refuses parse-error at 2:16
+
+// case: syntax.stmt.destructure/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (DestructureLet.immutable
+          (TuplePat.positional (NamePat x) (NamePat y))
+          (Name a))))))
+
+// case: syntax.stmt.destructure/cell:opnd
+refuses parse-error at 2:13
+
+// case: syntax.stmt.destructure/cell:rhs
+refuses parse-error at 2:18
+
+// case: syntax.stmt.destructure/cell:arg
+refuses parse-error at 2:7
+
+// case: syntax.stmt.destructure/cell:larg
+refuses parse-error at 2:10
+
+// case: syntax.stmt.destructure/cell:elem
+refuses parse-error at 2:14
+
+// case: syntax.stmt.destructure/cell:recv
+refuses parse-error at 2:13
+
+// case: syntax.stmt.destructure/cell:idx
+refuses parse-error at 2:15
+
+// case: syntax.stmt.destructure/cell:interp
+refuses parse-error
+
+// case: syntax.stmt.destructure/cell:cond
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (LetArm.let
+              (TuplePat.positional (NamePat x) (NamePat y))
+              (Name a))
+            (Block)))))))
+
+// case: syntax.stmt.destructure/cell:subj
+refuses parse-error at 2:16
+
+// case: syntax.stmt.destructure/cell:scrut
+refuses parse-error at 2:11
+
+// case: syntax.stmt.destructure/cell:aguard
+refuses parse-error at 3:19
+
+// case: syntax.stmt.destructure/cell:iter
+refuses parse-error at 2:14
+
+// case: syntax.stmt.destructure/cell:rend
+refuses parse-error at 2:14
+
+// case: syntax.stmt.destructure/cell:bhead
+refuses parse-error at 2:20
+
+// case: syntax.stmt.destructure/cell:init
+refuses parse-error at 2:13
+
+// case: syntax.stmt.destructure/cell:asgn
+refuses parse-error at 2:9
+
+// case: syntax.stmt.destructure/cell:crhs
+refuses parse-error at 2:10
+
+// case: syntax.stmt.destructure/cell:atgt
+refuses parse-error at 2:20
+
+// case: syntax.stmt.destructure/cell:ret
+refuses parse-error at 2:12
+
+// case: syntax.stmt.destructure/cell:brk
+refuses parse-error at 3:15
+
+// case: syntax.stmt.destructure/cell:lend
+refuses parse-error at 2:10
+
+// case: syntax.stmt.destructure/cell:try
+refuses parse-error at 2:17
+
+// case: syntax.stmt.destructure/cell:dflt
+refuses parse-error at 1:15
+
+// case: syntax.stmt.destructure/cell:sinit
+refuses parse-error at 1:15
+
+// case: syntax.stmt.destructure/cell:alen
+refuses parse-error at 2:16
+
+// case: syntax.stmt.destructure/cell:rcnt
+refuses parse-error at 2:17
+
+// case: syntax.stmt.destructure/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.stmt.destructure/cell:raw
+refuses parse-error at 2:14
+
+// case: syntax.stmt.destructure/cell:aarg
+refuses parse-error at 1:8
+
+// case: syntax.stmt.destructure/cell:sassert
+refuses parse-error at 1:15
+
+// case: syntax.stmt.destructure/cell:cap
+refuses parse-error at 2:16
+
+// case: syntax.stmt.assign/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign (Name a) (Name b))))))
+
+// case: syntax.stmt.assign/cell:opnd
+refuses parse-error at 2:15
+
+// case: syntax.stmt.assign/cell:rhs
+refuses parse-error at 2:20
+
+// case: syntax.stmt.assign/cell:arg
+refuses parse-error at 2:9
+
+// case: syntax.stmt.assign/cell:larg
+refuses parse-error at 2:12
+
+// case: syntax.stmt.assign/cell:elem
+refuses parse-error at 2:16
+
+// case: syntax.stmt.assign/cell:recv
+refuses parse-error at 2:15
+
+// case: syntax.stmt.assign/cell:idx
+refuses parse-error at 2:17
+
+// case: syntax.stmt.assign/cell:interp
+refuses parse-error
+
+// case: syntax.stmt.assign/cell:cond
+refuses parse-error at 2:10
+
+// case: syntax.stmt.assign/cell:subj
+refuses parse-error at 2:18
+
+// case: syntax.stmt.assign/cell:scrut
+refuses parse-error at 2:13
+
+// case: syntax.stmt.assign/cell:aguard
+refuses parse-error at 3:21
+
+// case: syntax.stmt.assign/cell:iter
+refuses parse-error at 2:16
+
+// case: syntax.stmt.assign/cell:rend
+refuses parse-error at 2:16
+
+// case: syntax.stmt.assign/cell:bhead
+refuses parse-error at 2:22
+
+// case: syntax.stmt.assign/cell:init
+refuses parse-error at 2:15
+
+// case: syntax.stmt.assign/cell:asgn
+refuses parse-error at 2:11
+
+// case: syntax.stmt.assign/cell:crhs
+refuses parse-error at 2:12
+
+// case: syntax.stmt.assign/cell:atgt
+refuses parse-error at 2:11
+
+// case: syntax.stmt.assign/cell:ret
+refuses parse-error at 2:14
+
+// case: syntax.stmt.assign/cell:brk
+refuses parse-error at 3:17
+
+// case: syntax.stmt.assign/cell:lend
+refuses parse-error at 2:12
+
+// case: syntax.stmt.assign/cell:try
+refuses parse-error at 2:19
+
+// case: syntax.stmt.assign/cell:dflt
+refuses parse-error at 1:17
+
+// case: syntax.stmt.assign/cell:sinit
+refuses parse-error at 1:17
+
+// case: syntax.stmt.assign/cell:alen
+refuses parse-error at 2:18
+
+// case: syntax.stmt.assign/cell:rcnt
+refuses parse-error at 2:19
+
+// case: syntax.stmt.assign/cell:cgen
+refuses parse-error at 2:16
+
+// case: syntax.stmt.assign/cell:raw
+refuses parse-error at 2:16
+
+// case: syntax.stmt.assign/cell:aarg
+refuses parse-error at 1:10
+
+// case: syntax.stmt.assign/cell:sassert
+refuses parse-error at 1:17
+
+// case: syntax.stmt.assign/cell:cap
+refuses parse-error at 2:18
+
+// case: syntax.stmt.compound-assign/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (CompoundAssign (Name a) += (Name b))))))
+
+// case: syntax.stmt.compound-assign/cell:opnd
+refuses parse-error at 2:15
+
+// case: syntax.stmt.compound-assign/cell:rhs
+refuses parse-error at 2:20
+
+// case: syntax.stmt.compound-assign/cell:arg
+refuses parse-error at 2:9
+
+// case: syntax.stmt.compound-assign/cell:larg
+refuses parse-error at 2:12
+
+// case: syntax.stmt.compound-assign/cell:elem
+refuses parse-error at 2:16
+
+// case: syntax.stmt.compound-assign/cell:recv
+refuses parse-error at 2:15
+
+// case: syntax.stmt.compound-assign/cell:idx
+refuses parse-error at 2:17
+
+// case: syntax.stmt.compound-assign/cell:interp
+refuses parse-error
+
+// case: syntax.stmt.compound-assign/cell:cond
+refuses parse-error at 2:10
+
+// case: syntax.stmt.compound-assign/cell:subj
+refuses parse-error at 2:18
+
+// case: syntax.stmt.compound-assign/cell:scrut
+refuses parse-error at 2:13
+
+// case: syntax.stmt.compound-assign/cell:aguard
+refuses parse-error at 3:21
+
+// case: syntax.stmt.compound-assign/cell:iter
+refuses parse-error at 2:16
+
+// case: syntax.stmt.compound-assign/cell:rend
+refuses parse-error at 2:16
+
+// case: syntax.stmt.compound-assign/cell:bhead
+refuses parse-error at 2:22
+
+// case: syntax.stmt.compound-assign/cell:init
+refuses parse-error at 2:15
+
+// case: syntax.stmt.compound-assign/cell:asgn
+refuses parse-error at 2:11
+
+// case: syntax.stmt.compound-assign/cell:crhs
+refuses parse-error at 2:12
+
+// case: syntax.stmt.compound-assign/cell:atgt
+refuses parse-error at 2:12
+
+// case: syntax.stmt.compound-assign/cell:ret
+refuses parse-error at 2:14
+
+// case: syntax.stmt.compound-assign/cell:brk
+refuses parse-error at 3:17
+
+// case: syntax.stmt.compound-assign/cell:lend
+refuses parse-error at 2:12
+
+// case: syntax.stmt.compound-assign/cell:try
+refuses parse-error at 2:19
+
+// case: syntax.stmt.compound-assign/cell:dflt
+refuses parse-error at 1:17
+
+// case: syntax.stmt.compound-assign/cell:sinit
+refuses parse-error at 1:17
+
+// case: syntax.stmt.compound-assign/cell:alen
+refuses parse-error at 2:18
+
+// case: syntax.stmt.compound-assign/cell:rcnt
+refuses parse-error at 2:19
+
+// case: syntax.stmt.compound-assign/cell:cgen
+refuses parse-error at 2:16
+
+// case: syntax.stmt.compound-assign/cell:raw
+refuses parse-error at 2:16
+
+// case: syntax.stmt.compound-assign/cell:aarg
+refuses parse-error at 1:10
+
+// case: syntax.stmt.compound-assign/cell:sassert
+refuses parse-error at 1:17
+
+// case: syntax.stmt.compound-assign/cell:cap
+refuses parse-error at 2:18
+
+// case: syntax.stmt.return/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Return (Name a))))))
+
+// case: syntax.stmt.return/cell:opnd
+refuses parse-error at 2:13
+
+// case: syntax.stmt.return/cell:rhs
+refuses parse-error at 2:18
+
+// case: syntax.stmt.return/cell:arg
+refuses parse-error at 2:7
+
+// case: syntax.stmt.return/cell:larg
+refuses parse-error at 2:10
+
+// case: syntax.stmt.return/cell:elem
+refuses parse-error at 2:14
+
+// case: syntax.stmt.return/cell:recv
+refuses parse-error at 2:13
+
+// case: syntax.stmt.return/cell:idx
+refuses parse-error at 2:15
+
+// case: syntax.stmt.return/cell:interp
+refuses parse-error
+
+// case: syntax.stmt.return/cell:cond
+refuses parse-error at 2:8
+
+// case: syntax.stmt.return/cell:subj
+refuses parse-error at 2:16
+
+// case: syntax.stmt.return/cell:scrut
+refuses parse-error at 2:11
+
+// case: syntax.stmt.return/cell:aguard
+refuses parse-error at 3:19
+
+// case: syntax.stmt.return/cell:iter
+refuses parse-error at 2:14
+
+// case: syntax.stmt.return/cell:rend
+refuses parse-error at 2:14
+
+// case: syntax.stmt.return/cell:bhead
+refuses parse-error at 2:20
+
+// case: syntax.stmt.return/cell:init
+refuses parse-error at 2:13
+
+// case: syntax.stmt.return/cell:asgn
+refuses parse-error at 2:9
+
+// case: syntax.stmt.return/cell:crhs
+refuses parse-error at 2:10
+
+// case: syntax.stmt.return/cell:atgt
+refuses parse-error at 2:14
+
+// case: syntax.stmt.return/cell:ret
+refuses parse-error at 2:12
+
+// case: syntax.stmt.return/cell:brk
+refuses parse-error at 3:15
+
+// case: syntax.stmt.return/cell:lend
+refuses parse-error at 2:10
+
+// case: syntax.stmt.return/cell:try
+refuses parse-error at 2:17
+
+// case: syntax.stmt.return/cell:dflt
+refuses parse-error at 1:15
+
+// case: syntax.stmt.return/cell:sinit
+refuses parse-error at 1:15
+
+// case: syntax.stmt.return/cell:alen
+refuses parse-error at 2:16
+
+// case: syntax.stmt.return/cell:rcnt
+refuses parse-error at 2:17
+
+// case: syntax.stmt.return/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.stmt.return/cell:raw
+refuses parse-error at 2:14
+
+// case: syntax.stmt.return/cell:aarg
+refuses parse-error at 1:8
+
+// case: syntax.stmt.return/cell:sassert
+refuses parse-error at 1:15
+
+// case: syntax.stmt.return/cell:cap
+refuses parse-error at 2:16
+
+// case: syntax.stmt.break/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block (Break)))))
+
+// case: syntax.stmt.break/cell:opnd
+refuses parse-error at 2:13
+
+// case: syntax.stmt.break/cell:rhs
+refuses parse-error at 2:18
+
+// case: syntax.stmt.break/cell:arg
+refuses parse-error at 2:7
+
+// case: syntax.stmt.break/cell:larg
+refuses parse-error at 2:10
+
+// case: syntax.stmt.break/cell:elem
+refuses parse-error at 2:14
+
+// case: syntax.stmt.break/cell:recv
+refuses parse-error at 2:13
+
+// case: syntax.stmt.break/cell:idx
+refuses parse-error at 2:15
+
+// case: syntax.stmt.break/cell:interp
+refuses parse-error
+
+// case: syntax.stmt.break/cell:cond
+refuses parse-error at 2:8
+
+// case: syntax.stmt.break/cell:subj
+refuses parse-error at 2:16
+
+// case: syntax.stmt.break/cell:scrut
+refuses parse-error at 2:11
+
+// case: syntax.stmt.break/cell:aguard
+refuses parse-error at 3:19
+
+// case: syntax.stmt.break/cell:iter
+refuses parse-error at 2:14
+
+// case: syntax.stmt.break/cell:rend
+refuses parse-error at 2:14
+
+// case: syntax.stmt.break/cell:bhead
+refuses parse-error at 2:20
+
+// case: syntax.stmt.break/cell:init
+refuses parse-error at 2:13
+
+// case: syntax.stmt.break/cell:asgn
+refuses parse-error at 2:9
+
+// case: syntax.stmt.break/cell:crhs
+refuses parse-error at 2:10
+
+// case: syntax.stmt.break/cell:atgt
+refuses parse-error at 2:11
+
+// case: syntax.stmt.break/cell:ret
+refuses parse-error at 2:12
+
+// case: syntax.stmt.break/cell:brk
+refuses parse-error at 3:15
+
+// case: syntax.stmt.break/cell:lend
+refuses parse-error at 2:10
+
+// case: syntax.stmt.break/cell:try
+refuses parse-error at 2:17
+
+// case: syntax.stmt.break/cell:dflt
+refuses parse-error at 1:15
+
+// case: syntax.stmt.break/cell:sinit
+refuses parse-error at 1:15
+
+// case: syntax.stmt.break/cell:alen
+refuses parse-error at 2:16
+
+// case: syntax.stmt.break/cell:rcnt
+refuses parse-error at 2:17
+
+// case: syntax.stmt.break/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.stmt.break/cell:raw
+refuses parse-error at 2:14
+
+// case: syntax.stmt.break/cell:aarg
+refuses parse-error at 1:8
+
+// case: syntax.stmt.break/cell:sassert
+refuses parse-error at 1:15
+
+// case: syntax.stmt.break/cell:cap
+refuses parse-error at 2:16
+
+// case: syntax.stmt.continue/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block (Continue)))))
+
+// case: syntax.stmt.continue/cell:opnd
+refuses parse-error at 2:13
+
+// case: syntax.stmt.continue/cell:rhs
+refuses parse-error at 2:18
+
+// case: syntax.stmt.continue/cell:arg
+refuses parse-error at 2:7
+
+// case: syntax.stmt.continue/cell:larg
+refuses parse-error at 2:10
+
+// case: syntax.stmt.continue/cell:elem
+refuses parse-error at 2:14
+
+// case: syntax.stmt.continue/cell:recv
+refuses parse-error at 2:13
+
+// case: syntax.stmt.continue/cell:idx
+refuses parse-error at 2:15
+
+// case: syntax.stmt.continue/cell:interp
+refuses parse-error
+
+// case: syntax.stmt.continue/cell:cond
+refuses parse-error at 2:8
+
+// case: syntax.stmt.continue/cell:subj
+refuses parse-error at 2:16
+
+// case: syntax.stmt.continue/cell:scrut
+refuses parse-error at 2:11
+
+// case: syntax.stmt.continue/cell:aguard
+refuses parse-error at 3:19
+
+// case: syntax.stmt.continue/cell:iter
+refuses parse-error at 2:14
+
+// case: syntax.stmt.continue/cell:rend
+refuses parse-error at 2:14
+
+// case: syntax.stmt.continue/cell:bhead
+refuses parse-error at 2:20
+
+// case: syntax.stmt.continue/cell:init
+refuses parse-error at 2:13
+
+// case: syntax.stmt.continue/cell:asgn
+refuses parse-error at 2:9
+
+// case: syntax.stmt.continue/cell:crhs
+refuses parse-error at 2:10
+
+// case: syntax.stmt.continue/cell:atgt
+refuses parse-error at 2:14
+
+// case: syntax.stmt.continue/cell:ret
+refuses parse-error at 2:12
+
+// case: syntax.stmt.continue/cell:brk
+refuses parse-error at 3:15
+
+// case: syntax.stmt.continue/cell:lend
+refuses parse-error at 2:10
+
+// case: syntax.stmt.continue/cell:try
+refuses parse-error at 2:17
+
+// case: syntax.stmt.continue/cell:dflt
+refuses parse-error at 1:15
+
+// case: syntax.stmt.continue/cell:sinit
+refuses parse-error at 1:15
+
+// case: syntax.stmt.continue/cell:alen
+refuses parse-error at 2:16
+
+// case: syntax.stmt.continue/cell:rcnt
+refuses parse-error at 2:17
+
+// case: syntax.stmt.continue/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.stmt.continue/cell:raw
+refuses parse-error at 2:14
+
+// case: syntax.stmt.continue/cell:aarg
+refuses parse-error at 1:8
+
+// case: syntax.stmt.continue/cell:sassert
+refuses parse-error at 1:15
+
+// case: syntax.stmt.continue/cell:cap
+refuses parse-error at 2:16
+
+// case: syntax.stmt.lend/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Lend (Name a))))))
+
+// case: syntax.stmt.lend/cell:opnd
+refuses parse-error at 2:13
+
+// case: syntax.stmt.lend/cell:rhs
+refuses parse-error at 2:18
+
+// case: syntax.stmt.lend/cell:arg
+refuses parse-error at 2:7
+
+// case: syntax.stmt.lend/cell:larg
+refuses parse-error at 2:10
+
+// case: syntax.stmt.lend/cell:elem
+refuses parse-error at 2:14
+
+// case: syntax.stmt.lend/cell:recv
+refuses parse-error at 2:13
+
+// case: syntax.stmt.lend/cell:idx
+refuses parse-error at 2:15
+
+// case: syntax.stmt.lend/cell:interp
+refuses parse-error
+
+// case: syntax.stmt.lend/cell:cond
+refuses parse-error at 2:8
+
+// case: syntax.stmt.lend/cell:subj
+refuses parse-error at 2:16
+
+// case: syntax.stmt.lend/cell:scrut
+refuses parse-error at 2:11
+
+// case: syntax.stmt.lend/cell:aguard
+refuses parse-error at 3:19
+
+// case: syntax.stmt.lend/cell:iter
+refuses parse-error at 2:14
+
+// case: syntax.stmt.lend/cell:rend
+refuses parse-error at 2:14
+
+// case: syntax.stmt.lend/cell:bhead
+refuses parse-error at 2:20
+
+// case: syntax.stmt.lend/cell:init
+refuses parse-error at 2:13
+
+// case: syntax.stmt.lend/cell:asgn
+refuses parse-error at 2:9
+
+// case: syntax.stmt.lend/cell:crhs
+refuses parse-error at 2:10
+
+// case: syntax.stmt.lend/cell:atgt
+refuses parse-error at 2:12
+
+// case: syntax.stmt.lend/cell:ret
+refuses parse-error at 2:12
+
+// case: syntax.stmt.lend/cell:brk
+refuses parse-error at 3:15
+
+// case: syntax.stmt.lend/cell:lend
+refuses parse-error at 2:10
+
+// case: syntax.stmt.lend/cell:try
+refuses parse-error at 2:17
+
+// case: syntax.stmt.lend/cell:dflt
+refuses parse-error at 1:15
+
+// case: syntax.stmt.lend/cell:sinit
+refuses parse-error at 1:15
+
+// case: syntax.stmt.lend/cell:alen
+refuses parse-error at 2:16
+
+// case: syntax.stmt.lend/cell:rcnt
+refuses parse-error at 2:17
+
+// case: syntax.stmt.lend/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.stmt.lend/cell:raw
+refuses parse-error at 2:14
+
+// case: syntax.stmt.lend/cell:aarg
+refuses parse-error at 1:8
+
+// case: syntax.stmt.lend/cell:sassert
+refuses parse-error at 1:15
+
+// case: syntax.stmt.lend/cell:cap
+refuses parse-error at 2:16
+
+// case: syntax.stmt.guard/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Guard.let
+          (BindingName x)
+          (Name a)
+          (Block (Return)))))))
+
+// case: syntax.stmt.guard/cell:opnd
+refuses parse-error at 2:13
+
+// case: syntax.stmt.guard/cell:rhs
+refuses parse-error at 2:18
+
+// case: syntax.stmt.guard/cell:arg
+refuses parse-error at 2:7
+
+// case: syntax.stmt.guard/cell:larg
+refuses parse-error at 2:10
+
+// case: syntax.stmt.guard/cell:elem
+refuses parse-error at 2:14
+
+// case: syntax.stmt.guard/cell:recv
+refuses parse-error at 2:13
+
+// case: syntax.stmt.guard/cell:idx
+refuses parse-error at 2:15
+
+// case: syntax.stmt.guard/cell:interp
+refuses parse-error
+
+// case: syntax.stmt.guard/cell:cond
+refuses parse-error at 2:8
+
+// case: syntax.stmt.guard/cell:subj
+refuses parse-error at 2:16
+
+// case: syntax.stmt.guard/cell:scrut
+refuses parse-error at 2:11
+
+// case: syntax.stmt.guard/cell:aguard
+refuses parse-error at 3:19
+
+// case: syntax.stmt.guard/cell:iter
+refuses parse-error at 2:14
+
+// case: syntax.stmt.guard/cell:rend
+refuses parse-error at 2:14
+
+// case: syntax.stmt.guard/cell:bhead
+refuses parse-error at 2:20
+
+// case: syntax.stmt.guard/cell:init
+refuses parse-error at 2:13
+
+// case: syntax.stmt.guard/cell:asgn
+refuses parse-error at 2:9
+
+// case: syntax.stmt.guard/cell:crhs
+refuses parse-error at 2:10
+
+// case: syntax.stmt.guard/cell:atgt
+refuses parse-error at 2:37
+
+// case: syntax.stmt.guard/cell:ret
+refuses parse-error at 2:12
+
+// case: syntax.stmt.guard/cell:brk
+refuses parse-error at 3:15
+
+// case: syntax.stmt.guard/cell:lend
+refuses parse-error at 2:10
+
+// case: syntax.stmt.guard/cell:try
+refuses parse-error at 2:17
+
+// case: syntax.stmt.guard/cell:dflt
+refuses parse-error at 1:15
+
+// case: syntax.stmt.guard/cell:sinit
+refuses parse-error at 1:15
+
+// case: syntax.stmt.guard/cell:alen
+refuses parse-error at 2:16
+
+// case: syntax.stmt.guard/cell:rcnt
+refuses parse-error at 2:17
+
+// case: syntax.stmt.guard/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.stmt.guard/cell:raw
+refuses parse-error at 2:14
+
+// case: syntax.stmt.guard/cell:aarg
+refuses parse-error at 1:8
+
+// case: syntax.stmt.guard/cell:sassert
+refuses parse-error at 1:15
+
+// case: syntax.stmt.guard/cell:cap
+refuses parse-error at 2:16
+
+// case: syntax.stmt.guard-condition/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Guard.condition guard
+          (Name a)
+          else
+          (Block (Return)))))))
+
+// case: syntax.stmt.guard-condition/cell:opnd
+refuses parse-error at 2:13
+
+// case: syntax.stmt.guard-condition/cell:rhs
+refuses parse-error at 2:18
+
+// case: syntax.stmt.guard-condition/cell:arg
+refuses parse-error at 2:7
+
+// case: syntax.stmt.guard-condition/cell:larg
+refuses parse-error at 2:10
+
+// case: syntax.stmt.guard-condition/cell:elem
+refuses parse-error at 2:14
+
+// case: syntax.stmt.guard-condition/cell:recv
+refuses parse-error at 2:13
+
+// case: syntax.stmt.guard-condition/cell:idx
+refuses parse-error at 2:15
+
+// case: syntax.stmt.guard-condition/cell:interp
+refuses parse-error
+
+// case: syntax.stmt.guard-condition/cell:cond
+refuses parse-error at 2:8
+
+// case: syntax.stmt.guard-condition/cell:subj
+refuses parse-error at 2:16
+
+// case: syntax.stmt.guard-condition/cell:scrut
+refuses parse-error at 2:11
+
+// case: syntax.stmt.guard-condition/cell:aguard
+refuses parse-error at 3:19
+
+// case: syntax.stmt.guard-condition/cell:iter
+refuses parse-error at 2:14
+
+// case: syntax.stmt.guard-condition/cell:rend
+refuses parse-error at 2:14
+
+// case: syntax.stmt.guard-condition/cell:bhead
+refuses parse-error at 2:20
+
+// case: syntax.stmt.guard-condition/cell:init
+refuses parse-error at 2:13
+
+// case: syntax.stmt.guard-condition/cell:asgn
+refuses parse-error at 2:9
+
+// case: syntax.stmt.guard-condition/cell:crhs
+refuses parse-error at 2:10
+
+// case: syntax.stmt.guard-condition/cell:atgt
+refuses parse-error at 2:29
+
+// case: syntax.stmt.guard-condition/cell:ret
+refuses parse-error at 2:12
+
+// case: syntax.stmt.guard-condition/cell:brk
+refuses parse-error at 3:15
+
+// case: syntax.stmt.guard-condition/cell:lend
+refuses parse-error at 2:10
+
+// case: syntax.stmt.guard-condition/cell:try
+refuses parse-error at 2:17
+
+// case: syntax.stmt.guard-condition/cell:dflt
+refuses parse-error at 1:15
+
+// case: syntax.stmt.guard-condition/cell:sinit
+refuses parse-error at 1:15
+
+// case: syntax.stmt.guard-condition/cell:alen
+refuses parse-error at 2:16
+
+// case: syntax.stmt.guard-condition/cell:rcnt
+refuses parse-error at 2:17
+
+// case: syntax.stmt.guard-condition/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.stmt.guard-condition/cell:raw
+refuses parse-error at 2:14
+
+// case: syntax.stmt.guard-condition/cell:aarg
+refuses parse-error at 1:8
+
+// case: syntax.stmt.guard-condition/cell:sassert
+refuses parse-error at 1:15
+
+// case: syntax.stmt.guard-condition/cell:cap
+refuses parse-error at 2:16
+
+// case: syntax.decl.static-assert/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (StaticAssert (Name a) "m")))))
+
+// case: syntax.decl.static-assert/cell:opnd
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Call.paren
+              (Name static_assert)
+              (Arg.positional (Name a))
+              (Arg.positional (StringLit "m")))
+            *
+            (Name x)))))))
+
+// case: syntax.decl.static-assert/cell:rhs
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Name x)
+            &&
+            (Call.paren
+              (Name static_assert)
+              (Arg.positional (Name a))
+              (Arg.positional (StringLit "m")))))))))
+
+// case: syntax.decl.static-assert/cell:arg
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name f)
+            (Arg.positional
+              (Call.paren
+                (Name static_assert)
+                (Arg.positional (Name a))
+                (Arg.positional (StringLit "m"))))))))))
+
+// case: syntax.decl.static-assert/cell:larg
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name f)
+            (Arg.labelled a
+              (Call.paren
+                (Name static_assert)
+                (Arg.positional (Name a))
+                (Arg.positional (StringLit "m"))))))))))
+
+// case: syntax.decl.static-assert/cell:elem
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Array
+            (Call.paren
+              (Name static_assert)
+              (Arg.positional (Name a))
+              (Arg.positional (StringLit "m")))))))))
+
+// case: syntax.decl.static-assert/cell:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Member
+            (Call.paren
+              (Name static_assert)
+              (Arg.positional (Name a))
+              (Arg.positional (StringLit "m")))
+            b))))))
+
+// case: syntax.decl.static-assert/cell:idx
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Subscript.single
+            (Name a)
+            (Call.paren
+              (Name static_assert)
+              (Arg.positional (Name a))
+              (Arg.positional (StringLit "m")))))))))
+
+// case: syntax.decl.static-assert/cell:interp
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name print)
+            (Arg.positional
+              (Interp
+                (Call.paren
+                  (Name static_assert)
+                  (Arg.positional (Name a))
+                  (Arg.positional (StringLit "m")))))))))))
+
+// case: syntax.decl.static-assert/cell:cond
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (Call.paren
+              (Name static_assert)
+              (Arg.positional (Name a))
+              (Arg.positional (StringLit "m")))
+            (Block)))))))
+
+// case: syntax.decl.static-assert/cell:subj
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (LetArm.let
+              (BindingName x)
+              (Call.paren
+                (Name static_assert)
+                (Arg.positional (Name a))
+                (Arg.positional (StringLit "m"))))
+            (Block)))))))
+
+// case: syntax.decl.static-assert/cell:scrut
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Call.paren
+              (Name static_assert)
+              (Arg.positional (Name a))
+              (Arg.positional (StringLit "m")))
+            (MatchArm (WildcardPat) (Name x))))))))
+
+// case: syntax.decl.static-assert/cell:aguard
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              if
+              (Call.paren
+                (Name static_assert)
+                (Arg.positional (Name a))
+                (Arg.positional (StringLit "m")))
+              (Name x))))))))
+
+// case: syntax.decl.static-assert/cell:iter
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName i)
+            (Call.paren
+              (Name static_assert)
+              (Arg.positional (Name a))
+              (Arg.positional (StringLit "m")))
+            (Block)))))))
+
+// case: syntax.decl.static-assert/cell:rend
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName i)
+            (Range.closed
+              (Call.paren
+                (Name static_assert)
+                (Arg.positional (Name a))
+                (Arg.positional (StringLit "m")))
+              ..
+              (Name x))
+            (Block)))))))
+
+// case: syntax.decl.static-assert/cell:bhead
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let
+              (BindingName x)
+              (Call.paren
+                (Name static_assert)
+                (Arg.positional (Name a))
+                (Arg.positional (StringLit "m"))))
+            (Block)))))))
+
+// case: syntax.decl.static-assert/cell:init
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Call.paren
+            (Name static_assert)
+            (Arg.positional (Name a))
+            (Arg.positional (StringLit "m"))))))))
+
+// case: syntax.decl.static-assert/cell:asgn
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign
+          (Name v)
+          (Call.paren
+            (Name static_assert)
+            (Arg.positional (Name a))
+            (Arg.positional (StringLit "m"))))))))
+
+// case: syntax.decl.static-assert/cell:crhs
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (CompoundAssign
+          (Name v)
+          +=
+          (Call.paren
+            (Name static_assert)
+            (Arg.positional (Name a))
+            (Arg.positional (StringLit "m"))))))))
+
+// case: syntax.decl.static-assert/cell:atgt
+refuses syntax.rule.contextual-words at 2:5
+
+// case: syntax.decl.static-assert/cell:ret
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Return
+          (Call.paren
+            (Name static_assert)
+            (Arg.positional (Name a))
+            (Arg.positional (StringLit "m"))))))))
+
+// case: syntax.decl.static-assert/cell:brk
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (While.conditional
+            (Name x)
+            (Block
+              (Break
+                (Call.paren
+                  (Name static_assert)
+                  (Arg.positional (Name a))
+                  (Arg.positional (StringLit "m")))))))))))
+
+// case: syntax.decl.static-assert/cell:lend
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Lend
+          (Call.paren
+            (Name static_assert)
+            (Arg.positional (Name a))
+            (Arg.positional (StringLit "m"))))))))
+
+// case: syntax.decl.static-assert/cell:try
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Try.propagate
+            (Call.paren
+              (Name static_assert)
+              (Arg.positional (Name a))
+              (Arg.positional (StringLit "m")))))))))
+
+// case: syntax.decl.static-assert/cell:dflt
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Param.default p
+        (NamedType (Path T))
+        (Call.paren
+          (Name static_assert)
+          (Arg.positional (Name a))
+          (Arg.positional (StringLit "m"))))
+      (Block))))
+
+// case: syntax.decl.static-assert/cell:sinit
+parses as another construct
+(File
+  (Declaration.static
+    (Static.immutable S
+      (NamedType (Path T))
+      =
+      (Call.paren
+        (Name static_assert)
+        (Arg.positional (Name a))
+        (Arg.positional (StringLit "m"))))))
+
+// case: syntax.decl.static-assert/cell:alen
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (ArrayType
+            (NamedType (Path T))
+            (Call.paren
+              (Name static_assert)
+              (Arg.positional (Name a))
+              (Arg.positional (StringLit "m"))))
+          (Name w))))))
+
+// case: syntax.decl.static-assert/cell:rcnt
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Repeat
+            (Name x)
+            (Call.paren
+              (Name static_assert)
+              (Arg.positional (Name a))
+              (Arg.positional (StringLit "m")))))))))
+
+// case: syntax.decl.static-assert/cell:cgen
+refuses parse-error at 2:27
+
+// case: syntax.decl.static-assert/cell:raw
+parses as another construct
+(File
+  (Declaration.enum
+    (Enum E
+      (NamedType (Path T))
+      (Case A =
+        (Call.paren
+          (Name static_assert)
+          (Arg.positional (Name a))
+          (Arg.positional (StringLit "m")))))))
+
+// case: syntax.decl.static-assert/cell:aarg
+parses as another construct
+(File
+  (Declaration.static
+    (Attribute.align
+      (Call.paren
+        (Name static_assert)
+        (Arg.positional (Name a))
+        (Arg.positional (StringLit "m"))))
+    (Static.immutable S
+      (NamedType (Path T))
+      =
+      (Name x))))
+
+// case: syntax.decl.static-assert/cell:sassert
+parses as another construct
+(File
+  (StaticAssert
+    (Call.paren
+      (Name static_assert)
+      (Arg.positional (Name a))
+      (Arg.positional (StringLit "m")))
+    "m"))
+
+// case: syntax.decl.static-assert/cell:cap
+refuses parse-error at 2:39
+
+// case: syntax.stmt.attributed-local/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (AttributedLocal
+          (Attribute.align (IntLit 8))
+          (Let.immutable (BindingName x) (Name a)))))))
+
+// case: syntax.stmt.attributed-local/cell:opnd
+refuses parse-error at 2:13
+
+// case: syntax.stmt.attributed-local/cell:rhs
+refuses parse-error at 2:18
+
+// case: syntax.stmt.attributed-local/cell:arg
+refuses parse-error at 2:7
+
+// case: syntax.stmt.attributed-local/cell:larg
+refuses parse-error at 2:10
+
+// case: syntax.stmt.attributed-local/cell:elem
+refuses parse-error at 2:14
+
+// case: syntax.stmt.attributed-local/cell:recv
+refuses parse-error at 2:13
+
+// case: syntax.stmt.attributed-local/cell:idx
+refuses parse-error at 2:15
+
+// case: syntax.stmt.attributed-local/cell:interp
+refuses parse-error
+
+// case: syntax.stmt.attributed-local/cell:cond
+refuses parse-error at 2:8
+
+// case: syntax.stmt.attributed-local/cell:subj
+refuses parse-error at 2:16
+
+// case: syntax.stmt.attributed-local/cell:scrut
+refuses parse-error at 2:11
+
+// case: syntax.stmt.attributed-local/cell:aguard
+refuses parse-error at 3:19
+
+// case: syntax.stmt.attributed-local/cell:iter
+refuses parse-error at 2:14
+
+// case: syntax.stmt.attributed-local/cell:rend
+refuses parse-error at 2:14
+
+// case: syntax.stmt.attributed-local/cell:bhead
+refuses parse-error at 2:20
+
+// case: syntax.stmt.attributed-local/cell:init
+refuses parse-error at 2:13
+
+// case: syntax.stmt.attributed-local/cell:asgn
+refuses parse-error at 2:9
+
+// case: syntax.stmt.attributed-local/cell:crhs
+refuses parse-error at 2:10
+
+// case: syntax.stmt.attributed-local/cell:atgt
+refuses parse-error at 2:25
+
+// case: syntax.stmt.attributed-local/cell:ret
+refuses parse-error at 2:12
+
+// case: syntax.stmt.attributed-local/cell:brk
+refuses parse-error at 3:15
+
+// case: syntax.stmt.attributed-local/cell:lend
+refuses parse-error at 2:10
+
+// case: syntax.stmt.attributed-local/cell:try
+refuses parse-error at 2:17
+
+// case: syntax.stmt.attributed-local/cell:dflt
+refuses parse-error at 1:15
+
+// case: syntax.stmt.attributed-local/cell:sinit
+refuses parse-error at 1:15
+
+// case: syntax.stmt.attributed-local/cell:alen
+refuses parse-error at 2:16
+
+// case: syntax.stmt.attributed-local/cell:rcnt
+refuses parse-error at 2:17
+
+// case: syntax.stmt.attributed-local/cell:cgen
+refuses parse-error at 2:14
+
+// case: syntax.stmt.attributed-local/cell:raw
+refuses parse-error at 2:14
+
+// case: syntax.stmt.attributed-local/cell:aarg
+refuses parse-error at 1:8
+
+// case: syntax.stmt.attributed-local/cell:sassert
+refuses parse-error at 1:15
+
+// case: syntax.stmt.attributed-local/cell:cap
+refuses parse-error at 2:16
+
+// case: syntax.stmt.optional-assign/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (OptionalMember (Name a) b))
+          (Name c))))))
+
+// case: syntax.stmt.optional-assign/cell:opnd
+refuses parse-error at 2:18
+
+// case: syntax.stmt.optional-assign/cell:rhs
+refuses parse-error at 2:23
+
+// case: syntax.stmt.optional-assign/cell:arg
+refuses parse-error at 2:12
+
+// case: syntax.stmt.optional-assign/cell:larg
+refuses parse-error at 2:15
+
+// case: syntax.stmt.optional-assign/cell:elem
+refuses parse-error at 2:19
+
+// case: syntax.stmt.optional-assign/cell:recv
+refuses parse-error at 2:18
+
+// case: syntax.stmt.optional-assign/cell:idx
+refuses parse-error at 2:20
+
+// case: syntax.stmt.optional-assign/cell:interp
+refuses parse-error
+
+// case: syntax.stmt.optional-assign/cell:cond
+refuses parse-error at 2:13
+
+// case: syntax.stmt.optional-assign/cell:scrut
+refuses parse-error at 2:16
+
+// case: syntax.stmt.optional-assign/cell:aguard
+refuses parse-error at 3:24
+
+// case: syntax.stmt.optional-assign/cell:iter
+refuses parse-error at 2:19
+
+// case: syntax.stmt.optional-assign/cell:rend
+refuses parse-error at 2:19
+
+// case: syntax.stmt.optional-assign/cell:bhead
+refuses parse-error at 2:25
+
+// case: syntax.stmt.optional-assign/cell:init
+refuses parse-error at 2:18
+
+// case: syntax.stmt.optional-assign/cell:asgn
+refuses parse-error at 2:14
+
+// case: syntax.stmt.optional-assign/cell:crhs
+refuses parse-error at 2:15
+
+// case: syntax.stmt.optional-assign/cell:atgt
+refuses parse-error at 2:14
+
+// case: syntax.stmt.optional-assign/cell:ret
+refuses parse-error at 2:17
+
+// case: syntax.stmt.optional-assign/cell:brk
+refuses parse-error at 3:20
+
+// case: syntax.stmt.optional-assign/cell:lend
+refuses parse-error at 2:15
+
+// case: syntax.stmt.optional-assign/cell:try
+refuses parse-error at 2:22
+
+// case: syntax.stmt.optional-assign/cell:dflt
+refuses parse-error at 1:20
+
+// case: syntax.stmt.optional-assign/cell:sinit
+refuses parse-error at 1:20
+
+// case: syntax.stmt.optional-assign/cell:alen
+refuses parse-error at 2:21
+
+// case: syntax.stmt.optional-assign/cell:rcnt
+refuses parse-error at 2:22
+
+// case: syntax.stmt.optional-assign/cell:cgen
+refuses parse-error at 2:15
+
+// case: syntax.stmt.optional-assign/cell:raw
+refuses parse-error at 2:19
+
+// case: syntax.stmt.optional-assign/cell:aarg
+refuses parse-error at 1:13
+
+// case: syntax.stmt.optional-assign/cell:sassert
+refuses parse-error at 1:20
+
+// case: syntax.stmt.optional-assign/cell:cap
+refuses parse-error at 2:21
+
+// case: syntax.expr.capture/cell:stmt
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt (Name a))
+        (ExprStmt (Name x))))))
+
+// case: syntax.expr.capture/cell:tail
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt (Name a))))))
+
+// case: syntax.expr.capture/cell:clos
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (ExprStmt (Name a))
+            (ExprStmt (Name x))))))))
+
+// case: syntax.expr.capture/cell:catch
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (ExprStmt (Name a))
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.expr.capture/cell:arm
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm (WildcardPat) (Name a))))))))
+
+// case: syntax.expr.capture/cell:opnd
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary (Name a) * (Name x)))))))
+
+// case: syntax.expr.capture/cell:rhs
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary (Name x) && (Name a)))))))
+
+// case: syntax.expr.capture/cell:arg
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name f)
+            (Arg.positional (Name a))))))))
+
+// case: syntax.expr.capture/cell:larg
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name f)
+            (Arg.labelled a (Name a))))))))
+
+// case: syntax.expr.capture/cell:elem
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Array (Name a)))))))
+
+// case: syntax.expr.capture/cell:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Member (Name a) b))))))
+
+// case: syntax.expr.capture/cell:idx
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Subscript.single (Name a) (Name a)))))))
+
+// case: syntax.expr.capture/cell:interp
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name print)
+            (Arg.positional
+              (Interp (Name a)))))))))
+
+// case: syntax.expr.capture/cell:cond
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If (Name a) (Block)))))))
+
+// case: syntax.expr.capture/cell:subj
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (LetArm.let (BindingName x) (Name a))
+            (Block)))))))
+
+// case: syntax.expr.capture/cell:scrut
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name a)
+            (MatchArm (WildcardPat) (Name x))))))))
+
+// case: syntax.expr.capture/cell:aguard
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm (WildcardPat) if (Name a) (Name x))))))))
+
+// case: syntax.expr.capture/cell:iter
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain (BindingName i) (Name a) (Block)))))))
+
+// case: syntax.expr.capture/cell:rend
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName i)
+            (Range.closed (Name a) .. (Name x))
+            (Block)))))))
+
+// case: syntax.expr.capture/cell:bhead
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let (BindingName x) (Name a))
+            (Block)))))))
+
+// case: syntax.expr.capture/cell:init
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName v) (Name a))))))
+
+// case: syntax.expr.capture/cell:asgn
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign (Name v) (Name a))))))
+
+// case: syntax.expr.capture/cell:crhs
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (CompoundAssign (Name v) += (Name a))))))
+
+// case: syntax.expr.capture/cell:atgt
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign (Name a) (Name x))))))
+
+// case: syntax.expr.capture/cell:ret
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Return (Name a))))))
+
+// case: syntax.expr.capture/cell:brk
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (While.conditional
+            (Name x)
+            (Block
+              (Break (Name a)))))))))
+
+// case: syntax.expr.capture/cell:lend
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Lend (Name a))))))
+
+// case: syntax.expr.capture/cell:try
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Try.propagate (Name a)))))))
+
+// case: syntax.expr.capture/cell:dflt
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Param.default p
+        (NamedType (Path T))
+        (Name a))
+      (Block))))
+
+// case: syntax.expr.capture/cell:sinit
+parses as another construct
+(File
+  (Declaration.static
+    (Static.immutable S
+      (NamedType (Path T))
+      =
+      (Name a))))
+
+// case: syntax.expr.capture/cell:alen
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (ArrayType
+            (NamedType (Path T))
+            (Name a))
+          (Name w))))))
+
+// case: syntax.expr.capture/cell:rcnt
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Repeat (Name x) (Name a)))))))
+
+// case: syntax.expr.capture/cell:cgen
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (NamedType
+            (Path A)
+            (NamedType (Path a)))
+          (Name w))))))
+
+// case: syntax.expr.capture/cell:raw
+parses as another construct
+(File
+  (Declaration.enum
+    (Enum E
+      (NamedType (Path T))
+      (Case A = (Name a)))))
+
+// case: syntax.expr.capture/cell:aarg
+parses as another construct
+(File
+  (Declaration.static
+    (Attribute.align (Name a))
+    (Static.immutable S
+      (NamedType (Path T))
+      =
+      (Name x))))
+
+// case: syntax.expr.capture/cell:sassert
+parses as another construct
+(File
+  (StaticAssert (Name a) "m"))

@@ -1,0 +1,231 @@
+// case: syntax.rule.arm-body/block
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name n)
+            (MatchArm
+              (LiteralPat.int 0)
+              (Block
+                (ExprStmt
+                  (Call.paren (Name g)))
+                (ExprStmt
+                  (Call.paren (Name h)))))))))))
+
+// case: syntax.rule.arm-body/expression
+(File
+  (Declaration.func
+    (Func f
+      (NamedType (Path Int))
+      (Block
+        (ExprStmt
+          (Match
+            (Name n)
+            (MatchArm
+              (LiteralPat.int 0)
+              (Binary (Name a) + (IntLit 1)))
+            (MatchArm
+              (WildcardPat)
+              (Call.paren
+                (Name g)
+                (Arg.positional (Name a))))))))))
+
+// case: syntax.rule.arm-body/statement
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name n)
+            (MatchArm
+              (LiteralPat.int 0)
+              (Assign (Name x) (IntLit 1)))
+            (MatchArm
+              (LiteralPat.int 1)
+              (CompoundAssign (Name x) += (IntLit 1)))
+            (MatchArm
+              (LiteralPat.int 2)
+              (Let.immutable (BindingName y) (IntLit 5)))
+            (MatchArm
+              (LiteralPat.int 3)
+              (Guard.condition guard
+                (Name ok)
+                else
+                (Block (Return))))
+            (MatchArm (WildcardPat) (Return))))))))
+
+// case: syntax.rule.arm-body/closure-map-and-set-in-parentheses
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name n)
+            (MatchArm
+              (LiteralPat.int 0)
+              (Closure
+                (ExprStmt (Name a))))
+            (MatchArm
+              (LiteralPat.int 1)
+              (Map.entries
+                (MapEntry (Name a) (IntLit 1))))
+            (MatchArm
+              (WildcardPat)
+              (Set (Name a) (Name b)))))))))
+
+// case: syntax.rule.arm-statement-end/case-ends-a-return
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name n)
+            (MatchArm (LiteralPat.int 0) (Return))
+            (MatchArm (WildcardPat) (IntLit 1))))))))
+
+// case: syntax.rule.arm-statement-end/comma-ends-a-break
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (While.conditional
+            (BoolLit.true)
+            (Block
+              (ExprStmt
+                (Match
+                  (Name n)
+                  (MatchArm (LiteralPat.int 0) (Break))
+                  (MatchArm
+                    (WildcardPat)
+                    (Call.paren (Name g))))))))))))
+
+// case: syntax.rule.arm-statement-end/return-takes-an-operand-before-a-comma
+(File
+  (Declaration.func
+    (Func f
+      (NamedType (Path Int))
+      (Block
+        (ExprStmt
+          (Match
+            (Name n)
+            (MatchArm
+              (LiteralPat.int 0)
+              (Return (IntLit 1)))
+            (MatchArm (WildcardPat) (IntLit 2))))))))
+
+// case: syntax.rule.arm-statement-end/arms-with-nothing-between
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name n)
+            (MatchArm (LiteralPat.int 0) (Name a))
+            (MatchArm (WildcardPat) (Name b))))))))
+
+// case: syntax.rule.flat-else-if/one-node-with-every-arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (Name a)
+            (Block
+              (ExprStmt
+                (Call.paren (Name g))))
+            (IfArm
+              (Name b)
+              (Block
+                (ExprStmt
+                  (Call.paren (Name h)))))
+            (IfArm
+              (LetArm.let (BindingName x) (Name c))
+              (Block
+                (ExprStmt
+                  (Call.paren
+                    (Name g)
+                    (Arg.positional (Name x))))))
+            (IfArm
+              (BorrowArm.var
+                (BindingName y)
+                (Call.paren
+                  (Member (Name d) find)
+                  (Arg.positional
+                    (Ref.shared (Name k)))))
+              (Block
+                (ExprStmt
+                  (Call.paren
+                    (Member (Name y) bump)))))
+            else
+            (Block
+              (ExprStmt
+                (Call.paren (Name h))))))))))
+
+// case: syntax.rule.try-block/try-then-a-brace
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt
+                (Call.paren (Name g))))
+            (Block
+              (ExprStmt
+                (Call.paren (Name h))))))))))
+
+// case: syntax.rule.try-block/try-applied-to-a-parenthesized-closure
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Try.propagate
+            (Call.paren
+              (Closure
+                (ExprStmt
+                  (Call.paren (Name g)))))))))))
+
+// case: syntax.rule.try-route-case/enum-and-case
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName n)
+          (Try.route as
+            (Path ConfigError Alloc)
+            (Call.paren (Name parse))))
+        (Let.immutable
+          (BindingName m)
+          (Try.route as
+            (Path cfg ConfigError Alloc)
+            (Call.paren (Name parse))))))))
+
+// case: syntax.rule.name-pattern/wildcard-name-and-variant
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name v)
+            (MatchArm (WildcardPat) (IntLit 0))
+            (MatchArm (NamePat x) (IntLit 1))
+            (MatchArm
+              (VariantPat Some (NamePat y))
+              (IntLit 2))
+            (MatchArm
+              (VariantPat Pair (WildcardPat) (NamePat z))
+              (IntLit 3))
+            (MatchArm (VariantPat Empty) (IntLit 4))))))))

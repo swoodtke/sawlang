@@ -1,0 +1,42 @@
+// case: syntax.rule.test-form/refuses-on-a-declaration
+@test(refuses: "syntax.rule.x") func f() {
+}
+
+// case: syntax.rule.test-form/group-holding-a-statement
+@test {
+    let x = 1
+}
+
+// case: syntax.rule.test-form/test-in-an-ordinary-extension
+extension S {
+    @test "inside" {
+    }
+}
+
+// case: syntax.rule.test-form/test-after-another-attribute
+@export
+@test
+func f() {
+}
+
+// case from refusal-unit: syntax.rule.refusal-body/syntax-error-in-a-test-build
+let = 1
+
+// case from refusal-unit: syntax.rule.refusal-body/removed-form-in-a-test-build
+export m.f
+
+// case from refusal-unit: syntax.rule.refusal-body/removed-statement-in-a-test-build
+var _ = e
+
+// case from refusal-unit: syntax.rule.refusal-body/rule-refusal-in-a-test-build
+guard v.any { $0 } else {
+    return
+}
+
+// case: syntax.rule.test-form/panics-on-a-declaration
+@test(panics: "index.bounds") func f() {
+}
+
+// case: syntax.rule.test-form/warns-on-a-declaration
+@test(warns: none) func f() {
+}

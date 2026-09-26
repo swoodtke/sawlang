@@ -1,0 +1,4547 @@
+// case: syntax.file.list/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.file.list/alt/dup:1
+refuses parse-error at 1:15
+
+// case: syntax.file.list/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.file.item.import/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.file.item.import/alt/dup:1
+refuses parse-error at 1:15
+
+// case: syntax.file.item.import/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.file.item.module/alt/dup:2
+refuses parse-error at 1:10
+
+// case: syntax.file.item.static-assert/alt/drop:2
+refuses parse-error at 1:16
+
+// case: syntax.file.item.static-assert/alt/dup:3
+refuses parse-error at 1:18
+
+// case: syntax.file.item.static-assert/alt/swap:4
+refuses parse-error at 1:18
+
+// case: syntax.file.item.static-assert/alt/close:6
+refuses parse-error at 2:1
+
+// case: syntax.file.item.declaration/alt/drop:4
+refuses parse-error at 1:9
+
+// case: syntax.file.item.declaration/alt/dup:4
+refuses parse-error at 1:12
+
+// case: syntax.file.item.declaration/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.file.item.test/alt/drop:1
+refuses parse-error at 1:2
+
+// case: syntax.file.item.test/alt/dup:1
+refuses parse-error at 1:3
+
+// case: syntax.file.item.test/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.item.func/alt/drop:6
+refuses parse-error at 2:1
+
+// case: syntax.decl.item.func/alt/dup:6
+refuses parse-error at 1:14
+
+// case: syntax.decl.item.func/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.decl.item.func/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.decl.item.static/alt/drop:2
+refuses parse-error at 1:9
+
+// case: syntax.decl.item.static/alt/dup:1
+refuses parse-error at 1:8
+
+// case: syntax.decl.item.static/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.item.extension/alt/drop:2
+refuses parse-error at 1:13
+
+// case: syntax.decl.item.extension/alt/dup:3
+refuses parse-error at 1:15
+
+// case: syntax.decl.item.extension/alt/swap:2
+refuses parse-error at 1:12
+
+// case: syntax.decl.item.extension/alt/close:4
+refuses parse-error at 2:1
+
+// case: syntax.decl.item.struct/alt/drop:4
+refuses parse-error at 2:1
+
+// case: syntax.decl.item.struct/alt/dup:2
+refuses parse-error at 1:10
+
+// case: syntax.decl.item.struct/alt/swap:2
+refuses parse-error at 1:9
+
+// case: syntax.decl.item.enum/alt/drop:4
+refuses parse-error at 2:1
+
+// case: syntax.decl.item.enum/alt/dup:4
+refuses parse-error at 1:12
+
+// case: syntax.decl.item.enum/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.item.trait/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.decl.item.trait/alt/dup:4
+refuses parse-error at 1:13
+
+// case: syntax.decl.item.trait/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.item.trait/alt/close:4
+refuses parse-error at 2:1
+
+// case: syntax.decl.item.type-alias/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.decl.item.type-alias/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.decl.item.type-alias/alt/swap:3
+refuses parse-error at 1:9
+
+// case: syntax.decl.item.extern/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.decl.item.extern/alt/dup:3
+refuses parse-error at 1:14
+
+// case: syntax.decl.item.extern/alt/swap:2
+refuses parse-error at 1:9
+
+// case: syntax.decl.item.extern/alt/close:4
+refuses parse-error at 2:1
+
+// case: syntax.decl.visibility.public/alt/drop:3
+refuses parse-error at 1:15
+
+// case: syntax.decl.visibility.public/alt/dup:3
+refuses parse-error at 1:15
+
+// case: syntax.decl.visibility.public/alt/swap:2
+refuses parse-error at 1:9
+
+// case: syntax.decl.visibility.package/alt/drop:7
+refuses parse-error at 1:27
+
+// case: syntax.decl.visibility.package/alt/dup:8
+refuses parse-error at 1:29
+
+// case: syntax.decl.visibility.package/alt/swap:2
+refuses parse-error at 1:9
+
+// case: syntax.decl.visibility.package/alt/close:4
+refuses parse-error at 1:18
+
+// case: syntax.decl.visibility.parent/alt/drop:5
+refuses parse-error at 1:19
+
+// case: syntax.decl.visibility.parent/alt/dup:8
+refuses parse-error at 1:28
+
+// case: syntax.decl.visibility.parent/alt/swap:5
+refuses parse-error at 1:18
+
+// case: syntax.decl.visibility.parent/alt/close:4
+refuses parse-error at 1:17
+
+// case: syntax.decl.import.private/alt/dup:2
+refuses parse-error at 1:10
+
+// case: syntax.decl.import.reexport/alt/drop:3
+refuses parse-error at 1:14
+
+// case: syntax.decl.import.reexport/alt/dup:1
+refuses parse-error at 1:8
+
+// case: syntax.decl.import.reexport/alt/swap:1
+refuses parse-error at 1:11
+
+// case: syntax.decl.import-target.module/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.decl.import-target.module-alias/alt/drop:2
+refuses parse-error at 1:10
+
+// case: syntax.decl.import-target.module-alias/alt/dup:4
+refuses parse-error at 1:15
+
+// case: syntax.decl.import-target.module-alias/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.import-target.glob/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.decl.import-target.glob/alt/dup:2
+refuses parse-error at 1:10
+
+// case: syntax.decl.import-target.glob/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.import-target.selective/alt/drop:2
+refuses parse-error at 1:9
+
+// case: syntax.decl.import-target.selective/alt/dup:4
+refuses parse-error at 1:12
+
+// case: syntax.decl.import-target.selective/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.import-target.selective/alt/close:5
+refuses parse-error at 2:1
+
+// case: syntax.decl.import-symbols/alt/drop:4
+refuses parse-error at 1:14
+
+// case: syntax.decl.import-symbols/alt/dup:2
+refuses parse-error at 1:10
+
+// case: syntax.decl.import-symbols/alt/swap:2
+refuses parse-error at 1:9
+
+// case: syntax.decl.import-symbols/alt/close:6
+refuses parse-error at 2:1
+
+// case: syntax.decl.import-symbol.name/alt/dup:3
+refuses parse-error at 1:11
+
+// case: syntax.decl.import-symbol.name/alt/swap:5
+refuses parse-error at 1:17
+
+// case: syntax.decl.import-symbol.alias/alt/drop:3
+refuses parse-error at 1:10
+
+// case: syntax.decl.import-symbol.alias/alt/dup:6
+refuses parse-error at 1:17
+
+// case: syntax.decl.import-symbol.alias/alt/swap:7
+refuses parse-error at 1:18
+
+// case: syntax.decl.import-symbol.alias/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.decl.module.inline/alt/drop:2
+refuses parse-error at 1:10
+
+// case: syntax.decl.module.inline/alt/dup:4
+refuses parse-error at 1:14
+
+// case: syntax.decl.module.inline/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.module.inline/alt/close:4
+refuses parse-error at 2:1
+
+// case: syntax.decl.static-assert/alt/dup:1
+refuses parse-error at 1:15
+
+// case: syntax.decl.static-assert/alt/swap:5
+refuses parse-error at 1:20
+
+// case: syntax.decl.func/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.decl.func/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.decl.func/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.decl.params/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.decl.params/alt/dup:7
+refuses parse-error at 1:14
+
+// case: syntax.decl.params/alt/swap:5
+refuses parse-error at 1:10
+
+// case: syntax.decl.params/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.decl.param.plain/alt/drop:5
+refuses parse-error at 1:11
+
+// case: syntax.decl.param.plain/alt/dup:9
+refuses parse-error at 1:18
+
+// case: syntax.decl.param.plain/alt/swap:6
+refuses parse-error at 1:12
+
+// case: syntax.decl.param.plain/alt/close:7
+refuses parse-error at 1:14
+
+// case: syntax.decl.param.default/alt/drop:5
+refuses parse-error at 1:11
+
+// case: syntax.decl.param.default/alt/dup:7
+refuses parse-error at 1:15
+
+// case: syntax.decl.param.default/alt/swap:5
+refuses parse-error at 1:10
+
+// case: syntax.decl.param.default/alt/close:11
+refuses parse-error at 2:1
+
+// case: syntax.decl.param.receiver/alt/drop:9
+refuses parse-error at 1:30
+
+// case: syntax.decl.param.receiver/alt/dup:6
+refuses parse-error at 1:23
+
+// case: syntax.decl.param.receiver/alt/swap:6
+refuses parse-error at 1:22
+
+// case: syntax.decl.receiver.shared/alt/drop:4
+refuses parse-error at 1:17
+
+// case: syntax.decl.receiver.shared/alt/dup:10
+refuses parse-error at 2:1
+
+// case: syntax.decl.receiver.shared/alt/swap:5
+refuses parse-error at 1:21
+
+// case: syntax.decl.receiver.shared/alt/close:11
+refuses parse-error at 2:1
+
+// case: syntax.decl.receiver.exclusive/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.decl.receiver.exclusive/alt/dup:1
+refuses parse-error at 1:11
+
+// case: syntax.decl.receiver.exclusive/alt/swap:9
+refuses parse-error at 1:29
+
+// case: syntax.decl.receiver.exclusive/alt/close:10
+refuses parse-error at 1:34
+
+// case: syntax.decl.return/alt/drop:7
+refuses parse-error at 1:17
+
+// case: syntax.decl.return/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.decl.return/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.decl.return/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.decl.effects/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.constexpr/alt/dup:5
+refuses parse-error at 1:20
+
+// case: syntax.decl.constexpr/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.decl.borrows-effect.plain/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.decl.borrows-effect.plain/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.decl.borrows-effect.plain/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.borrows-effect.plain/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.decl.borrows-effect.sync/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.decl.borrows-effect.sync/alt/dup:9
+refuses parse-error at 2:1
+
+// case: syntax.decl.borrows-effect.sync/alt/swap:8
+refuses parse-error at 1:24
+
+// case: syntax.decl.borrows-effect.sync/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.decl.borrows-sync/alt/drop:6
+refuses parse-error at 1:19
+
+// case: syntax.decl.borrows-sync/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.decl.borrows-sync/alt/swap:6
+refuses parse-error at 1:19
+
+// case: syntax.decl.borrows-sync/alt/close:8
+refuses parse-error at 1:25
+
+// case: syntax.decl.struct/alt/dup:3
+refuses parse-error at 1:12
+
+// case: syntax.decl.struct-modifier.unsafe/alt/drop:2
+refuses parse-error at 1:10
+
+// case: syntax.decl.struct-modifier.unsafe/alt/dup:5
+refuses parse-error at 1:21
+
+// case: syntax.decl.struct-modifier.unsafe/alt/swap:2
+refuses parse-error at 1:9
+
+// case: syntax.decl.struct-modifier.unsafe/alt/close:5
+refuses parse-error at 2:1
+
+// case: syntax.decl.struct-modifier.borrows/alt/drop:5
+refuses parse-error at 2:1
+
+// case: syntax.decl.struct-modifier.borrows/alt/dup:2
+refuses parse-error at 1:16
+
+// case: syntax.decl.struct-modifier.borrows/alt/swap:2
+refuses parse-error at 1:10
+
+// case: syntax.decl.fields/alt/drop:3
+refuses parse-error at 1:12
+
+// case: syntax.decl.fields/alt/dup:2
+refuses parse-error at 1:10
+
+// case: syntax.decl.fields/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.fields/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.decl.list-sep.comma/alt/drop:2
+refuses parse-error at 1:8
+
+// case: syntax.decl.list-sep.comma/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.decl.list-sep.comma/alt/swap:6
+refuses parse-error at 1:21
+
+// case: syntax.decl.list-sep.comma/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.decl.list-sep.newline/alt/drop:5
+refuses parse-error at 1:14
+
+// case: syntax.decl.list-sep.newline/alt/dup:4
+refuses parse-error at 1:15
+
+// case: syntax.decl.list-sep.newline-comma/alt/drop:2
+refuses parse-error at 1:8
+
+// case: syntax.decl.list-sep.newline-comma/alt/close:8
+refuses parse-error at 3:1
+
+// case: syntax.decl.field/alt/dup:6
+refuses parse-error at 1:17
+
+// case: syntax.decl.field/alt/swap:6
+refuses parse-error at 1:16
+
+// case: syntax.decl.field-visibility.public/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.decl.field-visibility.public/alt/dup:2
+refuses parse-error at 1:10
+
+// case: syntax.decl.field-visibility.public/alt/swap:5
+refuses parse-error at 1:20
+
+// case: syntax.decl.field-visibility.public/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.decl.field-visibility.private/alt/drop:2
+refuses parse-error at 1:10
+
+// case: syntax.decl.field-visibility.private/alt/dup:6
+refuses parse-error at 1:23
+
+// case: syntax.decl.field-visibility.private/alt/swap:5
+refuses parse-error at 1:27
+
+// case: syntax.decl.field-visibility.private/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.decl.enum/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.decl.raw-backing/alt/drop:3
+refuses parse-error at 1:9
+
+// case: syntax.decl.raw-backing/alt/dup:6
+refuses parse-error at 1:15
+
+// case: syntax.decl.raw-backing/alt/swap:5
+refuses parse-error at 1:12
+
+// case: syntax.decl.raw-backing/alt/close:6
+refuses parse-error at 2:1
+
+// case: syntax.decl.cases/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.decl.cases/alt/dup:4
+refuses parse-error at 1:15
+
+// case: syntax.decl.cases/alt/swap:4
+refuses parse-error at 1:11
+
+// case: syntax.decl.cases/alt/close:6
+refuses parse-error at 2:1
+
+// case: syntax.decl.case/alt/drop:2
+refuses parse-error at 1:8
+
+// case: syntax.decl.case/alt/dup:3
+refuses parse-error at 1:10
+
+// case: syntax.decl.case/alt/swap:5
+refuses parse-error at 1:16
+
+// case: syntax.decl.payload/alt/drop:2
+refuses parse-error at 1:8
+
+// case: syntax.decl.payload/alt/dup:3
+refuses parse-error at 1:10
+
+// case: syntax.decl.payload/alt/swap:3
+refuses parse-error at 1:9
+
+// case: syntax.decl.payload/alt/close:7
+refuses parse-error at 1:19
+
+// case: syntax.decl.payload-field/alt/drop:6
+refuses parse-error at 1:17
+
+// case: syntax.decl.payload-field/alt/dup:5
+refuses parse-error at 1:17
+
+// case: syntax.decl.payload-field/alt/swap:3
+refuses parse-error at 1:9
+
+// case: syntax.decl.payload-field/alt/close:10
+refuses parse-error at 1:23
+
+// case: syntax.decl.raw-value/alt/drop:7
+refuses parse-error at 1:21
+
+// case: syntax.decl.raw-value/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.decl.raw-value/alt/swap:4
+refuses parse-error at 1:11
+
+// case: syntax.decl.raw-value/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.decl.trait/alt/dup:1
+refuses parse-error at 1:7
+
+// case: syntax.decl.trait/alt/swap:2
+refuses parse-error at 1:8
+
+// case: syntax.decl.trait-parents/alt/drop:2
+refuses parse-error at 1:8
+
+// case: syntax.decl.trait-parents/alt/dup:6
+refuses parse-error at 1:16
+
+// case: syntax.decl.trait-parents/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.trait-parents/alt/close:6
+refuses parse-error at 2:1
+
+// case: syntax.decl.trait-members/alt/drop:5
+refuses parse-error at 1:18
+
+// case: syntax.decl.trait-members/alt/dup:5
+refuses parse-error at 1:18
+
+// case: syntax.decl.trait-members/alt/swap:2
+refuses parse-error at 1:8
+
+// case: syntax.decl.trait-members/alt/close:6
+refuses parse-error at 2:1
+
+// case: syntax.decl.trait-member.assoc-type/alt/drop:2
+refuses parse-error at 1:9
+
+// case: syntax.decl.trait-member.assoc-type/alt/swap:3
+refuses parse-error at 1:10
+
+// case: syntax.decl.trait-member.requirement/alt/drop:7
+refuses parse-error at 1:25
+
+// case: syntax.decl.trait-member.requirement/alt/dup:1
+refuses parse-error at 1:7
+
+// case: syntax.decl.trait-member.requirement/alt/swap:4
+refuses parse-error at 1:19
+
+// case: syntax.decl.trait-member.requirement/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.decl.assoc-type/alt/dup:3
+refuses parse-error at 1:11
+
+// case: syntax.decl.assoc-type/alt/swap:4
+refuses parse-error at 1:12
+
+// case: syntax.decl.requirement/alt/drop:6
+refuses parse-error at 1:24
+
+// case: syntax.decl.requirement/alt/dup:9
+refuses parse-error at 1:29
+
+// case: syntax.decl.requirement/alt/close:8
+refuses parse-error at 1:27
+
+// case: syntax.decl.default-body/alt/drop:10
+refuses parse-error at 2:1
+
+// case: syntax.decl.default-body/alt/dup:9
+refuses parse-error at 2:1
+
+// case: syntax.decl.default-body/alt/swap:5
+refuses parse-error at 1:19
+
+// case: syntax.decl.default-body/alt/close:11
+refuses parse-error at 2:1
+
+// case: syntax.decl.extension/alt/dup:4
+refuses parse-error at 1:17
+
+// case: syntax.decl.extension/alt/swap:3
+refuses parse-error at 1:14
+
+// case: syntax.decl.conformances/alt/drop:2
+refuses parse-error at 1:12
+
+// case: syntax.decl.conformances/alt/dup:5
+refuses parse-error at 1:18
+
+// case: syntax.decl.conformances/alt/swap:5
+refuses parse-error at 1:17
+
+// case: syntax.decl.conformances/alt/close:6
+refuses parse-error at 2:1
+
+// case: syntax.decl.extension-members/alt/drop:3
+refuses parse-error at 1:15
+
+// case: syntax.decl.extension-members/alt/dup:6
+refuses parse-error at 1:24
+
+// case: syntax.decl.extension-members/alt/swap:5
+refuses parse-error at 1:21
+
+// case: syntax.decl.extension-members/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.decl.extension-member.type-assign/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.decl.extension-member.type-assign/alt/dup:2
+refuses parse-error at 1:13
+
+// case: syntax.decl.extension-member.type-assign/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.extension-member.method/alt/drop:4
+refuses syntax.rule.receiver-and-static at 1:17
+
+// case: syntax.decl.extension-member.method/alt/dup:8
+refuses parse-error at 1:31
+
+// case: syntax.decl.extension-member.method/alt/swap:7
+refuses parse-error at 1:29
+
+// case: syntax.decl.extension-member.method/alt/close:8
+refuses parse-error at 1:31
+
+// case: syntax.decl.extension-member.synthesized-method/alt/drop:9
+refuses syntax.rule.receiver-and-static at 1:38
+
+// case: syntax.decl.extension-member.synthesized-method/alt/dup:13
+refuses parse-error at 1:52
+
+// case: syntax.decl.extension-member.synthesized-method/alt/swap:12
+refuses parse-error at 1:50
+
+// case: syntax.decl.extension-member.synthesized-method/alt/close:15
+refuses parse-error at 2:1
+
+// case: syntax.decl.extension-member.init/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.decl.extension-member.init/alt/dup:7
+refuses parse-error at 2:1
+
+// case: syntax.decl.extension-member.init/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.extension-member.init/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.decl.type-assign/alt/dup:8
+refuses parse-error at 1:28
+
+// case: syntax.decl.type-assign/alt/swap:4
+refuses parse-error at 1:16
+
+// case: syntax.decl.method/alt/dup:6
+refuses parse-error at 1:29
+
+// case: syntax.decl.method/alt/swap:9
+refuses parse-error at 1:32
+
+// case: syntax.decl.method/alt/close:11
+refuses parse-error at 2:1
+
+// case: syntax.decl.method-name.ident/alt/drop:10
+refuses parse-error at 2:1
+
+// case: syntax.decl.method-name.ident/alt/dup:11
+refuses parse-error at 1:37
+
+// case: syntax.decl.method-name.ident/alt/swap:2
+refuses parse-error at 1:12
+
+// case: syntax.decl.method-name.subscript/alt/drop:4
+refuses syntax.rule.receiver-and-static at 1:17
+
+// case: syntax.decl.method-name.subscript/alt/dup:12
+refuses parse-error at 1:38
+
+// case: syntax.decl.method-name.subscript/alt/swap:7
+refuses parse-error at 1:29
+
+// case: syntax.decl.method-name.subscript/alt/close:9
+refuses parse-error at 1:32
+
+// case: syntax.decl.method-name.setitem/alt/drop:3
+refuses parse-error at 1:15
+
+// case: syntax.decl.method-name.setitem/alt/dup:11
+refuses parse-error at 2:1
+
+// case: syntax.decl.method-name.setitem/alt/swap:2
+refuses parse-error at 1:12
+
+// case: syntax.decl.method-name.setitem/alt/close:13
+refuses parse-error at 2:1
+
+// case: syntax.decl.setitem-name/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.decl.setitem-name/alt/dup:3
+refuses parse-error at 1:15
+
+// case: syntax.decl.setitem-name/alt/swap:6
+refuses parse-error at 1:28
+
+// case: syntax.decl.setitem-name/alt/close:12
+refuses parse-error at 2:1
+
+// case: syntax.decl.init/alt/drop:6
+refuses parse-error at 1:23
+
+// case: syntax.decl.init/alt/swap:5
+refuses parse-error at 1:21
+
+// case: syntax.decl.type-alias/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.decl.static.immutable/alt/drop:3
+refuses parse-error at 1:11
+
+// case: syntax.decl.static.immutable/alt/dup:4
+refuses parse-error at 1:13
+
+// case: syntax.decl.static.immutable/alt/swap:3
+refuses parse-error at 1:10
+
+// case: syntax.decl.static.unsafe-var/alt/drop:6
+refuses parse-error at 1:21
+
+// case: syntax.decl.static.unsafe-var/alt/dup:6
+refuses parse-error at 1:24
+
+// case: syntax.decl.static.unsafe-var/alt/swap:3
+refuses parse-error at 1:16
+
+// case: syntax.decl.static-init/alt/drop:5
+refuses parse-error at 1:15
+
+// case: syntax.decl.static-init/alt/dup:5
+refuses parse-error at 1:15
+
+// case: syntax.decl.static-init/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.extern-funcs/alt/drop:6
+refuses parse-error at 1:21
+
+// case: syntax.decl.extern-funcs/alt/dup:5
+refuses parse-error at 1:21
+
+// case: syntax.decl.extern-funcs/alt/swap:3
+refuses parse-error at 1:13
+
+// case: syntax.decl.extern-funcs/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.decl.extern-func.prompt/alt/dup:8
+refuses parse-error at 1:25
+
+// case: syntax.decl.extern-func.prompt/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.extern-func.blocking/alt/dup:6
+refuses parse-error at 1:30
+
+// case: syntax.decl.extern-func.blocking/alt/swap:4
+refuses parse-error at 1:32
+
+// case: syntax.decl.extern-func.blocking/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.decl.extern-params.fixed/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.decl.extern-params.fixed/alt/dup:9
+refuses parse-error at 1:26
+
+// case: syntax.decl.extern-params.fixed/alt/swap:10
+refuses parse-error at 1:26
+
+// case: syntax.decl.extern-params.fixed/alt/close:10
+refuses parse-error at 1:27
+
+// case: syntax.decl.extern-params.variadic/alt/drop:6
+refuses parse-error at 1:21
+
+// case: syntax.decl.extern-params.variadic/alt/dup:10
+refuses parse-error at 1:27
+
+// case: syntax.decl.extern-params.variadic/alt/swap:10
+refuses parse-error at 1:26
+
+// case: syntax.decl.extern-params.variadic/alt/close:12
+refuses parse-error at 1:32
+
+// case: syntax.decl.extern-param/alt/dup:4
+refuses parse-error at 1:19
+
+// case: syntax.decl.extern-param/alt/swap:4
+refuses parse-error at 1:15
+
+// case: syntax.attr.list/alt/drop:1
+refuses parse-error at 1:2
+
+// case: syntax.attr.list/alt/dup:3
+refuses parse-error at 1:16
+
+// case: syntax.attr.list/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.attr.attribute.export/alt/drop:2
+refuses parse-error at 1:4
+
+// case: syntax.attr.attribute.export/alt/dup:1
+refuses parse-error at 1:3
+
+// case: syntax.attr.attribute.export/alt/swap:5
+refuses parse-error at 1:18
+
+// case: syntax.attr.attribute.export-symbol/alt/drop:3
+refuses parse-error at 1:10
+
+// case: syntax.attr.attribute.export-symbol/alt/dup:1
+refuses parse-error at 1:3
+
+// case: syntax.attr.attribute.export-symbol/alt/swap:5
+refuses parse-error at 1:14
+
+// case: syntax.attr.attribute.export-symbol/alt/close:5
+refuses parse-error at 1:15
+
+// case: syntax.attr.attribute.section/alt/drop:5
+refuses parse-error at 1:16
+
+// case: syntax.attr.attribute.section/alt/dup:5
+refuses parse-error at 1:16
+
+// case: syntax.attr.attribute.section/alt/swap:8
+refuses parse-error at 1:25
+
+// case: syntax.attr.attribute.synthesize/alt/drop:6
+refuses parse-error at 2:1
+
+// case: syntax.attr.attribute.synthesize/alt/dup:5
+refuses parse-error at 1:27
+
+// case: syntax.attr.attribute.synthesize/alt/swap:2
+refuses parse-error at 1:3
+
+// case: syntax.attr.attribute.align/alt/drop:6
+refuses parse-error at 1:14
+
+// case: syntax.attr.attribute.align/alt/dup:8
+refuses parse-error at 1:22
+
+// case: syntax.attr.attribute.align/alt/swap:4
+refuses parse-error at 1:10
+
+// case: syntax.attr.attribute.align/alt/close:5
+refuses parse-error at 1:12
+
+// case: syntax.attr.synthesize-shared/alt/dup:14
+refuses parse-error at 2:1
+
+// case: syntax.attr.synthesize-shared/alt/swap:10
+refuses parse-error at 1:44
+
+// case: syntax.attr.synthesize-shared/alt/close:16
+refuses parse-error at 2:1
+
+// case: syntax.test.item.case/alt/dup:3
+refuses parse-error at 1:11
+
+// case: syntax.test.item.case/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.test.item.case/alt/close:5
+refuses parse-error at 2:1
+
+// case: syntax.test.item.group/alt/drop:2
+refuses parse-error at 1:4
+
+// case: syntax.test.item.group/alt/dup:1
+refuses parse-error at 1:3
+
+// case: syntax.test.item.group/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.test.item.group/alt/close:4
+refuses parse-error at 2:1
+
+// case: syntax.test.item.declaration/alt/drop:2
+refuses parse-error at 1:4
+
+// case: syntax.test.item.declaration/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.test.case.run/alt/drop:4
+refuses parse-error at 1:13
+
+// case: syntax.test.case.run/alt/dup:5
+refuses parse-error at 1:15
+
+// case: syntax.test.case.run/alt/swap:2
+refuses parse-error at 1:3
+
+// case: syntax.test.case.panics/alt/drop:5
+refuses parse-error at 1:16
+
+// case: syntax.test.case.panics/alt/dup:9
+refuses parse-error at 2:1
+
+// case: syntax.test.case.panics/alt/swap:6
+refuses parse-error at 1:17
+
+// case: syntax.test.case.panics/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.test.case.warns/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.test.case.warns/alt/dup:4
+refuses parse-error at 1:14
+
+// case: syntax.test.case.warns/alt/swap:6
+refuses parse-error at 1:16
+
+// case: syntax.test.case.warns/alt/close:7
+refuses parse-error at 1:21
+
+// case: syntax.test.case.refuses/alt/drop:8
+refuses parse-error at 1:24
+
+// case: syntax.test.case.refuses/alt/dup:5
+refuses parse-error at 1:17
+
+// case: syntax.test.case.refuses/alt/swap:7
+refuses parse-error at 1:21
+
+// case: syntax.test.case.refuses/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.test.panics.rule/alt/drop:6
+refuses parse-error at 1:17
+
+// case: syntax.test.panics.rule/alt/dup:6
+refuses parse-error at 1:20
+
+// case: syntax.test.panics.rule/alt/close:7
+refuses parse-error at 1:21
+
+// case: syntax.test.panics.text/alt/drop:2
+refuses parse-error at 1:4
+
+// case: syntax.test.panics.text/alt/dup:11
+refuses parse-error at 1:32
+
+// case: syntax.test.panics.text/alt/swap:12
+refuses parse-error at 1:33
+
+// case: syntax.test.panics.text/alt/close:11
+refuses parse-error at 1:32
+
+// case: syntax.test.panics-text/alt/drop:13
+refuses parse-error at 1:38
+
+// case: syntax.test.panics-text/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.test.panics-text/alt/close:14
+refuses parse-error at 2:1
+
+// case: syntax.test.warns.key/alt/drop:6
+refuses parse-error at 1:16
+
+// case: syntax.test.warns.key/alt/dup:4
+refuses parse-error at 1:14
+
+// case: syntax.test.warns.key/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.test.warns.key/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.test.warns.none/alt/drop:10
+refuses parse-error at 2:1
+
+// case: syntax.test.warns.none/alt/dup:10
+refuses parse-error at 1:29
+
+// case: syntax.test.refuses/alt/drop:4
+refuses parse-error at 1:9
+
+// case: syntax.test.refuses/alt/dup:7
+refuses parse-error at 1:22
+
+// case: syntax.test.refuses/alt/swap:5
+refuses parse-error at 1:16
+
+// case: syntax.test.text/alt/drop:1
+refuses parse-error at 1:2
+
+// case: syntax.test.text/alt/dup:11
+refuses parse-error at 1:33
+
+// case: syntax.test.text/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.test.text/alt/close:11
+refuses parse-error at 1:33
+
+// case: syntax.test.at/alt/drop:7
+refuses parse-error at 1:21
+
+// case: syntax.test.at/alt/dup:9
+refuses parse-error at 1:25
+
+// case: syntax.test.at/alt/swap:5
+refuses parse-error at 1:15
+
+// case: syntax.test.at/alt/close:11
+refuses parse-error at 1:28
+
+// case: syntax.test.group/alt/drop:3
+refuses parse-error at 1:9
+
+// case: syntax.test.group/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.test.group/alt/swap:2
+refuses parse-error at 1:3
+
+// case: syntax.test.declaration.item/alt/drop:1
+refuses parse-error at 1:2
+
+// case: syntax.test.declaration.item/alt/dup:1
+refuses parse-error at 1:3
+
+// case: syntax.test.declaration.item/alt/swap:5
+refuses parse-error at 1:15
+
+// case: syntax.test.declaration.import/alt/drop:3
+refuses parse-error at 1:9
+
+// case: syntax.test.declaration.import/alt/dup:2
+refuses parse-error at 1:7
+
+// case: syntax.test.refusal-body/alt/drop:1
+refuses parse-error at 1:2
+
+// case: syntax.test.refusal-body/alt/dup:4
+refuses parse-error at 1:16
+
+// case: syntax.test.refusal-body/alt/close:7
+refuses parse-error at 1:22
+
+// case: syntax.test.refusal-token.nested/alt/drop:12
+refuses parse-error at 2:1
+
+// case: syntax.test.refusal-token.nested/alt/dup:8
+refuses parse-error at 1:26
+
+// case: syntax.test.refusal-token.nested/alt/swap:2
+refuses parse-error at 1:3
+
+// case: syntax.test.refusal-token.other/alt/drop:1
+refuses parse-error at 1:2
+
+// case: syntax.test.refusal-token.other/alt/dup:9
+refuses parse-error at 2:1
+
+// case: syntax.test.refusal-token.other/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.test.refusal-token.other/alt/close:11
+refuses parse-error at 2:1
+
+// case: syntax.type.type.ref/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.type.type.ref/alt/dup:1
+refuses parse-error at 1:11
+
+// case: syntax.type.type.ref/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.type.type.func/alt/drop:5
+refuses parse-error at 1:13
+
+// case: syntax.type.type.func/alt/dup:4
+refuses parse-error at 2:1
+
+// case: syntax.type.type.func/alt/swap:5
+refuses parse-error at 1:12
+
+// case: syntax.type.type.suffixed/alt/drop:2
+refuses parse-error at 1:8
+
+// case: syntax.type.suffix.optional/alt/drop:4
+refuses parse-error at 1:11
+
+// case: syntax.type.suffix.optional/alt/dup:3
+refuses parse-error at 1:10
+
+// case: syntax.type.suffix.optional/alt/swap:4
+refuses parse-error at 1:11
+
+// case: syntax.type.suffix.double-optional/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.type.suffix.double-optional/alt/dup:3
+refuses parse-error at 1:10
+
+// case: syntax.type.suffix.double-optional/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.type.atom.slice/alt/drop:3
+refuses parse-error at 1:10
+
+// case: syntax.type.atom.slice/alt/dup:1
+refuses parse-error at 1:11
+
+// case: syntax.type.atom.slice/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.type.atom.slice/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.type.atom.array/alt/drop:2
+refuses parse-error at 1:8
+
+// case: syntax.type.atom.array/alt/dup:6
+refuses parse-error at 1:14
+
+// case: syntax.type.atom.array/alt/swap:7
+refuses parse-error at 1:15
+
+// case: syntax.type.atom.array/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.type.atom.tuple/alt/drop:5
+refuses parse-error at 2:1
+
+// case: syntax.type.atom.tuple/alt/dup:4
+refuses parse-error at 2:1
+
+// case: syntax.type.atom.tuple/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.type.atom.single-tuple/alt/drop:3
+refuses parse-error at 1:10
+
+// case: syntax.type.atom.single-tuple/alt/dup:1
+refuses parse-error at 1:11
+
+// case: syntax.type.atom.single-tuple/alt/swap:6
+refuses parse-error at 1:16
+
+// case: syntax.type.atom.single-tuple/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.type.atom.paren/alt/dup:1
+refuses parse-error at 1:11
+
+// case: syntax.type.atom.paren/alt/swap:3
+refuses parse-error at 1:9
+
+// case: syntax.type.atom.paren/alt/close:6
+refuses parse-error at 2:1
+
+// case: syntax.type.atom.any/alt/dup:1
+refuses parse-error at 1:11
+
+// case: syntax.type.atom.any/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.type.ref.shared/alt/dup:5
+refuses parse-error at 1:14
+
+// case: syntax.type.ref.exclusive/alt/dup:6
+refuses parse-error at 1:18
+
+// case: syntax.type.ref.exclusive/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.type.slice.shared/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.type.slice.shared/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.type.slice.shared/alt/swap:6
+refuses parse-error at 1:14
+
+// case: syntax.type.slice.exclusive/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.type.slice.exclusive/alt/dup:5
+refuses parse-error at 1:16
+
+// case: syntax.type.slice.exclusive/alt/swap:5
+refuses parse-error at 1:17
+
+// case: syntax.type.slice.exclusive/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.type.array/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.type.array/alt/dup:8
+refuses parse-error at 1:17
+
+// case: syntax.type.tuple.unit/alt/drop:2
+refuses parse-error at 1:8
+
+// case: syntax.type.tuple.unit/alt/dup:3
+refuses parse-error at 1:10
+
+// case: syntax.type.tuple.unit/alt/swap:3
+refuses parse-error at 1:9
+
+// case: syntax.type.tuple.positional/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.type.tuple.positional/alt/dup:1
+refuses parse-error at 1:11
+
+// case: syntax.type.tuple.positional/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.type.tuple.positional/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.type.tuple.named/alt/drop:8
+refuses parse-error at 2:1
+
+// case: syntax.type.tuple.named/alt/dup:6
+refuses parse-error at 1:14
+
+// case: syntax.type.tuple.named/alt/swap:6
+refuses parse-error at 1:13
+
+// case: syntax.type.tuple-field/alt/drop:7
+refuses parse-error at 1:15
+
+// case: syntax.type.tuple-field/alt/dup:3
+refuses parse-error at 1:10
+
+// case: syntax.type.single-tuple/alt/dup:7
+refuses parse-error at 1:15
+
+// case: syntax.type.single-tuple/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.type.paren/alt/drop:2
+refuses parse-error at 1:8
+
+// case: syntax.type.paren/alt/swap:4
+refuses parse-error at 1:14
+
+// case: syntax.type.func/alt/drop:2
+refuses parse-error at 1:8
+
+// case: syntax.type.func/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.type.func/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.type.func-params/alt/drop:8
+refuses parse-error at 1:16
+
+// case: syntax.type.func-params/alt/dup:3
+refuses parse-error at 1:10
+
+// case: syntax.type.func-params/alt/swap:6
+refuses parse-error at 1:13
+
+// case: syntax.type.func-params/alt/close:6
+refuses parse-error at 1:14
+
+// case: syntax.type.func-effects/alt/drop:7
+refuses parse-error at 1:15
+
+// case: syntax.type.func-effects/alt/dup:5
+refuses parse-error at 1:13
+
+// case: syntax.type.func-borrows.plain/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.type.func-borrows.plain/alt/swap:4
+refuses parse-error at 1:11
+
+// case: syntax.type.func-borrows.plain/alt/close:5
+refuses parse-error at 1:13
+
+// case: syntax.type.func-borrows.sync/alt/drop:4
+refuses parse-error at 1:11
+
+// case: syntax.type.func-borrows.sync/alt/dup:8
+refuses parse-error at 1:27
+
+// case: syntax.type.func-borrows.sync/alt/swap:6
+refuses parse-error at 1:14
+
+// case: syntax.type.func-borrows.sync/alt/close:9
+refuses parse-error at 1:28
+
+// case: syntax.type.any/alt/dup:3
+refuses parse-error at 1:10
+
+// case: syntax.type.any/alt/swap:4
+refuses parse-error at 1:15
+
+// case: syntax.type.cast-target.plain/alt/drop:6
+refuses parse-error at 1:14
+
+// case: syntax.type.cast-target.plain/alt/dup:7
+refuses parse-error at 1:17
+
+// case: syntax.type.cast-target.plain/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.type.cast-target.plain/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.type.cast-target.optional/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.type.cast-target.optional/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.type.cast-target.optional/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.type.cast-target.optional/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.type.cast-target.ref/alt/drop:9
+refuses parse-error at 1:21
+
+// case: syntax.type.cast-target.ref/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.type.cast-target.ref/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.type.cast-target.func/alt/drop:10
+refuses parse-error at 1:22
+
+// case: syntax.type.cast-target.func/alt/dup:12
+refuses parse-error at 1:27
+
+// case: syntax.type.cast-target.func/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.type.cast-target.func/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.generic.params.list/alt/drop:7
+refuses parse-error at 2:1
+
+// case: syntax.generic.params.list/alt/dup:3
+refuses parse-error at 1:10
+
+// case: syntax.generic.params.list/alt/swap:4
+refuses parse-error at 1:11
+
+// case: syntax.generic.param.type/alt/drop:3
+refuses parse-error at 1:10
+
+// case: syntax.generic.param.type/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.generic.param.const/alt/drop:10
+refuses parse-error at 2:1
+
+// case: syntax.generic.param.const/alt/dup:6
+refuses parse-error at 1:19
+
+// case: syntax.generic.param.const/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.generic.bounds/alt/drop:7
+refuses parse-error at 1:17
+
+// case: syntax.generic.bounds/alt/dup:5
+refuses parse-error at 1:13
+
+// case: syntax.generic.bounds/alt/swap:3
+refuses parse-error at 1:9
+
+// case: syntax.generic.bounds/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.generic.args.list/alt/drop:7
+refuses parse-error at 1:15
+
+// case: syntax.generic.args.list/alt/dup:7
+refuses parse-error at 1:18
+
+// case: syntax.generic.args.list/alt/swap:4
+refuses parse-error at 1:11
+
+// case: syntax.generic.arg.type/alt/drop:3
+refuses parse-error at 1:10
+
+// case: syntax.generic.arg.type/alt/dup:6
+refuses parse-error at 1:16
+
+// case: syntax.generic.arg.type/alt/swap:3
+refuses parse-error at 1:9
+
+// case: syntax.generic.arg.value/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.generic.arg.value/alt/dup:4
+refuses parse-error at 1:12
+
+// case: syntax.generic.arg.value/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.const.expr/alt/dup:3
+refuses parse-error at 1:10
+
+// case: syntax.const.expr/alt/swap:7
+refuses parse-error at 1:17
+
+// case: syntax.const.add-op.plus/alt/drop:8
+refuses parse-error at 1:20
+
+// case: syntax.const.add-op.plus/alt/dup:6
+refuses parse-error at 1:16
+
+// case: syntax.const.add-op.plus/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.const.add-op.minus/alt/drop:5
+refuses parse-error at 1:14
+
+// case: syntax.const.add-op.minus/alt/dup:5
+refuses parse-error at 1:14
+
+// case: syntax.const.add-op.minus/alt/swap:5
+refuses parse-error at 1:13
+
+// case: syntax.const.term/alt/drop:5
+refuses parse-error at 1:14
+
+// case: syntax.const.term/alt/dup:1
+refuses parse-error at 1:11
+
+// case: syntax.const.term/alt/swap:5
+refuses parse-error at 1:13
+
+// case: syntax.const.mul-op.times/alt/drop:8
+refuses parse-error at 1:20
+
+// case: syntax.const.mul-op.times/alt/dup:5
+refuses parse-error at 1:14
+
+// case: syntax.const.mul-op.times/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.const.mul-op.divide/alt/drop:4
+refuses parse-error at 1:12
+
+// case: syntax.const.mul-op.divide/alt/dup:4
+refuses parse-error at 1:12
+
+// case: syntax.const.mul-op.divide/alt/swap:6
+refuses parse-error at 1:15
+
+// case: syntax.const.mul-op.remainder/alt/drop:7
+refuses parse-error at 1:18
+
+// case: syntax.const.mul-op.remainder/alt/dup:5
+refuses parse-error at 1:14
+
+// case: syntax.const.mul-op.remainder/alt/swap:8
+refuses parse-error at 1:19
+
+// case: syntax.const.unary.negate/alt/drop:4
+refuses parse-error at 1:12
+
+// case: syntax.const.unary.negate/alt/dup:5
+refuses parse-error at 1:14
+
+// case: syntax.const.unary.negate/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.const.unary.atom/alt/drop:3
+refuses parse-error at 1:10
+
+// case: syntax.const.unary.atom/alt/dup:6
+refuses parse-error at 1:16
+
+// case: syntax.const.unary.atom/alt/swap:4
+refuses parse-error at 1:11
+
+// case: syntax.const.negate/alt/drop:2
+refuses parse-error at 1:8
+
+// case: syntax.const.negate/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.const.negate/alt/swap:4
+refuses parse-error at 1:11
+
+// case: syntax.const.atom.int/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.const.atom.int/alt/dup:7
+refuses parse-error at 1:18
+
+// case: syntax.const.atom.int/alt/swap:3
+refuses parse-error at 1:9
+
+// case: syntax.const.atom.name/alt/dup:7
+refuses parse-error at 1:18
+
+// case: syntax.const.atom.name/alt/swap:3
+refuses parse-error at 1:9
+
+// case: syntax.const.atom.group/alt/drop:6
+refuses parse-error at 1:18
+
+// case: syntax.const.atom.group/alt/dup:4
+refuses parse-error at 1:12
+
+// case: syntax.const.atom.group/alt/swap:9
+refuses parse-error at 1:19
+
+// case: syntax.const.atom.group/alt/close:9
+refuses parse-error at 1:20
+
+// case: syntax.const.atom.layout/alt/drop:2
+refuses parse-error at 1:8
+
+// case: syntax.const.atom.layout/alt/dup:3
+refuses parse-error at 1:10
+
+// case: syntax.const.atom.layout/alt/swap:11
+refuses parse-error at 1:29
+
+// case: syntax.const.atom.layout/alt/close:11
+refuses parse-error at 1:30
+
+// case: syntax.const.layout-query.size/alt/drop:3
+refuses parse-error at 1:10
+
+// case: syntax.const.layout-query.size/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.const.layout-query.size/alt/swap:4
+refuses parse-error at 1:11
+
+// case: syntax.const.layout-query.align/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.const.layout-query.align/alt/dup:11
+refuses parse-error at 1:31
+
+// case: syntax.const.layout-query.align/alt/swap:8
+refuses parse-error at 1:25
+
+// case: syntax.const.layout-query.align/alt/close:11
+refuses parse-error at 1:31
+
+// case: syntax.stmt.block/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.block/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.stmt.sep.semicolon/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.stmt.sep.semicolon/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.stmt.sep.semicolon/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.stmt.sep.semicolon/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.sep.newline/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.sep.newline/alt/dup:6
+refuses parse-error at 1:14
+
+// case: syntax.stmt.sep.newline/alt/swap:6
+refuses parse-error at 2:9
+
+// case: syntax.stmt.statement.expr/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.stmt.statement.expr/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.stmt.statement.expr/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.stmt.statement.expr/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.stmt.statement.other/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.statement.other/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.stmt.statement.other/alt/swap:6
+refuses parse-error at 1:17
+
+// case: syntax.stmt.statement.other/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.stmt.expr/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.stmt.expr/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.stmt.expr/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.stmt.expr/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.non-expr.let/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.stmt.non-expr.let/alt/dup:9
+refuses parse-error at 1:22
+
+// case: syntax.stmt.non-expr.let/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.non-expr.let/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.stmt.non-expr.destructure/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.stmt.non-expr.destructure/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.stmt.non-expr.destructure/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.stmt.non-expr.destructure/alt/close:8
+refuses parse-error at 1:19
+
+// case: syntax.stmt.non-expr.assign/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.non-expr.assign/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.stmt.non-expr.assign/alt/swap:7
+refuses parse-error at 1:15
+
+// case: syntax.stmt.non-expr.assign/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.stmt.non-expr.compound-assign/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.non-expr.compound-assign/alt/dup:6
+refuses parse-error at 1:14
+
+// case: syntax.stmt.non-expr.compound-assign/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.stmt.non-expr.compound-assign/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.non-expr.optional-assign/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.non-expr.optional-assign/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.stmt.non-expr.optional-assign/alt/swap:6
+refuses parse-error at 1:13
+
+// case: syntax.stmt.non-expr.optional-assign/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.non-expr.return/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.stmt.non-expr.return/alt/dup:6
+refuses parse-error at 1:19
+
+// case: syntax.stmt.non-expr.return/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.stmt.non-expr.return/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.stmt.non-expr.break/alt/dup:6
+refuses parse-error at 1:18
+
+// case: syntax.stmt.non-expr.break/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.stmt.non-expr.continue/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.stmt.non-expr.continue/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.non-expr.continue/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.stmt.non-expr.continue/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.stmt.non-expr.lend/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.stmt.non-expr.lend/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.stmt.non-expr.lend/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.stmt.non-expr.lend/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.non-expr.guard/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.stmt.non-expr.guard/alt/dup:11
+refuses parse-error at 1:31
+
+// case: syntax.stmt.non-expr.guard/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.stmt.non-expr.guard/alt/close:11
+refuses parse-error at 2:1
+
+// case: syntax.stmt.non-expr.static-assert/alt/drop:8
+refuses parse-error at 1:28
+
+// case: syntax.stmt.non-expr.static-assert/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.stmt.non-expr.static-assert/alt/swap:11
+refuses parse-error at 1:34
+
+// case: syntax.stmt.non-expr.static-assert/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.non-expr.attributed-local/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.non-expr.attributed-local/alt/dup:14
+refuses parse-error at 1:33
+
+// case: syntax.stmt.non-expr.attributed-local/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.stmt.non-expr.attributed-local/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.let.immutable/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.let.immutable/alt/dup:7
+refuses parse-error at 1:18
+
+// case: syntax.stmt.let.immutable/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.stmt.let.immutable/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.let.mutable/alt/drop:8
+refuses parse-error at 1:20
+
+// case: syntax.stmt.let.mutable/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.let.mutable/alt/swap:9
+refuses parse-error at 1:21
+
+// case: syntax.stmt.let.mutable/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.type-annotation/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.stmt.type-annotation/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.stmt.type-annotation/alt/swap:6
+refuses parse-error at 1:17
+
+// case: syntax.stmt.type-annotation/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.destructure.immutable/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.stmt.destructure.immutable/alt/dup:10
+refuses parse-error at 1:23
+
+// case: syntax.stmt.destructure.immutable/alt/swap:8
+refuses parse-error at 1:18
+
+// case: syntax.stmt.destructure.mutable/alt/drop:8
+refuses parse-error at 1:19
+
+// case: syntax.stmt.destructure.mutable/alt/dup:7
+refuses parse-error at 1:21
+
+// case: syntax.stmt.destructure.mutable/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.stmt.destructure.mutable/alt/close:11
+refuses parse-error at 2:1
+
+// case: syntax.stmt.binding-name/alt/dup:8
+refuses parse-error at 1:20
+
+// case: syntax.stmt.binding-target.name/alt/drop:10
+refuses parse-error at 1:32
+
+// case: syntax.stmt.binding-target.name/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.stmt.binding-target.name/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.stmt.binding-target.name/alt/close:13
+refuses parse-error at 2:1
+
+// case: syntax.stmt.binding-target.tuple/alt/drop:12
+refuses parse-error at 1:31
+
+// case: syntax.stmt.binding-target.tuple/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.stmt.binding-target.tuple/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.stmt.binding-target.tuple/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.attributed-local/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.stmt.attributed-local/alt/dup:9
+refuses parse-error at 1:22
+
+// case: syntax.stmt.attributed-local/alt/swap:10
+refuses parse-error at 1:22
+
+// case: syntax.stmt.assign/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.assign/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.stmt.assign/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.stmt.compound-assign/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.stmt.compound-assign/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.compound-assign/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.stmt.compound-op.add/alt/dup:9
+refuses parse-error at 1:21
+
+// case: syntax.stmt.compound-op.add/alt/swap:7
+refuses parse-error at 1:15
+
+// case: syntax.stmt.compound-op.subtract/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.stmt.compound-op.subtract/alt/dup:7
+refuses parse-error at 1:17
+
+// case: syntax.stmt.compound-op.subtract/alt/swap:8
+refuses parse-error at 1:18
+
+// case: syntax.stmt.compound-op.subtract/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.compound-op.multiply/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.stmt.compound-op.multiply/alt/dup:9
+refuses parse-error at 1:21
+
+// case: syntax.stmt.compound-op.multiply/alt/swap:6
+refuses parse-error at 1:13
+
+// case: syntax.stmt.compound-op.multiply/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.compound-op.divide/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.stmt.compound-op.divide/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.stmt.compound-op.divide/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.stmt.compound-op.divide/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.compound-op.remainder/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.compound-op.remainder/alt/dup:6
+refuses parse-error at 1:14
+
+// case: syntax.stmt.compound-op.remainder/alt/swap:7
+refuses parse-error at 1:15
+
+// case: syntax.stmt.compound-op.remainder/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.stmt.compound-op.and/alt/drop:9
+refuses parse-error at 2:1
+
+// case: syntax.stmt.compound-op.and/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.stmt.compound-op.and/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.stmt.compound-op.or/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.compound-op.or/alt/dup:9
+refuses parse-error at 1:21
+
+// case: syntax.stmt.compound-op.or/alt/swap:6
+refuses parse-error at 1:13
+
+// case: syntax.stmt.compound-op.or/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.stmt.compound-op.xor/alt/drop:7
+refuses parse-error at 1:16
+
+// case: syntax.stmt.compound-op.xor/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.stmt.compound-op.xor/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.stmt.compound-op.xor/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.compound-op.shift-left/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.compound-op.shift-left/alt/dup:6
+refuses parse-error at 1:14
+
+// case: syntax.stmt.compound-op.shift-left/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.stmt.compound-op.shift-right/alt/drop:9
+refuses parse-error at 2:1
+
+// case: syntax.stmt.compound-op.shift-right/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.stmt.compound-op.shift-right/alt/swap:8
+refuses parse-error at 1:19
+
+// case: syntax.stmt.assign-target.name/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.stmt.assign-target.name/alt/dup:6
+refuses parse-error at 1:14
+
+// case: syntax.stmt.assign-target.name/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.stmt.assign-target.self/alt/drop:7
+refuses parse-error at 1:19
+
+// case: syntax.stmt.assign-target.self/alt/dup:7
+refuses parse-error at 1:19
+
+// case: syntax.stmt.assign-target.self/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.stmt.assign-target.self/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.assign-target.projection/alt/drop:9
+refuses parse-error at 1:19
+
+// case: syntax.stmt.assign-target.projection/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.stmt.assign-target.projection/alt/swap:9
+refuses parse-error at 1:18
+
+// case: syntax.stmt.assign-target.projection/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.assign-target.deref/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.stmt.assign-target.deref/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.assign-target.deref/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.stmt.assign-target.deref/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.stmt.assign-target.borrow/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.stmt.assign-target.borrow/alt/dup:9
+refuses parse-error at 1:30
+
+// case: syntax.stmt.assign-target.borrow/alt/swap:9
+refuses parse-error at 1:29
+
+// case: syntax.stmt.assign-target.borrow/alt/close:11
+refuses parse-error at 2:1
+
+// case: syntax.stmt.assign-target.call/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.assign-target.call/alt/dup:10
+refuses parse-error at 1:20
+
+// case: syntax.stmt.assign-target.call/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.stmt.assign-target.call/alt/close:8
+refuses parse-error at 1:16
+
+// case: syntax.stmt.compound-target.name/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.stmt.compound-target.name/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.stmt.compound-target.projection/alt/drop:10
+refuses parse-error at 2:1
+
+// case: syntax.stmt.compound-target.projection/alt/dup:9
+refuses parse-error at 1:20
+
+// case: syntax.stmt.compound-target.projection/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.compound-target.projection/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.compound-target.deref/alt/drop:10
+refuses parse-error at 2:1
+
+// case: syntax.stmt.compound-target.deref/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.compound-target.deref/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.stmt.compound-target.borrow/alt/drop:7
+refuses parse-error at 1:21
+
+// case: syntax.stmt.compound-target.borrow/alt/dup:7
+refuses parse-error at 1:23
+
+// case: syntax.stmt.compound-target.borrow/alt/swap:7
+refuses parse-error at 1:20
+
+// case: syntax.stmt.compound-target.borrow/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.compound-target.call/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.stmt.compound-target.call/alt/dup:9
+refuses parse-error at 1:19
+
+// case: syntax.stmt.compound-target.call/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.stmt.compound-target.call/alt/close:11
+refuses parse-error at 2:1
+
+// case: syntax.stmt.projection-target/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.stmt.projection-target/alt/swap:6
+refuses parse-error at 1:13
+
+// case: syntax.stmt.projection-target/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.stmt.place-hop.member/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.stmt.place-hop.member/alt/dup:10
+refuses parse-error at 1:20
+
+// case: syntax.stmt.place-hop.member/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.stmt.place-hop.member/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.place-hop.tuple-index/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.place-hop.tuple-index/alt/dup:8
+refuses parse-error at 1:16
+
+// case: syntax.stmt.place-hop.tuple-index/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.place-hop.tuple-index/alt/close:11
+refuses parse-error at 2:1
+
+// case: syntax.stmt.place-hop.subscript/alt/drop:11
+refuses parse-error at 1:21
+
+// case: syntax.stmt.place-hop.subscript/alt/dup:7
+refuses parse-error at 1:19
+
+// case: syntax.stmt.place-hop.subscript/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.stmt.place-hop.subscript/alt/close:9
+refuses parse-error at 1:17
+
+// case: syntax.stmt.place-hop.force/alt/dup:9
+refuses parse-error at 1:19
+
+// case: syntax.stmt.place-hop.force/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.call-target/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.call-target/alt/dup:8
+refuses parse-error at 1:16
+
+// case: syntax.stmt.optional-assign.plain/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.stmt.optional-assign.plain/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.optional-assign.compound/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.stmt.optional-assign.compound/alt/dup:11
+refuses parse-error at 1:24
+
+// case: syntax.stmt.optional-assign.compound/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.optional-assign.compound/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.optional-assign.borrow-plain/alt/drop:11
+refuses parse-error at 1:30
+
+// case: syntax.stmt.optional-assign.borrow-plain/alt/dup:10
+refuses parse-error at 1:28
+
+// case: syntax.stmt.optional-assign.borrow-plain/alt/swap:9
+refuses parse-error at 1:25
+
+// case: syntax.stmt.optional-assign.borrow-plain/alt/close:13
+refuses parse-error at 2:1
+
+// case: syntax.stmt.optional-assign.borrow-compound/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.stmt.optional-assign.borrow-compound/alt/dup:8
+refuses parse-error at 1:25
+
+// case: syntax.stmt.optional-assign.borrow-compound/alt/swap:6
+refuses parse-error at 1:27
+
+// case: syntax.stmt.optional-assign.borrow-compound/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.optional-chain-target/alt/drop:7
+refuses parse-error at 1:14
+
+// case: syntax.stmt.optional-chain-target/alt/dup:11
+refuses parse-error at 1:23
+
+// case: syntax.stmt.optional-chain-target/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.stmt.optional-chain-target/alt/close:11
+refuses parse-error at 2:1
+
+// case: syntax.stmt.chain-hop.member/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.chain-hop.member/alt/dup:6
+refuses parse-error at 1:14
+
+// case: syntax.stmt.chain-hop.member/alt/swap:10
+refuses parse-error at 1:18
+
+// case: syntax.stmt.chain-hop.member/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.chain-hop.optional/alt/drop:8
+refuses parse-error at 1:16
+
+// case: syntax.stmt.chain-hop.optional/alt/dup:12
+refuses parse-error at 1:24
+
+// case: syntax.stmt.chain-hop.optional/alt/swap:12
+refuses parse-error at 1:23
+
+// case: syntax.stmt.chain-hop.optional/alt/close:13
+refuses parse-error at 2:1
+
+// case: syntax.stmt.chain-hop.call/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.stmt.chain-hop.call/alt/dup:9
+refuses parse-error at 1:21
+
+// case: syntax.stmt.chain-hop.call/alt/swap:11
+refuses parse-error at 1:20
+
+// case: syntax.stmt.chain-hop.call/alt/close:10
+refuses parse-error at 1:19
+
+// case: syntax.stmt.chain-hop.trailing/alt/drop:7
+refuses parse-error at 1:14
+
+// case: syntax.stmt.chain-hop.trailing/alt/dup:11
+refuses parse-error at 1:23
+
+// case: syntax.stmt.chain-hop.trailing/alt/swap:8
+refuses parse-error at 1:16
+
+// case: syntax.stmt.chain-hop.trailing/alt/close:10
+refuses parse-error at 1:21
+
+// case: syntax.stmt.return/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.stmt.return/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.stmt.return/alt/swap:6
+refuses parse-error at 1:17
+
+// case: syntax.stmt.break/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.stmt.break/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.stmt.break/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.stmt.continue/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.continue/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.stmt.continue/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.stmt.lend/alt/drop:7
+refuses syntax.stmt.refused-bare-lend
+
+// case: syntax.stmt.lend/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.stmt.lend/alt/swap:6
+refuses parse-error at 1:17
+
+// case: syntax.stmt.guard.let/alt/drop:11
+refuses parse-error at 1:34
+
+// case: syntax.stmt.guard.let/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.stmt.guard.let/alt/swap:8
+refuses parse-error at 1:23
+
+// case: syntax.stmt.guard.let/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.stmt.guard.var/alt/drop:9
+refuses parse-error at 1:26
+
+// case: syntax.stmt.guard.var/alt/dup:14
+refuses parse-error at 1:39
+
+// case: syntax.stmt.guard.var/alt/swap:8
+refuses parse-error at 1:23
+
+// case: syntax.stmt.guard.var/alt/close:13
+refuses parse-error at 2:1
+
+// case: syntax.stmt.guard.condition/alt/drop:8
+refuses parse-error at 1:26
+
+// case: syntax.stmt.guard.condition/alt/dup:6
+refuses parse-error at 1:18
+
+// case: syntax.stmt.guard.condition/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.stmt.guard.condition/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.stmt.guard-condition/alt/dup:9
+refuses parse-error at 2:1
+
+// case: syntax.stmt.guard-condition/alt/swap:6
+refuses parse-error at 1:17
+
+// case: syntax.stmt.binding-subject.value/alt/drop:7
+refuses parse-error at 1:19
+
+// case: syntax.stmt.binding-subject.value/alt/dup:6
+refuses parse-error at 1:32
+
+// case: syntax.stmt.binding-subject.value/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.stmt.binding-subject.value/alt/close:12
+refuses parse-error at 2:1
+
+// case: syntax.stmt.binding-subject.chain-assign/alt/drop:12
+refuses parse-error at 1:28
+
+// case: syntax.stmt.binding-subject.chain-assign/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.stmt.binding-subject.chain-assign/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.stmt.binding-subject.chain-assign/alt/close:17
+refuses parse-error at 2:1
+
+// case: syntax.stmt.binding-subject.borrow-chain-assign/alt/drop:8
+refuses parse-error at 1:21
+
+// case: syntax.stmt.binding-subject.borrow-chain-assign/alt/dup:10
+refuses parse-error at 1:30
+
+// case: syntax.stmt.binding-subject.borrow-chain-assign/alt/swap:10
+refuses parse-error at 1:24
+
+// case: syntax.stmt.binding-subject.borrow-chain-assign/alt/close:19
+refuses parse-error at 2:1
+
+// case: syntax.expr.expr/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.head/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.head/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.head/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.expr.coalesce/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.or/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.or/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.bitor/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.bitand/alt/swap:6
+refuses parse-error at 1:17
+
+// case: syntax.expr.compare.pair/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.compare.pair/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.compare-op.equal/alt/drop:8
+refuses parse-error at 1:19
+
+// case: syntax.expr.compare-op.equal/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.compare-op.equal/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.compare-op.equal/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.compare-op.not-equal/alt/drop:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.compare-op.not-equal/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.compare-op.not-equal/alt/swap:8
+refuses parse-error at 1:18
+
+// case: syntax.expr.compare-op.not-equal/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.compare-op.less/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.compare-op.less/alt/dup:8
+refuses parse-error at 1:18
+
+// case: syntax.expr.compare-op.less/alt/swap:8
+refuses parse-error at 1:17
+
+// case: syntax.expr.compare-op.greater/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.expr.compare-op.greater/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.compare-op.greater/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.compare-op.greater/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.compare-op.less-equal/alt/drop:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.compare-op.less-equal/alt/dup:8
+refuses parse-error at 1:19
+
+// case: syntax.expr.compare-op.less-equal/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.compare-op.less-equal/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.compare-op.greater-equal/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.compare-op.greater-equal/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.compare-op.greater-equal/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.compare-op.greater-equal/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.range.from/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.expr.range.from/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.range.from/alt/swap:7
+refuses parse-error at 1:19
+
+// case: syntax.expr.range.from/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.expr.range.upto/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.range.upto/alt/dup:7
+refuses parse-error at 1:17
+
+// case: syntax.expr.range.upto/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.range.upto/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.range-op.exclusive/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.range-op.exclusive/alt/dup:9
+refuses parse-error at 1:21
+
+// case: syntax.expr.range-op.exclusive/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.range-op.exclusive/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.range-op.inclusive/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.range-op.inclusive/alt/dup:6
+refuses parse-error at 1:14
+
+// case: syntax.expr.range-op.inclusive/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.range-op.inclusive/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.range-from/alt/dup:7
+refuses parse-error at 1:17
+
+// case: syntax.expr.range-from/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.range-upto.exclusive/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.range-upto.exclusive/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.range-upto.inclusive/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.range-upto.inclusive/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.range-upto.inclusive/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.range-upto.inclusive/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.range-upto.full/alt/drop:7
+refuses parse-error at 2:1
+
+// case: syntax.expr.range-upto.full/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.shift-op.left/alt/drop:9
+refuses parse-error at 1:19
+
+// case: syntax.expr.shift-op.left/alt/dup:9
+refuses parse-error at 1:19
+
+// case: syntax.expr.shift-op.left/alt/swap:6
+refuses parse-error at 1:13
+
+// case: syntax.expr.shift-op.left/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.shift-op.right/alt/drop:9
+refuses parse-error at 1:19
+
+// case: syntax.expr.shift-op.right/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.shift-op.right/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.shift-op.right/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.expr.add-op.plus/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.expr.add-op.plus/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.add-op.plus/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.add-op.plus/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.add-op.minus/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.expr.add-op.minus/alt/dup:6
+refuses parse-error at 1:14
+
+// case: syntax.expr.add-op.minus/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.add-op.minus/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.add-op.wrapping-plus/alt/drop:6
+refuses parse-error at 1:14
+
+// case: syntax.expr.add-op.wrapping-plus/alt/dup:8
+refuses parse-error at 1:19
+
+// case: syntax.expr.add-op.wrapping-plus/alt/swap:6
+refuses parse-error at 1:13
+
+// case: syntax.expr.add-op.wrapping-plus/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.add-op.wrapping-minus/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.add-op.wrapping-minus/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.add-op.wrapping-minus/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.add-op.wrapping-minus/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.multiplicative/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.multiplicative/alt/dup:6
+refuses parse-error at 1:14
+
+// case: syntax.expr.mul-op.times/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.expr.mul-op.times/alt/dup:8
+refuses parse-error at 1:18
+
+// case: syntax.expr.mul-op.times/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.mul-op.times/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.mul-op.divide/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.expr.mul-op.divide/alt/dup:6
+refuses parse-error at 1:14
+
+// case: syntax.expr.mul-op.divide/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.mul-op.divide/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.mul-op.remainder/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.expr.mul-op.remainder/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.mul-op.remainder/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.mul-op.remainder/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.mul-op.wrapping-times/alt/drop:6
+refuses parse-error at 1:14
+
+// case: syntax.expr.mul-op.wrapping-times/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.mul-op.wrapping-times/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.mul-op.wrapping-times/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.cast-suffix.cast/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.cast-suffix.cast/alt/dup:8
+refuses parse-error at 1:19
+
+// case: syntax.expr.prefix.unary/alt/dup:8
+refuses parse-error at 1:18
+
+// case: syntax.expr.prefix.unary/alt/swap:6
+refuses parse-error at 1:20
+
+// case: syntax.expr.prefix.unary/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.expr.prefix.deref/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.prefix.deref/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.expr.prefix.ref/alt/drop:7
+refuses parse-error at 1:16
+
+// case: syntax.expr.prefix.ref/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.prefix.ref/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.prefix.ref/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.expr.prefix.move/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.expr.prefix.move/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.prefix.move/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.prefix.move/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.expr.prefix.try/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.prefix.try/alt/dup:7
+refuses parse-error at 1:18
+
+// case: syntax.expr.prefix.try/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.prefix.lends/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.prefix.lends/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.prefix.lends/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.prefix.lends/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.expr.prefix.borrow/alt/drop:7
+refuses parse-error at 1:21
+
+// case: syntax.expr.prefix.borrow/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.prefix.borrow/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.prefix.borrow/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.unary.negate/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.unary.negate/alt/swap:7
+refuses parse-error at 1:15
+
+// case: syntax.expr.unary.not/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.expr.unary.not/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.unary.not/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.unary.not/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.expr.unary.complement/alt/drop:7
+refuses parse-error at 1:16
+
+// case: syntax.expr.unary.complement/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.unary.complement/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.unary.complement/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.expr.deref/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.expr.deref/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.deref/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.deref/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.ref.shared/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.expr.ref.shared/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.ref.shared/alt/swap:6
+refuses parse-error at 1:20
+
+// case: syntax.expr.ref.exclusive/alt/drop:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.ref.exclusive/alt/dup:7
+refuses parse-error at 1:18
+
+// case: syntax.expr.ref.exclusive/alt/swap:7
+refuses parse-error at 1:19
+
+// case: syntax.expr.ref.exclusive/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.lends/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.lends/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.lends/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.move.place/alt/drop:7
+refuses parse-error at 1:19
+
+// case: syntax.expr.move.place/alt/dup:7
+refuses parse-error at 1:19
+
+// case: syntax.expr.move.place/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.move-base.name/alt/swap:7
+refuses parse-error at 1:18
+
+// case: syntax.expr.move-base.self/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.move-base.self/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.move-base.self/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.move-base.deref/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.move-base.deref/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.move-base.deref/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.move-base.deref/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.move-deref.name/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.move-deref.name/alt/dup:8
+refuses parse-error at 1:21
+
+// case: syntax.expr.move-deref.name/alt/swap:7
+refuses parse-error at 1:25
+
+// case: syntax.expr.move-deref.self/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.move-deref.self/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.move-deref.self/alt/swap:7
+refuses parse-error at 1:28
+
+// case: syntax.expr.move-deref.self/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.move-hop.member/alt/drop:10
+refuses parse-error at 2:1
+
+// case: syntax.expr.move-hop.member/alt/dup:10
+refuses parse-error at 1:23
+
+// case: syntax.expr.move-hop.member/alt/swap:7
+refuses parse-error at 1:18
+
+// case: syntax.expr.move-hop.member/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.move-hop.tuple-index/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.move-hop.tuple-index/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.move-hop.tuple-index/alt/swap:8
+refuses parse-error at 1:19
+
+// case: syntax.expr.move-hop.subscript/alt/drop:7
+refuses parse-error at 1:18
+
+// case: syntax.expr.move-hop.subscript/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.move-hop.subscript/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.move-hop.subscript/alt/close:11
+refuses parse-error at 2:1
+
+// case: syntax.expr.try.propagate/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.expr.try.propagate/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.try.propagate/alt/swap:6
+refuses parse-error at 1:17
+
+// case: syntax.expr.try.catch/alt/drop:10
+refuses parse-error at 2:1
+
+// case: syntax.expr.try.catch/alt/dup:8
+refuses parse-error at 1:24
+
+// case: syntax.expr.try.catch/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.try.catch/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.try.route/alt/drop:9
+refuses parse-error at 1:21
+
+// case: syntax.expr.try.route/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.try.route/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.try.route/alt/close:14
+refuses parse-error at 2:1
+
+// case: syntax.expr.try.optional/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.try.optional/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.try.optional/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.try.force/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.try.force/alt/swap:6
+refuses parse-error at 1:13
+
+// case: syntax.expr.try-route/alt/drop:8
+refuses parse-error at 1:24
+
+// case: syntax.expr.try-route/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.try-route/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.try-route/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.catch/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.catch/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.catch/alt/close:11
+refuses parse-error at 2:1
+
+// case: syntax.expr.try-block/alt/drop:12
+refuses parse-error at 2:1
+
+// case: syntax.expr.try-block/alt/dup:7
+refuses parse-error at 1:22
+
+// case: syntax.expr.try-block/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.try-block/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.hop.member/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.hop.member/alt/dup:9
+refuses parse-error at 1:18
+
+// case: syntax.expr.hop.member/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.hop.member/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.hop.tuple-index/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.hop.tuple-index/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.hop.tuple-index/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.hop.tuple-index/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.hop.optional/alt/drop:8
+refuses parse-error at 1:17
+
+// case: syntax.expr.hop.optional/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.hop.optional/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.hop.optional/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.hop.call/alt/drop:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.hop.call/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.hop.call/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.hop.trailing/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.hop.trailing/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.hop.trailing/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.hop.trailing/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.expr.hop.subscript/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.hop.subscript/alt/dup:6
+refuses parse-error at 1:14
+
+// case: syntax.expr.hop.subscript/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.hop.force/alt/drop:6
+refuses parse-error at 1:13
+
+// case: syntax.expr.hop.force/alt/dup:6
+refuses parse-error at 1:14
+
+// case: syntax.expr.hop.force/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.hop.force/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.expr.member/alt/drop:8
+refuses parse-error at 1:16
+
+// case: syntax.expr.member/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.tuple-index/alt/drop:6
+refuses parse-error at 1:14
+
+// case: syntax.expr.tuple-index/alt/dup:7
+refuses parse-error at 1:15
+
+// case: syntax.expr.tuple-index/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.optional-member/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.optional-member/alt/dup:6
+refuses parse-error at 1:14
+
+// case: syntax.expr.optional-member/alt/swap:7
+refuses parse-error at 1:14
+
+// case: syntax.expr.optional-member/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.call.paren/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.expr.call.paren/alt/dup:8
+refuses parse-error at 1:16
+
+// case: syntax.expr.call.paren/alt/swap:7
+refuses parse-error at 1:14
+
+// case: syntax.expr.call.paren/alt/close:8
+refuses parse-error at 1:16
+
+// case: syntax.expr.call.paren-trailing/alt/drop:9
+refuses parse-error at 1:20
+
+// case: syntax.expr.call.paren-trailing/alt/dup:8
+refuses parse-error at 1:16
+
+// case: syntax.expr.call.paren-trailing/alt/swap:6
+refuses syntax.rule.trailing-closure at 1:20
+
+// case: syntax.expr.call.paren-trailing/alt/close:8
+refuses parse-error at 1:20
+
+// case: syntax.expr.trailing-call/alt/drop:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.trailing-call/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.trailing-call/alt/swap:7
+refuses parse-error at 1:19
+
+// case: syntax.expr.args/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.expr.args/alt/dup:9
+refuses parse-error at 1:17
+
+// case: syntax.expr.args/alt/swap:6
+refuses parse-error at 1:18
+
+// case: syntax.expr.args/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.expr.argument.positional/alt/drop:9
+refuses parse-error at 1:17
+
+// case: syntax.expr.argument.positional/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.argument.labelled/alt/drop:7
+refuses parse-error at 1:14
+
+// case: syntax.expr.argument.labelled/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.argument.labelled/alt/swap:9
+refuses parse-error at 1:16
+
+// case: syntax.expr.argument.labelled/alt/close:11
+refuses parse-error at 1:20
+
+// case: syntax.expr.subscript.single/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.subscript.single/alt/dup:9
+refuses parse-error at 1:17
+
+// case: syntax.expr.subscript.single/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.subscript.multi/alt/drop:10
+refuses parse-error at 1:18
+
+// case: syntax.expr.subscript.multi/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.subscript.multi/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.multi-subscript.positional-first/alt/drop:7
+refuses parse-error at 1:14
+
+// case: syntax.expr.multi-subscript.positional-first/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.multi-subscript.positional-first/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.multi-subscript.positional-first/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.multi-subscript.labelled-first/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.multi-subscript.labelled-first/alt/dup:12
+refuses parse-error at 1:22
+
+// case: syntax.expr.multi-subscript.labelled-first/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.multi-subscript.labelled-first/alt/close:11
+refuses parse-error at 1:20
+
+// case: syntax.expr.force/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.force/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.primary.literal/alt/dup:7
+refuses parse-error at 1:19
+
+// case: syntax.expr.primary.literal/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.primary.literal/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.expr.primary.interpolation/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.primary.interpolation/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.primary.interpolation/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.primary.interpolation/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.expr.primary.source-location/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.primary.source-location/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.primary.source-location/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.primary.source-location/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.primary.implicit-member/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.primary.implicit-member/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.primary.implicit-member/alt/swap:7
+refuses parse-error at 1:14
+
+// case: syntax.expr.primary.self/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.primary.self/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.primary.self/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.primary.self/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.primary.shorthand-param/alt/dup:7
+refuses parse-error at 1:17
+
+// case: syntax.expr.primary.shorthand-param/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.primary.shorthand-param/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.primary.paren/alt/drop:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.primary.paren/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.primary.paren/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.primary.paren/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.primary.tuple/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.primary.tuple/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.primary.tuple/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.primary.tuple/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.primary.array/alt/drop:7
+refuses parse-error at 1:15
+
+// case: syntax.expr.primary.array/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.primary.array/alt/swap:7
+refuses parse-error at 1:14
+
+// case: syntax.expr.primary.repeat/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.primary.repeat/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.primary.repeat/alt/swap:10
+refuses parse-error at 1:18
+
+// case: syntax.expr.primary.repeat/alt/close:11
+refuses parse-error at 2:1
+
+// case: syntax.expr.primary.map/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.primary.map/alt/dup:7
+refuses parse-error at 1:15
+
+// case: syntax.expr.primary.map/alt/swap:7
+refuses parse-error at 1:18
+
+// case: syntax.expr.primary.map/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.primary.set/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.primary.set/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.primary.set/alt/swap:6
+refuses parse-error at 1:19
+
+// case: syntax.expr.primary.set/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.primary.closure/alt/drop:6
+refuses parse-error at 1:16
+
+// case: syntax.expr.primary.closure/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.primary.closure/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.primary.closure/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.expr.primary.if/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.primary.if/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.primary.if/alt/swap:7
+refuses parse-error at 1:25
+
+// case: syntax.expr.primary.if/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.primary.match/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.expr.primary.match/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.primary.match/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.primary.match/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.expr.primary.while/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.primary.while/alt/dup:6
+refuses parse-error at 1:28
+
+// case: syntax.expr.primary.while/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.primary.while-let/alt/dup:6
+refuses parse-error at 1:38
+
+// case: syntax.expr.primary.while-let/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.primary.for/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.primary.for/alt/dup:7
+refuses parse-error at 1:18
+
+// case: syntax.expr.primary.for/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.primary.for/alt/close:11
+refuses parse-error at 2:1
+
+// case: syntax.expr.primary.try-block/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.primary.try-block/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.primary.borrow-block/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.primary.borrow-block/alt/dup:13
+refuses parse-error at 1:35
+
+// case: syntax.expr.primary.borrow-block/alt/swap:6
+refuses parse-error at 1:27
+
+// case: syntax.expr.primary.borrow-block/alt/close:12
+refuses parse-error at 2:1
+
+// case: syntax.expr.literal.int/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.expr.literal.int/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.literal.int/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.literal.int/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.literal.float/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.literal.float/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.literal.float/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.literal.float/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.literal.string/alt/drop:7
+refuses parse-error at 2:1
+
+// case: syntax.expr.literal.string/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.literal.string/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.literal.string/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.literal.bool/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.literal.bool/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.literal.bool/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.literal.none/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.literal.none/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.literal.none/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.literal.none/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.expr.int/alt/drop:6
+refuses parse-error at 1:16
+
+// case: syntax.expr.float/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.float/alt/dup:7
+refuses parse-error at 1:18
+
+// case: syntax.expr.string/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.expr.string/alt/dup:7
+refuses parse-error at 1:18
+
+// case: syntax.expr.bool.true/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.bool.true/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.bool.false/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.bool.false/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.bool.false/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.none/alt/dup:6
+refuses parse-error at 1:17
+
+// case: syntax.expr.none/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.interp-segment.expr/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.interp-segment.placeholder/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.interp-segment.placeholder/alt/dup:7
+refuses parse-error at 2:10
+
+// case: syntax.expr.source-location.file/alt/dup:7
+refuses parse-error at 1:20
+
+// case: syntax.expr.source-location.file/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.source-location.file/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.expr.source-location.line/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.source-location.line/alt/dup:6
+refuses parse-error at 1:18
+
+// case: syntax.expr.source-location.line/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.expr.source-location.line/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.expr.source-location.function/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.expr.source-location.function/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.source-location.function/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.source-location.function/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.name-ref/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.expr.implicit-member/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.expr.implicit-member/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.implicit-member/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.implicit-member/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.expr.self/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.expr.self/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.self/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.shorthand-param/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.expr.shorthand-param/alt/dup:6
+refuses parse-error at 1:15
+
+// case: syntax.expr.shorthand-param/alt/swap:6
+refuses parse-error at 1:17
+
+// case: syntax.expr.shorthand-param/alt/close:7
+refuses parse-error at 2:1
+
+// case: syntax.expr.paren/alt/dup:7
+refuses parse-error at 1:15
+
+// case: syntax.expr.paren/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.paren/alt/close:8
+refuses parse-error at 1:16
+
+// case: syntax.expr.tuple.unit/alt/drop:8
+refuses parse-error at 2:1
+
+// case: syntax.expr.tuple.unit/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.tuple.unit/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.tuple.positional/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.tuple.positional/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.tuple.positional/alt/swap:6
+refuses parse-error at 1:18
+
+// case: syntax.expr.tuple.positional/alt/close:9
+refuses parse-error at 1:17
+
+// case: syntax.expr.tuple.named/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.tuple.named/alt/dup:10
+refuses parse-error at 1:19
+
+// case: syntax.expr.tuple.named/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.tuple.named/alt/close:11
+refuses parse-error at 2:1
+
+// case: syntax.expr.tuple-field/alt/drop:10
+refuses parse-error at 1:19
+
+// case: syntax.expr.tuple-field/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.tuple-field/alt/swap:8
+refuses parse-error at 1:15
+
+// case: syntax.expr.array/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.expr.array/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.array/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.array/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.expr.repeat/alt/dup:6
+refuses parse-error at 1:21
+
+// case: syntax.expr.repeat/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.map.empty/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.expr.map.empty/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.map.empty/alt/swap:6
+refuses parse-error at 1:13
+
+// case: syntax.expr.map.empty/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.expr.map.entries/alt/drop:11
+refuses parse-error at 2:1
+
+// case: syntax.expr.map.entries/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.map.entries/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.map-entry/alt/drop:5
+refuses parse-error at 1:15
+
+// case: syntax.expr.map-entry/alt/dup:8
+refuses parse-error at 1:17
+
+// case: syntax.expr.map-entry/alt/swap:7
+refuses parse-error at 1:18
+
+// case: syntax.expr.map-entry/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.expr.set/alt/drop:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.set/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.set/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.closure/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.closure/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.closure/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.closure/alt/close:8
+refuses parse-error at 2:1
+
+// case: syntax.expr.closure-head.captures/alt/drop:8
+refuses parse-error at 1:18
+
+// case: syntax.expr.closure-head.captures/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.closure-head.captures/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.closure-head.captures/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.closure-head.captures-params/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.closure-head.captures-params/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.closure-head.captures-params/alt/close:13
+refuses parse-error at 2:1
+
+// case: syntax.expr.closure-head.params/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.closure-head.params/alt/dup:7
+refuses parse-error at 1:16
+
+// case: syntax.expr.closure-head.params/alt/swap:7
+refuses parse-error at 1:15
+
+// case: syntax.expr.closure-head.params/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.capture-list/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.capture-list/alt/swap:10
+refuses parse-error at 1:23
+
+// case: syntax.expr.capture-list/alt/close:12
+refuses parse-error at 2:1
+
+// case: syntax.expr.capture.value/alt/dup:11
+refuses parse-error at 1:25
+
+// case: syntax.expr.capture.value/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.capture.move/alt/dup:11
+refuses parse-error at 1:26
+
+// case: syntax.expr.capture.move/alt/swap:8
+refuses parse-error at 1:20
+
+// case: syntax.expr.capture.move/alt/close:12
+refuses parse-error at 2:1
+
+// case: syntax.expr.capture.copy/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.capture.copy/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.capture.copy/alt/swap:11
+refuses parse-error at 1:24
+
+// case: syntax.expr.capture.copy/alt/close:12
+refuses parse-error at 2:1
+
+// case: syntax.expr.capture.borrow/alt/drop:7
+refuses parse-error at 1:18
+
+// case: syntax.expr.capture.borrow/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.capture.borrow/alt/swap:7
+refuses parse-error at 1:24
+
+// case: syntax.expr.capture.borrow/alt/close:10
+refuses parse-error at 1:20
+
+// case: syntax.expr.capture.borrow-exclusive/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.expr.capture.borrow-exclusive/alt/dup:12
+refuses parse-error at 1:27
+
+// case: syntax.expr.capture.borrow-exclusive/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.capture.borrow-exclusive/alt/close:13
+refuses parse-error at 2:1
+
+// case: syntax.expr.capture.self/alt/drop:13
+refuses parse-error at 2:1
+
+// case: syntax.expr.capture.self/alt/dup:13
+refuses parse-error at 1:30
+
+// case: syntax.expr.capture.self/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.capture.self/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.capture.self-exclusive/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.capture.self-exclusive/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.capture.self-exclusive/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.closure-params/alt/drop:7
+refuses parse-error at 1:16
+
+// case: syntax.expr.closure-params/alt/dup:6
+refuses parse-error at 2:1
+
+// case: syntax.expr.closure-params/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.expr.closure-param.value/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.expr.closure-param.value/alt/dup:8
+refuses parse-error at 1:19
+
+// case: syntax.expr.closure-param.value/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.closure-param.ref/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.closure-param.ref/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.closure-param.ref/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.expr.closure-param.ref-exclusive/alt/drop:11
+refuses parse-error at 2:1
+
+// case: syntax.expr.closure-param.ref-exclusive/alt/dup:6
+refuses parse-error at 2:1
+
+// case: syntax.expr.closure-param.ref-exclusive/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.closure-param.ref-exclusive/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.if/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.if/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.if/alt/close:10
+refuses parse-error at 2:1
+
+// case: syntax.expr.else-if/alt/drop:11
+refuses parse-error at 1:28
+
+// case: syntax.expr.else-if/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.else-if/alt/swap:11
+refuses parse-error at 1:27
+
+// case: syntax.expr.else-if/alt/close:15
+refuses parse-error at 2:1
+
+// case: syntax.expr.else/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.else/alt/swap:11
+refuses parse-error at 1:27
+
+// case: syntax.expr.else/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.if-head.condition/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.if-head.binding/alt/drop:8
+refuses parse-error at 1:21
+
+// case: syntax.expr.if-head.binding/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.if-head.binding/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.if-head.borrow/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.expr.if-head.borrow/alt/dup:14
+refuses parse-error at 1:38
+
+// case: syntax.expr.if-head.borrow/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.if-head.borrow/alt/close:13
+refuses parse-error at 2:1
+
+// case: syntax.expr.optional-binding.let/alt/dup:13
+refuses parse-error at 1:31
+
+// case: syntax.expr.optional-binding.var/alt/drop:13
+refuses parse-error at 2:1
+
+// case: syntax.expr.optional-binding.var/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.optional-binding.var/alt/swap:10
+refuses parse-error at 1:33
+
+// case: syntax.expr.optional-binding.var/alt/close:12
+refuses parse-error at 2:1
+
+// case: syntax.expr.match/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.match/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.match/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.match-arms/alt/drop:11
+refuses parse-error at 1:31
+
+// case: syntax.expr.match-arms/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.match-arms/alt/swap:10
+refuses parse-error at 1:28
+
+// case: syntax.expr.match-arms/alt/close:13
+refuses parse-error at 2:1
+
+// case: syntax.expr.arm-sep.comma/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.arm-sep.comma/alt/dup:13
+refuses parse-error at 1:35
+
+// case: syntax.expr.arm-sep.comma/alt/swap:10
+refuses parse-error at 1:28
+
+// case: syntax.expr.arm-sep.newline/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.expr.arm-sep.newline/alt/dup:12
+refuses parse-error at 1:34
+
+// case: syntax.expr.arm-sep.newline/alt/swap:12
+refuses parse-error at 1:31
+
+// case: syntax.expr.arm-sep.newline/alt/close:15
+refuses parse-error at 3:1
+
+// case: syntax.expr.arm-sep.none/alt/drop:9
+refuses parse-error at 1:26
+
+// case: syntax.expr.arm-sep.none/alt/dup:8
+refuses parse-error at 1:24
+
+// case: syntax.expr.arm-sep.none/alt/swap:8
+refuses parse-error at 1:21
+
+// case: syntax.expr.arm-sep.none/alt/close:17
+refuses parse-error at 2:1
+
+// case: syntax.expr.match-arm/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.match-arm/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.match-arm/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.match-arm/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.arm-guard/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.arm-guard/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.expr.arm-guard/alt/swap:14
+refuses parse-error at 1:38
+
+// case: syntax.expr.arm-guard/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.arm-body.block/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.expr.arm-body.block/alt/dup:10
+refuses parse-error at 1:29
+
+// case: syntax.expr.arm-body.block/alt/swap:7
+refuses parse-error at 1:26
+
+// case: syntax.expr.arm-body.block/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.arm-body.expr/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.expr.arm-body.expr/alt/dup:7
+refuses parse-error at 1:20
+
+// case: syntax.expr.arm-body.expr/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.expr.arm-body.statement/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.arm-body.statement/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.arm-body.statement/alt/swap:7
+refuses parse-error at 1:26
+
+// case: syntax.expr.while.conditional/alt/drop:9
+refuses parse-error at 2:1
+
+// case: syntax.expr.while.conditional/alt/dup:7
+refuses parse-error at 1:20
+
+// case: syntax.expr.while.conditional/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.expr.while.infinite/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.while.infinite/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.expr.while.infinite/alt/swap:6
+refuses parse-error at 1:24
+
+// case: syntax.expr.while-let.let/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.while-let.let/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.while-let.var/alt/drop:7
+refuses parse-error at 1:22
+
+// case: syntax.expr.while-let.var/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.expr.while-let.var/alt/swap:8
+refuses parse-error at 1:23
+
+// case: syntax.expr.while-let.var/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.expr.for.plain/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.expr.for.plain/alt/dup:8
+refuses parse-error at 1:21
+
+// case: syntax.expr.for.plain/alt/swap:10
+refuses parse-error at 1:24
+
+// case: syntax.expr.for.borrow/alt/drop:12
+refuses parse-error at 1:36
+
+// case: syntax.expr.for.borrow/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.expr.for.borrow/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.for.borrow/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.pat.pattern.wildcard/alt/drop:14
+refuses parse-error at 2:1
+
+// case: syntax.pat.pattern.wildcard/alt/dup:9
+refuses parse-error at 1:27
+
+// case: syntax.pat.pattern.wildcard/alt/swap:7
+refuses parse-error at 1:26
+
+// case: syntax.pat.pattern.wildcard/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.pat.pattern.literal/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.pat.pattern.literal/alt/dup:12
+refuses parse-error at 1:37
+
+// case: syntax.pat.pattern.literal/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.pat.pattern.literal/alt/close:13
+refuses parse-error at 2:1
+
+// case: syntax.pat.pattern.range/alt/drop:11
+refuses parse-error at 1:31
+
+// case: syntax.pat.pattern.range/alt/dup:14
+refuses parse-error at 1:39
+
+// case: syntax.pat.pattern.range/alt/swap:8
+refuses parse-error at 1:21
+
+// case: syntax.pat.pattern.range/alt/close:16
+refuses parse-error at 2:1
+
+// case: syntax.pat.pattern.tuple/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.pat.pattern.tuple/alt/dup:12
+refuses parse-error at 1:33
+
+// case: syntax.pat.pattern.tuple/alt/swap:9
+refuses parse-error at 1:27
+
+// case: syntax.pat.pattern.tuple/alt/close:15
+refuses parse-error at 2:1
+
+// case: syntax.pat.pattern.variant/alt/drop:15
+refuses parse-error at 2:1
+
+// case: syntax.pat.pattern.variant/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.pat.pattern.variant/alt/swap:6
+refuses parse-error at 1:17
+
+// case: syntax.pat.pattern.variant/alt/close:12
+refuses parse-error at 1:31
+
+// case: syntax.pat.pattern.name/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.pat.pattern.name/alt/close:14
+refuses parse-error at 2:1
+
+// case: syntax.pat.pattern.none/alt/drop:9
+refuses parse-error at 1:29
+
+// case: syntax.pat.pattern.none/alt/dup:8
+refuses parse-error at 1:24
+
+// case: syntax.pat.pattern.none/alt/swap:12
+refuses parse-error at 1:36
+
+// case: syntax.pat.pattern.none/alt/close:13
+refuses parse-error at 2:1
+
+// case: syntax.pat.wildcard/alt/drop:8
+refuses parse-error at 1:22
+
+// case: syntax.pat.wildcard/alt/dup:13
+refuses parse-error at 1:38
+
+// case: syntax.pat.wildcard/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.pat.literal.int/alt/drop:14
+refuses parse-error at 2:1
+
+// case: syntax.pat.literal.int/alt/dup:1
+refuses parse-error at 1:6
+
+// case: syntax.pat.literal.int/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.pat.literal.negative-int/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.pat.literal.negative-int/alt/dup:12
+refuses parse-error at 1:34
+
+// case: syntax.pat.literal.negative-int/alt/swap:12
+refuses parse-error at 1:32
+
+// case: syntax.pat.literal.negative-int/alt/close:14
+refuses parse-error at 2:1
+
+// case: syntax.pat.literal.string/alt/drop:4
+refuses parse-error at 1:10
+
+// case: syntax.pat.literal.string/alt/dup:6
+refuses parse-error at 1:44
+
+// case: syntax.pat.literal.string/alt/swap:11
+refuses parse-error at 1:32
+
+// case: syntax.pat.literal.string/alt/close:14
+refuses parse-error at 2:1
+
+// case: syntax.pat.literal.true/alt/drop:11
+refuses parse-error at 1:34
+
+// case: syntax.pat.literal.true/alt/dup:3
+refuses parse-error at 1:9
+
+// case: syntax.pat.literal.false/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.pat.literal.false/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.pat.literal.false/alt/swap:12
+refuses parse-error at 1:37
+
+// case: syntax.pat.literal.false/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.pat.range.exclusive/alt/drop:12
+refuses parse-error at 1:34
+
+// case: syntax.pat.range.exclusive/alt/dup:9
+refuses parse-error at 1:27
+
+// case: syntax.pat.range.exclusive/alt/swap:11
+refuses parse-error at 1:30
+
+// case: syntax.pat.range.exclusive/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.pat.range.inclusive/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.pat.range.inclusive/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.pat.range.inclusive/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.pat.range.inclusive/alt/close:16
+refuses parse-error at 2:1
+
+// case: syntax.pat.int.positive/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.pat.int.positive/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.pat.int.positive/alt/close:15
+refuses parse-error at 2:1
+
+// case: syntax.pat.int.negative/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.pat.int.negative/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.pat.int.negative/alt/swap:13
+refuses parse-error at 1:35
+
+// case: syntax.pat.int.negative/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.pat.tuple.positional/alt/dup:11
+refuses parse-error at 1:29
+
+// case: syntax.pat.tuple.positional/alt/swap:9
+refuses parse-error at 1:24
+
+// case: syntax.pat.tuple.positional/alt/close:14
+refuses parse-error at 2:1
+
+// case: syntax.pat.variant/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.pat.variant/alt/dup:10
+refuses parse-error at 1:29
+
+// case: syntax.pat.variant/alt/swap:14
+refuses parse-error at 1:35
+
+// case: syntax.pat.variant/alt/close:16
+refuses parse-error at 2:1
+
+// case: syntax.pat.payload.pattern/alt/drop:15
+refuses parse-error at 1:37
+
+// case: syntax.pat.payload.pattern/alt/dup:9
+refuses parse-error at 1:27
+
+// case: syntax.pat.payload.pattern/alt/swap:6
+refuses parse-error at 1:17
+
+// case: syntax.pat.payload.pattern/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.pat.payload.borrow/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.pat.payload.borrow/alt/dup:16
+refuses parse-error at 1:46
+
+// case: syntax.pat.payload.borrow/alt/swap:6
+refuses parse-error at 1:17
+
+// case: syntax.pat.payload.borrow/alt/close:19
+refuses parse-error at 2:1
+
+// case: syntax.pat.name/alt/dup:9
+refuses parse-error at 1:27
+
+// case: syntax.pat.name/alt/swap:11
+refuses parse-error at 1:30
+
+// case: syntax.pat.none/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.pat.none/alt/dup:10
+refuses parse-error at 1:32
+
+// case: syntax.pat.none/alt/swap:10
+refuses parse-error at 1:28
+
+// case: syntax.pat.none/alt/close:14
+refuses parse-error at 2:1
+
+// case: syntax.borrow.block/alt/drop:9
+refuses parse-error at 1:27
+
+// case: syntax.borrow.block/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.borrow.block/alt/swap:10
+refuses parse-error at 1:12
+
+// case: syntax.borrow.block/alt/close:13
+refuses parse-error at 2:1
+
+// case: syntax.borrow.binding.let/alt/drop:2
+refuses parse-error at 1:7
+
+// case: syntax.borrow.binding.let/alt/swap:7
+refuses parse-error at 1:20
+
+// case: syntax.borrow.binding.var/alt/drop:11
+refuses parse-error at 1:33
+
+// case: syntax.borrow.binding.var/alt/dup:6
+refuses parse-error at 1:19
+
+// case: syntax.borrow.binding.var/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.borrow.binding.var/alt/close:13
+refuses parse-error at 2:1
+
+// case: syntax.borrow.place.let/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.borrow.place.let/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.borrow.place.var/alt/drop:8
+refuses parse-error at 1:25
+
+// case: syntax.borrow.place.var/alt/dup:9
+refuses parse-error at 1:27
+
+// case: syntax.borrow.place.var/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.borrow.place.var/alt/close:9
+refuses parse-error at 2:1
+
+// case: syntax.borrow.optional-target/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.borrow.optional-target/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.borrow.optional-target/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.borrow.optional-target/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.borrow.unwrap.let/alt/drop:5
+refuses parse-error at 1:12
+
+// case: syntax.borrow.unwrap.let/alt/dup:10
+refuses parse-error at 1:30
+
+// case: syntax.borrow.unwrap.let/alt/swap:12
+refuses parse-error at 1:33
+
+// case: syntax.borrow.unwrap.let/alt/close:14
+refuses parse-error at 2:1
+
+// case: syntax.borrow.unwrap.var/alt/drop:9
+refuses parse-error at 1:28
+
+// case: syntax.borrow.unwrap.var/alt/dup:5
+refuses parse-error at 2:1
+
+// case: syntax.borrow.unwrap.var/alt/swap:4
+refuses parse-error at 1:9
+
+// case: syntax.borrow.unwrap.var/alt/close:14
+refuses parse-error at 2:1
+
+// case: syntax.borrow.for.let/alt/drop:10
+refuses parse-error at 1:31
+
+// case: syntax.borrow.for.let/alt/dup:7
+refuses parse-error at 1:23
+
+// case: syntax.borrow.for.let/alt/close:13
+refuses parse-error at 2:1
+
+// case: syntax.borrow.for.var/alt/drop:8
+refuses parse-error at 1:25
+
+// case: syntax.borrow.for.var/alt/dup:10
+refuses parse-error at 1:32
+
+// case: syntax.borrow.for.var/alt/swap:3
+refuses parse-error at 1:8
+
+// case: syntax.borrow.for.var/alt/close:13
+refuses parse-error at 2:1
+
+// case: syntax.pat.borrow-binding.let/alt/drop:1
+refuses parse-error at 1:3
+
+// case: syntax.pat.borrow-binding.let/alt/dup:12
+refuses parse-error at 1:36
+
+// case: syntax.pat.borrow-binding.let/alt/swap:2
+refuses parse-error at 1:7
+
+// case: syntax.pat.borrow-binding.let/alt/close:4
+refuses parse-error at 1:10
+
+// case: syntax.pat.borrow-binding.var/alt/drop:12
+refuses parse-error at 1:31
+
+// case: syntax.pat.borrow-binding.var/alt/dup:11
+refuses parse-error at 1:38
+
+// case: syntax.pat.borrow-binding.var/alt/swap:17
+refuses parse-error at 1:47
+
+// case: syntax.pat.borrow-binding.var/alt/close:4
+refuses parse-error at 1:10

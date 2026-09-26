@@ -1,0 +1,26 @@
+// case: syntax.rule.generic-or-less/list-followed-by-a-line-break
+refuses syntax.rule.generic-or-less at 2:14
+
+// case: syntax.rule.generic-or-less/shift-in-a-list-compares-into-a-chain
+refuses syntax.expr.refused-compare-chain
+
+// case: syntax.rule.generic-or-less/error-inside-a-kept-list-is-reported
+refuses syntax.generic.refused-arg-comma
+
+// case: syntax.rule.generic-or-less/cast-target-list-before-a-token-no-cast-takes
+refuses parse-error at 4:26
+
+// case: syntax.rule.generic-close-split/no-split-in-an-expression
+refuses parse-error at 2:12
+
+// case: syntax.rule.generic-close-split/no-split-after-a-cast-target
+refuses syntax.expr.refused-compare-chain
+
+// case: syntax.rule.generic-close-split/shift-assign-closing-one-list
+refuses parse-error at 4:22
+
+// case: syntax.rule.generic-arg-value/shift-in-a-type-list
+refuses parse-error at 2:16
+
+// case: syntax.generic.refused-param-comma/trailing-comma-in-a-parameter-list
+refuses syntax.generic.refused-param-comma

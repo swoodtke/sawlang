@@ -1,0 +1,215 @@
+// case: syntax.rule.borrow-form/identifier-when-no-let-or-var-follows
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName borrow) (IntLit 1))
+        (Let.immutable
+          (BindingName b)
+          (Binary (Name borrow) + (IntLit 1)))
+        (ExprStmt
+          (Call.paren
+            (Name borrow)
+            (Arg.positional (Name x))))
+        (ExprStmt
+          (Call.paren
+            (Member (Name borrow) run)))))))
+
+// case: syntax.rule.borrow-form/block-binds-a-name
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let
+              (BindingName e)
+              (Subscript.single (Name v) (Name i)))
+            (Block
+              (ExprStmt
+                (Call.paren
+                  (Name g)
+                  (Arg.positional (Name e)))))))
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.var
+              (BindingName e)
+              (Subscript.single (Name m) (Name k)))
+            (BorrowBinding.let
+              (BindingName s)
+              (Subscript.single (Name n) (IntLit 0)))
+            (Block
+              (ExprStmt
+                (Call.paren
+                  (Member (Name e) push)
+                  (Arg.positional (Name s)))))))))))
+
+// case: syntax.rule.borrow-form/block-binds-a-tuple-pattern
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let
+              (TuplePat.positional (NamePat a) (NamePat b))
+              (Call.paren
+                (Name pair_of)
+                (Arg.positional (Name v))))
+            (Block
+              (ExprStmt
+                (Call.paren
+                  (Name g)
+                  (Arg.positional (Name a))
+                  (Arg.positional (Name b)))))))))))
+
+// case: syntax.rule.borrow-form/unwrap-at-an-if-head
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (BorrowArm.var
+              (BindingName x)
+              (Call.paren
+                (Member (Name m) find)
+                (Arg.positional
+                  (Ref.shared (Name k)))))
+            (Block
+              (ExprStmt
+                (Call.paren
+                  (Member (Name x) bump))))
+            (IfArm
+              (BorrowArm.let
+                (BindingName y)
+                (Call.paren
+                  (Member (Name n) find)
+                  (Arg.positional
+                    (Ref.shared (Name k)))))
+              (Block
+                (ExprStmt
+                  (Call.paren
+                    (Name g)
+                    (Arg.positional (Name y))))))))))))
+
+// case: syntax.rule.borrow-form/place-form
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign
+          (BorrowPlace.var
+            (Subscript.single (Name v) (Name i)))
+          (IntLit 1))
+        (ExprStmt
+          (Call.paren
+            (Name g)
+            (Arg.positional
+              (BorrowPlace.let
+                (Subscript.single (Name v) (Name i))))
+            (Arg.positional
+              (BorrowPlace.var
+                (Member (Name w) x)))))
+        (CompoundAssign
+          (BorrowPlace.var
+            (Member
+              (Call.paren
+                (Member (Name c) slot)
+                (Arg.positional (Name i)))
+              n))
+          +=
+          (IntLit 1))))))
+
+// case: syntax.rule.borrow-form/for-binds-the-loop-name
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.borrow
+            (ForBorrow.let (BindingName e) (Name v) (Block))))
+        (ExprStmt
+          (For.borrow
+            (ForBorrow.var (BindingName e) (Name v) (Block))))))))
+
+// case: syntax.rule.borrow-form/optional-chain-write
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (OptionalAssign.borrow-plain
+          (BorrowPlace
+            (OptionalChain
+              (OptionalMember
+                (Call.paren
+                  (Member (Name m) find)
+                  (Arg.positional
+                    (Ref.shared (Name k))))
+                field)))
+          (Name v))
+        (OptionalAssign.borrow-compound
+          (BorrowPlace
+            (OptionalChain
+              (OptionalMember
+                (Call.paren
+                  (Member (Name m) find)
+                  (Arg.positional
+                    (Ref.shared (Name k))))
+                count)))
+          +=
+          (IntLit 1))))))
+
+// case: syntax.rule.borrow-extent/coalesce-of-a-borrowed-read
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName s)
+          (Coalesce
+            (BorrowPlace.let
+              (Call.paren
+                (Member
+                  (Call.paren
+                    (Member (Name doc) section_at)
+                    (Arg.positional (Name x)))
+                  get)
+                (Arg.positional (StringLit "k"))))
+            ??
+            (StringLit "")))))))
+
+// case: syntax.rule.borrow-extent/assignment-between-place-forms
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign
+          (BorrowPlace.var
+            (Member
+              (Subscript.single (Name v) (Name i))
+              x))
+          (BorrowPlace.let
+            (Member
+              (Subscript.single (Name v) (Name j))
+              x)))))))
+
+// case: syntax.rule.borrow-extent/tighter-than-a-cast-and-operators
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName n)
+          (Cast
+            (BorrowPlace.let
+              (Subscript.single (Name v) (Name i)))
+            as
+            (NamedType (Path Int))))
+        (Let.immutable
+          (BindingName m)
+          (Binary
+            (BorrowPlace.let
+              (Subscript.single (Name v) (Name i)))
+            +
+            (IntLit 1)))))))

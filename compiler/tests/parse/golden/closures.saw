@@ -1,0 +1,215 @@
+// case: syntax.rule.trailing-closure/bare-on-a-name
+func f() {
+    run { 10 }
+}
+
+// case: syntax.rule.trailing-closure/on-a-name-with-generic-arguments
+func f() {
+    run<T> { 10 }
+}
+
+// case: syntax.rule.trailing-closure/on-a-member
+func f() {
+    let d = v.map { $0 * 2 }
+}
+
+// case: syntax.rule.trailing-closure/on-an-optional-member
+func f() {
+    let d = v?.map { $0 * 2 }
+}
+
+// case: syntax.rule.trailing-closure/on-an-implicit-member
+func f() {
+    let r: R = .Run { 1 }
+}
+
+// case: syntax.rule.trailing-closure/after-an-argument-list
+// `foo() { }` attaches to `foo`: one call node with both.
+func f() {
+    foo(1) { 2 }
+}
+
+// case: syntax.rule.trailing-closure/line-break-before-the-brace-ends-the-call
+func f() {
+    run
+    { 10 }
+}
+
+// case: syntax.rule.trailing-closure/general-callee-takes-a-parenthesized-closure
+func f() {
+    foo()(1)({ 2 })
+}
+
+// case: syntax.rule.head-restriction/closure-argument-in-a-head
+func f() {
+    if v.any({ $0 }) {
+    }
+    while v.any({ $0 }) {
+    }
+    guard v.any({ $0 }) else {
+        return
+    }
+}
+
+// case: syntax.rule.head-restriction/brace-after-a-head-name-begins-the-body
+func f() {
+    for x in items {
+        g(x)
+    }
+    match mode {
+        case _ -> 1
+    }
+    if let x = y {
+    }
+}
+
+// case: syntax.rule.head-restriction/generic-list-in-a-head-kept-by-a-call
+// The `{` that begins the body keeps no list; a `(` does.
+func f() {
+    if a<b>() {
+    }
+}
+
+// case: syntax.rule.head-reset/inside-parentheses
+func f() {
+    if (v.any { $0 > 1 }) {
+    }
+}
+
+// case: syntax.rule.head-reset/inside-an-argument-list
+func f() {
+    if f(v.map { $0 }) {
+    }
+}
+
+// case: syntax.rule.head-reset/inside-a-subscript
+func f() {
+    while a[v.first { $0 }] {
+    }
+}
+
+// case: syntax.rule.head-reset/inside-an-array-and-a-tuple
+func f() {
+    for x in [v.map { $0 }, (w.map { $0 }, 1).0] {
+    }
+}
+
+// case: syntax.rule.head-reset/inside-an-interpolation-segment
+func f() {
+    if "{v.map { $0 }}" == s {
+    }
+}
+
+// case: syntax.rule.head-reset/inside-a-closure-body
+func f() {
+    if v.all({ x in x.any { $0 } }) {
+    }
+}
+
+// case: syntax.rule.head-reset/inside-a-nested-match
+func f() {
+    while match mode { case Draining -> queue.any { $0.urgent }, case _ -> false } { step() }
+}
+
+// case: syntax.rule.head-reset/inside-a-nested-if-block
+func f() {
+    if if c { v.any { $0 } } else { false } {
+    }
+}
+
+// case: syntax.rule.head-reset/inside-try-and-catch-blocks-in-a-head
+func f() {
+    while try { v.any { $0 } } catch { w.any { $0 } } {
+    }
+}
+
+// case: syntax.rule.head-reset/inside-a-loop-body-in-a-head
+func f() {
+    if for x in v { x.each { $0 } } == () {
+    }
+}
+
+// case: syntax.rule.head-reset/inside-a-while-body-in-a-head
+func f() {
+    if while a { v.each { $0 } } == () {
+    }
+}
+
+// case: syntax.rule.head-reset/inside-a-borrow-block-in-a-head
+func f() {
+    if borrow let e = m[k] { e.all { $0 } } {
+    }
+}
+
+// case: syntax.rule.brace/empty-map
+func f() {
+    let m = {:}
+}
+
+// case: syntax.rule.brace/closure-with-a-parameter-head
+func f() {
+    let c = { n in n + 1 }
+    let d = { n: Int in n + 1 }
+    let e = { &var acc, x in acc }
+}
+
+// case: syntax.rule.brace/closure-with-a-capture-list
+func f() {
+    let d = { [a] in a }
+    let e = { [a, move b] n: Int in n + a }
+}
+
+// case: syntax.rule.brace/map-by-its-first-colon
+func f() {
+    let g = { a: 1, b: 2 }
+}
+
+// case: syntax.rule.brace/set-by-its-first-comma
+func f() {
+    let h = { a, b }
+}
+
+// case: syntax.rule.brace/empty-braces-and-a-lone-expression-are-closures
+func f() {
+    let i = {}
+    let j = { a }
+}
+
+// case: syntax.rule.brace/comma-inside-a-call-leaves-a-closure
+// The comma is inside the call's parentheses, not at the brace's own level.
+func f() {
+    let c = { g(a, b) }
+}
+
+// case: syntax.rule.brace/colon-inside-a-call-leaves-a-closure
+func f() {
+    let c = { g(a: 1) }
+}
+
+// case: syntax.rule.brace/statement-body-is-a-closure
+func f() {
+    let l = {
+        let x = 1
+        x
+    }
+}
+
+// case: syntax.rule.brace/arm-body-brace-is-a-block
+func f() {
+    match n {
+        case _ -> { a }
+    }
+}
+
+// case: syntax.rule.brace/parenthesized-closure-in-an-arm-body
+func f() {
+    match n {
+        case 0 -> ({ a })
+        case _ -> ({ a: 1 })
+    }
+}
+
+// case: syntax.rule.brace/statement-start-brace-is-a-closure
+func f() {
+    { a }
+}

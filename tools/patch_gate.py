@@ -61,6 +61,8 @@ PARTS = (
 # Checks each changed .saw file against the recorded verdicts when the full
 # grammar corpus does not run; its command takes the files.
 CHANGED_SAW = "grammar: changed .saw files"
+# The parser corpus, whose case files corpus.py skips too.
+PARSE_CORPUS = "compiler/tests/parse/"
 
 
 def git(*args):
@@ -126,12 +128,14 @@ def plan(paths, source):
 
 
 def _changed_saw(paths, decisions):
-    """The per-file grammar check, which the full corpus run makes redundant."""
+    """The per-file grammar check, which the full corpus run makes redundant.
+    The parser corpus's case files are the parse lane's, which the compiler
+    tests run on every patch."""
     if any(name == "grammar corpus" and run for name, run, _, _ in decisions):
         return (CHANGED_SAW, False, "the full grammar corpus runs", None)
-    saw = sorted(p for p in paths if p.endswith(".saw"))
+    saw = sorted(p for p in paths if p.endswith(".saw") and not p.startswith(PARSE_CORPUS))
     if not saw:
-        return (CHANGED_SAW, False, "no .saw file changed", None)
+        return (CHANGED_SAW, False, "no .saw file changed outside %s" % PARSE_CORPUS, None)
     shown = ", ".join(saw[:5]) + (", ..." if len(saw) > 5 else "")
     return (CHANGED_SAW, True, "%d changed: %s" % (len(saw), shown), [GRAMMAR_CORPUS] + saw)
 

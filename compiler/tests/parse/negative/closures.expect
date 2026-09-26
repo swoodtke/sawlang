@@ -1,0 +1,26 @@
+// case: syntax.rule.trailing-closure/on-a-call-result
+refuses syntax.rule.trailing-closure at 2:14
+
+// case: syntax.rule.trailing-closure/on-a-called-closure
+refuses syntax.rule.trailing-closure at 2:21
+
+// case: syntax.rule.trailing-closure/second-trailing-closure
+refuses syntax.rule.trailing-closure at 2:21
+
+// case: syntax.rule.trailing-closure/on-a-subscript
+refuses syntax.rule.trailing-closure at 2:10
+
+// case: syntax.rule.head-restriction/trailing-closure-in-a-guard-condition
+refuses syntax.rule.head-restriction at 2:17
+
+// case: syntax.rule.head-restriction/trailing-closure-on-a-match-scrutinee
+refuses syntax.rule.head-restriction at 2:13
+
+// case: syntax.rule.head-restriction/trailing-closure-in-an-arm-guard
+refuses syntax.rule.head-restriction at 3:25
+
+// case: syntax.rule.head-restriction/generic-list-kept-by-the-body-brace
+refuses syntax.rule.head-restriction at 2:13
+
+// case: syntax.rule.head-reset/only-inside-the-nested-block
+refuses syntax.rule.head-restriction at 4:39

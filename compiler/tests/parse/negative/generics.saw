@@ -1,0 +1,49 @@
+// case: syntax.rule.generic-or-less/list-followed-by-a-line-break
+func f() {
+    let x = a<b>
+}
+
+// case: syntax.rule.generic-or-less/shift-in-a-list-compares-into-a-chain
+// A shift is not in the constant grammar, so `FixedBuf<1 << 4>()` compares,
+// and the comparisons make a chain.
+func f() {
+    let v = FixedBuf<1 << 4>()
+}
+
+// case: syntax.rule.generic-or-less/error-inside-a-kept-list-is-reported
+func f() {
+    let v = f<T,>()
+}
+
+// case: syntax.rule.generic-or-less/cast-target-list-before-a-token-no-cast-takes
+// The list parses, but `c` cannot follow a cast, so the `<` compares and the
+// comparison reading fails.
+func f() {
+    let t = x as T<a, b> c
+}
+
+// case: syntax.rule.generic-close-split/no-split-in-an-expression
+func f() {
+    x = a<b>>= 1
+}
+
+// case: syntax.rule.generic-close-split/no-split-after-a-cast-target
+func f() {
+    x = n as Vector<Int>= w
+}
+
+// case: syntax.rule.generic-close-split/shift-assign-closing-one-list
+// The first `>` of `>>=` closes the list; no list is left for the next, so
+// `>=` stands.
+func f() {
+    let v: Vector<Int>>= w
+}
+
+// case: syntax.rule.generic-arg-value/shift-in-a-type-list
+func f() {
+    let v: A<1 << 4> = w
+}
+
+// case: syntax.generic.refused-param-comma/trailing-comma-in-a-parameter-list
+func f<T,>() {
+}

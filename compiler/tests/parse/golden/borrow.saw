@@ -1,0 +1,70 @@
+// case: syntax.rule.borrow-form/identifier-when-no-let-or-var-follows
+func f() {
+    let borrow = 1
+    let b = borrow + 1
+    borrow(x)
+    borrow.run()
+}
+
+// case: syntax.rule.borrow-form/block-binds-a-name
+func f() {
+    borrow let e = v[i] {
+        g(e)
+    }
+    borrow var e = m[k], let s = n[0] {
+        e.push(s)
+    }
+}
+
+// case: syntax.rule.borrow-form/block-binds-a-tuple-pattern
+func f() {
+    borrow let (a, b) = pair_of(v) {
+        g(a, b)
+    }
+}
+
+// case: syntax.rule.borrow-form/unwrap-at-an-if-head
+func f() {
+    if borrow var x = m.find(&k) {
+        x.bump()
+    } else if borrow let y = n.find(&k) {
+        g(y)
+    }
+}
+
+// case: syntax.rule.borrow-form/place-form
+func f() {
+    borrow var v[i] = 1
+    g(borrow let v[i], borrow var w.x)
+    borrow var c.slot(i).n += 1
+}
+
+// case: syntax.rule.borrow-form/for-binds-the-loop-name
+func f() {
+    for borrow let e in v {
+    }
+    for borrow var e in v {
+    }
+}
+
+// case: syntax.rule.borrow-form/optional-chain-write
+func f() {
+    borrow var m.find(&k)?.field = v
+    borrow var m.find(&k)?.count += 1
+}
+
+// case: syntax.rule.borrow-extent/coalesce-of-a-borrowed-read
+func f() {
+    let s = borrow let doc.section_at(x).get("k") ?? ""
+}
+
+// case: syntax.rule.borrow-extent/assignment-between-place-forms
+func f() {
+    borrow var v[i].x = borrow let v[j].x
+}
+
+// case: syntax.rule.borrow-extent/tighter-than-a-cast-and-operators
+func f() {
+    let n = borrow let v[i] as Int
+    let m = borrow let v[i] + 1
+}

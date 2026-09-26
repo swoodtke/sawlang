@@ -1,0 +1,146 @@
+// case: syntax.rule.static-head/effect-word-after-static-before-func
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.rule.static-head/effect-word-after-static-in-an-extension
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.rule.static-head/effect-word-after-static-before-init
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.rule.static-head/effect-word-after-static-before-a-visibility
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.rule.static-head/effect-word-after-static-before-static
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.rule.static-head/effect-word-after-static-before-an-effect-word
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.rule.static-head/static-field-in-an-extension
+refuses parse-error at 2:12
+
+// case: syntax.rule.contextual-words/const-local
+refuses syntax.stmt.refused-local-const
+
+// case: syntax.rule.contextual-words/const-top-level-item
+refuses syntax.decl.refused-const
+
+// case: syntax.rule.contextual-words/effect-word-before-func
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.rule.contextual-words/const-before-func
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.rule.contextual-words/effect-word-before-init-in-an-extension
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.rule.contextual-words/effect-word-before-a-visibility
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.rule.contextual-words/effect-word-before-static
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.rule.contextual-words/effect-word-before-an-effect-word
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.rule.contextual-words/constexpr-before-func
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.rule.contextual-words/static-assert-arm-without-a-message
+refuses syntax.rule.contextual-words at 3:19
+
+// case: syntax.rule.contextual-words/static-assert-compound-assigned-to
+refuses syntax.rule.contextual-words at 2:5
+
+// case: syntax.rule.contextual-words/static-assert-member-assigned-to
+refuses syntax.rule.contextual-words at 2:5
+
+// case: syntax.rule.contextual-words/static-assert-optional-member-assigned-to
+refuses syntax.rule.contextual-words at 2:5
+
+// case: syntax.rule.contextual-words/static-assert-arm-assigned-to
+refuses syntax.rule.contextual-words at 3:19
+
+// case: syntax.rule.contextual-words/local-type-alias
+refuses syntax.stmt.refused-local-type-alias
+
+// case: syntax.rule.effect-slot/consumes-on-a-free-function
+refuses syntax.rule.effect-slot at 1:16
+
+// case: syntax.rule.effect-slot/consumes-on-a-shared-receiver
+refuses syntax.rule.effect-slot at 2:19
+
+// case: syntax.rule.effect-slot/borrows-on-an-init
+refuses syntax.rule.effect-slot at 2:18
+
+// case: syntax.rule.effect-slot/declaration-word-written-twice
+refuses parse-error at 1:15
+
+// case: syntax.rule.effect-slot/declaration-words-out-of-order
+refuses parse-error at 1:15
+
+// case: syntax.rule.effect-slot/escaping-on-a-declaration
+refuses syntax.decl.refused-escaping
+
+// case: syntax.rule.effect-slot/unsafe-before-func
+refuses syntax.decl.refused-effect-prefix
+
+// case: syntax.rule.attribute-position/align-on-a-function
+refuses syntax.rule.attribute-position at 1:1
+
+// case: syntax.rule.attribute-position/repeated-attribute
+refuses syntax.rule.attribute-position at 2:1
+
+// case: syntax.rule.attribute-position/synthesize-shared-on-a-top-level-function
+refuses syntax.rule.attribute-position at 1:1
+
+// case: syntax.rule.attribute-position/export-on-a-local
+refuses syntax.rule.attribute-position at 2:5
+
+// case: syntax.rule.attribute-position/synthesize-on-a-function
+refuses syntax.rule.attribute-position at 1:1
+
+// case: syntax.rule.attribute-position/unknown-attribute
+refuses parse-error at 1:2
+
+// case: syntax.rule.attribute-position/wrong-argument-shape
+refuses parse-error at 1:9
+
+// case: syntax.rule.attribute-position/align-on-a-destructuring-local
+refuses parse-error at 2:19
+
+// case: syntax.rule.receiver-and-static/method-without-a-receiver
+refuses syntax.rule.receiver-and-static at 2:5
+
+// case: syntax.rule.receiver-and-static/static-method-with-a-receiver
+refuses syntax.rule.receiver-and-static at 2:19
+
+// case: syntax.rule.receiver-and-static/receiver-not-first
+refuses syntax.rule.receiver-and-static at 2:20
+
+// case: syntax.rule.receiver-and-static/receiver-on-a-free-function
+refuses syntax.rule.receiver-and-static at 1:8
+
+// case: syntax.rule.receiver-and-static/receiver-on-an-init
+refuses syntax.rule.receiver-and-static at 2:10
+
+// case: syntax.rule.receiver-and-static/requirement-without-a-receiver
+refuses syntax.rule.receiver-and-static at 2:5
+
+// case: syntax.rule.receiver-and-static/by-value-receiver
+refuses syntax.decl.refused-receiver
+
+// case: syntax.rule.extern-abi/abi-other-than-c
+refuses syntax.rule.extern-abi at 1:8
+
+// case: syntax.rule.requirement-borrows/consumes-on-a-requirement
+refuses syntax.rule.requirement-borrows at 2:23
+
+// case: syntax.rule.import-names/name-bound-twice-by-an-alias
+refuses syntax.rule.import-names at 1:14
+
+// case: syntax.rule.import-names/name-listed-twice
+refuses syntax.rule.import-names at 1:14
+
+// case: syntax.rule.discard-binding/var-discard
+refuses syntax.stmt.refused-var-discard

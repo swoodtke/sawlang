@@ -1,0 +1,74 @@
+// case: syntax.rule.test-form/string-makes-a-case
+@test "adds two numbers" {
+    assert(1 + 1 == 2)
+}
+
+// case: syntax.rule.test-form/brace-makes-a-group
+@test {
+    import helpers
+    func helper() -> Int {
+        1
+    }
+    @test "uses the helper" {
+        assert(helper() == 1)
+    }
+}
+
+// case: syntax.rule.test-form/declaration-becomes-test-only
+@test
+func helper() -> Int {
+    1
+}
+
+@test import helpers
+
+// case: syntax.rule.test-form/panics-warns-and-refuses-on-a-case
+@test(panics: "index.bounds") "out of range" {
+    let v = [1]
+    v[2]
+}
+
+@test(warns: "shadowed-qualifier") "warns" {
+}
+
+@test(warns: none) "warns nothing" {
+}
+
+@test(refuses: "syntax.rule.juxtaposition", text: "two statements", at: 2) "refused" {
+    x = 1 y
+}
+
+// case: syntax.rule.test-form/documented-test-only-declaration
+/// A test-only helper.
+@test
+func helper() {
+}
+
+// case: syntax.rule.test-form/test-before-other-attributes
+@test
+@export
+func f() {
+}
+
+// case: syntax.rule.refusal-body/body-is-matched-by-braces
+@test(refuses: "syntax.rule.statement-separator") "a stray semicolon" {
+    let x = 1;
+    { nested { } }
+}
+
+// case from refusal-unit: syntax.rule.refusal-body/statements-parse-in-a-test-build
+let a: Int = "text"
+a.push(1)
+
+// case from refusal-unit: syntax.rule.refusal-body/declarations-parse-in-a-test-build
+struct Q {
+    x: Int
+}
+func g() {
+}
+
+// case from refusal-unit: syntax.rule.refusal-body/declarations-and-statements-mix
+func g() {
+}; g(); let x = 1
+
+// case from refusal-unit: syntax.rule.refusal-body/empty-body

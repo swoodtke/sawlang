@@ -1,0 +1,109 @@
+// case: syntax.rule.arm-body/block
+func f() {
+    match n {
+        case 0 -> {
+            g()
+            h()
+        }
+    }
+}
+
+// case: syntax.rule.arm-body/expression
+func f() -> Int {
+    match n {
+        case 0 -> a + 1
+        case _ -> g(a)
+    }
+}
+
+// case: syntax.rule.arm-body/statement
+func f() {
+    match n {
+        case 0 -> x = 1
+        case 1 -> x += 1
+        case 2 -> let y = 5
+        case 3 -> guard ok else { return }
+        case _ -> return
+    }
+}
+
+// case: syntax.rule.arm-body/closure-map-and-set-in-parentheses
+func f() {
+    match n {
+        case 0 -> ({ a })
+        case 1 -> ({ a: 1 })
+        case _ -> ({ a, b })
+    }
+}
+
+// case: syntax.rule.arm-statement-end/case-ends-a-return
+func f() {
+    match n {
+        case 0 -> return case _ -> 1
+    }
+}
+
+// case: syntax.rule.arm-statement-end/comma-ends-a-break
+func f() {
+    while true {
+        match n { case 0 -> break, case _ -> g() }
+    }
+}
+
+// case: syntax.rule.arm-statement-end/return-takes-an-operand-before-a-comma
+func f() -> Int {
+    match n {
+        case 0 -> return 1, case _ -> 2
+    }
+}
+
+// case: syntax.rule.arm-statement-end/arms-with-nothing-between
+func f() {
+    match n { case 0 -> a case _ -> b }
+}
+
+// case: syntax.rule.flat-else-if/one-node-with-every-arm
+func f() {
+    if a {
+        g()
+    } else if b {
+        h()
+    } else if let x = c {
+        g(x)
+    } else if borrow var y = d.find(&k) {
+        y.bump()
+    } else {
+        h()
+    }
+}
+
+// case: syntax.rule.try-block/try-then-a-brace
+func f() {
+    try {
+        g()
+    } catch {
+        h()
+    }
+}
+
+// case: syntax.rule.try-block/try-applied-to-a-parenthesized-closure
+func f() {
+    let v = try ({ g() })()
+}
+
+// case: syntax.rule.try-route-case/enum-and-case
+func f() {
+    let n = try(as ConfigError.Alloc) parse()
+    let m = try(as cfg.ConfigError.Alloc) parse()
+}
+
+// case: syntax.rule.name-pattern/wildcard-name-and-variant
+func f() {
+    match v {
+        case _ -> 0
+        case x -> 1
+        case Some(y) -> 2
+        case Pair(_, z) -> 3
+        case Empty() -> 4
+    }
+}

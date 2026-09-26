@@ -1,0 +1,151 @@
+// case: syntax.rule.paren-type/function-type
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (FuncType
+            (NamedType (Path Int))
+            (NamedType (Path Int)))
+          (Name w))
+        (Let.immutable
+          (BindingName b)
+          (FuncType
+            (NamedType (Path Void)))
+          (Name w))
+        (Let.immutable
+          (BindingName c)
+          (FuncType
+            (NamedType (Path Int))
+            (NamedType (Path Int))
+            unsafe
+            sync
+            (NamedType (Path Int)))
+          (Name w))))))
+
+// case: syntax.rule.paren-type/empty-tuple
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName e) (TupleType.unit) (Name w))))))
+
+// case: syntax.rule.paren-type/tuple-with-a-comma-or-labels
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName t)
+          (TupleType.positional
+            (NamedType (Path Int))
+            (NamedType (Path Int)))
+          (Name w))
+        (Let.immutable
+          (BindingName n)
+          (TupleType.named
+            (TupleField x
+              (NamedType (Path Int)))
+            (TupleField y
+              (NamedType (Path Int))))
+          (Name w))))))
+
+// case: syntax.rule.paren-type/one-element-tuple
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName t)
+          (TupleType
+            (NamedType (Path Int)))
+          (Name w))))))
+
+// case: syntax.rule.paren-type/parentheses-group
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName g)
+          (NamedType (Path Int))
+          (Name w))
+        (Let.immutable
+          (BindingName o)
+          (OptionalType
+            (FuncType
+              (NamedType (Path Int))
+              (NamedType (Path Int))))
+          (Name w))))))
+
+// case: syntax.rule.prefix-type-suffix/reference-to-an-optional
+(File
+  (Declaration.func
+    (Func f
+      (Param.plain a
+        (RefType.shared
+          (OptionalType
+            (NamedType (Path Int)))))
+      (Param.plain b
+        (RefType.exclusive
+          (OptionalType
+            (NamedType (Path Int)))))
+      (Block))))
+
+// case: syntax.rule.prefix-type-suffix/function-returning-an-optional
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName h)
+          (FuncType
+            (NamedType (Path Int))
+            (OptionalType
+              (NamedType (Path Int))))
+          (Name w))))))
+
+// case: syntax.rule.prefix-type-suffix/optional-slice
+(File
+  (Declaration.func
+    (Func f
+      (Param.plain a
+        (OptionalType
+          (SliceType.shared
+            (NamedType (Path Int)))))
+      (Param.plain b
+        (SliceType.exclusive
+          (NamedType (Path Int))))
+      (Block))))
+
+// case: syntax.rule.prefix-type-suffix/optional-function-in-parentheses
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName o)
+          (OptionalType
+            (OptionalType
+              (FuncType
+                (NamedType (Path Int))
+                (NamedType (Path Int)))))
+          (Name w))))))
+
+// case: syntax.rule.prefix-type-suffix/conditional-lend-return
+(File
+  (Declaration.extension
+    (Extension
+      (Path Map)
+      (ExtensionMember.method
+        (Method find
+          (Param.receiver (Receiver.shared))
+          (Param.plain k
+            (RefType.shared
+              (NamedType (Path K))))
+          borrows
+          (RefType.shared
+            (OptionalType
+              (NamedType (Path V))))
+          (Block))))))

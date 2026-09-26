@@ -1,0 +1,468 @@
+// case: syntax.rule.generic-or-less/kept-before-a-call
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Call.paren
+            (Name f
+              (NamedType (Path T)))
+            (Arg.positional (Name x))))
+        (Let.immutable
+          (BindingName d)
+          (Call.paren
+            (Member
+              (Name a)
+              b
+              (NamedType (Path T)))
+            (Arg.positional (Name x))))
+        (Let.immutable
+          (BindingName e)
+          (OptionalChain
+            (Call.paren
+              (OptionalMember
+                (Name a)
+                b
+                (NamedType (Path T))))))))))
+
+// case: syntax.rule.generic-or-less/kept-before-a-member
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName b)
+          (Call.paren
+            (Member
+              (Name Vector
+                (NamedType (Path Int)))
+              new)))))))
+
+// case: syntax.rule.generic-or-less/kept-before-a-trailing-closure
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Call
+            (Name run
+              (NamedType (Path T)))
+            (Closure
+              (ExprStmt (IntLit 1)))))))))
+
+// case: syntax.rule.generic-or-less/spaced-list-before-a-call-is-kept
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName x)
+          (Call.paren
+            (Name f
+              (NamedType (Path g)))
+            (Arg.positional (Name x))))
+        (ExprStmt
+          (Call.paren
+            (Name show)
+            (Arg.positional
+              (Call.paren
+                (Name a
+                  (NamedType (Path b))
+                  (NamedType (Path c)))
+                (Arg.positional (Name d))))))))))
+
+// case: syntax.rule.generic-or-less/re-read-as-comparisons
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName x)
+          (Binary.pair (Name a) < (Name b)))
+        (Let.immutable
+          (BindingName y)
+          (Tuple.positional
+            (Binary.pair (Name a) < (Name b))
+            (Binary.pair (Name c) > (Name d))))
+        (Assign
+          (Name ok)
+          (Binary.pair (Name n) < (Name max)))
+        (Assign
+          (Name big)
+          (Binary.pair (Name m) > (IntLit 0)))))))
+
+// case: syntax.rule.generic-or-less/kept-list-ignores-line-breaks
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Call.paren
+            (Name Vector
+              (NamedType (Path Int)))))))))
+
+// case: syntax.rule.generic-or-less/parenthesized-comparison
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName t)
+          (Call.paren
+            (Name f)
+            (Arg.positional
+              (Binary.pair (Name a) < (Name b)))
+            (Arg.positional
+              (Binary.pair (Name c) > (Name d)))))))))
+
+// case: syntax.rule.generic-or-less/cast-target-list-kept
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name g)
+            (Arg.positional
+              (Binary
+                (Cast
+                  (Name x)
+                  as
+                  (NamedType
+                    (Path T)
+                    (NamedType (Path a))
+                    (NamedType (Path b))))
+                -
+                (Name c)))))
+        (Let.immutable
+          (BindingName p)
+          (Cast
+            (Name n)
+            as
+            (NamedType
+              (Path UnsafePointer)
+              (NamedType (Path UInt8)))))))))
+
+// case: syntax.rule.generic-or-less/cast-target-list-before-a-question-or-another-cast
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName o)
+          (Cast
+            (Name x)
+            as
+            (OptionalType
+              (NamedType
+                (Path Box)
+                (NamedType (Path Int))))))
+        (Let.immutable
+          (BindingName d)
+          (Cast
+            (Cast
+              (Name x)
+              as
+              (NamedType
+                (Path Box)
+                (NamedType (Path Int))))
+            as
+            (NamedType (Path Any))))))))
+
+// case: syntax.rule.generic-or-less/cast-target-list-before-a-closing-parenthesis
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name g)
+            (Arg.positional
+              (Cast
+                (Name x)
+                as
+                (NamedType
+                  (Path Vector)
+                  (NamedType (Path Int)))))))))))
+
+// case: syntax.rule.generic-or-less/cast-target-list-before-a-closing-bracket
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Array
+            (Cast
+              (Name x)
+              as
+              (NamedType
+                (Path Vector)
+                (NamedType (Path Int))))))))))
+
+// case: syntax.rule.generic-or-less/cast-target-list-before-a-closing-brace
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (ExprStmt
+              (Cast
+                (Name x)
+                as
+                (NamedType
+                  (Path Vector)
+                  (NamedType (Path Int)))))))))))
+
+// case: syntax.rule.generic-or-less/cast-target-list-before-a-comma
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name g)
+            (Arg.positional
+              (Cast
+                (Name x)
+                as
+                (NamedType
+                  (Path Vector)
+                  (NamedType (Path Int)))))
+            (Arg.positional (IntLit 1))))))))
+
+// case: syntax.rule.generic-or-less/cast-target-list-before-a-semicolon
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign
+          (Name a)
+          (Cast
+            (Name x)
+            as
+            (NamedType
+              (Path Vector)
+              (NamedType (Path Int)))))
+        (Assign (Name b) (IntLit 1))))))
+
+// case: syntax.rule.generic-or-less/cast-target-list-before-else
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Guard.let
+          (BindingName z)
+          (Cast
+            (Name y)
+            as
+            (NamedType
+              (Path Box)
+              (NamedType (Path Int))))
+          (Block (Return)))))))
+
+// case: syntax.rule.generic-or-less/cast-target-less-compares
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName b)
+          (Binary.pair
+            (Cast
+              (Name n)
+              as
+              (NamedType (Path Int)))
+            <
+            (Name lim)))
+        (Let.immutable
+          (BindingName t)
+          (Tuple.positional
+            (Binary.pair
+              (Cast
+                (Name n)
+                as
+                (NamedType (Path Count)))
+              <
+              (Name lim))
+            (Binary.pair (Name m) >= (IntLit 0))))))))
+
+// case: syntax.rule.generic-or-less/type-list-always-opens
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (NamedType
+            (Path Vector)
+            (NamedType (Path Int)))
+          (Name w))
+        (Let.immutable
+          (BindingName m)
+          (NamedType
+            (Path Map)
+            (NamedType (Path String))
+            (NamedType
+              (Path Vector)
+              (NamedType (Path Int))))
+          (Name w))))))
+
+// case: syntax.rule.generic-close-split/one-list-closed-by-greater-equal
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (NamedType
+            (Path Vector)
+            (NamedType (Path Int)))
+          (Name w))))))
+
+// case: syntax.rule.generic-close-split/two-lists-closed-by-shift-assign
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName m)
+          (NamedType
+            (Path Map)
+            (NamedType (Path K))
+            (NamedType
+              (Path Vector)
+              (NamedType (Path V))))
+          (Name w))))))
+
+// case: syntax.rule.generic-close-split/two-lists-closed-by-two-greaters
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (NamedType
+            (Path Vector)
+            (NamedType
+              (Path Vector)
+              (NamedType (Path Int))))
+          (Name w))))))
+
+// case: syntax.rule.generic-close-split/longest-match-elsewhere
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Binary.pair (Name o) != (IntLit 5)))
+        (Let.immutable
+          (BindingName d)
+          (Binary (Name a) &- (Name b)))
+        (Let.immutable
+          (BindingName e)
+          (Binary.pair (Name a) >= (Name b)))))))
+
+// case: syntax.rule.generic-arg-value/integer-and-negation-are-values
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName b)
+          (NamedType (Path Ring) (IntLit 8))
+          (Name w))
+        (Let.immutable
+          (BindingName c)
+          (NamedType
+            (Path Ring)
+            (Unary (IntLit 1)))
+          (Name w))))))
+
+// case: syntax.rule.generic-arg-value/type-then-operator-is-a-value
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (NamedType
+            (Path Ring)
+            (Binary (Path N) + (IntLit 1)))
+          (Name w))
+        (Let.immutable
+          (BindingName g)
+          (NamedType
+            (Path A)
+            (Binary
+              (Binary (Path N) * (IntLit 2))
+              -
+              (Binary (Path M) % (IntLit 3))))
+          (Name w))))))
+
+// case: syntax.rule.generic-arg-value/layout-query-is-a-value
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName d)
+          (NamedType
+            (Path Ring)
+            (Call.size
+              (NamedType (Path UInt64))))
+          (Name w))
+        (Let.immutable
+          (BindingName e)
+          (NamedType
+            (Path Ring)
+            (Call.align
+              (NamedType (Path UInt64))))
+          (Name w))))))
+
+// case: syntax.rule.generic-arg-value/bare-name-is-a-type
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName e)
+          (NamedType
+            (Path A)
+            (NamedType (Path N)))
+          (Name w))
+        (Let.immutable
+          (BindingName h)
+          (NamedType
+            (Path A)
+            (NamedType (Path N)))
+          (Name w))))))
+
+// case: syntax.rule.generic-arg-value/const-parameter-default
+(File
+  (Declaration.func
+    (Func f
+      (GenericParam.const N
+        (NamedType (Path Int))
+        =
+        (Binary (IntLit 4) * (IntLit 2)))
+      (Block))))
+
+// case: syntax.rule.generic-or-less/cast-target-list-at-the-end-of-input
+(File
+  (Declaration.static
+    (Static.immutable a
+      (NamedType (Path Int))
+      =
+      (Cast
+        (Name x)
+        as
+        (NamedType
+          (Path Vector)
+          (NamedType (Path Int)))))))

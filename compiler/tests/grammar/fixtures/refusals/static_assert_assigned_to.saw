@@ -1,0 +1,5 @@
+// refuses: syntax.rule.contextual-words
+// verdict: FAIL 4:5 refused by syntax.rule.contextual-words
+func main() {
+    static_assert(N > 0, "m") = n
+}

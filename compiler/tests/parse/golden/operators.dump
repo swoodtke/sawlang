@@ -1,0 +1,333 @@
+// case: syntax.rule.flat-chains/one-node-per-tier-chain
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Binary (Name p) + (Name q) - (Name r) + (Name s)))
+        (Let.immutable
+          (BindingName b)
+          (Binary (Name p) * (Name q) / (Name r) % (Name s)))
+        (Let.immutable
+          (BindingName c)
+          (Binary (Name p) && (Name q) && (Name r)))
+        (Let.immutable
+          (BindingName d)
+          (Binary (Name p) | (Name q) | (Name r)))
+        (Let.immutable
+          (BindingName e)
+          (Binary (Name p) << (Name q) >> (Name r)))))))
+
+// case: syntax.rule.flat-chains/tiers-nest-by-precedence
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Binary
+            (Name p)
+            +
+            (Binary (Name q) * (Name r))
+            -
+            (Name s)))
+        (Let.immutable
+          (BindingName b)
+          (Binary
+            (Name p)
+            ||
+            (Binary (Name q) && (Name r))))))))
+
+// case: syntax.rule.flat-chains/constant-chains
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (NamedType
+            (Path Ring)
+            (Binary (Path N) + (IntLit 1) - (Path M)))
+          (Name w))
+        (Let.immutable
+          (BindingName u)
+          (NamedType
+            (Path Ring)
+            (Binary (Path N) * (IntLit 2) / (Path K)))
+          (Name w))))))
+
+// case: syntax.rule.coalesce-grouping/one-flat-node
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Coalesce (Name a) ?? (Name b) ?? (IntLit 0)))))))
+
+// case: syntax.rule.compare-chain/one-comparison
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Binary.pair (Name p) < (Name q)))
+        (Let.immutable
+          (BindingName b)
+          (Binary.pair (Name p) == (Name q)))))))
+
+// case: syntax.rule.compare-chain/comparisons-joined-by-and
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName ok)
+          (Binary
+            (Binary.pair (Name a) < (Name b))
+            &&
+            (Binary.pair (Name b) < (Name c))))))))
+
+// case: syntax.rule.compare-chain/parenthesized-comparison-compared
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName ok)
+          (Binary.pair
+            (Binary.pair (Name a) < (Name b))
+            ==
+            (Name c)))))))
+
+// case: syntax.rule.prefix-or-cast/prefix-binds-tighter
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName x)
+          (Cast
+            (Unary.negate (Name x))
+            as
+            (NamedType (Path Int8))))
+        (Let.immutable
+          (BindingName y)
+          (Cast
+            (Unary.complement (Name b))
+            as
+            (NamedType (Path UInt64))))
+        (Let.immutable
+          (BindingName n)
+          (Cast
+            (Unary.not (Name c))
+            as
+            (NamedType (Path Bool))))))))
+
+// case: syntax.rule.prefix-or-cast/reference-and-dereference-then-cast
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName p)
+          (Cast
+            (Ref.shared (Name x))
+            as
+            (NamedType
+              (Path UnsafePointer)
+              (NamedType (Path Int)))))
+        (Let.immutable
+          (BindingName q)
+          (Cast
+            (Deref (Name p))
+            as
+            (NamedType (Path Int))))))))
+
+// case: syntax.rule.try-extent/try-then-cast
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName u)
+          (Cast
+            (Try.propagate
+              (Call.paren (Name parse_id)))
+            as
+            (NamedType (Path UserId))))))))
+
+// case: syntax.rule.try-extent/try-then-an-operator
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Try.propagate
+              (Call.paren (Name f)))
+            +
+            (IntLit 1)))
+        (Let.immutable
+          (BindingName w)
+          (Coalesce
+            (Try.optional
+              (Call.paren (Name f)))
+            ??
+            (IntLit 0)))
+        (Let.immutable
+          (BindingName z)
+          (Binary
+            (Try.force
+              (Call.paren (Name f)))
+            *
+            (IntLit 2)))))))
+
+// case: syntax.rule.try-extent/catch-follows-the-operand
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Try.catch
+            (Call.paren (Name g))
+            (Catch
+              (Block
+                (ExprStmt (IntLit 0))))))
+        (Let.immutable
+          (BindingName w)
+          (Try.catch
+            (Cast
+              (Call.paren (Name g))
+              as
+              (NamedType (Path Int)))
+            (Catch
+              (Block
+                (ExprStmt (IntLit 0))))))))))
+
+// case: syntax.rule.deref-or-multiply/prefix-is-a-dereference
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Binary
+            (Name b)
+            *
+            (Deref (Name p))))
+        (Assign
+          (Deref (Name p))
+          (IntLit 1))))))
+
+// case: syntax.rule.postfix-per-hop/one-node-per-hop
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName x)
+          (TupleIndex
+            (Member
+              (ForceUnwrap
+                (Subscript.single
+                  (Call.paren
+                    (Member (Name a) b)
+                    (Arg.positional (Name c)))
+                  (Name d)))
+              e)
+            0))))))
+
+// case: syntax.rule.postfix-per-hop/one-cast-per-as
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName x)
+          (Cast
+            (Cast
+              (Name a)
+              as
+              (NamedType (Path B)))
+            as
+            (NamedType (Path C))))))))
+
+// case: syntax.rule.depth-limit/nesting-at-the-limit
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName x) (IntLit 1))))))
+
+// case: syntax.rule.depth-limit/flat-chains-charge-nothing
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName x)
+          (Binary (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1) + (IntLit 1)))))))
+
+// case: syntax.rule.cast-target-question/one-optional-layer
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName y)
+          (Cast
+            (Name n)
+            as
+            (OptionalType
+              (NamedType (Path Int)))))
+        (Let.immutable
+          (BindingName z)
+          (Cast
+            (Name r)
+            as
+            (RefType.shared
+              (OptionalType
+                (NamedType (Path Int))))))))))
+
+// case: syntax.rule.cast-target-question/nested-types-are-unaffected
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Cast
+            (Name x)
+            as
+            (NamedType
+              (Path Vector)
+              (OptionalType
+                (OptionalType
+                  (NamedType (Path Int)))))))))))
+
+// case: syntax.rule.cast-target-question/coalesce-on-a-parenthesized-cast
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName y)
+          (Cast
+            (Coalesce (Name n) ?? (IntLit 9))
+            as
+            (NamedType (Path Int))))
+        (Let.immutable
+          (BindingName z)
+          (Coalesce
+            (Cast
+              (Name n)
+              as
+              (OptionalType
+                (NamedType (Path Int))))
+            ??
+            (IntLit 9)))))))

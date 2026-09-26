@@ -1,0 +1,23 @@
+// case: SL-400-c6-Q10/fields-on-one-line-without-a-comma
+refuses parse-error at 1:19
+
+// case: SL-400-c6-Q10/cases-on-one-line-without-a-comma
+refuses parse-error at 1:17
+
+// case: SL-400-c6-Q14/export-declaration
+refuses syntax.decl.refused-export
+
+// case: SL-400-c6-Q14/export-with-an-alias
+refuses syntax.decl.refused-export
+
+// case: SL-400-c6-Q17/documented-test-case
+refuses syntax.lex.doc-attach at 1:1
+
+// case: SL-400-c6-Q18/borrow-binding-in-a-guard
+refuses parse-error at 2:31
+
+// case: SL-400-c6-Q20/non-ascii-identifier
+refuses parse-error
+
+// case: SL-400-c6-U2a/qualified-variant-pattern
+refuses syntax.pat.refused-qualified-variant

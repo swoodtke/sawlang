@@ -11,11 +11,16 @@ parse/
   README.md          this specification
   dump/              hand-checked dumps: NAME.saw and its NAME.dump
   generated/         the generator's cases: AREA.saw and AREA.dump
+  golden/            hand-written cases: ASPECT.saw and their dumps, ASPECT.dump
+  negative/          refused cases: ASPECT.saw and their refusals, ASPECT.expect
   waivers.tsv        coverage items and cases with no program, each with its reason
 ```
 
-`compiler/tests/grammar/dump.py FILE...` prints a file's dump, and
-`compiler/tests/grammar/generate.py` writes `generated/`.
+`compiler/tests/grammar/dump.py FILE...` prints a file's dump,
+`compiler/tests/grammar/generate.py` writes `generated/`,
+`compiler/tests/grammar/negative.py` writes the generated files of `negative/`,
+and `compiler/tests/grammar/cases.py --write FILE...` writes the expectations of
+a hand-written case file.
 
 ## The canonical dump
 
@@ -134,15 +139,15 @@ A leaf is a token. Which tokens print:
 Leaves are spelled as written. A literal prints its source spelling, with its
 underscores, base prefix, suffix and escapes: `1_000`, `0XFF`, `2u8`,
 `"tab\there"`, and `1_` and `2__u8`, which the lexers accept (GRAMMAR.md §16).
-So that a dump line holds one line of the dump, a leaf escapes each character
-Python's `str.splitlines` ends a line at: the C0 controls U+0000 to U+001F,
-such as a line break inside a string literal, and U+007F and U+0085 print as
-`\xHH`, and U+2028 and U+2029 as `\uHHHH`. A parenthesis leaf prints as `\(` or
-`\)`, so that it never reads as the S-expression's own. These escapes are
-unambiguous: a backslash in a valid literal always starts one of the
-literal's own escapes (`\\`, `\"`, `\n`, `\t`, `\r`, `\0`, `\u{…}`, `\{`,
-`\}`), so read from the left a dump's `\x`, `\u` followed by a hex digit, `\(`
-and `\)` are never part of one, `"\\x09"` included.
+So that a dump line holds one line of the dump, a leaf escapes the C0
+controls, U+007F, and the other characters Python's `str.splitlines` ends a
+line at: a C0 control, such as a line break inside a string literal, U+007F
+and U+0085 print as `\xHH`, and U+2028 and U+2029 as `\uHHHH`. A parenthesis
+leaf prints as `\(` or `\)`, so that it never reads as the S-expression's own.
+These escapes are unambiguous: a backslash in a valid literal always starts
+one of the literal's own escapes (`\\`, `\"`, `\n`, `\t`, `\r`, `\0`,
+`\u{…}`, `\{`, `\}`), so read from the left a dump's `\x`, `\u` followed by a
+hex digit, `\(` and `\)` are never part of one, `"\\x09"` included.
 
 ### Interpolated strings
 
@@ -199,10 +204,44 @@ depends on what decided it:
 
 - A refusal decided by a named §13 rule, a lexical rule or a removed
   production must name it exactly, by its stable `syntax.*` id (SL:testing).
-- A plain parse error must be refused. The recognizer's `L:C`, the furthest
-  token its chart reached, is recorded for information only: matching it
-  exactly would demand the correct-prefix property of every parse, the
-  speculative generic lists included.
+- A plain parse error must be refused. A `parse-error` expectation accepts
+  any refusal, named or not. The recognizer's `L:C`, the furthest token its
+  chart reached, is recorded for information only: matching it exactly would
+  demand the correct-prefix property of every parse, the speculative generic
+  lists included.
+
+A refusal has one name, whatever follows the token that decides it, so a
+parser deciding at that token can give it. The recognizer's name is the first
+of these that applies:
+
+1. A §13 rule on a removed production, one its row lists, that refuses a token
+   after a complete construct, where that production's reading takes the
+   token. The rule decides at that token, so the case records the rule's name
+   even where the production would also make the text parse: `n as Int??`,
+   `n as Int? ?`, `n as Int?? 9` and `n as Int? ?? 9` each record
+   syntax.rule.cast-target-question at the `??` or the second `?`. The earliest
+   such token counts.
+2. The removed production whose enabling alone makes the text parse. A rule
+   that chooses between two readings of the same tokens leaves the name to the
+   production: syntax.rule.discard-binding reads `var _ = e` as
+   syntax.stmt.refused-var-discard.
+3. The rule the recognizer reports, else `parse-error`.
+
+A name from step 3 must also be decided at the refusing token. A rule that
+decides by the token after the construct it refuses, as range-open-end and
+borrow-form do, keeps its name only while dropping the tokens after that token,
+or replacing each run of them by one name, keeps it; line breaks and the
+brackets that balance the text stay. Otherwise the case records `parse-error`:
+`let b = a.. == c` is refused by range-open-end only while an operand follows
+the `==`, so it records `parse-error`, as `a.. + b` does. A rule that decides
+by the construct's own tokens decides at them, whatever follows. Making the
+recognizer name range-open-end at its token is SL-410.
+
+A rule the productions encode, such as syntax.rule.statement-separator, and a
+lexical rule the lexer applies, such as syntax.lex.unterminated-string, refuse
+without the recognizer naming them, so their cases record `parse-error`. Where
+two rules each refuse another reading of one text, the grammar does not say
+which a parser reports, so no case records such a text.
 
 ## The generated corpus
 
@@ -252,7 +291,9 @@ its alternative, in which each option it names takes that value, the item
 present or absent, written that many times, or taking that choice, and a value
 that writes a token spans one. A cell case writes the construct row's spelling
 (`INSTANCES` in `generate.py`), its constant spelling for a C cell, into a
-program for the context (`CONTEXTS`). A P cell's construct is parenthesized,
+program for the context (`CONTEXTS`), with a space on a side where the lexer
+would otherwise read the spelling and its neighbour as other tokens (`a..`
+before `..x` is not `a....x`). A P cell's construct is parenthesized,
 and so is any other that no host of the context places bare, since precedence
 decides the grouping of an operand. The case counts only when the recognizer's
 record holds its cell.
@@ -279,29 +320,116 @@ Every case has exactly one tree. A case with two trees, or none, is a
 generator bug: the case is fixed, never the check. Regenerating must reproduce
 `generated/` byte for byte, and `compiler/tests/run.py` fails when it does not.
 
+## The golden corpus
+
+`golden/ASPECT.saw` holds hand-written cases, in the shape of `generated/`:
+each starts with a `// case: NAME` header and is parsed on its own from
+`source-file`. A case headed `// case from refusal-unit: NAME` is the body of
+a refusal case, parsed on its own from `refusal-unit` as a test build parses
+it. The last case of a file may end with no line break, so that the end of
+input follows its last token. Each case must be accepted with exactly one tree,
+and `ASPECT.dump` holds, for each case in order, its header line, its dump, and
+a blank line between cases. A case NAME is its source, then `/` and what the case shows:
+
+| source | the cases |
+|---|---|
+| `syntax.rule.RULE` | each §13 rule, with a case for each decision it makes, both sides of a decision where the rule accepts both |
+| `syntax.lex.RULE` | each lexical rule of §2.7 |
+| any other GRAMMAR.md name | the production or alternative that refuses a negative case, where no rule does |
+| `census-N1` to `census-N12` | the parser census (designs/reviews/parser-census-sep1.md) |
+| `design259-R1` to `design259-R8` | the ruling batch of designs/259-selfhost-parser.md |
+| `SL-400-c6-Q1` to `SL-400-c6-Q23` | the numbered rulings of SL-400 comment c6, but Q15, which c7 replaces |
+| `SL-400-c6-U2a` | c6's rulings on the U2a report |
+| `SL-400-c7`, `SL-400-c9` | the rulings of those SL-400 comments |
+| `SL-406-c11-1` to `SL-406-c11-3` | the three numbered rulings of SL-406 comment c11 |
+| `SL-406-c17`, `SL-406-c22`, `SL-406-c23`, `SL-406-c25` | the cast-target rulings of those SL-406 comments; c24 and c26 adopt c23's and c25's |
+
+A decision's refusing side is a negative case under the same name. The
+`parsecoverage` check fails a case whose name starts with none of these
+sources, and a source in the last six rows, or a lexical rule, that no case of
+either kind is named for. `CENSUS`, `DESIGN_259` and `RULINGS` in `cases.py`
+list the last six rows' sources.
+
+## The negative corpus
+
+`negative/ASPECT.saw` holds refused cases in the same shape, and
+`ASPECT.expect` holds, for each case in order, its header line and its
+expectation, one of:
+
+```
+refuses NAME
+refuses NAME at L:C
+refuses parse-error at L:C
+refuses parse-error
+parses as another construct
+DUMP
+```
+
+NAME is the refusing rule's or removed production's stable id (Refusals,
+above), and `at L:C` the recognizer's position when it gives one, for
+information only. A case that leaves a bracket unclosed holds the line
+`// an unclosed bracket, refused at its opener` and records no position: §2.7
+reports it at the opener, and §16 lists the recognizer's later position, where
+the chart stops, as a defect. A lexical refusal records none either. A
+negative case that the recognizer accepts is an error,
+except a §12 N cell whose tokens parse as another construct: its text holds
+the line `// parses as another construct`, its expectation is that line's
+words and then the reading's dump, and the reading's record must not place the
+construct in the cell's context. Nor may the reading continue a loop that
+starts a statement as an operand: syntax.rule.block-tail forbids it, and the
+recognizer does not apply that rule, so such a reading is never recorded.
+
+Three files are generated by `compiler/tests/grammar/negative.py`, and the rest
+are hand-written:
+
+- `removed`: one case per removed alternative, named for it: an alternative of
+  a removed production, or one that names a removed production where it cannot
+  be absent. Its program is the cheapest the generator builds with that
+  production enabled, and it must be refused as that production alone. A
+  waived alternative gets only its cheapest program, which still shows when
+  its waiver is no longer needed.
+- `cells`: one case per N cell, `CONSTRUCT/cell:CONTEXT`, the construct's
+  spelling placed in its context's first program as the generated cells are,
+  or, where that one's refusal has two names, in the next (`MORE_CONTEXTS` in
+  `negative.py`).
+- `mutations`: mutations of each generated `/alt` case, named
+  `CASE/KIND:N` for the Nth token: one dropped, one duplicated, two adjacent
+  swapped (N and N+1), one closing bracket dropped, each at a position a
+  stable hash of the case's name picks. The case's final line break is never
+  mutated, and a space keeps the tokens around a mutation apart. A mutation the
+  lexer does not read back as the mutated tokens, one the recognizer accepts,
+  one whose refusal has two names, and one that repeats another's program are
+  discarded, never recorded.
+
 ## Coverage
 
 The `parsecoverage` check, which `compiler/tests/run.py` runs with the
-regeneration, reads the coverage records of the generated cases
-(`Parse.record` in `recognize.py`). It fails when a non-removed alternative is
-used by no case, or when a §12 cell whose code is Y, S, K, T, P, H or C is
-recorded by no case. `waivers.tsv` lists the items that have none, one per
-line: `alternative` or `cell`, the item (an alternative's name, or a
-construct row and a context separated by a space), and the reason, separated
-by tabs. A waived item's case may have no program. A `case` row waives one
-case, by name, whose tree no program can make hold what the name says; the
-generator tries only its cheapest program. A waiver for a covered item or a
-case that has a program, or for one the check does not ask for, fails too, so
-the list only shrinks.
+regeneration, reads the coverage records of the generated and golden cases
+(`Parse.record` in `recognize.py`) and the expectations of the negative cases.
+It fails when a non-removed alternative is used by no generated or golden
+case, when a §12 cell whose code is Y, S, K, T, P, H or C is recorded by no
+generated case, when a removed alternative has no negative case refused as its
+production whose tree, with that production enabled, uses it, when an N cell
+has no negative case, when a §13 rule has no golden case named for it, when
+a rule the recognizer names in a refusal has no negative case refused by it, or
+when a case's name has no source (The golden corpus, above) or a source is owed
+a case and has none.
+`waivers.tsv` lists the items that have none, one per line: the kind
+(`alternative`, `cell`, `removed`, `n-cell`, `rule`, `refusal` or `source`),
+the item (an alternative's, rule's or source's name, or a construct row and a
+context separated by a space), and the reason, separated by tabs. A waived item's case may have no
+program. A `case` row waives one generated case, by name, whose tree no
+program can make hold what the name says; the generator tries only its
+cheapest program. A waiver for a covered item or a case that has a program, or
+for one the check does not ask for, fails too, so the list only shrinks.
 
-## Phase 2b
+## Who checks what
 
-These hold for the golden and negative corpus that phase 2b adds:
-
-- `compiler/tests/grammar/corpus.py`, and the per-file check the per-patch gate
-  runs, skip `compiler/tests/parse/`. The parse lane in
-  `compiler/tests/run.py` checks each case there against its own expectation,
-  so each file has one owner, and a negative case need not parse as a whole
-  program.
-- A §12 N cell whose tokens parse as something else has no refusal to record.
-  Its negative case records the other reading's dump as its expectation.
+`compiler/tests/grammar/corpus.py` skips `compiler/tests/parse/`, whether it
+walks the tracked files or is given them, and so does the per-file check the
+per-patch gate runs on changed `.saw` files. A case file holds many programs,
+and a negative one need not parse, so no file here is a whole program. The
+parse lane in `compiler/tests/run.py` checks each case against its own
+expectation instead: it regenerates `generated/` and `negative/`'s generated
+files, checks every hand-written case file's expectations with `cases.py`, and
+runs `parsecoverage`.

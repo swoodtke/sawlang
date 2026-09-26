@@ -1,0 +1,34 @@
+// case: syntax.rule.paren-type/partial-named-tuple-type
+func f() {
+    let t: (x: Int, Int) = w
+}
+
+// case: syntax.type.func-params/labels-in-a-function-type
+func f() {
+    let g: (x: Int) -> Int = w
+}
+
+// case: syntax.rule.prefix-type-suffix/bare-slice-is-no-type
+func f() {
+    let s: [Int] = w
+}
+
+// case: syntax.rule.paren-type/consumes-on-a-function-type
+func f() {
+    let g: (Int) consumes -> Int = w
+}
+
+// case: syntax.rule.effect-slot/constexpr-on-a-function-type
+func f() {
+    let g: (Int) constexpr -> Int = w
+}
+
+// case: syntax.rule.effect-slot/effects-out-of-order-in-a-function-type
+func f() {
+    let g: (Int) sync unsafe -> Int = w
+}
+
+// case: syntax.rule.effect-slot/function-type-word-written-twice
+func f() {
+    let g: (Int) unsafe unsafe -> Int = w
+}

@@ -1,0 +1,226 @@
+// case: syntax.rule.static-head/top-level-static-names-a-static
+static sync: Int = 0
+static limit: Int = 4
+
+// case: syntax.rule.static-head/static-method-in-an-extension-and-a-trait
+extension S {
+    static func make() -> S {
+        S()
+    }
+}
+trait T {
+    static func make() -> Self
+}
+
+// case: syntax.rule.static-head/unsafe-static-var
+unsafe static var counter: Int = 0
+
+// case: syntax.rule.contextual-words/each-word-in-its-position
+struct P {
+    private x: Int
+}
+type Alias = Int
+func g<const N: Int>(a: any Shape) {
+}
+
+// case: syntax.rule.contextual-words/words-are-identifiers-elsewhere
+func f() {
+    let private = 1
+    let type = 2
+    let const = 3
+    let any = 4
+    let sync = 5
+    let consumes = private + type + const + any + sync
+}
+
+// case: syntax.rule.contextual-words/lends-before-self-or-a-name
+struct Cursor {
+    buf: &Vector<Int>
+}
+extension Cursor {
+    func view(&self) -> Cursor {
+        Cursor(buf: lends self)
+    }
+    func other(&self, b: &Vector<Int>) -> Cursor {
+        Cursor(buf: lends b)
+    }
+}
+
+// case: syntax.rule.contextual-words/lends-before-anything-else-is-a-name
+func f() {
+    let a = lends(x)
+    let b = lends.count
+}
+
+// case: syntax.rule.contextual-words/static-assert-at-a-statement
+func f() {
+    static_assert(sizeof<Int>() == 8, "Int is 64 bits")
+}
+
+// case: syntax.rule.contextual-words/static-assert-at-a-top-level-item
+static_assert(1 == 1, "arithmetic")
+
+// case: syntax.rule.contextual-words/static-assert-as-an-arm-body
+func f() {
+    match n {
+        case _ -> static_assert(1 == 1, "m")
+    }
+}
+
+// case: syntax.rule.contextual-words/static-assert-in-an-expression-is-a-call
+func f() {
+    let s = static_assert(x)
+    let t = static_assert
+}
+
+// case: syntax.rule.contextual-words/static-assert-not-before-a-parenthesis-is-assigned
+func f() {
+    static_assert = x
+    static_assert += 1
+    static_assert.b = x
+    static_assert?.b = x
+}
+
+// case: syntax.rule.contextual-words/import-and-module-are-names-in-a-body
+func f() {
+    let import = 1
+    let module = import
+    let export = module
+}
+
+// case: syntax.rule.effect-slot/declaration-order
+extension S {
+    func m(&var self) consumes unsafe sync -> Int {
+        1
+    }
+    func n(&self) unsafe sync borrows -> &Int {
+    }
+}
+
+// case: syntax.rule.effect-slot/constexpr-takes-the-place-of-sync
+func f() constexpr -> Int {
+    1
+}
+func g() unsafe constexpr -> Int {
+    2
+}
+
+// case: syntax.rule.effect-slot/pairs-a-later-stage-refuses
+extension S {
+    func m(&var self) consumes borrows -> &Int {
+    }
+    func n(&self) constexpr sync -> Int {
+        1
+    }
+    func o(&self) constexpr borrows -> &Int {
+    }
+}
+
+// case: syntax.rule.effect-slot/function-type-order
+func f() {
+    let g: (Int) unsafe sync escaping borrows -> &Int = w
+    let h: () borrows(sync) -> &Int = w
+}
+
+// case: syntax.rule.effect-slot/borrows-sync-on-a-method
+extension S {
+    func m(&self) borrows(sync) -> &Int {
+    }
+}
+
+// case: syntax.rule.subscript-declaration/getitem
+extension Grid {
+    func [](&self, i: Int) -> Int {
+        0
+    }
+}
+
+// case: syntax.rule.subscript-declaration/place-accessor
+extension Grid {
+    func [](&self, i: Int) borrows -> &var Int {
+    }
+}
+
+// case: syntax.rule.subscript-declaration/setitem
+extension Grid {
+    func []=(&var self, i: Int, value: Int) {
+    }
+}
+
+// case: syntax.rule.attribute-position/export-and-section-on-functions-and-statics
+@export
+func a() {
+}
+@export("sym_b")
+func b() {
+}
+@section(".data")
+static S: Int = 0
+
+// case: syntax.rule.attribute-position/align-on-a-static-and-a-local
+@align(64)
+static Buffer: [UInt8; 64] = [0; 64]
+func f() {
+    @align(16) let x = 1
+    @align(16)
+    var y = 2
+}
+
+// case: syntax.rule.attribute-position/synthesize-on-an-extension
+@synthesize
+extension P: Equatable {
+}
+
+// case: syntax.rule.attribute-position/synthesize-shared-on-a-method
+extension Grid {
+    @synthesize(shared)
+    func [](&self, i: Int) borrows -> &var Int {
+    }
+}
+
+// case: syntax.rule.attribute-position/two-different-attributes
+@export
+@section(".text")
+public func f() {
+}
+
+// case: syntax.rule.receiver-and-static/receiver-first-on-a-method
+extension S {
+    func m(&self, x: Int) {
+    }
+    func n(&var self) {
+    }
+}
+
+// case: syntax.rule.receiver-and-static/static-without-a-receiver
+extension S {
+    static func m(x: Int) {
+    }
+}
+trait T {
+    static func m(x: Int)
+    func n(&self)
+}
+
+// case: syntax.rule.extern-abi/c-block
+extern "C" {
+    func puts(s: UnsafePointer<UInt8>) -> Int32
+    blocking func read(fd: Int32, buf: UnsafePointer<UInt8>, n: Int) -> Int
+    func printf(fmt: UnsafePointer<UInt8>, ...) -> Int32
+}
+
+// case: syntax.rule.requirement-borrows/borrows-requirements
+trait Store {
+    func get(&self, k: Int) borrows -> &Int
+    func peek(&self, k: Int) borrows(sync) -> &Int
+}
+
+// case: syntax.rule.import-names/each-local-name-once
+import m.{a, b as c}
+import n.{a as b, b as a}
+
+// case: syntax.rule.discard-binding/let-discard
+func f() {
+    let _ = e
+    let _: Int = e
+}

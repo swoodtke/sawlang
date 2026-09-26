@@ -1,0 +1,35 @@
+// case: SL-400-c6-Q10/fields-on-one-line-without-a-comma
+struct P { x: Int y: Int }
+
+// case: SL-400-c6-Q10/cases-on-one-line-without-a-comma
+enum E { case A case B }
+
+// case: SL-400-c6-Q14/export-declaration
+export m.f
+
+// case: SL-400-c6-Q14/export-with-an-alias
+export m.f as g
+
+// case: SL-400-c6-Q17/documented-test-case
+/// A test case.
+@test "adds" {
+}
+
+// case: SL-400-c6-Q18/borrow-binding-in-a-guard
+func f() {
+    guard borrow let x = m[k] else {
+        return
+    }
+}
+
+// case: SL-400-c6-Q20/non-ascii-identifier
+func f() {
+    let café = 1
+}
+
+// case: SL-400-c6-U2a/qualified-variant-pattern
+func f() {
+    match c {
+        case Color.Red -> 1
+    }
+}

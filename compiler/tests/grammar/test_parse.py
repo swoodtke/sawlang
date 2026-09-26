@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""The parser corpus's own checks: the dumps, the generated cases, coverage.
+"""The parser corpus's own checks: the dumps, every case, coverage.
 
     python compiler/tests/grammar/test_parse.py
 
 Each `compiler/tests/parse/dump/NAME.saw` must dump, by dump.py, to exactly its
 NAME.dump, and each text in REFUSED must have no dump, for the reason given. A
-leaf must escape every character str.splitlines ends a line at. The productions whose punctuation is a leaf (`Grammar.flagged`) must
-be the ones compiler/tests/parse/README.md lists, so a grammar change that adds
-one updates the specification too. Regenerating the corpus must reproduce
-`generated/`, and the `parsecoverage` check must hold (generate.check).
+leaf must escape every character str.splitlines ends a line at. The
+productions whose punctuation is a leaf (`Grammar.flagged`) must be the ones
+compiler/tests/parse/README.md lists, so a grammar change that adds one
+updates the specification too. The hand-written golden and negative cases must
+have the expectations the recognizer gives (cases.check), regenerating must
+reproduce `generated/` and negative/'s generated files (generate.check,
+negative.check), and the `parsecoverage` checks must hold (generate.coverage,
+cases.coverage).
 """
 import glob
 import os
@@ -18,9 +22,11 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+import cases  # noqa: E402
 import dump  # noqa: E402
 import extract  # noqa: E402
 import generate  # noqa: E402
+import negative  # noqa: E402
 import recognize  # noqa: E402
 
 PARSE_DIR = os.path.join(extract.REPO, "compiler", "tests", "parse")
@@ -127,6 +133,21 @@ def check_flagged(failures, g):
     return len(g.flagged)
 
 
+# Case names whose sources exist nowhere: one of each kind of source.
+UNKNOWN_SOURCES = ("syntax.rule.no-such-rule/x", "census-N99/x", "SL-999-c1/x")
+
+
+def check_unknown_sources(failures, g):
+    """parsecoverage fails a case named for a source that does not exist."""
+    results = [["golden", name, ["(File)"], None, None, []] for name in UNKNOWN_SOURCES]
+    lines, _ = cases.coverage(g, results, [], {})
+    for name in UNKNOWN_SOURCES:
+        if not any(" case %s is named for " % name in line for line in lines):
+            failures.append("parsecoverage: a golden case named %s passes, though no such "
+                            "source exists" % name)
+    return len(UNKNOWN_SOURCES)
+
+
 def run():
     """(failure lines, counts) for run.py."""
     sys.setrecursionlimit(recognize.RECURSION_LIMIT)
@@ -135,10 +156,25 @@ def run():
     counts = {"dump pins": check_dump_pins(failures, g),
               "dump refusals": check_refusals(failures, g),
               "line-breaking characters": check_escapes(failures),
-              "punctuation-leaf productions": check_flagged(failures, g)}
-    generated, covered = generate.check()
+              "punctuation-leaf productions": check_flagged(failures, g),
+              "unknown case sources": check_unknown_sources(failures, g)}
+    hand, hand_counts, results = cases.check()
+    failures += hand
+    counts.update(hand_counts)
+    waivers = generate.load_waivers()[0]
+    generated_negative, negative_counts, negatives = negative.check(waivers=waivers)
+    failures += generated_negative
+    counts.update(negative_counts)
+    golden = {a for r in results if r[0] == "golden" for a in r[5]}
+    generated, covered = generate.check(golden=golden)
     failures += generated
     counts.update(covered)
+    results += [["negative"] + r[:1] + r[2:] for rs in negatives.values() for r in rs]
+    removed = [(g.alternative(nt, ai).effective_name, g.info[p].name)
+               for nt, ai, p in negative.removed_alternatives(g)]
+    covered, coverage_counts = cases.coverage(g, results, removed, waivers)
+    failures += covered
+    counts.update(coverage_counts)
     return failures, counts
 
 

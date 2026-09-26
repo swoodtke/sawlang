@@ -1,0 +1,499 @@
+// case: syntax.rule.optional-chain-run/run-over-members-and-calls
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName y)
+          (OptionalChain
+            (Call.paren
+              (Member
+                (OptionalMember (Name a) b)
+                c))))
+        (Let.immutable
+          (BindingName z)
+          (OptionalChain
+            (OptionalMember
+              (OptionalMember (Name a) b)
+              c)))))))
+
+// case: syntax.rule.optional-chain-run/run-over-a-trailing-closure
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName y)
+          (OptionalChain
+            (Call
+              (Member
+                (OptionalMember (Name a) b)
+                map)
+              (Closure
+                (ExprStmt (ShorthandParam $0))))))))))
+
+// case: syntax.rule.optional-chain-run/parentheses-end-a-run
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName y)
+          (Member
+            (OptionalChain
+              (OptionalMember (Name a) b))
+            c))
+        (Let.immutable
+          (BindingName z)
+          (OptionalChain
+            (OptionalMember
+              (OptionalChain
+                (OptionalMember (Name a) b))
+              c)))))))
+
+// case: syntax.rule.optional-chain-run/closers-end-a-run
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName x)
+          (ForceUnwrap
+            (OptionalChain
+              (OptionalMember (Name a) b))))
+        (Let.immutable
+          (BindingName y)
+          (Subscript.single
+            (OptionalChain
+              (OptionalMember (Name a) b))
+            (IntLit 0)))
+        (Let.immutable
+          (BindingName z)
+          (TupleIndex
+            (OptionalChain
+              (OptionalMember (Name a) b))
+            0))))))
+
+// case: syntax.rule.optional-chain-run/new-run-after-a-closer
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName x)
+          (OptionalChain
+            (OptionalMember
+              (ForceUnwrap
+                (OptionalChain
+                  (OptionalMember (Name a) b)))
+              c)))))))
+
+// case: syntax.rule.optional-chain-run/optional-assignment
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (OptionalMember (Name x) y))
+          (Name v))
+        (OptionalAssign.compound
+          (OptionalChain
+            (OptionalMember (Name x) y))
+          +=
+          (IntLit 1))
+        (OptionalAssign.plain
+          (OptionalChain
+            (OptionalMember
+              (OptionalMember (Name a) b)
+              c))
+          (IntLit 1))))))
+
+// case: syntax.rule.optional-chain-run/closed-run-makes-a-plain-assignment
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign
+          (Subscript.single
+            (OptionalChain
+              (OptionalMember (Name a) b))
+            (IntLit 0))
+          (IntLit 1))
+        (Assign
+          (ForceUnwrap
+            (OptionalChain
+              (OptionalMember (Name a) b)))
+          (IntLit 2))))))
+
+// case: syntax.rule.optional-chain-run/optional-assignment-as-a-binding-subject
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (LetArm.let
+              (BindingName _)
+              (OptionalChain
+                (OptionalMember (Name x) y))
+              =
+              (Name v))
+            (Block)))
+        (Guard.let
+          (BindingName _)
+          (OptionalChain
+            (OptionalMember (Name x) y))
+          =
+          (Name v)
+          (Block (Return)))))))
+
+// case: syntax.rule.tuple-index-dot/two-index-hops
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (TupleIndex
+            (TupleIndex (Name t) 0)
+            1))))))
+
+// case: syntax.rule.tuple-index-dot/member-of-an-element
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Member
+            (TupleIndex (Name t) 0)
+            name))
+        (Let.immutable
+          (BindingName b)
+          (Call.paren
+            (Member
+              (TupleIndex
+                (TupleIndex (Name t) 1)
+                2)
+              len)))))))
+
+// case: syntax.rule.one-call-node/every-callee-one-node
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Call.paren
+            (Name g)
+            (Arg.positional (IntLit 1))))
+        (Let.immutable
+          (BindingName b)
+          (Call.paren
+            (Name Point)
+            (Arg.labelled x (IntLit 1))
+            (Arg.labelled y (IntLit 2))))
+        (Let.immutable
+          (BindingName c)
+          (Call.paren
+            (Member (Name Shape) Circle)
+            (Arg.labelled r (IntLit 2))))
+        (Let.immutable
+          (BindingName d)
+          (Call.paren
+            (Name v)
+            (Arg.positional (IntLit 3))))))))
+
+// case: syntax.rule.one-call-node/labels-mix-freely
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Call.paren
+            (Name f)
+            (Arg.labelled a (IntLit 1))
+            (Arg.positional (IntLit 2))))
+        (Let.immutable
+          (BindingName b)
+          (Call.paren
+            (Name f)
+            (Arg.positional (IntLit 1))
+            (Arg.labelled b (IntLit 2))
+            (Arg.positional (IntLit 3))))))))
+
+// case: syntax.rule.subscript-arguments/single
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Subscript.single (Name m) (Name i)))))))
+
+// case: syntax.rule.subscript-arguments/two-positional
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Subscript.multi
+            (Name m)
+            (Name r)
+            (Arg.positional (Name c))))))))
+
+// case: syntax.rule.subscript-arguments/parenthesized-tuple-is-single
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Subscript.single
+            (Name m)
+            (Tuple.positional (Name r) (Name c))))))))
+
+// case: syntax.rule.subscript-arguments/labelled
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Subscript.multi
+            (Name m)
+            (Name k)
+            (Arg.labelled default (IntLit 0))))
+        (Let.immutable
+          (BindingName b)
+          (Subscript.multi (Name m) key (Name k)))
+        (Let.immutable
+          (BindingName c)
+          (Subscript.multi
+            (Name m)
+            key
+            (Name k)
+            (Arg.labelled default (IntLit 0))))))))
+
+// case: syntax.rule.implicit-member/at-an-operand-start
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName d)
+          (NamedType (Path Direction))
+          (ImplicitMember North))
+        (Let.immutable
+          (BindingName e)
+          (Binary.pair (Name d) == (ImplicitMember South)))))))
+
+// case: syntax.rule.implicit-member/payload-call
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName m)
+          (NamedType (Path Msg))
+          (Call.paren
+            (ImplicitMember Move)
+            (Arg.labelled x (IntLit 1))
+            (Arg.labelled y (IntLit 2))))))))
+
+// case: syntax.rule.implicit-member/member-hop-after-an-operand
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName n)
+          (Member (Name Direction) North))))))
+
+// case: syntax.rule.implicit-member/other-hop-parses
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName n)
+          (Call.paren
+            (Member (ImplicitMember North) opposite)))))))
+
+// case: syntax.rule.implicit-member/line-start-is-a-new-statement
+(File
+  (Declaration.func
+    (Func f
+      (NamedType (Path Int))
+      (Block
+        (Let.immutable (BindingName n) (Name s))
+        (ExprStmt
+          (Call.paren (ImplicitMember len)))))))
+
+// case: syntax.rule.label-or-tuple/label-in-an-argument
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name g)
+            (Arg.labelled a (IntLit 1))))))))
+
+// case: syntax.rule.label-or-tuple/named-tuple-in-parentheses
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName t)
+          (Tuple.named
+            (TupleField a (IntLit 1))
+            (TupleField b (IntLit 2))))))))
+
+// case: syntax.rule.label-or-tuple/positional-tuple
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName t)
+          (Tuple.positional (IntLit 1) (IntLit 2)))
+        (Let.immutable
+          (BindingName u)
+          (Tuple.positional (IntLit 1)))))))
+
+// case: syntax.rule.move-place/place-path
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Move.place (Name x)))
+        (Let.immutable
+          (BindingName b)
+          (Move.place
+            (Member
+              (Subscript.single
+                (Member (SelfExpr) buf)
+                (IntLit 0))
+              name)))
+        (Let.immutable
+          (BindingName c)
+          (Move.place
+            (Deref.name (Name p))))
+        (Let.immutable
+          (BindingName d)
+          (Move.place (Name o) !))
+        (Let.immutable
+          (BindingName e)
+          (Move.place
+            (TupleIndex (Name t) 0)))))))
+
+// case: syntax.rule.move-place/parenthesized-move-then-a-call
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName r)
+          (Call.paren
+            (Member
+              (Move.place (Name b))
+              finish)))))))
+
+// case: syntax.rule.assignment-target/place-shapes
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign (Name a) (Name b))
+        (Assign (SelfExpr) (Name c))
+        (Assign
+          (Member (Name a) b)
+          (Name c))
+        (Assign
+          (TupleIndex (Name a) 0)
+          (Name c))
+        (Assign
+          (Subscript.single (Name a) (Name i))
+          (Name c))
+        (Assign
+          (Deref (Name p))
+          (Name c))
+        (Assign
+          (ForceUnwrap (Name o))
+          (Name c))
+        (Assign
+          (BorrowPlace.var
+            (Subscript.single (Name v) (Name i)))
+          (Name c))))))
+
+// case: syntax.rule.assignment-target/compound-place-shapes
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (CompoundAssign (Name a) += (IntLit 1))
+        (CompoundAssign
+          (Member (Name a) b)
+          -=
+          (IntLit 1))
+        (CompoundAssign
+          (Subscript.single (Name a) (Name i))
+          *=
+          (IntLit 2))
+        (CompoundAssign
+          (Deref (Name p))
+          <<=
+          (IntLit 1))
+        (CompoundAssign
+          (BorrowPlace.var
+            (Subscript.single (Name v) (Name i)))
+          |=
+          (IntLit 1))))))
+
+// case: syntax.rule.assignment-target/retired-accessor-call-target
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign
+          (Call.paren
+            (Member (Name c) slot)
+            (Arg.positional (Name i)))
+          (Name v))))))
+
+// case: syntax.rule.reference-position/call-argument-and-pointer-cast
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name g)
+            (Arg.positional
+              (Ref.shared (Name x)))
+            (Arg.positional
+              (Ref.exclusive (Name y)))))
+        (Let.immutable
+          (BindingName p)
+          (Cast
+            (Ref.shared (Name x))
+            as
+            (NamedType
+              (Path UnsafePointer)
+              (NamedType (Path Int)))))))))
+
+// case: syntax.rule.reference-position/other-positions-parse
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName r)
+          (Ref.shared (Name x)))))))

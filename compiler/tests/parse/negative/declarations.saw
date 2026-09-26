@@ -1,0 +1,243 @@
+// case: syntax.rule.static-head/effect-word-after-static-before-func
+static sync func f() {
+}
+
+// case: syntax.rule.static-head/effect-word-after-static-in-an-extension
+extension S {
+    static unsafe func m() {
+    }
+}
+
+// case: syntax.rule.static-head/effect-word-after-static-before-init
+extension S {
+    static sync init() {
+    }
+}
+
+// case: syntax.rule.static-head/effect-word-after-static-before-a-visibility
+static sync public func f() {
+}
+
+// case: syntax.rule.static-head/effect-word-after-static-before-static
+static sync static func f() {
+}
+
+// case: syntax.rule.static-head/effect-word-after-static-before-an-effect-word
+static sync unsafe func f() {
+}
+
+// case: syntax.rule.static-head/static-field-in-an-extension
+extension S {
+    static x: Int
+}
+
+// case: syntax.rule.contextual-words/const-local
+func f() {
+    const x = 5
+}
+
+// case: syntax.rule.contextual-words/const-top-level-item
+const Max: Int = 256
+
+// case: syntax.rule.contextual-words/effect-word-before-func
+sync func f() {
+}
+
+// case: syntax.rule.contextual-words/const-before-func
+const func f() -> Int {
+    1
+}
+
+// case: syntax.rule.contextual-words/effect-word-before-init-in-an-extension
+extension S {
+    consumes init() {
+    }
+}
+
+// case: syntax.rule.contextual-words/effect-word-before-a-visibility
+sync public func f() {
+}
+
+// case: syntax.rule.contextual-words/effect-word-before-static
+extension S {
+    sync static func f() {
+    }
+}
+
+// case: syntax.rule.contextual-words/effect-word-before-an-effect-word
+consumes sync func f() {
+}
+
+// case: syntax.rule.contextual-words/constexpr-before-func
+constexpr func f() -> Int {
+    1
+}
+
+// case: syntax.rule.contextual-words/static-assert-arm-without-a-message
+func f() {
+    match n {
+        case _ -> static_assert(x)
+    }
+}
+
+// case: syntax.rule.contextual-words/static-assert-compound-assigned-to
+func f() {
+    static_assert(a, "m") += x
+}
+
+// case: syntax.rule.contextual-words/static-assert-member-assigned-to
+func f() {
+    static_assert(a, "m").b = x
+}
+
+// case: syntax.rule.contextual-words/static-assert-optional-member-assigned-to
+func f() {
+    static_assert(a, "m")?.b = x
+}
+
+// case: syntax.rule.contextual-words/static-assert-arm-assigned-to
+func f() {
+    match n {
+        case _ -> static_assert(a, "m") = x
+    }
+}
+
+// case: syntax.rule.contextual-words/local-type-alias
+func f() {
+    type T = Int
+}
+
+// case: syntax.rule.effect-slot/consumes-on-a-free-function
+func f(x: Int) consumes {
+}
+
+// case: syntax.rule.effect-slot/consumes-on-a-shared-receiver
+extension S {
+    func m(&self) consumes {
+    }
+}
+
+// case: syntax.rule.effect-slot/borrows-on-an-init
+extension S {
+    init(x: Int) borrows {
+    }
+}
+
+// case: syntax.rule.effect-slot/declaration-word-written-twice
+func f() sync sync {
+}
+
+// case: syntax.rule.effect-slot/declaration-words-out-of-order
+func f() sync unsafe {
+}
+
+// case: syntax.rule.effect-slot/escaping-on-a-declaration
+func f() escaping {
+}
+
+// case: syntax.rule.effect-slot/unsafe-before-func
+unsafe func f() {
+}
+
+// case: syntax.rule.attribute-position/align-on-a-function
+@align(8)
+func g() {
+}
+
+// case: syntax.rule.attribute-position/repeated-attribute
+@export
+@export
+func g() {
+}
+
+// case: syntax.rule.attribute-position/synthesize-shared-on-a-top-level-function
+@synthesize(shared)
+func g() {
+}
+
+// case: syntax.rule.attribute-position/export-on-a-local
+func f() {
+    @export let x = 1
+}
+
+// case: syntax.rule.attribute-position/synthesize-on-a-function
+@synthesize
+func g() {
+}
+
+// case: syntax.rule.attribute-position/unknown-attribute
+@inline
+func g() {
+}
+
+// case: syntax.rule.attribute-position/wrong-argument-shape
+@export(1)
+func g() {
+}
+
+// case: syntax.rule.attribute-position/align-on-a-destructuring-local
+func f() {
+    @align(8) let (a, b) = t
+}
+
+// case: syntax.rule.receiver-and-static/method-without-a-receiver
+extension P {
+    func m(x: Int) {
+    }
+}
+
+// case: syntax.rule.receiver-and-static/static-method-with-a-receiver
+extension P {
+    static func m(&self) {
+    }
+}
+
+// case: syntax.rule.receiver-and-static/receiver-not-first
+extension P {
+    func m(x: Int, &self) {
+    }
+}
+
+// case: syntax.rule.receiver-and-static/receiver-on-a-free-function
+func f(&self) -> Int {
+    1
+}
+
+// case: syntax.rule.receiver-and-static/receiver-on-an-init
+extension P {
+    init(&self, v: Int) -> P {
+        P(x: v)
+    }
+}
+
+// case: syntax.rule.receiver-and-static/requirement-without-a-receiver
+trait T {
+    func m(x: Int)
+}
+
+// case: syntax.rule.receiver-and-static/by-value-receiver
+extension P {
+    func m(self) {
+    }
+}
+
+// case: syntax.rule.extern-abi/abi-other-than-c
+extern "Rust" {
+    func f()
+}
+
+// case: syntax.rule.requirement-borrows/consumes-on-a-requirement
+trait T {
+    func m(&var self) consumes
+}
+
+// case: syntax.rule.import-names/name-bound-twice-by-an-alias
+import m.{a, b as a}
+
+// case: syntax.rule.import-names/name-listed-twice
+import m.{a, a}
+
+// case: syntax.rule.discard-binding/var-discard
+func f() {
+    var _ = e
+}
