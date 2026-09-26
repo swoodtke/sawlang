@@ -1091,6 +1091,17 @@ bare generic name is valid in an extension head at all is SL-66's question.
 **Checker:** yes: refuse an extension head that names a generic type, whether
 the build's or std's, without type arguments.
 
+### L19. A receiver outside a method (SL-407)
+
+**Shape:** a receiver on a free function (`func f(&self)`) or on an `init`
+(`init(&self)`) is accepted by Stage 0's parser, and the build then ends in an
+internal compiler error. The new grammar refuses both while parsing
+(syntax.rule.receiver-and-static).
+
+**Instead:** a receiver belongs only on a method, and an `init` takes none.
+
+**Checker:** not needed: the build fails loudly.
+
 ## Cases with no issue
 
 These four come from codex's review of the parked SL-2.p2 r3 (SL-2 c29, with
@@ -1161,7 +1172,7 @@ well. Loud.
 
 ## Inventory
 
-Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and four found since, mapped to its entry. "Call" is this
+Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and five found since, mapped to its entry. "Call" is this
 ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 
 | Issue | Entry | Call |
@@ -1256,6 +1267,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-402 | L18 An extension of a generic type without its parameters | loud (found in the compiler-skeleton review) |
 | SL-403 | S22 Types declared in an inline module | silent, leak only (found in the compiler-skeleton review) |
 | SL-404 | S23 An owned temporary in a control-flow head | silent, leak only (found in the compiler-skeleton review) |
+| SL-407 | L19 A receiver outside a method | loud (found by the grammar-rulings work) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
