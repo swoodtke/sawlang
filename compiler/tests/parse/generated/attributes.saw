@@ -1,0 +1,343 @@
+// case: syntax.attr.list/alt
+@export static a: b
+
+// case: syntax.attr.list/rep:0:attribute+=1
+@export static a: b
+
+// case: syntax.attr.list/rep:0:attribute+=many
+@section ("C") @align (a) @export static b: c
+
+// case: syntax.attr.attribute.export/alt
+@export static a: b
+
+// case: syntax.attr.attribute.export/rep:2:NEWLINE*=0
+@export static a: b
+
+// case: syntax.attr.attribute.export/rep:2:NEWLINE*=1
+@export
+static a: b
+
+// case: syntax.attr.attribute.export/rep:2:NEWLINE*=many
+@export
+
+
+static a: b
+
+// case: syntax.attr.attribute.export-symbol/alt
+@export ("C") static a: b
+
+// case: syntax.attr.attribute.export-symbol/rep:5:NEWLINE*=0
+@export ("C") static a: b
+
+// case: syntax.attr.attribute.export-symbol/rep:5:NEWLINE*=1
+@export ("C")
+static a: b
+
+// case: syntax.attr.attribute.export-symbol/rep:5:NEWLINE*=many
+@export ("C")
+
+
+static a: b
+
+// case: syntax.attr.attribute.section/alt
+@section ("C") static a: b
+
+// case: syntax.attr.attribute.section/rep:5:NEWLINE*=0
+@section ("C") static a: b
+
+// case: syntax.attr.attribute.section/rep:5:NEWLINE*=1
+@section ("C")
+static a: b
+
+// case: syntax.attr.attribute.section/rep:5:NEWLINE*=many
+@section ("C")
+
+
+static a: b
+
+// case: syntax.attr.attribute.synthesize/alt
+@synthesize extension a { }
+
+// case: syntax.attr.attribute.synthesize/rep:2:NEWLINE*=0
+@synthesize extension a { }
+
+// case: syntax.attr.attribute.synthesize/rep:2:NEWLINE*=1
+@synthesize
+extension a { }
+
+// case: syntax.attr.attribute.synthesize/rep:2:NEWLINE*=many
+@synthesize
+
+
+extension a { }
+
+// case: syntax.attr.attribute.align/alt
+@align (a) static b: c
+
+// case: syntax.attr.attribute.align/rep:5:NEWLINE*=0
+@align (a) static b: c
+
+// case: syntax.attr.attribute.align/rep:5:NEWLINE*=1
+@align (a)
+static b: c
+
+// case: syntax.attr.attribute.align/rep:5:NEWLINE*=many
+@align (a)
+
+
+static b: c
+
+// case: syntax.attr.synthesize-shared/alt
+extension a { @synthesize (shared) static func b() { } }
+
+// case: syntax.attr.synthesize-shared/rep:5:NEWLINE*=0
+extension a { @synthesize (shared) static func b() { } }
+
+// case: syntax.attr.synthesize-shared/rep:5:NEWLINE*=1
+extension a { @synthesize (shared)
+    static func b() { } }
+
+// case: syntax.attr.synthesize-shared/rep:5:NEWLINE*=many
+extension a { @synthesize (shared)
+
+
+    static func b() { } }
+
+// case: syntax.test.item.case/alt
+@test "C" { }
+
+// case: syntax.test.item.group/alt
+@test { }
+
+// case: syntax.test.item.declaration/alt
+@test import a
+
+// case: syntax.test.case.run/alt
+@test "C" { }
+
+// case: syntax.test.case.run/rep:3:NEWLINE*=0
+@test "C" { }
+
+// case: syntax.test.case.run/rep:3:NEWLINE*=1
+@test "C"
+{ }
+
+// case: syntax.test.case.run/rep:3:NEWLINE*=many
+@test "C"
+
+
+{ }
+
+// case: syntax.test.case.panics/alt
+@test (panics: "C") "C" { }
+
+// case: syntax.test.case.panics/rep:6:NEWLINE*=0
+@test (panics: "C") "C" { }
+
+// case: syntax.test.case.panics/rep:6:NEWLINE*=1
+@test (panics: "C") "C"
+{ }
+
+// case: syntax.test.case.panics/rep:6:NEWLINE*=many
+@test (panics: "C") "C"
+
+
+{ }
+
+// case: syntax.test.case.warns/alt
+@test (warns: none) "C" { }
+
+// case: syntax.test.case.warns/rep:6:NEWLINE*=0
+@test (warns: none) "C" { }
+
+// case: syntax.test.case.warns/rep:6:NEWLINE*=1
+@test (warns: none) "C"
+{ }
+
+// case: syntax.test.case.warns/rep:6:NEWLINE*=many
+@test (warns: none) "C"
+
+
+{ }
+
+// case: syntax.test.case.refuses/alt
+@test (refuses: "C") "C" { }
+
+// case: syntax.test.case.refuses/rep:6:NEWLINE*=0
+@test (refuses: "C") "C" { }
+
+// case: syntax.test.case.refuses/rep:6:NEWLINE*=1
+@test (refuses: "C") "C"
+{ }
+
+// case: syntax.test.case.refuses/rep:6:NEWLINE*=many
+@test (refuses: "C") "C"
+
+
+{ }
+
+// case: syntax.test.panics.rule/alt
+@test (panics: "C") "C" { }
+
+// case: syntax.test.panics.rule/opt:3:test-at?=absent
+@test (panics: "C") "C" { }
+
+// case: syntax.test.panics.rule/opt:3:test-at?=present
+@test (panics: "C", at: 1) "C" { }
+
+// case: syntax.test.panics.text/alt
+@test (panics: "C", text: "C") "C" { }
+
+// case: syntax.test.panics-text/alt
+@test (panics: "C", text: "C") "C" { }
+
+// case: syntax.test.panics-text/opt:4:test-at?=absent
+@test (panics: "C", text: "C") "C" { }
+
+// case: syntax.test.panics-text/opt:4:test-at?=present
+@test (panics: "C", text: "C", at: 1) "C" { }
+
+// case: syntax.test.warns.key/alt
+@test (warns: "C") "C" { }
+
+// case: syntax.test.warns.none/alt
+@test (warns: none) "C" { }
+
+// case: syntax.test.refuses/alt
+@test (refuses: "C") "C" { }
+
+// case: syntax.test.refuses/opt:3:test-text?=absent
+@test (refuses: "C") "C" { }
+
+// case: syntax.test.refuses/opt:3:test-text?=present
+@test (refuses: "C", text: "C") "C" { }
+
+// case: syntax.test.refuses/opt:4:test-at?=absent
+@test (refuses: "C") "C" { }
+
+// case: syntax.test.refuses/opt:4:test-at?=present
+@test (refuses: "C", at: 1) "C" { }
+
+// case: syntax.test.refuses/pair:3:test-text?=present,4:test-at?=present
+@test (refuses: "C", text: "C", at: 1) "C" { }
+
+// case: syntax.test.text/alt
+@test (refuses: "C", text: "C") "C" { }
+
+// case: syntax.test.at/alt
+@test (panics: "C", at: 1) "C" { }
+
+// case: syntax.test.group/alt
+@test { }
+
+// case: syntax.test.group/rep:2:NEWLINE*=0
+@test { }
+
+// case: syntax.test.group/rep:2:NEWLINE*=1
+@test
+{ }
+
+// case: syntax.test.group/rep:2:NEWLINE*=many
+@test
+
+
+{ }
+
+// case: syntax.test.group/rep:4:NEWLINE*=0
+@test { }
+
+// case: syntax.test.group/rep:4:NEWLINE*=1
+@test {
+}
+
+// case: syntax.test.group/rep:4:NEWLINE*=many
+@test {
+
+
+}
+
+// case: syntax.test.group/opt:5:top-level-list?=absent
+@test { }
+
+// case: syntax.test.group/opt:5:top-level-list?=present
+@test { module a }
+
+// case: syntax.test.group/pair:2:NEWLINE*=many,4:NEWLINE*=many
+@test
+
+
+{
+
+
+}
+
+// case: syntax.test.group/pair:2:NEWLINE*=many,5:top-level-list?=present
+@test
+
+
+{ module a }
+
+// case: syntax.test.group/pair:4:NEWLINE*=many,5:top-level-list?=present
+@test {
+
+
+    module a }
+
+// case: syntax.test.declaration.item/alt
+@test type a = b
+
+// case: syntax.test.declaration.item/rep:2:NEWLINE*=0
+@test type a = b
+
+// case: syntax.test.declaration.item/rep:2:NEWLINE*=1
+@test
+type a = b
+
+// case: syntax.test.declaration.item/rep:2:NEWLINE*=many
+@test
+
+
+type a = b
+
+// case: syntax.test.declaration.import/alt
+@test import a
+
+// case: syntax.test.declaration.import/rep:2:NEWLINE*=0
+@test import a
+
+// case: syntax.test.declaration.import/rep:2:NEWLINE*=1
+@test
+import a
+
+// case: syntax.test.declaration.import/rep:2:NEWLINE*=many
+@test
+
+
+import a
+
+// case: syntax.test.refusal-body/alt
+@test (refuses: "C") "C" { }
+
+// case: syntax.test.refusal-body/rep:1:refusal-token*=0
+@test (refuses: "C") "C" { }
+
+// case: syntax.test.refusal-body/rep:1:refusal-token*=1
+@test (refuses: "C") "C" { x }
+
+// case: syntax.test.refusal-body/rep:1:refusal-token*=many
+@test (refuses: "C") "C" { x x x }
+
+// case: syntax.test.refusal-token.nested/alt
+@test (refuses: "C") "C" { { } }
+
+// case: syntax.test.refusal-token.nested/rep:1:refusal-token*=0
+@test (refuses: "C") "C" { { } }
+
+// case: syntax.test.refusal-token.nested/rep:1:refusal-token*=1
+@test (refuses: "C") "C" { { x } }
+
+// case: syntax.test.refusal-token.nested/rep:1:refusal-token*=many
+@test (refuses: "C") "C" { { x x x } }
+
+// case: syntax.test.refusal-token.other/alt
+@test (refuses: "C") "C" { x }

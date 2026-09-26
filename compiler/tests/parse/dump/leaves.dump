@@ -1,0 +1,65 @@
+(File
+  (Declaration.struct
+    (Struct unsafe Raw
+      (Field private p
+        (NamedType (Path Int)))))
+  (Declaration.extension
+    (Extension
+      (Path Raw)
+      (ExtensionMember.method
+        (Method static make
+          (Param.plain n
+            (NamedType (Path Int)))
+          unsafe
+          sync
+          (NamedType (Path Raw))
+          (Block
+            (ExprStmt
+              (Call.paren
+                (Name Raw)
+                (Arg.labelled p
+                  (Binary
+                    (Binary (Name n) + (IntLit 1_000))
+                    *
+                    (IntLit 0XFF))))))))
+      (ExtensionMember.method
+        (Method apply
+          (Param.receiver (Receiver.shared))
+          (Param.plain f
+            (FuncType
+              (NamedType (Path Int))
+              escaping
+              (OptionalType
+                (NamedType (Path Int)))))
+          (OptionalType
+            (OptionalType
+              (NamedType (Path Int))))
+          (Block
+            (Let.immutable (BindingName s) (StringLit "tab\there \u{41}"))
+            (Let.immutable (BindingName t) (StringLit "two\x0alines"))
+            (ExprStmt
+              (Binary
+                (Call.paren
+                  (Name f)
+                  (Arg.positional
+                    (Member (SelfExpr) p)))
+                <<
+                (IntLit 2u8)
+                >>
+                (IntLit 1))))))
+      (ExtensionMember.method
+        (Method static spelled
+          (Block
+            (Let.immutable
+              (BindingName n)
+              (Binary (IntLit 1_) + (IntLit 0xFF_) + (IntLit 2_u8) + (IntLit 2__u8)))
+            (Let.immutable
+              (BindingName x)
+              (Binary
+                (FloatLit 1.0_)
+                +
+                (FloatLit 1_0.5)
+                +
+                (TupleIndex
+                  (TupleIndex (Name t) 0)
+                  1)))))))))

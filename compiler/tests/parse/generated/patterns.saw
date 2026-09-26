@@ -1,0 +1,80 @@
+// case: syntax.pat.pattern.wildcard/alt
+func a() { match b { case _ -> c } }
+
+// case: syntax.pat.pattern.literal/alt
+func a() { match b { case true -> c } }
+
+// case: syntax.pat.pattern.range/alt
+func a() { match b { case 1 .. 1 -> c } }
+
+// case: syntax.pat.pattern.tuple/alt
+func a() { match b { case () -> c } }
+
+// case: syntax.pat.pattern.variant/alt
+func a() { match b { case c() -> d } }
+
+// case: syntax.pat.pattern.name/alt
+func a() { match b { case c -> d } }
+
+// case: syntax.pat.pattern.none/alt
+func a() { match b { case None -> c } }
+
+// case: syntax.pat.wildcard/alt
+func a() { match b { case _ -> c } }
+
+// case: syntax.pat.literal.int/alt
+func a() { match b { case 1 -> c } }
+
+// case: syntax.pat.literal.negative-int/alt
+func a() { match b { case - 1 -> c } }
+
+// case: syntax.pat.literal.string/alt
+func a() { match b { case "C" -> c } }
+
+// case: syntax.pat.literal.true/alt
+func a() { match b { case true -> c } }
+
+// case: syntax.pat.literal.false/alt
+func a() { match b { case false -> c } }
+
+// case: syntax.pat.range.exclusive/alt
+func a() { match b { case 1 .. 1 -> c } }
+
+// case: syntax.pat.range.inclusive/alt
+func a() { match b { case 1 ..= 1 -> c } }
+
+// case: syntax.pat.int.positive/alt
+func a() { match b { case 1 .. 1 -> c } }
+
+// case: syntax.pat.int.negative/alt
+func a() { match b { case - 1 .. 1 -> c } }
+
+// case: syntax.pat.tuple.positional/alt
+func a() { while let () = b { } }
+
+// case: syntax.pat.tuple.positional/opt:1:(pattern ("," pattern)*)?=absent
+func a() { while let () = b { } }
+
+// case: syntax.pat.tuple.positional/opt:1:(pattern ("," pattern)*)?=present
+func a() { while let (b) = c { } }
+
+// case: syntax.pat.variant/alt
+func a() { match b { case c() -> d } }
+
+// case: syntax.pat.variant/opt:2:(payload-pattern ("," payload-pattern)*)?=absent
+func a() { match b { case c() -> d } }
+
+// case: syntax.pat.variant/opt:2:(payload-pattern ("," payload-pattern)*)?=present
+func a() { match b { case c(d) -> e } }
+
+// case: syntax.pat.payload.pattern/alt
+func a() { match b { case c(d) -> e } }
+
+// case: syntax.pat.payload.borrow/alt
+func a() { match b { case c(borrow let d) -> e } }
+
+// case: syntax.pat.name/alt
+func a() { match b { case c -> d } }
+
+// case: syntax.pat.none/alt
+func a() { match b { case None -> c } }

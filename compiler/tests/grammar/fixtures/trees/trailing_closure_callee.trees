@@ -1,2 +1,18 @@
 trailing_closure_callee.saw: 1 tree(s)
-  File(\n Func(func main ( ) Block({ \n ExprStmt(Call(Member(Name(v) . each) ( ) Closure({ ExprStmt(Call(Name(print) ( Arg(ShorthandParam($0)) ))) }))) \n ExprStmt(Call(Name(run) Closure({ ExprStmt(IntLit(10)) }))) \n })) \n )
+  (File
+    (Declaration.func
+      (Func main
+        (Block
+          (ExprStmt
+            (Call.paren-trailing
+              (Member (Name v) each)
+              (Closure
+                (ExprStmt
+                  (Call.paren
+                    (Name print)
+                    (Arg.positional (ShorthandParam $0)))))))
+          (ExprStmt
+            (Call
+              (Name run)
+              (Closure
+                (ExprStmt (IntLit 10)))))))))

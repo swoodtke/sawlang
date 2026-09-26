@@ -1,2 +1,18 @@
 generic_arg_value.saw: 1 tree(s)
-  File(\n Func(func main ( ) Block({ \n Let(let BindingName(v) : NamedType(Path(Vector) < NamedType(Path(Int)) >) = Call(Name(Ring < NamedType(Path(N)) >) ( ))) \n Let(let BindingName(r) = Call(Name(Ring < Binary(Unary(Path(N)) + Unary(IntLit(1))) >) ( ))) \n })) \n )
+  (File
+    (Declaration.func
+      (Func main
+        (Block
+          (Let.immutable
+            (BindingName v)
+            (NamedType
+              (Path Vector)
+              (NamedType (Path Int)))
+            (Call.paren
+              (Name Ring
+                (NamedType (Path N)))))
+          (Let.immutable
+            (BindingName r)
+            (Call.paren
+              (Name Ring
+                (Binary (Path N) + (IntLit 1)))))))))

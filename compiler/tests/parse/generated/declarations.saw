@@ -1,0 +1,1691 @@
+// case: syntax.file.source/alt
+
+
+// case: syntax.file.source/rep:0:NEWLINE*=0
+module a
+
+// case: syntax.file.source/rep:0:NEWLINE*=1
+
+
+// case: syntax.file.source/rep:0:NEWLINE*=many
+
+
+
+
+// case: syntax.file.source/opt:1:top-level-list?=absent
+
+
+// case: syntax.file.source/opt:1:top-level-list?=present
+module a
+
+// case: syntax.file.source/pair:0:NEWLINE*=many,1:top-level-list?=present
+
+
+
+module a
+
+// case: syntax.file.list/alt
+module a
+
+// case: syntax.file.list/rep:1:(NEWLINE+ top-level-item)*=0
+module a
+
+// case: syntax.file.list/rep:1:(NEWLINE+ top-level-item)*=1
+module a
+module b
+
+// case: syntax.file.list/rep:1:(NEWLINE+ top-level-item)*=many
+module a
+module b
+module c
+module d
+
+// case: syntax.file.list/rep:2:NEWLINE*=0
+module a { module b }
+
+// case: syntax.file.list/rep:2:NEWLINE*=1
+module a
+
+// case: syntax.file.list/rep:2:NEWLINE*=many
+module a
+
+
+
+// case: syntax.file.list/pair:1:(NEWLINE+ top-level-item)*=many,2:NEWLINE*=many
+module a
+module b
+module c
+module d
+
+
+
+// case: syntax.file.item.import/alt
+import a
+
+// case: syntax.file.item.module/alt
+module a
+
+// case: syntax.file.item.static-assert/alt
+static_assert (a, "C")
+
+// case: syntax.file.item.declaration/alt
+type a = b
+
+// case: syntax.file.item.test/alt
+@test import a
+
+// case: syntax.decl.item.func/alt
+func a() { }
+
+// case: syntax.decl.item.func/opt:0:attribute-list?=absent
+func a() { }
+
+// case: syntax.decl.item.func/opt:0:attribute-list?=present
+@export func a() { }
+
+// case: syntax.decl.item.func/opt:1:visibility?=absent
+func a() { }
+
+// case: syntax.decl.item.func/opt:1:visibility?=present
+public func a() { }
+
+// case: syntax.decl.item.static/alt
+static a: b
+
+// case: syntax.decl.item.static/opt:0:attribute-list?=absent
+static a: b
+
+// case: syntax.decl.item.static/opt:0:attribute-list?=present
+@export static a: b
+
+// case: syntax.decl.item.static/opt:1:visibility?=absent
+static a: b
+
+// case: syntax.decl.item.static/opt:1:visibility?=present
+public static a: b
+
+// case: syntax.decl.item.extension/alt
+extension a { }
+
+// case: syntax.decl.item.extension/opt:0:attribute-list?=absent
+extension a { }
+
+// case: syntax.decl.item.extension/opt:0:attribute-list?=present
+@synthesize extension a { }
+
+// case: syntax.decl.item.struct/alt
+struct a { }
+
+// case: syntax.decl.item.struct/opt:0:visibility?=absent
+struct a { }
+
+// case: syntax.decl.item.struct/opt:0:visibility?=present
+public struct a { }
+
+// case: syntax.decl.item.enum/alt
+enum a { }
+
+// case: syntax.decl.item.enum/opt:0:visibility?=absent
+enum a { }
+
+// case: syntax.decl.item.enum/opt:0:visibility?=present
+public enum a { }
+
+// case: syntax.decl.item.trait/alt
+trait a { }
+
+// case: syntax.decl.item.trait/opt:0:visibility?=absent
+trait a { }
+
+// case: syntax.decl.item.trait/opt:0:visibility?=present
+public trait a { }
+
+// case: syntax.decl.item.type-alias/alt
+type a = b
+
+// case: syntax.decl.item.type-alias/opt:0:visibility?=absent
+type a = b
+
+// case: syntax.decl.item.type-alias/opt:0:visibility?=present
+public type a = b
+
+// case: syntax.decl.item.extern/alt
+extern "C" { }
+
+// case: syntax.decl.item.func/pair:0:attribute-list?=present,1:visibility?=present
+@export public func a() { }
+
+// case: syntax.decl.item.static/pair:0:attribute-list?=present,1:visibility?=present
+@export public static a: b
+
+// case: syntax.decl.visibility.public/alt
+public type a = b
+
+// case: syntax.decl.visibility.package/alt
+public (package) type a = b
+
+// case: syntax.decl.visibility.parent/alt
+public (parent) type a = b
+
+// case: syntax.decl.import.private/alt
+import a
+
+// case: syntax.decl.import.reexport/alt
+public import a
+
+// case: syntax.decl.import-target.module/alt
+import a
+
+// case: syntax.decl.import-target.module-alias/alt
+import a as b
+
+// case: syntax.decl.import-target.glob/alt
+import a.*
+
+// case: syntax.decl.import-target.selective/alt
+import a.{ }
+
+// case: syntax.decl.import-target.selective/rep:3:NEWLINE*=0
+import a.{ }
+
+// case: syntax.decl.import-target.selective/rep:3:NEWLINE*=1
+import a.{
+}
+
+// case: syntax.decl.import-target.selective/rep:3:NEWLINE*=many
+import a.{
+
+
+}
+
+// case: syntax.decl.import-target.selective/opt:4:import-symbol-list?=absent
+import a.{ }
+
+// case: syntax.decl.import-target.selective/opt:4:import-symbol-list?=present
+import a.{ b }
+
+// case: syntax.decl.import-target.selective/pair:3:NEWLINE*=many,4:import-symbol-list?=present
+import a.{
+
+
+    b }
+
+// case: syntax.decl.import-symbols/alt
+import a.{ b }
+
+// case: syntax.decl.import-symbols/rep:1:("," NEWLINE* import-symbol)*=0
+import a.{ b }
+
+// case: syntax.decl.import-symbols/rep:1:("," NEWLINE* import-symbol)*=1
+import a.{ b, c }
+
+// case: syntax.decl.import-symbols/rep:1:("," NEWLINE* import-symbol)*=many
+import a.{ b, c, d, e }
+
+// case: syntax.decl.import-symbols/opt:2:("," NEWLINE*)?=absent
+import a.{ b }
+
+// case: syntax.decl.import-symbols/opt:2:("," NEWLINE*)?=present
+import a.{ b, }
+
+// case: syntax.decl.import-symbols/pair:1:("," NEWLINE* import-symbol)*=many,2:("," NEWLINE*)?=present
+import a.{ b, c, d, e, }
+
+// case: syntax.decl.import-symbol.name/alt
+import a.{ b }
+
+// case: syntax.decl.import-symbol.name/rep:1:NEWLINE*=0
+import a.{ b }
+
+// case: syntax.decl.import-symbol.name/rep:1:NEWLINE*=1
+import a.{ b
+}
+
+// case: syntax.decl.import-symbol.name/rep:1:NEWLINE*=many
+import a.{ b
+
+
+}
+
+// case: syntax.decl.import-symbol.alias/alt
+import a.{ b as c }
+
+// case: syntax.decl.import-symbol.alias/rep:3:NEWLINE*=0
+import a.{ b as c }
+
+// case: syntax.decl.import-symbol.alias/rep:3:NEWLINE*=1
+import a.{ b as c
+}
+
+// case: syntax.decl.import-symbol.alias/rep:3:NEWLINE*=many
+import a.{ b as c
+
+
+}
+
+// case: syntax.decl.module.file/alt
+module a
+
+// case: syntax.decl.module.file/opt:0:"public"?=absent
+module a
+
+// case: syntax.decl.module.file/opt:0:"public"?=present
+public module a
+
+// case: syntax.decl.module.inline/alt
+module a { }
+
+// case: syntax.decl.module.inline/opt:0:"public"?=absent
+module a { }
+
+// case: syntax.decl.module.inline/opt:0:"public"?=present
+public module a { }
+
+// case: syntax.decl.module.inline/rep:3:NEWLINE*=0
+module a { }
+
+// case: syntax.decl.module.inline/rep:3:NEWLINE*=1
+module a
+{ }
+
+// case: syntax.decl.module.inline/rep:3:NEWLINE*=many
+module a
+
+
+{ }
+
+// case: syntax.decl.module.inline/rep:5:NEWLINE*=0
+module a { }
+
+// case: syntax.decl.module.inline/rep:5:NEWLINE*=1
+module a {
+}
+
+// case: syntax.decl.module.inline/rep:5:NEWLINE*=many
+module a {
+
+
+}
+
+// case: syntax.decl.module.inline/opt:6:top-level-list?=absent
+module a { }
+
+// case: syntax.decl.module.inline/opt:6:top-level-list?=present
+module a { module b }
+
+// case: syntax.decl.module.inline/pair:0:"public"?=present,3:NEWLINE*=many
+public module a
+
+
+{ }
+
+// case: syntax.decl.module.inline/pair:0:"public"?=present,5:NEWLINE*=many
+public module a {
+
+
+}
+
+// case: syntax.decl.module.inline/pair:0:"public"?=present,6:top-level-list?=present
+public module a { module b }
+
+// case: syntax.decl.module.inline/pair:3:NEWLINE*=many,5:NEWLINE*=many
+module a
+
+
+{
+
+
+}
+
+// case: syntax.decl.module.inline/pair:3:NEWLINE*=many,6:top-level-list?=present
+module a
+
+
+{ module b }
+
+// case: syntax.decl.module.inline/pair:5:NEWLINE*=many,6:top-level-list?=present
+module a {
+
+
+    module b }
+
+// case: syntax.decl.static-assert/alt
+static_assert (a, "C")
+
+// case: syntax.type.path/alt
+import a
+
+// case: syntax.type.path/rep:1:("." IDENT)*=0
+import a
+
+// case: syntax.type.path/rep:1:("." IDENT)*=1
+import a.b
+
+// case: syntax.type.path/rep:1:("." IDENT)*=many
+import a.b.c.d
+
+// case: syntax.decl.func/alt
+func a() { }
+
+// case: syntax.decl.func/opt:2:generic-params?=absent
+func a() { }
+
+// case: syntax.decl.func/opt:2:generic-params?=present
+func a < b > () { }
+
+// case: syntax.decl.func/opt:4:param-list?=absent
+func a() { }
+
+// case: syntax.decl.func/opt:4:param-list?=present
+func a(b: c) { }
+
+// case: syntax.decl.func/opt:7:return-clause?=absent
+func a() { }
+
+// case: syntax.decl.func/opt:7:return-clause?=present
+func a() -> b { }
+
+// case: syntax.decl.func/rep:8:NEWLINE*=0
+func a() { }
+
+// case: syntax.decl.func/rep:8:NEWLINE*=1
+func a()
+{ }
+
+// case: syntax.decl.func/rep:8:NEWLINE*=many
+func a()
+
+
+{ }
+
+// case: syntax.decl.func/pair:2:generic-params?=present,4:param-list?=present
+func a < b > (c: d) { }
+
+// case: syntax.decl.func/pair:2:generic-params?=present,7:return-clause?=present
+func a < b > () -> c { }
+
+// case: syntax.decl.func/pair:2:generic-params?=present,8:NEWLINE*=many
+func a < b > ()
+
+
+{ }
+
+// case: syntax.decl.func/pair:4:param-list?=present,7:return-clause?=present
+func a(b: c) -> d { }
+
+// case: syntax.decl.func/pair:4:param-list?=present,8:NEWLINE*=many
+func a(b: c)
+
+
+{ }
+
+// case: syntax.decl.func/pair:7:return-clause?=present,8:NEWLINE*=many
+func a() -> b
+
+
+{ }
+
+// case: syntax.decl.params/alt
+func a(b: c) { }
+
+// case: syntax.decl.params/rep:1:("," param)*=0
+func a(b: c) { }
+
+// case: syntax.decl.params/rep:1:("," param)*=1
+func a(b: c, d: e) { }
+
+// case: syntax.decl.params/rep:1:("," param)*=many
+func a(b: c, d: e, f: g, h: i) { }
+
+// case: syntax.decl.params/opt:2:","?=absent
+func a(b: c) { }
+
+// case: syntax.decl.params/opt:2:","?=present
+func a(b: c,) { }
+
+// case: syntax.decl.params/pair:1:("," param)*=many,2:","?=present
+func a(b: c, d: e, f: g, h: i,) { }
+
+// case: syntax.decl.param.plain/alt
+func a(b: c) { }
+
+// case: syntax.decl.param.default/alt
+func a(b: c = d) { }
+
+// case: syntax.decl.param.receiver/alt
+extension a { func b(& self) { } }
+
+// case: syntax.decl.receiver.shared/alt
+extension a { func b(& self) { } }
+
+// case: syntax.decl.receiver.exclusive/alt
+extension a { func b(& var self) { } }
+
+// case: syntax.decl.return/alt
+func a() -> b { }
+
+// case: syntax.decl.effects/alt
+func a() { }
+
+// case: syntax.decl.effects/opt:0:'consumes'?=absent
+func a() { }
+
+// case: syntax.decl.effects/opt:0:'consumes'?=present
+extension a { func b(& var self) consumes { } }
+
+// case: syntax.decl.effects/opt:1:"unsafe"?=absent
+func a() { }
+
+// case: syntax.decl.effects/opt:1:"unsafe"?=present
+func a() unsafe { }
+
+// case: syntax.decl.effects/opt:2:constexpr-effect?=absent
+func a() { }
+
+// case: syntax.decl.effects/opt:2:constexpr-effect?=present
+func a() constexpr { }
+
+// case: syntax.decl.effects/opt:3:'sync'?=absent
+func a() { }
+
+// case: syntax.decl.effects/opt:3:'sync'?=present
+func a() sync { }
+
+// case: syntax.decl.effects/opt:4:borrows-effect?=absent
+func a() { }
+
+// case: syntax.decl.effects/opt:4:borrows-effect?=present
+func a() borrows { }
+
+// case: syntax.decl.effects/pair:0:'consumes'?=present,1:"unsafe"?=present
+extension a { func b(& var self) consumes unsafe { } }
+
+// case: syntax.decl.effects/pair:0:'consumes'?=present,2:constexpr-effect?=present
+extension a { func b(& var self) consumes constexpr { } }
+
+// case: syntax.decl.effects/pair:0:'consumes'?=present,3:'sync'?=present
+extension a { func b(& var self) consumes sync { } }
+
+// case: syntax.decl.effects/pair:0:'consumes'?=present,4:borrows-effect?=present
+extension a { func b(& var self) consumes borrows { } }
+
+// case: syntax.decl.effects/pair:1:"unsafe"?=present,2:constexpr-effect?=present
+func a() unsafe constexpr { }
+
+// case: syntax.decl.effects/pair:1:"unsafe"?=present,3:'sync'?=present
+func a() unsafe sync { }
+
+// case: syntax.decl.effects/pair:1:"unsafe"?=present,4:borrows-effect?=present
+func a() unsafe borrows { }
+
+// case: syntax.decl.effects/pair:2:constexpr-effect?=present,3:'sync'?=present
+func a() constexpr sync { }
+
+// case: syntax.decl.effects/pair:2:constexpr-effect?=present,4:borrows-effect?=present
+func a() constexpr borrows { }
+
+// case: syntax.decl.effects/pair:3:'sync'?=present,4:borrows-effect?=present
+func a() sync borrows { }
+
+// case: syntax.decl.constexpr/alt
+func a() constexpr { }
+
+// case: syntax.decl.borrows-effect.plain/alt
+func a() borrows { }
+
+// case: syntax.decl.borrows-effect.sync/alt
+func a() borrows (sync) { }
+
+// case: syntax.decl.borrows-sync/alt
+func a() borrows (sync) { }
+
+// case: syntax.decl.struct/alt
+struct a { }
+
+// case: syntax.decl.struct/opt:0:struct-modifier?=absent
+struct a { }
+
+// case: syntax.decl.struct/opt:0:struct-modifier?=present
+unsafe struct a { }
+
+// case: syntax.decl.struct/opt:3:generic-params?=absent
+struct a { }
+
+// case: syntax.decl.struct/opt:3:generic-params?=present
+struct a < b > { }
+
+// case: syntax.decl.struct/rep:4:NEWLINE*=0
+struct a { }
+
+// case: syntax.decl.struct/rep:4:NEWLINE*=1
+struct a
+{ }
+
+// case: syntax.decl.struct/rep:4:NEWLINE*=many
+struct a
+
+
+{ }
+
+// case: syntax.decl.struct/rep:6:NEWLINE*=0
+struct a { }
+
+// case: syntax.decl.struct/rep:6:NEWLINE*=1
+struct a {
+}
+
+// case: syntax.decl.struct/rep:6:NEWLINE*=many
+struct a {
+
+
+}
+
+// case: syntax.decl.struct/opt:7:field-list?=absent
+struct a { }
+
+// case: syntax.decl.struct/opt:7:field-list?=present
+struct a { b: c }
+
+// case: syntax.decl.struct/pair:0:struct-modifier?=present,3:generic-params?=present
+unsafe struct a < b > { }
+
+// case: syntax.decl.struct/pair:0:struct-modifier?=present,4:NEWLINE*=many
+unsafe struct a
+
+
+{ }
+
+// case: syntax.decl.struct/pair:0:struct-modifier?=present,6:NEWLINE*=many
+unsafe struct a {
+
+
+}
+
+// case: syntax.decl.struct/pair:0:struct-modifier?=present,7:field-list?=present
+unsafe struct a { b: c }
+
+// case: syntax.decl.struct/pair:3:generic-params?=present,4:NEWLINE*=many
+struct a < b >
+
+
+{ }
+
+// case: syntax.decl.struct/pair:3:generic-params?=present,6:NEWLINE*=many
+struct a < b > {
+
+
+}
+
+// case: syntax.decl.struct/pair:3:generic-params?=present,7:field-list?=present
+struct a < b > { c: d }
+
+// case: syntax.decl.struct/pair:4:NEWLINE*=many,6:NEWLINE*=many
+struct a
+
+
+{
+
+
+}
+
+// case: syntax.decl.struct/pair:4:NEWLINE*=many,7:field-list?=present
+struct a
+
+
+{ b: c }
+
+// case: syntax.decl.struct/pair:6:NEWLINE*=many,7:field-list?=present
+struct a {
+
+
+    b: c }
+
+// case: syntax.decl.struct-modifier.unsafe/alt
+unsafe struct a { }
+
+// case: syntax.decl.struct-modifier.borrows/alt
+borrows struct a { }
+
+// case: syntax.decl.fields/alt
+struct a { b: c }
+
+// case: syntax.decl.fields/rep:1:(list-sep field)*=0
+struct a { b: c }
+
+// case: syntax.decl.fields/rep:1:(list-sep field)*=1
+struct a { b: c, d: e }
+
+// case: syntax.decl.fields/rep:1:(list-sep field)*=many
+struct a { b: c, d: e, f: g, h: i }
+
+// case: syntax.decl.fields/opt:2:list-sep?=absent
+struct a { b: c }
+
+// case: syntax.decl.fields/opt:2:list-sep?=present
+struct a { b: c, }
+
+// case: syntax.decl.fields/pair:1:(list-sep field)*=many,2:list-sep?=present
+struct a { b: c, d: e, f: g, h: i, }
+
+// case: syntax.decl.list-sep.comma/alt
+enum a { case b, }
+
+// case: syntax.decl.list-sep.comma/rep:1:NEWLINE*=0
+enum a { case b, }
+
+// case: syntax.decl.list-sep.comma/rep:1:NEWLINE*=1
+enum a { case b,
+}
+
+// case: syntax.decl.list-sep.comma/rep:1:NEWLINE*=many
+enum a { case b,
+
+
+}
+
+// case: syntax.decl.list-sep.newline/alt
+enum a { case b
+}
+
+// case: syntax.decl.list-sep.newline/rep:0:NEWLINE+=1
+enum a { case b
+}
+
+// case: syntax.decl.list-sep.newline/rep:0:NEWLINE+=many
+enum a { case b
+
+
+}
+
+// case: syntax.decl.list-sep.newline-comma/alt
+enum a { case b
+    , }
+
+// case: syntax.decl.list-sep.newline-comma/rep:0:NEWLINE+=1
+enum a { case b
+    , }
+
+// case: syntax.decl.list-sep.newline-comma/rep:0:NEWLINE+=many
+enum a { case b
+
+
+    , }
+
+// case: syntax.decl.list-sep.newline-comma/rep:2:NEWLINE*=0
+enum a { case b
+    , }
+
+// case: syntax.decl.list-sep.newline-comma/rep:2:NEWLINE*=1
+enum a { case b
+    ,
+}
+
+// case: syntax.decl.list-sep.newline-comma/rep:2:NEWLINE*=many
+enum a { case b
+    ,
+
+
+}
+
+// case: syntax.decl.list-sep.newline-comma/pair:0:NEWLINE+=many,2:NEWLINE*=many
+enum a { case b
+
+
+    ,
+
+
+}
+
+// case: syntax.decl.field/alt
+struct a { b: c }
+
+// case: syntax.decl.field/opt:0:field-visibility?=absent
+struct a { b: c }
+
+// case: syntax.decl.field/opt:0:field-visibility?=present
+struct a { private b: c }
+
+// case: syntax.decl.field-visibility.public/alt
+struct a { public b: c }
+
+// case: syntax.decl.field-visibility.private/alt
+struct a { private b: c }
+
+// case: syntax.decl.enum/alt
+enum a { }
+
+// case: syntax.decl.enum/opt:2:generic-params?=absent
+enum a { }
+
+// case: syntax.decl.enum/opt:2:generic-params?=present
+enum a < b > { }
+
+// case: syntax.decl.enum/opt:3:raw-backing?=absent
+enum a { }
+
+// case: syntax.decl.enum/opt:3:raw-backing?=present
+enum a: b { }
+
+// case: syntax.decl.enum/rep:4:NEWLINE*=0
+enum a { }
+
+// case: syntax.decl.enum/rep:4:NEWLINE*=1
+enum a
+{ }
+
+// case: syntax.decl.enum/rep:4:NEWLINE*=many
+enum a
+
+
+{ }
+
+// case: syntax.decl.enum/rep:6:NEWLINE*=0
+enum a { }
+
+// case: syntax.decl.enum/rep:6:NEWLINE*=1
+enum a {
+}
+
+// case: syntax.decl.enum/rep:6:NEWLINE*=many
+enum a {
+
+
+}
+
+// case: syntax.decl.enum/opt:7:case-list?=absent
+enum a { }
+
+// case: syntax.decl.enum/opt:7:case-list?=present
+enum a { case b }
+
+// case: syntax.decl.enum/pair:2:generic-params?=present,3:raw-backing?=present
+enum a < b >: c { }
+
+// case: syntax.decl.enum/pair:2:generic-params?=present,4:NEWLINE*=many
+enum a < b >
+
+
+{ }
+
+// case: syntax.decl.enum/pair:2:generic-params?=present,6:NEWLINE*=many
+enum a < b > {
+
+
+}
+
+// case: syntax.decl.enum/pair:2:generic-params?=present,7:case-list?=present
+enum a < b > { case c }
+
+// case: syntax.decl.enum/pair:3:raw-backing?=present,4:NEWLINE*=many
+enum a: b
+
+
+{ }
+
+// case: syntax.decl.enum/pair:3:raw-backing?=present,6:NEWLINE*=many
+enum a: b {
+
+
+}
+
+// case: syntax.decl.enum/pair:3:raw-backing?=present,7:case-list?=present
+enum a: b { case c }
+
+// case: syntax.decl.enum/pair:4:NEWLINE*=many,6:NEWLINE*=many
+enum a
+
+
+{
+
+
+}
+
+// case: syntax.decl.enum/pair:4:NEWLINE*=many,7:case-list?=present
+enum a
+
+
+{ case b }
+
+// case: syntax.decl.enum/pair:6:NEWLINE*=many,7:case-list?=present
+enum a {
+
+
+    case b }
+
+// case: syntax.decl.raw-backing/alt
+enum a: b { }
+
+// case: syntax.decl.cases/alt
+enum a { case b }
+
+// case: syntax.decl.cases/rep:1:(list-sep enum-case)*=0
+enum a { case b }
+
+// case: syntax.decl.cases/rep:1:(list-sep enum-case)*=1
+enum a { case b, case c }
+
+// case: syntax.decl.cases/rep:1:(list-sep enum-case)*=many
+enum a { case b, case c, case d, case e }
+
+// case: syntax.decl.cases/opt:2:list-sep?=absent
+enum a { case b }
+
+// case: syntax.decl.cases/opt:2:list-sep?=present
+enum a { case b, }
+
+// case: syntax.decl.cases/pair:1:(list-sep enum-case)*=many,2:list-sep?=present
+enum a { case b, case c, case d, case e, }
+
+// case: syntax.decl.case/alt
+enum a { case b }
+
+// case: syntax.decl.case/opt:2:payload-decl?=absent
+enum a { case b }
+
+// case: syntax.decl.case/opt:2:payload-decl?=present
+enum a { case b() }
+
+// case: syntax.decl.case/opt:3:raw-value?=absent
+enum a { case b }
+
+// case: syntax.decl.case/opt:3:raw-value?=present
+enum a { case b = c }
+
+// case: syntax.decl.case/pair:2:payload-decl?=present,3:raw-value?=present
+enum a { case b() = c }
+
+// case: syntax.decl.payload/alt
+enum a { case b() }
+
+// case: syntax.decl.payload/opt:1:(payload-field ("," payload-field)* ","?)?=absent
+enum a { case b() }
+
+// case: syntax.decl.payload/opt:1:(payload-field ("," payload-field)* ","?)?=present
+enum a { case b(c: d) }
+
+// case: syntax.decl.payload-field/alt
+enum a { case b(c: d) }
+
+// case: syntax.decl.raw-value/alt
+enum a { case b = c }
+
+// case: syntax.decl.trait/alt
+trait a { }
+
+// case: syntax.decl.trait/opt:2:generic-params?=absent
+trait a { }
+
+// case: syntax.decl.trait/opt:2:generic-params?=present
+trait a < b > { }
+
+// case: syntax.decl.trait/opt:3:trait-parents?=absent
+trait a { }
+
+// case: syntax.decl.trait/opt:3:trait-parents?=present
+trait a: b { }
+
+// case: syntax.decl.trait/rep:4:NEWLINE*=0
+trait a { }
+
+// case: syntax.decl.trait/rep:4:NEWLINE*=1
+trait a
+{ }
+
+// case: syntax.decl.trait/rep:4:NEWLINE*=many
+trait a
+
+
+{ }
+
+// case: syntax.decl.trait/rep:6:NEWLINE*=0
+trait a { }
+
+// case: syntax.decl.trait/rep:6:NEWLINE*=1
+trait a {
+}
+
+// case: syntax.decl.trait/rep:6:NEWLINE*=many
+trait a {
+
+
+}
+
+// case: syntax.decl.trait/opt:7:trait-member-list?=absent
+trait a { }
+
+// case: syntax.decl.trait/opt:7:trait-member-list?=present
+trait a { type b }
+
+// case: syntax.decl.trait/pair:2:generic-params?=present,3:trait-parents?=present
+trait a < b >: c { }
+
+// case: syntax.decl.trait/pair:2:generic-params?=present,4:NEWLINE*=many
+trait a < b >
+
+
+{ }
+
+// case: syntax.decl.trait/pair:2:generic-params?=present,6:NEWLINE*=many
+trait a < b > {
+
+
+}
+
+// case: syntax.decl.trait/pair:2:generic-params?=present,7:trait-member-list?=present
+trait a < b > { type c }
+
+// case: syntax.decl.trait/pair:3:trait-parents?=present,4:NEWLINE*=many
+trait a: b
+
+
+{ }
+
+// case: syntax.decl.trait/pair:3:trait-parents?=present,6:NEWLINE*=many
+trait a: b {
+
+
+}
+
+// case: syntax.decl.trait/pair:3:trait-parents?=present,7:trait-member-list?=present
+trait a: b { type c }
+
+// case: syntax.decl.trait/pair:4:NEWLINE*=many,6:NEWLINE*=many
+trait a
+
+
+{
+
+
+}
+
+// case: syntax.decl.trait/pair:4:NEWLINE*=many,7:trait-member-list?=present
+trait a
+
+
+{ type b }
+
+// case: syntax.decl.trait/pair:6:NEWLINE*=many,7:trait-member-list?=present
+trait a {
+
+
+    type b }
+
+// case: syntax.decl.trait-parents/alt
+trait a: b { }
+
+// case: syntax.decl.trait-parents/rep:2:("," path)*=0
+trait a: b { }
+
+// case: syntax.decl.trait-parents/rep:2:("," path)*=1
+trait a: b, c { }
+
+// case: syntax.decl.trait-parents/rep:2:("," path)*=many
+trait a: b, c, d, e { }
+
+// case: syntax.decl.trait-members/alt
+trait a { type b }
+
+// case: syntax.decl.trait-members/rep:1:(NEWLINE+ trait-member)*=0
+trait a { type b }
+
+// case: syntax.decl.trait-members/rep:1:(NEWLINE+ trait-member)*=1
+trait a { type b
+    type c }
+
+// case: syntax.decl.trait-members/rep:1:(NEWLINE+ trait-member)*=many
+trait a { type b
+    type c
+    type d
+    type e }
+
+// case: syntax.decl.trait-members/rep:2:NEWLINE*=0
+trait a { type b }
+
+// case: syntax.decl.trait-members/rep:2:NEWLINE*=1
+trait a { type b
+}
+
+// case: syntax.decl.trait-members/rep:2:NEWLINE*=many
+trait a { type b
+
+
+}
+
+// case: syntax.decl.trait-members/pair:1:(NEWLINE+ trait-member)*=many,2:NEWLINE*=many
+trait a { type b
+    type c
+    type d
+    type e
+
+
+}
+
+// case: syntax.decl.trait-member.assoc-type/alt
+trait a { type b }
+
+// case: syntax.decl.trait-member.requirement/alt
+trait a { static func b() }
+
+// case: syntax.decl.assoc-type/alt
+trait a { type b }
+
+// case: syntax.decl.requirement/alt
+trait a { static func b() }
+
+// case: syntax.decl.requirement/opt:0:"static"?=absent
+trait a { func b(& self) }
+
+// case: syntax.decl.requirement/opt:0:"static"?=present
+trait a { static func b() }
+
+// case: syntax.decl.requirement/opt:3:generic-params?=absent
+trait a { static func b() }
+
+// case: syntax.decl.requirement/opt:3:generic-params?=present
+trait a { static func b < c > () }
+
+// case: syntax.decl.requirement/opt:5:param-list?=absent
+trait a { static func b() }
+
+// case: syntax.decl.requirement/opt:5:param-list?=present
+trait a { static func b(c: d) }
+
+// case: syntax.decl.requirement/opt:8:return-clause?=absent
+trait a { static func b() }
+
+// case: syntax.decl.requirement/opt:8:return-clause?=present
+trait a { static func b() -> c }
+
+// case: syntax.decl.requirement/opt:9:default-body?=absent
+trait a { static func b() }
+
+// case: syntax.decl.requirement/opt:9:default-body?=present
+trait a { static func b() { } }
+
+// case: syntax.decl.requirement/pair:0:"static"?=present,3:generic-params?=present
+trait a { static func b < c > () }
+
+// case: syntax.decl.requirement/pair:0:"static"?=present,5:param-list?=present
+trait a { static func b(c: d) }
+
+// case: syntax.decl.requirement/pair:0:"static"?=present,8:return-clause?=present
+trait a { static func b() -> c }
+
+// case: syntax.decl.requirement/pair:0:"static"?=present,9:default-body?=present
+trait a { static func b() { } }
+
+// case: syntax.decl.requirement/pair:3:generic-params?=present,5:param-list?=present
+trait a { static func b < c > (d: e) }
+
+// case: syntax.decl.requirement/pair:3:generic-params?=present,8:return-clause?=present
+trait a { static func b < c > () -> d }
+
+// case: syntax.decl.requirement/pair:3:generic-params?=present,9:default-body?=present
+trait a { static func b < c > () { } }
+
+// case: syntax.decl.requirement/pair:5:param-list?=present,8:return-clause?=present
+trait a { static func b(c: d) -> e }
+
+// case: syntax.decl.requirement/pair:5:param-list?=present,9:default-body?=present
+trait a { static func b(c: d) { } }
+
+// case: syntax.decl.requirement/pair:8:return-clause?=present,9:default-body?=present
+trait a { static func b() -> c { } }
+
+// case: syntax.decl.default-body/alt
+trait a { static func b() { } }
+
+// case: syntax.decl.default-body/rep:0:NEWLINE*=0
+trait a { static func b() { } }
+
+// case: syntax.decl.default-body/rep:0:NEWLINE*=1
+trait a { static func b()
+    { } }
+
+// case: syntax.decl.default-body/rep:0:NEWLINE*=many
+trait a { static func b()
+
+
+    { } }
+
+// case: syntax.decl.extension/alt
+extension a { }
+
+// case: syntax.decl.extension/opt:2:generic-params?=absent
+extension a { }
+
+// case: syntax.decl.extension/opt:2:generic-params?=present
+extension a < b > { }
+
+// case: syntax.decl.extension/opt:3:conformance-list?=absent
+extension a { }
+
+// case: syntax.decl.extension/opt:3:conformance-list?=present
+extension a: b { }
+
+// case: syntax.decl.extension/rep:4:NEWLINE*=0
+extension a { }
+
+// case: syntax.decl.extension/rep:4:NEWLINE*=1
+extension a
+{ }
+
+// case: syntax.decl.extension/rep:4:NEWLINE*=many
+extension a
+
+
+{ }
+
+// case: syntax.decl.extension/rep:6:NEWLINE*=0
+extension a { }
+
+// case: syntax.decl.extension/rep:6:NEWLINE*=1
+extension a {
+}
+
+// case: syntax.decl.extension/rep:6:NEWLINE*=many
+extension a {
+
+
+}
+
+// case: syntax.decl.extension/opt:7:extension-member-list?=absent
+extension a { }
+
+// case: syntax.decl.extension/opt:7:extension-member-list?=present
+extension a { type b = c }
+
+// case: syntax.decl.extension/pair:2:generic-params?=present,3:conformance-list?=present
+extension a < b >: c { }
+
+// case: syntax.decl.extension/pair:2:generic-params?=present,4:NEWLINE*=many
+extension a < b >
+
+
+{ }
+
+// case: syntax.decl.extension/pair:2:generic-params?=present,6:NEWLINE*=many
+extension a < b > {
+
+
+}
+
+// case: syntax.decl.extension/pair:2:generic-params?=present,7:extension-member-list?=present
+extension a < b > { type c = d }
+
+// case: syntax.decl.extension/pair:3:conformance-list?=present,4:NEWLINE*=many
+extension a: b
+
+
+{ }
+
+// case: syntax.decl.extension/pair:3:conformance-list?=present,6:NEWLINE*=many
+extension a: b {
+
+
+}
+
+// case: syntax.decl.extension/pair:3:conformance-list?=present,7:extension-member-list?=present
+extension a: b { type c = d }
+
+// case: syntax.decl.extension/pair:4:NEWLINE*=many,6:NEWLINE*=many
+extension a
+
+
+{
+
+
+}
+
+// case: syntax.decl.extension/pair:4:NEWLINE*=many,7:extension-member-list?=present
+extension a
+
+
+{ type b = c }
+
+// case: syntax.decl.extension/pair:6:NEWLINE*=many,7:extension-member-list?=present
+extension a {
+
+
+    type b = c }
+
+// case: syntax.decl.conformances/alt
+extension a: b { }
+
+// case: syntax.decl.conformances/rep:2:("," path)*=0
+extension a: b { }
+
+// case: syntax.decl.conformances/rep:2:("," path)*=1
+extension a: b, c { }
+
+// case: syntax.decl.conformances/rep:2:("," path)*=many
+extension a: b, c, d, e { }
+
+// case: syntax.decl.extension-members/alt
+extension a { type b = c }
+
+// case: syntax.decl.extension-members/rep:1:(NEWLINE+ extension-member)*=0
+extension a { type b = c }
+
+// case: syntax.decl.extension-members/rep:1:(NEWLINE+ extension-member)*=1
+extension a { type b = c
+    type d = e }
+
+// case: syntax.decl.extension-members/rep:1:(NEWLINE+ extension-member)*=many
+extension a { type b = c
+    type d = e
+    type f = g
+    type h = i }
+
+// case: syntax.decl.extension-members/rep:2:NEWLINE*=0
+extension a { type b = c }
+
+// case: syntax.decl.extension-members/rep:2:NEWLINE*=1
+extension a { type b = c
+}
+
+// case: syntax.decl.extension-members/rep:2:NEWLINE*=many
+extension a { type b = c
+
+
+}
+
+// case: syntax.decl.extension-members/pair:1:(NEWLINE+ extension-member)*=many,2:NEWLINE*=many
+extension a { type b = c
+    type d = e
+    type f = g
+    type h = i
+
+
+}
+
+// case: syntax.decl.extension-member.type-assign/alt
+extension a { type b = c }
+
+// case: syntax.decl.extension-member.method/alt
+extension a { static func b() { } }
+
+// case: syntax.decl.extension-member.method/opt:0:visibility?=absent
+extension a { static func b() { } }
+
+// case: syntax.decl.extension-member.method/opt:0:visibility?=present
+extension a { public static func b() { } }
+
+// case: syntax.decl.extension-member.synthesized-method/alt
+extension a { @synthesize (shared) static func b() { } }
+
+// case: syntax.decl.extension-member.synthesized-method/opt:1:visibility?=absent
+extension a { @synthesize (shared) static func b() { } }
+
+// case: syntax.decl.extension-member.synthesized-method/opt:1:visibility?=present
+extension a { @synthesize (shared) public static func b() { } }
+
+// case: syntax.decl.extension-member.init/alt
+extension a { init () { } }
+
+// case: syntax.decl.extension-member.init/opt:0:visibility?=absent
+extension a { init () { } }
+
+// case: syntax.decl.extension-member.init/opt:0:visibility?=present
+extension a { public init () { } }
+
+// case: syntax.decl.type-assign/alt
+extension a { type b = c }
+
+// case: syntax.decl.method/alt
+extension a { static func b() { } }
+
+// case: syntax.decl.method/opt:0:"static"?=absent
+extension a { func b(& self) { } }
+
+// case: syntax.decl.method/opt:0:"static"?=present
+extension a { static func b() { } }
+
+// case: syntax.decl.method/opt:3:generic-params?=absent
+extension a { static func b() { } }
+
+// case: syntax.decl.method/opt:3:generic-params?=present
+extension a { static func b < c > () { } }
+
+// case: syntax.decl.method/opt:5:param-list?=absent
+extension a { static func b() { } }
+
+// case: syntax.decl.method/opt:5:param-list?=present
+extension a { static func b(c: d) { } }
+
+// case: syntax.decl.method/opt:8:return-clause?=absent
+extension a { static func b() { } }
+
+// case: syntax.decl.method/opt:8:return-clause?=present
+extension a { static func b() -> c { } }
+
+// case: syntax.decl.method/rep:9:NEWLINE*=0
+extension a { static func b() { } }
+
+// case: syntax.decl.method/rep:9:NEWLINE*=1
+extension a { static func b()
+    { } }
+
+// case: syntax.decl.method/rep:9:NEWLINE*=many
+extension a { static func b()
+
+
+    { } }
+
+// case: syntax.decl.method/pair:0:"static"?=present,3:generic-params?=present
+extension a { static func b < c > () { } }
+
+// case: syntax.decl.method/pair:0:"static"?=present,5:param-list?=present
+extension a { static func b(c: d) { } }
+
+// case: syntax.decl.method/pair:0:"static"?=present,8:return-clause?=present
+extension a { static func b() -> c { } }
+
+// case: syntax.decl.method/pair:0:"static"?=present,9:NEWLINE*=many
+extension a { static func b()
+
+
+    { } }
+
+// case: syntax.decl.method/pair:3:generic-params?=present,5:param-list?=present
+extension a { static func b < c > (d: e) { } }
+
+// case: syntax.decl.method/pair:3:generic-params?=present,8:return-clause?=present
+extension a { static func b < c > () -> d { } }
+
+// case: syntax.decl.method/pair:3:generic-params?=present,9:NEWLINE*=many
+extension a { static func b < c > ()
+
+
+    { } }
+
+// case: syntax.decl.method/pair:5:param-list?=present,8:return-clause?=present
+extension a { static func b(c: d) -> e { } }
+
+// case: syntax.decl.method/pair:5:param-list?=present,9:NEWLINE*=many
+extension a { static func b(c: d)
+
+
+    { } }
+
+// case: syntax.decl.method/pair:8:return-clause?=present,9:NEWLINE*=many
+extension a { static func b() -> c
+
+
+    { } }
+
+// case: syntax.decl.method-name.ident/alt
+extension a { static func b() { } }
+
+// case: syntax.decl.method-name.subscript/alt
+extension a { static func []() { } }
+
+// case: syntax.decl.method-name.setitem/alt
+extension a { static func [] = () { } }
+
+// case: syntax.decl.setitem-name/alt
+extension a { static func [] = () { } }
+
+// case: syntax.decl.init/alt
+extension a { init () { } }
+
+// case: syntax.decl.init/opt:2:param-list?=absent
+extension a { init () { } }
+
+// case: syntax.decl.init/opt:2:param-list?=present
+extension a { init (b: c) { } }
+
+// case: syntax.decl.init/opt:5:return-clause?=absent
+extension a { init () { } }
+
+// case: syntax.decl.init/opt:5:return-clause?=present
+extension a { init () -> b { } }
+
+// case: syntax.decl.init/rep:6:NEWLINE*=0
+extension a { init () { } }
+
+// case: syntax.decl.init/rep:6:NEWLINE*=1
+extension a { init ()
+    { } }
+
+// case: syntax.decl.init/rep:6:NEWLINE*=many
+extension a { init ()
+
+
+    { } }
+
+// case: syntax.decl.init/pair:2:param-list?=present,5:return-clause?=present
+extension a { init (b: c) -> d { } }
+
+// case: syntax.decl.init/pair:2:param-list?=present,6:NEWLINE*=many
+extension a { init (b: c)
+
+
+    { } }
+
+// case: syntax.decl.init/pair:5:return-clause?=present,6:NEWLINE*=many
+extension a { init () -> b
+
+
+    { } }
+
+// case: syntax.decl.type-alias/alt
+type a = b
+
+// case: syntax.decl.static.immutable/alt
+static a: b
+
+// case: syntax.decl.static.immutable/opt:4:static-init?=absent
+static a: b
+
+// case: syntax.decl.static.immutable/opt:4:static-init?=present
+static a: b = c
+
+// case: syntax.decl.static.unsafe-var/alt
+unsafe static var a: b
+
+// case: syntax.decl.static.unsafe-var/opt:6:static-init?=absent
+unsafe static var a: b
+
+// case: syntax.decl.static.unsafe-var/opt:6:static-init?=present
+unsafe static var a: b = c
+
+// case: syntax.decl.static-init/alt
+static a: b = c
+
+// case: syntax.decl.extern-block/alt
+extern "C" { }
+
+// case: syntax.decl.extern-block/rep:2:NEWLINE*=0
+extern "C" { }
+
+// case: syntax.decl.extern-block/rep:2:NEWLINE*=1
+extern "C"
+{ }
+
+// case: syntax.decl.extern-block/rep:2:NEWLINE*=many
+extern "C"
+
+
+{ }
+
+// case: syntax.decl.extern-block/rep:4:NEWLINE*=0
+extern "C" { }
+
+// case: syntax.decl.extern-block/rep:4:NEWLINE*=1
+extern "C" {
+}
+
+// case: syntax.decl.extern-block/rep:4:NEWLINE*=many
+extern "C" {
+
+
+}
+
+// case: syntax.decl.extern-block/opt:5:extern-func-list?=absent
+extern "C" { }
+
+// case: syntax.decl.extern-block/opt:5:extern-func-list?=present
+extern "C" { func a() }
+
+// case: syntax.decl.extern-block/pair:2:NEWLINE*=many,4:NEWLINE*=many
+extern "C"
+
+
+{
+
+
+}
+
+// case: syntax.decl.extern-block/pair:2:NEWLINE*=many,5:extern-func-list?=present
+extern "C"
+
+
+{ func a() }
+
+// case: syntax.decl.extern-block/pair:4:NEWLINE*=many,5:extern-func-list?=present
+extern "C" {
+
+
+    func a() }
+
+// case: syntax.decl.extern-funcs/alt
+extern "C" { func a() }
+
+// case: syntax.decl.extern-funcs/rep:1:(NEWLINE+ extern-func)*=0
+extern "C" { func a() }
+
+// case: syntax.decl.extern-funcs/rep:1:(NEWLINE+ extern-func)*=1
+extern "C" { func a()
+    func b() }
+
+// case: syntax.decl.extern-funcs/rep:1:(NEWLINE+ extern-func)*=many
+extern "C" { func a()
+    func b()
+    func c()
+    func d() }
+
+// case: syntax.decl.extern-funcs/rep:2:NEWLINE*=0
+extern "C" { func a() }
+
+// case: syntax.decl.extern-funcs/rep:2:NEWLINE*=1
+extern "C" { func a()
+}
+
+// case: syntax.decl.extern-funcs/rep:2:NEWLINE*=many
+extern "C" { func a()
+
+
+}
+
+// case: syntax.decl.extern-funcs/pair:1:(NEWLINE+ extern-func)*=many,2:NEWLINE*=many
+extern "C" { func a()
+    func b()
+    func c()
+    func d()
+
+
+}
+
+// case: syntax.decl.extern-func.prompt/alt
+extern "C" { func a() }
+
+// case: syntax.decl.extern-func.prompt/opt:3:extern-param-list?=absent
+extern "C" { func a() }
+
+// case: syntax.decl.extern-func.prompt/opt:3:extern-param-list?=present
+extern "C" { func a(b: c) }
+
+// case: syntax.decl.extern-func.prompt/opt:5:return-clause?=absent
+extern "C" { func a() }
+
+// case: syntax.decl.extern-func.prompt/opt:5:return-clause?=present
+extern "C" { func a() -> b }
+
+// case: syntax.decl.extern-func.blocking/alt
+extern "C" { blocking func a() }
+
+// case: syntax.decl.extern-func.blocking/opt:4:extern-param-list?=absent
+extern "C" { blocking func a() }
+
+// case: syntax.decl.extern-func.blocking/opt:4:extern-param-list?=present
+extern "C" { blocking func a(b: c) }
+
+// case: syntax.decl.extern-func.blocking/opt:6:return-clause?=absent
+extern "C" { blocking func a() }
+
+// case: syntax.decl.extern-func.blocking/opt:6:return-clause?=present
+extern "C" { blocking func a() -> b }
+
+// case: syntax.decl.extern-func.prompt/pair:3:extern-param-list?=present,5:return-clause?=present
+extern "C" { func a(b: c) -> d }
+
+// case: syntax.decl.extern-func.blocking/pair:4:extern-param-list?=present,6:return-clause?=present
+extern "C" { blocking func a(b: c) -> d }
+
+// case: syntax.decl.extern-params.fixed/alt
+extern "C" { func a(b: c) }
+
+// case: syntax.decl.extern-params.fixed/rep:1:("," extern-param)*=0
+extern "C" { func a(b: c) }
+
+// case: syntax.decl.extern-params.fixed/rep:1:("," extern-param)*=1
+extern "C" { func a(b: c, d: e) }
+
+// case: syntax.decl.extern-params.fixed/rep:1:("," extern-param)*=many
+extern "C" { func a(b: c, d: e, f: g, h: i) }
+
+// case: syntax.decl.extern-params.fixed/opt:2:","?=absent
+extern "C" { func a(b: c) }
+
+// case: syntax.decl.extern-params.fixed/opt:2:","?=present
+extern "C" { func a(b: c,) }
+
+// case: syntax.decl.extern-params.variadic/alt
+extern "C" { func a(b: c, ...) }
+
+// case: syntax.decl.extern-params.variadic/rep:1:("," extern-param)*=0
+extern "C" { func a(b: c, ...) }
+
+// case: syntax.decl.extern-params.variadic/rep:1:("," extern-param)*=1
+extern "C" { func a(b: c, d: e, ...) }
+
+// case: syntax.decl.extern-params.variadic/rep:1:("," extern-param)*=many
+extern "C" { func a(b: c, d: e, f: g, h: i, ...) }
+
+// case: syntax.decl.extern-params.fixed/pair:1:("," extern-param)*=many,2:","?=present
+extern "C" { func a(b: c, d: e, f: g, h: i,) }
+
+// case: syntax.decl.extern-param/alt
+extern "C" { func a(b: c) }
+
+// case: syntax.decl.static-assert/cell:stmt
+func f() {
+    static_assert(a, "m")
+    x
+}
+
+// case: syntax.decl.static-assert/cell:clos
+func f() {
+    let c = {
+        static_assert(a, "m")
+        x
+    }
+}
+
+// case: syntax.decl.static-assert/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        static_assert(a, "m")
+        x
+    }
+}
+
+// case: syntax.decl.static-assert/cell:arm
+func f() {
+    match x {
+        case _ -> static_assert(a, "m")
+    }
+}

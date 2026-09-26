@@ -1,2 +1,21 @@
 contextual_word_call.saw: 1 tree(s)
-  File(\n Func(func main ( ) Block({ \n Let(let BindingName(n) = Call(Name(lends) ( Arg(IntLit(3)) ))) \n StaticAssert(static_assert ( Binary(Name(N) > IntLit(0)) , a ring needs room )) \n })) \n )
+  (File
+    (Declaration.func
+      (Func main
+        (Block
+          (Let.immutable
+            (BindingName n)
+            (Call.paren
+              (Name lends)
+              (Arg.positional (IntLit 3))))
+          (StaticAssert
+            (Binary.pair (Name N) > (IntLit 0))
+            "a ring needs room")
+          (ExprStmt
+            (Match
+              (Name n)
+              (MatchArm
+                (WildcardPat)
+                (StaticAssert
+                  (Binary.pair (Name N) > (IntLit 1))
+                  "an arm body is a statement"))))))))

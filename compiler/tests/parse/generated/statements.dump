@@ -1,0 +1,1635 @@
+// case: syntax.stmt.block/alt
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.stmt.body/alt
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.stmt.body/rep:0:NEWLINE*=0
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.stmt.body/rep:0:NEWLINE*=1
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.stmt.body/rep:0:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.stmt.body/opt:1:(statement (stmt-sep statement)* NEWLINE*)?=absent
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.stmt.body/opt:1:(statement (stmt-sep statement)* NEWLINE*)?=present
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt (Name b))))))
+
+// case: syntax.stmt.body/pair:0:NEWLINE*=many,1:(statement (stmt-sep statement)* NEWLINE*)?=present
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt (Name b))))))
+
+// case: syntax.stmt.sep.semicolon/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt (Name b))
+        (ExprStmt (Name c))))))
+
+// case: syntax.stmt.sep.newline/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt (Name b))
+        (ExprStmt (Name c))))))
+
+// case: syntax.stmt.sep.newline/rep:0:NEWLINE+=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt (Name b))
+        (ExprStmt (Name c))))))
+
+// case: syntax.stmt.sep.newline/rep:0:NEWLINE+=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt (Name b))
+        (ExprStmt (Name c))))))
+
+// case: syntax.stmt.statement.expr/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt (Name b))))))
+
+// case: syntax.stmt.statement.other/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block (Break)))))
+
+// case: syntax.stmt.expr/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt (Name b))))))
+
+// case: syntax.stmt.non-expr.let/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Let.immutable (BindingName b) (Name c))))))
+
+// case: syntax.stmt.non-expr.destructure/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (DestructureLet.immutable (TuplePat.positional) (Name b))))))
+
+// case: syntax.stmt.non-expr.assign/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign (Name b) (Name c))))))
+
+// case: syntax.stmt.non-expr.compound-assign/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign (Name b) += (Name c))))))
+
+// case: syntax.stmt.non-expr.optional-assign/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (OptionalMember (Name b) c))
+          (Name d))))))
+
+// case: syntax.stmt.non-expr.return/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block (Return)))))
+
+// case: syntax.stmt.non-expr.break/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block (Break)))))
+
+// case: syntax.stmt.non-expr.continue/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block (Continue)))))
+
+// case: syntax.stmt.non-expr.lend/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Lend (Name b))))))
+
+// case: syntax.stmt.non-expr.guard/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.condition guard (Name b) else (Block))))))
+
+// case: syntax.stmt.non-expr.static-assert/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (StaticAssert (Name b) "C")))))
+
+// case: syntax.stmt.non-expr.attributed-local/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (AttributedLocal
+          (Attribute.align (Name b))
+          (Let.immutable (BindingName c) (Name d)))))))
+
+// case: syntax.stmt.let.immutable/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Let.immutable (BindingName b) (Name c))))))
+
+// case: syntax.stmt.let.immutable/opt:2:type-annotation?=absent
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Let.immutable (BindingName b) (Name c))))))
+
+// case: syntax.stmt.let.immutable/opt:2:type-annotation?=present
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Let.immutable
+          (BindingName b)
+          (NamedType (Path c))
+          (Name d))))))
+
+// case: syntax.stmt.let.mutable/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Let.mutable (BindingName b) (Name c))))))
+
+// case: syntax.stmt.let.mutable/opt:2:type-annotation?=absent
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Let.mutable (BindingName b) (Name c))))))
+
+// case: syntax.stmt.let.mutable/opt:2:type-annotation?=present
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Let.mutable
+          (BindingName b)
+          (NamedType (Path c))
+          (Name d))))))
+
+// case: syntax.stmt.type-annotation/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Let.immutable
+          (BindingName b)
+          (NamedType (Path c))
+          (Name d))))))
+
+// case: syntax.stmt.destructure.immutable/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (DestructureLet.immutable (TuplePat.positional) (Name b))))))
+
+// case: syntax.stmt.destructure.mutable/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (DestructureLet.mutable (TuplePat.positional) (Name b))))))
+
+// case: syntax.stmt.binding-name/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Let.immutable (BindingName b) (Name c))))))
+
+// case: syntax.stmt.binding-target.name/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (WhileLet.let (BindingName b) (Name c) (Block)))))))
+
+// case: syntax.stmt.binding-target.tuple/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (WhileLet.let (TuplePat.positional) (Name b) (Block)))))))
+
+// case: syntax.stmt.attributed-local/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (AttributedLocal
+          (Attribute.align (Name b))
+          (Let.immutable (BindingName c) (Name d)))))))
+
+// case: syntax.stmt.assign/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign (Name b) (Name c))))))
+
+// case: syntax.stmt.compound-assign/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign (Name b) += (Name c))))))
+
+// case: syntax.stmt.compound-op.add/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign (Name b) += (Name c))))))
+
+// case: syntax.stmt.compound-op.subtract/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign (Name b) -= (Name c))))))
+
+// case: syntax.stmt.compound-op.multiply/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign (Name b) *= (Name c))))))
+
+// case: syntax.stmt.compound-op.divide/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign (Name b) /= (Name c))))))
+
+// case: syntax.stmt.compound-op.remainder/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign (Name b) %= (Name c))))))
+
+// case: syntax.stmt.compound-op.and/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign (Name b) &= (Name c))))))
+
+// case: syntax.stmt.compound-op.or/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign (Name b) |= (Name c))))))
+
+// case: syntax.stmt.compound-op.xor/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign (Name b) ^= (Name c))))))
+
+// case: syntax.stmt.compound-op.shift-left/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign (Name b) <<= (Name c))))))
+
+// case: syntax.stmt.compound-op.shift-right/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign (Name b) >>= (Name c))))))
+
+// case: syntax.stmt.assign-target.name/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign (Name b) (Name c))))))
+
+// case: syntax.stmt.assign-target.self/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign (SelfExpr) (Name b))))))
+
+// case: syntax.stmt.assign-target.projection/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign
+          (ForceUnwrap (Name b))
+          (Name c))))))
+
+// case: syntax.stmt.assign-target.deref/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign
+          (Deref (Name b))
+          (Name c))))))
+
+// case: syntax.stmt.assign-target.borrow/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign
+          (BorrowPlace.let (BoolLit.true))
+          (Name b))))))
+
+// case: syntax.stmt.assign-target.call/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign
+          (Call.paren (Name b))
+          (Name c))))))
+
+// case: syntax.stmt.compound-target.name/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign (Name b) += (Name c))))))
+
+// case: syntax.stmt.compound-target.projection/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign
+          (ForceUnwrap (Name b))
+          +=
+          (Name c))))))
+
+// case: syntax.stmt.compound-target.deref/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign
+          (Deref (Name b))
+          +=
+          (Name c))))))
+
+// case: syntax.stmt.compound-target.borrow/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign
+          (BorrowPlace.let (Name b))
+          +=
+          (Name c))))))
+
+// case: syntax.stmt.compound-target.call/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (CompoundAssign
+          (Call.paren (Name b))
+          +=
+          (Name c))))))
+
+// case: syntax.stmt.projection-target/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign
+          (ForceUnwrap (Name b))
+          (Name c))))))
+
+// case: syntax.stmt.projection-target/rep:1:postfix-hop*=0
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign
+          (ForceUnwrap (Name b))
+          (Name c))))))
+
+// case: syntax.stmt.projection-target/rep:1:postfix-hop*=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign
+          (ForceUnwrap
+            (ForceUnwrap (Name b)))
+          (Name c))))))
+
+// case: syntax.stmt.projection-target/rep:1:postfix-hop*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign
+          (ForceUnwrap
+            (ForceUnwrap
+              (ForceUnwrap
+                (ForceUnwrap (Name b)))))
+          (Name c))))))
+
+// case: syntax.stmt.place-hop.member/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign
+          (Member (Name b) c)
+          (Name d))))))
+
+// case: syntax.stmt.place-hop.tuple-index/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign
+          (TupleIndex (Name b) 1)
+          (Name c))))))
+
+// case: syntax.stmt.place-hop.subscript/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign
+          (Subscript.single (Name b) (Name c))
+          (Name d))))))
+
+// case: syntax.stmt.place-hop.force/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign
+          (ForceUnwrap (Name b))
+          (Name c))))))
+
+// case: syntax.stmt.call-target/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign
+          (Call.paren (Name b))
+          (Name c))))))
+
+// case: syntax.stmt.call-target/rep:1:postfix-hop*=0
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign
+          (Call.paren (Name b))
+          (Name c))))))
+
+// case: syntax.stmt.call-target/rep:1:postfix-hop*=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign
+          (Call.paren
+            (ForceUnwrap (Name b)))
+          (Name c))))))
+
+// case: syntax.stmt.call-target/rep:1:postfix-hop*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Assign
+          (Call.paren
+            (ForceUnwrap
+              (ForceUnwrap
+                (ForceUnwrap (Name b)))))
+          (Name c))))))
+
+// case: syntax.stmt.optional-assign.plain/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (OptionalMember (Name b) c))
+          (Name d))))))
+
+// case: syntax.stmt.optional-assign.compound/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.compound
+          (OptionalChain
+            (OptionalMember (Name b) c))
+          +=
+          (Name d))))))
+
+// case: syntax.stmt.optional-assign.borrow-plain/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.borrow-plain
+          (BorrowPlace
+            (OptionalChain
+              (OptionalMember (Name b) c)))
+          (Name d))))))
+
+// case: syntax.stmt.optional-assign.borrow-compound/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.borrow-compound
+          (BorrowPlace
+            (OptionalChain
+              (OptionalMember (Name b) c)))
+          +=
+          (Name d))))))
+
+// case: syntax.stmt.optional-chain-target/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (OptionalMember (Name b) c))
+          (Name d))))))
+
+// case: syntax.stmt.optional-chain-target/rep:1:postfix-hop*=0
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (OptionalMember (Name b) c))
+          (Name d))))))
+
+// case: syntax.stmt.optional-chain-target/rep:1:postfix-hop*=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (OptionalMember
+              (ForceUnwrap (Name b))
+              c))
+          (Name d))))))
+
+// case: syntax.stmt.optional-chain-target/rep:1:postfix-hop*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (OptionalMember
+              (ForceUnwrap
+                (ForceUnwrap
+                  (ForceUnwrap (Name b))))
+              c))
+          (Name d))))))
+
+// case: syntax.stmt.optional-chain-target/rep:3:chain-hop*=0
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (OptionalMember (Name b) c))
+          (Name d))))))
+
+// case: syntax.stmt.optional-chain-target/rep:3:chain-hop*=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (Member
+              (OptionalMember (Name b) c)
+              d))
+          (Name e))))))
+
+// case: syntax.stmt.optional-chain-target/rep:3:chain-hop*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (Member
+              (Member
+                (Member
+                  (OptionalMember (Name b) c)
+                  d)
+                e)
+              f))
+          (Name g))))))
+
+// case: syntax.stmt.optional-chain-target/pair:1:postfix-hop*=many,3:chain-hop*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (Member
+              (Member
+                (Member
+                  (OptionalMember
+                    (ForceUnwrap
+                      (ForceUnwrap
+                        (ForceUnwrap (Name b))))
+                    c)
+                  d)
+                e)
+              f))
+          (Name g))))))
+
+// case: syntax.stmt.chain-hop.member/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (Member
+              (OptionalMember (Name b) c)
+              d))
+          (Name e))))))
+
+// case: syntax.stmt.chain-hop.optional/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (OptionalMember
+              (OptionalMember (Name b) c)
+              d))
+          (Name e))))))
+
+// case: syntax.stmt.chain-hop.call/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (Call.paren
+              (OptionalMember (Name b) c)))
+          (Name d))))))
+
+// case: syntax.stmt.chain-hop.trailing/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (Call
+              (OptionalMember (Name b) c)
+              (Closure)))
+          (Name d))))))
+
+// case: syntax.stmt.return/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block (Return)))))
+
+// case: syntax.stmt.return/opt:1:expr?=absent
+(File
+  (Declaration.func
+    (Func a
+      (Block (Return)))))
+
+// case: syntax.stmt.return/opt:1:expr?=present
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Return (Name b))))))
+
+// case: syntax.stmt.break/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block (Break)))))
+
+// case: syntax.stmt.break/opt:1:expr?=absent
+(File
+  (Declaration.func
+    (Func a
+      (Block (Break)))))
+
+// case: syntax.stmt.break/opt:1:expr?=present
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Break (Name b))))))
+
+// case: syntax.stmt.continue/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block (Continue)))))
+
+// case: syntax.stmt.lend/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Lend (Name b))))))
+
+// case: syntax.stmt.guard.let/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.let (BindingName b) (Name c) (Block))))))
+
+// case: syntax.stmt.guard.let/rep:5:NEWLINE*=0
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.let (BindingName b) (Name c) (Block))))))
+
+// case: syntax.stmt.guard.let/rep:5:NEWLINE*=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.let (BindingName b) (Name c) (Block))))))
+
+// case: syntax.stmt.guard.let/rep:5:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.let (BindingName b) (Name c) (Block))))))
+
+// case: syntax.stmt.guard.let/rep:7:NEWLINE*=0
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.let (BindingName b) (Name c) (Block))))))
+
+// case: syntax.stmt.guard.let/rep:7:NEWLINE*=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.let (BindingName b) (Name c) (Block))))))
+
+// case: syntax.stmt.guard.let/rep:7:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.let (BindingName b) (Name c) (Block))))))
+
+// case: syntax.stmt.guard.var/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.var (BindingName b) (Name c) (Block))))))
+
+// case: syntax.stmt.guard.var/rep:5:NEWLINE*=0
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.var (BindingName b) (Name c) (Block))))))
+
+// case: syntax.stmt.guard.var/rep:5:NEWLINE*=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.var (BindingName b) (Name c) (Block))))))
+
+// case: syntax.stmt.guard.var/rep:5:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.var (BindingName b) (Name c) (Block))))))
+
+// case: syntax.stmt.guard.var/rep:7:NEWLINE*=0
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.var (BindingName b) (Name c) (Block))))))
+
+// case: syntax.stmt.guard.var/rep:7:NEWLINE*=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.var (BindingName b) (Name c) (Block))))))
+
+// case: syntax.stmt.guard.var/rep:7:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.var (BindingName b) (Name c) (Block))))))
+
+// case: syntax.stmt.guard.condition/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.condition guard (Name b) else (Block))))))
+
+// case: syntax.stmt.guard.let/pair:5:NEWLINE*=many,7:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.let (BindingName b) (Name c) (Block))))))
+
+// case: syntax.stmt.guard.var/pair:5:NEWLINE*=many,7:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.var (BindingName b) (Name c) (Block))))))
+
+// case: syntax.stmt.guard-condition/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.condition guard (Name b) else (Block))))))
+
+// case: syntax.stmt.guard-condition/rep:2:NEWLINE*=0
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.condition guard (Name b) else (Block))))))
+
+// case: syntax.stmt.guard-condition/rep:2:NEWLINE*=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.condition guard (Name b) else (Block))))))
+
+// case: syntax.stmt.guard-condition/rep:2:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.condition guard (Name b) else (Block))))))
+
+// case: syntax.stmt.guard-condition/rep:4:NEWLINE*=0
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.condition guard (Name b) else (Block))))))
+
+// case: syntax.stmt.guard-condition/rep:4:NEWLINE*=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.condition guard (Name b) else (Block))))))
+
+// case: syntax.stmt.guard-condition/rep:4:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.condition guard (Name b) else (Block))))))
+
+// case: syntax.stmt.guard-condition/pair:2:NEWLINE*=many,4:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (Guard.condition guard (Name b) else (Block))))))
+
+// case: syntax.stmt.binding-subject.value/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (If
+            (LetArm.let (BindingName b) (Name c))
+            (Block)))))))
+
+// case: syntax.stmt.binding-subject.chain-assign/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (If
+            (LetArm.let
+              (BindingName b)
+              (OptionalChain
+                (OptionalMember (Name c) d))
+              =
+              (Name e))
+            (Block)))))))
+
+// case: syntax.stmt.binding-subject.borrow-chain-assign/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (If
+            (LetArm.let
+              (BindingName b)
+              (BorrowPlace
+                (OptionalChain
+                  (OptionalMember (Name c) d)))
+              =
+              (Name e))
+            (Block)))))))
+
+// case: syntax.stmt.let/cell:stmt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName x) (Name a))
+        (ExprStmt (Name x))))))
+
+// case: syntax.stmt.let/cell:clos
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (Let.immutable (BindingName x) (Name a))
+            (ExprStmt (Name x))))))))
+
+// case: syntax.stmt.let/cell:catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (Let.immutable (BindingName x) (Name a))
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.stmt.let/cell:arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              (Let.immutable (BindingName x) (Name a)))))))))
+
+// case: syntax.stmt.destructure/cell:stmt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (DestructureLet.immutable
+          (TuplePat.positional (NamePat x) (NamePat y))
+          (Name a))
+        (ExprStmt (Name x))))))
+
+// case: syntax.stmt.destructure/cell:clos
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (DestructureLet.immutable
+              (TuplePat.positional (NamePat x) (NamePat y))
+              (Name a))
+            (ExprStmt (Name x))))))))
+
+// case: syntax.stmt.destructure/cell:catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (DestructureLet.immutable
+                (TuplePat.positional (NamePat x) (NamePat y))
+                (Name a))
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.stmt.destructure/cell:arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              (DestructureLet.immutable
+                (TuplePat.positional (NamePat x) (NamePat y))
+                (Name a)))))))))
+
+// case: syntax.stmt.assign/cell:stmt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign (Name a) (Name b))
+        (ExprStmt (Name x))))))
+
+// case: syntax.stmt.assign/cell:clos
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (Assign (Name a) (Name b))
+            (ExprStmt (Name x))))))))
+
+// case: syntax.stmt.assign/cell:catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (Assign (Name a) (Name b))
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.stmt.assign/cell:arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              (Assign (Name a) (Name b)))))))))
+
+// case: syntax.stmt.compound-assign/cell:stmt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (CompoundAssign (Name a) += (Name b))
+        (ExprStmt (Name x))))))
+
+// case: syntax.stmt.compound-assign/cell:clos
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (CompoundAssign (Name a) += (Name b))
+            (ExprStmt (Name x))))))))
+
+// case: syntax.stmt.compound-assign/cell:catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (CompoundAssign (Name a) += (Name b))
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.stmt.compound-assign/cell:arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              (CompoundAssign (Name a) += (Name b)))))))))
+
+// case: syntax.stmt.return/cell:stmt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Return (Name a))
+        (ExprStmt (Name x))))))
+
+// case: syntax.stmt.return/cell:clos
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (Return (Name a))
+            (ExprStmt (Name x))))))))
+
+// case: syntax.stmt.return/cell:catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (Return (Name a))
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.stmt.return/cell:arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              (Return (Name a)))))))))
+
+// case: syntax.stmt.break/cell:stmt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Break)
+        (ExprStmt (Name x))))))
+
+// case: syntax.stmt.break/cell:clos
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (Break)
+            (ExprStmt (Name x))))))))
+
+// case: syntax.stmt.break/cell:catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (Break)
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.stmt.break/cell:arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm (WildcardPat) (Break))))))))
+
+// case: syntax.stmt.continue/cell:stmt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Continue)
+        (ExprStmt (Name x))))))
+
+// case: syntax.stmt.continue/cell:clos
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (Continue)
+            (ExprStmt (Name x))))))))
+
+// case: syntax.stmt.continue/cell:catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (Continue)
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.stmt.continue/cell:arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm (WildcardPat) (Continue))))))))
+
+// case: syntax.stmt.lend/cell:stmt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Lend (Name a))
+        (ExprStmt (Name x))))))
+
+// case: syntax.stmt.lend/cell:clos
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (Lend (Name a))
+            (ExprStmt (Name x))))))))
+
+// case: syntax.stmt.lend/cell:catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (Lend (Name a))
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.stmt.lend/cell:arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              (Lend (Name a)))))))))
+
+// case: syntax.stmt.guard/cell:stmt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Guard.let
+          (BindingName x)
+          (Name a)
+          (Block (Return)))
+        (ExprStmt (Name x))))))
+
+// case: syntax.stmt.guard/cell:clos
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (Guard.let
+              (BindingName x)
+              (Name a)
+              (Block (Return)))
+            (ExprStmt (Name x))))))))
+
+// case: syntax.stmt.guard/cell:catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (Guard.let
+                (BindingName x)
+                (Name a)
+                (Block (Return)))
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.stmt.guard/cell:arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              (Guard.let
+                (BindingName x)
+                (Name a)
+                (Block (Return))))))))))
+
+// case: syntax.stmt.guard-condition/cell:stmt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Guard.condition guard
+          (Name a)
+          else
+          (Block (Return)))
+        (ExprStmt (Name x))))))
+
+// case: syntax.stmt.guard-condition/cell:clos
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (Guard.condition guard
+              (Name a)
+              else
+              (Block (Return)))
+            (ExprStmt (Name x))))))))
+
+// case: syntax.stmt.guard-condition/cell:catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (Guard.condition guard
+                (Name a)
+                else
+                (Block (Return)))
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.stmt.guard-condition/cell:arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              (Guard.condition guard
+                (Name a)
+                else
+                (Block (Return))))))))))
+
+// case: syntax.stmt.attributed-local/cell:stmt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (AttributedLocal
+          (Attribute.align (IntLit 8))
+          (Let.immutable (BindingName x) (Name a)))
+        (ExprStmt (Name x))))))
+
+// case: syntax.stmt.attributed-local/cell:clos
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (AttributedLocal
+              (Attribute.align (IntLit 8))
+              (Let.immutable (BindingName x) (Name a)))
+            (ExprStmt (Name x))))))))
+
+// case: syntax.stmt.attributed-local/cell:catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (AttributedLocal
+                (Attribute.align (IntLit 8))
+                (Let.immutable (BindingName x) (Name a)))
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.stmt.attributed-local/cell:arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              (AttributedLocal
+                (Attribute.align (IntLit 8))
+                (Let.immutable (BindingName x) (Name a))))))))))
+
+// case: syntax.stmt.optional-assign/cell:stmt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (OptionalMember (Name a) b))
+          (Name c))
+        (ExprStmt (Name x))))))
+
+// case: syntax.stmt.optional-assign/cell:clos
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (OptionalAssign.plain
+              (OptionalChain
+                (OptionalMember (Name a) b))
+              (Name c))
+            (ExprStmt (Name x))))))))
+
+// case: syntax.stmt.optional-assign/cell:catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (OptionalAssign.plain
+                (OptionalChain
+                  (OptionalMember (Name a) b))
+                (Name c))
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.stmt.optional-assign/cell:arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              (OptionalAssign.plain
+                (OptionalChain
+                  (OptionalMember (Name a) b))
+                (Name c)))))))))
+
+// case: syntax.stmt.optional-assign/cell:subj
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (LetArm.let
+              (BindingName x)
+              (OptionalChain
+                (OptionalMember (Name a) b))
+              =
+              (Name c))
+            (Block)))))))

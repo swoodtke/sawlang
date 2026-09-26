@@ -1,0 +1,10292 @@
+// case: syntax.expr.expr/alt
+func a() { b }
+
+// case: syntax.expr.head/alt
+func a() { while b { } }
+
+// case: syntax.expr.coalesce/alt
+func a() { b }
+
+// case: syntax.expr.coalesce/rep:1:("??" NEWLINE* or-expr)*=0
+func a() { b }
+
+// case: syntax.expr.coalesce/rep:1:("??" NEWLINE* or-expr)*=1
+func a() { b ?? c }
+
+// case: syntax.expr.coalesce/rep:1:("??" NEWLINE* or-expr)*=many
+func a() { b ?? c ?? d ?? e }
+
+// case: syntax.expr.or/alt
+func a() { b }
+
+// case: syntax.expr.or/rep:1:("||" NEWLINE* and-expr)*=0
+func a() { b }
+
+// case: syntax.expr.or/rep:1:("||" NEWLINE* and-expr)*=1
+func a() { b || c }
+
+// case: syntax.expr.or/rep:1:("||" NEWLINE* and-expr)*=many
+func a() { b || c || d || e }
+
+// case: syntax.expr.and/alt
+func a() { b }
+
+// case: syntax.expr.and/rep:1:("&&" NEWLINE* bitor-expr)*=0
+func a() { b }
+
+// case: syntax.expr.and/rep:1:("&&" NEWLINE* bitor-expr)*=1
+func a() { b && c }
+
+// case: syntax.expr.and/rep:1:("&&" NEWLINE* bitor-expr)*=many
+func a() { b && c && d && e }
+
+// case: syntax.expr.bitor/alt
+func a() { b }
+
+// case: syntax.expr.bitor/rep:1:("|" NEWLINE* bitxor-expr)*=0
+func a() { b }
+
+// case: syntax.expr.bitor/rep:1:("|" NEWLINE* bitxor-expr)*=1
+func a() { b | c }
+
+// case: syntax.expr.bitor/rep:1:("|" NEWLINE* bitxor-expr)*=many
+func a() { b | c | d | e }
+
+// case: syntax.expr.bitxor/alt
+func a() { b }
+
+// case: syntax.expr.bitxor/rep:1:("^" NEWLINE* bitand-expr)*=0
+func a() { b }
+
+// case: syntax.expr.bitxor/rep:1:("^" NEWLINE* bitand-expr)*=1
+func a() { b ^ c }
+
+// case: syntax.expr.bitxor/rep:1:("^" NEWLINE* bitand-expr)*=many
+func a() { b ^ c ^ d ^ e }
+
+// case: syntax.expr.bitand/alt
+func a() { b }
+
+// case: syntax.expr.bitand/rep:1:("&" NEWLINE* compare-expr)*=0
+func a() { b }
+
+// case: syntax.expr.bitand/rep:1:("&" NEWLINE* compare-expr)*=1
+func a() { b & c }
+
+// case: syntax.expr.bitand/rep:1:("&" NEWLINE* compare-expr)*=many
+func a() { b & c & d & e }
+
+// case: syntax.expr.compare.pair/alt
+func a() { b }
+
+// case: syntax.expr.compare.pair/opt:1:(compare-op NEWLINE* range-expr)?=absent
+func a() { b }
+
+// case: syntax.expr.compare.pair/opt:1:(compare-op NEWLINE* range-expr)?=present
+func a() { b == c }
+
+// case: syntax.expr.compare-op.equal/alt
+func a() { b == c }
+
+// case: syntax.expr.compare-op.not-equal/alt
+func a() { b != c }
+
+// case: syntax.expr.compare-op.less/alt
+func a() { b < c }
+
+// case: syntax.expr.compare-op.greater/alt
+func a() { b > c }
+
+// case: syntax.expr.compare-op.less-equal/alt
+func a() { b <= c }
+
+// case: syntax.expr.compare-op.greater-equal/alt
+func a() { b >= c }
+
+// case: syntax.expr.range.closed/alt
+func a() { b }
+
+// case: syntax.expr.range.closed/opt:1:(range-op shift-expr)?=absent
+func a() { b }
+
+// case: syntax.expr.range.closed/opt:1:(range-op shift-expr)?=present
+func a() { b .. c }
+
+// case: syntax.expr.range.from/alt
+func a() { b .. }
+
+// case: syntax.expr.range.upto/alt
+func a() { .. }
+
+// case: syntax.expr.range-op.exclusive/alt
+func a() { b .. c }
+
+// case: syntax.expr.range-op.inclusive/alt
+func a() { b ..= c }
+
+// case: syntax.expr.range-from/alt
+func a() { b .. }
+
+// case: syntax.expr.range-upto.exclusive/alt
+func a() { .. b }
+
+// case: syntax.expr.range-upto.inclusive/alt
+func a() { ..= b }
+
+// case: syntax.expr.range-upto.full/alt
+func a() { .. }
+
+// case: syntax.expr.shift/alt
+func a() { b }
+
+// case: syntax.expr.shift/rep:1:(shift-op NEWLINE* additive-expr)*=0
+func a() { b }
+
+// case: syntax.expr.shift/rep:1:(shift-op NEWLINE* additive-expr)*=1
+func a() { b << c }
+
+// case: syntax.expr.shift/rep:1:(shift-op NEWLINE* additive-expr)*=many
+func a() { b << c << d << e }
+
+// case: syntax.expr.shift-op.left/alt
+func a() { b << c }
+
+// case: syntax.expr.shift-op.right/alt
+func a() { b >> c }
+
+// case: syntax.expr.additive/alt
+func a() { b }
+
+// case: syntax.expr.additive/rep:1:(add-op NEWLINE* multiplicative-expr)*=0
+func a() { b }
+
+// case: syntax.expr.additive/rep:1:(add-op NEWLINE* multiplicative-expr)*=1
+func a() { b + c }
+
+// case: syntax.expr.additive/rep:1:(add-op NEWLINE* multiplicative-expr)*=many
+func a() { b + c + d + e }
+
+// case: syntax.expr.add-op.plus/alt
+func a() { b + c }
+
+// case: syntax.expr.add-op.minus/alt
+func a() { b - c }
+
+// case: syntax.expr.add-op.wrapping-plus/alt
+func a() { b &+ c }
+
+// case: syntax.expr.add-op.wrapping-minus/alt
+func a() { b &- c }
+
+// case: syntax.expr.multiplicative/alt
+func a() { b }
+
+// case: syntax.expr.multiplicative/rep:1:(mul-op NEWLINE* cast-expr)*=0
+func a() { b }
+
+// case: syntax.expr.multiplicative/rep:1:(mul-op NEWLINE* cast-expr)*=1
+func a() { b * c }
+
+// case: syntax.expr.multiplicative/rep:1:(mul-op NEWLINE* cast-expr)*=many
+func a() { b * c * d * e }
+
+// case: syntax.expr.mul-op.times/alt
+func a() { b * c }
+
+// case: syntax.expr.mul-op.divide/alt
+func a() { b / c }
+
+// case: syntax.expr.mul-op.remainder/alt
+func a() { b % c }
+
+// case: syntax.expr.mul-op.wrapping-times/alt
+func a() { b &* c }
+
+// case: syntax.expr.cast/alt
+func a() { b }
+
+// case: syntax.expr.cast/rep:1:cast-suffix*=0
+func a() { b }
+
+// case: syntax.expr.cast/rep:1:cast-suffix*=1
+func a() { b as c }
+
+// case: syntax.expr.cast/rep:1:cast-suffix*=many
+func a() { b as c as d as e }
+
+// case: syntax.expr.cast-suffix.cast/alt
+func a() { b as c }
+
+// case: syntax.expr.prefix.postfix/alt
+func a() { b }
+
+// case: syntax.expr.prefix.unary/alt
+func a() { - b }
+
+// case: syntax.expr.prefix.deref/alt
+func a() { * b }
+
+// case: syntax.expr.prefix.ref/alt
+func a() { & b }
+
+// case: syntax.expr.prefix.move/alt
+func a() { move b }
+
+// case: syntax.expr.prefix.try/alt
+func a() { try b }
+
+// case: syntax.expr.prefix.lends/alt
+func a() { lends b }
+
+// case: syntax.expr.prefix.borrow/alt
+func a() { borrow let b }
+
+// case: syntax.expr.unary.negate/alt
+func a() { - b }
+
+// case: syntax.expr.unary.not/alt
+func a() { not b }
+
+// case: syntax.expr.unary.complement/alt
+func a() { ~ b }
+
+// case: syntax.expr.deref/alt
+func a() { * b }
+
+// case: syntax.expr.ref.shared/alt
+func a() { & b }
+
+// case: syntax.expr.ref.exclusive/alt
+func a() { & var b }
+
+// case: syntax.expr.lends/alt
+func a() { lends b }
+
+// case: syntax.expr.move.place/alt
+func a() { move b }
+
+// case: syntax.expr.move.place/rep:2:move-hop*=0
+func a() { move b }
+
+// case: syntax.expr.move.place/rep:2:move-hop*=1
+func a() { move b.c }
+
+// case: syntax.expr.move.place/rep:2:move-hop*=many
+func a() { move b.c.d.e }
+
+// case: syntax.expr.move.place/opt:3:"!"?=absent
+func a() { move b }
+
+// case: syntax.expr.move.place/opt:3:"!"?=present
+func a() { move b! }
+
+// case: syntax.expr.move.place/pair:2:move-hop*=many,3:"!"?=present
+func a() { move b.c.d.e! }
+
+// case: syntax.expr.move-base.name/alt
+func a() { move b }
+
+// case: syntax.expr.move-base.self/alt
+func a() { move self }
+
+// case: syntax.expr.move-base.deref/alt
+func a() { move * b }
+
+// case: syntax.expr.move-deref.name/alt
+func a() { move * b }
+
+// case: syntax.expr.move-deref.self/alt
+func a() { move * self }
+
+// case: syntax.expr.move-hop.member/alt
+func a() { move b.c }
+
+// case: syntax.expr.move-hop.tuple-index/alt
+func a() { move b.1 }
+
+// case: syntax.expr.move-hop.subscript/alt
+func a() { move b[c] }
+
+// case: syntax.expr.try.propagate/alt
+func a() { try b }
+
+// case: syntax.expr.try.propagate/rep:1:NEWLINE*=0
+func a() { try b }
+
+// case: syntax.expr.try.propagate/rep:1:NEWLINE*=1
+func a() { try
+    b }
+
+// case: syntax.expr.try.propagate/rep:1:NEWLINE*=many
+func a() { try
+
+
+    b }
+
+// case: syntax.expr.try.catch/alt
+func a() { try b catch { } }
+
+// case: syntax.expr.try.catch/rep:1:NEWLINE*=0
+func a() { try b catch { } }
+
+// case: syntax.expr.try.catch/rep:1:NEWLINE*=1
+func a() { try
+    b catch { } }
+
+// case: syntax.expr.try.catch/rep:1:NEWLINE*=many
+func a() { try
+
+
+    b catch { } }
+
+// case: syntax.expr.try.route/alt
+func a() { try (as b.c) d }
+
+// case: syntax.expr.try.route/rep:2:NEWLINE*=0
+func a() { try (as b.c) d }
+
+// case: syntax.expr.try.route/rep:2:NEWLINE*=1
+func a() { try (as b.c)
+    d }
+
+// case: syntax.expr.try.route/rep:2:NEWLINE*=many
+func a() { try (as b.c)
+
+
+    d }
+
+// case: syntax.expr.try.optional/alt
+func a() { try? b }
+
+// case: syntax.expr.try.optional/rep:2:NEWLINE*=0
+func a() { try? b }
+
+// case: syntax.expr.try.optional/rep:2:NEWLINE*=1
+func a() { try?
+    b }
+
+// case: syntax.expr.try.optional/rep:2:NEWLINE*=many
+func a() { try?
+
+
+    b }
+
+// case: syntax.expr.try.force/alt
+func a() { try! b }
+
+// case: syntax.expr.try.force/rep:2:NEWLINE*=0
+func a() { try! b }
+
+// case: syntax.expr.try.force/rep:2:NEWLINE*=1
+func a() { try!
+    b }
+
+// case: syntax.expr.try.force/rep:2:NEWLINE*=many
+func a() { try!
+
+
+    b }
+
+// case: syntax.expr.try-route/alt
+func a() { try (as b.c) d }
+
+// case: syntax.expr.catch/alt
+func a() { try b catch { } }
+
+// case: syntax.expr.catch/rep:0:NEWLINE*=0
+func a() { try b catch { } }
+
+// case: syntax.expr.catch/rep:0:NEWLINE*=1
+func a() { try b
+    catch { } }
+
+// case: syntax.expr.catch/rep:0:NEWLINE*=many
+func a() { try b
+
+
+    catch { } }
+
+// case: syntax.expr.catch/rep:2:NEWLINE*=0
+func a() { try b catch { } }
+
+// case: syntax.expr.catch/rep:2:NEWLINE*=1
+func a() { try b catch
+    { } }
+
+// case: syntax.expr.catch/rep:2:NEWLINE*=many
+func a() { try b catch
+
+
+    { } }
+
+// case: syntax.expr.catch/pair:0:NEWLINE*=many,2:NEWLINE*=many
+func a() { try b
+
+
+    catch
+
+
+    { } }
+
+// case: syntax.expr.try-block/alt
+func a() { try { } catch { } }
+
+// case: syntax.expr.try-block/rep:1:NEWLINE*=0
+func a() { try { } catch { } }
+
+// case: syntax.expr.try-block/rep:1:NEWLINE*=1
+func a() { try
+    { } catch { } }
+
+// case: syntax.expr.try-block/rep:1:NEWLINE*=many
+func a() { try
+
+
+    { } catch { } }
+
+// case: syntax.expr.try-block/rep:3:NEWLINE*=0
+func a() { try { } catch { } }
+
+// case: syntax.expr.try-block/rep:3:NEWLINE*=1
+func a() { try { }
+    catch { } }
+
+// case: syntax.expr.try-block/rep:3:NEWLINE*=many
+func a() { try { }
+
+
+    catch { } }
+
+// case: syntax.expr.try-block/rep:5:NEWLINE*=0
+func a() { try { } catch { } }
+
+// case: syntax.expr.try-block/rep:5:NEWLINE*=1
+func a() { try { } catch
+    { } }
+
+// case: syntax.expr.try-block/rep:5:NEWLINE*=many
+func a() { try { } catch
+
+
+    { } }
+
+// case: syntax.expr.try-block/pair:1:NEWLINE*=many,3:NEWLINE*=many
+func a() { try
+
+
+    { }
+
+
+    catch { } }
+
+// case: syntax.expr.try-block/pair:1:NEWLINE*=many,5:NEWLINE*=many
+func a() { try
+
+
+    { } catch
+
+
+    { } }
+
+// case: syntax.expr.try-block/pair:3:NEWLINE*=many,5:NEWLINE*=many
+func a() { try { }
+
+
+    catch
+
+
+    { } }
+
+// case: syntax.expr.postfix/alt
+func a() { b }
+
+// case: syntax.expr.postfix/rep:1:postfix-hop*=0
+func a() { b }
+
+// case: syntax.expr.postfix/rep:1:postfix-hop*=1
+func a() { b! }
+
+// case: syntax.expr.postfix/rep:1:postfix-hop*=many
+func a() { b!!! }
+
+// case: syntax.expr.hop.member/alt
+func a() { b.c }
+
+// case: syntax.expr.hop.tuple-index/alt
+func a() { b.1 }
+
+// case: syntax.expr.hop.optional/alt
+func a() { b?.c }
+
+// case: syntax.expr.hop.call/alt
+func a() { b() }
+
+// case: syntax.expr.hop.trailing/alt
+func a() { b { } }
+
+// case: syntax.expr.hop.subscript/alt
+func a() { b[c] }
+
+// case: syntax.expr.hop.force/alt
+func a() { b! }
+
+// case: syntax.expr.member/alt
+func a() { b.c }
+
+// case: syntax.expr.member/opt:2:generic-args?=absent
+func a() { b.c }
+
+// case: syntax.expr.member/opt:2:generic-args?=present
+func a() { b.c < d >.e = f }
+
+// case: syntax.expr.tuple-index/alt
+func a() { b.1 }
+
+// case: syntax.expr.optional-member/alt
+func a() { b?.c }
+
+// case: syntax.expr.optional-member/opt:2:generic-args?=absent
+func a() { b?.c }
+
+// case: syntax.expr.optional-member/opt:2:generic-args?=present
+func a() { b?.c < d >.e = f }
+
+// case: syntax.expr.call.paren/alt
+func a() { b() }
+
+// case: syntax.expr.call.paren/opt:1:arg-list?=absent
+func a() { b() }
+
+// case: syntax.expr.call.paren/opt:1:arg-list?=present
+func a() { b(c) }
+
+// case: syntax.expr.call.paren-trailing/alt
+func a() { b() { } }
+
+// case: syntax.expr.call.paren-trailing/opt:1:arg-list?=absent
+func a() { b() { } }
+
+// case: syntax.expr.call.paren-trailing/opt:1:arg-list?=present
+func a() { b(c) { } }
+
+// case: syntax.expr.trailing-call/alt
+func a() { b { } }
+
+// case: syntax.expr.args/alt
+func a() { b(c) }
+
+// case: syntax.expr.args/rep:1:("," argument)*=0
+func a() { b(c) }
+
+// case: syntax.expr.args/rep:1:("," argument)*=1
+func a() { b(c, d) }
+
+// case: syntax.expr.args/rep:1:("," argument)*=many
+func a() { b(c, d, e, f) }
+
+// case: syntax.expr.args/opt:2:","?=absent
+func a() { b(c) }
+
+// case: syntax.expr.args/opt:2:","?=present
+func a() { b(c,) }
+
+// case: syntax.expr.args/pair:1:("," argument)*=many,2:","?=present
+func a() { b(c, d, e, f,) }
+
+// case: syntax.expr.argument.positional/alt
+func a() { b(c) }
+
+// case: syntax.expr.argument.labelled/alt
+func a() { b(c: d) }
+
+// case: syntax.expr.subscript.single/alt
+func a() { b[c] }
+
+// case: syntax.expr.subscript.multi/alt
+func a() { b[c,] }
+
+// case: syntax.expr.multi-subscript.positional-first/alt
+func a() { b[c,] }
+
+// case: syntax.expr.multi-subscript.positional-first/opt:3:arg-list?=absent
+func a() { b[c,] }
+
+// case: syntax.expr.multi-subscript.positional-first/opt:3:arg-list?=present
+func a() { b[c, d] }
+
+// case: syntax.expr.multi-subscript.labelled-first/alt
+func a() { b[c: d] }
+
+// case: syntax.expr.multi-subscript.labelled-first/opt:4:("," arg-list)?=absent
+func a() { b[c: d] }
+
+// case: syntax.expr.multi-subscript.labelled-first/opt:4:("," arg-list)?=present
+func a() { b[c: d, e] }
+
+// case: syntax.expr.force/alt
+func a() { b! }
+
+// case: syntax.expr.primary.literal/alt
+func a() { true }
+
+// case: syntax.expr.primary.interpolation/alt
+func a() { "{x}" }
+
+// case: syntax.expr.primary.source-location/alt
+func a() { #file }
+
+// case: syntax.expr.primary.name/alt
+func a() { b }
+
+// case: syntax.expr.primary.implicit-member/alt
+func a() { .b }
+
+// case: syntax.expr.primary.self/alt
+func a() { self }
+
+// case: syntax.expr.primary.shorthand-param/alt
+func a() { $0 }
+
+// case: syntax.expr.primary.paren/alt
+func a() { (b) }
+
+// case: syntax.expr.primary.tuple/alt
+func a() { () }
+
+// case: syntax.expr.primary.array/alt
+func a() { [] }
+
+// case: syntax.expr.primary.repeat/alt
+func a() { [b; c] }
+
+// case: syntax.expr.primary.map/alt
+func a() { {: } }
+
+// case: syntax.expr.primary.set/alt
+func a() { { b, } }
+
+// case: syntax.expr.primary.closure/alt
+func a() { { } }
+
+// case: syntax.expr.primary.if/alt
+func a() { if b { } }
+
+// case: syntax.expr.primary.match/alt
+func a() { match b { } }
+
+// case: syntax.expr.primary.while/alt
+func a() { while { } }
+
+// case: syntax.expr.primary.while-let/alt
+func a() { while let b = c { } }
+
+// case: syntax.expr.primary.for/alt
+func a() { for b in c { } }
+
+// case: syntax.expr.primary.try-block/alt
+func a() { try { } catch { } }
+
+// case: syntax.expr.primary.borrow-block/alt
+func a() { borrow let b = c { } }
+
+// case: syntax.expr.literal.int/alt
+func a() { 1 }
+
+// case: syntax.expr.literal.float/alt
+func a() { 1.5 }
+
+// case: syntax.expr.literal.string/alt
+func a() { "C" }
+
+// case: syntax.expr.literal.bool/alt
+func a() { true }
+
+// case: syntax.expr.literal.none/alt
+func a() { None }
+
+// case: syntax.expr.int/alt
+type a = b < 1 >
+
+// case: syntax.expr.float/alt
+func a() { 1.5 }
+
+// case: syntax.expr.string/alt
+func a() { "C" }
+
+// case: syntax.expr.bool.true/alt
+func a() { true }
+
+// case: syntax.expr.bool.false/alt
+func a() { false }
+
+// case: syntax.expr.none/alt
+func a() { None }
+
+// case: syntax.expr.interpolation/alt
+func a() { "{x}" }
+
+// case: syntax.expr.interp-segment.expr/alt
+func a() {
+    "{a}"
+}
+
+// case: syntax.expr.interp-segment.placeholder/alt
+func a() {
+    "{}"
+}
+
+// case: syntax.expr.source-location.file/alt
+func a() { #file }
+
+// case: syntax.expr.source-location.line/alt
+func a() { #line }
+
+// case: syntax.expr.source-location.function/alt
+func a() { #function }
+
+// case: syntax.expr.name/alt
+func a() { b }
+
+// case: syntax.expr.name/opt:1:generic-args?=absent
+func a() { b }
+
+// case: syntax.expr.name/opt:1:generic-args?=present
+func a() { b < c >.d }
+
+// case: syntax.expr.name-ref/alt
+func a() { move b }
+
+// case: syntax.expr.implicit-member/alt
+func a() { .b }
+
+// case: syntax.expr.self/alt
+func a() { self }
+
+// case: syntax.expr.shorthand-param/alt
+func a() { $0 }
+
+// case: syntax.expr.paren/alt
+func a() { (b) }
+
+// case: syntax.expr.tuple.unit/alt
+func a() { () }
+
+// case: syntax.expr.tuple.positional/alt
+func a() { (b,) }
+
+// case: syntax.expr.tuple.positional/opt:3:(expr ("," expr)* ","?)?=absent
+func a() { (b,) }
+
+// case: syntax.expr.tuple.positional/opt:3:(expr ("," expr)* ","?)?=present
+func a() { (b, c) }
+
+// case: syntax.expr.tuple.named/alt
+func a() { (b: c) }
+
+// case: syntax.expr.tuple.named/rep:2:("," tuple-field)*=0
+func a() { (b: c) }
+
+// case: syntax.expr.tuple.named/rep:2:("," tuple-field)*=1
+func a() { (b: c, d: e) }
+
+// case: syntax.expr.tuple.named/rep:2:("," tuple-field)*=many
+func a() { (b: c, d: e, f: g, h: i) }
+
+// case: syntax.expr.tuple.named/opt:3:","?=absent
+func a() { (b: c) }
+
+// case: syntax.expr.tuple.named/opt:3:","?=present
+func a() { (b: c,) }
+
+// case: syntax.expr.tuple.named/pair:2:("," tuple-field)*=many,3:","?=present
+func a() { (b: c, d: e, f: g, h: i,) }
+
+// case: syntax.expr.tuple-field/alt
+func a() { (b: c) }
+
+// case: syntax.expr.array/alt
+func a() { [] }
+
+// case: syntax.expr.array/opt:1:(expr ("," expr)* ","?)?=absent
+func a() { [] }
+
+// case: syntax.expr.array/opt:1:(expr ("," expr)* ","?)?=present
+func a() { [b] }
+
+// case: syntax.expr.repeat/alt
+func a() { [b; c] }
+
+// case: syntax.expr.map.empty/alt
+func a() { {: } }
+
+// case: syntax.expr.map.empty/rep:1:NEWLINE*=0
+func a() { {: } }
+
+// case: syntax.expr.map.empty/rep:1:NEWLINE*=1
+func a() { {
+        : } }
+
+// case: syntax.expr.map.empty/rep:1:NEWLINE*=many
+func a() { {
+
+
+        : } }
+
+// case: syntax.expr.map.empty/rep:3:NEWLINE*=0
+func a() { {: } }
+
+// case: syntax.expr.map.empty/rep:3:NEWLINE*=1
+func a() { {:
+    } }
+
+// case: syntax.expr.map.empty/rep:3:NEWLINE*=many
+func a() { {:
+
+
+    } }
+
+// case: syntax.expr.map.entries/alt
+func a() { { b: c } }
+
+// case: syntax.expr.map.entries/rep:1:NEWLINE*=0
+func a() { { b: c } }
+
+// case: syntax.expr.map.entries/rep:1:NEWLINE*=1
+func a() { {
+        b: c } }
+
+// case: syntax.expr.map.entries/rep:1:NEWLINE*=many
+func a() { {
+
+
+        b: c } }
+
+// case: syntax.expr.map.entries/rep:3:(NEWLINE* "," NEWLINE* map-entry)*=0
+func a() { { b: c } }
+
+// case: syntax.expr.map.entries/rep:3:(NEWLINE* "," NEWLINE* map-entry)*=1
+func a() { { b: c, d: e } }
+
+// case: syntax.expr.map.entries/rep:3:(NEWLINE* "," NEWLINE* map-entry)*=many
+func a() { { b: c, d: e, f: g, h: i } }
+
+// case: syntax.expr.map.entries/opt:4:(NEWLINE* ",")?=absent
+func a() { { b: c } }
+
+// case: syntax.expr.map.entries/opt:4:(NEWLINE* ",")?=present
+func a() { { b: c, } }
+
+// case: syntax.expr.map.entries/rep:5:NEWLINE*=0
+func a() { { b: c } }
+
+// case: syntax.expr.map.entries/rep:5:NEWLINE*=1
+func a() { { b: c
+    } }
+
+// case: syntax.expr.map.entries/rep:5:NEWLINE*=many
+func a() { { b: c
+
+
+    } }
+
+// case: syntax.expr.map.empty/pair:1:NEWLINE*=many,3:NEWLINE*=many
+func a() { {
+
+
+        :
+
+
+    } }
+
+// case: syntax.expr.map.entries/pair:1:NEWLINE*=many,3:(NEWLINE* "," NEWLINE* map-entry)*=many
+func a() { {
+
+
+        b: c, d: e, f: g, h: i } }
+
+// case: syntax.expr.map.entries/pair:1:NEWLINE*=many,4:(NEWLINE* ",")?=present
+func a() { {
+
+
+        b: c, } }
+
+// case: syntax.expr.map.entries/pair:1:NEWLINE*=many,5:NEWLINE*=many
+func a() { {
+
+
+        b: c
+
+
+    } }
+
+// case: syntax.expr.map.entries/pair:3:(NEWLINE* "," NEWLINE* map-entry)*=many,4:(NEWLINE* ",")?=present
+func a() { { b: c, d: e, f: g, h: i, } }
+
+// case: syntax.expr.map.entries/pair:3:(NEWLINE* "," NEWLINE* map-entry)*=many,5:NEWLINE*=many
+func a() { { b: c, d: e, f: g, h: i
+
+
+    } }
+
+// case: syntax.expr.map.entries/pair:4:(NEWLINE* ",")?=present,5:NEWLINE*=many
+func a() { { b: c,
+
+
+    } }
+
+// case: syntax.expr.map-entry/alt
+func a() { { b: c } }
+
+// case: syntax.expr.set/alt
+func a() { { b, } }
+
+// case: syntax.expr.set/rep:1:NEWLINE*=0
+func a() { { b, } }
+
+// case: syntax.expr.set/rep:1:NEWLINE*=1
+func a() { {
+        b, } }
+
+// case: syntax.expr.set/rep:1:NEWLINE*=many
+func a() { {
+
+
+        b, } }
+
+// case: syntax.expr.set/rep:3:NEWLINE*=0
+func a() { { b, } }
+
+// case: syntax.expr.set/rep:3:NEWLINE*=1
+func a() { { b
+        , } }
+
+// case: syntax.expr.set/rep:3:NEWLINE*=many
+func a() { { b
+
+
+        , } }
+
+// case: syntax.expr.set/rep:5:NEWLINE*=0
+func a() { { b, } }
+
+// case: syntax.expr.set/rep:5:NEWLINE*=1
+func a() { { b,
+    } }
+
+// case: syntax.expr.set/rep:5:NEWLINE*=many
+func a() { { b,
+
+
+    } }
+
+// case: syntax.expr.set/opt:6:(expr (NEWLINE* "," NEWLINE* expr)* (NEWLINE* ",")? NEWLINE*)?=absent
+func a() { { b, } }
+
+// case: syntax.expr.set/opt:6:(expr (NEWLINE* "," NEWLINE* expr)* (NEWLINE* ",")? NEWLINE*)?=present
+func a() { { b, c } }
+
+// case: syntax.expr.set/pair:1:NEWLINE*=many,3:NEWLINE*=many
+func a() { {
+
+
+        b
+
+
+        , } }
+
+// case: syntax.expr.set/pair:1:NEWLINE*=many,5:NEWLINE*=many
+func a() { {
+
+
+        b,
+
+
+    } }
+
+// case: syntax.expr.set/pair:1:NEWLINE*=many,6:(expr (NEWLINE* "," NEWLINE* expr)* (NEWLINE* ",")? NEWLINE*)?=present
+func a() { {
+
+
+        b, c } }
+
+// case: syntax.expr.set/pair:3:NEWLINE*=many,5:NEWLINE*=many
+func a() { { b
+
+
+        ,
+
+
+    } }
+
+// case: syntax.expr.set/pair:3:NEWLINE*=many,6:(expr (NEWLINE* "," NEWLINE* expr)* (NEWLINE* ",")? NEWLINE*)?=present
+func a() { { b
+
+
+        , c } }
+
+// case: syntax.expr.set/pair:5:NEWLINE*=many,6:(expr (NEWLINE* "," NEWLINE* expr)* (NEWLINE* ",")? NEWLINE*)?=present
+func a() { { b,
+
+
+        c } }
+
+// case: syntax.expr.closure/alt
+func a() { { } }
+
+// case: syntax.expr.closure/rep:1:NEWLINE*=0
+func a() { { } }
+
+// case: syntax.expr.closure/rep:1:NEWLINE*=1
+func a() { {
+        b in } }
+
+// case: syntax.expr.closure/rep:1:NEWLINE*=many
+func a() { {
+
+
+        b in } }
+
+// case: syntax.expr.closure/opt:2:closure-head?=absent
+func a() { { } }
+
+// case: syntax.expr.closure/opt:2:closure-head?=present
+func a() { { b in } }
+
+// case: syntax.expr.closure/pair:1:NEWLINE*=many,2:closure-head?=present
+func a() { {
+
+
+        b in } }
+
+// case: syntax.expr.closure-head.captures/alt
+func a() { { [b] in } }
+
+// case: syntax.expr.closure-head.captures/rep:1:NEWLINE*=0
+func a() { { [b] in } }
+
+// case: syntax.expr.closure-head.captures/rep:1:NEWLINE*=1
+func a() { { [b]
+        in } }
+
+// case: syntax.expr.closure-head.captures/rep:1:NEWLINE*=many
+func a() { { [b]
+
+
+        in } }
+
+// case: syntax.expr.closure-head.captures/rep:3:NEWLINE*=0
+func a() { { [b] in } }
+
+// case: syntax.expr.closure-head.captures-params/alt
+func a() { { [b] c in } }
+
+// case: syntax.expr.closure-head.captures-params/rep:1:NEWLINE*=0
+func a() { { [b] c in } }
+
+// case: syntax.expr.closure-head.captures-params/rep:1:NEWLINE*=1
+func a() { { [b]
+        c in } }
+
+// case: syntax.expr.closure-head.captures-params/rep:1:NEWLINE*=many
+func a() { { [b]
+
+
+        c in } }
+
+// case: syntax.expr.closure-head.captures-params/rep:4:NEWLINE*=0
+func a() { { [b] c in } }
+
+// case: syntax.expr.closure-head.params/alt
+func a() { { b in } }
+
+// case: syntax.expr.closure-head.params/rep:2:NEWLINE*=0
+func a() { { b in } }
+
+// case: syntax.expr.capture-list/alt
+func a() { { [b] in } }
+
+// case: syntax.expr.capture-list/rep:2:("," capture)*=0
+func a() { { [b] in } }
+
+// case: syntax.expr.capture-list/rep:2:("," capture)*=1
+func a() { { [b, c] in } }
+
+// case: syntax.expr.capture-list/rep:2:("," capture)*=many
+func a() { { [b, c, d, e] in } }
+
+// case: syntax.expr.capture-list/opt:3:","?=absent
+func a() { { [b] in } }
+
+// case: syntax.expr.capture-list/opt:3:","?=present
+func a() { { [b,] in } }
+
+// case: syntax.expr.capture-list/pair:2:("," capture)*=many,3:","?=present
+func a() { { [b, c, d, e,] in } }
+
+// case: syntax.expr.capture.value/alt
+func a() { { [b] in } }
+
+// case: syntax.expr.capture.move/alt
+func a() { { [move b] in } }
+
+// case: syntax.expr.capture.copy/alt
+func a() { { [copy b] in } }
+
+// case: syntax.expr.capture.borrow/alt
+func a() { { [& b] in } }
+
+// case: syntax.expr.capture.borrow-exclusive/alt
+func a() { { [& var b] in } }
+
+// case: syntax.expr.capture.self/alt
+func a() { { [& self] in } }
+
+// case: syntax.expr.capture.self-exclusive/alt
+func a() { { [& var self] in } }
+
+// case: syntax.expr.closure-params/alt
+func a() { { b in } }
+
+// case: syntax.expr.closure-params/rep:1:("," NEWLINE* closure-param)*=0
+func a() { { b in } }
+
+// case: syntax.expr.closure-params/rep:1:("," NEWLINE* closure-param)*=1
+func a() { { b, c in } }
+
+// case: syntax.expr.closure-params/rep:1:("," NEWLINE* closure-param)*=many
+func a() { { b, c, d, e in } }
+
+// case: syntax.expr.closure-param.value/alt
+func a() { { b in } }
+
+// case: syntax.expr.closure-param.value/opt:1:type-annotation?=absent
+func a() { { b in } }
+
+// case: syntax.expr.closure-param.value/opt:1:type-annotation?=present
+func a() { { b: c in } }
+
+// case: syntax.expr.closure-param.ref/alt
+func a() { { & b in } }
+
+// case: syntax.expr.closure-param.ref/opt:2:type-annotation?=absent
+func a() { { & b in } }
+
+// case: syntax.expr.closure-param.ref/opt:2:type-annotation?=present
+func a() { { & b: c in } }
+
+// case: syntax.expr.closure-param.ref-exclusive/alt
+func a() { { & var b in } }
+
+// case: syntax.expr.closure-param.ref-exclusive/opt:3:type-annotation?=absent
+func a() { { & var b in } }
+
+// case: syntax.expr.closure-param.ref-exclusive/opt:3:type-annotation?=present
+func a() { { & var b: c in } }
+
+// case: syntax.expr.if/alt
+func a() { if b { } }
+
+// case: syntax.expr.if/rep:2:NEWLINE*=0
+func a() { if b { } }
+
+// case: syntax.expr.if/rep:2:NEWLINE*=1
+func a() { if b
+    { } }
+
+// case: syntax.expr.if/rep:2:NEWLINE*=many
+func a() { if b
+
+
+    { } }
+
+// case: syntax.expr.if/rep:4:else-if-arm*=0
+func a() { if b { } }
+
+// case: syntax.expr.if/rep:4:else-if-arm*=1
+func a() { if b { } else if c { } }
+
+// case: syntax.expr.if/rep:4:else-if-arm*=many
+func a() { if b { } else if c { } else if d { } else if e { } }
+
+// case: syntax.expr.if/opt:5:else-arm?=absent
+func a() { if b { } }
+
+// case: syntax.expr.if/opt:5:else-arm?=present
+func a() { if b { } else { } }
+
+// case: syntax.expr.if/pair:2:NEWLINE*=many,4:else-if-arm*=many
+func a() { if b
+
+
+    { } else if c { } else if d { } else if e { } }
+
+// case: syntax.expr.if/pair:2:NEWLINE*=many,5:else-arm?=present
+func a() { if b
+
+
+    { } else { } }
+
+// case: syntax.expr.if/pair:4:else-if-arm*=many,5:else-arm?=present
+func a() { if b { } else if c { } else if d { } else if e { } else { } }
+
+// case: syntax.expr.else-if/alt
+func a() { if b { } else if c { } }
+
+// case: syntax.expr.else-if/rep:0:NEWLINE*=0
+func a() { if b { } else if c { } }
+
+// case: syntax.expr.else-if/rep:0:NEWLINE*=1
+func a() { if b { }
+    else if c { } }
+
+// case: syntax.expr.else-if/rep:0:NEWLINE*=many
+func a() { if b { }
+
+
+    else if c { } }
+
+// case: syntax.expr.else-if/rep:2:NEWLINE*=0
+func a() { if b { } else if c { } }
+
+// case: syntax.expr.else-if/rep:2:NEWLINE*=1
+func a() { if b { } else
+    if c { } }
+
+// case: syntax.expr.else-if/rep:2:NEWLINE*=many
+func a() { if b { } else
+
+
+    if c { } }
+
+// case: syntax.expr.else-if/rep:5:NEWLINE*=0
+func a() { if b { } else if c { } }
+
+// case: syntax.expr.else-if/rep:5:NEWLINE*=1
+func a() { if b { } else if c
+    { } }
+
+// case: syntax.expr.else-if/rep:5:NEWLINE*=many
+func a() { if b { } else if c
+
+
+    { } }
+
+// case: syntax.expr.else-if/pair:0:NEWLINE*=many,2:NEWLINE*=many
+func a() { if b { }
+
+
+    else
+
+
+    if c { } }
+
+// case: syntax.expr.else-if/pair:0:NEWLINE*=many,5:NEWLINE*=many
+func a() { if b { }
+
+
+    else if c
+
+
+    { } }
+
+// case: syntax.expr.else-if/pair:2:NEWLINE*=many,5:NEWLINE*=many
+func a() { if b { } else
+
+
+    if c
+
+
+    { } }
+
+// case: syntax.expr.else/alt
+func a() { if b { } else { } }
+
+// case: syntax.expr.else/rep:0:NEWLINE*=0
+func a() { if b { } else { } }
+
+// case: syntax.expr.else/rep:0:NEWLINE*=1
+func a() { if b { }
+    else { } }
+
+// case: syntax.expr.else/rep:0:NEWLINE*=many
+func a() { if b { }
+
+
+    else { } }
+
+// case: syntax.expr.else/rep:2:NEWLINE*=0
+func a() { if b { } else { } }
+
+// case: syntax.expr.else/rep:2:NEWLINE*=1
+func a() { if b { } else
+    { } }
+
+// case: syntax.expr.else/rep:2:NEWLINE*=many
+func a() { if b { } else
+
+
+    { } }
+
+// case: syntax.expr.else/pair:0:NEWLINE*=many,2:NEWLINE*=many
+func a() { if b { }
+
+
+    else
+
+
+    { } }
+
+// case: syntax.expr.if-head.condition/alt
+func a() { if b { } }
+
+// case: syntax.expr.if-head.binding/alt
+func a() { if let b = c { } }
+
+// case: syntax.expr.if-head.borrow/alt
+func a() { if borrow let b = c { } }
+
+// case: syntax.expr.optional-binding.let/alt
+func a() { if let b = c { } }
+
+// case: syntax.expr.optional-binding.var/alt
+func a() { if var b = c { } }
+
+// case: syntax.expr.match/alt
+func a() { match b { } }
+
+// case: syntax.expr.match/rep:2:NEWLINE*=0
+func a() { match b { } }
+
+// case: syntax.expr.match/rep:2:NEWLINE*=1
+func a() { match b
+    { } }
+
+// case: syntax.expr.match/rep:2:NEWLINE*=many
+func a() { match b
+
+
+    { } }
+
+// case: syntax.expr.match/rep:4:NEWLINE*=0
+func a() { match b { } }
+
+// case: syntax.expr.match/rep:4:NEWLINE*=1
+func a() { match b {
+    } }
+
+// case: syntax.expr.match/rep:4:NEWLINE*=many
+func a() { match b {
+
+
+    } }
+
+// case: syntax.expr.match/opt:5:match-arm-list?=absent
+func a() { match b { } }
+
+// case: syntax.expr.match/opt:5:match-arm-list?=present
+func a() { match b { case c -> d } }
+
+// case: syntax.expr.match/pair:2:NEWLINE*=many,4:NEWLINE*=many
+func a() { match b
+
+
+    {
+
+
+    } }
+
+// case: syntax.expr.match/pair:2:NEWLINE*=many,5:match-arm-list?=present
+func a() { match b
+
+
+    { case c -> d } }
+
+// case: syntax.expr.match/pair:4:NEWLINE*=many,5:match-arm-list?=present
+func a() { match b {
+
+
+        case c -> d } }
+
+// case: syntax.expr.match-arms/alt
+func a() { match b { case c -> d } }
+
+// case: syntax.expr.match-arms/rep:1:(arm-sep match-arm)*=0
+func a() { match b { case c -> d } }
+
+// case: syntax.expr.match-arms/rep:1:(arm-sep match-arm)*=1
+func a() { match b { case c -> d case e -> f } }
+
+// case: syntax.expr.match-arms/rep:1:(arm-sep match-arm)*=many
+func a() { match b { case c -> d case e -> f case g -> h case i -> j } }
+
+// case: syntax.expr.match-arms/opt:2:arm-sep?=absent
+func a() { match b { case c -> d } }
+
+// case: syntax.expr.match-arms/opt:2:arm-sep?=present
+func a() { match b { case c -> d, } }
+
+// case: syntax.expr.match-arms/pair:1:(arm-sep match-arm)*=many,2:arm-sep?=present
+func a() { match b { case c -> d case e -> f case g -> h case i -> j, } }
+
+// case: syntax.expr.arm-sep.comma/alt
+func a() { match b { case c -> d, } }
+
+// case: syntax.expr.arm-sep.comma/rep:0:NEWLINE*=0
+func a() { match b { case c -> d, } }
+
+// case: syntax.expr.arm-sep.comma/rep:0:NEWLINE*=1
+func a() { match b { case c -> d
+        , } }
+
+// case: syntax.expr.arm-sep.comma/rep:0:NEWLINE*=many
+func a() { match b { case c -> d
+
+
+        , } }
+
+// case: syntax.expr.arm-sep.comma/rep:2:NEWLINE*=0
+func a() { match b { case c -> d, } }
+
+// case: syntax.expr.arm-sep.comma/rep:2:NEWLINE*=1
+func a() { match b { case c -> d,
+    } }
+
+// case: syntax.expr.arm-sep.comma/rep:2:NEWLINE*=many
+func a() { match b { case c -> d,
+
+
+    } }
+
+// case: syntax.expr.arm-sep.newline/alt
+func a() { match b { case c -> d
+    } }
+
+// case: syntax.expr.arm-sep.newline/rep:0:NEWLINE+=1
+func a() { match b { case c -> d
+    } }
+
+// case: syntax.expr.arm-sep.newline/rep:0:NEWLINE+=many
+func a() { match b { case c -> d
+
+
+    } }
+
+// case: syntax.expr.arm-sep.none/alt
+func a() { match b { case c -> d case e -> f } }
+
+// case: syntax.expr.arm-sep.comma/pair:0:NEWLINE*=many,2:NEWLINE*=many
+func a() { match b { case c -> d
+
+
+        ,
+
+
+    } }
+
+// case: syntax.expr.match-arm/alt
+func a() { match b { case c -> d } }
+
+// case: syntax.expr.match-arm/opt:2:arm-guard?=absent
+func a() { match b { case c -> d } }
+
+// case: syntax.expr.match-arm/opt:2:arm-guard?=present
+func a() { match b { case c if d -> e } }
+
+// case: syntax.expr.arm-guard/alt
+func a() { match b { case c if d -> e } }
+
+// case: syntax.expr.arm-body.block/alt
+func a() { match b { case c -> { } } }
+
+// case: syntax.expr.arm-body.expr/alt
+func a() { match b { case c -> d } }
+
+// case: syntax.expr.arm-body.statement/alt
+func a() { match b { case c -> break } }
+
+// case: syntax.expr.while.conditional/alt
+func a() { while b { } }
+
+// case: syntax.expr.while.conditional/rep:2:NEWLINE*=0
+func a() { while b { } }
+
+// case: syntax.expr.while.conditional/rep:2:NEWLINE*=1
+func a() { while b
+    { } }
+
+// case: syntax.expr.while.conditional/rep:2:NEWLINE*=many
+func a() { while b
+
+
+    { } }
+
+// case: syntax.expr.while.infinite/alt
+func a() { while { } }
+
+// case: syntax.expr.while-let.let/alt
+func a() { while let b = c { } }
+
+// case: syntax.expr.while-let.let/rep:5:NEWLINE*=0
+func a() { while let b = c { } }
+
+// case: syntax.expr.while-let.let/rep:5:NEWLINE*=1
+func a() { while let b = c
+    { } }
+
+// case: syntax.expr.while-let.let/rep:5:NEWLINE*=many
+func a() { while let b = c
+
+
+    { } }
+
+// case: syntax.expr.while-let.var/alt
+func a() { while var b = c { } }
+
+// case: syntax.expr.while-let.var/rep:5:NEWLINE*=0
+func a() { while var b = c { } }
+
+// case: syntax.expr.while-let.var/rep:5:NEWLINE*=1
+func a() { while var b = c
+    { } }
+
+// case: syntax.expr.while-let.var/rep:5:NEWLINE*=many
+func a() { while var b = c
+
+
+    { } }
+
+// case: syntax.expr.for.plain/alt
+func a() { for b in c { } }
+
+// case: syntax.expr.for.plain/rep:4:NEWLINE*=0
+func a() { for b in c { } }
+
+// case: syntax.expr.for.plain/rep:4:NEWLINE*=1
+func a() { for b in c
+    { } }
+
+// case: syntax.expr.for.plain/rep:4:NEWLINE*=many
+func a() { for b in c
+
+
+    { } }
+
+// case: syntax.expr.for.borrow/alt
+func a() { for borrow let b in c { } }
+
+// case: syntax.expr.literal/cell:stmt
+func f() {
+    1
+    x
+}
+
+// case: syntax.expr.literal/cell:tail
+func f() {
+    1
+}
+
+// case: syntax.expr.literal/cell:clos
+func f() {
+    let c = {
+        1
+        x
+    }
+}
+
+// case: syntax.expr.literal/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        1
+        x
+    }
+}
+
+// case: syntax.expr.literal/cell:arm
+func f() {
+    match x {
+        case _ -> 1
+    }
+}
+
+// case: syntax.expr.literal/cell:opnd
+func f() {
+    let v = 1 * x
+}
+
+// case: syntax.expr.literal/cell:rhs
+func f() {
+    let v = x && 1
+}
+
+// case: syntax.expr.literal/cell:arg
+func f() {
+    f(1)
+}
+
+// case: syntax.expr.literal/cell:larg
+func f() {
+    f(a: 1)
+}
+
+// case: syntax.expr.literal/cell:elem
+func f() {
+    let v = [1]
+}
+
+// case: syntax.expr.literal/cell:recv
+func f() {
+    let v = 1.b
+}
+
+// case: syntax.expr.literal/cell:idx
+func f() {
+    let v = a[1]
+}
+
+// case: syntax.expr.literal/cell:interp
+func f() {
+    print("{1}")
+}
+
+// case: syntax.expr.literal/cell:cond
+func f() {
+    if 1 {
+    }
+}
+
+// case: syntax.expr.literal/cell:subj
+func f() {
+    if let x = 1 {
+    }
+}
+
+// case: syntax.expr.literal/cell:scrut
+func f() {
+    match 1 {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.literal/cell:aguard
+func f() {
+    match x {
+        case _ if 1 -> x
+    }
+}
+
+// case: syntax.expr.literal/cell:iter
+func f() {
+    for i in 1 {
+    }
+}
+
+// case: syntax.expr.literal/cell:rend
+func f() {
+    for i in 1..x {
+    }
+}
+
+// case: syntax.expr.literal/cell:bhead
+func f() {
+    borrow let x = 1 {
+    }
+}
+
+// case: syntax.expr.literal/cell:init
+func f() {
+    let v = 1
+}
+
+// case: syntax.expr.literal/cell:asgn
+func f() {
+    v = 1
+}
+
+// case: syntax.expr.literal/cell:crhs
+func f() {
+    v += 1
+}
+
+// case: syntax.expr.literal/cell:ret
+func f() {
+    return 1
+}
+
+// case: syntax.expr.literal/cell:brk
+func f() {
+    while x {
+        break 1
+    }
+}
+
+// case: syntax.expr.literal/cell:lend
+func f() {
+    lend 1
+}
+
+// case: syntax.expr.literal/cell:try
+func f() {
+    let v = try 1
+}
+
+// case: syntax.expr.literal/cell:dflt
+func f(p: T = 1) {
+}
+
+// case: syntax.expr.literal/cell:sinit
+static S: T = 1
+
+// case: syntax.expr.literal/cell:alen
+func f() {
+    let v: [T; 1] = w
+}
+
+// case: syntax.expr.literal/cell:rcnt
+func f() {
+    let v = [x; 1]
+}
+
+// case: syntax.expr.literal/cell:cgen
+func f() {
+    let v: A<1> = w
+}
+
+// case: syntax.expr.literal/cell:raw
+enum E: T {
+    case A = 1
+}
+
+// case: syntax.expr.literal/cell:aarg
+@align(1)
+static S: T = x
+
+// case: syntax.expr.literal/cell:sassert
+static_assert(1, "m")
+
+// case: syntax.expr.interpolation/cell:stmt
+func f() {
+    "{a}"
+    x
+}
+
+// case: syntax.expr.interpolation/cell:tail
+func f() {
+    "{a}"
+}
+
+// case: syntax.expr.interpolation/cell:clos
+func f() {
+    let c = {
+        "{a}"
+        x
+    }
+}
+
+// case: syntax.expr.interpolation/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        "{a}"
+        x
+    }
+}
+
+// case: syntax.expr.interpolation/cell:arm
+func f() {
+    match x {
+        case _ -> "{a}"
+    }
+}
+
+// case: syntax.expr.interpolation/cell:opnd
+func f() {
+    let v = "{a}" * x
+}
+
+// case: syntax.expr.interpolation/cell:rhs
+func f() {
+    let v = x && "{a}"
+}
+
+// case: syntax.expr.interpolation/cell:arg
+func f() {
+    f("{a}")
+}
+
+// case: syntax.expr.interpolation/cell:larg
+func f() {
+    f(a: "{a}")
+}
+
+// case: syntax.expr.interpolation/cell:elem
+func f() {
+    let v = ["{a}"]
+}
+
+// case: syntax.expr.interpolation/cell:recv
+func f() {
+    let v = "{a}".b
+}
+
+// case: syntax.expr.interpolation/cell:idx
+func f() {
+    let v = a["{a}"]
+}
+
+// case: syntax.expr.interpolation/cell:interp
+func f() {
+    print("{"{a}"}")
+}
+
+// case: syntax.expr.interpolation/cell:cond
+func f() {
+    if "{a}" {
+    }
+}
+
+// case: syntax.expr.interpolation/cell:subj
+func f() {
+    if let x = "{a}" {
+    }
+}
+
+// case: syntax.expr.interpolation/cell:scrut
+func f() {
+    match "{a}" {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.interpolation/cell:aguard
+func f() {
+    match x {
+        case _ if "{a}" -> x
+    }
+}
+
+// case: syntax.expr.interpolation/cell:iter
+func f() {
+    for i in "{a}" {
+    }
+}
+
+// case: syntax.expr.interpolation/cell:rend
+func f() {
+    for i in "{a}"..x {
+    }
+}
+
+// case: syntax.expr.interpolation/cell:bhead
+func f() {
+    borrow let x = "{a}" {
+    }
+}
+
+// case: syntax.expr.interpolation/cell:init
+func f() {
+    let v = "{a}"
+}
+
+// case: syntax.expr.interpolation/cell:asgn
+func f() {
+    v = "{a}"
+}
+
+// case: syntax.expr.interpolation/cell:crhs
+func f() {
+    v += "{a}"
+}
+
+// case: syntax.expr.interpolation/cell:ret
+func f() {
+    return "{a}"
+}
+
+// case: syntax.expr.interpolation/cell:brk
+func f() {
+    while x {
+        break "{a}"
+    }
+}
+
+// case: syntax.expr.interpolation/cell:lend
+func f() {
+    lend "{a}"
+}
+
+// case: syntax.expr.interpolation/cell:try
+func f() {
+    let v = try "{a}"
+}
+
+// case: syntax.expr.interpolation/cell:dflt
+func f(p: T = "{a}") {
+}
+
+// case: syntax.expr.interpolation/cell:sinit
+static S: T = "{a}"
+
+// case: syntax.expr.interpolation/cell:alen
+func f() {
+    let v: [T; "{a}"] = w
+}
+
+// case: syntax.expr.interpolation/cell:rcnt
+func f() {
+    let v = [x; "{a}"]
+}
+
+// case: syntax.expr.interpolation/cell:raw
+enum E: T {
+    case A = "{a}"
+}
+
+// case: syntax.expr.interpolation/cell:aarg
+@align("{a}")
+static S: T = x
+
+// case: syntax.expr.interpolation/cell:sassert
+static_assert("{a}", "m")
+
+// case: syntax.expr.source-location/cell:stmt
+func f() {
+    #line
+    x
+}
+
+// case: syntax.expr.source-location/cell:tail
+func f() {
+    #line
+}
+
+// case: syntax.expr.source-location/cell:clos
+func f() {
+    let c = {
+        #line
+        x
+    }
+}
+
+// case: syntax.expr.source-location/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        #line
+        x
+    }
+}
+
+// case: syntax.expr.source-location/cell:arm
+func f() {
+    match x {
+        case _ -> #line
+    }
+}
+
+// case: syntax.expr.source-location/cell:opnd
+func f() {
+    let v = #line * x
+}
+
+// case: syntax.expr.source-location/cell:rhs
+func f() {
+    let v = x && #line
+}
+
+// case: syntax.expr.source-location/cell:arg
+func f() {
+    f(#line)
+}
+
+// case: syntax.expr.source-location/cell:larg
+func f() {
+    f(a: #line)
+}
+
+// case: syntax.expr.source-location/cell:elem
+func f() {
+    let v = [#line]
+}
+
+// case: syntax.expr.source-location/cell:recv
+func f() {
+    let v = #line.b
+}
+
+// case: syntax.expr.source-location/cell:idx
+func f() {
+    let v = a[#line]
+}
+
+// case: syntax.expr.source-location/cell:interp
+func f() {
+    print("{#line}")
+}
+
+// case: syntax.expr.source-location/cell:cond
+func f() {
+    if #line {
+    }
+}
+
+// case: syntax.expr.source-location/cell:subj
+func f() {
+    if let x = #line {
+    }
+}
+
+// case: syntax.expr.source-location/cell:scrut
+func f() {
+    match #line {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.source-location/cell:aguard
+func f() {
+    match x {
+        case _ if #line -> x
+    }
+}
+
+// case: syntax.expr.source-location/cell:iter
+func f() {
+    for i in #line {
+    }
+}
+
+// case: syntax.expr.source-location/cell:rend
+func f() {
+    for i in #line..x {
+    }
+}
+
+// case: syntax.expr.source-location/cell:bhead
+func f() {
+    borrow let x = #line {
+    }
+}
+
+// case: syntax.expr.source-location/cell:init
+func f() {
+    let v = #line
+}
+
+// case: syntax.expr.source-location/cell:asgn
+func f() {
+    v = #line
+}
+
+// case: syntax.expr.source-location/cell:crhs
+func f() {
+    v += #line
+}
+
+// case: syntax.expr.source-location/cell:ret
+func f() {
+    return #line
+}
+
+// case: syntax.expr.source-location/cell:brk
+func f() {
+    while x {
+        break #line
+    }
+}
+
+// case: syntax.expr.source-location/cell:lend
+func f() {
+    lend #line
+}
+
+// case: syntax.expr.source-location/cell:try
+func f() {
+    let v = try #line
+}
+
+// case: syntax.expr.source-location/cell:dflt
+func f(p: T = #line) {
+}
+
+// case: syntax.expr.source-location/cell:sinit
+static S: T = #line
+
+// case: syntax.expr.source-location/cell:alen
+func f() {
+    let v: [T; #line] = w
+}
+
+// case: syntax.expr.source-location/cell:rcnt
+func f() {
+    let v = [x; #line]
+}
+
+// case: syntax.expr.source-location/cell:raw
+enum E: T {
+    case A = #line
+}
+
+// case: syntax.expr.source-location/cell:aarg
+@align(#line)
+static S: T = x
+
+// case: syntax.expr.source-location/cell:sassert
+static_assert(#line, "m")
+
+// case: syntax.expr.name/cell:stmt
+func f() {
+    a
+    x
+}
+
+// case: syntax.expr.name/cell:tail
+func f() {
+    a
+}
+
+// case: syntax.expr.name/cell:clos
+func f() {
+    let c = {
+        a
+        x
+    }
+}
+
+// case: syntax.expr.name/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a
+        x
+    }
+}
+
+// case: syntax.expr.name/cell:arm
+func f() {
+    match x {
+        case _ -> a
+    }
+}
+
+// case: syntax.expr.name/cell:opnd
+func f() {
+    let v = a * x
+}
+
+// case: syntax.expr.name/cell:rhs
+func f() {
+    let v = x && a
+}
+
+// case: syntax.expr.name/cell:arg
+func f() {
+    f(a)
+}
+
+// case: syntax.expr.name/cell:larg
+func f() {
+    f(a: a)
+}
+
+// case: syntax.expr.name/cell:elem
+func f() {
+    let v = [a]
+}
+
+// case: syntax.expr.name/cell:recv
+func f() {
+    let v = a.b
+}
+
+// case: syntax.expr.name/cell:idx
+func f() {
+    let v = a[a]
+}
+
+// case: syntax.expr.name/cell:interp
+func f() {
+    print("{a}")
+}
+
+// case: syntax.expr.name/cell:cond
+func f() {
+    if a {
+    }
+}
+
+// case: syntax.expr.name/cell:subj
+func f() {
+    if let x = a {
+    }
+}
+
+// case: syntax.expr.name/cell:scrut
+func f() {
+    match a {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.name/cell:aguard
+func f() {
+    match x {
+        case _ if a -> x
+    }
+}
+
+// case: syntax.expr.name/cell:iter
+func f() {
+    for i in a {
+    }
+}
+
+// case: syntax.expr.name/cell:rend
+func f() {
+    for i in a..x {
+    }
+}
+
+// case: syntax.expr.name/cell:bhead
+func f() {
+    borrow let x = a {
+    }
+}
+
+// case: syntax.expr.name/cell:init
+func f() {
+    let v = a
+}
+
+// case: syntax.expr.name/cell:asgn
+func f() {
+    v = a
+}
+
+// case: syntax.expr.name/cell:crhs
+func f() {
+    v += a
+}
+
+// case: syntax.expr.name/cell:atgt
+func f() {
+    a = x
+}
+
+// case: syntax.expr.name/cell:ret
+func f() {
+    return a
+}
+
+// case: syntax.expr.name/cell:brk
+func f() {
+    while x {
+        break a
+    }
+}
+
+// case: syntax.expr.name/cell:lend
+func f() {
+    lend a
+}
+
+// case: syntax.expr.name/cell:try
+func f() {
+    let v = try a
+}
+
+// case: syntax.expr.name/cell:dflt
+func f(p: T = a) {
+}
+
+// case: syntax.expr.name/cell:sinit
+static S: T = a
+
+// case: syntax.expr.name/cell:alen
+func f() {
+    let v: [T; a] = w
+}
+
+// case: syntax.expr.name/cell:rcnt
+func f() {
+    let v = [x; a]
+}
+
+// case: syntax.expr.name/cell:cgen
+func f<const N: Int = a>() {
+}
+
+// case: syntax.expr.name/cell:raw
+enum E: T {
+    case A = a
+}
+
+// case: syntax.expr.name/cell:aarg
+@align(a)
+static S: T = x
+
+// case: syntax.expr.name/cell:sassert
+static_assert(a, "m")
+
+// case: syntax.expr.implicit-member/cell:stmt
+func f() {
+    .a
+    x
+}
+
+// case: syntax.expr.implicit-member/cell:tail
+func f() {
+    .a
+}
+
+// case: syntax.expr.implicit-member/cell:clos
+func f() {
+    let c = {
+        .a
+        x
+    }
+}
+
+// case: syntax.expr.implicit-member/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        .a
+        x
+    }
+}
+
+// case: syntax.expr.implicit-member/cell:arm
+func f() {
+    match x {
+        case _ -> .a
+    }
+}
+
+// case: syntax.expr.implicit-member/cell:opnd
+func f() {
+    let v = .a * x
+}
+
+// case: syntax.expr.implicit-member/cell:rhs
+func f() {
+    let v = x && .a
+}
+
+// case: syntax.expr.implicit-member/cell:arg
+func f() {
+    f(.a)
+}
+
+// case: syntax.expr.implicit-member/cell:larg
+func f() {
+    f(a: .a)
+}
+
+// case: syntax.expr.implicit-member/cell:elem
+func f() {
+    let v = [.a]
+}
+
+// case: syntax.expr.implicit-member/cell:recv
+func f() {
+    let v = .a.b
+}
+
+// case: syntax.expr.implicit-member/cell:idx
+func f() {
+    let v = a[.a]
+}
+
+// case: syntax.expr.implicit-member/cell:interp
+func f() {
+    print("{.a}")
+}
+
+// case: syntax.expr.implicit-member/cell:cond
+func f() {
+    if .a {
+    }
+}
+
+// case: syntax.expr.implicit-member/cell:subj
+func f() {
+    if let x = .a {
+    }
+}
+
+// case: syntax.expr.implicit-member/cell:scrut
+func f() {
+    match .a {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.implicit-member/cell:aguard
+func f() {
+    match x {
+        case _ if .a -> x
+    }
+}
+
+// case: syntax.expr.implicit-member/cell:iter
+func f() {
+    for i in .a {
+    }
+}
+
+// case: syntax.expr.implicit-member/cell:rend
+func f() {
+    for i in .a..x {
+    }
+}
+
+// case: syntax.expr.implicit-member/cell:bhead
+func f() {
+    borrow let x = .a {
+    }
+}
+
+// case: syntax.expr.implicit-member/cell:init
+func f() {
+    let v = .a
+}
+
+// case: syntax.expr.implicit-member/cell:asgn
+func f() {
+    v = .a
+}
+
+// case: syntax.expr.implicit-member/cell:crhs
+func f() {
+    v += .a
+}
+
+// case: syntax.expr.implicit-member/cell:ret
+func f() {
+    return .a
+}
+
+// case: syntax.expr.implicit-member/cell:brk
+func f() {
+    while x {
+        break .a
+    }
+}
+
+// case: syntax.expr.implicit-member/cell:lend
+func f() {
+    lend .a
+}
+
+// case: syntax.expr.implicit-member/cell:try
+func f() {
+    let v = try .a
+}
+
+// case: syntax.expr.implicit-member/cell:dflt
+func f(p: T = .a) {
+}
+
+// case: syntax.expr.implicit-member/cell:sinit
+static S: T = .a
+
+// case: syntax.expr.implicit-member/cell:alen
+func f() {
+    let v: [T; .a] = w
+}
+
+// case: syntax.expr.implicit-member/cell:rcnt
+func f() {
+    let v = [x; .a]
+}
+
+// case: syntax.expr.implicit-member/cell:raw
+enum E: T {
+    case A = .a
+}
+
+// case: syntax.expr.implicit-member/cell:aarg
+@align(.a)
+static S: T = x
+
+// case: syntax.expr.implicit-member/cell:sassert
+static_assert(.a, "m")
+
+// case: syntax.expr.self/cell:stmt
+func f() {
+    self
+    x
+}
+
+// case: syntax.expr.self/cell:tail
+func f() {
+    self
+}
+
+// case: syntax.expr.self/cell:clos
+func f() {
+    let c = {
+        self
+        x
+    }
+}
+
+// case: syntax.expr.self/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        self
+        x
+    }
+}
+
+// case: syntax.expr.self/cell:arm
+func f() {
+    match x {
+        case _ -> self
+    }
+}
+
+// case: syntax.expr.self/cell:opnd
+func f() {
+    let v = self * x
+}
+
+// case: syntax.expr.self/cell:rhs
+func f() {
+    let v = x && self
+}
+
+// case: syntax.expr.self/cell:arg
+func f() {
+    f(self)
+}
+
+// case: syntax.expr.self/cell:larg
+func f() {
+    f(a: self)
+}
+
+// case: syntax.expr.self/cell:elem
+func f() {
+    let v = [self]
+}
+
+// case: syntax.expr.self/cell:recv
+func f() {
+    let v = self.b
+}
+
+// case: syntax.expr.self/cell:idx
+func f() {
+    let v = a[self]
+}
+
+// case: syntax.expr.self/cell:interp
+func f() {
+    print("{self}")
+}
+
+// case: syntax.expr.self/cell:cond
+func f() {
+    if self {
+    }
+}
+
+// case: syntax.expr.self/cell:subj
+func f() {
+    if let x = self {
+    }
+}
+
+// case: syntax.expr.self/cell:scrut
+func f() {
+    match self {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.self/cell:aguard
+func f() {
+    match x {
+        case _ if self -> x
+    }
+}
+
+// case: syntax.expr.self/cell:iter
+func f() {
+    for i in self {
+    }
+}
+
+// case: syntax.expr.self/cell:rend
+func f() {
+    for i in self..x {
+    }
+}
+
+// case: syntax.expr.self/cell:bhead
+func f() {
+    borrow let x = self {
+    }
+}
+
+// case: syntax.expr.self/cell:init
+func f() {
+    let v = self
+}
+
+// case: syntax.expr.self/cell:asgn
+func f() {
+    v = self
+}
+
+// case: syntax.expr.self/cell:crhs
+func f() {
+    v += self
+}
+
+// case: syntax.expr.self/cell:atgt
+func f() {
+    self = x
+}
+
+// case: syntax.expr.self/cell:ret
+func f() {
+    return self
+}
+
+// case: syntax.expr.self/cell:brk
+func f() {
+    while x {
+        break self
+    }
+}
+
+// case: syntax.expr.self/cell:lend
+func f() {
+    lend self
+}
+
+// case: syntax.expr.self/cell:try
+func f() {
+    let v = try self
+}
+
+// case: syntax.expr.self/cell:dflt
+func f(p: T = self) {
+}
+
+// case: syntax.expr.self/cell:sinit
+static S: T = self
+
+// case: syntax.expr.self/cell:alen
+func f() {
+    let v: [T; self] = w
+}
+
+// case: syntax.expr.self/cell:rcnt
+func f() {
+    let v = [x; self]
+}
+
+// case: syntax.expr.self/cell:raw
+enum E: T {
+    case A = self
+}
+
+// case: syntax.expr.self/cell:aarg
+@align(self)
+static S: T = x
+
+// case: syntax.expr.self/cell:sassert
+static_assert(self, "m")
+
+// case: syntax.expr.shorthand-param/cell:stmt
+func f() {
+    $0
+    x
+}
+
+// case: syntax.expr.shorthand-param/cell:tail
+func f() {
+    $0
+}
+
+// case: syntax.expr.shorthand-param/cell:clos
+func f() {
+    let c = {
+        $0
+        x
+    }
+}
+
+// case: syntax.expr.shorthand-param/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        $0
+        x
+    }
+}
+
+// case: syntax.expr.shorthand-param/cell:arm
+func f() {
+    match x {
+        case _ -> $0
+    }
+}
+
+// case: syntax.expr.shorthand-param/cell:opnd
+func f() {
+    let v = $0 * x
+}
+
+// case: syntax.expr.shorthand-param/cell:rhs
+func f() {
+    let v = x && $0
+}
+
+// case: syntax.expr.shorthand-param/cell:arg
+func f() {
+    f($0)
+}
+
+// case: syntax.expr.shorthand-param/cell:larg
+func f() {
+    f(a: $0)
+}
+
+// case: syntax.expr.shorthand-param/cell:elem
+func f() {
+    let v = [$0]
+}
+
+// case: syntax.expr.shorthand-param/cell:recv
+func f() {
+    let v = $0.b
+}
+
+// case: syntax.expr.shorthand-param/cell:idx
+func f() {
+    let v = a[$0]
+}
+
+// case: syntax.expr.shorthand-param/cell:interp
+func f() {
+    print("{$0}")
+}
+
+// case: syntax.expr.shorthand-param/cell:cond
+func f() {
+    if $0 {
+    }
+}
+
+// case: syntax.expr.shorthand-param/cell:subj
+func f() {
+    if let x = $0 {
+    }
+}
+
+// case: syntax.expr.shorthand-param/cell:scrut
+func f() {
+    match $0 {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.shorthand-param/cell:aguard
+func f() {
+    match x {
+        case _ if $0 -> x
+    }
+}
+
+// case: syntax.expr.shorthand-param/cell:iter
+func f() {
+    for i in $0 {
+    }
+}
+
+// case: syntax.expr.shorthand-param/cell:rend
+func f() {
+    for i in $0..x {
+    }
+}
+
+// case: syntax.expr.shorthand-param/cell:bhead
+func f() {
+    borrow let x = $0 {
+    }
+}
+
+// case: syntax.expr.shorthand-param/cell:init
+func f() {
+    let v = $0
+}
+
+// case: syntax.expr.shorthand-param/cell:asgn
+func f() {
+    v = $0
+}
+
+// case: syntax.expr.shorthand-param/cell:crhs
+func f() {
+    v += $0
+}
+
+// case: syntax.expr.shorthand-param/cell:ret
+func f() {
+    return $0
+}
+
+// case: syntax.expr.shorthand-param/cell:brk
+func f() {
+    while x {
+        break $0
+    }
+}
+
+// case: syntax.expr.shorthand-param/cell:lend
+func f() {
+    lend $0
+}
+
+// case: syntax.expr.shorthand-param/cell:try
+func f() {
+    let v = try $0
+}
+
+// case: syntax.expr.shorthand-param/cell:dflt
+func f(p: T = $0) {
+}
+
+// case: syntax.expr.shorthand-param/cell:sinit
+static S: T = $0
+
+// case: syntax.expr.shorthand-param/cell:alen
+func f() {
+    let v: [T; $0] = w
+}
+
+// case: syntax.expr.shorthand-param/cell:rcnt
+func f() {
+    let v = [x; $0]
+}
+
+// case: syntax.expr.shorthand-param/cell:raw
+enum E: T {
+    case A = $0
+}
+
+// case: syntax.expr.shorthand-param/cell:aarg
+@align($0)
+static S: T = x
+
+// case: syntax.expr.shorthand-param/cell:sassert
+static_assert($0, "m")
+
+// case: syntax.expr.paren/cell:stmt
+func f() {
+    (a)
+    x
+}
+
+// case: syntax.expr.paren/cell:tail
+func f() {
+    (a)
+}
+
+// case: syntax.expr.paren/cell:clos
+func f() {
+    let c = {
+        (a)
+        x
+    }
+}
+
+// case: syntax.expr.paren/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        (a)
+        x
+    }
+}
+
+// case: syntax.expr.paren/cell:arm
+func f() {
+    match x {
+        case _ -> (a)
+    }
+}
+
+// case: syntax.expr.paren/cell:opnd
+func f() {
+    let v = (a) * x
+}
+
+// case: syntax.expr.paren/cell:rhs
+func f() {
+    let v = x && (a)
+}
+
+// case: syntax.expr.paren/cell:arg
+func f() {
+    f((a))
+}
+
+// case: syntax.expr.paren/cell:larg
+func f() {
+    f(a: (a))
+}
+
+// case: syntax.expr.paren/cell:elem
+func f() {
+    let v = [(a)]
+}
+
+// case: syntax.expr.paren/cell:recv
+func f() {
+    let v = (a).b
+}
+
+// case: syntax.expr.paren/cell:idx
+func f() {
+    let v = a[(a)]
+}
+
+// case: syntax.expr.paren/cell:interp
+func f() {
+    print("{(a)}")
+}
+
+// case: syntax.expr.paren/cell:cond
+func f() {
+    if (a) {
+    }
+}
+
+// case: syntax.expr.paren/cell:subj
+func f() {
+    if let x = (a) {
+    }
+}
+
+// case: syntax.expr.paren/cell:scrut
+func f() {
+    match (a) {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.paren/cell:aguard
+func f() {
+    match x {
+        case _ if (a) -> x
+    }
+}
+
+// case: syntax.expr.paren/cell:iter
+func f() {
+    for i in (a) {
+    }
+}
+
+// case: syntax.expr.paren/cell:rend
+func f() {
+    for i in (a)..x {
+    }
+}
+
+// case: syntax.expr.paren/cell:bhead
+func f() {
+    borrow let x = (a) {
+    }
+}
+
+// case: syntax.expr.paren/cell:init
+func f() {
+    let v = (a)
+}
+
+// case: syntax.expr.paren/cell:asgn
+func f() {
+    v = (a)
+}
+
+// case: syntax.expr.paren/cell:crhs
+func f() {
+    v += (a)
+}
+
+// case: syntax.expr.paren/cell:ret
+func f() {
+    return (a)
+}
+
+// case: syntax.expr.paren/cell:brk
+func f() {
+    while x {
+        break (a)
+    }
+}
+
+// case: syntax.expr.paren/cell:lend
+func f() {
+    lend (a)
+}
+
+// case: syntax.expr.paren/cell:try
+func f() {
+    let v = try (a)
+}
+
+// case: syntax.expr.paren/cell:dflt
+func f(p: T = (a)) {
+}
+
+// case: syntax.expr.paren/cell:sinit
+static S: T = (a)
+
+// case: syntax.expr.paren/cell:alen
+func f() {
+    let v: [T; (a)] = w
+}
+
+// case: syntax.expr.paren/cell:rcnt
+func f() {
+    let v = [x; (a)]
+}
+
+// case: syntax.expr.paren/cell:cgen
+func f() {
+    let v: A<(1)> = w
+}
+
+// case: syntax.expr.paren/cell:raw
+enum E: T {
+    case A = (a)
+}
+
+// case: syntax.expr.paren/cell:aarg
+@align((a))
+static S: T = x
+
+// case: syntax.expr.paren/cell:sassert
+static_assert((a), "m")
+
+// case: syntax.expr.tuple/cell:stmt
+func f() {
+    (a, b)
+    x
+}
+
+// case: syntax.expr.tuple/cell:tail
+func f() {
+    (a, b)
+}
+
+// case: syntax.expr.tuple/cell:clos
+func f() {
+    let c = {
+        (a, b)
+        x
+    }
+}
+
+// case: syntax.expr.tuple/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        (a, b)
+        x
+    }
+}
+
+// case: syntax.expr.tuple/cell:arm
+func f() {
+    match x {
+        case _ -> (a, b)
+    }
+}
+
+// case: syntax.expr.tuple/cell:opnd
+func f() {
+    let v = (a, b) * x
+}
+
+// case: syntax.expr.tuple/cell:rhs
+func f() {
+    let v = x && (a, b)
+}
+
+// case: syntax.expr.tuple/cell:arg
+func f() {
+    f((a, b))
+}
+
+// case: syntax.expr.tuple/cell:larg
+func f() {
+    f(a: (a, b))
+}
+
+// case: syntax.expr.tuple/cell:elem
+func f() {
+    let v = [(a, b)]
+}
+
+// case: syntax.expr.tuple/cell:recv
+func f() {
+    let v = (a, b).b
+}
+
+// case: syntax.expr.tuple/cell:idx
+func f() {
+    let v = a[(a, b)]
+}
+
+// case: syntax.expr.tuple/cell:interp
+func f() {
+    print("{(a, b)}")
+}
+
+// case: syntax.expr.tuple/cell:cond
+func f() {
+    if (a, b) {
+    }
+}
+
+// case: syntax.expr.tuple/cell:subj
+func f() {
+    if let x = (a, b) {
+    }
+}
+
+// case: syntax.expr.tuple/cell:scrut
+func f() {
+    match (a, b) {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.tuple/cell:aguard
+func f() {
+    match x {
+        case _ if (a, b) -> x
+    }
+}
+
+// case: syntax.expr.tuple/cell:iter
+func f() {
+    for i in (a, b) {
+    }
+}
+
+// case: syntax.expr.tuple/cell:rend
+func f() {
+    for i in (a, b)..x {
+    }
+}
+
+// case: syntax.expr.tuple/cell:bhead
+func f() {
+    borrow let x = (a, b) {
+    }
+}
+
+// case: syntax.expr.tuple/cell:init
+func f() {
+    let v = (a, b)
+}
+
+// case: syntax.expr.tuple/cell:asgn
+func f() {
+    v = (a, b)
+}
+
+// case: syntax.expr.tuple/cell:crhs
+func f() {
+    v += (a, b)
+}
+
+// case: syntax.expr.tuple/cell:ret
+func f() {
+    return (a, b)
+}
+
+// case: syntax.expr.tuple/cell:brk
+func f() {
+    while x {
+        break (a, b)
+    }
+}
+
+// case: syntax.expr.tuple/cell:lend
+func f() {
+    lend (a, b)
+}
+
+// case: syntax.expr.tuple/cell:try
+func f() {
+    let v = try (a, b)
+}
+
+// case: syntax.expr.tuple/cell:dflt
+func f(p: T = (a, b)) {
+}
+
+// case: syntax.expr.tuple/cell:sinit
+static S: T = (a, b)
+
+// case: syntax.expr.tuple/cell:alen
+func f() {
+    let v: [T; (a, b)] = w
+}
+
+// case: syntax.expr.tuple/cell:rcnt
+func f() {
+    let v = [x; (a, b)]
+}
+
+// case: syntax.expr.tuple/cell:raw
+enum E: T {
+    case A = (a, b)
+}
+
+// case: syntax.expr.tuple/cell:aarg
+@align((a, b))
+static S: T = x
+
+// case: syntax.expr.tuple/cell:sassert
+static_assert((a, b), "m")
+
+// case: syntax.expr.array/cell:stmt
+func f() {
+    [a]
+    x
+}
+
+// case: syntax.expr.array/cell:tail
+func f() {
+    [a]
+}
+
+// case: syntax.expr.array/cell:clos
+func f() {
+    let c = {
+        [a]
+        x
+    }
+}
+
+// case: syntax.expr.array/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        [a]
+        x
+    }
+}
+
+// case: syntax.expr.array/cell:arm
+func f() {
+    match x {
+        case _ -> [a]
+    }
+}
+
+// case: syntax.expr.array/cell:opnd
+func f() {
+    let v = [a] * x
+}
+
+// case: syntax.expr.array/cell:rhs
+func f() {
+    let v = x && [a]
+}
+
+// case: syntax.expr.array/cell:arg
+func f() {
+    f([a])
+}
+
+// case: syntax.expr.array/cell:larg
+func f() {
+    f(a: [a])
+}
+
+// case: syntax.expr.array/cell:elem
+func f() {
+    let v = [[a]]
+}
+
+// case: syntax.expr.array/cell:recv
+func f() {
+    let v = [a].b
+}
+
+// case: syntax.expr.array/cell:idx
+func f() {
+    let v = a[[a]]
+}
+
+// case: syntax.expr.array/cell:interp
+func f() {
+    print("{[a]}")
+}
+
+// case: syntax.expr.array/cell:cond
+func f() {
+    if [a] {
+    }
+}
+
+// case: syntax.expr.array/cell:subj
+func f() {
+    if let x = [a] {
+    }
+}
+
+// case: syntax.expr.array/cell:scrut
+func f() {
+    match [a] {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.array/cell:aguard
+func f() {
+    match x {
+        case _ if [a] -> x
+    }
+}
+
+// case: syntax.expr.array/cell:iter
+func f() {
+    for i in [a] {
+    }
+}
+
+// case: syntax.expr.array/cell:rend
+func f() {
+    for i in [a]..x {
+    }
+}
+
+// case: syntax.expr.array/cell:bhead
+func f() {
+    borrow let x = [a] {
+    }
+}
+
+// case: syntax.expr.array/cell:init
+func f() {
+    let v = [a]
+}
+
+// case: syntax.expr.array/cell:asgn
+func f() {
+    v = [a]
+}
+
+// case: syntax.expr.array/cell:crhs
+func f() {
+    v += [a]
+}
+
+// case: syntax.expr.array/cell:ret
+func f() {
+    return [a]
+}
+
+// case: syntax.expr.array/cell:brk
+func f() {
+    while x {
+        break [a]
+    }
+}
+
+// case: syntax.expr.array/cell:lend
+func f() {
+    lend [a]
+}
+
+// case: syntax.expr.array/cell:try
+func f() {
+    let v = try [a]
+}
+
+// case: syntax.expr.array/cell:dflt
+func f(p: T = [a]) {
+}
+
+// case: syntax.expr.array/cell:sinit
+static S: T = [a]
+
+// case: syntax.expr.array/cell:alen
+func f() {
+    let v: [T; [a]] = w
+}
+
+// case: syntax.expr.array/cell:rcnt
+func f() {
+    let v = [x; [a]]
+}
+
+// case: syntax.expr.array/cell:raw
+enum E: T {
+    case A = [a]
+}
+
+// case: syntax.expr.array/cell:aarg
+@align([a])
+static S: T = x
+
+// case: syntax.expr.array/cell:sassert
+static_assert([a], "m")
+
+// case: syntax.expr.repeat/cell:stmt
+func f() {
+    [a; 2]
+    x
+}
+
+// case: syntax.expr.repeat/cell:tail
+func f() {
+    [a; 2]
+}
+
+// case: syntax.expr.repeat/cell:clos
+func f() {
+    let c = {
+        [a; 2]
+        x
+    }
+}
+
+// case: syntax.expr.repeat/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        [a; 2]
+        x
+    }
+}
+
+// case: syntax.expr.repeat/cell:arm
+func f() {
+    match x {
+        case _ -> [a; 2]
+    }
+}
+
+// case: syntax.expr.repeat/cell:opnd
+func f() {
+    let v = [a; 2] * x
+}
+
+// case: syntax.expr.repeat/cell:rhs
+func f() {
+    let v = x && [a; 2]
+}
+
+// case: syntax.expr.repeat/cell:arg
+func f() {
+    f([a; 2])
+}
+
+// case: syntax.expr.repeat/cell:larg
+func f() {
+    f(a: [a; 2])
+}
+
+// case: syntax.expr.repeat/cell:elem
+func f() {
+    let v = [[a; 2]]
+}
+
+// case: syntax.expr.repeat/cell:recv
+func f() {
+    let v = [a; 2].b
+}
+
+// case: syntax.expr.repeat/cell:idx
+func f() {
+    let v = a[[a; 2]]
+}
+
+// case: syntax.expr.repeat/cell:interp
+func f() {
+    print("{[a; 2]}")
+}
+
+// case: syntax.expr.repeat/cell:cond
+func f() {
+    if [a; 2] {
+    }
+}
+
+// case: syntax.expr.repeat/cell:subj
+func f() {
+    if let x = [a; 2] {
+    }
+}
+
+// case: syntax.expr.repeat/cell:scrut
+func f() {
+    match [a; 2] {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.repeat/cell:aguard
+func f() {
+    match x {
+        case _ if [a; 2] -> x
+    }
+}
+
+// case: syntax.expr.repeat/cell:iter
+func f() {
+    for i in [a; 2] {
+    }
+}
+
+// case: syntax.expr.repeat/cell:rend
+func f() {
+    for i in [a; 2]..x {
+    }
+}
+
+// case: syntax.expr.repeat/cell:bhead
+func f() {
+    borrow let x = [a; 2] {
+    }
+}
+
+// case: syntax.expr.repeat/cell:init
+func f() {
+    let v = [a; 2]
+}
+
+// case: syntax.expr.repeat/cell:asgn
+func f() {
+    v = [a; 2]
+}
+
+// case: syntax.expr.repeat/cell:crhs
+func f() {
+    v += [a; 2]
+}
+
+// case: syntax.expr.repeat/cell:ret
+func f() {
+    return [a; 2]
+}
+
+// case: syntax.expr.repeat/cell:brk
+func f() {
+    while x {
+        break [a; 2]
+    }
+}
+
+// case: syntax.expr.repeat/cell:lend
+func f() {
+    lend [a; 2]
+}
+
+// case: syntax.expr.repeat/cell:try
+func f() {
+    let v = try [a; 2]
+}
+
+// case: syntax.expr.repeat/cell:dflt
+func f(p: T = [a; 2]) {
+}
+
+// case: syntax.expr.repeat/cell:sinit
+static S: T = [a; 2]
+
+// case: syntax.expr.repeat/cell:alen
+func f() {
+    let v: [T; [a; 2]] = w
+}
+
+// case: syntax.expr.repeat/cell:rcnt
+func f() {
+    let v = [x; [a; 2]]
+}
+
+// case: syntax.expr.repeat/cell:raw
+enum E: T {
+    case A = [a; 2]
+}
+
+// case: syntax.expr.repeat/cell:aarg
+@align([a; 2])
+static S: T = x
+
+// case: syntax.expr.repeat/cell:sassert
+static_assert([a; 2], "m")
+
+// case: syntax.expr.map/cell:stmt
+func f() {
+    {a: b}
+    x
+}
+
+// case: syntax.expr.map/cell:tail
+func f() {
+    {a: b}
+}
+
+// case: syntax.expr.map/cell:clos
+func f() {
+    let c = {
+        {a: b}
+        x
+    }
+}
+
+// case: syntax.expr.map/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        {a: b}
+        x
+    }
+}
+
+// case: syntax.expr.map/cell:arm
+func f() {
+    match x {
+        case _ -> ({a: b})
+    }
+}
+
+// case: syntax.expr.map/cell:opnd
+func f() {
+    let v = {a: b} * x
+}
+
+// case: syntax.expr.map/cell:rhs
+func f() {
+    let v = x && {a: b}
+}
+
+// case: syntax.expr.map/cell:arg
+func f() {
+    f({a: b})
+}
+
+// case: syntax.expr.map/cell:larg
+func f() {
+    f(a: {a: b})
+}
+
+// case: syntax.expr.map/cell:elem
+func f() {
+    let v = [{a: b}]
+}
+
+// case: syntax.expr.map/cell:recv
+func f() {
+    let v = {a: b}.b
+}
+
+// case: syntax.expr.map/cell:idx
+func f() {
+    let v = a[{a: b}]
+}
+
+// case: syntax.expr.map/cell:interp
+func f() {
+    print("{{a: b}}")
+}
+
+// case: syntax.expr.map/cell:cond
+func f() {
+    if {a: b} {
+    }
+}
+
+// case: syntax.expr.map/cell:subj
+func f() {
+    if let x = {a: b} {
+    }
+}
+
+// case: syntax.expr.map/cell:scrut
+func f() {
+    match {a: b} {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.map/cell:aguard
+func f() {
+    match x {
+        case _ if {a: b} -> x
+    }
+}
+
+// case: syntax.expr.map/cell:iter
+func f() {
+    for i in {a: b} {
+    }
+}
+
+// case: syntax.expr.map/cell:rend
+func f() {
+    for i in {a: b}..x {
+    }
+}
+
+// case: syntax.expr.map/cell:bhead
+func f() {
+    borrow let x = {a: b} {
+    }
+}
+
+// case: syntax.expr.map/cell:init
+func f() {
+    let v = {a: b}
+}
+
+// case: syntax.expr.map/cell:asgn
+func f() {
+    v = {a: b}
+}
+
+// case: syntax.expr.map/cell:crhs
+func f() {
+    v += {a: b}
+}
+
+// case: syntax.expr.map/cell:ret
+func f() {
+    return {a: b}
+}
+
+// case: syntax.expr.map/cell:brk
+func f() {
+    while x {
+        break {a: b}
+    }
+}
+
+// case: syntax.expr.map/cell:lend
+func f() {
+    lend {a: b}
+}
+
+// case: syntax.expr.map/cell:try
+func f() {
+    let v = try ({a: b})
+}
+
+// case: syntax.expr.map/cell:dflt
+func f(p: T = {a: b}) {
+}
+
+// case: syntax.expr.map/cell:sinit
+static S: T = {a: b}
+
+// case: syntax.expr.map/cell:alen
+func f() {
+    let v: [T; {a: b}] = w
+}
+
+// case: syntax.expr.map/cell:rcnt
+func f() {
+    let v = [x; {a: b}]
+}
+
+// case: syntax.expr.map/cell:raw
+enum E: T {
+    case A = {a: b}
+}
+
+// case: syntax.expr.map/cell:aarg
+@align({a: b})
+static S: T = x
+
+// case: syntax.expr.map/cell:sassert
+static_assert({a: b}, "m")
+
+// case: syntax.expr.set/cell:stmt
+func f() {
+    {a, b}
+    x
+}
+
+// case: syntax.expr.set/cell:tail
+func f() {
+    {a, b}
+}
+
+// case: syntax.expr.set/cell:clos
+func f() {
+    let c = {
+        {a, b}
+        x
+    }
+}
+
+// case: syntax.expr.set/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        {a, b}
+        x
+    }
+}
+
+// case: syntax.expr.set/cell:arm
+func f() {
+    match x {
+        case _ -> ({a, b})
+    }
+}
+
+// case: syntax.expr.set/cell:opnd
+func f() {
+    let v = {a, b} * x
+}
+
+// case: syntax.expr.set/cell:rhs
+func f() {
+    let v = x && {a, b}
+}
+
+// case: syntax.expr.set/cell:arg
+func f() {
+    f({a, b})
+}
+
+// case: syntax.expr.set/cell:larg
+func f() {
+    f(a: {a, b})
+}
+
+// case: syntax.expr.set/cell:elem
+func f() {
+    let v = [{a, b}]
+}
+
+// case: syntax.expr.set/cell:recv
+func f() {
+    let v = {a, b}.b
+}
+
+// case: syntax.expr.set/cell:idx
+func f() {
+    let v = a[{a, b}]
+}
+
+// case: syntax.expr.set/cell:interp
+func f() {
+    print("{{a, b}}")
+}
+
+// case: syntax.expr.set/cell:cond
+func f() {
+    if {a, b} {
+    }
+}
+
+// case: syntax.expr.set/cell:subj
+func f() {
+    if let x = {a, b} {
+    }
+}
+
+// case: syntax.expr.set/cell:scrut
+func f() {
+    match {a, b} {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.set/cell:aguard
+func f() {
+    match x {
+        case _ if {a, b} -> x
+    }
+}
+
+// case: syntax.expr.set/cell:iter
+func f() {
+    for i in {a, b} {
+    }
+}
+
+// case: syntax.expr.set/cell:rend
+func f() {
+    for i in {a, b}..x {
+    }
+}
+
+// case: syntax.expr.set/cell:bhead
+func f() {
+    borrow let x = {a, b} {
+    }
+}
+
+// case: syntax.expr.set/cell:init
+func f() {
+    let v = {a, b}
+}
+
+// case: syntax.expr.set/cell:asgn
+func f() {
+    v = {a, b}
+}
+
+// case: syntax.expr.set/cell:crhs
+func f() {
+    v += {a, b}
+}
+
+// case: syntax.expr.set/cell:ret
+func f() {
+    return {a, b}
+}
+
+// case: syntax.expr.set/cell:brk
+func f() {
+    while x {
+        break {a, b}
+    }
+}
+
+// case: syntax.expr.set/cell:lend
+func f() {
+    lend {a, b}
+}
+
+// case: syntax.expr.set/cell:try
+func f() {
+    let v = try ({a, b})
+}
+
+// case: syntax.expr.set/cell:dflt
+func f(p: T = {a, b}) {
+}
+
+// case: syntax.expr.set/cell:sinit
+static S: T = {a, b}
+
+// case: syntax.expr.set/cell:alen
+func f() {
+    let v: [T; {a, b}] = w
+}
+
+// case: syntax.expr.set/cell:rcnt
+func f() {
+    let v = [x; {a, b}]
+}
+
+// case: syntax.expr.set/cell:raw
+enum E: T {
+    case A = {a, b}
+}
+
+// case: syntax.expr.set/cell:aarg
+@align({a, b})
+static S: T = x
+
+// case: syntax.expr.set/cell:sassert
+static_assert({a, b}, "m")
+
+// case: syntax.expr.closure/cell:stmt
+func f() {
+    { a }
+    x
+}
+
+// case: syntax.expr.closure/cell:tail
+func f() {
+    { a }
+}
+
+// case: syntax.expr.closure/cell:clos
+func f() {
+    let c = {
+        { a }
+        x
+    }
+}
+
+// case: syntax.expr.closure/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        { a }
+        x
+    }
+}
+
+// case: syntax.expr.closure/cell:arm
+func f() {
+    match x {
+        case _ -> ({ a })
+    }
+}
+
+// case: syntax.expr.closure/cell:opnd
+func f() {
+    let v = { a } * x
+}
+
+// case: syntax.expr.closure/cell:rhs
+func f() {
+    let v = x && { a }
+}
+
+// case: syntax.expr.closure/cell:arg
+func f() {
+    f({ a })
+}
+
+// case: syntax.expr.closure/cell:larg
+func f() {
+    f(a: { a })
+}
+
+// case: syntax.expr.closure/cell:elem
+func f() {
+    let v = [{ a }]
+}
+
+// case: syntax.expr.closure/cell:recv
+func f() {
+    let v = { a }.b
+}
+
+// case: syntax.expr.closure/cell:idx
+func f() {
+    let v = a[{ a }]
+}
+
+// case: syntax.expr.closure/cell:interp
+func f() {
+    print("{{ a }}")
+}
+
+// case: syntax.expr.closure/cell:cond
+func f() {
+    if { a } {
+    }
+}
+
+// case: syntax.expr.closure/cell:subj
+func f() {
+    if let x = { a } {
+    }
+}
+
+// case: syntax.expr.closure/cell:scrut
+func f() {
+    match { a } {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.closure/cell:aguard
+func f() {
+    match x {
+        case _ if { a } -> x
+    }
+}
+
+// case: syntax.expr.closure/cell:iter
+func f() {
+    for i in { a } {
+    }
+}
+
+// case: syntax.expr.closure/cell:rend
+func f() {
+    for i in { a }..x {
+    }
+}
+
+// case: syntax.expr.closure/cell:bhead
+func f() {
+    borrow let x = { a } {
+    }
+}
+
+// case: syntax.expr.closure/cell:init
+func f() {
+    let v = { a }
+}
+
+// case: syntax.expr.closure/cell:asgn
+func f() {
+    v = { a }
+}
+
+// case: syntax.expr.closure/cell:crhs
+func f() {
+    v += { a }
+}
+
+// case: syntax.expr.closure/cell:ret
+func f() {
+    return { a }
+}
+
+// case: syntax.expr.closure/cell:brk
+func f() {
+    while x {
+        break { a }
+    }
+}
+
+// case: syntax.expr.closure/cell:lend
+func f() {
+    lend { a }
+}
+
+// case: syntax.expr.closure/cell:try
+func f() {
+    let v = try ({ a })
+}
+
+// case: syntax.expr.closure/cell:dflt
+func f(p: T = { a }) {
+}
+
+// case: syntax.expr.closure/cell:sinit
+static S: T = { a }
+
+// case: syntax.expr.closure/cell:alen
+func f() {
+    let v: [T; { a }] = w
+}
+
+// case: syntax.expr.closure/cell:rcnt
+func f() {
+    let v = [x; { a }]
+}
+
+// case: syntax.expr.closure/cell:raw
+enum E: T {
+    case A = { a }
+}
+
+// case: syntax.expr.closure/cell:aarg
+@align({ a })
+static S: T = x
+
+// case: syntax.expr.closure/cell:sassert
+static_assert({ a }, "m")
+
+// case: syntax.expr.call/cell:stmt
+func f() {
+    f()
+    x
+}
+
+// case: syntax.expr.call/cell:tail
+func f() {
+    f()
+}
+
+// case: syntax.expr.call/cell:clos
+func f() {
+    let c = {
+        f()
+        x
+    }
+}
+
+// case: syntax.expr.call/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        f()
+        x
+    }
+}
+
+// case: syntax.expr.call/cell:arm
+func f() {
+    match x {
+        case _ -> f()
+    }
+}
+
+// case: syntax.expr.call/cell:opnd
+func f() {
+    let v = f() * x
+}
+
+// case: syntax.expr.call/cell:rhs
+func f() {
+    let v = x && f()
+}
+
+// case: syntax.expr.call/cell:arg
+func f() {
+    f(f())
+}
+
+// case: syntax.expr.call/cell:larg
+func f() {
+    f(a: f())
+}
+
+// case: syntax.expr.call/cell:elem
+func f() {
+    let v = [f()]
+}
+
+// case: syntax.expr.call/cell:recv
+func f() {
+    let v = f().b
+}
+
+// case: syntax.expr.call/cell:idx
+func f() {
+    let v = a[f()]
+}
+
+// case: syntax.expr.call/cell:interp
+func f() {
+    print("{f()}")
+}
+
+// case: syntax.expr.call/cell:cond
+func f() {
+    if f() {
+    }
+}
+
+// case: syntax.expr.call/cell:subj
+func f() {
+    if let x = f() {
+    }
+}
+
+// case: syntax.expr.call/cell:scrut
+func f() {
+    match f() {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.call/cell:aguard
+func f() {
+    match x {
+        case _ if f() -> x
+    }
+}
+
+// case: syntax.expr.call/cell:iter
+func f() {
+    for i in f() {
+    }
+}
+
+// case: syntax.expr.call/cell:rend
+func f() {
+    for i in f()..x {
+    }
+}
+
+// case: syntax.expr.call/cell:bhead
+func f() {
+    borrow let x = f() {
+    }
+}
+
+// case: syntax.expr.call/cell:init
+func f() {
+    let v = f()
+}
+
+// case: syntax.expr.call/cell:asgn
+func f() {
+    v = f()
+}
+
+// case: syntax.expr.call/cell:crhs
+func f() {
+    v += f()
+}
+
+// case: syntax.expr.call/cell:atgt
+func f() {
+    f() = x
+}
+
+// case: syntax.expr.call/cell:ret
+func f() {
+    return f()
+}
+
+// case: syntax.expr.call/cell:brk
+func f() {
+    while x {
+        break f()
+    }
+}
+
+// case: syntax.expr.call/cell:lend
+func f() {
+    lend f()
+}
+
+// case: syntax.expr.call/cell:try
+func f() {
+    let v = try f()
+}
+
+// case: syntax.expr.call/cell:dflt
+func f(p: T = f()) {
+}
+
+// case: syntax.expr.call/cell:sinit
+static S: T = f()
+
+// case: syntax.expr.call/cell:alen
+func f() {
+    let v: [T; f()] = w
+}
+
+// case: syntax.expr.call/cell:rcnt
+func f() {
+    let v = [x; f()]
+}
+
+// case: syntax.expr.call/cell:cgen
+func f() {
+    let v: A<sizeof<T>()> = w
+}
+
+// case: syntax.expr.call/cell:raw
+enum E: T {
+    case A = f()
+}
+
+// case: syntax.expr.call/cell:aarg
+@align(f())
+static S: T = x
+
+// case: syntax.expr.call/cell:sassert
+static_assert(f(), "m")
+
+// case: syntax.expr.trailing-call/cell:stmt
+func f() {
+    f { a }
+    x
+}
+
+// case: syntax.expr.trailing-call/cell:tail
+func f() {
+    f { a }
+}
+
+// case: syntax.expr.trailing-call/cell:clos
+func f() {
+    let c = {
+        f { a }
+        x
+    }
+}
+
+// case: syntax.expr.trailing-call/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        f { a }
+        x
+    }
+}
+
+// case: syntax.expr.trailing-call/cell:arm
+func f() {
+    match x {
+        case _ -> f { a }
+    }
+}
+
+// case: syntax.expr.trailing-call/cell:opnd
+func f() {
+    let v = f { a } * x
+}
+
+// case: syntax.expr.trailing-call/cell:rhs
+func f() {
+    let v = x && f { a }
+}
+
+// case: syntax.expr.trailing-call/cell:arg
+func f() {
+    f(f { a })
+}
+
+// case: syntax.expr.trailing-call/cell:larg
+func f() {
+    f(a: f { a })
+}
+
+// case: syntax.expr.trailing-call/cell:elem
+func f() {
+    let v = [f { a }]
+}
+
+// case: syntax.expr.trailing-call/cell:recv
+func f() {
+    let v = f { a }.b
+}
+
+// case: syntax.expr.trailing-call/cell:idx
+func f() {
+    let v = a[f { a }]
+}
+
+// case: syntax.expr.trailing-call/cell:interp
+func f() {
+    print("{f { a }}")
+}
+
+// case: syntax.expr.trailing-call/cell:init
+func f() {
+    let v = f { a }
+}
+
+// case: syntax.expr.trailing-call/cell:asgn
+func f() {
+    v = f { a }
+}
+
+// case: syntax.expr.trailing-call/cell:crhs
+func f() {
+    v += f { a }
+}
+
+// case: syntax.expr.trailing-call/cell:ret
+func f() {
+    return f { a }
+}
+
+// case: syntax.expr.trailing-call/cell:brk
+func f() {
+    while x {
+        break f { a }
+    }
+}
+
+// case: syntax.expr.trailing-call/cell:lend
+func f() {
+    lend f { a }
+}
+
+// case: syntax.expr.trailing-call/cell:try
+func f() {
+    let v = try f { a }
+}
+
+// case: syntax.expr.trailing-call/cell:dflt
+func f(p: T = f { a }) {
+}
+
+// case: syntax.expr.trailing-call/cell:sinit
+static S: T = f { a }
+
+// case: syntax.expr.trailing-call/cell:alen
+func f() {
+    let v: [T; f { a }] = w
+}
+
+// case: syntax.expr.trailing-call/cell:rcnt
+func f() {
+    let v = [x; f { a }]
+}
+
+// case: syntax.expr.trailing-call/cell:raw
+enum E: T {
+    case A = f { a }
+}
+
+// case: syntax.expr.trailing-call/cell:aarg
+@align(f { a })
+static S: T = x
+
+// case: syntax.expr.trailing-call/cell:sassert
+static_assert(f { a }, "m")
+
+// case: syntax.expr.member/cell:stmt
+func f() {
+    a.b
+    x
+}
+
+// case: syntax.expr.member/cell:tail
+func f() {
+    a.b
+}
+
+// case: syntax.expr.member/cell:clos
+func f() {
+    let c = {
+        a.b
+        x
+    }
+}
+
+// case: syntax.expr.member/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a.b
+        x
+    }
+}
+
+// case: syntax.expr.member/cell:arm
+func f() {
+    match x {
+        case _ -> a.b
+    }
+}
+
+// case: syntax.expr.member/cell:opnd
+func f() {
+    let v = a.b * x
+}
+
+// case: syntax.expr.member/cell:rhs
+func f() {
+    let v = x && a.b
+}
+
+// case: syntax.expr.member/cell:arg
+func f() {
+    f(a.b)
+}
+
+// case: syntax.expr.member/cell:larg
+func f() {
+    f(a: a.b)
+}
+
+// case: syntax.expr.member/cell:elem
+func f() {
+    let v = [a.b]
+}
+
+// case: syntax.expr.member/cell:recv
+func f() {
+    let v = a.b.b
+}
+
+// case: syntax.expr.member/cell:idx
+func f() {
+    let v = a[a.b]
+}
+
+// case: syntax.expr.member/cell:interp
+func f() {
+    print("{a.b}")
+}
+
+// case: syntax.expr.member/cell:cond
+func f() {
+    if a.b {
+    }
+}
+
+// case: syntax.expr.member/cell:subj
+func f() {
+    if let x = a.b {
+    }
+}
+
+// case: syntax.expr.member/cell:scrut
+func f() {
+    match a.b {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.member/cell:aguard
+func f() {
+    match x {
+        case _ if a.b -> x
+    }
+}
+
+// case: syntax.expr.member/cell:iter
+func f() {
+    for i in a.b {
+    }
+}
+
+// case: syntax.expr.member/cell:rend
+func f() {
+    for i in a.b..x {
+    }
+}
+
+// case: syntax.expr.member/cell:bhead
+func f() {
+    borrow let x = a.b {
+    }
+}
+
+// case: syntax.expr.member/cell:init
+func f() {
+    let v = a.b
+}
+
+// case: syntax.expr.member/cell:asgn
+func f() {
+    v = a.b
+}
+
+// case: syntax.expr.member/cell:crhs
+func f() {
+    v += a.b
+}
+
+// case: syntax.expr.member/cell:atgt
+func f() {
+    a.b = x
+}
+
+// case: syntax.expr.member/cell:ret
+func f() {
+    return a.b
+}
+
+// case: syntax.expr.member/cell:brk
+func f() {
+    while x {
+        break a.b
+    }
+}
+
+// case: syntax.expr.member/cell:lend
+func f() {
+    lend a.b
+}
+
+// case: syntax.expr.member/cell:try
+func f() {
+    let v = try a.b
+}
+
+// case: syntax.expr.member/cell:dflt
+func f(p: T = a.b) {
+}
+
+// case: syntax.expr.member/cell:sinit
+static S: T = a.b
+
+// case: syntax.expr.member/cell:alen
+func f() {
+    let v: [T; a.b] = w
+}
+
+// case: syntax.expr.member/cell:rcnt
+func f() {
+    let v = [x; a.b]
+}
+
+// case: syntax.expr.member/cell:raw
+enum E: T {
+    case A = a.b
+}
+
+// case: syntax.expr.member/cell:aarg
+@align(a.b)
+static S: T = x
+
+// case: syntax.expr.member/cell:sassert
+static_assert(a.b, "m")
+
+// case: syntax.expr.tuple-index/cell:stmt
+func f() {
+    a.0
+    x
+}
+
+// case: syntax.expr.tuple-index/cell:tail
+func f() {
+    a.0
+}
+
+// case: syntax.expr.tuple-index/cell:clos
+func f() {
+    let c = {
+        a.0
+        x
+    }
+}
+
+// case: syntax.expr.tuple-index/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a.0
+        x
+    }
+}
+
+// case: syntax.expr.tuple-index/cell:arm
+func f() {
+    match x {
+        case _ -> a.0
+    }
+}
+
+// case: syntax.expr.tuple-index/cell:opnd
+func f() {
+    let v = a.0 * x
+}
+
+// case: syntax.expr.tuple-index/cell:rhs
+func f() {
+    let v = x && a.0
+}
+
+// case: syntax.expr.tuple-index/cell:arg
+func f() {
+    f(a.0)
+}
+
+// case: syntax.expr.tuple-index/cell:larg
+func f() {
+    f(a: a.0)
+}
+
+// case: syntax.expr.tuple-index/cell:elem
+func f() {
+    let v = [a.0]
+}
+
+// case: syntax.expr.tuple-index/cell:recv
+func f() {
+    let v = a.0.b
+}
+
+// case: syntax.expr.tuple-index/cell:idx
+func f() {
+    let v = a[a.0]
+}
+
+// case: syntax.expr.tuple-index/cell:interp
+func f() {
+    print("{a.0}")
+}
+
+// case: syntax.expr.tuple-index/cell:cond
+func f() {
+    if a.0 {
+    }
+}
+
+// case: syntax.expr.tuple-index/cell:subj
+func f() {
+    if let x = a.0 {
+    }
+}
+
+// case: syntax.expr.tuple-index/cell:scrut
+func f() {
+    match a.0 {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.tuple-index/cell:aguard
+func f() {
+    match x {
+        case _ if a.0 -> x
+    }
+}
+
+// case: syntax.expr.tuple-index/cell:iter
+func f() {
+    for i in a.0 {
+    }
+}
+
+// case: syntax.expr.tuple-index/cell:rend
+func f() {
+    for i in a.0..x {
+    }
+}
+
+// case: syntax.expr.tuple-index/cell:bhead
+func f() {
+    borrow let x = a.0 {
+    }
+}
+
+// case: syntax.expr.tuple-index/cell:init
+func f() {
+    let v = a.0
+}
+
+// case: syntax.expr.tuple-index/cell:asgn
+func f() {
+    v = a.0
+}
+
+// case: syntax.expr.tuple-index/cell:crhs
+func f() {
+    v += a.0
+}
+
+// case: syntax.expr.tuple-index/cell:atgt
+func f() {
+    a.0 = x
+}
+
+// case: syntax.expr.tuple-index/cell:ret
+func f() {
+    return a.0
+}
+
+// case: syntax.expr.tuple-index/cell:brk
+func f() {
+    while x {
+        break a.0
+    }
+}
+
+// case: syntax.expr.tuple-index/cell:lend
+func f() {
+    lend a.0
+}
+
+// case: syntax.expr.tuple-index/cell:try
+func f() {
+    let v = try a.0
+}
+
+// case: syntax.expr.tuple-index/cell:dflt
+func f(p: T = a.0) {
+}
+
+// case: syntax.expr.tuple-index/cell:sinit
+static S: T = a.0
+
+// case: syntax.expr.tuple-index/cell:alen
+func f() {
+    let v: [T; a.0] = w
+}
+
+// case: syntax.expr.tuple-index/cell:rcnt
+func f() {
+    let v = [x; a.0]
+}
+
+// case: syntax.expr.tuple-index/cell:raw
+enum E: T {
+    case A = a.0
+}
+
+// case: syntax.expr.tuple-index/cell:aarg
+@align(a.0)
+static S: T = x
+
+// case: syntax.expr.tuple-index/cell:sassert
+static_assert(a.0, "m")
+
+// case: syntax.expr.optional-member/cell:stmt
+func f() {
+    a?.b
+    x
+}
+
+// case: syntax.expr.optional-member/cell:tail
+func f() {
+    a?.b
+}
+
+// case: syntax.expr.optional-member/cell:clos
+func f() {
+    let c = {
+        a?.b
+        x
+    }
+}
+
+// case: syntax.expr.optional-member/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a?.b
+        x
+    }
+}
+
+// case: syntax.expr.optional-member/cell:arm
+func f() {
+    match x {
+        case _ -> a?.b
+    }
+}
+
+// case: syntax.expr.optional-member/cell:opnd
+func f() {
+    let v = a?.b * x
+}
+
+// case: syntax.expr.optional-member/cell:rhs
+func f() {
+    let v = x && a?.b
+}
+
+// case: syntax.expr.optional-member/cell:arg
+func f() {
+    f(a?.b)
+}
+
+// case: syntax.expr.optional-member/cell:larg
+func f() {
+    f(a: a?.b)
+}
+
+// case: syntax.expr.optional-member/cell:elem
+func f() {
+    let v = [a?.b]
+}
+
+// case: syntax.expr.optional-member/cell:recv
+func f() {
+    let v = a?.b.b
+}
+
+// case: syntax.expr.optional-member/cell:idx
+func f() {
+    let v = a[a?.b]
+}
+
+// case: syntax.expr.optional-member/cell:interp
+func f() {
+    print("{a?.b}")
+}
+
+// case: syntax.expr.optional-member/cell:cond
+func f() {
+    if a?.b {
+    }
+}
+
+// case: syntax.expr.optional-member/cell:subj
+func f() {
+    if let x = a?.b {
+    }
+}
+
+// case: syntax.expr.optional-member/cell:scrut
+func f() {
+    match a?.b {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.optional-member/cell:aguard
+func f() {
+    match x {
+        case _ if a?.b -> x
+    }
+}
+
+// case: syntax.expr.optional-member/cell:iter
+func f() {
+    for i in a?.b {
+    }
+}
+
+// case: syntax.expr.optional-member/cell:rend
+func f() {
+    for i in a?.b..x {
+    }
+}
+
+// case: syntax.expr.optional-member/cell:bhead
+func f() {
+    borrow let x = a?.b {
+    }
+}
+
+// case: syntax.expr.optional-member/cell:init
+func f() {
+    let v = a?.b
+}
+
+// case: syntax.expr.optional-member/cell:asgn
+func f() {
+    v = a?.b
+}
+
+// case: syntax.expr.optional-member/cell:crhs
+func f() {
+    v += a?.b
+}
+
+// case: syntax.expr.optional-member/cell:atgt
+func f() {
+    a?.b = x
+}
+
+// case: syntax.expr.optional-member/cell:ret
+func f() {
+    return a?.b
+}
+
+// case: syntax.expr.optional-member/cell:brk
+func f() {
+    while x {
+        break a?.b
+    }
+}
+
+// case: syntax.expr.optional-member/cell:lend
+func f() {
+    lend a?.b
+}
+
+// case: syntax.expr.optional-member/cell:try
+func f() {
+    let v = try a?.b
+}
+
+// case: syntax.expr.optional-member/cell:dflt
+func f(p: T = a?.b) {
+}
+
+// case: syntax.expr.optional-member/cell:sinit
+static S: T = a?.b
+
+// case: syntax.expr.optional-member/cell:alen
+func f() {
+    let v: [T; a?.b] = w
+}
+
+// case: syntax.expr.optional-member/cell:rcnt
+func f() {
+    let v = [x; a?.b]
+}
+
+// case: syntax.expr.optional-member/cell:raw
+enum E: T {
+    case A = a?.b
+}
+
+// case: syntax.expr.optional-member/cell:aarg
+@align(a?.b)
+static S: T = x
+
+// case: syntax.expr.optional-member/cell:sassert
+static_assert(a?.b, "m")
+
+// case: syntax.expr.subscript/cell:stmt
+func f() {
+    a[b]
+    x
+}
+
+// case: syntax.expr.subscript/cell:tail
+func f() {
+    a[b]
+}
+
+// case: syntax.expr.subscript/cell:clos
+func f() {
+    let c = {
+        a[b]
+        x
+    }
+}
+
+// case: syntax.expr.subscript/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a[b]
+        x
+    }
+}
+
+// case: syntax.expr.subscript/cell:arm
+func f() {
+    match x {
+        case _ -> a[b]
+    }
+}
+
+// case: syntax.expr.subscript/cell:opnd
+func f() {
+    let v = a[b] * x
+}
+
+// case: syntax.expr.subscript/cell:rhs
+func f() {
+    let v = x && a[b]
+}
+
+// case: syntax.expr.subscript/cell:arg
+func f() {
+    f(a[b])
+}
+
+// case: syntax.expr.subscript/cell:larg
+func f() {
+    f(a: a[b])
+}
+
+// case: syntax.expr.subscript/cell:elem
+func f() {
+    let v = [a[b]]
+}
+
+// case: syntax.expr.subscript/cell:recv
+func f() {
+    let v = a[b].b
+}
+
+// case: syntax.expr.subscript/cell:idx
+func f() {
+    let v = a[a[b]]
+}
+
+// case: syntax.expr.subscript/cell:interp
+func f() {
+    print("{a[b]}")
+}
+
+// case: syntax.expr.subscript/cell:cond
+func f() {
+    if a[b] {
+    }
+}
+
+// case: syntax.expr.subscript/cell:subj
+func f() {
+    if let x = a[b] {
+    }
+}
+
+// case: syntax.expr.subscript/cell:scrut
+func f() {
+    match a[b] {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.subscript/cell:aguard
+func f() {
+    match x {
+        case _ if a[b] -> x
+    }
+}
+
+// case: syntax.expr.subscript/cell:iter
+func f() {
+    for i in a[b] {
+    }
+}
+
+// case: syntax.expr.subscript/cell:rend
+func f() {
+    for i in a[b]..x {
+    }
+}
+
+// case: syntax.expr.subscript/cell:bhead
+func f() {
+    borrow let x = a[b] {
+    }
+}
+
+// case: syntax.expr.subscript/cell:init
+func f() {
+    let v = a[b]
+}
+
+// case: syntax.expr.subscript/cell:asgn
+func f() {
+    v = a[b]
+}
+
+// case: syntax.expr.subscript/cell:crhs
+func f() {
+    v += a[b]
+}
+
+// case: syntax.expr.subscript/cell:atgt
+func f() {
+    a[b] = x
+}
+
+// case: syntax.expr.subscript/cell:ret
+func f() {
+    return a[b]
+}
+
+// case: syntax.expr.subscript/cell:brk
+func f() {
+    while x {
+        break a[b]
+    }
+}
+
+// case: syntax.expr.subscript/cell:lend
+func f() {
+    lend a[b]
+}
+
+// case: syntax.expr.subscript/cell:try
+func f() {
+    let v = try a[b]
+}
+
+// case: syntax.expr.subscript/cell:dflt
+func f(p: T = a[b]) {
+}
+
+// case: syntax.expr.subscript/cell:sinit
+static S: T = a[b]
+
+// case: syntax.expr.subscript/cell:alen
+func f() {
+    let v: [T; a[b]] = w
+}
+
+// case: syntax.expr.subscript/cell:rcnt
+func f() {
+    let v = [x; a[b]]
+}
+
+// case: syntax.expr.subscript/cell:raw
+enum E: T {
+    case A = a[b]
+}
+
+// case: syntax.expr.subscript/cell:aarg
+@align(a[b])
+static S: T = x
+
+// case: syntax.expr.subscript/cell:sassert
+static_assert(a[b], "m")
+
+// case: syntax.expr.force/cell:stmt
+func f() {
+    a!
+    x
+}
+
+// case: syntax.expr.force/cell:tail
+func f() {
+    a!
+}
+
+// case: syntax.expr.force/cell:clos
+func f() {
+    let c = {
+        a!
+        x
+    }
+}
+
+// case: syntax.expr.force/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a!
+        x
+    }
+}
+
+// case: syntax.expr.force/cell:arm
+func f() {
+    match x {
+        case _ -> a!
+    }
+}
+
+// case: syntax.expr.force/cell:opnd
+func f() {
+    let v = a! * x
+}
+
+// case: syntax.expr.force/cell:rhs
+func f() {
+    let v = x && a!
+}
+
+// case: syntax.expr.force/cell:arg
+func f() {
+    f(a!)
+}
+
+// case: syntax.expr.force/cell:larg
+func f() {
+    f(a: a!)
+}
+
+// case: syntax.expr.force/cell:elem
+func f() {
+    let v = [a!]
+}
+
+// case: syntax.expr.force/cell:recv
+func f() {
+    let v = a!.b
+}
+
+// case: syntax.expr.force/cell:idx
+func f() {
+    let v = a[a!]
+}
+
+// case: syntax.expr.force/cell:interp
+func f() {
+    print("{a!}")
+}
+
+// case: syntax.expr.force/cell:cond
+func f() {
+    if a! {
+    }
+}
+
+// case: syntax.expr.force/cell:subj
+func f() {
+    if let x = a! {
+    }
+}
+
+// case: syntax.expr.force/cell:scrut
+func f() {
+    match a! {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.force/cell:aguard
+func f() {
+    match x {
+        case _ if a! -> x
+    }
+}
+
+// case: syntax.expr.force/cell:iter
+func f() {
+    for i in a! {
+    }
+}
+
+// case: syntax.expr.force/cell:rend
+func f() {
+    for i in a!..x {
+    }
+}
+
+// case: syntax.expr.force/cell:bhead
+func f() {
+    borrow let x = a! {
+    }
+}
+
+// case: syntax.expr.force/cell:init
+func f() {
+    let v = a!
+}
+
+// case: syntax.expr.force/cell:asgn
+func f() {
+    v = a!
+}
+
+// case: syntax.expr.force/cell:crhs
+func f() {
+    v += a!
+}
+
+// case: syntax.expr.force/cell:atgt
+func f() {
+    a! = x
+}
+
+// case: syntax.expr.force/cell:ret
+func f() {
+    return a!
+}
+
+// case: syntax.expr.force/cell:brk
+func f() {
+    while x {
+        break a!
+    }
+}
+
+// case: syntax.expr.force/cell:lend
+func f() {
+    lend a!
+}
+
+// case: syntax.expr.force/cell:try
+func f() {
+    let v = try a!
+}
+
+// case: syntax.expr.force/cell:dflt
+func f(p: T = a!) {
+}
+
+// case: syntax.expr.force/cell:sinit
+static S: T = a!
+
+// case: syntax.expr.force/cell:alen
+func f() {
+    let v: [T; a!] = w
+}
+
+// case: syntax.expr.force/cell:rcnt
+func f() {
+    let v = [x; a!]
+}
+
+// case: syntax.expr.force/cell:raw
+enum E: T {
+    case A = a!
+}
+
+// case: syntax.expr.force/cell:aarg
+@align(a!)
+static S: T = x
+
+// case: syntax.expr.force/cell:sassert
+static_assert(a!, "m")
+
+// case: syntax.expr.unary/cell:stmt
+func f() {
+    -a
+    x
+}
+
+// case: syntax.expr.unary/cell:tail
+func f() {
+    -a
+}
+
+// case: syntax.expr.unary/cell:clos
+func f() {
+    let c = {
+        -a
+        x
+    }
+}
+
+// case: syntax.expr.unary/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        -a
+        x
+    }
+}
+
+// case: syntax.expr.unary/cell:arm
+func f() {
+    match x {
+        case _ -> -a
+    }
+}
+
+// case: syntax.expr.unary/cell:opnd
+func f() {
+    let v = -a * x
+}
+
+// case: syntax.expr.unary/cell:rhs
+func f() {
+    let v = x && -a
+}
+
+// case: syntax.expr.unary/cell:arg
+func f() {
+    f(-a)
+}
+
+// case: syntax.expr.unary/cell:larg
+func f() {
+    f(a: -a)
+}
+
+// case: syntax.expr.unary/cell:elem
+func f() {
+    let v = [-a]
+}
+
+// case: syntax.expr.unary/cell:recv
+func f() {
+    let v = (-a).b
+}
+
+// case: syntax.expr.unary/cell:idx
+func f() {
+    let v = a[-a]
+}
+
+// case: syntax.expr.unary/cell:interp
+func f() {
+    print("{-a}")
+}
+
+// case: syntax.expr.unary/cell:cond
+func f() {
+    if -a {
+    }
+}
+
+// case: syntax.expr.unary/cell:subj
+func f() {
+    if let x = -a {
+    }
+}
+
+// case: syntax.expr.unary/cell:scrut
+func f() {
+    match -a {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.unary/cell:aguard
+func f() {
+    match x {
+        case _ if -a -> x
+    }
+}
+
+// case: syntax.expr.unary/cell:iter
+func f() {
+    for i in -a {
+    }
+}
+
+// case: syntax.expr.unary/cell:rend
+func f() {
+    for i in -a..x {
+    }
+}
+
+// case: syntax.expr.unary/cell:bhead
+func f() {
+    borrow let x = -a {
+    }
+}
+
+// case: syntax.expr.unary/cell:init
+func f() {
+    let v = -a
+}
+
+// case: syntax.expr.unary/cell:asgn
+func f() {
+    v = -a
+}
+
+// case: syntax.expr.unary/cell:crhs
+func f() {
+    v += -a
+}
+
+// case: syntax.expr.unary/cell:ret
+func f() {
+    return -a
+}
+
+// case: syntax.expr.unary/cell:brk
+func f() {
+    while x {
+        break -a
+    }
+}
+
+// case: syntax.expr.unary/cell:lend
+func f() {
+    lend -a
+}
+
+// case: syntax.expr.unary/cell:try
+func f() {
+    let v = try -a
+}
+
+// case: syntax.expr.unary/cell:dflt
+func f(p: T = -a) {
+}
+
+// case: syntax.expr.unary/cell:sinit
+static S: T = -a
+
+// case: syntax.expr.unary/cell:alen
+func f() {
+    let v: [T; -a] = w
+}
+
+// case: syntax.expr.unary/cell:rcnt
+func f() {
+    let v = [x; -a]
+}
+
+// case: syntax.expr.unary/cell:cgen
+func f() {
+    let v: A<-1> = w
+}
+
+// case: syntax.expr.unary/cell:raw
+enum E: T {
+    case A = -a
+}
+
+// case: syntax.expr.unary/cell:aarg
+@align(-a)
+static S: T = x
+
+// case: syntax.expr.unary/cell:sassert
+static_assert(-a, "m")
+
+// case: syntax.expr.deref/cell:stmt
+func f() {
+    *a
+    x
+}
+
+// case: syntax.expr.deref/cell:tail
+func f() {
+    *a
+}
+
+// case: syntax.expr.deref/cell:clos
+func f() {
+    let c = {
+        *a
+        x
+    }
+}
+
+// case: syntax.expr.deref/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        *a
+        x
+    }
+}
+
+// case: syntax.expr.deref/cell:arm
+func f() {
+    match x {
+        case _ -> *a
+    }
+}
+
+// case: syntax.expr.deref/cell:opnd
+func f() {
+    let v = *a * x
+}
+
+// case: syntax.expr.deref/cell:rhs
+func f() {
+    let v = x && *a
+}
+
+// case: syntax.expr.deref/cell:arg
+func f() {
+    f(*a)
+}
+
+// case: syntax.expr.deref/cell:larg
+func f() {
+    f(a: *a)
+}
+
+// case: syntax.expr.deref/cell:elem
+func f() {
+    let v = [*a]
+}
+
+// case: syntax.expr.deref/cell:recv
+func f() {
+    let v = (*a).b
+}
+
+// case: syntax.expr.deref/cell:idx
+func f() {
+    let v = a[*a]
+}
+
+// case: syntax.expr.deref/cell:interp
+func f() {
+    print("{*a}")
+}
+
+// case: syntax.expr.deref/cell:cond
+func f() {
+    if *a {
+    }
+}
+
+// case: syntax.expr.deref/cell:subj
+func f() {
+    if let x = *a {
+    }
+}
+
+// case: syntax.expr.deref/cell:scrut
+func f() {
+    match *a {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.deref/cell:aguard
+func f() {
+    match x {
+        case _ if *a -> x
+    }
+}
+
+// case: syntax.expr.deref/cell:iter
+func f() {
+    for i in *a {
+    }
+}
+
+// case: syntax.expr.deref/cell:rend
+func f() {
+    for i in *a..x {
+    }
+}
+
+// case: syntax.expr.deref/cell:bhead
+func f() {
+    borrow let x = *a {
+    }
+}
+
+// case: syntax.expr.deref/cell:init
+func f() {
+    let v = *a
+}
+
+// case: syntax.expr.deref/cell:asgn
+func f() {
+    v = *a
+}
+
+// case: syntax.expr.deref/cell:crhs
+func f() {
+    v += *a
+}
+
+// case: syntax.expr.deref/cell:atgt
+func f() {
+    *a = x
+}
+
+// case: syntax.expr.deref/cell:ret
+func f() {
+    return *a
+}
+
+// case: syntax.expr.deref/cell:brk
+func f() {
+    while x {
+        break *a
+    }
+}
+
+// case: syntax.expr.deref/cell:lend
+func f() {
+    lend *a
+}
+
+// case: syntax.expr.deref/cell:try
+func f() {
+    let v = try *a
+}
+
+// case: syntax.expr.deref/cell:dflt
+func f(p: T = *a) {
+}
+
+// case: syntax.expr.deref/cell:sinit
+static S: T = *a
+
+// case: syntax.expr.deref/cell:alen
+func f() {
+    let v: [T; *a] = w
+}
+
+// case: syntax.expr.deref/cell:rcnt
+func f() {
+    let v = [x; *a]
+}
+
+// case: syntax.expr.deref/cell:raw
+enum E: T {
+    case A = *a
+}
+
+// case: syntax.expr.deref/cell:aarg
+@align(*a)
+static S: T = x
+
+// case: syntax.expr.deref/cell:sassert
+static_assert(*a, "m")
+
+// case: syntax.expr.ref/cell:stmt
+func f() {
+    &a
+    x
+}
+
+// case: syntax.expr.ref/cell:tail
+func f() {
+    &a
+}
+
+// case: syntax.expr.ref/cell:clos
+func f() {
+    let c = {
+        &a
+        x
+    }
+}
+
+// case: syntax.expr.ref/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        &a
+        x
+    }
+}
+
+// case: syntax.expr.ref/cell:arm
+func f() {
+    match x {
+        case _ -> &a
+    }
+}
+
+// case: syntax.expr.ref/cell:opnd
+func f() {
+    let v = &a * x
+}
+
+// case: syntax.expr.ref/cell:rhs
+func f() {
+    let v = x && &a
+}
+
+// case: syntax.expr.ref/cell:arg
+func f() {
+    f(&a)
+}
+
+// case: syntax.expr.ref/cell:larg
+func f() {
+    f(a: &a)
+}
+
+// case: syntax.expr.ref/cell:elem
+func f() {
+    let v = [&a]
+}
+
+// case: syntax.expr.ref/cell:recv
+func f() {
+    let v = (&a).b
+}
+
+// case: syntax.expr.ref/cell:idx
+func f() {
+    let v = a[&a]
+}
+
+// case: syntax.expr.ref/cell:interp
+func f() {
+    print("{&a}")
+}
+
+// case: syntax.expr.ref/cell:cond
+func f() {
+    if &a {
+    }
+}
+
+// case: syntax.expr.ref/cell:subj
+func f() {
+    if let x = &a {
+    }
+}
+
+// case: syntax.expr.ref/cell:scrut
+func f() {
+    match &a {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.ref/cell:aguard
+func f() {
+    match x {
+        case _ if &a -> x
+    }
+}
+
+// case: syntax.expr.ref/cell:iter
+func f() {
+    for i in &a {
+    }
+}
+
+// case: syntax.expr.ref/cell:rend
+func f() {
+    for i in &a..x {
+    }
+}
+
+// case: syntax.expr.ref/cell:bhead
+func f() {
+    borrow let x = &a {
+    }
+}
+
+// case: syntax.expr.ref/cell:init
+func f() {
+    let v = &a
+}
+
+// case: syntax.expr.ref/cell:asgn
+func f() {
+    v = &a
+}
+
+// case: syntax.expr.ref/cell:crhs
+func f() {
+    v += &a
+}
+
+// case: syntax.expr.ref/cell:ret
+func f() {
+    return &a
+}
+
+// case: syntax.expr.ref/cell:brk
+func f() {
+    while x {
+        break &a
+    }
+}
+
+// case: syntax.expr.ref/cell:lend
+func f() {
+    lend &a
+}
+
+// case: syntax.expr.ref/cell:try
+func f() {
+    let v = try &a
+}
+
+// case: syntax.expr.ref/cell:dflt
+func f(p: T = &a) {
+}
+
+// case: syntax.expr.ref/cell:sinit
+static S: T = &a
+
+// case: syntax.expr.ref/cell:alen
+func f() {
+    let v: [T; &a] = w
+}
+
+// case: syntax.expr.ref/cell:rcnt
+func f() {
+    let v = [x; &a]
+}
+
+// case: syntax.expr.ref/cell:raw
+enum E: T {
+    case A = &a
+}
+
+// case: syntax.expr.ref/cell:aarg
+@align(&a)
+static S: T = x
+
+// case: syntax.expr.ref/cell:sassert
+static_assert(&a, "m")
+
+// case: syntax.expr.move/cell:stmt
+func f() {
+    move a
+    x
+}
+
+// case: syntax.expr.move/cell:tail
+func f() {
+    move a
+}
+
+// case: syntax.expr.move/cell:clos
+func f() {
+    let c = {
+        move a
+        x
+    }
+}
+
+// case: syntax.expr.move/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        move a
+        x
+    }
+}
+
+// case: syntax.expr.move/cell:arm
+func f() {
+    match x {
+        case _ -> move a
+    }
+}
+
+// case: syntax.expr.move/cell:opnd
+func f() {
+    let v = move a * x
+}
+
+// case: syntax.expr.move/cell:rhs
+func f() {
+    let v = x && move a
+}
+
+// case: syntax.expr.move/cell:arg
+func f() {
+    f(move a)
+}
+
+// case: syntax.expr.move/cell:larg
+func f() {
+    f(a: move a)
+}
+
+// case: syntax.expr.move/cell:elem
+func f() {
+    let v = [move a]
+}
+
+// case: syntax.expr.move/cell:recv
+func f() {
+    let v = (move a).b
+}
+
+// case: syntax.expr.move/cell:idx
+func f() {
+    let v = a[move a]
+}
+
+// case: syntax.expr.move/cell:interp
+func f() {
+    print("{move a}")
+}
+
+// case: syntax.expr.move/cell:cond
+func f() {
+    if move a {
+    }
+}
+
+// case: syntax.expr.move/cell:subj
+func f() {
+    if let x = move a {
+    }
+}
+
+// case: syntax.expr.move/cell:scrut
+func f() {
+    match move a {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.move/cell:aguard
+func f() {
+    match x {
+        case _ if move a -> x
+    }
+}
+
+// case: syntax.expr.move/cell:iter
+func f() {
+    for i in move a {
+    }
+}
+
+// case: syntax.expr.move/cell:rend
+func f() {
+    for i in move a..x {
+    }
+}
+
+// case: syntax.expr.move/cell:bhead
+func f() {
+    borrow let x = move a {
+    }
+}
+
+// case: syntax.expr.move/cell:init
+func f() {
+    let v = move a
+}
+
+// case: syntax.expr.move/cell:asgn
+func f() {
+    v = move a
+}
+
+// case: syntax.expr.move/cell:crhs
+func f() {
+    v += move a
+}
+
+// case: syntax.expr.move/cell:ret
+func f() {
+    return move a
+}
+
+// case: syntax.expr.move/cell:brk
+func f() {
+    while x {
+        break move a
+    }
+}
+
+// case: syntax.expr.move/cell:lend
+func f() {
+    lend move a
+}
+
+// case: syntax.expr.move/cell:try
+func f() {
+    let v = try move a
+}
+
+// case: syntax.expr.move/cell:dflt
+func f(p: T = move a) {
+}
+
+// case: syntax.expr.move/cell:sinit
+static S: T = move a
+
+// case: syntax.expr.move/cell:alen
+func f() {
+    let v: [T; move a] = w
+}
+
+// case: syntax.expr.move/cell:rcnt
+func f() {
+    let v = [x; move a]
+}
+
+// case: syntax.expr.move/cell:raw
+enum E: T {
+    case A = move a
+}
+
+// case: syntax.expr.move/cell:aarg
+@align(move a)
+static S: T = x
+
+// case: syntax.expr.move/cell:sassert
+static_assert(move a, "m")
+
+// case: syntax.expr.try/cell:stmt
+func f() {
+    try f()
+    x
+}
+
+// case: syntax.expr.try/cell:tail
+func f() {
+    try f()
+}
+
+// case: syntax.expr.try/cell:clos
+func f() {
+    let c = {
+        try f()
+        x
+    }
+}
+
+// case: syntax.expr.try/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        try f()
+        x
+    }
+}
+
+// case: syntax.expr.try/cell:arm
+func f() {
+    match x {
+        case _ -> try f()
+    }
+}
+
+// case: syntax.expr.try/cell:opnd
+func f() {
+    let v = try f() * x
+}
+
+// case: syntax.expr.try/cell:rhs
+func f() {
+    let v = x && try f()
+}
+
+// case: syntax.expr.try/cell:arg
+func f() {
+    f(try f())
+}
+
+// case: syntax.expr.try/cell:larg
+func f() {
+    f(a: try f())
+}
+
+// case: syntax.expr.try/cell:elem
+func f() {
+    let v = [try f()]
+}
+
+// case: syntax.expr.try/cell:recv
+func f() {
+    let v = (try f()).b
+}
+
+// case: syntax.expr.try/cell:idx
+func f() {
+    let v = a[try f()]
+}
+
+// case: syntax.expr.try/cell:interp
+func f() {
+    print("{try f()}")
+}
+
+// case: syntax.expr.try/cell:cond
+func f() {
+    if try f() {
+    }
+}
+
+// case: syntax.expr.try/cell:subj
+func f() {
+    if let x = try f() {
+    }
+}
+
+// case: syntax.expr.try/cell:scrut
+func f() {
+    match try f() {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.try/cell:aguard
+func f() {
+    match x {
+        case _ if try f() -> x
+    }
+}
+
+// case: syntax.expr.try/cell:iter
+func f() {
+    for i in try f() {
+    }
+}
+
+// case: syntax.expr.try/cell:rend
+func f() {
+    for i in try f()..x {
+    }
+}
+
+// case: syntax.expr.try/cell:bhead
+func f() {
+    borrow let x = try f() {
+    }
+}
+
+// case: syntax.expr.try/cell:init
+func f() {
+    let v = try f()
+}
+
+// case: syntax.expr.try/cell:asgn
+func f() {
+    v = try f()
+}
+
+// case: syntax.expr.try/cell:crhs
+func f() {
+    v += try f()
+}
+
+// case: syntax.expr.try/cell:ret
+func f() {
+    return try f()
+}
+
+// case: syntax.expr.try/cell:brk
+func f() {
+    while x {
+        break try f()
+    }
+}
+
+// case: syntax.expr.try/cell:lend
+func f() {
+    lend try f()
+}
+
+// case: syntax.expr.try/cell:try
+func f() {
+    let v = try try f()
+}
+
+// case: syntax.expr.try/cell:dflt
+func f(p: T = try f()) {
+}
+
+// case: syntax.expr.try/cell:sinit
+static S: T = try f()
+
+// case: syntax.expr.try/cell:alen
+func f() {
+    let v: [T; try f()] = w
+}
+
+// case: syntax.expr.try/cell:rcnt
+func f() {
+    let v = [x; try f()]
+}
+
+// case: syntax.expr.try/cell:raw
+enum E: T {
+    case A = try f()
+}
+
+// case: syntax.expr.try/cell:aarg
+@align(try f())
+static S: T = x
+
+// case: syntax.expr.try/cell:sassert
+static_assert(try f(), "m")
+
+// case: syntax.expr.lends/cell:stmt
+func f() {
+    lends a
+    x
+}
+
+// case: syntax.expr.lends/cell:tail
+func f() {
+    lends a
+}
+
+// case: syntax.expr.lends/cell:clos
+func f() {
+    let c = {
+        lends a
+        x
+    }
+}
+
+// case: syntax.expr.lends/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        lends a
+        x
+    }
+}
+
+// case: syntax.expr.lends/cell:arm
+func f() {
+    match x {
+        case _ -> lends a
+    }
+}
+
+// case: syntax.expr.lends/cell:opnd
+func f() {
+    let v = lends a * x
+}
+
+// case: syntax.expr.lends/cell:rhs
+func f() {
+    let v = x && lends a
+}
+
+// case: syntax.expr.lends/cell:arg
+func f() {
+    f(lends a)
+}
+
+// case: syntax.expr.lends/cell:larg
+func f() {
+    f(a: lends a)
+}
+
+// case: syntax.expr.lends/cell:elem
+func f() {
+    let v = [lends a]
+}
+
+// case: syntax.expr.lends/cell:recv
+func f() {
+    let v = (lends a).b
+}
+
+// case: syntax.expr.lends/cell:idx
+func f() {
+    let v = a[lends a]
+}
+
+// case: syntax.expr.lends/cell:interp
+func f() {
+    print("{lends a}")
+}
+
+// case: syntax.expr.lends/cell:cond
+func f() {
+    if lends a {
+    }
+}
+
+// case: syntax.expr.lends/cell:subj
+func f() {
+    if let x = lends a {
+    }
+}
+
+// case: syntax.expr.lends/cell:scrut
+func f() {
+    match lends a {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.lends/cell:aguard
+func f() {
+    match x {
+        case _ if lends a -> x
+    }
+}
+
+// case: syntax.expr.lends/cell:iter
+func f() {
+    for i in lends a {
+    }
+}
+
+// case: syntax.expr.lends/cell:rend
+func f() {
+    for i in lends a..x {
+    }
+}
+
+// case: syntax.expr.lends/cell:bhead
+func f() {
+    borrow let x = lends a {
+    }
+}
+
+// case: syntax.expr.lends/cell:init
+func f() {
+    let v = lends a
+}
+
+// case: syntax.expr.lends/cell:asgn
+func f() {
+    v = lends a
+}
+
+// case: syntax.expr.lends/cell:crhs
+func f() {
+    v += lends a
+}
+
+// case: syntax.expr.lends/cell:ret
+func f() {
+    return lends a
+}
+
+// case: syntax.expr.lends/cell:brk
+func f() {
+    while x {
+        break lends a
+    }
+}
+
+// case: syntax.expr.lends/cell:lend
+func f() {
+    lend lends a
+}
+
+// case: syntax.expr.lends/cell:try
+func f() {
+    let v = try lends a
+}
+
+// case: syntax.expr.lends/cell:dflt
+func f(p: T = lends a) {
+}
+
+// case: syntax.expr.lends/cell:sinit
+static S: T = lends a
+
+// case: syntax.expr.lends/cell:alen
+func f() {
+    let v: [T; lends a] = w
+}
+
+// case: syntax.expr.lends/cell:rcnt
+func f() {
+    let v = [x; lends a]
+}
+
+// case: syntax.expr.lends/cell:raw
+enum E: T {
+    case A = lends a
+}
+
+// case: syntax.expr.lends/cell:aarg
+@align(lends a)
+static S: T = x
+
+// case: syntax.expr.lends/cell:sassert
+static_assert(lends a, "m")
+
+// case: syntax.expr.cast/cell:stmt
+func f() {
+    a as T
+    x
+}
+
+// case: syntax.expr.cast/cell:tail
+func f() {
+    a as T
+}
+
+// case: syntax.expr.cast/cell:clos
+func f() {
+    let c = {
+        a as T
+        x
+    }
+}
+
+// case: syntax.expr.cast/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a as T
+        x
+    }
+}
+
+// case: syntax.expr.cast/cell:arm
+func f() {
+    match x {
+        case _ -> a as T
+    }
+}
+
+// case: syntax.expr.cast/cell:opnd
+func f() {
+    let v = a as T * x
+}
+
+// case: syntax.expr.cast/cell:rhs
+func f() {
+    let v = x && a as T
+}
+
+// case: syntax.expr.cast/cell:arg
+func f() {
+    f(a as T)
+}
+
+// case: syntax.expr.cast/cell:larg
+func f() {
+    f(a: a as T)
+}
+
+// case: syntax.expr.cast/cell:elem
+func f() {
+    let v = [a as T]
+}
+
+// case: syntax.expr.cast/cell:recv
+func f() {
+    let v = (a as T).b
+}
+
+// case: syntax.expr.cast/cell:idx
+func f() {
+    let v = a[a as T]
+}
+
+// case: syntax.expr.cast/cell:interp
+func f() {
+    print("{a as T}")
+}
+
+// case: syntax.expr.cast/cell:cond
+func f() {
+    if a as T {
+    }
+}
+
+// case: syntax.expr.cast/cell:subj
+func f() {
+    if let x = a as T {
+    }
+}
+
+// case: syntax.expr.cast/cell:scrut
+func f() {
+    match a as T {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.cast/cell:aguard
+func f() {
+    match x {
+        case _ if a as T -> x
+    }
+}
+
+// case: syntax.expr.cast/cell:iter
+func f() {
+    for i in a as T {
+    }
+}
+
+// case: syntax.expr.cast/cell:rend
+func f() {
+    for i in a as T..x {
+    }
+}
+
+// case: syntax.expr.cast/cell:bhead
+func f() {
+    borrow let x = a as T {
+    }
+}
+
+// case: syntax.expr.cast/cell:init
+func f() {
+    let v = a as T
+}
+
+// case: syntax.expr.cast/cell:asgn
+func f() {
+    v = a as T
+}
+
+// case: syntax.expr.cast/cell:crhs
+func f() {
+    v += a as T
+}
+
+// case: syntax.expr.cast/cell:ret
+func f() {
+    return a as T
+}
+
+// case: syntax.expr.cast/cell:brk
+func f() {
+    while x {
+        break a as T
+    }
+}
+
+// case: syntax.expr.cast/cell:lend
+func f() {
+    lend a as T
+}
+
+// case: syntax.expr.cast/cell:try
+func f() {
+    let v = try (a as T)
+}
+
+// case: syntax.expr.cast/cell:dflt
+func f(p: T = a as T) {
+}
+
+// case: syntax.expr.cast/cell:sinit
+static S: T = a as T
+
+// case: syntax.expr.cast/cell:alen
+func f() {
+    let v: [T; a as T] = w
+}
+
+// case: syntax.expr.cast/cell:rcnt
+func f() {
+    let v = [x; a as T]
+}
+
+// case: syntax.expr.cast/cell:raw
+enum E: T {
+    case A = a as T
+}
+
+// case: syntax.expr.cast/cell:aarg
+@align(a as T)
+static S: T = x
+
+// case: syntax.expr.cast/cell:sassert
+static_assert(a as T, "m")
+
+// case: syntax.expr.multiplicative/cell:stmt
+func f() {
+    a * b
+    x
+}
+
+// case: syntax.expr.multiplicative/cell:tail
+func f() {
+    a * b
+}
+
+// case: syntax.expr.multiplicative/cell:clos
+func f() {
+    let c = {
+        a * b
+        x
+    }
+}
+
+// case: syntax.expr.multiplicative/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a * b
+        x
+    }
+}
+
+// case: syntax.expr.multiplicative/cell:arm
+func f() {
+    match x {
+        case _ -> a * b
+    }
+}
+
+// case: syntax.expr.multiplicative/cell:opnd
+func f() {
+    let v = x == a * b
+}
+
+// case: syntax.expr.multiplicative/cell:rhs
+func f() {
+    let v = x && a * b
+}
+
+// case: syntax.expr.multiplicative/cell:arg
+func f() {
+    f(a * b)
+}
+
+// case: syntax.expr.multiplicative/cell:larg
+func f() {
+    f(a: a * b)
+}
+
+// case: syntax.expr.multiplicative/cell:elem
+func f() {
+    let v = [a * b]
+}
+
+// case: syntax.expr.multiplicative/cell:recv
+func f() {
+    let v = (a * b).b
+}
+
+// case: syntax.expr.multiplicative/cell:idx
+func f() {
+    let v = a[a * b]
+}
+
+// case: syntax.expr.multiplicative/cell:interp
+func f() {
+    print("{a * b}")
+}
+
+// case: syntax.expr.multiplicative/cell:cond
+func f() {
+    if a * b {
+    }
+}
+
+// case: syntax.expr.multiplicative/cell:subj
+func f() {
+    if let x = a * b {
+    }
+}
+
+// case: syntax.expr.multiplicative/cell:scrut
+func f() {
+    match a * b {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.multiplicative/cell:aguard
+func f() {
+    match x {
+        case _ if a * b -> x
+    }
+}
+
+// case: syntax.expr.multiplicative/cell:iter
+func f() {
+    for i in a * b {
+    }
+}
+
+// case: syntax.expr.multiplicative/cell:rend
+func f() {
+    for i in a * b..x {
+    }
+}
+
+// case: syntax.expr.multiplicative/cell:bhead
+func f() {
+    borrow let x = a * b {
+    }
+}
+
+// case: syntax.expr.multiplicative/cell:init
+func f() {
+    let v = a * b
+}
+
+// case: syntax.expr.multiplicative/cell:asgn
+func f() {
+    v = a * b
+}
+
+// case: syntax.expr.multiplicative/cell:crhs
+func f() {
+    v += a * b
+}
+
+// case: syntax.expr.multiplicative/cell:ret
+func f() {
+    return a * b
+}
+
+// case: syntax.expr.multiplicative/cell:brk
+func f() {
+    while x {
+        break a * b
+    }
+}
+
+// case: syntax.expr.multiplicative/cell:lend
+func f() {
+    lend a * b
+}
+
+// case: syntax.expr.multiplicative/cell:try
+func f() {
+    let v = try (a * b)
+}
+
+// case: syntax.expr.multiplicative/cell:dflt
+func f(p: T = a * b) {
+}
+
+// case: syntax.expr.multiplicative/cell:sinit
+static S: T = a * b
+
+// case: syntax.expr.multiplicative/cell:alen
+func f() {
+    let v: [T; a * b] = w
+}
+
+// case: syntax.expr.multiplicative/cell:rcnt
+func f() {
+    let v = [x; a * b]
+}
+
+// case: syntax.expr.multiplicative/cell:cgen
+func f() {
+    let v: A<2 * 3> = w
+}
+
+// case: syntax.expr.multiplicative/cell:raw
+enum E: T {
+    case A = a * b
+}
+
+// case: syntax.expr.multiplicative/cell:aarg
+@align(a * b)
+static S: T = x
+
+// case: syntax.expr.multiplicative/cell:sassert
+static_assert(a * b, "m")
+
+// case: syntax.expr.additive/cell:stmt
+func f() {
+    a + b
+    x
+}
+
+// case: syntax.expr.additive/cell:tail
+func f() {
+    a + b
+}
+
+// case: syntax.expr.additive/cell:clos
+func f() {
+    let c = {
+        a + b
+        x
+    }
+}
+
+// case: syntax.expr.additive/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a + b
+        x
+    }
+}
+
+// case: syntax.expr.additive/cell:arm
+func f() {
+    match x {
+        case _ -> a + b
+    }
+}
+
+// case: syntax.expr.additive/cell:opnd
+func f() {
+    let v = x == a + b
+}
+
+// case: syntax.expr.additive/cell:rhs
+func f() {
+    let v = x && a + b
+}
+
+// case: syntax.expr.additive/cell:arg
+func f() {
+    f(a + b)
+}
+
+// case: syntax.expr.additive/cell:larg
+func f() {
+    f(a: a + b)
+}
+
+// case: syntax.expr.additive/cell:elem
+func f() {
+    let v = [a + b]
+}
+
+// case: syntax.expr.additive/cell:recv
+func f() {
+    let v = (a + b).b
+}
+
+// case: syntax.expr.additive/cell:idx
+func f() {
+    let v = a[a + b]
+}
+
+// case: syntax.expr.additive/cell:interp
+func f() {
+    print("{a + b}")
+}
+
+// case: syntax.expr.additive/cell:cond
+func f() {
+    if a + b {
+    }
+}
+
+// case: syntax.expr.additive/cell:subj
+func f() {
+    if let x = a + b {
+    }
+}
+
+// case: syntax.expr.additive/cell:scrut
+func f() {
+    match a + b {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.additive/cell:aguard
+func f() {
+    match x {
+        case _ if a + b -> x
+    }
+}
+
+// case: syntax.expr.additive/cell:iter
+func f() {
+    for i in a + b {
+    }
+}
+
+// case: syntax.expr.additive/cell:rend
+func f() {
+    for i in a + b..x {
+    }
+}
+
+// case: syntax.expr.additive/cell:bhead
+func f() {
+    borrow let x = a + b {
+    }
+}
+
+// case: syntax.expr.additive/cell:init
+func f() {
+    let v = a + b
+}
+
+// case: syntax.expr.additive/cell:asgn
+func f() {
+    v = a + b
+}
+
+// case: syntax.expr.additive/cell:crhs
+func f() {
+    v += a + b
+}
+
+// case: syntax.expr.additive/cell:ret
+func f() {
+    return a + b
+}
+
+// case: syntax.expr.additive/cell:brk
+func f() {
+    while x {
+        break a + b
+    }
+}
+
+// case: syntax.expr.additive/cell:lend
+func f() {
+    lend a + b
+}
+
+// case: syntax.expr.additive/cell:try
+func f() {
+    let v = try (a + b)
+}
+
+// case: syntax.expr.additive/cell:dflt
+func f(p: T = a + b) {
+}
+
+// case: syntax.expr.additive/cell:sinit
+static S: T = a + b
+
+// case: syntax.expr.additive/cell:alen
+func f() {
+    let v: [T; a + b] = w
+}
+
+// case: syntax.expr.additive/cell:rcnt
+func f() {
+    let v = [x; a + b]
+}
+
+// case: syntax.expr.additive/cell:cgen
+func f() {
+    let v: A<1 + 2> = w
+}
+
+// case: syntax.expr.additive/cell:raw
+enum E: T {
+    case A = a + b
+}
+
+// case: syntax.expr.additive/cell:aarg
+@align(a + b)
+static S: T = x
+
+// case: syntax.expr.additive/cell:sassert
+static_assert(a + b, "m")
+
+// case: syntax.expr.shift/cell:stmt
+func f() {
+    a << b
+    x
+}
+
+// case: syntax.expr.shift/cell:tail
+func f() {
+    a << b
+}
+
+// case: syntax.expr.shift/cell:clos
+func f() {
+    let c = {
+        a << b
+        x
+    }
+}
+
+// case: syntax.expr.shift/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a << b
+        x
+    }
+}
+
+// case: syntax.expr.shift/cell:arm
+func f() {
+    match x {
+        case _ -> a << b
+    }
+}
+
+// case: syntax.expr.shift/cell:opnd
+func f() {
+    let v = x == a << b
+}
+
+// case: syntax.expr.shift/cell:rhs
+func f() {
+    let v = x && a << b
+}
+
+// case: syntax.expr.shift/cell:arg
+func f() {
+    f(a << b)
+}
+
+// case: syntax.expr.shift/cell:larg
+func f() {
+    f(a: a << b)
+}
+
+// case: syntax.expr.shift/cell:elem
+func f() {
+    let v = [a << b]
+}
+
+// case: syntax.expr.shift/cell:recv
+func f() {
+    let v = (a << b).b
+}
+
+// case: syntax.expr.shift/cell:idx
+func f() {
+    let v = a[a << b]
+}
+
+// case: syntax.expr.shift/cell:interp
+func f() {
+    print("{a << b}")
+}
+
+// case: syntax.expr.shift/cell:cond
+func f() {
+    if a << b {
+    }
+}
+
+// case: syntax.expr.shift/cell:subj
+func f() {
+    if let x = a << b {
+    }
+}
+
+// case: syntax.expr.shift/cell:scrut
+func f() {
+    match a << b {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.shift/cell:aguard
+func f() {
+    match x {
+        case _ if a << b -> x
+    }
+}
+
+// case: syntax.expr.shift/cell:iter
+func f() {
+    for i in a << b {
+    }
+}
+
+// case: syntax.expr.shift/cell:rend
+func f() {
+    for i in a << b..x {
+    }
+}
+
+// case: syntax.expr.shift/cell:bhead
+func f() {
+    borrow let x = a << b {
+    }
+}
+
+// case: syntax.expr.shift/cell:init
+func f() {
+    let v = a << b
+}
+
+// case: syntax.expr.shift/cell:asgn
+func f() {
+    v = a << b
+}
+
+// case: syntax.expr.shift/cell:crhs
+func f() {
+    v += a << b
+}
+
+// case: syntax.expr.shift/cell:ret
+func f() {
+    return a << b
+}
+
+// case: syntax.expr.shift/cell:brk
+func f() {
+    while x {
+        break a << b
+    }
+}
+
+// case: syntax.expr.shift/cell:lend
+func f() {
+    lend a << b
+}
+
+// case: syntax.expr.shift/cell:try
+func f() {
+    let v = try (a << b)
+}
+
+// case: syntax.expr.shift/cell:dflt
+func f(p: T = a << b) {
+}
+
+// case: syntax.expr.shift/cell:sinit
+static S: T = a << b
+
+// case: syntax.expr.shift/cell:alen
+func f() {
+    let v: [T; a << b] = w
+}
+
+// case: syntax.expr.shift/cell:rcnt
+func f() {
+    let v = [x; a << b]
+}
+
+// case: syntax.expr.shift/cell:raw
+enum E: T {
+    case A = a << b
+}
+
+// case: syntax.expr.shift/cell:aarg
+@align(a << b)
+static S: T = x
+
+// case: syntax.expr.shift/cell:sassert
+static_assert(a << b, "m")
+
+// case: syntax.expr.range/cell:stmt
+func f() {
+    a..b
+    x
+}
+
+// case: syntax.expr.range/cell:tail
+func f() {
+    a..b
+}
+
+// case: syntax.expr.range/cell:clos
+func f() {
+    let c = {
+        a..b
+        x
+    }
+}
+
+// case: syntax.expr.range/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a..b
+        x
+    }
+}
+
+// case: syntax.expr.range/cell:arm
+func f() {
+    match x {
+        case _ -> a..b
+    }
+}
+
+// case: syntax.expr.range/cell:opnd
+func f() {
+    let v = x == a..b
+}
+
+// case: syntax.expr.range/cell:rhs
+func f() {
+    let v = x && a..b
+}
+
+// case: syntax.expr.range/cell:arg
+func f() {
+    f(a..b)
+}
+
+// case: syntax.expr.range/cell:larg
+func f() {
+    f(a: a..b)
+}
+
+// case: syntax.expr.range/cell:elem
+func f() {
+    let v = [a..b]
+}
+
+// case: syntax.expr.range/cell:recv
+func f() {
+    let v = (a..b).b
+}
+
+// case: syntax.expr.range/cell:idx
+func f() {
+    let v = a[a..b]
+}
+
+// case: syntax.expr.range/cell:interp
+func f() {
+    print("{a..b}")
+}
+
+// case: syntax.expr.range/cell:cond
+func f() {
+    if a..b {
+    }
+}
+
+// case: syntax.expr.range/cell:subj
+func f() {
+    if let x = a..b {
+    }
+}
+
+// case: syntax.expr.range/cell:scrut
+func f() {
+    match a..b {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.range/cell:aguard
+func f() {
+    match x {
+        case _ if a..b -> x
+    }
+}
+
+// case: syntax.expr.range/cell:iter
+func f() {
+    for i in a..b {
+    }
+}
+
+// case: syntax.expr.range/cell:bhead
+func f() {
+    borrow let x = a..b {
+    }
+}
+
+// case: syntax.expr.range/cell:init
+func f() {
+    let v = a..b
+}
+
+// case: syntax.expr.range/cell:asgn
+func f() {
+    v = a..b
+}
+
+// case: syntax.expr.range/cell:crhs
+func f() {
+    v += a..b
+}
+
+// case: syntax.expr.range/cell:ret
+func f() {
+    return a..b
+}
+
+// case: syntax.expr.range/cell:brk
+func f() {
+    while x {
+        break a..b
+    }
+}
+
+// case: syntax.expr.range/cell:lend
+func f() {
+    lend a..b
+}
+
+// case: syntax.expr.range/cell:try
+func f() {
+    let v = try (a..b)
+}
+
+// case: syntax.expr.range/cell:dflt
+func f(p: T = a..b) {
+}
+
+// case: syntax.expr.range/cell:sinit
+static S: T = a..b
+
+// case: syntax.expr.range/cell:alen
+func f() {
+    let v: [T; a..b] = w
+}
+
+// case: syntax.expr.range/cell:rcnt
+func f() {
+    let v = [x; a..b]
+}
+
+// case: syntax.expr.range/cell:raw
+enum E: T {
+    case A = a..b
+}
+
+// case: syntax.expr.range/cell:aarg
+@align(a..b)
+static S: T = x
+
+// case: syntax.expr.range/cell:sassert
+static_assert(a..b, "m")
+
+// case: syntax.expr.range-from/cell:stmt
+func f() {
+    a..
+    x
+}
+
+// case: syntax.expr.range-from/cell:tail
+func f() {
+    a..
+}
+
+// case: syntax.expr.range-from/cell:clos
+func f() {
+    let c = {
+        a..
+        x
+    }
+}
+
+// case: syntax.expr.range-from/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a..
+        x
+    }
+}
+
+// case: syntax.expr.range-from/cell:arm
+func f() {
+    match x {
+        case _ -> a..
+    }
+}
+
+// case: syntax.expr.range-from/cell:opnd
+func f() {
+    let v = x == a..
+}
+
+// case: syntax.expr.range-from/cell:rhs
+func f() {
+    let v = x && a..
+}
+
+// case: syntax.expr.range-from/cell:arg
+func f() {
+    f(a..)
+}
+
+// case: syntax.expr.range-from/cell:larg
+func f() {
+    f(a: a..)
+}
+
+// case: syntax.expr.range-from/cell:elem
+func f() {
+    let v = [a..]
+}
+
+// case: syntax.expr.range-from/cell:recv
+func f() {
+    let v = (a..).b
+}
+
+// case: syntax.expr.range-from/cell:idx
+func f() {
+    let v = a[a..]
+}
+
+// case: syntax.expr.range-from/cell:interp
+func f() {
+    print("{a..}")
+}
+
+// case: syntax.expr.range-from/cell:init
+func f() {
+    let v = a..
+}
+
+// case: syntax.expr.range-from/cell:asgn
+func f() {
+    v = a..
+}
+
+// case: syntax.expr.range-from/cell:crhs
+func f() {
+    v += a..
+}
+
+// case: syntax.expr.range-from/cell:ret
+func f() {
+    return a..
+}
+
+// case: syntax.expr.range-from/cell:brk
+func f() {
+    while x {
+        break a..
+    }
+}
+
+// case: syntax.expr.range-from/cell:lend
+func f() {
+    lend a..
+}
+
+// case: syntax.expr.range-from/cell:try
+func f() {
+    let v = try (a..)
+}
+
+// case: syntax.expr.range-from/cell:dflt
+func f(p: T = a..) {
+}
+
+// case: syntax.expr.range-from/cell:sinit
+static S: T = a..
+
+// case: syntax.expr.range-from/cell:alen
+func f() {
+    let v: [T; a..] = w
+}
+
+// case: syntax.expr.range-from/cell:rcnt
+func f() {
+    let v = [x; a..]
+}
+
+// case: syntax.expr.range-from/cell:raw
+enum E: T {
+    case A = a..
+}
+
+// case: syntax.expr.range-from/cell:aarg
+@align(a..)
+static S: T = x
+
+// case: syntax.expr.range-from/cell:sassert
+static_assert(a.., "m")
+
+// case: syntax.expr.range-upto/cell:stmt
+func f() {
+    ..b
+    x
+}
+
+// case: syntax.expr.range-upto/cell:tail
+func f() {
+    ..b
+}
+
+// case: syntax.expr.range-upto/cell:clos
+func f() {
+    let c = {
+        ..b
+        x
+    }
+}
+
+// case: syntax.expr.range-upto/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        ..b
+        x
+    }
+}
+
+// case: syntax.expr.range-upto/cell:arm
+func f() {
+    match x {
+        case _ -> ..b
+    }
+}
+
+// case: syntax.expr.range-upto/cell:opnd
+func f() {
+    let v = x == ..b
+}
+
+// case: syntax.expr.range-upto/cell:rhs
+func f() {
+    let v = x && ..b
+}
+
+// case: syntax.expr.range-upto/cell:arg
+func f() {
+    f(..b)
+}
+
+// case: syntax.expr.range-upto/cell:larg
+func f() {
+    f(a: ..b)
+}
+
+// case: syntax.expr.range-upto/cell:elem
+func f() {
+    let v = [..b]
+}
+
+// case: syntax.expr.range-upto/cell:recv
+func f() {
+    let v = (..b).b
+}
+
+// case: syntax.expr.range-upto/cell:idx
+func f() {
+    let v = a[..b]
+}
+
+// case: syntax.expr.range-upto/cell:interp
+func f() {
+    print("{..b}")
+}
+
+// case: syntax.expr.range-upto/cell:cond
+func f() {
+    if ..b {
+    }
+}
+
+// case: syntax.expr.range-upto/cell:subj
+func f() {
+    if let x = ..b {
+    }
+}
+
+// case: syntax.expr.range-upto/cell:scrut
+func f() {
+    match ..b {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.range-upto/cell:aguard
+func f() {
+    match x {
+        case _ if ..b -> x
+    }
+}
+
+// case: syntax.expr.range-upto/cell:iter
+func f() {
+    for i in ..b {
+    }
+}
+
+// case: syntax.expr.range-upto/cell:bhead
+func f() {
+    borrow let x = ..b {
+    }
+}
+
+// case: syntax.expr.range-upto/cell:init
+func f() {
+    let v = ..b
+}
+
+// case: syntax.expr.range-upto/cell:asgn
+func f() {
+    v = ..b
+}
+
+// case: syntax.expr.range-upto/cell:crhs
+func f() {
+    v += ..b
+}
+
+// case: syntax.expr.range-upto/cell:ret
+func f() {
+    return ..b
+}
+
+// case: syntax.expr.range-upto/cell:brk
+func f() {
+    while x {
+        break ..b
+    }
+}
+
+// case: syntax.expr.range-upto/cell:lend
+func f() {
+    lend ..b
+}
+
+// case: syntax.expr.range-upto/cell:try
+func f() {
+    let v = try (..b)
+}
+
+// case: syntax.expr.range-upto/cell:dflt
+func f(p: T = ..b) {
+}
+
+// case: syntax.expr.range-upto/cell:sinit
+static S: T = ..b
+
+// case: syntax.expr.range-upto/cell:alen
+func f() {
+    let v: [T; ..b] = w
+}
+
+// case: syntax.expr.range-upto/cell:rcnt
+func f() {
+    let v = [x; ..b]
+}
+
+// case: syntax.expr.range-upto/cell:raw
+enum E: T {
+    case A = ..b
+}
+
+// case: syntax.expr.range-upto/cell:aarg
+@align(..b)
+static S: T = x
+
+// case: syntax.expr.range-upto/cell:sassert
+static_assert(..b, "m")
+
+// case: syntax.expr.compare/cell:stmt
+func f() {
+    a < b
+    x
+}
+
+// case: syntax.expr.compare/cell:tail
+func f() {
+    a < b
+}
+
+// case: syntax.expr.compare/cell:clos
+func f() {
+    let c = {
+        a < b
+        x
+    }
+}
+
+// case: syntax.expr.compare/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a < b
+        x
+    }
+}
+
+// case: syntax.expr.compare/cell:arm
+func f() {
+    match x {
+        case _ -> a < b
+    }
+}
+
+// case: syntax.expr.compare/cell:opnd
+func f() {
+    let v = a < b & x
+}
+
+// case: syntax.expr.compare/cell:rhs
+func f() {
+    let v = x && a < b
+}
+
+// case: syntax.expr.compare/cell:arg
+func f() {
+    f(a < b)
+}
+
+// case: syntax.expr.compare/cell:larg
+func f() {
+    f(a: a < b)
+}
+
+// case: syntax.expr.compare/cell:elem
+func f() {
+    let v = [a < b]
+}
+
+// case: syntax.expr.compare/cell:recv
+func f() {
+    let v = (a < b).b
+}
+
+// case: syntax.expr.compare/cell:idx
+func f() {
+    let v = a[a < b]
+}
+
+// case: syntax.expr.compare/cell:interp
+func f() {
+    print("{a < b}")
+}
+
+// case: syntax.expr.compare/cell:cond
+func f() {
+    if a < b {
+    }
+}
+
+// case: syntax.expr.compare/cell:subj
+func f() {
+    if let x = a < b {
+    }
+}
+
+// case: syntax.expr.compare/cell:scrut
+func f() {
+    match a < b {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.compare/cell:aguard
+func f() {
+    match x {
+        case _ if a < b -> x
+    }
+}
+
+// case: syntax.expr.compare/cell:iter
+func f() {
+    for i in a < b {
+    }
+}
+
+// case: syntax.expr.compare/cell:rend
+func f() {
+    for i in (a < b)..x {
+    }
+}
+
+// case: syntax.expr.compare/cell:bhead
+func f() {
+    borrow let x = a < b {
+    }
+}
+
+// case: syntax.expr.compare/cell:init
+func f() {
+    let v = a < b
+}
+
+// case: syntax.expr.compare/cell:asgn
+func f() {
+    v = a < b
+}
+
+// case: syntax.expr.compare/cell:crhs
+func f() {
+    v += a < b
+}
+
+// case: syntax.expr.compare/cell:ret
+func f() {
+    return a < b
+}
+
+// case: syntax.expr.compare/cell:brk
+func f() {
+    while x {
+        break a < b
+    }
+}
+
+// case: syntax.expr.compare/cell:lend
+func f() {
+    lend a < b
+}
+
+// case: syntax.expr.compare/cell:try
+func f() {
+    let v = try (a < b)
+}
+
+// case: syntax.expr.compare/cell:dflt
+func f(p: T = a < b) {
+}
+
+// case: syntax.expr.compare/cell:sinit
+static S: T = a < b
+
+// case: syntax.expr.compare/cell:alen
+func f() {
+    let v: [T; a < b] = w
+}
+
+// case: syntax.expr.compare/cell:rcnt
+func f() {
+    let v = [x; a < b]
+}
+
+// case: syntax.expr.compare/cell:raw
+enum E: T {
+    case A = a < b
+}
+
+// case: syntax.expr.compare/cell:aarg
+@align(a < b)
+static S: T = x
+
+// case: syntax.expr.compare/cell:sassert
+static_assert(a < b, "m")
+
+// case: syntax.expr.bitand/cell:stmt
+func f() {
+    a & b
+    x
+}
+
+// case: syntax.expr.bitand/cell:tail
+func f() {
+    a & b
+}
+
+// case: syntax.expr.bitand/cell:clos
+func f() {
+    let c = {
+        a & b
+        x
+    }
+}
+
+// case: syntax.expr.bitand/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a & b
+        x
+    }
+}
+
+// case: syntax.expr.bitand/cell:arm
+func f() {
+    match x {
+        case _ -> a & b
+    }
+}
+
+// case: syntax.expr.bitand/cell:opnd
+func f() {
+    let v = a & b ^ x
+}
+
+// case: syntax.expr.bitand/cell:rhs
+func f() {
+    let v = x && a & b
+}
+
+// case: syntax.expr.bitand/cell:arg
+func f() {
+    f(a & b)
+}
+
+// case: syntax.expr.bitand/cell:larg
+func f() {
+    f(a: a & b)
+}
+
+// case: syntax.expr.bitand/cell:elem
+func f() {
+    let v = [a & b]
+}
+
+// case: syntax.expr.bitand/cell:recv
+func f() {
+    let v = (a & b).b
+}
+
+// case: syntax.expr.bitand/cell:idx
+func f() {
+    let v = a[a & b]
+}
+
+// case: syntax.expr.bitand/cell:interp
+func f() {
+    print("{a & b}")
+}
+
+// case: syntax.expr.bitand/cell:cond
+func f() {
+    if a & b {
+    }
+}
+
+// case: syntax.expr.bitand/cell:subj
+func f() {
+    if let x = a & b {
+    }
+}
+
+// case: syntax.expr.bitand/cell:scrut
+func f() {
+    match a & b {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.bitand/cell:aguard
+func f() {
+    match x {
+        case _ if a & b -> x
+    }
+}
+
+// case: syntax.expr.bitand/cell:iter
+func f() {
+    for i in a & b {
+    }
+}
+
+// case: syntax.expr.bitand/cell:rend
+func f() {
+    for i in (a & b)..x {
+    }
+}
+
+// case: syntax.expr.bitand/cell:bhead
+func f() {
+    borrow let x = a & b {
+    }
+}
+
+// case: syntax.expr.bitand/cell:init
+func f() {
+    let v = a & b
+}
+
+// case: syntax.expr.bitand/cell:asgn
+func f() {
+    v = a & b
+}
+
+// case: syntax.expr.bitand/cell:crhs
+func f() {
+    v += a & b
+}
+
+// case: syntax.expr.bitand/cell:ret
+func f() {
+    return a & b
+}
+
+// case: syntax.expr.bitand/cell:brk
+func f() {
+    while x {
+        break a & b
+    }
+}
+
+// case: syntax.expr.bitand/cell:lend
+func f() {
+    lend a & b
+}
+
+// case: syntax.expr.bitand/cell:try
+func f() {
+    let v = try (a & b)
+}
+
+// case: syntax.expr.bitand/cell:dflt
+func f(p: T = a & b) {
+}
+
+// case: syntax.expr.bitand/cell:sinit
+static S: T = a & b
+
+// case: syntax.expr.bitand/cell:alen
+func f() {
+    let v: [T; a & b] = w
+}
+
+// case: syntax.expr.bitand/cell:rcnt
+func f() {
+    let v = [x; a & b]
+}
+
+// case: syntax.expr.bitand/cell:raw
+enum E: T {
+    case A = a & b
+}
+
+// case: syntax.expr.bitand/cell:aarg
+@align(a & b)
+static S: T = x
+
+// case: syntax.expr.bitand/cell:sassert
+static_assert(a & b, "m")
+
+// case: syntax.expr.bitxor/cell:stmt
+func f() {
+    a ^ b
+    x
+}
+
+// case: syntax.expr.bitxor/cell:tail
+func f() {
+    a ^ b
+}
+
+// case: syntax.expr.bitxor/cell:clos
+func f() {
+    let c = {
+        a ^ b
+        x
+    }
+}
+
+// case: syntax.expr.bitxor/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a ^ b
+        x
+    }
+}
+
+// case: syntax.expr.bitxor/cell:arm
+func f() {
+    match x {
+        case _ -> a ^ b
+    }
+}
+
+// case: syntax.expr.bitxor/cell:opnd
+func f() {
+    let v = a ^ b | x
+}
+
+// case: syntax.expr.bitxor/cell:rhs
+func f() {
+    let v = x && a ^ b
+}
+
+// case: syntax.expr.bitxor/cell:arg
+func f() {
+    f(a ^ b)
+}
+
+// case: syntax.expr.bitxor/cell:larg
+func f() {
+    f(a: a ^ b)
+}
+
+// case: syntax.expr.bitxor/cell:elem
+func f() {
+    let v = [a ^ b]
+}
+
+// case: syntax.expr.bitxor/cell:recv
+func f() {
+    let v = (a ^ b).b
+}
+
+// case: syntax.expr.bitxor/cell:idx
+func f() {
+    let v = a[a ^ b]
+}
+
+// case: syntax.expr.bitxor/cell:interp
+func f() {
+    print("{a ^ b}")
+}
+
+// case: syntax.expr.bitxor/cell:cond
+func f() {
+    if a ^ b {
+    }
+}
+
+// case: syntax.expr.bitxor/cell:subj
+func f() {
+    if let x = a ^ b {
+    }
+}
+
+// case: syntax.expr.bitxor/cell:scrut
+func f() {
+    match a ^ b {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.bitxor/cell:aguard
+func f() {
+    match x {
+        case _ if a ^ b -> x
+    }
+}
+
+// case: syntax.expr.bitxor/cell:iter
+func f() {
+    for i in a ^ b {
+    }
+}
+
+// case: syntax.expr.bitxor/cell:rend
+func f() {
+    for i in (a ^ b)..x {
+    }
+}
+
+// case: syntax.expr.bitxor/cell:bhead
+func f() {
+    borrow let x = a ^ b {
+    }
+}
+
+// case: syntax.expr.bitxor/cell:init
+func f() {
+    let v = a ^ b
+}
+
+// case: syntax.expr.bitxor/cell:asgn
+func f() {
+    v = a ^ b
+}
+
+// case: syntax.expr.bitxor/cell:crhs
+func f() {
+    v += a ^ b
+}
+
+// case: syntax.expr.bitxor/cell:ret
+func f() {
+    return a ^ b
+}
+
+// case: syntax.expr.bitxor/cell:brk
+func f() {
+    while x {
+        break a ^ b
+    }
+}
+
+// case: syntax.expr.bitxor/cell:lend
+func f() {
+    lend a ^ b
+}
+
+// case: syntax.expr.bitxor/cell:try
+func f() {
+    let v = try (a ^ b)
+}
+
+// case: syntax.expr.bitxor/cell:dflt
+func f(p: T = a ^ b) {
+}
+
+// case: syntax.expr.bitxor/cell:sinit
+static S: T = a ^ b
+
+// case: syntax.expr.bitxor/cell:alen
+func f() {
+    let v: [T; a ^ b] = w
+}
+
+// case: syntax.expr.bitxor/cell:rcnt
+func f() {
+    let v = [x; a ^ b]
+}
+
+// case: syntax.expr.bitxor/cell:raw
+enum E: T {
+    case A = a ^ b
+}
+
+// case: syntax.expr.bitxor/cell:aarg
+@align(a ^ b)
+static S: T = x
+
+// case: syntax.expr.bitxor/cell:sassert
+static_assert(a ^ b, "m")
+
+// case: syntax.expr.bitor/cell:stmt
+func f() {
+    a | b
+    x
+}
+
+// case: syntax.expr.bitor/cell:tail
+func f() {
+    a | b
+}
+
+// case: syntax.expr.bitor/cell:clos
+func f() {
+    let c = {
+        a | b
+        x
+    }
+}
+
+// case: syntax.expr.bitor/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a | b
+        x
+    }
+}
+
+// case: syntax.expr.bitor/cell:arm
+func f() {
+    match x {
+        case _ -> a | b
+    }
+}
+
+// case: syntax.expr.bitor/cell:opnd
+func f() {
+    let v = a | b && x
+}
+
+// case: syntax.expr.bitor/cell:rhs
+func f() {
+    let v = x && a | b
+}
+
+// case: syntax.expr.bitor/cell:arg
+func f() {
+    f(a | b)
+}
+
+// case: syntax.expr.bitor/cell:larg
+func f() {
+    f(a: a | b)
+}
+
+// case: syntax.expr.bitor/cell:elem
+func f() {
+    let v = [a | b]
+}
+
+// case: syntax.expr.bitor/cell:recv
+func f() {
+    let v = (a | b).b
+}
+
+// case: syntax.expr.bitor/cell:idx
+func f() {
+    let v = a[a | b]
+}
+
+// case: syntax.expr.bitor/cell:interp
+func f() {
+    print("{a | b}")
+}
+
+// case: syntax.expr.bitor/cell:cond
+func f() {
+    if a | b {
+    }
+}
+
+// case: syntax.expr.bitor/cell:subj
+func f() {
+    if let x = a | b {
+    }
+}
+
+// case: syntax.expr.bitor/cell:scrut
+func f() {
+    match a | b {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.bitor/cell:aguard
+func f() {
+    match x {
+        case _ if a | b -> x
+    }
+}
+
+// case: syntax.expr.bitor/cell:iter
+func f() {
+    for i in a | b {
+    }
+}
+
+// case: syntax.expr.bitor/cell:rend
+func f() {
+    for i in (a | b)..x {
+    }
+}
+
+// case: syntax.expr.bitor/cell:bhead
+func f() {
+    borrow let x = a | b {
+    }
+}
+
+// case: syntax.expr.bitor/cell:init
+func f() {
+    let v = a | b
+}
+
+// case: syntax.expr.bitor/cell:asgn
+func f() {
+    v = a | b
+}
+
+// case: syntax.expr.bitor/cell:crhs
+func f() {
+    v += a | b
+}
+
+// case: syntax.expr.bitor/cell:ret
+func f() {
+    return a | b
+}
+
+// case: syntax.expr.bitor/cell:brk
+func f() {
+    while x {
+        break a | b
+    }
+}
+
+// case: syntax.expr.bitor/cell:lend
+func f() {
+    lend a | b
+}
+
+// case: syntax.expr.bitor/cell:try
+func f() {
+    let v = try (a | b)
+}
+
+// case: syntax.expr.bitor/cell:dflt
+func f(p: T = a | b) {
+}
+
+// case: syntax.expr.bitor/cell:sinit
+static S: T = a | b
+
+// case: syntax.expr.bitor/cell:alen
+func f() {
+    let v: [T; a | b] = w
+}
+
+// case: syntax.expr.bitor/cell:rcnt
+func f() {
+    let v = [x; a | b]
+}
+
+// case: syntax.expr.bitor/cell:raw
+enum E: T {
+    case A = a | b
+}
+
+// case: syntax.expr.bitor/cell:aarg
+@align(a | b)
+static S: T = x
+
+// case: syntax.expr.bitor/cell:sassert
+static_assert(a | b, "m")
+
+// case: syntax.expr.and/cell:stmt
+func f() {
+    a && b
+    x
+}
+
+// case: syntax.expr.and/cell:tail
+func f() {
+    a && b
+}
+
+// case: syntax.expr.and/cell:clos
+func f() {
+    let c = {
+        a && b
+        x
+    }
+}
+
+// case: syntax.expr.and/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a && b
+        x
+    }
+}
+
+// case: syntax.expr.and/cell:arm
+func f() {
+    match x {
+        case _ -> a && b
+    }
+}
+
+// case: syntax.expr.and/cell:opnd
+func f() {
+    let v = a && b || x
+}
+
+// case: syntax.expr.and/cell:rhs
+func f() {
+    let v = x || a && b
+}
+
+// case: syntax.expr.and/cell:arg
+func f() {
+    f(a && b)
+}
+
+// case: syntax.expr.and/cell:larg
+func f() {
+    f(a: a && b)
+}
+
+// case: syntax.expr.and/cell:elem
+func f() {
+    let v = [a && b]
+}
+
+// case: syntax.expr.and/cell:recv
+func f() {
+    let v = (a && b).b
+}
+
+// case: syntax.expr.and/cell:idx
+func f() {
+    let v = a[a && b]
+}
+
+// case: syntax.expr.and/cell:interp
+func f() {
+    print("{a && b}")
+}
+
+// case: syntax.expr.and/cell:cond
+func f() {
+    if a && b {
+    }
+}
+
+// case: syntax.expr.and/cell:subj
+func f() {
+    if let x = a && b {
+    }
+}
+
+// case: syntax.expr.and/cell:scrut
+func f() {
+    match a && b {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.and/cell:aguard
+func f() {
+    match x {
+        case _ if a && b -> x
+    }
+}
+
+// case: syntax.expr.and/cell:iter
+func f() {
+    for i in a && b {
+    }
+}
+
+// case: syntax.expr.and/cell:rend
+func f() {
+    for i in (a && b)..x {
+    }
+}
+
+// case: syntax.expr.and/cell:bhead
+func f() {
+    borrow let x = a && b {
+    }
+}
+
+// case: syntax.expr.and/cell:init
+func f() {
+    let v = a && b
+}
+
+// case: syntax.expr.and/cell:asgn
+func f() {
+    v = a && b
+}
+
+// case: syntax.expr.and/cell:crhs
+func f() {
+    v += a && b
+}
+
+// case: syntax.expr.and/cell:ret
+func f() {
+    return a && b
+}
+
+// case: syntax.expr.and/cell:brk
+func f() {
+    while x {
+        break a && b
+    }
+}
+
+// case: syntax.expr.and/cell:lend
+func f() {
+    lend a && b
+}
+
+// case: syntax.expr.and/cell:try
+func f() {
+    let v = try (a && b)
+}
+
+// case: syntax.expr.and/cell:dflt
+func f(p: T = a && b) {
+}
+
+// case: syntax.expr.and/cell:sinit
+static S: T = a && b
+
+// case: syntax.expr.and/cell:alen
+func f() {
+    let v: [T; a && b] = w
+}
+
+// case: syntax.expr.and/cell:rcnt
+func f() {
+    let v = [x; a && b]
+}
+
+// case: syntax.expr.and/cell:raw
+enum E: T {
+    case A = a && b
+}
+
+// case: syntax.expr.and/cell:aarg
+@align(a && b)
+static S: T = x
+
+// case: syntax.expr.and/cell:sassert
+static_assert(a && b, "m")
+
+// case: syntax.expr.or/cell:stmt
+func f() {
+    a || b
+    x
+}
+
+// case: syntax.expr.or/cell:tail
+func f() {
+    a || b
+}
+
+// case: syntax.expr.or/cell:clos
+func f() {
+    let c = {
+        a || b
+        x
+    }
+}
+
+// case: syntax.expr.or/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a || b
+        x
+    }
+}
+
+// case: syntax.expr.or/cell:arm
+func f() {
+    match x {
+        case _ -> a || b
+    }
+}
+
+// case: syntax.expr.or/cell:opnd
+func f() {
+    let v = a || b ?? x
+}
+
+// case: syntax.expr.or/cell:rhs
+func f() {
+    let v = x ?? a || b
+}
+
+// case: syntax.expr.or/cell:arg
+func f() {
+    f(a || b)
+}
+
+// case: syntax.expr.or/cell:larg
+func f() {
+    f(a: a || b)
+}
+
+// case: syntax.expr.or/cell:elem
+func f() {
+    let v = [a || b]
+}
+
+// case: syntax.expr.or/cell:recv
+func f() {
+    let v = (a || b).b
+}
+
+// case: syntax.expr.or/cell:idx
+func f() {
+    let v = a[a || b]
+}
+
+// case: syntax.expr.or/cell:interp
+func f() {
+    print("{a || b}")
+}
+
+// case: syntax.expr.or/cell:cond
+func f() {
+    if a || b {
+    }
+}
+
+// case: syntax.expr.or/cell:subj
+func f() {
+    if let x = a || b {
+    }
+}
+
+// case: syntax.expr.or/cell:scrut
+func f() {
+    match a || b {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.or/cell:aguard
+func f() {
+    match x {
+        case _ if a || b -> x
+    }
+}
+
+// case: syntax.expr.or/cell:iter
+func f() {
+    for i in a || b {
+    }
+}
+
+// case: syntax.expr.or/cell:rend
+func f() {
+    for i in (a || b)..x {
+    }
+}
+
+// case: syntax.expr.or/cell:bhead
+func f() {
+    borrow let x = a || b {
+    }
+}
+
+// case: syntax.expr.or/cell:init
+func f() {
+    let v = a || b
+}
+
+// case: syntax.expr.or/cell:asgn
+func f() {
+    v = a || b
+}
+
+// case: syntax.expr.or/cell:crhs
+func f() {
+    v += a || b
+}
+
+// case: syntax.expr.or/cell:ret
+func f() {
+    return a || b
+}
+
+// case: syntax.expr.or/cell:brk
+func f() {
+    while x {
+        break a || b
+    }
+}
+
+// case: syntax.expr.or/cell:lend
+func f() {
+    lend a || b
+}
+
+// case: syntax.expr.or/cell:try
+func f() {
+    let v = try (a || b)
+}
+
+// case: syntax.expr.or/cell:dflt
+func f(p: T = a || b) {
+}
+
+// case: syntax.expr.or/cell:sinit
+static S: T = a || b
+
+// case: syntax.expr.or/cell:alen
+func f() {
+    let v: [T; a || b] = w
+}
+
+// case: syntax.expr.or/cell:rcnt
+func f() {
+    let v = [x; a || b]
+}
+
+// case: syntax.expr.or/cell:raw
+enum E: T {
+    case A = a || b
+}
+
+// case: syntax.expr.or/cell:aarg
+@align(a || b)
+static S: T = x
+
+// case: syntax.expr.or/cell:sassert
+static_assert(a || b, "m")
+
+// case: syntax.expr.coalesce/cell:stmt
+func f() {
+    a ?? b
+    x
+}
+
+// case: syntax.expr.coalesce/cell:tail
+func f() {
+    a ?? b
+}
+
+// case: syntax.expr.coalesce/cell:clos
+func f() {
+    let c = {
+        a ?? b
+        x
+    }
+}
+
+// case: syntax.expr.coalesce/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a ?? b
+        x
+    }
+}
+
+// case: syntax.expr.coalesce/cell:arm
+func f() {
+    match x {
+        case _ -> a ?? b
+    }
+}
+
+// case: syntax.expr.coalesce/cell:opnd
+func f() {
+    let v = (a ?? b) * x
+}
+
+// case: syntax.expr.coalesce/cell:rhs
+func f() {
+    let v = x && (a ?? b)
+}
+
+// case: syntax.expr.coalesce/cell:arg
+func f() {
+    f(a ?? b)
+}
+
+// case: syntax.expr.coalesce/cell:larg
+func f() {
+    f(a: a ?? b)
+}
+
+// case: syntax.expr.coalesce/cell:elem
+func f() {
+    let v = [a ?? b]
+}
+
+// case: syntax.expr.coalesce/cell:recv
+func f() {
+    let v = (a ?? b).b
+}
+
+// case: syntax.expr.coalesce/cell:idx
+func f() {
+    let v = a[a ?? b]
+}
+
+// case: syntax.expr.coalesce/cell:interp
+func f() {
+    print("{a ?? b}")
+}
+
+// case: syntax.expr.coalesce/cell:cond
+func f() {
+    if a ?? b {
+    }
+}
+
+// case: syntax.expr.coalesce/cell:subj
+func f() {
+    if let x = a ?? b {
+    }
+}
+
+// case: syntax.expr.coalesce/cell:scrut
+func f() {
+    match a ?? b {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.coalesce/cell:aguard
+func f() {
+    match x {
+        case _ if a ?? b -> x
+    }
+}
+
+// case: syntax.expr.coalesce/cell:iter
+func f() {
+    for i in a ?? b {
+    }
+}
+
+// case: syntax.expr.coalesce/cell:rend
+func f() {
+    for i in (a ?? b)..x {
+    }
+}
+
+// case: syntax.expr.coalesce/cell:bhead
+func f() {
+    borrow let x = a ?? b {
+    }
+}
+
+// case: syntax.expr.coalesce/cell:init
+func f() {
+    let v = a ?? b
+}
+
+// case: syntax.expr.coalesce/cell:asgn
+func f() {
+    v = a ?? b
+}
+
+// case: syntax.expr.coalesce/cell:crhs
+func f() {
+    v += a ?? b
+}
+
+// case: syntax.expr.coalesce/cell:ret
+func f() {
+    return a ?? b
+}
+
+// case: syntax.expr.coalesce/cell:brk
+func f() {
+    while x {
+        break a ?? b
+    }
+}
+
+// case: syntax.expr.coalesce/cell:lend
+func f() {
+    lend a ?? b
+}
+
+// case: syntax.expr.coalesce/cell:try
+func f() {
+    let v = try (a ?? b)
+}
+
+// case: syntax.expr.coalesce/cell:dflt
+func f(p: T = a ?? b) {
+}
+
+// case: syntax.expr.coalesce/cell:sinit
+static S: T = a ?? b
+
+// case: syntax.expr.coalesce/cell:alen
+func f() {
+    let v: [T; a ?? b] = w
+}
+
+// case: syntax.expr.coalesce/cell:rcnt
+func f() {
+    let v = [x; a ?? b]
+}
+
+// case: syntax.expr.coalesce/cell:raw
+enum E: T {
+    case A = a ?? b
+}
+
+// case: syntax.expr.coalesce/cell:aarg
+@align(a ?? b)
+static S: T = x
+
+// case: syntax.expr.coalesce/cell:sassert
+static_assert(a ?? b, "m")
+
+// case: syntax.expr.if/cell:stmt
+func f() {
+    if a { b } else { c }
+    x
+}
+
+// case: syntax.expr.if/cell:tail
+func f() {
+    if a { b } else { c }
+}
+
+// case: syntax.expr.if/cell:clos
+func f() {
+    let c = {
+        if a { b } else { c }
+        x
+    }
+}
+
+// case: syntax.expr.if/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        if a { b } else { c }
+        x
+    }
+}
+
+// case: syntax.expr.if/cell:arm
+func f() {
+    match x {
+        case _ -> if a { b } else { c }
+    }
+}
+
+// case: syntax.expr.if/cell:opnd
+func f() {
+    let v = if a { b } else { c } * x
+}
+
+// case: syntax.expr.if/cell:rhs
+func f() {
+    let v = x && if a { b } else { c }
+}
+
+// case: syntax.expr.if/cell:arg
+func f() {
+    f(if a { b } else { c })
+}
+
+// case: syntax.expr.if/cell:larg
+func f() {
+    f(a: if a { b } else { c })
+}
+
+// case: syntax.expr.if/cell:elem
+func f() {
+    let v = [if a { b } else { c }]
+}
+
+// case: syntax.expr.if/cell:recv
+func f() {
+    let v = if a { b } else { c }.b
+}
+
+// case: syntax.expr.if/cell:idx
+func f() {
+    let v = a[if a { b } else { c }]
+}
+
+// case: syntax.expr.if/cell:interp
+func f() {
+    print("{if a { b } else { c }}")
+}
+
+// case: syntax.expr.if/cell:cond
+func f() {
+    if if a { b } else { c } {
+    }
+}
+
+// case: syntax.expr.if/cell:subj
+func f() {
+    if let x = if a { b } else { c } {
+    }
+}
+
+// case: syntax.expr.if/cell:scrut
+func f() {
+    match if a { b } else { c } {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.if/cell:aguard
+func f() {
+    match x {
+        case _ if if a { b } else { c } -> x
+    }
+}
+
+// case: syntax.expr.if/cell:iter
+func f() {
+    for i in if a { b } else { c } {
+    }
+}
+
+// case: syntax.expr.if/cell:rend
+func f() {
+    for i in if a { b } else { c }..x {
+    }
+}
+
+// case: syntax.expr.if/cell:bhead
+func f() {
+    borrow let x = if a { b } else { c } {
+    }
+}
+
+// case: syntax.expr.if/cell:init
+func f() {
+    let v = if a { b } else { c }
+}
+
+// case: syntax.expr.if/cell:asgn
+func f() {
+    v = if a { b } else { c }
+}
+
+// case: syntax.expr.if/cell:crhs
+func f() {
+    v += if a { b } else { c }
+}
+
+// case: syntax.expr.if/cell:ret
+func f() {
+    return if a { b } else { c }
+}
+
+// case: syntax.expr.if/cell:brk
+func f() {
+    while x {
+        break if a { b } else { c }
+    }
+}
+
+// case: syntax.expr.if/cell:lend
+func f() {
+    lend if a { b } else { c }
+}
+
+// case: syntax.expr.if/cell:try
+func f() {
+    let v = try if a { b } else { c }
+}
+
+// case: syntax.expr.if/cell:dflt
+func f(p: T = if a { b } else { c }) {
+}
+
+// case: syntax.expr.if/cell:sinit
+static S: T = if a { b } else { c }
+
+// case: syntax.expr.if/cell:alen
+func f() {
+    let v: [T; if a { b } else { c }] = w
+}
+
+// case: syntax.expr.if/cell:rcnt
+func f() {
+    let v = [x; if a { b } else { c }]
+}
+
+// case: syntax.expr.if/cell:raw
+enum E: T {
+    case A = if a { b } else { c }
+}
+
+// case: syntax.expr.if/cell:aarg
+@align(if a { b } else { c })
+static S: T = x
+
+// case: syntax.expr.if/cell:sassert
+static_assert(if a { b } else { c }, "m")
+
+// case: syntax.expr.match/cell:stmt
+func f() {
+    match a { case _ -> b }
+    x
+}
+
+// case: syntax.expr.match/cell:tail
+func f() {
+    match a { case _ -> b }
+}
+
+// case: syntax.expr.match/cell:clos
+func f() {
+    let c = {
+        match a { case _ -> b }
+        x
+    }
+}
+
+// case: syntax.expr.match/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        match a { case _ -> b }
+        x
+    }
+}
+
+// case: syntax.expr.match/cell:arm
+func f() {
+    match x {
+        case _ -> match a { case _ -> b }
+    }
+}
+
+// case: syntax.expr.match/cell:opnd
+func f() {
+    let v = match a { case _ -> b } * x
+}
+
+// case: syntax.expr.match/cell:rhs
+func f() {
+    let v = x && match a { case _ -> b }
+}
+
+// case: syntax.expr.match/cell:arg
+func f() {
+    f(match a { case _ -> b })
+}
+
+// case: syntax.expr.match/cell:larg
+func f() {
+    f(a: match a { case _ -> b })
+}
+
+// case: syntax.expr.match/cell:elem
+func f() {
+    let v = [match a { case _ -> b }]
+}
+
+// case: syntax.expr.match/cell:recv
+func f() {
+    let v = match a { case _ -> b }.b
+}
+
+// case: syntax.expr.match/cell:idx
+func f() {
+    let v = a[match a { case _ -> b }]
+}
+
+// case: syntax.expr.match/cell:interp
+func f() {
+    print("{match a { case _ -> b }}")
+}
+
+// case: syntax.expr.match/cell:cond
+func f() {
+    if match a { case _ -> b } {
+    }
+}
+
+// case: syntax.expr.match/cell:subj
+func f() {
+    if let x = match a { case _ -> b } {
+    }
+}
+
+// case: syntax.expr.match/cell:scrut
+func f() {
+    match match a { case _ -> b } {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.match/cell:aguard
+func f() {
+    match x {
+        case _ if match a { case _ -> b } -> x
+    }
+}
+
+// case: syntax.expr.match/cell:iter
+func f() {
+    for i in match a { case _ -> b } {
+    }
+}
+
+// case: syntax.expr.match/cell:rend
+func f() {
+    for i in match a { case _ -> b }..x {
+    }
+}
+
+// case: syntax.expr.match/cell:bhead
+func f() {
+    borrow let x = match a { case _ -> b } {
+    }
+}
+
+// case: syntax.expr.match/cell:init
+func f() {
+    let v = match a { case _ -> b }
+}
+
+// case: syntax.expr.match/cell:asgn
+func f() {
+    v = match a { case _ -> b }
+}
+
+// case: syntax.expr.match/cell:crhs
+func f() {
+    v += match a { case _ -> b }
+}
+
+// case: syntax.expr.match/cell:ret
+func f() {
+    return match a { case _ -> b }
+}
+
+// case: syntax.expr.match/cell:brk
+func f() {
+    while x {
+        break match a { case _ -> b }
+    }
+}
+
+// case: syntax.expr.match/cell:lend
+func f() {
+    lend match a { case _ -> b }
+}
+
+// case: syntax.expr.match/cell:try
+func f() {
+    let v = try match a { case _ -> b }
+}
+
+// case: syntax.expr.match/cell:dflt
+func f(p: T = match a { case _ -> b }) {
+}
+
+// case: syntax.expr.match/cell:sinit
+static S: T = match a { case _ -> b }
+
+// case: syntax.expr.match/cell:alen
+func f() {
+    let v: [T; match a { case _ -> b }] = w
+}
+
+// case: syntax.expr.match/cell:rcnt
+func f() {
+    let v = [x; match a { case _ -> b }]
+}
+
+// case: syntax.expr.match/cell:raw
+enum E: T {
+    case A = match a { case _ -> b }
+}
+
+// case: syntax.expr.match/cell:aarg
+@align(match a { case _ -> b })
+static S: T = x
+
+// case: syntax.expr.match/cell:sassert
+static_assert(match a { case _ -> b }, "m")
+
+// case: syntax.expr.while/cell:stmt
+func f() {
+    while a { }
+    x
+}
+
+// case: syntax.expr.while/cell:clos
+func f() {
+    let c = {
+        while a { }
+        x
+    }
+}
+
+// case: syntax.expr.while/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        while a { }
+        x
+    }
+}
+
+// case: syntax.expr.while/cell:arm
+func f() {
+    match x {
+        case _ -> while a { }
+    }
+}
+
+// case: syntax.expr.while/cell:opnd
+func f() {
+    let v = while a { } * x
+}
+
+// case: syntax.expr.while/cell:rhs
+func f() {
+    let v = x && while a { }
+}
+
+// case: syntax.expr.while/cell:arg
+func f() {
+    f(while a { })
+}
+
+// case: syntax.expr.while/cell:larg
+func f() {
+    f(a: while a { })
+}
+
+// case: syntax.expr.while/cell:elem
+func f() {
+    let v = [while a { }]
+}
+
+// case: syntax.expr.while/cell:recv
+func f() {
+    let v = while a { }.b
+}
+
+// case: syntax.expr.while/cell:idx
+func f() {
+    let v = a[while a { }]
+}
+
+// case: syntax.expr.while/cell:interp
+func f() {
+    print("{while a { }}")
+}
+
+// case: syntax.expr.while/cell:cond
+func f() {
+    if while a { } {
+    }
+}
+
+// case: syntax.expr.while/cell:subj
+func f() {
+    if let x = while a { } {
+    }
+}
+
+// case: syntax.expr.while/cell:scrut
+func f() {
+    match while a { } {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.while/cell:aguard
+func f() {
+    match x {
+        case _ if while a { } -> x
+    }
+}
+
+// case: syntax.expr.while/cell:iter
+func f() {
+    for i in while a { } {
+    }
+}
+
+// case: syntax.expr.while/cell:rend
+func f() {
+    for i in while a { }..x {
+    }
+}
+
+// case: syntax.expr.while/cell:bhead
+func f() {
+    borrow let x = while a { } {
+    }
+}
+
+// case: syntax.expr.while/cell:init
+func f() {
+    let v = while a { }
+}
+
+// case: syntax.expr.while/cell:asgn
+func f() {
+    v = while a { }
+}
+
+// case: syntax.expr.while/cell:crhs
+func f() {
+    v += while a { }
+}
+
+// case: syntax.expr.while/cell:ret
+func f() {
+    return while a { }
+}
+
+// case: syntax.expr.while/cell:brk
+func f() {
+    while x {
+        break while a { }
+    }
+}
+
+// case: syntax.expr.while/cell:lend
+func f() {
+    lend while a { }
+}
+
+// case: syntax.expr.while/cell:try
+func f() {
+    let v = try while a { }
+}
+
+// case: syntax.expr.while/cell:dflt
+func f(p: T = while a { }) {
+}
+
+// case: syntax.expr.while/cell:sinit
+static S: T = while a { }
+
+// case: syntax.expr.while/cell:alen
+func f() {
+    let v: [T; while a { }] = w
+}
+
+// case: syntax.expr.while/cell:rcnt
+func f() {
+    let v = [x; while a { }]
+}
+
+// case: syntax.expr.while/cell:raw
+enum E: T {
+    case A = while a { }
+}
+
+// case: syntax.expr.while/cell:aarg
+@align(while a { })
+static S: T = x
+
+// case: syntax.expr.while/cell:sassert
+static_assert(while a { }, "m")
+
+// case: syntax.expr.while-let/cell:stmt
+func f() {
+    while let x = a { }
+    x
+}
+
+// case: syntax.expr.while-let/cell:clos
+func f() {
+    let c = {
+        while let x = a { }
+        x
+    }
+}
+
+// case: syntax.expr.while-let/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        while let x = a { }
+        x
+    }
+}
+
+// case: syntax.expr.while-let/cell:arm
+func f() {
+    match x {
+        case _ -> while let x = a { }
+    }
+}
+
+// case: syntax.expr.while-let/cell:opnd
+func f() {
+    let v = while let x = a { } * x
+}
+
+// case: syntax.expr.while-let/cell:rhs
+func f() {
+    let v = x && while let x = a { }
+}
+
+// case: syntax.expr.while-let/cell:arg
+func f() {
+    f(while let x = a { })
+}
+
+// case: syntax.expr.while-let/cell:larg
+func f() {
+    f(a: while let x = a { })
+}
+
+// case: syntax.expr.while-let/cell:elem
+func f() {
+    let v = [while let x = a { }]
+}
+
+// case: syntax.expr.while-let/cell:recv
+func f() {
+    let v = while let x = a { }.b
+}
+
+// case: syntax.expr.while-let/cell:idx
+func f() {
+    let v = a[while let x = a { }]
+}
+
+// case: syntax.expr.while-let/cell:interp
+func f() {
+    print("{while let x = a { }}")
+}
+
+// case: syntax.expr.while-let/cell:cond
+func f() {
+    if while let x = a { } {
+    }
+}
+
+// case: syntax.expr.while-let/cell:subj
+func f() {
+    if let x = while let x = a { } {
+    }
+}
+
+// case: syntax.expr.while-let/cell:scrut
+func f() {
+    match while let x = a { } {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.while-let/cell:aguard
+func f() {
+    match x {
+        case _ if while let x = a { } -> x
+    }
+}
+
+// case: syntax.expr.while-let/cell:iter
+func f() {
+    for i in while let x = a { } {
+    }
+}
+
+// case: syntax.expr.while-let/cell:rend
+func f() {
+    for i in while let x = a { }..x {
+    }
+}
+
+// case: syntax.expr.while-let/cell:bhead
+func f() {
+    borrow let x = while let x = a { } {
+    }
+}
+
+// case: syntax.expr.while-let/cell:init
+func f() {
+    let v = while let x = a { }
+}
+
+// case: syntax.expr.while-let/cell:asgn
+func f() {
+    v = while let x = a { }
+}
+
+// case: syntax.expr.while-let/cell:crhs
+func f() {
+    v += while let x = a { }
+}
+
+// case: syntax.expr.while-let/cell:ret
+func f() {
+    return while let x = a { }
+}
+
+// case: syntax.expr.while-let/cell:brk
+func f() {
+    while x {
+        break while let x = a { }
+    }
+}
+
+// case: syntax.expr.while-let/cell:lend
+func f() {
+    lend while let x = a { }
+}
+
+// case: syntax.expr.while-let/cell:try
+func f() {
+    let v = try while let x = a { }
+}
+
+// case: syntax.expr.while-let/cell:dflt
+func f(p: T = while let x = a { }) {
+}
+
+// case: syntax.expr.while-let/cell:sinit
+static S: T = while let x = a { }
+
+// case: syntax.expr.while-let/cell:alen
+func f() {
+    let v: [T; while let x = a { }] = w
+}
+
+// case: syntax.expr.while-let/cell:rcnt
+func f() {
+    let v = [x; while let x = a { }]
+}
+
+// case: syntax.expr.while-let/cell:raw
+enum E: T {
+    case A = while let x = a { }
+}
+
+// case: syntax.expr.while-let/cell:aarg
+@align(while let x = a { })
+static S: T = x
+
+// case: syntax.expr.while-let/cell:sassert
+static_assert(while let x = a { }, "m")
+
+// case: syntax.expr.for/cell:stmt
+func f() {
+    for x in a { }
+    x
+}
+
+// case: syntax.expr.for/cell:clos
+func f() {
+    let c = {
+        for x in a { }
+        x
+    }
+}
+
+// case: syntax.expr.for/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        for x in a { }
+        x
+    }
+}
+
+// case: syntax.expr.for/cell:arm
+func f() {
+    match x {
+        case _ -> for x in a { }
+    }
+}
+
+// case: syntax.expr.for/cell:opnd
+func f() {
+    let v = for x in a { } * x
+}
+
+// case: syntax.expr.for/cell:rhs
+func f() {
+    let v = x && for x in a { }
+}
+
+// case: syntax.expr.for/cell:arg
+func f() {
+    f(for x in a { })
+}
+
+// case: syntax.expr.for/cell:larg
+func f() {
+    f(a: for x in a { })
+}
+
+// case: syntax.expr.for/cell:elem
+func f() {
+    let v = [for x in a { }]
+}
+
+// case: syntax.expr.for/cell:recv
+func f() {
+    let v = for x in a { }.b
+}
+
+// case: syntax.expr.for/cell:idx
+func f() {
+    let v = a[for x in a { }]
+}
+
+// case: syntax.expr.for/cell:interp
+func f() {
+    print("{for x in a { }}")
+}
+
+// case: syntax.expr.for/cell:cond
+func f() {
+    if for x in a { } {
+    }
+}
+
+// case: syntax.expr.for/cell:subj
+func f() {
+    if let x = for x in a { } {
+    }
+}
+
+// case: syntax.expr.for/cell:scrut
+func f() {
+    match for x in a { } {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.for/cell:aguard
+func f() {
+    match x {
+        case _ if for x in a { } -> x
+    }
+}
+
+// case: syntax.expr.for/cell:iter
+func f() {
+    for i in for x in a { } {
+    }
+}
+
+// case: syntax.expr.for/cell:rend
+func f() {
+    for i in for x in a { }..x {
+    }
+}
+
+// case: syntax.expr.for/cell:bhead
+func f() {
+    borrow let x = for x in a { } {
+    }
+}
+
+// case: syntax.expr.for/cell:init
+func f() {
+    let v = for x in a { }
+}
+
+// case: syntax.expr.for/cell:asgn
+func f() {
+    v = for x in a { }
+}
+
+// case: syntax.expr.for/cell:crhs
+func f() {
+    v += for x in a { }
+}
+
+// case: syntax.expr.for/cell:ret
+func f() {
+    return for x in a { }
+}
+
+// case: syntax.expr.for/cell:brk
+func f() {
+    while x {
+        break for x in a { }
+    }
+}
+
+// case: syntax.expr.for/cell:lend
+func f() {
+    lend for x in a { }
+}
+
+// case: syntax.expr.for/cell:try
+func f() {
+    let v = try for x in a { }
+}
+
+// case: syntax.expr.for/cell:dflt
+func f(p: T = for x in a { }) {
+}
+
+// case: syntax.expr.for/cell:sinit
+static S: T = for x in a { }
+
+// case: syntax.expr.for/cell:alen
+func f() {
+    let v: [T; for x in a { }] = w
+}
+
+// case: syntax.expr.for/cell:rcnt
+func f() {
+    let v = [x; for x in a { }]
+}
+
+// case: syntax.expr.for/cell:raw
+enum E: T {
+    case A = for x in a { }
+}
+
+// case: syntax.expr.for/cell:aarg
+@align(for x in a { })
+static S: T = x
+
+// case: syntax.expr.for/cell:sassert
+static_assert(for x in a { }, "m")
+
+// case: syntax.expr.try-block/cell:stmt
+func f() {
+    try { a } catch { b }
+    x
+}
+
+// case: syntax.expr.try-block/cell:tail
+func f() {
+    try { a } catch { b }
+}
+
+// case: syntax.expr.try-block/cell:clos
+func f() {
+    let c = {
+        try { a } catch { b }
+        x
+    }
+}
+
+// case: syntax.expr.try-block/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        try { a } catch { b }
+        x
+    }
+}
+
+// case: syntax.expr.try-block/cell:arm
+func f() {
+    match x {
+        case _ -> try { a } catch { b }
+    }
+}
+
+// case: syntax.expr.try-block/cell:opnd
+func f() {
+    let v = try { a } catch { b } * x
+}
+
+// case: syntax.expr.try-block/cell:rhs
+func f() {
+    let v = x && try { a } catch { b }
+}
+
+// case: syntax.expr.try-block/cell:arg
+func f() {
+    f(try { a } catch { b })
+}
+
+// case: syntax.expr.try-block/cell:larg
+func f() {
+    f(a: try { a } catch { b })
+}
+
+// case: syntax.expr.try-block/cell:elem
+func f() {
+    let v = [try { a } catch { b }]
+}
+
+// case: syntax.expr.try-block/cell:recv
+func f() {
+    let v = try { a } catch { b }.b
+}
+
+// case: syntax.expr.try-block/cell:idx
+func f() {
+    let v = a[try { a } catch { b }]
+}
+
+// case: syntax.expr.try-block/cell:interp
+func f() {
+    print("{try { a } catch { b }}")
+}
+
+// case: syntax.expr.try-block/cell:cond
+func f() {
+    if try { a } catch { b } {
+    }
+}
+
+// case: syntax.expr.try-block/cell:subj
+func f() {
+    if let x = try { a } catch { b } {
+    }
+}
+
+// case: syntax.expr.try-block/cell:scrut
+func f() {
+    match try { a } catch { b } {
+        case _ -> x
+    }
+}
+
+// case: syntax.expr.try-block/cell:aguard
+func f() {
+    match x {
+        case _ if try { a } catch { b } -> x
+    }
+}
+
+// case: syntax.expr.try-block/cell:iter
+func f() {
+    for i in try { a } catch { b } {
+    }
+}
+
+// case: syntax.expr.try-block/cell:rend
+func f() {
+    for i in try { a } catch { b }..x {
+    }
+}
+
+// case: syntax.expr.try-block/cell:bhead
+func f() {
+    borrow let x = try { a } catch { b } {
+    }
+}
+
+// case: syntax.expr.try-block/cell:init
+func f() {
+    let v = try { a } catch { b }
+}
+
+// case: syntax.expr.try-block/cell:asgn
+func f() {
+    v = try { a } catch { b }
+}
+
+// case: syntax.expr.try-block/cell:crhs
+func f() {
+    v += try { a } catch { b }
+}
+
+// case: syntax.expr.try-block/cell:ret
+func f() {
+    return try { a } catch { b }
+}
+
+// case: syntax.expr.try-block/cell:brk
+func f() {
+    while x {
+        break try { a } catch { b }
+    }
+}
+
+// case: syntax.expr.try-block/cell:lend
+func f() {
+    lend try { a } catch { b }
+}
+
+// case: syntax.expr.try-block/cell:try
+func f() {
+    let v = try try { a } catch { b }
+}
+
+// case: syntax.expr.try-block/cell:dflt
+func f(p: T = try { a } catch { b }) {
+}
+
+// case: syntax.expr.try-block/cell:sinit
+static S: T = try { a } catch { b }
+
+// case: syntax.expr.try-block/cell:alen
+func f() {
+    let v: [T; try { a } catch { b }] = w
+}
+
+// case: syntax.expr.try-block/cell:rcnt
+func f() {
+    let v = [x; try { a } catch { b }]
+}
+
+// case: syntax.expr.try-block/cell:raw
+enum E: T {
+    case A = try { a } catch { b }
+}
+
+// case: syntax.expr.try-block/cell:aarg
+@align(try { a } catch { b })
+static S: T = x
+
+// case: syntax.expr.try-block/cell:sassert
+static_assert(try { a } catch { b }, "m")
+
+// case: syntax.expr.optional-binding/cell:cond
+func f() {
+    if let x = a {
+    }
+}
+
+// case: syntax.expr.capture/cell:cap
+func f() {
+    let c = { [a] in x }
+}

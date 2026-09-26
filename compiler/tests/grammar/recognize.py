@@ -4,10 +4,12 @@
     python compiler/tests/grammar/recognize.py FILE... | --list LISTFILE [--root DIR]
     python compiler/tests/grammar/recognize.py --trees [--record] [--start NT] (FILE... | --text T)
 
-The chart reads sawc/lexer.py's tokens after `prepare` applies section 2.4's
-newline rules and the generic-close split. Its derivations become trees, shaped
-by `node=`, after the section-13 rules in PREFERENCES and FILTERS; a text is
-accepted only when a tree survives them, and more than one tree is a finding.
+The chart reads the self-hosted lexer's tokens (`lexdump`) after `prepare`
+applies section 2.4's newline rules and the generic-close split. Its
+derivations become trees, shaped by `node=`, after the section-13 rules in
+PREFERENCES and FILTERS; a text is accepted only when a tree survives them, and
+more than one tree is a finding. `--trees` prints each tree as the canonical
+dump of compiler/tests/parse/README.md (dump.py).
 A `Record` is one tree's coverage data: `alternatives` counts each alternative
 name the derivation used, and `cells` lists each context-matrix construct as
 (construct, section-12 context, parenthesized, "line:col"), the contexts coming
@@ -27,9 +29,8 @@ sys.path.insert(0, HERE)
 
 import contexts  # noqa: E402
 import extract  # noqa: E402
-
-sys.path.insert(0, os.path.join(extract.REPO, "sawc"))
-from lexer import Lexer, Token, TokenType  # noqa: E402
+import lexdump  # noqa: E402
+from lexdump import Token  # noqa: E402
 
 # Distinct trees kept per span. Two already make a finding, so the cap bounds
 # the enumeration without hiding one.
@@ -39,9 +40,16 @@ RECURSION_LIMIT = 50000
 # Productions written `operand ( op operand )*` build their node only with a
 # second operand (section 1, Nodes).
 CHAINS = {"Binary", "Coalesce", "Cast", "Range"}
-# Productions whose `?` suffixes wrap the type before them.
+# Productions whose `?` suffixes wrap the type before them, in the node
+# syntax.type.suffix names.
 SUFFIXED = {"syntax.type.type", "syntax.type.cast-target"}
+OPTIONAL_TYPE = "OptionalType"
 NEVER = "__NEVER"
+# Terminals that are never a leaf, and the punctuation that is one only in a
+# production the tree needs it for (Grammar.shown); separators never are.
+LAYOUT = ("NEWLINE", "EOF")
+PUNCTUATION = ("(", ")", "[", "]", "{", "}", "<", ">", ",", ";", ":", ".", "->", "@")
+SEPARATORS = (",", ";")
 # Section-13 rules that choose between readings of one span: nonterminal ->
 # (the alternative kept when it is one of the readings, the rules it applies).
 PREFERENCES = {
@@ -70,6 +78,7 @@ FILTERS = [
     ("try-expr", "_try_block", "syntax.rule.try-block"),
     ("lends-expr", "_lends_word", "syntax.rule.contextual-words"),
     ("statement", "_static_assert_word", "syntax.rule.contextual-words"),
+    ("arm-body", "_static_assert_word", "syntax.rule.contextual-words"),
     ("arm-body", "_arm_body", "syntax.rule.arm-body"),
     ("cast-suffix", "_cast_question", "syntax.rule.cast-target-question"),
     ("range-from", "_range_open_end", "syntax.rule.range-open-end"),
@@ -154,6 +163,8 @@ DOCUMENTED = {"syntax.decl.item.func", "syntax.decl.item.static",
               "syntax.decl.extension-member.init", "syntax.decl.trait-member.requirement",
               "syntax.decl.field", "syntax.decl.case"}
 TEST_ONLY_DECLARATION = "syntax.test.declaration.item"
+# The alternatives that read a statement position as an expression.
+EXPRESSION_STATEMENTS = ("syntax.stmt.statement.expr", "syntax.expr.arm-body.expr")
 
 
 def is_nonterminal(sym):
@@ -187,7 +198,12 @@ class Grammar:
                 out.append(tuple(seq))
             self.prods[p.nonterminal] = out
         self.nullable = self._nullable()
+        self.derivable = self._derivable()
         self.first = self._first()
+        self.flagged = self._flagged()
+        by_name = {p.name: p for p in model.productions}
+        self.run_opens = {by_name[n].node for n in RUN_OPENS}
+        self.run_closes = {by_name[n].node for n in RUN_CLOSES}
         self.cast_list_follow = self._local_follow(CAST_TARGET, "generic-args",
                                                    self._follow(STARTS)[CAST_TARGET])
 
@@ -265,6 +281,20 @@ class Grammar:
                         changed = True
                         break
         return nullable
+
+    def _derivable(self):
+        """The nonterminals that derive some token sequence, a rule naming a
+        removed production never counting."""
+        derivable = set()
+        changed = True
+        while changed:
+            changed = False
+            for nt, alts in self.prods.items():
+                if nt not in derivable and any(
+                        all(not is_nonterminal(s) or s in derivable for s in a) for a in alts):
+                    derivable.add(nt)
+                    changed = True
+        return derivable
 
     def _live(self, nt):
         """The rules of nt that can derive something: none names a removed production."""
@@ -356,22 +386,140 @@ class Grammar:
         """The Alternative a real nonterminal's rule index stands for."""
         return self.info[nt].alternatives[ai]
 
+    def real(self, nt):
+        """The real nonterminal an auxiliary one was written in, or nt itself."""
+        return self.owner[nt][0] if nt.startswith("__") else nt
+
+    def suffix(self, nt, ai):
+        """The Kind suffix of a node nt builds by rule ai: the alternative's last
+        name segment when the production has more than one alternative."""
+        p = self.info[nt]
+        if len(p.alternatives) < 2:
+            return ""
+        return p.alternatives[ai].effective_name.rsplit(".", 1)[1]
+
+    def chain_alternative(self, nt, ai):
+        """Whether rule ai of nt is written `operand ( op operand )*` or with `?`,
+        or `operand suffix*`: an operand, then one repetition."""
+        rule = self.prods[nt][ai]
+        return len(rule) == 2 and is_nonterminal(rule[0]) and rule[1].startswith("__rep")
+
+    def shown(self, nt, sym):
+        """Whether a token that terminal `sym` matched in a rule of nt is a leaf
+        of the tree (compiler/tests/parse/README.md, Leaves)."""
+        if sym in LAYOUT:
+            return False
+        if not (sym.startswith('"') or sym.startswith("'")):
+            return True
+        owner = self.real(nt)
+        if sym[1:-1] in PUNCTUATION:
+            return owner in self.flagged and sym[1:-1] not in SEPARATORS
+        return nt.startswith("__") or self.info[owner].node == "-"
+
+    def _flagged(self):
+        """The `node=-` productions whose punctuation is a leaf: one that can
+        derive punctuation and print nothing else, one with two alternatives the
+        rest of the tree cannot tell apart, and what their single-nonterminal
+        alternatives name (compiler/tests/parse/README.md, Leaves)."""
+        quiet, marked = self._quiet()
+        flagged = set()
+        for nt, p in self.info.items():
+            if p.node != "-" or p.status == "removed" or self._layout_only(nt):
+                continue
+            rules = self._live(nt)
+            if marked.get(nt):
+                flagged.add(nt)
+            skeletons = [self._skeleton(rule, quiet) for rule in rules]
+            if len(set(skeletons)) < len(skeletons):
+                flagged.add(nt)
+        pending = sorted(flagged)
+        while pending:
+            nt = pending.pop()
+            for rule in self._live(nt):
+                if len(rule) == 1 and rule[0] in self.info and rule[0] not in flagged \
+                        and self.info[rule[0]].node == "-":
+                    flagged.add(rule[0])
+                    pending.append(rule[0])
+        return flagged
+
+    def _layout_only(self, nt):
+        """Whether nt, a separator, writes only line breaks and separators."""
+        pending, seen = [nt], set()
+        while pending:
+            cur = pending.pop()
+            if cur in seen:
+                continue
+            seen.add(cur)
+            for rule in self._live(cur):
+                for sym in rule:
+                    if is_nonterminal(sym):
+                        if not sym.startswith("__"):
+                            return False
+                        pending.append(sym)
+                    elif sym not in LAYOUT and sym[1:-1] not in SEPARATORS:
+                        return False
+        return True
+
+    def _quiet(self):
+        """(quiet, marked): whether each symbol can derive tokens that print
+        nothing, and whether it can do so holding punctuation other than a
+        separator."""
+        def terminal(sym):
+            if sym in LAYOUT or (sym[:1] in "\"'" and sym[1:-1] in SEPARATORS):
+                return True, False
+            if sym[:1] in "\"'" and sym[1:-1] in PUNCTUATION:
+                return True, True
+            return False, False
+
+        quiet, marked = {}, {}
+        changed = True
+        while changed:
+            changed = False
+            for nt, rules in self.prods.items():
+                real = self.real(nt)
+                if real in self.info and self.info[real].node != "-" and not nt.startswith("__"):
+                    continue
+                q, m = quiet.get(nt, False), marked.get(nt, False)
+                for rule in rules:
+                    if NEVER in rule:
+                        continue
+                    parts = [terminal(s) if not is_nonterminal(s)
+                             else (quiet.get(s, False), marked.get(s, False)) for s in rule]
+                    if all(x for x, _ in parts):
+                        q = True
+                        m = m or any(y for _, y in parts)
+                if (q, m) != (quiet.get(nt, False), marked.get(nt, False)):
+                    quiet[nt], marked[nt] = q, m
+                    changed = True
+        return quiet, marked
+
+    def _skeleton(self, rule, quiet):
+        """What a rule always prints: its items that cannot be absent or quiet."""
+        out = []
+        for sym in rule:
+            if is_nonterminal(sym):
+                if sym.startswith("__rep") and () in self.prods[sym]:
+                    continue
+                if not quiet.get(sym, False) or sym in self.info:
+                    out.append(sym)
+            elif sym not in LAYOUT and sym[1:-1] not in PUNCTUATION:
+                out.append(sym)
+        return tuple(out)
+
 
 # Tokens ---------------------------------------------------------------------
 
-KIND_MAP = {
-    TokenType.IDENT: "IDENT", TokenType.INT: "INT", TokenType.FLOAT: "FLOAT",
-    TokenType.STRING: "STRING", TokenType.INTERP_STRING: "INTERP_STRING",
-    TokenType.DOLLAR_PARAM: "DOLLAR_PARAM", TokenType.NEWLINE: "NEWLINE",
-    TokenType.EOF: "EOF",
-}
+# The token kinds a grammar terminal of the same name matches; every other
+# token matches its quoted spelling.
+KIND_TERMINALS = ("IDENT", "INT", "FLOAT", "STRING", "INTERP_STRING", "DOLLAR_PARAM",
+                  "NEWLINE", "EOF")
 
 
 SHIFT_HALF = {"SHL": '"<"', "SHR": '">"'}
 # Pseudo-terminals, never written in the grammar: a `<` or `>` directly after
 # one of its own kind, with nothing between them.
 SHIFT_SECOND = {"SHL": "SHL_SECOND", "SHR": "SHR_SECOND"}
-SECOND_OF = {TokenType.LT: "SHL_SECOND", TokenType.GT: "SHR_SECOND"}
+SECOND_OF = {"LT": "SHL_SECOND", "GT": "SHR_SECOND"}
 
 
 def adjacent(a, b):
@@ -383,37 +531,33 @@ def chart_terms(tokens):
     terms = [token_terms(t) for t in tokens]
     for k in range(1, len(tokens)):
         a, b = tokens[k - 1], tokens[k]
-        if b.type in SECOND_OF and a.type == b.type and (
+        if b.kind in SECOND_OF and a.kind == b.kind and (
                 adjacent(a, b) or not applies("syntax.lex.shift-adjacent")):
-            terms[k].add(SECOND_OF[b.type])
+            terms[k].add(SECOND_OF[b.kind])
     return terms
 
 
 def token_terms(tok):
     """The set of grammar terminals this token satisfies."""
     terms = set()
-    kind = KIND_MAP.get(tok.type)
-    if kind:
-        terms.add(kind)
-    if tok.type == TokenType.IDENT:
+    if tok.kind in KIND_TERMINALS:
+        terms.add(tok.kind)
+    if tok.kind == "IDENT":
         terms.add("'" + tok.value + "'")
-    elif tok.type == TokenType.HASH_DIRECTIVE:
+    elif tok.kind == "HASH_DIRECTIVE":
         terms.add('"#' + tok.value + '"')
-    elif kind is None:
+    elif tok.kind not in KIND_TERMINALS:
         terms.add('"' + tok.value + '"')
-    if tok.type not in (TokenType.LBRACE, TokenType.RBRACE, TokenType.EOF):
+    if tok.kind not in ("LBRACE", "RBRACE", "EOF"):
         terms.add("NON_BRACE")
     return terms
 
 
 _GENERIC_INNER = {
-    TokenType.IDENT, TokenType.COMMA, TokenType.DOT, TokenType.NEWLINE,
-    TokenType.QUESTION, TokenType.DOUBLE_QUESTION, TokenType.AMPERSAND,
-    TokenType.VAR, TokenType.INT, TokenType.COLON, TokenType.LPAREN,
-    TokenType.RPAREN, TokenType.LBRACKET, TokenType.RBRACKET,
-    TokenType.SEMICOLON, TokenType.ARROW, TokenType.UNSAFE, TokenType.BORROWS,
-    TokenType.ASSIGN, TokenType.MINUS, TokenType.PLUS, TokenType.STAR,
-    TokenType.SLASH, TokenType.PERCENT, TokenType.LT, TokenType.GT,
+    "IDENT", "COMMA", "DOT", "NEWLINE", "QUESTION", "DOUBLE_QUESTION", "AMPERSAND",
+    "VAR", "INT", "COLON", "LPAREN", "RPAREN", "LBRACKET", "RBRACKET", "SEMICOLON",
+    "ARROW", "UNSAFE", "BORROWS", "ASSIGN", "MINUS", "PLUS", "STAR", "SLASH", "PERCENT",
+    "LT", "GT",
 }
 
 
@@ -468,17 +612,17 @@ def generic_close(tokens, i):
     depth = 0
     inside = []
     for j in range(i, len(tokens)):
-        t = tokens[j].type
-        if t == TokenType.LT:
+        t = tokens[j].kind
+        if t == "LT":
             depth += 1
-        elif t == TokenType.GT:
+        elif t == "GT":
             depth -= 1
             if depth == 0:
                 return j, 0, inside
-        elif t in (TokenType.GTE, TokenType.SHR_ASSIGN):
-            closes = 1 if t == TokenType.GTE else 2
+        elif t in ("GTE", "SHR_ASSIGN"):
+            closes = 1 if t == "GTE" else 2
             return (j, closes, inside) if depth == closes else (None, 0, [])
-        elif t == TokenType.NEWLINE:
+        elif t == "NEWLINE":
             inside.append(j)
         elif t not in _GENERIC_INNER:
             break
@@ -487,14 +631,13 @@ def generic_close(tokens, i):
 
 def matching_close(tokens, i):
     """The index of the bracket closing the `(`, `[` or `{` at i, or None."""
-    opener = tokens[i].type
-    closer = {TokenType.LPAREN: TokenType.RPAREN, TokenType.LBRACKET: TokenType.RBRACKET,
-              TokenType.LBRACE: TokenType.RBRACE}[opener]
+    opener = tokens[i].kind
+    closer = {"LPAREN": "RPAREN", "LBRACKET": "RBRACKET", "LBRACE": "RBRACE"}[opener]
     depth = 0
     for j in range(i, len(tokens)):
-        if tokens[j].type == opener:
+        if tokens[j].kind == opener:
             depth += 1
-        elif tokens[j].type == closer:
+        elif tokens[j].kind == closer:
             depth -= 1
             if depth == 0:
                 return j
@@ -518,7 +661,7 @@ def generic_lists(g, start, tokens):
     out = list(tokens)
     i = 1
     while i < len(out):
-        if out[i].type != TokenType.LT or out[i - 1].type != TokenType.IDENT:
+        if out[i].kind != "LT" or out[i - 1].kind != "IDENT":
             i += 1
             continue
         close, closes, inside = generic_close(out, i)
@@ -527,9 +670,9 @@ def generic_lists(g, start, tokens):
             i += 1
             continue
         tc = out[close]
-        parts = [Token(TokenType.GT, ">", tc.line, tc.column + k) for k in range(closes)]
-        parts.append(Token(TokenType.ASSIGN, "=", tc.line, tc.column + closes))
-        span = [t for t in out[i:close] if t.type != TokenType.NEWLINE]
+        parts = [Token("GT", ">", tc.line, tc.column + k) for k in range(closes)]
+        parts.append(Token("ASSIGN", "=", tc.line, tc.column + closes))
+        span = [t for t in out[i:close] if t.kind != "NEWLINE"]
         span += parts[:closes] if closes else [tc]
         follow = parts[closes] if closes else (out[close + 1] if close + 1 < len(out) else None)
         if keeps(g, start, out[:i], span, follow):
@@ -561,12 +704,12 @@ def bracket_newlines(tokens):
     out = []
     stack = []
     for tok in tokens:
-        if tok.type == TokenType.NEWLINE:
-            if stack and stack[-1] in (TokenType.LPAREN, TokenType.LBRACKET):
+        if tok.kind == "NEWLINE":
+            if stack and stack[-1] in ("LPAREN", "LBRACKET"):
                 continue
-        elif tok.type in (TokenType.LPAREN, TokenType.LBRACKET, TokenType.LBRACE):
-            stack.append(tok.type)
-        elif tok.type in (TokenType.RPAREN, TokenType.RBRACKET, TokenType.RBRACE):
+        elif tok.kind in ("LPAREN", "LBRACKET", "LBRACE"):
+            stack.append(tok.kind)
+        elif tok.kind in ("RPAREN", "RBRACKET", "RBRACE"):
             if stack:
                 stack.pop()
         out.append(tok)
@@ -583,7 +726,7 @@ def prepare(g, tokens, start="source-file"):
 def non_ascii_identifier(tokens):
     """The first identifier with a non-ASCII character (syntax.lex.ascii-identifier)."""
     for t in tokens:
-        if t.type == TokenType.IDENT and not t.value.isascii():
+        if t.kind == "IDENT" and not t.value.isascii():
             return t
     return None
 
@@ -703,7 +846,7 @@ class Forest:
         out = []
         for ai, alt in enumerate(self.c.g.prods[nt]):
             for kids in self._seq(alt, 0, i, j):
-                tree = self._build(nt, [k[0] for k in kids])
+                tree = self._build(nt, ai, [k[0] for k in kids])
                 d = Derivation(nt, ai, i, j, tuple(k[1] for k in kids), tree)
                 # A refused derivation is dropped before it counts against the cap.
                 why = self._refusal(d)
@@ -838,7 +981,7 @@ class Forest:
             if isinstance(k, int) or k.nt != "compare-op":
                 continue
             p = k.kids[0]
-            if toks[p].value != "<" or p == 0 or toks[p - 1].type != TokenType.IDENT:
+            if toks[p].value != "<" or p == 0 or toks[p - 1].kind != "IDENT":
                 continue
             cast = any(t.j == p for t in self._descendants(kids[n - 1], CAST_TARGET))
             follows = self._cast_list_follows if cast else self._name_list_follows
@@ -908,7 +1051,7 @@ class Forest:
             return None
         toks = self.c.tokens
         first, last = d.i + 2, d.j - 1
-        if first == last and toks[first].type == TokenType.IDENT:
+        if first == last and toks[first].kind == "IDENT":
             return d.i
         if toks[first].value == "(" and toks[last].value == ")" \
                 and matching_close(toks, first) == last:
@@ -918,7 +1061,7 @@ class Forest:
     def _try_block(self, d):
         """`try` directly followed by `{` is a try block (syntax.rule.try-block)."""
         k = d.i + 1
-        while k < d.j and self.c.tokens[k].type == TokenType.NEWLINE:
+        while k < d.j and self.c.tokens[k].kind == "NEWLINE":
             k += 1
         return k if self.c.tokens[k].value == "{" else None
 
@@ -926,14 +1069,15 @@ class Forest:
         """`lends` is the operator only before `self` or a name
         (syntax.rule.contextual-words)."""
         t = self.c.tokens[d.i + 1]
-        return None if t.type == TokenType.IDENT or t.value == "self" else d.i
+        return None if t.kind == "IDENT" or t.value == "self" else d.i
 
     def _static_assert_word(self, d):
         """A statement that starts `static_assert (` is the assertion, never a
-        call (syntax.rule.contextual-words)."""
+        call, and so is an arm body, which means what the same statement in
+        braces means (syntax.rule.contextual-words, syntax.rule.arm-body)."""
         toks = self.c.tokens
-        if self._alt(d) == "syntax.stmt.statement.expr" and toks[d.i].value == "static_assert" \
-                and toks[d.i].type == TokenType.IDENT and toks[d.i + 1].value == "(":
+        if self._alt(d) in EXPRESSION_STATEMENTS and toks[d.i].value == "static_assert" \
+                and toks[d.i].kind == "IDENT" and toks[d.i + 1].value == "(":
             return d.i
         return None
 
@@ -961,7 +1105,7 @@ class Forest:
         if d.nt == "range-upto" and self._alt(d) != "syntax.expr.range-upto.full":
             return None
         t = self._token(d.j)
-        if t is None or t.type in (TokenType.NEWLINE, TokenType.EOF) \
+        if t is None or t.kind in ("NEWLINE", "EOF") \
                 or t.value in OPEN_END_FOLLOW:
             return None
         return d.j
@@ -1032,7 +1176,7 @@ class Forest:
         """A routing clause names an enum and a case (syntax.rule.try-route-case)."""
         path = self._kids_named(d, "path")[0]
         names = [k for k in self._real_kids(path)
-                 if isinstance(k, int) and self.c.tokens[k].type == TokenType.IDENT]
+                 if isinstance(k, int) and self.c.tokens[k].kind == "IDENT"]
         return path.i if len(names) < 2 else None
 
     def _import_names(self, d):
@@ -1040,7 +1184,7 @@ class Forest:
         seen = set()
         for symbol in self._descendants(d, "import-symbol"):
             names = [k for k in self._real_kids(symbol)
-                     if isinstance(k, int) and self.c.tokens[k].type == TokenType.IDENT]
+                     if isinstance(k, int) and self.c.tokens[k].kind == "IDENT"]
             local = self.c.tokens[names[-1]].value
             if local in seen:
                 return symbol.i
@@ -1071,7 +1215,7 @@ class Forest:
         if not is_nonterminal(sym):
             if pos < j and sym in self.c.terms[pos]:
                 for rest in self._seq(alt, k + 1, pos + 1, j):
-                    yield [(("tok", self.c.tokens[pos].value), pos)] + rest
+                    yield [(("rawtok", self.c.tokens[pos].value, pos), pos)] + rest
             return
         for e in sorted(self.c.ends.get((sym, pos), ())):
             if e > j:
@@ -1087,55 +1231,124 @@ class Forest:
                 for s in subs:
                     yield [(s.tree, s)] + rest
 
-    def _build(self, nt, kids):
-        """The node a derivation builds from its kids' (section 1, Nodes): a
-        chain with one operand, or a `node=-` production, passes its kid on."""
+    def _build(self, nt, ai, kids):
+        """The node a derivation builds from its kids' (section 1, Nodes).
+
+        A `node=-` production passes its kids on; a production that names a
+        node builds it, except that a chain alternative with one operand passes
+        the operand on. Hop chains nest one node per hop
+        (syntax.rule.postfix-per-hop): the postfix chains, the assignment
+        targets, a `move` operand's place path and a run of casts; each run of
+        an optional chain in them is an OptionalChain node (`nest`).
+        """
+        g = self.c.g
+        alt = g.prods[nt][ai]
         flat = []
-        for kid in kids:
-            if isinstance(kid, tuple) and kid[0] == "splice":
+        for k, kid in enumerate(kids):
+            if kid[0] == "rawtok":
+                flat.append(("tok", kid[1], kid[2], g.shown(nt, alt[k])))
+            elif kid[0] == "splice":
                 flat.extend(kid[1])
             else:
                 flat.append(kid)
         if nt.startswith("__"):
+            if nt.startswith(SHIFT_AUX):
+                # The two halves of a shift are one operator.
+                first = flat[0]
+                return ("splice", (("tok", first[1] * 2, first[2], True),))
             return ("splice", tuple(flat))
-        p = self.c.g.info[nt]
+        p = g.info[nt]
         name, node = p.name, p.node
         if name in SUFFIXED and flat and not is_tok(flat[0]):
+            # Each `?` wraps the type once and a `??` twice (section 5), so a
+            # layer is an OptionalType node whatever token wrote it.
             base = flat[0]
             for c in flat[1:]:
                 mark = c[1] if is_tok(c) else c[2][0][1]
                 for _ in range(len(mark)):
-                    base = ("node", "Optional", (base,))
+                    base = ("node", OPTIONAL_TYPE, (base,), "")
             return base
-        if name == "syntax.expr.postfix" and flat:
-            base = flat[0]
-            for hop in flat[1:]:
-                base = ("node", hop[1], (base,) + hop[2]) if not is_tok(hop) else base
-            return base
+        if nt in HOP_CHAINS and flat:
+            return nest(flat, g.run_opens, g.run_closes)
+        if nt == REFUSAL_BODY:
+            flat = self._shifts_joined(flat)
         nodes = [c for c in flat if not is_tok(c)]
         toks = [c for c in flat if is_tok(c)]
-        if len(nodes) == 1 and not toks and (node == "-" or node in CHAINS):
-            return nodes[0]
-        if node == "-" and len(nodes) == 1 and all(t[1] in "()" for t in toks):
-            return nodes[0]
         if node == "-":
+            # A group's parentheses, and the end of input after a segment's
+            # expression, hold nothing the node lacks; parentheses a flagged
+            # production shows are leaves, and stay.
+            if len(nodes) == 1 and all(t[1] in ("(", ")", "") and not t[3] for t in toks):
+                return nodes[0]
             return ("splice", tuple(flat))
-        if node == "Path":
-            return ("node", "Path", (("tok", "".join(t[1] for t in toks)),))
-        return ("node", node, tuple(flat))
+        if node in CHAINS and g.chain_alternative(nt, ai) and len(nodes) == 1 and not toks:
+            return nodes[0]
+        suffix = g.suffix(nt, ai)
+        if nt == "cast-expr":
+            return cast_chain(flat)
+        if nt == "move-expr" and suffix == "place":
+            chain = nest(nodes)
+            return ("node", node, tuple([toks[0], chain] + toks[1:]), suffix)
+        return ("node", node, tuple(flat), suffix)
+
+    def _shifts_joined(self, flat):
+        """A refusal body's tokens, each `<` or `>` touching one of its own kind
+        joined with it into one leaf: no production reads the body, so the leaf
+        keeps the adjacency syntax.lex.shift-adjacent decides by."""
+        out = []
+        for c in flat:
+            prev = out[-1] if out else None
+            if prev is not None and is_tok(c) and is_tok(prev) and c[1] in ("<", ">") \
+                    and prev[1] == c[1] and adjacent(self.c.tokens[prev[2]], self.c.tokens[c[2]]):
+                out[-1] = ("tok", c[1] * 2, prev[2], True)
+                continue
+            out.append(c)
+        return out
 
 
-def show(t, escape=True):
-    """A tree as one line: `Kind(kids)`, tokens by their text. Escaping keeps a
-    NEWLINE token, or a string's line break, from splitting the line."""
-    if isinstance(t, tuple) and t[0] == "tok":
-        if not escape:
-            return t[1]
-        return t[1].replace("\\", "\\\\").replace("\n", "\\n").replace("\t", "\\t")
-    if isinstance(t, tuple) and t[0] == "splice":
-        return " ".join(show(c, escape) for c in t[1])
-    _, label, kids = t
-    return "%s(%s)" % (label, " ".join(show(c, escape) for c in kids))
+# Hop chains written as a base and its hops, whose nodes nest one per hop.
+HOP_CHAINS = ("postfix-expr", "projection-target", "call-target", "optional-chain-target")
+SHIFT_AUX = ("__shl", "__shr")
+REFUSAL_BODY = "refusal-body"
+# The hops that open a run of an optional chain, and those that close an open
+# one; the end of the chain closes it too (syntax.rule.optional-chain-run).
+RUN_OPENS = ("syntax.expr.optional-member",)
+RUN_CLOSES = ("syntax.expr.tuple-index", "syntax.expr.subscript", "syntax.expr.force")
+OPTIONAL_CHAIN = "OptionalChain"
+
+
+def nest(items, opens=(), closes=()):
+    """The base node, wrapped by each hop node after it in turn, and each run
+    of an optional chain, from the base to the hop before the one that closes
+    it, wrapped in one OptionalChain node. `opens` and `closes` are the Kinds of
+    the hops that open and close a run."""
+    base = items[0]
+    running = False
+    for hop in items[1:]:
+        if is_tok(hop):
+            continue
+        if running and hop[1] in closes:
+            base = ("node", OPTIONAL_CHAIN, (base,), "")
+            running = False
+        base = ("node", hop[1], (base,) + hop[2], hop[3])
+        running = running or hop[1] in opens
+    if running:
+        base = ("node", OPTIONAL_CHAIN, (base,), "")
+    return base
+
+
+def cast_chain(flat):
+    """A cast chain nested one `Cast` per `as`: the operand, then each hop's `as`
+    and target."""
+    base = flat[0]
+    hop = []
+    for c in flat[1:] + [None]:
+        if c is None or (is_tok(c) and c[1] == "as" and hop):
+            base = ("node", "Cast", (base,) + tuple(hop), "")
+            hop = []
+        if c is not None:
+            hop.append(c)
+    return base
 
 
 class Record:
@@ -1240,13 +1453,18 @@ def lex(text):
     return tokens, err
 
 
-def lex_with_docs(text):
-    """(tokens, doc comments, None) or (None, None, the lex error)."""
-    lexer = Lexer(text)
+def lex_with_docs(text=None, path=None):
+    """(tokens, doc comments, None) or (None, None, the lex error) for a text, or
+    for the file at `path`."""
     try:
-        return lexer.tokenize(), lexer.doc_comments, None
-    except SyntaxError as e:
+        tokens, docs = lexdump.lex_file(path) if path is not None else lexdump.lex_text(text)
+    except lexdump.LexError as e:
         return None, None, e
+    return tokens, docs, None
+
+
+def lex_error_detail(err):
+    return "Lexer error at %d:%d: %s" % (err.line, err.column, err.message)
 
 
 def doc_runs(docs):
@@ -1264,7 +1482,7 @@ def doc_runs(docs):
 
 def module_doc_error(tokens, docs):
     """"L:C ..." for a `//!` line after the first token (syntax.lex.module-doc)."""
-    first = next((t for t in tokens if t.type not in (TokenType.NEWLINE, TokenType.EOF)), None)
+    first = next((t for t in tokens if t.kind not in ("NEWLINE", "EOF")), None)
     for dc in docs:
         if dc.kind == "module" and first is not None and dc.line > first.line \
                 and applies("syntax.lex.module-doc"):
@@ -1279,7 +1497,7 @@ def doc_attach_error(parse, derivation, docs):
     starts = None
     for line, column, last in doc_runs(docs):
         after = next((k for k, t in enumerate(parse.tokens)
-                      if t.line > last and t.type != TokenType.NEWLINE), None)
+                      if t.line > last and t.kind != "NEWLINE"), None)
         if starts is None:
             starts = parse.documented(derivation)
         if after is None or after not in starts:
@@ -1287,8 +1505,8 @@ def doc_attach_error(parse, derivation, docs):
     return None
 
 
-def check_source(g, src, trees=False):
-    """(verdict, detail) for one source text.
+def check_source(g, src, trees=False, path=None):
+    """(verdict, detail) for one source text, read from `path` when it is given.
 
     OK; LEXERR, a lex error, a non-ASCII identifier or a misplaced `//!`; FAIL,
     the chart refuses the tokens (detail: the furthest token reached), or the
@@ -1297,54 +1515,78 @@ def check_source(g, src, trees=False):
     finding: no tree, and no rule refused anything. With `trees`, a text whose
     tree, or a segment's, is not unique after the rules is AMBIGUOUS.
     """
-    toks, docs, err = lex_with_docs(src)
+    checked = check(g, src, trees, path)
+    return checked.verdict, checked.detail
+
+
+class Checked:
+    """One text's verdict and detail (check_source), its doc comments, and the
+    parses behind an OK verdict: (origin, Parse) for the file, origin "", and
+    each interpolation segment, origin its "line:col" as expression_segments
+    gives it."""
+
+    def __init__(self, verdict, detail, parses=(), docs=()):
+        self.verdict = verdict
+        self.detail = detail
+        self.parses = list(parses)
+        self.docs = list(docs)
+
+
+def check(g, src, trees=False, path=None):
+    """The Checked result of check_source for one text: every refusal it makes,
+    the lexical ones included, is decided here once."""
+    toks, docs, err = lex_with_docs(src, path)
     if err is not None:
-        return "LEXERR", str(err).split("\n")[0]
+        return Checked("LEXERR", lex_error_detail(err))
     bad = non_ascii_identifier(toks)
     if bad is not None:
-        return "LEXERR", "%d:%d non-ASCII identifier %r" % (bad.line, bad.column, bad.value)
+        return Checked("LEXERR", "%d:%d refused by syntax.lex.ascii-identifier: %r"
+                       % (bad.line, bad.column, bad.value))
     misplaced = module_doc_error(toks, docs)
     if misplaced is not None:
-        return "LEXERR", misplaced
+        return Checked("LEXERR", misplaced)
     toks = prepare(g, toks)
     file_parse = Parse(g, "source-file", toks)
     if not file_parse.accepted:
         t = toks[min(file_parse.chart.furthest, len(toks) - 1)]
-        return "FAIL", "%d:%d near %s %r" % (t.line, t.column, t.type.name, t.value)
+        return Checked("FAIL", "%d:%d near %s %r" % (t.line, t.column, t.kind, t.value))
     ds = file_parse.derivations()
     if not ds:
         refused = file_parse.refusal()
         if refused is None:
-            return "NOTREE", "no tree, and no rule refused one"
-        return "FAIL", refused
+            return Checked("NOTREE", "no tree, and no rule refused one")
+        return Checked("FAIL", refused)
     parses = [("", file_parse)]
     pending = expression_segments(toks, "")
     while pending:
         where, seg = pending.pop(0)
         stoks, err = lex(seg.text)
         if err is not None:
-            return "SEGLEX", "%s %s" % (where, err)
-        if non_ascii_identifier(stoks) is not None:
-            return "SEGLEX", "%s non-ASCII identifier" % where
+            return Checked("SEGLEX", "%s %s" % (where, lex_error_detail(err)))
+        bad = non_ascii_identifier(stoks)
+        if bad is not None:
+            return Checked("SEGLEX", "%s %d:%d refused by syntax.lex.ascii-identifier: %r"
+                           % (where, bad.line, bad.column, bad.value))
         segment = Parse(g, "interp-segment", prepare(g, stoks, "interp-segment"))
         if not segment.accepted:
-            return "SEGFAIL", "%s {%s}" % (where, seg.text)
+            return Checked("SEGFAIL", "%s {%s}" % (where, seg.text))
         if not segment.derivations():
             refused = segment.refusal()
             if refused is None:
-                return "NOTREE", "segment %s: no tree, and no rule refused one" % where
-            return "SEGFAIL", "%s {%s} %s" % (where, seg.text, refused)
-        parses.append(("segment %s: " % where, segment))
+                return Checked("NOTREE", "segment %s: no tree, and no rule refused one" % where)
+            return Checked("SEGFAIL", "%s {%s} %s" % (where, seg.text, refused))
+        parses.append((where, segment))
         pending[0:0] = expression_segments(stoks, where + "/")
     if trees:
-        for label, parse in parses:
+        for where, parse in parses:
             ds = parse.derivations()
             if len(ds) > 1:
-                return "AMBIGUOUS", label + ambiguity_site(parse, ds[0], ds[1])
+                label = "segment %s: " % where if where else ""
+                return Checked("AMBIGUOUS", label + ambiguity_site(parse, ds[0], ds[1]))
     undocumented = doc_attach_error(file_parse, file_parse.derivations()[0], docs)
     if undocumented is not None:
-        return "FAIL", undocumented
-    return "OK", ""
+        return Checked("FAIL", undocumented)
+    return Checked("OK", "", parses, docs)
 
 
 def ambiguity_site(parse, a, b):
@@ -1386,8 +1628,13 @@ def source_parses(g, src):
     toks, err = lex(src)
     if err is not None:
         raise err
-    toks = prepare(g, toks)
-    out = [("", Parse(g, "source-file", toks))]
+    return segment_parses(g, Parse(g, "source-file", prepare(g, toks)))
+
+
+def segment_parses(g, file_parse):
+    """(origin, Parse) for a parsed file and each interpolation segment in it."""
+    toks = file_parse.tokens
+    out = [("", file_parse)]
     pending = expression_segments(toks, "")
     while pending:
         where, seg = pending.pop(0)
@@ -1402,13 +1649,12 @@ def expression_segments(tokens, prefix):
     strings in `tokens`, in order. A nested segment's position is relative to the
     segment around it, so its origin is that segment's, then "/", then its own."""
     return [("%s%d:%d" % (prefix, seg.line, seg.column), seg)
-            for tok in tokens if tok.type == TokenType.INTERP_STRING and tok.segments
+            for tok in tokens if tok.kind == "INTERP_STRING" and tok.segments
             for seg in tok.segments if seg.kind == "expr"]
 
 
 def check_file(g, path, trees=False):
-    with open(path, encoding="utf-8") as fh:
-        return check_source(g, fh.read(), trees)
+    return check_source(g, None, trees, path)
 
 
 def text_tokens(g, text, start):
@@ -1419,7 +1665,7 @@ def text_tokens(g, text, start):
         raise err
     toks = prepare(g, toks, start)
     if start not in ("source-file", "interp-segment", "refusal-unit"):
-        while toks and toks[-1].type in (TokenType.EOF, TokenType.NEWLINE):
+        while toks and toks[-1].kind in ("EOF", "NEWLINE"):
             toks.pop()
     return toks
 
@@ -1443,6 +1689,8 @@ def run_workers(script_args, paths, jobs):
     on stdin. Plain subprocesses, since a sandbox may refuse the semaphores
     multiprocessing needs; results come back in the order of `paths`."""
     jobs = max(1, min(jobs, len(paths)))
+    # Built here, so that workers never race to build it.
+    lexdump.ensure_sawc2()
     cmd = [sys.executable] + list(script_args)
 
     def work(share):
@@ -1528,29 +1776,10 @@ def print_trees(args, enable):
 
 def tree_report(g, label, text, start="source-file", record=False):
     """(lines, whether every parse has exactly one tree): each parse's tree
-    count and trees, a source file's interpolation segments included."""
-    if start == "source-file":
-        parses = [(label if not origin else "%s segment %s" % (label, origin), p)
-                  for origin, p in source_parses(g, text)]
-    else:
-        parses = [(label, Parse(g, start, text_tokens(g, text, start)))]
-    lines = []
-    unique = True
-    for name, parse in parses:
-        derivations = parse.derivations()
-        if not parse.accepted:
-            lines.append("%s: NO PARSE" % name)
-        elif not derivations:
-            lines.append("%s: REFUSED: %s" % (name, parse.refusal() or "no rule refused a tree"))
-        else:
-            lines.append("%s: %d tree(s)%s" % (name, len(derivations),
-                                               "" if len(derivations) == 1 else " AMBIGUOUS"))
-        for d in derivations:
-            lines.append("  " + show(d.tree))
-            if record:
-                lines.append(json.dumps(parse.record(d).to_json(), sort_keys=True))
-        unique = unique and len(derivations) == 1
-    return lines, unique
+    count and the canonical dump of its trees, a source file's interpolation
+    segments included (dump.report)."""
+    import dump
+    return dump.report(g, label, text, start, record)
 
 
 if __name__ == "__main__":

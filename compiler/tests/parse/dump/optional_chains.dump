@@ -1,0 +1,114 @@
+(File
+  (Declaration.func
+    (Func runs
+      (Block
+        (Let.immutable
+          (BindingName a1)
+          (OptionalChain
+            (Member
+              (OptionalMember (Name a) b)
+              c)))
+        (Let.immutable
+          (BindingName a2)
+          (Member
+            (OptionalChain
+              (OptionalMember (Name a) b))
+            c))
+        (Let.immutable
+          (BindingName b1)
+          (OptionalChain
+            (OptionalMember
+              (OptionalMember (Name a) b)
+              c)))
+        (Let.immutable
+          (BindingName b2)
+          (OptionalChain
+            (OptionalMember
+              (OptionalChain
+                (OptionalMember (Name a) b))
+              c)))
+        (Let.immutable
+          (BindingName c1)
+          (OptionalChain
+            (Call.paren
+              (OptionalMember (Name a) b))))
+        (Let.immutable
+          (BindingName c2)
+          (Call.paren
+            (OptionalChain
+              (OptionalMember (Name a) b)))))))
+  (Declaration.func
+    (Func closers
+      (Block
+        (Let.immutable
+          (BindingName d1)
+          (ForceUnwrap
+            (OptionalChain
+              (OptionalMember (Name a) b))))
+        (Let.immutable
+          (BindingName d2)
+          (ForceUnwrap
+            (OptionalChain
+              (OptionalMember (Name a) b))))
+        (Let.immutable
+          (BindingName e1)
+          (Subscript.single
+            (OptionalChain
+              (OptionalMember (Name a) b))
+            (IntLit 0)))
+        (Let.immutable
+          (BindingName e2)
+          (Subscript.single
+            (OptionalChain
+              (OptionalMember (Name a) b))
+            (IntLit 0)))
+        (Let.immutable
+          (BindingName f1)
+          (TupleIndex
+            (OptionalChain
+              (OptionalMember (Name a) b))
+            0))
+        (Let.immutable
+          (BindingName f2)
+          (TupleIndex
+            (OptionalChain
+              (OptionalMember (Name a) b))
+            0))
+        (Let.immutable
+          (BindingName g1)
+          (OptionalChain
+            (OptionalMember
+              (Subscript.single
+                (OptionalChain
+                  (OptionalMember (Name a) b))
+                (IntLit 0))
+              c))))))
+  (Declaration.func
+    (Func targets
+      (Block
+        (OptionalAssign.plain
+          (OptionalChain
+            (OptionalMember (Name x) y))
+          (Name v))
+        (OptionalAssign.compound
+          (OptionalChain
+            (Member
+              (OptionalMember (Name x) y)
+              z))
+          +=
+          (Name v))
+        (Assign
+          (Subscript.single
+            (OptionalChain
+              (OptionalMember (Name x) y))
+            (IntLit 0))
+          (Name v))
+        (ExprStmt
+          (If
+            (LetArm.let
+              (BindingName _)
+              (OptionalChain
+                (OptionalMember (Name x) y))
+              =
+              (Name v))
+            (Block)))))))

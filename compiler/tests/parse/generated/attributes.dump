@@ -1,0 +1,457 @@
+// case: syntax.attr.list/alt
+(File
+  (Declaration.static
+    (Attribute.export)
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.attr.list/rep:0:attribute+=1
+(File
+  (Declaration.static
+    (Attribute.export)
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.attr.list/rep:0:attribute+=many
+(File
+  (Declaration.static
+    (Attribute.section "C")
+    (Attribute.align (Name a))
+    (Attribute.export)
+    (Static.immutable b
+      (NamedType (Path c)))))
+
+// case: syntax.attr.attribute.export/alt
+(File
+  (Declaration.static
+    (Attribute.export)
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.attr.attribute.export/rep:2:NEWLINE*=0
+(File
+  (Declaration.static
+    (Attribute.export)
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.attr.attribute.export/rep:2:NEWLINE*=1
+(File
+  (Declaration.static
+    (Attribute.export)
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.attr.attribute.export/rep:2:NEWLINE*=many
+(File
+  (Declaration.static
+    (Attribute.export)
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.attr.attribute.export-symbol/alt
+(File
+  (Declaration.static
+    (Attribute.export-symbol "C")
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.attr.attribute.export-symbol/rep:5:NEWLINE*=0
+(File
+  (Declaration.static
+    (Attribute.export-symbol "C")
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.attr.attribute.export-symbol/rep:5:NEWLINE*=1
+(File
+  (Declaration.static
+    (Attribute.export-symbol "C")
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.attr.attribute.export-symbol/rep:5:NEWLINE*=many
+(File
+  (Declaration.static
+    (Attribute.export-symbol "C")
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.attr.attribute.section/alt
+(File
+  (Declaration.static
+    (Attribute.section "C")
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.attr.attribute.section/rep:5:NEWLINE*=0
+(File
+  (Declaration.static
+    (Attribute.section "C")
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.attr.attribute.section/rep:5:NEWLINE*=1
+(File
+  (Declaration.static
+    (Attribute.section "C")
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.attr.attribute.section/rep:5:NEWLINE*=many
+(File
+  (Declaration.static
+    (Attribute.section "C")
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.attr.attribute.synthesize/alt
+(File
+  (Declaration.extension
+    (Attribute.synthesize)
+    (Extension (Path a))))
+
+// case: syntax.attr.attribute.synthesize/rep:2:NEWLINE*=0
+(File
+  (Declaration.extension
+    (Attribute.synthesize)
+    (Extension (Path a))))
+
+// case: syntax.attr.attribute.synthesize/rep:2:NEWLINE*=1
+(File
+  (Declaration.extension
+    (Attribute.synthesize)
+    (Extension (Path a))))
+
+// case: syntax.attr.attribute.synthesize/rep:2:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Attribute.synthesize)
+    (Extension (Path a))))
+
+// case: syntax.attr.attribute.align/alt
+(File
+  (Declaration.static
+    (Attribute.align (Name a))
+    (Static.immutable b
+      (NamedType (Path c)))))
+
+// case: syntax.attr.attribute.align/rep:5:NEWLINE*=0
+(File
+  (Declaration.static
+    (Attribute.align (Name a))
+    (Static.immutable b
+      (NamedType (Path c)))))
+
+// case: syntax.attr.attribute.align/rep:5:NEWLINE*=1
+(File
+  (Declaration.static
+    (Attribute.align (Name a))
+    (Static.immutable b
+      (NamedType (Path c)))))
+
+// case: syntax.attr.attribute.align/rep:5:NEWLINE*=many
+(File
+  (Declaration.static
+    (Attribute.align (Name a))
+    (Static.immutable b
+      (NamedType (Path c)))))
+
+// case: syntax.attr.synthesize-shared/alt
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.synthesized-method synthesize shared
+        (Method static b (Block))))))
+
+// case: syntax.attr.synthesize-shared/rep:5:NEWLINE*=0
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.synthesized-method synthesize shared
+        (Method static b (Block))))))
+
+// case: syntax.attr.synthesize-shared/rep:5:NEWLINE*=1
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.synthesized-method synthesize shared
+        (Method static b (Block))))))
+
+// case: syntax.attr.synthesize-shared/rep:5:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.synthesized-method synthesize shared
+        (Method static b (Block))))))
+
+// case: syntax.test.item.case/alt
+(File
+  (TestCase.run "C" (Block)))
+
+// case: syntax.test.item.group/alt
+(File (TestGroup))
+
+// case: syntax.test.item.declaration/alt
+(File
+  (TestOnly.import
+    (Import.private (Path a))))
+
+// case: syntax.test.case.run/alt
+(File
+  (TestCase.run "C" (Block)))
+
+// case: syntax.test.case.run/rep:3:NEWLINE*=0
+(File
+  (TestCase.run "C" (Block)))
+
+// case: syntax.test.case.run/rep:3:NEWLINE*=1
+(File
+  (TestCase.run "C" (Block)))
+
+// case: syntax.test.case.run/rep:3:NEWLINE*=many
+(File
+  (TestCase.run "C" (Block)))
+
+// case: syntax.test.case.panics/alt
+(File
+  (TestCase.panics panics "C" "C" (Block)))
+
+// case: syntax.test.case.panics/rep:6:NEWLINE*=0
+(File
+  (TestCase.panics panics "C" "C" (Block)))
+
+// case: syntax.test.case.panics/rep:6:NEWLINE*=1
+(File
+  (TestCase.panics panics "C" "C" (Block)))
+
+// case: syntax.test.case.panics/rep:6:NEWLINE*=many
+(File
+  (TestCase.panics panics "C" "C" (Block)))
+
+// case: syntax.test.case.warns/alt
+(File
+  (TestCase.warns warns none "C" (Block)))
+
+// case: syntax.test.case.warns/rep:6:NEWLINE*=0
+(File
+  (TestCase.warns warns none "C" (Block)))
+
+// case: syntax.test.case.warns/rep:6:NEWLINE*=1
+(File
+  (TestCase.warns warns none "C" (Block)))
+
+// case: syntax.test.case.warns/rep:6:NEWLINE*=many
+(File
+  (TestCase.warns warns none "C" (Block)))
+
+// case: syntax.test.case.refuses/alt
+(File
+  (TestCase.refuses refuses "C" "C" (RefusalBody)))
+
+// case: syntax.test.case.refuses/rep:6:NEWLINE*=0
+(File
+  (TestCase.refuses refuses "C" "C" (RefusalBody)))
+
+// case: syntax.test.case.refuses/rep:6:NEWLINE*=1
+(File
+  (TestCase.refuses refuses "C" "C" (RefusalBody)))
+
+// case: syntax.test.case.refuses/rep:6:NEWLINE*=many
+(File
+  (TestCase.refuses refuses "C" "C" (RefusalBody)))
+
+// case: syntax.test.panics.rule/alt
+(File
+  (TestCase.panics panics "C" "C" (Block)))
+
+// case: syntax.test.panics.rule/opt:3:test-at?=absent
+(File
+  (TestCase.panics panics "C" "C" (Block)))
+
+// case: syntax.test.panics.rule/opt:3:test-at?=present
+(File
+  (TestCase.panics panics "C" at 1 "C" (Block)))
+
+// case: syntax.test.panics.text/alt
+(File
+  (TestCase.panics panics "C" text "C" "C" (Block)))
+
+// case: syntax.test.panics-text/alt
+(File
+  (TestCase.panics panics "C" text "C" "C" (Block)))
+
+// case: syntax.test.panics-text/opt:4:test-at?=absent
+(File
+  (TestCase.panics panics "C" text "C" "C" (Block)))
+
+// case: syntax.test.panics-text/opt:4:test-at?=present
+(File
+  (TestCase.panics panics "C" text "C" at 1 "C" (Block)))
+
+// case: syntax.test.warns.key/alt
+(File
+  (TestCase.warns warns "C" "C" (Block)))
+
+// case: syntax.test.warns.none/alt
+(File
+  (TestCase.warns warns none "C" (Block)))
+
+// case: syntax.test.refuses/alt
+(File
+  (TestCase.refuses refuses "C" "C" (RefusalBody)))
+
+// case: syntax.test.refuses/opt:3:test-text?=absent
+(File
+  (TestCase.refuses refuses "C" "C" (RefusalBody)))
+
+// case: syntax.test.refuses/opt:3:test-text?=present
+(File
+  (TestCase.refuses refuses "C" text "C" "C" (RefusalBody)))
+
+// case: syntax.test.refuses/opt:4:test-at?=absent
+(File
+  (TestCase.refuses refuses "C" "C" (RefusalBody)))
+
+// case: syntax.test.refuses/opt:4:test-at?=present
+(File
+  (TestCase.refuses refuses "C" at 1 "C" (RefusalBody)))
+
+// case: syntax.test.refuses/pair:3:test-text?=present,4:test-at?=present
+(File
+  (TestCase.refuses refuses "C" text "C" at 1 "C" (RefusalBody)))
+
+// case: syntax.test.text/alt
+(File
+  (TestCase.refuses refuses "C" text "C" "C" (RefusalBody)))
+
+// case: syntax.test.at/alt
+(File
+  (TestCase.panics panics "C" at 1 "C" (Block)))
+
+// case: syntax.test.group/alt
+(File (TestGroup))
+
+// case: syntax.test.group/rep:2:NEWLINE*=0
+(File (TestGroup))
+
+// case: syntax.test.group/rep:2:NEWLINE*=1
+(File (TestGroup))
+
+// case: syntax.test.group/rep:2:NEWLINE*=many
+(File (TestGroup))
+
+// case: syntax.test.group/rep:4:NEWLINE*=0
+(File (TestGroup))
+
+// case: syntax.test.group/rep:4:NEWLINE*=1
+(File (TestGroup))
+
+// case: syntax.test.group/rep:4:NEWLINE*=many
+(File (TestGroup))
+
+// case: syntax.test.group/opt:5:top-level-list?=absent
+(File (TestGroup))
+
+// case: syntax.test.group/opt:5:top-level-list?=present
+(File
+  (TestGroup (ModuleDecl.file a)))
+
+// case: syntax.test.group/pair:2:NEWLINE*=many,4:NEWLINE*=many
+(File (TestGroup))
+
+// case: syntax.test.group/pair:2:NEWLINE*=many,5:top-level-list?=present
+(File
+  (TestGroup (ModuleDecl.file a)))
+
+// case: syntax.test.group/pair:4:NEWLINE*=many,5:top-level-list?=present
+(File
+  (TestGroup (ModuleDecl.file a)))
+
+// case: syntax.test.declaration.item/alt
+(File
+  (TestOnly.item
+    (Declaration.type-alias
+      (TypeAlias a
+        (NamedType (Path b))))))
+
+// case: syntax.test.declaration.item/rep:2:NEWLINE*=0
+(File
+  (TestOnly.item
+    (Declaration.type-alias
+      (TypeAlias a
+        (NamedType (Path b))))))
+
+// case: syntax.test.declaration.item/rep:2:NEWLINE*=1
+(File
+  (TestOnly.item
+    (Declaration.type-alias
+      (TypeAlias a
+        (NamedType (Path b))))))
+
+// case: syntax.test.declaration.item/rep:2:NEWLINE*=many
+(File
+  (TestOnly.item
+    (Declaration.type-alias
+      (TypeAlias a
+        (NamedType (Path b))))))
+
+// case: syntax.test.declaration.import/alt
+(File
+  (TestOnly.import
+    (Import.private (Path a))))
+
+// case: syntax.test.declaration.import/rep:2:NEWLINE*=0
+(File
+  (TestOnly.import
+    (Import.private (Path a))))
+
+// case: syntax.test.declaration.import/rep:2:NEWLINE*=1
+(File
+  (TestOnly.import
+    (Import.private (Path a))))
+
+// case: syntax.test.declaration.import/rep:2:NEWLINE*=many
+(File
+  (TestOnly.import
+    (Import.private (Path a))))
+
+// case: syntax.test.refusal-body/alt
+(File
+  (TestCase.refuses refuses "C" "C" (RefusalBody)))
+
+// case: syntax.test.refusal-body/rep:1:refusal-token*=0
+(File
+  (TestCase.refuses refuses "C" "C" (RefusalBody)))
+
+// case: syntax.test.refusal-body/rep:1:refusal-token*=1
+(File
+  (TestCase.refuses refuses "C" "C" (RefusalBody x)))
+
+// case: syntax.test.refusal-body/rep:1:refusal-token*=many
+(File
+  (TestCase.refuses refuses "C" "C" (RefusalBody x x x)))
+
+// case: syntax.test.refusal-token.nested/alt
+(File
+  (TestCase.refuses refuses "C" "C" (RefusalBody { })))
+
+// case: syntax.test.refusal-token.nested/rep:1:refusal-token*=0
+(File
+  (TestCase.refuses refuses "C" "C" (RefusalBody { })))
+
+// case: syntax.test.refusal-token.nested/rep:1:refusal-token*=1
+(File
+  (TestCase.refuses refuses "C" "C" (RefusalBody { x })))
+
+// case: syntax.test.refusal-token.nested/rep:1:refusal-token*=many
+(File
+  (TestCase.refuses refuses "C" "C" (RefusalBody { x x x })))
+
+// case: syntax.test.refusal-token.other/alt
+(File
+  (TestCase.refuses refuses "C" "C" (RefusalBody x)))

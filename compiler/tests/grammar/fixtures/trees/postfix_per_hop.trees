@@ -1,0 +1,53 @@
+postfix_per_hop.saw: 1 tree(s)
+  (File
+    (Declaration.func
+      (Func main
+        (Block
+          (Assign
+            (Member
+              (Subscript.single
+                (Member (Name a) b)
+                (IntLit 0))
+              c)
+            (IntLit 1))
+          (CompoundAssign
+            (TupleIndex
+              (Member (Name s) t)
+              0)
+            +=
+            (IntLit 2))
+          (Assign
+            (Member
+              (Call.paren
+                (Name f)
+                (Arg.positional (Name x)))
+              y)
+            (IntLit 3))
+          (OptionalAssign.plain
+            (OptionalChain
+              (Call.paren
+                (Member
+                  (OptionalMember (Name o) p)
+                  q)))
+            (IntLit 4))
+          (Let.immutable
+            (BindingName m)
+            (Move.place
+              (Member
+                (Subscript.single
+                  (Member (Name r) s)
+                  (IntLit 1))
+                t)
+              !))
+          (Let.immutable
+            (BindingName c)
+            (Cast
+              (Cast
+                (Cast
+                  (Name n)
+                  as
+                  (NamedType (Path Int32)))
+                as
+                (NamedType (Path Int64)))
+              as
+              (NamedType (Path UInt64))))))))

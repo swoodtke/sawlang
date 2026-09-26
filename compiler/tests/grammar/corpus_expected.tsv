@@ -26,17 +26,17 @@ compiler/tests/grammar/fixtures/trees/t6_local_const.saw	FAIL	a-removed: syntax.
 compiler/tests/lex/comments.saw	FAIL	a-error: 2:1 near IDENT 'x'
 compiler/tests/lex/directives.saw	FAIL	a-error: 2:1 near HASH_DIRECTIVE 'file'
 compiler/tests/lex/doc_comments.saw	LEXERR	a-error: 4:1 refused by syntax.lex.module-doc
-compiler/tests/lex/error_base_without_digits.saw	LEXERR	a-error: Lexer error at 2:3: integer literal has no digits after '0x'
-compiler/tests/lex/error_decimal_range.saw	LEXERR	a-error: Lexer error at 2:1: integer literal 18446744073709551616 is out of range for a 64-bit integer (max 18446744073709551615)
-compiler/tests/lex/error_dollar_without_digits.saw	LEXERR	a-error: Lexer error at 2:2: Expected number after '$' for shorthand closure parameter
-compiler/tests/lex/error_empty_directive.saw	LEXERR	a-error: Lexer error at 2:1: expected a directive name after `#` (one of #file, #line, #function, #lend_var)
-compiler/tests/lex/error_hex_range.saw	LEXERR	a-error: Lexer error at 2:1: integer literal 18446744073709551616 is out of range for a 64-bit integer (max 18446744073709551615)
-compiler/tests/lex/error_suffix_range.saw	LEXERR	a-error: Lexer error at 2:1: integer literal 256u8 is out of range for `u8` (max 255)
-compiler/tests/lex/error_unexpected_character.saw	LEXERR	a-error: Lexer error at 2:1: Unexpected character: `
-compiler/tests/lex/error_unicode_unterminated.saw	LEXERR	a-error: Lexer error at 2:7: unterminated `\\u{...}` escape
-compiler/tests/lex/error_unicode_without_brace.saw	LEXERR	a-error: Lexer error at 2:4: expected `{` after `\\u` in a Unicode escape (write `\\u{1F600}`)
-compiler/tests/lex/error_unknown_directive.saw	LEXERR	a-error: Lexer error at 2:1: unknown directive `#foo` (expected one of #file, #line, #function, #lend_var)
-compiler/tests/lex/error_unknown_escape.saw	LEXERR	a-error: Lexer error at 2:4: unknown escape `\\q` in a string literal (supported: \\\\ \\" \\n \\t \\r \\0 \\u{...})
+compiler/tests/lex/error_base_without_digits.saw	LEXERR	a-error: Lexer error at 2:3: integer literal has no digits after the base prefix
+compiler/tests/lex/error_decimal_range.saw	LEXERR	a-error: Lexer error at 2:1: integer literal out of range for a 64-bit integer
+compiler/tests/lex/error_dollar_without_digits.saw	LEXERR	a-error: Lexer error at 2:2: Expected number after `$` for shorthand closure parameter
+compiler/tests/lex/error_empty_directive.saw	LEXERR	a-error: Lexer error at 2:1: expected a directive name after `#`
+compiler/tests/lex/error_hex_range.saw	LEXERR	a-error: Lexer error at 2:1: integer literal out of range for a 64-bit integer
+compiler/tests/lex/error_suffix_range.saw	LEXERR	a-error: Lexer error at 2:1: integer literal out of range for its suffix
+compiler/tests/lex/error_unexpected_character.saw	LEXERR	a-error: Lexer error at 2:1: Unexpected character
+compiler/tests/lex/error_unicode_unterminated.saw	LEXERR	a-error: Lexer error at 2:7: unterminated Unicode escape
+compiler/tests/lex/error_unicode_without_brace.saw	LEXERR	a-error: Lexer error at 2:4: expected an opening brace after backslash-u in a Unicode escape
+compiler/tests/lex/error_unknown_directive.saw	LEXERR	a-error: Lexer error at 2:1: unknown directive after `#`
+compiler/tests/lex/error_unknown_escape.saw	LEXERR	a-error: Lexer error at 2:4: unknown escape in a string literal
 compiler/tests/lex/error_unterminated_interpolation.saw	LEXERR	a-error: Lexer error at 2:4: unterminated interpolation in string literal, opened at this `{` (write `\\{` for a literal brace)
 compiler/tests/lex/error_unterminated_string.saw	LEXERR	a-error: Lexer error at 2:5: Unterminated string
 compiler/tests/lex/escapes.saw	FAIL	a-error: 2:1 near STRING 'a\\nb'
@@ -45,16 +45,16 @@ compiler/tests/lex/lexer_unterminated_interpolation.saw	LEXERR	a-error: Lexer er
 compiler/tests/lex/literals.saw	FAIL	a-error: 2:1 near INT '42'
 compiler/tests/lex/operators.saw	FAIL	a-error: 2:1 near PLUS_ASSIGN '+='
 compiler/tests/lex/ranges.saw	FAIL	a-error: 2:1 near INT '0'
-compiler/tests/lex/unicode_escape_malformed_error.saw	LEXERR	a-error: Lexer error at 7:16: `\\u{}` must contain 1–6 hexadecimal digits
-compiler/tests/lex/unicode_escape_oversized_error.saw	LEXERR	a-error: Lexer error at 8:22: `\\u{110000}` is greater than the maximum Unicode scalar 0x10FFFF
-compiler/tests/lex/unicode_escape_surrogate_error.saw	LEXERR	a-error: Lexer error at 8:20: `\\u{D800}` is a surrogate code point, which is not a valid Unicode scalar
+compiler/tests/lex/unicode_escape_malformed_error.saw	LEXERR	a-error: Lexer error at 7:16: Unicode escape must contain 1-6 hexadecimal digits
+compiler/tests/lex/unicode_escape_oversized_error.saw	LEXERR	a-error: Lexer error at 8:22: Unicode escape is greater than the maximum scalar 0x10FFFF
+compiler/tests/lex/unicode_escape_surrogate_error.saw	LEXERR	a-error: Lexer error at 8:20: Unicode escape is a surrogate code point
 compiler/tests/lex/unsafe_expression_marker_removed.saw	FAIL	a-removed: syntax.expr.refused-unsafe
 compiler/tests/subset/cast-then-optional.interpolation.saw	SEGFAIL	c-conflict: 6:17 {n as Int ?? 9} 1:10 refused by syntax.rule.cast-target-question
 compiler/tests/subset/cast-then-optional.newline.saw	FAIL	c-conflict: 15:14 refused by syntax.rule.cast-target-question
 compiler/tests/subset/cast-then-optional.saw	FAIL	c-conflict: 3:23 refused by syntax.rule.cast-target-question
 compiler/tests/subset/interpolation-line-break.saw	SEGFAIL	c-conflict: 5:17 {x\n        + 3}
-compiler/tests/subset/lex.saw	LEXERR	a-error: Lexer error at 3:9: unknown escape `\\q` in a string literal (supported: \\\\ \\" \\n \\t \\r \\0 \\u{...})
-compiler/tests/subset/parse.interpolation-escape.saw	SEGLEX	a-error: 6:14 Lexer error at 1:3: Unexpected character: \\
+compiler/tests/subset/lex.saw	LEXERR	a-error: Lexer error at 3:9: unknown escape in a string literal
+compiler/tests/subset/parse.interpolation-escape.saw	SEGLEX	a-error: 6:14 Lexer error at 1:3: Unexpected character
 compiler/tests/subset/parse.saw	FAIL	a-error: 3:9 near ASSIGN '='
 examples/array_no_extension_error.saw	FAIL	a-removed: syntax.decl.refused-array-extension
 examples/attr_bad_arity_error.saw	FAIL	a-error: 5:9 near NEWLINE '\\n'
@@ -110,10 +110,10 @@ examples/errors/static236_trait_default_no_receiver.saw	FAIL	a-error: 13:5 refus
 examples/errors/static236_trait_requirement_no_receiver.saw	FAIL	a-error: 11:5 refused by syntax.rule.receiver-and-static
 examples/errors/static_in_function.saw	FAIL	a-error: 7:5 near STATIC 'static'
 examples/errors/static_var_without_unsafe.saw	FAIL	a-removed: syntax.decl.refused-static
-examples/errors/string_interpolation_unescaped_brace.saw	SEGLEX	a-error: 8:27 Lexer error at 1:1: Unexpected character: \\
-examples/errors/string_unknown_escape.saw	LEXERR	a-error: Lexer error at 8:16: unknown escape `\\d` in a string literal (supported: \\\\ \\" \\n \\t \\r \\0 \\u{...})
+examples/errors/string_interpolation_unescaped_brace.saw	SEGLEX	a-error: 8:27 Lexer error at 1:1: Unexpected character
+examples/errors/string_unknown_escape.saw	LEXERR	a-error: Lexer error at 8:16: unknown escape in a string literal
 examples/errors/trailing_dot_float.saw	FAIL	a-error: 8:15 near NEWLINE '\\n'
-examples/errors/unknown_directive.saw	LEXERR	a-error: Lexer error at 8:13: unknown directive `#foobar` (expected one of #file, #line, #function, #lend_var)
+examples/errors/unknown_directive.saw	LEXERR	a-error: Lexer error at 8:13: unknown directive after `#`
 examples/errors/unsafe_effect_slot_order.saw	FAIL	a-error: 8:26 near UNSAFE 'unsafe'
 examples/errors/unsafe_expression_marker_removed.saw	FAIL	a-removed: syntax.expr.refused-unsafe
 examples/errors/unsafe_keyword_before_decl.saw	FAIL	a-removed: syntax.decl.refused-effect-prefix
@@ -126,7 +126,7 @@ examples/export229_scoped_import_error.saw	FAIL	a-removed: syntax.decl.refused-s
 examples/export_outside_init_error.saw	FAIL	a-removed: syntax.decl.refused-export
 examples/extension_head_visibility_error.saw	FAIL	a-removed: syntax.decl.refused-visibility-prefix
 examples/extension_head_visibility_package_error.saw	FAIL	a-removed: syntax.decl.refused-visibility-prefix
-examples/int_literal_out_of_range.saw	LEXERR	a-error: Lexer error at 8:19: integer literal 18446744073709551616 is out of range for a 64-bit integer (max 18446744073709551615)
+examples/int_literal_out_of_range.saw	LEXERR	a-error: Lexer error at 8:19: integer literal out of range for a 64-bit integer
 examples/lend_var_both_branches.saw	FAIL	a-removed: syntax.expr.refused-lend-var
 examples/lend_var_conditional_lend.saw	FAIL	a-removed: syntax.expr.refused-lend-var
 examples/lend_var_coro_and_forwarding.saw	FAIL	a-removed: syntax.expr.refused-lend-var
@@ -134,7 +134,7 @@ examples/lend_var_epilogue_nesting.saw	FAIL	a-removed: syntax.expr.refused-lend-
 examples/lend_var_generic_and_match.saw	FAIL	a-removed: syntax.expr.refused-lend-var
 examples/lend_var_two_specializations.saw	FAIL	a-removed: syntax.expr.refused-lend-var
 examples/lexer_unterminated_interpolation.saw	LEXERR	a-error: Lexer error at 10:22: unterminated interpolation in string literal, opened at this `{` (write `\\{` for a literal brace)
-examples/literal_suffix_out_of_range_error.saw	LEXERR	a-error: Lexer error at 7:13: integer literal 256u8 is out of range for `u8` (max 255)
+examples/literal_suffix_out_of_range_error.saw	LEXERR	a-error: Lexer error at 7:13: integer literal out of range for its suffix
 examples/module_tests/test_import_alias_collision_error.saw	FAIL	a-error: 6:25 refused by syntax.rule.import-names
 examples/modules/test_package/init.saw	FAIL	a-removed: syntax.decl.refused-export
 examples/named_tuple_mixed_labeling_error.saw	FAIL	a-removed: syntax.expr.refused-partial-named-tuple
@@ -149,9 +149,9 @@ examples/parse_recovery_two_errors.saw	FAIL	a-error: 10:7 near NEWLINE '\\n'
 examples/try_routing_clause_needs_a_case.saw	FAIL	a-error: 27:19 refused by syntax.rule.try-route-case
 examples/try_routing_clause_refusals.saw	FAIL	a-removed: syntax.expr.refused-try-route
 examples/type_alias_in_function_body_refused.saw	FAIL	a-removed: syntax.stmt.refused-local-type-alias
-examples/unicode_escape_malformed_error.saw	LEXERR	a-error: Lexer error at 6:16: `\\u{}` must contain 1–6 hexadecimal digits
-examples/unicode_escape_oversized_error.saw	LEXERR	a-error: Lexer error at 7:22: `\\u{110000}` is greater than the maximum Unicode scalar 0x10FFFF
-examples/unicode_escape_surrogate_error.saw	LEXERR	a-error: Lexer error at 7:20: `\\u{D800}` is a surrogate code point, which is not a valid Unicode scalar
+examples/unicode_escape_malformed_error.saw	LEXERR	a-error: Lexer error at 6:16: Unicode escape must contain 1-6 hexadecimal digits
+examples/unicode_escape_oversized_error.saw	LEXERR	a-error: Lexer error at 7:22: Unicode escape is greater than the maximum scalar 0x10FFFF
+examples/unicode_escape_surrogate_error.saw	LEXERR	a-error: Lexer error at 7:20: Unicode escape is a surrogate code point
 examples/vis258_private_on_a_function_error.saw	FAIL	a-removed: syntax.decl.refused-visibility-prefix
 examples/visibility_invalid.saw	FAIL	a-error: 5:8 near IDENT 'invalid'
 examples/while_let_no_else_clause.saw	FAIL	a-removed: syntax.expr.refused-while-let-else
@@ -161,7 +161,7 @@ prototypes/minivm/examples/lexer_completion/reject_var_discard.saw	FAIL	a-remove
 prototypes/minivm/examples/numbers/reject_spaced_shift.saw	FAIL	a-error: 1:25 near LT '<'
 prototypes/minivm/examples/owning_records/reject_string_match_interpolation.saw	FAIL	a-error: 4:14 near INTERP_STRING '{value}'
 prototypes/minivm/examples/receivers/reject_value_receiver.saw	FAIL	a-removed: syntax.decl.refused-receiver
-prototypes/minivm/examples/reject_large_literal.saw	LEXERR	a-error: Lexer error at 2:11: integer literal 999999999999999999999999999999999999999999999999999999999999 is out of range for a 64-bit integer (max 18446744073709551615)
+prototypes/minivm/examples/reject_large_literal.saw	LEXERR	a-error: Lexer error at 2:11: integer literal out of range for a 64-bit integer
 prototypes/minivm/examples/reject_semicolon.saw	FAIL	a-error: 1:25 near RBRACE '}'
 prototypes/minivm/examples/reject_truncated.saw	FAIL	a-error: 3:1 near EOF ''
 prototypes/minivm/examples/vectors/reject_optional_constructor.saw	FAIL	a-error: 1:34 near QUESTION '?'

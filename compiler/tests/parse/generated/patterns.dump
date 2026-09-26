@@ -1,0 +1,272 @@
+// case: syntax.pat.pattern.wildcard/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (WildcardPat) (Name c))))))))
+
+// case: syntax.pat.pattern.literal/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (LiteralPat.true) (Name c))))))))
+
+// case: syntax.pat.pattern.range/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (RangePat.exclusive 1 1) (Name c))))))))
+
+// case: syntax.pat.pattern.tuple/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (TuplePat.positional) (Name c))))))))
+
+// case: syntax.pat.pattern.variant/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (VariantPat c) (Name d))))))))
+
+// case: syntax.pat.pattern.name/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (NamePat c) (Name d))))))))
+
+// case: syntax.pat.pattern.none/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (NonePat) (Name c))))))))
+
+// case: syntax.pat.wildcard/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (WildcardPat) (Name c))))))))
+
+// case: syntax.pat.literal.int/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (LiteralPat.int 1) (Name c))))))))
+
+// case: syntax.pat.literal.negative-int/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (LiteralPat.negative-int 1) (Name c))))))))
+
+// case: syntax.pat.literal.string/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (LiteralPat.string "C") (Name c))))))))
+
+// case: syntax.pat.literal.true/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (LiteralPat.true) (Name c))))))))
+
+// case: syntax.pat.literal.false/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (LiteralPat.false) (Name c))))))))
+
+// case: syntax.pat.range.exclusive/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (RangePat.exclusive 1 1) (Name c))))))))
+
+// case: syntax.pat.range.inclusive/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (RangePat.inclusive 1 1) (Name c))))))))
+
+// case: syntax.pat.int.positive/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (RangePat.exclusive 1 1) (Name c))))))))
+
+// case: syntax.pat.int.negative/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (RangePat.exclusive - 1 1) (Name c))))))))
+
+// case: syntax.pat.tuple.positional/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (WhileLet.let (TuplePat.positional) (Name b) (Block)))))))
+
+// case: syntax.pat.tuple.positional/opt:1:(pattern ("," pattern)*)?=absent
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (WhileLet.let (TuplePat.positional) (Name b) (Block)))))))
+
+// case: syntax.pat.tuple.positional/opt:1:(pattern ("," pattern)*)?=present
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (WhileLet.let
+            (TuplePat.positional (NamePat b))
+            (Name c)
+            (Block)))))))
+
+// case: syntax.pat.variant/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (VariantPat c) (Name d))))))))
+
+// case: syntax.pat.variant/opt:2:(payload-pattern ("," payload-pattern)*)?=absent
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (VariantPat c) (Name d))))))))
+
+// case: syntax.pat.variant/opt:2:(payload-pattern ("," payload-pattern)*)?=present
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm
+              (VariantPat c (NamePat d))
+              (Name e))))))))
+
+// case: syntax.pat.payload.pattern/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm
+              (VariantPat c (NamePat d))
+              (Name e))))))))
+
+// case: syntax.pat.payload.borrow/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm
+              (VariantPat c (BorrowBindPat.let d))
+              (Name e))))))))
+
+// case: syntax.pat.name/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (NamePat c) (Name d))))))))
+
+// case: syntax.pat.none/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm (NonePat) (Name c))))))))

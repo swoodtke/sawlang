@@ -1,0 +1,7 @@
+Why: an alternative of one nonterminal builds an Item around the Item that nonterminal builds
+Expect: 51 no-self-wrap
+--- replace
+# syntax.mini.refused  status=removed  spec="Spelling"  node=Error
+--- with
+# syntax.mini.refused  status=removed  spec="Spelling"  node=Item
+--- end

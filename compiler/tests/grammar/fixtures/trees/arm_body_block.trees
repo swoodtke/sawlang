@@ -1,2 +1,22 @@
 arm_body_block.saw: 1 tree(s)
-  File(\n Func(func show ( Param(x : NamedType(Path(Int))) ) Block({ \n ExprStmt(Match(match Name(x) { \n MatchArm(case LiteralPat(0) -> Block({ \n ExprStmt(Call(Name(print) ( Arg(StringLit(zero)) ))) \n })) \n MatchArm(case NamePat(n) -> Call(Name(print) ( Arg(Name(n)) ))) \n })) \n })) \n )
+  (File
+    (Declaration.func
+      (Func show
+        (Param.plain x
+          (NamedType (Path Int)))
+        (Block
+          (ExprStmt
+            (Match
+              (Name x)
+              (MatchArm
+                (LiteralPat.int 0)
+                (Block
+                  (ExprStmt
+                    (Call.paren
+                      (Name print)
+                      (Arg.positional (StringLit "zero"))))))
+              (MatchArm
+                (NamePat n)
+                (Call.paren
+                  (Name print)
+                  (Arg.positional (Name n))))))))))

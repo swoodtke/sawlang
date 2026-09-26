@@ -147,7 +147,11 @@ class Walker:
             return None
         if (p.node in CHAIN_NODES and len(kids) == 1 and not isinstance(kids[0], int)):
             return None
-        if len(alt.items) == 1 and extract.NONTERMINAL_RE.match(alt.items[0]):
+        # An alternative that only names another row's production is that
+        # occurrence, counted once; a child the parent gives a slot of its own
+        # is a component, as a trailing closure is its call's argument.
+        if len(alt.items) == 1 and extract.NONTERMINAL_RE.match(alt.items[0]) \
+                and alt.items[0] not in SLOTS.get(d.nt, {}):
             child = self.g.info.get(alt.items[0])
             if child is not None and (child.name in self.rows
                                       or child.name in PRODUCTION_CONSTRUCTS):

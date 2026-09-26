@@ -1,0 +1,25 @@
+// Which tokens are leaves: optional keywords print, keywords the Kind implies
+// do not, and neither do punctuation, line breaks, comments or grouping
+// parentheses. Literals print exactly as written.
+unsafe struct Raw {
+    private p: Int,
+}
+
+extension Raw {
+    static func make(n: Int) unsafe sync -> Raw {
+        Raw(p: (n + 1_000) * 0XFF)
+    }
+
+    func apply(&self, f: (Int) escaping -> Int?) -> Int?? {
+        let s = "tab\there \u{41}"
+        let t = "two
+lines"
+        f(self.p) << 2u8 >> 1
+    }
+
+    // Every underscore the lexer takes is in the leaf.
+    static func spelled() {
+        let n = 1_ + 0xFF_ + 2_u8 + 2__u8
+        let x = 1.0_ + 1_0.5 + t.0.1
+    }
+}

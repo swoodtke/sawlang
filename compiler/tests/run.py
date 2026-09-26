@@ -6,8 +6,9 @@
 Builds `sawc2` and the unit programs with the frozen compiler and runs the unit
 programs; compares `sawc2 lex` with the golden fixtures in `lex/`, whose token
 kinds and lex errors must cover the lexer's; runs the subset checker over the
-compiler source and its own fixtures in `subset/`; and runs the grammar lint and
-the reference recognizer's own tests in `grammar/`. Each failure prints one line
+compiler source and its own fixtures in `subset/`; and runs the grammar lint,
+the reference recognizer's own tests in `grammar/`, and the parser corpus's
+checks over `parse/`. Each failure prints one line
 in a fixed order, the summary comes last, and any failure exits 1.
 """
 import collections
@@ -28,12 +29,14 @@ import build  # noqa: E402
 import subset_check  # noqa: E402
 import ast_nodes as A  # noqa: E402  (on sys.path through subset_check)
 import test_lint  # noqa: E402
+import test_parse  # noqa: E402
 import test_recognize  # noqa: E402
 
 UNIT_OUT = os.path.join(REPO, ".build", "compiler-tests")
 LEX_FIXTURES = os.path.join(HERE, "lex")
 SUBSET_FIXTURES = os.path.join(HERE, "subset")
 GRAMMAR_FIXTURES = os.path.join(HERE, "grammar", "fixtures")
+PARSE_CORPUS = os.path.join(HERE, "parse")
 LEXER_SOURCE = os.path.join(COMPILER, "lex", "src", "lib.saw")
 RUN_TIMEOUT = 60
 
@@ -114,6 +117,7 @@ def check_fixture_whitespace(run):
     both, which would change a fixture on its way into the tree."""
     paths = [p for d in (LEX_FIXTURES, SUBSET_FIXTURES) for p in glob.glob(os.path.join(d, "*"))]
     paths += glob.glob(os.path.join(GRAMMAR_FIXTURES, "**", "*.*"), recursive=True)
+    paths += glob.glob(os.path.join(PARSE_CORPUS, "**", "*.*"), recursive=True)
     for path in sorted(paths):
         rel = os.path.relpath(path, REPO)
         with open(path, "rb") as fh:
@@ -284,9 +288,10 @@ def check_subset_fixture(run, path):
 
 
 def run_grammar(run):
-    """The grammar lint with its fixtures, and the recognizer's unit tests; the
-    full-corpus recognizer run is the battery's `grammarcorpus` lane."""
-    for module in (test_lint, test_recognize):
+    """The grammar lint with its fixtures, the recognizer's unit tests, and the
+    parser corpus's checks; the full-corpus recognizer run is the battery's
+    `grammarcorpus` lane."""
+    for module in (test_lint, test_recognize, test_parse):
         failures, counts = module.run()
         for failure in failures:
             run.fail(failure)

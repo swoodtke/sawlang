@@ -1,2 +1,15 @@
 q5_paren_type_groups.saw: 1 tree(s)
-  File(Func(func apply ( Param(f : Optional(FuncType(( NamedType(Path(Int)) ) -> NamedType(Path(Int))))) , Param(g : NamedType(Path(Int))) , Param(t : TupleType(( NamedType(Path(Int)) , ))) ) Block({ \n })) \n )
+  (File
+    (Declaration.func
+      (Func apply
+        (Param.plain f
+          (OptionalType
+            (FuncType
+              (NamedType (Path Int))
+              (NamedType (Path Int)))))
+        (Param.plain g
+          (NamedType (Path Int)))
+        (Param.plain t
+          (TupleType
+            (NamedType (Path Int))))
+        (Block))))

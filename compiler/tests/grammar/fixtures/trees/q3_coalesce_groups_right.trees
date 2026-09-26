@@ -1,2 +1,14 @@
 q3_coalesce_groups_right.saw: 1 tree(s)
-  File(Func(func pick ( Param(a : Optional(NamedType(Path(Int)))) , Param(b : Optional(NamedType(Path(Int)))) ) -> NamedType(Path(Int)) Block({ \n ExprStmt(Coalesce(Name(a) ?? Name(b) ?? IntLit(0))) \n })) \n )
+  (File
+    (Declaration.func
+      (Func pick
+        (Param.plain a
+          (OptionalType
+            (NamedType (Path Int))))
+        (Param.plain b
+          (OptionalType
+            (NamedType (Path Int))))
+        (NamedType (Path Int))
+        (Block
+          (ExprStmt
+            (Coalesce (Name a) ?? (Name b) ?? (IntLit 0)))))))

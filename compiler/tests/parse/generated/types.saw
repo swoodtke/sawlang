@@ -1,0 +1,350 @@
+// case: syntax.type.type.ref/alt
+type a = & b
+
+// case: syntax.type.type.func/alt
+type a = () -> b
+
+// case: syntax.type.type.suffixed/alt
+type a = b
+
+// case: syntax.type.type.suffixed/rep:1:type-suffix*=0
+type a = b
+
+// case: syntax.type.type.suffixed/rep:1:type-suffix*=1
+type a = b?
+
+// case: syntax.type.type.suffixed/rep:1:type-suffix*=many
+type a = b? ? ?
+
+// case: syntax.type.suffix.optional/alt
+type a = b?
+
+// case: syntax.type.suffix.double-optional/alt
+type a = b ??
+
+// case: syntax.type.atom.named/alt
+type a = b
+
+// case: syntax.type.atom.slice/alt
+type a = & [b]
+
+// case: syntax.type.atom.array/alt
+type a = [b; c]
+
+// case: syntax.type.atom.tuple/alt
+type a = ()
+
+// case: syntax.type.atom.single-tuple/alt
+type a = (b,)
+
+// case: syntax.type.atom.paren/alt
+type a = (b)
+
+// case: syntax.type.atom.any/alt
+type a = any b
+
+// case: syntax.type.named/alt
+type a = b
+
+// case: syntax.type.named/opt:1:generic-args?=absent
+type a = b
+
+// case: syntax.type.named/opt:1:generic-args?=present
+type a = b < c >
+
+// case: syntax.type.ref.shared/alt
+type a = & b
+
+// case: syntax.type.ref.exclusive/alt
+type a = & var b
+
+// case: syntax.type.slice.shared/alt
+type a = & [b]
+
+// case: syntax.type.slice.exclusive/alt
+type a = & var [b]
+
+// case: syntax.type.array/alt
+type a = [b; c]
+
+// case: syntax.type.tuple.unit/alt
+type a = ()
+
+// case: syntax.type.tuple.positional/alt
+type a = (b, c)
+
+// case: syntax.type.tuple.positional/rep:2:("," type)+=1
+type a = (b, c)
+
+// case: syntax.type.tuple.positional/rep:2:("," type)+=many
+type a = (b, c, d, e)
+
+// case: syntax.type.tuple.positional/opt:3:","?=absent
+type a = (b, c)
+
+// case: syntax.type.tuple.positional/opt:3:","?=present
+type a = (b, c,)
+
+// case: syntax.type.tuple.named/alt
+type a = (b: c)
+
+// case: syntax.type.tuple.named/rep:2:("," tuple-type-field)*=0
+type a = (b: c)
+
+// case: syntax.type.tuple.named/rep:2:("," tuple-type-field)*=1
+type a = (b: c, d: e)
+
+// case: syntax.type.tuple.named/rep:2:("," tuple-type-field)*=many
+type a = (b: c, d: e, f: g, h: i)
+
+// case: syntax.type.tuple.named/opt:3:","?=absent
+type a = (b: c)
+
+// case: syntax.type.tuple.named/opt:3:","?=present
+type a = (b: c,)
+
+// case: syntax.type.tuple.positional/pair:2:("," type)+=many,3:","?=present
+type a = (b, c, d, e,)
+
+// case: syntax.type.tuple.named/pair:2:("," tuple-type-field)*=many,3:","?=present
+type a = (b: c, d: e, f: g, h: i,)
+
+// case: syntax.type.tuple-field/alt
+type a = (b: c)
+
+// case: syntax.type.single-tuple/alt
+type a = (b,)
+
+// case: syntax.type.paren/alt
+type a = (b)
+
+// case: syntax.type.func/alt
+type a = () -> b
+
+// case: syntax.type.func/opt:1:func-type-params?=absent
+type a = () -> b
+
+// case: syntax.type.func/opt:1:func-type-params?=present
+type a = (b) -> c
+
+// case: syntax.type.func-params/alt
+type a = (b) -> c
+
+// case: syntax.type.func-params/rep:1:("," type)*=0
+type a = (b) -> c
+
+// case: syntax.type.func-params/rep:1:("," type)*=1
+type a = (b, c) -> d
+
+// case: syntax.type.func-params/rep:1:("," type)*=many
+type a = (b, c, d, e) -> f
+
+// case: syntax.type.func-params/opt:2:","?=absent
+type a = (b) -> c
+
+// case: syntax.type.func-params/opt:2:","?=present
+type a = (b,) -> c
+
+// case: syntax.type.func-params/pair:1:("," type)*=many,2:","?=present
+type a = (b, c, d, e,) -> f
+
+// case: syntax.type.func-effects/alt
+type a = () -> b
+
+// case: syntax.type.func-effects/opt:0:"unsafe"?=absent
+type a = () -> b
+
+// case: syntax.type.func-effects/opt:0:"unsafe"?=present
+type a = () unsafe -> b
+
+// case: syntax.type.func-effects/opt:1:'sync'?=absent
+type a = () -> b
+
+// case: syntax.type.func-effects/opt:1:'sync'?=present
+type a = () sync -> b
+
+// case: syntax.type.func-effects/opt:2:'escaping'?=absent
+type a = () -> b
+
+// case: syntax.type.func-effects/opt:2:'escaping'?=present
+type a = () escaping -> b
+
+// case: syntax.type.func-effects/opt:3:func-type-borrows?=absent
+type a = () -> b
+
+// case: syntax.type.func-effects/opt:3:func-type-borrows?=present
+type a = () borrows -> b
+
+// case: syntax.type.func-effects/pair:0:"unsafe"?=present,1:'sync'?=present
+type a = () unsafe sync -> b
+
+// case: syntax.type.func-effects/pair:0:"unsafe"?=present,2:'escaping'?=present
+type a = () unsafe escaping -> b
+
+// case: syntax.type.func-effects/pair:0:"unsafe"?=present,3:func-type-borrows?=present
+type a = () unsafe borrows -> b
+
+// case: syntax.type.func-effects/pair:1:'sync'?=present,2:'escaping'?=present
+type a = () sync escaping -> b
+
+// case: syntax.type.func-effects/pair:1:'sync'?=present,3:func-type-borrows?=present
+type a = () sync borrows -> b
+
+// case: syntax.type.func-effects/pair:2:'escaping'?=present,3:func-type-borrows?=present
+type a = () escaping borrows -> b
+
+// case: syntax.type.func-borrows.plain/alt
+type a = () borrows -> b
+
+// case: syntax.type.func-borrows.sync/alt
+type a = () borrows (sync) -> b
+
+// case: syntax.type.any/alt
+type a = any b
+
+// case: syntax.type.cast-target.plain/alt
+func a() { b as c }
+
+// case: syntax.type.cast-target.optional/alt
+func a() { b as c? }
+
+// case: syntax.type.cast-target.ref/alt
+func a() { b as & c }
+
+// case: syntax.type.cast-target.func/alt
+func a() { b as () -> c }
+
+// case: syntax.generic.params.list/alt
+enum a < b > { }
+
+// case: syntax.generic.params.list/rep:2:("," generic-param)*=0
+enum a < b > { }
+
+// case: syntax.generic.params.list/rep:2:("," generic-param)*=1
+enum a < b, c > { }
+
+// case: syntax.generic.params.list/rep:2:("," generic-param)*=many
+enum a < b, c, d, e > { }
+
+// case: syntax.generic.param.type/alt
+enum a < b > { }
+
+// case: syntax.generic.param.type/opt:1:bound-list?=absent
+enum a < b > { }
+
+// case: syntax.generic.param.type/opt:1:bound-list?=present
+enum a < b: c > { }
+
+// case: syntax.generic.param.type/opt:2:("=" type)?=absent
+enum a < b > { }
+
+// case: syntax.generic.param.type/opt:2:("=" type)?=present
+enum a < b = c > { }
+
+// case: syntax.generic.param.const/alt
+enum a < const b: c > { }
+
+// case: syntax.generic.param.const/opt:4:("=" const-expr)?=absent
+enum a < const b: c > { }
+
+// case: syntax.generic.param.const/opt:4:("=" const-expr)?=present
+enum a < const b: c = d > { }
+
+// case: syntax.generic.param.type/pair:1:bound-list?=present,2:("=" type)?=present
+enum a < b: c = d > { }
+
+// case: syntax.generic.bounds/alt
+enum a < b: c > { }
+
+// case: syntax.generic.bounds/rep:2:("+" path)*=0
+enum a < b: c > { }
+
+// case: syntax.generic.bounds/rep:2:("+" path)*=1
+enum a < b: c + d > { }
+
+// case: syntax.generic.bounds/rep:2:("+" path)*=many
+enum a < b: c + d + e + f > { }
+
+// case: syntax.generic.args.list/alt
+type a = b < c >
+
+// case: syntax.generic.args.list/rep:2:("," generic-arg)*=0
+type a = b < c >
+
+// case: syntax.generic.args.list/rep:2:("," generic-arg)*=1
+type a = b < c, d >
+
+// case: syntax.generic.args.list/rep:2:("," generic-arg)*=many
+type a = b < c, d, e, f >
+
+// case: syntax.generic.arg.type/alt
+type a = b < c >
+
+// case: syntax.generic.arg.value/alt
+type a = b < - c >
+
+// case: syntax.const.expr/alt
+type a = b < - c >
+
+// case: syntax.const.expr/rep:1:(const-add-op const-term)*=0
+type a = b < - c >
+
+// case: syntax.const.expr/rep:1:(const-add-op const-term)*=1
+type a = b < c + d >
+
+// case: syntax.const.expr/rep:1:(const-add-op const-term)*=many
+type a = b < c + d + e + f >
+
+// case: syntax.const.add-op.plus/alt
+type a = b < c + d >
+
+// case: syntax.const.add-op.minus/alt
+type a = b < c - d >
+
+// case: syntax.const.term/alt
+type a = b < - c >
+
+// case: syntax.const.term/rep:1:(const-mul-op const-unary)*=0
+type a = b < - c >
+
+// case: syntax.const.term/rep:1:(const-mul-op const-unary)*=1
+type a = b < c * d >
+
+// case: syntax.const.term/rep:1:(const-mul-op const-unary)*=many
+type a = b < c * d * e * f >
+
+// case: syntax.const.mul-op.times/alt
+type a = b < c * d >
+
+// case: syntax.const.mul-op.divide/alt
+type a = b < c / d >
+
+// case: syntax.const.mul-op.remainder/alt
+type a = b < c % d >
+
+// case: syntax.const.unary.negate/alt
+type a = b < - c >
+
+// case: syntax.const.unary.atom/alt
+type a = b < 1 >
+
+// case: syntax.const.negate/alt
+type a = b < - c >
+
+// case: syntax.const.atom.int/alt
+type a = b < 1 >
+
+// case: syntax.const.atom.name/alt
+type a = b < c * d >
+
+// case: syntax.const.atom.group/alt
+type a = b < (- c) >
+
+// case: syntax.const.atom.layout/alt
+type a = b < sizeof < c > () >
+
+// case: syntax.const.layout-query.size/alt
+type a = b < sizeof < c > () >
+
+// case: syntax.const.layout-query.align/alt
+type a = b < alignof < c > () >

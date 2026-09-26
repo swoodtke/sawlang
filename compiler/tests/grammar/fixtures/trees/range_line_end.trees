@@ -1,2 +1,26 @@
 range_line_end.saw: 1 tree(s)
-  File(Func(func main ( ) Block({ \n Let(let BindingName(v) = Range(Name(a) ..)) \n ExprStmt(Call(Name(g) ( ))) \n Let(let BindingName(u) = Range(..)) \n ExprStmt(Call(Name(h) ( ))) \n Let(let BindingName(w) = Range(Name(a) .. Name(b))) \n Let(let BindingName(s) = Subscript(Name(buf) [ Range(IntLit(4) ..) ])) \n ExprStmt(Call(Name(f) ( Arg(Range(Name(a) ..= Name(b))) ))) \n })) \n )
+  (File
+    (Declaration.func
+      (Func main
+        (Block
+          (Let.immutable
+            (BindingName v)
+            (Range.from (Name a) ..))
+          (ExprStmt
+            (Call.paren (Name g)))
+          (Let.immutable (BindingName u) (Range.upto ..))
+          (ExprStmt
+            (Call.paren (Name h)))
+          (Let.immutable
+            (BindingName w)
+            (Range.closed (Name a) .. (Name b)))
+          (Let.immutable
+            (BindingName s)
+            (Subscript.single
+              (Name buf)
+              (Range.from (IntLit 4) ..)))
+          (ExprStmt
+            (Call.paren
+              (Name f)
+              (Arg.positional
+                (Range.closed (Name a) ..= (Name b)))))))))

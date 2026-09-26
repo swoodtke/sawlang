@@ -1,6 +1,35 @@
 newline_after_comparison.saw: 1 tree(s)
-  File(Func(func main ( ) Block({ \n Let(let BindingName(n) = IntLit(1)) \n Let(let BindingName(max) = IntLit(5)) \n Let(let BindingName(m) = IntLit(2)) \n Let(var BindingName(ok) = BoolLit(false)) \n Let(var BindingName(big) = BoolLit(false)) \n Assign(Name(ok) = Binary(Name(n) < Name(max))) \n Assign(Name(big) = Binary(Name(m) > IntLit(0))) \n ExprStmt(Call(Name(print) ( Arg(Interp({ok} {big})) ))) \n ExprStmt(Call(Name(f) ( Arg(Binary(Name(a) < Name(b))) ))) \n ExprStmt(Call(Name(g) ( Arg(Binary(Name(c) > Name(d))) ))) \n })) \n )
+  (File
+    (Declaration.func
+      (Func main
+        (Block
+          (Let.immutable (BindingName n) (IntLit 1))
+          (Let.immutable (BindingName max) (IntLit 5))
+          (Let.immutable (BindingName m) (IntLit 2))
+          (Let.mutable (BindingName ok) (BoolLit.false))
+          (Let.mutable (BindingName big) (BoolLit.false))
+          (Assign
+            (Name ok)
+            (Binary.pair (Name n) < (Name max)))
+          (Assign
+            (Name big)
+            (Binary.pair (Name m) > (IntLit 0)))
+          (ExprStmt
+            (Call.paren
+              (Name print)
+              (Arg.positional
+                (Interp (Name ok) " " (Name big)))))
+          (ExprStmt
+            (Call.paren
+              (Name f)
+              (Arg.positional
+                (Binary.pair (Name a) < (Name b)))))
+          (ExprStmt
+            (Call.paren
+              (Name g)
+              (Arg.positional
+                (Binary.pair (Name c) > (Name d)))))))))
 newline_after_comparison.saw segment 9:12: 1 tree(s)
-  Name(ok)
+  (Name ok)
 newline_after_comparison.saw segment 9:17: 1 tree(s)
-  Name(big)
+  (Name big)

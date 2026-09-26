@@ -1,0 +1,46 @@
+(File
+  (Doc "A module doc: the File's first child." "A second line.")
+  (Import.private (Path std io) . { })
+  (Import.private (Path std env) . *)
+  (Import.private (Path std path) as p)
+  (Declaration.enum
+    (Doc "Documents the enum; a case with an empty payload shows its parentheses.")
+    (Visibility.public)
+    (Enum Shape
+      (Case (Doc "The case's own doc.") Dot \( \))
+      (Case Blank)))
+  (TestOnly.item
+    (Declaration.func
+      (Doc "Documents the method inside `@test`.")
+      (Func helper
+        (Block
+          (ExprStmt
+            (Call.paren
+              (Name print)
+              (Arg.positional
+                (Interp "a \{ "
+                  (Name x)
+                  {}
+                  " b "
+                  (Interp (Name y))
+                  " c"))))))))
+  (Declaration.extension
+    (Extension
+      (Path Grid)
+      (ExtensionMember.method
+        (Method [ ]
+          (Param.receiver (Receiver.shared))
+          (Param.plain i
+            (NamedType (Path Int)))
+          (NamedType (Path Int))
+          (Block
+            (ExprStmt (Name i)))))
+      (ExtensionMember.method
+        (Method [ ] =
+          (Param.receiver (Receiver.exclusive))
+          (Param.plain i
+            (NamedType (Path Int)))
+          (Param.plain value
+            (NamedType (Path Int)))
+          (Block)))))
+  (TestCase.refuses refuses "syntax.stmt.refused-var-discard" "a refusal" (RefusalBody \x0a var _ = f \( { 1 } \) \x0a)))

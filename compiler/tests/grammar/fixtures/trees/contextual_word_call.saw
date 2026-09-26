@@ -2,4 +2,7 @@
 func main() {
     let n = lends(3)
     static_assert(N > 0, "a ring needs room")
+    match n {
+        case _ -> static_assert(N > 1, "an arm body is a statement")
+    }
 }

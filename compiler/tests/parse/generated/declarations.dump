@@ -1,0 +1,2734 @@
+// case: syntax.file.source/alt
+(File)
+
+// case: syntax.file.source/rep:0:NEWLINE*=0
+(File (ModuleDecl.file a))
+
+// case: syntax.file.source/rep:0:NEWLINE*=1
+(File)
+
+// case: syntax.file.source/rep:0:NEWLINE*=many
+(File)
+
+// case: syntax.file.source/opt:1:top-level-list?=absent
+(File)
+
+// case: syntax.file.source/opt:1:top-level-list?=present
+(File (ModuleDecl.file a))
+
+// case: syntax.file.source/pair:0:NEWLINE*=many,1:top-level-list?=present
+(File (ModuleDecl.file a))
+
+// case: syntax.file.list/alt
+(File (ModuleDecl.file a))
+
+// case: syntax.file.list/rep:1:(NEWLINE+ top-level-item)*=0
+(File (ModuleDecl.file a))
+
+// case: syntax.file.list/rep:1:(NEWLINE+ top-level-item)*=1
+(File (ModuleDecl.file a) (ModuleDecl.file b))
+
+// case: syntax.file.list/rep:1:(NEWLINE+ top-level-item)*=many
+(File (ModuleDecl.file a) (ModuleDecl.file b) (ModuleDecl.file c) (ModuleDecl.file d))
+
+// case: syntax.file.list/rep:2:NEWLINE*=0
+(File
+  (ModuleDecl.inline a (ModuleDecl.file b)))
+
+// case: syntax.file.list/rep:2:NEWLINE*=1
+(File (ModuleDecl.file a))
+
+// case: syntax.file.list/rep:2:NEWLINE*=many
+(File (ModuleDecl.file a))
+
+// case: syntax.file.list/pair:1:(NEWLINE+ top-level-item)*=many,2:NEWLINE*=many
+(File (ModuleDecl.file a) (ModuleDecl.file b) (ModuleDecl.file c) (ModuleDecl.file d))
+
+// case: syntax.file.item.import/alt
+(File
+  (Import.private (Path a)))
+
+// case: syntax.file.item.module/alt
+(File (ModuleDecl.file a))
+
+// case: syntax.file.item.static-assert/alt
+(File
+  (StaticAssert (Name a) "C"))
+
+// case: syntax.file.item.declaration/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType (Path b)))))
+
+// case: syntax.file.item.test/alt
+(File
+  (TestOnly.import
+    (Import.private (Path a))))
+
+// case: syntax.decl.item.func/alt
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.item.func/opt:0:attribute-list?=absent
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.item.func/opt:0:attribute-list?=present
+(File
+  (Declaration.func
+    (Attribute.export)
+    (Func a (Block))))
+
+// case: syntax.decl.item.func/opt:1:visibility?=absent
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.item.func/opt:1:visibility?=present
+(File
+  (Declaration.func
+    (Visibility.public)
+    (Func a (Block))))
+
+// case: syntax.decl.item.static/alt
+(File
+  (Declaration.static
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.item.static/opt:0:attribute-list?=absent
+(File
+  (Declaration.static
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.item.static/opt:0:attribute-list?=present
+(File
+  (Declaration.static
+    (Attribute.export)
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.item.static/opt:1:visibility?=absent
+(File
+  (Declaration.static
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.item.static/opt:1:visibility?=present
+(File
+  (Declaration.static
+    (Visibility.public)
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.item.extension/alt
+(File
+  (Declaration.extension
+    (Extension (Path a))))
+
+// case: syntax.decl.item.extension/opt:0:attribute-list?=absent
+(File
+  (Declaration.extension
+    (Extension (Path a))))
+
+// case: syntax.decl.item.extension/opt:0:attribute-list?=present
+(File
+  (Declaration.extension
+    (Attribute.synthesize)
+    (Extension (Path a))))
+
+// case: syntax.decl.item.struct/alt
+(File
+  (Declaration.struct (Struct a)))
+
+// case: syntax.decl.item.struct/opt:0:visibility?=absent
+(File
+  (Declaration.struct (Struct a)))
+
+// case: syntax.decl.item.struct/opt:0:visibility?=present
+(File
+  (Declaration.struct (Visibility.public) (Struct a)))
+
+// case: syntax.decl.item.enum/alt
+(File
+  (Declaration.enum (Enum a)))
+
+// case: syntax.decl.item.enum/opt:0:visibility?=absent
+(File
+  (Declaration.enum (Enum a)))
+
+// case: syntax.decl.item.enum/opt:0:visibility?=present
+(File
+  (Declaration.enum (Visibility.public) (Enum a)))
+
+// case: syntax.decl.item.trait/alt
+(File
+  (Declaration.trait (Trait a)))
+
+// case: syntax.decl.item.trait/opt:0:visibility?=absent
+(File
+  (Declaration.trait (Trait a)))
+
+// case: syntax.decl.item.trait/opt:0:visibility?=present
+(File
+  (Declaration.trait (Visibility.public) (Trait a)))
+
+// case: syntax.decl.item.type-alias/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.item.type-alias/opt:0:visibility?=absent
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.item.type-alias/opt:0:visibility?=present
+(File
+  (Declaration.type-alias
+    (Visibility.public)
+    (TypeAlias a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.item.extern/alt
+(File
+  (Declaration.extern (ExternBlock "C")))
+
+// case: syntax.decl.item.func/pair:0:attribute-list?=present,1:visibility?=present
+(File
+  (Declaration.func
+    (Attribute.export)
+    (Visibility.public)
+    (Func a (Block))))
+
+// case: syntax.decl.item.static/pair:0:attribute-list?=present,1:visibility?=present
+(File
+  (Declaration.static
+    (Attribute.export)
+    (Visibility.public)
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.visibility.public/alt
+(File
+  (Declaration.type-alias
+    (Visibility.public)
+    (TypeAlias a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.visibility.package/alt
+(File
+  (Declaration.type-alias
+    (Visibility.package)
+    (TypeAlias a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.visibility.parent/alt
+(File
+  (Declaration.type-alias
+    (Visibility.parent)
+    (TypeAlias a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.import.private/alt
+(File
+  (Import.private (Path a)))
+
+// case: syntax.decl.import.reexport/alt
+(File
+  (Import.reexport (Path a)))
+
+// case: syntax.decl.import-target.module/alt
+(File
+  (Import.private (Path a)))
+
+// case: syntax.decl.import-target.module-alias/alt
+(File
+  (Import.private (Path a) as b))
+
+// case: syntax.decl.import-target.glob/alt
+(File
+  (Import.private (Path a) . *))
+
+// case: syntax.decl.import-target.selective/alt
+(File
+  (Import.private (Path a) . { }))
+
+// case: syntax.decl.import-target.selective/rep:3:NEWLINE*=0
+(File
+  (Import.private (Path a) . { }))
+
+// case: syntax.decl.import-target.selective/rep:3:NEWLINE*=1
+(File
+  (Import.private (Path a) . { }))
+
+// case: syntax.decl.import-target.selective/rep:3:NEWLINE*=many
+(File
+  (Import.private (Path a) . { }))
+
+// case: syntax.decl.import-target.selective/opt:4:import-symbol-list?=absent
+(File
+  (Import.private (Path a) . { }))
+
+// case: syntax.decl.import-target.selective/opt:4:import-symbol-list?=present
+(File
+  (Import.private (Path a) . { (ImportSymbol.name b) }))
+
+// case: syntax.decl.import-target.selective/pair:3:NEWLINE*=many,4:import-symbol-list?=present
+(File
+  (Import.private (Path a) . { (ImportSymbol.name b) }))
+
+// case: syntax.decl.import-symbols/alt
+(File
+  (Import.private (Path a) . { (ImportSymbol.name b) }))
+
+// case: syntax.decl.import-symbols/rep:1:("," NEWLINE* import-symbol)*=0
+(File
+  (Import.private (Path a) . { (ImportSymbol.name b) }))
+
+// case: syntax.decl.import-symbols/rep:1:("," NEWLINE* import-symbol)*=1
+(File
+  (Import.private (Path a) . { (ImportSymbol.name b) (ImportSymbol.name c) }))
+
+// case: syntax.decl.import-symbols/rep:1:("," NEWLINE* import-symbol)*=many
+(File
+  (Import.private (Path a) . { (ImportSymbol.name b) (ImportSymbol.name c) (ImportSymbol.name d) (ImportSymbol.name e) }))
+
+// case: syntax.decl.import-symbols/opt:2:("," NEWLINE*)?=absent
+(File
+  (Import.private (Path a) . { (ImportSymbol.name b) }))
+
+// case: syntax.decl.import-symbols/opt:2:("," NEWLINE*)?=present
+(File
+  (Import.private (Path a) . { (ImportSymbol.name b) }))
+
+// case: syntax.decl.import-symbols/pair:1:("," NEWLINE* import-symbol)*=many,2:("," NEWLINE*)?=present
+(File
+  (Import.private (Path a) . { (ImportSymbol.name b) (ImportSymbol.name c) (ImportSymbol.name d) (ImportSymbol.name e) }))
+
+// case: syntax.decl.import-symbol.name/alt
+(File
+  (Import.private (Path a) . { (ImportSymbol.name b) }))
+
+// case: syntax.decl.import-symbol.name/rep:1:NEWLINE*=0
+(File
+  (Import.private (Path a) . { (ImportSymbol.name b) }))
+
+// case: syntax.decl.import-symbol.name/rep:1:NEWLINE*=1
+(File
+  (Import.private (Path a) . { (ImportSymbol.name b) }))
+
+// case: syntax.decl.import-symbol.name/rep:1:NEWLINE*=many
+(File
+  (Import.private (Path a) . { (ImportSymbol.name b) }))
+
+// case: syntax.decl.import-symbol.alias/alt
+(File
+  (Import.private (Path a) . { (ImportSymbol.alias b c) }))
+
+// case: syntax.decl.import-symbol.alias/rep:3:NEWLINE*=0
+(File
+  (Import.private (Path a) . { (ImportSymbol.alias b c) }))
+
+// case: syntax.decl.import-symbol.alias/rep:3:NEWLINE*=1
+(File
+  (Import.private (Path a) . { (ImportSymbol.alias b c) }))
+
+// case: syntax.decl.import-symbol.alias/rep:3:NEWLINE*=many
+(File
+  (Import.private (Path a) . { (ImportSymbol.alias b c) }))
+
+// case: syntax.decl.module.file/alt
+(File (ModuleDecl.file a))
+
+// case: syntax.decl.module.file/opt:0:"public"?=absent
+(File (ModuleDecl.file a))
+
+// case: syntax.decl.module.file/opt:0:"public"?=present
+(File (ModuleDecl.file public a))
+
+// case: syntax.decl.module.inline/alt
+(File (ModuleDecl.inline a))
+
+// case: syntax.decl.module.inline/opt:0:"public"?=absent
+(File (ModuleDecl.inline a))
+
+// case: syntax.decl.module.inline/opt:0:"public"?=present
+(File (ModuleDecl.inline public a))
+
+// case: syntax.decl.module.inline/rep:3:NEWLINE*=0
+(File (ModuleDecl.inline a))
+
+// case: syntax.decl.module.inline/rep:3:NEWLINE*=1
+(File (ModuleDecl.inline a))
+
+// case: syntax.decl.module.inline/rep:3:NEWLINE*=many
+(File (ModuleDecl.inline a))
+
+// case: syntax.decl.module.inline/rep:5:NEWLINE*=0
+(File (ModuleDecl.inline a))
+
+// case: syntax.decl.module.inline/rep:5:NEWLINE*=1
+(File (ModuleDecl.inline a))
+
+// case: syntax.decl.module.inline/rep:5:NEWLINE*=many
+(File (ModuleDecl.inline a))
+
+// case: syntax.decl.module.inline/opt:6:top-level-list?=absent
+(File (ModuleDecl.inline a))
+
+// case: syntax.decl.module.inline/opt:6:top-level-list?=present
+(File
+  (ModuleDecl.inline a (ModuleDecl.file b)))
+
+// case: syntax.decl.module.inline/pair:0:"public"?=present,3:NEWLINE*=many
+(File (ModuleDecl.inline public a))
+
+// case: syntax.decl.module.inline/pair:0:"public"?=present,5:NEWLINE*=many
+(File (ModuleDecl.inline public a))
+
+// case: syntax.decl.module.inline/pair:0:"public"?=present,6:top-level-list?=present
+(File
+  (ModuleDecl.inline public a (ModuleDecl.file b)))
+
+// case: syntax.decl.module.inline/pair:3:NEWLINE*=many,5:NEWLINE*=many
+(File (ModuleDecl.inline a))
+
+// case: syntax.decl.module.inline/pair:3:NEWLINE*=many,6:top-level-list?=present
+(File
+  (ModuleDecl.inline a (ModuleDecl.file b)))
+
+// case: syntax.decl.module.inline/pair:5:NEWLINE*=many,6:top-level-list?=present
+(File
+  (ModuleDecl.inline a (ModuleDecl.file b)))
+
+// case: syntax.decl.static-assert/alt
+(File
+  (StaticAssert (Name a) "C"))
+
+// case: syntax.type.path/alt
+(File
+  (Import.private (Path a)))
+
+// case: syntax.type.path/rep:1:("." IDENT)*=0
+(File
+  (Import.private (Path a)))
+
+// case: syntax.type.path/rep:1:("." IDENT)*=1
+(File
+  (Import.private (Path a b)))
+
+// case: syntax.type.path/rep:1:("." IDENT)*=many
+(File
+  (Import.private (Path a b c d)))
+
+// case: syntax.decl.func/alt
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.func/opt:2:generic-params?=absent
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.func/opt:2:generic-params?=present
+(File
+  (Declaration.func
+    (Func a (GenericParam.type b) (Block))))
+
+// case: syntax.decl.func/opt:4:param-list?=absent
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.func/opt:4:param-list?=present
+(File
+  (Declaration.func
+    (Func a
+      (Param.plain b
+        (NamedType (Path c)))
+      (Block))))
+
+// case: syntax.decl.func/opt:7:return-clause?=absent
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.func/opt:7:return-clause?=present
+(File
+  (Declaration.func
+    (Func a
+      (NamedType (Path b))
+      (Block))))
+
+// case: syntax.decl.func/rep:8:NEWLINE*=0
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.func/rep:8:NEWLINE*=1
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.func/rep:8:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.func/pair:2:generic-params?=present,4:param-list?=present
+(File
+  (Declaration.func
+    (Func a
+      (GenericParam.type b)
+      (Param.plain c
+        (NamedType (Path d)))
+      (Block))))
+
+// case: syntax.decl.func/pair:2:generic-params?=present,7:return-clause?=present
+(File
+  (Declaration.func
+    (Func a
+      (GenericParam.type b)
+      (NamedType (Path c))
+      (Block))))
+
+// case: syntax.decl.func/pair:2:generic-params?=present,8:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a (GenericParam.type b) (Block))))
+
+// case: syntax.decl.func/pair:4:param-list?=present,7:return-clause?=present
+(File
+  (Declaration.func
+    (Func a
+      (Param.plain b
+        (NamedType (Path c)))
+      (NamedType (Path d))
+      (Block))))
+
+// case: syntax.decl.func/pair:4:param-list?=present,8:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (Param.plain b
+        (NamedType (Path c)))
+      (Block))))
+
+// case: syntax.decl.func/pair:7:return-clause?=present,8:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (NamedType (Path b))
+      (Block))))
+
+// case: syntax.decl.params/alt
+(File
+  (Declaration.func
+    (Func a
+      (Param.plain b
+        (NamedType (Path c)))
+      (Block))))
+
+// case: syntax.decl.params/rep:1:("," param)*=0
+(File
+  (Declaration.func
+    (Func a
+      (Param.plain b
+        (NamedType (Path c)))
+      (Block))))
+
+// case: syntax.decl.params/rep:1:("," param)*=1
+(File
+  (Declaration.func
+    (Func a
+      (Param.plain b
+        (NamedType (Path c)))
+      (Param.plain d
+        (NamedType (Path e)))
+      (Block))))
+
+// case: syntax.decl.params/rep:1:("," param)*=many
+(File
+  (Declaration.func
+    (Func a
+      (Param.plain b
+        (NamedType (Path c)))
+      (Param.plain d
+        (NamedType (Path e)))
+      (Param.plain f
+        (NamedType (Path g)))
+      (Param.plain h
+        (NamedType (Path i)))
+      (Block))))
+
+// case: syntax.decl.params/opt:2:","?=absent
+(File
+  (Declaration.func
+    (Func a
+      (Param.plain b
+        (NamedType (Path c)))
+      (Block))))
+
+// case: syntax.decl.params/opt:2:","?=present
+(File
+  (Declaration.func
+    (Func a
+      (Param.plain b
+        (NamedType (Path c)))
+      (Block))))
+
+// case: syntax.decl.params/pair:1:("," param)*=many,2:","?=present
+(File
+  (Declaration.func
+    (Func a
+      (Param.plain b
+        (NamedType (Path c)))
+      (Param.plain d
+        (NamedType (Path e)))
+      (Param.plain f
+        (NamedType (Path g)))
+      (Param.plain h
+        (NamedType (Path i)))
+      (Block))))
+
+// case: syntax.decl.param.plain/alt
+(File
+  (Declaration.func
+    (Func a
+      (Param.plain b
+        (NamedType (Path c)))
+      (Block))))
+
+// case: syntax.decl.param.default/alt
+(File
+  (Declaration.func
+    (Func a
+      (Param.default b
+        (NamedType (Path c))
+        (Name d))
+      (Block))))
+
+// case: syntax.decl.param.receiver/alt
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method b
+          (Param.receiver (Receiver.shared))
+          (Block))))))
+
+// case: syntax.decl.receiver.shared/alt
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method b
+          (Param.receiver (Receiver.shared))
+          (Block))))))
+
+// case: syntax.decl.receiver.exclusive/alt
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method b
+          (Param.receiver (Receiver.exclusive))
+          (Block))))))
+
+// case: syntax.decl.return/alt
+(File
+  (Declaration.func
+    (Func a
+      (NamedType (Path b))
+      (Block))))
+
+// case: syntax.decl.effects/alt
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.effects/opt:0:'consumes'?=absent
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.effects/opt:0:'consumes'?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method b
+          (Param.receiver (Receiver.exclusive))
+          consumes
+          (Block))))))
+
+// case: syntax.decl.effects/opt:1:"unsafe"?=absent
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.effects/opt:1:"unsafe"?=present
+(File
+  (Declaration.func
+    (Func a unsafe (Block))))
+
+// case: syntax.decl.effects/opt:2:constexpr-effect?=absent
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.effects/opt:2:constexpr-effect?=present
+(File
+  (Declaration.func
+    (Func a constexpr (Block))))
+
+// case: syntax.decl.effects/opt:3:'sync'?=absent
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.effects/opt:3:'sync'?=present
+(File
+  (Declaration.func
+    (Func a sync (Block))))
+
+// case: syntax.decl.effects/opt:4:borrows-effect?=absent
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.effects/opt:4:borrows-effect?=present
+(File
+  (Declaration.func
+    (Func a borrows (Block))))
+
+// case: syntax.decl.effects/pair:0:'consumes'?=present,1:"unsafe"?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method b
+          (Param.receiver (Receiver.exclusive))
+          consumes
+          unsafe
+          (Block))))))
+
+// case: syntax.decl.effects/pair:0:'consumes'?=present,2:constexpr-effect?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method b
+          (Param.receiver (Receiver.exclusive))
+          consumes
+          constexpr
+          (Block))))))
+
+// case: syntax.decl.effects/pair:0:'consumes'?=present,3:'sync'?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method b
+          (Param.receiver (Receiver.exclusive))
+          consumes
+          sync
+          (Block))))))
+
+// case: syntax.decl.effects/pair:0:'consumes'?=present,4:borrows-effect?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method b
+          (Param.receiver (Receiver.exclusive))
+          consumes
+          borrows
+          (Block))))))
+
+// case: syntax.decl.effects/pair:1:"unsafe"?=present,2:constexpr-effect?=present
+(File
+  (Declaration.func
+    (Func a unsafe constexpr (Block))))
+
+// case: syntax.decl.effects/pair:1:"unsafe"?=present,3:'sync'?=present
+(File
+  (Declaration.func
+    (Func a unsafe sync (Block))))
+
+// case: syntax.decl.effects/pair:1:"unsafe"?=present,4:borrows-effect?=present
+(File
+  (Declaration.func
+    (Func a unsafe borrows (Block))))
+
+// case: syntax.decl.effects/pair:2:constexpr-effect?=present,3:'sync'?=present
+(File
+  (Declaration.func
+    (Func a constexpr sync (Block))))
+
+// case: syntax.decl.effects/pair:2:constexpr-effect?=present,4:borrows-effect?=present
+(File
+  (Declaration.func
+    (Func a constexpr borrows (Block))))
+
+// case: syntax.decl.effects/pair:3:'sync'?=present,4:borrows-effect?=present
+(File
+  (Declaration.func
+    (Func a sync borrows (Block))))
+
+// case: syntax.decl.constexpr/alt
+(File
+  (Declaration.func
+    (Func a constexpr (Block))))
+
+// case: syntax.decl.borrows-effect.plain/alt
+(File
+  (Declaration.func
+    (Func a borrows (Block))))
+
+// case: syntax.decl.borrows-effect.sync/alt
+(File
+  (Declaration.func
+    (Func a borrows sync (Block))))
+
+// case: syntax.decl.borrows-sync/alt
+(File
+  (Declaration.func
+    (Func a borrows sync (Block))))
+
+// case: syntax.decl.struct/alt
+(File
+  (Declaration.struct (Struct a)))
+
+// case: syntax.decl.struct/opt:0:struct-modifier?=absent
+(File
+  (Declaration.struct (Struct a)))
+
+// case: syntax.decl.struct/opt:0:struct-modifier?=present
+(File
+  (Declaration.struct (Struct unsafe a)))
+
+// case: syntax.decl.struct/opt:3:generic-params?=absent
+(File
+  (Declaration.struct (Struct a)))
+
+// case: syntax.decl.struct/opt:3:generic-params?=present
+(File
+  (Declaration.struct
+    (Struct a (GenericParam.type b))))
+
+// case: syntax.decl.struct/rep:4:NEWLINE*=0
+(File
+  (Declaration.struct (Struct a)))
+
+// case: syntax.decl.struct/rep:4:NEWLINE*=1
+(File
+  (Declaration.struct (Struct a)))
+
+// case: syntax.decl.struct/rep:4:NEWLINE*=many
+(File
+  (Declaration.struct (Struct a)))
+
+// case: syntax.decl.struct/rep:6:NEWLINE*=0
+(File
+  (Declaration.struct (Struct a)))
+
+// case: syntax.decl.struct/rep:6:NEWLINE*=1
+(File
+  (Declaration.struct (Struct a)))
+
+// case: syntax.decl.struct/rep:6:NEWLINE*=many
+(File
+  (Declaration.struct (Struct a)))
+
+// case: syntax.decl.struct/opt:7:field-list?=absent
+(File
+  (Declaration.struct (Struct a)))
+
+// case: syntax.decl.struct/opt:7:field-list?=present
+(File
+  (Declaration.struct
+    (Struct a
+      (Field b
+        (NamedType (Path c))))))
+
+// case: syntax.decl.struct/pair:0:struct-modifier?=present,3:generic-params?=present
+(File
+  (Declaration.struct
+    (Struct unsafe a (GenericParam.type b))))
+
+// case: syntax.decl.struct/pair:0:struct-modifier?=present,4:NEWLINE*=many
+(File
+  (Declaration.struct (Struct unsafe a)))
+
+// case: syntax.decl.struct/pair:0:struct-modifier?=present,6:NEWLINE*=many
+(File
+  (Declaration.struct (Struct unsafe a)))
+
+// case: syntax.decl.struct/pair:0:struct-modifier?=present,7:field-list?=present
+(File
+  (Declaration.struct
+    (Struct unsafe a
+      (Field b
+        (NamedType (Path c))))))
+
+// case: syntax.decl.struct/pair:3:generic-params?=present,4:NEWLINE*=many
+(File
+  (Declaration.struct
+    (Struct a (GenericParam.type b))))
+
+// case: syntax.decl.struct/pair:3:generic-params?=present,6:NEWLINE*=many
+(File
+  (Declaration.struct
+    (Struct a (GenericParam.type b))))
+
+// case: syntax.decl.struct/pair:3:generic-params?=present,7:field-list?=present
+(File
+  (Declaration.struct
+    (Struct a
+      (GenericParam.type b)
+      (Field c
+        (NamedType (Path d))))))
+
+// case: syntax.decl.struct/pair:4:NEWLINE*=many,6:NEWLINE*=many
+(File
+  (Declaration.struct (Struct a)))
+
+// case: syntax.decl.struct/pair:4:NEWLINE*=many,7:field-list?=present
+(File
+  (Declaration.struct
+    (Struct a
+      (Field b
+        (NamedType (Path c))))))
+
+// case: syntax.decl.struct/pair:6:NEWLINE*=many,7:field-list?=present
+(File
+  (Declaration.struct
+    (Struct a
+      (Field b
+        (NamedType (Path c))))))
+
+// case: syntax.decl.struct-modifier.unsafe/alt
+(File
+  (Declaration.struct (Struct unsafe a)))
+
+// case: syntax.decl.struct-modifier.borrows/alt
+(File
+  (Declaration.struct (Struct borrows a)))
+
+// case: syntax.decl.fields/alt
+(File
+  (Declaration.struct
+    (Struct a
+      (Field b
+        (NamedType (Path c))))))
+
+// case: syntax.decl.fields/rep:1:(list-sep field)*=0
+(File
+  (Declaration.struct
+    (Struct a
+      (Field b
+        (NamedType (Path c))))))
+
+// case: syntax.decl.fields/rep:1:(list-sep field)*=1
+(File
+  (Declaration.struct
+    (Struct a
+      (Field b
+        (NamedType (Path c)))
+      (Field d
+        (NamedType (Path e))))))
+
+// case: syntax.decl.fields/rep:1:(list-sep field)*=many
+(File
+  (Declaration.struct
+    (Struct a
+      (Field b
+        (NamedType (Path c)))
+      (Field d
+        (NamedType (Path e)))
+      (Field f
+        (NamedType (Path g)))
+      (Field h
+        (NamedType (Path i))))))
+
+// case: syntax.decl.fields/opt:2:list-sep?=absent
+(File
+  (Declaration.struct
+    (Struct a
+      (Field b
+        (NamedType (Path c))))))
+
+// case: syntax.decl.fields/opt:2:list-sep?=present
+(File
+  (Declaration.struct
+    (Struct a
+      (Field b
+        (NamedType (Path c))))))
+
+// case: syntax.decl.fields/pair:1:(list-sep field)*=many,2:list-sep?=present
+(File
+  (Declaration.struct
+    (Struct a
+      (Field b
+        (NamedType (Path c)))
+      (Field d
+        (NamedType (Path e)))
+      (Field f
+        (NamedType (Path g)))
+      (Field h
+        (NamedType (Path i))))))
+
+// case: syntax.decl.list-sep.comma/alt
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.list-sep.comma/rep:1:NEWLINE*=0
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.list-sep.comma/rep:1:NEWLINE*=1
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.list-sep.comma/rep:1:NEWLINE*=many
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.list-sep.newline/alt
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.list-sep.newline/rep:0:NEWLINE+=1
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.list-sep.newline/rep:0:NEWLINE+=many
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.list-sep.newline-comma/alt
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.list-sep.newline-comma/rep:0:NEWLINE+=1
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.list-sep.newline-comma/rep:0:NEWLINE+=many
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.list-sep.newline-comma/rep:2:NEWLINE*=0
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.list-sep.newline-comma/rep:2:NEWLINE*=1
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.list-sep.newline-comma/rep:2:NEWLINE*=many
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.list-sep.newline-comma/pair:0:NEWLINE+=many,2:NEWLINE*=many
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.field/alt
+(File
+  (Declaration.struct
+    (Struct a
+      (Field b
+        (NamedType (Path c))))))
+
+// case: syntax.decl.field/opt:0:field-visibility?=absent
+(File
+  (Declaration.struct
+    (Struct a
+      (Field b
+        (NamedType (Path c))))))
+
+// case: syntax.decl.field/opt:0:field-visibility?=present
+(File
+  (Declaration.struct
+    (Struct a
+      (Field private b
+        (NamedType (Path c))))))
+
+// case: syntax.decl.field-visibility.public/alt
+(File
+  (Declaration.struct
+    (Struct a
+      (Field
+        (Visibility.public)
+        b
+        (NamedType (Path c))))))
+
+// case: syntax.decl.field-visibility.private/alt
+(File
+  (Declaration.struct
+    (Struct a
+      (Field private b
+        (NamedType (Path c))))))
+
+// case: syntax.decl.enum/alt
+(File
+  (Declaration.enum (Enum a)))
+
+// case: syntax.decl.enum/opt:2:generic-params?=absent
+(File
+  (Declaration.enum (Enum a)))
+
+// case: syntax.decl.enum/opt:2:generic-params?=present
+(File
+  (Declaration.enum
+    (Enum a (GenericParam.type b))))
+
+// case: syntax.decl.enum/opt:3:raw-backing?=absent
+(File
+  (Declaration.enum (Enum a)))
+
+// case: syntax.decl.enum/opt:3:raw-backing?=present
+(File
+  (Declaration.enum
+    (Enum a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.enum/rep:4:NEWLINE*=0
+(File
+  (Declaration.enum (Enum a)))
+
+// case: syntax.decl.enum/rep:4:NEWLINE*=1
+(File
+  (Declaration.enum (Enum a)))
+
+// case: syntax.decl.enum/rep:4:NEWLINE*=many
+(File
+  (Declaration.enum (Enum a)))
+
+// case: syntax.decl.enum/rep:6:NEWLINE*=0
+(File
+  (Declaration.enum (Enum a)))
+
+// case: syntax.decl.enum/rep:6:NEWLINE*=1
+(File
+  (Declaration.enum (Enum a)))
+
+// case: syntax.decl.enum/rep:6:NEWLINE*=many
+(File
+  (Declaration.enum (Enum a)))
+
+// case: syntax.decl.enum/opt:7:case-list?=absent
+(File
+  (Declaration.enum (Enum a)))
+
+// case: syntax.decl.enum/opt:7:case-list?=present
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.enum/pair:2:generic-params?=present,3:raw-backing?=present
+(File
+  (Declaration.enum
+    (Enum a
+      (GenericParam.type b)
+      (NamedType (Path c)))))
+
+// case: syntax.decl.enum/pair:2:generic-params?=present,4:NEWLINE*=many
+(File
+  (Declaration.enum
+    (Enum a (GenericParam.type b))))
+
+// case: syntax.decl.enum/pair:2:generic-params?=present,6:NEWLINE*=many
+(File
+  (Declaration.enum
+    (Enum a (GenericParam.type b))))
+
+// case: syntax.decl.enum/pair:2:generic-params?=present,7:case-list?=present
+(File
+  (Declaration.enum
+    (Enum a (GenericParam.type b) (Case c))))
+
+// case: syntax.decl.enum/pair:3:raw-backing?=present,4:NEWLINE*=many
+(File
+  (Declaration.enum
+    (Enum a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.enum/pair:3:raw-backing?=present,6:NEWLINE*=many
+(File
+  (Declaration.enum
+    (Enum a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.enum/pair:3:raw-backing?=present,7:case-list?=present
+(File
+  (Declaration.enum
+    (Enum a
+      (NamedType (Path b))
+      (Case c))))
+
+// case: syntax.decl.enum/pair:4:NEWLINE*=many,6:NEWLINE*=many
+(File
+  (Declaration.enum (Enum a)))
+
+// case: syntax.decl.enum/pair:4:NEWLINE*=many,7:case-list?=present
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.enum/pair:6:NEWLINE*=many,7:case-list?=present
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.raw-backing/alt
+(File
+  (Declaration.enum
+    (Enum a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.cases/alt
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.cases/rep:1:(list-sep enum-case)*=0
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.cases/rep:1:(list-sep enum-case)*=1
+(File
+  (Declaration.enum
+    (Enum a (Case b) (Case c))))
+
+// case: syntax.decl.cases/rep:1:(list-sep enum-case)*=many
+(File
+  (Declaration.enum
+    (Enum a (Case b) (Case c) (Case d) (Case e))))
+
+// case: syntax.decl.cases/opt:2:list-sep?=absent
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.cases/opt:2:list-sep?=present
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.cases/pair:1:(list-sep enum-case)*=many,2:list-sep?=present
+(File
+  (Declaration.enum
+    (Enum a (Case b) (Case c) (Case d) (Case e))))
+
+// case: syntax.decl.case/alt
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.case/opt:2:payload-decl?=absent
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.case/opt:2:payload-decl?=present
+(File
+  (Declaration.enum
+    (Enum a (Case b \( \)))))
+
+// case: syntax.decl.case/opt:3:raw-value?=absent
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.case/opt:3:raw-value?=present
+(File
+  (Declaration.enum
+    (Enum a
+      (Case b = (Name c)))))
+
+// case: syntax.decl.case/pair:2:payload-decl?=present,3:raw-value?=present
+(File
+  (Declaration.enum
+    (Enum a
+      (Case b \( \) = (Name c)))))
+
+// case: syntax.decl.payload/alt
+(File
+  (Declaration.enum
+    (Enum a (Case b \( \)))))
+
+// case: syntax.decl.payload/opt:1:(payload-field ("," payload-field)* ","?)?=absent
+(File
+  (Declaration.enum
+    (Enum a (Case b \( \)))))
+
+// case: syntax.decl.payload/opt:1:(payload-field ("," payload-field)* ","?)?=present
+(File
+  (Declaration.enum
+    (Enum a
+      (Case b \(
+        (PayloadField c
+          (NamedType (Path d)))
+        \)))))
+
+// case: syntax.decl.payload-field/alt
+(File
+  (Declaration.enum
+    (Enum a
+      (Case b \(
+        (PayloadField c
+          (NamedType (Path d)))
+        \)))))
+
+// case: syntax.decl.raw-value/alt
+(File
+  (Declaration.enum
+    (Enum a
+      (Case b = (Name c)))))
+
+// case: syntax.decl.trait/alt
+(File
+  (Declaration.trait (Trait a)))
+
+// case: syntax.decl.trait/opt:2:generic-params?=absent
+(File
+  (Declaration.trait (Trait a)))
+
+// case: syntax.decl.trait/opt:2:generic-params?=present
+(File
+  (Declaration.trait
+    (Trait a (GenericParam.type b))))
+
+// case: syntax.decl.trait/opt:3:trait-parents?=absent
+(File
+  (Declaration.trait (Trait a)))
+
+// case: syntax.decl.trait/opt:3:trait-parents?=present
+(File
+  (Declaration.trait
+    (Trait a (Path b))))
+
+// case: syntax.decl.trait/rep:4:NEWLINE*=0
+(File
+  (Declaration.trait (Trait a)))
+
+// case: syntax.decl.trait/rep:4:NEWLINE*=1
+(File
+  (Declaration.trait (Trait a)))
+
+// case: syntax.decl.trait/rep:4:NEWLINE*=many
+(File
+  (Declaration.trait (Trait a)))
+
+// case: syntax.decl.trait/rep:6:NEWLINE*=0
+(File
+  (Declaration.trait (Trait a)))
+
+// case: syntax.decl.trait/rep:6:NEWLINE*=1
+(File
+  (Declaration.trait (Trait a)))
+
+// case: syntax.decl.trait/rep:6:NEWLINE*=many
+(File
+  (Declaration.trait (Trait a)))
+
+// case: syntax.decl.trait/opt:7:trait-member-list?=absent
+(File
+  (Declaration.trait (Trait a)))
+
+// case: syntax.decl.trait/opt:7:trait-member-list?=present
+(File
+  (Declaration.trait
+    (Trait a (AssocType b))))
+
+// case: syntax.decl.trait/pair:2:generic-params?=present,3:trait-parents?=present
+(File
+  (Declaration.trait
+    (Trait a (GenericParam.type b) (Path c))))
+
+// case: syntax.decl.trait/pair:2:generic-params?=present,4:NEWLINE*=many
+(File
+  (Declaration.trait
+    (Trait a (GenericParam.type b))))
+
+// case: syntax.decl.trait/pair:2:generic-params?=present,6:NEWLINE*=many
+(File
+  (Declaration.trait
+    (Trait a (GenericParam.type b))))
+
+// case: syntax.decl.trait/pair:2:generic-params?=present,7:trait-member-list?=present
+(File
+  (Declaration.trait
+    (Trait a (GenericParam.type b) (AssocType c))))
+
+// case: syntax.decl.trait/pair:3:trait-parents?=present,4:NEWLINE*=many
+(File
+  (Declaration.trait
+    (Trait a (Path b))))
+
+// case: syntax.decl.trait/pair:3:trait-parents?=present,6:NEWLINE*=many
+(File
+  (Declaration.trait
+    (Trait a (Path b))))
+
+// case: syntax.decl.trait/pair:3:trait-parents?=present,7:trait-member-list?=present
+(File
+  (Declaration.trait
+    (Trait a (Path b) (AssocType c))))
+
+// case: syntax.decl.trait/pair:4:NEWLINE*=many,6:NEWLINE*=many
+(File
+  (Declaration.trait (Trait a)))
+
+// case: syntax.decl.trait/pair:4:NEWLINE*=many,7:trait-member-list?=present
+(File
+  (Declaration.trait
+    (Trait a (AssocType b))))
+
+// case: syntax.decl.trait/pair:6:NEWLINE*=many,7:trait-member-list?=present
+(File
+  (Declaration.trait
+    (Trait a (AssocType b))))
+
+// case: syntax.decl.trait-parents/alt
+(File
+  (Declaration.trait
+    (Trait a (Path b))))
+
+// case: syntax.decl.trait-parents/rep:2:("," path)*=0
+(File
+  (Declaration.trait
+    (Trait a (Path b))))
+
+// case: syntax.decl.trait-parents/rep:2:("," path)*=1
+(File
+  (Declaration.trait
+    (Trait a (Path b) (Path c))))
+
+// case: syntax.decl.trait-parents/rep:2:("," path)*=many
+(File
+  (Declaration.trait
+    (Trait a (Path b) (Path c) (Path d) (Path e))))
+
+// case: syntax.decl.trait-members/alt
+(File
+  (Declaration.trait
+    (Trait a (AssocType b))))
+
+// case: syntax.decl.trait-members/rep:1:(NEWLINE+ trait-member)*=0
+(File
+  (Declaration.trait
+    (Trait a (AssocType b))))
+
+// case: syntax.decl.trait-members/rep:1:(NEWLINE+ trait-member)*=1
+(File
+  (Declaration.trait
+    (Trait a (AssocType b) (AssocType c))))
+
+// case: syntax.decl.trait-members/rep:1:(NEWLINE+ trait-member)*=many
+(File
+  (Declaration.trait
+    (Trait a (AssocType b) (AssocType c) (AssocType d) (AssocType e))))
+
+// case: syntax.decl.trait-members/rep:2:NEWLINE*=0
+(File
+  (Declaration.trait
+    (Trait a (AssocType b))))
+
+// case: syntax.decl.trait-members/rep:2:NEWLINE*=1
+(File
+  (Declaration.trait
+    (Trait a (AssocType b))))
+
+// case: syntax.decl.trait-members/rep:2:NEWLINE*=many
+(File
+  (Declaration.trait
+    (Trait a (AssocType b))))
+
+// case: syntax.decl.trait-members/pair:1:(NEWLINE+ trait-member)*=many,2:NEWLINE*=many
+(File
+  (Declaration.trait
+    (Trait a (AssocType b) (AssocType c) (AssocType d) (AssocType e))))
+
+// case: syntax.decl.trait-member.assoc-type/alt
+(File
+  (Declaration.trait
+    (Trait a (AssocType b))))
+
+// case: syntax.decl.trait-member.requirement/alt
+(File
+  (Declaration.trait
+    (Trait a (Requirement static b))))
+
+// case: syntax.decl.assoc-type/alt
+(File
+  (Declaration.trait
+    (Trait a (AssocType b))))
+
+// case: syntax.decl.requirement/alt
+(File
+  (Declaration.trait
+    (Trait a (Requirement static b))))
+
+// case: syntax.decl.requirement/opt:0:"static"?=absent
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement b
+        (Param.receiver (Receiver.shared))))))
+
+// case: syntax.decl.requirement/opt:0:"static"?=present
+(File
+  (Declaration.trait
+    (Trait a (Requirement static b))))
+
+// case: syntax.decl.requirement/opt:3:generic-params?=absent
+(File
+  (Declaration.trait
+    (Trait a (Requirement static b))))
+
+// case: syntax.decl.requirement/opt:3:generic-params?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b (GenericParam.type c)))))
+
+// case: syntax.decl.requirement/opt:5:param-list?=absent
+(File
+  (Declaration.trait
+    (Trait a (Requirement static b))))
+
+// case: syntax.decl.requirement/opt:5:param-list?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b
+        (Param.plain c
+          (NamedType (Path d)))))))
+
+// case: syntax.decl.requirement/opt:8:return-clause?=absent
+(File
+  (Declaration.trait
+    (Trait a (Requirement static b))))
+
+// case: syntax.decl.requirement/opt:8:return-clause?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b
+        (NamedType (Path c))))))
+
+// case: syntax.decl.requirement/opt:9:default-body?=absent
+(File
+  (Declaration.trait
+    (Trait a (Requirement static b))))
+
+// case: syntax.decl.requirement/opt:9:default-body?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b (Block)))))
+
+// case: syntax.decl.requirement/pair:0:"static"?=present,3:generic-params?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b (GenericParam.type c)))))
+
+// case: syntax.decl.requirement/pair:0:"static"?=present,5:param-list?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b
+        (Param.plain c
+          (NamedType (Path d)))))))
+
+// case: syntax.decl.requirement/pair:0:"static"?=present,8:return-clause?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b
+        (NamedType (Path c))))))
+
+// case: syntax.decl.requirement/pair:0:"static"?=present,9:default-body?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b (Block)))))
+
+// case: syntax.decl.requirement/pair:3:generic-params?=present,5:param-list?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b
+        (GenericParam.type c)
+        (Param.plain d
+          (NamedType (Path e)))))))
+
+// case: syntax.decl.requirement/pair:3:generic-params?=present,8:return-clause?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b
+        (GenericParam.type c)
+        (NamedType (Path d))))))
+
+// case: syntax.decl.requirement/pair:3:generic-params?=present,9:default-body?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b (GenericParam.type c) (Block)))))
+
+// case: syntax.decl.requirement/pair:5:param-list?=present,8:return-clause?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b
+        (Param.plain c
+          (NamedType (Path d)))
+        (NamedType (Path e))))))
+
+// case: syntax.decl.requirement/pair:5:param-list?=present,9:default-body?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b
+        (Param.plain c
+          (NamedType (Path d)))
+        (Block)))))
+
+// case: syntax.decl.requirement/pair:8:return-clause?=present,9:default-body?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b
+        (NamedType (Path c))
+        (Block)))))
+
+// case: syntax.decl.default-body/alt
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b (Block)))))
+
+// case: syntax.decl.default-body/rep:0:NEWLINE*=0
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b (Block)))))
+
+// case: syntax.decl.default-body/rep:0:NEWLINE*=1
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b (Block)))))
+
+// case: syntax.decl.default-body/rep:0:NEWLINE*=many
+(File
+  (Declaration.trait
+    (Trait a
+      (Requirement static b (Block)))))
+
+// case: syntax.decl.extension/alt
+(File
+  (Declaration.extension
+    (Extension (Path a))))
+
+// case: syntax.decl.extension/opt:2:generic-params?=absent
+(File
+  (Declaration.extension
+    (Extension (Path a))))
+
+// case: syntax.decl.extension/opt:2:generic-params?=present
+(File
+  (Declaration.extension
+    (Extension (Path a) (GenericParam.type b))))
+
+// case: syntax.decl.extension/opt:3:conformance-list?=absent
+(File
+  (Declaration.extension
+    (Extension (Path a))))
+
+// case: syntax.decl.extension/opt:3:conformance-list?=present
+(File
+  (Declaration.extension
+    (Extension (Path a) (Path b))))
+
+// case: syntax.decl.extension/rep:4:NEWLINE*=0
+(File
+  (Declaration.extension
+    (Extension (Path a))))
+
+// case: syntax.decl.extension/rep:4:NEWLINE*=1
+(File
+  (Declaration.extension
+    (Extension (Path a))))
+
+// case: syntax.decl.extension/rep:4:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension (Path a))))
+
+// case: syntax.decl.extension/rep:6:NEWLINE*=0
+(File
+  (Declaration.extension
+    (Extension (Path a))))
+
+// case: syntax.decl.extension/rep:6:NEWLINE*=1
+(File
+  (Declaration.extension
+    (Extension (Path a))))
+
+// case: syntax.decl.extension/rep:6:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension (Path a))))
+
+// case: syntax.decl.extension/opt:7:extension-member-list?=absent
+(File
+  (Declaration.extension
+    (Extension (Path a))))
+
+// case: syntax.decl.extension/opt:7:extension-member-list?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.type-assign
+        (TypeAssign b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.extension/pair:2:generic-params?=present,3:conformance-list?=present
+(File
+  (Declaration.extension
+    (Extension (Path a) (GenericParam.type b) (Path c))))
+
+// case: syntax.decl.extension/pair:2:generic-params?=present,4:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension (Path a) (GenericParam.type b))))
+
+// case: syntax.decl.extension/pair:2:generic-params?=present,6:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension (Path a) (GenericParam.type b))))
+
+// case: syntax.decl.extension/pair:2:generic-params?=present,7:extension-member-list?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (GenericParam.type b)
+      (ExtensionMember.type-assign
+        (TypeAssign c
+          (NamedType (Path d)))))))
+
+// case: syntax.decl.extension/pair:3:conformance-list?=present,4:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension (Path a) (Path b))))
+
+// case: syntax.decl.extension/pair:3:conformance-list?=present,6:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension (Path a) (Path b))))
+
+// case: syntax.decl.extension/pair:3:conformance-list?=present,7:extension-member-list?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (Path b)
+      (ExtensionMember.type-assign
+        (TypeAssign c
+          (NamedType (Path d)))))))
+
+// case: syntax.decl.extension/pair:4:NEWLINE*=many,6:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension (Path a))))
+
+// case: syntax.decl.extension/pair:4:NEWLINE*=many,7:extension-member-list?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.type-assign
+        (TypeAssign b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.extension/pair:6:NEWLINE*=many,7:extension-member-list?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.type-assign
+        (TypeAssign b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.conformances/alt
+(File
+  (Declaration.extension
+    (Extension (Path a) (Path b))))
+
+// case: syntax.decl.conformances/rep:2:("," path)*=0
+(File
+  (Declaration.extension
+    (Extension (Path a) (Path b))))
+
+// case: syntax.decl.conformances/rep:2:("," path)*=1
+(File
+  (Declaration.extension
+    (Extension (Path a) (Path b) (Path c))))
+
+// case: syntax.decl.conformances/rep:2:("," path)*=many
+(File
+  (Declaration.extension
+    (Extension (Path a) (Path b) (Path c) (Path d) (Path e))))
+
+// case: syntax.decl.extension-members/alt
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.type-assign
+        (TypeAssign b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.extension-members/rep:1:(NEWLINE+ extension-member)*=0
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.type-assign
+        (TypeAssign b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.extension-members/rep:1:(NEWLINE+ extension-member)*=1
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.type-assign
+        (TypeAssign b
+          (NamedType (Path c))))
+      (ExtensionMember.type-assign
+        (TypeAssign d
+          (NamedType (Path e)))))))
+
+// case: syntax.decl.extension-members/rep:1:(NEWLINE+ extension-member)*=many
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.type-assign
+        (TypeAssign b
+          (NamedType (Path c))))
+      (ExtensionMember.type-assign
+        (TypeAssign d
+          (NamedType (Path e))))
+      (ExtensionMember.type-assign
+        (TypeAssign f
+          (NamedType (Path g))))
+      (ExtensionMember.type-assign
+        (TypeAssign h
+          (NamedType (Path i)))))))
+
+// case: syntax.decl.extension-members/rep:2:NEWLINE*=0
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.type-assign
+        (TypeAssign b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.extension-members/rep:2:NEWLINE*=1
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.type-assign
+        (TypeAssign b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.extension-members/rep:2:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.type-assign
+        (TypeAssign b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.extension-members/pair:1:(NEWLINE+ extension-member)*=many,2:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.type-assign
+        (TypeAssign b
+          (NamedType (Path c))))
+      (ExtensionMember.type-assign
+        (TypeAssign d
+          (NamedType (Path e))))
+      (ExtensionMember.type-assign
+        (TypeAssign f
+          (NamedType (Path g))))
+      (ExtensionMember.type-assign
+        (TypeAssign h
+          (NamedType (Path i)))))))
+
+// case: syntax.decl.extension-member.type-assign/alt
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.type-assign
+        (TypeAssign b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.extension-member.method/alt
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b (Block))))))
+
+// case: syntax.decl.extension-member.method/opt:0:visibility?=absent
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b (Block))))))
+
+// case: syntax.decl.extension-member.method/opt:0:visibility?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Visibility.public)
+        (Method static b (Block))))))
+
+// case: syntax.decl.extension-member.synthesized-method/alt
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.synthesized-method synthesize shared
+        (Method static b (Block))))))
+
+// case: syntax.decl.extension-member.synthesized-method/opt:1:visibility?=absent
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.synthesized-method synthesize shared
+        (Method static b (Block))))))
+
+// case: syntax.decl.extension-member.synthesized-method/opt:1:visibility?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.synthesized-method synthesize shared
+        (Visibility.public)
+        (Method static b (Block))))))
+
+// case: syntax.decl.extension-member.init/alt
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.init
+        (Init (Block))))))
+
+// case: syntax.decl.extension-member.init/opt:0:visibility?=absent
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.init
+        (Init (Block))))))
+
+// case: syntax.decl.extension-member.init/opt:0:visibility?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.init
+        (Visibility.public)
+        (Init (Block))))))
+
+// case: syntax.decl.type-assign/alt
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.type-assign
+        (TypeAssign b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.method/alt
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b (Block))))))
+
+// case: syntax.decl.method/opt:0:"static"?=absent
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method b
+          (Param.receiver (Receiver.shared))
+          (Block))))))
+
+// case: syntax.decl.method/opt:0:"static"?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b (Block))))))
+
+// case: syntax.decl.method/opt:3:generic-params?=absent
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b (Block))))))
+
+// case: syntax.decl.method/opt:3:generic-params?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b (GenericParam.type c) (Block))))))
+
+// case: syntax.decl.method/opt:5:param-list?=absent
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b (Block))))))
+
+// case: syntax.decl.method/opt:5:param-list?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b
+          (Param.plain c
+            (NamedType (Path d)))
+          (Block))))))
+
+// case: syntax.decl.method/opt:8:return-clause?=absent
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b (Block))))))
+
+// case: syntax.decl.method/opt:8:return-clause?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b
+          (NamedType (Path c))
+          (Block))))))
+
+// case: syntax.decl.method/rep:9:NEWLINE*=0
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b (Block))))))
+
+// case: syntax.decl.method/rep:9:NEWLINE*=1
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b (Block))))))
+
+// case: syntax.decl.method/rep:9:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b (Block))))))
+
+// case: syntax.decl.method/pair:0:"static"?=present,3:generic-params?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b (GenericParam.type c) (Block))))))
+
+// case: syntax.decl.method/pair:0:"static"?=present,5:param-list?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b
+          (Param.plain c
+            (NamedType (Path d)))
+          (Block))))))
+
+// case: syntax.decl.method/pair:0:"static"?=present,8:return-clause?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b
+          (NamedType (Path c))
+          (Block))))))
+
+// case: syntax.decl.method/pair:0:"static"?=present,9:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b (Block))))))
+
+// case: syntax.decl.method/pair:3:generic-params?=present,5:param-list?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b
+          (GenericParam.type c)
+          (Param.plain d
+            (NamedType (Path e)))
+          (Block))))))
+
+// case: syntax.decl.method/pair:3:generic-params?=present,8:return-clause?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b
+          (GenericParam.type c)
+          (NamedType (Path d))
+          (Block))))))
+
+// case: syntax.decl.method/pair:3:generic-params?=present,9:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b (GenericParam.type c) (Block))))))
+
+// case: syntax.decl.method/pair:5:param-list?=present,8:return-clause?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b
+          (Param.plain c
+            (NamedType (Path d)))
+          (NamedType (Path e))
+          (Block))))))
+
+// case: syntax.decl.method/pair:5:param-list?=present,9:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b
+          (Param.plain c
+            (NamedType (Path d)))
+          (Block))))))
+
+// case: syntax.decl.method/pair:8:return-clause?=present,9:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b
+          (NamedType (Path c))
+          (Block))))))
+
+// case: syntax.decl.method-name.ident/alt
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static b (Block))))))
+
+// case: syntax.decl.method-name.subscript/alt
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static [ ] (Block))))))
+
+// case: syntax.decl.method-name.setitem/alt
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static [ ] = (Block))))))
+
+// case: syntax.decl.setitem-name/alt
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method static [ ] = (Block))))))
+
+// case: syntax.decl.init/alt
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.init
+        (Init (Block))))))
+
+// case: syntax.decl.init/opt:2:param-list?=absent
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.init
+        (Init (Block))))))
+
+// case: syntax.decl.init/opt:2:param-list?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.init
+        (Init
+          (Param.plain b
+            (NamedType (Path c)))
+          (Block))))))
+
+// case: syntax.decl.init/opt:5:return-clause?=absent
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.init
+        (Init (Block))))))
+
+// case: syntax.decl.init/opt:5:return-clause?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.init
+        (Init
+          (NamedType (Path b))
+          (Block))))))
+
+// case: syntax.decl.init/rep:6:NEWLINE*=0
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.init
+        (Init (Block))))))
+
+// case: syntax.decl.init/rep:6:NEWLINE*=1
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.init
+        (Init (Block))))))
+
+// case: syntax.decl.init/rep:6:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.init
+        (Init (Block))))))
+
+// case: syntax.decl.init/pair:2:param-list?=present,5:return-clause?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.init
+        (Init
+          (Param.plain b
+            (NamedType (Path c)))
+          (NamedType (Path d))
+          (Block))))))
+
+// case: syntax.decl.init/pair:2:param-list?=present,6:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.init
+        (Init
+          (Param.plain b
+            (NamedType (Path c)))
+          (Block))))))
+
+// case: syntax.decl.init/pair:5:return-clause?=present,6:NEWLINE*=many
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.init
+        (Init
+          (NamedType (Path b))
+          (Block))))))
+
+// case: syntax.decl.type-alias/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.static.immutable/alt
+(File
+  (Declaration.static
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.static.immutable/opt:4:static-init?=absent
+(File
+  (Declaration.static
+    (Static.immutable a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.static.immutable/opt:4:static-init?=present
+(File
+  (Declaration.static
+    (Static.immutable a
+      (NamedType (Path b))
+      =
+      (Name c))))
+
+// case: syntax.decl.static.unsafe-var/alt
+(File
+  (Declaration.static
+    (Static.unsafe-var a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.static.unsafe-var/opt:6:static-init?=absent
+(File
+  (Declaration.static
+    (Static.unsafe-var a
+      (NamedType (Path b)))))
+
+// case: syntax.decl.static.unsafe-var/opt:6:static-init?=present
+(File
+  (Declaration.static
+    (Static.unsafe-var a
+      (NamedType (Path b))
+      =
+      (Name c))))
+
+// case: syntax.decl.static-init/alt
+(File
+  (Declaration.static
+    (Static.immutable a
+      (NamedType (Path b))
+      =
+      (Name c))))
+
+// case: syntax.decl.extern-block/alt
+(File
+  (Declaration.extern (ExternBlock "C")))
+
+// case: syntax.decl.extern-block/rep:2:NEWLINE*=0
+(File
+  (Declaration.extern (ExternBlock "C")))
+
+// case: syntax.decl.extern-block/rep:2:NEWLINE*=1
+(File
+  (Declaration.extern (ExternBlock "C")))
+
+// case: syntax.decl.extern-block/rep:2:NEWLINE*=many
+(File
+  (Declaration.extern (ExternBlock "C")))
+
+// case: syntax.decl.extern-block/rep:4:NEWLINE*=0
+(File
+  (Declaration.extern (ExternBlock "C")))
+
+// case: syntax.decl.extern-block/rep:4:NEWLINE*=1
+(File
+  (Declaration.extern (ExternBlock "C")))
+
+// case: syntax.decl.extern-block/rep:4:NEWLINE*=many
+(File
+  (Declaration.extern (ExternBlock "C")))
+
+// case: syntax.decl.extern-block/opt:5:extern-func-list?=absent
+(File
+  (Declaration.extern (ExternBlock "C")))
+
+// case: syntax.decl.extern-block/opt:5:extern-func-list?=present
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.prompt a))))
+
+// case: syntax.decl.extern-block/pair:2:NEWLINE*=many,4:NEWLINE*=many
+(File
+  (Declaration.extern (ExternBlock "C")))
+
+// case: syntax.decl.extern-block/pair:2:NEWLINE*=many,5:extern-func-list?=present
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.prompt a))))
+
+// case: syntax.decl.extern-block/pair:4:NEWLINE*=many,5:extern-func-list?=present
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.prompt a))))
+
+// case: syntax.decl.extern-funcs/alt
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.prompt a))))
+
+// case: syntax.decl.extern-funcs/rep:1:(NEWLINE+ extern-func)*=0
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.prompt a))))
+
+// case: syntax.decl.extern-funcs/rep:1:(NEWLINE+ extern-func)*=1
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.prompt a) (ExternFunc.prompt b))))
+
+// case: syntax.decl.extern-funcs/rep:1:(NEWLINE+ extern-func)*=many
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.prompt a) (ExternFunc.prompt b) (ExternFunc.prompt c) (ExternFunc.prompt d))))
+
+// case: syntax.decl.extern-funcs/rep:2:NEWLINE*=0
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.prompt a))))
+
+// case: syntax.decl.extern-funcs/rep:2:NEWLINE*=1
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.prompt a))))
+
+// case: syntax.decl.extern-funcs/rep:2:NEWLINE*=many
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.prompt a))))
+
+// case: syntax.decl.extern-funcs/pair:1:(NEWLINE+ extern-func)*=many,2:NEWLINE*=many
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.prompt a) (ExternFunc.prompt b) (ExternFunc.prompt c) (ExternFunc.prompt d))))
+
+// case: syntax.decl.extern-func.prompt/alt
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.prompt a))))
+
+// case: syntax.decl.extern-func.prompt/opt:3:extern-param-list?=absent
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.prompt a))))
+
+// case: syntax.decl.extern-func.prompt/opt:3:extern-param-list?=present
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt a
+        (Param b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.extern-func.prompt/opt:5:return-clause?=absent
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.prompt a))))
+
+// case: syntax.decl.extern-func.prompt/opt:5:return-clause?=present
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt a
+        (NamedType (Path b))))))
+
+// case: syntax.decl.extern-func.blocking/alt
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.blocking a))))
+
+// case: syntax.decl.extern-func.blocking/opt:4:extern-param-list?=absent
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.blocking a))))
+
+// case: syntax.decl.extern-func.blocking/opt:4:extern-param-list?=present
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.blocking a
+        (Param b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.extern-func.blocking/opt:6:return-clause?=absent
+(File
+  (Declaration.extern
+    (ExternBlock "C" (ExternFunc.blocking a))))
+
+// case: syntax.decl.extern-func.blocking/opt:6:return-clause?=present
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.blocking a
+        (NamedType (Path b))))))
+
+// case: syntax.decl.extern-func.prompt/pair:3:extern-param-list?=present,5:return-clause?=present
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt a
+        (Param b
+          (NamedType (Path c)))
+        (NamedType (Path d))))))
+
+// case: syntax.decl.extern-func.blocking/pair:4:extern-param-list?=present,6:return-clause?=present
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.blocking a
+        (Param b
+          (NamedType (Path c)))
+        (NamedType (Path d))))))
+
+// case: syntax.decl.extern-params.fixed/alt
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt a
+        (Param b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.extern-params.fixed/rep:1:("," extern-param)*=0
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt a
+        (Param b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.extern-params.fixed/rep:1:("," extern-param)*=1
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt a
+        (Param b
+          (NamedType (Path c)))
+        (Param d
+          (NamedType (Path e)))))))
+
+// case: syntax.decl.extern-params.fixed/rep:1:("," extern-param)*=many
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt a
+        (Param b
+          (NamedType (Path c)))
+        (Param d
+          (NamedType (Path e)))
+        (Param f
+          (NamedType (Path g)))
+        (Param h
+          (NamedType (Path i)))))))
+
+// case: syntax.decl.extern-params.fixed/opt:2:","?=absent
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt a
+        (Param b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.extern-params.fixed/opt:2:","?=present
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt a
+        (Param b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.extern-params.variadic/alt
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt a
+        (Param b
+          (NamedType (Path c)))
+        ...))))
+
+// case: syntax.decl.extern-params.variadic/rep:1:("," extern-param)*=0
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt a
+        (Param b
+          (NamedType (Path c)))
+        ...))))
+
+// case: syntax.decl.extern-params.variadic/rep:1:("," extern-param)*=1
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt a
+        (Param b
+          (NamedType (Path c)))
+        (Param d
+          (NamedType (Path e)))
+        ...))))
+
+// case: syntax.decl.extern-params.variadic/rep:1:("," extern-param)*=many
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt a
+        (Param b
+          (NamedType (Path c)))
+        (Param d
+          (NamedType (Path e)))
+        (Param f
+          (NamedType (Path g)))
+        (Param h
+          (NamedType (Path i)))
+        ...))))
+
+// case: syntax.decl.extern-params.fixed/pair:1:("," extern-param)*=many,2:","?=present
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt a
+        (Param b
+          (NamedType (Path c)))
+        (Param d
+          (NamedType (Path e)))
+        (Param f
+          (NamedType (Path g)))
+        (Param h
+          (NamedType (Path i)))))))
+
+// case: syntax.decl.extern-param/alt
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt a
+        (Param b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.static-assert/cell:stmt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (StaticAssert (Name a) "m")
+        (ExprStmt (Name x))))))
+
+// case: syntax.decl.static-assert/cell:clos
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (StaticAssert (Name a) "m")
+            (ExprStmt (Name x))))))))
+
+// case: syntax.decl.static-assert/cell:catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (StaticAssert (Name a) "m")
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.decl.static-assert/cell:arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              (StaticAssert (Name a) "m"))))))))

@@ -1,2 +1,94 @@
 head_reset.saw: 1 tree(s)
-  File(\n Func(func main ( ) Block({ \n ExprStmt(If(if Call(Name(f) ( Arg(Call(Member(Name(v) . map) Closure({ ExprStmt(ShorthandParam($0)) }))) )) Block({ \n }))) \n ExprStmt(If(if Call(Member(Name(v) . any) Closure({ ExprStmt(Binary(ShorthandParam($0) > IntLit(1))) })) Block({ \n }))) \n ExprStmt(While(while Subscript(Name(v) [ Call(Member(Name(w) . first) Closure({ ExprStmt(ShorthandParam($0)) })) ]) Block({ \n }))) \n ExprStmt(While(while Match(match Name(mode) { MatchArm(case NamePat(Draining) -> Call(Member(Name(queue) . any) Closure({ ExprStmt(Member(ShorthandParam($0) . urgent)) }))) , MatchArm(case WildcardPat(_) -> BoolLit(false)) }) Block({ ExprStmt(Call(Name(step) ( ))) }))) \n ExprStmt(If(if If(if Name(c) Block({ ExprStmt(Call(Member(Name(v) . any) Closure({ ExprStmt(ShorthandParam($0)) }))) }) else Block({ ExprStmt(Call(Member(Name(w) . all) Closure({ ExprStmt(ShorthandParam($0)) }))) })) Block({ \n }))) \n ExprStmt(For(for BindingName(x) in BorrowBlock(borrow BorrowBinding(let BindingName(e) = Subscript(Name(m) [ Name(k) ])) Block({ ExprStmt(Call(Member(Member(Name(e) . items) . filter) Closure({ ExprStmt(Binary(ShorthandParam($0) > IntLit(1))) }))) })) Block({ \n }))) \n Guard(Guard(guard TryBlock(try Block({ ExprStmt(Call(Member(Name(v) . first) Closure({ ExprStmt(ShorthandParam($0)) }))) }) catch Block({ ExprStmt(BoolLit(false)) })) else Block({ \n Return(return) \n }))) \n })) \n )
+  (File
+    (Declaration.func
+      (Func main
+        (Block
+          (ExprStmt
+            (If
+              (Call.paren
+                (Name f)
+                (Arg.positional
+                  (Call
+                    (Member (Name v) map)
+                    (Closure
+                      (ExprStmt (ShorthandParam $0))))))
+              (Block)))
+          (ExprStmt
+            (If
+              (Call
+                (Member (Name v) any)
+                (Closure
+                  (ExprStmt
+                    (Binary.pair (ShorthandParam $0) > (IntLit 1)))))
+              (Block)))
+          (ExprStmt
+            (While.conditional
+              (Subscript.single
+                (Name v)
+                (Call
+                  (Member (Name w) first)
+                  (Closure
+                    (ExprStmt (ShorthandParam $0)))))
+              (Block)))
+          (ExprStmt
+            (While.conditional
+              (Match
+                (Name mode)
+                (MatchArm
+                  (NamePat Draining)
+                  (Call
+                    (Member (Name queue) any)
+                    (Closure
+                      (ExprStmt
+                        (Member (ShorthandParam $0) urgent)))))
+                (MatchArm (WildcardPat) (BoolLit.false)))
+              (Block
+                (ExprStmt
+                  (Call.paren (Name step))))))
+          (ExprStmt
+            (If
+              (If
+                (Name c)
+                (Block
+                  (ExprStmt
+                    (Call
+                      (Member (Name v) any)
+                      (Closure
+                        (ExprStmt (ShorthandParam $0))))))
+                else
+                (Block
+                  (ExprStmt
+                    (Call
+                      (Member (Name w) all)
+                      (Closure
+                        (ExprStmt (ShorthandParam $0)))))))
+              (Block)))
+          (ExprStmt
+            (For.plain
+              (BindingName x)
+              (BorrowBlock
+                (BorrowBinding.let
+                  (BindingName e)
+                  (Subscript.single (Name m) (Name k)))
+                (Block
+                  (ExprStmt
+                    (Call
+                      (Member
+                        (Member (Name e) items)
+                        filter)
+                      (Closure
+                        (ExprStmt
+                          (Binary.pair (ShorthandParam $0) > (IntLit 1))))))))
+              (Block)))
+          (Guard.condition guard
+            (TryBlock
+              (Block
+                (ExprStmt
+                  (Call
+                    (Member (Name v) first)
+                    (Closure
+                      (ExprStmt (ShorthandParam $0))))))
+              (Block
+                (ExprStmt (BoolLit.false))))
+            else
+            (Block (Return)))))))

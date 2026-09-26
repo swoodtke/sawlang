@@ -29,12 +29,13 @@ compiler/
     lex/              golden token fixtures
     subset/           the subset checker's own fixtures
     grammar/          the tools over GRAMMAR.md: extract.py, lint.py, the
-                      reference recognizer (recognize.py, contexts.py) and the
-                      corpus lane (corpus.py, corpus_expected.tsv)
+                      reference recognizer (recognize.py, contexts.py, and
+                      lexdump.py, which reads sawc2's token dump), the corpus
+                      lane (corpus.py, corpus_expected.tsv), the canonical AST
+                      dump (dump.py) and the corpus generator (generate.py)
+    parse/            the parser corpus: the dump's specification (README.md),
+                      hand-checked dumps, the generated cases, their waivers
 ```
-
-The parser corpus derived from the grammar, `tests/parse/`, arrives in phase 2
-of SL-406.
 
 Each stage has its own directory and is a package, with its source under
 `src/`. The others import it as `<package>.src.<module>`, through
@@ -63,7 +64,7 @@ A lex error prints one `ERROR` record and exits 1. A usage or I/O failure exits 
 
 The runner prints each failure on its own line, then one summary line, and exits
 1 if anything failed. Its output is deterministic. The battery's `compiler` lane
-runs it, and so does every per-patch gate run (`./build.sh test`). It checks five
+runs it, and so does every per-patch gate run (`./build.sh test`). It checks six
 things.
 
 - **Unit programs**: `compiler/<stage>/tests/*.saw`. These are small programs in
@@ -90,10 +91,13 @@ things.
 - **The grammar tools** in `tests/grammar/`: the lint over `GRAMMAR.md`, with a
   fixture per check that injects one defect and names the line the check must
   report, and the reference recognizer's pinned trees, coverage records and
-  refusals, with a fixture each rule it applies is seen deciding. Its
-  full-corpus run, `tests/grammar/corpus.py`, is the battery's `grammarcorpus`
-  lane: every tracked `.saw` file's verdict against
-  `tests/grammar/corpus_expected.tsv`.
+  refusals, with a fixture each rule it applies is seen deciding. The
+  recognizer reads its tokens from `sawc2 lex`. Its full-corpus run,
+  `tests/grammar/corpus.py`, is the battery's `grammarcorpus` lane: every
+  tracked `.saw` file's verdict against `tests/grammar/corpus_expected.tsv`.
+- **The parser corpus** in `tests/parse/`: the hand-checked dumps, and the
+  generated cases, which regenerating must reproduce byte for byte, with the
+  `parsecoverage` check over them (`tests/parse/README.md`).
 
 ## The subset
 

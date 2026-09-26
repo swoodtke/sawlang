@@ -1,0 +1,14 @@
+// A flagged production prints its parentheses whatever its payload holds,
+// and a refusal case's body keeps which `<` and `>` tokens touch.
+enum E {
+    case A()
+    case B(x: Int)
+    case C(x: Int, y: Int)
+    case D
+}
+
+@test(refuses: "syntax.lex.shift-adjacent") "a spaced shift" {
+    let s = a << b
+    let t = a < < b
+    let u: V<V<Int>> = w
+}

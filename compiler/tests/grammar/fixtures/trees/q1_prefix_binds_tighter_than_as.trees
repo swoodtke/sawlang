@@ -1,2 +1,21 @@
 q1_prefix_binds_tighter_than_as.saw: 1 tree(s)
-  File(Func(func widen ( Param(x : NamedType(Path(Int))) , Param(b : NamedType(Path(UInt8))) ) Block({ \n Let(let BindingName(y) = Cast(Unary(- Name(x)) as NamedType(Path(Int8)))) \n Let(let BindingName(z) = Cast(Unary(~ Name(b)) as NamedType(Path(UInt64)))) \n })) \n )
+  (File
+    (Declaration.func
+      (Func widen
+        (Param.plain x
+          (NamedType (Path Int)))
+        (Param.plain b
+          (NamedType (Path UInt8)))
+        (Block
+          (Let.immutable
+            (BindingName y)
+            (Cast
+              (Unary.negate (Name x))
+              as
+              (NamedType (Path Int8))))
+          (Let.immutable
+            (BindingName z)
+            (Cast
+              (Unary.complement (Name b))
+              as
+              (NamedType (Path UInt64))))))))

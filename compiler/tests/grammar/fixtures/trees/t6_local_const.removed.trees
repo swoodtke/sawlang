@@ -1,2 +1,10 @@
 t6_local_const.saw: 1 tree(s)
-  File(Func(func main ( ) Block({ \n Error(const x = IntLit(5)) \n ExprStmt(Call(Name(print) ( Arg(Name(x)) ))) \n })) \n )
+  (File
+    (Declaration.func
+      (Func main
+        (Block
+          (Error x (IntLit 5))
+          (ExprStmt
+            (Call.paren
+              (Name print)
+              (Arg.positional (Name x))))))))

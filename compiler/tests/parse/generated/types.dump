@@ -1,0 +1,893 @@
+// case: syntax.type.type.ref/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (RefType.shared
+        (NamedType (Path b))))))
+
+// case: syntax.type.type.func/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))))))
+
+// case: syntax.type.type.suffixed/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType (Path b)))))
+
+// case: syntax.type.type.suffixed/rep:1:type-suffix*=0
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType (Path b)))))
+
+// case: syntax.type.type.suffixed/rep:1:type-suffix*=1
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (OptionalType
+        (NamedType (Path b))))))
+
+// case: syntax.type.type.suffixed/rep:1:type-suffix*=many
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (OptionalType
+        (OptionalType
+          (OptionalType
+            (NamedType (Path b))))))))
+
+// case: syntax.type.suffix.optional/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (OptionalType
+        (NamedType (Path b))))))
+
+// case: syntax.type.suffix.double-optional/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (OptionalType
+        (OptionalType
+          (NamedType (Path b)))))))
+
+// case: syntax.type.atom.named/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType (Path b)))))
+
+// case: syntax.type.atom.slice/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (SliceType.shared
+        (NamedType (Path b))))))
+
+// case: syntax.type.atom.array/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (ArrayType
+        (NamedType (Path b))
+        (Name c)))))
+
+// case: syntax.type.atom.tuple/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a (TupleType.unit))))
+
+// case: syntax.type.atom.single-tuple/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (TupleType
+        (NamedType (Path b))))))
+
+// case: syntax.type.atom.paren/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType (Path b)))))
+
+// case: syntax.type.atom.any/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (AnyType (Path b)))))
+
+// case: syntax.type.named/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType (Path b)))))
+
+// case: syntax.type.named/opt:1:generic-args?=absent
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType (Path b)))))
+
+// case: syntax.type.named/opt:1:generic-args?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (NamedType (Path c))))))
+
+// case: syntax.type.ref.shared/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (RefType.shared
+        (NamedType (Path b))))))
+
+// case: syntax.type.ref.exclusive/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (RefType.exclusive
+        (NamedType (Path b))))))
+
+// case: syntax.type.slice.shared/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (SliceType.shared
+        (NamedType (Path b))))))
+
+// case: syntax.type.slice.exclusive/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (SliceType.exclusive
+        (NamedType (Path b))))))
+
+// case: syntax.type.array/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (ArrayType
+        (NamedType (Path b))
+        (Name c)))))
+
+// case: syntax.type.tuple.unit/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a (TupleType.unit))))
+
+// case: syntax.type.tuple.positional/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (TupleType.positional
+        (NamedType (Path b))
+        (NamedType (Path c))))))
+
+// case: syntax.type.tuple.positional/rep:2:("," type)+=1
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (TupleType.positional
+        (NamedType (Path b))
+        (NamedType (Path c))))))
+
+// case: syntax.type.tuple.positional/rep:2:("," type)+=many
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (TupleType.positional
+        (NamedType (Path b))
+        (NamedType (Path c))
+        (NamedType (Path d))
+        (NamedType (Path e))))))
+
+// case: syntax.type.tuple.positional/opt:3:","?=absent
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (TupleType.positional
+        (NamedType (Path b))
+        (NamedType (Path c))))))
+
+// case: syntax.type.tuple.positional/opt:3:","?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (TupleType.positional
+        (NamedType (Path b))
+        (NamedType (Path c))))))
+
+// case: syntax.type.tuple.named/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (TupleType.named
+        (TupleField b
+          (NamedType (Path c)))))))
+
+// case: syntax.type.tuple.named/rep:2:("," tuple-type-field)*=0
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (TupleType.named
+        (TupleField b
+          (NamedType (Path c)))))))
+
+// case: syntax.type.tuple.named/rep:2:("," tuple-type-field)*=1
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (TupleType.named
+        (TupleField b
+          (NamedType (Path c)))
+        (TupleField d
+          (NamedType (Path e)))))))
+
+// case: syntax.type.tuple.named/rep:2:("," tuple-type-field)*=many
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (TupleType.named
+        (TupleField b
+          (NamedType (Path c)))
+        (TupleField d
+          (NamedType (Path e)))
+        (TupleField f
+          (NamedType (Path g)))
+        (TupleField h
+          (NamedType (Path i)))))))
+
+// case: syntax.type.tuple.named/opt:3:","?=absent
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (TupleType.named
+        (TupleField b
+          (NamedType (Path c)))))))
+
+// case: syntax.type.tuple.named/opt:3:","?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (TupleType.named
+        (TupleField b
+          (NamedType (Path c)))))))
+
+// case: syntax.type.tuple.positional/pair:2:("," type)+=many,3:","?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (TupleType.positional
+        (NamedType (Path b))
+        (NamedType (Path c))
+        (NamedType (Path d))
+        (NamedType (Path e))))))
+
+// case: syntax.type.tuple.named/pair:2:("," tuple-type-field)*=many,3:","?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (TupleType.named
+        (TupleField b
+          (NamedType (Path c)))
+        (TupleField d
+          (NamedType (Path e)))
+        (TupleField f
+          (NamedType (Path g)))
+        (TupleField h
+          (NamedType (Path i)))))))
+
+// case: syntax.type.tuple-field/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (TupleType.named
+        (TupleField b
+          (NamedType (Path c)))))))
+
+// case: syntax.type.single-tuple/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (TupleType
+        (NamedType (Path b))))))
+
+// case: syntax.type.paren/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType (Path b)))))
+
+// case: syntax.type.func/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))))))
+
+// case: syntax.type.func/opt:1:func-type-params?=absent
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))))))
+
+// case: syntax.type.func/opt:1:func-type-params?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))
+        (NamedType (Path c))))))
+
+// case: syntax.type.func-params/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))
+        (NamedType (Path c))))))
+
+// case: syntax.type.func-params/rep:1:("," type)*=0
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))
+        (NamedType (Path c))))))
+
+// case: syntax.type.func-params/rep:1:("," type)*=1
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))
+        (NamedType (Path c))
+        (NamedType (Path d))))))
+
+// case: syntax.type.func-params/rep:1:("," type)*=many
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))
+        (NamedType (Path c))
+        (NamedType (Path d))
+        (NamedType (Path e))
+        (NamedType (Path f))))))
+
+// case: syntax.type.func-params/opt:2:","?=absent
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))
+        (NamedType (Path c))))))
+
+// case: syntax.type.func-params/opt:2:","?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))
+        (NamedType (Path c))))))
+
+// case: syntax.type.func-params/pair:1:("," type)*=many,2:","?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))
+        (NamedType (Path c))
+        (NamedType (Path d))
+        (NamedType (Path e))
+        (NamedType (Path f))))))
+
+// case: syntax.type.func-effects/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/opt:0:"unsafe"?=absent
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/opt:0:"unsafe"?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType unsafe
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/opt:1:'sync'?=absent
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/opt:1:'sync'?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType sync
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/opt:2:'escaping'?=absent
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/opt:2:'escaping'?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType escaping
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/opt:3:func-type-borrows?=absent
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/opt:3:func-type-borrows?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType borrows
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/pair:0:"unsafe"?=present,1:'sync'?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType unsafe sync
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/pair:0:"unsafe"?=present,2:'escaping'?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType unsafe escaping
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/pair:0:"unsafe"?=present,3:func-type-borrows?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType unsafe borrows
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/pair:1:'sync'?=present,2:'escaping'?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType sync escaping
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/pair:1:'sync'?=present,3:func-type-borrows?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType sync borrows
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/pair:2:'escaping'?=present,3:func-type-borrows?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType escaping borrows
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-borrows.plain/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType borrows
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-borrows.sync/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType borrows sync
+        (NamedType (Path b))))))
+
+// case: syntax.type.any/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (AnyType (Path b)))))
+
+// case: syntax.type.cast-target.plain/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Cast
+            (Name b)
+            as
+            (NamedType (Path c))))))))
+
+// case: syntax.type.cast-target.optional/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Cast
+            (Name b)
+            as
+            (OptionalType
+              (NamedType (Path c)))))))))
+
+// case: syntax.type.cast-target.ref/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Cast
+            (Name b)
+            as
+            (RefType.shared
+              (NamedType (Path c)))))))))
+
+// case: syntax.type.cast-target.func/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Cast
+            (Name b)
+            as
+            (FuncType
+              (NamedType (Path c)))))))))
+
+// case: syntax.generic.params.list/alt
+(File
+  (Declaration.enum
+    (Enum a (GenericParam.type b))))
+
+// case: syntax.generic.params.list/rep:2:("," generic-param)*=0
+(File
+  (Declaration.enum
+    (Enum a (GenericParam.type b))))
+
+// case: syntax.generic.params.list/rep:2:("," generic-param)*=1
+(File
+  (Declaration.enum
+    (Enum a (GenericParam.type b) (GenericParam.type c))))
+
+// case: syntax.generic.params.list/rep:2:("," generic-param)*=many
+(File
+  (Declaration.enum
+    (Enum a (GenericParam.type b) (GenericParam.type c) (GenericParam.type d) (GenericParam.type e))))
+
+// case: syntax.generic.param.type/alt
+(File
+  (Declaration.enum
+    (Enum a (GenericParam.type b))))
+
+// case: syntax.generic.param.type/opt:1:bound-list?=absent
+(File
+  (Declaration.enum
+    (Enum a (GenericParam.type b))))
+
+// case: syntax.generic.param.type/opt:1:bound-list?=present
+(File
+  (Declaration.enum
+    (Enum a
+      (GenericParam.type b (Path c)))))
+
+// case: syntax.generic.param.type/opt:2:("=" type)?=absent
+(File
+  (Declaration.enum
+    (Enum a (GenericParam.type b))))
+
+// case: syntax.generic.param.type/opt:2:("=" type)?=present
+(File
+  (Declaration.enum
+    (Enum a
+      (GenericParam.type b =
+        (NamedType (Path c))))))
+
+// case: syntax.generic.param.const/alt
+(File
+  (Declaration.enum
+    (Enum a
+      (GenericParam.const b
+        (NamedType (Path c))))))
+
+// case: syntax.generic.param.const/opt:4:("=" const-expr)?=absent
+(File
+  (Declaration.enum
+    (Enum a
+      (GenericParam.const b
+        (NamedType (Path c))))))
+
+// case: syntax.generic.param.const/opt:4:("=" const-expr)?=present
+(File
+  (Declaration.enum
+    (Enum a
+      (GenericParam.const b
+        (NamedType (Path c))
+        =
+        (Path d)))))
+
+// case: syntax.generic.param.type/pair:1:bound-list?=present,2:("=" type)?=present
+(File
+  (Declaration.enum
+    (Enum a
+      (GenericParam.type b
+        (Path c)
+        =
+        (NamedType (Path d))))))
+
+// case: syntax.generic.bounds/alt
+(File
+  (Declaration.enum
+    (Enum a
+      (GenericParam.type b (Path c)))))
+
+// case: syntax.generic.bounds/rep:2:("+" path)*=0
+(File
+  (Declaration.enum
+    (Enum a
+      (GenericParam.type b (Path c)))))
+
+// case: syntax.generic.bounds/rep:2:("+" path)*=1
+(File
+  (Declaration.enum
+    (Enum a
+      (GenericParam.type b (Path c) + (Path d)))))
+
+// case: syntax.generic.bounds/rep:2:("+" path)*=many
+(File
+  (Declaration.enum
+    (Enum a
+      (GenericParam.type b (Path c) + (Path d) + (Path e) + (Path f)))))
+
+// case: syntax.generic.args.list/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (NamedType (Path c))))))
+
+// case: syntax.generic.args.list/rep:2:("," generic-arg)*=0
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (NamedType (Path c))))))
+
+// case: syntax.generic.args.list/rep:2:("," generic-arg)*=1
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (NamedType (Path c))
+        (NamedType (Path d))))))
+
+// case: syntax.generic.args.list/rep:2:("," generic-arg)*=many
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (NamedType (Path c))
+        (NamedType (Path d))
+        (NamedType (Path e))
+        (NamedType (Path f))))))
+
+// case: syntax.generic.arg.type/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (NamedType (Path c))))))
+
+// case: syntax.generic.arg.value/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Unary (Path c))))))
+
+// case: syntax.const.expr/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Unary (Path c))))))
+
+// case: syntax.const.expr/rep:1:(const-add-op const-term)*=0
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Unary (Path c))))))
+
+// case: syntax.const.expr/rep:1:(const-add-op const-term)*=1
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Binary (Path c) + (Path d))))))
+
+// case: syntax.const.expr/rep:1:(const-add-op const-term)*=many
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Binary (Path c) + (Path d) + (Path e) + (Path f))))))
+
+// case: syntax.const.add-op.plus/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Binary (Path c) + (Path d))))))
+
+// case: syntax.const.add-op.minus/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Binary (Path c) - (Path d))))))
+
+// case: syntax.const.term/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Unary (Path c))))))
+
+// case: syntax.const.term/rep:1:(const-mul-op const-unary)*=0
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Unary (Path c))))))
+
+// case: syntax.const.term/rep:1:(const-mul-op const-unary)*=1
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Binary (Path c) * (Path d))))))
+
+// case: syntax.const.term/rep:1:(const-mul-op const-unary)*=many
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Binary (Path c) * (Path d) * (Path e) * (Path f))))))
+
+// case: syntax.const.mul-op.times/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Binary (Path c) * (Path d))))))
+
+// case: syntax.const.mul-op.divide/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Binary (Path c) / (Path d))))))
+
+// case: syntax.const.mul-op.remainder/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Binary (Path c) % (Path d))))))
+
+// case: syntax.const.unary.negate/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Unary (Path c))))))
+
+// case: syntax.const.unary.atom/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType (Path b) (IntLit 1)))))
+
+// case: syntax.const.negate/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Unary (Path c))))))
+
+// case: syntax.const.atom.int/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType (Path b) (IntLit 1)))))
+
+// case: syntax.const.atom.name/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Binary (Path c) * (Path d))))))
+
+// case: syntax.const.atom.group/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Unary (Path c))))))
+
+// case: syntax.const.atom.layout/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Call.size
+          (NamedType (Path c)))))))
+
+// case: syntax.const.layout-query.size/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Call.size
+          (NamedType (Path c)))))))
+
+// case: syntax.const.layout-query.align/alt
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (NamedType
+        (Path b)
+        (Call.align
+          (NamedType (Path c)))))))

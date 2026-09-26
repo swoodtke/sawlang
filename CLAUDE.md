@@ -126,7 +126,8 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   changes (`build.sh`, `tools/patch_gate.py`, `.sawtracker/`), or when
   the changed paths are unknown. The full `grammarcorpus` run follows the
   same rule over its inputs (`GRAMMAR.md`, `LANGUAGE_SPEC.md`,
-  `compiler/tests/grammar/`, `sawc/`); without it, each changed `.saw`
+  `compiler/tests/grammar/`, `compiler/lex/`, `compiler/driver/`,
+  `compiler/tools/build.py`, `sawc/`); without it, each changed `.saw`
   file is checked against `corpus_expected.tsv` alone, in seconds. It
   prints each decision and why; `./build.sh test --dry-run --diff FILE`
   shows a patch's decision without running anything.
@@ -219,7 +220,11 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   `grammarcorpus` (`compiler/tests/grammar/corpus.py`: every tracked .saw
   recognized with GRAMMAR.md, its verdict compared with
   `corpus_expected.tsv`, and exactly one tree required of an accepted one;
-  `--write` records a deliberate change for review), `astdiff`, `astgraft`,
+  `--write` records a deliberate change for review; its inputs, which decide
+  when the per-patch gate runs it in full, are `GRAMMAR.md`,
+  `LANGUAGE_SPEC.md`, `compiler/tests/grammar/`, `compiler/lex/` and
+  `compiler/driver/` (sawc2's token dump), `compiler/tools/build.py` and
+  `sawc/`, which build sawc2), `astdiff`, `astgraft`,
   `corodiscovery` (design 275 U1: ONE ledger answers every coroutine frame
   decision — `tools/test_coro_discovery.py` parses `coro_transform.py` and
   fails on any site outside the ledger's builder that reads a raw discovery

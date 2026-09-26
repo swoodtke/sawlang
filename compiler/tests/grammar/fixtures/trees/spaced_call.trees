@@ -1,2 +1,16 @@
 spaced_call.saw: 1 tree(s)
-  File(Func(func main ( ) Block({ \n Let(let BindingName(a) = Call(Name(b) ( Arg(Name(c)) ))) \n ExprStmt(Call(Name(twice) ( Arg(IntLit(4)) ))) \n Let(let BindingName(d) = Name(e)) \n ExprStmt(Name(f)) \n })) \n )
+  (File
+    (Declaration.func
+      (Func main
+        (Block
+          (Let.immutable
+            (BindingName a)
+            (Call.paren
+              (Name b)
+              (Arg.positional (Name c))))
+          (ExprStmt
+            (Call.paren
+              (Name twice)
+              (Arg.positional (IntLit 4))))
+          (Let.immutable (BindingName d) (Name e))
+          (ExprStmt (Name f))))))

@@ -50,11 +50,22 @@ alternative-name    ::= production-name
   document section, a design ruling or a tracker issue.
 - **Nodes.** `node=` is the preliminary AST node kind the production builds.
   The tree records syntax only: what was written, never what it means. `-`
-  means the production builds no node of its own. An alternative that is
-  exactly one nonterminal passes that nonterminal's node on, and a chain
-  production (an operand followed by repeated operator-operand pairs) builds
-  its node only when it has more than one operand. Grouping parentheses build
-  no node.
+  means the production builds no node of its own. In such a production, an
+  alternative that is exactly one nonterminal passes that nonterminal's node
+  on. This pass-through applies only where `node=` is `-`: a production that
+  names a node builds it even over a single nonterminal. The one exception is a
+  chain production (an operand followed by repeated operator-operand pairs),
+  which builds its node only when it has more than one operand. Grouping
+  parentheses build no node. No alternative that is exactly one nonterminal
+  passes on a node of the Kind its own production builds. One node kind comes
+  from no production: each run of an optional chain, from its chain's base to where
+  §13's syntax.rule.optional-chain-run closes the run, is an `OptionalChain`
+  node, so the tree records where a short-circuit ends. A parenthesized
+  operand is a postfix chain of its own, so parentheses end a run, and
+  `a?.b.c` and `(a?.b).c` are different trees. The productions that write a
+  declaration's attributes and visibility, `declaration-item`,
+  `extension-member` and `attributed-local`, each build a node, so a
+  declaration and its modifiers are one subtree.
 - **Alternatives.** The rule line holds the first alternative. Each further
   alternative is on its own line, starting with `|`. When a production has more
   than one alternative, each one ends with its name annotation. A production
@@ -293,7 +304,7 @@ on which declaration is the attribute position rule (§13,
 syntax.rule.attribute-position).
 
 ```ebnf
-# syntax.decl.item  status=current  spec="Visibility"  node=-
+# syntax.decl.item  status=current  spec="Visibility"  node=Declaration
 declaration-item ::= attribute-list? visibility? func-decl  @syntax.decl.item.func
     | attribute-list? visibility? static-decl  @syntax.decl.item.static
     | attribute-list? extension-decl  @syntax.decl.item.extension
@@ -424,7 +435,7 @@ list-sep ::= "," NEWLINE*  @syntax.decl.list-sep.comma
 # syntax.decl.field  status=current  spec="Member visibility"  node=Field
 field ::= field-visibility? IDENT ":" type
 
-# syntax.decl.field-visibility  status=current  spec="Member visibility"  node=Visibility
+# syntax.decl.field-visibility  status=current  spec="Member visibility"  node=-
 field-visibility ::= visibility  @syntax.decl.field-visibility.public
     | 'private'  @syntax.decl.field-visibility.private
 
@@ -490,7 +501,7 @@ conformance-list ::= ":" path ( "," path )*
 # syntax.decl.extension-members  status=current  spec="Type Extensions"  node=-
 extension-member-list ::= extension-member ( NEWLINE+ extension-member )* NEWLINE*
 
-# syntax.decl.extension-member  status=current  spec="Type Extensions"  node=-
+# syntax.decl.extension-member  status=current  spec="Type Extensions"  node=ExtensionMember
 extension-member ::= type-assign-decl  @syntax.decl.extension-member.type-assign
     | visibility? method-decl  @syntax.decl.extension-member.method
     | synthesize-shared-attr visibility? method-decl  @syntax.decl.extension-member.synthesized-method
@@ -570,7 +581,7 @@ attribute ::= "@" 'export' NEWLINE*  @syntax.attr.attribute.export
     | "@" 'align' "(" expr ")" NEWLINE*  @syntax.attr.attribute.align
     | synthesize-shared-attr  @syntax.attr.attribute.synthesize-shared
 
-# syntax.attr.synthesize-shared  status=lockdown  spec="Synthesized conformances"  node=Attribute  ref="SL:borrowing §4"
+# syntax.attr.synthesize-shared  status=lockdown  spec="Synthesized conformances"  node=-  ref="SL:borrowing §4"
 synthesize-shared-attr ::= "@" 'synthesize' "(" 'shared' ")" NEWLINE*
 ```
 
@@ -790,9 +801,12 @@ const-mul-op ::= "*"  @syntax.const.mul-op.times
     | "/"  @syntax.const.mul-op.divide
     | "%"  @syntax.const.mul-op.remainder
 
-# syntax.const.unary  status=current  spec="Generics"  node=Unary
-const-unary ::= "-" const-unary  @syntax.const.unary.negate
+# syntax.const.unary  status=current  spec="Generics"  node=-
+const-unary ::= const-negate  @syntax.const.unary.negate
     | const-atom  @syntax.const.unary.atom
+
+# syntax.const.negate  status=current  spec="Generics"  node=Unary
+const-negate ::= "-" const-unary
 
 # syntax.const.atom  status=current  spec="Generics"  node=-
 const-atom ::= int-literal  @syntax.const.atom.int
@@ -878,7 +892,7 @@ binding-name ::= IDENT
 binding-target ::= binding-name  @syntax.stmt.binding-target.name
     | tuple-pattern  @syntax.stmt.binding-target.tuple
 
-# syntax.stmt.attributed-local  status=current  spec="Alignment"  node=-
+# syntax.stmt.attributed-local  status=current  spec="Alignment"  node=AttributedLocal
 attributed-local ::= attribute-list let-stmt
 ```
 
@@ -989,7 +1003,7 @@ guard-stmt ::= "guard" "let" binding-target "=" binding-subject NEWLINE* "else" 
     | "guard" "var" binding-target "=" binding-subject NEWLINE* "else" NEWLINE* block  @syntax.stmt.guard.var
     | guard-condition  @syntax.stmt.guard.condition
 
-# syntax.stmt.guard-condition  status=lockdown  spec="Control Flow"  node=Guard  ref="SL-400 c6"
+# syntax.stmt.guard-condition  status=lockdown  spec="Control Flow"  node=-  ref="SL-400 c6"
 guard-condition ::= "guard" head-expr NEWLINE* "else" NEWLINE* block
 
 # syntax.stmt.binding-subject  status=current  spec="Optionals"  node=-
@@ -1085,10 +1099,10 @@ range-expr ::= shift-expr ( range-op shift-expr )?  @syntax.expr.range.closed
 range-op ::= ".."  @syntax.expr.range-op.exclusive
     | "..="  @syntax.expr.range-op.inclusive
 
-# syntax.expr.range-from  status=lockdown  spec="Composite Types"  node=Range  ref="SL:borrowing §6"
+# syntax.expr.range-from  status=lockdown  spec="Composite Types"  node=-  ref="SL:borrowing §6"
 range-from ::= shift-expr ".."
 
-# syntax.expr.range-upto  status=lockdown  spec="Composite Types"  node=Range  ref="SL-400 c6"
+# syntax.expr.range-upto  status=lockdown  spec="Composite Types"  node=-  ref="SL-400 c6"
 range-upto ::= ".." shift-expr  @syntax.expr.range-upto.exclusive
     | "..=" shift-expr  @syntax.expr.range-upto.inclusive
     | ".."  @syntax.expr.range-upto.full
@@ -1849,7 +1863,7 @@ of top-level items, and the `?` suffixes of a type.
 | syntax.generic.params | 1 per list | its `>` |
 | syntax.pat.tuple | 1 for the `(` | its `)` |
 | syntax.pat.variant | 1 for the payload's `(` | its `)` |
-| syntax.const.unary | 1 per `-` | its operand's end |
+| syntax.const.negate | 1 | its operand's end |
 | syntax.const.atom | 1 for a parenthesized constant | its `)` |
 
 ## 12. Contexts
@@ -1937,7 +1951,7 @@ column:
 | syntax.expr.closure | S | Y | S | S | P | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | N | Y | Y | S | Y | Y | K | S | S | N | S | S | S | N |
 | syntax.expr.call | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | H | H | H | H | H | H | H | Y | Y | Y | S | Y | Y | Y | Y | Y | K | K | K | C | K | K | K | N |
 | syntax.expr.trailing-call | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | N | N | N | N | N | N | N | Y | Y | Y | N | Y | Y | S | Y | Y | S | S | S | N | S | S | S | N |
-| syntax.expr.member | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | H | H | H | H | H | H | H | Y | Y | Y | T | Y | Y | Y | Y | Y | K | K | K | C | K | K | K | N |
+| syntax.expr.member | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | H | H | H | H | H | H | H | Y | Y | Y | T | Y | Y | Y | Y | Y | K | K | K | N | K | K | K | N |
 | syntax.expr.tuple-index | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | T | Y | Y | Y | Y | Y | S | S | S | N | S | S | S | N |
 | syntax.expr.optional-member | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | H | H | H | H | H | H | H | Y | Y | Y | T | Y | Y | S | Y | Y | S | S | S | N | S | S | S | N |
 | syntax.expr.subscript | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | T | Y | Y | Y | Y | Y | S | S | S | N | S | S | S | N |
@@ -2026,7 +2040,7 @@ decides. The constructs column names the productions a rule governs.
 | syntax.rule.depth-limit | syntax.expr.postfix, syntax.expr.prefix, syntax.expr.primary, syntax.type.type, syntax.pat.pattern | Nesting deeper than 256 levels is refused at the opener of the 257th, as §11 counts. | Layout; design 259 R4 | current |
 | syntax.rule.borrow-form | syntax.borrow.block, syntax.borrow.place, syntax.borrow.unwrap, syntax.borrow.for | `borrow` followed by `let` or `var` is the borrow construct; otherwise `borrow` is an identifier. After `let` or `var`, a name followed by `=`, or a parenthesized pattern followed by `=`, is a binding: a `borrow` block, or at an `if` head an optional-place unwrap. Anything else is the place form. After `for`, `borrow let` and `borrow var` bind the loop name. | Places (`borrows` and `lend`); SL:borrowing §2 | lockdown |
 | syntax.rule.borrow-extent | syntax.borrow.place, syntax.borrow.optional-target | The place form's operand is a postfix expression, whatever its hops, so it binds tighter than `as`, every binary operator and `=`. Where the `borrows` call falls inside the operand is decided by typing, not by the parser. `borrow let doc.section_at(x).get("k") ?? ""` coalesces the borrowed read, and `borrow var v[i].x = borrow let v[j].x` assigns between two place forms. | Places (`borrows` and `lend`); SL:borrowing §2.2 | lockdown |
-| syntax.rule.optional-chain-run | syntax.expr.optional-member, syntax.stmt.optional-assign, syntax.stmt.optional-chain-target | A `?.` hop opens a run that continues over member, optional, call and trailing-closure hops. A `!`, a subscript, a tuple index, or the end of the postfix expression closes it; one short-circuit skips the whole run. An assignment whose target ends in an open run is an optional assignment of type `Void?`; `a?.b[0] = 1` closes the run first and is a plain assignment. | Optionals | current |
+| syntax.rule.optional-chain-run | syntax.expr.optional-member, syntax.stmt.optional-assign, syntax.stmt.optional-chain-target | A `?.` hop opens a run that continues over member, optional, call and trailing-closure hops. A `!`, a subscript, a tuple index, or the end of the postfix expression closes it; one short-circuit skips the whole run, which the tree holds as one `OptionalChain` node (§1). An assignment whose target ends in an open run is an optional assignment of type `Void?`; `a?.b[0] = 1` closes the run first and is a plain assignment. | Optionals | current |
 | syntax.rule.label-or-tuple | syntax.expr.argument, syntax.expr.tuple, syntax.expr.tuple-field, syntax.type.tuple | At the start of a call argument, a name followed by `:` is a label. Inside grouping parentheses, a name followed by `:` begins a named tuple, which labels every element or none. | Composite Types | current |
 | syntax.rule.paren-type | syntax.type.func, syntax.type.tuple, syntax.type.single-tuple, syntax.type.paren | In a type, a parenthesized list followed by effect words and `->` is a function type. Otherwise `()` is the empty tuple, a list with a comma or labels is a tuple, `(T,)` is a one-element tuple, and `(T)` groups `T`, so `((Int) -> Int)?` is an optional function. | Composite Types; SL-400 c6 | lockdown |
 | syntax.rule.prefix-type-suffix | syntax.type.type, syntax.type.ref, syntax.type.func, syntax.type.slice, syntax.type.suffix | A reference and a function type are not atoms, so a `?` or `??` after `&`, `&var` or a function type's `->` belongs to the type that follows: `&T?` is `Ref(Optional(T))`, and `(A) -> B?` is a function returning an optional. A slice is one atom, and `[T]` alone is not a type, so `&[T]?` is `Optional(Slice(T))`. Parentheses make a suffix apply to a whole function type, as in `((A) -> B)?`. A later stage, the reader of a `borrows` return type, reads `&T?` and `&[T]?` there as the conditional lend. | Optionals; Reference passing | current |
@@ -2151,6 +2165,7 @@ the two disagree, a row below says which way and why. Where a grammar rule
 | syntax.test.item | parses every `@test` form | refuses `@test` as an unknown attribute | ruled | SL:testing §2 |
 | syntax.decl.constexpr | parses `constexpr` in the effect slot | refuses `constexpr` | ruled | SL:architecture §3.10 |
 | syntax.rule.arm-body, syntax.rule.arm-statement-end | parses a statement arm, `case 0 -> return` | refuses `return` and `lend` there | ruled | design 259 R7′; SL-59 |
+| syntax.rule.arm-body, syntax.rule.contextual-words, syntax.decl.static-assert | reads an unbraced arm body that starts `static_assert (` as the assertion, as it reads the same statement in braces, so it refuses `case _ -> static_assert(x)`, which has no message (syntax.rule.contextual-words), and parses `case _ -> static_assert(1 == 1, "m")` as an assertion | reads such an arm body as an expression: `case _ -> static_assert(x)` calls a function named `static_assert`, and `case _ -> static_assert(1 == 1, "m")` fails in a later stage with "undefined function `static_assert`"; in braces it reads both as the assertion | ruled | Control Flow; SL-59 |
 | syntax.rule.operator-continuation | continues a line that ends in a binary operator other than `..` and `..=` | refuses the line break | ruled | design 259 R3; SL-83 |
 | syntax.expr.call | parses a call on any postfix operand, `(f)(x)`, `f(1)(2)` and `{ … }()` | refuses them | ruled | SL-73 |
 | syntax.rule.trailing-closure, syntax.expr.trailing-call | attaches a bare trailing closure to a name, as in `run { 10 }`, after `try!`, and in a `static` initializer | refuses them | ruled | SL-310 |
@@ -2179,6 +2194,7 @@ the two disagree, a row below says which way and why. Where a grammar rule
 | syntax.stmt.lend, syntax.expr.closure | parses `lend` as a closure-body statement | refuses it | later | `lend` suspends the accessor; it does not return |
 | syntax.decl.requirement | parses generic parameters on a trait requirement | refuses them | later | Traits; SL-400 c6 |
 | syntax.expr.refused-try-route | refuses a routing clause on `try!` or `try?`, and beside `catch` | parses them, and the type checker refuses them | earlier | Error routing at `try` |
+| syntax.expr.int, syntax.expr.float | refuses, in the `INT` and `FLOAT` tokens of §2.1, a width suffix after more than one `_`, as in `2__u8`, and a `_` that ends a number, as in `1_`, `0xFF_` and `1.0_`: a `_` separates digits, and a suffix follows one `_` at most | both lexers, `sawc/lexer.py` and `compiler/lex/`, accept them, reading `2__u8` as `2u8`, `1_` as `1` and `1.0_` as `1.0`; the recognizer reads their tokens, so it accepts them too | defect | Primitive Types |
 | syntax.rule.interpolation-whole | refuses a segment that is not one expression, such as `"{1F600}"` | keeps the first token and drops the rest, which `compiler/lex/tests/escapes.saw` relies on | defect | String |
 | syntax.stmt.guard, syntax.expr.closure | parses `guard` as a closure-body statement | refuses it | defect | Closures |
 | syntax.expr.try-block, syntax.rule.try-block | refuses `try? { … } catch { … }` | parses it as a plain `try` block and drops the `?` | defect | Block Try-Catch |

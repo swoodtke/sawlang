@@ -1,2 +1,45 @@
 generic_or_less.saw: 1 tree(s)
-  File(\n Func(func main ( ) Block({ \n Let(let BindingName(doc) = Call(Name(Object) ( Arg(fields : Call(Name(Map < NamedType(Path(String)) , NamedType(Path(Value)) >) ( ))) ))) \n ExprStmt(Call(Name(show) ( Arg(Call(Name(a < NamedType(Path(b)) , NamedType(Path(c)) >) ( Arg(Name(d)) ))) ))) \n Let(let BindingName(small) = Binary(Name(a) < Name(b))) \n Let(let BindingName(t) = Tuple(( Binary(Cast(Name(n) as NamedType(Path(Count))) < Name(lim)) , Binary(Name(m) >= IntLit(0)) ))) \n Let(let BindingName(p) = Cast(Name(n) as NamedType(Path(UnsafePointer) < NamedType(Path(UInt8)) >))) \n })) \n )
+  (File
+    (Declaration.func
+      (Func main
+        (Block
+          (Let.immutable
+            (BindingName doc)
+            (Call.paren
+              (Name Object)
+              (Arg.labelled fields
+                (Call.paren
+                  (Name Map
+                    (NamedType (Path String))
+                    (NamedType (Path Value)))))))
+          (ExprStmt
+            (Call.paren
+              (Name show)
+              (Arg.positional
+                (Call.paren
+                  (Name a
+                    (NamedType (Path b))
+                    (NamedType (Path c)))
+                  (Arg.positional (Name d))))))
+          (Let.immutable
+            (BindingName small)
+            (Binary.pair (Name a) < (Name b)))
+          (Let.immutable
+            (BindingName t)
+            (Tuple.positional
+              (Binary.pair
+                (Cast
+                  (Name n)
+                  as
+                  (NamedType (Path Count)))
+                <
+                (Name lim))
+              (Binary.pair (Name m) >= (IntLit 0))))
+          (Let.immutable
+            (BindingName p)
+            (Cast
+              (Name n)
+              as
+              (NamedType
+                (Path UnsafePointer)
+                (NamedType (Path UInt8)))))))))

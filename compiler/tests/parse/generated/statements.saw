@@ -1,0 +1,812 @@
+// case: syntax.stmt.block/alt
+func a() { }
+
+// case: syntax.stmt.body/alt
+func a() { }
+
+// case: syntax.stmt.body/rep:0:NEWLINE*=0
+func a() { }
+
+// case: syntax.stmt.body/rep:0:NEWLINE*=1
+func a() {
+}
+
+// case: syntax.stmt.body/rep:0:NEWLINE*=many
+func a() {
+
+
+}
+
+// case: syntax.stmt.body/opt:1:(statement (stmt-sep statement)* NEWLINE*)?=absent
+func a() { }
+
+// case: syntax.stmt.body/opt:1:(statement (stmt-sep statement)* NEWLINE*)?=present
+func a() { b }
+
+// case: syntax.stmt.body/pair:0:NEWLINE*=many,1:(statement (stmt-sep statement)* NEWLINE*)?=present
+func a() {
+
+
+    b }
+
+// case: syntax.stmt.sep.semicolon/alt
+func a() { b; c }
+
+// case: syntax.stmt.sep.newline/alt
+func a() { b
+    c }
+
+// case: syntax.stmt.sep.newline/rep:0:NEWLINE+=1
+func a() { b
+    c }
+
+// case: syntax.stmt.sep.newline/rep:0:NEWLINE+=many
+func a() { b
+
+
+    c }
+
+// case: syntax.stmt.statement.expr/alt
+func a() { b }
+
+// case: syntax.stmt.statement.other/alt
+func a() { break }
+
+// case: syntax.stmt.expr/alt
+func a() { b }
+
+// case: syntax.stmt.non-expr.let/alt
+func a() { let b = c }
+
+// case: syntax.stmt.non-expr.destructure/alt
+func a() { let () = b }
+
+// case: syntax.stmt.non-expr.assign/alt
+func a() { b = c }
+
+// case: syntax.stmt.non-expr.compound-assign/alt
+func a() { b += c }
+
+// case: syntax.stmt.non-expr.optional-assign/alt
+func a() { b?.c = d }
+
+// case: syntax.stmt.non-expr.return/alt
+func a() { return }
+
+// case: syntax.stmt.non-expr.break/alt
+func a() { break }
+
+// case: syntax.stmt.non-expr.continue/alt
+func a() { continue }
+
+// case: syntax.stmt.non-expr.lend/alt
+func a() { lend b }
+
+// case: syntax.stmt.non-expr.guard/alt
+func a() { guard b else { } }
+
+// case: syntax.stmt.non-expr.static-assert/alt
+func a() { static_assert (b, "C") }
+
+// case: syntax.stmt.non-expr.attributed-local/alt
+func a() { @align (b) let c = d }
+
+// case: syntax.stmt.let.immutable/alt
+func a() { let b = c }
+
+// case: syntax.stmt.let.immutable/opt:2:type-annotation?=absent
+func a() { let b = c }
+
+// case: syntax.stmt.let.immutable/opt:2:type-annotation?=present
+func a() { let b: c = d }
+
+// case: syntax.stmt.let.mutable/alt
+func a() { var b = c }
+
+// case: syntax.stmt.let.mutable/opt:2:type-annotation?=absent
+func a() { var b = c }
+
+// case: syntax.stmt.let.mutable/opt:2:type-annotation?=present
+func a() { var b: c = d }
+
+// case: syntax.stmt.type-annotation/alt
+func a() { let b: c = d }
+
+// case: syntax.stmt.destructure.immutable/alt
+func a() { let () = b }
+
+// case: syntax.stmt.destructure.mutable/alt
+func a() { var () = b }
+
+// case: syntax.stmt.binding-name/alt
+func a() { let b = c }
+
+// case: syntax.stmt.binding-target.name/alt
+func a() { while let b = c { } }
+
+// case: syntax.stmt.binding-target.tuple/alt
+func a() { while let () = b { } }
+
+// case: syntax.stmt.attributed-local/alt
+func a() { @align (b) let c = d }
+
+// case: syntax.stmt.assign/alt
+func a() { b = c }
+
+// case: syntax.stmt.compound-assign/alt
+func a() { b += c }
+
+// case: syntax.stmt.compound-op.add/alt
+func a() { b += c }
+
+// case: syntax.stmt.compound-op.subtract/alt
+func a() { b -= c }
+
+// case: syntax.stmt.compound-op.multiply/alt
+func a() { b *= c }
+
+// case: syntax.stmt.compound-op.divide/alt
+func a() { b /= c }
+
+// case: syntax.stmt.compound-op.remainder/alt
+func a() { b %= c }
+
+// case: syntax.stmt.compound-op.and/alt
+func a() { b &= c }
+
+// case: syntax.stmt.compound-op.or/alt
+func a() { b |= c }
+
+// case: syntax.stmt.compound-op.xor/alt
+func a() { b ^= c }
+
+// case: syntax.stmt.compound-op.shift-left/alt
+func a() { b <<= c }
+
+// case: syntax.stmt.compound-op.shift-right/alt
+func a() { b >>= c }
+
+// case: syntax.stmt.assign-target.name/alt
+func a() { b = c }
+
+// case: syntax.stmt.assign-target.self/alt
+func a() { self = b }
+
+// case: syntax.stmt.assign-target.projection/alt
+func a() { b! = c }
+
+// case: syntax.stmt.assign-target.deref/alt
+func a() { * b = c }
+
+// case: syntax.stmt.assign-target.borrow/alt
+func a() { borrow let true = b }
+
+// case: syntax.stmt.assign-target.call/alt
+func a() { b() = c }
+
+// case: syntax.stmt.compound-target.name/alt
+func a() { b += c }
+
+// case: syntax.stmt.compound-target.projection/alt
+func a() { b! += c }
+
+// case: syntax.stmt.compound-target.deref/alt
+func a() { * b += c }
+
+// case: syntax.stmt.compound-target.borrow/alt
+func a() { borrow let b += c }
+
+// case: syntax.stmt.compound-target.call/alt
+func a() { b() += c }
+
+// case: syntax.stmt.projection-target/alt
+func a() { b! = c }
+
+// case: syntax.stmt.projection-target/rep:1:postfix-hop*=0
+func a() { b! = c }
+
+// case: syntax.stmt.projection-target/rep:1:postfix-hop*=1
+func a() { b!! = c }
+
+// case: syntax.stmt.projection-target/rep:1:postfix-hop*=many
+func a() { b!!!! = c }
+
+// case: syntax.stmt.place-hop.member/alt
+func a() { b.c = d }
+
+// case: syntax.stmt.place-hop.tuple-index/alt
+func a() { b.1 = c }
+
+// case: syntax.stmt.place-hop.subscript/alt
+func a() { b[c] = d }
+
+// case: syntax.stmt.place-hop.force/alt
+func a() { b! = c }
+
+// case: syntax.stmt.call-target/alt
+func a() { b() = c }
+
+// case: syntax.stmt.call-target/rep:1:postfix-hop*=0
+func a() { b() = c }
+
+// case: syntax.stmt.call-target/rep:1:postfix-hop*=1
+func a() { b! () = c }
+
+// case: syntax.stmt.call-target/rep:1:postfix-hop*=many
+func a() { b!!! () = c }
+
+// case: syntax.stmt.optional-assign.plain/alt
+func a() { b?.c = d }
+
+// case: syntax.stmt.optional-assign.compound/alt
+func a() { b?.c += d }
+
+// case: syntax.stmt.optional-assign.borrow-plain/alt
+func a() { borrow var b?.c = d }
+
+// case: syntax.stmt.optional-assign.borrow-compound/alt
+func a() { borrow var b?.c += d }
+
+// case: syntax.stmt.optional-chain-target/alt
+func a() { b?.c = d }
+
+// case: syntax.stmt.optional-chain-target/rep:1:postfix-hop*=0
+func a() { b?.c = d }
+
+// case: syntax.stmt.optional-chain-target/rep:1:postfix-hop*=1
+func a() { b!?.c = d }
+
+// case: syntax.stmt.optional-chain-target/rep:1:postfix-hop*=many
+func a() { b!!!?.c = d }
+
+// case: syntax.stmt.optional-chain-target/rep:3:chain-hop*=0
+func a() { b?.c = d }
+
+// case: syntax.stmt.optional-chain-target/rep:3:chain-hop*=1
+func a() { b?.c.d = e }
+
+// case: syntax.stmt.optional-chain-target/rep:3:chain-hop*=many
+func a() { b?.c.d.e.f = g }
+
+// case: syntax.stmt.optional-chain-target/pair:1:postfix-hop*=many,3:chain-hop*=many
+func a() { b!!!?.c.d.e.f = g }
+
+// case: syntax.stmt.chain-hop.member/alt
+func a() { b?.c.d = e }
+
+// case: syntax.stmt.chain-hop.optional/alt
+func a() { b?.c?.d = e }
+
+// case: syntax.stmt.chain-hop.call/alt
+func a() { b?.c() = d }
+
+// case: syntax.stmt.chain-hop.trailing/alt
+func a() { b?.c { } = d }
+
+// case: syntax.stmt.return/alt
+func a() { return }
+
+// case: syntax.stmt.return/opt:1:expr?=absent
+func a() { return }
+
+// case: syntax.stmt.return/opt:1:expr?=present
+func a() { return b }
+
+// case: syntax.stmt.break/alt
+func a() { break }
+
+// case: syntax.stmt.break/opt:1:expr?=absent
+func a() { break }
+
+// case: syntax.stmt.break/opt:1:expr?=present
+func a() { break b }
+
+// case: syntax.stmt.continue/alt
+func a() { continue }
+
+// case: syntax.stmt.lend/alt
+func a() { lend b }
+
+// case: syntax.stmt.guard.let/alt
+func a() { guard let b = c else { } }
+
+// case: syntax.stmt.guard.let/rep:5:NEWLINE*=0
+func a() { guard let b = c else { } }
+
+// case: syntax.stmt.guard.let/rep:5:NEWLINE*=1
+func a() { guard let b = c
+    else { } }
+
+// case: syntax.stmt.guard.let/rep:5:NEWLINE*=many
+func a() { guard let b = c
+
+
+    else { } }
+
+// case: syntax.stmt.guard.let/rep:7:NEWLINE*=0
+func a() { guard let b = c else { } }
+
+// case: syntax.stmt.guard.let/rep:7:NEWLINE*=1
+func a() { guard let b = c else
+    { } }
+
+// case: syntax.stmt.guard.let/rep:7:NEWLINE*=many
+func a() { guard let b = c else
+
+
+    { } }
+
+// case: syntax.stmt.guard.var/alt
+func a() { guard var b = c else { } }
+
+// case: syntax.stmt.guard.var/rep:5:NEWLINE*=0
+func a() { guard var b = c else { } }
+
+// case: syntax.stmt.guard.var/rep:5:NEWLINE*=1
+func a() { guard var b = c
+    else { } }
+
+// case: syntax.stmt.guard.var/rep:5:NEWLINE*=many
+func a() { guard var b = c
+
+
+    else { } }
+
+// case: syntax.stmt.guard.var/rep:7:NEWLINE*=0
+func a() { guard var b = c else { } }
+
+// case: syntax.stmt.guard.var/rep:7:NEWLINE*=1
+func a() { guard var b = c else
+    { } }
+
+// case: syntax.stmt.guard.var/rep:7:NEWLINE*=many
+func a() { guard var b = c else
+
+
+    { } }
+
+// case: syntax.stmt.guard.condition/alt
+func a() { guard b else { } }
+
+// case: syntax.stmt.guard.let/pair:5:NEWLINE*=many,7:NEWLINE*=many
+func a() { guard let b = c
+
+
+    else
+
+
+    { } }
+
+// case: syntax.stmt.guard.var/pair:5:NEWLINE*=many,7:NEWLINE*=many
+func a() { guard var b = c
+
+
+    else
+
+
+    { } }
+
+// case: syntax.stmt.guard-condition/alt
+func a() { guard b else { } }
+
+// case: syntax.stmt.guard-condition/rep:2:NEWLINE*=0
+func a() { guard b else { } }
+
+// case: syntax.stmt.guard-condition/rep:2:NEWLINE*=1
+func a() { guard b
+    else { } }
+
+// case: syntax.stmt.guard-condition/rep:2:NEWLINE*=many
+func a() { guard b
+
+
+    else { } }
+
+// case: syntax.stmt.guard-condition/rep:4:NEWLINE*=0
+func a() { guard b else { } }
+
+// case: syntax.stmt.guard-condition/rep:4:NEWLINE*=1
+func a() { guard b else
+    { } }
+
+// case: syntax.stmt.guard-condition/rep:4:NEWLINE*=many
+func a() { guard b else
+
+
+    { } }
+
+// case: syntax.stmt.guard-condition/pair:2:NEWLINE*=many,4:NEWLINE*=many
+func a() { guard b
+
+
+    else
+
+
+    { } }
+
+// case: syntax.stmt.binding-subject.value/alt
+func a() { if let b = c { } }
+
+// case: syntax.stmt.binding-subject.chain-assign/alt
+func a() { if let b = c?.d = e { } }
+
+// case: syntax.stmt.binding-subject.borrow-chain-assign/alt
+func a() { if let b = borrow var c?.d = e { } }
+
+// case: syntax.stmt.let/cell:stmt
+func f() {
+    let x = a
+    x
+}
+
+// case: syntax.stmt.let/cell:clos
+func f() {
+    let c = {
+        let x = a
+        x
+    }
+}
+
+// case: syntax.stmt.let/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        let x = a
+        x
+    }
+}
+
+// case: syntax.stmt.let/cell:arm
+func f() {
+    match x {
+        case _ -> let x = a
+    }
+}
+
+// case: syntax.stmt.destructure/cell:stmt
+func f() {
+    let (x, y) = a
+    x
+}
+
+// case: syntax.stmt.destructure/cell:clos
+func f() {
+    let c = {
+        let (x, y) = a
+        x
+    }
+}
+
+// case: syntax.stmt.destructure/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        let (x, y) = a
+        x
+    }
+}
+
+// case: syntax.stmt.destructure/cell:arm
+func f() {
+    match x {
+        case _ -> let (x, y) = a
+    }
+}
+
+// case: syntax.stmt.assign/cell:stmt
+func f() {
+    a = b
+    x
+}
+
+// case: syntax.stmt.assign/cell:clos
+func f() {
+    let c = {
+        a = b
+        x
+    }
+}
+
+// case: syntax.stmt.assign/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a = b
+        x
+    }
+}
+
+// case: syntax.stmt.assign/cell:arm
+func f() {
+    match x {
+        case _ -> a = b
+    }
+}
+
+// case: syntax.stmt.compound-assign/cell:stmt
+func f() {
+    a += b
+    x
+}
+
+// case: syntax.stmt.compound-assign/cell:clos
+func f() {
+    let c = {
+        a += b
+        x
+    }
+}
+
+// case: syntax.stmt.compound-assign/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a += b
+        x
+    }
+}
+
+// case: syntax.stmt.compound-assign/cell:arm
+func f() {
+    match x {
+        case _ -> a += b
+    }
+}
+
+// case: syntax.stmt.return/cell:stmt
+func f() {
+    return a
+    x
+}
+
+// case: syntax.stmt.return/cell:clos
+func f() {
+    let c = {
+        return a
+        x
+    }
+}
+
+// case: syntax.stmt.return/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        return a
+        x
+    }
+}
+
+// case: syntax.stmt.return/cell:arm
+func f() {
+    match x {
+        case _ -> return a
+    }
+}
+
+// case: syntax.stmt.break/cell:stmt
+func f() {
+    break
+    x
+}
+
+// case: syntax.stmt.break/cell:clos
+func f() {
+    let c = {
+        break
+        x
+    }
+}
+
+// case: syntax.stmt.break/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        break
+        x
+    }
+}
+
+// case: syntax.stmt.break/cell:arm
+func f() {
+    match x {
+        case _ -> break
+    }
+}
+
+// case: syntax.stmt.continue/cell:stmt
+func f() {
+    continue
+    x
+}
+
+// case: syntax.stmt.continue/cell:clos
+func f() {
+    let c = {
+        continue
+        x
+    }
+}
+
+// case: syntax.stmt.continue/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        continue
+        x
+    }
+}
+
+// case: syntax.stmt.continue/cell:arm
+func f() {
+    match x {
+        case _ -> continue
+    }
+}
+
+// case: syntax.stmt.lend/cell:stmt
+func f() {
+    lend a
+    x
+}
+
+// case: syntax.stmt.lend/cell:clos
+func f() {
+    let c = {
+        lend a
+        x
+    }
+}
+
+// case: syntax.stmt.lend/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        lend a
+        x
+    }
+}
+
+// case: syntax.stmt.lend/cell:arm
+func f() {
+    match x {
+        case _ -> lend a
+    }
+}
+
+// case: syntax.stmt.guard/cell:stmt
+func f() {
+    guard let x = a else { return }
+    x
+}
+
+// case: syntax.stmt.guard/cell:clos
+func f() {
+    let c = {
+        guard let x = a else { return }
+        x
+    }
+}
+
+// case: syntax.stmt.guard/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        guard let x = a else { return }
+        x
+    }
+}
+
+// case: syntax.stmt.guard/cell:arm
+func f() {
+    match x {
+        case _ -> guard let x = a else { return }
+    }
+}
+
+// case: syntax.stmt.guard-condition/cell:stmt
+func f() {
+    guard a else { return }
+    x
+}
+
+// case: syntax.stmt.guard-condition/cell:clos
+func f() {
+    let c = {
+        guard a else { return }
+        x
+    }
+}
+
+// case: syntax.stmt.guard-condition/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        guard a else { return }
+        x
+    }
+}
+
+// case: syntax.stmt.guard-condition/cell:arm
+func f() {
+    match x {
+        case _ -> guard a else { return }
+    }
+}
+
+// case: syntax.stmt.attributed-local/cell:stmt
+func f() {
+    @align(8) let x = a
+    x
+}
+
+// case: syntax.stmt.attributed-local/cell:clos
+func f() {
+    let c = {
+        @align(8) let x = a
+        x
+    }
+}
+
+// case: syntax.stmt.attributed-local/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        @align(8) let x = a
+        x
+    }
+}
+
+// case: syntax.stmt.attributed-local/cell:arm
+func f() {
+    match x {
+        case _ -> @align(8) let x = a
+    }
+}
+
+// case: syntax.stmt.optional-assign/cell:stmt
+func f() {
+    a?.b = c
+    x
+}
+
+// case: syntax.stmt.optional-assign/cell:clos
+func f() {
+    let c = {
+        a?.b = c
+        x
+    }
+}
+
+// case: syntax.stmt.optional-assign/cell:catch
+func f() {
+    try {
+        x
+    } catch {
+        a?.b = c
+        x
+    }
+}
+
+// case: syntax.stmt.optional-assign/cell:arm
+func f() {
+    match x {
+        case _ -> a?.b = c
+    }
+}
+
+// case: syntax.stmt.optional-assign/cell:subj
+func f() {
+    if let x = a?.b = c {
+    }
+}

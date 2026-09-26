@@ -1,4 +1,57 @@
 contexts.saw: 1 tree(s)
-  File(Static(static LIMIT : NamedType(Path(Int)) = Binary(IntLit(4) + IntLit(1))) \n \n Func(func pick ( Param(a : Optional(NamedType(Path(Int)))) , Param(b : Optional(NamedType(Path(Int))) = NoneLit(None)) ) -> NamedType(Path(Int)) Block({ \n Let(let BindingName(x) = Coalesce(Name(a) ?? Name(b) ?? IntLit(0))) \n Let(var BindingName(v) : ArrayType([ NamedType(Path(Int)) ; IntLit(3) ]) = Repeat([ Name(x) ; IntLit(3) ])) \n CompoundAssign(Name(v) Subscript([ IntLit(0) ]) += Member(Call(Name(f) ( Arg(Name(x)) , Arg(n : IntLit(2)) )) . y)) \n ExprStmt(If(if LetArm(let BindingName(y) = Name(a)) Block({ ExprStmt(Call(Name(print) ( Arg(Interp({y + 1})) ))) }))) \n ExprStmt(For(for BindingName(i) in Range(IntLit(0) .. Name(LIMIT)) Block({ }))) \n Return(return Member(Binary(Name(x) && Name(y)) . z)) \n })) \n )
+  (File
+    (Declaration.static
+      (Static.immutable LIMIT
+        (NamedType (Path Int))
+        =
+        (Binary (IntLit 4) + (IntLit 1))))
+    (Declaration.func
+      (Func pick
+        (Param.plain a
+          (OptionalType
+            (NamedType (Path Int))))
+        (Param.default b
+          (OptionalType
+            (NamedType (Path Int)))
+          (NoneLit))
+        (NamedType (Path Int))
+        (Block
+          (Let.immutable
+            (BindingName x)
+            (Coalesce (Name a) ?? (Name b) ?? (IntLit 0)))
+          (Let.mutable
+            (BindingName v)
+            (ArrayType
+              (NamedType (Path Int))
+              (IntLit 3))
+            (Repeat (Name x) (IntLit 3)))
+          (CompoundAssign
+            (Subscript.single (Name v) (IntLit 0))
+            +=
+            (Member
+              (Call.paren
+                (Name f)
+                (Arg.positional (Name x))
+                (Arg.labelled n (IntLit 2)))
+              y))
+          (ExprStmt
+            (If
+              (LetArm.let (BindingName y) (Name a))
+              (Block
+                (ExprStmt
+                  (Call.paren
+                    (Name print)
+                    (Arg.positional
+                      (Interp
+                        (Binary (Name y) + (IntLit 1)))))))))
+          (ExprStmt
+            (For.plain
+              (BindingName i)
+              (Range.closed (IntLit 0) .. (Name LIMIT))
+              (Block)))
+          (Return
+            (Member
+              (Binary (Name x) && (Name y))
+              z))))))
 contexts.saw segment 7:27: 1 tree(s)
-  Binary(Name(y) + IntLit(1))
+  (Binary (Name y) + (IntLit 1))

@@ -1,0 +1,32 @@
+//! A module doc: the File's first child.
+//! A second line.
+
+import std.io.{}
+import std.env.*
+import std.path as p
+
+/// Documents the enum; a case with an empty payload shows its parentheses.
+public enum Shape {
+    /// The case's own doc.
+    case Dot()
+    case Blank
+}
+
+/// Documents the method inside `@test`.
+@test
+func helper() {
+    print("a \{ {x}{} b {"{y}"} c")
+}
+
+extension Grid {
+    func [](&self, i: Int) -> Int {
+        i
+    }
+
+    func []=(&var self, i: Int, value: Int) {
+    }
+}
+
+@test(refuses: "syntax.stmt.refused-var-discard") "a refusal" {
+    var _ = f( { 1 } )
+}

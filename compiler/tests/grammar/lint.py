@@ -43,6 +43,7 @@ CHECKS = collections.OrderedDict([
     ("ref-format", "ref= names a document section, a tracker issue or a design"),
     ("lockdown-ref", "a lockdown production names its source in ref="),
     ("node-kind", "node= is an UpperCamelName or -"),
+    ("no-self-wrap", "no alternative builds a node around a lone node of its own Kind"),
     ("duplicate-name", "every syntax.* name is defined once"),
     ("duplicate-nonterminal", "every nonterminal is defined once"),
     ("undefined-nonterminal", "every nonterminal an alternative uses is defined"),
@@ -107,7 +108,7 @@ def lint(model, headings):
     """(sorted problems, Counter of items each check examined)."""
     run = Lint(model, headings)
     for fn in (_check_anomalies, _check_outside_fence, _check_headers, _check_alternatives,
-               _check_names, _check_nonterminals, _check_terminals, _check_mentions,
+               _check_self_wrap, _check_names, _check_nonterminals, _check_terminals, _check_mentions,
                _check_whitespace, _check_tables, _check_contexts, _check_rules,
                _check_refusals, _check_reference_tables, _check_differences):
         fn(run)
@@ -197,6 +198,80 @@ def _check_alternatives(run):
                     break
             if depth != 0:
                 run.fail(a.line, "parentheses", "unbalanced parentheses in %r" % a.text)
+
+
+def _check_self_wrap(run):
+    """An alternative that is exactly one nonterminal adds no token to the node
+    it builds, so a lone node of the same Kind inside it is the same tree twice
+    (compiler/tests/parse/README.md, Nodes)."""
+    by_nt = run.model.by_nonterminal()
+    for p in run.model.productions:
+        if p.node == "-":
+            continue
+        for a in p.alternatives:
+            if not _lone_nonterminal(a):
+                continue
+            run.saw("no-self-wrap")
+            if p.node in _lone_kinds(by_nt, a.items[0], set()):
+                run.fail(a.line, "no-self-wrap", "%s builds %s around a lone %s from %s"
+                         % (a.effective_name, p.node, p.node, a.items[0]))
+
+
+def _lone_nonterminal(a):
+    return len(a.items) == 1 and extract.NONTERMINAL_RE.match(a.items[0]) is not None
+
+
+# What a `node=-` alternative may hold beside its one nonterminal and still pass
+# that nonterminal's node on alone: grouping brackets and line breaks.
+GROUPING = ('"("', '")"', '"["', '"]"', "NEWLINE", "*", "+")
+
+
+def _grouped_nonterminal(a):
+    """The one nonterminal of a `node=-` alternative that holds nothing else
+    but grouping brackets and line breaks, or None."""
+    nts = [k for k, item in enumerate(a.items) if extract.NONTERMINAL_RE.match(item)]
+    if len(nts) != 1 or a.items[nts[0] + 1:nts[0] + 2] in (["?"], ["*"], ["+"]):
+        return None
+    rest = a.items[:nts[0]] + a.items[nts[0] + 1:]
+    return a.items[nts[0]] if all(item in GROUPING for item in rest) else None
+
+
+def _lone_kinds(by_nt, nt, seen):
+    """The Kinds of the node a derivation of nt yields when that node is all it
+    yields: its own, what a `node=-` alternative of one nonterminal passes on,
+    grouping brackets aside, and a chain's operand when the chain has one."""
+    p = by_nt.get(nt)
+    if p is None or nt in seen:
+        return set()
+    seen = seen | {nt}
+    kinds = set()
+    if p.node != "-":
+        kinds.add(p.node)
+    for a in p.alternatives:
+        inner = _grouped_nonterminal(a) if p.node == "-" else (
+            a.items[0] if _chain(a) else None)
+        if inner is not None:
+            kinds |= _lone_kinds(by_nt, inner, seen)
+    return kinds
+
+
+def _chain(a):
+    """Whether a is an operand then one repeated or optional group, or an
+    operand then one repeated nonterminal: the shapes that pass a lone operand
+    on (recognize.Grammar.chain_alternative)."""
+    items = a.items
+    if len(items) < 3 or not extract.NONTERMINAL_RE.match(items[0]):
+        return False
+    if len(items) == 3:
+        return extract.NONTERMINAL_RE.match(items[1]) is not None and items[2] in ("*", "?")
+    if items[1] != "(" or items[-2] != ")" or items[-1] not in ("*", "?"):
+        return False
+    depth = 0
+    for k in range(1, len(items) - 1):
+        depth += {"(": 1, ")": -1}.get(items[k], 0)
+        if depth == 0 and k != len(items) - 2:
+            return False
+    return True
 
 
 def _check_names(run):

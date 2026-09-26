@@ -1,0 +1,1504 @@
+// case: syntax.borrow.block/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let (BindingName b) (Name c))
+            (Block)))))))
+
+// case: syntax.borrow.block/rep:2:("," borrow-binding)*=0
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let (BindingName b) (Name c))
+            (Block)))))))
+
+// case: syntax.borrow.block/rep:2:("," borrow-binding)*=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let (BindingName b) (Name c))
+            (BorrowBinding.let (BindingName d) (Name e))
+            (Block)))))))
+
+// case: syntax.borrow.block/rep:2:("," borrow-binding)*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let (BindingName b) (Name c))
+            (BorrowBinding.let (BindingName d) (Name e))
+            (BorrowBinding.let (BindingName f) (Name g))
+            (BorrowBinding.let (BindingName h) (Name i))
+            (Block)))))))
+
+// case: syntax.borrow.block/rep:3:NEWLINE*=0
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let (BindingName b) (Name c))
+            (Block)))))))
+
+// case: syntax.borrow.block/rep:3:NEWLINE*=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let (BindingName b) (Name c))
+            (Block)))))))
+
+// case: syntax.borrow.block/rep:3:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let (BindingName b) (Name c))
+            (Block)))))))
+
+// case: syntax.borrow.block/pair:2:("," borrow-binding)*=many,3:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let (BindingName b) (Name c))
+            (BorrowBinding.let (BindingName d) (Name e))
+            (BorrowBinding.let (BindingName f) (Name g))
+            (BorrowBinding.let (BindingName h) (Name i))
+            (Block)))))))
+
+// case: syntax.borrow.binding.let/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let (BindingName b) (Name c))
+            (Block)))))))
+
+// case: syntax.borrow.binding.var/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.var (BindingName b) (Name c))
+            (Block)))))))
+
+// case: syntax.borrow.place.let/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (BorrowPlace.let (Name b)))))))
+
+// case: syntax.borrow.place.var/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (BorrowPlace.var (Name b)))))))
+
+// case: syntax.borrow.optional-target/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (OptionalAssign.borrow-plain
+          (BorrowPlace
+            (OptionalChain
+              (OptionalMember (Name b) c)))
+          (Name d))))))
+
+// case: syntax.borrow.unwrap.let/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (If
+            (BorrowArm.let (BindingName b) (Name c))
+            (Block)))))))
+
+// case: syntax.borrow.unwrap.var/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (If
+            (BorrowArm.var (BindingName b) (Name c))
+            (Block)))))))
+
+// case: syntax.borrow.for.let/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (For.borrow
+            (ForBorrow.let (BindingName b) (Name c) (Block))))))))
+
+// case: syntax.borrow.for.let/rep:6:NEWLINE*=0
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (For.borrow
+            (ForBorrow.let (BindingName b) (Name c) (Block))))))))
+
+// case: syntax.borrow.for.let/rep:6:NEWLINE*=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (For.borrow
+            (ForBorrow.let (BindingName b) (Name c) (Block))))))))
+
+// case: syntax.borrow.for.let/rep:6:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (For.borrow
+            (ForBorrow.let (BindingName b) (Name c) (Block))))))))
+
+// case: syntax.borrow.for.var/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (For.borrow
+            (ForBorrow.var (BindingName b) (Name c) (Block))))))))
+
+// case: syntax.borrow.for.var/rep:6:NEWLINE*=0
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (For.borrow
+            (ForBorrow.var (BindingName b) (Name c) (Block))))))))
+
+// case: syntax.borrow.for.var/rep:6:NEWLINE*=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (For.borrow
+            (ForBorrow.var (BindingName b) (Name c) (Block))))))))
+
+// case: syntax.borrow.for.var/rep:6:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (For.borrow
+            (ForBorrow.var (BindingName b) (Name c) (Block))))))))
+
+// case: syntax.pat.borrow-binding.let/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm
+              (VariantPat c (BorrowBindPat.let d))
+              (Name e))))))))
+
+// case: syntax.pat.borrow-binding.var/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm
+              (VariantPat c (BorrowBindPat.var d))
+              (Name e))))))))
+
+// case: syntax.borrow.for/cell:stmt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.borrow
+            (ForBorrow.let (BindingName x) (Name a) (Block))))
+        (ExprStmt (Name x))))))
+
+// case: syntax.borrow.for/cell:clos
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (ExprStmt
+              (For.borrow
+                (ForBorrow.let (BindingName x) (Name a) (Block))))
+            (ExprStmt (Name x))))))))
+
+// case: syntax.borrow.for/cell:catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (ExprStmt
+                (For.borrow
+                  (ForBorrow.let (BindingName x) (Name a) (Block))))
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.borrow.for/cell:arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              (For.borrow
+                (ForBorrow.let (BindingName x) (Name a) (Block))))))))))
+
+// case: syntax.borrow.for/cell:opnd
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (For.borrow
+              (ForBorrow.let (BindingName x) (Name a) (Block)))
+            *
+            (Name x)))))))
+
+// case: syntax.borrow.for/cell:rhs
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Name x)
+            &&
+            (For.borrow
+              (ForBorrow.let (BindingName x) (Name a) (Block)))))))))
+
+// case: syntax.borrow.for/cell:arg
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name f)
+            (Arg.positional
+              (For.borrow
+                (ForBorrow.let (BindingName x) (Name a) (Block))))))))))
+
+// case: syntax.borrow.for/cell:larg
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name f)
+            (Arg.labelled a
+              (For.borrow
+                (ForBorrow.let (BindingName x) (Name a) (Block))))))))))
+
+// case: syntax.borrow.for/cell:elem
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Array
+            (For.borrow
+              (ForBorrow.let (BindingName x) (Name a) (Block)))))))))
+
+// case: syntax.borrow.for/cell:recv
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Member
+            (For.borrow
+              (ForBorrow.let (BindingName x) (Name a) (Block)))
+            b))))))
+
+// case: syntax.borrow.for/cell:idx
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Subscript.single
+            (Name a)
+            (For.borrow
+              (ForBorrow.let (BindingName x) (Name a) (Block)))))))))
+
+// case: syntax.borrow.for/cell:interp
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name print)
+            (Arg.positional
+              (Interp
+                (For.borrow
+                  (ForBorrow.let (BindingName x) (Name a) (Block)))))))))))
+
+// case: syntax.borrow.for/cell:cond
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (For.borrow
+              (ForBorrow.let (BindingName x) (Name a) (Block)))
+            (Block)))))))
+
+// case: syntax.borrow.for/cell:subj
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (LetArm.let
+              (BindingName x)
+              (For.borrow
+                (ForBorrow.let (BindingName x) (Name a) (Block))))
+            (Block)))))))
+
+// case: syntax.borrow.for/cell:scrut
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (For.borrow
+              (ForBorrow.let (BindingName x) (Name a) (Block)))
+            (MatchArm (WildcardPat) (Name x))))))))
+
+// case: syntax.borrow.for/cell:aguard
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              if
+              (For.borrow
+                (ForBorrow.let (BindingName x) (Name a) (Block)))
+              (Name x))))))))
+
+// case: syntax.borrow.for/cell:iter
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName i)
+            (For.borrow
+              (ForBorrow.let (BindingName x) (Name a) (Block)))
+            (Block)))))))
+
+// case: syntax.borrow.for/cell:rend
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName i)
+            (Range.closed
+              (For.borrow
+                (ForBorrow.let (BindingName x) (Name a) (Block)))
+              ..
+              (Name x))
+            (Block)))))))
+
+// case: syntax.borrow.for/cell:bhead
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let
+              (BindingName x)
+              (For.borrow
+                (ForBorrow.let (BindingName x) (Name a) (Block))))
+            (Block)))))))
+
+// case: syntax.borrow.for/cell:init
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (For.borrow
+            (ForBorrow.let (BindingName x) (Name a) (Block))))))))
+
+// case: syntax.borrow.for/cell:asgn
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign
+          (Name v)
+          (For.borrow
+            (ForBorrow.let (BindingName x) (Name a) (Block))))))))
+
+// case: syntax.borrow.for/cell:crhs
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (CompoundAssign
+          (Name v)
+          +=
+          (For.borrow
+            (ForBorrow.let (BindingName x) (Name a) (Block))))))))
+
+// case: syntax.borrow.for/cell:ret
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Return
+          (For.borrow
+            (ForBorrow.let (BindingName x) (Name a) (Block))))))))
+
+// case: syntax.borrow.for/cell:brk
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (While.conditional
+            (Name x)
+            (Block
+              (Break
+                (For.borrow
+                  (ForBorrow.let (BindingName x) (Name a) (Block)))))))))))
+
+// case: syntax.borrow.for/cell:lend
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Lend
+          (For.borrow
+            (ForBorrow.let (BindingName x) (Name a) (Block))))))))
+
+// case: syntax.borrow.for/cell:try
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Try.propagate
+            (For.borrow
+              (ForBorrow.let (BindingName x) (Name a) (Block)))))))))
+
+// case: syntax.borrow.for/cell:dflt
+(File
+  (Declaration.func
+    (Func f
+      (Param.default p
+        (NamedType (Path T))
+        (For.borrow
+          (ForBorrow.let (BindingName x) (Name a) (Block))))
+      (Block))))
+
+// case: syntax.borrow.for/cell:sinit
+(File
+  (Declaration.static
+    (Static.immutable S
+      (NamedType (Path T))
+      =
+      (For.borrow
+        (ForBorrow.let (BindingName x) (Name a) (Block))))))
+
+// case: syntax.borrow.for/cell:alen
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (ArrayType
+            (NamedType (Path T))
+            (For.borrow
+              (ForBorrow.let (BindingName x) (Name a) (Block))))
+          (Name w))))))
+
+// case: syntax.borrow.for/cell:rcnt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Repeat
+            (Name x)
+            (For.borrow
+              (ForBorrow.let (BindingName x) (Name a) (Block)))))))))
+
+// case: syntax.borrow.for/cell:raw
+(File
+  (Declaration.enum
+    (Enum E
+      (NamedType (Path T))
+      (Case A =
+        (For.borrow
+          (ForBorrow.let (BindingName x) (Name a) (Block)))))))
+
+// case: syntax.borrow.for/cell:aarg
+(File
+  (Declaration.static
+    (Attribute.align
+      (For.borrow
+        (ForBorrow.let (BindingName x) (Name a) (Block))))
+    (Static.immutable S
+      (NamedType (Path T))
+      =
+      (Name x))))
+
+// case: syntax.borrow.for/cell:sassert
+(File
+  (StaticAssert
+    (For.borrow
+      (ForBorrow.let (BindingName x) (Name a) (Block)))
+    "m"))
+
+// case: syntax.borrow.place/cell:stmt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (BorrowPlace.let
+            (Subscript.single (Name a) (IntLit 0))))
+        (ExprStmt (Name x))))))
+
+// case: syntax.borrow.place/cell:tail
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (BorrowPlace.let
+            (Subscript.single (Name a) (IntLit 0))))))))
+
+// case: syntax.borrow.place/cell:clos
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (ExprStmt
+              (BorrowPlace.let
+                (Subscript.single (Name a) (IntLit 0))))
+            (ExprStmt (Name x))))))))
+
+// case: syntax.borrow.place/cell:catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (ExprStmt
+                (BorrowPlace.let
+                  (Subscript.single (Name a) (IntLit 0))))
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.borrow.place/cell:arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              (BorrowPlace.let
+                (Subscript.single (Name a) (IntLit 0))))))))))
+
+// case: syntax.borrow.place/cell:opnd
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (BorrowPlace.let
+              (Subscript.single (Name a) (IntLit 0)))
+            *
+            (Name x)))))))
+
+// case: syntax.borrow.place/cell:rhs
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Name x)
+            &&
+            (BorrowPlace.let
+              (Subscript.single (Name a) (IntLit 0)))))))))
+
+// case: syntax.borrow.place/cell:arg
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name f)
+            (Arg.positional
+              (BorrowPlace.let
+                (Subscript.single (Name a) (IntLit 0))))))))))
+
+// case: syntax.borrow.place/cell:larg
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name f)
+            (Arg.labelled a
+              (BorrowPlace.let
+                (Subscript.single (Name a) (IntLit 0))))))))))
+
+// case: syntax.borrow.place/cell:elem
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Array
+            (BorrowPlace.let
+              (Subscript.single (Name a) (IntLit 0)))))))))
+
+// case: syntax.borrow.place/cell:recv
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Member
+            (BorrowPlace.let
+              (Subscript.single (Name a) (IntLit 0)))
+            b))))))
+
+// case: syntax.borrow.place/cell:idx
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Subscript.single
+            (Name a)
+            (BorrowPlace.let
+              (Subscript.single (Name a) (IntLit 0)))))))))
+
+// case: syntax.borrow.place/cell:interp
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name print)
+            (Arg.positional
+              (Interp
+                (BorrowPlace.let
+                  (Subscript.single (Name a) (IntLit 0)))))))))))
+
+// case: syntax.borrow.place/cell:cond
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (BorrowPlace.let
+              (Subscript.single (Name a) (IntLit 0)))
+            (Block)))))))
+
+// case: syntax.borrow.place/cell:subj
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (LetArm.let
+              (BindingName x)
+              (BorrowPlace.let
+                (Subscript.single (Name a) (IntLit 0))))
+            (Block)))))))
+
+// case: syntax.borrow.place/cell:scrut
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (BorrowPlace.let
+              (Subscript.single (Name a) (IntLit 0)))
+            (MatchArm (WildcardPat) (Name x))))))))
+
+// case: syntax.borrow.place/cell:aguard
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              if
+              (BorrowPlace.let
+                (Subscript.single (Name a) (IntLit 0)))
+              (Name x))))))))
+
+// case: syntax.borrow.place/cell:iter
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName i)
+            (BorrowPlace.let
+              (Subscript.single (Name a) (IntLit 0)))
+            (Block)))))))
+
+// case: syntax.borrow.place/cell:rend
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName i)
+            (Range.closed
+              (BorrowPlace.let
+                (Subscript.single (Name a) (IntLit 0)))
+              ..
+              (Name x))
+            (Block)))))))
+
+// case: syntax.borrow.place/cell:bhead
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let
+              (BindingName x)
+              (BorrowPlace.let
+                (Subscript.single (Name a) (IntLit 0))))
+            (Block)))))))
+
+// case: syntax.borrow.place/cell:init
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (BorrowPlace.let
+            (Subscript.single (Name a) (IntLit 0))))))))
+
+// case: syntax.borrow.place/cell:asgn
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign
+          (Name v)
+          (BorrowPlace.let
+            (Subscript.single (Name a) (IntLit 0))))))))
+
+// case: syntax.borrow.place/cell:crhs
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (CompoundAssign
+          (Name v)
+          +=
+          (BorrowPlace.let
+            (Subscript.single (Name a) (IntLit 0))))))))
+
+// case: syntax.borrow.place/cell:atgt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign
+          (BorrowPlace.let
+            (Subscript.single (Name a) (IntLit 0)))
+          (Name x))))))
+
+// case: syntax.borrow.place/cell:ret
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Return
+          (BorrowPlace.let
+            (Subscript.single (Name a) (IntLit 0))))))))
+
+// case: syntax.borrow.place/cell:brk
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (While.conditional
+            (Name x)
+            (Block
+              (Break
+                (BorrowPlace.let
+                  (Subscript.single (Name a) (IntLit 0)))))))))))
+
+// case: syntax.borrow.place/cell:lend
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Lend
+          (BorrowPlace.let
+            (Subscript.single (Name a) (IntLit 0))))))))
+
+// case: syntax.borrow.place/cell:try
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Try.propagate
+            (BorrowPlace.let
+              (Subscript.single (Name a) (IntLit 0)))))))))
+
+// case: syntax.borrow.place/cell:dflt
+(File
+  (Declaration.func
+    (Func f
+      (Param.default p
+        (NamedType (Path T))
+        (BorrowPlace.let
+          (Subscript.single (Name a) (IntLit 0))))
+      (Block))))
+
+// case: syntax.borrow.place/cell:sinit
+(File
+  (Declaration.static
+    (Static.immutable S
+      (NamedType (Path T))
+      =
+      (BorrowPlace.let
+        (Subscript.single (Name a) (IntLit 0))))))
+
+// case: syntax.borrow.place/cell:alen
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (ArrayType
+            (NamedType (Path T))
+            (BorrowPlace.let
+              (Subscript.single (Name a) (IntLit 0))))
+          (Name w))))))
+
+// case: syntax.borrow.place/cell:rcnt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Repeat
+            (Name x)
+            (BorrowPlace.let
+              (Subscript.single (Name a) (IntLit 0)))))))))
+
+// case: syntax.borrow.place/cell:raw
+(File
+  (Declaration.enum
+    (Enum E
+      (NamedType (Path T))
+      (Case A =
+        (BorrowPlace.let
+          (Subscript.single (Name a) (IntLit 0)))))))
+
+// case: syntax.borrow.place/cell:aarg
+(File
+  (Declaration.static
+    (Attribute.align
+      (BorrowPlace.let
+        (Subscript.single (Name a) (IntLit 0))))
+    (Static.immutable S
+      (NamedType (Path T))
+      =
+      (Name x))))
+
+// case: syntax.borrow.place/cell:sassert
+(File
+  (StaticAssert
+    (BorrowPlace.let
+      (Subscript.single (Name a) (IntLit 0)))
+    "m"))
+
+// case: syntax.borrow.block/cell:stmt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let (BindingName x) (Name a))
+            (Block
+              (ExprStmt (Name x)))))
+        (ExprStmt (Name x))))))
+
+// case: syntax.borrow.block/cell:tail
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let (BindingName x) (Name a))
+            (Block
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.borrow.block/cell:clos
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (ExprStmt
+              (BorrowBlock
+                (BorrowBinding.let (BindingName x) (Name a))
+                (Block
+                  (ExprStmt (Name x)))))
+            (ExprStmt (Name x))))))))
+
+// case: syntax.borrow.block/cell:catch
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (TryBlock
+            (Block
+              (ExprStmt (Name x)))
+            (Block
+              (ExprStmt
+                (BorrowBlock
+                  (BorrowBinding.let (BindingName x) (Name a))
+                  (Block
+                    (ExprStmt (Name x)))))
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.borrow.block/cell:arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              (BorrowBlock
+                (BorrowBinding.let (BindingName x) (Name a))
+                (Block
+                  (ExprStmt (Name x)))))))))))
+
+// case: syntax.borrow.block/cell:opnd
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (BorrowBlock
+              (BorrowBinding.let (BindingName x) (Name a))
+              (Block
+                (ExprStmt (Name x))))
+            *
+            (Name x)))))))
+
+// case: syntax.borrow.block/cell:rhs
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Name x)
+            &&
+            (BorrowBlock
+              (BorrowBinding.let (BindingName x) (Name a))
+              (Block
+                (ExprStmt (Name x))))))))))
+
+// case: syntax.borrow.block/cell:arg
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name f)
+            (Arg.positional
+              (BorrowBlock
+                (BorrowBinding.let (BindingName x) (Name a))
+                (Block
+                  (ExprStmt (Name x)))))))))))
+
+// case: syntax.borrow.block/cell:larg
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name f)
+            (Arg.labelled a
+              (BorrowBlock
+                (BorrowBinding.let (BindingName x) (Name a))
+                (Block
+                  (ExprStmt (Name x)))))))))))
+
+// case: syntax.borrow.block/cell:elem
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Array
+            (BorrowBlock
+              (BorrowBinding.let (BindingName x) (Name a))
+              (Block
+                (ExprStmt (Name x))))))))))
+
+// case: syntax.borrow.block/cell:recv
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Member
+            (BorrowBlock
+              (BorrowBinding.let (BindingName x) (Name a))
+              (Block
+                (ExprStmt (Name x))))
+            b))))))
+
+// case: syntax.borrow.block/cell:idx
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Subscript.single
+            (Name a)
+            (BorrowBlock
+              (BorrowBinding.let (BindingName x) (Name a))
+              (Block
+                (ExprStmt (Name x))))))))))
+
+// case: syntax.borrow.block/cell:interp
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name print)
+            (Arg.positional
+              (Interp
+                (BorrowBlock
+                  (BorrowBinding.let (BindingName x) (Name a))
+                  (Block
+                    (ExprStmt (Name x))))))))))))
+
+// case: syntax.borrow.block/cell:cond
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (BorrowBlock
+              (BorrowBinding.let (BindingName x) (Name a))
+              (Block
+                (ExprStmt (Name x))))
+            (Block)))))))
+
+// case: syntax.borrow.block/cell:subj
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (LetArm.let
+              (BindingName x)
+              (BorrowBlock
+                (BorrowBinding.let (BindingName x) (Name a))
+                (Block
+                  (ExprStmt (Name x)))))
+            (Block)))))))
+
+// case: syntax.borrow.block/cell:scrut
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (BorrowBlock
+              (BorrowBinding.let (BindingName x) (Name a))
+              (Block
+                (ExprStmt (Name x))))
+            (MatchArm (WildcardPat) (Name x))))))))
+
+// case: syntax.borrow.block/cell:aguard
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              if
+              (BorrowBlock
+                (BorrowBinding.let (BindingName x) (Name a))
+                (Block
+                  (ExprStmt (Name x))))
+              (Name x))))))))
+
+// case: syntax.borrow.block/cell:iter
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName i)
+            (BorrowBlock
+              (BorrowBinding.let (BindingName x) (Name a))
+              (Block
+                (ExprStmt (Name x))))
+            (Block)))))))
+
+// case: syntax.borrow.block/cell:rend
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName i)
+            (Range.closed
+              (BorrowBlock
+                (BorrowBinding.let (BindingName x) (Name a))
+                (Block
+                  (ExprStmt (Name x))))
+              ..
+              (Name x))
+            (Block)))))))
+
+// case: syntax.borrow.block/cell:bhead
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.let
+              (BindingName x)
+              (BorrowBlock
+                (BorrowBinding.let (BindingName x) (Name a))
+                (Block
+                  (ExprStmt (Name x)))))
+            (Block)))))))
+
+// case: syntax.borrow.block/cell:init
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (BorrowBlock
+            (BorrowBinding.let (BindingName x) (Name a))
+            (Block
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.borrow.block/cell:asgn
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign
+          (Name v)
+          (BorrowBlock
+            (BorrowBinding.let (BindingName x) (Name a))
+            (Block
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.borrow.block/cell:crhs
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (CompoundAssign
+          (Name v)
+          +=
+          (BorrowBlock
+            (BorrowBinding.let (BindingName x) (Name a))
+            (Block
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.borrow.block/cell:ret
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Return
+          (BorrowBlock
+            (BorrowBinding.let (BindingName x) (Name a))
+            (Block
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.borrow.block/cell:brk
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (While.conditional
+            (Name x)
+            (Block
+              (Break
+                (BorrowBlock
+                  (BorrowBinding.let (BindingName x) (Name a))
+                  (Block
+                    (ExprStmt (Name x))))))))))))
+
+// case: syntax.borrow.block/cell:lend
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Lend
+          (BorrowBlock
+            (BorrowBinding.let (BindingName x) (Name a))
+            (Block
+              (ExprStmt (Name x)))))))))
+
+// case: syntax.borrow.block/cell:try
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Try.propagate
+            (BorrowBlock
+              (BorrowBinding.let (BindingName x) (Name a))
+              (Block
+                (ExprStmt (Name x))))))))))
+
+// case: syntax.borrow.block/cell:dflt
+(File
+  (Declaration.func
+    (Func f
+      (Param.default p
+        (NamedType (Path T))
+        (BorrowBlock
+          (BorrowBinding.let (BindingName x) (Name a))
+          (Block
+            (ExprStmt (Name x)))))
+      (Block))))
+
+// case: syntax.borrow.block/cell:sinit
+(File
+  (Declaration.static
+    (Static.immutable S
+      (NamedType (Path T))
+      =
+      (BorrowBlock
+        (BorrowBinding.let (BindingName x) (Name a))
+        (Block
+          (ExprStmt (Name x)))))))
+
+// case: syntax.borrow.block/cell:alen
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (ArrayType
+            (NamedType (Path T))
+            (BorrowBlock
+              (BorrowBinding.let (BindingName x) (Name a))
+              (Block
+                (ExprStmt (Name x)))))
+          (Name w))))))
+
+// case: syntax.borrow.block/cell:rcnt
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Repeat
+            (Name x)
+            (BorrowBlock
+              (BorrowBinding.let (BindingName x) (Name a))
+              (Block
+                (ExprStmt (Name x))))))))))
+
+// case: syntax.borrow.block/cell:raw
+(File
+  (Declaration.enum
+    (Enum E
+      (NamedType (Path T))
+      (Case A =
+        (BorrowBlock
+          (BorrowBinding.let (BindingName x) (Name a))
+          (Block
+            (ExprStmt (Name x))))))))
+
+// case: syntax.borrow.block/cell:aarg
+(File
+  (Declaration.static
+    (Attribute.align
+      (BorrowBlock
+        (BorrowBinding.let (BindingName x) (Name a))
+        (Block
+          (ExprStmt (Name x)))))
+    (Static.immutable S
+      (NamedType (Path T))
+      =
+      (Name x))))
+
+// case: syntax.borrow.block/cell:sassert
+(File
+  (StaticAssert
+    (BorrowBlock
+      (BorrowBinding.let (BindingName x) (Name a))
+      (Block
+        (ExprStmt (Name x))))
+    "m"))
+
+// case: syntax.borrow.unwrap/cell:cond
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (BorrowArm.let (BindingName x) (Name a))
+            (Block)))))))

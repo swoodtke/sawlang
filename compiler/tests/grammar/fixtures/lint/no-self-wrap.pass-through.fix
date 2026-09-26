@@ -1,0 +1,13 @@
+Why: the lone Item comes through a node=- production that passes its one nonterminal on
+Expect: 52 no-self-wrap
+--- replace
+    | refused-item  @syntax.mini.item.refused
+--- with
+    | refused-item  @syntax.mini.item.refused
+    | head-expr  @syntax.mini.item.bare
+--- end
+--- replace
+# syntax.mini.expr  status=current  spec="Spelling"  node=Name
+--- with
+# syntax.mini.expr  status=current  spec="Spelling"  node=Item
+--- end

@@ -1,2 +1,14 @@
 q2_try_covers_its_operand.saw: 1 tree(s)
-  File(Func(func load ( ) -> NamedType(Path(LoadResult)) Block({ \n Let(let BindingName(id) = Cast(Try(try Call(Name(parse_id) ( ))) as NamedType(Path(UserId)))) \n Return(return Name(id)) \n })) \n )
+  (File
+    (Declaration.func
+      (Func load
+        (NamedType (Path LoadResult))
+        (Block
+          (Let.immutable
+            (BindingName id)
+            (Cast
+              (Try.propagate
+                (Call.paren (Name parse_id)))
+              as
+              (NamedType (Path UserId))))
+          (Return (Name id))))))

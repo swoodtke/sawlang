@@ -1,0 +1,11 @@
+// A hop chain nests one node per hop wherever it stands: an assignment
+// target, a compound target, an optional-chain target, a `move` operand's
+// place path, and a run of casts (syntax.rule.postfix-per-hop).
+func main() {
+    a.b[0].c = 1
+    s.t.0 += 2
+    f(x).y = 3
+    o?.p.q() = 4
+    let m = move r.s[1].t!
+    let c = n as Int32 as Int64 as UInt64
+}

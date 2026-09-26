@@ -1,0 +1,16 @@
+(File
+  (Declaration.enum
+    (Enum E
+      (Case A \( \))
+      (Case B \(
+        (PayloadField x
+          (NamedType (Path Int)))
+        \))
+      (Case C \(
+        (PayloadField x
+          (NamedType (Path Int)))
+        (PayloadField y
+          (NamedType (Path Int)))
+        \))
+      (Case D)))
+  (TestCase.refuses refuses "syntax.lex.shift-adjacent" "a spaced shift" (RefusalBody \x0a let s = a << b \x0a let t = a < < b \x0a let u : V < V < Int >> = w \x0a)))

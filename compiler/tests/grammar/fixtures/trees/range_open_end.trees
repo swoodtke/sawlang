@@ -1,4 +1,42 @@
 range_open_end.saw: 1 tree(s)
-  File(Func(func main ( ) Block({ \n Let(let BindingName(s) = Subscript(Name(buf) [ Range(IntLit(4) ..) ])) \n Let(let BindingName(p) = Range(Name(a) ..)) \n ExprStmt(Call(Name(f) ( Arg(Range(Name(a) ..)) , Arg(Name(b)) ))) \n Let(let BindingName(r) = Range(Name(a) ..)) ; Let(let BindingName(t) = Range(..)) \n Let(let BindingName(u) = If(if Name(c) Block({ ExprStmt(Range(Name(a) ..)) }) else Block({ ExprStmt(Range(.. Name(b))) }))) \n ExprStmt(Call(Name(print) ( Arg(Interp({a..})) ))) \n })) \n )
+  (File
+    (Declaration.func
+      (Func main
+        (Block
+          (Let.immutable
+            (BindingName s)
+            (Subscript.single
+              (Name buf)
+              (Range.from (IntLit 4) ..)))
+          (Let.immutable
+            (BindingName p)
+            (Range.from (Name a) ..))
+          (ExprStmt
+            (Call.paren
+              (Name f)
+              (Arg.positional
+                (Range.from (Name a) ..))
+              (Arg.positional (Name b))))
+          (Let.immutable
+            (BindingName r)
+            (Range.from (Name a) ..))
+          (Let.immutable (BindingName t) (Range.upto ..))
+          (Let.immutable
+            (BindingName u)
+            (If
+              (Name c)
+              (Block
+                (ExprStmt
+                  (Range.from (Name a) ..)))
+              else
+              (Block
+                (ExprStmt
+                  (Range.upto .. (Name b))))))
+          (ExprStmt
+            (Call.paren
+              (Name print)
+              (Arg.positional
+                (Interp
+                  (Range.from (Name a) ..)))))))))
 range_open_end.saw segment 7:12: 1 tree(s)
-  Range(Name(a) ..)
+  (Range.from (Name a) ..)

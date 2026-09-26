@@ -29,6 +29,8 @@ import extract  # noqa: E402
 import recognize  # noqa: E402
 
 REPO = extract.REPO
+# The frozen compiler, whose parser tells an error test from a conflict.
+SAWC = os.path.join(REPO, "sawc")
 EXPECTED = os.path.join(HERE, "corpus_expected.tsv")
 HEADER = "path\tverdict\treason"
 FINDINGS = ("AMBIGUOUS", "NOTREE")
@@ -96,6 +98,8 @@ class Classifier:
 
 def python_accepts(path):
     """Whether the frozen compiler's lexer and parser take the file."""
+    if SAWC not in sys.path:
+        sys.path.insert(0, SAWC)
     from lexer import Lexer
     from parser import Parser
     with open(path, encoding="utf-8") as fh:

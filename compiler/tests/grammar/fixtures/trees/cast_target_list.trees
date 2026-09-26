@@ -1,2 +1,121 @@
 cast_target_list.saw: 1 tree(s)
-  File(\n Func(func main ( ) Block({ \n ExprStmt(Call(Name(g) ( Arg(Binary(Cast(Name(x) as NamedType(Path(T) < NamedType(Path(a)) , NamedType(Path(b)) >)) - Name(c))) ))) \n Let(let BindingName(t) = Cast(Name(x) as NamedType(Path(Map) < NamedType(Path(String)) , NamedType(Path(Int)) >))) \n Let(let BindingName(u) = Tuple(( Binary(Cast(Name(n) as NamedType(Path(Int))) < Name(lim)) , Binary(Name(m) >= IntLit(0)) ))) \n Let(let BindingName(b) = Binary(Cast(Name(n) as NamedType(Path(Int))) < Name(lim))) \n Let(let BindingName(c) = Binary(Cast(Name(n) as NamedType(Path(Count))) < Name(lim))) \n Let(let BindingName(d) = Tuple(( Binary(Cast(Name(n) as NamedType(Path(Count))) < Name(lim)) , Binary(Name(m) > IntLit(0)) ))) \n Let(let BindingName(o) = Cast(Name(x) as Optional(NamedType(Path(Map) < NamedType(Path(String)) , NamedType(Path(Int)) >)))) \n Let(let BindingName(r) = Match(match Cast(Name(v) as NamedType(Path(Result) < NamedType(Path(Int)) , NamedType(Path(E)) >)) { \n MatchArm(case WildcardPat(_) -> IntLit(1)) \n })) \n ExprStmt(For(for BindingName(e) in Cast(Name(xs) as NamedType(Path(Vector) < NamedType(Path(Int)) >)) Block({ \n }))) \n Guard(guard let BindingName(w) = Cast(Name(x) as NamedType(Path(Optional) < NamedType(Path(Int)) >)) else Block({ \n Return(return) \n })) \n Let(let BindingName(s) = Match(match Name(n) { MatchArm(case LiteralPat(0) -> Cast(Name(x) as NamedType(Path(Vector) < NamedType(Path(Int)) >))) MatchArm(case WildcardPat(_) -> Name(y)) })) \n })) \n )
+  (File
+    (Declaration.func
+      (Func main
+        (Block
+          (ExprStmt
+            (Call.paren
+              (Name g)
+              (Arg.positional
+                (Binary
+                  (Cast
+                    (Name x)
+                    as
+                    (NamedType
+                      (Path T)
+                      (NamedType (Path a))
+                      (NamedType (Path b))))
+                  -
+                  (Name c)))))
+          (Let.immutable
+            (BindingName t)
+            (Cast
+              (Name x)
+              as
+              (NamedType
+                (Path Map)
+                (NamedType (Path String))
+                (NamedType (Path Int)))))
+          (Let.immutable
+            (BindingName u)
+            (Tuple.positional
+              (Binary.pair
+                (Cast
+                  (Name n)
+                  as
+                  (NamedType (Path Int)))
+                <
+                (Name lim))
+              (Binary.pair (Name m) >= (IntLit 0))))
+          (Let.immutable
+            (BindingName b)
+            (Binary.pair
+              (Cast
+                (Name n)
+                as
+                (NamedType (Path Int)))
+              <
+              (Name lim)))
+          (Let.immutable
+            (BindingName c)
+            (Binary.pair
+              (Cast
+                (Name n)
+                as
+                (NamedType (Path Count)))
+              <
+              (Name lim)))
+          (Let.immutable
+            (BindingName d)
+            (Tuple.positional
+              (Binary.pair
+                (Cast
+                  (Name n)
+                  as
+                  (NamedType (Path Count)))
+                <
+                (Name lim))
+              (Binary.pair (Name m) > (IntLit 0))))
+          (Let.immutable
+            (BindingName o)
+            (Cast
+              (Name x)
+              as
+              (OptionalType
+                (NamedType
+                  (Path Map)
+                  (NamedType (Path String))
+                  (NamedType (Path Int))))))
+          (Let.immutable
+            (BindingName r)
+            (Match
+              (Cast
+                (Name v)
+                as
+                (NamedType
+                  (Path Result)
+                  (NamedType (Path Int))
+                  (NamedType (Path E))))
+              (MatchArm (WildcardPat) (IntLit 1))))
+          (ExprStmt
+            (For.plain
+              (BindingName e)
+              (Cast
+                (Name xs)
+                as
+                (NamedType
+                  (Path Vector)
+                  (NamedType (Path Int))))
+              (Block)))
+          (Guard.let
+            (BindingName w)
+            (Cast
+              (Name x)
+              as
+              (NamedType
+                (Path Optional)
+                (NamedType (Path Int))))
+            (Block (Return)))
+          (Let.immutable
+            (BindingName s)
+            (Match
+              (Name n)
+              (MatchArm
+                (LiteralPat.int 0)
+                (Cast
+                  (Name x)
+                  as
+                  (NamedType
+                    (Path Vector)
+                    (NamedType (Path Int)))))
+              (MatchArm (WildcardPat) (Name y))))))))

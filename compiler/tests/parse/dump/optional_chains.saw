@@ -1,0 +1,32 @@
+// Each run of an optional chain is one OptionalChain node, which ends where
+// syntax.rule.optional-chain-run closes the run. Grouping parentheses end the
+// chain they hold, so each pair below differs.
+func runs() {
+    let a1 = a?.b.c
+    let a2 = (a?.b).c
+    let b1 = a?.b?.c
+    let b2 = (a?.b)?.c
+    let c1 = a?.b()
+    let c2 = (a?.b)()
+}
+
+// A `!`, a subscript and a tuple index close the run, so these pairs agree.
+func closers() {
+    let d1 = a?.b!
+    let d2 = (a?.b)!
+    let e1 = a?.b[0]
+    let e2 = (a?.b)[0]
+    let f1 = a?.b.0
+    let f2 = (a?.b).0
+    let g1 = a?.b[0]?.c
+}
+
+// An assignment target that ends in an open run is an optional assignment;
+// one whose run a subscript closes is a plain assignment.
+func targets() {
+    x?.y = v
+    x?.y.z += v
+    x?.y[0] = v
+    if let _ = x?.y = v {
+    }
+}

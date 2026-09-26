@@ -41,7 +41,10 @@ SUITE_INPUTS = {
         "GRAMMAR.md",               # the grammar it recognizes with
         "LANGUAGE_SPEC.md",         # the headings spec= names
         "compiler/tests/grammar/",  # the tools and corpus_expected.tsv
-        "sawc/",                    # the reference lexer, and the parser that classifies
+        "compiler/lex/",            # the lexer whose token dump it reads
+        "compiler/driver/",         # sawc2, which prints that dump
+        "compiler/tools/build.py",  # which builds sawc2
+        "sawc/",                    # Stage 0, which builds sawc2, and the parser that classifies
     ),
 }
 

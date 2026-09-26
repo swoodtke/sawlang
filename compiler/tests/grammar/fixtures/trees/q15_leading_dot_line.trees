@@ -1,2 +1,12 @@
 q15_leading_dot_line.saw: 1 tree(s)
-  File(Func(func count ( Param(s : NamedType(Path(String))) ) -> NamedType(Path(Int)) Block({ \n Let(let BindingName(n) = Name(s)) \n ExprStmt(Call(ImplicitMember(. len) ( ))) \n Return(return Name(n)) \n })) \n )
+  (File
+    (Declaration.func
+      (Func count
+        (Param.plain s
+          (NamedType (Path String)))
+        (NamedType (Path Int))
+        (Block
+          (Let.immutable (BindingName n) (Name s))
+          (ExprStmt
+            (Call.paren (ImplicitMember len)))
+          (Return (Name n))))))

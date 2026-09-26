@@ -1,2 +1,10 @@
 optional_chain_assign.saw: 1 tree(s)
-  File(\n Func(func main ( ) Block({ \n OptionalAssign(Name(op) OptionalMember(?. target) Call(( )) = IntLit(5)) \n })) \n )
+  (File
+    (Declaration.func
+      (Func main
+        (Block
+          (OptionalAssign.plain
+            (OptionalChain
+              (Call.paren
+                (OptionalMember (Name op) target)))
+            (IntLit 5))))))

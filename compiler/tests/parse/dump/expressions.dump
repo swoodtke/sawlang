@@ -1,0 +1,56 @@
+(File
+  (Declaration.func
+    (Func main
+      (NamedType (Path Int))
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Call.paren
+            (Name Vector
+              (NamedType (Path Int)))))
+        (Let.immutable
+          (BindingName r)
+          (Subscript.single
+            (Name xs)
+            (Range.from (IntLit 2) ..)))
+        (ExprStmt
+          (If
+            (LetArm.let
+              (BindingName x)
+              (OptionalChain
+                (OptionalMember (Name a) b)))
+            (Block)
+            (IfArm
+              (Binary.pair (Name y) > (IntLit 0))
+              (Block))))
+        (Let.immutable
+          (BindingName n)
+          (Match
+            (Try.optional
+              (Call.paren (Name g)))
+            (MatchArm
+              (VariantPat Some
+                (TuplePat.positional (LiteralPat.int 1) (WildcardPat)))
+              (IntLit 0))
+            (MatchArm
+              (RangePat.inclusive - 2 3)
+              if
+              (Binary.pair (Name n) < (IntLit 4))
+              (IntLit 1))
+            (MatchArm
+              (NonePat)
+              (Return (IntLit 2)))))
+        (Let.immutable
+          (BindingName c)
+          (Closure
+            (Capture.self)
+            (Capture.move q)
+            (ClosureParam.value k
+              (NamedType (Path Int)))
+            in
+            (ExprStmt (Name k))))
+        (ExprStmt
+          (Cast
+            (Unary.negate (Name a))
+            as
+            (NamedType (Path Int8))))))))
