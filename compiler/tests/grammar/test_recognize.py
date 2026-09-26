@@ -13,7 +13,8 @@ accept the text with RULE switched off. Every rule the recognizer applies needs
 a fixture of one kind or the other, so each is seen deciding something.
 VERDICTS pins more verdicts, REMOVED_FORMS the removed form a refusal is
 classified as, CORPUS_CASES the corpus lane's comparison; each token of
-OPEN_END_FOLLOW must decide a tree of OPEN_END_FIXTURE, and
+OPEN_END_FOLLOW must decide a tree of OPEN_END_FIXTURE, the cast-list FOLLOW
+set and each of CAST_WITNESSES a tree of CAST_FIXTURE, and
 `contexts.problems` must be empty.
 """
 import glob
@@ -44,7 +45,13 @@ VERDICTS = [
     ("func f() {\n    let x = 1 +\n        2\n}\n", "OK"),        # operator-continuation
     ("func f() {\n    let x = 1\n        - 2\n}\n", "OK"),        # a new statement: - 2
     ("func f() {\n    let x = 1\n        + 2\n}\n", "FAIL"),      # no unary plus
+    # A line break after a range operator ends the range: `a..` is open, and
+    # `a..=` takes no line break before its upper bound (range-open-end).
+    ("func f() {\n    let x = a..\n        b\n}\n", "OK"),
+    ("func f() {\n    let x = a..=\n        b\n}\n", "FAIL"),
     ("func f() {\n    x = 1 y\n}\n", "FAIL"),                     # juxtaposition
+    ("func f() {\n    let a = b (c)\n}\n", "OK"),                 # a spaced call is a call
+    ("func f() {\n    x = 1 (c)\n}\n", "OK"),
     ("func f() {\n    let café = 1\n}\n", "LEXERR"),         # ascii-identifier
     ("func f() {\n    print(\"{a b}\")\n}\n", "SEGFAIL"),         # interpolation-whole
     ("func f() {\n    print(\"{\\q}\")\n}\n", "SEGLEX"),          # a segment that fails to lex
@@ -60,6 +67,19 @@ VERDICTS = [
     ("func f() {\n    let g: std.Vector<Int>= w\n}\n", "OK"),
     ("func f() {\n    let g: () -> Vector<Int>= w\n}\n", "OK"),
     ("func f() {\n    x = a<b>>= 1\n}\n", "FAIL"),                # no split in an expression
+    # A cast target's list stands only when the token after it can follow the
+    # cast (generic-or-less), so a `>=` whose split leaves `=` compares.
+    ("func f() {\n    let t = (n as Int < lim, m >= 0)\n}\n", "OK"),
+    ("func f() {\n    let t = (n as Count < lim, m >= 0)\n}\n", "OK"),
+    ("func f() {\n    let b = n as Count < lim\n}\n", "OK"),
+    ("func f() {\n    let p = n as UnsafePointer<UInt8>\n}\n", "OK"),
+    ("func f() {\n    x = n as Vector<Int>= w\n}\n", "FAIL"),     # nor a split after one
+    ("func f() {\n    g(x as T<a, b> - c)\n}\n", "OK"),
+    ("func f() {\n    let t = x as Map<String,\n        Int>\n}\n", "OK"),
+    ("func f() {\n    let t = (n as Count < lim, m > 0)\n}\n", "OK"),
+    # `try` takes a prefix expression, so no cast is ever followed by `catch`.
+    ("func f() {\n    let v = try g() as Int catch {\n    }\n}\n", "FAIL"),
+    ("func f() {\n    let v = try g() as Vector<Int> catch {\n    }\n}\n", "FAIL"),
     # A label's `:` leads an expression, not a type, so no list is committed to
     # and a later `>=` compares: an argument, a field initializer, a payload, a
     # map entry, a named tuple, a call across lines, a nested call.
@@ -77,6 +97,9 @@ VERDICTS = [
     ("func f() {\n    let r = match n {\n        case 0 -> a < b + 1 >= 0\n"
      "        case _ -> false\n    }\n}\n", "FAIL"),
     ("func f() {\n    if a { b } { c }\n}\n", "FAIL"),            # head-restriction
+    # A nested block resets the head only inside its braces (head-reset).
+    ("func f() {\n    if match m { case _ -> v.any { $0 } } { }\n}\n", "OK"),
+    ("func f() {\n    if match m { case _ -> v }.any { $0 } { }\n}\n", "FAIL"),
     # statement-separator and declaration-separator
     ("func f() {\n    x = 1;\n}\n", "FAIL"),
     ("func f() {\n    x = 1;; y = 2\n}\n", "FAIL"),
@@ -84,6 +107,12 @@ VERDICTS = [
     ("func f() {\n    x = 1; y = 2\n}\n", "OK"),
     ("func a() {\n} func b() {\n}\n", "FAIL"),
     ("struct P { x: Int }; struct Q { y: Int }\n", "FAIL"),
+    # receiver-and-static: no receiver on a free function or an init
+    ("func f(&self) -> Int {\n    1\n}\n", "FAIL"),
+    ("extension P {\n    init(&self, v: Int) -> P {\n        P(x: v)\n    }\n}\n", "FAIL"),
+    # brace: typed closure parameters, beside a capture list or without one
+    ("func f() {\n    let g = { n: Int in n + 1 }\n}\n", "OK"),
+    ("func f() {\n    let g = { [base] n: Int, &var acc in n + base }\n}\n", "OK"),
     # doc-attach: what a `///` run may document
     ("enum E {\n    /// A case.\n    case A\n}\n/// An alias.\ntype T = Int\n", "OK"),
     ("/// A test-only helper.\n@test\nfunc helper() {\n}\n", "OK"),
@@ -102,6 +131,10 @@ REMOVED_FORMS = [
 ]
 # The fixture whose trees need each token of OPEN_END_FOLLOW.
 OPEN_END_FIXTURE = "range_open_end.saw"
+# The fixture whose trees need the computed FOLLOW set of a cast target's list,
+# and the terminals of that set each of its casts is decided by.
+CAST_FIXTURE = "cast_target_list.saw"
+CAST_WITNESSES = ('"-"', "NEWLINE", '"?"', '"{"', '"else"', '"case"')
 
 
 def _first_difference(want, got):
@@ -280,6 +313,31 @@ def check_open_end(failures, g):
     return len(full)
 
 
+def check_cast_follow(failures, g):
+    """The computed FOLLOW set of a cast target's list decides the cast fixture:
+    emptied, or without any one of CAST_WITNESSES, its report changes."""
+    path = os.path.join(TREES, CAST_FIXTURE)
+    rel = os.path.relpath(path, extract.REPO)
+    text = _read(path)
+    full = g.cast_list_follow
+    want = recognize.tree_report(g, CAST_FIXTURE, text)[0]
+    trials = [("an empty set", frozenset())]
+    for term in CAST_WITNESSES:
+        if term not in full:
+            failures.append("recognizer: %s is not in a cast target list's FOLLOW set" % term)
+        trials.append(("the set without %s" % term, full - {term}))
+    for label, follow in trials:
+        g.cast_list_follow = follow
+        try:
+            got = recognize.tree_report(g, CAST_FIXTURE, text)[0]
+        finally:
+            g.cast_list_follow = full
+        if got == want:
+            failures.append("recognizer fixture %s: with %s as the cast FOLLOW set its trees "
+                            "are unchanged" % (rel, label))
+    return len(trials)
+
+
 def _without(rule, run):
     """run() with one rule switched off, restored however run() ends."""
     recognize.DISABLED.add(rule)
@@ -352,6 +410,7 @@ def run():
     counts["recognizer verdicts"] = len(VERDICTS)
     counts["removed forms"] = check_removed_forms(failures, model, g)
     counts["open-end follow tokens"] = check_open_end(failures, g)
+    counts["cast follow trials"] = check_cast_follow(failures, g)
     counts["corpus lane cases"] = check_corpus(failures, model)
     failures.extend(contexts.problems(model))
     return failures, counts

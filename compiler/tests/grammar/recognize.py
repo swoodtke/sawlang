@@ -56,6 +56,7 @@ PREFERENCES = {
 # survives these, so they decide acceptance as well as trees.
 FILTERS = [
     ("compare-expr", "_generic_or_less", "syntax.rule.generic-or-less"),
+    ("cast-target", "_cast_list", "syntax.rule.generic-or-less"),
     ("name-expr", "_generic_kept", "syntax.rule.generic-or-less"),
     ("member-hop", "_generic_kept", "syntax.rule.generic-or-less"),
     ("optional-hop", "_generic_kept", "syntax.rule.generic-or-less"),
@@ -108,13 +109,19 @@ TRAILING_CALLEES = {"syntax.expr.primary.name", "syntax.expr.primary.implicit-me
 LEAF_HOPS = {"member-hop": "member", "optional-hop": "member", "call-hop": "call",
              "trailing-hop": "trailing"}
 # Inside a head, these start a fresh level where trailing closures attach again
-# (syntax.rule.head-reset): the brackets, a closure body and a call's arguments.
+# (syntax.rule.head-reset): the brackets, a call's arguments, and each nested
+# brace-delimited block: a closure body, a match's arms, and every construct's
+# `block`.
 HEAD_RESETS = ("paren-expr", "tuple-expr", "array-literal", "repeat-literal",
-               "closure-literal", "arg-list", "subscript-hop")
+               "closure-literal", "arg-list", "subscript-hop", "block", "match-arm-list")
 # Where a generic list after a name or member is kept in an expression, and so
 # is speculative until it closes (syntax.rule.generic-or-less).
 GENERIC_HOSTS = ("name-expr", "member-hop", "optional-hop")
 GENERIC_FOLLOW = ("(", ".", "{")
+# A type whose `<` is speculative, as an expression name's is.
+CAST_TARGET = "cast-target"
+# The start symbols the recognizer parses from, which FOLLOW sets are taken over.
+STARTS = ("source-file", "interp-segment", "refusal-unit")
 # The tokens after `..` that let a range omit its upper bound, besides a line
 # break and the end of input (syntax.rule.range-open-end).
 OPEN_END_FOLLOW = ("]", ")", ",", ";", "}")
@@ -180,6 +187,9 @@ class Grammar:
                 out.append(tuple(seq))
             self.prods[p.nonterminal] = out
         self.nullable = self._nullable()
+        self.first = self._first()
+        self.cast_list_follow = self._local_follow(CAST_TARGET, "generic-args",
+                                                   self._follow(STARTS)[CAST_TARGET])
 
     def _fresh(self, base, owner):
         self.counter += 1
@@ -256,6 +266,92 @@ class Grammar:
                         break
         return nullable
 
+    def _live(self, nt):
+        """The rules of nt that can derive something: none names a removed production."""
+        return [a for a in self.prods[nt] if NEVER not in a]
+
+    def _first(self):
+        first = {nt: set() for nt in self.prods}
+        changed = True
+        while changed:
+            changed = False
+            for nt in self.prods:
+                for alt in self._live(nt):
+                    add = self.first_of(alt, first)
+                    if not add <= first[nt]:
+                        first[nt] |= add
+                        changed = True
+        return first
+
+    def first_of(self, seq, first=None):
+        """The terminals a sequence of symbols can start with."""
+        first = self.first if first is None else first
+        out = set()
+        for sym in seq:
+            if not is_nonterminal(sym):
+                out.add(sym)
+                return out
+            out |= first[sym]
+            if sym not in self.nullable:
+                return out
+        return out
+
+    def _ends(self, alt, k):
+        """Whether the symbols of alt after k can all be empty."""
+        return all(s in self.nullable for s in alt[k + 1:])
+
+    def _follow(self, starts):
+        """FOLLOW of every nonterminal reachable from `starts`."""
+        region = set()
+        pending = list(starts)
+        while pending:
+            nt = pending.pop()
+            if nt not in region:
+                region.add(nt)
+                for alt in self._live(nt):
+                    pending.extend(s for s in alt if is_nonterminal(s))
+        return self._follow_over(region, {s: set() for s in starts})
+
+    def _local_follow(self, top, target, top_follow):
+        """What can follow a `target` that can end a `top` whose own follow is
+        `top_follow`. Only the productions of nonterminals that can end a `top`
+        contribute, so a `?` after the target counts and what follows a list
+        nested in the target's own list does not."""
+        region = set()
+        pending = [top]
+        while pending:
+            nt = pending.pop()
+            if nt in region:
+                continue
+            region.add(nt)
+            if nt == target:
+                continue
+            for alt in self._live(nt):
+                for k, sym in enumerate(alt):
+                    if is_nonterminal(sym) and self._ends(alt, k):
+                        pending.append(sym)
+        return self._follow_over(region, {top: set(top_follow)})[target]
+
+    def _follow_over(self, region, seeds):
+        follow = collections.defaultdict(set)
+        for nt, terms in seeds.items():
+            follow[nt] |= terms
+        changed = True
+        while changed:
+            changed = False
+            for nt in sorted(region):
+                for alt in self._live(nt):
+                    for k, sym in enumerate(alt):
+                        if sym not in region:
+                            continue
+                        add = self.first_of(alt[k + 1:])
+                        if self._ends(alt, k):
+                            add = add | follow[nt]
+                        if not add <= follow[sym]:
+                            follow[sym] |= add
+                            changed = True
+        return follow
+
     def alternative(self, nt, ai):
         """The Alternative a real nonterminal's rule index stands for."""
         return self.info[nt].alternatives[ai]
@@ -326,10 +422,17 @@ _GENERIC_INNER = {
 LIST_STARTS = ("generic-args", "generic-params")
 
 
-def committed(g, start, prefix):
-    """Whether a `<` after `prefix` opens a generic list the parser has committed
-    to: every reading of the prefix that takes a list there takes it in a type,
-    a declaration head or a layout query, never after an expression's name.
+# What a `<` after a prefix opens, by `list_kind`.
+COMMITTED = "committed"
+CAST_LIST = "cast"
+
+
+def list_kind(g, start, prefix):
+    """What a `<` after `prefix` opens: CAST_LIST when some reading ends a cast
+    target at the `<`, so that it may compare the cast instead; COMMITTED when
+    every reading takes it in a type, a declaration head or a layout query,
+    never after an expression's name; otherwise None
+    (syntax.rule.generic-or-less).
 
     The chart decides where a `:` or `->` leads a type, so a label's `:` in an
     argument, a field initializer, a payload, a map entry or a named tuple does
@@ -341,7 +444,20 @@ def committed(g, start, prefix):
         alt = g.prods[nt][ai]
         if dot < len(alt) and alt[dot] in LIST_STARTS:
             hosts.add(g.owner[nt][0] if nt.startswith("__") else nt)
-    return bool(hosts) and hosts.isdisjoint(GENERIC_HOSTS)
+    if not hosts:
+        return None
+    if applies("syntax.rule.generic-or-less") and any(
+            nt == CAST_TARGET and len(prefix) in ends for (nt, _), ends in chart.ends.items()):
+        return CAST_LIST
+    return COMMITTED if hosts.isdisjoint(GENERIC_HOSTS) else None
+
+
+def cast_follows(g, terms):
+    """Whether a token with these terminals can come after a cast target's
+    generic list: it continues the target or follows the cast expression, by
+    the FOLLOW set the productions give (syntax.rule.generic-or-less). The end
+    of a text that stops short of EOF, `terms` None, qualifies too."""
+    return terms is None or not terms.isdisjoint(g.cast_list_follow)
 
 
 def generic_close(tokens, i):
@@ -390,12 +506,14 @@ def generic_lists(g, start, tokens):
 
     A list after a name is kept when, read without its line breaks, it parses
     and is followed by `(`, `.` or `{`, or when the parser has committed to it
-    (`committed`); a kept list drops its line breaks (section 2.4 rule 2,
-    syntax.rule.generic-or-less). A list whose close is the leading `>` of a
-    `>=` or `>>=` is kept only when committed, and then the token is split
-    (syntax.rule.generic-close-split); so `let v: Vector<Int>= w` splits and
-    `f(a: a < b, b: b >= a)` does not. Lists are taken left to right, so each
-    `committed` chart reads a prefix already prepared.
+    (`list_kind`); a cast target's list is kept when it parses as generic
+    arguments and the token after it passes `cast_follows`. A kept list drops
+    its line breaks (section 2.4 rule 2, syntax.rule.generic-or-less). A list
+    whose close is the leading `>` of a `>=` or `>>=` is kept only by those
+    last two, and then the token is split (syntax.rule.generic-close-split); so
+    `let v: Vector<Int>= w` splits and `f(a: a < b, b: b >= a)` does not.
+    Lists are taken left to right, so each `list_kind` chart reads a prefix
+    already prepared.
     """
     out = list(tokens)
     i = 1
@@ -413,15 +531,28 @@ def generic_lists(g, start, tokens):
         parts.append(Token(TokenType.ASSIGN, "=", tc.line, tc.column + closes))
         span = [t for t in out[i:close] if t.type != TokenType.NEWLINE]
         span += parts[:closes] if closes else [tc]
-        after = "=" if closes else (out[close + 1].value if close + 1 < len(out) else None)
-        if any(Chart(g, s, span).accepted for s in LIST_STARTS) \
-                and (after in GENERIC_FOLLOW or committed(g, start, out[:i])):
+        follow = parts[closes] if closes else (out[close + 1] if close + 1 < len(out) else None)
+        if keeps(g, start, out[:i], span, follow):
             if closes:
                 out[close:close + 1] = parts
             for k in reversed(inside):
                 del out[k]
         i += 1
     return out
+
+
+def keeps(g, start, prefix, span, follow):
+    """Whether the list `span`, a `<` after `prefix` followed by the token
+    `follow` (None at the end), is kept; see `generic_lists`."""
+    parses = [s for s in LIST_STARTS if Chart(g, s, span).accepted]
+    if not parses:
+        return False
+    after = follow.value if follow is not None else None
+    kind = list_kind(g, start, prefix)
+    if kind == CAST_LIST:
+        return "generic-args" in parses \
+            and cast_follows(g, None if follow is None else token_terms(follow))
+    return after in GENERIC_FOLLOW or kind == COMMITTED
 
 
 def bracket_newlines(tokens):
@@ -699,17 +830,35 @@ class Forest:
 
     def _generic_or_less(self, d):
         """A `<` after a name compares only when no generic list from it parses
-        and is followed by `(`, `.` or `{` (syntax.rule.generic-or-less)."""
+        and is followed by `(`, `.` or `{`, or after a cast target by a token
+        `_cast_list_follows` takes (syntax.rule.generic-or-less)."""
         toks = self.c.tokens
-        for k in self._real_kids(d):
+        kids = self._real_kids(d)
+        for n, k in enumerate(kids):
             if isinstance(k, int) or k.nt != "compare-op":
                 continue
             p = k.kids[0]
             if toks[p].value != "<" or p == 0 or toks[p - 1].type != TokenType.IDENT:
                 continue
-            for e in self.c.ends.get(("generic-args", p), ()):
-                if e < len(toks) and toks[e].value in GENERIC_FOLLOW:
-                    return p
+            cast = any(t.j == p for t in self._descendants(kids[n - 1], CAST_TARGET))
+            follows = self._cast_list_follows if cast else self._name_list_follows
+            if any(follows(e) for e in self.c.ends.get(("generic-args", p), ())):
+                return p
+        return None
+
+    def _name_list_follows(self, e):
+        return e < len(self.c.tokens) and self.c.tokens[e].value in GENERIC_FOLLOW
+
+    def _cast_list_follows(self, e):
+        return cast_follows(self.c.g, self.c.terms[e] if e < len(self.c.tokens) else None)
+
+    def _cast_list(self, d):
+        """A generic list after a complete cast target stands only when the
+        token after it can follow there (syntax.rule.generic-or-less)."""
+        complete = self.c.ends.get((CAST_TARGET, d.i), ())
+        for k in self._descendants(d, "generic-args"):
+            if k.i in complete and not self._cast_list_follows(k.j):
+                return k.i
         return None
 
     def _generic_kept(self, d):

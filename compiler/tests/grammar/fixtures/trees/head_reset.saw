@@ -6,4 +6,12 @@ func main() {
     }
     while v[w.first { $0 }] {
     }
+    while match mode { case Draining -> queue.any { $0.urgent }, case _ -> false } { step() }
+    if if c { v.any { $0 } } else { w.all { $0 } } {
+    }
+    for x in borrow let e = m[k] { e.items.filter { $0 > 1 } } {
+    }
+    guard try { v.first { $0 } } catch { false } else {
+        return
+    }
 }

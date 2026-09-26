@@ -1,0 +1,2 @@
+range_line_end.saw: 1 tree(s)
+  File(Func(func main ( ) Block({ \n Let(let BindingName(v) = Range(Name(a) ..)) \n ExprStmt(Call(Name(g) ( ))) \n Let(let BindingName(u) = Range(..)) \n ExprStmt(Call(Name(h) ( ))) \n Let(let BindingName(w) = Range(Name(a) .. Name(b))) \n Let(let BindingName(s) = Subscript(Name(buf) [ Range(IntLit(4) ..) ])) \n ExprStmt(Call(Name(f) ( Arg(Range(Name(a) ..= Name(b))) ))) \n })) \n )

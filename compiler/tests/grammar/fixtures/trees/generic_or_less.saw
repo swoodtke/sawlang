@@ -3,4 +3,6 @@ func main() {
     let doc = Object(fields: Map<String, Value>())
     show(a < b, c > (d))
     let small = a < b
+    let t = (n as Count < lim, m >= 0)
+    let p = n as UnsafePointer<UInt8>
 }

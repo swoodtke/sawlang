@@ -1,0 +1,12 @@
+func main() {
+    let v = a..
+    g()
+    let u = ..
+    h()
+    let w = (a..
+        b)
+    let s = buf[4..
+    ]
+    f(a..=
+        b)
+}

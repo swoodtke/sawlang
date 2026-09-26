@@ -1,0 +1,20 @@
+// rule: syntax.rule.generic-or-less
+func main() {
+    g(x as T<a, b> - c)
+    let t = x as Map<String,
+        Int>
+    let u = (n as Int < lim, m >= 0)
+    let b = n as Int < lim
+    let c = n as Count < lim
+    let d = (n as Count < lim, m > 0)
+    let o = x as Map<String, Int>?
+    let r = match v as Result<Int, E> {
+        case _ -> 1
+    }
+    for e in xs as Vector<Int> {
+    }
+    guard let w = x as Optional<Int> else {
+        return
+    }
+    let s = match n { case 0 -> x as Vector<Int> case _ -> y }
+}
