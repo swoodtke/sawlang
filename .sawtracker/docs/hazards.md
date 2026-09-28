@@ -689,9 +689,12 @@ modules also defeat the checker's own name resolution.
     - a field reached through a subscript: `v[i].text == "x"`, and a parser's
       `self.toks[self.pos].text == word`;
     - an interpolation: `req.token != "Bearer {token}"`.
-  - **Does not leak:**
+  - **Does not leak, in a sync function:**
     - a named place: a local, a parameter, a field path (`t.text`), a tuple
-      field, and `o!` on a bound optional;
+      field, and `o!` on a bound optional. In a coroutine a named place is read
+      out of a frame slot as a fresh value, so it leaks too, and binding to a
+      `let` does not help there (chat m249). The self-hosted compiler is
+      sync-only, so this part does not reach Stage 1;
     - a literal;
     - a call or subscript that is only a receiver inside a trivial operand:
       `v[i].len() == 99`.
