@@ -1,0 +1,60 @@
+// Design 100: a shadow of an enclosing binding is legal exactly when the new
+// binding DERIVES from the one it shadows — its initializer mentions the
+// shadowed name (bare, `move`, `.copy()`, call-wrapped) — or, for if-let /
+// guard-let, the scrutinee references it. Each nested scope below runs.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 6
+// 2
+// 3
+// 7
+// 9
+
+func bump(n: Int) -> Int { n + 1 }
+func double(n: Int) -> Int { n * 2 }
+
+func unwrap_guard(z: Int?) {
+    guard let z = z else { return }   // scrutinee references shadowed z -> OK
+    print(z)
+}
+
+func main() {
+    // bare derivation
+    let a = 5
+    if true {
+        let a = a + 1                 // OK: mentions `a`
+        print(a)                      // 6
+    }
+
+    // var derivation, bare (the shadow is a mutable binding of its own)
+    let b = 4
+    if true {
+        var b = b + 1                 // OK: mentions `b`
+        b += 1                        // it is its own mutable binding
+        print(b)                      // 6
+    }
+
+    // move derivation (old binding retired by the move)
+    var data = 1
+    if true {
+        let data = double(move data)     // OK: mentions `data`
+        print(data)                      // 2
+    }
+
+    // .copy() derivation
+    let nums: Vector<Int> = [10, 20, 30]
+    if true {
+        let nums = nums.copy()           // OK: mentions `nums`
+        print(nums.len())                // 3
+    }
+
+    // if-let unwrap: scrutinee references the shadowed binding
+    let y: Int? = 7
+    if let y = y {
+        print(y)                         // 7
+    }
+
+    // guard-let unwrap through a param
+    unwrap_guard(9)                      // 9
+}

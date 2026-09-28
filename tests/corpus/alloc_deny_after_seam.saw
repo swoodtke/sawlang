@@ -1,0 +1,60 @@
+// The hosted default allocator carries an allocation budget so the failure
+// policy can be tested where it actually bites — the types that take no
+// allocator type parameter. `__saw_rt_alloc_deny_after(allow)` permits `allow`
+// more allocations and refuses every one after; a negative `allow` disarms.
+// This test only proves the seam itself: denial is observed through
+// `Vector(capacity:)`, which reports it.
+//
+// Design 137 dropped the second parameter. Denial used to be a bounded WINDOW
+// that re-armed the allocator by itself, because a panic assembled its message
+// into a fresh allocation and blanket denial would have swallowed every panic
+// message. Panic messages come off the stack now, so denial is a plain MODE.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// denied
+// allowed
+// denied
+// denied
+// 8
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+func try_capacity() -> Bool {
+    match Vector<Int>(capacity: 4) {
+        case Ok(_) -> true,
+        case Err(_) -> false
+    }
+}
+
+func report(ok: Bool) {
+    if ok {
+        print("allowed")
+    } else {
+        print("denied")
+    }
+}
+
+func main() {
+    // Deny everything from here on.
+    __saw_rt_alloc_deny_after(0)
+    report(try_capacity())              // denied
+
+    // One allocation of headroom, then denial from the second onward — and it
+    // STAYS on, which is the whole difference from the old window.
+    __saw_rt_alloc_deny_after(1)
+    report(try_capacity())              // allowed
+    report(try_capacity())              // denied
+    report(try_capacity())              // denied
+
+    // Explicit disarm, then a plain vector grows normally.
+    __saw_rt_alloc_deny_after(-1)
+    var v = Vector<Int>()
+    var i = 0
+    while i < 8 {
+        try! v.push(i)
+        i = i + 1
+    }
+    print(v.len())
+}

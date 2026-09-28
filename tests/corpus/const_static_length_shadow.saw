@@ -1,0 +1,17 @@
+// DF-172j: the fold resolves a name the way an ordinary read does — a local
+// binding wins over a module `static`. Design 100 lets a DERIVED shadow keep
+// the name (`let REGION_SIZE = REGION_SIZE + 1` mentions what it shadows), and
+// from there the name is a runtime value. Folding the static under it would
+// have compiled a length nobody wrote, silently, so the shadow is refused as
+// the runtime binding it is.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: array length is not a compile-time constant
+// EXPECT-ERROR-CONTAINS: `REGION_SIZE`
+
+static REGION_SIZE: Int = 64
+
+func main() {
+    let REGION_SIZE = REGION_SIZE + 1
+    var buf: [UInt8; REGION_SIZE] = [0; 4]
+    print(buf.len())
+}

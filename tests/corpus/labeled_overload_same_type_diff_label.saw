@@ -1,0 +1,17 @@
+// Design 66: two overloads with the SAME parameter types but DIFFERENT labels
+// coexist (name-qualified identity). Full labels resolve each; a single
+// disambiguating label suffices (the user-confirmed `f(0, value: 4)` case).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 102
+// 2001
+// 4000
+
+func f(a: Int, b: Int) -> Int { a * 100 + b }
+func f(kind: Int, value: Int) -> Int { kind + value * 1000 }
+
+func main() {
+    print(f(a: 1, b: 2))         // f(a:b:) -> 102
+    print(f(kind: 1, value: 2))  // f(kind:value:) -> 2001
+    print(f(0, value: 4))        // partial single label picks f(kind:value:)
+}

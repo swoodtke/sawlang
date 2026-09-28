@@ -1,0 +1,65 @@
+// design 85 acceptance: the read -> build -> write handler flow (the httpd_sw.saw
+// `handle_connection` shape) over a deterministic socketpair — no bound port. One
+// worker READS an HTTP request (parking until the request line arrives), BUILDS an
+// HTTP/1.1 response with StringBuilder, and WRITES it back (parking on would-block).
+// The client sends a GET and verifies the status line + body. This is the real
+// read-then-write worker the design-84 net API + the design-85 fix unblock, via
+// nested suspending METHOD calls across worker re-entry. Deterministic on content.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 1
+
+import std.data.{Data}
+import std.net.{TcpStream}
+func handle(stream: TcpStream) -> Int {
+    var req = Data()
+    var reading = true
+    while reading {
+        let chunk = try! stream.read()                  // park until bytes arrive
+        if chunk.len() == 0 {
+            reading = false                        // peer closed
+        } else {
+            try! req.append(move chunk)
+            if (try! req.to_string()).contains("\r\n\r\n") {
+                reading = false                    // have the full request head
+            }
+        }
+    }
+    let body = "hello"
+    var sb = StringBuilder()
+    try! sb.append("HTTP/1.1 200 OK\r\nContent-Length: ")
+    try! sb.append(body.len())
+    try! sb.append("\r\n\r\n")
+    try! sb.append(body)
+    try! stream.write(sb.build())               // park on would-block until sent
+    return body.len()
+}
+
+func client(stream: TcpStream) -> Int {
+    try! stream.write("GET / HTTP/1.1\r\n\r\n")
+    var resp = Data()
+    var reading = true
+    while reading {
+        let chunk = try! stream.read()
+        if chunk.len() == 0 {
+            reading = false
+        } else {
+            try! resp.append(move chunk)
+            if (try! resp.to_string()).contains("hello") {
+                reading = false
+            }
+        }
+    }
+    let s = try! resp.to_string()
+    if s.starts_with("HTTP/1.1 200 OK") && s.contains("hello") { 1 } else { 0 }
+}
+
+func main() {
+    let (a, b) = TcpStream.pair()
+    var group = TaskGroup()
+    let hs = group.spawn(handle(move a))
+    let hc = group.spawn(client(move b))
+    print(hs.join())     // 5 = body bytes built + written
+    print(hc.join())     // 1 = status line + body round-tripped
+}

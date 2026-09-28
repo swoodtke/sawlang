@@ -1,0 +1,22 @@
+// Test simple module import with qualified access
+// `import modules.utils` makes symbols available as utils.Symbol
+// EXPECT: success
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: 30
+// EXPECT-OUTPUT: 40
+import modules.utils
+
+func main() {
+    // Use imported function with qualified access
+    let result = utils.double(21)
+    print(result)  // Expected: 42
+
+    let t = utils.triple(10)
+    print(t)  // Expected: 30
+
+    // Use imported struct with qualified access
+    let p1 = utils.Point(x: 10, y: 20)
+    let p2 = utils.Point(x: 5, y: 5)
+    let p3 = p1.add(p2)
+    print(p3.magnitude())  // Expected: 40
+}

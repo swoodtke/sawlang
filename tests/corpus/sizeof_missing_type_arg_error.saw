@@ -1,0 +1,11 @@
+// `sizeof` requires exactly one type argument (`sizeof<T>()`). Calling it with
+// no type argument must produce a clean type error. Previously this handler
+// referenced a nonexistent `ErrorKind.TYPE_ERROR` and crashed the compiler with
+// an AttributeError instead of reporting the error (brief 20 finding).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `sizeof` requires exactly one type argument
+
+func main() {
+    let n = sizeof()
+    print(n)
+}

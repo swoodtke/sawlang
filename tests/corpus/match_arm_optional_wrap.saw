@@ -1,0 +1,62 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// hi
+// none
+// 7
+// none
+// blk
+
+// Regression (design 67 / dogfood DF10): when a match's result type is optional
+// (`T?`) and some arm yields a bare `T` (or `None`) while another yields the
+// optional, every bare, non-None arm must be auto-wrapped into `Some(...)` so the
+// match produces a homogeneous `T?` value. Previously the value arm stayed a bare
+// `ptr` and mixed with the `None` arm's `{i1, ptr}` in one phi -> LLVM verifier
+// error, forcing the caller to split into non-optional helpers.
+
+enum Choice {
+    case A(s: String),
+    case B
+}
+
+// bare String arm + None arm -> String?
+func pick(c: Choice) -> String? {
+    match c {
+        case A(s) -> s,
+        case B -> None
+    }
+}
+
+// bare Int arm + None arm -> Int?
+func maybe_len(c: Choice) -> Int? {
+    match c {
+        case A(s) -> s.len(),
+        case B -> None
+    }
+}
+
+// A block arm whose tail is a bare value must also wrap.
+func pick_block(c: Choice) -> String? {
+    match c {
+        case A(s) -> {
+            let t = s
+            t
+        },
+        case B -> None
+    }
+}
+
+func main() {
+    print(pick(Choice.A(s: "hi")) ?? "none")
+    print(pick(Choice.B) ?? "none")
+
+    if let n = maybe_len(Choice.A(s: "abcdefg")) {
+        print(n)          // 7
+    }
+    if let _ = maybe_len(Choice.B) {
+        print("some")
+    } else {
+        print("none")
+    }
+
+    print(pick_block(Choice.A(s: "blk")) ?? "x")
+}

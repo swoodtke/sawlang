@@ -1,0 +1,12 @@
+// Design 40 item 1 (L3): the cross-module fallback in get_struct_info used to
+// scan ALL module namespaces ignoring visibility, so a bare reference to another
+// module's PRIVATE struct resolved silently. It must not: `Secret` is private to
+// the `l3_secret` module, so the bare name is undefined here.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: undefined struct `Secret`
+import modules.l3_secret
+
+func main() {
+    let s = Secret(code: 42)
+    print(s.code)
+}

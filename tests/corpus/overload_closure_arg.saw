@@ -1,0 +1,15 @@
+// Design 55, closure-argument rule: resolution uses the NON-closure arguments;
+// the closure is neutral during matching. Here the `tag` argument (Int vs
+// String) selects the overload; the closure's expected type follows.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 15
+// 7
+
+func run(tag: Int, f: () -> Int) -> Int { tag + f() }
+func run(tag: String, f: () -> Int) -> Int { f() }
+
+func main() {
+    print(run(10, { 5 }))   // Int tag -> 10 + 5 = 15
+    print(run("x", { 7 }))  // String tag -> 7
+}

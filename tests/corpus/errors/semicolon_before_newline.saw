@@ -1,0 +1,13 @@
+// SL-347 R2 — a `;` before a NEWLINE.
+//
+// `;` is a SEPARATOR, never a terminator: it joins two statements that share a
+// line. One written at the end of a line separates nothing, so it is refused
+// where it stands rather than silently accepted as punctuation.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a `;` joins two statements on one line; it does not end one — remove it
+
+func main() {
+    let a = 1;
+    print("{}", a)
+}

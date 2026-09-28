@@ -1,0 +1,82 @@
+// Conformance row K129 — a FORWARDED lend reaches the inner accessor at the
+// OUTER window's mode (SL-333 R7), cell 1 of 3
+//
+// `lend self.inner[i]` hands another accessor's place on. Design 179 lowered
+// `lend X` to `__window(&var X)` unconditionally, so the inner accessor was
+// always reached EXCLUSIVELY — sound (separating storage is never wrong) but a
+// shared read of a nested copy-on-write buffer copied for nothing, and design
+// 179 shipped that as a stated v1 limit.
+//
+// The forwarded lend is the seventh entry of the window-opener funnel, and R7
+// gives it the same answer as the other six: the mode comes from the window
+// being opened. The outer accessor's SHARED specialization lends `&X`, so the
+// inner call is a shared window — no gate, no separation; its EXCLUSIVE twin
+// lends `&var X` and reaches the inner exclusive specialization.
+//
+// The other two cells are refusals:
+//   `errors/forwarded_lend_cannot_upgrade_an_inner_shared_lend.saw` — an outer
+//     `-> &var T` backed by an inner `-> &T` is refused AT THE LEND;
+//   `errors/forwarded_lend_inherits_exclusive_only.saw` — an EXCLUSIVE-ONLY
+//     inner accessor makes the outer one exclusive-only too, propagated through
+//     the recorded eligibility rather than re-derived.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// shared forward reads 3, inner gates 0
+// exclusive forward writes 4, inner gates 1
+// shared forward reads again 4, inner gates 1
+// nested CoW: outer read 7, partner still 7
+// -- done
+import std.data.*
+
+struct Inner { cells: [Int; 2], gates: Int }
+
+extension Inner {
+    func run_gate(&var self) { self.gates = self.gates + 1 }
+
+    public func [](&var self, i: Int) borrows -> &var Int {
+        if i < 0 || i >= 2 { panic("Inner.[]: index out of range") }
+        if #lend_var { self.run_gate() }
+        lend self.cells[i]
+    }
+
+    public func gates_seen(&self) -> Int { self.gates }
+}
+
+struct Outer { inner: Inner }
+
+extension Outer {
+    public func [](&var self, i: Int) borrows -> &var Int {
+        lend self.inner[i]
+    }
+
+    public func inner_gates(&self) -> Int { self.inner.gates_seen() }
+}
+
+// The nested copy-on-write case the v1 limit was really about: a `Data` reached
+// through a forwarding accessor. A shared read must not separate, so the
+// partner sharing the buffer keeps its bytes AND its identity.
+struct Blob { bytes: Data }
+
+@synthesize extension Blob: Copy {}
+
+extension Blob {
+    public func [](&var self, i: Int) borrows -> &var UInt8 {
+        lend self.bytes[i]
+    }
+}
+
+func main() {
+    var o = Outer(inner: Inner(cells: [3, 4], gates: 0))
+    print("shared forward reads {o[0]}, inner gates {o.inner_gates()}")
+    o[0] += 1
+    print("exclusive forward writes {o[0]}, inner gates {o.inner_gates()}")
+    print("shared forward reads again {o[0]}, inner gates {o.inner_gates()}")
+
+    var built = try! Data(capacity: 2)
+    try! built.push(7u8)
+    try! built.push(8u8)
+    let partner = built
+    let blob = Blob(bytes: partner)
+    print("nested CoW: outer read {blob[0]}, partner still {partner[0]}")
+    print("-- done")
+}

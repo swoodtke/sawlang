@@ -1,0 +1,46 @@
+// SL-221: a parameter whose DEFAULT VALUE suspends may be USED but not OMITTED
+// at a call the coroutine transform builds a frame for. This is the same-module
+// half; `coro_suspending_default_omitted_cross_module.saw` is the cross-module
+// half, and the two assert the SAME sentence — which is the claim, since the
+// point of SL-208 is that a module boundary stops changing the answer.
+//
+// An omitted default is MATERIALIZED at the call site: the callee's declared
+// expression is copied in where the author would have written the argument, and
+// the frame is built from a full-arity list. A suspending expression cannot be
+// materialized that way — it is not a value the site computes, it is a
+// suspension, and it would need an embedded sub-frame of its own at every call
+// that omits it, with the caller's state split around it. That is a feature, not
+// a gap in the filling, so the refusal names the two spellings that work.
+//
+// NOTHING THAT WORKED IS LOST. On base 7467b1f2 the three spellings of this were
+// an arity error (`__saw_drive_target takes 1 argument(s), but 0 were given`), a
+// compiler traceback (`IndexError: list index out of range` when embedded), and
+// — cross-module — a MISCOMPILE that printed the right answer with
+// `__saw_drive_steps` reporting 0 Pending resumes, the SL-208 wedge itself. One
+// refusal at the user's own line replaces all three.
+//
+// Supplying the argument is untouched and is pinned by
+// `coro_omitted_default_arguments.saw`, at every position and in both modules.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: the default value of parameter `x` of `target` suspends
+
+import std.task.{yield_now}
+
+func seed() -> Int {
+    yield_now()
+    7
+}
+
+func target(x: Int = seed()) -> Int {
+    yield_now()
+    x
+}
+
+// The EMBEDDED position: a nested call whose callee frame is built by hand.
+func root() -> Int {
+    target()
+}
+
+func main() {
+    print(__saw_drive(root()))
+}

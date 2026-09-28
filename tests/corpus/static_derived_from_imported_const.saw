@@ -1,0 +1,72 @@
+// DF-232g: a local `static` whose initializer NAMES an imported const is a
+// compile-time constant, so it may be an array length, a repeat count, a
+// `static_assert` operand and a const generic argument — exactly as the same
+// arithmetic spelled INLINE at the use site always could.
+//
+// The size-in-one-place idiom is what the gap cost: `static MAX_ATTACHMENTS =
+// MAX_EVENTS + MAX_INTERRUPTS + MAX_TIMERS` could not be declared apart from
+// ANY of its three operands, so every derived size had to live in the same
+// module as the numbers it derives from. The const-static collector runs before
+// registration and resolved names against THIS module's declarations only, so
+// an imported name ended the recursion and the static was reported as "the
+// computed static `S`" — a phrase that is simply wrong for a pure alias, which
+// computes nothing.
+//
+// THE MATRIX (the tracker entry's own fold list, every row here):
+//   already folded — a literal; an imported const named directly as a length;
+//     arithmetic over imported consts INLINE; a local static derived from LOCAL
+//     statics; a const derived in its OWN module and imported whole.
+//   newly folds — the pure alias `static S = A`; the mixed sum `L1 + A`; the
+//     all-imported sum `A + B`; and the QUALIFIED spelling of each.
+// Still refused, unchanged: a static derived from an `unsafe static var` (its
+// value is a fact about the running program) — `existing:
+// array_length_nonconst_error.saw`, `array_length_nonint_static_error.saw`.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// inline 4 32 5
+// alias 4
+// mixed 6
+// sum 12
+// qualified 12 16
+// local 3
+// imported-whole 8
+
+import modules.constdep.{A, B}
+import modules.constdep as dep
+
+static LOCAL_ONE: Int = 2
+static LOCAL_TWO: Int = 1
+static LOCAL_SUM: Int = LOCAL_ONE + LOCAL_TWO
+
+static ALIAS: Int = A
+static MIXED: Int = LOCAL_ONE + A
+static SUM: Int = A + B
+static QUALIFIED: Int = dep.A + dep.B
+static SHIFTED: Int = 1 << dep.A
+
+static_assert(SUM == 12, "an imported sum folds in a static_assert too")
+
+func main() {
+    // Already folded: the imported const directly, arithmetic over imported
+    // consts inline, and a mixed inline sum.
+    var direct: [UInt8; A] = [0; A]
+    var inline_arith: [UInt8; A * B] = [0; A * B]
+    var inline_mixed: [UInt8; A + 1] = [0; A + 1]
+    print("inline {direct.len()} {inline_arith.len()} {inline_mixed.len()}")
+
+    var alias: [UInt8; ALIAS] = [0; ALIAS]
+    print("alias {alias.len()}")
+    var mixed: [UInt8; MIXED] = [0; MIXED]
+    print("mixed {mixed.len()}")
+    var sum: [UInt8; SUM] = [0; SUM]
+    print("sum {sum.len()}")
+    var qual: [UInt8; QUALIFIED] = [0; QUALIFIED]
+    var shifted: [UInt8; SHIFTED] = [0; SHIFTED]
+    print("qualified {qual.len()} {shifted.len()}")
+
+    var local: [UInt8; LOCAL_SUM] = [0; LOCAL_SUM]
+    print("local {local.len()}")
+    var whole: [UInt8; dep.DERIVED] = [0; dep.DERIVED]
+    print("imported-whole {whole.len()}")
+}

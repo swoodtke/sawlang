@@ -1,0 +1,26 @@
+// .copy() on an ExplicitCopy type yields an independent value: mutating the
+// copy leaves the original untouched.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 99
+
+struct Buf {
+    value: Int
+}
+
+extension Buf: ExplicitCopy {
+    func copy(&self) -> Buf {
+        Buf(value: self.value)
+    }
+    func deinit(&var self) {
+    }
+}
+
+func main() {
+    var a = Buf(value: 10)
+    var b = a.copy()   // explicit deep copy - a fresh, independent value
+    b.value = 99       // mutate the copy
+    print(a.value)     // 10 - original unaffected
+    print(b.value)     // 99
+}

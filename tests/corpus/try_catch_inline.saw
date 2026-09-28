@@ -1,0 +1,32 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 99
+// 1
+
+// Test inline catch: try expr catch { fallback }
+
+struct ParseError {
+    code: Int
+}
+
+func parseNumber(valid: Bool) -> Result<Int, ParseError> {
+    if valid {
+        return 42
+    }
+    return ParseError(code: 1)
+}
+
+func main() {
+    // try with inline catch on Ok - returns unwrapped value
+    let result1 = try parseNumber(true) catch { 99 }
+    print(result1)  // 42
+
+    // try with inline catch on Err - returns catch value
+    let result2 = try parseNumber(false) catch { 99 }
+    print(result2)  // 99
+
+    // Access error variable in catch block
+    let result3 = try parseNumber(false) catch { error.code }
+    print(result3)  // 1
+}

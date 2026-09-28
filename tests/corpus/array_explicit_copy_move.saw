@@ -1,0 +1,25 @@
+// `move` transfers a whole ExplicitCopy array; the moved-from binding is not
+// cleaned up, so each owned element deinits exactly once (no double-free).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// d2
+// d1
+
+struct R { v: Int }
+extension R: ExplicitCopy {
+    func copy(&self) -> R { R(v: self.v) }
+    func deinit(&var self) {
+        if self.v == 1 { print("d1") }
+        if self.v == 2 { print("d2") }
+    }
+}
+
+func main() {
+    let a = [R(v: 1), R(v: 2)]
+    let b = move a
+    print(b[0].v)   // 1
+    print(b[1].v)   // 2
+    // scope exit: only b is live -> elements deinit in reverse index order
+}

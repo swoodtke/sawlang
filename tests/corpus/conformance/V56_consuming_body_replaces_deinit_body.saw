@@ -1,0 +1,95 @@
+// Conformance row V56 — the consuming body REPLACES the hand-written deinit
+// body for its endpoint, and the synthesized drops still sweep the remainder
+//
+// design 260 §2/§3, ruled Sep 1. Design 131 slots a hand-written `deinit` body
+// in the PREFIX position ahead of the synthesized field drops; a consuming
+// method occupies exactly that slot for its own endpoint. So for a CONSUMED
+// receiver the hand-written body does not run — the consuming body ran where it
+// would have, doing whatever manual teardown the author intends, including
+// deliberately none — and the synthesized drops then sweep the UNMOVED
+// remainder, so memory never leaks by accident. `consumes` is the visible
+// marker that the author took the deinit's responsibility.
+//
+// The replacement is per ENDPOINT, not per type: an ordinary drop of the same
+// type still runs body-then-drops, which the third section witnesses.
+//
+// Four witnesses, in order:
+//   1. consumed whole, empty consuming body — `Conn.deinit` body ABSENT,
+//      field drops present, reverse declaration order (2 then 1)
+//   2. a field moved out — manual teardown runs, the remainder is swept, the
+//      moved field survives and is released once by its new owner
+//   3. an ordinary drop — the hand-written body RUNS, then the field drops
+//   4. `self = v` inside a consuming body — the OLD referent deinits WHOLE
+//      (hand-written body included: it is not the consumed endpoint), and the
+//      NEW value becomes the consumed referent, swept without the body
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1 consumed whole:
+// tag 2 dropped
+// tag 1 dropped
+// -> 42
+// 2 field moved out:
+// steal: manual teardown
+// tag 20 dropped
+// kept tag 10
+// 3 ordinary drop:
+// made
+// Conn.deinit body ran
+// tag 40 dropped
+// tag 30 dropped
+// 4 self = v inside a consuming body:
+// Conn.deinit body ran
+// tag 51 dropped
+// tag 50 dropped
+// tag 91 dropped
+// tag 90 dropped
+// -> 7
+// end
+// tag 10 dropped
+
+struct Tag { id: Int }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("tag {} dropped", self.id) }
+}
+
+struct Conn { first: Tag, second: Tag }
+extension Conn: NoCopy {
+    func deinit(&var self) { print("Conn.deinit body ran") }
+}
+extension Conn {
+    func close(&var self) consumes -> Int { 42 }
+    func steal(&var self) consumes -> Tag {
+        print("steal: manual teardown")
+        move self.first
+    }
+    func replace(&var self) consumes -> Int {
+        self = Conn(first: Tag(id: 90), second: Tag(id: 91))
+        7
+    }
+}
+
+func ordinary_drop() {
+    var e = Conn(first: Tag(id: 30), second: Tag(id: 40))
+    print("made")
+}
+
+func main() {
+    print("1 consumed whole:")
+    var c = Conn(first: Tag(id: 1), second: Tag(id: 2))
+    print("-> {}", (move c).close())
+
+    print("2 field moved out:")
+    var d = Conn(first: Tag(id: 10), second: Tag(id: 20))
+    let t = (move d).steal()
+    print("kept tag {}", t.id)
+
+    print("3 ordinary drop:")
+    ordinary_drop()
+
+    print("4 self = v inside a consuming body:")
+    var f = Conn(first: Tag(id: 50), second: Tag(id: 51))
+    print("-> {}", (move f).replace())
+
+    print("end")
+}

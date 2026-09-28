@@ -1,0 +1,8 @@
+// All elements in a set literal must share one type (design 54).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: all elements in a set literal must share one type
+
+func main() {
+    var s = {1, 2, "three"}
+    print(s.len())
+}

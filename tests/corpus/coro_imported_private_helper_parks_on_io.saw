@@ -1,0 +1,51 @@
+// SL-280: a real io park reached through a module-PRIVATE free function of an
+// IMPORTED module — the cell of the issue's 2x2 that WEDGED, and the shape the
+// bug was found as (sawtracker's `read_chunk(stream: &TcpStream, secs: Int)`,
+// factored out of the read loop in an imported `http` module).
+//
+// The failure was not a wrong answer, it was a stopped process. No frame was
+// built for `read_chunk`, so `stream.read()` lowered through codegen's
+// out-of-frame park fallback (`codegen/calls.py`), which registers the fd and
+// then BLOCKS the OS thread — and that thread is the cooperative executor's, so
+// the server accepted exactly one connection and never ran again. This test
+// round-trips five bytes over a socketpair instead, which the blocking fallback
+// cannot do: the writer is a sibling TASK, so a reader that blocks its thread
+// waits for a write that can never be scheduled, and the run hangs.
+//
+// The IR property is pinned HERE too, beside the runtime one, because the two
+// answer different halves and a hang is a worse diagnostic than a missing
+// symbol. `__Frame_read_chunk$m$sl280net` says the private imported helper got
+// a frame; `call void @"__saw_exec_park"(i64 -1` is the out-of-frame fallback's
+// unbounded park, which the pre-fix build of this very file emits once and the
+// fixed build emits never.
+//
+// EXPECT: success
+// COMPILE-FLAGS: --module-path sl280net={TESTDIR}/modules/sl280net
+// EXPECT-IR-CONTAINS: __Frame_read_chunk$m$sl280net
+// EXPECT-IR-ABSENT: call void @"__saw_exec_park"(i64 -1
+// EXPECT-OUTPUT:
+// 5
+// 5
+
+import std.net.{TcpStream, IoError}
+import sl280net.{read_request}
+
+func server(stream: TcpStream) -> Int {
+    read_request(&stream)
+}
+
+func client(stream: TcpStream) -> Int {
+    match stream.write("hello") {
+        case Ok(_) -> 5,
+        case Err(_) -> -1
+    }
+}
+
+func main() {
+    let (a, b) = TcpStream.pair()
+    var group = TaskGroup()
+    let hs = group.spawn(server(move a))
+    let hc = group.spawn(client(move b))
+    print(hs.join())     // 5 bytes read, through an imported private helper
+    print(hc.join())     // 5 bytes written
+}

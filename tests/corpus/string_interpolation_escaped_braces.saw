@@ -1,0 +1,14 @@
+// Test that escaped braces work correctly in interpolated strings
+// EXPECT: success
+// EXPECT-OUTPUT: Hello, Alice!
+// EXPECT-OUTPUT: Code: func foo() { return 1 }
+
+func main() {
+    let name = "Alice"
+
+    // Simple interpolation
+    print("Hello, {name}!")
+
+    // Escaped braces become literal { and }
+    print("Code: func foo() \{ return 1 \}")
+}

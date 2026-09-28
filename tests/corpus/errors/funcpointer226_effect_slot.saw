@@ -1,0 +1,14 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: names an unsafe type (`UnsafePointer<UInt8>`) but its effect slot does not say `unsafe`
+//
+// Design 226 unit 1 reuses design 136's rule rather than restating it: a
+// function type carries `unsafe` exactly when its own signature names an
+// unsafe type, and `_validate_fn_type_effect` already walks generic ARGUMENTS
+// -- so an `F` inside a `FuncPointer` is judged by the one existing check, in
+// the one existing wording. This test is the pin that keeps the reuse honest:
+// if the walk ever stops recursing into type arguments, a `FuncPointer`'s `F`
+// would silently escape the rule.
+
+func install(p: FuncPointer<(UnsafePointer<UInt8>) sync -> Int>) unsafe { }
+
+func main() { print("unreached") }

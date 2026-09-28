@@ -1,0 +1,9 @@
+// Design 63 Part 4: mixing labeled and unlabeled elements in one literal is an
+// error (all-or-nothing labeling).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: label every element
+
+func main() {
+    let bad = (x: 3, 4)
+    print(bad.x)
+}

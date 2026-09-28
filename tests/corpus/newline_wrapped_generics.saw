@@ -1,0 +1,40 @@
+// Design 129: newlines are also suppressed inside a generic `<` `>` list, but
+// only once the parser has COMMITTED to the generic reading — which covers a
+// type-position list, a generic PARAMETER list on a declaration, and an
+// expression-position `f<Int>(x)` call. A `<` that is really a comparison never
+// reaches that commitment (see newline_comparison_unaffected.saw).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 7
+// hi
+
+struct Pair<A, B> { a: A, b: B }
+
+func first_of<
+    T,
+    U
+>(
+    a: T,
+    b: U,
+) -> T {
+    move a
+}
+
+func main() {
+    let v: Vector<
+        Int
+    > = [5]
+    print(v.get(0)!)
+
+    print(first_of<
+        Int,
+        String
+    >(a: 7, b: "x"))
+
+    let p = Pair<
+        String,
+        Int
+    >(a: "hi", b: 1)
+    print(p.a)
+}

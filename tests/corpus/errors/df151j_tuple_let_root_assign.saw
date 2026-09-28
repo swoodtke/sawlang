@@ -1,0 +1,13 @@
+// DF-151j: the whole-element write `t.0 = fresh` is a write through the tuple's
+// root binding, so an immutable root rejects it — the same answer `let p` then
+// `p.x = 5` has always given for a struct field. Before the tuple index became a
+// place this was a PARSE error ("Invalid assignment target"), which said nothing
+// about mutability and would have been just as wrong for a `var t`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to element of immutable variable `t`
+
+func main() {
+    let t = (1, 2)
+    t.0 = 9
+    print("{t.0}")
+}

@@ -1,0 +1,13 @@
+// Design 111: a chained assignment must target a payload FIELD — the final
+// segment cannot be a method call.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: the final segment must be `.field`, not a method call
+
+struct P { x: Int }
+extension P { func setX(&self) -> Int { self.x } }
+
+func main() {
+    var op: P? = P(x: 1)
+    op?.setX() = 5
+    print(op!.x)
+}

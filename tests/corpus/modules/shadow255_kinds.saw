@@ -1,0 +1,15 @@
+//! Design 255 fixture: the other KINDS the sweep found asymmetric — a
+//! non-generic struct name and an enum name, both std's and both import-gated.
+//! `File` is `std.file`'s and `IoErrorKind` is `std.net`'s; unlike `Thread`,
+//! their std identities are UNQUALIFIED, which is the half of the mechanism
+//! that made an import bind std's symbol rather than tie with it.
+// EXPECT: skip
+
+public struct File {
+    public tag: Int
+}
+
+public enum IoErrorKind {
+    case Marker,
+    case Other
+}

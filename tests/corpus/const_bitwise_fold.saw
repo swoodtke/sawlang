@@ -1,0 +1,67 @@
+// Design 185 unit 1: the bit operators fold in a constant. `& | ^ << >> ~` are
+// the arithmetic wire layout and register maps are written in, so a mask or a
+// bit position had to be spelled as a decimal literal or computed at runtime —
+// `1 << BIT` was a clean error in every const-required position.
+//
+// The evaluation happens at the TARGET's integer width, not in Python's
+// unbounded integers: `1 << 63` is the negative number a 64-bit `shl` produces,
+// so a constant and its runtime twin agree. The width edges are pinned here and
+// (for a 32-bit target) in `const_bitwise_width_riscv32.saw`.
+// EXPECT: success
+// EXPECT-OUTPUT: 8
+// EXPECT-OUTPUT: 16
+// EXPECT-OUTPUT: 4
+// EXPECT-OUTPUT: 12
+// EXPECT-OUTPUT: 4
+
+// Each operator, folded in a `static_assert` — the position that states the
+// claim rather than consuming it.
+static_assert((1 << 3) == 8, "shift left")
+static_assert((0xF0 >> 4) == 15, "shift right")
+static_assert((0b1100 & 0b1010) == 0b1000, "and")
+static_assert((0b1100 | 0b1010) == 0b1110, "or")
+static_assert((0b1100 ^ 0b1010) == 0b0110, "xor")
+static_assert(~0 == -1, "complement")
+static_assert(~0xFF == -256, "complement of a mask")
+
+// Composition with everything already foldable, including precedence: shifts
+// bind tighter than the comparison and looser than `+`, `&` binds tighter than
+// `|`, and the comparison binds tighter than both of those (Appendix B — the
+// bitwise tier sits BELOW comparison, so a compared mask wants its parentheses).
+static_assert(1 << 2 + 1 == 8, "the count is the whole additive expression")
+static_assert((0x0F | 0x30 & 0x10) == 0x1F, "`&` binds tighter than `|`")
+static_assert((~0 & 0xFF) == 255, "a mask over the all-ones word")
+
+// The width edges. `<<` wraps at the platform width exactly as `shl` does, and
+// the top bit set makes the value negative.
+static_assert((1 << 63) < 0, "the top bit set is a negative `Int`")
+static_assert((1 << 63) == Int.min, "`<<` wraps at the width, as `shl` does")
+static_assert((1 << 62) == 4611686018427387904, "one below the sign bit")
+static_assert(((1 << 62) - 1) + (1 << 62) == Int.max, "Int.max the hard way")
+
+// A shift over a `static` and over a const generic parameter composes too.
+static ADDR_BITS: Int = 12
+
+static_assert((1 << ADDR_BITS) == 4096, "a page")
+
+func slots<const BITS: Int>() -> Int {
+    let table = [0; 1 << BITS]
+    return table.len()
+}
+
+func main() {
+    // The repeat-count position: every operator reaches it.
+    let shifted = [0; 1 << 3]
+    print(shifted.len())
+
+    let masked = [0; (0xFF & 0x0F) + 1]
+    print(masked.len())
+
+    let complemented = [1; ~0 + 5]
+    print(complemented.len())
+
+    let combined = [0; (0b1000 | 0b0100)]
+    print(combined.len())
+
+    print(slots<2>())
+}

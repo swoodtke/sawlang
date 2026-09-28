@@ -1,0 +1,12 @@
+// design 186 unit 3, fence (a), erasure half: `any UnsafeSend` is refused, and
+// told where the assertion does live rather than being told the trait has no
+// methods.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `UnsafeSend` is a declared assertion, not an erasable interface
+
+func send(x: &any UnsafeSend) -> Int {
+    1
+}
+
+func main() {
+}

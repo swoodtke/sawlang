@@ -1,0 +1,14 @@
+// DF-232n at the OTHER entry point of design 80's visibility funnel: the
+// SELECTIVE import, which asks the same question one commit earlier than the
+// qualified reach does and refuses AT the import line. Same foreign relative
+// reach as `package_tier_foreign_relative_reach_error.saw`, same package, and
+// `pkg_open` selected beside `pkg_secret` proves the module itself is fine to
+// name from here.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `pkg_secret` is public(package) in `module_tests.pkg232n.src.lib`
+// EXPECT-ERROR-CONTAINS: available: pkg_open
+import module_tests.pkg232n.src.lib.{pkg_secret, pkg_open}
+
+func main() {
+    print(pkg_open() + pkg_secret())
+}

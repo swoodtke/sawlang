@@ -1,0 +1,24 @@
+// EXPECT: success
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: 10
+
+// `panic(...)` has the bottom type Never (design 49): a function whose declared
+// return type is Int type-checks even though the panic branch yields no value,
+// and a `guard ... else { panic(...) }` counts as a diverging exit.
+func doubled(x: Int) -> Int {
+    if x < 0 {
+        panic("negative input")
+    }
+    x * 2
+}
+
+func unwrap_or_die(x: Int?) -> Int {
+    guard let v = x else { panic("was none") }
+    v
+}
+
+func main() {
+    print(doubled(21))          // 42
+    let some: Int? = 10
+    print(unwrap_or_die(some))  // 10
+}

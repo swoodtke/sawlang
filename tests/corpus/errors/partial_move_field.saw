@@ -1,0 +1,15 @@
+// Partial moves are forbidden on every struct (design 35): only whole bindings
+// are movable. `move p.x` is rejected with a diagnostic naming field and base.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot move out of field `x` of `p`
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+func main() {
+    var p = Point(x: 1, y: 2)
+    let z = move p.x
+    print(z)
+}

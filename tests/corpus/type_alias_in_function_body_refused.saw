@@ -1,0 +1,21 @@
+// A type alias may not be declared inside a function body — the negative row of
+// DF-232b's contextual `type`.
+//
+// This was never legal: no statement form has ever parsed a local alias, and
+// before `type` became contextual the refusal was `Unexpected token: TYPE`.
+// Once the word lexes as an ordinary identifier, `type Local = Int` in a block
+// is just two identifiers in a row, which would fall through to the expression
+// parser and report ``undefined variable `type` `` — a description of the
+// tokens rather than of the mistake. The statement head asks the contextual
+// question directly so the refusal names the rule and the three places an alias
+// IS allowed.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a type alias may only be declared at module level
+// EXPECT-ERROR-CONTAINS: associated type in a trait or extension body
+
+func main() {
+    type Local = Int
+    let x: Local = 1
+    print("{x}")
+}

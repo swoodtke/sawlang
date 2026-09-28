@@ -1,0 +1,18 @@
+// Design 249, the design-150 binding ladder over free functions: a program may
+// declare a function whose name a std FILE also declares. Before free functions
+// carried module identity this was rejected outright — the declaration-site
+// ambiguity check compared every registration under the name, so every std free
+// function's name was reserved for every program in the language.
+//
+// The ladder is unchanged: a module-level declaration outranks a name merely
+// merged in from std, so the bare call reaches this file's function. The
+// prelude gate still governs the std one, which is not imported here.
+// EXPECT: success
+// EXPECT-OUTPUT: mine
+func dump_tasks() sync {
+    print("mine")
+}
+
+func main() {
+    dump_tasks()
+}

@@ -1,0 +1,13 @@
+struct Cell { n: Int }
+struct Row { cells: Vector<Cell> }
+extension Row: NoCopy {}
+extension Row {
+    public func at(&var self, i: Int) borrows -> &var Cell {
+        lend self.cells[i]
+    }
+}
+
+func main() {
+    var r = Row(cells: [Cell(n: 1)])
+    print(r.cells.len())
+}

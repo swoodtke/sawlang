@@ -1,0 +1,89 @@
+// An Equatable/Comparable REQUIREMENT resolves on a CONCRETE receiver, and
+// means EXACTLY what the operator means (DF-284c).
+//
+// The requirement's body for a primitive lives in CODEGEN — `_emit_equals` /
+// `_emit_compare` are it, and `is_comparable` answers structurally off the
+// type's KIND — so `a.compare(&b)` resolved through a `T: Comparable` BOUND
+// and nowhere at all once the receiver was concrete: `type `Int` has no method
+// `compare``, hinting `abs, clamp, is_even, …`. Design 218 unit 1.5 stage 2 is
+// what made that visible, by checking a monomorphized instance for real: a
+// clone has no bounds left, so a bound-resolved call in the template lands on
+// the concrete path here.
+//
+// The fix stamps the same `comparison_dispatch` design 239 built for the
+// bound, so both spellings reach the SAME emitter the operator does. That is
+// what this test is really asserting: the three columns below must agree, at
+// the values design 252 chose because a signed lowering answers them wrongly
+// (255 vs 127 at UInt8, UInt.max vs 1). If the requirement ever grew a second
+// body, the columns would part.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// u8   op=false req=false bound=false
+// uint op=false req=false bound=false
+// int  op=true req=true bound=true
+// f    op=true req=true bound=true
+// eq   op=false req=false bound=false
+// str  op=true req=true bound=true
+// enum op=false req=false
+
+enum Tag: UInt8 { case Low = 1, case High = 200 }
+
+enum Payload { case Empty, case Full(v: UInt8) }
+@synthesize
+extension Payload: Equatable {}
+
+func less_bound<T: Comparable>(a: T, b: T) -> Bool {
+    match a.compare(&b) { case Less -> true, case _ -> false }
+}
+
+func eq_bound<T: Equatable>(a: T, b: T) -> Bool { a.equals(&b) }
+
+func less_req_u8(a: UInt8, b: UInt8) -> Bool {
+    match a.compare(&b) { case Less -> true, case _ -> false }
+}
+
+func main() {
+    // UInt8: 255 is NOT less than 127 unless the compare went signed.
+    let a: UInt8 = 255
+    let b: UInt8 = 127
+    print("u8   op={a < b} req={less_req_u8(a, b)} bound={less_bound(a, b)}")
+
+    // Platform UInt: max is not less than 1 either.
+    let c: UInt = UInt.max
+    let d: UInt = 1
+    let c_req = match c.compare(&d) { case Less -> true, case _ -> false }
+    print("uint op={c < d} req={c_req} bound={less_bound(c, d)}")
+
+    // Signed Int: -1 IS less than 1.
+    let e: Int = -1
+    let f: Int = 1
+    let e_req = match e.compare(&f) { case Less -> true, case _ -> false }
+    print("int  op={e < f} req={e_req} bound={less_bound(e, f)}")
+
+    // Float keeps IEEE ordering.
+    let g: Float = 1.5
+    let h: Float = 2.5
+    let g_req = match g.compare(&h) { case Less -> true, case _ -> false }
+    print("f    op={g < h} req={g_req} bound={less_bound(g, h)}")
+
+    // Equality, at a fixed width.
+    let i: UInt8 = 200
+    let j: UInt8 = 201
+    print("eq   op={i == j} req={i.equals(&j)} bound={eq_bound(i, j)}")
+
+    // String: the REQUIREMENT spelling (`&`-lent) beside the operator. Its own
+    // by-value `equals` is untouched and is not this call.
+    let s: String = "abc"
+    let t: String = "abd"
+    let s_req = match s.compare(&t) { case Less -> true, case _ -> false }
+    print("str  op={s < t} req={s_req} bound={less_bound(s, t)}")
+
+    // A `@synthesize`d ENUM conformance is derived in codegen too, so it had
+    // no callable `equals` either.
+    let p = Payload.Full(v: 3)
+    let q = Payload.Empty
+    print("enum op={p == q} req={p.equals(&q)}")
+
+    // A raw-backed enum's case value past 127, for the same signedness reason.
+    assert((Tag.High as UInt8) > (Tag.Low as UInt8), "raw order is unsigned")
+}

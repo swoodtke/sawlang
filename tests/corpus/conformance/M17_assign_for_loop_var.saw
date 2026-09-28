@@ -1,0 +1,13 @@
+// Conformance row M17 — assigning to a `for`-loop variable
+//
+// A `for` loop variable is a binding, not a slot: the loop owns it and
+// reassigning it would be discarded at the next iteration.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to immutable variable `i`
+
+func main() {
+    for i in 0..3 {
+        i = 5
+        print(i)
+    }
+}

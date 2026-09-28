@@ -1,0 +1,11 @@
+// Design 66: same normalized TYPES + same parameter NAMES remain a
+// declaration-site error (identity is unchanged when labels also match).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: indistinguishable signature
+
+func f(a: Int, b: Int) -> Int { a + b }
+func f(a: Int, b: Int) -> Int { a - b }
+
+func main() {
+    print(f(a: 1, b: 2))
+}

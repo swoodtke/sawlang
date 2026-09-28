@@ -1,0 +1,12 @@
+// Conformance row R32 — storing a reference in a `Box`
+//
+// `Box<&Int>` — a heap indirection is the clearest case of storage that
+// outlives the call that filled it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a generic argument may not be a reference
+
+func main() {
+    var a = 1
+    let b = Box<&Int>.make(&a)
+    print(1)
+}

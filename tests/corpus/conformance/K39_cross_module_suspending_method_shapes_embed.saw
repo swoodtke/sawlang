@@ -1,0 +1,50 @@
+// Conformance row K39 — the same three receiver shapes embed across a MODULE
+// boundary
+//
+// Design 210's "any depth means any module too" is the rule K21-K23 pin for a
+// plain method. K33/K34/K36 pin the enum, generic-struct and conformance
+// shapes inside the entry module; this row says the module boundary adds no
+// new answer to any of them, which is what makes the classifier's answer a
+// property of the RECEIVER rather than of where its extension was written.
+//
+// Worth the separate row because the three cells failed DIFFERENTLY across the
+// boundary before design 223: the entry-module enum was a codegen ICE and the
+// cross-module one was silently sync, the conformance was refused entry-module
+// and compiled cross-module. One classifier, one answer.
+//
+// The frame names carry design 144's module-qualified type IDENTITY, which is
+// what a frame is named after — `Color$m$coro223`, not `Color`. That is the
+// identity codegen keys every table by, so asserting it is asserting the frame
+// belongs to the DEPENDENCY's type and not to a same-named one of ours.
+//
+// COMPILE-FLAGS: --module-path coro223={TESTDIR}/modules/coro223
+// EXPECT: success
+// EXPECT-IR-CONTAINS: __Frame_Color$m$coro223_label
+// EXPECT-IR-CONTAINS: __Frame_Box2$m$coro223_describe
+// EXPECT-IR-CONTAINS: __Frame_Talker$m$coro223_greet
+// EXPECT-OUTPUT:
+// A1
+// B1
+// A2 red boxed A
+// B2 red boxed B
+
+import coro223.*
+
+func work(tag: String) {
+    print("{tag}1")
+    let c = Color.Red
+    let l = c.label()
+    let b = Box2<String>(v: tag)
+    let d = b.describe()
+    let t = Talker(n: tag)
+    let g = t.greet()
+    print("{tag}2 {l} {d} {g}")
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(work("A"))
+    let b = group.spawn(work("B"))
+    a.join()
+    b.join()
+}

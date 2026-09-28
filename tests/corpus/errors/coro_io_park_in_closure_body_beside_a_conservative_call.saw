@@ -1,0 +1,49 @@
+// SL-306 matrix, the dangerous cell: the suspension inside the closure body is a
+// real IO PARK, and the enclosing body also calls a conservative-only helper.
+//
+// This is the cell that says the fix did not widen SL-287. If dropping the frame
+// around the conservative-only `apply` had taken the enclosing frame with it, the
+// closure's `stream.read()` would have lowered through codegen's out-of-frame park
+// fallback — `__saw_exec_io_register(fd, dir, 0)` then `__saw_exec_park(-1)` —
+// which blocks the cooperative executor's own OS thread and stops every task in
+// the process. It does not: the closure's real suspension is a source on the
+// ENCLOSING body's effect node, so `drain` is still a frame and the rejector still
+// reads its body. The refusal is the same one, at the same line, before and after.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: appears inside a CLOSURE BODY in driven `drain`
+// EXPECT-ERROR-CONTAINS: coro_io_park_in_closure_body_beside_a_conservative_call.saw:24:32
+
+import std.net.{TcpStream, IoError}
+
+func apply(f: (Int) -> Int) -> Int { f(1) }
+
+func drain(stream: &TcpStream, values: &Vector<Int>, f: (Int) -> Int) -> Int {
+    let base = apply(f)
+    values.each({ n in
+        let chunk = try! stream.read()
+        print("read {chunk.len()}")
+    })
+    base
+}
+
+func server(stream: TcpStream) -> Int {
+    let values: Vector<Int> = [1]
+    drain(&stream, &values, { n in n })
+}
+
+func main() {
+    let (a, b) = TcpStream.pair()
+    var group = TaskGroup()
+    let hs = group.spawn(server(move a))
+    let hc = group.spawn(client(move b))
+    print(hs.join())
+    print(hc.join())
+}
+
+func client(stream: TcpStream) -> Int {
+    match stream.write("hello") {
+        case Ok(_) -> 5,
+        case Err(_) -> -1
+    }
+}

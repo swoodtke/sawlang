@@ -1,0 +1,23 @@
+struct Cell { n: Int }
+struct Bag { a: Cell, b: Cell, count: Int }
+extension Bag: NoCopy {}
+extension Bag {
+    public func at(&self, i: Int) borrows -> &Cell {
+        if i == 0 { lend self.a } else { lend self.b }
+    }
+    public func slot(&self, i: Int) borrows -> &Cell? {
+        if i > 1 { return None }
+        if i == 0 { lend self.a } else { lend self.b }
+    }
+    public func total(&self) borrows -> &Int {
+        lend self.count
+    }
+}
+
+func make() -> Bag { Bag(a: Cell(n: 1), b: Cell(n: 2), count: 0) }
+
+func main() {
+    var b = make()
+    let found = if (borrow let e = b.slot(9) { if let _ = e { true } else { false } }) { "some" } else { "none" }
+    print(found)
+}

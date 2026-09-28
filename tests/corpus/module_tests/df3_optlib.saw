@@ -1,0 +1,6 @@
+// Helper module for the DF3 module-qualified call-form test (design 57).
+// EXPECT: skip
+
+public func takes_opt(x: Int?) -> Int {
+    if let v = x { v } else { -1 }
+}

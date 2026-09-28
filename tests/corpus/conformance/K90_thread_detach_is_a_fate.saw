@@ -1,0 +1,101 @@
+// Conformance row K90 — `Thread<T>.detach()` is a fate: it discharges the
+// must-consume obligation, and the values the thread owns deinit if it completes
+//
+// design 242 ruling 4, the thread half. `detach()` is the daemon thread: the
+// handle is consumed here and now, and the thread runs on. Two claims, and the
+// file checks both.
+//
+// FIRST, the static one: `detach()` satisfies ruling 5 exactly as `join()`
+// does — at a bound handle, and at the chained spelling where nothing is bound
+// at all — and no `deinit` fault follows, because the handle's fate WAS
+// written. K78/K79 are the refusals this is the other side of.
+//
+// SECOND, the runtime one: a detached thread that COMPLETES releases what it
+// owns, on its own thread, at its own end. What it does not get is a promise
+// about process exit — the OS terminates a live detached thread wherever it has
+// got to, which is the same documented boundary a never-completed coroutine
+// frame has (218b ruling 3: process death drops nothing). So this file gives
+// the threads time to finish before main returns, and says so.
+//
+// The lines are checked by CONTAINS rather than as a block: two OS threads race
+// with the spawner, so their order against `detached`/`chained` is not a
+// property of the language and must not be pinned as one.
+//
+// The two releases print the SAME text, deliberately (DF-257e). CONTAINS is
+// order-checked — design 158 made it so because order is half of what a
+// structured dump asserts — and which detached thread finishes first is exactly
+// the kind of order this row must not depend on. Two identical directives still
+// require two occurrences, because the cursor moves past each match, so the
+// claim is unchanged and the race cannot decide it.
+//
+// EXPECT: success
+// EXPECT-OUTPUT-CONTAINS: detached
+// EXPECT-OUTPUT-CONTAINS: chained
+// EXPECT-OUTPUT-CONTAINS: ticket released
+// EXPECT-OUTPUT-CONTAINS: ticket released
+// EXPECT-OUTPUT-CONTAINS: main is finished
+
+import std.task.*
+
+// The two gates the TEST controls (DF-246a's doctrine): `GO` holds both threads
+// until main has finished its own printing, and `RELEASED` is what main polls
+// instead of guessing how long a thread takes.
+static GO: Atomic<Int> = Atomic(0)
+static RELEASED: Atomic<Int> = Atomic(0)
+
+// Bounds genuine breakage only: at 1ms a poll, this is a 5-second ceiling on
+// two threads that normally finish in microseconds.
+static POLL_LIMIT: Int = 5000
+
+// The thread side spins rather than sleeps — a spawned thread runs no executor,
+// so a suspension there is a compile error. Bounded so a gate that never opens
+// ends the thread instead of pinning a core forever.
+static SPIN_LIMIT: Int = 200000000
+
+struct Ticket {
+    id: Int
+}
+
+extension Ticket: NoCopy {
+    func deinit(&var self) {
+        // The id is deliberately NOT printed: which thread gets here first is a
+        // race, and naming them would pin it.
+        RELEASED.store(RELEASED.load() + 1)
+        print("ticket released")
+    }
+}
+
+func hold(id: Int) {
+    // Wait on the gate so a release cannot interleave with `detached`/
+    // `chained`. Ordering the OUTPUT is not ordering the language: the claim
+    // below is that the ticket dies at all, on the thread that owns it.
+    var spins = 0
+    while GO.load() == 0 && spins < SPIN_LIMIT {
+        spins = spins + 1
+    }
+    let ticket = Ticket(id: id)
+    // The ticket dies here, on the spawned thread, when the body returns.
+}
+
+func main() {
+    var first = Thread.spawn { hold(1) }
+    first.detach()
+    print("detached")
+
+    // The chained spelling: `detach()` consumes the handle where it is made,
+    // exactly as `Thread.spawn { ... }.join()` does.
+    Thread.spawn { hold(2) }.detach()
+    print("chained")
+
+    // Both threads are let go, then OBSERVED — polling the state itself rather
+    // than sleeping a guess at it. A detached thread still live at process exit
+    // is terminated by the OS and drops nothing; that boundary is the point of
+    // `detach()`, and it is why this waits rather than assuming.
+    GO.store(1)
+    var spins = 0
+    while RELEASED.load() < 2 && spins < POLL_LIMIT {
+        sleep(Duration.ms(1))
+        spins = spins + 1
+    }
+    print("main is finished")
+}

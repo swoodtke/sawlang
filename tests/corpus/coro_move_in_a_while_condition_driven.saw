@@ -1,0 +1,67 @@
+// SL-262 / SL-234: the DRIVEN accept side.
+//
+// SL-262 makes a move in a `while` CONDITION a compile error when the body does
+// not revive the binding. SL-234's `while` arm — which relinquishes the frame's
+// claim on a condition-moved frame local exactly once per condition evaluation
+// — must keep working for the programs that check passes, which is every
+// program in which the move is sound. The arm becomes DEAD for the unsound ones
+// rather than wrong about them; that was SL-262's whole argument for putting
+// the fix in the move checker and not in the transform.
+//
+// So: a driven loop whose condition moves a NoCopy value and whose body
+// installs a fresh one. Each iteration consumes one value and builds the next,
+// and the `deinit` trace is the oracle — each named value dies exactly once,
+// and the sync twin's trace is the same.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- sync
+// drop seed
+// drop step
+// drop step
+// drop step
+// n 3
+// -- driven
+// drop seed
+// drop step
+// drop step
+// drop step
+// n 3
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+func consume_bool(r: Res) -> Bool { true }
+func slow() { sleep(Duration.ms(1)) }
+
+func sync_loop() -> Int {
+    var r = Res(name: "seed")
+    var n = 0
+    while consume_bool(move r) {
+        r = Res(name: "step")
+        n = n + 1
+        if n > 2 { break }
+    }
+    n
+}
+
+func driven_loop() -> Int {
+    var r = Res(name: "seed")
+    var n = 0
+    while consume_bool(move r) {
+        slow()
+        r = Res(name: "step")
+        n = n + 1
+        if n > 2 { break }
+    }
+    n
+}
+
+func main() {
+    print("-- sync")
+    print("n {sync_loop()}")
+    print("-- driven")
+    print("n {driven_loop()}")
+}

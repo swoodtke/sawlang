@@ -1,0 +1,32 @@
+// DF-243b's fixture: a dependency whose MODULE-LEVEL error sits at a line the
+// entry file does not have. Padding is the whole point — an entry of six lines
+// cannot have a line 30, so a diagnostic reporting the entry's path with this
+// module's line number is visibly, checkably wrong.
+
+public struct Widget {
+    public n: Int
+}
+
+public func ok() -> Int { 1 }
+
+// -- padding, so the refusal below lands well past the entry's length --------
+// 1
+// 2
+// 3
+// 4
+// 5
+// 6
+// 7
+// 8
+// 9
+// 10
+// 11
+// 12
+// 13
+// 14
+// 15
+// 16
+
+// A module-level refusal: no function or method is in scope, which is exactly
+// the state that used to leave the reporter with nothing but the entry file.
+static_assert((Widget as Int) == 0, "a nonsense assert")

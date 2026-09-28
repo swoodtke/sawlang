@@ -1,0 +1,9 @@
+// DF-218a: `is_some()` asks one question and takes nothing to ask it with, so
+// an argument is a clean error rather than a silently ignored operand.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `is_some()` takes no arguments
+
+func main() {
+    let o: Int? = 4
+    print("{o.is_some(1)}")
+}

@@ -1,0 +1,26 @@
+// Design 179, the scope fence. `#lend_var` names the SPECIALIZATION a `borrows`
+// body is being compiled as, so a declaration that lends no place has nothing
+// for it to name.
+//
+// The fence is nearly free by construction: every LEGAL occurrence is folded
+// away by the declaration lowering, which runs before the type checker, so
+// anything that reaches the checker at all is misplaced and the visitor can
+// simply always error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `#lend_var` is legal only inside a `borrows` body
+
+struct Ledger { entries: Int }
+
+extension Ledger {
+    public func peek(&self) -> Int {
+        if #lend_var {
+            return 0
+        }
+        self.entries
+    }
+}
+
+func main() {
+    let l = Ledger(entries: 3)
+    print("{l.peek()}")
+}

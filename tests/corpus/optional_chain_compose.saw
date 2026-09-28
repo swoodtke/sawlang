@@ -1,0 +1,50 @@
+// Design 111: a chain result is an ordinary Optional — `??`, `if let`,
+// `guard let`, `!`, and statement-position discard all compose unchanged.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// bound 10
+// guarded 10
+// fallback
+// side 1
+
+static SIDE: Atomic<Int> = Atomic(0)
+
+struct Node { val: Int }
+extension Node {
+    func touch(&self) -> Int {
+        SIDE.fetch_add(1)
+        self.val
+    }
+}
+struct Wrap { node: Node }
+
+func lookup(present: Bool) -> Wrap? {
+    if present { return Wrap(node: Node(val: 10)) }
+    return None
+}
+
+func use_guard(w: Wrap?) -> String {
+    guard let v = w?.node.val else { return "fallback" }
+    return "guarded {v}"
+}
+
+func main() {
+    // `??` over a chain.
+    print(lookup(present: true)?.node.val ?? -1)
+
+    // `if let` binds the chain's unwrapped result.
+    if let v = lookup(present: true)?.node.val {
+        print("bound {v}")
+    }
+
+    // `guard let` over a chain (present).
+    print(use_guard(Wrap(node: Node(val: 10))))
+
+    // `guard let` over a chain (None → else branch).
+    print(use_guard(None))
+
+    // Statement-position chain: the result is discarded, the method still runs.
+    lookup(present: true)?.node.touch()
+    print("side {SIDE.load()}")
+}

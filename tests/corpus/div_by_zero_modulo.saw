@@ -1,0 +1,12 @@
+// Integer modulo by zero must panic just like division by zero: the srem
+// instruction has the same undefined/garbage behavior as sdiv on a zero
+// divisor (and no SIGFPE trap on arm64), so codegen guards both.
+// See todo_jul26.md must-fix #7 (integer division/modulo by zero).
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: division by zero
+
+func main() {
+    let a = 17
+    let b = 0
+    print(a % b)   // should panic before printing anything
+}

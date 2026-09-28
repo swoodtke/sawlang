@@ -1,0 +1,20 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: method `make` must be declared `static` to conform to trait `Maker`, whose requirement is static
+//
+// Design 236 rule 4, first direction: a STATIC requirement is satisfied only
+// by a static. The two kinds are not interchangeable — a static is called on
+// the type, so a caller reaching this requirement has no receiver to give the
+// implementation's `self`. Before the keyword existed both sides read their
+// kind off the parameter list and nothing compared them.
+
+struct Point { x: Int }
+
+trait Maker {
+    static func make(seed: Int) -> Self
+}
+
+extension Point: Maker {
+    func make(&self, seed: Int) -> Point { Point(x: seed + self.x) }
+}
+
+func main() { print("unreached") }

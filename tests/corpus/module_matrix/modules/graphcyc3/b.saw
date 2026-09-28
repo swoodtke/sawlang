@@ -1,0 +1,7 @@
+//! Fixture for the graph-shapes grid's 3-cycle row (design 235).
+// EXPECT: skip
+
+import modules.graphcyc3.c.{gamma}
+
+public func beta() -> Int { 2 }
+func use_gamma() -> Int { gamma() }

@@ -1,0 +1,14 @@
+// Design 145 unit B: a TRANSITIVE dependency injects nothing onto an enum
+// either. This entry imports `enum145_near`, which imports `enum145_far`, which
+// extends `Level` with `shout`. Out of scope here, and the diagnostic names the
+// module to import — identical treatment to the struct case (design 142).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has no method `shout` in scope here
+// EXPECT-ERROR-CONTAINS: add `import modules.enum145_far`
+import modules.enum145_base.{Level}
+import modules.enum145_near
+
+func main() {
+    let l = enum145_near.top()
+    print(l.shout())
+}

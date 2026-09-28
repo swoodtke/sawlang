@@ -1,0 +1,12 @@
+// Error: a closure with reference (`&`/`&var`) parameters is non-storable
+// (design 21 item 3). It may only appear directly as a call argument; binding
+// it to a variable is rejected (the conservative non-escaping gate).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: may only be passed directly as a call argument
+
+func main() {
+    let f = { &var n: Int in
+        n = n + 1
+        true
+    }
+}

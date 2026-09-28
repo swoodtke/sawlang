@@ -1,0 +1,12 @@
+// design 149 unit (a): `var` and `unsafe` come as a pair on a static. A second,
+// quieter way to declare global mutable state is exactly what this design does
+// not want — the claim is the point.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a mutable static is declared `unsafe static var`
+
+static var COUNT: Int = 0
+
+func main() {
+    print("{COUNT}")
+}

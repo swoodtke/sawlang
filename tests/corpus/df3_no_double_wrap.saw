@@ -1,0 +1,19 @@
+// DF3 is ONE level only (design 57): an argument that is ALREADY optional is
+// passed through unchanged — never re-wrapped into a nested optional. If it
+// double-wrapped, the inner `if let` would unwrap only one layer and the value
+// would not round-trip.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// -1
+
+func h(x: Int?) -> Int {
+    if let v = x { v } else { -1 }
+}
+
+func main() {
+    let o: Int? = 42
+    print(h(o))     // 42 — passed as-is (not wrapped into a nested optional)
+    let n: Int? = None
+    print(h(n))     // -1
+}

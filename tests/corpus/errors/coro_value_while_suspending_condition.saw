@@ -1,0 +1,36 @@
+// The boundary of design 224's container-head rule: a `while` in VALUE position
+// whose CONDITION suspends is refused cleanly.
+//
+// A statement-position `while <susp> { … }` works — the condition moves into the
+// top of the loop body, where it is re-evaluated per iteration as written. The
+// value-position spelling cannot take that rewrite, and the reason is not the
+// head at all: a value `while` produces its result through a `break <value>`,
+// and a value-producing `break` out of a suspension-spanning loop has no state
+// the split can leave it in. So this stays a clean, anchored refusal at the
+// suspending call rather than becoming a silent blocking one.
+//
+// The way to write it: bind the condition inside a conditionless loop yourself.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: appears in a nested/expression position
+
+import std.task.*
+
+func gate(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+func worker() -> Int {
+    var i = 0
+    let out = while gate(i) < 3 {
+        i += 1
+        if i > 2 { break 7 }
+    }
+    return out ?? 0
+}
+
+func main() {
+    var g = TaskGroup()
+    let w = g.spawn(worker())
+    print("{}", w.join())
+}

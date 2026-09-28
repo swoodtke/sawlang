@@ -1,0 +1,14 @@
+// Design 110 rider: a BARE trait name behind a `&var` reference — `&var Shape` —
+// used to ICE ("Undefined struct: Shape") because the parser tags it a STRUCT.
+// Now it is a clean unsized-trait error naming the fix (`&var any Shape`), the
+// same class as the `any`-placement diagnostics. (The `&Shape` position is
+// covered by ref_replace_bare_trait_shared_error.)
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `&var Shape` names a trait, which is unsized
+// EXPECT-ERROR-CONTAINS: write `&var any Shape`
+
+trait Shape { func area(&self) -> Int }
+
+func takes_mut(p: &var Shape) { print("{p.area()}") }
+
+func main() {}

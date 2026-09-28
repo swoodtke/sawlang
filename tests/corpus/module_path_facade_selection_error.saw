@@ -1,0 +1,19 @@
+// DF-232j sweep CONTROL (passing, not a pin of breakage): the entry
+// SELECTIVELY imports the re-exported package-tier name out of the facade.
+// This route runs the typechecker's selective-import arm
+// (`_selection_visible` -> `_visibility_relation_allows`, which carries the
+// DF-232f mapped-package root) and is refused TODAY — the asymmetry that
+// localizes DF-232j to the namespace-side qualified-reach decision. The fix
+// must keep this refusal.
+//
+// The match is deliberately loose ("is public(package)"): today's diagnostic
+// names the FACADE (`in `pkgvis``) rather than the defining module — a wart
+// the DF-232j fix may correct without breaking this pin.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is public(package)
+// COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232f
+import pkgvis.{pkg_secret}
+
+func main() {
+    print(pkg_secret())
+}

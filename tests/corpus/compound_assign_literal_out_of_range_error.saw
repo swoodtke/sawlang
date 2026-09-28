@@ -1,0 +1,11 @@
+// Design 87: a compound-assign RHS literal adopts the target's fixed-width type
+// and is range-checked — `s += 300` for `s: Int8` is a clean error (before 87
+// this ICE'd with an i8-vs-i64 width mismatch in the checked-arith intrinsic).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: integer literal 300 does not fit in `Int8`
+
+func main() {
+    var s: Int8 = 1
+    s += 300
+    print(s)
+}

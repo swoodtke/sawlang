@@ -1,0 +1,14 @@
+// Design 63 Part 1: casting between SIBLING aliases of the same underlying is an
+// ERROR — it would launder distinctness. `UserId as OrderId` is rejected even
+// though both are `type X = Int`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot cast
+
+type UserId = Int
+type OrderId = Int
+
+func main() {
+    let id: UserId = 42
+    let bad: OrderId = id as OrderId
+    print(bad as Int)
+}

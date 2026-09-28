@@ -1,0 +1,20 @@
+// Whole-binding moves are untouched by the partial-move rule (design 35):
+// `move p` transfers the entire value into a consuming function.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+func consume(p: Point) -> Int {
+    p.x + p.y
+}
+
+func main() {
+    var p = Point(x: 1, y: 2)
+    let s = consume(move p)
+    print(s)   // 3
+}

@@ -1,0 +1,20 @@
+// Design 250 §4 errata, pinned. To render a byte's DIGITS through the `append`
+// family you widen it to `Int` (or `UInt`) — NOT to `UInt8`. A `UInt8` argument
+// matches `append(value: Int)` and `append(value: UInt)` equally well, so it is
+// ambiguous, and that is true today independently of the byte overload: the tie
+// is between the two integer renderers, which the byte overload never joins
+// (a `UInt8` is not a `Byte` — the flow is one-way).
+//
+// `examples/byte_append_discrimination.saw` is the working half: `append(b as
+// Int)` renders digits, `append(b)` writes the raw byte.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous call to `StringBuilder.append`
+// EXPECT-ERROR-CONTAINS: StringBuilder.append(value: Int)
+// EXPECT-ERROR-CONTAINS: StringBuilder.append(value: UInt)
+
+func main() {
+    let b = "hello".byte_at(0)
+    var sb = StringBuilder()
+    try! sb.append(b as UInt8)
+    print(sb.build())
+}

@@ -1,0 +1,15 @@
+// The SILENT half of array_literal_const_element_mixed.saw's mechanism: a
+// fixed-array literal element that is a constant EXPRESSION adopts the array's
+// declared width, so it is range-checked against it. `1 << 40` does not fit
+// `UInt32`, and is refused exactly as a bare out-of-range literal element is.
+//
+// It used to compile clean and print the untruncated platform-`Int` value,
+// because no element of that shape ever adopted (DF-235a).
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not fit in `UInt32`
+
+func main() {
+    let a: [UInt32; 1] = [1 << 40]
+    print("{a[0]}")
+}

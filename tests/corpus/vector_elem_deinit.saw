@@ -1,0 +1,30 @@
+// Brief 14 item 5: now that `Vector<R>` for a non-Copy `R` is constructible,
+// the next gap becomes expressible -- a Vector does not run its elements'
+// deinit when it is dropped. Here `R` is Deinit and prints its id on cleanup;
+// the element pushed into the vector should print `7` when `v` goes out of
+// scope at the end of main, after the `100` marker.
+//
+// Brief 17 item 3: Vector's deinit now runs each live element's deinit (via the
+// `__saw_deinit_in_place` intrinsic) before freeing the buffer, so the pushed R
+// prints `7` when `v` is dropped at the end of main, after the `100` marker.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 100
+// 7
+
+struct R {
+    id: Int
+}
+
+extension R: NoCopy {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}
+
+func main() {
+    var v = Vector<R>()
+    let r = R(id: 7)
+    try! v.push(move r)
+    print(100)
+}

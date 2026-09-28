@@ -1,0 +1,30 @@
+// Unary minus on fixed-width signed integers (design 77 item 8). `-x` and a
+// negated literal now work for Int8..Int64, not just platform `Int`; negation is
+// checked-overflow like `Int`, and `-128i8` (Int8.min) is writable via the
+// literal-fold. Unsigned negation is a separate compile error (see
+// errors/unary_minus_unsigned).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -5
+// -100
+// -2000000000
+// -128
+// 21
+
+func neg32(x: Int32) -> Int32 { -x }
+
+func main() {
+    let a = 5i32
+    print((-a) as Int)              // -5
+
+    let b = 100i16
+    print((-b) as Int)             // -100
+
+    print(neg32(2000000000i32) as Int)  // -2000000000
+
+    let s = -128i8                 // suffixed literal folds to Int8.min
+    print(s as Int)                // -128
+
+    let n = -21i64
+    print((-n) as Int)             // 21 (negate a negative, in range)
+}

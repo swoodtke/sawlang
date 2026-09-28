@@ -1,0 +1,29 @@
+// Positive companion to nocopy_call_arg_requires_move.saw: passing a NoCopy
+// value with `move` compiles, and the resource is deinit'd exactly once (in the
+// callee), never double-freed. See todo_jul26.md must-fix #1.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// deinit
+// 42
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {
+        print("deinit")
+        print(self.fd)
+    }
+}
+
+func consume(f: FileHandle) {
+    print(f.fd)
+    // f is deinit'd here, at consume's scope exit -- exactly once
+}
+
+func main() {
+    let f = FileHandle(fd: 42)
+    consume(move f)   // ownership transferred; main no longer deinits f
+}

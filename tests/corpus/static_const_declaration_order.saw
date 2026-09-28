@@ -1,0 +1,52 @@
+// design 186 unit 7: the const-foldable tier, and the DECLARATION ORDER it
+// needs.
+//
+// A static's initializer may name an EARLIER static of the same module, so the
+// size a program has to get right is written once and everything else derives
+// from it. The pre-registration pass evaluates in declaration order and puts
+// each answer in before the next initializer is read, which is also the cycle
+// rule: a forward reference and a self reference both fail to fold and are
+// reported as computed statics rather than looping.
+//
+// The same value then works in every const position — an array length, a repeat
+// count, a `static_assert`, a const generic argument — because there is one
+// evaluator behind all of them.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 4096
+// EXPECT-OUTPUT: 4095
+// EXPECT-OUTPUT: 12
+// EXPECT-OUTPUT: 8192
+// EXPECT-OUTPUT: 0
+// EXPECT-OUTPUT: 4096
+// EXPECT-OUTPUT: 64
+
+static PAGE_SHIFT: Int = 12
+static PAGE_SIZE: Int = 1 << PAGE_SHIFT
+static PAGE_MASK: Int = PAGE_SIZE - 1
+static TWO_PAGES: Int = PAGE_SIZE * 2
+
+// A derived size in TYPE position, which is what the derivation is for.
+static ARENA: [UInt8; PAGE_SIZE] = [0; PAGE_SIZE]
+
+static_assert(PAGE_SIZE == 4096, "the derived size folds")
+static_assert(PAGE_MASK == 4095, "and so does one derived from it")
+static_assert(TWO_PAGES % PAGE_SIZE == 0, "arithmetic over both")
+
+struct Region {
+    bytes: [UInt8; PAGE_SIZE]
+}
+
+static_assert(sizeof<Region>() == PAGE_SIZE, "the field length folds too")
+
+func main() {
+    print(PAGE_SIZE)
+    print(PAGE_MASK)
+    print(PAGE_SHIFT)
+    print(TWO_PAGES)
+    print(ARENA[0])
+    print(ARENA.len())
+    // A local buffer sized off the same derivation.
+    var scratch: [UInt8; PAGE_SIZE / 64] = [0; PAGE_SIZE / 64]
+    print(scratch.len())
+}

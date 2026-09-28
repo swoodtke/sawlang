@@ -1,0 +1,8 @@
+// Design 53 Part 8 (DF1): `var _` is rejected — a discard has nothing to mutate.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `var _` is not allowed
+
+func main() {
+    var _ = 5
+    print(0)
+}

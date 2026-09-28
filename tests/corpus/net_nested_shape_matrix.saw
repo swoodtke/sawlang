@@ -1,0 +1,157 @@
+// design 101 (DF7): a suspending METHOD call in a driven/spawned body must embed
+// as a driven sub-frame — never lower as a plain blocking call — in EVERY
+// structural position, including the trailing-expression positions the parser
+// parks in a block's `final_expr`. Before the fix, a call reachable only through a
+// trailing `if`/`else`/`match`/nested `if` (the loop body's final expression) was
+// SILENTLY compiled as a plain blocking call (its cooperative park a no-op).
+//
+// Each worker owns a socketpair and self-feeds it: it seeds one byte, then on each
+// guarded iteration reads the pending byte and writes it straight back (a balanced
+// 1:1 recirculation), so every read finds data ready and the loop is deterministic
+// and time-bounded (a fixed iteration count). The suspending read+write sit in a
+// DIFFERENT structural position in each worker. Every worker returns its recirc
+// count; main asserts the exact per-shape counts, so a shape that miscompiled to a
+// blocking call (which would wedge the single thread and hang -> runner timeout) or
+// mis-drove is caught.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// baseline_stmt 6
+// trailing_if 4
+// trailing_else 4
+// trailing_match 4
+// depth2_if 4
+// if_in_while 3
+
+import std.net.{TcpStream}
+
+// Shape 0 (control): read+write at STATEMENT position, followed by a trailing
+// statement so the calls are never a block `final_expr`. Recircs every iteration.
+func baseline_stmt(s_read: TcpStream, s_write: TcpStream) -> Int {
+    try! s_write.write("x")
+    var k = 0
+    var reads = 0
+    while k < 6 {
+        k = k + 1
+        let c = try! s_read.read()
+        try! s_write.write(move c)
+        reads = reads + 1
+    }
+    reads
+}
+
+// Shape 1 (DF7 canonical): the recirc sits under a TRAILING `if` (the loop body's
+// final_expr). Recircs on k = 1..4.
+func trailing_if(s_read: TcpStream, s_write: TcpStream) -> Int {
+    try! s_write.write("x")
+    var k = 0
+    var reads = 0
+    while k < 6 {
+        k = k + 1
+        if k <= 4 {
+            let c = try! s_read.read()
+            try! s_write.write(move c)
+            reads = reads + 1
+        }
+    }
+    reads
+}
+
+// Shape 2: the recirc sits in the ELSE branch of a trailing `if`.
+func trailing_else(s_read: TcpStream, s_write: TcpStream) -> Int {
+    try! s_write.write("x")
+    var k = 0
+    var reads = 0
+    while k < 6 {
+        k = k + 1
+        if k > 4 {
+            reads = reads + 0
+        } else {
+            let c = try! s_read.read()
+            try! s_write.write(move c)
+            reads = reads + 1
+        }
+    }
+    reads
+}
+
+// Shape 3: the recirc sits in a TRAILING `match` arm.
+func trailing_match(s_read: TcpStream, s_write: TcpStream) -> Int {
+    try! s_write.write("x")
+    var k = 0
+    var reads = 0
+    while k < 6 {
+        k = k + 1
+        match k {
+            case 1..=4 -> {
+                let c = try! s_read.read()
+                try! s_write.write(move c)
+                reads = reads + 1
+            },
+            case _ -> {
+                reads = reads + 0
+            }
+        }
+    }
+    reads
+}
+
+// Shape 4: the recirc sits under an `if` nested in an `if`, both TRAILING (depth 2).
+func depth2_if(s_read: TcpStream, s_write: TcpStream) -> Int {
+    try! s_write.write("x")
+    var k = 0
+    var reads = 0
+    while k < 6 {
+        k = k + 1
+        if k <= 5 {
+            if k <= 4 {
+                let c = try! s_read.read()
+                try! s_write.write(move c)
+                reads = reads + 1
+            }
+        }
+    }
+    reads
+}
+
+// Shape 5: an inner `while` (spanning) nested inside a trailing `if`, the recirc at
+// the inner loop's statement position. Recircs on k = 1..3.
+func if_in_while(s_read: TcpStream, s_write: TcpStream) -> Int {
+    try! s_write.write("x")
+    var k = 0
+    var reads = 0
+    while k < 3 {
+        k = k + 1
+        if k <= 3 {
+            var j = 0
+            while j < 1 {
+                j = j + 1
+                let c = try! s_read.read()
+                try! s_write.write(move c)
+                reads = reads + 1
+            }
+        }
+    }
+    reads
+}
+
+func main() {
+    let (a0, a1) = TcpStream.pair()
+    let (b0, b1) = TcpStream.pair()
+    let (c0, c1) = TcpStream.pair()
+    let (d0, d1) = TcpStream.pair()
+    let (e0, e1) = TcpStream.pair()
+    let (f0, f1) = TcpStream.pair()
+    var group = TaskGroup()
+    let h0 = group.spawn(baseline_stmt(move a0, move a1))
+    let h1 = group.spawn(trailing_if(move b0, move b1))
+    let h2 = group.spawn(trailing_else(move c0, move c1))
+    let h3 = group.spawn(trailing_match(move d0, move d1))
+    let h4 = group.spawn(depth2_if(move e0, move e1))
+    let h5 = group.spawn(if_in_while(move f0, move f1))
+    print("baseline_stmt {h0.join()}")
+    print("trailing_if {h1.join()}")
+    print("trailing_else {h2.join()}")
+    print("trailing_match {h3.join()}")
+    print("depth2_if {h4.join()}")
+    print("if_in_while {h5.join()}")
+}

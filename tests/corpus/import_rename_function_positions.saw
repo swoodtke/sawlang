@@ -1,0 +1,51 @@
+// A RENAMED selective import binds a callable name, for std and user modules
+// alike (DF-187a).
+//
+// A function's namespace KEY doubles as its codegen name unless `mangled_name`
+// overrides it, so binding std's already-merged symbol under a second spelling
+// left codegen looking up the local name and finding nothing
+// (`internal compiler error: Undefined function: dt`). The USER-module
+// selective-import path had always carried the original across as
+// `mangled_name` — which is exactly why the same rename over a user module
+// worked, and why a renamed std TYPE worked too (a type's codegen identity
+// rides its symbol, not the key it was found under). The std path does the
+// same now, on a COPY of the symbol: `_expose` hands out the shared, merged
+// std symbol, and renaming that in place would rename the definition out from
+// under std itself.
+//
+// `import_std_function_rename.saw` is the reported one-liner; this is the
+// matrix.
+// COMPILE-FLAGS: --module-path rf={TESTDIR}/modules/renamefn_dep
+// EXPECT: success
+// EXPECT-OUTPUT:
+// saw tasks: none live
+// yielded
+// user 12
+// badge 4
+// generic 5
+// twice 6
+
+import std.task.{dump_tasks as dt, yield_now as cede}
+import rf.{greet as hello, twice as echo, Badge as Tag}
+
+func main() {
+    // TWO renames out of one std module, both called. Either alone would have
+    // been the reported ICE.
+    dt()
+    cede()
+    print("yielded")
+
+    // The user-module control, which always worked.
+    print("user {hello(n: 4)}")
+
+    // A renamed TYPE, the other control.
+    let t = Tag(n: 4)
+    print("badge {t.n}")
+
+    // A renamed GENERIC function: the instantiation is keyed off the resolved
+    // symbol, so a rename must not mint a second one under the local spelling.
+    print("generic {echo<Int>(v: 5)}")
+
+    // Called twice, so a per-call-site resolution mistake shows up.
+    print("twice {hello(n: 1) + hello(n: 1)}")
+}

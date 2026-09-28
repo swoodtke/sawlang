@@ -1,0 +1,46 @@
+// Conformance row V68 — a closure's `&`/`&var` PARAMETER names storage the
+// caller owns, so it may not be `move`d out
+//
+// DF-290a, and the SAME MECHANISM as DF-288a at a different registration site.
+// `_check_closure` binds a reference parameter with the REFERENT's type — that
+// is what makes `&var e` read and write the element directly — so the binding's
+// type no longer says it is an alias and `_check_move_expr`'s
+// `TypeKind.REFERENCE` test cannot see it. `{ &var e in move e }` therefore saw
+// an ordinary owned local, licensed the transfer, and the vector kept the
+// element anyway:
+//
+//     got 7 / drop 7 / drop 7        — exit 0, silent
+//
+// Both sigils are here because the SHARED one is the worse face: theft of an
+// owned element through a read-only borrow, which is exactly the asymmetry
+// V60 records for the match funnel.
+//
+// `with_ref`/`with_var_ref` are std's own scoped-borrow surface, which is why
+// this face owed its own row rather than riding DF-288a's.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot move out of `e`
+// EXPECT-ERROR-CONTAINS: closure PARAMETER declared `&var e`
+// EXPECT-ERROR-CONTAINS: closure PARAMETER declared `&e`
+
+struct Owned { w: Int }
+extension Owned: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func exclusive_face() -> Owned {
+    var v = Vector<Owned>()
+    try! v.push(Owned(w: 7))
+    v.with_var_ref(0, { &var e in move e })    // error: `e` only borrows
+}
+
+func shared_face() -> Owned {
+    var v = Vector<Owned>()
+    try! v.push(Owned(w: 7))
+    v.with_ref(0, { &e in move e })            // error: theft through a `&`
+}
+
+func main() {
+    print("{}", exclusive_face().w)
+    print("{}", shared_face().w)
+}

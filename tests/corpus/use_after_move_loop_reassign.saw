@@ -1,0 +1,28 @@
+// Move + definite reassignment inside a loop body is allowed (design 15 rule 7).
+// `f` is moved each iteration but reassigned a fresh value before the body ends,
+// so it is live at the top of the next iteration -- no cross-iteration
+// use-after-move. The loop runs several times and `f` is usable afterwards.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 100
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {}
+}
+
+func consume(h: FileHandle) {}
+
+func main() {
+    var f = FileHandle(fd: 0)
+    var i = 0
+    while i < 3 {
+        consume(move f)            // move f...
+        f = FileHandle(fd: 100)    // ...then definitely reassign before body end
+        i = i + 1
+    }
+    print(f.fd)   // 100: f is live after the loop
+}

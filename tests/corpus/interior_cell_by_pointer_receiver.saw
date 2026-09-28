@@ -1,0 +1,91 @@
+// design 186 unit 2: a cell-carrying receiver travels BY POINTER, and NOTHING
+// here is an `Atomic`.
+//
+// This is the regression the brief exists for. Before design 186 the by-pointer
+// receiver was keyed on containing an `Atomic`, so a library type carrying any
+// other kind of interior mutability got a `&self` receiver BY VALUE: its
+// helper addressed the callee's copy, the write landed there, and the copy was
+// dropped at the return. Silently — no error anywhere, the value just never
+// changed.
+//
+// Every write below goes through a `&self` method on a `let` binding. If the
+// receiver arrived as a copy, every number printed would be the initial one.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 41
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: nested cell reached the root
+// EXPECT-OUTPUT: 5
+// EXPECT-OUTPUT: 9
+
+// A cell one level down: the property is TRANSITIVE, so `Outer` is
+// cell-carrying because `Inner` is.
+struct Inner {
+    slot: UnsafeMutableInterior<Int>
+}
+
+struct Outer {
+    label: Int,
+    inner: Inner
+}
+
+extension Inner {
+    func _at(&self) unsafe -> UnsafePointer<Int> {
+        self.slot.ptr()
+    }
+
+    func get(&self) unsafe -> Int { self._at()[0] }
+    func bump(&self) unsafe { self._at()[0] = self._at()[0] + 1 }
+}
+
+extension Outer {
+    init(start: Int) unsafe -> Outer {
+        Outer(label: 0, inner: Inner(slot: UnsafeMutableInterior(start)))
+    }
+
+    // `&self` on the OUTER type reaching a cell one field down.
+    func bump(&self) unsafe { self.inner.bump() }
+    func get(&self) unsafe -> Int { self.inner.get() }
+}
+
+// A cell in a fixed ARRAY field — inline storage, so the property walks it.
+struct Bank {
+    slots: [Inner; 2]
+}
+
+extension Bank {
+    init(a: Int, b: Int) unsafe -> Bank {
+        Bank(slots: [Inner(slot: UnsafeMutableInterior(a)),
+                     Inner(slot: UnsafeMutableInterior(b))])
+    }
+
+    func bump(&self, i: Int) unsafe { self.slots[i].bump() }
+    func get(&self, i: Int) unsafe -> Int { self.slots[i].get() }
+}
+
+// The receiver is passed to a free function as a plain `&` too — the borrow
+// travels by pointer for the same reason.
+func observe(o: &Outer) unsafe -> Int {
+    o.get()
+}
+
+func main() {
+    let o = Outer(start: 41)
+    print(o.get())
+    o.bump()
+    print(o.get())
+    print(observe(&o))
+
+    let deep = Outer(start: 0)
+    deep.bump()
+    if deep.get() == 1 {
+        print("nested cell reached the root")
+    }
+
+    let b = Bank(a: 4, b: 8)
+    b.bump(0)
+    b.bump(1)
+    print(b.get(0))
+    print(b.get(1))
+}

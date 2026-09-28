@@ -1,0 +1,25 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `NoMove` is not a generic bound
+// EXPECT-ERROR-CONTAINS: declared at the CONFORMANCE position
+//
+// Design 188 unit 4's fence. A bound exists so a generic BODY can do something
+// with every instantiation — `T: Copy` licenses a copy, `T: Printable` licenses
+// a format call. `NoMove` licenses nothing: it says where a value may live, and
+// a body that knows its argument is pinned still cannot project into it, pin
+// anything else to it, or hand it out. Admitting the bound would only invite
+// the Pin/projection machinery v1 deliberately does not have.
+//
+// Also refused for the same reason: the `take()` of a NoMove payload below,
+// which is a relocation whatever the spelling.
+
+import std.task.*
+
+func hold<T: NoMove>(x: T) -> Int {
+    1
+}
+
+func main() {
+    var g: TaskGroup? = TaskGroup()
+    let taken = g.take()
+    print("done")
+}

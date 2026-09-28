@@ -1,0 +1,13 @@
+// Design 148 unit C: the mirror — a const parameter takes a VALUE, and a type
+// in that position names the parameter and what it wants.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: takes a VALUE for the const parameter `N`
+// EXPECT-ERROR-CONTAINS: is a type
+struct FixedBuf<const N: Int> {
+    data: [UInt8; N]
+}
+
+func main() {
+    let b = FixedBuf<Int>(data: [0; 4])
+    print(b.data[0])
+}

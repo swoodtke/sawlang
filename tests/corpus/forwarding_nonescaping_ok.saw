@@ -1,0 +1,20 @@
+// Callee-side forwarding (design 16/29 item 5): a callee holding a non-escaping
+// closure parameter may CALL it, and may PASS it as another non-escaping
+// argument. Both are allowed — neither lets the closure escape the call.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 30
+
+func apply(f: (Int) -> Int, x: Int) -> Int {
+    f(x)
+}
+
+func middle(f: (Int) -> Int) -> Int {
+    let a = f(1)           // call it directly
+    let b = apply(f, 2)    // forward it as another non-escaping argument
+    a + b
+}
+
+func main() {
+    print(middle({ $0 * 10 }))   // 10 + 20 = 30
+}

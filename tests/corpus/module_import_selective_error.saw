@@ -1,0 +1,14 @@
+// Test that non-imported symbols are not accessible with selective import
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: function `triple` is not directly accessible
+import modules.utils.{double, Point}
+
+func main() {
+    // double is accessible (imported)
+    let d = double(21)
+    print(d)
+
+    // triple is NOT accessible (not in import list)
+    let t = triple(10)
+    print(t)
+}

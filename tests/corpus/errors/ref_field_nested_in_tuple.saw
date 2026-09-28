@@ -1,0 +1,18 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Parse error at 12:21: field `pair` of `Both` may not be a reference
+// EXPECT-ERROR-CONTAINS: its type `(Int, &Int)` names a reference (`&Int`)
+// EXPECT-ERROR-CONTAINS: drop the `&`: `&Int` becomes `Int`
+//
+// The field rule reads what the type NAMES, not its outermost spelling -- the
+// same walk design 163a applies to a return type. A tuple, an optional or an
+// array element carries the pointer into the struct exactly as a bare `&Int`
+// does. The walk stops at a nested function type, whose parameters take
+// references legitimately (see examples/ref_parameter_positions.saw).
+
+struct Both { pair: (Int, &Int) }
+
+func main() {
+    let x = 7
+    let b = Both(pair: (1, &x))
+    print("{b.pair.0}")
+}

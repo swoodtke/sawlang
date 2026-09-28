@@ -1,0 +1,10 @@
+// Conformance row R26 — `Optional<&Int>` spelled via the written name
+//
+// `Optional<&Int>` spelled through the WRITTEN name rather than the `?` sugar
+// — the same generic-argument position, reached by the spelling a user who
+// wants an optional reference would actually reach for.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a generic argument may not be a reference
+
+func f(o: Optional<&Int>) { print(1) }
+func main() { print(1) }

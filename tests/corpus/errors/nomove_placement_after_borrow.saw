@@ -1,0 +1,40 @@
+// design 188's FRESH-JOURNEY rule, the REFUSAL side (218c Amendment B4)
+//
+// The rule blesses a placement move only while nothing has taken a reference to
+// the parameter: the soundness argument is that the journey construction ->
+// parameter -> placement is one continuous trip whose address was never
+// observable. A `&`/`&var` naming the parameter ends the trip, so the ordinary
+// NoMove refusal stands from there on.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot `move` `value`
+// EXPECT-ERROR-CONTAINS: `NoMove`
+
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {}
+extension Anchor: NoMove {}
+
+func observe(a: &Anchor) -> Int { a.n }
+
+func place(value: Anchor) unsafe -> UnsafePointer<Anchor> {
+    let raw = GlobalAllocator().alloc(sizeof<Anchor>(), alignof<Anchor>())
+    if let chunk = raw {
+        let ptr = chunk as UnsafePointer<Anchor>
+        // The address is observable from here on.
+        let seen = observe(&value)
+        ptr[0] = move value
+        return ptr
+    }
+    panic("place: allocation failed")
+}
+
+func hold() unsafe -> Int {
+    let ptr = place(Anchor(n: 1))
+    ptr[0].n
+}
+
+func main() {
+    print(hold())
+}

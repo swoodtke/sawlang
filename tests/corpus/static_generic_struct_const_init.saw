@@ -1,0 +1,34 @@
+// DF-186b (found + fixed by design 186 unit 3, PRE-EXISTING): a `static` of a
+// GENERIC struct, initialized by a const struct literal, was an internal
+// compiler error — `_const_from_expr` looked the layout up under the TEMPLATE
+// name, which the monomorphization table has never heard of, and the bare
+// `KeyError` surfaced as `internal compiler error: 'Wrap'`.
+//
+// The non-generic form always worked, which is why it went unnoticed: design
+// 41's const-init statics predate generic statics by a long way.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 9
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 4
+
+struct Wrap<T> {
+    v: T,
+    tag: Int
+}
+
+struct Pair<A, B> {
+    left: A,
+    right: B
+}
+
+static W: Wrap<Int> = Wrap<Int>(v: 3, tag: 9)
+static P: Pair<Int, UInt8> = Pair<Int, UInt8>(left: 7, right: 4)
+
+func main() {
+    print(W.v)
+    print(W.tag)
+    print(P.left)
+    print(P.right)
+}

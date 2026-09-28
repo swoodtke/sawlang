@@ -1,0 +1,101 @@
+// Design 234 §3 — every way a routing clause can be wrong, each named at the
+// clause and each reported exactly ONCE.
+//
+// The single-diagnostic property is deliberate. A malformed clause says what
+// the author MEANT to send, so going on to check the SOURCE error type against
+// the signature would add a second complaint about a type they never intended
+// — `_check_try_routing` answers None on a bad clause and its caller then says
+// nothing further.
+//
+// Rows:
+//   try_bang     — `try!` takes no clause: it does not propagate, so there is
+//                  no error channel to convert
+//   try_question — `try?` likewise
+//   with_catch   — route or handle, not both
+//   not_an_enum  — the target names a struct
+//   no_such_type — the target names nothing in scope
+//   no_such_case — the enum has no such case (the hint lists the cases)
+//   payload_free — the case carries nothing, so it cannot carry the error
+//   two_fields   — the case carries two, so which one is the error?
+//   wrong_type   — the case's payload is not what this call fails with
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `try!` cannot take a routing clause
+// EXPECT-ERROR-CONTAINS: `try?` cannot take a routing clause
+// EXPECT-ERROR-CONTAINS: cannot also carry a `catch`
+// EXPECT-ERROR-CONTAINS: `NotAnEnum` is not an enum in scope
+// EXPECT-ERROR-CONTAINS: `NoSuchType` is not an enum in scope
+// EXPECT-ERROR-CONTAINS: enum `LocalError` has no case `Nope`
+// EXPECT-ERROR-CONTAINS: case `Bare` carries no payload
+// EXPECT-ERROR-CONTAINS: case `Pair` carries 2 payload fields
+// EXPECT-ERROR-CONTAINS: case `Wrong` carries `Other`, but this call fails with `AllocFail`
+
+struct AllocFail { size: Int }
+extension AllocFail: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("A") }
+}
+extension AllocFail: Error {}
+
+struct Other { n: Int }
+extension Other: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("O") }
+}
+extension Other: Error {}
+
+struct NotAnEnum { n: Int }
+
+enum LocalError {
+    case Alloc(e: AllocFail),
+    case Bare,
+    case Pair(a: Int, b: Int),
+    case Wrong(e: Other)
+}
+extension LocalError: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("L") }
+}
+extension LocalError: Error {}
+
+func grab(n: Int) -> Result<Int, AllocFail> {
+    if n > 10 { return AllocFail(size: n) }
+    return n * 2
+}
+
+func row_try_bang(n: Int) -> Int {
+    try!(as LocalError.Alloc) grab(n)
+}
+
+func row_try_question(n: Int) -> Int? {
+    try?(as LocalError.Alloc) grab(n)
+}
+
+func row_with_catch(n: Int) -> Result<Int, LocalError> {
+    let a = try(as LocalError.Alloc) grab(n) catch { 0 }
+    return a
+}
+
+func row_not_an_enum(n: Int) -> Result<Int, LocalError> {
+    return try(as NotAnEnum.Alloc) grab(n)
+}
+
+func row_no_such_type(n: Int) -> Result<Int, LocalError> {
+    return try(as NoSuchType.Alloc) grab(n)
+}
+
+func row_no_such_case(n: Int) -> Result<Int, LocalError> {
+    return try(as LocalError.Nope) grab(n)
+}
+
+func row_payload_free(n: Int) -> Result<Int, LocalError> {
+    return try(as LocalError.Bare) grab(n)
+}
+
+func row_two_fields(n: Int) -> Result<Int, LocalError> {
+    return try(as LocalError.Pair) grab(n)
+}
+
+func row_wrong_type(n: Int) -> Result<Int, LocalError> {
+    return try(as LocalError.Wrong) grab(n)
+}
+
+func main() {
+    print(row_try_bang(1))
+}

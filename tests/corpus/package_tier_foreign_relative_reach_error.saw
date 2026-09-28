@@ -1,0 +1,18 @@
+// DF-232n, the REFUSAL: this entry is OUTSIDE `pkg232n`'s manifest root and
+// reaches into it by RELATIVE path. A relative import carries no package name,
+// so before the fix `check_visibility` was asked with no root at all and read
+// that as "assume same package" — the tier was real only for a consumer that
+// arrived through `--module-path` or std, and every `Saw.toml` package reached
+// by path had `public(package)` silently degraded to `public`.
+//
+// `pkg_open` on the line above is genuinely `public`, so the refusal below is
+// about the TIER, not about the module being unreachable from here.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `pkg_secret` is public(package) in `module_tests.pkg232n.src.lib`
+// EXPECT-ERROR-CONTAINS: mark it `public` in `module_tests.pkg232n.src.lib` to expose it
+import module_tests.pkg232n.src.lib
+
+func main() {
+    print(lib.pkg_open())
+    print(lib.pkg_secret())
+}

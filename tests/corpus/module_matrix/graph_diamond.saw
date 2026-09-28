@@ -1,0 +1,14 @@
+// Position matrix (design 235), grid 3 "Graph shapes" — row: diamond
+// (`main` imports `b` and `c`, both of which import the shared `d`). Legal
+// and must stay green: `d` is checked once regardless of being reached
+// through two paths.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 14 104
+
+import modules.graphdiamond.b
+import modules.graphdiamond.c
+
+func main() {
+    print("{b.beta()} {c.gamma()}")
+}

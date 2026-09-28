@@ -1,0 +1,30 @@
+// Conformance row C13 — an Equatable/Comparable conformance must take `other`
+// by REFERENCE
+//
+// The declaration-site half of design 239. `equals`/`compare` are what the
+// comparison operators lower to, so a conformance whose `other` is by value
+// declares an ownership contract no caller of the requirement honours — and
+// that contract is exactly what DF-216b's double free was made of: the body was
+// entitled to `move` a value the operator had merely lent it.
+//
+// The rule is general rather than comparison-specific: a conformance's
+// parameters mirror the requirement's borrows, in both directions and including
+// `&` vs `&var`. Reference-ness only — deep parameter typing is a bigger
+// question and is not what the ABI or the reader depends on here.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: parameter `other` of `equals` must be a reference
+// EXPECT-ERROR-CONTAINS: trait `Equatable` declares it `&Self`
+// EXPECT-ERROR-CONTAINS: this implementation takes it by value (`Tag`)
+// EXPECT-ERROR-CONTAINS: write `func equals(&self, other: &Self)`
+
+struct Tag { id: Int }
+
+extension Tag: Equatable {
+    func equals(&self, other: Tag) -> Bool { self.id == other.id }
+}
+
+func main() {
+    let a = Tag(id: 1)
+    let b = Tag(id: 2)
+    if a == b { print("eq") }
+}

@@ -1,0 +1,91 @@
+// At a declared `-> T?`, a bare `None` ARM of the tail's value branch is the
+// OUTER absence and a VALUE arm owes exactly one wrap — per arm, not once round
+// the whole branch (DF-289d).
+//
+// Design 176 makes `?` nest, so `-> T?` at `T = Int?` is an ordinary signature
+// and the two readings of a `None` arm stop coinciding. `case Empty -> None` in
+// a `-> V?` accessor means "no value here"; `case Occupied(_, v) -> v` hands out
+// the payload and owes the wrap. The contextual-`None` funnel already stamps
+// the arms on that reading — and the tail wrap was then applied to the MERGED
+// expression, which put the layer in a second time. `f` below returned a
+// three-layer value from a two-layer function and LLVM refused the module.
+//
+// Every shape here is fully CONCRETE: the defect was never a generic one. The
+// generic side found it because `std/vector.saw`'s `pop` and `std/map.saw`'s
+// `_get_value` are exactly these bodies at `V = Int?`, and design 218 unit 1.5
+// made an instance an ordinary concrete body — before that they were judged at
+// an abstract `V`, where the merge lands on `V?`, the tail owes nothing, and
+// the arms were reconciled by the merge itself. `optional_generic_vector.saw`
+// and `optional_generic_map.saw` are the instantiated faces.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// if-none outer
+// if-value 5
+// if-value-none inner
+// nested outer
+// nested-value 9
+// match-none outer
+// match-value 3
+// method 7
+// closure 4
+// -- done
+
+// The filed shape: one bare `None` arm and one value arm at a nested optional.
+func pick(flag: Bool, x: Int?) -> Int?? {
+    if flag { None } else { x }
+}
+
+// The same, one level deeper: the inner `if` is itself an arm of the outer one,
+// so the wrap has to reach through it.
+func pick_nested(outer: Bool, inner: Bool, x: Int?) -> Int?? {
+    if outer {
+        None
+    } else {
+        if inner { x } else { None }
+    }
+}
+
+enum Slotted { case Filled(v: Int?), case Blank }
+
+// The `match` face — `std/map.saw`'s `_get_value` written concretely.
+func read(s: Slotted) -> Int?? {
+    match s {
+        case Filled(v) -> v,
+        case Blank -> None
+    }
+}
+
+struct Cell { held: Int? }
+
+extension Cell {
+    // The METHOD tail takes the same rule the free function's does.
+    func peek(&self, present: Bool) -> Int?? {
+        if present { self.held } else { None }
+    }
+}
+
+// A CLOSURE tail too: the fourth entry point of the same funnel.
+func through_closure(f: (Bool) sync -> Int??, flag: Bool) -> Int?? { f(flag) }
+
+func show(label: String, v: Int??) {
+    if let inner = v {
+        if let n = inner { print("{label} {n}") } else { print("{label} inner") }
+    } else {
+        print("{label} outer")
+    }
+}
+
+func main() {
+    show("if-none", pick(true, 5))
+    show("if-value", pick(false, 5))
+    show("if-value-none", pick(false, None))
+    show("nested", pick_nested(true, true, 9))
+    show("nested-value", pick_nested(false, true, 9))
+    show("match-none", read(Slotted.Blank))
+    show("match-value", read(Slotted.Filled(v: 3)))
+    show("method", Cell(held: 7).peek(true))
+    let x: Int? = 4
+    show("closure", through_closure({ flag in if flag { x } else { None } }, true))
+    print("-- done")
+}

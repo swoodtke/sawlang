@@ -1,0 +1,98 @@
+// Conformance row D09 — the divergence rules are the same in the FREESTANDING
+// profile
+//
+// The DF-178d isolation sweep ran all 58 of its cells under both profiles and
+// got identical verdicts in every one: hosted-vs-freestanding is NOT an axis of
+// this bug, and the fix must not make it one. The rules live in the
+// typechecker and in codegen's call/declaration paths, none of which consult
+// the profile — this row is what keeps that true.
+//
+// Compiled to an object for a bare-metal target, so nothing here runs: every
+// position is present behind one C-ABI entry that keeps them all alive, and
+// what is asserted is that it compiles and that the `-> Never` declarations
+// reached the object as `void` + `noreturn`.
+//
+// COMPILE-FLAGS: --freestanding --target riscv32-unknown-none-elf
+// EXPECT: compiles
+// EXPECT-IR-CONTAINS: noreturn
+
+struct Reply {
+    status: Int,
+    value: UInt,
+    blocked: Bool
+}
+
+enum Pick {
+    case A,
+    case B
+}
+
+func die(r: Int) -> Never {
+    while { }
+}
+
+func die(r: Bool) -> Never {
+    while { }
+}
+
+func takes(x: Int) -> Int { x }
+
+func guard_else(o: Int?) -> Int {
+    guard let v = o else { die(1) }
+    return v
+}
+
+func return_position(x: Int) -> Int {
+    if x > 0 { return x }
+    return die(true)
+}
+
+func call_argument(c: Bool) -> Int {
+    if c { return 0 }
+    takes(die(1))
+}
+
+func coalesce(o: Int?) -> Int {
+    o ?? die(true)
+}
+
+func match_struct(p: Pick) -> Reply {
+    match p {
+        case A -> { die(1) },
+        case B -> { Reply(status: 0, value: 0, blocked: false) }
+    }
+}
+
+func tail_struct(x: Int) -> Reply {
+    if x > 0 { return Reply(status: 0, value: 0, blocked: false) }
+    die(true)
+}
+
+func value_if(c: Bool) -> Int {
+    let v: Int = if c { die(1) } else { 5 }
+    v
+}
+
+func onward(x: Int) -> Never {
+    die(true)
+}
+
+func never_tail_in_never(x: Int) -> Int {
+    if x > 0 { return x }
+    onward(x)
+}
+
+/// One C-ABI entry so nothing above is dead code the object never sees.
+@export("d09_entry")
+func entry(x: Int) -> Int {
+    var total = 0
+    total += guard_else(x)
+    total += return_position(x)
+    total += call_argument(true)
+    total += coalesce(x)
+    total += match_struct(Pick.B).status
+    total += tail_struct(x).status
+    total += value_if(false)
+    total += never_tail_in_never(x)
+    return total
+}

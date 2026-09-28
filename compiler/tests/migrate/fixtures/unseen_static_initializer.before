@@ -1,0 +1,6 @@
+static TABLE: [Int; 2] = [1, 2]
+static FIRST: Int = TABLE[0]
+
+func main() {
+    print(FIRST)
+}

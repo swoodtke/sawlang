@@ -1,0 +1,65 @@
+// Design 180 unit 5: a cancel that arrives while a task is asleep is observed
+// PROMPTLY, not at the end of the nap.
+//
+// Before this, the scheduler had two kinds of park and only one of them could be
+// cut short. A task waiting on an fd was woken by design 102 the moment a peer
+// cancelled it; a task waiting on a TIMER sat in `usleep`, which nothing can
+// poke, and so waited out its whole deadline. Cancelling a task that had just
+// called `sleep(Duration.secs(10))` therefore took ten seconds to take effect.
+//
+// The shape below is the minimal one that reaches the pure-timer park at all:
+// the sweep only parks when NOTHING is runnable, so both tasks have to be
+// asleep. The canceller wakes first, cancels the long sleeper, and the sleeper
+// must come back on the order of the canceller's own nap rather than its own.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// canceller: fired
+// sleeper: cancelled
+// woke promptly: true
+
+import std.time.{Instant}
+
+// Long enough that waiting it out is unmistakable, short enough that a
+// regression does not hang the suite for a minute.
+static LONG_NAP_MS: UInt64 = 10000
+static CANCELLER_NAP_MS: UInt64 = 50
+// Generous: the point is a park cut short, not a latency number. A regression
+// lands at 10000.
+static PROMPT_CEILING_MS: UInt64 = 3000
+
+func sleeper() -> Int {
+    sleep(Duration.ms(LONG_NAP_MS))
+    if cancelled() {
+        print("sleeper: cancelled")
+        return 1
+    }
+    print("sleeper: slept the whole span")
+    return 0
+}
+
+func canceller(target: Int) unsafe -> Int {
+    sleep(Duration.ms(CANCELLER_NAP_MS))
+    // The target's cancel word, by address — the Send handle a peer task uses.
+    let p = target as UnsafePointer<Bool>
+    p[0] = true
+    print("canceller: fired")
+    return 0
+}
+
+func run() unsafe -> Int {
+    let started = Instant.now()
+    var group = TaskGroup()
+    let victim = group.spawn(sleeper())
+    let addr = victim.cancel_addr()
+    let firing = group.spawn(canceller(addr))
+    let observed = victim.join()
+    let _ = firing.join()
+    let waited = started.elapsed().as_millis()
+    print("woke promptly: {waited < PROMPT_CEILING_MS}")
+    observed
+}
+
+func main() {
+    let _ = run()
+}

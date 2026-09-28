@@ -1,0 +1,62 @@
+// Test Result auto-wrap on final expressions (not just return statements)
+// EXPECT: success
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: 99
+// EXPECT-OUTPUT: 10
+// EXPECT-OUTPUT: 10
+
+struct ParseError {
+    code: Int
+}
+
+// Test 1: Function with simple Ok final expression
+func alwaysOk() -> Result<Int, ParseError> {
+    42  // Should auto-wrap to Ok(42)
+}
+
+// Test 2: Function with simple Err final expression
+func alwaysErr() -> Result<Int, ParseError> {
+    ParseError(code: 99)  // Should auto-wrap to Err
+}
+
+// Test 3: Method with Ok final expression
+struct Parser {
+    value: Int
+}
+
+extension Parser {
+    func getOk(&self) -> Result<Int, ParseError> {
+        self.value  // Should auto-wrap to Ok
+    }
+
+    func getErr(&self) -> Result<Int, ParseError> {
+        ParseError(code: self.value)  // Should auto-wrap to Err
+    }
+}
+
+func main() {
+    // Test function Ok
+    match alwaysOk() {
+        case Ok(n) -> print(n),        // 42
+        case Err(e) -> print(e.code)
+    }
+
+    // Test function Err
+    match alwaysErr() {
+        case Ok(n) -> print(n),
+        case Err(e) -> print(e.code)   // 99
+    }
+
+    // Test method Ok
+    let p = Parser(value: 10)
+    match p.getOk() {
+        case Ok(n) -> print(n),        // 10
+        case Err(e) -> print(e.code)
+    }
+
+    // Test method Err
+    match p.getErr() {
+        case Ok(n) -> print(n),
+        case Err(e) -> print(e.code)   // 10
+    }
+}

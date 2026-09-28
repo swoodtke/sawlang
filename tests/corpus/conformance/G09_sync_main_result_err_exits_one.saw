@@ -1,0 +1,25 @@
+// Conformance row G09 — a sync `main() -> Result<Int, E>` that fails renders
+// the error and exits 1
+//
+// The Err side has no status of its own to report — the error is not a number —
+// so it renders through the error's own `Printable` surface and the process
+// exits 1. Anything else would either invent a status the program never chose
+// or throw the cause away.
+// EXPECT: success
+// EXPECT-EXIT: 1
+// EXPECT-OUTPUT-CONTAINS: no such shelf: 3
+
+struct Missing { shelf: Int }
+
+extension Missing: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("no such shelf: ")
+        try! into.append(self.shelf)
+    }
+}
+
+extension Missing: Error {}
+
+func main() -> Result<Int, Missing> {
+    return Missing(shelf: 3)
+}

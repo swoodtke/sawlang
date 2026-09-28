@@ -1,0 +1,25 @@
+// design 149 unit (a) v1 restriction: a static holds a trivially-destructible
+// type only. Statics are immortal, so a hand-written `deinit` on one would be a
+// destructor that is written, is reachable, and never runs — the kind of silence
+// this language does not ship.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: which owns a resource (Deinit); statics are immortal
+
+struct Guard {
+    id: Int
+}
+
+extension Guard: NoCopy {
+    func deinit(&var self) {
+        print("releasing {self.id}")
+    }
+}
+
+unsafe static var HELD: Guard = Guard(id: 1)
+
+func take() unsafe -> Int { HELD.id }
+
+func main() {
+    print("{take()}")
+}

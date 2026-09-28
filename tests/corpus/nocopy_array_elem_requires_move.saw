@@ -1,0 +1,21 @@
+// Using a NoCopy value as an array-literal element (no `move`) must be an error:
+// both the local binding and the array element would own the same resource and
+// deinit it twice. Array construction is one of the copy/move sites the
+// value-transfer checkpoint now covers. See todo_jul26.md must-fix #1.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: NoCopy
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {
+    }
+}
+
+func main() {
+    let f = FileHandle(fd: 1)
+    let arr = [f]        // should require `move f`
+    print(arr[0].fd)
+}

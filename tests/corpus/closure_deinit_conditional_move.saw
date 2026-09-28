@@ -1,0 +1,30 @@
+// Conditional move of an owning closure: `f` is moved on the taken path only.
+// The runtime drop flag (design 42/71) drops it exactly where it was NOT moved,
+// so it is released exactly once overall — here `g` (the move target) drops it at
+// the if-block exit, and main's scope exit skips the moved-from `f`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// moved: 4
+// deinit 4
+// end
+
+struct Res { v: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.v}") }
+}
+
+func main() {
+    var cond = true
+    let r = Res(v: 4)
+    let f = { [move r] in r.v }
+    if cond {
+        let g = move f          // f moved into g on this path
+        print("moved: {g()}")
+        // g drops at if-block exit -> "deinit 4"
+    } else {
+        print("kept")
+        // on this path f drops at main's scope exit instead
+    }
+    print("end")
+    // f was moved on the taken path: its drop flag is clear, so no double free.
+}

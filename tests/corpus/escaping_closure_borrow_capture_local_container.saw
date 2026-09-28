@@ -1,0 +1,29 @@
+// The second half of DF-216e: the container is a LOCAL, and its element type
+// was written as a constructor's generic ARGUMENT.
+//
+// `escaping_closure_borrow_capture_stored.saw` reaches the container through a
+// `&var` parameter, where the escaping bit was lost because the walk over a
+// declared type never descended through a REFERENCE. Here nothing is declared
+// at all: `Vector<() sync -> Int>()` writes the element type in an EXPRESSION,
+// which no declared-type walk visits, so the same store was accepted by a
+// second route. A generic argument is never a parameter role — it fills a slot
+// inside a type — so it is stamped escaping where the constructor writes it.
+//
+// `fns` outlives nothing here, but `local` does not outlive `build`, and the
+// closure would be read through the returned Vector after `build`'s frame is
+// gone.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: escaping closure cannot capture
+
+func build(n: &Int) -> Vector<() sync -> Int> {
+    var fns = Vector<() sync -> Int>()
+    fns.push({ n * 2 })
+    move fns
+}
+
+func main() {
+    var local = 21
+    let fns = build(&local)
+    let f = fns[0]
+    print("f {f()}")
+}

@@ -1,0 +1,55 @@
+// `lends` (design 275 U3) is a CONTEXTUAL keyword: the unary origin form is
+// `lends <place>` — two name-ish tokens in a row, which is not an expression in
+// any other reading — and everywhere else `lends` is an ordinary identifier.
+// The parser consumed the name unconditionally for one revision, so
+// `let lends = 7  print(lends)` stopped parsing (`Unexpected token: RPAREN`).
+//
+// One cell per position an identifier can sit in, beside the real origin form
+// so the two readings are pinned against each other in one file.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: local: 7
+// EXPECT-OUTPUT: operand: 8
+// EXPECT-OUTPUT: call: 6
+// EXPECT-OUTPUT: field: 4
+// EXPECT-OUTPUT: label: 6
+// EXPECT-OUTPUT: assigned: 9
+// EXPECT-OUTPUT: origin: 5
+struct Holder { lends: Int }
+
+func lends(n: Int) -> Int { n * 2 }
+
+func labelled(lends: Int) -> Int { lends + 1 }
+
+struct Owner { value: Int }
+borrows struct Reader { source: &Owner, done: Bool }
+
+extension Owner {
+    func reader(&self) borrows -> Reader { Reader(source: lends self, done: false) }
+}
+
+extension Reader: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.done { None } else {
+            self.done = true
+            self.source.value
+        }
+    }
+}
+
+func main() {
+    let lends = 7
+    print("local: {}", lends)
+    print("operand: {}", lends + 1)
+    print("call: {}", lends(3))
+    let h = Holder(lends: 4)
+    print("field: {}", h.lends)
+    print("label: {}", labelled(lends: 5))
+    var counter = lends
+    counter = 9
+    print("assigned: {}", counter)
+
+    let owner = Owner(value: 5)
+    for n in owner.reader() { print("origin: {}", n) }
+}

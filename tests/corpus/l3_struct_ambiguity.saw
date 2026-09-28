@@ -1,0 +1,12 @@
+// Design 40 item 1 (L3): two glob-imported modules both export a public `Shape`.
+// The bare use cannot pick one — this is an unresolvable ambiguity naming both
+// source modules, not a silent dict-order resolution.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous struct `Shape`
+import modules.l3_shape_a.*
+import modules.l3_shape_b.*
+
+func main() {
+    let s = Shape(sides: 3)
+    print(s.sides)
+}

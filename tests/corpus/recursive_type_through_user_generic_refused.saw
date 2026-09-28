@@ -1,0 +1,29 @@
+// Design 246 row 13: the cycle's only leg runs through a USER generic that
+// stores its parameter inline. `Pair<T>` is not on any list of blessed
+// containers and needs to be on none — the walk reads its declaration, sees
+// a field of type `T`, and substitutes. `Vector<Pair<Expr>>` would be finite
+// for the same reason read the other way: `Vector`'s stored field is a
+// pointer.
+//
+// DF-261a: the copy-tier query recursed forever on this shape (a type
+// ARGUMENT's abstractness was asked with a fresh visiting set), so the
+// refusal below arrived as `maximum recursion depth exceeded`.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: recursive type `Expr` has infinite size
+// EXPECT-ERROR-CONTAINS: Expr.Group.p -> Pair.a -> Expr
+// EXPECT-ERROR-ABSENT: internal compiler error
+// EXPECT-ERROR-ABSENT: maximum recursion depth
+
+struct Pair<T> {
+    a: T
+}
+
+enum Expr {
+    case Literal(v: Int),
+    case Group(p: Pair<Expr>)
+}
+
+func main() -> Int {
+    0
+}

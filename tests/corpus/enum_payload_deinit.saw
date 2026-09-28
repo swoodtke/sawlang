@@ -1,0 +1,39 @@
+// Brief 17 item 5 (probe): when an enum value holding a Deinit-conforming
+// payload dies, the payload's deinit must run. Here `Crate.Full` carries an `R`
+// (Deinit, prints its id on drop); when `b` goes out of scope at the end of
+// main the payload `R(id: 7)` should print `7`, after the `100` marker.
+//
+// Brief 23 item 1 implemented this: `_needs_cleanup` now detects an enum whose
+// active variant carries a cleanup-needing payload, and `_emit_enum_cleanup_at`
+// switches on the tag and releases that variant's payload fields (reverse order)
+// via the shared `_emit_drop_at` drop glue.
+//
+// design 139: the cleanup is still automatic, but the containment rules no
+// longer stop at structs — `Crate` owns an `R`, so it declares the same
+// move-only policy a struct holding one would.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 100
+// 7
+
+struct R {
+    id: Int
+}
+
+extension R: NoCopy {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}
+
+enum Crate {
+    case Full(r: R),
+    case Empty
+}
+
+extension Crate: NoCopy {}
+
+func main() {
+    let b = Crate.Full(r: R(id: 7))
+    print(100)
+}

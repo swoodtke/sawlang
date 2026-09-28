@@ -1,0 +1,77 @@
+// Conformance row K99 — a watch is SCOPED to its handle and SINGLY owned: the
+// disposition is restored when the handle dies, and a second live watch of the
+// same signal is refused
+//
+// Design 272 unit 3 (SL-228), the ruled double-watch policy and the ownership
+// argument behind it. A signal's disposition is process-global state, and this
+// handle is what restores it — which is only well defined if exactly one handle
+// holds it at a time. So the refusal and the restore are ONE guarantee tested
+// together rather than two rows: the refusal is what makes the restore
+// meaningful, and a broadcast policy would have left no one owning it.
+//
+// Three things in order:
+//   1. a watch is live, and a SECOND watch of the same signal is `AlreadyExists`
+//      rather than a second owner;
+//   2. the handle is dropped, restoring whatever disposition it replaced;
+//   3. watching again now SUCCEEDS, which is what proves step 2 actually
+//      released the claim rather than leaking it.
+//
+// Step 3 is the load-bearing one. A watch that never released its claim would
+// pass steps 1 and 2 silently and fail only here.
+//
+// A DIFFERENT signal is watched alongside to show the refusal is per-signal and
+// not a global "one watch at a time".
+// EXPECT: success
+// EXPECT-OUTPUT:
+// first watch ok
+// second watch refused: already exists
+// other signal ok
+// rewatch after drop ok
+
+import std.signal.{Signal, SignalWatch}
+import std.net.{IoErrorKind}
+
+func main() {
+    let first = match SignalWatch.watch(Signal.Terminate) {
+        case Ok(x) -> move x,
+        case Err(e) -> {
+            print("FIRST WATCH FAILED {}", e)
+            return
+        }
+    }
+    print("first watch ok")
+
+    match SignalWatch.watch(Signal.Terminate) {
+        case Ok(_) -> print("WRONG: a second watch was allowed"),
+        case Err(e) -> {
+            if e.kind() == IoErrorKind.AlreadyExists {
+                print("second watch refused: already exists")
+            } else {
+                print("second watch refused with the WRONG kind: {}", e)
+            }
+        }
+    }
+
+    // Per-signal, not global: a different signal is unaffected.
+    let other = match SignalWatch.watch(Signal.User1) {
+        case Ok(x) -> move x,
+        case Err(e) -> {
+            print("OTHER WATCH FAILED {}", e)
+            return
+        }
+    }
+    print("other signal ok")
+    let _ = move other
+
+    // Drop the first handle: its deinit restores the disposition and releases
+    // the claim.
+    let _ = move first
+
+    match SignalWatch.watch(Signal.Terminate) {
+        case Ok(again) -> {
+            print("rewatch after drop ok")
+            let _ = move again
+        },
+        case Err(e) -> print("REWATCH FAILED — the claim leaked: {}", e)
+    }
+}

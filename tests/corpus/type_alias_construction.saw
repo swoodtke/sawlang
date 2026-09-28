@@ -1,0 +1,55 @@
+// Design 63: `UserId(42)` builds a value of a distinct `type` alias. The flow
+// rule is one-way — an alias projects toward its underlying freely, nothing
+// flows back on its own — and this is the sanctioned way back. That it reads as
+// a construction is the point: `42 as UserId` is an error precisely because
+// widening authority over a value should look like making one.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 7
+// 99
+// 5
+// hello
+// true
+// 12
+
+type UserId = Int
+type Handle = UInt
+type Small = Int64
+type Name = String
+type Flag = Bool
+
+// An alias over a FIXED-WIDTH or unsigned underlying has no other spelling:
+// an annotated `let` accepts only the four primitive kinds, so before this
+// `type Handle = UInt` had no way to produce a value at all.
+func takes_uint(h: UInt) -> UInt { h }
+func takes_int(v: Int) -> Int { v }
+
+// The alias flows TO its underlying implicitly — no cast at the boundary.
+func consume(h: Handle) -> UInt { takes_uint(h) }
+
+func bump(id: UserId) -> UserId { UserId((id as Int) + 1) }
+
+func main() {
+    let id = UserId(42)
+    print(id as Int)
+
+    let h = Handle(7)
+    print(consume(h))
+
+    // A bare literal adopts the underlying and is range-checked there.
+    let s = Small(99)
+    print(s as Int64)
+
+    print(bump(UserId(4)) as Int)
+
+    let n = Name("hello")
+    print(n as String)
+
+    let f = Flag(true)
+    print(f as Bool)
+
+    // Built from a runtime value of the underlying type, not just a literal.
+    let raw = 12
+    print(takes_int(UserId(raw) as Int))
+}

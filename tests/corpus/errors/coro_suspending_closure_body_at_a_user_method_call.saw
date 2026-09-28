@@ -1,0 +1,27 @@
+// SL-306 matrix, the USER-method row of the refusal half: the conservative-only
+// callee is a method of an IMPORTED module whose body calls a non-`sync` function
+// value, and the closure handed to it parks. Refused at the `yield_now()`, in the
+// closure's own terms — the callee is not embedded any more, and the refusal is
+// not its to raise.
+//
+// EXPECT: error
+// COMPILE-FLAGS: --module-path sl306mod={TESTDIR}/../modules/sl306mod
+// EXPECT-ERROR-CONTAINS: appears inside a CLOSURE BODY in driven `worker`
+// EXPECT-ERROR-CONTAINS: coro_suspending_closure_body_at_a_user_method_call.saw:17:9
+
+import std.task.{yield_now}
+import sl306mod.{Folder}
+
+func worker(folder: &Folder) -> Int {
+    folder.apply({ n in
+        yield_now()
+        n + 1
+    })
+}
+
+func main() {
+    let folder = Folder(seed: 41)
+    var group = TaskGroup()
+    let h = group.spawn(worker(&folder))
+    print(h.join())
+}

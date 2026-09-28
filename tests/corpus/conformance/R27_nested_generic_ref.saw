@@ -1,0 +1,8 @@
+// Conformance row R27 — reference inside a nested generic (`Box<Vector<&Int>>`)
+//
+// A reference NESTED two generics deep. The walk is not depth-limited.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a generic argument may not be a reference
+
+func f(b: Box<Vector<&Int>>) { print(1) }
+func main() { print(1) }

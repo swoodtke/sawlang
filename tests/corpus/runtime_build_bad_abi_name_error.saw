@@ -1,0 +1,9 @@
+// design 113b: under `--runtime-build` a Saw runtime may `@export` the frozen
+// `__saw_rt_*` ABI — but ONLY those exact names. A misspelled/non-ABI
+// `__saw_rt_*` export is a typo, rejected with the valid set named.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is not part of the frozen
+// COMPILE-FLAGS: --runtime-build
+
+@export("__saw_rt_allocate")
+func rt_alloc(size: Int, align: Int) -> Int { size }

@@ -1,0 +1,3 @@
+// DF-232j sweep fixture (kind-generality): the facade re-exports all three
+// kinds. Legal in itself — the facade is a sibling.
+public import pkgvis.secret.{pkg_secret, PKG_LIMIT, PkgBox}

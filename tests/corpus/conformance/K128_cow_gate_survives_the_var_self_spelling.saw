@@ -1,0 +1,70 @@
+// Conformance row K128 — `#lend_var` lives in a `&var self ... -> &var T`
+// accessor, and its copy-on-write gate costs a READ nothing (SL-333 R6)
+//
+// R2 moves every writable accessor to `&var self`, which is the spelling design
+// 179 forbade `#lend_var` in. R6 lifts that fence and re-keys the split onto the
+// DECLARED MODE, which is what now says whether a use site can open both
+// flavors: `-> &var T` compiles as two specializations, the authored
+// declaration folding the constant FALSE and the twin folding it TRUE.
+//
+// R4 is then computed on the SHARED specialization AFTER the fold, which is the
+// whole load-bearing claim: the gate is a `&var self` call on `self`, so an
+// accessor that kept it would be EXCLUSIVE-ONLY and `let frozen = load()` plus
+// `frozen[0]` would stop compiling. It is folded out, so the shared body mutates
+// nothing, the read borrows the receiver shared, and `std.data`'s own subscript
+// — the language's worked example of this — keeps working on a `let` binding
+// with no separation.
+//
+// Both halves are here: a hand-written accessor with a visible gate counter, and
+// `Data` itself, where the observable is the SHARING PARTNER's bytes.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// let read 10, gates 0
+// var read 10, gates 0
+// var write 11, gates 1
+// Data: frozen read 7, no var needed
+// Data: after buf[0] = 90 -> frozen 7, buf 90
+// Data: two readers of one buffer see 7 and 7
+// -- done
+import std.data.*
+
+struct Bag { cells: [Int; 4], gates: Int }
+
+extension Bag {
+    func separate(&var self) { self.gates = self.gates + 1 }
+
+    public func [](&var self, i: Int) borrows -> &var Int {
+        if i < 0 || i >= 4 { panic("Bag.[]: index out of range") }
+        if #lend_var {
+            self.separate()
+        }
+        lend self.cells[i]
+    }
+
+    public func gates_seen(&self) -> Int { self.gates }
+}
+
+func main() {
+    let frozen = Bag(cells: [10, 20, 30, 40], gates: 0)
+    print("let read {frozen[0]}, gates {frozen.gates_seen()}")
+
+    var b = Bag(cells: [10, 20, 30, 40], gates: 0)
+    print("var read {b[0]}, gates {b.gates_seen()}")
+    b[0] += 1
+    print("var write {b[0]}, gates {b.gates_seen()}")
+
+    var built = try! Data(capacity: 2)
+    try! built.push(7u8)
+    try! built.push(8u8)
+
+    let frozen_data = built
+    print("Data: frozen read {frozen_data[0]}, no var needed")
+
+    var buf = frozen_data
+    buf[0] = 90u8
+    print("Data: after buf[0] = 90 -> frozen {frozen_data[0]}, buf {buf[0]}")
+
+    let second = frozen_data
+    print("Data: two readers of one buffer see {frozen_data[0]} and {second[0]}")
+    print("-- done")
+}

@@ -1,0 +1,12 @@
+// Design 170: the label IS the operation, so the only two spellings are
+// `T.from(x)` and `T.from(truncating: x)`. A guessed label names both rather
+// than reporting a missing method — the caller clearly meant one of them.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `UInt8.from` has no argument labeled `wrapping`
+// EXPECT-ERROR-CONTAINS: `UInt8.from(truncating: x)`
+
+func main() {
+    let n = 300
+    let b = UInt8.from(wrapping: n)
+    print("{b}")
+}

@@ -1,0 +1,9 @@
+// EXPECT: skip
+//
+// A local module file that deliberately shares its name with a mapped package
+// in the module_path_shadow.saw fixture. Its mere existence next to that entry
+// makes the mapped-package resolution a shadowing error. Never compiled on its
+// own (skipped by the runner).
+public func shadowed() -> Int {
+    0
+}

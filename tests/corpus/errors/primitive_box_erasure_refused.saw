@@ -1,0 +1,14 @@
+// DF-169d: `Box<any Trait>.make(<primitive>)` gets the same refusal, for the
+// same reason, in the same words as the `&any` one. `String` is the case that
+// used to reach codegen and die on `i8* != i8**` instead.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `String` is a primitive and cannot be erased to `any Tagged`
+
+trait Tagged { func tag(&self) -> String }
+
+extension String: Tagged { func tag(&self) -> String { "string" } }
+
+func main() {
+    var b: Box<any Tagged> = Box<any Tagged>.make("hi")
+    print("{b.tag()}")
+}

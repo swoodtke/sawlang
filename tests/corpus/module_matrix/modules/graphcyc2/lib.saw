@@ -1,0 +1,8 @@
+//! Fixture for the graph-shapes grid's 2-cycle row (design 235). `lib`
+//! merely imports `a` and does nothing wrong — the innocent THIRD module
+//! DF-232e's error lands on instead of naming the cycle.
+// EXPECT: skip
+
+import modules.graphcyc2.a.{alpha}
+
+public func run() -> Int { alpha() }

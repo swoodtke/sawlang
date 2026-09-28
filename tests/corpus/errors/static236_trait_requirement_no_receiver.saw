@@ -1,0 +1,14 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: trait requirement `make` has no receiver — add `&self`/`&var self`, or declare it `static func` if a static was intended
+//
+// Design 236, position-matrix row 3: a TRAIT requirement. A requirement is
+// what every conformer promises, so its kind is the part a reader most needs
+// stated — `Deserialize.deserialize` was static from design 169 and could say
+// so only in prose. The same funnel serves this position as serves an
+// extension method; only the noun in the message differs.
+
+trait Maker {
+    func make(seed: Int) -> Self
+}
+
+func main() { print("unreached") }

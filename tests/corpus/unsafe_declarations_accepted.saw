@@ -1,0 +1,66 @@
+// Design 130: the declaration-level unsafe vocabulary, end to end (spelled in
+// the design-136 effect slot).
+//   - `unsafe struct` declares an unsafe TYPE, and the compiler enforces the
+//     `Unsafe*` name; a plain struct that merely happens to be NAMED `Unsafe*`
+//     gets no semantics from its name.
+//   - A `func`/`init` that names one says `unsafe` after its parameter list
+//     (rule 3), and an `unsafe` trait requirement states it once for every
+//     conformer.
+//   - `(T) unsafe sync -> R` is the function TYPE that hands an unsafe value to
+//     an unnamed function; the closure it receives fits because its signature
+//     names the same type.
+//   - Calling an unsafe function from a safe one needs no ceremony (rule 6).
+//     `read_register` is what makes that sound (rule 7): every parameter is a
+//     safe type, so it is sound for EVERY input — it checks the index itself.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 26
+// 16
+// 3
+
+static REGISTER_COUNT: Int = 4
+static REGISTER_STRIDE: Int = 4
+
+unsafe struct UnsafeMmioReg { addr: Int }
+
+// Not unsafe: the keyword is the only thing that confers unsafety.
+struct UnsafeDefaults { n: Int }
+
+trait Peripheral {
+    func probe(&self) unsafe -> Int
+}
+
+extension UnsafeMmioReg {
+    init(at: Int) unsafe -> UnsafeMmioReg { UnsafeMmioReg(addr: at) }
+    public func read(&self) unsafe -> Int { self.addr }
+}
+
+extension UnsafeMmioReg: Peripheral {
+    func probe(&self) unsafe -> Int { self.addr + 2 }
+}
+
+func read_at(offset: Int) unsafe -> Int {
+    let reg = UnsafeMmioReg(at: offset)
+    reg.read() + reg.probe()
+}
+
+func read_register(index: Int) -> Int {
+    if index < 0 || index >= REGISTER_COUNT {
+        panic("read_register: index out of range")
+    }
+    read_at(index * REGISTER_STRIDE)
+}
+
+// The closure's parameter names an unsafe type, so the slot carries `unsafe`.
+func with_register(offset: Int, body: (UnsafeMmioReg) unsafe sync -> Int) unsafe -> Int {
+    body(UnsafeMmioReg(at: offset))
+}
+
+func main() {
+    print("{read_register(0)}")
+    print("{read_register(3)}")
+    print("{with_register(16) { r in r.read() }}")
+    let d = UnsafeDefaults(n: 3)
+    print("{d.n}")
+}

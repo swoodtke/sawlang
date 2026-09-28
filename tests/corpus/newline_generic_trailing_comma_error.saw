@@ -1,0 +1,10 @@
+// Design 129 allows a trailing comma in `(...)` and `[...]` lists — the wrapping
+// style the rule exists to serve — and rejects it in a generic `<...>` list,
+// which has no such idiom. The error is anchored at the offending comma.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a trailing comma is not allowed in a generic argument list
+
+func main() {
+    let v: Vector<Int,> = [1]
+    print(v.get(0)!)
+}

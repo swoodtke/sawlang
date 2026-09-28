@@ -1,0 +1,21 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 1
+// 10
+// 11
+// 20
+// 21
+
+func main() {
+    // Nested loops
+    var outer = 0
+    while outer < 3 {
+        var inner = 0
+        while inner < 2 {
+            print(outer * 10 + inner)
+            inner = inner + 1
+        }
+        outer = outer + 1
+    }
+}

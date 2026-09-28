@@ -1,0 +1,14 @@
+// Design 136 unit B, the other half of the same rule: `unsafe` on a function type
+// whose signature names no unsafe type claims an obligation the types cannot
+// carry. The type-position effect exists to hand an unsafe VALUE into an unnamed
+// function, so a slot taking only safe types has nothing to declare — the error
+// teaches rule 7.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: declares `unsafe` but its signature names no unsafe type
+// EXPECT-ERROR-CONTAINS: a function taking only safe types must be sound for every input
+
+func apply(body: (Int) unsafe sync -> Int) -> Int { body(1) }
+
+func main() {
+    print("{apply({ x in x * 2 })}")
+}

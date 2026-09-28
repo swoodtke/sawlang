@@ -1,0 +1,16 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `lend` is only legal in a `borrows` body
+//
+// Design 141. The place transform only rewrites declarations that said
+// `borrows`, so a `lend` anywhere else survives to the type checker intact --
+// which is where it gets told what its declaration is missing.
+
+struct Bag { items: [Int; 4] }
+
+extension Bag {
+    public func at(&self, i: Int) -> Int {
+        lend self.items[i]
+    }
+}
+
+func main() { print("unreached") }

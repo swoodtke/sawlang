@@ -1,0 +1,32 @@
+// Design 30 Ruling 1, generic lock-in: a generic Result<T, E> function makes
+// its auto-wrap decision abstractly against the declared parameters (x: T -> Ok,
+// x: E -> Err) and monomorphizes consistently even when an instantiation makes
+// T == E. So `wrapOk<Int, Int>` must produce Ok and `wrapErr<Int, Int>` must
+// produce Err -- no ambiguity error, no Ok-defaulting for the Err case.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1007
+// 5
+
+func wrapOk<T, E>(x: T) -> Result<T, E> {
+    return x
+}
+
+func wrapErr<T, E>(e: E) -> Result<T, E> {
+    return e
+}
+
+func consume(r: Result<Int, Int>) -> Int {
+    match r {
+        case Ok(n) -> 1000 + n,
+        case Err(e) -> e
+    }
+}
+
+func main() {
+    // wrapOk returns the T-typed value -> Ok even though T == E == Int
+    print(consume(wrapOk<Int, Int>(7)))    // 1007
+
+    // wrapErr returns the E-typed value -> Err even though T == E == Int
+    print(consume(wrapErr<Int, Int>(5)))   // 5
+}

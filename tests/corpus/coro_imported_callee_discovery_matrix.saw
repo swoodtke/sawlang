@@ -1,0 +1,80 @@
+// SL-280: the coroutine transform must DISCOVER a suspending callee however it
+// is reached, and a free function's module VISIBILITY must not be one of the
+// variables. Twelve rows, each a different route from a driven root to one
+// `yield_now()`.
+//
+// `__saw_drive_steps` counts Pending resumes, so the oracle is whether the
+// SUSPENSION SURVIVED the transform, not whether the answer is right — every
+// row returns 2 either way, and only the step count tells a driven frame from a
+// plain call. 1 = the suspension is in a frame and the task cedes. 0 = it was
+// dropped in silence, which for a `yield_now()` means a task that never yields
+// and for a `stream.read()` means the blocked executor of
+// `coro_imported_private_helper_parks_on_io.saw`.
+//
+// Measured before the fix: E1 E2 S0 S2 S4 S6 S7 = 1, and S1 S3 S5 S8 S9 = 0.
+// The five failing rows are exactly the ones whose callee is a plain
+// module-PRIVATE free function of an imported body — design 249 tags it
+// `$m$sl280matrix`, and three of the transform's tables were keyed by the bare
+// name. `callee_frame_key` is the one answer they all ask now.
+//
+// EXPECT: success
+// COMPILE-FLAGS: --module-path sl280matrix={TESTDIR}/modules/sl280matrix --module-path sl280matrix2={TESTDIR}/modules/sl280matrix2
+// EXPECT-OUTPUT:
+// E1 1
+// E2 1
+// S0 1
+// S1 1
+// S2 1
+// S3 1
+// S4 1
+// S5 1
+// S6 1
+// S7 1
+// S8 1
+// S9 1
+
+import std.task.{yield_now}
+import sl280matrix.{s0_entry, s1_entry, s2_entry, s3_entry, s4_entry, s6_entry,
+                    s7_entry, s8_entry, s9_entry, Widget}
+
+// E1: the entry-module control — a driven root reaching a private free function
+// of its OWN module. Always worked, and is what says the bug is about the
+// IMPORTED body rather than about private free functions as such.
+func e1_helper(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+func e1_entry(n: Int) -> Int { e1_helper(n) }
+
+// E2: the same, two hops down.
+func e2_inner(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+func e2_outer(n: Int) -> Int { e2_inner(n) }
+
+func e2_entry(n: Int) -> Int { e2_outer(n) }
+
+// S5's receiver has to be built here — the row is an imported METHOD reaching
+// its own module's private free function.
+func s5_entry(n: Int) -> Int {
+    let w = Widget(n: n)
+    w.s5_method()
+}
+
+func main() {
+    print("E1 {}", __saw_drive_steps(e1_entry(1)))
+    print("E2 {}", __saw_drive_steps(e2_entry(1)))
+    print("S0 {}", __saw_drive_steps(s0_entry(1)))
+    print("S1 {}", __saw_drive_steps(s1_entry(1)))
+    print("S2 {}", __saw_drive_steps(s2_entry(1)))
+    print("S3 {}", __saw_drive_steps(s3_entry(1)))
+    print("S4 {}", __saw_drive_steps(s4_entry(1)))
+    print("S5 {}", __saw_drive_steps(s5_entry(1)))
+    print("S6 {}", __saw_drive_steps(s6_entry(1)))
+    print("S7 {}", __saw_drive_steps(s7_entry(1)))
+    print("S8 {}", __saw_drive_steps(s8_entry(1)))
+    print("S9 {}", __saw_drive_steps(s9_entry(1)))
+}

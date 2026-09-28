@@ -1,0 +1,24 @@
+// design 219: `ImplicitCopy` was merged into `Copy`. The name is gone, so
+// writing it is an ordinary unknown-trait error — but one the compiler can
+// teach its way out of, at every position the retired name can be written:
+// a conformance header and a generic bound.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: unknown trait `ImplicitCopy`
+// EXPECT-ERROR-CONTAINS: `ImplicitCopy` was merged into `Copy` (design 219) — write `Copy`
+// EXPECT-ERROR-CONTAINS: unknown trait `ImplicitCopy` in type parameter bound
+
+struct Ticket {
+    code: String
+}
+
+extension Ticket: ImplicitCopy {}
+
+func keep<T: ImplicitCopy>(x: T) -> T {
+    let a = x
+    a
+}
+
+func main() {
+    let t = Ticket(code: "abc")
+    print(keep<Ticket>(t).code)
+}

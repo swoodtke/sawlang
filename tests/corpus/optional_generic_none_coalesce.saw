@@ -1,0 +1,27 @@
+// Design 174 — DF-146l trigger site 2. A bare `None` as the `??` RHS against a
+// nested optional ICEs. The LHS `m["x"]` is an `Int??`, so the RHS should adopt
+// the inner type `Int?`; instead the literal reaches codegen untyped:
+//
+//   internal compiler error: None literal has no type information
+//
+// FIXED by design 176 unit 1: `??` stamps its LHS's payload type onto a bare
+// `None` RHS, and the expression's own result type is that payload type rather
+// than the literal's untyped one.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// missing inner-absent
+// present 1
+// -- done
+
+func main() {
+    var m = Map<String, Int?>()
+    let a: Int? = 1
+    let _ = m.insert("a", a)
+
+    let missing = m.get("x") ?? None
+    if let value = missing { print("missing {value}") } else { print("missing inner-absent") }
+
+    let present = m.get("a") ?? None
+    if let value = present { print("present {value}") } else { print("present inner-absent") }
+    print("-- done")
+}

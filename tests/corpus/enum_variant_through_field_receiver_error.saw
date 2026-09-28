@@ -1,0 +1,41 @@
+// DF-236a's SIBLINGS, found by the obligation-4 sweep of its mechanism. The
+// same "decide on the member access's TYPE" reasoning appears twice more for
+// ENUMS — once for module-qualified variant CONSTRUCTION
+// (`lib.Color.Custom(r: 1)`, in `_check_method_call`) and once for a
+// module-qualified variant READ (`lib.Color.Red`, in `_check_member_access`) —
+// and a field read at enum type produces the same ENUM type a qualified type
+// name does. So both spellings reached those arms through a VALUE:
+// `h.c.Custom(r: 3)` and `h.c.Red` each built a FRESH `Color`, silently
+// discarding the receiver they were written on, and the program ran and printed
+// the fresh value.
+//
+// A variant is a constructor: there is nothing for a receiver to become, so
+// these are refusals on DF-217q's terms and not a binding fix. All three arms
+// are gated on one question now (`MemberAccess.names_type`), which is why the
+// faces read alike.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Custom` is a variant of enum `Color` and cannot be constructed through a value
+// EXPECT-ERROR-CONTAINS: construct it on the type: `Color.Custom(...)`
+// EXPECT-ERROR-CONTAINS: `Red` is a variant of enum `Color` and cannot be reached through a value
+// EXPECT-ERROR-CONTAINS: name it on the type: `Color.Red`
+
+enum Color {
+    case Red,
+    case Custom(r: Int)
+}
+
+struct Holder { c: Color }
+
+func main() {
+    let h = Holder(c: Color.Red)
+    let made = h.c.Custom(r: 3)
+    let read = h.c.Red
+    match made {
+        case Red -> print("red"),
+        case Custom(r) -> print("custom {r}")
+    }
+    match read {
+        case Red -> print("red"),
+        case Custom(r) -> print("custom {r}")
+    }
+}

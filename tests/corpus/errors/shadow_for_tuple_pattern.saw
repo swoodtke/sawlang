@@ -1,0 +1,16 @@
+// Design 107 item 2: a for-loop binds a single name — a tuple-pattern loop
+// binding (`for (a, b) in pairs`) is not a supported form and is rejected at
+// parse time, so it can never silently BIND fresh names that shadow an outer
+// binding (the pattern-shadow footgun design 100 guards for match/if-let). The
+// only way to destructure a yielded tuple in a loop is a single binding plus
+// `.0`/`.1` (or `.enumerated()`), which goes through the normal mentions-rule.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Expected variable name after 'for'
+
+func main() {
+    let a = 1
+    let pairs: Vector<Int> = [1, 2, 3]
+    for (a, b) in pairs.enumerated() {
+        print(a)
+    }
+}

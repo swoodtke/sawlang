@@ -1,0 +1,33 @@
+// Position matrix (design 235), grid 2 "Qualified-name-as-target" — access
+// path: a plain LOCAL variable, every operation (read, assign,
+// compound-assign, `&var` argument, place window).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// read = 5
+// assign = 9
+// compound = 12
+// ref = 20
+// place window = 41
+
+func bump(r: &var Int) {
+    r = 20
+}
+
+func main() {
+    var n = 5
+    print("read = {n}")
+
+    n = 9
+    print("assign = {n}")
+
+    n += 3
+    print("compound = {n}")
+
+    bump(&var n)
+    print("ref = {n}")
+
+    // place window: a local Vector's `[]` (design 141's `borrows` accessor)
+    var v: Vector<Int> = [40, 41]
+    v[1] += 0
+    print("place window = {v[1]}")
+}

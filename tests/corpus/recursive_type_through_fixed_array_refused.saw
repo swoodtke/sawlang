@@ -1,0 +1,16 @@
+// Design 246 row 12: the cycle passes through `[T; N]`, whose elements are
+// inline — the length is part of the type and the array occupies N of them.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: recursive type `Branch` has infinite size
+// EXPECT-ERROR-CONTAINS: Branch.kids -> Branch
+// EXPECT-ERROR-ABSENT: internal compiler error
+
+struct Branch {
+    label: Int
+    kids: [Branch; 2]
+}
+
+func main() -> Int {
+    0
+}

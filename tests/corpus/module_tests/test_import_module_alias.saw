@@ -1,0 +1,14 @@
+// Design 53 Part 5: module alias `import lib as L`. Only `L` enters the
+// namespace; symbols are reached qualified through the alias.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 14
+
+import lib as L
+
+func main() {
+    print(L.add(2, 3))          // 5
+    let p = L.make_point(7)     // Point(7, 7)
+    print(p.sum())              // 14
+}

@@ -1,0 +1,35 @@
+// Fixture for `place_cross_module_same_name_type.saw`: a PUBLIC type named
+// `Cell` behind public place accessors, so an importer that declares its own
+// `Cell` (design 144 — two modules, two types) exercises the place lowering's
+// name-vs-identity question.
+public struct Cell {
+    public n: Int
+}
+
+public struct Bag {
+    private cells: Vector<Cell>
+}
+
+extension Bag: NoCopy {}
+
+extension Bag {
+    public init() -> Bag {
+        var v = Vector<Cell>()
+        try! v.push(Cell(n: 5))
+        Bag(cells: move v)
+    }
+
+    // The unconditional lend.
+    public func at(&var self, index: Int) borrows -> &var Cell {
+        lend self.cells[index]
+    }
+
+    // …and the conditional one, whose absent path opens no window.
+    public func maybe(&var self, index: Int) borrows -> &var Cell? {
+        if index < self.cells.len() {
+            lend self.cells[index]
+        } else {
+            return None
+        }
+    }
+}

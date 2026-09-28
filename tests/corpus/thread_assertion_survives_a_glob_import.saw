@@ -1,0 +1,25 @@
+// Conformance row B23, second face — a DECLARED `UnsafeSync` survives a GLOB
+// import, so the `static` slot it licenses compiles.
+//
+// A static must be `Sync`, a cell-carrying type derives none, and the declared
+// assertion beside the type is the sanctioned way to say the synchronization is
+// real but invisible (design 186). Under `import globassert.*` the assertion was
+// not found and this program was refused as ``static `SLOT` has non-Sync type
+// `Shared` `` — a diagnostic telling the author to add an extension that is
+// already there. `import globassert.{Shared}` compiled the same program, which
+// is what made it DF-238c's second face rather than a separate finding: one
+// funnel answers both queries, and only the qualifier-binding forms reached it.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 0
+// EXPECT-OUTPUT: 5
+// COMPILE-FLAGS: --module-path globassert={TESTDIR}/modules/globassert
+import globassert.*
+
+static SLOT: Shared
+
+func main() {
+    print(SLOT.value())
+    SLOT.bump(by: 5)
+    print(SLOT.value())
+}

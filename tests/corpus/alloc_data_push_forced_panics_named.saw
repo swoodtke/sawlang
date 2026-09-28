@@ -1,0 +1,30 @@
+// design 234: the operation REPORTS a refused allocation, so the only way to
+// meet it as a panic is to ask for one — `try!`. That is the corpus's own
+// migration spelling, and this file is the pin that taking it stays LOUD and
+// still says which allocation ran out (DF-245b renders the error after the
+// fixed text). Design 123's method-named panic is what this replaced.
+//
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: try! failed: allocation of
+
+import std.data.*
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+func main() {
+    // The first push allocates the 16-byte floor, so 16 bytes fit exactly.
+    var d = Data()
+    var i = 0
+    while i < 16 {
+        try! d.push(1)
+        i = i + 1
+    }
+    print(d.len())              // 16 — exactly full
+
+    // Refuse everything from here, the grow the 17th push needs included.
+    __saw_rt_alloc_deny_after(0)
+    try! d.push(2)
+    print(d.len())
+}

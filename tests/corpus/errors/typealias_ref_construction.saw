@@ -1,0 +1,18 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a value of type `R` may not be a reference
+// EXPECT-ERROR-CONTAINS: A `type` alias is not a way past that rule
+//
+// DF-188b, audit row R50: the back-conversion is what INHABITS an alias, so it
+// is the third position the alias bypass needed. `R(&x)` builds a value of a
+// type that IS `&Int` and hands it to a binding, where a bare `&x` has been
+// refused since DF-163d — the alias was the only thing hiding it. Refusing the
+// construction is what makes the field and generic-argument refusals total:
+// there is no longer any way to produce the value they decline to store.
+
+type R = &Int
+
+func main() {
+    var x = 7
+    let r = R(&x)
+    print("made one")
+}

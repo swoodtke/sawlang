@@ -1,0 +1,19 @@
+// Escaping variance (design 16/29): the ERROR direction is passing a
+// NON-escaping function value where an ESCAPING parameter is expected — the
+// callee may store a value whose captures borrow a frame that will die. `g` is
+// a non-escaping closure parameter; forwarding it to `apply_esc` (an escaping
+// parameter) is rejected.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: non-escaping closure into an escaping
+
+func apply_esc(f: (Int) escaping -> Int, x: Int) -> Int {
+    f(x)
+}
+
+func forward(g: (Int) -> Int) -> Int {
+    apply_esc(g, 5)
+}
+
+func main() {
+    print(forward({ $0 + 1 }))
+}

@@ -1,0 +1,21 @@
+// Position matrix (design 235), grid 2 "Qualified-name-as-target" — access
+// path: `mod.STATIC`, operation: read. The other four operations each keep
+// their own file, since the refusal row cannot share one with a passing
+// statement:
+//   assign                    — qualname_mod_static_assign.saw
+//   compound-assign           — qualname_mod_static_compound_assign.saw
+//   `&var` argument           — qualname_mod_static_refarg.saw
+//   place window (elem/field) — qualname_mod_static_elem_write.saw
+//   immutable refusal         — qualname_mod_static_immutable_error.saw
+// All five were RED under DF-232d (its Aug 20 correction records the whole
+// write/reference family as one finding, wider than first drawn); design 240
+// item 6 routed every one of them to the static's own storage.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: read = 1
+
+import modules.qualname_static_dep
+
+func main() unsafe {
+    print("read = {qualname_static_dep.X}")
+}

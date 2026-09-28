@@ -1,0 +1,44 @@
+// DF-181e (design 183 unit 2): the offload marshals the whole C-ABI whitelist,
+// not one machine word. Every shape the thunk has to handle, in one program:
+// a narrow unsigned argument with a narrow signed return, the zero-argument case
+// (an empty slot array), a Void return (no result to take), and Float (which
+// travels through the job's integer result word as bits).
+//
+// `usleep` really does block; the other three are prompt, and annotating them is
+// a deliberate over-claim — `blocking` says a call MAY be unbounded, so claiming
+// it of a prompt call only costs a thread. That is what makes them usable here as
+// marshalling probes with deterministic answers.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// usleep -> 0
+// ppid positive: true
+// srand: returned
+// pow(2, 10) == 1024: true
+
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+    blocking func getppid() -> Int32
+    blocking func srand(seed: UInt32)
+    blocking func pow(x: Float, y: Float) -> Float
+}
+
+func shapes() -> Int {
+    let slept = usleep(2000)
+    print("usleep -> {slept}")
+
+    let ppid = getppid()
+    print("ppid positive: {ppid > 0}")
+
+    srand(7)
+    print("srand: returned")
+
+    let p = pow(2.0, 10.0)
+    print("pow(2, 10) == 1024: {p == 1024.0}")
+    return 0
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(shapes())
+    let _ = h.join()
+}

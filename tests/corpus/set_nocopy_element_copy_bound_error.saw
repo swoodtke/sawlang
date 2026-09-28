@@ -1,0 +1,21 @@
+// Design 251: `copy` lives in `extension Set<T: Hashable + Equatable +
+// ExplicitCopy>`, so an element that cannot be duplicated at all makes the
+// method simply not exist — mirrors vector_file_copy_bound_error.saw's
+// Vector<File> case and map_nocopy_value_copy_bound_error.saw's Map twin.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has no method `copy`: requires `T: ExplicitCopy`, and `Tag` does not conform
+
+struct Tag { id: Int }
+extension Tag: NoCopy {}
+extension Tag: Hashable {
+    func hash(&self, into: &var Hasher) { self.id.hash(&var into) }
+}
+extension Tag: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.id == other.id }
+}
+
+func main() {
+    var s = Set<Tag>()
+    let w = s.copy()
+    print(1)
+}

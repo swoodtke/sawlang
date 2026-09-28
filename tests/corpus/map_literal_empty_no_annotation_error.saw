@@ -1,0 +1,9 @@
+// The empty map literal `{:}` needs an expected type to fix K/V (design 54);
+// a bare `let m = {:}` with no context is an error asking for an annotation.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot infer the type of the empty map literal
+
+func main() {
+    let m = {:}
+    print(1)
+}

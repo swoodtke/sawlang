@@ -1,0 +1,35 @@
+// Position matrix (design 235), grid 2 "Qualified-name-as-target" — access
+// path: `obj.field`, every operation (read, assign, compound-assign,
+// `&var` argument, place window).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// read = 5
+// assign = 9
+// compound = 12
+// ref = 20
+// place window = 41
+
+struct Holder { n: Int, v: Vector<Int> }
+extension Holder: NoCopy {}
+
+func bump(r: &var Int) {
+    r = 20
+}
+
+func main() {
+    var h = Holder(n: 5, v: [40, 41])
+    print("read = {h.n}")
+
+    h.n = 9
+    print("assign = {h.n}")
+
+    h.n += 3
+    print("compound = {h.n}")
+
+    bump(&var h.n)
+    print("ref = {h.n}")
+
+    // place window: a field's Vector `[]` (design 141's `borrows` accessor)
+    h.v[1] += 0
+    print("place window = {h.v[1]}")
+}

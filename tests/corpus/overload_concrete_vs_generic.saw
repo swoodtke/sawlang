@@ -1,0 +1,15 @@
+// Design 55, tie-break rule 3: a concrete overload beats a generic one. A bare
+// call lands on the concrete `gen(Int)`; an explicit type argument selects the
+// generic `gen<T>(T)`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+
+func gen(x: Int) -> Int { 1 }
+func gen<T>(x: T) -> Int { 2 }
+
+func main() {
+    print(gen(9))           // concrete -> 1
+    print(gen<Bool>(true))  // generic (explicit type arg) -> 2
+}

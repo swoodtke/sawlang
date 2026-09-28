@@ -1,0 +1,15 @@
+// Design 63: the sibling rule holds in ARGUMENT position too, which is where a
+// typed-handle API actually spends its safety — `debug_print(channel_handle)`
+// has to be the compile error, not a working call on the wrong object.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: expects `OrderId` but got `UserId`
+
+type UserId = Int
+type OrderId = Int
+
+func lookup(o: OrderId) -> Int { o as Int }
+
+func main() {
+    let user = UserId(42)
+    print(lookup(user))
+}

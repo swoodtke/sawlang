@@ -1,0 +1,23 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `m[…]` lends a place of type `Res`, which is move-only
+//
+// Reading a place out as a VALUE is where it stops being storage, so the
+// value's copy tier decides. A move-only value cannot come out: the map still
+// owns it, and the binding would drop what the map is still holding. Borrow it
+// through the window instead — `m["a"]!.method()`, which the hint names.
+//
+// This is also the oracle for WHICH rule judges the read. The subscript is the
+// first ArrayIndex-shaped conditional place, so design 131's optional-payload
+// rule could reach it too and used to answer first — with a fixit
+// (`m[…].take()`) naming a method that does not exist. The place rule owns it.
+
+struct Res { id: Int }
+
+extension Res: NoCopy {}
+
+func main() {
+    var m = Map<String, Res>()
+    let _ = m.insert("a", Res(id: 1))
+    let held = m["a"]!
+    print(held.id)
+}

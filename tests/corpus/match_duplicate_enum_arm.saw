@@ -1,0 +1,43 @@
+// Design 198: an EXACT duplicate match arm is a clean compile error naming both
+// arms — the enum spelling and the literal spelling alike.
+//
+// The enum arm used to lower to an LLVM `switch` carrying the same case value
+// twice, which llvmlite refused to parse: `internal compiler error: LLVM IR
+// parsing error / duplicate case value in switch`, no location in the program
+// and nothing naming the arm (DF-192d). The literal arm one position over
+// compiled and silently took the first, so the two spellings disagreed.
+//
+// The ruling closed both at once. A switch HAS no arm order, so "first wins"
+// was never the enum path's semantics — there was nothing to stay consistent
+// with, only a crash to replace — and a duplicate arm is dead code either way.
+// Overlapping ranges and guarded arms are NOT duplicates and stay legal; they
+// are pinned by match_arm_overlap_legal.saw.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: duplicate match arm: `Green` is already matched by the arm at line 24
+// EXPECT-ERROR-CONTAINS: duplicate match arm: `1` is already matched by the arm at line 34
+
+enum Color { case Red, case Green, case Blue }
+
+func name(c: Color) -> String {
+    match c {
+        case Red -> "red",
+        case Green -> "green",
+        case Green -> "green again",
+        case Blue -> "blue"
+    }
+}
+
+// The sibling spelling, in this program so the two can never drift apart again
+// unnoticed: one rule, one chokepoint, both arms reported.
+func literal_name(n: Int) -> String {
+    match n {
+        case 1 -> "one",
+        case 1 -> "one again",
+        case _ -> "other"
+    }
+}
+
+func main() {
+    print(name(Color.Green))
+    print(literal_name(1))
+}

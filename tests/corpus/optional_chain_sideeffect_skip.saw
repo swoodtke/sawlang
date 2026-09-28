@@ -1,0 +1,42 @@
+// Design 111: short-circuit skips ALL later evaluation, including the argument
+// expressions of a skipped method call (documented eval-order carve-out).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// -1
+// 0
+// 105
+// 1
+
+struct Box2 { n: Int }
+extension Box2 {
+    func plus(&self, x: Int) -> Int { self.n + x }
+}
+
+static CALLS: Atomic<Int> = Atomic(0)
+
+func sideEffect() -> Int {
+    CALLS.fetch_add(1)
+    return 100
+}
+
+func makeBox(present: Bool) -> Box2? {
+    if present { return Box2(n: 5) }
+    return None
+}
+
+func main() {
+    // call head
+    let r: Int? = makeBox(present: true)?.plus(1)
+    print(r ?? -1)
+
+    // None head: argument sideEffect() must be SKIPPED
+    let s: Int? = makeBox(present: false)?.plus(sideEffect())
+    print(s ?? -1)
+    print(CALLS.load())   // expect 0: argument skipped on short-circuit
+
+    // present head: argument evaluated once
+    let t: Int? = makeBox(present: true)?.plus(sideEffect())
+    print(t ?? -1)
+    print(CALLS.load())   // expect 1
+}

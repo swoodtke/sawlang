@@ -1,0 +1,14 @@
+// design 260 — `consumes` on a FREE FUNCTION.
+//
+// Nothing to consume, and the fixit names the pattern that does work from
+// anywhere — including from a module that does not define the type, where the
+// containment rule closes the method spelling: take the value by value and
+// `move` at the call site.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a free function has no receiver to consume
+// EXPECT-ERROR-CONTAINS: declare the parameter by value and `move` at the call site
+
+func finish(n: Int) consumes -> Int { n }
+
+func main() { print("{}", finish(n: 1)) }

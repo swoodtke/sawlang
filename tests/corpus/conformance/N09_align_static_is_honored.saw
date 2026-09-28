@@ -1,0 +1,35 @@
+// Conformance row N09 — `@align(N)` on a `static`: the global's address is a
+// multiple of N, and design 149's zerofill rule still holds (DF-300b).
+//
+// The second half is the part worth pinning: an all-zero static costs no image
+// bytes, and asking for an alignment must not quietly turn one into initialized
+// data. `ARENA` below is both `@align`ed and all-zero, so it stays zerofill.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 0
+// 0
+// 7
+
+static WORD: Int = 8
+
+@align(64)
+static ARENA: [UInt8; 256] = [0; 256]
+
+// The alignment is a constant expression on the same terms an array length is,
+// so it may name a module `static` and do arithmetic over it.
+@align(WORD * 2)
+static SEEDED: [UInt8; 8] = [7; 8]
+
+// `@align` composes with `@section` — llvmlite writes both onto one global.
+@align(32)
+@section("__DATA,__sawalign")
+static PLACED: [UInt8; 16] = [1; 16]
+
+func main() unsafe {
+    print(((&ARENA) as UnsafePointer<UInt8> as Int) % 64)
+    print(((&SEEDED) as UnsafePointer<UInt8> as Int) % 16)
+    print(((&PLACED) as UnsafePointer<UInt8> as Int) % 32)
+    print(SEEDED[0] as Int)
+}

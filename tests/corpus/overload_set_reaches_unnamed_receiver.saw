@@ -1,0 +1,21 @@
+// Design 256 — a receiver whose type NAME is not bound in this file at all
+// keeps its overload set. The value arrived through `hand()` and only `hand` is
+// imported, so nothing here spells `Crate`; the set is keyed on the resolved
+// type identity, and both scoping rules already put the whole extension surface
+// in scope (the selective import makes the module a DIRECT import, and the
+// receiver's inherent API travels with the value).
+//
+// DF-280a's third face, hit in the wild by sawos (Aug 31): the name-keyed
+// re-resolution missed, every overload but the first-registered one went away,
+// and `make(top: 1)` was "missing argument for parameter `entry`". The
+// workaround was importing `Crate`, a name this file never writes —
+// DF-247b's phantom-dependency shape.
+// EXPECT: success
+// EXPECT-OUTPUT: 8
+
+import modules.overload280_dep.{hand}
+
+func main() {
+    let c = hand()
+    print("{}", c.make(top: 1))
+}

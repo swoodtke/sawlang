@@ -1,0 +1,26 @@
+// Design 246 row 9: an enum whose payload is its OWN type, inline. The
+// storage of `Tree` contains the storage of `Tree`, so no finite layout
+// exists and the declaration is refused where it is written.
+//
+// DF-260a: this used to be `internal compiler error: Undefined enum: Tree`,
+// with no location and no distinction from the shapes whose cycle crosses a
+// heap indirection and therefore IS finite.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: recursive type `Tree` has infinite size
+// EXPECT-ERROR-CONTAINS: Tree.Node.child -> Tree
+// EXPECT-ERROR-CONTAINS: hold the recursive member behind a heap indirection
+// EXPECT-ERROR-ABSENT: internal compiler error
+
+enum Tree {
+    case Leaf(v: Int),
+    case Node(child: Tree)
+}
+
+func main() -> Int {
+    let t = Tree.Leaf(v: 3)
+    match t {
+        case Leaf(v) -> v,
+        case Node(_) -> 0
+    }
+}

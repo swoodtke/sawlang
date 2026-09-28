@@ -1,0 +1,47 @@
+// Conformance row K82 — an unjoined, undetached thread handle PANICS in its
+// deinit, naming the type and the legal consumes
+//
+// design 242 ruling 9b, ruled Aug 24: this RETIRES the old implicit fates. A
+// `Thread<T>` used to JOIN on drop, so the natural fire-and-forget spelling was
+// a silent sequential call; cancel-on-drop was considered for the cooperative
+// side and rejected the same way. Every fate is explicit now, and the path that
+// evades the checker dies loudly instead of doing something the author did not
+// write.
+//
+// The row is a RUNTIME verification, because ruling 5's static check is what
+// makes this unreachable from ordinary code. It is constructed through 9a's
+// approximation gap: `Keeper` declares a hand-written `deinit`, which is all v1
+// asks before discharging the obligation, and that deinit deliberately forgets
+// to join what it stored. The field drops that follow the hand-written body
+// (design 131) then run the handle's own deinit with nothing consumed.
+//
+// Panics do not unwind, so there is no panic-during-panic hazard here.
+//
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: VoidThread was dropped without being joined or detached
+// EXPECT-PANIC-CONTAINS: `join()` waits for it
+
+import std.task.{VoidThread}
+
+func work() {
+    print("worked")
+}
+
+struct Keeper {
+    held: VoidThread?
+}
+
+extension Keeper: NoCopy {
+    func deinit(&var self) {
+        // Deliberately forgets. Under the checked field-obligation rule 9a
+        // names as future work this would be the compile error; in v1 the
+        // handle's own deinit is the backstop.
+    }
+}
+
+func main() {
+    var keeper = Keeper(held: None)
+    var t = Thread.spawn { work() }
+    keeper.held = move t
+    print("stored")
+}

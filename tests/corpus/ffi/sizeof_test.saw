@@ -1,0 +1,32 @@
+// Test sizeof<T>() built-in function
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 8
+// 1
+// 2
+// 4
+// 8
+// 8
+// 8
+// 16
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+func main() {
+    // Basic types
+    print(sizeof<Int>())     // 8 bytes (64-bit)
+    print(sizeof<Int8>())    // 1 byte
+    print(sizeof<Int16>())   // 2 bytes
+    print(sizeof<Int32>())   // 4 bytes
+    print(sizeof<Int64>())   // 8 bytes
+    print(sizeof<Float>())   // 8 bytes (double)
+
+    // Pointer type
+    print(sizeof<UnsafePointer<Int8>>())  // 8 bytes (64-bit pointer)
+
+    // Struct type
+    print(sizeof<Point>())   // 16 bytes (two Int64s)
+}

@@ -1,0 +1,25 @@
+// Use-after-move via a branch merge (design 15 rule 6). `f` is moved in the
+// `then` arm of an `if` with no divergence; after the branches merge, `f` is
+// may-moved (moved on at least one completed path), so reading it is a compile
+// error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {}
+}
+
+func consume(h: FileHandle) {}
+
+func main() {
+    let f = FileHandle(fd: 1)
+    let cond = true
+    if cond {
+        consume(move f)   // f moved on this path
+    }
+    print(f.fd)           // error: f is may-moved after the merge
+}

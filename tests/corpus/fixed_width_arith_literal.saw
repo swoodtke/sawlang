@@ -1,0 +1,34 @@
+// Fixed-width arithmetic with a bare integer literal (design 77 item 9 extended
+// from comparison to arithmetic position — the design-81-run rider). A bare
+// literal mixed with a fixed-width integer operand adopts that operand's width,
+// so `b + 0` for `b: Int32` no longer ICEs "i32 != i64" and the result is
+// typed `Int32`. Both operand orders, all of + - * / %, and suffix locals.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 13
+// 13
+// 6
+// 20
+// 3
+// 2
+// 0
+// 8
+// 105
+
+func main() {
+    let b: Int32 = 10
+    print((b + 3) as Int)     // 13
+    print((3 + b) as Int)     // 13 (literal on the left)
+    print((b - 4) as Int)     // 6
+    print((b * 2) as Int)     // 20
+    print((b / 3) as Int)     // 3
+    print((b % 4) as Int)     // 2
+    print((100 % b) as Int)   // 0
+
+    let s = 7u8               // suffix local (Int8-width via the suffix)
+    print((s + 1) as Int)     // 8
+
+    // Int/Int mixing is unchanged: two platform Ints stay Int.
+    let x = 100
+    print(x + 5)              // 105
+}

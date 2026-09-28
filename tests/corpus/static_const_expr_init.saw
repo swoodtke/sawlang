@@ -1,0 +1,40 @@
+// DF-185b, CLOSED by design 186 unit 7: a `static` initializer is a CONSTANT
+// EXPRESSION now, not a literal.
+//
+// Design 41's rule was a hand-written list — literals, POD struct literals,
+// constant array literals, `Atomic(<int>)` — kept separately from the const
+// evaluator, so `static PAGE_MASK: Int = (1 << 12) - 1` was refused while the
+// same expression folded in every position that CONSUMES a constant. The two
+// have one answer now: whatever the evaluator folds, a static may hold.
+//
+// The enum line was refused TWICE, and both refusals are gone. A static
+// initializer is a const position (design 185 unit 3), so `Perm.Read` reads as
+// the compile-time tag it is rather than as an enum-typed value; and the
+// combined flag folds to its BACKING integer, which is what a `UInt8` static
+// wants.
+//
+// What still does NOT fold is a user `init` BODY — see
+// `examples/errors/static_user_init_not_const.saw`.
+// EXPECT: success
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 4095
+// EXPECT-OUTPUT: 4096
+
+enum Perm: UInt8 {
+    case Read = 0x01,
+    case Write = 0x02
+}
+
+static RW: UInt8 = Perm.Read | Perm.Write
+static PAGE_MASK: Int = (1 << 12) - 1
+
+// The same expressions in a position that consumes a constant, which is where
+// they already worked — the fix was about the initializer, nothing else.
+static_assert((Perm.Read | Perm.Write) == 3, "the fold itself is fine")
+static_assert(((1 << 12) - 1) == 4095, "and so is this one")
+
+func main() {
+    print(RW)
+    print(PAGE_MASK)
+    print(PAGE_MASK + 1)
+}

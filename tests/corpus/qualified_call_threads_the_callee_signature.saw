@@ -1,0 +1,44 @@
+// A MODULE-QUALIFIED free-function call threads the whole of the resolved
+// callee's signature, not only its name (DF-238a's positive half).
+//
+// The refusing face is `qualified_call_literal_adopts_parameter_width.saw`;
+// this is everything else that followed from the qualified path checking
+// arguments against the callee's RAW declared types. Each row is a call that
+// works bare and did not work through a qualifier:
+//
+//   - a bare literal adopts a narrow fixed-width parameter (in range, so it
+//     compiles — the out-of-range twin is the other file)
+//   - a defaulted trailing parameter may be OMITTED (the arity test compared
+//     against the full parameter list, and codegen filled no default)
+//   - generic type arguments are INFERRED, at a bounded parameter, at a plain
+//     one, and across two parameters
+//   - an EXPLICIT type argument list works too
+//   - a bare value auto-wraps into a `T?` parameter
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// byte 255
+// default 8
+// supplied 3
+// over rec-4
+// ident 9
+// pair 5
+// explicit 9
+// opt 3
+// COMPILE-FLAGS: --module-path qualcall={TESTDIR}/modules/qualcall238a
+import qualcall
+
+func main() {
+    print("byte {qualcall.take_byte(255)}")
+
+    print("default {qualcall.with_default(1)}")
+    print("supplied {qualcall.with_default(1, 2)}")
+
+    let r = qualcall.Rec238a(id: 4)
+    print("over {qualcall.over(&r)}")
+    print("ident {qualcall.ident(9)}")
+    print("pair {qualcall.pair(1, "x")}")
+    print("explicit {qualcall.ident<Int>(9)}")
+
+    print("opt {qualcall.opt(3)}")
+}

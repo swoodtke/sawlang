@@ -1,0 +1,14 @@
+// Design 229: an import is private. A module that only IMPORTS `Widget` does
+// not hand it on, so a glob of that module does not bring it bare — and the
+// refusal names both fixes and the dependency the name really lives in.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Widget` is not part of `modules.export229_wall`'s surface
+// EXPECT-ERROR-CONTAINS: imported by `modules.export229_wall` but not re-exported
+// EXPECT-ERROR-CONTAINS: add `public import` in `modules.export229_wall`
+// EXPECT-ERROR-CONTAINS: import `modules.export229_leaf` directly
+import modules.export229_wall.*
+
+func main() {
+    let f: Widget = Widget(n: 1)
+    print("{f.n}")
+}

@@ -1,0 +1,13 @@
+// DF-165b's other half: with the element type in force as the literal's
+// expected type, an out-of-range one is a clean error AT THE LITERAL.
+//
+// Before the fix the literal stayed platform `Int` and no range check ran, so
+// this line produced an internal compiler error instead of a diagnostic.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: 256
+func main() {
+    var v: Vector<UInt8> = Vector<UInt8>()
+    v.push(1 as UInt8)
+    v[0] = 256
+    print("{v[0]}")
+}

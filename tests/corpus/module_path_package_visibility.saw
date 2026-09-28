@@ -1,0 +1,14 @@
+// DF-232f, the direction that must KEEP WORKING: files under one
+// `--module-path` mapped directory are ONE PACKAGE, so a sibling may name
+// another file's `public(package)` symbol. Here `pkgvis` (lib.saw) calls
+// `pkg_secret` from `pkgvis.secret` and re-exports the result publicly.
+//
+// The refusal half is `module_path_package_visibility_error.saw`.
+// EXPECT: success
+// EXPECT-OUTPUT: 42
+// COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232f
+import pkgvis
+
+func main() {
+    print(pkgvis.lib_answer())
+}

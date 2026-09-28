@@ -1,0 +1,40 @@
+// A simple utility module for testing imports
+// This is a library module, not meant to be compiled standalone
+// Tests visibility: public symbols should be accessible, private should not
+
+// PUBLIC SYMBOLS - accessible from other modules
+public struct Point {
+    public x: Int
+    public y: Int
+}
+
+extension Point {
+    public func add(&self, other: Point) -> Point {
+        Point(x: self.x + other.x, y: self.y + other.y)
+    }
+
+    public func magnitude(&self) -> Int {
+        self.x + self.y
+    }
+}
+
+public func double(n: Int) -> Int {
+    n * 2
+}
+
+public func triple(n: Int) -> Int {
+    n * 3
+}
+
+// PRIVATE SYMBOLS - should NOT be accessible from other modules
+struct InternalData {
+    secret: Int
+}
+
+func internal_helper(n: Int) -> Int {
+    n * 10
+}
+
+public(package) func package_only(n: Int) -> Int {
+    n + 100
+}

@@ -1,0 +1,9 @@
+// DF-232j sweep fixture, hop 2: the package facade re-exports the re-export.
+// Each hop is legal on its own; what must NOT survive the chain is reach from
+// outside the package — the tier rides the symbol, not the route.
+public import pkgvis.mid.{pkg_secret}
+
+// The sibling direction that must keep working: lib may call the secret.
+public func lib_answer() -> Int {
+    pkg_secret() * 6
+}

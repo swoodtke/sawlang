@@ -1,0 +1,31 @@
+// SL-227: `Task.spawn` of a self-recursive suspending function is the same clean
+// cycle rejection the `__saw_drive` spelling gives.
+//
+// NO XFAIL PRECEDED THIS FILE, and could not have: the shape CRASHED the
+// compiler with a Python `RecursionError` (~981 nested `_build_frame_init`
+// frames), and a corpus file that crashes sawc would destabilize the irdet and
+// reemit lanes, which byte-compare compiler output over the whole corpus. The
+// pin lands with the fix.
+//
+// MECHANISM: `_analyze_nesting` is the check, and the suspending-call graph was
+// already SEEDED from the spawn roots (`seed_names`) — only the asking was
+// missing, so a spawn root carried its cycle into `_build_sub_frame`, which
+// embeds a callee frame by value and for a self-cycle has no fixed point. Every
+// root-seeding path is asked now; `_analyze_nesting`'s docstring is the
+// enumeration, and the sibling files here are its rows.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: suspending recursion is not allowed
+// EXPECT-ERROR-CONTAINS: recurse -> recurse
+
+import std.task.{yield_now}
+
+func recurse(n: Int) -> Int {
+    yield_now()
+    if n <= 0 { return 0 }
+    return recurse(n - 1)
+}
+
+func main() {
+    let t = Task.spawn(recurse(3))
+    print("{t.join()}")
+}

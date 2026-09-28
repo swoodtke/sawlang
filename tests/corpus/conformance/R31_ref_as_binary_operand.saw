@@ -1,0 +1,13 @@
+// Conformance row R31 — `&` as a binary-expression operand
+//
+// A `&` operand of a binary expression is not a call argument, so the sigil
+// is refused before any question about comparing addresses arises.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `&` here is not a call argument
+
+func main() {
+    var a = 1
+    var b = 2
+    let c = (&a) == (&b)
+    print(c)
+}

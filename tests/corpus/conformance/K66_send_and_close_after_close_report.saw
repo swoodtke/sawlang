@@ -1,0 +1,53 @@
+// Conformance row K66 — a second `close()`, and a `send` after one, are reported
+// as values rather than swallowed or fatal
+//
+// Design 230 unit C. Two holders may both decide they are the last producer, so a
+// second close is a race a program can lose without being wrong — it returns
+// `Err(Closed)` and is safe to ignore with `let _ =`, which is what makes `close`
+// idempotent without making it silent. A send after a close is the caller's bug,
+// and the value it gets back is how it finds out; what it must never be is a
+// message accepted into a queue that has said it is finished, which the last two
+// lines check by counting what is actually there.
+//
+// Design 234 §4 sharpened the last check. `try_receive` answers
+// `Result<T?, ChannelError>` now, so the poll after the drain distinguishes
+// "closed, nothing will ever come" from "empty right now" — this file used to
+// read both as a bare `None` and could only say the queue was empty.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// second close: channel is closed
+// send after close: channel is closed
+// queued 1
+// drained, then: channel is closed
+
+import std.channel.{Channel}
+
+func main() {
+    let ch = try! Channel<Int>()
+    try! ch.send(1)
+    try! ch.close()
+
+    match ch.close() {
+        case Ok(_) -> print("second close returned Ok"),
+        case Err(e) -> print("second close: {e}")
+    }
+
+    match ch.send(2) {
+        case Ok(_) -> print("send after close returned Ok"),
+        case Err(e) -> print("send after close: {e}")
+    }
+
+    // The queue holds exactly what it held before the close: the one message
+    // sent while it was open, and nothing the refused send left behind.
+    print("queued {}", (try! ch.try_receive())!)
+    match ch.try_receive() {
+        case Ok(more) -> {
+            if let extra = more {
+                print("unexpected {extra}")
+            } else {
+                print("unexpected: empty rather than closed")
+            }
+        },
+        case Err(e) -> print("drained, then: {e}")
+    }
+}

@@ -1,0 +1,20 @@
+struct Cell { n: Int }
+struct Res { n: Int }
+extension Res: NoCopy {}
+enum Slot { case Empty, case Full(res: Res) }
+extension Slot: NoCopy {}
+
+func main() {
+    var m = Map<String, Cell>()
+    let _ = m.insert("k", Cell(n: 1))
+    m["k"]?.n = 5
+    var v = Vector<Slot>()
+    try! v.push(Slot.Full(res: Res(n: 3)))
+    let n = match v[0] {
+        case Empty -> 0
+        case Full(r) -> r.n
+    }
+    var w: Vector<Cell> = [Cell(n: 1)]
+    w[0].n = 2
+    print(n)
+}

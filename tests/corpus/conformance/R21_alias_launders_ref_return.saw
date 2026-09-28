@@ -1,0 +1,15 @@
+// Conformance row R21 — type alias laundering a reference into a return type
+//
+// The alias in RETURN position. Before design 188 unit 1 this failed only by
+// accident, on a type mismatch; the walk resolves aliases now, so it fails by
+// rule and says so.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: the return type of `f` may not be a reference
+// EXPECT-ERROR-CONTAINS: A `type` alias is not a way past that rule
+
+type R = &Int
+func f(x: &Int) -> R { x }
+func main() {
+    var a = 1
+    print(f(&a))
+}

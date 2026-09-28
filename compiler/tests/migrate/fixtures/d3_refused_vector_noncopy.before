@@ -1,0 +1,8 @@
+struct Res { n: Int }
+extension Res: NoCopy {}
+
+func main() {
+    var v = Vector<Res>()
+    try! v.push(Res(n: 1))
+    if let _ = v.get(0) { print("yes") }
+}

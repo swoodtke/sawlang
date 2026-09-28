@@ -1,0 +1,17 @@
+// Design 122 unit H: `--freestanding` at a Mach-O target is a clean diagnostic.
+//
+// The profile emits per-function `.text.<name>` sections so a kernel link can
+// `--gc-sections` away the unreachable stdlib (design 112). Mach-O wants
+// `__SEGMENT,__section` instead, so LLVM used to abort the whole process with
+// `LLVM ERROR: ... invalid section specifier` — no source location, no hint, and
+// a 0-byte object file left behind. Now the driver refuses up front and names
+// the cross-target to pass. (The triple is explicit here so the test asserts the
+// same thing on every host; without `--target` it is the host's own triple, so
+// this is exactly what `sawc --freestanding` does on a Mac.)
+// EXPECT: error
+// COMPILE-FLAGS: --freestanding --target arm64-apple-darwin
+// EXPECT-ERROR-CONTAINS: `--freestanding` cannot target the Mach-O triple
+// EXPECT-ERROR-CONTAINS: --target riscv32-unknown-none-elf
+
+@export("kernel_add")
+func kernel_add(a: Int, b: Int) -> Int { a + b }

@@ -1,0 +1,15 @@
+// design 139 spot-check: `Box<T>` declares NoCopy unconditionally, and a
+// DECLARED policy wins over the structural join — so a Box is move-only whatever
+// it holds, `Box<Int>` included. It owns a heap allocation, and duplicating one
+// is an allocation, never something the compiler should do behind a plain read.
+//
+// This tier was already correct before design 139; the check is that giving
+// wrappers tiers did not weaken the one wrapper that already had a right answer.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: which implements NoCopy
+
+func main() {
+    let b = Box<Int>.make(7)
+    let c = b
+    print("both bound")
+}

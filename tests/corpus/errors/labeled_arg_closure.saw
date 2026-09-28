@@ -1,0 +1,9 @@
+// Design 66: closure/function-value types are structural — they carry no
+// parameter names, so a labeled call through a closure binding is rejected.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: closure types are structural
+
+func main() {
+    let f = { a: Int in a + 1 }
+    print(f(a: 5))
+}

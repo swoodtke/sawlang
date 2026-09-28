@@ -1,0 +1,200 @@
+// K118 — THE SHAPE TABLE, exercised. For every shape a suspension can sit in,
+// the transform SPLITs, HOISTs, INLINEs, EMBEDs or REFUSEs; there is no fourth
+// outcome. Design 275 U2 (SL-318).
+//
+// The guarantee designs 96/101/104 state is positional — "a suspending call
+// embeds at any nesting depth and control-flow position, or errors cleanly" —
+// and every violation of it reached the corpus the same way: a walk enumerated
+// the positions it knew about and a new shape joined the language without
+// joining the enumeration (DF-193a's `try { } catch { }`, DF-224a's `match`
+// scrutinee, SL-326's ANF-hoisted generic call, SL-330's qualified one).
+// `sawc/coro_shapes.py` is the one table that answers now, and
+// `tools/test_coro_shapes.py` (the `corototality` battery lane) is what keeps
+// it complete: it compares the table against `ast_walk.CONTAINER_KINDS` and
+// `CONTAINER_HEADS`, the other two enumerations of the same fact.
+//
+// THIS FILE IS THE BEHAVIOURAL HALF: one driven root per SPLIT container and
+// one per HOIST head, each with a real suspension inside it, each asserting the
+// STEP COUNT rather than the value — a body prints the same number whether or
+// not its suspension survived, and only `__saw_drive_steps` separates an
+// embedded frame from a plain call. The REFUSE rows are error tests and cannot
+// share a file with these: `vector_closure_suspending_transform.saw` (a closure
+// body, entry module), `errors/coro_imported_closure_body_suspends.saw` (the
+// same, imported) and `coro_suspending_call_in_inline_catch.saw` (the inline
+// `try … catch`, XFAIL pending SL-215).
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// if 1
+// while 1
+// for 1
+// match 1
+// iflet 1
+// guardlet 1
+// trycatch 1
+// if-head 1
+// while-head 1
+// for-head 1
+// match-head 1
+// iflet-head 1
+// guardlet-head 1
+// argument 1
+// interpolation 1
+// operand 1
+// return 1
+
+import std.task.*
+
+struct Failure { message: String }
+extension Failure: Error {
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append(self.message)
+    }
+}
+
+func tick(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+func fallible(n: Int) -> Result<Int, Failure> {
+    n + 1
+}
+
+// ------------------------------------------------------- SPLIT: the containers
+
+func split_if(n: Int) -> Int {
+    if n > 0 { tick(n) } else { 0 }
+}
+
+func split_while(n: Int) -> Int {
+    var seen = 0
+    var i = 0
+    while i < n {
+        seen = tick(seen)
+        i = i + 1
+    }
+    seen
+}
+
+func split_for(n: Int) -> Int {
+    var seen = 0
+    for _i in 0..n {
+        seen = tick(seen)
+    }
+    seen
+}
+
+func split_match(n: Int) -> Int {
+    match n {
+        case 1 -> { tick(n) },
+        case _ -> { 0 }
+    }
+}
+
+func split_iflet(n: Int) -> Int {
+    let held: Int? = n
+    if let v = held {
+        tick(v)
+    } else {
+        0
+    }
+}
+
+func split_guardlet(n: Int) -> Int {
+    let held: Int? = n
+    guard let v = held else { return 0 }
+    tick(v)
+}
+
+func split_trycatch(n: Int) -> Int {
+    var out = 0
+    try {
+        let a = try fallible(n)
+        out = tick(a)
+    } catch {
+        out = 0
+    }
+    out
+}
+
+// ------------------------------------------------------------ HOIST: the heads
+
+func head_if(n: Int) -> Int {
+    if tick(n) > 1 { 1 } else { 0 }
+}
+
+func head_while(n: Int) -> Int {
+    var seen = 0
+    while tick(seen) < n {
+        seen = seen + 1
+    }
+    seen
+}
+
+func head_for(n: Int) -> Int {
+    var seen = 0
+    for _i in 0..tick(n) {
+        seen = seen + 1
+    }
+    seen
+}
+
+func head_match(n: Int) -> Int {
+    match tick(n) {
+        case 2 -> 1,
+        case _ -> 0
+    }
+}
+
+func head_iflet(n: Int) -> Int {
+    let held: Int? = tick(n)
+    if let v = held { v } else { 0 }
+}
+
+func head_guardlet(n: Int) -> Int {
+    let held: Int? = tick(n)
+    guard let v = held else { return 0 }
+    v
+}
+
+// --------------------------------------------- HOIST: design 224's expressions
+
+func take(a: Int, b: Int) -> Int { a + b }
+
+func expr_argument(n: Int) -> Int {
+    take(1, tick(n))
+}
+
+func expr_interpolation(n: Int) -> Int {
+    let s = "v {tick(n)}"
+    s.len()
+}
+
+func expr_operand(n: Int) -> Int {
+    1 + tick(n)
+}
+
+func expr_return(n: Int) -> Int {
+    return tick(n)
+}
+
+func main() {
+    print("if {}", __saw_drive_steps(split_if(1)))
+    print("while {}", __saw_drive_steps(split_while(1)))
+    print("for {}", __saw_drive_steps(split_for(1)))
+    print("match {}", __saw_drive_steps(split_match(1)))
+    print("iflet {}", __saw_drive_steps(split_iflet(1)))
+    print("guardlet {}", __saw_drive_steps(split_guardlet(1)))
+    print("trycatch {}", __saw_drive_steps(split_trycatch(1)))
+    print("if-head {}", __saw_drive_steps(head_if(1)))
+    print("while-head {}", __saw_drive_steps(head_while(1)))
+    print("for-head {}", __saw_drive_steps(head_for(1)))
+    print("match-head {}", __saw_drive_steps(head_match(1)))
+    print("iflet-head {}", __saw_drive_steps(head_iflet(1)))
+    print("guardlet-head {}", __saw_drive_steps(head_guardlet(1)))
+    print("argument {}", __saw_drive_steps(expr_argument(1)))
+    print("interpolation {}", __saw_drive_steps(expr_interpolation(1)))
+    print("operand {}", __saw_drive_steps(expr_operand(1)))
+    print("return {}", __saw_drive_steps(expr_return(1)))
+}

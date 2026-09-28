@@ -1,0 +1,30 @@
+// DF-172h: an `extern "C"` declared `-> Never` is the C `noreturn`
+// declaration, and design 58 says a `-> Never` signature lowers to `void` +
+// `noreturn`. The DEFINITION path did that; the DECLARATION path took
+// `_get_llvm_type`'s i8 placeholder instead.
+//
+// That reached past the declaration, because an `@export`ed definition UNIFIES
+// with a pre-existing bodyless declaration of the same symbol and inherits its
+// type. So this exact arrangement — a module declaring the seam, another file
+// defining it — emitted `define noundef i8 @d172h_stop(i32)` while the ABI
+// document and every other spelling of `-> Never` said `void`. Harmless on the
+// targets in tree, since nothing reads a diverging function's return register,
+// and wrong everywhere it is written down.
+//
+// Found landing the SOS runtime seams (design 172 part 2), where `sos_rt_abort`
+// is declared `-> Never` by `sosrt` and defined per side. What this test pins
+// is the SHAPE — it compiles, links and diverges through the seam; the `void`
+// half was verified from `--emit-ir` by hand, as DF-172b's check-freedom was.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: stopped at 7
+
+import modules.never172h_stop
+
+@export("d172h_stop")
+func stop(code: UInt32) -> Never {
+    panic("stopped at {}", code)
+}
+
+func main() {
+    never172h_stop.halt(7u32)
+}

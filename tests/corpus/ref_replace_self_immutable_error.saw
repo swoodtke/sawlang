@@ -1,0 +1,14 @@
+// Design 110: `self = v` is rejected in a `&self` (immutable-receiver) method —
+// only a `&var self` method may replace the receiver.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to `self`: the receiver is immutable
+
+struct Cell { id: Int }
+extension Cell {
+    func bad(&self, other: Cell) { self = other }
+}
+
+func main() {
+    let c = Cell(id: 1)
+    let _ = c
+}

@@ -1,0 +1,122 @@
+// Conformance row D05 — a diverging ARM contributes no value, so the branch
+// takes the other arm's type — including a STRUCT type, in either arm position
+//
+// This is the shape that broke in `sos`'s syscall dispatch: a value `match`
+// whose first arm faults and whose other arm yields a `SyscallResult`. The
+// diverging arm's `call` flowed into the merge as if it were a result, and the
+// phi took its type: ``'%calltmp.3' defined with type '%SyscallResult' but
+// expected 'i32'``. The trigger was WHICH call path the arm's callee took —
+// overloaded or module-private went through codegen's `resolved_symbol` fast
+// path, the one site that never emitted the `unreachable` a diverging call
+// owes (design 228 leg 2). Arm position matters too, so both are here.
+//
+// COMPILE-FLAGS: --module-path neverdiv={TESTDIR}/modules/neverdiv
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1 1 1 1
+// 7 7 7 7
+// 0 0 0 0
+
+import neverdiv
+
+struct Reply {
+    status: Int,
+    value: UInt,
+    blocked: Bool
+}
+
+enum Pick {
+    case A,
+    case B
+}
+
+func die(r: Int) -> Never {
+    print("die {r}")
+    while { }
+}
+
+func die(r: Bool) -> Never {
+    print("die {r}")
+    while { }
+}
+
+// --- Int-typed arms -------------------------------------------------------
+func if_arm(c: Bool) -> Int {
+    let x: Int = if c { die(1) } else { 1 }
+    return x
+}
+
+func if_arm_overloaded(c: Bool) -> Int {
+    let x: Int = if c { die(true) } else { 1 }
+    return x
+}
+
+func match_arm(p: Pick) -> Int {
+    match p {
+        case A -> { die(1) },
+        case B -> { 1 }
+    }
+}
+
+// A BARE-EXPRESSION arm body, not a block: the braces were never the question.
+func match_arm_bare(p: Pick) -> Int {
+    match p {
+        case A -> die(1),
+        case B -> 1
+    }
+}
+
+// --- struct-typed arms, FIRST arm diverging (the `sos` shape) --------------
+func match_struct_first(p: Pick) -> Reply {
+    match p {
+        case A -> { die(1) },
+        case B -> { Reply(status: 7, value: 0, blocked: false) }
+    }
+}
+
+func match_struct_first_overloaded(p: Pick) -> Reply {
+    match p {
+        case A -> { die(true) },
+        case B -> { Reply(status: 7, value: 0, blocked: false) }
+    }
+}
+
+func if_struct(c: Bool) -> Reply {
+    let x: Reply = if c { die(1) } else { Reply(status: 7, value: 0, blocked: false) }
+    x
+}
+
+func if_struct_panic(c: Bool) -> Reply {
+    let x: Reply = if c { panic("no") } else { Reply(status: 7, value: 0, blocked: false) }
+    x
+}
+
+// --- struct-typed arms, SECOND arm diverging ------------------------------
+func match_struct_second(p: Pick) -> Reply {
+    match p {
+        case A -> { Reply(status: 0, value: 0, blocked: false) },
+        case B -> { die(1) }
+    }
+}
+
+func match_struct_second_overloaded(p: Pick) -> Reply {
+    match p {
+        case A -> { Reply(status: 0, value: 0, blocked: false) },
+        case B -> { die(true) }
+    }
+}
+
+func main() {
+    print("{} {} {} {}",
+          if_arm(false), if_arm_overloaded(false), match_arm(Pick.B),
+          match_arm_bare(Pick.B))
+    print("{} {} {} {}",
+          match_struct_first(Pick.B).status,
+          match_struct_first_overloaded(Pick.B).status,
+          if_struct(false).status, if_struct_panic(false).status)
+    print("{} {} {} {}",
+          match_struct_second(Pick.A).status,
+          match_struct_second_overloaded(Pick.A).status,
+          neverdiv.match_struct_first_status(false),
+          neverdiv.value_if_struct_status(false))
+}

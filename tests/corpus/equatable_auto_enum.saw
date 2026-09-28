@@ -1,0 +1,21 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+
+// A payload-free enum auto-conforms to Equatable (design 32); `==` is a
+// tag comparison, no `extension` needed.
+enum Direction {
+    case North,
+    case East,
+    case South,
+    case West
+}
+
+func main() {
+    if Direction.North == Direction.North { print(1) }
+    if Direction.North != Direction.South { print(2) }
+    let d = Direction.East
+    if d == Direction.East { print(3) }
+}

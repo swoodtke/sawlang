@@ -1,0 +1,74 @@
+// DF-182a: an `if let` / `guard let` whose SCRUTINEE is a suspending METHOD call.
+//
+// The design-62 G2 hoist has always lifted a suspending FREE FUNCTION out of an
+// optional binding's condition into a driven temp; the design-96 match hoist and
+// the design-92 try hoist both took methods too. This one did not, so the most
+// ordinary way to consume an optional result — `guard let out = thing.method()` —
+// was the single unconditional expression position where a suspending method was
+// rejected rather than driven.
+//
+// Both bindings here suspend in the scrutinee and answer from a sibling-visible
+// counter, so the run also shows the task really did cede: the sibling's ticks
+// land BETWEEN the two hops rather than after both.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// first: 10
+// guarded: 20
+// interleaved: true
+// -- done
+
+import std.task.*
+
+static TICKS: Atomic<Int> = Atomic(0)
+
+struct Source {
+    base: Int
+}
+
+extension Source {
+    // Suspending: cedes once, then answers.
+    func next(&self, step: Int) -> Int? {
+        yield_now()
+        if step > 0 {
+            return self.base * step
+        }
+        None
+    }
+}
+
+func consume() -> Bool {
+    let src = Source(base: 10)
+
+    if let first = src.next(1) {
+        print("first: {first}")
+    }
+    let midway = TICKS.load()
+
+    guard let second = src.next(2) else {
+        print("guarded: none")
+        return false
+    }
+    print("guarded: {second}")
+
+    // The sibling got scheduled between the two suspending hops.
+    midway > 0 && TICKS.load() > midway
+}
+
+func ticker() {
+    var i = 0
+    while i < 8 {
+        TICKS.fetch_add(1)
+        yield_now()
+        i = i + 1
+    }
+}
+
+func main() {
+    var group = TaskGroup()
+    let worker = group.spawn(consume())
+    let _ = group.spawn(ticker())
+
+    print("interleaved: {worker.join()}")
+    print("-- done")
+}

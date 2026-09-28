@@ -1,0 +1,8 @@
+//! Fixture for the graph-shapes grid's 2-cycle row (design 235). `a`
+//! imports `b`, `b` imports `a` — a direct cycle.
+// EXPECT: skip
+
+import modules.graphcyc2.b.{beta}
+
+public func alpha() -> Int { 1 }
+func use_beta() -> Int { beta() }

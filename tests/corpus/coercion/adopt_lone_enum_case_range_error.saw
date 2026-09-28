@@ -1,0 +1,14 @@
+// Design 257 §2, the check that comes with the adoption: the FOLDED value is
+// range-checked against the SLOT, so a `UInt32`-backed case whose value does
+// not fit a `UInt8` is the same clean refusal a bare 300 in that slot gives —
+// and the same one the combination has always given.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: constant expression 300 does not fit in `UInt8`
+
+enum Perm: UInt32 { case Read = 1, case Wide = 300 }
+
+static NARROW: UInt8 = Perm.Wide
+
+func main() {
+    print("{}", NARROW)
+}

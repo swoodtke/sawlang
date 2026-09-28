@@ -1,0 +1,182 @@
+//! The `--emit-docs` place surface (design 141).
+//
+// Docs document what the AUTHOR wrote (design 121), and a `borrows` accessor
+// reaches the emitter already LOWERED -- the place transform runs inside
+// `parse_source` so that registration, inference, monomorphization and codegen
+// all see an ordinary generic method. The emitter therefore undoes the rewrite
+// for rendering: the synthesized `__window` / `__absent` parameters and the
+// `__R` result type parameter are dropped, and `-> __R` goes back to naming the
+// PLACE. Without that, a documented subscript would read
+// `func []<__R>(&self, i: Int, __window: (&var Int) sync -> __R) sync -> __R`,
+// which is the compiler's business and not the reader's.
+//
+// `sync` is not rendered on a borrows accessor: it is implied by `borrows` (a
+// place window may not span a suspension) and the author never writes it.
+//
+// SL-333 puts BOTH facts a caller needs into the entry. `returns` carries the
+// declared window mode -- `&var Int` may be written through, `&Int` may only be
+// read -- and `"self"` carries R4's receiver eligibility: `"window"` for an
+// accessor whose receiver is borrowed with the window's own flavor (so a `let`
+// root may read through it), `"borrows-var"` for an EXCLUSIVE-ONLY one, whose
+// body mutates `self` outside the place it lends and which therefore takes the
+// receiver exclusively at every use site, reads included. Neither is readable
+// off the sigil, which is why reporting the sigil would say the opposite of the
+// truth.
+
+// EXPECT: docs
+// COMPILE-FLAGS: --emit-docs
+// EXPECT-OUTPUT:
+// {
+//   "schema_version": 4,
+//   "modules": [
+//     {
+//       "name": "doc_emit_borrows",
+//       "source": "doc_emit_borrows.saw",
+//       "doc": "The `--emit-docs` place surface (design 141).",
+//       "items": [
+//         {
+//           "kind": "extension",
+//           "name": "Bag",
+//           "signature": "extension Bag",
+//           "generics": [],
+//           "conformances": [],
+//           "methods": [
+//             {
+//               "kind": "method",
+//               "name": "[]",
+//               "signature": "public func [](&var self, i: Int) borrows -> &var Int",
+//               "visibility": "public",
+//               "generics": [],
+//               "params": [
+//                 {
+//                   "name": "i",
+//                   "label": "i",
+//                   "type": "Int"
+//                 }
+//               ],
+//               "returns": "&var Int",
+//               "effect": "sync",
+//               "self": "window",
+//               "static": false,
+//               "doc": "The element at `i`, as a place.",
+//               "line": 151
+//             },
+//             {
+//               "kind": "method",
+//               "name": "get",
+//               "signature": "public func get(&var self, i: Int) borrows -> &var Int?",
+//               "visibility": "public",
+//               "generics": [],
+//               "params": [
+//                 {
+//                   "name": "i",
+//                   "label": "i",
+//                   "type": "Int"
+//                 }
+//               ],
+//               "returns": "&var Int?",
+//               "effect": "sync",
+//               "self": "window",
+//               "static": false,
+//               "doc": "The element at `i` if it exists -- an optional place.",
+//               "line": 159
+//             },
+//             {
+//               "kind": "method",
+//               "name": "peek",
+//               "signature": "public func peek(&self, i: Int) borrows -> &Int",
+//               "visibility": "public",
+//               "generics": [],
+//               "params": [
+//                 {
+//                   "name": "i",
+//                   "label": "i",
+//                   "type": "Int"
+//                 }
+//               ],
+//               "returns": "&Int",
+//               "effect": "sync",
+//               "self": "window",
+//               "static": false,
+//               "doc": "The element at `i`, READ-ONLY -- a shared lend.",
+//               "line": 167
+//             },
+//             {
+//               "kind": "method",
+//               "name": "tally",
+//               "signature": "public func tally(&var self, i: Int) borrows -> &var Int",
+//               "visibility": "public",
+//               "generics": [],
+//               "params": [
+//                 {
+//                   "name": "i",
+//                   "label": "i",
+//                   "type": "Int"
+//                 }
+//               ],
+//               "returns": "&var Int",
+//               "effect": "sync",
+//               "self": "borrows-var",
+//               "static": false,
+//               "doc": "The element at `i`, counting the visit -- EXCLUSIVE-ONLY.",
+//               "line": 175
+//             }
+//           ],
+//           "doc": null,
+//           "line": 149,
+//           "module": "doc_emit_borrows"
+//         },
+//         {
+//           "kind": "struct",
+//           "name": "Bag",
+//           "signature": "struct Bag",
+//           "visibility": "private",
+//           "unsafe": false,
+//           "generics": [],
+//           "conformances": [],
+//           "fields": [],
+//           "doc": null,
+//           "line": 147,
+//           "module": "doc_emit_borrows"
+//         }
+//       ]
+//     }
+//   ]
+// }
+
+struct Bag { items: [Int; 4], visits: Int }
+
+extension Bag {
+    /// The element at `i`, as a place.
+    public func [](&var self, i: Int) borrows -> &var Int {
+        if i < 0 || i >= 4 {
+            panic("Bag.[]: index out of range")
+        }
+        lend self.items[i]
+    }
+
+    /// The element at `i` if it exists -- an optional place.
+    public func get(&var self, i: Int) borrows -> &var Int? {
+        if i < 0 || i >= 4 {
+            return None
+        }
+        lend self.items[i]
+    }
+
+    /// The element at `i`, READ-ONLY -- a shared lend.
+    public func peek(&self, i: Int) borrows -> &Int {
+        if i < 0 || i >= 4 {
+            panic("Bag.peek: index out of range")
+        }
+        lend self.items[i]
+    }
+
+    /// The element at `i`, counting the visit -- EXCLUSIVE-ONLY.
+    public func tally(&var self, i: Int) borrows -> &var Int {
+        if i < 0 || i >= 4 {
+            panic("Bag.tally: index out of range")
+        }
+        lend self.items[i]
+        self.visits = self.visits + 1
+    }
+}

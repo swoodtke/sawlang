@@ -1,0 +1,28 @@
+// Conformance row V70 — the borrowed-closure-binding refusal is TIER-BLIND
+//
+// DF-290a. V62's lesson at the new registration sites: a borrowed binding is
+// handed out UNRETAINED at every tier, so fencing only the owning tiers would
+// leave a Copy-tier `move` minting a second owner with no refcount bump — an
+// underflow, not merely a NoCopy problem. `Arc` is the tier's observable
+// member, so the refusal is checked on one.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot move out of `e`
+// EXPECT-ERROR-CONTAINS: closure PARAMETER
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func copy_tier_face() -> Arc<Res> {
+    var v = Vector<Arc<Res>>()
+    try! v.push(try! Arc<Res>(value: Res(w: 1)))
+    // A Copy-tier element: refused all the same, because the binding is an
+    // alias whatever the tier says about duplicating an OWNED one.
+    v.with_var_ref(0, { &var e in move e })
+}
+
+func main() {
+    print("{}", copy_tier_face().strong_count())
+}

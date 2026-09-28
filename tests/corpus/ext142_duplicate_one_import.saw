@@ -1,0 +1,15 @@
+// Design 142: the two signature-identical `kind` extensions are only ambiguous
+// where BOTH are visible. Importing one leaves a single candidate, and the
+// program builds and runs — proof the declarations themselves are legal and that
+// the two definitions keep distinct codegen identities.
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+
+import modules.ext142_base.{Reading}
+import modules.ext142_near
+import modules.ext142_dup_a
+
+func main() {
+    let r = ext142_near.make_reading()
+    print(r.kind())
+}

@@ -1,0 +1,52 @@
+// Design 136 unit B: a closure inherits its enclosing function's unsafe domain.
+// There is no closure-level marker — the closure is part of the body a reviewer
+// reads, so the enclosing declaration is where the effect is stated. Two shapes,
+// both legal because the enclosing function declares `unsafe`:
+//   - a closure that BINDS a raw pointer internally;
+//   - a closure that CAPTURES one while its own signature names none, so its type
+//     is the plain `() -> Int` its caller sees. Rule 7 makes that wrapper the
+//     author's promise: each function below writes the byte it later reads and
+//     returns the block before returning.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 9
+// 7
+// 16
+
+static BLOCK_BYTES: Int = 4
+static BLOCK_ALIGN: Int = 1
+
+// The unsafe binding is written inside the closure body.
+func bind_in_closure() unsafe -> Int {
+    let run = {
+        if let buf = GlobalAllocator().alloc(BLOCK_BYTES, BLOCK_ALIGN) {
+            buf[0] = 9 as Int8
+            let value = buf[0] as Int
+            GlobalAllocator().dealloc(buf, BLOCK_BYTES, BLOCK_ALIGN)
+            value
+        } else {
+            0
+        }
+    }
+    run()
+}
+
+// The pointer is captured. The closure's signature names no unsafe type, so its
+// type is the plain one written here, and it escapes behind that.
+func capture_in_closure() unsafe -> Int {
+    if let buf = GlobalAllocator().alloc(BLOCK_BYTES, BLOCK_ALIGN) {
+        buf[0] = 7 as Int8
+        let read: () -> Int = { buf[0] as Int }
+        let value = read()
+        GlobalAllocator().dealloc(buf, BLOCK_BYTES, BLOCK_ALIGN)
+        value
+    } else {
+        0
+    }
+}
+
+func main() {
+    print("{bind_in_closure()}")
+    print("{capture_in_closure()}")
+    print("{bind_in_closure() + capture_in_closure()}")
+}

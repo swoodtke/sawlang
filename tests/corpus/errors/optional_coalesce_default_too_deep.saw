@@ -1,0 +1,19 @@
+// Error (DF-174h): `??` peels ONE optional layer, so the default owes the
+// PEELED type. On a `Vector<Int?>` both `v.get(9)` and `v.get(0)` are `Int??`,
+// so using one as the other's default leaves the result a layer too deep.
+//
+// It used to be accepted: the compatibility check asks whether the payload
+// could flow into the DEFAULT, and `Int?` flowing into `Int??` is just the
+// auto-wrap rule, so the mis-typed default reached codegen and silently took
+// the absent path there. Depth is the one part the wrap rule must not paper
+// over.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `??` peels one optional layer
+// EXPECT-ERROR-CONTAINS: the default owes `Int?`
+// EXPECT-ERROR-CONTAINS: but this default is `Int??`
+
+func main() {
+    let v: Vector<Int?> = [1, 2, 3]
+    let got = v.get(9) ?? v.get(0)
+    print("{}", got ?? 0)
+}

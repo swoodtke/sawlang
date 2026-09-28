@@ -1,0 +1,33 @@
+// design 51: dynamic dispatch through a borrowed `&any Trait`. A `&concrete` is
+// erased to `&any Shape` at the call boundary (the vtable is attached); the call
+// `shape.area()` dispatches through the fat pointer's vtable slot. One function
+// serves two unrelated concrete types.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 12
+// 9
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+struct Circle { r: Int }
+extension Circle: Shape {
+    func area(&self) -> Int { self.r * self.r * 3 }
+}
+
+struct Square { s: Int }
+extension Square: Shape {
+    func area(&self) -> Int { self.s * self.s }
+}
+
+func describe(shape: &any Shape) -> Int {
+    shape.area()
+}
+
+func main() {
+    let c = Circle(r: 2)
+    let s = Square(s: 3)
+    print(describe(&c))   // 12
+    print(describe(&s))   // 9
+}

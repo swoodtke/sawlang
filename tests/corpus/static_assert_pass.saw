@@ -1,0 +1,23 @@
+// Design 53 Part 6: `static_assert(<const-expr>, "msg")` at top level and in
+// statement position. A true condition emits zero code. Uses arithmetic,
+// comparisons, sizeof/alignof, and the Int.max limit.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+
+struct UartRegs {
+    data: UInt32
+    state: UInt32
+    ctrl: UInt32
+}
+
+static_assert(2 + 2 == 4, "arithmetic")
+static_assert(sizeof<UInt32>() == 4, "UInt32 is 4 bytes")
+static_assert(sizeof<UartRegs>() == 12, "UartRegs layout")
+static_assert(Int.max > 0, "Int.max is positive")
+
+func main() {
+    static_assert(alignof<UInt32>() == 4, "UInt32 alignment")
+    static_assert(sizeof<UInt64>() == 8 && sizeof<UInt8>() == 1, "widths")
+    print(0)
+}

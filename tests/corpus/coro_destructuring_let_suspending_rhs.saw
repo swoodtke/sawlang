@@ -1,0 +1,101 @@
+// A destructuring `let` whose RHS spans a suspension, in every spelling the
+// statement class has. Design 120 promises a suspending call embeds in any
+// expression position; `DestructuringLet` was simply absent from the ANF
+// hoist's statement entry set, so both spellings — a tuple LITERAL of
+// suspending calls and a suspending call RETURNING a tuple — were refused with
+// the nested/expression-position error (DF-217g, closed by design 237 unit 2).
+//
+// The rows below are that statement class's own matrix: the two RHS shapes,
+// `var` beside `let`, a nested tuple pattern, a `_` position, evaluation order
+// against a side-effecting sibling (design 147), and a CONDITIONAL RHS — which
+// has no per-arm sink to lower into and so is lifted whole to a temp by the
+// stage-2 entry the same commit added.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// literal 1 2
+// call 3 4
+// var 5 6
+// nested 7 8 9
+// wildcard 11
+// order noisy
+// order slow
+// 1 2
+// coalesce 12 4
+// done
+
+import std.task.{yield_now}
+
+func mk_s(id: Int) -> Int {
+    yield_now()
+    id
+}
+
+func mk_pair() -> (Int, Int) {
+    yield_now()
+    (3, 4)
+}
+
+func noisy(id: Int) -> Int {
+    print("order noisy")
+    id
+}
+
+func loud_s(id: Int) -> Int {
+    yield_now()
+    print("order slow")
+    id
+}
+
+func maybe_pair(want: Bool) -> (Int, Int)? {
+    yield_now()
+    if want { return (12, 4) }
+    return None
+}
+
+func tuple_literal_rhs() {
+    let (a, b) = (mk_s(1), mk_s(2))
+    print("literal {a} {b}")
+}
+
+func suspending_call_rhs() {
+    let (a, b) = mk_pair()
+    print("call {a} {b}")
+}
+
+func var_rhs() {
+    var (a, b) = (mk_s(4), mk_s(7))
+    a += 1
+    b -= 1
+    print("var {a} {b}")
+}
+
+func nested_pattern_rhs() {
+    let (a, (b, c)) = (mk_s(7), (mk_s(8), mk_s(9)))
+    print("nested {a} {b} {c}")
+}
+
+func wildcard_position_rhs() {
+    let (a, _) = (mk_s(11), mk_s(99))
+    print("wildcard {a}")
+}
+
+func evaluation_order_rhs() {
+    let (a, b) = (noisy(1), loud_s(2))
+    print("{a} {b}")
+}
+
+func conditional_rhs() {
+    let (a, b) = maybe_pair(true) ?? (0, 0)
+    print("coalesce {a} {b}")
+}
+
+func main() {
+    tuple_literal_rhs()
+    suspending_call_rhs()
+    var_rhs()
+    nested_pattern_rhs()
+    wildcard_position_rhs()
+    evaluation_order_rhs()
+    conditional_rhs()
+    print("done")
+}

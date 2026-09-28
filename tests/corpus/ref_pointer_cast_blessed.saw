@@ -1,0 +1,58 @@
+// The one non-argument position a reference may appear in: the operand of a
+// cast to `UnsafePointer<T>` / `UnsafeConstPointer<T>` (DF-163f).
+//
+// This is the only address-of the language has, and it is a crossing into the
+// unsafe tier rather than an escape -- what survives the expression is a
+// pointer, not a reference, so the unsafe effect on the signature is what
+// fences it from there. The blessing is position-agnostic, and all three shapes
+// std and the runtime actually use are here: a local BINDING, a method RETURN,
+// and the chained `(&x) as UnsafePointer<T> as Int` token idiom that
+// `std.taskgroup` identifies a group with.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 5
+// 9
+// true
+
+struct Counter { n: Int }
+
+extension Counter {
+    // The cast in RETURN position: a pointer leaves, never a reference.
+    func cell(&var self) unsafe -> UnsafePointer<Int> {
+        (&var self.n) as UnsafePointer<Int>
+    }
+}
+
+// The cast bound to a LOCAL, then read through.
+func read_through(c: &var Counter) unsafe -> Int {
+    let p = (&var c.n) as UnsafePointer<Int>
+    p[0]
+}
+
+// The shared flavor, through a const pointer.
+func peek(c: &Counter) unsafe -> Int {
+    let p = (&c.n) as UnsafeConstPointer<Int>
+    p[0]
+}
+
+func write_through(c: &var Counter, v: Int) unsafe {
+    let p = c.cell()
+    p[0] = v
+}
+
+// The chained cast: address as a number, the `std.taskgroup` identity idiom.
+func token(c: &var Counter) unsafe -> Int {
+    (&var c.n) as UnsafePointer<Int> as Int
+}
+
+func main() {
+    var c = Counter(n: 5)
+    print("{read_through(&var c)}")
+    print("{peek(&c)}")
+
+    write_through(&var c, 9)
+    print("{c.n}")
+
+    print("{token(&var c) != 0}")
+}

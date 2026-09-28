@@ -1,0 +1,47 @@
+// SL-239: an explicitly Optional-typed destination reconciles a value `if` /
+// `if let` whose arms MIX a `T?` arm with a bare `T` arm — the bare arm wraps
+// into `Some(...)`, the `T?` arm stays put — in BOTH arm orders. Before the fix
+// the arm-to-arm compatibility test was one-directional, so a then-`String?` /
+// else-`String` pair was rejected as `String? vs String`, even though the same
+// pair with the plain arm FIRST compiled.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// then-optional: none
+// else-optional: hi
+// iflet then-optional: none
+// iflet else-optional: yo
+func present() -> String? { "here" }
+
+func main() {
+    // ordinary if, then arm is String?, else arm is bare String
+    let a: String? = if true {
+        let absent: String? = None
+        absent
+    } else {
+        "fallback"
+    }
+    if let t = a { print("then-optional: {}", t) } else { print("then-optional: none") }
+
+    // ordinary if, OTHER order: then bare String, else String?
+    let b: String? = if true { "hi" } else {
+        let absent: String? = None
+        absent
+    }
+    if let t = b { print("else-optional: {}", t) } else { print("else-optional: none") }
+
+    // if let, then arm String?, else arm bare String
+    let c: String? = if let _ = present() {
+        let absent: String? = None
+        absent
+    } else {
+        "fallback"
+    }
+    if let t = c { print("iflet then-optional: {}", t) } else { print("iflet then-optional: none") }
+
+    // if let, OTHER order: then bare String, else String?
+    let d: String? = if let _ = present() { "yo" } else {
+        let absent: String? = None
+        absent
+    }
+    if let t = d { print("iflet else-optional: {}", t) } else { print("iflet else-optional: none") }
+}

@@ -1,0 +1,35 @@
+// Design 63: an IMPORTED distinct alias is still a distinct alias. It
+// constructs, it flows to its underlying at a raw-word boundary, and it stays
+// distinct from a sibling declared beside it.
+//
+// The name resolved as a type before this worked — an annotation using it
+// checked fine — while every rule asking "is this an alias?" answered no, so
+// the alias neither flowed nor accepted its constructor, one module away from
+// its declaration.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+// 20
+
+import modules.alias63_handles.{SystemHandle, ChannelHandle, raw_op}
+
+/// Holds the typed handle, and calls through to the raw boundary with it.
+struct System {
+    handle: SystemHandle,
+}
+
+extension System {
+    init(boot: UInt) -> System { System(handle: SystemHandle(boot)) }
+
+    // `self.handle` is a `SystemHandle` and the parameter is a `UInt`: the
+    // alias flows to its underlying with no cast written and none emitted.
+    func op(&self, arg: UInt) -> UInt { raw_op(self.handle, arg) }
+}
+
+func main() {
+    let system = System(boot: 1)
+    print(system.op(10))
+
+    let ch = ChannelHandle(20)
+    print(raw_op(ch, 0))
+}

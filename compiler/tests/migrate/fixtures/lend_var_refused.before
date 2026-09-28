@@ -1,0 +1,14 @@
+// expected: a-removed: syntax.expr.refused-lend-var
+struct Bag { n: Int }
+extension Bag {
+    public func at(&self) borrows -> &var Int {
+        if #lend_var { print("exclusive") }
+        lend self.n
+    }
+}
+
+func main() {
+    var b = Bag(n: 1)
+    b.at() += 1
+    print(b.n)
+}

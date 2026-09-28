@@ -1,0 +1,13 @@
+// The scoped spelling reaches the same refusal as the plain one, on an
+// `@synthesize`-attributed head — the two positions the parser admits a
+// visibility from. See extension_head_visibility_error.saw for the rule.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: an extension cannot carry a visibility modifier
+
+public struct Point { public x: Int }
+
+@synthesize
+public(package) extension Point: Equatable {}
+
+func main() { print(Point(x: 1) == Point(x: 1)) }

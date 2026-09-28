@@ -1,0 +1,19 @@
+// Design 150 pin 4's diagnostic contract: when member lookup fails on a value
+// that shadows a module qualifier, say so. "type `Int` has no method `Data`" is
+// true and useless — the author wrote a module access and got a method call on
+// an Int. The error names the declaration that took the name and the three ways
+// out.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has no method `Data`
+// EXPECT-ERROR-CONTAINS: `data` here is the binding declared on line 16
+// EXPECT-ERROR-CONTAINS: shadows the module qualifier bound by `import std.data`
+// EXPECT-ERROR-CONTAINS: rename the binding
+// EXPECT-ERROR-CONTAINS: `import std.data as <name>`
+// EXPECT-ERROR-CONTAINS: `import std.data.{Data}`
+import std.data
+
+func main() {
+    let data = 5
+    var d = data.Data()
+    print("{d.len()}")
+}

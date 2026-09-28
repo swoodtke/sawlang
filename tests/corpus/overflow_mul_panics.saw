@@ -1,0 +1,8 @@
+// Integer multiplication overflow panics (design 31).
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: integer overflow
+
+func main() {
+    let x = 9223372036854775807 * 2   // Int.max * 2 -> panic
+    print(x)
+}

@@ -1,0 +1,34 @@
+// The other half of DF-300d's control. Skipping an entry-module extension
+// member that is ALREADY registered on an imported type's shared method table
+// must not skip a genuine redeclaration: two methods of one name that agree on
+// arity, types and labels are still indistinguishable, and design 142's
+// per-module distinctness rule still refuses them here.
+//
+// Written in the shape the fix touches — an imported receiver, in an entry
+// module whose coroutine transform runs — since that is the only combination
+// where the skip is reachable at all.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is already defined for struct `Reading` with an indistinguishable signature
+
+import std.task.*
+import modules.df300d_shapes.{Reading}
+
+extension Reading {
+    func doubled(&self) -> Int { self.raw * 2 }
+}
+
+extension Reading {
+    func doubled(&self) -> Int { self.scale * 2 }
+}
+
+func doubled_after_yield(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(doubled_after_yield(5))
+    let r = Reading(raw: 21, scale: 2)
+    print("{}", h.join() + r.doubled())
+}

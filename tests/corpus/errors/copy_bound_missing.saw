@@ -1,0 +1,13 @@
+// Error: an unbounded type parameter does not get `.copy()` - the abstract
+// generic body check rejects it (no `Copy` bound).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: unbounded type parameter
+
+func bad<T>(x: T) -> T {
+    x.copy()
+}
+
+func main() {
+    let n = bad<Int>(1)
+    print(n)
+}

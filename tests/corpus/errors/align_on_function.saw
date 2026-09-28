@@ -1,0 +1,9 @@
+// DF-300b: `@align` is not a function attribute — a function is code, and
+// there is no storage on it to align. `@export`/`@section` are the two that
+// belong there, and the refusal lists them.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: attribute `@align` is not supported on function declarations
+@align(8)
+func main() {
+    print(1)
+}

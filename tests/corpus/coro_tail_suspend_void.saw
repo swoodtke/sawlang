@@ -1,0 +1,55 @@
+// A suspending call in a `Void` body's TAIL position lowers exactly as a
+// statement would (DF-158b).
+//
+// `func f() { yield_now() }` is a Void task body whose only statement the parser
+// makes the block's TAIL EXPRESSION. The tail normalization turned that into
+// `return yield_now()`, and a suspending call as a RETURN VALUE is a
+// nested/expression position the state split cannot express — so the author got
+// "appears in a nested/expression position", a message about a shape they did
+// not write. Adding any statement after the call made it compile, which was the
+// tell. Void is the whole scope of it: a body returning a value has a real
+// result to compute from its tail; a Void one has nothing to carry out, so its
+// tail is a discard. Found while writing design 158's slot-churn test, whose
+// short Void task is this shape.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ok
+
+import std.task.*
+
+func inner() {
+    yield_now()
+    return
+}
+
+// The bare intrinsic as the whole body.
+func tail_only() {
+    yield_now()
+}
+
+// A nested suspending CALL as the tail: the callee's frame has to embed here.
+func tail_call() {
+    inner()
+}
+
+// A trailing `if` with no else, and a trailing `match` — both are the block's
+// final expression too, and both used to become `return <control flow>`.
+func tail_if(k: Int) {
+    if k > 0 { yield_now() }
+}
+
+func tail_match(k: Int) {
+    match k {
+        case 0 -> { yield_now() },
+        case _ -> { sleep(Duration.ms(1)) }
+    }
+}
+
+func main() {
+    var g = TaskGroup()
+    g.spawn(tail_only()).join()
+    g.spawn(tail_call()).join()
+    g.spawn(tail_if(1)).join()
+    g.spawn(tail_match(0)).join()
+    print("ok")
+}

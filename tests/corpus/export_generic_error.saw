@@ -1,0 +1,9 @@
+// design 58 Part 2: a generic function cannot be `@export`ed — a C symbol has
+// no type parameters.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot `@export` the generic function `ident`
+
+@export
+func ident<T>(x: T) -> T { x }
+
+func main() { print(1) }

@@ -1,0 +1,134 @@
+// Conformance row K53 — a driven `for` over a range runs exactly the
+// iterations its sync twin runs, in BOTH range flavours
+//
+// The claim colorless concurrency rests on is that adding a suspension does not
+// change what a program computes. A range `for` is the one loop where the
+// coroutine transform tests that claim against itself: `_split_while` re-emits
+// the author's own condition, but `_split_for` HAND-WRITES the header and the
+// step out of frame slots, because a driven body has no `Range`/`RangeInclusive`
+// object to hold the iteration state across a suspension. Written for the
+// exclusive range only (DF-225m), it drove every `for i in a..=b` one iteration
+// short and ran a single-iteration `3..=3` not at all — silently, since the sync
+// twin of the same loop was right.
+//
+// Four properties, each read against its own plain twin: the ordinary inclusive
+// range, the single-iteration one, the empty one, and the exclusive control. The
+// `Int.max` upper bound is the fifth and is its own claim — the guarded step,
+// which is why an unguarded `i <= end` header is not the fix; a naive one panics
+// `integer overflow` exactly where the sync twin terminates.
+//
+// The wider nine-row matrix (variable and `static` bounds, an embedded callee, a
+// body that does not itself suspend, nesting, MT) lives in
+// examples/coro_for_inclusive_range_last_iteration.saw and
+// examples/coro_for_inclusive_range_int_max.saw.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// inclusive 15 15
+// single 3 3
+// empty 0 0
+// exclusive 10 10
+// int_max 3 3
+
+import std.task.*
+
+func inclusive_driven() -> Int {
+    var n = 0
+    for i in 1..=5 {
+        n = n + i
+        yield_now()
+    }
+    return n
+}
+
+func inclusive_plain() -> Int {
+    var n = 0
+    for i in 1..=5 {
+        n = n + i
+    }
+    return n
+}
+
+func single_driven() -> Int {
+    var n = 0
+    for i in 3..=3 {
+        n = n + i
+        yield_now()
+    }
+    return n
+}
+
+func single_plain() -> Int {
+    var n = 0
+    for i in 3..=3 {
+        n = n + i
+    }
+    return n
+}
+
+func empty_driven() -> Int {
+    var n = 0
+    for i in 3..=2 {
+        n = n + i
+        yield_now()
+    }
+    return n
+}
+
+func empty_plain() -> Int {
+    var n = 0
+    for i in 3..=2 {
+        n = n + i
+    }
+    return n
+}
+
+func exclusive_driven() -> Int {
+    var n = 0
+    for i in 1..5 {
+        n = n + i
+        yield_now()
+    }
+    return n
+}
+
+func exclusive_plain() -> Int {
+    var n = 0
+    for i in 1..5 {
+        n = n + i
+    }
+    return n
+}
+
+// The guarded step: the last iteration leaves through the `i == end` test, not
+// through the header, so nothing ever increments past `Int.max`.
+func int_max_driven() -> Int {
+    var n = 0
+    for i in (Int.max - 2)..=Int.max {
+        n = n + 1
+        yield_now()
+    }
+    return n
+}
+
+func int_max_plain() -> Int {
+    var n = 0
+    for i in (Int.max - 2)..=Int.max {
+        n = n + 1
+    }
+    return n
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(inclusive_driven())
+    let b = g.spawn(single_driven())
+    let c = g.spawn(empty_driven())
+    let d = g.spawn(exclusive_driven())
+    let e = g.spawn(int_max_driven())
+    print("inclusive {} {}", a.join(), inclusive_plain())
+    print("single {} {}", b.join(), single_plain())
+    print("empty {} {}", c.join(), empty_plain())
+    print("exclusive {} {}", d.join(), exclusive_plain())
+    print("int_max {} {}", e.join(), int_max_plain())
+}

@@ -1,0 +1,41 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+
+// Enum with associated values
+enum OperationResult {
+    case Success(value: Int),
+    case Error(code: Int)
+}
+
+// design 32: payload-carrying enums opt in to payload-deep `==`.
+@synthesize
+extension OperationResult: Equatable {}
+
+func make_success(n: Int) -> OperationResult {
+    OperationResult.Success(value: n)
+}
+
+func make_error(code: Int) -> OperationResult {
+    OperationResult.Error(code: code)
+}
+
+func main() {
+    let r1 = make_success(42)
+    let r2 = make_error(404)
+
+    // Different variants are not equal
+    if r1 != r2 {
+        print(1)  // Should print
+    }
+
+    let r3 = OperationResult.Success(value: 100)
+    let r4 = OperationResult.Success(value: 200)
+
+    // Different payloads are NOT equal under payload-deep comparison
+    // (design 32; the old tag-only comparison wrongly made these equal).
+    if r3 != r4 {
+        print(2)  // Should print
+    }
+}

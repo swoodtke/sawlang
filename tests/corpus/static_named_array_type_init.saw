@@ -1,0 +1,41 @@
+// DF-172g: a static whose declared type is a NAMED ALIAS for an array, with a
+// repeat-literal initializer. It died as `internal compiler error: 'NoneType'
+// object has no attribute 'kind'`: the LLVM type followed the alias, but the
+// STRUCTURAL read that fetches the element type came off the alias node, where
+// it is None, so the array arm recursed with no element type at all.
+//
+// Worth having a spelling for: naming the array type is how a large region gets
+// ONE declaration of its size — the length lives in the alias, `sizeof` reads
+// it back, and an initializer whose length disagrees is a clean type error
+// rather than a stale second number. That is what the SOS arena wanted
+// (design 172 part 2) when this surfaced, and the address-of route below is
+// exactly how it reaches the region: an alias is a DISTINCT type, so it does
+// not inherit indexing, and `(&var A) as UnsafePointer<T>` is the way in.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 8
+// 16
+// 0
+// 7
+
+type Region = [UInt8; 8]
+type Marks = [Int; 2]
+
+unsafe static var ARENA: Region = [0; 8]
+unsafe static var MARKED: Marks = [7; 2]
+
+func first_of(region: UInt) unsafe -> UInt {
+    UnsafeMemory<UInt, Normal>(region).read()
+}
+
+func main() unsafe {
+    // The size has one source: the alias.
+    print(sizeof<Region>())
+    print(sizeof<Marks>())
+
+    let arena = ((&var ARENA) as UnsafePointer<UInt8>) as UInt
+    let marks = ((&var MARKED) as UnsafePointer<Int>) as UInt
+    // An all-zero repeat is zerofill; a non-zero one carries its bytes.
+    print(first_of(arena))
+    print(first_of(marks))
+}

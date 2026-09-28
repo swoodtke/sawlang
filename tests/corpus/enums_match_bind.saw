@@ -1,0 +1,50 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 404
+// 42
+// 404
+// 1
+// 0
+
+// Match with bindings to extract associated values
+enum OperationResult {
+    case Success(value: Int),
+    case Error(code: Int)
+}
+
+func process_result(r: OperationResult) -> Int {
+    match r {
+        case Success(val) -> val,
+        case Error(err_code) -> err_code
+    }
+}
+
+func describe_result(r: OperationResult) -> Int {
+    match r {
+        case Success(n) -> {
+            print(n)
+            1
+        },
+        case Error(code) -> {
+            print(code)
+            0
+        }
+    }
+}
+
+func main() {
+    let r1 = OperationResult.Success(value: 42)
+    let r2 = OperationResult.Error(code: 404)
+
+    // Extract values via pattern matching
+    print(process_result(r1))  // Should print 42
+    print(process_result(r2))  // Should print 404
+
+    // Test with blocks
+    let status1 = describe_result(r1)  // Should print 42, return 1
+    let status2 = describe_result(r2)  // Should print 404, return 0
+
+    print(status1)  // Should print 1
+    print(status2)  // Should print 0
+}

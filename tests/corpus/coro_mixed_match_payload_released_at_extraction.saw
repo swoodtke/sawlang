@@ -1,0 +1,85 @@
+// A driven `case Both(v, _)` drops the DISCARDED field at extraction and the
+// NAMED one at the arm's end, exactly as the sync twin does — DF-218w's
+// narrowed residue, CLOSED by design 247.
+//
+// Sync answers this arm shape with two drops at two points: the `_` field
+// INLINE at extraction (codegen/match.py's consume branch), the named binding
+// at the arm's end through the arm cleanup scope it is registered in. The
+// driven twin could not, because it held ONE value — the frame temp the
+// container-head hoist made, carrying the whole enum — and `_release_shape`
+// releases a field WHOLE. There was no spelling that dropped `b` while `a` was
+// still named, so the temp's own release at the statement's end dropped both,
+// one position late for the discarded half. DF-218w's per-arm edge (E-ARM)
+// could not take this arm either: it fires only where the arm claims NOTHING by
+// name, and releasing here would free the value `v` reads for the arm's length.
+//
+// WHAT CLOSED IT was not a third edge but the encoding. The hoisted temp is
+// take-read now (`self.__headN.take()`), so the scrutinee reaching codegen is
+// an OWNED TEMPORARY and the ordinary consume model applies: the `_` field is
+// dropped inline at extraction and `v` is registered in the arm's cleanup
+// scope. Both twins now take one code path to one answer, which is why the
+// timing agrees by construction rather than by two release systems being kept
+// apart. Its E-ARM sibling
+// (`coro_discarded_match_payload_released_at_extraction.saw`) reaches the same
+// answer through the same model.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- sync
+// NEW t1
+// NEW t2
+// DEINIT t2
+// arm
+// DEINIT t1
+// scope closed
+// -- driven
+// NEW t1
+// NEW t2
+// DEINIT t2
+// arm
+// DEINIT t1
+// scope closed
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+struct Tag { cell: Arc<Res> }
+@synthesize
+extension Tag: Copy {}
+
+enum Both { case Pair(a: Tag, b: Tag) }
+
+func mk_tag(id: Int) -> Tag {
+    print("NEW t{id}")
+    Tag(cell: try! Arc<Res>(value: Res(name: "t{id}")))
+}
+
+func mk_tag_s(id: Int) -> Tag {
+    yield_now()
+    print("NEW t{id}")
+    Tag(cell: try! Arc<Res>(value: Res(name: "t{id}")))
+}
+
+func sync_mixed() {
+    match Both.Pair(a: mk_tag(1), b: mk_tag(2)) {
+        case Pair(v, _) -> { print("arm") }
+    }
+    print("scope closed")
+}
+
+func driven_mixed() {
+    match Both.Pair(a: mk_tag_s(1), b: mk_tag(2)) {
+        case Pair(v, _) -> { print("arm") }
+    }
+    print("scope closed")
+}
+
+func main() {
+    print("-- sync")
+    sync_mixed()
+    print("-- driven")
+    __saw_drive(driven_mixed())
+}

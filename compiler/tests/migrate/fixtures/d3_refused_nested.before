@@ -1,0 +1,10 @@
+struct Cell { n: Int }
+
+func main() {
+    var vv = Vector<Vector<Cell>>()
+    try! vv.push([Cell(n: 1)])
+    if let _ = vv[0].get(1) {
+        print("yes")
+    }
+    print(vv.len())
+}

@@ -1,0 +1,23 @@
+// DF-307a, the OTHER side: `sizeof`/`alignof` folds in the front end for every
+// type a SawType KIND alone determines, and refuses BY NAME for the rest.
+//
+// A struct's ABI layout does not exist until codegen builds it, so a front-end
+// position — an array length, a repeat count, a `static` initializer, an
+// `@align` — cannot answer `sizeof<Region>()` without guessing, and a guess is
+// the one answer nothing downstream could catch (the array would be allocated
+// at one size and bounds-checked at another). It says so instead, and the hint
+// names the domain that DOES work.
+//
+// `static_assert(sizeof<Region>() == N, ...)` is where a layout claim belongs
+// and is unaffected — see `wire_struct_view.saw` and `const_length_grammar_unified.saw`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: array length is not a compile-time constant
+// EXPECT-ERROR-CONTAINS: `sizeof<Region>()`, whose layout only code generation knows
+// EXPECT-ERROR-CONTAINS: `sizeof`/`alignof` of a primitive or pointer type
+
+struct Region { a: Int, b: Int }
+
+func main() {
+    var buf: [UInt8; sizeof<Region>()] = [0; 16]
+    print(buf[0])
+}

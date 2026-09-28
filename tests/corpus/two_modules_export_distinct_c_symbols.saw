@@ -1,0 +1,47 @@
+// SL-274 review r1 finding P1: two modules may export DISTINCT C names from one
+// Saw name.
+//
+// `@export` decides the EMITTED C symbol and the linkage. It does NOT decide the
+// compiler's internal identity — `_declare_function` has always kept the two
+// apart, `func_name` being the `self.functions` lookup key and `llvm_name` the
+// requested C symbol — so a declaration keeps its `<name>$m$<module>` identity
+// everywhere the compiler names it and is emitted under the C name.
+//
+// The first draft of SL-274 exempted an `@export`ed function from the mangling on
+// the reasoning that its LLVM name was the export name anyway. That was wrong
+// about which of the two the exemption reached: it returned an EMPTY symbol base,
+// so both `value`s here shared the lookup key `value`, the second overwrote the
+// first, and the first's body was never emitted. The `@llvm.used` keep-root then
+// named a declaration with no definition:
+//
+//     Linking failed: Undefined symbols for architecture arm64:
+//       "_first_value", referenced from:
+//           <initial-undefines>
+//
+// Both halves are checked here: the SAW calls (which go through the module-
+// qualified identity) and the C calls back in through `extern "C"` (which go
+// through the export names). The two must agree about which body is which.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: saw 11 22
+// EXPECT-OUTPUT: c 11 22
+
+extern "C" {
+    func first_value() -> Int
+    func second_value() -> Int
+}
+
+module first {
+    @export("first_value")
+    public func value() -> Int { 11 }
+}
+
+module second {
+    @export("second_value")
+    public func value() -> Int { 22 }
+}
+
+func main() {
+    print("saw {first.value()} {second.value()}")
+    print("c {first_value()} {second_value()}")
+}

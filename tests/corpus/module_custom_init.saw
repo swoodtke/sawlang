@@ -1,0 +1,16 @@
+// A module-qualified struct with a custom init: `shapes.Square(magnitude: 5)`
+// flows through `_check_module_struct_init` and its custom initializer actually
+// runs (design 27 item 3). This is the supported way to invoke a
+// module-qualified custom init; the member-access form (`pkg.Struct.init(...)`)
+// is rejected with a clean diagnostic instead of crashing. Regression guard:
+// the module path previously left the matched-init unrecorded, so codegen
+// silently built a zeroed struct (printed 0 instead of 5).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+import modules.shapes
+
+func main() {
+    let s = shapes.Square(magnitude: 5)
+    print(s.side)   // 5
+}

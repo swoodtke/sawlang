@@ -1,0 +1,11 @@
+// Design 180 unit 4: `sleep` takes a `Duration` and nothing else. The bare-Int
+// form is GONE, with no deprecation period — a naked number carries no unit,
+// and the unit it silently meant could not express a span past about 35 minutes
+// (DF-170a). The diagnostic names the constructor to reach for.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `sleep` expects a `Duration`, got `Int`
+// EXPECT-ERROR-CONTAINS: a span is a `Duration`: `sleep(Duration.ms(200))`
+
+func main() {
+    sleep(200)
+}

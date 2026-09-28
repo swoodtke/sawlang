@@ -1,0 +1,49 @@
+// A generic function forwarding its OWN bounded type param to another generic's
+// bound (design 77 item 2). `middle<T: Seed>` calls `inner<T>(w)` where
+// `inner<T: Seed>` requires `Seed`; the caller's declared bound satisfies the
+// callee's bound check (a bounds-environment lookup). Previously errored
+// "type `T` does not implement trait `Seed`" even though the bound was declared.
+// Also exercises a two-level forward and a Comparable bound forward.
+// EXPECT: success
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: 100
+// EXPECT-OUTPUT: 7
+
+trait Seed {
+    func grow(&self) -> Int
+}
+
+struct Acorn { n: Int }
+
+extension Acorn: Seed {
+    func grow(&self) -> Int { self.n + 1 }
+}
+
+func leaf<T: Seed>(w: T) -> Int {
+    w.grow()
+}
+
+func inner<T: Seed>(w: T) -> Int {
+    leaf<T>(w)          // two-level forward: middle -> inner -> leaf
+}
+
+func middle<T: Seed>(w: T) -> Int {
+    inner<T>(w)
+}
+
+// Forward a Comparable bound through a generic wrapper.
+func bigger<T: Comparable>(a: T, b: T) -> T {
+    if a > b { a } else { b }
+}
+
+func pick<T: Comparable>(a: T, b: T) -> T {
+    bigger<T>(a, b)
+}
+
+func main() {
+    let a = Acorn(n: 41)
+    print(middle<Acorn>(a))       // 42
+    let b = Acorn(n: 99)
+    print(leaf<Acorn>(b))         // 100
+    print(pick<Int>(3, 7))        // 7
+}

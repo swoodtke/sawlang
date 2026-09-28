@@ -1,0 +1,72 @@
+// Conformance row K94 — a deadline-bounded io park that never becomes ready
+// reports `TimedOut` and does not hang, in EVERY engine that parks
+//
+// Design 272 unit 1 (SL-204). The rule "an io park with a deadline ends at the
+// deadline" is position-quantified over the four places the executor decides
+// whether an io park is still a park, and those places are three different
+// engines. A single-engine test would have passed with three of the four entry
+// points missing, which is exactly the shape of gap brief obligation 1 exists to
+// close — so this row drives the AMBIENT SWEEP and an MT GROUP here and the
+// SINGLE-FRAME DRIVE in its sibling `K94b`, and the fourth entry point (the
+// sweep's post-poll promote) is on the path of both.
+//
+// Each park is on a socketpair end whose peer is held and never written, so
+// "never becomes ready" is a fact of the program rather than a hope about
+// timing. The assertion on the span is ONE-SIDED — at least the deadline, never
+// an upper bound — because an upper bound is a property of the machine, not of
+// the language. Timeouts round UP to the poll's millisecond granularity, so
+// "late" is legal and "early" is the bug.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sweep timed out, waited long enough
+// mt timed out, waited long enough
+
+import std.net.{TcpStream, Timed}
+import std.time
+
+// 60ms asked for; 50ms asserted. The gap absorbs the millisecond rounding
+// without ever letting a genuinely-early wake through.
+static ASKED_MS: UInt64 = 60
+static FLOOR_MS: UInt64 = 50
+
+func idle_read(s: TcpStream, label: String) {
+    let start = time.Instant.now()
+    match s.read(timeout: Duration.ms(ASKED_MS)) {
+        case Ok(o) -> match o {
+            case Value(d) -> print("{} READ {} BYTES", label, d.len()),
+            case TimedOut -> {
+                let waited = start.elapsed()
+                if waited.as_millis() >= FLOOR_MS {
+                    print("{} timed out, waited long enough", label)
+                } else {
+                    print("{} TIMED OUT EARLY: {}", label, waited)
+                }
+            }
+        },
+        case Err(e) -> print("{} ERR {}", label, e)
+    }
+}
+
+// Engine 1: the ambient cooperative sweep (a default single-threaded group).
+func sweep_case() {
+    let (a, b) = TcpStream.pair()
+    var group = TaskGroup()
+    let t = group.spawn(idle_read(move a, "sweep"))
+    t.join()
+    let _ = move b
+}
+
+// Engine 2: an MT group, whose worker owns its own scan, its own poll bound and
+// its own post-poll promote — none of them shared with the sweep above.
+func mt_case() {
+    let (a, b) = TcpStream.pair()
+    var group = try! TaskGroup(threads: 2)
+    let t = group.spawn(idle_read(move a, "mt"))
+    t.join()
+    let _ = move b
+}
+
+func main() {
+    sweep_case()
+    mt_case()
+}

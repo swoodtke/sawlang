@@ -1,0 +1,2 @@
+status: rewritten
+4 A0.nested-store+map-unwrap rewritten => borrow var m["k"][0] = 5

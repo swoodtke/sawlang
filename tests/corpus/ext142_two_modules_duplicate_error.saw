@@ -1,0 +1,17 @@
+// Design 142: when the two visible extensions are signature-IDENTICAL, no
+// tie-break rule can separate them. The error belongs at the USE SITE — each
+// declaration is fine on its own, and neither module knows the other exists —
+// and it names both defining modules.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous method `kind` on `Reading`
+// EXPECT-ERROR-CONTAINS: modules.ext142_dup_a
+
+import modules.ext142_base.{Reading}
+import modules.ext142_near
+import modules.ext142_dup_a
+import modules.ext142_dup_b
+
+func main() {
+    let r = ext142_near.make_reading()
+    print(r.kind())
+}

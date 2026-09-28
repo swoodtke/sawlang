@@ -1,0 +1,15 @@
+// Design 108: when a defaulted generic parameter DRIVES inference (`f(1)` with
+// no explicit `T`), the inferred type is bound-checked, and the failure names
+// the inferred concrete type. Here the default `Widget()` infers `T = Widget`,
+// which does not implement `Fooable`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: type `Widget` does not implement trait `Fooable`
+
+trait Fooable { func foo(&self) -> Int }
+struct Widget { v: Int }
+
+func f<T: Fooable>(a: Int, b: T = Widget(v: 0)) -> Int { a }
+
+func main() {
+    print(f(1))
+}

@@ -1,0 +1,31 @@
+// A MODULE-QUALIFIED free-function call carries the callee's parameter type
+// into a literal argument, so an out-of-range one is refused AT THE LITERAL
+// (DF-238a, FIXED).
+//
+// The literal used to stay at platform `Int`: an out-of-range one was SILENTLY
+// TRUNCATED rather than refused (`qualcall.take_byte(300)` compiled and the
+// callee received 44), and on a 32-bit target one wider than the platform word
+// fell out of the fold domain as an internal compiler error. Every other
+// spelling of the same call was correct — the bare selective import, the bare
+// glob import, a qualified STATIC METHOD and a qualified CONSTRUCTOR all
+// range-checked the literal — so the hole was the qualified free-function path
+// alone, which resolved the callee and then checked the arguments against its
+// RAW declared types.
+//
+// The two CONTROLS in `main` are the qualified member paths that were always
+// correct; they are here so a fix cannot pass by breaking them.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: integer literal 300 does not fit in `UInt8`
+// COMPILE-FLAGS: --module-path qualcall={TESTDIR}/modules/qualcall238a
+import qualcall
+
+func main() {
+    // The two CONTROLS first: both of these are refused today, and must stay
+    // refused by whatever fixes the line below.
+    let ok = qualcall.Byte238a.of(255)
+    print(ok.value)
+
+    // The finding.
+    print(qualcall.take_byte(300))
+}

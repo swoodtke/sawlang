@@ -1,0 +1,14 @@
+// Conformance row G06 — a panic inside a suspending `main` aborts the process
+//
+// The panic path is not the return path and must not be routed through it: a
+// panic ends the program where it happens, whatever `main` was going to return.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: panic at
+// EXPECT-PANIC-CONTAINS: main panicked
+
+import std.task.{yield_now}
+
+func main() -> Int {
+    yield_now()
+    panic("main panicked")
+}

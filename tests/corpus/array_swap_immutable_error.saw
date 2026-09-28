@@ -1,0 +1,9 @@
+// Design 72 M1: `.swap` mutates in place, so it may not be called on an
+// immutable (`let`) array.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot call `swap` on immutable array
+func main() {
+    let a = [1, 2, 3]
+    a.swap(0, 2)
+    print(a[0])
+}

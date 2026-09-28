@@ -1,0 +1,26 @@
+// A spawned body with no suspension correctly destructures a tuple.
+//
+// DF-217o: A spawn root is always frame-transformed, but with no suspension
+// point in the body the destructuring-let lowering used to rewrite the
+// bindings into frame-field stores (`self.a = ...`) even though no frame
+// fields had been created — so the typechecker reported that the frame
+// struct had no field `a`. The fix: when none of the destructured bindings
+// are frame-resident, keep the original destructuring let unchanged.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// got 3
+// done
+
+import std.task.*
+
+func worker() -> Int {
+    let (a, b) = (1, 2)
+    a + b
+}
+
+func main() {
+    var g = TaskGroup()
+    let h = g.spawn(worker())
+    print("got {h.join()}")
+    print("done")
+}

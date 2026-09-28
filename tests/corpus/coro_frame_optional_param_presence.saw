@@ -1,0 +1,35 @@
+// SL-350: an address-taken Optional parameter keeps its own presence tag in
+// the coroutine frame. It is not a bare payload wrapped by frame occupancy.
+// A nested suspending call also preserves the typechecker's bare Int -> Int?
+// argument wrap when the parameter is seeded into an occupancy Slot.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -1
+// 21
+// 7
+
+import std.task.{yield_now}
+
+func observe(value: &Int?) sync {}
+
+func inspect(value: Int?) -> Int {
+    observe(&value)
+    yield_now()
+    value ?? -1
+}
+
+func nested_inner(value: Int?) -> Int {
+    yield_now()
+    value ?? -1
+}
+
+func nested_outer() -> Int {
+    yield_now()
+    nested_inner(7)
+}
+
+func main() {
+    print(__saw_drive(inspect(None)))
+    print(__saw_drive(inspect(21)))
+    print(__saw_drive(nested_outer()))
+}

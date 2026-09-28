@@ -1,0 +1,42 @@
+// Conformance row C01 — `<` `>` `<=` `>=` on a NoCopy operand whose `compare`
+// is hand-written
+//
+// `Comparable.compare(&self, other: &Self)` takes the right operand by
+// REFERENCE (design 239), which is what the operator lowering has always
+// passed. There is no transfer, so there is nothing for the callee to consume
+// and nothing for a checkpoint to guard: a move-only type with a hand-written
+// ordering is comparable, and each comparison leaves both operands owned by
+// their bindings. The two drops below are the whole proof — a body that could
+// consume `other` would have produced more.
+//
+// This row was DF-216b's found instance, pinned as a REFUSAL while the operand
+// was passed by value; it states the capability now.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// gt
+// ge
+// drop 3
+// drop 9
+
+struct Tag { id: Int }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+@synthesize
+extension Tag: Equatable {}
+extension Tag: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        if self.id < other.id { Ordering.Less }
+        else if self.id > other.id { Ordering.Greater }
+        else { Ordering.Equal }
+    }
+}
+
+func main() {
+    let a = Tag(id: 9)
+    let b = Tag(id: 3)
+    if a < b { print("lt") }
+    if a > b { print("gt") }
+    if a <= b { print("le") }
+    if a >= b { print("ge") }
+}

@@ -1,0 +1,13 @@
+// design 128: an extension accepts `@synthesize` only — `@export` there is a
+// clean misplacement error (the mirror of @synthesize on a function).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: attribute `@export` is not supported on extensions
+
+struct Point { x: Int }
+
+@export
+extension Point {
+    func get(&self) -> Int { self.x }
+}
+
+func main() { print(Point(x: 1).get()) }

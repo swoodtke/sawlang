@@ -1,0 +1,15 @@
+// Design 53 Part 5: per-symbol aliases in a selective import,
+// `import lib.{add as plus, Point}`. `plus` binds `add` locally; `Point`
+// imports under its own name. Pure local renames (mangling unchanged).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 9
+// 8
+
+import lib.{add as plus, Point}
+
+func main() {
+    print(plus(4, 5))         // 9 (add under its alias)
+    let p = Point(x: 3, y: 5)
+    print(p.sum())            // 8 (Point imported under its own name)
+}

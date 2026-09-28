@@ -1,0 +1,5 @@
+func main() {
+    let b: UInt8 = 3
+    let c = ~b as UInt64
+    print(c)
+}

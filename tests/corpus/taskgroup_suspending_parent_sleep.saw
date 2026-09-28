@@ -1,0 +1,31 @@
+// design 62 G1 / design 89-b: parent AND children sleep. The children link into
+// the ONE ambient scheduler and are join-driven there; the parent's own sleep is
+// stepped by the `__saw_drive` single-frame loop. A `Res` oracle in the parent frame
+// proves the frame (and its group) tear down exactly once at scope exit (the 905
+// is the parent-frame Res(5) deinit, extracted-result-then-teardown ordering puts
+// it before the returned 30 is printed). Unchanged result under the unification.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 905
+// 30
+
+struct Res { id: Int }
+extension Res: NoCopy { func deinit(&var self) { print(900 + self.id) } }
+
+func child(n: Int) -> Int {
+    sleep(Duration.ms(n as UInt64))   // child sleeps (driven by the group's executor)
+    return n * 10
+}
+
+func orchestrate() -> Int {
+    let marker = Res(id: 5)             // parent-frame deinit oracle
+    var group = TaskGroup()
+    let h1 = group.spawn(child(2))
+    let h2 = group.spawn(child(1))
+    sleep(Duration.ms(3))               // parent suspends (outer driver)
+    return h1.join() + h2.join()        // 20 + 10 = 30
+}
+
+func main() {
+    print(__saw_drive(orchestrate()))       // frame teardown prints 905, then 30
+}

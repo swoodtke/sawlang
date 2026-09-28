@@ -1,0 +1,21 @@
+// Design 131: `move` at an optional projection retires the whole BINDING, which
+// a field cannot do — that is the no-partial-moves rule. The field-safe
+// consuming read is `take()`, which writes `None` back where the payload was.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot move out of field `r` of `h`
+// EXPECT-ERROR-CONTAINS: `h.r.take()` to move the payload out
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop res {self.id}") }
+}
+
+struct H { r: Res? }
+extension H: NoCopy {}
+
+func main() {
+    var h = H(r: Res(id: 5))
+    let g = move h.r!
+    print("g {g.id}")
+}

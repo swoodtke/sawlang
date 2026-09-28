@@ -1,0 +1,36 @@
+// design 242 ruling 9 holds when the program ALSO has a coroutine root.
+//
+// `Thread.spawn { ... }` is a `sync` context in which a `blocking` extern is
+// legal (conformance row K84) — and the brace is a CLOSURE, so it is one of the
+// bodies design 275 U2's SL-316 walk looks at. That walk asked
+// `frame_boundary`, which the blocking cause satisfies, so the brace was
+// refused as "a closure body is not driven" in any program that happened to
+// hold a driven root. K84's own program holds none, which is what kept the
+// contradiction invisible: the transform was never entered there at all.
+//
+// The two claims are one question asked of one closure, so they are one funnel
+// now (`effects.closure_body_owns_suspension`), and a thread brace asks design
+// 242's narrower `refused_in_thread_body` there. This file is the cell where
+// the two rules meet: one thread brace blocking on FFI, one driven root, in one
+// program.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// napped
+// 1
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+func marker() -> Int {
+    __saw_suspend()
+    7
+}
+
+func main() {
+    var direct = Thread.spawn { __saw_rt_blocking_sleep(1) }
+    let _ = direct.join()
+    print("napped")
+    print(__saw_drive_steps(marker()))
+}

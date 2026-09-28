@@ -1,0 +1,227 @@
+// K143 (design 275 U3): NOTHING ERASES IT — the IMPOSSIBLE SPELLINGS.
+//
+// A helper forwarding a borrowing struct and a generic identity wrapper are
+// not value-position rows: a borrowing struct cannot BE a plain function's
+// parameter or return type, nor a type argument, nor an existential, so no
+// helper can name one and the refusal lands at the HELPER's declaration, where
+// the author can act on it. That is what makes "a generic identity wrapper
+// launders the value" unwritable rather than caught.
+//
+// The `Item` row is the NO-SECOND-ITEM-LIFETIME rule at its declaration
+// position: a borrowing struct's `Iterator.Item` may be neither a reference
+// nor a borrowing struct, so the loop variable OWNS what it is handed.
+//
+// A DISTINCT ALIAS of a borrowing struct (`type Alias = BagIterator`) IS the
+// borrowing struct at every one of these positions (codex r1 #2): the walk
+// resolves the alias to its underlying before it asks, because an alias adds
+// a name and never a home for a borrow. For one revision the walk read the
+// nominal name, so `type Item = Alias` and `-> Alias?` both passed and the
+// iterator stored its own value past the window. The alias rows below repeat
+// the parameter, return, field, type-argument, static and `Item` positions
+// through the alias.
+//
+// A FUNCTION TYPE IS A COMPOSITION TOO (codex r4 #1): `() -> BagIterator`
+// and `(BagIterator) -> Int` name the struct exactly as `Vector<BagIterator>`
+// does — a value handed OUT of a closure's return or INTO its parameter is
+// bound in a frame the window cannot see — so the walk descends a function
+// type's return and parameters, nested to any depth, and refuses the callable
+// spelling at every position above. For one revision the walk answered
+// "safe" for the whole of a function type, so `func bad() -> () -> It`
+// compiled. The callable rows repeat each position with the bare callable,
+// the nested callable, and a distinct alias of the callable (`Mk`, `Take`).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: may not name a borrowing struct
+// EXPECT-ERROR-CONTAINS: parameter `it` of `hold`
+// EXPECT-ERROR-CONTAINS: the return type of `hand_back`
+// EXPECT-ERROR-CONTAINS: field `it` of `Holder`
+// EXPECT-ERROR-CONTAINS: static `KEPT`
+// EXPECT-ERROR-CONTAINS: associated type `Item` of `Chain`
+// EXPECT-ERROR-CONTAINS: A type argument, an existential, a field, a parameter and a plain return each outlive the window
+// EXPECT-ERROR-CONTAINS: parameter `it` of `hold_alias` may not name a borrowing struct: `Alias` is a `borrows struct`
+// EXPECT-ERROR-CONTAINS: the return type of `hand_back_alias` may not name a borrowing struct: `Alias` is a `borrows struct`
+// EXPECT-ERROR-CONTAINS: field `it` of `AliasHolder` may not name a borrowing struct: `Alias` is a `borrows struct`
+// EXPECT-ERROR-CONTAINS: parameter `v` of `stash_alias` may not name a borrowing struct: `Vector<Alias>` names a `borrows struct` (`Alias`)
+// EXPECT-ERROR-CONTAINS: static `KEPT_ALIAS` may not name a borrowing struct: `Alias` is a `borrows struct`
+// EXPECT-ERROR-CONTAINS: associated type `Item` of `AliasChain` may not name a borrowing struct: `Alias` is a `borrows struct`
+// EXPECT-ERROR-CONTAINS: parameter `f` of `hold_callable` may not name a borrowing struct: `() -> BagIterator` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: parameter `f` of `hold_take` may not name a borrowing struct: `(BagIterator) -> Int` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: the return type of `hand_back_callable` may not name a borrowing struct: `() -> BagIterator` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: the return type of `hand_back_take` may not name a borrowing struct: `(BagIterator) -> Int` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: the return type of `hand_back_nested` may not name a borrowing struct: `() -> () -> BagIterator` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: the return type of `hand_back_nested_param` may not name a borrowing struct: `((BagIterator) -> Int) -> Int` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: field `f` of `CallableHolder` may not name a borrowing struct: `() escaping -> BagIterator` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: payload `f` of case `Make` in enum `CallablePayload` may not name a borrowing struct: `() escaping -> BagIterator` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: parameter `v` of `stash_callable` may not name a borrowing struct: `Vector<() -> BagIterator>` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: parameter `b` of `box_callable` may not name a borrowing struct: `Box<() -> BagIterator>` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: parameter `o` of `opt_callable` may not name a borrowing struct: `Optional<() -> BagIterator>` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: parameter `p` of `pointer_callable` may not name a borrowing struct: `FuncPointer<() sync -> BagIterator>` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: static `KEPT_CALLABLE` may not name a borrowing struct: `() -> BagIterator` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: associated type `Item` of `CallableChain` may not name a borrowing struct: `() -> BagIterator` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: the default of type parameter `T` may not name a borrowing struct: `() -> BagIterator` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: the return type of `CallableMaker.make` may not name a borrowing struct: `() -> BagIterator` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: parameter `f` of `hold_mk` may not name a borrowing struct: `Mk` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: parameter `f` of `hold_take_alias` may not name a borrowing struct: `Take` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: the return type of `hand_back_mk` may not name a borrowing struct: `Mk` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: field `f` of `MkHolder` may not name a borrowing struct: `Mk` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: payload `f` of case `Make` in enum `MkPayload` may not name a borrowing struct: `Mk` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: parameter `v` of `stash_mk` may not name a borrowing struct: `Vector<Mk>` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: static `KEPT_MK` may not name a borrowing struct: `Mk` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-CONTAINS: associated type `Item` of `MkChain` may not name a borrowing struct: `Mk` names a `borrows struct` (`BagIterator`)
+// EXPECT-ERROR-ABSENT: internal compiler error
+
+struct Bag {
+    private items: Vector<Int>
+}
+extension Bag: NoCopy {}
+
+borrows struct BagIterator {
+    private bag: &Bag
+    private index: Int
+}
+
+extension Bag {
+    public func iter(&self) borrows -> BagIterator {
+        BagIterator(bag: lends self, index: 0)
+    }
+}
+
+extension BagIterator: Iterator {
+    type Item = Int
+    public func next(&var self) -> Int? {
+        if self.index < self.bag.items.len() {
+            let i = self.index
+            self.index = self.index + 1
+            self.bag.items.get(i)
+        } else {
+            None
+        }
+    }
+}
+
+// ---- the rows -------------------------------------------------------------
+
+// ROW: a PARAMETER — the position a reference is legal in and a borrowing
+// struct is not, because a parameter outlives nothing but the callee may store
+// it and the window's extent ends at a statement the callee cannot see.
+func hold(it: BagIterator) -> Int { 0 }
+
+// ROW: a plain RETURN. The producer's own `borrows -> BagIterator` above is
+// the one declaration that may name it.
+func hand_back(b: &Bag) -> BagIterator { b.iter() }
+
+// ROW: a FIELD.
+struct Holder {
+    private it: BagIterator
+}
+
+// ROW: a TYPE ARGUMENT — "may not instantiate ANY type parameter", reached by
+// the same walk as the bare spelling, which is what closes `Optional<It>`,
+// `Result<It, E>`, `Box<It>` and a generic `T` with it.
+func stash(v: Vector<BagIterator>) -> Int { 0 }
+
+// ROW: a STATIC.
+static KEPT: BagIterator
+
+// ROW: an `Item` LIFETIME — an associated-type assignment naming one.
+borrows struct ChainIterator {
+    private bag: &Bag
+    private index: Int
+}
+extension Bag {
+    public func chain(&self) borrows -> ChainIterator {
+        ChainIterator(bag: lends self, index: 0)
+    }
+}
+struct Chain {
+    private n: Int
+}
+extension Chain: Iterator {
+    type Item = BagIterator
+    public func next(&var self) -> BagIterator? { None }
+}
+
+// ---- the same rows, through a DISTINCT ALIAS ------------------------------
+
+type Alias = BagIterator
+
+func hold_alias(it: Alias) -> Int { 0 }               // ROW: a PARAMETER
+func hand_back_alias(b: &Bag) -> Alias { Alias(b.iter()) }   // ROW: a RETURN
+struct AliasHolder {
+    private it: Alias                                  // ROW: a FIELD
+}
+func stash_alias(v: Vector<Alias>) -> Int { 0 }       // ROW: a TYPE ARGUMENT
+static KEPT_ALIAS: Alias                               // ROW: a STATIC
+struct AliasChain {
+    private n: Int
+}
+extension AliasChain: Iterator {
+    type Item = Alias                                  // ROW: an `Item`
+    public func next(&var self) -> Alias? { None }
+}
+
+// ---- the same rows, through a CALLABLE (codex r4 #1) ----------------------
+//
+// A closure's return and a closure's parameter are the two halves of a
+// function type, and neither is exempt: a borrowing value handed out of the
+// one or into the other is bound in a frame the window cannot see.
+
+func hold_callable(f: () -> BagIterator) -> Int { 0 }          // ROW: a PARAMETER (callable return)
+func hold_take(f: (BagIterator) -> Int) -> Int { 0 }           // ROW: a PARAMETER (callable parameter)
+func hand_back_callable() -> () -> BagIterator { panic("never") }       // ROW: a RETURN
+func hand_back_take() -> (BagIterator) -> Int { panic("never") }        // ROW: a RETURN (callable parameter)
+func hand_back_nested() -> () -> () -> BagIterator { panic("never") }   // ROW: NESTED callables
+func hand_back_nested_param() -> ((BagIterator) -> Int) -> Int { panic("never") }
+struct CallableHolder {
+    private f: () -> BagIterator                       // ROW: a FIELD
+}
+enum CallablePayload {
+    case Make(f: () -> BagIterator),                   // ROW: an ENUM PAYLOAD
+    case Empty
+}
+func stash_callable(v: Vector<() -> BagIterator>) -> Int { 0 }          // ROW: a TYPE ARGUMENT
+func box_callable(b: Box<() -> BagIterator>) -> Int { 0 }
+func opt_callable(o: Optional<() -> BagIterator>) -> Int { 0 }
+func pointer_callable(p: FuncPointer<() sync -> BagIterator>) -> Int { 0 }
+static KEPT_CALLABLE: () -> BagIterator                // ROW: a STATIC
+struct CallableChain {
+    private n: Int
+}
+extension CallableChain: Iterator {
+    type Item = () -> BagIterator                      // ROW: an `Item`
+    public func next(&var self) -> (() -> BagIterator)? { None }
+}
+struct CallableDefault<T = () -> BagIterator> {        // ROW: a generic DEFAULT
+    private n: Int
+}
+trait CallableMaker {
+    func make(&self) -> () -> BagIterator              // ROW: a trait REQUIREMENT
+}
+
+// ---- the callable rows, through a DISTINCT ALIAS of the callable ---------
+
+type Mk = () -> BagIterator
+type Take = (BagIterator) -> Int
+
+func hold_mk(f: Mk) -> Int { 0 }                       // ROW: a PARAMETER
+func hold_take_alias(f: Take) -> Int { 0 }
+func hand_back_mk() -> Mk { panic("never") }           // ROW: a RETURN
+struct MkHolder {
+    private f: Mk                                      // ROW: a FIELD
+}
+enum MkPayload {
+    case Make(f: Mk),                                  // ROW: an ENUM PAYLOAD
+    case Empty
+}
+func stash_mk(v: Vector<Mk>) -> Int { 0 }              // ROW: a TYPE ARGUMENT
+static KEPT_MK: Mk                                     // ROW: a STATIC
+struct MkChain {
+    private n: Int
+}
+extension MkChain: Iterator {
+    type Item = Mk                                     // ROW: an `Item`
+    public func next(&var self) -> Mk? { None }
+}
+
+func main() {
+    print("unreached")
+}

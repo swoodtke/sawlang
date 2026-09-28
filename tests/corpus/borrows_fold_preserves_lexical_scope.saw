@@ -1,0 +1,345 @@
+// SL-333 R6: the `#lend_var` fold rewrites the CONSTANT and nothing else, and
+// the branch it selects keeps its scope, its destruction order, its EXECUTION
+// and its place in the lend-coverage rule.
+//
+// Re-keying the two-specialization split onto the declared mode put EVERY
+// writable accessor through the fold, including bodies that never name the
+// constant — so the fold's reach became the fold's problem. Four cells, in the
+// order the three rules were earned.
+//
+// SCOPE (`shadowed`). `_fold_statement` replaced a constant-conditioned `if`
+// with its branch's statements, lifted into the enclosing block. Asked of the
+// SUBSTITUTED condition, that rule could not tell a folded `#lend_var` from an
+// author's own `if true`: the author's branch was lifted too, and a legal
+// refining shadow inside it (`let slot = slot + 1`) outlived its scope and
+// changed WHICH PLACE the accessor lent. The question is asked of the condition
+// the author WROTE now, so an `if true` is left alone.
+//
+// DESTRUCTION (`Gated.[]`). Where a branch IS selected, lifting its statements
+// would move a local's deinit from the branch's end to the enclosing block's —
+// past the `lend`, so a window would run with a value alive that the source
+// says is already gone. The deinit line comes out before the window's.
+//
+// EXECUTION AND COVERAGE (`Both.[]`, `Lending.[]`). A selected branch that
+// binds keeps its BLOCK — and as a block, never as an `if` of any condition.
+// Retaining an `if` costs two things at once: a selected ELSE runs under a
+// FALSE condition and is skipped entirely, and a selected branch that also
+// LENDS reads to the coverage rule as one path of two ("one branch here lends
+// and the other falls through"). An unconditional block has neither problem
+// and needs no special case in either walk. Both cells exercise the STATEMENT
+// path and the TAIL path: a gate written as the last thing in a body is the
+// block's `final_expr`, which is a second splice site with the same two rules.
+//
+// OWNERSHIP (`Tiers.*`). The selected tail is a value TRANSFER, judged by the
+// copy tier exactly as an `if` branch's tail is: a move-only value needs an
+// explicit `move`, a `Copy` one retains and leaves the source live, and an
+// `ExplicitCopy` one needs `.copy()` written. The negative half — the same
+// tails with nothing written — is
+// `errors/fold_selected_tail_is_an_ownership_transfer.saw`.
+//
+// VALUE (`Valued.[]`, `Valued.deep`). A block's `final_expr` is its VALUE, and
+// this fold runs on blocks nested in value expressions, not only on void
+// accessor epilogues — so a selected branch that binds a local AND yields a
+// value must keep both. Keeping the scope by dropping the value turned a
+// value-producing block into `Void` and rejected valid programs, which is not
+// behaviour preservation however it is disclosed. `ScopedBlock` is an
+// EXPRESSION carrying its block's own tail, so the two are not a trade. The
+// destruction order is the same one a value-carrying `if` branch already has:
+// the branch's locals are destroyed BEFORE the value reaches the enclosing
+// expression, which `Valued.noisy` proves by print order.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// shadowed 3
+// 7
+// Noisy(7) deinit
+// window sees 5
+// gates 1
+// shared prologue 7
+// shared epilogue 8
+// both read 3
+// exclusive prologue
+// exclusive epilogue
+// shared prologue 7
+// shared epilogue 8
+// both read 9
+// lending read 3
+// lending write 9
+// valued read 4
+// valued write 9
+// valued deep read 4
+// valued deep write 9
+// Noisy(1) deinit
+// noisy read 4
+// Noisy(0) deinit
+// noisy write 9
+// moved 8
+// drop 8
+// moved 7
+// drop 7
+// copy tier: tail 2, source still 2
+// explicit copy tier: tail 5, source still 5
+// -- done
+
+struct Noisy { id: Int }
+
+extension Noisy: NoCopy {
+    func deinit(&var self) { print("Noisy({self.id}) deinit") }
+}
+
+struct Bag { cells: [Int; 2] }
+
+extension Bag {
+    // An author's `if true` — not the fold's business. The inner `slot` is a
+    // refining shadow (design 100) and dies with its branch, so the `lend`
+    // below reads the OUTER `slot`, which is 0.
+    func shadowed(&var self, i: Int) borrows -> &var Int {
+        let slot = 0
+        if true {
+            let slot = slot + 1
+            print(slot)
+        }
+        lend self.cells[slot]
+    }
+}
+
+struct Gated { cells: [Int; 2], gates: Int }
+
+extension Gated {
+    func run_gate(&var self) { self.gates = self.gates + 1 }
+
+    // A real `#lend_var` gate whose branch binds a value with a deinit. The
+    // branch keeps its block, so the deinit runs at the branch's end — before
+    // the window opens.
+    func [](&var self, i: Int) borrows -> &var Int {
+        if #lend_var {
+            let marker = Noisy(id: 7)
+            print("{marker.id}")
+            self.run_gate()
+        }
+        lend self.cells[i]
+    }
+
+    func gates_seen(&self) -> Int { self.gates }
+}
+
+struct Both { cells: [Int; 2] }
+
+extension Both {
+    // BOTH branches are real, and the SHARED one binds — so in the shared
+    // specialization the fold selects an ELSE and must still run it. The
+    // prologue gate is a STATEMENT; the epilogue gate is the body's last
+    // construct, so it is the block's `final_expr` and takes the tail path.
+    func [](&var self, i: Int) borrows -> &var Int {
+        if #lend_var {
+            print("exclusive prologue")
+        } else {
+            let marker = 7
+            print("shared prologue {marker}")
+        }
+        lend self.cells[i]
+        if #lend_var {
+            print("exclusive epilogue")
+        } else {
+            let closing = 8
+            print("shared epilogue {closing}")
+        }
+    }
+}
+
+struct Lending { cells: [Int; 2] }
+
+extension Lending {
+    // A selected branch that BINDS and LENDS. Coverage sees an unconditional
+    // block containing one `lend`, which is the truth about the specialization
+    // it is looking at. The `if` is the body's last construct, so this is the
+    // TAIL path; `tail_lend` below is the statement-path twin, whose gate is
+    // followed by an epilogue.
+    func [](&var self, i: Int) borrows -> &var Int {
+        if #lend_var {
+            let slot = i
+            lend self.cells[slot]
+        } else {
+            let slot = i
+            lend self.cells[slot]
+        }
+    }
+
+    func tail_lend(&var self, i: Int) borrows -> &var Int {
+        if #lend_var {
+            let slot = i
+            lend self.cells[slot]
+        } else {
+            let slot = i
+            lend self.cells[slot]
+        }
+        print("")
+    }
+}
+
+struct Valued { cells: [Int; 2] }
+
+extension Valued {
+    // The selected branch is the TAIL of a block in VALUE position — it binds a
+    // local AND yields the value its enclosing expression consumes. The two
+    // specializations pick different slots, which is what makes the answer
+    // observable: the shared read sees cell 1 and the exclusive write lands in
+    // cell 0.
+    func [](&var self, i: Int) borrows -> &var Int {
+        let slot = if i >= 0 {
+            if #lend_var {
+                let selected = 0
+                selected
+            } else {
+                let selected = 1
+                selected
+            }
+        } else {
+            0
+        }
+        lend self.cells[slot]
+    }
+
+    // The same tail, two blocks deep and read straight into the `lend`'s index
+    // — no `let` to hang the value on.
+    func deep(&var self, i: Int) borrows -> &var Int {
+        lend self.cells[if i >= 0 {
+            if i < 9 {
+                if #lend_var {
+                    let selected = 0
+                    selected
+                } else {
+                    let selected = 1
+                    selected
+                }
+            } else {
+                0
+            }
+        } else {
+            0
+        }]
+    }
+
+    // DESTRUCTION ORDER. The selected branch binds a value with an observable
+    // deinit and then yields a number. The deinit prints BEFORE the value is
+    // consumed, because the block's cleanup scope pops once its tail has been
+    // evaluated — the ordering a value-carrying `if` branch already had.
+    func noisy(&var self, i: Int) borrows -> &var Int {
+        let slot = if i >= 0 {
+            if #lend_var {
+                let marker = Noisy(id: 0)
+                marker.id
+            } else {
+                let marker = Noisy(id: 1)
+                marker.id
+            }
+        } else {
+            0
+        }
+        lend self.cells[slot]
+    }
+}
+
+struct Moved { id: Int }
+
+extension Moved: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+
+struct Counted { n: Int, label: String }
+
+struct Ceremony { n: Int }
+
+extension Ceremony: ExplicitCopy {
+    func copy(&self) -> Ceremony { Ceremony(n: self.n) }
+}
+
+struct Tiers { cells: [Int; 2] }
+
+extension Tiers {
+    // MOVE-ONLY, with the `move` written — the positive control for
+    // `errors/fold_selected_tail_is_an_ownership_transfer.saw`.
+    func moved(&var self, i: Int) borrows -> &var Int {
+        let source = if #lend_var {
+            let made = Moved(id: 7)
+            move made
+        } else {
+            let made = Moved(id: 8)
+            move made
+        }
+        print("moved {source.id}")
+        lend self.cells[0]
+    }
+
+    // COPY tier: the tail RETAINS, so both bindings stay live and each is
+    // destroyed once.
+    func copied(&var self, i: Int) borrows -> &var Int {
+        let source = Counted(n: 2, label: "tier")
+        let picked = if #lend_var {
+            let marker = 0
+            source
+        } else {
+            let marker = 1
+            source
+        }
+        print("copy tier: tail {picked.n}, source still {source.n}")
+        lend self.cells[0]
+    }
+
+    // EXPLICITCOPY tier: the duplicate is spelled, which is the whole of that
+    // tier's contract.
+    func ceremonial(&var self, i: Int) borrows -> &var Int {
+        let source = Ceremony(n: 5)
+        let picked = if #lend_var {
+            let marker = 0
+            source.copy()
+        } else {
+            let marker = 1
+            source.copy()
+        }
+        print("explicit copy tier: tail {picked.n}, source still {source.n}")
+        lend self.cells[0]
+    }
+}
+
+func main() {
+    var b = Bag(cells: [3, 4])
+    print("shadowed {b.shadowed(0)}")
+
+    var g = Gated(cells: [5, 6], gates: 0)
+    g[0] = 5
+    print("window sees {g[0]}")
+    print("gates {g.gates_seen()}")
+
+    var both = Both(cells: [3, 4])
+    print("both read {both[0]}")
+    both[0] = 9
+    print("both read {both[0]}")
+
+    var l = Lending(cells: [3, 4])
+    print("lending read {l[0]}")
+    l[0] = 9
+    print("lending write {l[0]}")
+
+    var v = Valued(cells: [3, 4])
+    print("valued read {v[0]}")
+    v[0] = 9
+    print("valued write {v[-1]}")
+
+    var d = Valued(cells: [3, 4])
+    print("valued deep read {d.deep(0)}")
+    d.deep(0) = 9
+    print("valued deep write {d.deep(-1)}")
+
+    var n = Valued(cells: [3, 4])
+    print("noisy read {n.noisy(0)}")
+    n.noisy(0) = 9
+    print("noisy write {n.noisy(-1)}")
+
+    var t = Tiers(cells: [3, 4])
+    let _ = t.moved(0)          // shared specialization: id 8
+    t.moved(0) = 3              // exclusive: id 7
+    let _ = t.copied(0)
+    let _ = t.ceremonial(0)
+    print("-- done")
+}

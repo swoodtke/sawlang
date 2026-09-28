@@ -1,0 +1,40 @@
+// Conformance row — a `match` arm whose payload pattern binds NOTHING still
+// releases the payload of the owned enum it consumed.
+//
+// `case Has(_)` must deinit its payload; the binding arm `case Has(v)` beside
+// it releases correctly. Third member of the discard-position family:
+// `let _ = ...` releases, `if let _ = move opt` was fixed (DF-217i),
+// `match ... case P(_)` was fixed (DF-217n).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// bound r1
+// DEINIT r1
+// DEINIT r2
+// wildcard
+// done
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+enum Wrap { case Has(x: Res) }
+extension Wrap: NoCopy {}
+
+func binding_arm() {
+    match Wrap.Has(x: Res(name: "r1")) {
+        case Has(v) -> print("bound {v.name}")
+    }
+}
+
+func wildcard_arm() {
+    match Wrap.Has(x: Res(name: "r2")) {
+        case Has(_) -> print("wildcard")
+    }
+}
+
+func main() {
+    binding_arm()
+    wildcard_arm()
+    print("done")
+}

@@ -1,0 +1,22 @@
+// A MODULE-LEVEL error inside a `--module-path` dependency names the
+// dependency's file (DF-243b). It used to be reported under the ENTRY file's
+// path with the DEPENDENCY's line numbers, so a reader following the diagnostic
+// opened the wrong file at a line it does not have — and a wrong file looks
+// authoritative where a missing one is at least visibly missing.
+//
+// The refusal below sits at line 32 of a six-line entry, which is what makes
+// the expectation checkable: if the fallback regressed, the path would be this
+// file's and the line would not exist in it.
+//
+// The mechanism was that the reporter's file came from the current FUNCTION or
+// METHOD, and a module-level declaration is inside neither. What answers now is
+// the module being checked.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: modules/depdiag/lib.saw:32:
+// EXPECT-ERROR-ABSENT: dependency_error_names_its_own_file_error.saw:32
+// COMPILE-FLAGS: --module-path depdiag={TESTDIR}/modules/depdiag
+import depdiag.{ok}
+
+func main() {
+    print(ok())
+}

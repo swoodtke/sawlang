@@ -1,0 +1,15 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: method `empty` has no receiver — add `&self`/`&var self`, or declare it `static func` if a static was intended
+//
+// Design 236, position-matrix row 5: a GENERIC extension's method. The check
+// runs in the parser, before any instantiation exists, so a generic
+// declaration is judged once — as its author wrote it — rather than once per
+// monomorphization.
+
+struct Holder<T> { v: T }
+
+extension Holder<T> {
+    func empty(seed: T) -> Holder<T> { Holder<T>(v: seed) }
+}
+
+func main() { print("unreached") }

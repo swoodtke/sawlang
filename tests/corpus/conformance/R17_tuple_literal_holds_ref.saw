@@ -1,0 +1,12 @@
+// Conformance row R17 — tuple literal holding a reference
+//
+// A tuple literal used as a VALUE is storage too — the tuple outlives the
+// expression that built it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `&` here is not a call argument
+
+func main() {
+    var a = 1
+    let t = (&a, 1)
+    print(1)
+}

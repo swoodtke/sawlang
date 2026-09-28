@@ -1,0 +1,2 @@
+status: rewritten
+4 SL-400.Q3-coalesce-groups-right rewritten => let c = (a ?? b) ?? 0

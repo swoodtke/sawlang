@@ -1,0 +1,16 @@
+// Design 107 item 2: a for-loop variable that shadows an enclosing binding
+// WITHOUT the sequence referencing it is a rename error (the design-100 hint
+// style). Here `for x in ys.iter()` under an outer `x` never mentions `x`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `x` shadows the binding declared at shadow_for_nonderived.saw:10:5
+// EXPECT-ERROR-CONTAINS: shadow_for_nonderived.saw:12:5
+// EXPECT-ERROR-CONTAINS: derive it from the original
+
+func main() {
+    let x = 42
+    let ys: Vector<Int> = [1, 2, 3]
+    for x in ys.iter() {   // shadows outer x, sequence never mentions it -> error
+        print(x)
+    }
+    print(x)
+}

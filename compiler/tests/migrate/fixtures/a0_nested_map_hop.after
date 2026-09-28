@@ -1,0 +1,6 @@
+func main() {
+    var m = Map<String, Vector<Int>>()
+    let _ = m.insert("k", [1, 2])
+    borrow var m["k"][0] = 5
+    print(m.len())
+}

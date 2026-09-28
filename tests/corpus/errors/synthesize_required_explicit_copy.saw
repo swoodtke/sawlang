@@ -1,0 +1,17 @@
+// design 128: a copy policy with no `copy` is a derivation like any other, and
+// takes the same marker. This is the shape the ergonomics work targets, so the
+// gate has to be visible exactly here.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Holder` declares `ExplicitCopy` with no `copy`
+// EXPECT-ERROR-CONTAINS: or write `copy` by hand
+
+struct Holder {
+    v: Vector<Int>
+}
+
+extension Holder: ExplicitCopy {}
+
+func main() {
+    let h = Holder(v: [1, 2, 3])
+    print(h.v.len())
+}

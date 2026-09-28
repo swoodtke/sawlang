@@ -1,0 +1,7 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot use compound assignment on immutable variable
+
+func main() {
+    let x = 10
+    x += 5  // Error: x is immutable
+}

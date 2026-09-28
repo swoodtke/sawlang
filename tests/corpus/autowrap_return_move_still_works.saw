@@ -1,0 +1,18 @@
+// Design 40 item 5 (L10): the explicit `return move x` form must keep working
+// after the auto-wrap-retain fix — the MoveExpr transfers ownership (no retain,
+// scope cleanup skips the moved local), so the payload owns the buffer at rc 1.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// moved payload 9 with trailing padding qqqqqqqqqq
+// FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+func makeMoved(n: Int) -> Result<String, Int> {
+    let s = "moved payload {n} with trailing padding qqqqqqqqqq"
+    return move s
+}
+
+func main() {
+    let r = try! makeMoved(9)
+    let filler = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+    print(r)
+    print(filler)
+}

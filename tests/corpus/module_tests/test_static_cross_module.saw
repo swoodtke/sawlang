@@ -1,0 +1,13 @@
+// Public static cross-module access (design 41 item 1): a `public static` is
+// visible to importers via module-qualified access `mod.NAME`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 20
+
+import static_config
+
+func main() {
+    print(static_config.VERSION)     // 7
+    print(static_config.LIMITS[1])   // 20
+}

@@ -1,0 +1,57 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable `body` across loop iterations
+// EXPECT-ERROR-CONTAINS: a binding moved inside a loop is moved-from on the next
+// EXPECT-ERROR-CONTAINS: use of moved variable `head` across loop iterations
+// EXPECT-ERROR-CONTAINS: this move is in the loop's CONDITION
+//
+// SL-262's ASYMMETRY, pinned deliberately.
+//
+// A move in the loop's CONDITION is exempt when the body cannot reach the back
+// edge (the head runs once — see
+// `examples/move_in_a_while_condition_back_edge.saw`). A move in the loop's
+// BODY is NOT: `_check_loop_body`'s original scan refuses it even when the body
+// always `break`s, and that conservatism is older than SL-262. Widening it
+// would change answers this brief did not set out to change, so it stands, and
+// this file is the record that it does.
+//
+// `continue_reaches_back_edge` is the other half: a `continue` belonging to
+// this loop IS a jump to the back edge, so the condition-move check fires
+// exactly as it does for a falling-through body. That is why the back-edge
+// predicate cannot simply be `_block_has_early_exit`, which counts a `continue`
+// as an exit.
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+func consume_bool(r: Res) -> Bool { true }
+
+// The BODY move: refused, though the body always breaks.
+func body_move_always_breaks() -> Int {
+    var body = Res(name: "body")
+    var n = 0
+    while n < 3 {
+        let _ = consume_bool(move body)
+        n = n + 1
+        break
+    }
+    n
+}
+
+// The HEAD move with a `continue`: the back edge IS reachable, so it is refused
+// with the condition wording.
+func continue_reaches_back_edge() -> Int {
+    var head = Res(name: "head")
+    var n = 0
+    while consume_bool(move head) {
+        n = n + 1
+        if n > 2 { break }
+        continue
+    }
+    n
+}
+
+func main() {
+    print("{body_move_always_breaks()} {continue_reaches_back_edge()}")
+}

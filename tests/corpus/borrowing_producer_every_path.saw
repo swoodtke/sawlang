@@ -1,0 +1,80 @@
+// K144 accept twin (design 275 U3, codex r1 #1): the origin check follows
+// EVERY returning path, so a producer whose every leaf — a `return`, each
+// `match` arm, and each arm of an `if` nested in one — constructs the struct
+// with `lends self` is accepted, and each spelling produces a working window.
+//
+// K143 CONTROLS (codex r4 #1): the borrowing walk descends a function type's
+// return and parameters, and a callable that names NO borrowing struct is
+// untouched by it — a reference in a closure PARAMETER stays legal (that is
+// the no-escape walk's exemption, which the borrowing walk does not share),
+// and a closure literal inside a window body is an ordinary closure.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// return path 6
+// match arm 6
+// nested if 5
+// total 17
+// callable controls 3 12
+
+struct Bag {
+    private items: Vector<Int>
+}
+extension Bag: NoCopy {}
+
+borrows struct BagIterator {
+    private bag: &Bag
+    private index: Int
+}
+
+extension Bag {
+    public func pick(&self, k: Int, from_one: Bool) borrows -> BagIterator {
+        if k == 0 { return BagIterator(bag: lends self, index: 0) }
+        match k {
+            case 1 -> BagIterator(bag: lends self, index: 0),
+            case _ -> {
+                if from_one { BagIterator(bag: lends self, index: 1) }
+                else { BagIterator(bag: lends self, index: 0) }
+            }
+        }
+    }
+}
+
+extension BagIterator: Iterator {
+    type Item = Int
+    public func next(&var self) -> Int? {
+        if self.index < self.bag.items.len() {
+            let i = self.index
+            self.index = self.index + 1
+            self.bag.items.get(i)
+        } else {
+            None
+        }
+    }
+}
+
+func sum(b: &Bag, k: Int, from_one: Bool) -> Int {
+    var total = 0
+    for x in b.pick(k, from_one) { total = total + x }
+    total
+}
+
+// A reference in a closure parameter: legal, and the borrowing walk that now
+// descends `(&Bag) sync -> Int` finds no borrowing struct in it.
+func through(b: &Bag, body: (&Bag) sync -> Int) -> Int { body(&b) }
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    let bag = Bag(items: move v)
+    let a = sum(&bag, 0, false)
+    let b = sum(&bag, 1, false)
+    let c = sum(&bag, 2, true)
+    print("return path {a}")
+    print("match arm {b}")
+    print("nested if {c}")
+    print("total {a + b + c}")
+    let d = through(&bag, { g in g.items.len() })
+    let twice = { n: Int in n * 2 }
+    var e = 0
+    for x in bag.pick(0, false) { e = e + twice(x) }
+    print("callable controls {d} {e}")
+}

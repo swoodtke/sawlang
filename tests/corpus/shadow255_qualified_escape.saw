@@ -1,0 +1,19 @@
+// Design 255 test 4 — the shadowed std name is still reachable, QUALIFIED.
+// This is the sawos workaround shape, and it has to keep compiling beside the
+// shadow: `Thread` bare is this file's import, `task.Thread<Int>` is still
+// `std.task`'s. One file, both types, no ambiguity — which is what a weak tier
+// means.
+// EXPECT: success
+// EXPECT-OUTPUT: 103
+
+import std.task
+import modules.shadow255_thread.{Thread}
+
+func joins_a_real_one(t: &task.Thread<Int>) -> Int {
+    0
+}
+
+func main() {
+    let t = Thread<Int>(tag: 3)
+    print(t.tagged())
+}

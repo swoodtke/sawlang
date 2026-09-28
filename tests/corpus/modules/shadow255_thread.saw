@@ -1,0 +1,17 @@
+//! Design 255 fixture: a module that owns a `Thread` of its own. `Thread<T>`
+//! is std's (`std.task`), merged into every namespace and kept behind an import
+//! gate — the sawos SL-5 shape, where a kernel's own thread type met the one
+//! the language ships.
+// EXPECT: skip
+
+public struct Thread<T> {
+    public tag: Int
+}
+
+extension Thread<T> {
+    // A member only THIS `Thread` has, so a test that calls it proves which
+    // declaration the bare name resolved to.
+    public func tagged(&self) -> Int {
+        self.tag + 100
+    }
+}

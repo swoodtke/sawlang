@@ -1,0 +1,29 @@
+// design 151: a statement-position `match` forwards its arms' values and then
+// drops them. The diagnostic anchors on the ARM that produced the Result, not
+// on the `match` line — the `match` itself is innocent, and pointing at it
+// would send a reader to a line with nothing wrong on it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: result of `might` is `Result<Int, ParseError>` and is silently discarded
+
+struct ParseError { at: Int }
+extension ParseError: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("bad input at ")
+        into.append(self.at)
+    }
+}
+extension ParseError: Error {}
+
+func might(n: Int) -> Result<Int, ParseError> {
+    if n < 0 { return ParseError(at: n) }
+    return n * 2
+}
+
+func main() {
+    let k = 1
+    match k {
+        case 0 -> might(0),
+        case _ -> might(k)
+    }
+    print("kept going")
+}

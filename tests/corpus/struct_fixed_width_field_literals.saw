@@ -1,0 +1,23 @@
+// Design 65 followup: a struct with fixed-width integer fields constructed from
+// BARE integer literals. The literal adopts the field's exact width (an `Int8`
+// field is an i8 slot), so this no longer ICEs ("Can only insert i8 ... got
+// i64"); signed narrowing and unsigned fields both round-trip.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 40000
+// 5
+// -5
+// 255
+
+struct Rec { tag: Int8, wide: UInt16, big: Int }
+
+func main() {
+    let r = Rec(tag: 7, wide: 40000, big: 5)
+    print(r.tag as Int)      // 7
+    print(r.wide as Int)     // 40000
+    print(r.big)             // 5
+    let s = Rec(tag: -5, wide: 255, big: 0)
+    print(s.tag as Int)      // -5
+    print(s.wide as Int)     // 255
+}

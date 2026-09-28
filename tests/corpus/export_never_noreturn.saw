@@ -1,0 +1,16 @@
+// design 58 Part 2: an `@export` function may return `Never` (lowered to a
+// `void` + `noreturn` C symbol — the `_start`/entry shape). This one is never
+// called from Saw, so it also exercises DCE survival: `@llvm.used` keeps it in
+// the object at the default -O1 pipeline even though nothing references it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+
+@export("kernel_entry")
+func entry() -> Never {
+    panic("halt")
+}
+
+func main() {
+    print(7)
+}

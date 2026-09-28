@@ -1,0 +1,18 @@
+// design 260 — `consumes` on a declaration with NO receiver.
+//
+// The word says what happens to the RECEIVER at the end of the call. A static
+// method has none, so there is nothing to consume and the word could only
+// mislead. The free-function and `init` spellings are refused on the same
+// terms, each where it is written; to take ownership of an ARGUMENT, declare
+// the parameter by value and `move` at the call site.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `consumes` may only appear on a method with a `&var self` receiver
+// EXPECT-ERROR-CONTAINS: a `static` method has no receiver to consume
+
+struct Builder { n: Int }
+extension Builder {
+    static func finish(n: Int) consumes -> Int { n }
+}
+
+func main() { print("{}", 1) }

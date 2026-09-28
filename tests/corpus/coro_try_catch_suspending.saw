@@ -1,0 +1,51 @@
+// A suspending callee inside a `try ... catch` in a spawned task body drives
+// like any other suspension (design 120's expression-position hoist covers try
+// subjects, and design 92's try hoist lifts the tried call to a temp).
+//
+// This used to be rejected with ``undefined struct `compute` `` — a nonsense
+// error naming the callee. The cause was NOT the try (DF-190b was filed
+// against the coro spine walks skipping TryCatchExpr, which is a real but
+// SEPARATE gap — see DF-193a): it was the LABELED call. `compute(ok: true)` is
+// syntactically a struct literal, so it reaches the coroutine transform as a
+// `StructInit`, and every suspending-call classifier there tests for a
+// `FunctionCall` — so the call was never driven, and once the transform
+// replaced `compute` with its frame the leftover struct-init spelling had
+// nothing left to resolve against. Design 193 unit 2 canonicalizes the
+// spelling before any classifier runs.
+// EXPECT: success
+// EXPECT-OUTPUT-CONTAINS: worker 42
+
+import std.task.*
+
+struct Flaky {
+    n: Int
+}
+
+extension Flaky: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("flaky ")
+        try! into.append(self.n)
+    }
+}
+
+extension Flaky: Error {}
+
+func compute(ok: Bool) -> Result<Int, Flaky> {
+    yield_now()
+    if ok {
+        return 40
+    }
+    return Flaky(n: 2)
+}
+
+func worker() -> Int {
+    let a = try compute(ok: true) catch { 0 }
+    let b = try compute(ok: false) catch { 2 }
+    a + b
+}
+
+func main() {
+    var group = TaskGroup()
+    let w = group.spawn(worker())
+    print("worker {w.join()}")
+}

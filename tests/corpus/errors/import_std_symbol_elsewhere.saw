@@ -1,0 +1,21 @@
+// Design 180 unit 2: a selective std import naming a symbol the module does not
+// have says WHERE the symbol actually is, rather than listing what this module
+// does have. Two shapes, and the fix differs:
+//   * the symbol moved to another import-required module -> name that import
+//   * the symbol is in the prelude -> the fix is to DELETE the entry, which a
+//     list of alternatives would never suggest
+// `Duration` is the live case: it left std.time for the prelude in design 180,
+// so every pre-180 snippet lands here.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Duration` is not defined in `std.time`
+// EXPECT-ERROR-CONTAINS: it is in the prelude and needs no import
+// EXPECT-ERROR-CONTAINS: `Data` is not defined in `std.time`
+// EXPECT-ERROR-CONTAINS: it is in `std.data`
+
+import std.time.{Duration}
+import std.time.{Data}
+
+func main() {
+    print("unreachable")
+}

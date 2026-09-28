@@ -1,0 +1,44 @@
+// SL-222 across a module boundary — both faces, because the defect and the
+// fix live in the coroutine transform and the transform sees a spliced
+// imported body and an entry-module body through the same `_FrameBuilder`.
+//
+//   * `entry_side` writes the loop HERE and reaches the type, the borrow, the
+//     consumer and the suspension through the import.
+//   * `via_dep` drives a loop written in the DEPENDENCY, so the frame that used
+//     to refuse is built for a body this file never contains.
+//
+// The step counts are the oracle for the SUSPENSION (the SL-208 idiom): the
+// values alone would also be produced by a compiler that ran the callee to
+// completion, while `__saw_drive_steps` counts `Pending` resumes and so reports
+// the park directly.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 15
+// 15
+// 1
+// 1
+
+import modules.sl222_sink
+import modules.sl222_sink.{Res}
+
+func entry_side(items: Vector<Int>) -> Int {
+    var total = sl222_sink.slow()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if sl222_sink.note(&r) + i < 0 { return -1 }
+        total = total + i
+        sl222_sink.sink(move r)
+    }
+    total
+}
+
+func via_dep(items: Vector<Int>) -> Int {
+    sl222_sink.gather(move items)
+}
+
+func main() {
+    print(__saw_drive(entry_side([3, 5])))        // 7 + 3 + 5
+    print(__saw_drive(via_dep([3, 5])))           // the same loop, one module over
+    print(__saw_drive_steps(entry_side([3, 5])))  // one suspension
+    print(__saw_drive_steps(via_dep([3, 5])))     // one suspension, embedded
+}

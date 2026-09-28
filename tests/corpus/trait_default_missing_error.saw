@@ -1,0 +1,19 @@
+// design 56 (N1): a missing method is an error ONLY when it has no default.
+// `required` has no body, so omitting it still fails conformance.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not implement required method `required`
+
+trait T {
+    func required(&self) -> Int
+    func withDefault(&self) -> Int { 1 }
+}
+
+struct S { v: Int }
+extension S: T {
+    func withDefault(&self) -> Int { self.v }
+}
+
+func main() {
+    let s = S(v: 1)
+    print(s.withDefault())
+}

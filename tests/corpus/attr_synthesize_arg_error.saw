@@ -1,0 +1,10 @@
+// design 128: `@synthesize` is a bare marker — an argument is a grammar error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: attribute `@synthesize` takes no argument
+
+struct Point { x: Int }
+
+@synthesize("deep")
+extension Point: Equatable {}
+
+func main() { print(1) }

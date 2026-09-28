@@ -1,0 +1,40 @@
+// A user `extern "C"` declaration of a name the COMPILER also declares shares
+// that symbol when the two agree (DF-225a). All five of codegen's own C symbols
+// are declared here, four of them never called, and the file used to be
+// `internal compiler error: printf` — a crash with no location, for a
+// declaration alone.
+//
+// The five are the ONLY compiler-declared symbols with no typechecker-visible
+// declaration mirroring them: every other one (`memcpy`, `strlen`, the
+// `__saw_rt_*` seams, the `__saw_string_*` helpers) is declared as an `extern`
+// in std too, so a user redeclaration always met the ordinary
+// multi-declaration check. These met llvmlite's redeclaration path unguarded.
+//
+// `errors/extern_c_compiler_symbol_mismatch_error.saw` is the other half: a
+// declaration that DISAGREES with the compiler's is a clean refusal, because a
+// unified call through the wrong signature would be a miscompile.
+// EXPECT: success
+// EXPECT-OUTPUT: printf reached the same symbol
+// EXPECT-OUTPUT: 31
+
+extern "C" {
+    func printf(format: UnsafeConstPointer<Int8>, ...) -> Int32
+    func abort()
+    func snprintf(dst: UnsafePointer<Int8>, n: Int,
+                  format: UnsafeConstPointer<Int8>, ...) -> Int32
+    func strcpy(dst: UnsafePointer<Int8>,
+                src: UnsafeConstPointer<Int8>) -> UnsafePointer<Int8>
+    func strcat(dst: UnsafePointer<Int8>,
+                src: UnsafeConstPointer<Int8>) -> UnsafePointer<Int8>
+}
+
+/// Writes `text` through the C `printf` the compiler declared, and answers with
+/// the byte count it reports.
+func shout(text: String) unsafe -> Int32 {
+    text.withCString({ p in printf(p) })
+}
+
+func main() {
+    let written = shout("printf reached the same symbol\n")
+    print(written)
+}

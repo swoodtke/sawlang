@@ -1,0 +1,17 @@
+// design 186 unit 7: the cycle rule, which is the declaration-order rule seen
+// from the other side.
+//
+// Static initializers are folded in declaration order, each against the answers
+// already in hand, so a FORWARD reference has nothing to fold against. It is
+// reported as a computed static rather than looped over — and the same is true
+// of a self reference, which is the degenerate forward one.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: static `LATER` is declared after this point
+// EXPECT-ERROR-CONTAINS: fold in DECLARATION ORDER
+
+static EARLY: Int = LATER * 2
+static LATER: Int = 64
+
+func main() {
+    print(EARLY)
+}

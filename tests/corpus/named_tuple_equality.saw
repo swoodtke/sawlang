@@ -1,0 +1,14 @@
+// Design 63 Part 4: a named tuple behaves as its positional shape for equality
+// (no new conformance surface).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 0
+
+func main() {
+    let a: (x: Int, y: Int) = (1, 2)
+    let b: (x: Int, y: Int) = (1, 2)
+    let c: (x: Int, y: Int) = (1, 3)
+    if a == b { print(1) } else { print(0) }
+    if a == c { print(1) } else { print(0) }
+}

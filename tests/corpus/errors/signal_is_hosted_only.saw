@@ -1,0 +1,20 @@
+// `std.signal` is hosted-only: the freestanding profile drops it, exactly as it
+// drops `std.net` (design 272 unit 3, SL-228).
+//
+// Signals are an operating-system facility. A freestanding target has no kernel
+// to deliver one and no process to deliver it to, so the module is ABSENT
+// rather than present-and-broken — the refusal is at the import, naming the
+// module, instead of a link failure against seams that do not exist.
+//
+// The bare-metal target is what puts the profile in play: `--freestanding`
+// alone rejects the host's own triple first and the row would prove nothing
+// (the lesson N05 records).
+// COMPILE-FLAGS: --freestanding --target riscv32-unknown-none-elf
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: module `std.signal` is hosted-only and cannot be imported in the freestanding profile
+
+import std.signal.{Signal, SignalWatch}
+
+func main() {
+    let _ = SignalWatch.watch(Signal.Terminate)
+}

@@ -1,0 +1,4 @@
+// Imports `wire229` for its own use and hands none of it on (design 229).
+import wire229.{Header, wire_make}
+
+public func wall_seed() -> Int { wire_make(tag: 7).tag }

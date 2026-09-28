@@ -1,0 +1,21 @@
+// Design 63 Part 1: chained aliases resolve fully (`super as Int`), and a
+// PARTIAL projection toward an intermediate alias on the chain is legal
+// (`super as MyInt`).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 10
+// 20
+
+type BaseInt = Int
+type MyInt = BaseInt
+type SuperInt = MyInt
+
+func main() {
+    let x: SuperInt = 10
+    let full: Int = x as Int         // full projection to underlying
+    let partial: MyInt = x as MyInt  // partial projection to a chain alias
+    print(full)                      // 10
+    print(partial as Int)            // 10 (partial still projects further)
+    print((x as BaseInt) as Int * 2) // 20
+}

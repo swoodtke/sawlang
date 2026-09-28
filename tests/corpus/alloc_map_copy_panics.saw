@@ -1,0 +1,41 @@
+// Conformance row A18 — `copy()` is infallible on `Map` too, exactly as A17
+// records for `Vector`: design 251 gives Map the same conditional
+// `ExplicitCopy` conformance Vector already has, and design 234 §5's boundary
+// applies verbatim — the hook's signature is the trait's, so it panics NAMING
+// itself rather than reporting through the caller's `Result`.
+//
+// `try_copy` is the reporting twin (unit 1's other half); this row is only
+// the panic boundary, mirroring `alloc_vector_copy_panics.saw`.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Map.copy: allocation of
+
+// Room for the source map's one grow (cap 0 -> 8) and nothing more.
+static BUDGET: Atomic<Int> = Atomic(1)
+
+struct FailAlloc {}
+extension FailAlloc: Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? {
+        let left = BUDGET.load()
+        if left <= 0 {
+            return None
+        }
+        BUDGET.store(left - 1)
+        GlobalAllocator().alloc(size, align)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
+        GlobalAllocator().dealloc(ptr, size, align)
+    }
+}
+
+func main() {
+    var m = Map<Int, Int, FailAlloc>()
+    match m.insert(1, 100) {
+        case Ok(_) -> {},
+        case Err(e) -> panic("setup insert failed: {}", e)
+    }
+    print(m.len())      // 1 — the source is real
+
+    // The duplicate needs a table of its own and the budget is gone.
+    let dup = m.copy()
+    print(dup.len())
+}

@@ -37,9 +37,22 @@ def tracked_saw_files() -> list:
                        capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit("astdiff: `git ls-files` failed")
-    files = [f for f in r.stdout.splitlines() if f.strip()]
+    files = [f for f in r.stdout.splitlines() if f.strip() and not owned_elsewhere(f)]
     files.sort()
     return files
+
+
+# The new compiler's corpora, as repository-relative prefixes: the migrated
+# corpus (SL-418) and the parse corpus derived from GRAMMAR.md.
+NEW_COMPILER_CORPORA = ("tests/corpus/", "compiler/tests/parse/")
+
+
+def owned_elsewhere(path: str) -> bool:
+    """Whether the file is the new compiler's input rather than the frozen
+    parser's: both corpora are written in the syntax GRAMMAR.md rules, which
+    this parser never learns, and the grammar lanes check them. The parse
+    corpus's nesting-depth cases also overflow this parser's recursion."""
+    return path.startswith(NEW_COMPILER_CORPORA)
 
 
 def dump_once(rel: str, seed: str):

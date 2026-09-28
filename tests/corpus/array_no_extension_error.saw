@@ -1,0 +1,14 @@
+// Design 72 L12: user extensions on fixed-array types are not supported. The
+// diagnostic says so and points at the builtin surface.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: extension methods on array types are not supported
+extension [Int; 3] {
+    func total(&self) -> Int {
+        self[0] + self[1] + self[2]
+    }
+}
+
+func main() {
+    let a = [1, 2, 3]
+    print(a[0])
+}

@@ -1,0 +1,17 @@
+// Design 114: `yield_now` is a stdlib-INTERNAL cooperative-yield intrinsic. User
+// code cannot call the bare name — it must go through std.task's public wrapper
+// (`import std.task` + `yield_now()`). A bare, un-imported call is a clean error
+// naming the replacement, not a silent fall-through to some other resolution.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: stdlib-internal cooperative-yield intrinsic
+
+func spin(n: Int) -> Int {
+    yield_now()
+    n * n
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(spin(6))
+    print(a.join())
+}

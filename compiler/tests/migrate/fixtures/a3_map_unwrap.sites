@@ -1,0 +1,2 @@
+status: rewritten
+4 A3.mutating-call+map-unwrap rewritten => try! borrow var m["k"].push(2)

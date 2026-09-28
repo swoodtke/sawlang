@@ -1,0 +1,2 @@
+status: rewritten
+21 A4.accessor-forced-store rewritten => borrow var b.slot(0)! = Cell(n: 3)

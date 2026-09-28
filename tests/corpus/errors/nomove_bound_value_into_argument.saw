@@ -1,0 +1,27 @@
+// design 188's FRESH-JOURNEY rule — the CALLER-SIDE FENCE it rests on
+// (218c Amendment B4)
+//
+// B4 lets a by-value parameter be placement-moved at a NoMove type because such
+// a parameter is always a FRESH TEMPORARY: a value that is already BOUND cannot
+// be moved into an argument, so no caller can hand one over. That refusal is
+// design 188's own and is unchanged — this pin asserts it, because the whole
+// soundness argument for the new rule is that it still holds.
+//
+// `Box<Anchor>.make(Anchor(n: 5))` — the temporary spelling — is legal and is
+// pinned by `examples/nomove_placement_into_its_home.saw`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot `move` `a`
+// EXPECT-ERROR-CONTAINS: `NoMove`
+
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {}
+extension Anchor: NoMove {}
+
+func main() {
+    let a = Anchor(n: 5)
+    let boxed = try! Box<Anchor>.make(move a)
+    print(boxed.value().n)
+}

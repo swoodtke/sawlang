@@ -1,0 +1,11 @@
+// Design 137: an empty `{}` is a format placeholder, so it is only meaningful
+// where a call supplies a value for it. In an ordinary string it used to be the
+// parser's "Invalid expression in string interpolation"; now it names what `{}`
+// is and both ways out of it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `{}` is a format placeholder and needs an argument to fill it
+
+func main() {
+    let s = "value: {}"
+    print(s)
+}

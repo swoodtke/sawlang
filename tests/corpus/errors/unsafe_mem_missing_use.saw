@@ -1,0 +1,8 @@
+// design 46: the intent marker is EXPLICIT ALWAYS — there is no default. A
+// UnsafeMemory with only one type argument is a compile error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: takes exactly two type arguments
+
+static DEV: UnsafeMemory<Int> = UnsafeMemory(0x40000000)
+
+func main() { print(DEV.read()) }

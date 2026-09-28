@@ -1,0 +1,22 @@
+// Parser error recovery (design 26 item 3): two INDEPENDENT syntax errors in
+// one file are both reported in a single run. After the first error inside the
+// struct, the parser synchronizes to the next top-level declaration boundary
+// (`func good` parses cleanly), then reports the second error at `extension`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Expected type, got NEWLINE
+// EXPECT-ERROR-CONTAINS: Expected type name after 'extension'
+
+struct Bad {
+    x:
+}
+
+func good() -> Int {
+    5
+}
+
+extension 123 {
+}
+
+func main() {
+    print(0)
+}

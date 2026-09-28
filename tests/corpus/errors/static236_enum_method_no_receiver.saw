@@ -1,0 +1,15 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: method `widest` has no receiver — add `&self`/`&var self`, or declare it `static func` if a static was intended
+//
+// Design 236, position-matrix row 2: the same rule in an ENUM extension.
+// Design 145 gives enums statics on exactly the struct's terms, so it gives
+// them this error on the same terms too — one declaration parser serves both,
+// which is why there is one rule here and not two.
+
+enum Width { case Narrow, case Wide }
+
+extension Width {
+    func widest() -> Width { Width.Wide }
+}
+
+func main() { print("unreached") }

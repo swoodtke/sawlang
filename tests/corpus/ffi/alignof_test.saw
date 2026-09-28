@@ -1,0 +1,42 @@
+// Test alignof<T>() built-in function (design 28 item 1)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 4
+// 8
+// 8
+// 8
+// 8
+// 8
+// 8
+// 1
+
+struct Mixed {
+    a: Int8
+    b: Int
+}
+
+func get_align<T>() -> Int {
+    alignof<T>()
+}
+
+func main() {
+    // Primitives
+    print(alignof<Int8>())    // 1
+    print(alignof<Int16>())   // 2
+    print(alignof<Int32>())   // 4
+    print(alignof<Int>())     // 8
+    print(alignof<Int64>())   // 8
+    print(alignof<Float>())   // 8 (double)
+
+    // Pointer type
+    print(alignof<UnsafePointer<Int8>>())  // 8
+
+    // Mixed-field struct: {Int8, Int} aligns to the widest member (Int -> 8)
+    print(alignof<Mixed>())   // 8
+
+    // Generic T at two instantiations
+    print(get_align<Int>())   // 8
+    print(get_align<Int8>())  // 1
+}

@@ -1,0 +1,6 @@
+// The dependency both a wall and a facade sit in front of.
+public struct Header {
+    public tag: Int
+}
+
+public func wire_make(tag: Int) -> Header { Header(tag: tag) }

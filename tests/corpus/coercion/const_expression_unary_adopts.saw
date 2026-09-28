@@ -1,0 +1,25 @@
+// A constant expression under a UNARY operator adopts the fixed-width slot too,
+// and the range check sees the value the slot actually receives.
+//
+// Two shapes, and the first is why the whole expression has to be folded rather
+// than its operand: `-(1 << 7)` is `Int8.min`, which fits, while the `128`
+// underneath the `-` does not. This is the rule design 87 already applies to a
+// negated bare LITERAL (`let x: Int8 = -128`), reaching a negated const
+// expression through the same funnel.
+//
+// The second is the mask idiom. `~` folds in design 185's signed platform-`Int`
+// domain, so `~0` is `-1` and has to be masked back to land in an unsigned slot
+// — which is exactly what `0xFF & ~0` and `~0 & 0xFFFF_FFFF` do. The unmasked
+// spelling is the error pinned in const_expression_signed_domain_error.saw.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -128 255 -18 4294967295
+
+func main() {
+    let a: Int8 = -(1 << 7)
+    let b: UInt8 = 0xFF & ~0
+    let c: Int16 = -(1 << 4) - 2
+    let d: UInt32 = ~0 & 0xFFFF_FFFF
+    print("{a} {b} {c} {d}")
+}

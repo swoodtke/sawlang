@@ -1,0 +1,3 @@
+status: rewritten
+5 E.lock rewritten => let pair = borrow var c = m.lock() { (c, c) }
+6 E.lock rewritten => let other = borrow var c = m.lock() { (c, c + 1) }

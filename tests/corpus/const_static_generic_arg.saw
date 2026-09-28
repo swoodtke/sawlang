@@ -1,0 +1,49 @@
+// DF-172j: a module `static` is also a const generic ARGUMENT. The parser
+// cannot tell `Ring<CAP>`'s argument from a type — a bare name in that position
+// is ambiguous by design (148) and stays a type until something knows the
+// parameter it lands on — so the fold happens where the parameter kinds are
+// known, which is also where a forwarded const parameter is recognized.
+//
+// The pin is IDENTITY, not just acceptance: the argument folds to a number
+// before mangling, so `Ring<CAP>` and `Ring<16>` are ONE instantiation with one
+// layout and one symbol. `take` is declared on the literal spelling and called
+// with the static one.
+// EXPECT: success
+// EXPECT-OUTPUT: 16
+// EXPECT-OUTPUT: 16
+// EXPECT-OUTPUT: 16
+// EXPECT-OUTPUT: 32
+// EXPECT-OUTPUT: 16
+
+import std.fixedbuf.*
+
+static CAP: Int = 16
+
+struct Ring<const N: Int> { slots: [Int; N] }
+
+extension Ring<N> {
+    init() -> Ring<N> { Ring<N>(slots: [0; N]) }
+    func capacity(&self) -> Int { N }
+}
+
+// A field, a parameter and a return type all name the same instantiation.
+struct Holder { ring: Ring<CAP> }
+
+func take(r: &Ring<16>) -> Int { r.capacity() }
+
+func main() {
+    let r = Ring<CAP>()
+    print(r.capacity())
+    print(take(&r))
+
+    let h = Holder(ring: Ring<CAP>())
+    print(h.ring.capacity())
+
+    // Const arithmetic over a static composes here exactly as it does in a
+    // length: `CAP * 2` is folded before the type is named.
+    let wide = Ring<CAP * 2>()
+    print(wide.capacity())
+
+    var buf: FixedBuf<CAP> = FixedBuf<16>()
+    print(buf.capacity())
+}

@@ -1,0 +1,12 @@
+// Design 55: a call that matches two overloads equally well (an Int literal is
+// compatible with both Int and Int8) is a call-site ambiguity error listing the
+// survivors.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous call to `h`
+
+func h(x: Int) -> Int { 1 }
+func h(x: Int8) -> Int { 2 }
+
+func main() {
+    print(h(5))
+}

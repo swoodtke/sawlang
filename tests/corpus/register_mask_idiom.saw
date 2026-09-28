@@ -1,0 +1,31 @@
+// The classic register field-update idiom: clear a masked field and OR in a
+// new value shifted into position — `(v & ~MASK) | (bits << SHIFT)` (design 50).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 203
+// 4660
+// 61695
+
+func main() {
+    // Update the low nibble of 0xAB (byte) to 0xB stays, set high nibble to 0xC.
+    let MASK = 0xF0
+    let SHIFT = 4
+    var reg = 0xAB
+    let bits = 0x0C
+    let out = (reg & ~MASK) | (bits << SHIFT)
+    print(out)             // (0xAB & 0x0F)=0x0B | (0xC << 4)=0xC0 => 0xCB = 203
+
+    // Pack two 8-bit fields into a 16-bit word: hi=0x12, lo=0x34 -> 0x1234.
+    let hi = 0x12
+    let lo = 0x34
+    var word = 0
+    word = (word & ~0xFF00) | (hi << 8)
+    word = (word & ~0x00FF) | lo
+    print(word)            // 0x1234 = 4660
+
+    // Set every bit in the low 16 via mask-OR, read it back.
+    var flags = 0
+    flags |= 0xFFFF
+    flags &= ~0x0F00       // clear one nibble: 0xFFFF & ~0x0F00 = 0xF0FF
+    print(flags)           // 61695
+}

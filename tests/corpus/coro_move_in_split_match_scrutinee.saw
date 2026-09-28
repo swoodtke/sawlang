@@ -1,0 +1,53 @@
+// SL-338, the third split container: a `move` of the SCRUTINEE of a
+// suspension-SPANNING `match` relinquishes the frame's claim exactly ONCE.
+//
+// `_split_match` evaluated its scrutinee inside the dispatch it emits and
+// refused the drop-flag clears a `move` owes, for the same reason `_split_if`
+// and `_split_while` did: the block the dispatch sits in is terminated by it,
+// so a trailing clear has no home and a leading one would run before the move.
+// All three hoist now — bind the head to a temp, give up the claim between the
+// temp and the container — which is `_hoist_head_and_relinquish`, the routine
+// the in-place lowering has used since SL-234. The scrutinee keeps the PLAIN
+// name rather than a `move` (`consuming=False`), because a `match` consumes an
+// owned scrutinee by construction and spelling a `move` there would cost the
+// arm bindings their own drop flags.
+//
+// The sibling sweep behind SL-338's fix is what found this one: the corpus
+// covered `match` only through `match_return`, whose arm `return`s and so needs
+// no split at all. This body `continue`s instead, which is what makes the
+// `match` a CFG-split container inside a loop that spans.
+//
+// THE ORACLE IS THE DROP COUNT: one `Res` per iteration, destroyed once, in the
+// callee.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// drop old
+// drop old
+// 6
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+func note(r: &Res) -> Int { r.name.len() }
+func consume_int(r: Res) -> Int { 1 }
+
+func match_continue(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        match consume_int(move r) {
+            case 1 -> { continue },
+            case _ -> { }
+        }
+    }
+    6
+}
+
+func main() {
+    print(__saw_drive(match_continue([1, 2])))
+}

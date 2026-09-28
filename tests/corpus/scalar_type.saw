@@ -1,0 +1,81 @@
+// Design 245 v1: `Scalar` carries the Unicode scalar invariant — 0..0x10FFFF
+// with the UTF-16 surrogate block removed — and checks it in ONE place, the
+// fallible `init`. Past that everything is total: `value()` always answers, and
+// a `Scalar` PRINTS AS THE CHARACTER rather than as its number, which is what
+// the bare-Int spelling could never do.
+//
+// `InvalidScalar` names the cause. Both refusals used to be an ignorable
+// `Ok(None)` at the use site (`append_scalar`), which is the shape design 245
+// retired: an invalid scalar is now unrepresentable, so nothing downstream has
+// to ask.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ascii " 34
+// latin é 233
+// euro € 8364
+// emoji 😀 128512
+// first 0
+// last 1114111
+// neg: -1 is not a Unicode scalar value: outside 0..0x10FFFF
+// over: 1114112 is not a Unicode scalar value: outside 0..0x10FFFF
+// surrogate_low: 55296 is not a Unicode scalar value: a UTF-16 surrogate
+// surrogate_high: 57343 is not a Unicode scalar value: a UTF-16 surrogate
+// just_below 55295
+// just_above 57344
+// absent: true
+// eq: true
+// ne: true
+// lt: true
+// ordered: true
+// set: 2
+
+// Prints the cause of a refusal, or `NO REFUSAL` if the value was accepted.
+func refusal(label: String, code: Int) {
+    match Scalar(value: code) {
+        case Ok(s) -> print("{}: NO REFUSAL {}", label, s.value()),
+        case Err(e) -> print("{}: {}", label, e)
+    }
+}
+
+func main() {
+    // Construction, then the two reads: the character and the code point.
+    let quote = try! Scalar(value: 34)
+    print("ascii {} {}", quote, quote.value())
+    let latin = try! Scalar(value: 233)
+    print("latin {} {}", latin, latin.value())
+    let euro = try! Scalar(value: 0x20AC)
+    print("euro {} {}", euro, euro.value())
+    let emoji = try! Scalar(value: 0x1F600)
+    print("emoji {} {}", emoji, emoji.value())
+
+    // The domain's two ends are both scalars.
+    print("first {}", (try! Scalar(value: 0)).value())
+    print("last {}", (try! Scalar(value: 0x10FFFF)).value())
+
+    // Each cause, named.
+    refusal("neg", -1)
+    refusal("over", 0x110000)
+    refusal("surrogate_low", 0xD800)
+    refusal("surrogate_high", 0xDFFF)
+
+    // The surrogate block is a hole, not a ceiling: both neighbours are fine.
+    print("just_below {}", (try! Scalar(value: 0xD7FF)).value())
+    print("just_above {}", (try! Scalar(value: 0xE000)).value())
+
+    // `try?` is the spelling for a caller to whom absence is the whole answer.
+    print("absent: {}", (try? Scalar(value: 0xD800)).is_none())
+
+    // Equatable / Comparable / Hashable, all by code point.
+    let a = try! Scalar(value: 65)
+    let b = try! Scalar(value: 66)
+    print("eq: {}", a == try! Scalar(value: 65))
+    print("ne: {}", a != b)
+    print("lt: {}", a < b)
+    print("ordered: {}", b > a && a <= b && b >= a)
+
+    var seen = Set<Scalar>()
+    let _ = seen.insert(a)
+    let _ = seen.insert(b)
+    let _ = seen.insert(try! Scalar(value: 65))   // already there
+    print("set: {}", seen.len())
+}

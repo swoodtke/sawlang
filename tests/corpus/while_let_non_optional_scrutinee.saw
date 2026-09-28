@@ -1,0 +1,12 @@
+// Design 233: the scrutinee must be an Optional, and the diagnostic names what
+// the AUTHOR wrote. The construct lowers to an `if let`, so without the marker
+// the error would have said `if let` about a line holding neither.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: 'while let' requires an optional type, got `Int`
+
+func main() {
+    var n = 0
+    while let x = n {
+        n = n + 1
+    }
+}

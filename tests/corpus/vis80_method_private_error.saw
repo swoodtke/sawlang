@@ -1,0 +1,9 @@
+// Design 80: a PRIVATE method is not callable from another module.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: method `bump` of `Gadget` is private
+import modules.members80
+
+func main() {
+    let g = members80.Gadget.make(5)
+    print(g.bump())   // private method — rejected
+}

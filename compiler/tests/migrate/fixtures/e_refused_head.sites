@@ -1,0 +1,2 @@
+status: flagged
+5 E.lock flagged -- the call stands where a `borrow` block would change the parse (BinaryOp.left)

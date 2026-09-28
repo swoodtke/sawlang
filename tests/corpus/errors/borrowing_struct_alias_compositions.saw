@@ -1,0 +1,46 @@
+// K143 (design 275 U3, codex r2 #6): THE TYPE FENCE DESCENDS AN ALIAS'S
+// TARGET, and exhausting its traversal bound REFUSES.
+//
+// `type Hidden = Vector<It>` is a composition wearing a name. For one revision
+// the walk (`_first_borrowing_struct_in`) asked only whether the alias as a
+// whole IS a borrowing struct — it is not, it is a Vector — and then descended
+// the alias, which has no parts, so `Hidden` passed as a field, a parameter, a
+// type argument and a return. And past eight levels of nesting the walk
+// answered "safe": nine nested `Vector`s hid an `It`. Now an alias is
+// descended to its target before its (absent) parts are read, the bound is
+// thirty-two, and reaching it is `DEPTH_EXHAUSTED` — a refusal naming the
+// depth, because a type that cannot be proven free of a borrowing struct is
+// never admitted. Rows: the alias as a field, as a parameter, inside a type
+// argument (`Box<Hidden>`), as a plain return through an alias of the alias's
+// composition (`Twice = Optional<Hidden>`), and the nine-deep bare nesting.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: field `value` of `Holder` may not name a borrowing struct: `Hidden` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: field `value` of `Deep` may not name a borrowing struct
+// EXPECT-ERROR-CONTAINS: field `value` of `Twin` may not name a borrowing struct: `Twice` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: parameter `value` of `accept` may not name a borrowing struct: `Hidden` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: parameter `value` of `boxed` may not name a borrowing struct: `Box<Hidden>` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: the return type of `give` may not name a borrowing struct: `Twice` names a `borrows struct` (`It`)
+
+struct Owner { value: Int }
+borrows struct It { source: &Owner, done: Bool }
+type Hidden = Vector<It>
+type Twice = Optional<Hidden>
+
+struct Holder {
+    value: Hidden                              // ROW: an alias to a composition, as a field
+}
+extension Holder: NoCopy {}
+
+struct Deep {
+    value: Vector<Vector<Vector<Vector<Vector<Vector<Vector<Vector<Vector<It>>>>>>>>>   // ROW: nine wrappers
+}
+extension Deep: NoCopy {}
+
+struct Twin { value: Twice }                   // ROW: an alias of an alias's composition
+extension Twin: NoCopy {}
+
+func accept(value: Hidden) -> Int { 0 }        // ROW: the alias as a parameter
+func boxed(value: Box<Hidden>) -> Int { 0 }    // ROW: the alias inside a type argument
+func give() -> Twice { None }                  // ROW: the alias as a plain return
+
+func main() {}

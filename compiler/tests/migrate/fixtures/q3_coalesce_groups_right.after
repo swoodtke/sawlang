@@ -1,0 +1,6 @@
+func main() {
+    let a: Int?? = None
+    let b: Int? = 2
+    let c = (a ?? b) ?? 0
+    print(c)
+}

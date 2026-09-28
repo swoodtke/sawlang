@@ -1,0 +1,58 @@
+// design 184 unit 3: a host `connect` cannot turn into an address is an
+// `Err(IoError)` that NAMES THE HOST — never a silent dial of somewhere else.
+// Before design 184 every one of these connected to 127.0.0.1 and answered Ok
+// (DF-181d), which is the failure mode this test exists to keep closed.
+//
+// Both refusals are answered by the resolver's own input validation, with no
+// query and no network: an empty host, and a name past the 255-octet limit
+// every `getaddrinfo` enforces before it looks anything up. A name that merely
+// does not EXIST is deliberately not tested here — whether it fails, and how
+// fast, is a property of the machine's DNS, and the suite never leaves the
+// machine.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// empty: io error: resolve "" failed (not found)
+// over-long: refused
+// localhost: connected
+// 127.0.0.1: connected
+
+import std.net.{TcpListener, TcpStream}
+
+// Over 255 octets — no resolver will look this up.
+func over_long_name() -> String {
+    var b = StringBuilder()
+    var i = 0
+    while i < 50 {
+        try! b.append("label.")
+        i = i + 1
+    }
+    try! b.append("example")
+    b.build()
+}
+
+// The two hosts that DO reach a peer. An Err arm prints the whole error rather
+// than a bare "failed", so a regression here says which host and why.
+func attempt(host: String, port: Int) {
+    match TcpStream.connect(host, port) {
+        case Ok(_) -> print("{}: connected", host),
+        case Err(e) -> print("{}: {}", host, e)
+    }
+}
+
+func main() {
+    let listener = try! TcpListener.listen(0)
+    let port = listener.local_port()
+
+    // Named in full, so the "the error says WHICH host" half is pinned.
+    match TcpStream.connect("", port) {
+        case Ok(_) -> print("empty: UNEXPECTED ok"),
+        case Err(e) -> print("empty: {e}")
+    }
+    // Too long to print; that it is refused at all is the point.
+    match TcpStream.connect(over_long_name(), port) {
+        case Ok(_) -> print("over-long: UNEXPECTED ok"),
+        case Err(_) -> print("over-long: refused")
+    }
+    attempt("localhost", port)      // the RESOLVED path — /etc/hosts, no network
+    attempt("127.0.0.1", port)      // the LITERAL path — never reaches the resolver
+}

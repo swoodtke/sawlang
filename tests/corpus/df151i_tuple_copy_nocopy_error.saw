@@ -1,0 +1,36 @@
+// DF-151i: a tuple holding a move-only element has NO `.copy()`, and says which
+// element and why.
+//
+// The other half of giving the tuple its `.copy()`. Design 139's rule is that a
+// wrapper carries the tier of what it wraps and offers the OPERATIONS that tier
+// provides — so a tuple whose strongest element is ExplicitCopy or weaker gets
+// the method (`df151i_tuple_copy.saw`), and a tuple holding a NoCopy element
+// gets nothing, because the tier it carries provides nothing to give.
+//
+// The arm is gated exactly as the `Optional<T>` arm above it is (`copy_tier !=
+// 'nocopy'`), so the two wrappers refuse in the same place for the same reason.
+// The diagnostic names the OFFENDING ELEMENT by position and type rather than
+// just the tuple: the tuple type as printed can be wide, and the element that
+// withholds the method is the one thing the author has to change.
+//
+// The hint is checked here too, because it is the whole reason this finding
+// existed — a refusal that recommends a spelling has to recommend one that
+// works. `let (a, b) = move t` on a NoCopy-element tuple compiles and runs.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is not Copy
+// EXPECT-ERROR-CONTAINS: element 0 of type `Res` is NoCopy
+// EXPECT-ERROR-CONTAINS: use `move` to transfer the tuple
+
+struct Res {
+    n: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {self.n}") }
+}
+
+func main() {
+    let t = (Res(n: 1), 5)
+    let u = t.copy()
+    print("{u.1}")
+}

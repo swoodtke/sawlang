@@ -1,0 +1,24 @@
+// Design 66 + 58: labeled overloads compose with @export. Two same-type
+// overloads differ only by label; one carries `@export` with an explicit C
+// symbol (design 58's one-export-per-unmangled-name rule). Saw-side labeled
+// dispatch and the C symbol coexist.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 12
+// 7
+// 12
+
+extern "C" {
+    func scale2(v: Int, by: Int) -> Int
+}
+
+@export("scale2")
+func scale(v: Int, by: Int) -> Int { v * by }
+
+func scale(x: Int, y: Int) -> Int { x + y }
+
+func main() {
+    print(scale(v: 3, by: 4))   // exported overload
+    print(scale(x: 3, y: 4))    // sibling overload
+    print(scale2(3, 4))         // reach the exported one by its C symbol
+}

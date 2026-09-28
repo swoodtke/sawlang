@@ -1,0 +1,44 @@
+// Design 174 — DF-146o (DECIDED: make it legal). Optional-chain ASSIGNMENT
+// rejects a place-expression head:
+//
+//   error: the head of an optional-chain assignment must be a mutable variable
+//          or a `&var`-reachable path
+//
+// Design 111's chained assignment predates design 146's conditional lends and
+// never learned place heads, so the natural write-if-present idiom does not
+// exist; today's spelling is the double lookup
+// `if let _ = m[k] { m[k]!.f = v }`. The decision is to compose them: the head
+// lends, the absent path skips the write AND the RHS like any `?.`
+// short-circuit, and the whole thing types `Void?`.
+//
+// LANDED in design 176 unit 5. The write becomes the BODY of the head's window:
+// `m.[](k, { __p0 in __p0.field = v }, { })`. The `?` is consumed by the
+// lowering — it was the lend's own optionality, and inside the window the
+// payload is simply there — which is also why the head cannot be read out as a
+// value first: the field write would land in the copy.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// present 42
+// absent skipped
+// -- done
+
+struct Cell { value: Int }
+
+func main() {
+    var m = Map<String, Cell>()
+    let _ = m.insert("x", Cell(value: 1))
+
+    let key_x = "x"
+    borrow var m.find(&key_x)?.value = 42
+    let present = m.get("x")!.value
+    print("present {present}")
+
+    // The absent path writes nothing and evaluates no RHS.
+    let key_nope = "nope"
+    guard let _ = borrow var m.find(&key_nope)?.value = 7 else {
+        print("absent skipped")
+        print("-- done")
+        return
+    }
+    print("unreachable")
+}

@@ -1,0 +1,2 @@
+status: rewritten
+3 A2.nested-compound rewritten => borrow var g[0][1] += 7

@@ -1,0 +1,15 @@
+// Design 53 Part 2/3: `..=` at the top of the integer range must not phantom-
+// overflow. `RangeInclusive` latches `done` at `last`, so iterating up to
+// `Int.max` yields the final element and stops WITHOUT incrementing past it —
+// a `a..(b+1)` desugar would panic here.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+
+func main() {
+    var count = 0
+    for i in (Int.max - 2)..=Int.max {
+        count += 1
+    }
+    print(count)   // Int.max-2, Int.max-1, Int.max -> 3 iterations, no panic
+}

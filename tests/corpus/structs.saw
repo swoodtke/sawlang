@@ -1,0 +1,21 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 20
+// 30
+
+struct Point {
+    x: Int,
+    y: Int
+}
+
+func main() -> Int {
+    let p = Point(x: 10, y: 20)
+    print(p.x)
+    print(p.y)
+
+    let sum = p.x + p.y
+    print(sum)
+
+    0
+}

@@ -1,0 +1,46 @@
+// Design 246 row 2: an enum whose payload is a `Box` of itself — a linked
+// list. One pointer on the cycle is all the rule asks for.
+//
+// The DEINIT lines are the oracle. Destruction walks the whole chain, innermost
+// first (each `Box`'s deinit releases its payload in place, then frees the
+// chunk), and each link is released exactly once.
+//
+// Saw-level TRAVERSAL through the box is not written here, and that is a
+// finding rather than a choice: `Box` payload-method forwarding reaches a
+// STRUCT payload's extension methods and not an ENUM payload's (DF-261d), so
+// `next.length()` is refused with "available methods: deinit, make, value".
+// The drop order below is what proves the chain was walked to depth 3.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// head is a link: true
+// DEINIT c
+// DEINIT b
+// DEINIT a
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+enum Chain {
+    case End,
+    case Link(r: Res, next: Box<Chain>)
+}
+extension Chain: NoCopy {}
+
+extension Chain {
+    func is_link(&self) -> Bool {
+        match self {
+            case End -> false,
+            case Link(_, _) -> true
+        }
+    }
+}
+
+func main() {
+    let tail = Chain.Link(r: Res(name: "c"), next: try! Box<Chain>.make(value: Chain.End))
+    let mid = Chain.Link(r: Res(name: "b"), next: try! Box<Chain>.make(value: move tail))
+    let head = Chain.Link(r: Res(name: "a"), next: try! Box<Chain>.make(value: move mid))
+    print("head is a link: {head.is_link()}")
+}

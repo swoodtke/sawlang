@@ -1,0 +1,9 @@
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: out of range
+struct Cell { n: Int }
+
+func main() {
+    var v: Vector<Cell> = [Cell(n: 1)]
+    v[5].n = 2
+    print(v.len())
+}

@@ -1,0 +1,15 @@
+// Design 145 unit B2: a backing is for payload-free enums only. A case carrying
+// a payload has no integer identity — the value would name the case but say
+// nothing about what it holds.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: carries a payload, so the enum cannot declare a backing type
+// EXPECT-ERROR-CONTAINS: no integer identity
+
+enum WithPayload: UInt8 {
+    case Ok = 0,
+    case Detail(code: Int) = 1
+}
+
+func main() {
+    print("unreachable")
+}

@@ -1,0 +1,61 @@
+// A nested `yield_now()` really cedes, whichever spelling reached it (DF-158d).
+//
+// Design 114 made `yield_now` a stdlib-internal intrinsic with a public std.task
+// WRAPPER, and the wrapper is transparent: a user call lowers to the intrinsic
+// itself. Every spelling that binds the name BARE (`import std.task.*`,
+// `import std.task.{yield_now}`) always did. Design 150's QUALIFIER spelling —
+// `import std.task` then `task.yield_now()` — arrived later and resolved to the
+// wrapper as an ordinary cross-module free function, which the coroutine
+// transform cannot embed: the callee got no frame, its caller no state split,
+// and the yield ran outside a frame as a no-op. The one documented escape hatch
+// for a compute loop in a helper did nothing.
+//
+// COUNTED, not ordered: the witness reports how many of its own turns happened
+// while the worker was still running. Working, that is more than zero; as a
+// no-op, the worker ran to completion before the witness ever got a turn and
+// the count is exactly zero.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// worker rounds 8
+// witness saw worker alive: true
+
+import std.task
+
+static WORKER_DONE: Atomic<Int> = Atomic(0)
+
+// The yield sits in a NESTED callee and is written with the qualified spelling.
+func nap() {
+    task.yield_now()
+}
+
+func worker(rounds: Int) -> Int {
+    var i = 0
+    while i < rounds {
+        nap()
+        i = i + 1
+    }
+    WORKER_DONE.store(1)
+    rounds
+}
+
+func witness(rounds: Int) -> Int {
+    var turns = 0
+    var i = 0
+    while i < rounds {
+        if WORKER_DONE.load() == 0 {
+            turns = turns + 1
+        }
+        task.yield_now()
+        i = i + 1
+    }
+    turns
+}
+
+func main() {
+    var g = TaskGroup()
+    let w = g.spawn(worker(8))
+    let s = g.spawn(witness(8))
+    let turns = s.join()
+    print("worker rounds {}", w.join())
+    print("witness saw worker alive: {}", turns > 0)
+}

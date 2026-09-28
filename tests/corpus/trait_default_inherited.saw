@@ -1,0 +1,33 @@
+// design 56 (N1): default bodies flow through trait inheritance. A single
+// `extension Number: Child` satisfying Base + Child inherits Base's default
+// (describe) AND Child's default (doubled), both dispatching to getValue().
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 6
+// 30
+
+trait Base {
+    func getValue(&self) -> Int
+    func describe(&self) -> Int {
+        self.getValue() * 10
+    }
+}
+
+trait Child: Base {
+    func doubled(&self) -> Int {
+        self.getValue() * 2
+    }
+}
+
+struct Number { value: Int }
+extension Number: Child {
+    func getValue(&self) -> Int { self.value }
+}
+
+func main() {
+    let n = Number(value: 3)
+    print(n.getValue())   // 3
+    print(n.doubled())    // 6  (Child default)
+    print(n.describe())   // 30 (Base default, inherited via Child)
+}

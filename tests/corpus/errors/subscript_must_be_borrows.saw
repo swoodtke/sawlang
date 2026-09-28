@@ -1,0 +1,17 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a `[]` subscript must be `borrows`
+//
+// Design 141, decision 4. `v[i]` names a PLACE in the container, not a value
+// read out of it -- that is the whole reason subscripts are declarable at all.
+// A value-returning lookup is an ordinary named method, and saying so keeps
+// `[]` from quietly becoming a second spelling of `get`.
+
+struct Bag { items: [Int; 4] }
+
+extension Bag {
+    public func [](&self, i: Int) -> Int {
+        self.items[i]
+    }
+}
+
+func main() { print("unreached") }

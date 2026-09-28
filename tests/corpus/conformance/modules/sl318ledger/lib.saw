@@ -1,0 +1,46 @@
+//! Design 275 U1's adversarial fixture — the imported half.
+//!
+//! Three shapes the discovery ledger has to key correctly, all of them routes
+//! that produced a SILENT dropped suspension before SL-280's funnel and that the
+//! ledger now records a row for:
+//!
+//!   * a module-PRIVATE suspending helper reached through a public entry point,
+//!     taken BY REFERENCE (the shape whose spliced body is rewritten through
+//!     `self`, which is one of SL-280's two faces);
+//!   * a suspending GENERIC whose monomorphized clone is spliced into the entry
+//!     module and must stay keyed to THIS module;
+//!   * a free-function name the entry module also declares, so a bare-name key
+//!     would collide.
+
+import std.task.{yield_now}
+
+/// A counter the reference-taking helper reads through.
+public struct Counter {
+    base: Int
+}
+
+/// A module-PRIVATE suspending helper taken by REFERENCE.
+func bump_private(cell: &Counter) -> Int {
+    yield_now()
+    cell.base + 1
+}
+
+/// Public entry point onto the private helper.
+public func reach_private(cell: &Counter) -> Int {
+    bump_private(&cell)
+}
+
+/// The suspending GENERIC. Its instantiation is adopted into the entry module's
+/// driven closure as a mono clone, and the clone's frame key has to name THIS
+/// module rather than the entry module it is spliced into.
+public func warp<T>(seed: Int) -> Int {
+    yield_now()
+    seed + 10
+}
+
+/// A name the entry module also declares, suspending on both sides and
+/// answering differently, so which frame a call site embeds is visible.
+public func worker(n: Int) -> Int {
+    yield_now()
+    n + 1000
+}

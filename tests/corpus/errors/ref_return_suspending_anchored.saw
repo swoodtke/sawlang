@@ -1,0 +1,23 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Parse error at 15:23: `func peek` may not return a reference
+// EXPECT-ERROR-CONTAINS: references in Saw are PARAMETERS ONLY
+//
+// DF-163c: the SUSPENDING `-> &T` was already a fence, but the wrong one. The
+// driven path let the declaration through to the coroutine transform, which
+// failed trying to store a `&Int` into the frame's pointer field and reported
+// ``cannot assign `&Int` to field of type `UnsafeConstPointer<Int>` `` at 0:0 --
+// an internal message with no source anchor, leaking past design 74's anchoring
+// rule. Refusing the declaration closes 163c with 163a: same rule, same
+// sentence, anchored on the return-type token like every other position.
+
+import std.task.*
+
+func peek(x: &Int) -> &Int {
+    yield_now()
+    &x
+}
+
+func main() {
+    let v = 5
+    print("{peek(&v)}")
+}

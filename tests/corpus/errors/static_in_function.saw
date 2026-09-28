@@ -1,0 +1,9 @@
+// `static` is a module-level declaration only (design 41 item 5): a `static`
+// inside a function body is a parse error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: STATIC
+
+func main() {
+    static X: Int = 1
+    print(X)
+}

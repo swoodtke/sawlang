@@ -1,0 +1,78 @@
+// A CONST EXPRESSION adopts the other operand's width in a mixed binop, exactly
+// as a bare literal does (DF-243a). It is the one position on design 87's
+// adoption list that DF-235a/b's ladder did not reach, so the two literal forms
+// disagreed at exactly one place: `(r as UInt32) >= 256` compiled and
+// `(r as UInt32) >= (1 << 8)` was ``operator `>=` requires both operands to have
+// the same type``. That cost the Aug-17 bit-flag ruling a width suffix in every
+// operand position — one bit spelled two ways, `1 << 8` in the case value and
+// `1u32 << 8` in the assert that checks it.
+//
+// Every entry point of the operand-agreement funnel that takes two numeric
+// PEERS is a row here: a comparison (in a const position and out of one),
+// arithmetic, the bitwise operators, and compound assignment. The shift COUNT
+// is exempt by design 195 and always was.
+//
+// `errors/const_operand_does_not_fit_error.saw` is the fence: a folded value the
+// peer's width cannot hold is the same clean error a bare literal gives, and a
+// runtime operand of a different width is still refused.
+// EXPECT: success
+// EXPECT-OUTPUT: true
+// EXPECT-OUTPUT: true
+// EXPECT-OUTPUT: 512
+// EXPECT-OUTPUT: 512
+// EXPECT-OUTPUT: 256
+// EXPECT-OUTPUT: 256
+// EXPECT-OUTPUT: 512
+// EXPECT-OUTPUT: true
+// EXPECT-OUTPUT: 17
+// EXPECT-OUTPUT: 4
+
+enum SystemRight: UInt32 {
+    case Transfer = 1 << 0,
+    case Debug = 1 << 8,
+}
+
+static SHIFT: Int = 8
+
+// The const position: a `static_assert` over the same bit, spelled as the shift
+// the case value is spelled as.
+static_assert((SystemRight.Transfer as UInt32) == (1 << 0),
+              "Transfer is bit 0")
+static_assert((SystemRight.Debug as UInt32) >= (1 << 8),
+              "kind-specific rights start at bit 8")
+
+func main() {
+    let flag: UInt32 = SystemRight.Debug as UInt32
+
+    // A comparison, bare literal and const expression side by side.
+    print(flag >= 256)
+    print(flag >= (1 << 8))
+
+    // Arithmetic.
+    print(flag + 256)
+    print(flag + (1 << 8))
+
+    // Bitwise.
+    print(flag & 256)
+    print(flag & (1 << 8))
+
+    // Compound assignment, which DF-235a/b already reached — here to keep the
+    // funnel's entry points in one file.
+    var acc: UInt32 = 0
+    acc += (1 << 8)
+    acc += 256
+    print(acc)
+
+    // DF-240a's names: the leaves of a constant may be a module `static`.
+    print(flag >= (1 << SHIFT))
+
+    // A narrow peer, and a nested operator inside the constant.
+    var packed: Int16 = 0
+    packed += (1 << 4) | 1
+    print(packed)
+
+    // The shift COUNT stays exempt (design 195): it is not a peer.
+    var idx: UInt16 = 1
+    idx <<= (1 + 1)
+    print(idx)
+}

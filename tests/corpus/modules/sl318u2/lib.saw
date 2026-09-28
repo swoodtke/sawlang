@@ -1,0 +1,42 @@
+//! Fixture for design 275 U2 — a suspending GENERIC free function reached
+//! through a MODULE QUALIFIER, and the template chain below it.
+//!
+//! `outer<T>` is the cell SL-330 found: `alpha.outer<Int>(n)` parses as a
+//! `MethodCall` carrying SL-208's `module_free_call` stamp, and the coroutine
+//! transform's generic promotion walked `FunctionCall`s only — so the
+//! instantiation was never promoted, the driven frame's resume plain-called it,
+//! and the post-transform `sync` check refused a sound program blaming the
+//! author's `sync` context for a frame the transform declined to build. The
+//! BARE spelling (`import sl318u2.{outer}`) and the qualified NON-generic
+//! spelling both worked, which is what isolates the cell to
+//! qualified x generic x embedded.
+//!
+//! Two hops of templates below it, so the cell exercises the chain as well as
+//! the spelling: the entry-module twin of that chain is SL-331.
+
+import std.task.{yield_now}
+
+/// The generic entry point, reached through the qualifier.
+public func outer<T>(x: Int) -> Int {
+    let r = inner<T>(x)
+    r + 1
+}
+
+/// A module-PRIVATE generic hop — design 249 tags it `$m$sl318u2`, which is the
+/// keying SL-280 found three tables reading two ways.
+func inner<T>(x: Int) -> Int {
+    let r = leaf(x)
+    r + 10
+}
+
+/// The concrete suspending leaf. Its frame is what every hop above embeds.
+func leaf(x: Int) -> Int {
+    yield_now()
+    x + 100
+}
+
+/// A NON-generic qualified callee, the control: this spelling always worked.
+public func plain(x: Int) -> Int {
+    yield_now()
+    x + 7
+}

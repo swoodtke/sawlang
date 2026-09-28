@@ -1,0 +1,34 @@
+// A set/map literal whose elements are unparenthesized comparisons must parse
+// (design 59 E2). The brace-classification lookahead previously tracked `<`/`>`
+// as depth brackets; a comparison element (`a > 0`) then drove the scan depth
+// negative, so the real depth-0 `,` was missed and `{a > 0, b > 0}` was
+// misclassified as a block (parse error). `<`/`>` are ambiguous (comparison vs
+// generic-arg bracket) and closures are classified before this scan, so they are
+// no longer treated as depth brackets — only `()`/`[]`/`{}` bound nested `,`/`:`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 2
+// 2
+
+func main() {
+    let a = 5
+    let b = 3
+
+    // Set of `>` comparisons: {true, true} -> 1 element.
+    let s1: Set<Bool> = { a > 0, b > 0 }
+    print(s1.len())                       // 1
+
+    // Set of `<` comparisons: {false, true} -> 2 elements.
+    let s2: Set<Bool> = { a < b, b < a }
+    print(s2.len())                       // 2
+
+    // Map classification is unaffected.
+    let m: Map<Int, Int> = { 1: 10, 2: 20 }
+    print(m.len())                        // 2
+
+    // Map with comparison-valued entries.
+    let m2: Map<Int, Bool> = { 1: a > b, 2: a < b }
+    print(m2.len())                       // 2
+}

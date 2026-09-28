@@ -1,0 +1,35 @@
+// `Self` in the signature of a method on a GENERIC extension (DF-216r).
+//
+// `extension Wrap<T> { func same(&self, other: &Self) }` reported ``argument
+// `other` expects `&Self` but got `&Wrap<Int>```. DF-216f fixed the
+// non-generic spelling and deliberately left this one, because there are TWO
+// `Self`s in a generic extension and it only had one:
+//
+//   * the RECEIVER's, which `_ext_self_type` keeps ARGUMENT-FREE (`Wrap`, not
+//     `Wrap<T>`) on purpose — naming the extension's own parameters as
+//     arguments makes a payload binding and a `T` parameter resolve through
+//     different routes to two `T`s that do not unify, and codegen names the
+//     concrete monomorphization from `self_type_context` instead;
+//   * the one a SIGNATURE WRITES, which cannot use that spelling: substituting
+//     a bare `Wrap` into a signature where only `Wrap$1$Int` was ever
+//     monomorphized turned the clean error above into `internal compiler
+//     error: Undefined struct: Wrap` (verified while fixing DF-216f, which is
+//     why `_self_type_is_substitutable` exists).
+//
+// The written one is the extension APPLIED TO ITS OWN PARAMETERS — `Wrap<T>`,
+// exactly what a user may write by hand — so the receiver's type arguments
+// substitute it at the call site through machinery that already existed. The
+// matrix over every position is `self_type_generic_extension_positions.saw`.
+// EXPECT: success
+// EXPECT-OUTPUT: same 9
+
+struct Wrap<T> { v: T }
+
+extension Wrap<T> {
+    func same(&self, other: &Self) -> Int { 9 }
+}
+
+func main() {
+    let w = Wrap<Int>(v: 0)
+    print("same {w.same(other: &w)}")
+}

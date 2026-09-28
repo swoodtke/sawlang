@@ -1,0 +1,112 @@
+// design 104 item 1: a suspending METHOD call inside an `if let` / `guard let`
+// BODY must now EMBED as a driven sub-frame (CFG-split across resume states),
+// not reject. Before design 104 these two shapes were the last clean-error residue
+// of design 101 (the split could not express an optional-binding branch); now the
+// binding becomes a frame field and the branch splits like `if`/`match`.
+//
+// Each worker owns a socketpair and self-feeds it (seed one byte, then read the
+// pending byte and write it straight back — a balanced 1:1 recirculation), so every
+// read finds data ready and the loop is deterministic and time-bounded. The
+// suspending read+write sit inside a DIFFERENT optional-binding position per worker;
+// each returns its recirc count and main asserts the exact per-shape counts, so a
+// shape that mis-drove (or a plain blocking call, which would wedge the single
+// thread and hang -> runner timeout) is caught.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// iflet_body 4
+// guardlet_cont 4
+// guardlet_else 2
+// iflet_shadow 4
+
+import std.net.{TcpStream}
+
+func maybe(k: Int) -> Int? {
+    if k <= 4 { k } else { None }
+}
+
+// Shape A: the recirc sits in an `if let` THEN body.
+func iflet_body(s_read: TcpStream, s_write: TcpStream) -> Int {
+    try! s_write.write("x")
+    var k = 0
+    var reads = 0
+    while k < 6 {
+        k = k + 1
+        if let ok = maybe(k) {
+            let c = try! s_read.read()
+            try! s_write.write(move c)
+            reads = reads + 1 + ok - ok
+        }
+    }
+    reads
+}
+
+// Shape B: the recirc sits in a `guard let` CONTINUATION (the binding lives on into
+// the rest of the loop body, which crosses the suspension). The else `continue`s.
+func guardlet_cont(s_read: TcpStream, s_write: TcpStream) -> Int {
+    try! s_write.write("x")
+    var k = 0
+    var reads = 0
+    while k < 6 {
+        k = k + 1
+        guard let ok = maybe(k) else {
+            continue
+        }
+        let c = try! s_read.read()
+        try! s_write.write(move c)
+        reads = reads + 1 + ok - ok
+    }
+    reads
+}
+
+// Shape C: the recirc sits in a `guard let` ELSE body (the else-exit path across
+// the split — it recircs then `continue`s).
+func guardlet_else(s_read: TcpStream, s_write: TcpStream) -> Int {
+    try! s_write.write("x")
+    var k = 0
+    var reads = 0
+    while k < 6 {
+        k = k + 1
+        guard let ok = maybe(k) else {
+            let c = try! s_read.read()
+            try! s_write.write(move c)
+            reads = reads + 1
+            continue
+        }
+        reads = reads + 0 + ok - ok
+    }
+    reads
+}
+
+// Shape D: design-100 same-name shadow `if let ok = ok` across the split — the inner
+// `ok: Int` and the outer `ok: Int?` must live in DISTINCT frame fields.
+func iflet_shadow(s_read: TcpStream, s_write: TcpStream) -> Int {
+    try! s_write.write("x")
+    var k = 0
+    var reads = 0
+    while k < 6 {
+        k = k + 1
+        let ok = maybe(k)
+        if let ok = ok {
+            let c = try! s_read.read()
+            try! s_write.write(move c)
+            reads = reads + 1 + ok - ok
+        }
+    }
+    reads
+}
+
+func main() {
+    let (a0, a1) = TcpStream.pair()
+    let (b0, b1) = TcpStream.pair()
+    let (c0, c1) = TcpStream.pair()
+    let (d0, d1) = TcpStream.pair()
+    var group = TaskGroup()
+    let h0 = group.spawn(iflet_body(move a0, move a1))
+    let h1 = group.spawn(guardlet_cont(move b0, move b1))
+    let h2 = group.spawn(guardlet_else(move c0, move c1))
+    let h3 = group.spawn(iflet_shadow(move d0, move d1))
+    print("iflet_body {h0.join()}")
+    print("guardlet_cont {h1.join()}")
+    print("guardlet_else {h2.join()}")
+    print("iflet_shadow {h3.join()}")
+}

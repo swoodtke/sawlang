@@ -1,0 +1,10 @@
+import std.spinlock.*
+
+static STATS: SpinLock<Int>
+
+func main() {
+    STATS.lock({ c in
+        print(STATS.is_locked())
+        c += 1
+    })
+}

@@ -1,0 +1,9 @@
+// design 128: `@synthesize` is an extension attribute. On a function it is a
+// clean misplacement error naming what IS legal there.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: attribute `@synthesize` is not supported on function declarations
+
+@synthesize
+func f() -> Int { 1 }
+
+func main() { print(f()) }

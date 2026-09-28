@@ -1,0 +1,17 @@
+// design 242 unit 1: the bare `spawn { ... }` is RETIRED. The namespace is what
+// says which engine a call site is on, and the old spelling said neither — it
+// read like the cooperative one and started an OS thread. No deprecation alias:
+// the error teaches both spellings.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `spawn { ... }` no longer names an engine
+// EXPECT-ERROR-CONTAINS: write `Thread.spawn { ... }` for an OS thread
+// EXPECT-ERROR-CONTAINS: `group.spawn(work(...))` for a cooperative task
+
+func work(n: Int) -> Int {
+    n * n
+}
+
+func main() {
+    var t = spawn { work(6) }
+    print(t.join())
+}

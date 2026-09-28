@@ -1,0 +1,35 @@
+// DF-217j, FIXED by design 219 wave C: the NoMove containment cascade is
+// DERIVED per instance, so a generic container over a pinned payload is pinned.
+//
+// `struct Wrap<T>` declares `NoCopy` and is instantiated at `TaskGroup`, which
+// is NoMove. `move w` used to compile, and the spawn-move-spawn sequence below
+// died `panic at taskgroup.saw: force unwrap of None` — exactly the abort
+// design 188 exists to prevent, reached from safe code.
+//
+// The concrete twin `struct WrapC { v: TaskGroup }` is refused AT THE
+// DECLARATION, and that stays the rule for a type with a declaration site to
+// add the cascade at. A generic one has none: `Wrap<T>` cannot say `NoMove`
+// without pinning `Wrap<Int>` too. So the answer is the one the COPY policy
+// already gave (S1 row 4g) — a generic instance's structure is derived from its
+// arguments — and `Wrap<TaskGroup>` is pinned where `Wrap<Int>` is not.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Wrap<TaskGroup>` is `NoMove`
+
+import std.task.*
+
+struct Wrap<T> { v: T }
+extension Wrap<T>: NoCopy {}
+
+func work(n: Int) -> Int {
+    yield_now()
+    yield_now()
+    n * 2
+}
+
+func main() {
+    var w = Wrap<TaskGroup>(v: TaskGroup())
+    let h = w.v.spawn(work(21))
+    var w2 = move w
+    let h2 = w2.v.spawn(work(10))
+    print("got {h.join()} and {h2.join()}")
+}

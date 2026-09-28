@@ -1,0 +1,10 @@
+// Conformance row R08 — return type `Vector<&Int>`
+//
+// A reference reaching a return type through a CONTAINER's generic argument.
+// The generic-argument rule fires first — storage that outlives the call is
+// refused where it is written, not where it is filled.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a generic argument may not be a reference
+
+func f() -> Vector<&Int> { [] }
+func main() { print(1) }

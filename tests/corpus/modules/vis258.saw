@@ -1,0 +1,48 @@
+// Design 258 fixture: a field's default visibility follows its declaring TYPE's.
+// Consumed by the vis258_* tests. Library module; not compiled standalone.
+//
+// Every struct here is written the way the ruling means code to be written: the
+// tier is stated ONCE, on the type, and only the fields that are NOT on the
+// surface carry a marker. That is the duplication the ruling removes — a
+// `public(package) struct` used to spell `public(package)` on every field.
+
+public struct Crate {
+    n: Int                 // BARE — inherits `Crate`'s `public`
+    private seal: Int      // narrowed back down: not on the surface
+}
+
+extension Crate {
+    public static func make(n: Int) -> Crate {
+        Crate(n: n, seal: n * 2)
+    }
+
+    public func sealed(&self) -> Int {
+        self.seal
+    }
+
+    // Ruling 3: an extension member inherits NOTHING from its receiver's tier.
+    // A bare one is a module-private helper on a `public struct` exactly as it
+    // would be on a private one — a method is a declaration in its own right.
+    func helper(&self) -> Int {
+        self.seal + 1
+    }
+}
+
+// All fields bare, so a cross-module memberwise literal works by default —
+// construction visibility IS field visibility, and that is part of the point.
+public struct Parcel {
+    w: Int,
+    h: Int
+}
+
+// The package tier inherits the same way. Reachable from a sibling in this
+// package, refused from outside it (which is B15's family, not this row's).
+public(package) struct PkgCrate {
+    n: Int
+}
+
+extension PkgCrate {
+    public(package) static func make(n: Int) -> PkgCrate {
+        PkgCrate(n: n)
+    }
+}

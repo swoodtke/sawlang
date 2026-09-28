@@ -1,0 +1,10 @@
+// Design 40 item 1 (L3): the visibility-honoring fallback must not disturb
+// legitimate qualified access to a public struct of an imported module.
+// EXPECT: success
+// EXPECT-OUTPUT: 3
+import modules.l3_shape_a
+
+func main() {
+    let s = l3_shape_a.Shape(sides: 3)
+    print(s.sides)
+}

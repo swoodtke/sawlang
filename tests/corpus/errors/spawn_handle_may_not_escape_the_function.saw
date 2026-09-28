@@ -1,0 +1,25 @@
+// design 242 ruling 5's v1 fence: the must-consume obligation is
+// FUNCTION-LOCAL. A handle that leaves the function unconsumed leaves the only
+// scope that can see the obligation, so returning one is refused — and the
+// diagnostic names `TaskGroup` as the structured way to manage a set of tasks
+// whose lifetime outlives the function that spawned them.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `t` holds a `VoidThread` that is never consumed
+// EXPECT-ERROR-CONTAINS: this `return` leaves the function without consuming it
+// EXPECT-ERROR-CONTAINS: spawn them into a `TaskGroup`
+
+import std.task.{VoidThread}
+
+func work() {
+    print("worked")
+}
+
+func hand_it_out() -> VoidThread {
+    var t = Thread.spawn { work() }
+    return move t
+}
+
+func main() {
+    var t = hand_it_out()
+    t.join()
+}

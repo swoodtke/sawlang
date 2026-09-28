@@ -1,0 +1,59 @@
+// Design 219 wave-B rider: prefix `*` is the pointer place, spelled.
+//
+// `*p` desugars IN THE PARSER to exactly the place `p[0]` already names, so
+// every position that worked on the index spelling works on this one: a value
+// read, a store, a field projection, a `&` argument, and `move *p` — wave A's
+// pointer-place transfer, in its most readable form.
+//
+// `p[0]` conflates array indexing with single-pointee dereference. Std's
+// pointer sites are mostly single-object, where `*slot` states which one is
+// meant. It is NOT a general user-definable prefix operator.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// read 41
+// after store 7
+// field 3
+// via ref 8
+// moved gamma
+// index spelling still 7
+
+struct Point { x: Int, y: Int }
+
+struct Res { name: String }
+extension Res: NoCopy {}
+
+func bump(n: &var Int) {
+    n = n + 1
+}
+
+func main() unsafe {
+    var slot = 41
+    let p = (&slot) as UnsafePointer<Int>
+
+    // value read
+    print("read {*p}")
+
+    // store through the place
+    *p = 7
+    print("after store {slot}")
+
+    // field projection through the deref
+    var pt = Point(x: 3, y: 4)
+    let pp = (&pt) as UnsafePointer<Point>
+    print("field {(*pp).x}")
+
+    // `&` of the place, handed to a `&var` parameter
+    var n = 7
+    let np = (&n) as UnsafePointer<Int>
+    bump(&var *np)
+    print("via ref {n}")
+
+    // `move *p` — the transfer spelling, on an owning single-object pointee
+    var owned = Res(name: "gamma")
+    let rp = (&owned) as UnsafePointer<Res>
+    let taken = move *rp
+    print("moved {taken.name}")
+
+    // the index spelling is untouched and means the same thing
+    print("index spelling still {p[0]}")
+}

@@ -1,0 +1,39 @@
+// Design 148 (found building `FixedStringBuilder<N>`): overloaded methods in a
+// GENERIC extension were not callable — an internal compiler error, "Undefined
+// method". The typechecker stamps an overload's symbol against the generic
+// type's name, monomorphization built its symbol from the specialized name and
+// dropped the signature, so two overloads declared one symbol between them and
+// the call found neither.
+//
+// Both sides compose the same way now: specialized base plus the stamped
+// signature.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 7
+// 1
+// 20
+// hi
+
+struct Holder<T> {
+    v: T
+}
+
+extension Holder<T> {
+    func take(&self, s: String) -> Int { s.len() }
+    func take(&self, n: Int) -> Int { n }
+    func take(&self, a: Int, b: Int) -> Int { a + b }
+    func held(&self) -> T { self.v }
+}
+
+func main() {
+    let h = Holder<Int>(v: 1)
+    print(h.take("abc"))
+    print(h.take(7))
+    print(h.held())
+    print(h.take(8, 12))
+
+    // A second instantiation resolves its own overloads.
+    let s = Holder<String>(v: "hi")
+    print(s.held())
+}

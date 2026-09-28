@@ -1,0 +1,19 @@
+// Test error: ordering operators on an enum that does not opt into Comparable
+// (design 48). Ordering an enum is allowed only with `extension E: Comparable {}`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not conform to `Comparable`
+
+enum Status {
+    case Success,
+    case Failure
+}
+
+func main() {
+    let s1 = Status.Success
+    let s2 = Status.Failure
+
+    // Fails: Status has not opted into Comparable.
+    if s1 < s2 {
+        print(1)
+    }
+}

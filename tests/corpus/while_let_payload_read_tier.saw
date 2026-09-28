@@ -1,0 +1,21 @@
+// Design 233: a `while let` binding is a payload READ, and it follows design
+// 131's table exactly where an `if let` follows it — reading a NoCopy payload
+// out of storage the scrutinee KEEPS is refused, naming the two ways out. The
+// working spelling the hint points at (`slot.take()`) is the drain in
+// while_let_drain.saw; a fresh temporary scrutinee (`v.pop()`) is the row that
+// needs nothing, and is there too.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot read the payload out of `slot` in a `while let` binding
+// EXPECT-ERROR-CONTAINS: `slot.take()` to move the payload out in place
+
+struct Token { id: Int }
+extension Token: NoCopy {}
+
+func main() {
+    var slot: Token? = Token(id: 1)
+    var n = 0
+    while let t = slot {
+        n = n + t.id
+    }
+    print("{n}")
+}

@@ -1,0 +1,46 @@
+// design 62 G3 composed with cancellation, at the contract DF-230a gave it.
+//
+// The worker is cancelled BEFORE the group is driven, so its very first
+// `receive()` answers `Err(Cancelled)`: the check is at the LOOP TOP, ahead of
+// the queue read, so the buffered 100 is not handed to a task that is stopping
+// and `got` stays 0. Before DF-230a `receive()` ignored cancellation entirely,
+// and this file asserted the opposite — the worker took the buffered value and
+// needed a hand-written `cancelled()` check beside it to avoid suspending
+// forever on the now-empty channel.
+//
+// What has not changed is the shape the test exists for: the worker leaves
+// through NORMAL CONTROL FLOW (no forced destroy), and the `Res` deinit oracle
+// proves exactly-once cleanup at the task's own completion, which design 124
+// puts before `join()` returns — so 77 prints first.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 77
+// 0
+
+import std.channel.{Channel}
+struct Res { id: Int }
+extension Res: NoCopy { func deinit(&var self) { print(self.id) } }
+
+func worker(ch: Channel<Int>) -> Int {
+    let held = Res(id: 77)       // deinit oracle
+    var got = 0
+    while true {
+        match ch.receive() {
+            case Ok(v) -> { got = got + v },
+            // Cancelled — and on an empty, unclosed channel this is the only
+            // thing that ends the loop. The old spelling needed `try_receive`
+            // plus `cancelled()` to get here.
+            case Err(_) -> { return got }
+        }
+    }
+    return got
+}
+
+func main() {
+    var group = TaskGroup()
+    let ch = try! Channel<Int>()
+    try! ch.send(100)
+    let h = group.spawn(worker(ch.copy()))
+    h.cancel()          // set before the group is driven
+    print(h.join())     // 0 — the buffered 100 is left in the channel
+}

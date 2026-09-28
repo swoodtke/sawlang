@@ -1,0 +1,134 @@
+// A sync loop releases the iteration's locals on the `break` and `continue`
+// edges, not only on the fall-through and `return` ones (DF-218r, fixed by
+// design 218 unit 2 stage 0).
+//
+// No coroutine anywhere: this is ordinary codegen. `return` inside a loop runs
+// `_cleanup_all_scopes` and drops everything in flight; `break` and `continue`
+// used to branch straight to the loop's exit/continue block and run NO scope
+// cleanup at all, so the iteration's locals were LEAKED — the counts did not
+// balance, which made this a leak and not a timing difference. Pre-fix this
+// file printed no `DEINIT b1`, no `DEINIT c0`, neither `DEINIT n1` nor
+// `DEINIT o1`, and no `DEINIT f1`.
+//
+// MECHANISM (obligation 4): a nonlocal exit that is not a `return` skips the
+// cleanup stack. The positions it reaches are `break` and `continue`, from any
+// block depth inside the loop (the nested cell below), including a `for` loop's
+// design-65 owning loop variable, whose per-iteration pop is skipped once the
+// block is already terminated. `guard`'s else must leave via one of the three,
+// so it adds no fourth edge.
+//
+// This is also the scope-end migration's ORACLE: design 218 unit 2 makes a
+// driven body release at scope end "exactly as the sync twin does", and on
+// these two edges the sync twin was wrong — so it is fixed first
+// (designs/218b-scope-end-spec.md, stage 0).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// body b0
+// DEINIT b0
+// body b1
+// DEINIT b1
+// after break loop
+// body c0
+// DEINIT c0
+// body c1
+// DEINIT c1
+// after continue loop
+// body r0
+// DEINIT r0
+// body r1
+// DEINIT r1
+// after return loop
+// body o0
+// DEINIT o0
+// nested n1
+// DEINIT n1
+// DEINIT o1
+// after nested break
+// iter f0
+// tail f0
+// DEINIT f0
+// iter f1
+// DEINIT f1
+// iter f2
+// tail f2
+// DEINIT f2
+// after for
+// done
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+// Cell 1: `break` out of a loop body that owns a local.
+func with_break() {
+    var i = 0
+    while i < 3 {
+        let b = Res(name: "b{i}")
+        print("body {b.name}")
+        if i == 1 { break }
+        i += 1
+    }
+    print("after break loop")
+}
+
+// Cell 2: `continue` back to the condition, which ends the iteration's scope
+// exactly as the fall-through edge does.
+func with_continue() {
+    var i = 0
+    while i < 2 {
+        let c = Res(name: "c{i}")
+        print("body {c.name}")
+        i += 1
+        if i == 1 { continue }
+    }
+    print("after continue loop")
+}
+
+// Cell 3: the CONTROL — `return` inside the same loop was always correct.
+func with_return() {
+    var i = 0
+    while i < 3 {
+        let r = Res(name: "r{i}")
+        print("body {r.name}")
+        if i == 1 { return }
+        i += 1
+    }
+}
+
+// Cell 4: `break` from a NESTED block, so two scopes unwind, innermost first.
+func nested_break() {
+    var i = 0
+    while i < 3 {
+        let outer = Res(name: "o{i}")
+        if i == 1 {
+            let inner = Res(name: "n{i}")
+            print("nested {inner.name}")
+            break
+        }
+        print("body {outer.name}")
+        i += 1
+    }
+    print("after nested break")
+}
+
+// Cell 5: the `for` face of `continue`.
+func for_continue() {
+    for i in 0..3 {
+        let f = Res(name: "f{i}")
+        print("iter {f.name}")
+        if i == 1 { continue }
+        print("tail {f.name}")
+    }
+    print("after for")
+}
+
+func main() {
+    with_break()
+    with_continue()
+    with_return()
+    print("after return loop")
+    nested_break()
+    for_continue()
+    print("done")
+}

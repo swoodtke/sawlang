@@ -1,0 +1,16 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not conform to `Equatable`
+
+// A struct with a String field is not trivially copyable and does not declare
+// Equatable, so it does not conform: `==` on it is a compile error (design 32).
+struct Holder {
+    name: String
+}
+
+func main() {
+    let a = Holder(name: "x")
+    let b = Holder(name: "x")
+    if a == b {
+        print(1)
+    }
+}

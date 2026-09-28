@@ -1,0 +1,28 @@
+// SL-306 review r2, the fence on the narrowing: an AUTHOR-DECLARED `sync` context
+// still refuses a callee that suspends only by the conservative closure-call rule.
+//
+// design 22's `sync` is a checked promise, and its check is deliberately
+// conservative: a call through a non-`sync` function value MIGHT suspend, so a
+// `sync` body may not make one, directly or through a helper. That is what makes
+// `Mutex.lock`'s `sync` closure parameter mean anything.
+//
+// What SL-306's review narrowed is one context only — a SYNTHESIZED frame method
+// (`__Frame_main.resume` and its siblings), whose `sync` marker the compiler wrote
+// to guard its own invariant that no REAL suspension is left un-lowered in a
+// resume body. This row is the control beside
+// `coro_conservative_generic_instance_not_promoted.saw`: the same conservative-only
+// helper, called from a context the AUTHOR declared `sync`, is refused exactly as
+// it always was.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
+// EXPECT-ERROR-CONTAINS: a call through a non-`sync` function value
+// EXPECT-ERROR-CONTAINS: sync_context_calls_a_closure_taking_helper.saw:24:1
+
+func apply(value: Int, f: (Int) -> Int) -> Int { f(value) }
+
+func doubled() sync -> Int { apply(1, { n: Int in n * 2 }) }
+
+func main() {
+    print(doubled())
+}

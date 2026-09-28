@@ -1,0 +1,4 @@
+// Design 249 fixture: same name AND same parameter type as d249_tie_b's, so a
+// bare import of both is a genuine tie at the call. Not a standalone test.
+
+public func chime(n: Int) sync -> String { "A:{n}" }

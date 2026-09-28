@@ -1,0 +1,65 @@
+// A user type may be called `Poll`, in a program that suspends.
+//
+// Design 218 unit 1 publishes the coroutine frame's signal enum as
+// `std.compiler.frame.Poll` so that the `Resumable` signature is one a reader
+// can write down. That put a plausible user name into std's public surface,
+// and the coroutine transform stamps a reference to it into EVERY module that
+// suspends — `return Poll.Pending` at each suspension, `Poll.Done` at each
+// exit, and the `resume` return type. Emitted by NAME, those references
+// resolved in the user's own module and followed a user `Poll` into a type
+// with no such variant: `enum Poll has no variant Pending`, reported at 0:0
+// with nothing in the source to point at.
+//
+// They carry the design-144 IDENTITY now, fixed at synthesis against
+// std.compiler.frame, so nothing a module declares can capture them. The
+// variant names below are chosen to overlap where it would hurt most: this
+// `Poll` has a `Pending` of its own, with a different meaning and a different
+// sibling.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// waiting: pending
+// settled: ready
+// task: 36
+// after: ready
+
+import std.task.*
+
+enum Poll { case Pending, case Ready }
+
+extension Poll {
+    func describe(&self) -> String {
+        match self {
+            case Pending -> "pending",
+            case Ready -> "ready"
+        }
+    }
+}
+
+func work(n: Int) -> Int {
+    yield_now()
+    n * n
+}
+
+func settle(p: Poll) -> Poll {
+    match p {
+        case Pending -> Poll.Ready,
+        case Ready -> Poll.Ready
+    }
+}
+
+func main() {
+    // The user's `Poll`, before anything suspends.
+    let waiting = Poll.Pending
+    print("waiting: {waiting.describe()}")
+    let settled = settle(waiting)
+    print("settled: {settled.describe()}")
+
+    // A spawned task: `main` is now a coroutine frame, and so is `work`. Both
+    // carry synthesized `std.compiler.frame.Poll` references past the user's.
+    var group = TaskGroup()
+    let h = group.spawn(work(6))
+    print("task: {h.join()}")
+
+    // Still the user's `Poll` on the far side of the suspension.
+    print("after: {settled.describe()}")
+}

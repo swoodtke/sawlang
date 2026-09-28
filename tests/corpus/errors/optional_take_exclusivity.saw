@@ -1,0 +1,16 @@
+// Design 131: `take()` mutates its receiver while the enclosing call is being
+// set up, so its receiver path joins that call's exclusivity entries. A by-value
+// argument is normally snapshot semantics and exempt — this one is not.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation: `h` is passed as `&var`
+
+struct H { r: String? }
+
+func use(h: &var H, taken: String?) -> Int {
+    if let t = taken { t.len() } else { 0 }
+}
+
+func main() {
+    var h = H(r: "ab")
+    print(use(&var h, h.r.take()))
+}

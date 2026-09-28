@@ -1,0 +1,13 @@
+// Conformance row M06 — `v.push` on a `let` Vector
+//
+// A `let` Vector is immutable through its own methods. The existing pin
+// reaches `push` through a TUPLE element root (errors/df151j_tuple_let_root.saw);
+// this is the plain-binding root the rule started from.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot call `&var self` method `push` on immutable variable `v`
+
+func main() {
+    let v: Vector<Int> = [1, 2, 3]
+    v.push(4)
+    print(v.len())
+}

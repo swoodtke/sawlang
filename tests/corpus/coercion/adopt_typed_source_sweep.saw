@@ -1,0 +1,76 @@
+// Position matrix (design 235), grid 1 "Adoption" — the four remaining
+// source templates that are ALREADY concretely typed before they reach a
+// position: S4 (local read), S5 (field read), S6 (qualified/module static
+// read), S7 (call result), and S8 (place read, `v[i]`). None of these is
+// literal-shaped, so none of them routes through `_apply_literal_expected_type`
+// (design 87's adoption funnel, or its DF-235a/b gap) at all — flowing a
+// value of an already-fixed type into a position of the SAME type is
+// ordinary type equality, the same check every non-coercion position in the
+// language uses, not a position-specific special case. So rather than
+// re-testing all ~20 of grid 1's positions against these four sources
+// (nothing there is position-specific — a gap would be a general
+// type-equality bug, not an adoption-funnel bug, and belongs to a
+// different matrix), this file demonstrates each source template ONCE, at
+// a representative SPAN of positions (annotated `let`, argument, return,
+// struct-literal field, array element), which is what the other adoption
+// files in this ledger cite for these four columns.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// let local = 7
+// let field = 9
+// let static = 11
+// let call = 13
+// let place = 5
+// arg local = 7
+// arg call = 13
+// return local = 7
+// field local = 7
+// array local = 7
+
+struct Holder { x: UInt16 }
+static QUAL: UInt16 = 11
+
+func call_source() -> UInt16 { 13 }
+
+func take(n: UInt16) -> UInt16 { n }
+func give_local(n: UInt16) -> UInt16 { return n }
+
+struct Wrap { f: UInt16 }
+
+func main() {
+    let local_src: UInt16 = 7
+    let holder = Holder(x: 9)
+    let v: Vector<UInt16> = [5, 6]
+
+    // S4 local read
+    let a: UInt16 = local_src
+    print("let local = {a}")
+    // S5 field read
+    let b: UInt16 = holder.x
+    print("let field = {b}")
+    // S6 qualified/module static read
+    let c: UInt16 = QUAL
+    print("let static = {c}")
+    // S7 call result
+    let d: UInt16 = call_source()
+    print("let call = {d}")
+    // S8 place read (v[i])
+    let e: UInt16 = v[0]
+    print("let place = {e}")
+
+    // argument, S4/S7
+    print("arg local = {take(local_src)}")
+    print("arg call = {take(call_source())}")
+
+    // return, S4 (through a helper that forwards a local)
+    print("return local = {give_local(local_src)}")
+
+    // struct-literal field, S4
+    let w = Wrap(f: local_src)
+    print("field local = {w.f}")
+
+    // array element, S4
+    let arr: [UInt16; 1] = [local_src]
+    print("array local = {arr[0]}")
+}

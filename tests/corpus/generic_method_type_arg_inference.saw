@@ -1,0 +1,37 @@
+// A generic INSTANCE method infers its type argument in every spelling —
+// labeled, positional, explicit type argument, and later-parameter.
+//
+// This file was DF-216c's XFAIL pin, filed as "a generic METHOD cannot infer
+// its type argument in any spelling". The Aug-18 probe corrected the fault
+// axis: the original pin's methods had NO receiver, which makes them STATICS
+// (called through an instance — a spelling DF-217q has since ruled a clean
+// refusal). With `&self` written, every spelling below works, and always
+// failed only through the static path. The static face is repinned honestly
+// at `generic_static_type_arg_inference.saw`; DF-217d pins its defaulted
+// zero-arg ICE. This file keeps the name and pins the INSTANCE behavior as
+// the regression test.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// free 5
+// labeled 5
+// positional 5
+// explicit 5
+// two-param 5
+
+struct Plain { dummy: Int }
+
+extension Plain {
+    func probe<U>(&self, other: U) -> Int { 5 }
+    func probe2<U>(&self, seed: Int, other: U) -> Int { seed }
+}
+
+func probe_free<U>(other: U) -> Int { 5 }
+
+func main() {
+    let h = Plain(dummy: 0)
+    print("free {probe_free(other: 99i64)}")
+    print("labeled {h.probe(other: 99i64)}")
+    print("positional {h.probe(99i64)}")
+    print("explicit {h.probe<Int64>(99i64)}")
+    print("two-param {h.probe2(seed: 5, other: 99i64)}")
+}

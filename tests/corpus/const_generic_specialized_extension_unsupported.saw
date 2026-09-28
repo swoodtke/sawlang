@@ -1,0 +1,38 @@
+// A SPECIALIZED extension over a const-generic VALUE (`extension Ring<4>`) is
+// not writable: the extension header's `<...>` takes type-parameter names, and
+// a number is not one.
+//
+// This is a PIN, not a wish (design 194 unit 2). The specialization key that
+// decides which methods a `Ring<4>` has is computed in two places — the
+// typechecker, to answer `r.label()`, and codegen, to emit the body — and until
+// design 194 the two had diverged over exactly this case: codegen tagged a
+// const value into the key and the typechecker dropped the whole key to empty
+// (DF-190c). The probe found the divergence unreachable, and THIS is why: no
+// const key is ever registered, because no const specialization can be spelled.
+//
+// The two now share one definition (`ast_nodes.specialization_key`). If this
+// parse refusal ever lifts, this test flips — and whoever lifts it owes the
+// question the shared key already answers: `Ring<4>` and `Ring<8>` must key
+// apart, and the front and the back must key them the same way.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Expected type parameter name
+
+struct Ring<const N: Int> {
+    data: [Int; N]
+}
+
+extension Ring<N> {
+    init() -> Ring<N> { Ring<N>(data: [0; N]) }
+    func cap(&self) -> Int { N }
+}
+
+extension Ring<4> {
+    func label(&self) -> String { "four" }
+}
+
+func main() {
+    let r = Ring<4>()
+    print(r.cap())
+    print(r.label())
+}

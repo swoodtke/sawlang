@@ -1,0 +1,27 @@
+// DF-225e (ruled Aug 20): `sawc/std/` is NOT on a BARE import's search path.
+// Only a `std.`-prefixed import reaches std sources, which is design 150's
+// uniform model — `import std.data` names the std module, `import data` names
+// yours. So a bare `import data` with no user module of that name is the
+// ordinary "module not found", reported once.
+//
+// It used to resolve into `sawc/std/data.saw` behind the reader's back and
+// compile that file a SECOND time under the path `data`, beside the real
+// `import std.data` above it — so what the reader got was a pile of "defined
+// multiple times" errors about std's own internals (`DataBuf` is defined
+// multiple times, `make` is already defined for struct `DataBuf`, two
+// UnsafeSend/UnsafeSync assertions), pointing INTO std, about a collision the
+// program never wrote. The ERROR-ABSENT line is the half that pins the fix:
+// the cascade is what has to be gone.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: module `data` not found
+// EXPECT-ERROR-ABSENT: defined multiple times
+
+import std.data
+import data
+
+func main() {
+    var d = data.Data()
+    d.push(1)
+    print("{d.len()}")
+}

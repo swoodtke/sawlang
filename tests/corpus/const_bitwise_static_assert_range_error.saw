@@ -1,0 +1,14 @@
+// Design 185 unit 1, the same shift-range rule at the OTHER end of the
+// pipeline. A `static_assert` is evaluated in codegen, where the target layout
+// is authoritative, so it reaches the evaluator through its own frame — and a
+// count outside `0..<width` has to read as "the condition is not a constant"
+// there too, not as an assertion that quietly failed.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: static_assert condition is not a compile-time constant
+// EXPECT-ERROR-CONTAINS: shift count `64` out of range (0..<64)
+
+static_assert((1 << 64) == 0, "a count at the width is not a count")
+
+func main() {
+    print("unreachable")
+}

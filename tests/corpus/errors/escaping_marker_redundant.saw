@@ -1,0 +1,15 @@
+// The `escaping` marker is legal ONLY in the post-parameter slot of a closure
+// PARAMETER type (design 16/29). Closure types in any other role — struct
+// fields, bindings, return types — are implicitly escaping, so writing the
+// marker there is a redundancy error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: redundant `escaping`
+
+struct Handler {
+    action: (Int) escaping -> Int
+}
+
+func main() {
+    let h = Handler(action: { $0 + 1 })
+    print(h.action(4))
+}

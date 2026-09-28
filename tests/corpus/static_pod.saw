@@ -1,0 +1,30 @@
+// Module-level statics (design 41): POD scalar, Bool, POD struct, and constant
+// fixed-array statics — read like immutable bindings, including a field access
+// and an element index. `&STATIC` immutable lends are fine.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 100
+// 1
+// 2
+// 30
+// 42
+
+static MAX: Int = 42
+static FLAG: Bool = true
+
+struct Point { x: Int, y: Int }
+static ORIGIN: Point = Point(x: 1, y: 2)
+
+static TABLE: [Int; 4] = [10, 20, 30, 40]
+
+func viaRef(n: &Int) -> Int { n + 0 }
+
+func main() {
+    print(MAX)                 // 42
+    if FLAG { print(100) }     // 100
+    print(ORIGIN.x)            // 1
+    print(ORIGIN.y)            // 2
+    print(TABLE[2])            // 30
+    print(viaRef(&MAX))        // 42  (immutable lend of a static)
+}

@@ -1,0 +1,22 @@
+// DF-232j sweep, the DIRECT qualified reach: no facade at all. The entry
+// imports the defining module itself and names the tier through the
+// qualifier; that must be refused exactly as the selective import is
+// (`module_path_package_visibility_error.saw` pins that arm).
+//
+// This is the row that DISPROVED "the tier works everywhere except through
+// the facade": the hole is the qualified-reach DECISION
+// (`Namespace._resolve_parts.is_visible` asks `check_visibility` with the
+// found-in module and an empty package root, and an empty root means "assume
+// same package"), not re-export. The facade of the original filing is
+// incidental.
+// DF-232j FIXED: `_resolve_parts.is_visible` now goes through
+// `Namespace.visibility_relation_allows`, which roots the package at the
+// mapped name. This file is an ordinary regression test.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `pkg_secret` is public(package) in `pkgvis.secret`
+// COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232f
+import pkgvis.secret
+
+func main() {
+    print(secret.pkg_secret())
+}

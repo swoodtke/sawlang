@@ -1,0 +1,32 @@
+// Design 53 Part 3: Rust-style integer literal suffixes. A suffixed literal IS
+// that fixed-width type. Works on decimal/hex/binary/octal, with an optional
+// single underscore before the suffix.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 255
+// 1000
+// 255
+// 10
+// 15
+// 200
+
+func main() {
+    let a: UInt8 = 255u8
+    print(a)
+
+    let b: Int32 = 1_000i32
+    print(b)
+
+    let c: UInt64 = 0xFF_u64   // hex + underscore before suffix
+    print(c)                   // 255
+
+    let d: UInt8 = 0b1010u8    // binary
+    print(d)                   // 10
+
+    let e: UInt16 = 0o17u16    // octal
+    print(e)                   // 15
+
+    // The suffix type IS the literal's type — usable directly in arithmetic.
+    let f = 100u8 + 100u8
+    print(f)                   // 200
+}

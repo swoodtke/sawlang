@@ -1,0 +1,10 @@
+struct Cell { n: Int }
+
+func bump(n: &var Int) { n += 1 }
+func show(c: &Cell) { print(c.n) }
+
+func main() {
+    var v: Vector<Cell> = [Cell(n: 1)]
+    bump(&var v[0].n)
+    show(&v[0])
+}

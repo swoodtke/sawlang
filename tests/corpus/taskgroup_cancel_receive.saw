@@ -1,0 +1,45 @@
+// design 52b item 6: cancellation observed at a cancellation-aware receive. The
+// consumer drains the items already in the channel, then — finding it empty and
+// cancelled — returns through normal control flow (NO forced destroy), with
+// deinit-oracle cleanup.
+//
+// design 124: `held` drops at the consumer's own completion, so the oracle
+// prints before `join()` returns the sum.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 55
+// 30
+
+import std.task.*
+import std.channel.{Channel}
+struct Res { id: Int }
+extension Res: NoCopy { func deinit(&var self) { print(self.id) } }
+
+func consumer(ch: Channel<Int>) -> Int {
+    let held = Res(id: 55)      // deinit oracle
+    var sum = 0
+    while true {
+        var empty = true
+        if let v = try! ch.try_receive() {
+            sum = sum + v
+            empty = false
+        }
+        if empty {
+            if cancelled() {
+                return sum       // cancellation-aware receive: exit on empty+cancelled
+            }
+            yield_now()
+        }
+    }
+    return sum
+}
+
+func main() {
+    var group = TaskGroup()
+    let ch = try! Channel<Int>()
+    try! ch.send(10)
+    try! ch.send(20)
+    let h = group.spawn(consumer(ch.copy()))
+    h.cancel()          // consumer drains 10, 20 then exits on empty+cancelled
+    print(h.join())     // 30
+}

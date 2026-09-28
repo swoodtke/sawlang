@@ -1,0 +1,10 @@
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+// COMPILE-FLAGS: --module-path mp={TESTDIR}/modules/mp_dep
+//
+// B0: `import mp.helper` resolves to <mapped dir>/helper.saw.
+import mp.helper
+
+func main() {
+    print(helper.helper_val())
+}

@@ -1,0 +1,41 @@
+// K135 (design 275 U3, codex r2 #8): A MODULE STATIC IS A WINDOW ROOT WITH AN
+// IDENTITY OF ITS OWN — a write to the static inside its own window is
+// refused, while a local shadow of its name is an independent root (the
+// accept twin, `borrowing_rules_resolve_aliases.saw`, prints 3).
+//
+// The root identity both sides of the window table compare is ONE resolver
+// (`_current_root_id`): a local is its binding id, a static is its symbol's
+// identity. For one revision a static resolved to NO identity, the table fell
+// back to comparing paths, and `var ROOT = Owner(value: ROOT.value + 1)`
+// inside `for n in ROOT.iter()` conflicted by TEXT with the static's window.
+// The static is `unsafe static var` here so the only refusal in reach is the
+// window's — an immutable static would be refused one rule earlier.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `ROOT` cannot be written here — the window opened at line
+
+struct Owner { value: Int }
+borrows struct It { source: &Owner, done: Bool }
+
+extension Owner {
+    func iter(&self) borrows -> It {
+        It(source: lends self, done: false)
+    }
+}
+
+extension It: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.done { None } else {
+            self.done = true
+            self.source.value
+        }
+    }
+}
+
+unsafe static var ROOT: Owner = Owner(value: 1)
+
+func main() unsafe {
+    for n in ROOT.iter() {
+        ROOT.value = ROOT.value + n        // ROW: the STATIC itself, inside its window
+    }
+}

@@ -1,0 +1,32 @@
+// Conformance row K85 — a `Task.spawn` handle must be consumed on every path
+//
+// design 242 ruling 5, the cooperative half. K78/K79 pin the same rule for
+// `Thread.spawn`; this row is what says the obligation follows the FORM across
+// both engines rather than living on the thread handle's type. The three
+// refusals are the three ways a handle can go unconsumed: the bare statement
+// (the fire-and-forget guess), the `let _ =` that design 151 blesses for a
+// `Result` and bans here, and a bound handle reaching its scope's end. K80 is
+// the control that keeps `group.spawn` out of all of it.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: hands back a `Task<Int>` that must be consumed, and this one is discarded
+// EXPECT-ERROR-CONTAINS: is never consumed
+// EXPECT-ERROR-CONTAINS: `detach()` hands it to the process
+// EXPECT-ERROR-CONTAINS: `cancel()` asks it to stop
+
+import std.task.*
+
+func work(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+func main() {
+    // The bare statement.
+    Task.spawn(work(1))
+    // The explicit discard — banned here, and only here.
+    let _ = Task.spawn(work(2))
+    // Bound, and never given a fate.
+    let pending = Task.spawn(work(3))
+    print("unreachable")
+}

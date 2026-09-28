@@ -1,0 +1,67 @@
+// Position matrix (design 235), grid 1 "Import forms x name positions" —
+// form: GLOB (`import mod.lib.*`, every public name bare). All 8
+// positions, including the two the qualified form's grammar cannot reach
+// at all: (c) an extension receiver and (f) a match pattern, both of
+// which need a BARE type/case name — which a glob import is exactly for.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// annotation = 5
+// expression = 6
+// extension receiver = 12
+// generic bound = widget
+// existential = widget
+// match pattern = circle
+// interpolation = 8
+// default param = 7
+// default param override = 2
+
+import modules.importforms.lib.*
+
+// (a) annotation
+func take(w: Widget) -> Int { w.n }
+
+// (c) extension receiver — needs the BARE type a glob import gives
+extension Widget {
+    func doubled(&self) -> Int { self.n * 2 }
+}
+
+// (d) generic bound
+func show<T: Named>(t: &T) -> String { t.label() }
+
+// (e) existential
+func show_any(t: &any Named) -> String { t.label() }
+
+// (f) match pattern — needs the BARE case a glob import gives
+func describe(s: Shape) -> String {
+    match s {
+        case Circle -> "circle",
+        case Square -> "square"
+    }
+}
+
+// (h) default parameter value
+func with_default(n: Int = DEFAULT_N) -> Int { n }
+
+func main() {
+    // (a) annotation
+    let w: Widget = Widget(n: 5)
+    print("annotation = {take(w)}")
+
+    // (b) expression
+    let w2 = make_widget(6)
+    print("expression = {w2.n}")
+
+    print("extension receiver = {w2.doubled()}")
+
+    print("generic bound = {show(&w)}")
+    print("existential = {show_any(&w)}")
+
+    print("match pattern = {describe(Shape.Circle)}")
+
+    // (g) interpolation
+    print("interpolation = {make_widget(8).n}")
+
+    print("default param = {with_default()}")
+    print("default param override = {with_default(2)}")
+}

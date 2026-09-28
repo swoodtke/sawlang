@@ -1,0 +1,16 @@
+// Design 229, the other direction: the QUALIFIED spelling is refused too.
+// Reachability is the visibility chain, so `wall.Widget` fails for the same
+// reason the bare name does — `wall` imports `Widget`, it does not publish it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Widget` is not part of `export229_wall`'s surface
+// EXPECT-ERROR-CONTAINS: imported by `export229_wall` but not re-exported
+// EXPECT-ERROR-CONTAINS: import `modules.export229_leaf` directly
+import modules.export229_wall
+
+func size_of(w: &export229_wall.Widget) -> Int {
+    0
+}
+
+func main() {
+    print("{export229_wall.wall_make(n: 2).size}")
+}

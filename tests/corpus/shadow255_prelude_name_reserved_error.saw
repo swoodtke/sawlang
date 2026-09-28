@@ -1,0 +1,19 @@
+// Design 255 — the other fence, and the boundary of the ruling. A PRELUDE name
+// is in scope with nothing written, and redeclaring one is a redefinition error
+// (conformance row B12). So an IMPORT of one is not shadowing either: an import
+// that quietly won where a declaration is refused would be the same asymmetry
+// SL-5 filed, pointing the other way. Only the tier std keeps behind an import
+// gate is weak enough to shadow.
+//
+// The refusal is what this row pins. Its WORDING is poor — the collision is
+// recorded and then reported by whatever the wrong type fails at next — and
+// that is DF-280b, filed with the unit-0 sweep's evidence.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Duration
+
+import modules.shadow255_prelude.{Duration}
+
+func main() {
+    let d = Duration(tag: 7)
+    print(d.tag)
+}

@@ -1,0 +1,19 @@
+// Design 66: labeled arguments resolve through module-qualified calls.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 23
+// 5
+
+module geo {
+    public func box(w: Int, h: Int) -> Int {
+        w * 10 + h
+    }
+    public func scale(v: Int, by: Int = 1) -> Int {
+        v * by
+    }
+}
+
+func main() {
+    print(geo.box(w: 2, h: 3))   // 23
+    print(geo.scale(v: 5))       // trailing default by = 1
+}

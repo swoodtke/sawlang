@@ -1,0 +1,10 @@
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: something went wrong
+
+// The `panic(message)` builtin (design 49) prints the message through the
+// saw_panic seam and aborts.
+func main() {
+    print("before panic")
+    panic("something went wrong")
+    print("after panic")  // unreachable
+}

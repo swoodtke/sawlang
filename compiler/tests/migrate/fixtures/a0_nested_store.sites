@@ -1,0 +1,2 @@
+status: rewritten
+3 A0.nested-store rewritten => borrow var g[0][1] = 7

@@ -1,0 +1,8 @@
+// DF-242b fixture: THREE overloads of one public name, so an importer that
+// binds the name bare must bind the whole set. Not a standalone test.
+
+public func pick(n: Int) sync -> String { "int {n}" }
+
+public func pick(s: String) sync -> String { "str {s}" }
+
+public func pick(b: UInt8) sync -> String { "u8 {b}" }

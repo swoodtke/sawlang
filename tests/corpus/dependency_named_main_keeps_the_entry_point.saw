@@ -1,0 +1,41 @@
+// SL-305: a dependency declaring `main` must not move the entry module's.
+//
+// `main` IS the C entry, emitted under that name and load-bearing at seven
+// sites in codegen, reachability, the effect graph and the coroutine transform.
+// Design 249's module tag was decided by a whole-compilation CENSUS of which
+// modules declare each free-function name, with the root module counted like any
+// other, so a dependency merely DECLARING the name — private, unreachable, it
+// made no difference — gave the entry's `main` a `$M$root` tag. The program then
+// emitted no `main` at all and the LINK failed:
+//
+//     Linking failed: Undefined symbols for architecture arm64:
+//       "_main", referenced from:
+//           <initial-undefines>
+//
+// SL-274 replaced the census with an unconditional per-module tag and ONE
+// exemption: the ENTRY module's `main`. A dependency's `main` is an ordinary
+// free function (`main$m$sl305dep`, internal linkage, its own coroutine frame),
+// so both can exist and neither displaces the other.
+//
+// EXPECT: success
+// COMPILE-FLAGS: --module-path sl305dep={TESTDIR}/modules/sl305dep
+// EXPECT-OUTPUT: worker 2
+// EXPECT-OUTPUT: dep main 8
+
+import std.task.{yield_now}
+import sl305dep.{reach}
+
+func worker(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(worker(1))
+    print("worker {h.join()}")
+    // Reaches the dependency's own `main` through its public surface. The
+    // suspension inside it survives, which is what says the two `main`s name
+    // two frames rather than colliding on one.
+    print("dep main {reach(7)}")
+}

@@ -1,0 +1,20 @@
+struct Cell { n: Int }
+struct Bag { a: Cell }
+extension Bag: NoCopy {}
+extension Bag {
+    public func slot(&var self, i: Int) borrows -> &var Cell? {
+        if i > 0 { return None }
+        lend self.a
+    }
+}
+
+func loud(n: Int) -> Int {
+    print("rhs evaluated")
+    n
+}
+
+func main() {
+    var b = Bag(a: Cell(n: 1))
+    b.slot(1)?.n = loud(3)
+    print(b.a.n)
+}

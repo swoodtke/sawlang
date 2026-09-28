@@ -1,0 +1,75 @@
+// design 186 unit 1: `UnsafeMutableInterior<T>`, the interior-mutability cell.
+//
+// The cell holds an inline `T` and hands out its address. That is the whole
+// surface, and it is enough to build a type whose `&self` methods write the
+// caller's storage — the thing only `Atomic`/`SpinLock`/`UnsafeMemory` could do
+// before, and only because the compiler knew their names.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 0
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 12
+// EXPECT-OUTPUT: cell holds a String
+
+// A cell over a plain word. `count` is a `let`, and `bump` takes `&self`, so
+// every write below goes through the cell.
+struct Counter {
+    slot: UnsafeMutableInterior<Int>
+}
+
+extension Counter {
+    init(start: Int) unsafe -> Counter {
+        Counter(slot: UnsafeMutableInterior(start))
+    }
+
+    // The one unsafe helper the wrapper owns. Everything else is safe.
+    func _at(&self) unsafe -> UnsafePointer<Int> {
+        self.slot.ptr()
+    }
+
+    func get(&self) unsafe -> Int {
+        self._at()[0]
+    }
+
+    func set(&self, v: Int) unsafe {
+        self._at()[0] = v
+    }
+
+    func add(&self, v: Int) unsafe {
+        self._at()[0] = self._at()[0] + v
+    }
+}
+
+// A cell over an owning payload: the cell is transparent, so the String lives
+// inline and the wrapper declares the policy its payload owes.
+struct Holder {
+    slot: UnsafeMutableInterior<String>
+}
+
+extension Holder: NoCopy {}
+
+extension Holder {
+    init(text: String) unsafe -> Holder {
+        Holder(slot: UnsafeMutableInterior(text))
+    }
+
+    func read(&self) unsafe -> String {
+        self.slot.ptr()[0]
+    }
+}
+
+func main() {
+    let c = Counter(start: 0)
+    print(c.get())
+    c.set(7)
+    print(c.get())
+    // The receiver travelled by pointer, so the write above reached this `let`
+    // binding's own storage rather than a copy inside `set`.
+    print(c.get())
+    c.add(5)
+    print(c.get())
+
+    let h = Holder(text: "cell holds a String")
+    print(h.read())
+}

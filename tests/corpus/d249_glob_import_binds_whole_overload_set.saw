@@ -1,0 +1,18 @@
+// DF-242b, closed by design 249: a cross-module overload set reached BARE used
+// to bind as a single overload — the first-registered one — so `pick("s")` was
+// "argument `n` expects `Int` but got `String`", a diagnostic about a candidate
+// the author did not mean, with the one they did mean unmentioned. The
+// qualified spelling saw all three the whole time.
+// EXPECT: success
+// EXPECT-OUTPUT: str s
+// EXPECT-OUTPUT: int 3
+// EXPECT-OUTPUT: u8 9
+import modules.d249_overload_set.*
+
+func main() {
+    let n: Int = 3
+    let b: UInt8 = 9
+    print(pick("s"))
+    print(pick(n))
+    print(pick(b))
+}

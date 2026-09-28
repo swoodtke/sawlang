@@ -1,0 +1,2 @@
+status: rewritten
+4 G4.map-get rewritten => let n = match m.get("k") {

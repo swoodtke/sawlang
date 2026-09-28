@@ -1,0 +1,16 @@
+// design 260 — `consumes` REQUIRES `&var self`.
+//
+// The receiver grammar stays closed at its two modes; `consumes` in the effect
+// slot is what changes the contract's ending. A shared `&self` promises the
+// caller the opposite of what `consumes` does, so the pairing is refused where
+// the two words are written.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a consuming method needs an exclusive receiver — write `&var self`
+
+struct Builder { n: Int }
+extension Builder {
+    func finish(&self) consumes -> Int { self.n }
+}
+
+func main() { print("{}", 1) }

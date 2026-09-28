@@ -1,0 +1,15 @@
+// Design 142: import scoping composes with design-80 member visibility rather
+// than replacing it. `halved` is `public(package)`, so the package gate lets this
+// file reach it — and it is in scope because the file imports the defining
+// module directly. Both gates must pass.
+// EXPECT: success
+// EXPECT-OUTPUT: 10
+
+import modules.ext142_base.{Reading}
+import modules.ext142_near
+import modules.ext142_pkg
+
+func main() {
+    let r = ext142_near.make_reading()
+    print(r.halved())
+}

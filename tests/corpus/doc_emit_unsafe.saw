@@ -1,0 +1,99 @@
+//! The `--emit-docs` unsafe surface (designs 130 + 136).
+//
+// The effect reaches the documented surface from both positions it can occupy:
+// `signature` renders the post-parameter slot the source spells (design 136),
+// `effect` prefixes the suspension effect with it, and a struct gets an explicit
+// `unsafe` field — without that last one a generator could not tell
+// `unsafe struct UnsafeMmioReg` from the plain `UnsafeDefaults`, whose name says
+// nothing about it. A safe caller of an unsafe function is documented safe,
+// which is design 130's rule 6.
+
+// EXPECT: docs
+// COMPILE-FLAGS: --emit-docs
+// EXPECT-OUTPUT:
+// {
+//   "schema_version": 4,
+//   "modules": [
+//     {
+//       "name": "doc_emit_unsafe",
+//       "source": "doc_emit_unsafe.saw",
+//       "doc": "The `--emit-docs` unsafe surface (designs 130 + 136).",
+//       "items": [
+//         {
+//           "kind": "func",
+//           "name": "poke",
+//           "signature": "public func poke(reg: Int) unsafe -> Int",
+//           "visibility": "public",
+//           "generics": [],
+//           "params": [
+//             {
+//               "name": "reg",
+//               "label": "reg",
+//               "type": "Int"
+//             }
+//           ],
+//           "returns": "Int",
+//           "effect": "unsafe sync",
+//           "self": null,
+//           "static": false,
+//           "doc": null,
+//           "line": 97
+//         },
+//         {
+//           "kind": "func",
+//           "name": "safe_poke",
+//           "signature": "public func safe_poke(reg: Int) -> Int",
+//           "visibility": "public",
+//           "generics": [],
+//           "params": [
+//             {
+//               "name": "reg",
+//               "label": "reg",
+//               "type": "Int"
+//             }
+//           ],
+//           "returns": "Int",
+//           "effect": "sync",
+//           "self": null,
+//           "static": false,
+//           "doc": null,
+//           "line": 99
+//         },
+//         {
+//           "kind": "struct",
+//           "name": "UnsafeDefaults",
+//           "signature": "struct UnsafeDefaults",
+//           "visibility": "private",
+//           "unsafe": false,
+//           "generics": [],
+//           "conformances": [],
+//           "fields": [],
+//           "doc": null,
+//           "line": 95,
+//           "module": "doc_emit_unsafe"
+//         },
+//         {
+//           "kind": "struct",
+//           "name": "UnsafeMmioReg",
+//           "signature": "unsafe struct UnsafeMmioReg",
+//           "visibility": "private",
+//           "unsafe": true,
+//           "generics": [],
+//           "conformances": [],
+//           "fields": [],
+//           "doc": null,
+//           "line": 93,
+//           "module": "doc_emit_unsafe"
+//         }
+//       ]
+//     }
+//   ]
+// }
+
+unsafe struct UnsafeMmioReg { addr: Int }
+
+struct UnsafeDefaults { n: Int }
+
+public func poke(reg: Int) unsafe -> Int { reg + 1 }
+
+public func safe_poke(reg: Int) -> Int { poke(reg) }

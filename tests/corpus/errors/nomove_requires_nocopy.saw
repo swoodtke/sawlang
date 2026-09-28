@@ -1,0 +1,24 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: declares `NoMove` without declaring `NoCopy`
+// EXPECT-ERROR-CONTAINS: relocation and duplication are separate properties
+//
+// Design 188 unit 4: `NoMove` does not IMPLY `NoCopy` — it REQUIRES it. The two
+// are separate axes and each is stated out loud, so a reader never has to infer
+// one from the other and the strict v1 point can be relaxed later in exactly
+// one place: `NoMove + ExplicitCopy` (the C++ re-register-on-copy shape, with a
+// hand-written `copy()`) opens by loosening this check and nothing else.
+//
+// `Loose` is a trivially copyable struct, so as written it would be a value the
+// compiler duplicates for free and refuses to relocate — which is not a
+// coherent thing to be.
+
+struct Loose {
+    n: Int
+}
+
+extension Loose: NoMove {}
+
+func main() {
+    let l = Loose(n: 1)
+    print("{l.n}")
+}

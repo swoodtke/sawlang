@@ -1,0 +1,143 @@
+// Conformance row V104 — a value no binding holds is released exactly once,
+// whatever expression produced it
+//
+// THE GUARANTEE: deterministic destruction does not depend on how a value was
+// SPELLED. A value that is consumed without being bound — a receiver, a
+// scrutinee, a discarded statement result — has no owner to run its `deinit`,
+// so the consumption site must register one. Codegen decided whether a value
+// was such a temporary with an isinstance list of eight node classes
+// (`_is_owned_temporary`); every producer NOT on that list minted a value the
+// program then leaked. SL-220 filed two of those shapes; the sweep for SL-213
+// (unit D of SL-209) found six, one mechanism.
+//
+// The answer is now design 269's producer taxonomy — the same total
+// classification the checkpoint asks, with a build gate that fails when a node
+// class is unclassified — so a new expression form cannot leak here silently.
+//
+// THE ORACLE IS A PRINTING `deinit` ON A NoCopy TYPE: every value built must
+// print exactly one `drop`, and the count is what a leak breaks. The two READS
+// rows at the end are the control in the OTHER direction: those name storage a
+// binding owns, so registering them would be a DOUBLE free, and they must drop
+// once each at their binding's scope end rather than at the use.
+//
+// The driven twins carry the same rows through the coroutine transform, per
+// design 269's rule that a sync matrix can look clean where its driven half is
+// not.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- sync
+// EXPECT-OUTPUT: call 1
+// EXPECT-OUTPUT: drop 1
+// EXPECT-OUTPUT: try 2
+// EXPECT-OUTPUT: drop 2
+// EXPECT-OUTPUT: unwrap 3
+// EXPECT-OUTPUT: drop 3
+// EXPECT-OUTPUT: move 4
+// EXPECT-OUTPUT: drop 4
+// EXPECT-OUTPUT: if 5
+// EXPECT-OUTPUT: drop 5
+// EXPECT-OUTPUT: match 6
+// EXPECT-OUTPUT: drop 6
+// EXPECT-OUTPUT: coalesce 7
+// EXPECT-OUTPUT: drop 7
+// EXPECT-OUTPUT: init 8
+// EXPECT-OUTPUT: drop 8
+// EXPECT-OUTPUT: -- driven
+// EXPECT-OUTPUT: call 11
+// EXPECT-OUTPUT: drop 11
+// EXPECT-OUTPUT: try 12
+// EXPECT-OUTPUT: drop 12
+// EXPECT-OUTPUT: unwrap 13
+// EXPECT-OUTPUT: drop 13
+// EXPECT-OUTPUT: if 14
+// EXPECT-OUTPUT: drop 14
+// EXPECT-OUTPUT: match 15
+// EXPECT-OUTPUT: drop 15
+// EXPECT-OUTPUT: -- borrows
+// EXPECT-OUTPUT: ident 21
+// EXPECT-OUTPUT: field 22
+// EXPECT-OUTPUT: drop 22
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: end
+
+struct Res { w: Int }
+extension Res: NoCopy { func deinit(&var self) { print("drop {}", self.w) } }
+
+struct Holder { inner: Res }
+extension Holder: NoCopy {}
+
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+func plain(n: Int) -> Res { Res(w: n) }
+func made(n: Int) -> Result<Res, Bad> { Res(w: n) }
+func maybe(n: Int) -> Res? { Res(w: n) }
+
+// --- the six producer shapes, as a receiver nobody binds -------------------
+
+func sync_rows() {
+    // BUILDS — a call result. The one shape the old isinstance list covered.
+    print("call {}", plain(1).w)
+
+    // PROJECTS over a fresh temporary — `try!` extracts the Ok payload out of a
+    // container the extraction consumes, so the payload is adopted by nobody.
+    // This is SL-220's first filed shape.
+    print("try {}", (try! made(2)).w)
+
+    // PROJECTS over a fresh temporary, the Optional spelling. SL-220's second.
+    print("unwrap {}", maybe(3)!.w)
+
+    // OWN_ARM — `move` RETIRES the source binding, so the value it hands over
+    // is held by nobody from that point on.
+    let r = Res(w: 4)
+    print("move {}", (move r).w)
+
+    // BRANCHES — every arm is a transfer into the merged home (DF-299b), so
+    // the merged value is the reader's whichever arm ran.
+    let c = true
+    print("if {}", (if c { plain(5) } else { plain(50) }).w)
+    print("match {}", (match c { case true -> plain(6), case false -> plain(60) }).w)
+
+    // BUILDS — `??` yields an owned value on either side (design 269's census
+    // records why the node itself is never a producer of storage).
+    print("coalesce {}", (maybe(7) ?? plain(70)).w)
+
+    // BUILDS — a construction, the other shape the old list covered.
+    print("init {}", Res(w: 8).w)
+}
+
+// --- the driven twins ------------------------------------------------------
+
+func driven_rows() {
+    __saw_suspend()
+    print("call {}", plain(11).w)
+    print("try {}", (try! made(12)).w)
+    print("unwrap {}", maybe(13)!.w)
+    let c = true
+    print("if {}", (if c { plain(14) } else { plain(140) }).w)
+    print("match {}", (match c { case true -> plain(15), case false -> plain(150) }).w)
+}
+
+// --- the control: a READ is NOT a temporary --------------------------------
+//
+// These name storage a binding owns. Registering one here would release it at
+// the USE and again at the binding's scope end — a double free — so the only
+// correct behaviour is to leave them alone and let the scope drop them, which
+// is why both `drop` lines come after both reads.
+
+func borrow_rows() {
+    let held = Res(w: 21)
+    let h = Holder(inner: Res(w: 22))
+    print("ident {}", held.w)
+    print("field {}", h.inner.w)
+}
+
+func main() {
+    print("-- sync")
+    sync_rows()
+    print("-- driven")
+    __saw_drive(driven_rows())
+    print("-- borrows")
+    borrow_rows()
+    print("end")
+}

@@ -1,0 +1,19 @@
+// Design 65 followup (L19, user-approved): Set inherits the Map key restriction
+// through its wrapper — a move-only Deinit element cannot be a Set element
+// (probed by copy). Rejected at the user-facing `Set<T>()` construction.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: set element type `Counted` must be copyable
+
+static DROPS: Atomic<Int> = Atomic(0)
+struct Counted { id: Int }
+extension Counted: NoCopy { func deinit(&var self) { DROPS.fetch_add(1) } }
+@synthesize
+extension Counted: Equatable {}
+@synthesize
+extension Counted: Hashable {}
+
+func main() {
+    var s = Set<Counted>()
+    let _ = s.insert(Counted(id: 1))
+    print(s.len())
+}

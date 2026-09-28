@@ -1,0 +1,13 @@
+// Design 109: an INFERRED primitive type argument is bound-checked too, and the
+// failure names the INFERRED concrete type (design 93/105 style). `run(5)`
+// infers `T = Int`, which does not conform to `Fooable`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: type `Int` does not satisfy the `Fooable` bound
+
+trait Fooable { func foo(&self) -> Int }
+
+func run<T: Fooable>(x: T) -> Int { x.foo() }
+
+func main() {
+    print(run(5))
+}

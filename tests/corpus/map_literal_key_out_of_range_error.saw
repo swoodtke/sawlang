@@ -1,0 +1,9 @@
+// Design 87: a Map-literal key adopts the map's fixed-width key type and is
+// range-checked — key 300 does not fit `Int8`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: integer literal 300 does not fit in `Int8`
+
+func main() {
+    let m: Map<Int8, Int16> = {300: 1}
+    print(m.len())
+}

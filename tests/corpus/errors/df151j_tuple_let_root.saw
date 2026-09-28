@@ -1,0 +1,15 @@
+// DF-151j: a tuple element is a place, so reaching a `&var self` method through
+// one asks the same mutability question a struct field asks — and gets the same
+// answer. `let h = Holder(v: ...)` then `h.v.push(x)` has always been rejected;
+// the immutable-root walk stopped at a tuple index, so `let t = (v, 7)` then
+// `t.0.push(x)` was not merely unchecked, it silently did nothing.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot call `&var self` method `push` on immutable variable `t`
+
+func main() {
+    var v: Vector<Int> = Vector<Int>()
+    v.push(1)
+    let t = (move v, 7)
+    t.0.push(99)
+    print("{t.0.len()}")
+}

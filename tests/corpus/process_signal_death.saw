@@ -1,0 +1,39 @@
+// A child that dies by a signal (a failed `assert`/`panic` raises SIGABRT) must
+// be reported as a FAILURE by Command.run(), not a bogus exit 0 (design 59 A,
+// DF2). `blade test` judges a test binary by its exit code, so a crashing test
+// MUST count as failed. Before the fix, the raw wait status was divided by 256,
+// discarding the signal byte -> a SIGABRT read as exit 0 = success.
+//
+// `sh -c 'kill -ABRT $$'` makes the child raise SIGABRT on itself; the decode
+// reports 128 + signum (nonzero). Normal exits still decode to their exit byte.
+// (The child's abort message goes to stderr, which the harness ignores.)
+//
+// Design 122 unit C: a shell is now spawned EXPLICITLY when a shell is what you
+// want — `Command` itself spawns argv directly and never interprets anything.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// signal death nonzero: true
+// normal exit 3 preserved: true
+// success is zero: true
+
+import std.process.{Command}
+func main() {
+    // Each of these LAUNCHES, so run() yields Ok(code); `try!` unwraps the exit
+    // code (design 92/94: run() -> Result).
+    var crash = Command(program: "/bin/sh")
+    try! crash.arg("-c")
+    try! crash.arg("kill -ABRT $$")
+    let crashed = try! crash.run()
+    let signal_nonzero = crashed != (0 as Int32)
+    print("signal death nonzero: {signal_nonzero}")
+
+    var three = Command(program: "/bin/sh")
+    try! three.arg("-c")
+    try! three.arg("exit 3")
+    let normal_ok = (try! three.run()) == (3 as Int32)
+    print("normal exit 3 preserved: {normal_ok}")
+
+    var good = Command(program: "true")
+    let zero_ok = (try! good.run()) == (0 as Int32)
+    print("success is zero: {zero_ok}")
+}

@@ -1,0 +1,8 @@
+// Package root (lib.saw) for the --module-path (B0) compiler fixtures.
+// Lives under a `modules/` directory so the test runner skips it as a library.
+// Reached via `import mp` when the compiler is given
+//   --module-path mp=<this dir>
+
+public func mp_answer() -> Int {
+    42
+}

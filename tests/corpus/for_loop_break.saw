@@ -1,0 +1,17 @@
+// Test for loop with break
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 1
+// 2
+// done
+
+func main() {
+    for i in 0..10 {
+        if i == 3 {
+            break
+        }
+        print(i)
+    }
+    print("done")
+}

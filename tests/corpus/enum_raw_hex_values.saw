@@ -1,0 +1,49 @@
+// DF-185a (found by design 185's flag-enum work, fixed with it): a raw value
+// written in anything but decimal was an uncaught compiler crash —
+// `ValueError: invalid literal for int() with base 10: '0x100'` out of the
+// parser, with no source location and no message. The enum-with-a-backing
+// feature exists for wire tables (design 145), and a wire table is written in
+// hex, so the ONE notation the feature is for was the one that died.
+//
+// Every integer-literal notation design 50 defines is a raw value now: hex,
+// binary, octal, `_` separators, and a negated one on a signed backing.
+// EXPECT: success
+// EXPECT-OUTPUT: 256
+// EXPECT-OUTPUT: 10
+// EXPECT-OUTPUT: 493
+// EXPECT-OUTPUT: 65535
+// EXPECT-OUTPUT: -16
+
+enum Right: UInt32 {
+    case Transfer = 0x001,
+    case Debug = 0x100
+}
+
+enum Bits: UInt8 {
+    case Low = 0b0000,
+    case Pair = 0b1010
+}
+
+enum Mode: UInt16 {
+    case Exec = 0o755,
+    case All = 0xFF_FF
+}
+
+enum Delta: Int8 {
+    case Zero = 0,
+    case Back = -0x10
+}
+
+static_assert((Right.Debug as UInt32) == 256, "hex")
+static_assert((Bits.Pair as UInt8) == 10, "binary")
+static_assert((Mode.Exec as UInt16) == 493, "octal")
+static_assert((Mode.All as UInt16) == 65535, "separators")
+static_assert((Delta.Back as Int8) == -16, "negated hex")
+
+func main() {
+    print(Right.Debug as UInt32)
+    print(Bits.Pair as UInt8)
+    print(Mode.Exec as UInt16)
+    print(Mode.All as UInt16)
+    print(Delta.Back as Int8)
+}

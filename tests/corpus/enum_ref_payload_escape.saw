@@ -1,0 +1,26 @@
+// An enum case payload may not be a reference — references are parameters
+// only, and design 163d's NAMES walk guards every other storage position
+// (struct fields, generic arguments, returns, closures). The enum payload
+// position was missed, so a one-case enum launders a reference into Vector
+// storage that outlives the call (reading it back is DF-188a's ICE pair).
+// Design 188 unit 1 runs the walk over payload types too, with the field
+// position's own diagnostic.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: may not be a reference
+// EXPECT-ERROR-CONTAINS: An enum value is storage that outlives every call
+
+enum Slot {
+    case Held(r: &Int),
+    case Empty
+}
+
+func stash(out: &var Vector<Slot>, x: &Int) {
+    out.push(Slot.Held(r: &x))
+}
+
+func main() {
+    var v: Vector<Slot> = []
+    var n = 7
+    stash(&var v, &n)
+    print("stored {v.len()} reference(s) in a Vector")
+}

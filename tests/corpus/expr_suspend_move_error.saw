@@ -1,0 +1,24 @@
+// Design 120, pinned semantics 4: the hoisted form must typecheck exactly as the
+// manual unchaining would — hoisting cannot launder an ownership violation. Here
+// `combine(move data, slen(&data))` moves `data` (arg 1, evaluated first) and
+// then reads it in the suspending arg 2 (`slen(&data)`); the use-after-move is a
+// clean error, anchored at the original source. Permanent error test (NOT xfail).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: moved
+
+func slen(v: &Vector<Int>) -> Int {
+    __saw_suspend()
+    v.len()
+}
+func combine(a: Vector<Int>, b: Int) -> Int {
+    a.len() + b
+}
+
+func f() -> Int {
+    let data: Vector<Int> = [1, 2, 3]
+    combine(move data, slen(&data))
+}
+
+func main() {
+    print(__saw_drive(f()))
+}

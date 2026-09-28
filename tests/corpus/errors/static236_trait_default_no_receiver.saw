@@ -1,0 +1,16 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: trait requirement `describe` has no receiver — add `&self`/`&var self`, or declare it `static func` if a static was intended
+//
+// Design 236, position-matrix row 4: a trait requirement carrying a DEFAULT
+// BODY. A default is copied into every conformer that omits it, so a
+// self-less one would hand each of them a static they never declared —
+// the V39 shape, multiplied by the conformer count. The check sits ahead of
+// the body, so the presence of `{ ... }` changes nothing.
+
+trait Described {
+    func label(&self) -> Int
+
+    func describe() -> Int { 7 }
+}
+
+func main() { print("unreached") }

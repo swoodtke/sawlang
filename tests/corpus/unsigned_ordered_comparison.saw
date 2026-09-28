@@ -1,0 +1,64 @@
+// An ordered comparison over an UNSIGNED integer lowers UNSIGNED (design 252,
+// closing DF-270d). Two faces of one mechanism, both pinned here.
+//
+// (1) `<`/`<=`/`>`/`>=` whose LEFT operand is a distinct alias over an unsigned
+// underlying. A distinct alias carries `TypeKind.STRUCT`, so the ordering
+// dispatch used to route it to the `compare()` path instead of icmp;
+// `_comparison_operand_type` resolves the alias now, and the underlying's
+// operator surface is the contract.
+// (2) `Comparable.compare()` on ANY unsigned integer, alias or not. The
+// three-way `_emit_int_compare` hard-coded `icmp_signed` and now takes the
+// operand's signedness from `_int_type_is_signed`, the one authority.
+//
+// Before the fix `Byte(255) <= Byte(127)` was TRUE and `UInt.max.compare(&1)`
+// was `Less` — face (2) PRE-EXISTING and nothing to do with `Byte`, face (1)
+// what design 250 made reachable, and why `std.cbor`'s `byte_at` and its UTF-8
+// boundary table were held at `UInt8` (a `Byte` there made the validator accept
+// every malformed sequence). The `==`/`!=`, `/`, `%`, `>>` and widening-cast
+// lines were correct throughout and are kept as the controls.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// alias 255 <= 127: false
+// alias 255 <  245: false
+// alias 255 >  127: true
+// alias 255 <= u127: false
+// plain 255 <= 127: false
+// compare(255, 127): Greater
+// compare(UInt.max, 1): Greater
+// equality 255 == 255: true
+// divide 255 / 2: 127
+// widen 255 as Int: 255
+
+type Tag = UInt8
+
+func rank<T: Comparable>(a: T, b: T) -> String {
+    match a.compare(&b) {
+        case Less -> { "Less" },
+        case Equal -> { "Equal" },
+        case Greater -> { "Greater" }
+    }
+}
+
+func main() {
+    let hi = Tag(255)
+    let lo = Tag(127)
+    let u_lo: UInt8 = 127
+
+    print("alias 255 <= 127: {}", hi <= lo)
+    print("alias 255 <  245: {}", hi < Tag(245))
+    print("alias 255 >  127: {}", hi > lo)
+    print("alias 255 <= u127: {}", hi <= u_lo)
+
+    let p_hi: UInt8 = 255
+    print("plain 255 <= 127: {}", p_hi <= u_lo)
+
+    print("compare(255, 127): {}", rank(p_hi, u_lo))
+    let big: UInt = 18446744073709551615
+    let one: UInt = 1
+    print("compare(UInt.max, 1): {}", rank(big, one))
+
+    // The operations on the same values that ARE correct today.
+    print("equality 255 == 255: {}", hi == 255)
+    print("divide 255 / 2: {}", hi / 2)
+    print("widen 255 as Int: {}", hi as Int)
+}

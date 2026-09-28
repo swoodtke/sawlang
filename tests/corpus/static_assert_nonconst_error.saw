@@ -1,0 +1,12 @@
+// Design 53 Part 6: a static_assert condition that is not compile-time
+// constant (here, a function call) is rejected.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: not a compile-time constant
+
+func side() -> Int { 5 }
+
+static_assert(side() == 5, "must be constant")
+
+func main() {
+    print(0)
+}

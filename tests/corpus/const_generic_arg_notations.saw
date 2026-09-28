@@ -1,0 +1,51 @@
+// Every integer notation design 50 defines works as a CONST GENERIC ARGUMENT
+// and as a const parameter's DEFAULT — the two positions the generic argument
+// grammar (`Parser.parse_const_expr`) serves.
+//
+// DF-192e: the grammar's own primary decoded an INT token with `int()` instead
+// of the shared decoder, so `Ring<0x10>()` was an uncaught
+// `ValueError: invalid literal for int() with base 10: '0x10'` — a raw Python
+// traceback with no location. This is DF-185a at the second hand-rolled site;
+// the enum raw value was fixed in design 185 and the const position was not.
+// A hex const generic is the ordinary spelling for a buffer or a mask size, so
+// the notation the feature is for was the one that died. Found by
+// tools/sawfuzz.py on its first broad sweep of the corpus.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 16 16 16
+// 4096
+// 8
+// 256
+
+struct Ring<const N: Int> { slots: [Int; N] }
+
+extension Ring<N> {
+    init() -> Ring<N> { Ring<N>(slots: [0; N]) }
+    func capacity(&self) -> Int { N }
+}
+
+// A const parameter DEFAULT is the same grammar, so it takes the same
+// notations: `Page()` means `Page<4096>`.
+struct Page<const N: Int = 0x1000> { bytes: [Int; N] }
+
+extension Page<N> {
+    init() -> Page<N> { Page<N>(bytes: [0; N]) }
+    func size(&self) -> Int { N }
+}
+
+func main() {
+    // The same number in three notations is the same TYPE.
+    let hex = Ring<0x10>()
+    let binary = Ring<0b10000>()
+    let octal = Ring<0o20>()
+    print("{hex.capacity()} {binary.capacity()} {octal.capacity()}")
+
+    let page = Page()
+    print(page.size())
+
+    // Underscore separators, and const arithmetic over a hex operand.
+    let grouped = Ring<1_000>()
+    let arithmetic = Ring<0x10 * 0x10>()
+    print(grouped.capacity() / 125)
+    print(arithmetic.capacity())
+}

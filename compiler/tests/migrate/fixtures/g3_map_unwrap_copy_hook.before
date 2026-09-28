@@ -1,0 +1,16 @@
+struct Tag { n: Int }
+
+extension Tag: Copy {
+    func copy(&self) -> Tag {
+        print("copy {self.n}")
+        Tag(n: self.n)
+    }
+}
+
+func main() {
+    var m = Map<String, Tag>()
+    let _ = m.insert("a", Tag(n: 1))
+    let a = m["a"]!
+    print(a.n)
+    print(m["a"]!.n)
+}

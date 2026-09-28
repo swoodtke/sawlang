@@ -1,0 +1,208 @@
+// SL-350: a struct literal keeps its source semantics when its result has a
+// memory destination.  The labels are deliberately out of declaration order:
+// each `step` line pins left-to-right evaluation as written, while the summary
+// line pins name-based field placement.  The direct argument and direct return
+// are SSA controls; they must agree without requiring an in-place destination.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// step 1 let c
+// step 2 let a
+// step 3 let b
+// let 1 2 3
+// var 4 5 6
+// step 4 assign b
+// step 5 assign c
+// step 6 assign a
+// assign 10 20 30
+// step 7 outer tail
+// step 8 inner c
+// step 9 inner a
+// step 10 inner b
+// step 11 outer head
+// nested 50 60 70 80 90
+// step 12 fixed b
+// step 13 fixed a
+// step 14 fixed c
+// fixed 100 110 120
+// step 15 vector c
+// step 16 vector b
+// step 17 vector a
+// vector 130 140 150
+// step 18 argument b
+// step 19 argument c
+// step 20 argument a
+// argument 160 170 180
+// step 21 return b
+// step 22 return a
+// step 23 return c
+// return 190 200 210
+// alias 8 9 7
+// widths -8 20 30
+// wrappers 1 4 6
+
+static STEPS: Atomic<Int> = Atomic(0)
+
+func step(label: String, value: Int) -> Int {
+    let n = STEPS.fetch_add(1) + 1
+    print("step {n} {label}")
+    value
+}
+
+struct Triple {
+    a: Int
+    b: Int
+    c: Int
+}
+
+struct Outer {
+    head: Int
+    inner: Triple
+    tail: Int
+}
+
+struct WidthError { code: Int }
+
+struct Widths {
+    narrow: Int8
+    optional: UInt16?
+    result: Result<Int32, WidthError>
+}
+
+struct Leaf { value: Int }
+
+enum LeafError { case Bad }
+
+struct WrappedLeaf {
+    maybe: Leaf?
+    outcome: Result<Leaf?, LeafError>
+}
+
+struct TripleHolder { value: Triple }
+
+func show(label: String, value: Triple) {
+    print("{label} {value.a} {value.b} {value.c}")
+}
+
+func returned() -> Triple {
+    return Triple(
+        b: step(label: "return b", value: 200),
+        a: step(label: "return a", value: 190),
+        c: step(label: "return c", value: 210)
+    )
+}
+
+// A divergent later value must stop memory-destination lowering without
+// emitting instructions into the terminated all-present path.  `main` takes
+// the absent path, so the deliberate panic remains a compile-time CFG probe.
+func skipped_divergent_assignment() {
+    var target: TripleHolder? = None
+    target?.value = Triple(
+        a: 1,
+        b: panic("unreachable destination"),
+        c: 3
+    )
+}
+
+// Selecting the tuple memory path because of its first element must likewise
+// stop before inspecting the terminated second element.
+func compiled_divergent_tuple(diverge: Bool) -> (Triple, Int) {
+    if diverge {
+        return (Triple(a: 1, b: 2, c: 3), panic("unreachable tuple"))
+    }
+    return (Triple(a: 1, b: 2, c: 3), 4)
+}
+
+// Repeat literals stage their element exactly once.  A divergent staged value
+// has no aggregate value whose type can be inspected afterward.
+func compiled_divergent_repeat(diverge: Bool) -> [Triple; 2] {
+    if diverge {
+        return [panic("unreachable repeat"); 2]
+    }
+    return [Triple(a: 1, b: 2, c: 3); 2]
+}
+
+func main() {
+    let bound = Triple(
+        c: step(label: "let c", value: 3),
+        a: step(label: "let a", value: 1),
+        b: step(label: "let b", value: 2)
+    )
+    show(label: "let", value: bound)
+
+    var mutable = Triple(c: 6, a: 4, b: 5)
+    show(label: "var", value: mutable)
+
+    var assigned = Triple(a: 0, b: 0, c: 0)
+    assigned = Triple(
+        b: step(label: "assign b", value: 20),
+        c: step(label: "assign c", value: 30),
+        a: step(label: "assign a", value: 10)
+    )
+    show(label: "assign", value: assigned)
+
+    let nested = Outer(
+        tail: step(label: "outer tail", value: 90),
+        inner: Triple(
+            c: step(label: "inner c", value: 70),
+            a: step(label: "inner a", value: 50),
+            b: step(label: "inner b", value: 60)
+        ),
+        head: step(label: "outer head", value: 80)
+    )
+    print("nested {nested.inner.a} {nested.inner.b} {nested.inner.c} {nested.head} {nested.tail}")
+
+    let fixed = [Triple(
+        b: step(label: "fixed b", value: 110),
+        a: step(label: "fixed a", value: 100),
+        c: step(label: "fixed c", value: 120)
+    )]
+    show(label: "fixed", value: fixed[0])
+
+    let vector: Vector<Triple> = [Triple(
+        c: step(label: "vector c", value: 150),
+        b: step(label: "vector b", value: 140),
+        a: step(label: "vector a", value: 130)
+    )]
+    show(label: "vector", value: vector[0])
+
+    show(
+        label: "argument",
+        value: Triple(
+            b: step(label: "argument b", value: 170),
+            c: step(label: "argument c", value: 180),
+            a: step(label: "argument a", value: 160)
+        )
+    )
+    show(label: "return", value: returned())
+
+    // The complete RHS is evaluated before assignment touches its target.  An
+    // implementation that stores `a` first and then reads `alias.a` for `c`
+    // prints 8 instead of the old value 7.
+    var alias = Triple(a: 7, b: 8, c: 9)
+    alias = Triple(a: alias.b, b: alias.c, c: alias.a)
+    show(label: "alias", value: alias)
+
+    // Expected-type propagation still crosses an in-place field: the literals
+    // adopt Int8/UInt16/Int32 and the latter two auto-wrap as Some/Ok.
+    let widths = Widths(result: 30, narrow: -8, optional: 20)
+    match widths.result {
+        case Ok(value) -> print("widths {widths.narrow} {widths.optional!} {value}"),
+        case Err(error) -> print("unexpected width error {error.code}")
+    }
+
+    // Wrapper tags are destinations too: the Leaf payloads are built directly
+    // inside Optional/Result storage, including both layers of the nested let.
+    let wrapped = WrappedLeaf(
+        maybe: Leaf(value: 1),
+        outcome: Leaf(value: 4)
+    )
+    let nested_optional: Leaf?? = Leaf(value: 6)
+    match wrapped.outcome {
+        case Ok(value) -> print(
+            "wrappers {wrapped.maybe!.value} {value!.value} {nested_optional!!.value}"),
+        case Err(_) -> print("unexpected wrapped error")
+    }
+    skipped_divergent_assignment()
+    let _ = compiled_divergent_tuple(false)
+    let _ = compiled_divergent_repeat(false)
+}

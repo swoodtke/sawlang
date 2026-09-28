@@ -1,0 +1,8 @@
+// Statics must be Sync (design 41 item 2): UnsafePointer is not Sync (it poisons
+// its containers structurally), so it cannot back a static.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: non-Sync type
+
+static P: UnsafePointer<Int>
+
+func main() { }

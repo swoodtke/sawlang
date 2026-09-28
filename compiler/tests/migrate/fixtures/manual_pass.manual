@@ -1,0 +1,5 @@
+line	col	rule	old	new	rationale
+10	6	C	m["k"]?.n = 5	let key = "k"\n    borrow var m.find(&key)?.n = 5	the literal key becomes a binding so find(&k) borrows a place
+13	20	G4	match v[0] {	borrow let lent = v[0] { match lent {	a match on a move-only element is a borrow let block
+15	0	+	case Full(r) -> r.n	case Full(borrow let r) -> r.n	a plain payload binding copies, which a move-only Res refuses
+16	0	+	}	} }	closes the borrow block

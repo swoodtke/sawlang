@@ -1,0 +1,55 @@
+// A field of a GENERIC struct instance is writable, not just initializable.
+// The write path resolved the field against the generic symbol, so it saw the
+// abstract `T` and rejected every assignment ("cannot assign `Int` to field of
+// type `T?`") even though the identical READ path substituted the receiver's
+// type args. Found while landing design 134, whose task cell is a generic
+// struct the coroutine frame writes its result into.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -1
+// 5
+// 7
+// 2
+// ab
+// 901
+// 900
+
+struct Holder<T> {
+    slot: T?
+    plain: T
+    tag: Int
+}
+
+extension Holder<T>: NoCopy {}
+
+struct Res { id: Int }
+extension Res: NoCopy { func deinit(&var self) { print(900 + self.id) } }
+
+extension Holder<T> {
+    // The same write through `&var self`, where the field type comes from the
+    // method's own receiver instantiation.
+    func bump(&var self) {
+        self.tag = self.tag + 1
+    }
+}
+
+func main() {
+    var h = Holder<Int>(slot: None, plain: 7, tag: 1)
+    print(h.slot ?? -1)
+    h.slot = 5
+    print(h.slot ?? -1)
+    print(h.plain)
+    h.bump()
+    print(h.tag)
+
+    // A non-primitive instantiation writes the same way.
+    var s = Holder<String>(slot: None, plain: "a", tag: 0)
+    s.plain = "ab"
+    print(s.plain)
+
+    // Overwriting an owned payload releases the old one exactly once: the `None`
+    // store drops Res(1) (901), then scope exit drops the `plain` Res(0) (900).
+    var r = Holder<Res>(slot: None, plain: Res(id: 0), tag: 0)
+    r.slot = Res(id: 1)
+    r.slot = None
+}

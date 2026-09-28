@@ -1,0 +1,24 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: undefined
+import std.mutex.{Mutex}
+
+struct Cell { n: Int }
+extension Cell {
+    func value(&self) -> Int { self.n }
+}
+struct Bag { cells: Vector<Cell> }
+extension Bag: NoCopy {}
+extension Bag {
+    func first(&self) -> Int { self.cells[0].n }
+    func peek(&self) -> Int { self.cells.get(0)!.value() }
+}
+
+func defaulted(a: Int = Cell(n: 3).value()) -> Int { a }
+
+func locked(m: &Mutex<Int>) -> Int {
+    m.lock { &var c in c }
+}
+
+func main() {
+    print(nope)
+}

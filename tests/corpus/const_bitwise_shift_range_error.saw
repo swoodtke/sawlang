@@ -1,0 +1,18 @@
+// Design 185 unit 1: a shift count a constant cannot have. The runtime panics
+// with "shift out of range" when the count is negative or `>=` the operand's
+// bit width; a constant is the same rule asked one phase earlier, so the answer
+// is a compile error rather than a folded number nobody can predict.
+//
+// Both halves are one range test — `0..<width` — because a negative count
+// reinterpreted as unsigned is enormous, which is exactly how the emitted check
+// catches it too.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: repeat count is not a compile-time constant
+// EXPECT-ERROR-CONTAINS: shift count `64` out of range (0..<64)
+// EXPECT-ERROR-CONTAINS: shift count `-1` out of range (0..<64)
+
+func main() {
+    let too_wide = [0; 1 << 64]
+    let negative = [0; 1 << -1]
+    print("{} {}", too_wide.len(), negative.len())
+}

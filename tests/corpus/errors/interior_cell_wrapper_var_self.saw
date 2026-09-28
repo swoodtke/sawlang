@@ -1,0 +1,28 @@
+// design 186 does NOT move design 176b's rule. The exemption is for a field
+// whose own contract is mutation through a shared borrow — a cell, an
+// `UnsafeMemory`. A WRAPPER around one is not exempt: its `&var self` methods
+// take the whole wrapper, sibling fields included, and promise nothing about
+// interior mutability. `Counter` is cell-carrying and `reset` is still refused.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot call `&var self` method `reset` on storage reached through a `&self` receiver
+
+struct Counter {
+    cell: UnsafeMutableInterior<Int>,
+    label: Int
+}
+
+extension Counter {
+    // Takes the WHOLE wrapper exclusively — `label` included.
+    func reset(&var self) { self.label = 0 }
+}
+
+struct Page {
+    hits: Counter
+}
+
+extension Page {
+    func clear(&self) { self.hits.reset() }
+}
+
+func main() {
+}

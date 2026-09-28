@@ -1,0 +1,2 @@
+status: rewritten
+21 A2.accessor-compound rewritten => borrow var b.total() += 4

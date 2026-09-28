@@ -1,0 +1,20 @@
+// Design 110: replacement through a `&var any Trait` referent is EXCLUDED — the
+// concrete type behind the erasure is unknown, so a differently-typed store
+// would corrupt the caller's concrete slot. Specific diagnostic points at the
+// `Box<any Trait>` level.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: the concrete type behind the erasure is unknown
+// EXPECT-ERROR-CONTAINS: Box<any Shape>
+
+trait Shape { func area(&self) -> Int }
+struct Sq { s: Int }
+extension Sq: Shape { func area(&self) -> Int { self.s * self.s } }
+
+func replace_erased(p: &var any Shape, other: Sq) {
+    p = other
+}
+
+func main() {
+    var sq = Sq(s: 3)
+    replace_erased(&var sq, Sq(s: 4))
+}

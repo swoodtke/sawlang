@@ -1,0 +1,20 @@
+// DF-232j sweep, the WHOLE-MODULE facade: `public import pkgvis.secret`
+// re-exports the QUALIFIER (design 229), and the chain
+// `pkgvis.secret.pkg_secret` from outside must refuse the tier.
+//
+// Both halves landed: DF-232l hands the qualifier on (the whole-module
+// `public import` stamps it PUBLIC), and DF-232j makes the chain's LAST hop
+// refuse on the tier. Until then this file errored for the WRONG reason —
+// `module pkgvis has no symbol secret`, public symbols included, so the tier
+// decision was never exercised — which is why it was pinned against BOTH.
+// The pairing matters: handing the qualifier on while the last hop still
+// decided with an empty root would have opened the widening through this very
+// shape, the one the sweep could not exercise end to end.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `pkg_secret` is public(package) in `pkgvis.secret`
+// COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232j_whole
+import pkgvis
+
+func main() {
+    print(pkgvis.secret.pkg_secret())
+}

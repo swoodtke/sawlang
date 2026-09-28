@@ -1,0 +1,10 @@
+struct Cell { n: Int }
+
+func main() {
+    var vm = Vector<Map<String, Cell>>()
+    try! vm.push(Map<String, Cell>())
+    let _ = vm[0].insert("k", Cell(n: 1))
+    let key = "k"
+    vm[0][key]?.n = 5
+    print(vm.len())
+}

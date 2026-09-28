@@ -1,0 +1,17 @@
+// Simple generic function test
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 100
+
+func identity<T>(x: T) -> T {
+    x
+}
+
+func main() {
+    let a = identity<Int>(42)
+    print(a)
+
+    let b = identity<Int>(100)
+    print(b)
+}

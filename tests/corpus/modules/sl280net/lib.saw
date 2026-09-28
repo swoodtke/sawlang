@@ -1,0 +1,31 @@
+// Fixture for `coro_imported_private_helper_parks_on_io.saw` (SL-280).
+//
+// The wedging cell of the issue's 2x2: the read LOOP lives in an imported
+// module and its read sits one frame deeper still, in a module-PRIVATE free
+// function taking the stream BY REFERENCE. That is the real `read_chunk(stream:
+// &TcpStream, secs: Int)` this was found as.
+//
+// Three of the fix's parts meet here. The callee is keyed `read_chunk$m$sl280net`
+// by design 249 while the splice table used to be keyed `read_chunk`, so the
+// edge was declined. Its only suspension is a buried `stream.read()`, which the
+// effect fixpoint cannot see — so design 96's structural fallback is what has to
+// carry it, and that fallback used to be computed over the entry module alone,
+// before the walk, and could never hold an imported body. And the parameter is a
+// REFERENCE, which is what the spliced body has to keep meaning after it lands
+// in a module that never declared it.
+
+import std.net.{TcpStream, IoError}
+
+/// Module-PRIVATE, takes the stream by reference, and its only suspension is a
+/// buried std method call.
+func read_chunk(stream: &TcpStream, budget: Int) -> Int {
+    match stream.read() {
+        case Ok(d) -> d.len() + budget,
+        case Err(_) -> -1
+    }
+}
+
+/// The public entry — the "read loop" frame. One more frame down to the park.
+public func read_request(stream: &TcpStream) -> Int {
+    read_chunk(&stream, 0)
+}

@@ -1,0 +1,2 @@
+status: rewritten
+14 G3.borrow-let rewritten => print("{borrow let res[0].name}")

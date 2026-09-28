@@ -1,0 +1,5 @@
+func main() {
+    var v: Vector<Vector<Int>> = [[1]]
+    try! borrow var v[0].push(2)
+    print(v.len())
+}

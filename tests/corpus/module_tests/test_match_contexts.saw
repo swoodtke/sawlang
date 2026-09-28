@@ -1,0 +1,61 @@
+// Test: Match expressions with module types
+// EXPECT: success
+// EXPECT-OUTPUT: 100
+// EXPECT-OUTPUT: 2
+// EXPECT-OUTPUT: 100
+// EXPECT-OUTPUT: 100
+
+import lib
+
+// Test match on Result from module function
+func test_result_match() -> Int {
+    match lib.get_result(true) {
+        case Ok(n) -> n,
+        case Err(p) -> p.sum()
+    }
+}
+
+// Test match on Result error case
+func test_result_err_match() -> Int {
+    match lib.get_result(false) {
+        case Ok(n) -> n,
+        case Err(p) -> p.sum()
+    }
+}
+
+// Test match inside if block
+func test_match_in_if() -> Int {
+    let flag = true
+
+    if flag {
+        match lib.get_result(true) {
+            case Ok(n) -> n,
+            case Err(p) -> p.sum()
+        }
+    } else {
+        0
+    }
+}
+
+// Test match inside while loop
+func test_match_in_while() -> Int {
+    var result = 0
+    var i = 0
+
+    while i < 1 {
+        result = match lib.get_result(true) {
+            case Ok(n) -> n,
+            case Err(p) -> p.sum()
+        }
+        i = i + 1
+    }
+
+    result
+}
+
+func main() {
+    print(test_result_match())     // 100
+    print(test_result_err_match()) // 2 (Point(1,1).sum())
+    print(test_match_in_if())      // 100
+    print(test_match_in_while())   // 100
+}

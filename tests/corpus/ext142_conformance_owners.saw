@@ -1,0 +1,18 @@
+// Design 142: both permitted homes for a conformance, and the payoff. The
+// type's module conforms `Reading` to `Printable`; the trait's module conforms
+// the same foreign type to its own `Describable`. Neither needs import scoping —
+// a conformance declared under the orphan rule is coherent program-wide, so it
+// is visible wherever the type and the trait both are.
+// EXPECT: success
+// EXPECT-OUTPUT: Reading(21)
+// EXPECT-OUTPUT: reading 21
+
+import modules.ext142_base.{Reading}
+import modules.ext142_near
+import modules.ext142_trait.{Describable}
+
+func main() {
+    let r = ext142_near.make_reading()
+    print("{r}")
+    print(r.describe())
+}

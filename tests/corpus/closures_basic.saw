@@ -1,0 +1,13 @@
+// Basic closure test: passing closure as function argument
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+
+func apply(x: Int, f: (Int) -> Int) -> Int {
+    f(x)
+}
+
+func main() {
+    let result = apply(5, { x: Int in x * 2 })
+    print(result)
+}

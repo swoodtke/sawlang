@@ -1,0 +1,46 @@
+// K112 — design 275 U4, the cause `blocking` where it meets `cooperative` in
+// ONE std method, in the one context that tells the two apart.
+//
+// `Command.output` parks cooperatively on the child's exit AND offloads the pipe
+// drain through a `blocking` extern. Design 242 ruling 9 permits the blocking
+// half in a `Thread.spawn` body and refuses every other cause, so the answer
+// here is REFUSAL — a cooperative park on a thread with no executor to resume it
+// is the hazard that ruling exists for.
+//
+// A std body belongs to another typechecker's graph, so the entry compile knows
+// this method through a SEEDED LEAF. While that leaf carried ONE representative
+// cause, the thread-body question was answered by whichever of the two the
+// label happened to name: this program COMPILED AND RAN on a compiler without
+// design 275 U4, parking cooperatively on a thread that cannot resume it. The
+// leaf carries the whole cause SET now.
+//
+// THE MESSAGE IS THE SECOND HALF OF THE ROW. The refusal STRIKES the blocking
+// cause (it is the permitted one), so a leaf that spells only its blocking
+// source leaves the diagnostic with nothing to name — it printed ``closure calls
+// <suspension source>``, a placeholder, in a user-facing message. The leaf
+// carries one source per cause now, representative FIRST, so a reader that
+// strikes nothing still sees exactly what it always saw (an ordinary `sync`
+// violation through this method names the blocking extern) while this one names
+// the method and the cooperative primitive it parks on.
+//
+// It is its OWN file, not a third cell in K114, because a compile stops after a
+// settling that reported errors and this refusal is only reached at a later one
+// (SL-327): beside another refused cell its message is never emitted.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in a `Thread.spawn { ... }` body
+// EXPECT-ERROR-CONTAINS: closure calls `Command.output` → io_wait
+// EXPECT-ERROR-ABSENT: <suspension source>
+// EXPECT-ERROR-CONTAINS: a spawned thread runs no executor
+
+import std.process.{Command}
+
+func main() {
+    var c = Command(program: "/bin/echo")
+    try! c.arg("hi")
+    var d = Thread.spawn { [move c] in
+        let _ = c.output()
+        3
+    }
+    print(d.join())
+}

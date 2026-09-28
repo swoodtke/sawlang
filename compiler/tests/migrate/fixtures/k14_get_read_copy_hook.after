@@ -1,0 +1,14 @@
+struct Tag { n: Int }
+
+extension Tag: Copy {
+    func copy(&self) -> Tag {
+        print("copy {self.n}")
+        Tag(n: self.n)
+    }
+}
+
+func main() {
+    var v = Vector<Tag>()
+    try! v.push(Tag(n: 4))
+    print(borrow let v[0].n)
+}

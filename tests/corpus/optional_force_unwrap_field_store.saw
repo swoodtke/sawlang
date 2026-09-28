@@ -1,0 +1,78 @@
+// Regression: a write THROUGH a force-unwrapped optional lvalue — `o!.x = v` —
+// must land on the optional's real payload slot. Before the fix the assignment
+// target's base fell through `_get_lvalue_pointer`'s materialize-a-temporary
+// fallback, so the store hit a discarded copy and was silently dropped (the
+// value read back unchanged). The same path is how an opt-encoded coroutine
+// frame local is addressed (`_rewrite_node` turns a bare `p` into `self.p!`), so
+// a `p.field = <suspending call>` across a suspend lost its write too.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 99
+// 7
+// 42
+// 99
+// 99
+// -1
+
+struct Point { x: Int, y: Int }
+struct Wrap { p: Point, tag: Int }
+
+func s(n: Int) -> Int {
+    __saw_suspend()
+    n
+}
+
+// plain sync write through `!`
+func sync_store() -> Int {
+    var o: Point? = Point(x: 1, y: 2)
+    o!.x = 99
+    if let p = o { return p.x }
+    return -1
+}
+
+// nested: the base of the field write is itself reached through `!`
+func sync_nested() -> Int {
+    var o: Wrap? = Wrap(p: Point(x: 1, y: 2), tag: 0)
+    o!.p.y = 7
+    if let w = o { return w.p.y }
+    return -1
+}
+
+// a Vector field written through `!` (the live-slot release path)
+func sync_vector_field() -> Int {
+    var o: Point? = Point(x: 0, y: 0)
+    var n = 0
+    o!.x = 42
+    o!.y = o!.x
+    if let p = o { n = p.y }
+    return n
+}
+
+// driven frame: a struct local's field written from a SUSPENDING RHS. The local
+// is opt-encoded in the frame, so this is the `self.p!.x = ...` shape.
+func driven_field() -> Int {
+    var p = Point(x: 1, y: 2)
+    p.x = s(99)
+    return p.x
+}
+
+// the hand-written desugar of a `?.` chained assignment with a suspending RHS
+func driven_optional(o: Point?) -> Int {
+    var local = o
+    if let _ = local {
+        var wp = local!
+        wp.x = s(99)
+        local = wp
+    }
+    if let p = local { return p.x }
+    return -1
+}
+
+func main() {
+    print(sync_store())                                 // 99
+    print(sync_nested())                                // 7
+    print(sync_vector_field())                          // 42
+    print(__saw_drive(driven_field()))                  // 99
+    print(__saw_drive(driven_optional(Point(x: 1, y: 2))))  // 99
+    print(__saw_drive(driven_optional(None)))           // -1
+}

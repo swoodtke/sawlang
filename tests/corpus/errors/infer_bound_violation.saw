@@ -1,0 +1,19 @@
+// Design 93: an INFERRED type argument must satisfy the parameter's trait
+// bounds, and the bound-failure names the inferred concrete type. Here `U` is
+// inferred as `Int`, which does not implement `Tagged`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: type `Int` does not satisfy the `Tagged` bound
+
+trait Tagged { func tag(&self) -> Int }
+
+struct Bin<T> { v: T }
+
+extension Bin<T> {
+    func stash<U: Tagged>(&self, x: U) -> U { x }
+}
+
+func main() {
+    let b = Bin<Int>(v: 1)
+    let r = b.stash(7)
+    print(1)
+}

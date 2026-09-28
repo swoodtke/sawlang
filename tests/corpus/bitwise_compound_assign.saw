@@ -1,0 +1,27 @@
+// Compound bitwise assignments &= |= ^= <<= >>= (design 50). Each behaves as
+// `x = x OP y` and reuses the same lowering as the binary operators.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 4
+// 6
+// 24
+// 6
+
+func main() {
+    var v = 0b0001
+    v |= 0b0100
+    print(v)          // 5
+
+    v &= 0b1100
+    print(v)          // 4
+
+    v ^= 0b0010
+    print(v)          // 6
+
+    v <<= 2
+    print(v)          // 24
+
+    v >>= 2
+    print(v)          // 6
+}

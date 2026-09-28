@@ -1,0 +1,71 @@
+// Design 226 unit 2: the coercion's POSITION MATRIX, row by row.
+//
+// A `FuncPointer<F>`-expected position coerces a zero-capture closure literal
+// (form 1) and accepts a named function (form 2). "Expected position" is
+// quantified over every slot that pushes an expected type down, so the matrix
+// is covered here rather than trusted: an ARGUMENT, an annotated `let`, a
+// struct FIELD initializer, a `return`, and a `static` initializer.
+//
+// One chokepoint reaches all five -- `_apply_literal_expected_type`, the
+// propagation every one of those slots already calls for literals -- which is
+// why the list is the same list, and why a sixth slot would arrive covered.
+//
+// The `static` row is the one that needed more than the stamp: a coerced
+// literal is a LINK-TIME constant (the address of a symbol this unit emits),
+// which is exactly what a global initializer may be, so a dispatch table gets
+// to be a `static` like any other table.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// argument
+// let
+// field
+// return
+// static
+// named argument
+// named let
+// named field
+
+struct Table {
+    handler: FuncPointer<(Int) sync -> Int>
+}
+
+func takes(p: FuncPointer<(Int) sync -> Int>, label: String) {
+    print(label)
+}
+
+func doubled(n: Int) sync -> Int { n * 2 }
+
+func returned() -> FuncPointer<(Int) sync -> Int> {
+    { n in n + 1 }
+}
+
+static SLOT: FuncPointer<(Int) sync -> Int> = { n in n - 1 }
+
+func main() {
+    // Row 1 -- a call ARGUMENT.
+    takes({ n in n * 3 }, "argument")
+
+    // Row 2 -- an annotated `let`.
+    let bound: FuncPointer<(Int) sync -> Int> = { n in n * 4 }
+    print("let")
+
+    // Row 3 -- a struct FIELD initializer.
+    let t = Table(handler: { n in n * 5 })
+    print("field")
+
+    // Row 4 -- a `return` (the tail of `returned` above).
+    let r = returned()
+    print("return")
+
+    // Row 5 -- a `static` initializer (`SLOT` above).
+    let s = SLOT
+    print("static")
+
+    // Form 2, the named function, through the same five slots.
+    takes(doubled, "named argument")
+    let nbound: FuncPointer<(Int) sync -> Int> = doubled
+    print("named let")
+    let nt = Table(handler: doubled)
+    print("named field")
+}

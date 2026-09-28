@@ -1,0 +1,13 @@
+// DF3 (design 57): call-site T -> T? auto-wrap through the module-qualified
+// call form. A bare Int argument wraps into the Int? parameter.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// -1
+
+import df3_optlib
+
+func main() {
+    print(df3_optlib.takes_opt(5))     // 5 (bare Int wrapped to Int?)
+    print(df3_optlib.takes_opt(None))  // -1
+}

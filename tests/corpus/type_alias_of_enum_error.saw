@@ -1,0 +1,48 @@
+// A `type` alias whose underlying type is an ENUM is refused, at the alias
+// declaration (DF-194b).
+//
+// An alias is a one-directional name: the `as` projection reads it back toward
+// the type it aliases, and that walk follows STRUCT chains only. So an
+// enum-underlying alias could be declared and constructed but never read back,
+// and the failure landed at the projection as ``cannot cast `Level` to
+// `Level``` — two names printing identically, a diagnostic at a distance from
+// the thing that was wrong. Until a use case exists the alias itself is the
+// error.
+//
+// Four rows: the direct form, an alias-of-alias CHAIN ending at an enum (the
+// diagnostic names the middle), a RAW-BACKED enum (a backing is not a way back
+// — `Perm` reads out as `UInt8`, never as `Bits`), and a MODULE-QUALIFIED enum.
+// The qualified row is here rather than in `qualified_type_declaration_slots`
+// because the refusal is what proves the qualifier resolved: an unresolved
+// `qslot.Level` could not be recognized as an enum at all.
+//
+// Struct and primitive aliases are unaffected and are exercised throughout
+// `type_alias.saw`, `type_alias_construction.saw` and the matrix file above;
+// `Marker` and `Count` below are the in-file control — neither is reported.
+// COMPILE-FLAGS: --module-path qslot={TESTDIR}/modules/qualslot_dep
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: type alias `Rank` names the enum `Level`, and an alias of an enum is not allowed
+// EXPECT-ERROR-CONTAINS: use `Level` itself
+// EXPECT-ERROR-CONTAINS: type alias `Step` names the enum `Level` (through `Rank`)
+// EXPECT-ERROR-CONTAINS: type alias `Bits` names the enum `Perm`
+// EXPECT-ERROR-CONTAINS: type alias `Ranked` names the enum `Level`
+import qslot
+
+enum Level { case High, case Low }
+enum Perm: UInt8 { case Read = 1, case Write = 2 }
+struct Tag { n: Int }
+
+type Rank = Level          // direct
+type Step = Rank           // a chain ending at an enum
+type Bits = Perm           // raw-backed: the backing is not a way back
+type Ranked = qslot.Level  // module-qualified
+
+// The control: neither of these is reported.
+type Marker = Tag
+type Count = Int
+
+func main() {
+    let m: Marker = Marker(Tag(n: 1))
+    let c: Count = 2
+    print("{(m as Tag).n} {c}")
+}

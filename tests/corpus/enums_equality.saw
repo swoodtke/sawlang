@@ -1,0 +1,74 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 4
+// 5
+// 6
+
+// Comprehensive enum equality tests (design 32).
+enum Color {
+    case Red,
+    case Green,
+    case Blue
+}
+
+enum OperationResult {
+    case Success(value: Int),
+    case Error(code: Int)
+}
+
+// Payload-carrying enums opt in to payload-deep `==` with an empty extension
+// body (design 32). Payload-free enums like Color auto-conform.
+@synthesize
+extension OperationResult: Equatable {}
+
+func test_simple_equality() {
+    let c1 = Color.Red
+    let c2 = Color.Red
+    let c3 = Color.Blue
+
+    // Same variants should be equal
+    if c1 == c2 {
+        print(1)  // Should print
+    }
+
+    // Different variants should not be equal
+    if c1 != c3 {
+        print(2)  // Should print
+    }
+
+    // Test all three comparison cases
+    if c2 == c1 {
+        print(3)  // Should print
+    }
+}
+
+func test_associated_equality() {
+    let r1 = OperationResult.Success(value: 42)
+    let r1_again = OperationResult.Success(value: 42)
+    let r2 = OperationResult.Success(value: 99)
+    let r3 = OperationResult.Error(code: 404)
+
+    // Same variant AND same payload -> equal (deep comparison)
+    if r1 == r1_again {
+        print(4)  // Should print
+    }
+
+    // Same variant, DIFFERENT payload -> NOT equal. Under the old tag-only
+    // comparison this was (wrongly) true; design 32 makes it deep.
+    if r1 != r2 {
+        print(5)  // Should print
+    }
+
+    // Different variant tags are not equal
+    if r1 != r3 {
+        print(6)  // Should print
+    }
+}
+
+func main() {
+    test_simple_equality()
+    test_associated_equality()
+}

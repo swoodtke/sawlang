@@ -1,0 +1,151 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable `whole` across loop iterations
+// EXPECT-ERROR-CONTAINS: use of moved variable `andop` across loop iterations
+// EXPECT-ERROR-CONTAINS: use of moved variable `orop` across loop iterations
+// EXPECT-ERROR-CONTAINS: use of moved variable `nested` across loop iterations
+// EXPECT-ERROR-CONTAINS: use of moved variable `cmp` across loop iterations
+// EXPECT-ERROR-CONTAINS: use of moved variable `inner` across loop iterations
+// EXPECT-ERROR-CONTAINS: use of moved variable `outer` across loop iterations
+// EXPECT-ERROR-CONTAINS: use of moved variable `born` across loop iterations
+// EXPECT-ERROR-CONTAINS: use of moved variable `driven` across loop iterations
+// EXPECT-ERROR-CONTAINS: this move is in the loop's CONDITION
+//
+// SL-262's obligation-4 sweep, refusal side. The mechanism is "a RE-EVALUATED
+// head position treated as straight-line code", so every DEPTH at which a move
+// can sit inside a `while` condition is a row, and so is every loop-nesting and
+// profile the same head appears in. Each of these was ACCEPTED before the
+// condition joined `_check_loop_body`'s window, and each destroyed its value
+// once per iteration at exit 0 — except the driven one, which aborted in the
+// runtime with `Slot.take: slot is empty`.
+//
+// One binding per row so the diagnostics name them apart. The accept side is
+// `examples/conformance/V110_loop_head_moves_that_stay_legal.saw`.
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+func consume_bool(r: Res) -> Bool { true }
+func consume_int(r: Res) -> Int { 1 }
+func passthrough(b: Bool) -> Bool { b }
+func slow() { sleep(Duration.ms(1)) }
+
+// The move IS the condition's own call argument.
+func whole_condition() -> Int {
+    var whole = Res(name: "whole")
+    var n = 0
+    while consume_bool(move whole) {
+        n = n + 1
+        if n > 2 { break }
+    }
+    n
+}
+
+// Buried in an `&&` operand — the short-circuit does not make it run less often.
+func and_operand() -> Int {
+    var andop = Res(name: "andop")
+    var n = 0
+    while n < 5 && consume_bool(move andop) {
+        n = n + 1
+    }
+    n
+}
+
+// ...and in an `||` operand.
+func or_operand() -> Int {
+    var orop = Res(name: "orop")
+    var n = 0
+    while n > 5 || consume_bool(move orop) {
+        n = n + 1
+        if n > 2 { break }
+    }
+    n
+}
+
+// Buried one call deep.
+func nested_call_argument() -> Int {
+    var nested = Res(name: "nested")
+    var n = 0
+    while passthrough(consume_bool(move nested)) {
+        n = n + 1
+        if n > 2 { break }
+    }
+    n
+}
+
+// An operand of the condition's comparison.
+func comparison_operand() -> Int {
+    var cmp = Res(name: "cmp")
+    var n = 0
+    while consume_int(move cmp) > 0 {
+        n = n + 1
+        if n > 2 { break }
+    }
+    n
+}
+
+// The INNER loop's condition, with an outer loop around it.
+func inner_loop_condition() -> Int {
+    var inner = Res(name: "inner")
+    var n = 0
+    var o = 0
+    while o < 2 {
+        while consume_bool(move inner) {
+            n = n + 1
+            if n > 2 { break }
+        }
+        o = o + 1
+    }
+    n
+}
+
+// The OUTER loop's condition, with an inner loop beside the move.
+func outer_loop_condition() -> Int {
+    var outer = Res(name: "outer")
+    var n = 0
+    while consume_bool(move outer) {
+        var j = 0
+        while j < 2 { j = j + 1 }
+        n = n + 1
+        if n > 2 { break }
+    }
+    n
+}
+
+// The root is BORN inside the enclosing loop's body — still outer to the inner
+// loop whose condition consumes it, which is the scope question the rule asks.
+func root_born_in_outer_body() -> Int {
+    var n = 0
+    var o = 0
+    while o < 2 {
+        var born = Res(name: "born")
+        while consume_bool(move born) {
+            n = n + 1
+            if n > 2 { break }
+        }
+        o = o + 1
+    }
+    n
+}
+
+// The DRIVEN twin: the check must fire identically whether or not the body
+// suspends. SL-234's `while` hoist arm keeps working for the programs this
+// accepts (see V110) and becomes dead for the ones it refuses.
+func driven_condition() -> Int {
+    var driven = Res(name: "driven")
+    var n = 0
+    while consume_bool(move driven) {
+        slow()
+        n = n + 1
+        if n > 2 { break }
+    }
+    n
+}
+
+func main() {
+    print("{whole_condition()} {and_operand()} {or_operand()}")
+    print("{nested_call_argument()} {comparison_operand()}")
+    print("{inner_loop_condition()} {outer_loop_condition()}")
+    print("{root_born_in_outer_body()} {driven_condition()}")
+}

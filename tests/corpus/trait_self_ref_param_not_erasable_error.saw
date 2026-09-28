@@ -1,0 +1,28 @@
+// Object safety: a `&Self` PARAMETER is as undispatchable as a by-value
+// one — two `any Trait` values need not share a concrete type — and the
+// compiler correctly refuses the erasure today. Pinned loosely: the current
+// diagnostic MISDESCRIBES the parameter as "Self by value" (DF-239a notes
+// the wart); the refusal itself is the guarantee this file pins.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot form `any Merges`
+trait Merges {
+    func merge(&self, other: &Self) -> Int
+}
+
+struct Bag {
+    n: Int
+}
+
+extension Bag: Merges {
+    func merge(&self, other: &Self) -> Int { self.n + other.n }
+}
+
+func total(a: &any Merges, b: &any Merges) -> Int {
+    a.merge(b)
+}
+
+func main() {
+    let x = Bag(n: 1)
+    let y = Bag(n: 2)
+    print(total(&x, &y))
+}

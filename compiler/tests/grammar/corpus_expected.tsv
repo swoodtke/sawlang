@@ -169,3 +169,101 @@ prototypes/minivm/examples/reject_semicolon.saw	FAIL	a-error: 1:25 near RBRACE '
 prototypes/minivm/examples/reject_truncated.saw	FAIL	a-error: 3:1 near EOF ''
 prototypes/minivm/examples/vectors/reject_optional_constructor.saw	FAIL	a-error: 1:34 near QUESTION '?'
 sawc/std/data.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+tests/corpus/array_no_extension_error.saw	FAIL	a-removed: syntax.decl.refused-array-extension
+tests/corpus/attr_bad_arity_error.saw	FAIL	a-error: 5:9 near NEWLINE '\\n'
+tests/corpus/attr_duplicate_error.saw	FAIL	a-error: 6:1 refused by syntax.rule.attribute-position
+tests/corpus/attr_export_on_extension_error.saw	FAIL	a-error: 8:1 refused by syntax.rule.attribute-position
+tests/corpus/attr_on_local_error.saw	FAIL	a-error: 9:5 refused by syntax.rule.attribute-position
+tests/corpus/attr_on_method_error.saw	FAIL	a-error: 8:6 near IDENT 'export'
+tests/corpus/attr_on_struct_error.saw	FAIL	a-error: 7:1 near STRUCT 'struct'
+tests/corpus/attr_synthesize_arg_error.saw	FAIL	a-error: 7:13 near STRING 'deep'
+tests/corpus/attr_synthesize_on_func_error.saw	FAIL	a-error: 6:1 refused by syntax.rule.attribute-position
+tests/corpus/attr_unknown_error.saw	FAIL	a-error: 5:2 near IDENT 'inline'
+tests/corpus/borrows_fold_preserves_lexical_scope.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+tests/corpus/conformance/K128_cow_gate_survives_the_var_self_spelling.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+tests/corpus/conformance/K129_forwarded_lend_carries_the_window_mode.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+tests/corpus/conformance/M34_lend_var_gated_place_write.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+tests/corpus/const_generic_specialized_extension_unsupported.saw	FAIL	a-error: 30:16 near INT '4'
+tests/corpus/discard_var_error.saw	FAIL	a-removed: syntax.stmt.refused-var-discard
+tests/corpus/doc_comment_module_placement_error.saw	LEXERR	a-error: 11:1 refused by syntax.lex.module-doc
+tests/corpus/doc_comment_unattached_error.saw	FAIL	a-error: 10:1 refused by syntax.lex.doc-attach
+tests/corpus/errors/align_on_function.saw	FAIL	a-error: 6:1 refused by syntax.rule.attribute-position
+tests/corpus/errors/align_on_struct_field.saw	FAIL	a-error: 7:5 near AT '@'
+tests/corpus/errors/borrows_effect_slot_order.saw	FAIL	a-error: 14:43 near IDENT 'sync'
+tests/corpus/errors/capture_self_move_requires_borrow_sigil.saw	FAIL	a-removed: syntax.expr.refused-capture-self
+tests/corpus/errors/capture_self_requires_borrow_sigil.saw	FAIL	a-removed: syntax.expr.refused-capture-self
+tests/corpus/errors/consumes_free_function.saw	FAIL	a-error: 12:21 refused by syntax.rule.effect-slot
+tests/corpus/errors/consumes_function_type.saw	FAIL	a-removed: syntax.type.refused-func-consumes
+tests/corpus/errors/consumes_needs_a_receiver.saw	FAIL	a-error: 15:32 refused by syntax.rule.effect-slot
+tests/corpus/errors/consumes_needs_var_self.saw	FAIL	a-error: 13:24 refused by syntax.rule.effect-slot
+tests/corpus/errors/consumes_trait_requirement.saw	FAIL	a-error: 13:28 refused by syntax.rule.requirement-borrows
+tests/corpus/errors/fold_selected_tail_is_an_ownership_transfer.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+tests/corpus/errors/lend_var_in_shared_lend_accessor.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+tests/corpus/errors/lend_var_outside_borrows.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+tests/corpus/errors/lend_var_ungated_receiver_mutation.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+tests/corpus/errors/lend_var_write_needs_var_root.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+tests/corpus/errors/semicolon_at_end_of_file.saw	FAIL	a-error: 12:22 near SEMICOLON ';'
+tests/corpus/errors/semicolon_at_line_start.saw	FAIL	a-error: 13:5 near SEMICOLON ';'
+tests/corpus/errors/semicolon_before_closing_brace.saw	FAIL	a-error: 12:21 near RBRACE '}'
+tests/corpus/errors/semicolon_before_newline.saw	FAIL	a-error: 11:15 near NEWLINE '\\n'
+tests/corpus/errors/semicolon_between_declarations.saw	FAIL	a-error: 11:24 near SEMICOLON ';'
+tests/corpus/errors/semicolon_doubled.saw	FAIL	a-error: 11:15 near SEMICOLON ';'
+tests/corpus/errors/shadow_for_tuple_pattern.saw	FAIL	a-removed: syntax.expr.refused-for-tuple
+tests/corpus/errors/statement_juxtaposition_in_closure_and_module_scope.saw	FAIL	a-error: 20:26 near IDENT 'c'
+tests/corpus/errors/statement_juxtaposition_in_control_flow_bodies.saw	FAIL	a-error: 20:28 near IDENT 'sum'
+tests/corpus/errors/statement_juxtaposition_in_declaration_lists.saw	FAIL	a-error: 32:50 near PUBLIC 'public'
+tests/corpus/errors/statement_juxtaposition_in_function_and_method_bodies.saw	FAIL	a-error: 28:15 near IDENT 'print'
+tests/corpus/errors/statement_juxtaposition_in_match_guard_and_try_blocks.saw	FAIL	a-error: 23:29 near IDENT 'print'
+tests/corpus/errors/static236_enum_method_no_receiver.saw	FAIL	a-error: 12:5 refused by syntax.rule.receiver-and-static
+tests/corpus/errors/static236_generic_extension_no_receiver.saw	FAIL	a-error: 12:5 refused by syntax.rule.receiver-and-static
+tests/corpus/errors/static236_static_init.saw	FAIL	a-removed: syntax.decl.refused-member-static
+tests/corpus/errors/static236_static_with_receiver.saw	FAIL	a-error: 12:21 refused by syntax.rule.receiver-and-static
+tests/corpus/errors/static236_struct_method_no_receiver.saw	FAIL	a-error: 17:5 refused by syntax.rule.receiver-and-static
+tests/corpus/errors/static236_trait_default_no_receiver.saw	FAIL	a-error: 13:5 refused by syntax.rule.receiver-and-static
+tests/corpus/errors/static236_trait_requirement_no_receiver.saw	FAIL	a-error: 11:5 refused by syntax.rule.receiver-and-static
+tests/corpus/errors/static_in_function.saw	FAIL	a-error: 7:5 near STATIC 'static'
+tests/corpus/errors/static_var_without_unsafe.saw	FAIL	a-removed: syntax.decl.refused-static
+tests/corpus/errors/string_interpolation_unescaped_brace.saw	SEGLEX	a-error: 8:27 Lexer error at 1:1: Unexpected character
+tests/corpus/errors/string_unknown_escape.saw	LEXERR	a-error: Lexer error at 8:16: unknown escape in a string literal
+tests/corpus/errors/trailing_dot_float.saw	FAIL	a-error: 8:15 near NEWLINE '\\n'
+tests/corpus/errors/unknown_directive.saw	LEXERR	a-error: Lexer error at 8:13: unknown directive after `#`
+tests/corpus/errors/unsafe_effect_slot_order.saw	FAIL	a-error: 8:26 near UNSAFE 'unsafe'
+tests/corpus/errors/unsafe_expression_marker_removed.saw	FAIL	a-removed: syntax.expr.refused-unsafe
+tests/corpus/errors/unsafe_keyword_before_decl.saw	FAIL	a-removed: syntax.decl.refused-effect-prefix
+tests/corpus/errors/unsafe_modifier_on_enum.saw	FAIL	a-removed: syntax.decl.refused-unsafe-prefix
+tests/corpus/errors/unsafe_prefix_on_init.saw	FAIL	a-removed: syntax.decl.refused-effect-prefix
+tests/corpus/errors/unsafe_static_without_var.saw	FAIL	a-removed: syntax.decl.refused-static
+tests/corpus/errors/var_self_receiver.saw	FAIL	a-removed: syntax.decl.refused-receiver
+tests/corpus/escaping_on_declaration_rejected.saw	FAIL	a-removed: syntax.decl.refused-escaping
+tests/corpus/export229_scoped_import_error.saw	FAIL	a-removed: syntax.decl.refused-scoped-import
+tests/corpus/export_outside_init_error.saw	FAIL	a-removed: syntax.decl.refused-export
+tests/corpus/extension_head_visibility_error.saw	FAIL	a-removed: syntax.decl.refused-visibility-prefix
+tests/corpus/extension_head_visibility_package_error.saw	FAIL	a-removed: syntax.decl.refused-visibility-prefix
+tests/corpus/int_literal_out_of_range.saw	LEXERR	a-error: Lexer error at 8:19: integer literal out of range for a 64-bit integer
+tests/corpus/lend_var_both_branches.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+tests/corpus/lend_var_conditional_lend.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+tests/corpus/lend_var_coro_and_forwarding.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+tests/corpus/lend_var_epilogue_nesting.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+tests/corpus/lend_var_generic_and_match.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+tests/corpus/lend_var_two_specializations.saw	FAIL	a-removed: syntax.expr.refused-lend-var
+tests/corpus/lexer_unterminated_interpolation.saw	LEXERR	a-error: Lexer error at 10:22: unterminated interpolation in string literal, opened at this `{` (write `\\{` for a literal brace)
+tests/corpus/literal_suffix_out_of_range_error.saw	LEXERR	a-error: Lexer error at 7:13: integer literal out of range for its suffix
+tests/corpus/module_tests/test_import_alias_collision_error.saw	FAIL	a-error: 6:25 refused by syntax.rule.import-names
+tests/corpus/named_tuple_mixed_labeling_error.saw	FAIL	a-removed: syntax.expr.refused-partial-named-tuple
+tests/corpus/named_tuple_pattern_deferred_error.saw	FAIL	a-removed: syntax.pat.refused-named-tuple
+tests/corpus/newline_generic_call_trailing_comma_error.saw	FAIL	a-removed: syntax.generic.refused-arg-comma
+tests/corpus/newline_generic_param_trailing_comma_error.saw	FAIL	a-removed: syntax.generic.refused-param-comma
+tests/corpus/newline_generic_trailing_comma_error.saw	FAIL	a-removed: syntax.generic.refused-arg-comma
+tests/corpus/newline_unclosed_bracket_error.saw	FAIL	a-error: 12:1 near RBRACE '}'
+tests/corpus/newline_unclosed_paren_at_brace_error.saw	FAIL	a-error: 12:1 near RBRACE '}'
+tests/corpus/newline_unclosed_paren_error.saw	FAIL	a-error: 17:5 near IDENT 'print'
+tests/corpus/parse_recovery_two_errors.saw	FAIL	a-error: 10:7 near NEWLINE '\\n'
+tests/corpus/try_routing_clause_needs_a_case.saw	FAIL	a-error: 27:19 refused by syntax.rule.try-route-case
+tests/corpus/try_routing_clause_refusals.saw	FAIL	a-removed: syntax.expr.refused-try-route
+tests/corpus/type_alias_in_function_body_refused.saw	FAIL	a-removed: syntax.stmt.refused-local-type-alias
+tests/corpus/unicode_escape_malformed_error.saw	LEXERR	a-error: Lexer error at 6:16: Unicode escape must contain 1-6 hexadecimal digits
+tests/corpus/unicode_escape_oversized_error.saw	LEXERR	a-error: Lexer error at 7:22: Unicode escape is greater than the maximum scalar 0x10FFFF
+tests/corpus/unicode_escape_surrogate_error.saw	LEXERR	a-error: Lexer error at 7:20: Unicode escape is a surrogate code point
+tests/corpus/vis258_private_on_a_function_error.saw	FAIL	a-removed: syntax.decl.refused-visibility-prefix
+tests/corpus/visibility_invalid.saw	FAIL	a-error: 5:8 near IDENT 'invalid'
+tests/corpus/while_let_no_else_clause.saw	FAIL	a-removed: syntax.expr.refused-while-let-else

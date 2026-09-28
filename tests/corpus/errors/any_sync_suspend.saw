@@ -1,0 +1,23 @@
+// design 51: an UNMARKED trait method dispatched through `any` conservatively
+// suspends (function-type rules), so calling it inside a `sync` function is a
+// suspension violation — the effect follows the trait signature.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func`
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+struct Circle { r: Int }
+extension Circle: Shape {
+    func area(&self) -> Int { self.r * self.r }
+}
+
+func compute(s: &any Shape) sync -> Int {
+    s.area()   // unmarked trait method through `any` -> conservatively suspends
+}
+
+func main() {
+    let c = Circle(r: 4)
+    print(compute(&c))
+}

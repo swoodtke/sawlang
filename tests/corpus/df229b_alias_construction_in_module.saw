@@ -1,0 +1,16 @@
+// DF-229b: the design-63 back-conversion `Steps(n)` builds its type from the
+// design-144 IDENTITY, not the spelling. Every annotation naming the alias was
+// already rewritten to the identity, so the spelling-built type compared
+// unequal to the annotation it was assigned to — `let s: Steps = Steps(n)`
+// inside any non-root module was "cannot assign `Steps` to variable of type
+// `Steps`". Found while closing DF-229a, which is what first made an imported
+// alias reachable.
+// EXPECT: success
+// EXPECT-OUTPUT: 4 9
+import modules.df229b_alias_own.{Steps, make_steps, widen}
+
+func main() {
+    let inside = make_steps(4)
+    let here: Steps = Steps(9)
+    print("{widen(inside)} {here as Int}")
+}

@@ -1,0 +1,10 @@
+// design 58 Part 3: an exported static's type must be a C-ABI-safe data layout
+// (fixed-width ints, Int/UInt, Float, arrays thereof, structs of such fields).
+// A String static is rejected.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `@export` static `NAME`: type `String` is not
+
+@export
+static NAME: String = "saw"
+
+func main() { print(1) }

@@ -1,0 +1,8 @@
+// `lock<R>(&self, body: (&var T) sync -> R)` infers `R` from the body.
+import std.mutex.{Mutex}
+
+func main() {
+    let m = Mutex<Int>(value: 1)
+    let seen = m.lock { &var c in c }
+    print(seen)
+}

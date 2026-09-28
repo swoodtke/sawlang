@@ -1,0 +1,13 @@
+// Design 258 ruling 2 (conformance B29): `private` narrows a field back down.
+// `Crate.seal` sits in a `public struct` beside a bare field that IS public, so
+// this is the marker doing its one job — the refusal is the field's, not the
+// type's.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: field `seal` of struct `Crate` is private
+import modules.vis258
+
+func main() {
+    let c = vis258.Crate.make(5)
+    print(c.n)        // fine: bare, so it inherits `public`
+    print(c.seal)     // refused: marked `private`
+}

@@ -1,0 +1,102 @@
+// Conformance row V85 — control: `move` tails, fresh temporaries, `.copy()`
+// tails, a PLACE WINDOW's tail and a GENERIC body's tail are untouched
+//
+// DF-304a — the fence is correct only if it is narrow, and each row below is a
+// shape that had to keep compiling:
+//
+//   * `move r` / `move o` — the spelling the refusal names, at a by-value
+//     parameter and at a `[move o]` capture. One `deinit` per value, which is
+//     what says nothing was duplicated or lost.
+//   * A FRESH TEMPORARY tail: it aliases nothing, so there was never a transfer
+//     to judge. (Its call also releases the parameter the body did not hand on,
+//     which is design 264's ruling A and the `drop 7` below.)
+//   * A `.copy()` tail at the ExplicitCopy tier — the other way out.
+//   * A PLACE WINDOW's tail. `place_uses._window_call` synthesizes a closure to
+//     write down "run this while the window is open", and its tail is the value
+//     of the place expression the AUTHOR wrote in the enclosing scope — already
+//     judged at its own site. Judging it again refused the lowering's own
+//     bookkeeping: measured on `match_borrowed_payload_in_a_driven_body`, whose
+//     driven `match plan.job` lowers to a window whose tail IS `plan.job`, so
+//     the carve-out is `is_place_window` and nothing wider.
+//   * A GENERIC body's tail. Design 219 wave C counts per PATH and raises a
+//     REQUIREMENT the call site discharges, so `{ x in move x }` at a move-only
+//     `T` stays callable and the ordinary forwarding shape owes no `Copy`.
+//
+// Each taker BINDS the value it gets back, so every `deinit` below is at a
+// binding's scope end and the drop for a call lands before that call's own
+// print. Counted per value: one `deinit` each, and the two `drop 2` lines are
+// two Cells — the original, released inside the body, and the copy it handed on.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: drop 7
+// EXPECT-OUTPUT: move 7
+// EXPECT-OUTPUT: drop 5
+// EXPECT-OUTPUT: capture 5
+// EXPECT-OUTPUT: drop 7
+// EXPECT-OUTPUT: drop 1
+// EXPECT-OUTPUT: fresh 1
+// EXPECT-OUTPUT: drop 2
+// EXPECT-OUTPUT: drop 2
+// EXPECT-OUTPUT: copied 2
+// EXPECT-OUTPUT: window 3
+// EXPECT-OUTPUT: generic 4
+// EXPECT-OUTPUT: end
+// EXPECT-OUTPUT: drop 4
+// EXPECT-OUTPUT: drop 3
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+struct Cell { w: Int }
+extension Cell: ExplicitCopy {
+    func copy(&self) -> Cell { Cell(w: self.w) }
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func run(body: (Res) sync -> Res) -> Int {
+    let made = Res(w: 7)
+    let got = body(move made)
+    got.w
+}
+
+func run_owned(body: () sync -> Res) -> Int {
+    let got = body()
+    got.w
+}
+
+func run_cell(body: (Cell) sync -> Cell) -> Int {
+    let made = Cell(w: 2)
+    let got = body(move made)
+    got.w
+}
+
+func forward<T>(body: (T) sync -> T, v: T) -> T { body(move v) }
+
+func main() {
+    // The spelling the refusal names.
+    print("move {}", run({ r in move r }))
+    let o = Res(w: 5)
+    print("capture {}", run_owned({ [move o] in move o }))
+
+    // A fresh temporary aliases nothing; the unhanded parameter dies with the
+    // body, which is where `drop 7` comes from.
+    print("fresh {}", run({ r in
+        let _ = r.w
+        Res(w: 1)
+    }))
+
+    // The ExplicitCopy way out: the copy comes back, the original dies inside.
+    print("copied {}", run_cell({ c in c.copy() }))
+
+    // A place window's tail is the lowering's, not the author's transfer.
+    var v = Vector<Res>()
+    try! v.push(Res(w: 3))
+    print("window {}", v.with_ref(0, { &e in e.w }))
+
+    // A generic body forwards without owing `Copy`.
+    let g = forward({ x in move x }, Res(w: 4))
+    print("generic {}", g.w)
+    print("end")
+}

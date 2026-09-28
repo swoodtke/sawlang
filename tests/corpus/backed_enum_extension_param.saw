@@ -1,0 +1,76 @@
+// Design 145 (DF-140h): a backed enum arriving as an EXTENSION METHOD's
+// parameter. The parser gives any bare named type a STRUCT kind and only
+// resolution knows which names are enums; a plain function resolved its
+// parameters, an extension method did not, so `r as UInt` inside a method
+// reported "cannot cast `Right` to `UInt`" while the identical cast in a free
+// function compiled.
+//
+// The rights-mask idiom is the shape that found it: the enum names the BITS and
+// a mask stays a plain integer, so the `&` lives in one method on the receiver.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// true
+// false
+// true
+// 3
+// ok
+// 2
+
+enum Right: UInt {
+    case Debug = 1,
+    case Shutdown = 2,
+}
+
+enum Status: UInt8 {
+    case Ok = 0,
+    case Denied = 2,
+}
+
+struct Entry {
+    rights: UInt
+}
+
+extension Entry {
+    // The failing shape: an enum PARAMETER cast inside an extension method.
+    func allows(&self, right: Right) -> Bool {
+        (self.rights & (right as UInt)) != 0
+    }
+
+    // A fixed-width backing in the same position.
+    func tag(&self, s: Status) -> UInt8 {
+        s as UInt8
+    }
+
+    // A case named directly inside a method kept working throughout; it is here
+    // so the test covers both routes to the tag.
+    func debug_bit(&self) -> UInt {
+        Right.Debug as UInt
+    }
+}
+
+// The free-function control: this always compiled.
+func bit_of(right: Right) -> UInt {
+    right as UInt
+}
+
+func main() {
+    print("{}", bit_of(Right.Debug))
+    print("{}", bit_of(Right.Shutdown))
+
+    let e = Entry(rights: 3)
+    print("{}", e.allows(Right.Debug))
+
+    let none = Entry(rights: 0)
+    print("{}", none.allows(Right.Debug))
+    print("{}", Entry(rights: 2).allows(Right.Shutdown))
+
+    print("{}", e.debug_bit() | Right.Shutdown as UInt)
+
+    // `from(raw:)` round trip through a method parameter.
+    if let s = Status.from(raw: 0u8) {
+        print("{}", match s { case Ok -> "ok", case Denied -> "denied" })
+    }
+    print("{}", e.tag(Status.Denied))
+}

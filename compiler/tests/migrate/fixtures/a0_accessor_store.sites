@@ -1,0 +1,2 @@
+status: rewritten
+21 A0.accessor-store rewritten => borrow var b.at(1) = Cell(n: 9)

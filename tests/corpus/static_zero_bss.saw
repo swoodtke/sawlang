@@ -1,0 +1,43 @@
+// design 149 unit (b): a static declared with an all-zero initializer lands in
+// zerofill storage and costs NO image bytes.
+//
+// This is what makes a kernel's backing storage free to declare. LLVM leaves a
+// CONSTANT zero global in a readonly section so it can be shared, which means
+// the image carries every one of those bytes — the canonical `[0; 65536]` arena
+// cost 64 KiB of file for 64 KiB of zeros. Zeros are the one initializer an
+// image never has to store.
+//
+// Proven by size: three regions totalling 320 KiB are declared here and the
+// whole freestanding object has to fit in 32 KiB. If any of them ever regresses
+// into a data section the check fails by the width of the region, not by a
+// rounding error. (The bound is generous — the object is a few KiB in practice
+// — because it also carries DWARF, whose size is not what this is testing.)
+//
+// COMPILE-FLAGS: --freestanding --target riscv32-unknown-none-elf
+// EXPECT: object
+// EXPECT-OBJECT-MAX-BYTES: 32768
+
+// The arena from the design brief: a region, not a value.
+@export("k_arena")
+static ARENA: [UInt8; 65536] = [0; 65536]
+
+// A mutable one — same placement, and the kernel writes it (design 149 unit a).
+@export("k_scratch")
+unsafe static var SCRATCH: [UInt8; 131072] = [0; 131072]
+
+// A zeroed table of aggregates, to show the rule is about the VALUE being zero
+// rather than about the element type being a byte.
+struct Slot {
+    owner: Int32,
+    generation: Int32
+}
+
+@export("k_slots")
+unsafe static var SLOTS: [Slot; 16384] = [Slot(owner: 0, generation: 0); 16384]
+
+@export("kmain")
+func kmain() unsafe -> Int {
+    SCRATCH[0] = 7u8
+    SLOTS[0] = Slot(owner: 1, generation: 1)
+    (ARENA[0] as Int) + (SCRATCH[0] as Int) + (SLOTS[0].owner as Int)
+}

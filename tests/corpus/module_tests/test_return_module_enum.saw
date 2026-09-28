@@ -1,0 +1,46 @@
+// Test: Returning enum variants defined in an imported module
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: 2
+// EXPECT-OUTPUT: 30
+
+import lib
+
+// Local function that returns a module-defined enum
+func get_red() -> lib.Color {
+    lib.Color.Red
+}
+
+func get_green() -> lib.Color {
+    lib.Color.Green
+}
+
+func get_custom(r: Int, g: Int, b: Int) -> lib.Color {
+    lib.Color.Custom(r: r, g: g, b: b)
+}
+
+func main() {
+    let red = get_red()
+    match red {
+        case Red -> print(1),
+        case Green -> print(0),
+        case Blue -> print(0),
+        case Custom(r, g, b) -> print(0)
+    }
+
+    let green = get_green()
+    match green {
+        case Red -> print(0),
+        case Green -> print(2),
+        case Blue -> print(0),
+        case Custom(r, g, b) -> print(0)
+    }
+
+    let custom = get_custom(10, 20, 30)
+    match custom {
+        case Red -> print(0),
+        case Green -> print(0),
+        case Blue -> print(0),
+        case Custom(r, g, b) -> print(b)
+    }
+}

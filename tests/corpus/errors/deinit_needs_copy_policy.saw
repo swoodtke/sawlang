@@ -1,0 +1,22 @@
+// Design 131: `Deinit` is non-declarable. A type whose only resource
+// conformance was `Deinit` matched no arm of the value-transfer checkpoint, so
+// `let s = r` bitwise-aliased it and BOTH copies ran deinit (DF-128a). The
+// compiler knew how to destroy the type but nothing said whether it could be
+// duplicated — so a copy policy is now required at the conformance, which makes
+// that state unreachable rather than merely diagnosed.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Res` declares a deinit but no copy policy
+// EXPECT-ERROR-CONTAINS: `extension Res: NoCopy {}` (move-only)
+// EXPECT-ERROR-CONTAINS: put the `deinit` body inside it
+
+struct Res { id: Int }
+
+extension Res: Deinit {
+    func deinit(&var self) { print("drop res {self.id}") }
+}
+
+func main() {
+    let r = Res(id: 7)
+    let s = r
+    print("alive {r.id} {s.id}")
+}

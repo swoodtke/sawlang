@@ -1,0 +1,15 @@
+// Design 110 item 6: inside a generic body the RHS of `p = v` (where `p: &var T`)
+// must BE a `T` — a callee cannot smuggle in a different concrete type. Rejected
+// abstractly against the type parameter.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign `Cat` to referent of type `T`
+
+trait Named { func name(&self) -> String }
+struct Cat { tag: Int }
+extension Cat: Named { func name(&self) -> String { "cat" } }
+
+func replace<T: Named>(p: &var T, other: Cat) {
+    p = other
+}
+
+func main() {}

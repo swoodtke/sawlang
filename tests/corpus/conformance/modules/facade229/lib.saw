@@ -1,0 +1,5 @@
+// The curated facade: `Header` is published, the `wire229` qualifier beside it
+// is not (design 229).
+public import wire229.{Header}
+
+public func facade_make(tag: Int) -> Header { Header(tag: tag) }

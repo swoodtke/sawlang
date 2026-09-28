@@ -1,0 +1,15 @@
+// Test that type definitions create distinct types
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: expects `MyInt` but got `Int`
+
+type MyInt = Int
+
+func double(x: MyInt) -> MyInt {
+    x * 2
+}
+
+func main() {
+    let x: Int = 21
+    // This should fail - passing Int where MyInt is expected
+    print(double(x))
+}

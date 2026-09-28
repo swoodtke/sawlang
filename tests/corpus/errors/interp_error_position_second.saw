@@ -1,0 +1,13 @@
+// Design 99: the SECOND interpolation in a string gets its own offset —
+// an error there points past the first interpolation on the same line
+// (column 32 = the `b`), proving per-brace position rebasing.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot interpolate value of type `Blob`
+// EXPECT-ERROR-CONTAINS: interp_error_position_second.saw:12:32
+struct Blob { n: Int }
+
+func main() {
+    let b = Blob(n: 1)
+    let count = 2
+    print("count {count} blob {b} done")
+}

@@ -1,0 +1,30 @@
+// SL-316 — the ENTRY-MODULE twin of
+// `coro_imported_closure_body_suspends_with_no_driven_root.saw`: the same
+// suspending closure body, written in the file being compiled, in a program
+// with NO COROUTINE ROOT.
+//
+// The entry twin is only "always refused" when something in the program is
+// FRAMED: the refusal that reads a driven body's closures is a frame builder's,
+// and no frame is built here. So this cell was silent too — the `yield_now()`
+// lowered outside every frame, where it codegens to nothing, and the program
+// printed `2`. One rule, asked of the closure, covers both sides of the file
+// boundary and both sides of the has-a-root line (codex, SL-318.p6 r1).
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: this closure body suspends
+// EXPECT-ERROR-CONTAINS: a closure body is not driven
+// EXPECT-ERROR-CONTAINS: each_yield
+
+import std.task.*
+
+func each_yield(values: &Vector<Int>) -> Int {
+    values.each({ n in
+        yield_now()
+    })
+    values.len()
+}
+
+func main() {
+    let values: Vector<Int> = [1, 2]
+    print(each_yield(&values))
+}

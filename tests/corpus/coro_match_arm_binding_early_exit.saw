@@ -1,0 +1,60 @@
+// SL-278's repro, kept as the regression test for it.
+//
+// A `break` inside a match arm used to UNBIND that arm's payload in a driven
+// frame — `internal compiler error ... Undefined variable: n`, reported at a
+// use of the binding BEFORE the break — while the identical loop in a sync
+// function compiled and ran. `return` in an arm was fine; only `break` was not.
+//
+// It is SL-273's mechanism from the other side: a `break` in an arm is what
+// makes the transform CFG-split a match that does not itself span a suspension
+// (design 96 DF6), and the frame-residency census answered the spanning
+// question only. The two halves read `_FrameBuilder._is_split` now.
+//
+// THE SYNC TWIN IS THE ORACLE: both loops must print the same number.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1 1
+
+enum Step { case Value(value: Int), case Done }
+
+func next(i: Int) -> Step {
+    if i > 3 { return Step.Done }
+    Step.Value(value: i)
+}
+
+func sync_loop() -> Int {
+    var total = 0
+    var i = 0
+    while {
+        match next(i) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { return total }
+        }
+        i += 1
+    }
+    total
+}
+
+func driven_loop() -> Int {
+    var total = 0
+    var i = 0
+    while {
+        sleep(Duration.ms(1))          // makes this frame suspending
+        match next(i) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { return total }
+        }
+        i += 1
+    }
+    total
+}
+
+func main() {
+    print("{sync_loop()} {driven_loop()}")
+}

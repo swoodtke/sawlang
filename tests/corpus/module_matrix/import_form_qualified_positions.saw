@@ -1,0 +1,58 @@
+// Position matrix (design 235), grid 1 "Import forms x name positions" —
+// form: QUALIFIED whole-module (`import mod.lib`, no bare names). Design
+// 150's rule ("a qualifier works in EVERY position a name appears") tested
+// at every position the grammar actually admits a qualified spelling in.
+//
+// Positions NOT exercised here, both structurally N/A for this form: (c)
+// an EXTENSION RECEIVER and (f) a MATCH PATTERN both require a BARE type/
+// case name at the grammar level — `extension lib.Widget {}` is
+// `Parse error: Expected LBRACE, got DOT` and `case lib.Shape.Circle ->`
+// is `Parse error: Expected '->' after match pattern`, confirmed by direct
+// compile. Neither position can name a qualifier at all, in ANY import
+// form — see import_form_glob_positions.saw /
+// import_form_selective_positions.saw for the BARE spelling both need,
+// which is the only way to reach them.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// annotation = 5
+// expression = 6
+// generic bound = widget
+// existential = widget
+// interpolation = 8
+// default param = 7
+// default param override = 2
+
+import modules.importforms.lib
+
+// (a) annotation
+func take(w: lib.Widget) -> Int { w.n }
+
+// (d) generic bound
+func show<T: lib.Named>(t: &T) -> String { t.label() }
+
+// (e) existential
+func show_any(t: &any lib.Named) -> String { t.label() }
+
+// (h) default parameter value
+func with_default(n: Int = lib.DEFAULT_N) -> Int { n }
+
+func main() {
+    // (a) annotation
+    let w: lib.Widget = lib.Widget(n: 5)
+    print("annotation = {take(w)}")
+
+    // (b) expression (a static-shaped free-function call through the
+    // qualifier)
+    let w2 = lib.make_widget(6)
+    print("expression = {w2.n}")
+
+    print("generic bound = {show(&w)}")
+    print("existential = {show_any(&w)}")
+
+    // (g) interpolation
+    print("interpolation = {lib.make_widget(8).n}")
+
+    print("default param = {with_default()}")
+    print("default param override = {with_default(2)}")
+}

@@ -1,0 +1,43 @@
+// Design 246 row 3: a struct whose field is an OPTIONAL box of itself. The
+// `Optional` embeds its payload inline, so what makes this finite is the `Box`
+// underneath it — `next: Node?` is the refused shape and lives in
+// `recursive_type_through_optional_refused.saw`.
+//
+// The DEINIT lines are the oracle: the chain comes apart innermost first, each
+// node released exactly once.
+//
+// A `self.next?.length()` traversal is not written here for a reason worth
+// recording: an optional chain through a `Box<T>?` field is an internal
+// compiler error today (DF-261e, "BindOptional lowered outside an optional
+// chain"), and it reproduces with no recursion in sight.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// head has next: true
+// DEINIT c
+// DEINIT b
+// DEINIT a
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+struct Node {
+    r: Res
+    next: Box<Node>?
+}
+extension Node: NoCopy {}
+
+extension Node {
+    func has_next(&self) -> Bool {
+        self.next.is_some()
+    }
+}
+
+func main() {
+    let tail = Node(r: Res(name: "c"), next: None)
+    let mid = Node(r: Res(name: "b"), next: try! Box<Node>.make(value: move tail))
+    let head = Node(r: Res(name: "a"), next: try! Box<Node>.make(value: move mid))
+    print("head has next: {head.has_next()}")
+}

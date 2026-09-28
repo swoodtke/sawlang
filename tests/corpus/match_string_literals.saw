@@ -1,0 +1,21 @@
+// Design 63 T1d: String literal patterns (byte-content equality via the
+// builtin equals chain).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 0
+
+func code(cmd: String) -> Int {
+    match cmd {
+        case "build" -> 1
+        case "test" -> 2
+        case _ -> 0
+    }
+}
+
+func main() {
+    print(code("build"))
+    print(code("test"))
+    print(code("run"))
+}

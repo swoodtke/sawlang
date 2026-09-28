@@ -1,0 +1,12 @@
+// design 51 object safety: a marker trait (no methods) cannot be erased to
+// `any` — there is nothing to dispatch.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: marker trait with no methods
+
+trait Marker {}
+
+func use(x: &any Marker) {
+}
+
+func main() {
+}

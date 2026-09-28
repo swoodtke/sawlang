@@ -1,0 +1,13 @@
+// A set-literal element type must be Hashable + Equatable (design 54), the same
+// bound as constructing the container.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Hashable
+
+struct NoHash {
+    label: String
+}
+
+func main() {
+    var s = {NoHash(label: "a"), NoHash(label: "b")}
+    print(s.len())
+}

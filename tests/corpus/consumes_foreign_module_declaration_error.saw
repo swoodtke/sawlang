@@ -1,0 +1,32 @@
+// design 260 §2 — a `consumes` method is declarable ONLY in the receiver
+// type's DEFINING module.
+//
+// Uniform, with no deinit-presence special case. A consuming body occupies the
+// hand-written deinit body's design-131 prefix slot for its endpoint, so
+// declaring one OVERRIDES the type's teardown — the type author's privilege,
+// and the same containment a `deinit` already has (a deinit rides the
+// copy-policy conformance, which the orphan rule pins to the defining module).
+// Without this, a foreign `func leak(&var self) consumes {}` would suppress
+// another module's cleanup contract — design 242's `Thread` fate panic included
+// — with nothing on the page to say so.
+//
+// Foreign modules keep the open pattern the fixit names: a by-value free
+// function, `consume(move obj)`.
+//
+// EXPECT: error
+// COMPILE-FLAGS: --module-path consumes260={TESTDIR}/modules/consumes260
+// EXPECT-ERROR-CONTAINS: `leak` cannot be declared `consumes` here
+// EXPECT-ERROR-CONTAINS: this module does not define `Handle`
+// EXPECT-ERROR-CONTAINS: declare it in `consumes260` (which defines `Handle`)
+// EXPECT-ERROR-CONTAINS: take the value by value in a free function instead
+
+import consumes260.{Handle}
+
+extension Handle {
+    func leak(&var self) consumes {}
+}
+
+func main() {
+    var h = Handle.make(id: 3)
+    print("{}", (move h).close())
+}

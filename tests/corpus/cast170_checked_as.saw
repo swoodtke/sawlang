@@ -1,0 +1,76 @@
+// Design 170: `as` between integer types is CHECKED. Everything here is
+// REPRESENTABLE, so nothing traps — the point of the file is that the paths
+// which cost nothing before still cost nothing: widening emits exactly the
+// sext/zext it always did, and a narrowing whose operand folds has its check
+// elided at compile time rather than deferred to the optimizer.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 200
+// -1
+// 1000
+// 200
+// 127
+// -128
+// 4294967295
+// 200
+// 65535
+// 3
+// 3
+// 1
+// 7
+// 7
+// 7
+
+type UserId = Int
+type Inner = Int
+type Outer = Inner
+
+// Raw-backed enums (design 145): the enum IS its tag, so casting AT the
+// backing width stays total. Narrowing BELOW the backing is an ordinary
+// integer narrowing and takes the ordinary rule.
+enum Wide: UInt16 {
+    case Small = 3,
+    case Big = 1000
+}
+
+enum Byte: UInt8 {
+    case One = 1
+}
+
+func main() {
+    // --- widening is unchanged, and never checked ---------------------------
+    let u8: UInt8 = 200
+    print("{}", u8 as Int)            // zero-extends
+    let i8v: Int8 = -1
+    print("{}", i8v as Int)           // sign-extends
+    let i16v: Int16 = 1000
+    print("{}", i16v as Int64)
+    print("{}", u8 as UInt)           // unsigned -> wider unsigned
+    print("{}", 127 as Int8)          // in-range constant: free
+
+    // --- narrowing / sign change, all in range ------------------------------
+    var n = -128
+    print("{}", n as Int8)            // the signed floor
+    n = 4294967295
+    print("{}", n as UInt32)          // the unsigned ceiling
+    n = 200
+    print("{}", n as UInt)            // sign change, non-negative
+    var big: UInt = 65535
+    print("{}", big as UInt16)
+
+    // --- raw-backed enum backings -------------------------------------------
+    let w = Wide.Small
+    print("{}", w as UInt16)          // total at the backing width
+    print("{}", w as UInt8)           // BELOW the backing: checked, fits
+    let b = Byte.One
+    print("{}", b as UInt8)           // total
+
+    // --- design-63 alias composition ----------------------------------------
+    // Projection resolves to the underlying FIRST, then the integer rules
+    // apply — so an alias narrows exactly as its underlying does.
+    let id = UserId(7)
+    print("{}", id as Int)
+    print("{}", id as Int8)           // Int -> Int8, in range
+    let o = Outer(7)
+    print("{}", o as Int8)            // through a two-link alias chain
+}

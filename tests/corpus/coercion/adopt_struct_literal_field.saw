@@ -1,0 +1,22 @@
+// Position matrix (design 235), grid 1 "Adoption" — row: struct-literal
+// field. `T(field: <expr>)` names the field's declared type as the
+// expected type, so a bare literal (S1) and a folded const expression (S3)
+// both adopt it.
+//
+// NOTE (DF-235b): the const-expression row demonstrates the VALUE flowing
+// correctly when it fits — it does NOT demonstrate range-checking. An
+// out-of-range const expression at a struct-literal field silently
+// truncates instead of refusing (probe-confirmed; see DF-235b's tracker
+// entry).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// bare = 100
+// const = 24
+
+struct Wide { a: Int8, b: UInt32 }
+
+func main() {
+    let w = Wide(a: 100, b: (1 << 3) | (1 << 4))
+    print("bare = {w.a}")
+    print("const = {w.b}")
+}

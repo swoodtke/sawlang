@@ -1,0 +1,46 @@
+// A suspending call inside a CONSTRUCTOR that is a `match` scrutinee — both
+// spellings, an enum case's labeled payload and a struct init.
+//
+// DF-217f, closed by design 224. Sweep S2 rows a7/a8 and the corodiff lane's
+// first new finding. The scrutinee is a container HEAD, and no pass walked one:
+// the call was never lifted into a frame temp, so codegen met a call to a
+// function the transform had already split into resume bodies. Its own note
+// predicted the fix — "fixed alongside the other statement-HEAD gaps (if/while
+// conditions, for-range bounds), which share the entry list" — and that is what
+// `_hoist_container_heads` is. The scrutinee lifts to a `let`, the general ANF
+// hoist then linearizes the constructor's argument out of it, and the sync twin
+// this shape always had is what it compiles to.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// val 1
+// holder 2
+// done
+
+import std.task.{yield_now}
+
+enum Ev { case Has(x: Int) }
+
+struct Holder { n: Int }
+
+func mk_s(id: Int) -> Int {
+    yield_now()
+    id
+}
+
+func enum_ctor_scrutinee() {
+    match Ev.Has(x: mk_s(1)) {
+        case Has(x) -> print("val {x}")
+    }
+}
+
+func struct_init_scrutinee() {
+    match Holder(n: mk_s(2)) {
+        case _ -> print("holder 2")
+    }
+}
+
+func main() {
+    enum_ctor_scrutinee()
+    struct_init_scrutinee()
+    print("done")
+}

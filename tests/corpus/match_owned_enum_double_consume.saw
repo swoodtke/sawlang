@@ -1,0 +1,38 @@
+// Matching an OWNED enum consumes it — the payload binding takes ownership
+// (design skill: "match on an owned enum consumes it"). Codegen suppresses
+// the scrutinee's drop and hands the payload to the arm bindings, and the
+// typechecker records that consumption as a move (DF-190a), so a SECOND
+// match on the same owned NoCopy enum is a use-after-move error, exactly
+// as a second `move s` would give. Before the fix it compiled silently and
+// the payload deinit'd TWICE (a double-free).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable `s`
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("deinit {self.id}")
+    }
+}
+
+enum Slot {
+    case Filled(r: Res),
+    case Empty
+}
+
+extension Slot: NoCopy {}
+
+func main() {
+    let s = Slot.Filled(r: Res(id: 7))
+    match s {
+        case Filled(r) -> { print("got {r.id}") },
+        case Empty -> { print("empty") }
+    }
+    match s {
+        case Filled(r) -> { print("again {r.id}") },
+        case Empty -> { print("empty") }
+    }
+}

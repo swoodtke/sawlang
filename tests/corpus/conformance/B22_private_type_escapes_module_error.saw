@@ -1,0 +1,27 @@
+// Conformance row B22 — a module-private type cannot leave its module, on the
+// VALUE path or the PLACE path
+//
+// The cross-module face of B20, and DF-232o face 2's own repro. `hidden232o`
+// keeps `Hidden` to itself and hands it out through two `public` members of a
+// `public` type: `get` returns one, `at` LENDS one (design 141). Both are
+// refused at the DECLARATION, in the module that can fix them.
+//
+// The `EXPECT-ERROR-ABSENT` line is the residue check: the place path used to
+// fail HERE, in the importing module, as ``argument `__window` expects `(&var
+// Hidden) sync -> Hidden` but got `(&var Hidden) -> Void``` — a synthesized
+// parameter, a type the reader cannot name, and no mention of visibility. With
+// the declaration refused, no legal program can reach that lowering.
+// COMPILE-FLAGS: --module-path hidden232o={TESTDIR}/modules/hidden232o
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: method `Carrier.get` is public, but the return type names `Hidden`, which is private
+// EXPECT-ERROR-CONTAINS: method `Carrier.at` is public, but the type it lends names `Hidden`, which is private
+// EXPECT-ERROR-CONTAINS: modules/hidden232o/lib.saw
+// EXPECT-ERROR-ABSENT: __window
+
+import hidden232o.{Carrier}
+
+func main() {
+    let c = Carrier()
+    print(c.get().doubled())
+    print(c.at(0).doubled())
+}

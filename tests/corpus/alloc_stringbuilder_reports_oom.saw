@@ -1,0 +1,73 @@
+// Conformance row A10 — `StringBuilder` under a refusing allocator.
+//
+// Design 123: StringBuilder repeated RS-1's shape. `grow` returned Void, so a
+// refused grow left `capacity` short and the appends copied their bytes past
+// the end of the buffer, then advanced `length` past `capacity`.
+// That became a panic with a `try_`-prefixed twin beside each op.
+//
+// Design 234 retires the split: `append(String)`, `append(Byte)` and
+// `StringBuilder(capacity:)` REPORT the refusal and leave the builder exactly
+// as it was. The global allocation budget drives all three.
+//
+// Note the shape of each check: the budget is disarmed BEFORE the result is
+// reported, because interpolating the error into a message allocates a String
+// and the whole point of the armed budget is that no allocation succeeds.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// saw
+// append denied: allocation of 32 bytes (align 1) failed
+// 3
+// saw
+// char denied
+// 3
+// capacity denied
+// saw and more
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+func main() {
+    var b = StringBuilder()
+    try! b.append("saw")             // allocates the first 16-byte buffer
+    print(b.build())            // saw
+
+    // Deny everything: this append needs 3 + 16 + 1 > 16 bytes, so it must grow.
+    __saw_rt_alloc_deny_after(0)
+    let appended = b.append("0123456789abcdef")
+    __saw_rt_alloc_deny_after(-1)
+    match appended {
+        case Ok(_) -> print("appended"),
+        case Err(e) -> print("append denied: {e}")
+    }
+    print(b.len())              // 3 — untouched
+    print(b.build())            // saw — content untouched
+
+    // The raw-BYTE append at the capacity edge: 3 bytes plus a terminator
+    // exactly fills capacity 4, so one more byte has to grow. `Byte(100)` is
+    // what picks the byte overload — a bare `c.append(100)` would render the
+    // DIGITS `100` through the `Int` sibling, which is design 250's whole point.
+    var c = try! StringBuilder(capacity: 4)
+    try! c.append("abc")
+    __saw_rt_alloc_deny_after(0)
+    let charred = c.append(Byte(100))
+    __saw_rt_alloc_deny_after(-1)
+    match charred {
+        case Ok(_) -> print("char appended"),
+        case Err(_) -> print("char denied")
+    }
+    print(c.len())              // 3 — untouched
+
+    // The capacity constructor, reporting in place (DF-245a).
+    __saw_rt_alloc_deny_after(0)
+    let made = StringBuilder(capacity: 64)
+    __saw_rt_alloc_deny_after(-1)
+    match made {
+        case Ok(_) -> print("capacity ok"),
+        case Err(_) -> print("capacity denied")
+    }
+
+    // The same operations just work once allocation is available.
+    try! b.append(" and more")
+    print(b.build())            // saw and more
+}

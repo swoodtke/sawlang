@@ -1,0 +1,11 @@
+// Test that unqualified access to module symbols fails
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: function `double` is not directly accessible
+import modules.utils
+
+func main() {
+    // This should fail - double is not directly accessible
+    // Must use utils.double() instead
+    let result = double(21)
+    print(result)
+}

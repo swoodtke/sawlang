@@ -1,0 +1,22 @@
+// Design 145 unit B: an `init` in an enum extension is a teaching error. An
+// enum's CASES are its constructors, so there is nothing an init could build
+// that naming a case does not already build. Static methods are the escape
+// hatch when the choice of case has to be computed.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: enum `Color` cannot declare an `init`
+// EXPECT-ERROR-CONTAINS: cases are its constructors
+
+enum Color {
+    case Red,
+    case Green
+}
+
+extension Color {
+    init(bright: Bool) -> Color {
+        Color.Red
+    }
+}
+
+func main() {
+    print("unreachable")
+}

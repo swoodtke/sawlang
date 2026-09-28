@@ -1,0 +1,14 @@
+// Design 53 Part 2: `each_indexed` borrows the vector shared (`&self`) for the
+// whole walk, so a visitor that also captures the SAME vector mutably is a
+// static Law-of-Exclusivity error — iterator invalidation caught at compile time.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+
+func main() {
+    var v = Vector<Int>()
+    v.push(1)
+    v.each_indexed { [&var v] i, x in
+        v.push(x)   // mutating the vector being iterated: rejected
+    }
+    print(v.len())
+}

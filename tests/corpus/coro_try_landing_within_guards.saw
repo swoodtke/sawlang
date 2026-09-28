@@ -1,0 +1,272 @@
+// K153 (design 275 U3, codex r2 #3): AN ERROR SITE IS NEVER HOISTED OUTSIDE
+// ITS GUARD, and the landing relinquishes exactly the moves of the PATH THAT
+// RAN — the short-circuit path included.
+//
+// `maybe ?? sink(try fail(), move r)` has three paths: `maybe` is None and
+// `fail` fails (the `try` ran, the `move` did not); `maybe` is Some (neither
+// ran); the success path (both ran). One statement, one landing, could answer
+// only one of them: the whole-statement landing cleared the frame's claim on
+// `r` when `fail` failed — a LEAK of a value the frame still owned (the r2
+// revision) — and the BASE, which got that path right by replaying nothing,
+// leaked on the Some path instead: the statement's trailing clear ran on the
+// straight-line edge whether or not the guarded `move` had.
+//
+// THE MECHANISM: the value-conditional lowering (design 120 stage 2) fires on
+// the split's own condition too — a propagating `try` under a guard in a
+// statement that also carries a `move` (`_vc_spans`) — so the guarded path
+// becomes an ARM STATEMENT of an `if let`/`if`/`match`, where
+// `_split_leaf_at_propagating_tries` decomposes it and `_landed_inplace` gives
+// the leaf its OWN landing: a landing wraps a leaf, a container lowered in
+// place takes one for its head only, and a nested leaf's clears never reach
+// an enclosing edge. The `move`'s trailing clear now sits inside the arm that
+// performs it, which is what closes the base's leak on the other path.
+//
+// Every cell prints `4` (the value is live before the guard), then `drop kept`
+// exactly once — on the error edge, at scope end, or at frame release —
+// then its outcome. The columns per cell are (base / r2 / now) counts of
+// `drop kept`:
+//   A  `??`, None path, try before move          1 / 0 / 1
+//   B  `??`, Some path, neither runs             0 / 0 / 1   (the base's leak)
+//   C  `??`, None path, MOVE before try          1 / 0 / 1   (the orphan ordering;
+//                                                            its SYNC twin is SL-348)
+//   D  `&&` RHS, taken / short-circuited         1,0 / 0,0 / 1,1
+//   E  `||` RHS, taken / short-circuited         1,0 / 0,0 / 1,1
+//   F  a value `if` arm, taken / not             refused / refused / 1,1
+//   G  a value `match` arm, taken / not          refused / refused / 1,1
+//   H  a `?.` hop's argument, present / absent   1,0 / 0,0 / 1,1
+//   I  a `try` in RECEIVER position under `??`   1 / 0 / 1
+//   L  a nested guard `a ?? (b ?? …)`            1 / 0 / 1
+//   M  the guard BURIED in an argument, the
+//      move OUTSIDE it                           1 / 0 / 1
+//   N  the success path                          1 / 1 / 1
+// F and G were "`move` of a frame local in a nested tail-expression … whose
+// value is used is not supported" on the base: the arm's tail is a sink
+// assignment now, which hosts the clear.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4
+// drop kept
+// A: caught
+// 4
+// drop kept
+// B: ok 5
+// 4
+// drop kept
+// C: caught
+// 4
+// drop kept
+// D1: caught
+// 4
+// drop kept
+// D0: ok false
+// 4
+// drop kept
+// E0: caught
+// 4
+// drop kept
+// E1: ok true
+// 4
+// drop kept
+// F1: caught
+// 4
+// drop kept
+// F0: ok 1
+// 4
+// drop kept
+// G0: caught
+// 4
+// drop kept
+// G1: ok 1
+// 4
+// drop kept
+// H1: caught
+// 4
+// drop kept
+// H0: ok 9
+// 4
+// drop kept
+// I: caught
+// 4
+// drop kept
+// L: caught
+// 4
+// drop kept
+// M: caught
+// 4
+// drop kept
+// N: ok 3
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+struct Bad { n: Int }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+
+struct Taker { k: Int }
+extension Taker {
+    func use(&self, r: Res) sync -> Int { self.k }
+    func apply(&self, n: Int) sync -> Int { self.k + n }
+}
+
+func note(r: &Res) -> Int { r.name.len() }
+func fail() sync -> Result<Int, Bad> { Bad(n: 1) }
+func fail_taker() sync -> Result<Taker, Bad> { Bad(n: 1) }
+func sink(n: Int, r: Res) sync -> Int { n }
+func sink_rev(r: Res, n: Int) sync -> Int { n }
+
+// A: `??`, try before move, None path (codex r2 #3's program)
+func a_none() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    yield_now()
+    let maybe: Int? = None
+    let n = maybe ?? sink(try fail(), move r)
+    n
+}
+
+// B: `??`, Some path — neither the try nor the move runs; r drops by scope
+func b_some() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    yield_now()
+    let maybe: Int? = 5
+    let n = maybe ?? sink(try fail(), move r)
+    n
+}
+
+// C: `??`, the MOVE before the try (the orphan ordering), None path
+func c_none_rev() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    yield_now()
+    let maybe: Int? = None
+    let n = maybe ?? sink_rev(move r, try fail())
+    n
+}
+
+// D: `&&` RHS
+func d_and(flag: Bool) -> Result<Bool, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    yield_now()
+    let ok = flag && (sink(try fail(), move r) > 0)
+    ok
+}
+
+// E: `||` RHS
+func e_or(flag: Bool) -> Result<Bool, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    yield_now()
+    let ok = flag || (sink(try fail(), move r) > 0)
+    ok
+}
+
+// F: a value `if` arm
+func f_if(flag: Bool) -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    yield_now()
+    let n = if flag { sink(try fail(), move r) } else { 1 }
+    n
+}
+
+// G: a value `match` arm
+func g_match(k: Int) -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    yield_now()
+    let n = match k { case 0 -> sink(try fail(), move r), case _ -> 1 }
+    n
+}
+
+// H: a `?.` hop's argument
+func h_hop(present: Bool) -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    yield_now()
+    let t: Taker? = if present { Taker(k: 3) } else { None }
+    let n = t?.apply(sink(try fail(), move r)) ?? 9
+    n
+}
+
+// I: the `try` in RECEIVER position under a guard
+func i_recv() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    yield_now()
+    let maybe: Int? = None
+    let n = maybe ?? (try fail_taker()).use(move r)
+    n
+}
+
+// L: a nested guard
+func l_nested() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    yield_now()
+    let outer: Int? = None
+    let inner: Int? = None
+    let n = outer ?? (inner ?? sink(try fail(), move r))
+    n
+}
+
+// M: the guard BURIED in an argument, the move OUTSIDE the guard
+func m_buried() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    yield_now()
+    let maybe: Int? = None
+    let n = sink(maybe ?? try fail(), move r)
+    n
+}
+
+// N: the success path — the try and the move both run
+func n_success() -> Result<Int, Bad> {
+    var r = Res(name: "kept")
+    print(note(&r))
+    yield_now()
+    let maybe: Int? = None
+    let n = maybe ?? sink(try Result<Int, Bad>.Ok(value: 3), move r)
+    n
+}
+
+func run(label: String, r: Result<Int, Bad>) {
+    match r {
+        case Ok(n) -> print("{label}: ok {n}"),
+        case Err(_) -> print("{label}: caught")
+    }
+}
+
+func run_b(label: String, r: Result<Bool, Bad>) {
+    match r {
+        case Ok(b) -> print("{label}: ok {b}"),
+        case Err(_) -> print("{label}: caught")
+    }
+}
+
+func main() {
+    run("A", __saw_drive(a_none()))
+    run("B", __saw_drive(b_some()))
+    run("C", __saw_drive(c_none_rev()))
+    run_b("D1", __saw_drive(d_and(true)))
+    run_b("D0", __saw_drive(d_and(false)))
+    run_b("E0", __saw_drive(e_or(false)))
+    run_b("E1", __saw_drive(e_or(true)))
+    run("F1", __saw_drive(f_if(true)))
+    run("F0", __saw_drive(f_if(false)))
+    run("G0", __saw_drive(g_match(0)))
+    run("G1", __saw_drive(g_match(1)))
+    run("H1", __saw_drive(h_hop(true)))
+    run("H0", __saw_drive(h_hop(false)))
+    run("I", __saw_drive(i_recv()))
+    run("L", __saw_drive(l_nested()))
+    run("M", __saw_drive(m_buried()))
+    run("N", __saw_drive(n_success()))
+}

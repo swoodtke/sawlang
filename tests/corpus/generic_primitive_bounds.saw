@@ -1,0 +1,49 @@
+// Design 109: a generic trait bound is checked for EVERY type argument, not
+// only struct/enum ones. A primitive (or String/tuple) argument is consulted
+// against the SAME conformance registry trait-method dispatch uses:
+//   - a user trait is satisfied when the primitive conforms via an extension
+//     (`extension Int: Fooable`), for both explicit and INFERRED type args;
+//   - the prelude structural traits (Comparable/Hashable/Printable/Equatable)
+//     over primitives keep passing;
+//   - a tuple argument recurses into its elements (Equatable here).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 105
+// 105
+// 7
+// 7
+// 7
+// b
+// 42
+// true
+// false
+
+trait Fooable { func foo(&self) -> Int }
+
+extension Int: Fooable {
+    func foo(&self) -> Int { self + 100 }
+}
+extension Float: Fooable {
+    func foo(&self) -> Int { 7 }
+}
+
+func run<T: Fooable>(x: T) -> Int { x.foo() }
+func mx<T: Comparable>(a: T, b: T) -> T { if a < b { b } else { a } }
+func pr<T: Printable>(x: T) -> String { x.to_string() }
+func eq<T: Equatable>(a: T, b: T) -> Bool { a == b }
+
+func main() {
+    // user trait satisfied via extension: explicit AND inferred type argument.
+    print(run<Int>(5))
+    print(run(5))
+    print(run<Float>(2.0))
+    // structural user trait on Float via extension (explicit).
+    print(run(2.0))
+    // prelude structural bounds over Int / Float / String.
+    print(mx<Int>(3, 7))
+    print(mx("a", "b"))
+    print(pr(42))
+    // tuple argument: Equatable recurses into the element types.
+    print(eq((1, 2), (1, 2)))
+    print(eq((1, 2), (1, 3)))
+}

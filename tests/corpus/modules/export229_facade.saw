@@ -1,0 +1,10 @@
+//! Design 229 fixture: the SELECTIVE facade. It hands on exactly the two names
+//! it lists — the sos vDSO case, where a handful of user-facing encodings are
+//! published and the op numbers beside them are not.
+// EXPECT: skip
+
+public import modules.export229_leaf.{Widget, leaf_make}
+
+public func facade_make(n: Int) -> Widget {
+    leaf_make(n: n)
+}

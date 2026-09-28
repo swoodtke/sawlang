@@ -1,0 +1,66 @@
+// Design 246 row 7: a `@synthesize`d `ExplicitCopy` on a recursive enum. The
+// derived `copy()` recurses — `Tree.copy()` calls `Vector<Tree>.copy()`, which
+// calls `Tree.copy()` — and the copy is DEEP: the clone below outlives the
+// original it was taken from and still reports its own leaves.
+//
+// The DEINIT lines are the second oracle. Each `Res` is behind an `Arc`, so a
+// deep copy retains rather than duplicating it, and a balanced set of retains
+// and releases is what makes each name print exactly once.
+//
+// The brief's row also asked for a `@synthesize`d `Equatable` here, and that
+// half is not written: no std heap container conforms to `Equatable`, so the
+// derivation is refused at the declaration for a reason that has nothing to do
+// with recursion (``payload `k` of variant `Kids` has type `Vector<Tree>` which
+// does not conform to `Equatable` ``), and a hand-written `equals` on an enum
+// is ignored by `==` (DF-261c).
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// original leaves 2
+// clone leaves 2
+// DEINIT top
+// DEINIT deep
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+enum Tree {
+    case Leaf(r: Arc<Res>),
+    case Kids(k: Vector<Tree>)
+}
+
+@synthesize
+extension Tree: ExplicitCopy {}
+
+extension Tree {
+    func leaves(&self) -> Int {
+        match self {
+            case Leaf(_) -> 1,
+            case Kids(k) -> {
+                var total = 0
+                k.each({ [&var total] child in total = total + child.leaves() })
+                total
+            }
+        }
+    }
+}
+
+// The original dies at this function's exit; the clone is what comes back.
+func duplicate() -> Tree {
+    var inner = Vector<Tree>()
+    try! inner.push(Tree.Leaf(r: try! Arc<Res>(value: Res(name: "deep"))))
+    var kids = Vector<Tree>()
+    try! kids.push(Tree.Leaf(r: try! Arc<Res>(value: Res(name: "top"))))
+    try! kids.push(Tree.Kids(k: move inner))
+    let original = Tree.Kids(k: move kids)
+    let clone = original.copy()
+    print("original leaves {original.leaves()}")
+    return move clone
+}
+
+func main() {
+    let survivor = duplicate()
+    print("clone leaves {survivor.leaves()}")
+}

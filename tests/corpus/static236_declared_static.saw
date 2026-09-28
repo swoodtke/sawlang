@@ -1,0 +1,78 @@
+// Design 236's POSITIVE rows, one per declaration position the rule
+// quantifies over. Each is declared `static` and called on its TYPE; the
+// instance methods beside them are untouched, which is the point — the
+// keyword narrows what a declaration can mean, it does not change what any
+// existing one does.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// origin 0
+// at 18
+// mag 25
+// scaled 10
+// flipped Right
+// pick 12
+// holder 7
+// made 4
+
+struct Point { x: Int, y: Int }
+
+enum Side { case Left, case Right }
+
+struct Holder<T> { v: T }
+
+trait Maker {
+    static func make(seed: Int) -> Self
+    func mag(&self) -> Int
+}
+
+extension Point {
+    // A private static, and a public one — visibility comes first.
+    static func origin() -> Point { Point(x: 0, y: 0) }
+
+    public static func at(v: Int) -> Point { Point(x: v, y: v) }
+
+    // Instance methods, both receiver kinds, unchanged.
+    func mag(&self) -> Int { self.x * self.x + self.y * self.y }
+
+    func scale(&var self, by: Int) { self.x = self.x * by }
+}
+
+extension Side {
+    // design 145: an enum's statics are a struct's statics.
+    static func flip(s: Side) -> Side {
+        match s { case Left -> Side.Right, case Right -> Side.Left }
+    }
+
+    func name(&self) -> String {
+        match self { case Left -> "Left", case Right -> "Right" }
+    }
+}
+
+extension Holder<T> {
+    // A static on a GENERIC extension.
+    static func of(v: T) -> Holder<T> { Holder<T>(v: v) }
+
+    func value(&self) -> T { self.v }
+}
+
+extension Point: Maker {
+    // The conformance kinds AGREE: static satisfies static, instance
+    // satisfies instance. `mag` above already serves the instance half.
+    static func make(seed: Int) -> Point { Point(x: seed, y: 0) }
+}
+
+func main() {
+    let o = Point.origin()
+    print("origin {o.mag()}")
+    print("at {Point.at(3).mag()}")
+
+    var p = Point(x: 3, y: 4)
+    print("mag {p.mag()}")
+    p.scale(by: 2)
+    print("scaled {p.x + p.y}")
+
+    print("flipped {Side.flip(Side.Left).name()}")
+    print("pick {Point.at(2).mag() + 4}")
+    print("holder {Holder<Int>.of(7).value()}")
+    print("made {Point.make(seed: 4).x}")
+}

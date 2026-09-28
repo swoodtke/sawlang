@@ -1,0 +1,16 @@
+// Minimal test for None return in optional function
+// EXPECT: success
+// EXPECT-OUTPUT: hello
+
+func get_string(flag: Bool) -> String? {
+    if flag {
+        return None
+    }
+    "hello"
+}
+
+func main() {
+    if let s = get_string(false) {
+        print(s)
+    }
+}

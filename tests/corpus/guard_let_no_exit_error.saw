@@ -1,0 +1,14 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: 'guard' else block must exit the scope
+
+func test(x: Int?) -> Int {
+    guard let value = x else {
+        print("no value")
+        // Missing return/break/continue - should be an error
+    }
+    return value
+}
+
+func main() {
+    print(test(Some(42)))
+}

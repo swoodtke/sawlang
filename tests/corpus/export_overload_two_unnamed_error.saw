@@ -1,0 +1,13 @@
+// design 58 Part 2 + design 55: an overloaded name may carry @export on only
+// ONE overload without an explicit symbol — two unnamed exports of the same
+// name both resolve to that name and collide.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: duplicate `@export` symbol `combine`
+
+@export
+func combine(x: Int) -> Int { x }
+
+@export
+func combine(x: Int, y: Int) -> Int { x + y }
+
+func main() { print(1) }

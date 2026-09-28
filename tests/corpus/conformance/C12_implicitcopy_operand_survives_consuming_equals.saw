@@ -1,0 +1,42 @@
+// Conformance row C12 — a comparison destroys neither operand, at any tier
+//
+// The guarantee every position of DF-216b was about, stated as the property
+// rather than as any one mechanism. `Held` is auto-Copy (one `String` field)
+// and its `equals` is hand-written. Under `other: &Self` (design 239) the
+// signature no longer entitles that body to take the operand, so the borrow the
+// operator passes is exactly what the callee was promised and no reference is
+// released that nobody took. Two hundred comparisons and both strings are
+// intact.
+//
+// The row was OPEN as an EIGHTH position past the seven DF-216b's class sweep
+// probed: the sweep tested NoCopy operands throughout, and the stopgap's tier
+// condition excluded Copy on the stated grounds that retain semantics make the
+// borrow sound. They did not — the retain was never there, so a consuming body
+// over-released on every comparison and 200 of them died with SIGTRAP on macOS
+// while glibc tolerated it. Neither the widening nor the retain was the answer:
+// the operand is not transferred at all now, which closes the row at every tier
+// at once and makes the platform difference moot.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// before: a=ALPHA b=BRAVO
+// after: a=ALPHA b=BRAVO
+
+struct Held { name: String }
+
+extension Held: Equatable {
+    func equals(&self, other: &Held) -> Bool {
+        self.name.len() == other.name.len()
+    }
+}
+
+func main() {
+    let a = Held(name: "alpha".to_uppercase())
+    let b = Held(name: "bravo".to_uppercase())
+    print("before: a={a.name} b={b.name}")
+    var k = 0
+    while k < 200 {
+        if a == b { }
+        k = k + 1
+    }
+    print("after: a={a.name} b={b.name}")
+}

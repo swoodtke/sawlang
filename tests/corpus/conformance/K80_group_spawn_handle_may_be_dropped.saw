@@ -1,0 +1,37 @@
+// Conformance row K80 — CONTROL: a `group.spawn` handle may be dropped freely
+//
+// design 242 ruling 6: the must-consume obligation attaches to the SPAWN FORM,
+// not to the handle TYPE. A group is a declared, in-scope consumer whose
+// `Deinit` is the join barrier, so the accept-loop idiom — a bare
+// `group.spawn(...)` statement per connection, no handle kept at all — is
+// unchanged by ruling 5. This is the row that catches a must-consume check
+// written against `Task<T>`/`VoidTask` rather than against the two singleton
+// forms, and it exercises all four ways a group handle can go unconsumed.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// served 15
+
+static SERVED: Atomic<Int> = Atomic(0)
+
+func serve(amount: Int) {
+    SERVED.fetch_add(amount)
+}
+
+func run_all() {
+    var group = TaskGroup()
+    // The bare-statement spawn: no binding, nothing consumed, and legal.
+    group.spawn(serve(1))
+    // The bound-and-never-joined spawn: its result drops at group teardown.
+    let unjoined = group.spawn(serve(2))
+    // And the explicit discard, which ruling 5 bans only at the singleton forms.
+    let _ = group.spawn(serve(4))
+    let last = group.spawn(serve(8))
+    last.join()
+    // `group` is torn down here — its `Deinit` joins whatever is still live.
+}
+
+func main() {
+    run_all()
+    print("served {SERVED.load()}")
+}

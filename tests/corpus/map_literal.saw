@@ -1,0 +1,30 @@
+// Map literals (design 54 Part 3): `{k: v, ...}` inferred, an annotated map,
+// the empty map `{:}` (needs an annotation), and last-wins on a duplicate key.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 20
+// 2
+// 2
+// 0
+// 20
+
+func main() {
+    // Inferred Map<Int, Int>.
+    var m = {1: 10, 2: 20, 3: 30}
+    print(m.len())                       // 3
+    if let v = m.get(2) { print(v) }     // 20
+
+    // Annotated (Map<String, Int>).
+    let scores: Map<String, Int> = {"a": 1, "b": 2}
+    print(scores.len())                  // 2
+    if let v = scores.get("b") { print(v) }  // 2
+
+    // Empty map via annotation.
+    let empty: Map<Int, Int> = {:}
+    print(empty.len())                   // 0
+
+    // Duplicate key: last value wins.
+    var dup = {1: 10, 1: 20}
+    if let v = dup.get(1) { print(v) }   // 20
+}

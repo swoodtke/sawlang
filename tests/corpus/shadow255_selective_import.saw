@@ -1,0 +1,27 @@
+// Design 255 test 1 — an explicit import SHADOWS an import-gated std name.
+// `Thread<T>` is `std.task`'s, merged into every namespace and nameable only
+// after `import std.task`; a file that says `import x.{Thread}` has named the
+// one it means, so the bare name is x's. The member `tagged` exists only on
+// x's, which is what proves which declaration resolved.
+//
+// Before this landed the two spellings of one intent disagreed: a locally
+// DECLARED `struct Thread` won (design 82 Part B), and the import TIED and
+// errored `ambiguous struct Thread: defined in both <unknown> and ...`.
+//
+// The signature below uses the name BEFORE `main` does, so the shadow holds
+// wherever the name is written and not only after the import line.
+// EXPECT: success
+// EXPECT-OUTPUT: 107
+// EXPECT-OUTPUT: 7
+
+import modules.shadow255_thread.{Thread}
+
+func read_tag(t: &Thread<Int>) -> Int {
+    t.tag
+}
+
+func main() {
+    let t = Thread<Int>(tag: 7)
+    print(t.tagged())
+    print(read_tag(&t))
+}

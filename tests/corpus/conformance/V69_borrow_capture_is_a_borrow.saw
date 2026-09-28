@@ -1,0 +1,51 @@
+// Conformance row V69 — a BORROW CAPTURE `[&x]`/`[&var x]` lends the enclosing
+// frame's binding, so it may not be `move`d out either
+//
+// DF-290a's second registration site, one branch above the parameter one in
+// `_check_closure` and binding the same way: the name is given the REFERENT's
+// type, which is what makes `[&var o]` read and write `o` directly, and the
+// alias-ness then exists nowhere in the binding's type.
+//
+// The LOCK BODY is here because it is the shape a reader meets first: every
+// `Mutex.lock` / `SpinLock.lock` body is a closure taking `&var T`, so the
+// whole interior-mutability surface sat on this hole. It was measured
+// double-freeing before the fix.
+//
+// Both sigils again, for V68's reason.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot move out of `o`
+// EXPECT-ERROR-CONTAINS: BORROW CAPTURE
+// EXPECT-ERROR-CONTAINS: `[&var o]`
+// EXPECT-ERROR-CONTAINS: `[&o]`
+// EXPECT-ERROR-CONTAINS: cannot move out of `c`
+
+import std.mutex.{Mutex}
+
+struct Owned { w: Int }
+extension Owned: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func run_it(body: () sync -> Owned) -> Owned { body() }
+
+func exclusive_capture() -> Owned {
+    var o = Owned(w: 7)
+    run_it({ [&var o] in move o })          // error: `[&var o]` lends
+}
+
+func shared_capture() -> Owned {
+    var o = Owned(w: 7)
+    run_it({ [&o] in move o })              // error: `[&o]` lends
+}
+
+func lock_body() -> Owned {
+    let m = Mutex<Owned>(value: Owned(w: 7))
+    m.lock({ &var c in move c })            // error: the lock lends its payload
+}
+
+func main() {
+    print("{}", exclusive_capture().w)
+    print("{}", shared_capture().w)
+    print("{}", lock_body().w)
+}

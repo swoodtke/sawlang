@@ -1,0 +1,2 @@
+status: flagged
+18 E.lock flagged -- the closure body has try, which a block would retarget

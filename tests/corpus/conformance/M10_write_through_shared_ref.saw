@@ -1,0 +1,14 @@
+// Conformance row M10 — mutating through a shared `&T` parameter
+//
+// A shared `&T` parameter is read-only: the referent cannot be mutated
+// through it. The existing compound-assign pin is a `let` LOCAL; this is
+// the same rule reaching a reference parameter.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot use compound assignment on immutable variable `x`
+
+func f(x: &Int) { x += 1 }
+func main() {
+    var a = 1
+    f(&a)
+    print(a)
+}

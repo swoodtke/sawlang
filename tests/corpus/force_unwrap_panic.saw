@@ -1,0 +1,11 @@
+// A force-unwrap of None panics with the unified `panic at FILE:LINE:` prefix
+// (design 122 unit I): it used to carry a line but no file, in a third message
+// format of its own.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: panic at force_unwrap_panic.saw:9: force unwrap of None
+
+func main() {
+    let x: Int? = None
+    print(x!)  // Should panic here
+    print(999) // Should not reach here
+}

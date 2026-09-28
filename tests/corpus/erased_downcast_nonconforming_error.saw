@@ -1,0 +1,15 @@
+// Design 72: the downcast target must be a concrete type conforming to the
+// erased trait. A non-conforming type is a clean error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is not a concrete type conforming to `Shape`
+trait Shape { func area(&self) -> Int }
+struct Circle { r: Int }
+extension Circle: Shape { func area(&self) -> Int { self.r } }
+struct NotShape { x: Int }
+
+func main() {
+    let b = Box<any Shape>.make(Circle(r: 1))
+    if b.is<NotShape>() {
+        print(1)
+    }
+}

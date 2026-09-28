@@ -1,0 +1,8 @@
+import std.mutex.{Mutex}
+
+func main() {
+    let m = Mutex<Int>(value: 1)
+    let pair = borrow var c = m.lock() { (c, c) }
+    let other = borrow var c = m.lock() { (c, c + 1) }
+    print(pair.0 + other.1)
+}

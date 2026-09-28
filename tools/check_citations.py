@@ -106,6 +106,10 @@ KNOWN_LEDGERS = ("corodiff_known.txt", "sawfuzz_known.txt")
 
 # Directories with nothing tracked in them.
 SKIP_DIRS = {".git", ".build", ".venv", "__pycache__", "node_modules"}
+# The migrated corpus keeps each XFAIL marker verbatim, and the pairing check
+# in compiler/tests/run.py holds every twin's markers to its original's, so a
+# finding is policed once, on the original under examples/ (SL-418).
+MIGRATED_CORPUS = "tests/corpus/"
 
 # A conflict block git wrote and somebody committed. The PAIR is the test — see
 # the module docstring. No file in this repo legitimately carries the shape
@@ -264,7 +268,8 @@ def collect_citations() -> list[Citation]:
     # .claude/worktrees/ (another checkout's in-flight pins are not this
     # tree's citations; found live at integration, lead fix Aug 24).
     saw_paths = sorted(
-        REPO_ROOT / name for name in tracked_files() if name.endswith(".saw")
+        REPO_ROOT / name for name in tracked_files()
+        if name.endswith(".saw") and not name.startswith(MIGRATED_CORPUS)
     )
     for path in saw_paths:
         if any(part in SKIP_DIRS for part in path.parts):

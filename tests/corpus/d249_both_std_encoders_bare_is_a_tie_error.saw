@@ -1,0 +1,24 @@
+// Design 249: take BOTH `encode`s bare and the call is a genuine tie. The two
+// signatures print the same text — they are the same shape, which is what made
+// the pair illegal before free functions carried module identity — so the hint
+// names the std file each candidate comes from. Reach for the qualifiers
+// (`json.encode` / `cbor.encode`) instead.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous call to `encode`
+// EXPECT-ERROR-CONTAINS: [<std>.json]
+// EXPECT-ERROR-CONTAINS: [<std>.cbor]
+import std.json.{encode}
+import std.cbor.{encode}
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+@synthesize
+extension Point: Serialize {}
+
+func main() {
+    let p = Point(x: 1, y: 2)
+    print(try! encode(&p))
+}

@@ -1,0 +1,16 @@
+// Test that inline module symbols are NOT directly accessible
+// Must use qualified access: math.add, not just add
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: not directly accessible
+
+module math {
+    public func add(a: Int, b: Int) -> Int {
+        a + b
+    }
+}
+
+func main() {
+    // ERROR: 'add' is not directly accessible, must use math.add
+    let x = add(1, 2)
+    print(x)
+}

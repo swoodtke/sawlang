@@ -1,0 +1,19 @@
+// Design 122 unit I: a LANGUAGE-raised panic names its source location.
+//
+// Overflow, bounds, div-by-zero and shift-range panics used to carry no
+// location at all ("panic: integer overflow"), which is the weakest link in a
+// safety story built on trapping instead of corrupting memory: the trap tells
+// you nothing about where it trapped. They now use the same
+// `panic at FILE:LINE:` prefix `panic()` and `assert()` already had.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: panic at panic_location_overflow.saw:12: integer overflow
+
+func add(a: Int, b: Int) -> Int {
+    a + b                       // line 12 — the overflowing statement
+}
+
+func main() {
+    var big = Int.max
+    var one = 1
+    print(add(big, one))
+}

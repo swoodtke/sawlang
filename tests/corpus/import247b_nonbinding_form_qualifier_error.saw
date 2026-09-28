@@ -1,0 +1,51 @@
+// DF-247b half 1: a QUALIFIER is bound ONLY by the whole-module import form.
+//
+// The selective and glob forms bind exactly their named or bare surface, so a
+// qualified spelling under either is a REFUSAL — and the refusal names the
+// whole-module line that would make it mean something, because nothing else in
+// the message could suggest it. The old answer was worse than a refusal: the
+// spelling resolved to a name-only type that compared unequal to the bare one
+// ("cannot assign `Data` to variable of type `data.Data`"), a mismatch against
+// a phantom that design 150's own "a qualifier works in EVERY position" made
+// look like a bug in the qualifier rather than in the import.
+//
+// Both positions a qualifier is written in are here: a TYPE annotation and an
+// EXPRESSION head. One diagnostic per mistake — the phantom's downstream
+// mismatches are suppressed, so the count below is the count of mistakes.
+// COMPILE-FLAGS: --module-path pair247b={TESTDIR}/modules/pair247b
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `data` is not a module qualifier here
+// EXPECT-ERROR-CONTAINS: `import std.data.{...}` binds the names it takes and no qualifier — add `import std.data` to write `data.<name>`
+// EXPECT-ERROR-CONTAINS: `pair247b` is not a module qualifier here
+// EXPECT-ERROR-CONTAINS: `import pair247b.*` binds the names it takes and no qualifier — add `import pair247b` to write `pair247b.<name>`
+// EXPECT-ERROR-CONTAINS: undefined variable `path`
+// EXPECT-ERROR-CONTAINS: `import std.path.{...}` binds the names it takes and no qualifier — add `import std.path` to write `path.<name>`
+// EXPECT-ERROR-ABSENT: cannot assign
+// EXPECT-ERROR-CONTAINS: 3 error(s) generated
+
+import std.data.{Data}
+import std.path.{Path}
+import pair247b.*
+
+// TYPE position, selective form.
+func annotated() -> Int {
+    var d: data.Data = Data()
+    d.len()
+}
+
+// TYPE position, glob form.
+func globbed() -> Int {
+    let w: pair247b.Widget = Widget(count: 1)
+    w.count()
+}
+
+// EXPRESSION position: the head reads as a variable, so it lands on the
+// undefined-variable diagnostic — which now carries the same fixit.
+func called() -> Bool {
+    path.Path(s: "/tmp").is_absolute()
+}
+
+func main() {
+    print(annotated() + globbed())
+    print(called())
+}

@@ -1,0 +1,24 @@
+// design 149 unit (a): naming an `unsafe static var` triggers design 130's
+// rule. The TYPE here is a perfectly ordinary `[Slot; 4]` — what is unsafe is
+// the declaration, whose consistency rests on a serialization argument no
+// signature carries. So every function that touches it says `unsafe` and gets
+// reviewed, which is the whole enforcement story for compound global state.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `peek_owner` is not declared `unsafe`
+// EXPECT-ERROR-CONTAINS: its body names an unsafe static (`TABLE`)
+
+struct Slot {
+    owner: Int,
+    used: Bool
+}
+
+unsafe static var TABLE: [Slot; 4] = [Slot(owner: 0, used: false); 4]
+
+func peek_owner(i: Int) -> Int {
+    TABLE[i].owner
+}
+
+func main() {
+    print("{peek_owner(0)}")
+}

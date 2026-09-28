@@ -1,0 +1,15 @@
+// DF-174e's other half: the write still refuses a value the element type does
+// not accept, and the message now names the type the container really has.
+// Before the fix this path stripped an optional layer off the place's type
+// before comparing, so a `Vector<Int?>` reported its element as `Int` — a type
+// no part of the program mentions.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign `String` to element of type `Int?`
+
+func main() {
+    var v = Vector<Int?>()
+    let one: Int? = 1
+    v.push(one)
+    v[0] = "not an int"
+    print("{v[0] ?? -1}")
+}

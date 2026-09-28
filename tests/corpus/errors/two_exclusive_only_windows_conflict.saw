@@ -1,0 +1,43 @@
+// SL-333 R4 (conformance row K125, refused half 2 of 2): TWO READ-ONLY windows
+// through an EXCLUSIVE-ONLY accessor, on ONE `var` root, are two EXCLUSIVE
+// receiver borrows and conflict.
+//
+// This is the cell that says the receiver's mode is a second fact rather than a
+// restatement of the window's. Both sigils here are `&`, both windows only
+// read, and the ordinary design-188 pairwise test — which reads the SIGILS —
+// calls two shared borrows compatible and is right to. What it cannot see is
+// that each of these windows takes the whole of `b` exclusively, because the
+// accessor's epilogue mutates `self`: the same shape as
+// `setboth(&var b.at(0), &var b.at(1))`, reached through a pair of `&`.
+//
+// The control is one line up in `K125_receiver_access_is_a_second_fact.saw`: the
+// identical expression through a SHARED-ELIGIBLE accessor compiles, on a `let`
+// root at that. The MIXED pair — one of each, in both orders — is
+// `mixed_window_modes_conflict.saw`.
+//
+// It is the ORDINARY pairwise root-charge test that reports this, with the
+// receiver borrow's mode as its one input: there is no second rule for two
+// exclusive-only windows, which is why the mixed pair and a window beside a
+// plain `&root` are refused by the same code with the same words.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation: the place `b.tally(…)` borrows `b` EXCLUSIVELY even though this window only reads
+// EXPECT-ERROR-CONTAINS: `Bag.tally` mutates `self` outside the place it lends (a write into receiver storage at line 34)
+// EXPECT-ERROR-CONTAINS: and `b` is accessed by reference a second time in the same call
+// EXPECT-ERROR-CONTAINS: a read-only RESULT is not a shared receiver BORROW
+
+struct Bag { cells: [Int; 4], visits: Int }
+
+extension Bag {
+    public func tally(&var self, i: Int) borrows -> &var Int {
+        if i < 0 || i >= 4 { panic("Bag.tally: index out of range") }
+        lend self.cells[i]
+        self.visits = self.visits + 1
+    }
+}
+
+func pair(a: &Int, b: &Int) -> Int { a + b }
+
+func main() {
+    var b = Bag(cells: [10, 20, 30, 40], visits: 0)
+    print("{pair(&b.tally(0), &b.tally(1))}")
+}

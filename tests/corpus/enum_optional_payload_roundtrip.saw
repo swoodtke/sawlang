@@ -1,0 +1,36 @@
+// Design 65 (L17 symptom 2): an enum payload STRUCT containing an OPTIONAL field
+// must reconstruct at correct offsets when matched. The optional `Int?` is
+// `{ i1, i64 }` = 16 bytes with alignment padding; the old naive payload sizing
+// summed field sizes (ignoring padding) and truncated it, so `maybe` read
+// garbage. The ABI-size fix reconstructs the whole aggregate.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 42
+// 3
+// -1
+
+struct Rec { tag: Int, maybe: Int? }
+enum Wrapped {
+    case Of(r: Rec),
+    case Empty
+}
+
+func main() {
+    let a = Wrapped.Of(r: Rec(tag: 7, maybe: 42))
+    match a {
+        case Of(r) -> {
+            print(r.tag)                          // 7
+            if let m = r.maybe { print(m) } else { print(-1) }   // 42
+        },
+        case Empty -> print(0)
+    }
+    let b = Wrapped.Of(r: Rec(tag: 3, maybe: None))
+    match b {
+        case Of(r) -> {
+            print(r.tag)                          // 3
+            if let m = r.maybe { print(m) } else { print(-1) }   // -1
+        },
+        case Empty -> print(0)
+    }
+}

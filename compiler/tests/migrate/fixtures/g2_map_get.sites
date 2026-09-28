@@ -1,0 +1,2 @@
+status: rewritten
+6 G2.map-get rewritten => print(m.get("k")!.n)

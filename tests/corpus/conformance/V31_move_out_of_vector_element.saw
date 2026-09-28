@@ -1,0 +1,21 @@
+// Conformance row V31 — design 35 is intact for every SAFE-rooted place
+//
+// The move-out carve-out design 219 unit A2 added is keyed on the place's
+// ROOT, and a `Vector` element is a place the language tracks occupancy for:
+// moving out of one would leave a hole the vector's deinit drops again. The
+// occupancy-maintaining move-outs are the way (`swap_out` puts a replacement
+// in, `pop` shortens the vector first).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot move out of element `[0]` of `v`
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+func main() {
+    var v = Vector<Res>()
+    v.push(Res(name: "a"))
+    let taken = move v[0]
+    print(taken.name)
+}

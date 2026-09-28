@@ -1,0 +1,11 @@
+// An array-element partial move is forbidden (design 35). Previously `move
+// arr[i]` was silently mis-handled (the index was dropped); it is now a
+// deliberate diagnostic naming the element and base.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot move out of element `[1]` of `arr`
+
+func main() {
+    var arr = [1, 2, 3]
+    let z = move arr[1]
+    print(z)
+}

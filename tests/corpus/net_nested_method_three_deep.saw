@@ -1,0 +1,47 @@
+// design 96: a suspending reactor METHOD call THREE embedded frames below a
+// spawned worker root must wake and return. Shape: spawn-root `server` -> free fn
+// `mid` -> free fn `inner` -> the suspending METHOD `stream.read()`. Exercises the
+// TRANSITIVE structural-suspension propagation (a chain of free fns whose only
+// suspension source is a std method the effect fixpoint cannot see — each must
+// still join the driven closure so the buried park integrates with the executor
+// rather than blocking the thread). Deterministic byte round-trip over a
+// socketpair; loopback only, time-bounded.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 5
+
+import std.net.{TcpStream, IoError}
+
+func inner(stream: TcpStream) -> Int {
+    match stream.read() {                 // suspending METHOD, 3 frames below server
+        case Ok(d) -> d.len(),
+        case Err(_) -> -1
+    }
+}
+
+func mid(stream: TcpStream) -> Int {
+    let n = inner(move stream)            // free fn -> free fn -> method
+    return n
+}
+
+func server(stream: TcpStream) -> Int {
+    let n = mid(move stream)
+    return n
+}
+
+func client(stream: TcpStream) -> Int {
+    match stream.write("hello") {
+        case Ok(_) -> 5,
+        case Err(_) -> -1
+    }
+}
+
+func main() {
+    let (a, b) = TcpStream.pair()
+    var group = TaskGroup()
+    let hs = group.spawn(server(move a))
+    let hc = group.spawn(client(move b))
+    print(hs.join())     // 5 bytes read, three frames deep
+    print(hc.join())     // 5 bytes written
+}

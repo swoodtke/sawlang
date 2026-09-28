@@ -1,0 +1,22 @@
+// SL-223 cross-module face. `fill` writes the borrow-beside-a-suspension shape
+// HERE, so the frame that used to fail the `UnsafeRef` re-check is built for a
+// body the entry module never contains — which is where sawtracker met it
+// (`common.set_text(&var response, "sync", sync_project(&st, prefix))`).
+import std.task.{yield_now}
+
+public struct Doc { n: Int }
+
+public func set_text(d: &var Doc, k: Int) { d.n = d.n + k }
+
+public func slow() -> Int {
+    yield_now()
+    7
+}
+
+// A `&var` PARAMETER re-borrowed onward (design 106) beside a suspending
+// argument: the borrow the frame holds is already a `ref`-encoded field here,
+// which is the tightest version of the shape.
+public func fill(d: &var Doc) -> Int {
+    set_text(&var d, slow())
+    d.n
+}

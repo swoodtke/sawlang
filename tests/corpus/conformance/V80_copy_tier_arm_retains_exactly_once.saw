@@ -1,0 +1,63 @@
+// Conformance row V80 — the Copy tier through a value arm: exactly ONE retain,
+// before the fix and after it
+//
+// DF-299b, and the row that inverts V62/V65's lesson rather than repeating it.
+// The two neighbouring soundness fixes were TIER-BLIND because the compiler was
+// handing out an UNRETAINED alias, which makes the Copy tier the worse half.
+// Here it is not: codegen's `_gen_transfer_value` already names "an inner-block
+// tail expression" as a site the checkpoint does not mark and re-derives the
+// retain there, so a Copy value came out of an arm correctly retained while the
+// owning tiers came out aliased. That asymmetry is exactly why the filing's
+// severity reading was an alias plus a LOST deinit rather than a double free.
+//
+// So this row is a REGRESSION GUARD, not a refusal: stamping the arm at the
+// checkpoint must not add a SECOND retain beside the one codegen re-derives,
+// and the counts are what say so. `_transfer_needs_copy` answers one bool and
+// `_generate_copy` runs at most once per transfer, which is the mechanism — the
+// numbers below are the evidence.
+//
+// The PLACE arm is counted too (`v[0]`), because that read carries its own
+// design-146 mark: a Copy element reached through a window is the one shape
+// where two marks meet on one transfer, and it is where a double retain would
+// have shown up first.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: start 1
+// EXPECT-OUTPUT: branch 2 2
+// EXPECT-OUTPUT: stored 4
+// EXPECT-OUTPUT: place 5 5
+// EXPECT-OUTPUT: string 5 5
+// EXPECT-OUTPUT: trivial 5 5
+// EXPECT-OUTPUT: drop 7
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func main() {
+    let a = try! Arc(value: Res(w: 7))
+    print("start {}", a.strong_count())
+
+    // The arm retains, the source keeps its own reference: 1 -> 2, both live.
+    let b = if true { a } else { a }
+    print("branch {} {}", a.strong_count(), b.strong_count())
+
+    var v = Vector<Arc<Res>>()
+    try! v.push(a.copy())
+    try! v.push(a.copy())
+    print("stored {}", a.strong_count())
+
+    // A PLACE arm: one retain for the read, not two.
+    let c = if true { v[0] } else { v[1] }
+    print("place {} {}", a.strong_count(), c.strong_count())
+
+    // The other Copy face, and the trivial one below it.
+    let s = "hello"
+    let t = if true { s } else { s }
+    print("string {} {}", s.len(), t.len())
+
+    let n = 5
+    let m = if true { n } else { n }
+    print("trivial {} {}", n, m)
+}

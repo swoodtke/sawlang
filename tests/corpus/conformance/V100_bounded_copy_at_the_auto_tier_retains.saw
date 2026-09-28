@@ -1,0 +1,98 @@
+// Conformance row V100 — a `T: ExplicitCopy`-bounded `copy()` duplicates an
+// AUTOMATIC Copy-tier element at its own tier (SL-265, design 271)
+//
+// Design 159 puts a struct or enum whose members are all trivial/Copy on the
+// Copy tier with NO declaration written and none owed, and its copy RETAINS
+// each member. Design 219 makes every Copy type satisfy `T: ExplicitCopy`, so
+// such a type is admitted by `Vector`'s bound and `buf[i].copy()` runs at it.
+// Codegen's `.copy()` interception carried its own arm list and had no arm for
+// that tier — it declares nothing, so no "declares a policy" test sees it —
+// and the spelling fell out as a BITWISE duplicate. The copy's `String`s
+// aliased the original's, so the original's drop freed storage the copy still
+// held: reads came back empty and the second release aborted.
+//
+// The strings MUST be heap strings. A string literal is immortal (refcount
+// -1), so a literal-filled element hides a missing retain completely — which
+// is why row V25, the tier's other behavioural row, passes either way.
+//
+// Both failure modes are counted, not just the fatal one. The `Watched` rows
+// own an escaping closure whose env holds an `Arc` reference: an env retain is
+// what keeps that reference alive, so a MISSING retain drops the count early
+// and a DOUBLED one never drops it at all.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// struct: alpha-built beta-built
+// enum: named-built
+// arc after the duplicate dies: 2
+// arc after the original dies: 1
+
+struct Rec {
+    text: String
+    tag: String?
+}
+
+enum Tag {
+    case Named(s: String),
+    case Anon
+}
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Watched { probe: () sync -> Int }
+
+func heap_string(seed: String) -> String {
+    var sb = StringBuilder()
+    try! sb.append(seed)
+    try! sb.append("-built")
+    sb.build()
+}
+
+// The original drops at the end of each builder; only the duplicate comes out,
+// so every read below is a read of storage the duplicate must own outright.
+func copied_structs() -> Vector<Rec> {
+    var original = Vector<Rec>()
+    try! original.push(Rec(text: heap_string("alpha"), tag: None))
+    try! original.push(Rec(text: heap_string("beta"), tag: heap_string("tag")))
+    let duplicate = original.copy()
+    move duplicate
+}
+
+func copied_enums() -> Vector<Tag> {
+    var original = Vector<Tag>()
+    try! original.push(Tag.Named(s: heap_string("named")))
+    try! original.push(Tag.Anon)
+    let duplicate = original.copy()
+    move duplicate
+}
+
+func sink(v: Vector<Watched>) -> Int { v.len() }
+
+func main() {
+    let structs = copied_structs()
+    print("struct: {structs[0].text} {structs[1].text}")
+
+    let tags = copied_enums()
+    match tags[0] {
+        case Named(s) -> print("enum: {s}"),
+        case Anon -> print("enum: ANON")
+    }
+
+    // The counting half. `shared` is one reference; `held` is the second, moved
+    // into a closure env that a `Watched` element owns.
+    let shared = try! Arc(value: Res(id: 1))
+    let held = shared.copy()
+    var watched = Vector<Watched>()
+    try! watched.push(Watched(probe: { [move held] in 7 }))
+
+    let duplicate = watched.copy()
+    let _ = sink(move duplicate)
+    // The element copy retained the env, so the env outlives the duplicate and
+    // still holds its Arc reference. A missing retain reads 1 here.
+    print("arc after the duplicate dies: {shared.strong_count()}")
+
+    let _ = sink(move watched)
+    // ...and the env is released exactly once, never twice and never not at
+    // all. A doubled retain reads 2 here.
+    print("arc after the original dies: {shared.strong_count()}")
+}

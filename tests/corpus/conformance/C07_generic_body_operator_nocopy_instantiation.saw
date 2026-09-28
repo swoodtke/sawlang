@@ -1,0 +1,47 @@
+// Conformance row C07 — `==` / `>` inside a GENERIC body under a
+// `T: Equatable` / `T: Comparable` bound, instantiated at a NoCopy conformer
+// with a hand-written comparison
+//
+// The seventh position of DF-216b's matrix, and the one no chokepoint could
+// see: a generic body is checked ONCE with `T` abstract, so the concrete
+// conformer never reached the comparison gate. Design 219 wave C answered it by
+// recording what the body NEEDS and judging the type ARGUMENT at the one
+// discharge point.
+//
+// `other: &Self` (design 239) removes the question instead of answering it.
+// There is no transfer at any tier, so a generic body comparing its `T` needs
+// nothing recorded, nothing discharged and nothing known about the argument —
+// which is what makes `Vector.sort` over move-only elements expressible.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ne
+// gt
+// drop 3
+// drop 9
+
+struct Tag { id: Int }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+extension Tag: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        self.id == other.id
+    }
+}
+extension Tag: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        if self.id < other.id { Ordering.Less }
+        else if self.id > other.id { Ordering.Greater }
+        else { Ordering.Equal }
+    }
+}
+
+func differ<T: Equatable>(a: &T, b: &T) -> Bool { a != b }
+func bigger<T: Comparable>(a: &T, b: &T) -> Bool { a > b }
+
+func main() {
+    let a = Tag(id: 9)
+    let b = Tag(id: 3)
+    if differ<Tag>(&a, &b) { print("ne") }
+    if bigger<Tag>(&a, &b) { print("gt") }
+}

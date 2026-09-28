@@ -1,0 +1,32 @@
+// design 56 (N1) x design 51: a default method gets a vtable slot like a
+// required one — the thunk points at the conformer's override if present, else
+// its monomorphized default. Dispatch through `&any Shape` picks correctly.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 24
+// 999
+
+trait Shape {
+    func area(&self) -> Int
+    func doubled_area(&self) -> Int { self.area() * 2 }
+}
+
+struct Circle { r: Int }
+extension Circle: Shape {
+    func area(&self) -> Int { self.r * self.r * 3 }
+}
+
+struct Square { s: Int }
+extension Square: Shape {
+    func area(&self) -> Int { self.s * self.s }
+    func doubled_area(&self) -> Int { 999 }  // override
+}
+
+func viaany(sh: &any Shape) -> Int { sh.doubled_area() }
+
+func main() {
+    let c = Circle(r: 2)
+    let s = Square(s: 3)
+    print(viaany(&c))  // area 12 -> default 24
+    print(viaany(&s))  // override 999
+}

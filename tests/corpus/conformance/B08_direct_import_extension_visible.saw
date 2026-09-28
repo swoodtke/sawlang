@@ -1,0 +1,16 @@
+// Conformance row B08 — control: importing `deep` DIRECTLY makes its extension visible
+//
+// The control for the row above: importing `deep` DIRECTLY does make its
+// extension visible, so B06's refusal is about the import graph and not
+// about the extension.
+// COMPILE-FLAGS: --module-path deep={TESTDIR}/modules/deep --module-path mid={TESTDIR}/modules/mid
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1007
+
+import deep.*
+import mid.*
+func main() {
+    let n = mid_seed()
+    print(n.deep_op())
+}

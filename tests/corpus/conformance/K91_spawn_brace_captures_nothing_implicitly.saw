@@ -1,0 +1,34 @@
+// Conformance row K91 — a spawned brace captures NOTHING implicitly
+//
+// design 242 ruling 10. The capture list of a spawn brace IS its parameter
+// list: each entry transfers at the spawn, by value, at its own copy tier, and
+// `[move x]` is how a move-only value goes. So a value the body names and the
+// list does not is a value crossing a concurrency boundary with nothing at the
+// crossing to say so — and what a reader of a spawn site most needs is exactly
+// that, spelled where the crossing happens.
+//
+// This is a rule about SPAWN braces and no others. An ordinary closure's
+// captures are read at the same frame by the same thread, and there is no
+// boundary to spell; the control at the bottom of this file is that closure,
+// capturing implicitly one line after the refusal.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a spawned brace captures nothing implicitly, and this body names `count`, `label`
+// EXPECT-ERROR-CONTAINS: name what crosses in the capture list — `Thread.spawn { [count, label] in ... }`
+// EXPECT-ERROR-CONTAINS: The list IS the body's parameter list
+
+func run(body: () sync -> Int) sync -> Int {
+    body()
+}
+
+func main() {
+    let count = 3
+    let label = "batch"
+
+    var spawned = Thread.spawn { count + label.len() }
+    let _ = spawned.join()
+
+    // The control: an ordinary closure, capturing both of them implicitly, and
+    // untouched by the rule.
+    print(run({ count + label.len() }))
+}

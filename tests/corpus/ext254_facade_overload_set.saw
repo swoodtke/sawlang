@@ -1,0 +1,21 @@
+// Design 254 row 8 — the sawos shape end-to-end, names neutralized. `Panel` is
+// the `Waiter`: its own module gives it two `add` overloads, and the one whose
+// parameter type lives elsewhere (`Knob`, the `Process`) is declared in that
+// other module. The ruled spelling — the overload on the receiver that reads
+// best — is writable now: all three resolve in one file whose only import is
+// the facade, and the forwarded one takes its place in the set by signature.
+// EXPECT: success
+// EXPECT-OUTPUT: 14
+// EXPECT-OUTPUT: 17
+// EXPECT-OUTPUT: 18
+
+import modules.ext254_facade_sel.{Panel, Knob}
+
+func main() {
+    let p = Panel(raw: 10)
+    let other = Panel(raw: 7)
+    let k = Knob(id: 3)
+    print(p.add(n: 4))
+    print(p.add(other: &other))
+    print(p.add(knob: &k, key: 5))
+}

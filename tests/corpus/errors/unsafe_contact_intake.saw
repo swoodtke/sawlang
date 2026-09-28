@@ -1,0 +1,47 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: function `peek` is not declared `unsafe`, but its body binds a value of unsafe type (`UnsafeTag`)
+// EXPECT-ERROR-CONTAINS: function `defaulted` is not declared `unsafe`, but its body names a value of unsafe type (`UnsafeTag`)
+//
+// Two intake gaps in design 130's trigger rule, closed by design 193 unit 7.
+// The rule is "a function whose body or signature NAMES, BINDS, RECEIVES or
+// RETURNS an unsafe-typed value is declared `unsafe`", and the checker reads it
+// off EXPRESSION types — so two ways of touching one produced no expression to
+// read:
+//
+//   * a pattern binding that is never used. `case Filled(t) -> 1` BINDS an
+//     unsafe payload and then reads nothing, so nothing was typed and nothing
+//     was recorded — an unsafe value in scope of an undeclared function.
+//   * a default parameter VALUE. Defaults are checked before the trigger rule's
+//     scope opens (they are checked in the OUTER scope on purpose — a default
+//     may not name a parameter), and opening the scope cleared the slot, so a
+//     default's contact was recorded and then thrown away.
+
+unsafe struct UnsafeTag {
+    n: Int
+}
+
+extension UnsafeTag {
+    func value(&self) unsafe -> Int {
+        self.n
+    }
+}
+
+enum Slot {
+    case Filled(t: UnsafeTag),
+    case Empty
+}
+
+func peek(s: Slot) -> Int {
+    match s {
+        case Filled(t) -> 1,
+        case Empty -> 0
+    }
+}
+
+func defaulted(a: Int = UnsafeTag(n: 3).value()) -> Int {
+    a
+}
+
+func main() {
+    print("{peek(Slot.Empty)} {defaulted()}")
+}

@@ -1,0 +1,15 @@
+// Distinct compile-time constant indices are disjoint: `&var a[0]` with
+// `&a[1]` is accepted.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 30
+
+func f(x: &var Int, y: &Int) {
+    x += y
+}
+
+func main() {
+    var arr = [10, 20, 30]
+    f(&var arr[0], &arr[1])   // arr[0] <- 10 + 20 = 30
+    print(arr[0])
+}

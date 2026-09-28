@@ -1,0 +1,12 @@
+// Design 137: a format string may not mix `{name}` interpolation with `{}`
+// placeholders. An interpolated format string is a heap String by construction,
+// which is the one thing this spelling exists to avoid — and reading half the
+// values out of the braces and half out of the argument list is ambiguous
+// besides.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: format string mixes `{...}` interpolation with `{}` placeholders
+
+func main() {
+    let x = 1
+    print("mixed {x} and {}", 2)
+}

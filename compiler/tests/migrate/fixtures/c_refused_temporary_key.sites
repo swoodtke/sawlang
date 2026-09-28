@@ -1,0 +1,2 @@
+status: flagged
+6 C flagged -- the key is not a binding or field path, so `find(&k)` would borrow a temporary, which SL:borrowing does not settle

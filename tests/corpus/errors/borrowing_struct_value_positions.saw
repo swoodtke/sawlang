@@ -1,0 +1,183 @@
+// K142 (design 275 U3): THE FENCE, value positions, with a USER-DEFINED
+// borrowing struct over a user collection — std is the only positive consumer
+// migrated, so the negative fixtures are owed in the shape an author would
+// write them.
+//
+// A `borrows` call returning a borrowing struct is legal in exactly ONE
+// position: the DIRECT head of a `for` whose receiver is a place rooted in a
+// named binding. Everything else goes through ONE rejector, whose sentence is
+// the RULE — a borrowing struct holds a lent place, so its values live only
+// inside their window, and the extent is the `for` statement. ELEVEN rows
+// below reach that one message; the matrix is the rows, not a table of
+// phrasings.
+//
+// TWO positions get their own diagnosis because the ACT is different: a
+// TEMPORARY receiver ("bind the collection first" — a temporary has no
+// persistent storage for the window to point into) and a head that is an
+// EXPRESSION yielding the call rather than the call itself.
+//
+// The positions that are IMPOSSIBLE SPELLINGS rather than value-position rows
+// — a parameter, a field, a plain return, a type argument, an existential, an
+// `Item` — are refused at the declaration that names the type, and live in
+// `examples/errors/borrowing_struct_type_positions.saw`.
+//
+// INSIDE THE TYPE'S OWN METHODS the exemption is for reaching THROUGH `self`
+// — `self` as a receiver, a scrutinee, an operand — and NOT for a value that
+// merely has the type there (codex r1 #2): `Alias(self)` through a distinct
+// alias, a tuple of `self`, a `let` bound to `self`, and a closure returning
+// `self` each package the receiver for use past the call, and each is refused
+// where it is written. A COMPOSITION is refused as the bare value is, and
+// the sentence says which wrapper carried it. Rows 12-15.
+//
+// A CLOSURE LITERAL IS A COMPOSITION TOO (codex r4 #1): its type is a
+// function type, and the fence asks `_first_borrowing_struct_in` — the same
+// walk the declaration positions ask — which descends a function type's
+// return AND parameters. Row 8 (a closure's returned value) is refused at the
+// value in its body either way; row 16 is the shape only the literal's own
+// type catches — a closure whose PARAMETER is annotated with the borrowing
+// struct has no borrowing-typed expression in its body at all, and the
+// refusal names the function type that carried it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: may not be produced from a TEMPORARY receiver
+// EXPECT-ERROR-CONTAINS: may not be produced by an `if` / `match` / block / `try` expression in the head
+// EXPECT-ERROR-CONTAINS: may not be used outside a window head
+// EXPECT-ERROR-CONTAINS: a borrowing struct holds a LENT PLACE
+// EXPECT-ERROR-CONTAINS: write the call as the head of the `for` that consumes it
+// EXPECT-ERROR-CONTAINS: here it is wrapped in `(BagIterator, Int)`
+// EXPECT-ERROR-CONTAINS: here `self` is bound to the local `kept`
+// EXPECT-ERROR-CONTAINS: the inferred return type of a closure may not name a borrowing struct
+// EXPECT-ERROR-CONTAINS: here it is wrapped in `(BagIterator) escaping -> Int`
+
+struct Bag {
+    private items: Vector<Int>
+}
+extension Bag: NoCopy {}
+
+borrows struct BagIterator {
+    private bag: &Bag
+    private index: Int
+}
+
+extension Bag {
+    public func iter(&self) borrows -> BagIterator {
+        BagIterator(bag: lends self, index: 0)
+    }
+}
+
+extension BagIterator: Iterator {
+    type Item = Int
+    public func next(&var self) -> Int? {
+        if self.index < self.bag.items.len() {
+            let i = self.index
+            self.index = self.index + 1
+            self.bag.items.get(i)
+        } else {
+            None
+        }
+    }
+}
+
+func make() -> Bag {
+    var v: Vector<Int> = [1, 2]
+    Bag(items: move v)
+}
+
+func count(n: Int) -> Int { n }
+
+// ---- the rows -------------------------------------------------------------
+
+func row_let(b: &Bag) -> Int {
+    let it = b.iter()                       // ROW 1: a `let` initializer
+    0
+}
+
+func row_var(b: &Bag) -> Int {
+    var it = b.iter()                       // ROW 2: a `var` initializer
+    0
+}
+
+func row_argument(b: &Bag) -> Int {
+    count(b.iter())                         // ROW 3: an argument
+}
+
+func row_discard(b: &Bag) -> Int {
+    b.iter()                                // ROW 4: evaluated and discarded
+    0
+}
+
+func row_tuple(b: &Bag) -> Int {
+    let pair = (b.iter(), 1)                // ROW 5: a tuple element
+    0
+}
+
+func row_array(b: &Bag) -> Int {
+    let xs = [b.iter()]                     // ROW 6: a collection-literal element
+    0
+}
+
+func row_assign_rhs(b: &Bag) -> Int {
+    var n = 0
+    n = b.iter()                            // ROW 7: an assignment RHS
+    n
+}
+
+func row_closure_return(b: &Bag) -> Int {
+    let f = { b.iter() }                    // ROW 8: a closure's returned value
+    0
+}
+
+func row_optional(b: &Bag) -> Int {
+    let n = b.iter() ?? 0                   // ROW 9: a `??` operand
+    0
+}
+
+func row_temporary() -> Int {
+    var total = 0
+    for x in make().iter() {                // ROW 10: a TEMPORARY receiver
+        total = total + x
+    }
+    total
+}
+
+func row_head_expression(b: &Bag, other: &Bag, flag: Bool) -> Int {
+    var total = 0
+    for x in if flag { b.iter() } else { other.iter() } {   // ROW 11: a head EXPRESSION
+        total = total + x
+    }
+    total
+}
+
+// ---- INSIDE the type's own methods ------------------------------------------
+
+type Alias = BagIterator
+
+extension BagIterator {
+    public func row_alias_of_self(&var self) -> Int {
+        let boxed: Alias? = Alias(self)     // ROW 12: `Alias(self)` — the alias IS the struct
+        0
+    }
+
+    public func row_tuple_of_self(&var self) -> Int {
+        let pair = (self, 1)                // ROW 13: a tuple of `self`
+        pair.1
+    }
+
+    public func row_let_self(&var self) -> Int {
+        let kept = self                     // ROW 14: a `let` bound to `self`
+        0
+    }
+
+    public func row_closure_of_self(&var self) -> Int {
+        let f = { self }                    // ROW 15: a closure returning `self`
+        0
+    }
+}
+
+func row_closure_param() -> Int {
+    let g = { it: BagIterator in 0 }        // ROW 16: a closure literal whose PARAMETER names it
+    0
+}
+
+func main() {
+    print("unreached")
+}

@@ -1,0 +1,17 @@
+// Design 148 unit B: a repeat literal needs an element it can copy freely.
+// `move v` transfers ONE value and there is no spelling for "and N-1 more", so
+// a NoCopy element is refused by name rather than quietly aliasing one value
+// across every slot.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: repeat literal needs a freely copyable element
+// EXPECT-ERROR-CONTAINS: NoCopy
+struct Handle {
+    id: Int
+}
+
+extension Handle: NoCopy {}
+
+func main() {
+    let handles = [Handle(id: 1); 4]
+    print(handles[0].id)
+}

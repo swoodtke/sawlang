@@ -1,0 +1,20 @@
+// Design 131: a NoCopy payload is never read out of a place. Before this,
+// `let g = f!` silently duplicated a move-only resource and both copies ran
+// deinit. The error names the two consuming spellings.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot read the payload out of `o`
+// EXPECT-ERROR-CONTAINS: `Res` implements NoCopy
+// EXPECT-ERROR-CONTAINS: `move o!` to transfer the whole binding
+// EXPECT-ERROR-CONTAINS: `o.take()` to move the payload out in place
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+
+func main() {
+    var o: Res? = Res(id: 3)
+    let g = o!
+    print("g {g.id}")
+}

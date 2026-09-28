@@ -1,0 +1,29 @@
+// Conformance row C02 — `==` and `!=` on a NoCopy operand whose `equals` is
+// hand-written
+//
+// The equality half of C01's rule. `Equatable.equals(&self, other: &Self)`
+// takes the right operand by reference (design 239), which is what `==`/`!=`
+// have always passed, so a move-only type with a hand-written equality is
+// comparable and neither operand is consumed. Two drops, two values.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ne
+// drop 3
+// drop 9
+
+struct Tag { id: Int }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+extension Tag: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        self.id == other.id
+    }
+}
+
+func main() {
+    let a = Tag(id: 9)
+    let b = Tag(id: 3)
+    if a == b { print("eq") }
+    if a != b { print("ne") }
+}

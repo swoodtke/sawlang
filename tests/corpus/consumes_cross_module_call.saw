@@ -1,0 +1,30 @@
+// design 260 — CALLING a consuming method from another module works; only
+// DECLARING one there is refused.
+//
+// The containment rule is about who may override a type's teardown, not about
+// who may end a value they own. The consumed endpoint runs the module's own
+// consuming body and then the synthesized field sweep, so `Handle`'s
+// hand-written `deinit` body does NOT run here — while an ordinary drop of the
+// same type still runs it, which the second half witnesses.
+//
+// EXPECT: success
+// COMPILE-FLAGS: --module-path consumes260={TESTDIR}/modules/consumes260
+// EXPECT-OUTPUT:
+// closed 3
+// ordinary drop:
+// Handle 9 deinit body
+// end
+
+import consumes260.{Handle}
+
+func ordinary_drop() {
+    var h = Handle.make(id: 9)
+}
+
+func main() {
+    var h = Handle.make(id: 3)
+    print("closed {}", (move h).close())
+    print("ordinary drop:")
+    ordinary_drop()
+    print("end")
+}

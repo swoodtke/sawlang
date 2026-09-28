@@ -1,0 +1,52 @@
+// SL-347 — the four DECLARATION lists, written the way the rule asks.
+//
+// `examples/errors/statement_juxtaposition_in_declaration_lists.saw` refuses
+// two units of each list juxtaposed on one line. This is the running half: the
+// same units on separate lines compile and run, so the refusal is shown to
+// cost the legal spelling nothing.
+//
+// One unit alone on a line is untouched — a one-line extension method is the
+// house idiom and stays legal — which is why every list below carries both a
+// one-line member and a broken one.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: inline module 3
+// EXPECT-OUTPUT: extension 7 and 7
+// EXPECT-OUTPUT: trait label 3
+// EXPECT-OUTPUT: extern abs 3
+
+module inline_row {
+    public func a() -> Int { 1 }
+    public func b() -> Int { 2 }
+}
+
+struct Counter { n: Int }
+
+extension Counter {
+    func first(&self) -> Int { self.n }
+
+    static func make() -> Counter { Counter(n: 7) }
+}
+
+trait Named {
+    type Item
+    func label(&self) -> Int
+}
+
+extension Counter: Named {
+    type Item = Int
+    func label(&self) -> Int { 3 }
+}
+
+extern "C" {
+    func abs(n: Int32) -> Int32
+    func labs(n: Int) -> Int
+}
+
+func main() {
+    print("inline module {}", inline_row.a() + inline_row.b())
+    let c = Counter.make()
+    print("extension {} and {}", c.first(), Counter.make().n)
+    print("trait label {}", c.label())
+    print("extern abs {}", abs(-3))
+}

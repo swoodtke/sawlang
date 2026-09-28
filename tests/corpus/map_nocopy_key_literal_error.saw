@@ -1,0 +1,16 @@
+// Design 65 followup (L19): the key-copyability restriction also applies to the
+// LITERAL construction form `{k: v}` (not just `Map<K,V>()`).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: must be copyable
+
+struct Counted { id: Int }
+extension Counted: NoCopy { func deinit(&var self) {} }
+@synthesize
+extension Counted: Equatable {}
+@synthesize
+extension Counted: Hashable {}
+
+func main() {
+    let m = {Counted(id: 1): 100}
+    print(m.len())
+}

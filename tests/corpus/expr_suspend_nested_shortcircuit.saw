@@ -1,0 +1,100 @@
+// Design 133 unit B (closing DF-125a): a short-circuiting operator whose RHS
+// suspends no longer has to be the OUTERMOST expression of its statement.
+// Design 120 lowered `let x = a ?? slow()` and `return a ?? slow()` but rejected
+// the same operator one level down — an argument, an operand, under `not`, in an
+// interpolation. The whole conditional is now lifted to its own statement, which
+// is the form the branch lowering already handled, so laziness survives: the
+// counter proves the RHS side effect is still skipped whenever the LHS decides.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 0
+// 5
+// 1
+// 8
+// 1
+// 6
+// 2
+// 1
+// 2
+// 0
+// 3
+// 6
+// 3
+// 10
+// 4
+// v5
+// 5
+
+static CALLS: Atomic<Int> = Atomic(0)
+
+func s(n: Int) -> Int {
+    CALLS.fetch_add(1)
+    __saw_suspend()
+    n
+}
+
+func sb(b: Bool) -> Bool {
+    CALLS.fetch_add(1)
+    __saw_suspend()
+    b
+}
+
+func ident(n: Int) sync -> Int { n }
+func twice(n: Int) sync -> Int { n * 2 }
+
+// `??` buried in a call argument, bound by a `let`.
+func in_arg(o: Int?) -> Int {
+    let r = ident(o ?? s(5))
+    r
+}
+
+// `??` buried in a binary operand of an explicit `return`.
+func in_operand(o: Int?) -> Int {
+    return 1 + (o ?? s(5))
+}
+
+// `&&` buried under a unary `not`.
+func in_not(c: Bool) -> Bool {
+    not (c && sb(true))
+}
+
+// Two call frames deep: the lift recurses.
+func in_double(o: Int?) -> Int {
+    twice(ident(o ?? s(5)))
+}
+
+// `??` buried in a string interpolation.
+func in_interp(o: Int?) -> String {
+    "v{o ?? s(5)}"
+}
+
+func main() {
+    // Argument position: the RHS runs only on the None path.
+    print(__saw_drive(in_arg(7)))
+    print(CALLS.load())
+    print(__saw_drive(in_arg(None)))
+    print(CALLS.load())
+
+    // Operand of `+`, inside a `return`.
+    print(__saw_drive(in_operand(7)))
+    print(CALLS.load())
+    print(__saw_drive(in_operand(None)))
+    print(CALLS.load())
+
+    // `not (c && sb(true))`: a false LHS skips the suspending RHS.
+    if __saw_drive(in_not(false)) { print(1) } else { print(0) }
+    print(CALLS.load())
+    if __saw_drive(in_not(true)) { print(1) } else { print(0) }
+    print(CALLS.load())
+
+    // Doubly nested.
+    print(__saw_drive(in_double(3)))
+    print(CALLS.load())
+    print(__saw_drive(in_double(None)))
+    print(CALLS.load())
+
+    // Interpolation.
+    print(__saw_drive(in_interp(None)))
+    print(CALLS.load())
+}

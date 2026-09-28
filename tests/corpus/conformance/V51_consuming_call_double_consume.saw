@@ -1,0 +1,26 @@
+// Conformance row V51 — consuming a receiver TWICE is a compile error
+//
+// design 260. `(move b).finish()` transfers the receiver at the call, so the
+// binding is moved-from past that expression. A second consuming call on the
+// same binding is therefore the ordinary double-move error, and it is the
+// ordinary one on purpose: the design routes the transfer through the move
+// checkpoint (`_check_move_expr`) rather than beside it, so the rule that
+// catches this is the same rule that catches `move b` twice. A consuming call
+// that skipped the checkpoint would be a double free — the callee releases the
+// referent, and the caller's binding would still own it.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable `b`
+// EXPECT-ERROR-CONTAINS: value was already moved at line
+
+struct Builder { items: Vector<Int>, count: Int }
+extension Builder: NoCopy {}
+extension Builder {
+    func finish(&var self) consumes -> Int { self.count }
+}
+
+func main() {
+    var b = Builder(items: [1, 2], count: 7)
+    print("{}", (move b).finish())
+    print("{}", (move b).finish())
+}

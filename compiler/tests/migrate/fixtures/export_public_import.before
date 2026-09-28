@@ -1,0 +1,5 @@
+// Package facade.
+// expected: a-removed: syntax.decl.refused-export
+export utils.double as double
+export utils.triple
+export helpers.*

@@ -1,0 +1,15 @@
+// Design 63 T1d: literal/range arms never prove exhaustiveness on an open type
+// (Int) — a fallback is required.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: not exhaustive
+
+func f(n: Int) -> Int {
+    match n {
+        case 0 -> 1
+        case 1 -> 2
+    }
+}
+
+func main() {
+    print(f(0))
+}

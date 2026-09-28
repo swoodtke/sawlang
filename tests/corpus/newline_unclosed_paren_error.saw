@@ -1,0 +1,18 @@
+// With newlines suppressed inside brackets, a missing `)` no longer stops the
+// parse at the end of the line — it runs on until something else fails, which
+// could be anywhere. Design 129 therefore anchors the diagnostic at the OPENER
+// (the design-119 interpolation-brace precedent), so the reported position is
+// the `(` on line 14 that was never closed, not whatever token happened to stop
+// the parse further down.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Parse error at 14:18: unclosed `(`
+// EXPECT-ERROR-CONTAINS: no matching `)` before the end of the file
+
+func add(a: Int, b: Int) -> Int { a + b }
+
+func main() {
+    let sum = add(
+        1,
+        2
+    print(sum)
+}

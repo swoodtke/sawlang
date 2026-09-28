@@ -1,0 +1,27 @@
+// Escaping-closure heap environments (design 21b E1). A closure returned from
+// its creating frame outlives that frame, so its captured environment is
+// heap-allocated (not stack) and reads back correctly after the frame is gone.
+// Two independently-captured closures keep independent environments.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 15
+// 108
+// 7
+
+func make_adder(n: Int) -> (Int) -> Int {
+    { x: Int in x + n }
+}
+
+func make_scaler(factor: Int, base: Int) -> (Int) -> Int {
+    { x: Int in x * factor + base }
+}
+
+func main() {
+    let add5 = make_adder(5)
+    let add100 = make_adder(100)
+    let scale = make_scaler(2, 100)
+
+    print(add5(10))      // 15  (env {n:5} survives make_adder returning)
+    print(scale(4))      // 108 (env {factor:2, base:100} survives)
+    print(add100(-93))   // 7   (independent env {n:100})
+}

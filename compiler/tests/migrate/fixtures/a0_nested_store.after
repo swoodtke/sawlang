@@ -1,0 +1,5 @@
+func main() {
+    var g: Vector<Vector<Int>> = [[1, 2], [3, 4]]
+    borrow var g[0][1] = 7
+    print(g.len())
+}

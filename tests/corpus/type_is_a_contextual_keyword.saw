@@ -1,0 +1,146 @@
+// `type` is a CONTEXTUAL keyword (DF-232b, ruled Aug 17): it declares a type
+// alias only where an alias can begin, and is an ordinary identifier everywhere
+// else — an argument label, a binding, a struct field, a field access.
+//
+// Found by SOS M3 unit 1, where the ruled `clock_get(type:)` label was
+// unwritable because `type` was a lexer keyword, so the unit shipped `kind:`.
+// Reserving the word cost every position below while buying nothing: a census
+// of all 2240 tracked `.saw` files found 84 `type` tokens and every one of them
+// at an alias or associated-type declaration head, so no existing code had to
+// be renamed to free the word.
+//
+// HOW: `type` is no longer in either lexer's keyword table — the Python one and
+// the selfhost one, which the lexdiff/astdiff lanes compare token for token. It
+// lexes as IDENT and the parser recognizes it through `at_type_alias_start()`,
+// the same `match_ident` mechanism `import`, `export`, `module`, `sync`, `any`
+// and `const` already use. The read is `type` FOLLOWED BY AN IDENT, which is
+// unambiguous because that shape occurs nowhere else, and because `type` never
+// opens a statement — the hazard that keeps `lend` reserved.
+//
+// THE MATRIX, row by row. Negative rows first, since they are what the
+// contextual read must not break:
+//
+//   type UserId = Int          module-level alias, bare        (negative)
+//   public type OrderId = Int  module-level alias, public      (negative)
+//   type Item                  associated type in a trait      (negative)
+//   type Item = Int            type assignment in an extension (negative)
+//
+// then the positions the reservation used to cost — all of which were parse
+// errors before this landed:
+//
+//   struct Event { type: Int } a struct FIELD
+//   func f(type: Int)          a parameter name, which IS the label
+//   f(type: 4)                 an argument label at the call site
+//   Event(type: 3, ...)        a struct LITERAL field name
+//   e.type                     a field ACCESS
+//   self.type                  a field access through `self`
+//   let type = 7               a local binding
+//   var type2 = 1; type2 = 2   a mutable local and its assignment
+//   for type3 in 0..2          a for-loop variable
+//   if let type4 = opt         an `if let` binding
+//   (type: 8, other: 9)        a named-tuple label, and `nt.type` to read it
+//   { type: Int in ... }       a closure parameter
+//   "{type}"                   interpolation of a binding named `type`
+//
+// A local `type X = Y` is NOT legal — it never was, since no statement form
+// parsed one — and now says so by name; see
+// type_alias_in_function_body_refused.saw.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// let = 7
+// var = 2
+// label = 5
+// enum label = 1
+// field = 3
+// method = 3
+// interp = 7
+// alias = 5 6
+// assoc = 42
+// loop = 0
+// loop = 1
+// tuple = 8
+// iflet = 11
+// closure = 12
+
+// NEGATIVE ROWS: the alias declaration still parses, bare and `public`.
+type UserId = Int
+public type OrderId = Int
+
+trait Container {
+    // NEGATIVE ROW: an associated type declaration
+    type Item
+    func first(&self) -> Item
+}
+
+struct Bag { n: Int }
+
+extension Bag: Container {
+    // NEGATIVE ROW: a type assignment in an extension body
+    type Item = Int
+    func first(&self) -> Int { self.n }
+}
+
+// a struct FIELD named `type`
+struct Event { type: Int, payload: Int }
+
+// a parameter named `type` — in Saw the parameter name IS the argument label
+func clock_get(type: Int) -> Int { type + 1 }
+
+enum Kind: UInt8 {
+    case Mono = 0,
+    case Wall = 1,
+}
+
+func pick(type: Kind) -> UInt8 { type as UInt8 }
+
+extension Event {
+    // a field access through `self`
+    func describe(&self) -> Int { self.type }
+}
+
+// a closure parameter named `type`, in its own scope so the `let type` in
+// `main` is not shadowed (that would be the ordinary design-100 error)
+func closure_row() -> Int {
+    let f = { type: Int in type * 2 }
+    f(6)
+}
+
+func main() {
+    let type = 7
+    print("let = {type}")
+
+    var type2 = 1
+    type2 = 2
+    print("var = {type2}")
+
+    print("label = {clock_get(type: 4)}")
+    print("enum label = {pick(type: Kind.Wall)}")
+
+    let e = Event(type: 3, payload: 9)
+    print("field = {e.type}")
+    print("method = {e.describe()}")
+
+    print("interp = {type}")
+
+    let u: UserId = 5
+    let o: OrderId = 6
+    print("alias = {u as Int} {o as Int}")
+
+    let b = Bag(n: 42)
+    print("assoc = {b.first()}")
+
+    for type3 in 0..2 {
+        print("loop = {type3}")
+    }
+
+    let nt = (type: 8, other: 9)
+    print("tuple = {nt.type}")
+
+    let opt: Int? = 11
+    if let type4 = opt {
+        print("iflet = {type4}")
+    }
+
+    print("closure = {closure_row()}")
+}

@@ -1,0 +1,35 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// caught error
+
+// Test try { } catch { } block syntax
+
+struct ParseError {
+    code: Int
+}
+
+func parseNumber(valid: Bool) -> Result<Int, ParseError> {
+    if valid {
+        return 42
+    }
+    return ParseError(code: 1)
+}
+
+func main() {
+    // Test success path - no error caught
+    try {
+        let n = try parseNumber(true)
+        print(n)  // 42
+    } catch {
+        print(0)  // not reached
+    }
+
+    // Test error path - error caught
+    try {
+        let n = try parseNumber(false)
+        print(n)  // not reached
+    } catch {
+        print("caught error")
+    }
+}

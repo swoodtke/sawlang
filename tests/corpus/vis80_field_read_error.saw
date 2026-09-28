@@ -1,0 +1,9 @@
+// Design 80: a PRIVATE field is not readable from another module.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: field `secret` of struct `Gadget` is private
+import modules.members80
+
+func main() {
+    let g = members80.Gadget.make(5)
+    print(g.secret)   // private field — rejected
+}

@@ -1,0 +1,9 @@
+// Design 63 Part 4: no reordering against a known target type — a literal whose
+// label order differs from the target's is an error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign
+
+func main() {
+    let bad: (x: Int, y: Int) = (y: 4, x: 3)
+    print(bad.x)
+}

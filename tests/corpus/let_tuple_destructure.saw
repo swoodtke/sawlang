@@ -1,0 +1,33 @@
+// Design 63 T1d: `let`/`var` tuple destructuring — basic, mutable, per-position
+// `_` discard, and nested tuples.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 4
+// 11
+// 20
+// 7
+// 1
+// 2
+// 3
+
+func pair() -> (Int, Int) { (3, 4) }
+
+func main() {
+    let (a, b) = pair()
+    print(a)
+    print(b)
+
+    var (x, y) = (10, 20)
+    x = x + 1
+    print(x)
+    print(y)
+
+    let (p, _) = (7, 99)   // discard the second component
+    print(p)
+
+    let (m, (n, o)) = (1, (2, 3))   // nested
+    print(m)
+    print(n)
+    print(o)
+}

@@ -1,0 +1,7 @@
+// Design 65 followup: a bare literal out of range for a fixed-width PARAMETER is
+// a clean error, not a silent truncation.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not fit in `Int8`
+
+func f(x: Int8) -> Int { x as Int }
+func main() { print(f(999)) }

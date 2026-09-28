@@ -1,0 +1,9 @@
+// Integer addition overflow panics -- always, every profile (design 31).
+// Int.max + 1 is unrepresentable in a 64-bit signed integer.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: integer overflow
+
+func main() {
+    let x = 9223372036854775807 + 1   // Int.max + 1 -> panic
+    print(x)
+}

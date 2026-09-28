@@ -1,0 +1,57 @@
+// design 134: slot reuse holds for a MULTI-THREADED group too.
+//
+// Eight waves of four tasks occupy four slots in total rather than thirty-two: a
+// worker records completion under the run-queue lock, and `__complete` releases
+// the frame box and returns the slot right there.
+//
+// The wave joins EVERY handle it spawned. Design 225 made a `join()` on a
+// multi-threaded group mean what it means on a single-threaded one — wait for
+// THIS task — where the fork-join drain it replaced happened to complete the
+// whole group as a side effect of how it was built. This test used to join the
+// fourth handle and rely on that side effect, and it read `peak 5` afterwards:
+// one wave's stragglers were still holding their slots when the next wave
+// measured.
+//
+// Counts and sums only — never interleaving (MT tests must stay deterministic).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// peak 4
+// final 0
+// ran 32
+
+import std.task.*
+
+static RAN: Atomic<Int> = Atomic(0)
+
+func worker(n: Int) {
+    yield_now()
+    RAN.fetch_add(n)
+}
+
+func main() {
+    var group = try! TaskGroup(threads: 2)
+    var peak = 0
+    var wave = 0
+    while wave < 8 {
+        var pending = Vector<VoidTask>()
+        var i = 0
+        while i < 4 {
+            try! pending.push(group.spawn(worker(1)))
+            i = i + 1
+        }
+        let held = group.count()
+        if held > peak {
+            peak = held
+        }
+        while pending.len() > 0 {
+            if let ht = pending.pop() {
+                var h = move ht
+                h.join()
+            }
+        }
+        wave = wave + 1
+    }
+    print("peak {peak}")
+    print("final {group.count()}")
+    print("ran {RAN.load()}")
+}

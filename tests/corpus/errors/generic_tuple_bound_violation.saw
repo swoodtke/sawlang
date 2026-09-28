@@ -1,0 +1,13 @@
+// Design 109: the bound check reaches every expressible type argument — a tuple
+// type argument (no struct/enum name to key a conformance by) is checked against
+// the same registry and rejected when it does not satisfy the bound.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: type `(Int, Int)` does not satisfy the `Fooable` bound
+
+trait Fooable { func foo(&self) -> Int }
+
+func run<T: Fooable>(x: T) -> Int { 0 }
+
+func main() {
+    print(run<(Int, Int)>((1, 2)))
+}

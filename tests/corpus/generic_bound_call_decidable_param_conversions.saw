@@ -1,0 +1,33 @@
+// DF-239b: a decidable parameter goes through the SAME argument machinery as
+// an ordinary call — which is what the two rows here are for.
+//
+// Both were internal compiler errors before, because the bound path never
+// asked `_arg_type_ok` and so never recorded what the argument edge owed:
+//
+//   * `o.take(5)` at an `Int?` parameter AUTO-WRAPS. Unmarked, codegen handed a
+//     bare `i64` to a `{i1, i64}` slot: `Type of #2 arg mismatch`.
+//   * `o.count(1)` at a `UInt8` parameter is design 87/205's literal ADOPTION —
+//     the literal is that parameter's, not a platform `Int` being narrowed.
+// EXPECT: success
+// EXPECT-OUTPUT: 6
+// EXPECT-OUTPUT: 8
+
+trait Opt {
+    func take(&self, x: Int?) -> Int
+    func count(&self, b: UInt8) -> Int
+}
+
+struct O { n: Int }
+extension O: Opt {
+    func take(&self, x: Int?) -> Int { self.n + (x ?? 0) }
+    func count(&self, b: UInt8) -> Int { self.n + (b as Int) }
+}
+
+func wrapped<T: Opt>(o: &T) -> Int { o.take(5) }
+func adopted<T: Opt>(o: &T) -> Int { o.count(7) }
+
+func main() {
+    let o = O(n: 1)
+    print(wrapped(&o))
+    print(adopted(&o))
+}

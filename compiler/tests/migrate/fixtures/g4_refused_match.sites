@@ -1,0 +1,2 @@
+status: flagged
+9 G4 flagged -- a `match` on a place that a copy cannot serve: the `borrow let` block needs each arm's payload bindings decided

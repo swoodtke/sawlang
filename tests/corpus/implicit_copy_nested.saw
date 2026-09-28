@@ -1,0 +1,39 @@
+// Test that nested Copy fields are auto-copied
+// EXPECT: success
+// EXPECT-OUTPUT:
+// original count:
+// 1
+// copied count:
+// 2
+
+struct RefCounted {
+    count: Int
+}
+extension RefCounted: Copy {
+    func copy(&self) -> RefCounted {
+        // Increment count on copy
+        RefCounted(count: self.count + 1)
+    }
+    func deinit(&var self) {
+    }
+}
+struct Container {
+    data: RefCounted
+}
+extension Container: Copy {
+    func copy(&self) -> Container {
+        // The compiler should auto-call self.data.copy()
+        Container(data: self.data)
+    }
+    func deinit(&var self) {
+        // Auto field deinit will call self.data.deinit()
+    }
+}
+func main() {
+    let c1 = Container(data: RefCounted(count: 1))
+    print("original count:")
+    print(c1.data.count)
+    let c2 = c1  // This should call Container.copy() which should call RefCounted.copy()
+    print("copied count:")
+    print(c2.data.count)
+}

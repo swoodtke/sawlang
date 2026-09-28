@@ -1,0 +1,44 @@
+// Math operations in Saw
+// EXPECT: success
+// EXPECT-OUTPUT:
+// Basic math:
+// 30
+// 200
+// Factorial of 5:
+// 120
+// Comparisons:
+// true
+// false
+// true
+
+func add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+func multiply(a: Int, b: Int) -> Int {
+    a * b
+}
+
+func factorial(n: Int) -> Int {
+    if n <= 1 {
+        1
+    } else {
+        n * factorial(n - 1)
+    }
+}
+
+func main() {
+    print("Basic math:")
+    let x = 10
+    let y = 20
+    print(add(x, y))
+    print(multiply(x, y))
+
+    print("Factorial of 5:")
+    print(factorial(5))
+
+    print("Comparisons:")
+    print(x < y)
+    print(x == y)
+    print(x > 5)
+}

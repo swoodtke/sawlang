@@ -1,0 +1,33 @@
+// SL-223 across a module boundary — the shape as it was filed, plus the face
+// where the call lives in the dependency.
+//
+// The step counts are the oracle for the SUSPENSION (the SL-208 idiom): the
+// values alone would also come out of a compiler that ran the callee straight
+// through, while `__saw_drive_steps` counts `Pending` resumes.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 8
+// 8
+// 1
+// 1
+
+import modules.sl223_ops
+import modules.sl223_ops.{Doc}
+
+func entry_side() -> Int {
+    var out = Doc(n: 1)
+    sl223_ops.set_text(&var out, sl223_ops.slow())
+    out.n
+}
+
+func via_dep() -> Int {
+    var out = Doc(n: 1)
+    sl223_ops.fill(&var out)
+}
+
+func main() {
+    print(__saw_drive(entry_side()))         // 1 + 7 = 8
+    print(__saw_drive(via_dep()))            // the same shape, one module over
+    print(__saw_drive_steps(entry_side()))   // one suspension
+    print(__saw_drive_steps(via_dep()))      // one suspension, embedded
+}

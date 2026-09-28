@@ -1,0 +1,13 @@
+// Test: assignment to a field of an array element must mutate the element
+// EXPECT: success
+// EXPECT-OUTPUT: 99
+
+struct Cell {
+    v: Int
+}
+
+func main() {
+    var a = [Cell(v: 1), Cell(v: 2)]
+    a[0].v = 99
+    print(a[0].v)
+}

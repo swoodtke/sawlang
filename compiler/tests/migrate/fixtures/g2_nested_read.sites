@@ -1,0 +1,2 @@
+status: rewritten
+5 G2.nested-read rewritten => print(borrow let g[0][0].n)

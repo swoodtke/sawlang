@@ -1,0 +1,17 @@
+// DF-146l site 4, the half that cannot be inferred. `T` appears only in
+// `b: T = None`, and a bare `None` names no type — so a call that omits `b`
+// leaves `T` with nothing to solve it from. Design 108 lets a default DRIVE
+// inference (`b: T = 0` gives `T = Int`), but only because `0` has a type of
+// its own; `None` does not.
+//
+// This used to ICE at the DECLARATION, before any call was considered. The
+// declaration is fine now and the error arrives at the call that cannot be
+// solved, which is the only place that can say what is missing.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot infer type argument `T` for function `with_default`
+
+func with_default<T>(a: Int, b: T = None) -> Int { a }
+
+func main() {
+    print("{with_default(1)}")
+}

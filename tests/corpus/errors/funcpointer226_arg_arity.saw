@@ -1,0 +1,12 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `FuncPointer` takes exactly one type argument
+//
+// Design 226: one parameter, the signature. Two reads as if the second said
+// something about the calling convention, and it does not exist.
+
+func main() {
+    let p: FuncPointer<(Int) sync -> Int, Int> = one_arg()
+    print("unreached")
+}
+
+func one_arg() -> Int { 0 }

@@ -1,0 +1,21 @@
+//! DF-300d fixture: the types an ENTRY module extends. They must live in
+//! another module, because that is the whole condition — design 142 SHARES a
+//! type's method tables across every module in the link, so an extension
+//! written here writes into a table that outlives the entry module's check.
+//! An extension of a type declared in the entry module itself registers into
+//! that module's own fresh namespace and was never reachable this way.
+// EXPECT: skip
+
+public struct Reading {
+    raw: Int,
+    scale: Int,
+}
+
+public enum Band: UInt8 {
+    case low = 1
+    case high = 2
+}
+
+public func make_reading(raw: Int) -> Reading {
+    Reading(raw: raw, scale: 2)
+}

@@ -1,0 +1,83 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5 5
+// path/a
+// path/b
+// 6 200
+// done
+
+// Regression: copying an aggregate that OWNS a refcounted (String) payload must
+// RETAIN that payload, symmetrically with the release run at its drop (design 67
+// / dogfood DF12). Two shapes were bitwise-copied without a retain yet released
+// at every drop -> the shared String was freed once per copy -> heap corruption:
+//   1. an enum carrying a String payload, copied by value / matched-and-extracted;
+//   2. a plain struct holding a String, read out of a CONTAINING struct's field
+//      (a member-access projection) and passed by value.
+// The loop makes any refcount imbalance corrupt the allocator's free list.
+
+enum Source {
+    case Path(dir: String),
+    case Git(url: String)
+}
+
+struct Dep {
+    source: Source
+    name: String
+}
+
+// Extract the owning payload via a match arm (arm result escapes the match).
+func dir_of(source: Source) -> String {
+    match source {
+        case Path(d) -> d,
+        case Git(_) -> ""
+    }
+}
+
+func is_path(source: Source) -> Bool {
+    match source {
+        case Path(_) -> true,
+        case Git(_) -> false
+    }
+}
+
+func main() {
+    // Enum copied by value while the binding stays live (two passes force copies,
+    // not a move), plus payload extraction.
+    let src = Source.Path(dir: "abcde")
+    let a = dir_of(src)
+    let b = dir_of(src)
+    print("{a.len()} {b.len()}")
+
+    // A struct-with-String read out of a containing struct's field, passed by
+    // value repeatedly while the container stays live.
+    var i = 0
+    while i < 2 {
+        let d = if i == 0 {
+            Dep(source: Source.Path(dir: "path/a"), name: "a")
+        } else {
+            Dep(source: Source.Path(dir: "path/b"), name: "b")
+        }
+        // d.source is an owning-enum FIELD; passing it by value must retain.
+        let ok = is_path(d.source)
+        if ok {
+            print(dir_of(d.source))
+        }
+        i = i + 1
+    }
+
+    // Larger loop: an accumulating imbalance would corrupt the heap here.
+    var total = 0
+    var k = 0
+    while k < 200 {
+        let d = Dep(source: Source.Git(url: "https://x/{k}"), name: "n{k}")
+        let u1 = dir_of(d.source)   // Git -> "" via the discard arm
+        let p = is_path(d.source)
+        if not p {
+            total = total + 1
+        }
+        k = k + 1
+    }
+    let s = "hello!"
+    print("{s.len()} {total}")
+    print("done")
+}

@@ -1,0 +1,27 @@
+// Two tasks each capture [&var n] of the SAME root. Before design 189 this
+// compiled: two exclusive borrows of one path co-lived across suspensions and
+// both tasks mutated the one root, with no diagnostic (probe 1, DF-189a). The
+// borrow's extent is the task's life and the HANDLE carries it, so the first
+// capture is still live at the second spawn and the second is refused — the
+// Law of Exclusivity, read over a task-length window.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+// EXPECT-ERROR-CONTAINS: cannot be captured into another task here
+// EXPECT-ERROR-CONTAINS: holds `&var n` until `a.join()` releases it
+
+import std.task.*
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    var n = 0
+    var group = TaskGroup()
+    let a = group.spawn(run({ [&var n] in n = n + 1; n }))
+    let b = group.spawn(run({ [&var n] in n = n + 10; n }))
+    print("a saw {a.join()}")
+    print("b saw {b.join()}")
+    print("n is {n}")
+}

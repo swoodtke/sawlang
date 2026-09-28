@@ -1,0 +1,29 @@
+// Disjoint access paths are ALWAYS allowed -- the rule is path-disjointness,
+// not one-reference-per-root. `&var p.x` with `&p.y`, and even two `&var`s on
+// disjoint fields, are accepted.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4
+// 3
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+func f(a: &var Int, b: &Int) {
+    a += b
+}
+
+func g(a: &var Int, b: &var Int) {
+    a += 1
+    b += 1
+}
+
+func main() {
+    var p = Point(x: 1, y: 2)
+    f(&var p.x, &p.y)       // x <- 1 + 2 = 3
+    g(&var p.x, &var p.y)   // x <- 4, y <- 3
+    print(p.x)
+    print(p.y)
+}

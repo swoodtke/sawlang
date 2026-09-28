@@ -1,0 +1,12 @@
+// design 149 unit (a): the other half of the pair. `unsafe` on an IMMUTABLE
+// static would claim something about a value nobody can write, so it is a clean
+// error rather than an inert decoration.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `unsafe` on a static marks a MUTABLE one
+
+unsafe static LIMIT: Int = 64
+
+func main() {
+    print("{LIMIT}")
+}

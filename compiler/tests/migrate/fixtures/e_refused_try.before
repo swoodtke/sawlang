@@ -1,0 +1,25 @@
+import std.mutex.{Mutex}
+
+struct Oops { at: Int }
+extension Oops: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("oops at ")
+        try! into.append(self.at)
+    }
+}
+extension Oops: Error {}
+
+func step(n: Int) -> Result<Int, Oops> {
+    if n > 5 { return Oops(at: n) }
+    return n
+}
+
+func run(m: &Mutex<Int>) -> Result<Int, Oops> {
+    let seen = m.lock<Result<Int, Oops>> { &var c in step(n: try step(n: c)) }
+    return seen
+}
+
+func main() {
+    let m = Mutex<Int>(value: 1)
+    print(try! run(m: &m))
+}

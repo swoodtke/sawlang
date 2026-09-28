@@ -1,0 +1,16 @@
+// Design 107 item 1: a same-scope redefinition that does NOT derive from the
+// binding it replaces stays the pre-existing duplicate-definition error
+// (message unchanged). `let data = read()` then `let data = fresh()` — the
+// second initializer never mentions `data`, so it is a plain re-declaration.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: variable `data` is already defined in this scope
+// EXPECT-ERROR-CONTAINS: previous definition was at line 13
+
+func read() -> Int { 1 }
+func fresh() -> Int { 2 }
+
+func main() {
+    let data = read()
+    let data = fresh()   // does not mention `data` -> duplicate error
+    print(data)
+}

@@ -1,0 +1,10 @@
+// design 98: `#` introduces a source-location literal — the only directives are
+// #file, #line, #function. Anything else is a clean "unknown directive" lex
+// error (never silently consumed).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: unknown directive `#foobar`
+
+func main() {
+    let x = #foobar
+    print("{x}")
+}

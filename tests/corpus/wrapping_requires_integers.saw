@@ -1,0 +1,9 @@
+// Wrapping operators are integer-only: two's-complement wrap is undefined for
+// Float, so `&+` on floats is a type error (design 31).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: wrapping operator `&+` requires integer operands
+
+func main() {
+    let a = 1.5 &+ 2.5
+    print(a)
+}

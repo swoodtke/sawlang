@@ -1,0 +1,28 @@
+// A user `enum OpenMode` beside std.file's private one (DF-153b, closed by
+// design 204).
+//
+// DF-140h gave a module-private `static` inside a std file a module-local
+// identity, so a user program may declare its own `ASCII_ZERO` and std still
+// reads its own. A module-private TYPE did not get that identity until design
+// 204: std.file declares a private `enum OpenMode` (design 155), so a program
+// declaring its own used to lose to std's — the user's cases were not there,
+// and the error named a declaration the author cannot see, import or find:
+//
+//     error: enum `OpenMode` has no variant `Write`
+//
+// A struct or enum name is the shape a user is most likely to pick, and std's
+// private types are invisible, so the reserved set was unknowable. Design 82
+// makes each std FILE its own module and design 144 makes type identity
+// `(defining module, name)`; design 204 is that rule reaching std types.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+
+enum OpenMode: UInt8 {
+    case Read = 0,
+    case Write = 1
+}
+
+func main() {
+    print("{OpenMode.Write as UInt8}")
+}

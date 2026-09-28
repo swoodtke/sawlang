@@ -1,0 +1,135 @@
+// A memberwise literal of a MONOMORPHIZED generic struct transfers its owning
+// fields under the ordinary rules: a Copy-tier field is retained, so the value
+// the caller still holds and the one now in the field are two owners and the
+// last of them runs the payload's deinit exactly once. The field type is
+// resolved from the instantiation's base name and type arguments, which is what
+// a monomorphized key cannot answer on its own (SL-362).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// arc cell: 1 2 2
+// arc cell: 1
+// deinit 1
+// text cell: hello 2 2
+// text cell: hello 2
+// enum payload: 1 2 2
+// enum payload: 1
+// deinit 3
+// nested: 1 2 2
+// nested: 1
+// deinit 4
+// driven: 3
+// driven: 1
+// explicit copy: 1 1
+// deinit 6
+// deinit 5
+
+import std.task.*
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+struct Cell<T> { value: T, tag: Int }
+extension Cell<T>: NoCopy {}
+
+enum Holder<T> { case Full(v: T), case Blank }
+extension Holder<T>: NoCopy {}
+
+struct Outer<T> { inner: Cell<T> }
+extension Outer<T>: NoCopy {}
+
+struct Bag { items: Vector<Int> }
+@synthesize
+extension Bag: ExplicitCopy {}
+
+// An `Arc` field of a generic struct.
+func arc_cell() {
+    let a = try! Arc<Res>(value: Res(id: 1))
+    let before = a.strong_count()
+    let c = Cell<Arc<Res>>(value: a, tag: 1)
+    print("arc cell: {} {} {}", before, a.strong_count(), c.value.strong_count())
+    let _ = move c
+    print("arc cell: {}", a.strong_count())
+}
+
+// The other Copy-tier member the walk has to reach. The text is HEAP-owned
+// (an interpolation allocates; a literal is immortal and would witness no
+// retain), so the field's release after the cell drops leaves `s` a live owner
+// of text that is still there.
+func text_cell() {
+    let n = 2
+    let s = "hello {n}"
+    let c = Cell<String>(value: s, tag: 2)
+    print("text cell: {} {}", c.value, c.tag)
+    let _ = move c
+    print("text cell: {}", s)
+}
+
+// A generic ENUM's payload is the same transfer at a different storage shape.
+func enum_payload() {
+    let a = try! Arc<Res>(value: Res(id: 3))
+    let before = a.strong_count()
+    let h = Holder<Arc<Res>>.Full(v: a)
+    let built = a.strong_count()
+    var seen = 0
+    // Matching an owning enum consumes it, so the arm's binding owns the
+    // payload and the release lands at the arm's end — which is why the count
+    // is read into `built` before the match rather than after it.
+    match h {
+        case Full(v) -> { seen = v.strong_count() },
+        case Blank -> { seen = 0 }
+    }
+    print("enum payload: {} {} {}", before, built, seen)
+    print("enum payload: {}", a.strong_count())
+}
+
+// A generic literal NESTED inside another one: the inner literal retains `a`,
+// and the outer takes the fresh inner value by transfer — one retain, so the
+// count is 2 and not 3.
+func nested() {
+    let a = try! Arc<Res>(value: Res(id: 4))
+    let before = a.strong_count()
+    let o = Outer<Arc<Res>>(inner: Cell<Arc<Res>>(value: a, tag: 4))
+    print("nested: {} {} {}", before, a.strong_count(),
+          o.inner.value.strong_count())
+    let _ = move o
+    print("nested: {}", a.strong_count())
+}
+
+// The literal in a DRIVEN body, where the field lives in the coroutine frame.
+func in_frame(a: Arc<Res>) -> Int {
+    yield_now()
+    let c = Cell<Arc<Res>>(value: a, tag: 5)
+    let held = c.value.strong_count()
+    yield_now()
+    return held
+}
+
+// An ExplicitCopy field: the `.copy()` is written, and the copy is a second
+// owner the field releases on its own.
+func explicit_copy() {
+    var items = Vector<Int>()
+    try! items.push(6)
+    let b = Bag(items: move items)
+    let c = Cell<Bag>(value: b.copy(), tag: 6)
+    print("explicit copy: {} {}", b.items.len(), c.value.items.len())
+    let r = try! Arc<Res>(value: Res(id: 6))
+    let d = Cell<Arc<Res>>(value: r.copy(), tag: 6)
+    let _ = move d
+}
+
+func main() {
+    arc_cell()
+    text_cell()
+    enum_payload()
+    nested()
+
+    // `a` outlives the call, so its `deinit 5` is the last line of the run.
+    let a = try! Arc<Res>(value: Res(id: 5))
+    print("driven: {}", __saw_drive(in_frame(a)))
+    print("driven: {}", a.strong_count())
+
+    explicit_copy()
+}

@@ -1,0 +1,17 @@
+trait Reader {
+    func items(&self) -> Vector<Int>
+    func first(&self) -> Int {
+        let v = self.items()
+        v[0]
+    }
+}
+struct Box2 { v: Vector<Int> }
+extension Box2: NoCopy {}
+extension Box2: Reader {
+    func items(&self) -> Vector<Int> { self.v.copy() }
+}
+
+func main() {
+    let b = Box2(v: [4])
+    print(b.first())
+}

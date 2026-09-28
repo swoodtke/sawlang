@@ -1,0 +1,9 @@
+// A negated fixed-width literal whose folded value is out of range is a clean
+// compile error, not a silent truncation (design 77 item 8).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: integer literal -200 does not fit in `Int8`
+
+func main() {
+    let c = -200i8
+    print(c as Int)
+}

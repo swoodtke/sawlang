@@ -1,0 +1,30 @@
+// Conformance row W11 — a SHIFT COUNT is exempt from the operand-agreement
+// rule (design 195, matrix row 6 — the documented exemption)
+//
+// `<<` and `>>` are not two-peer operations. The left operand is the value
+// being shifted and the right is a COUNT — a small number in `0..<width`, whose
+// own type says nothing about the result's. The result takes the left operand's
+// type, the count is range-checked at runtime against that width, and nothing
+// about a count's declared width is load-bearing. So a count of a different
+// width than the shiftee stays legal, deliberately, and this row is the control
+// that keeps it that way while rows W06-W10 tighten every other operator.
+//
+// PROBE (Aug 10): both spellings below already worked and answered correctly.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 24
+// 12
+// 3
+
+func main() {
+    let a: Int = 6
+    let c: Int16 = 2i16
+    print(a << c)
+
+    let w: UInt8 = 6u8
+    print(w << 1)
+
+    let wide: Int64 = 12i64
+    let narrow: UInt8 = 2u8
+    print(wide >> narrow)
+}

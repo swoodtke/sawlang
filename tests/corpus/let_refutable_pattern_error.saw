@@ -1,0 +1,9 @@
+// Design 63 T1d: refutable patterns (literals) are not allowed in `let`/`var` —
+// only irrefutable bindings / `_` / nested tuples. Use `match`/`if let` instead.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: refutable
+
+func main() {
+    let (0, y) = (1, 2)
+    print(y)
+}

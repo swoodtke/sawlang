@@ -1,0 +1,21 @@
+// Design 177 in the profile it was asked for: a freestanding `-> Never` entry
+// whose body IS the diverging loop. `-> Never` lowers to a `void` + `noreturn`
+// C symbol (design 58), the loop needs no `break` to satisfy it, and the
+// diverging loop's exit block is terminated with `unreachable` — so `kmain`
+// emits as a bare back-edge and nothing else. This is the kernel halt shape.
+//
+// The `print` before it keeps the object honest about the profile: the write
+// seam is left an UNDEFINED external for the environment to supply, and no
+// runtime is linked beside it.
+//
+// (An ELF triple: the freestanding profile places per-symbol `.text.<name>`
+// sections for `--gc-sections`, which the mach-O host rejects.)
+// COMPILE-FLAGS: --freestanding --target x86_64-unknown-linux-gnu
+// EXPECT: object
+// EXPECT-SYMBOL-UNDEFINED: __saw_rt_write
+
+@export("kmain")
+func kmain() -> Never {
+    print("halting")
+    while { }
+}

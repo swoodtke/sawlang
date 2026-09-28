@@ -1,0 +1,50 @@
+// Design 129: a NEWLINE between `(` and its matching `)` is insignificant, so an
+// argument list can wrap. This is the DF-121a repro (a labeled call split across
+// lines) plus the wrapped `assert(cond, "message")` shape that first hit the
+// limit while writing the selfhost lexer tests. A trailing comma is allowed in
+// the wrapped form, and the newline AFTER the closing `)` still terminates the
+// statement — the following `let` starts a new one rather than continuing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 9
+// 6
+// deep
+
+func add(a: Int, b: Int) -> Int { a + b }
+
+func three(a: Int, b: Int, c: Int) -> Int { a + b + c }
+
+func label(text: String) -> String { move text }
+
+func main() {
+    let x = add(
+        a: 1,
+        b: 2)
+    print(x)
+
+    assert(
+        x == 3,
+        "add should have produced three",
+    )
+
+    let y = add(
+        4,
+        5,
+    )
+    print(y)
+
+    // A wrap that breaks between arguments as well as after the opener.
+    let z = three(
+        1, 2,
+        3,
+    )
+    print(z)
+
+    // Nested wrapped calls, each with its own trailing comma.
+    print(label(
+        text: label(
+            text: "deep",
+        ),
+    ))
+}

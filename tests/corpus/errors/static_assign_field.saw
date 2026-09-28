@@ -1,0 +1,9 @@
+// Statics are immutable (design 41): a field write to a static is rejected too.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to static `ORIGIN`: statics are immutable
+
+struct Point { x: Int, y: Int }
+
+static ORIGIN: Point = Point(x: 0, y: 0)
+
+func main() { ORIGIN.x = 3 }

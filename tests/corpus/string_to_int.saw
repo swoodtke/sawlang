@@ -1,0 +1,32 @@
+// String.to_int() (design 57): whole-string base-10 parse to Int?, panic-free.
+// Success, signs, empty/junk/no-trim -> None, overflow -> None, and the
+// Int.max / Int.min extremes (validating the accumulate-as-negative path).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// -42
+// 7
+// 0
+// -999
+// -999
+// -999
+// -999
+// 9223372036854775807
+// -9223372036854775808
+
+func show(o: Int?) {
+    if let v = o { print(v) } else { print(-999) }
+}
+
+func main() {
+    show("42".to_int())          // 42
+    show("-42".to_int())         // -42
+    show("+7".to_int())          // 7
+    show("0".to_int())           // 0
+    show("".to_int())            // None (empty)
+    show("12x".to_int())         // None (trailing junk)
+    show(" 5".to_int())          // None (whitespace NOT trimmed)
+    show("99999999999999999999999999".to_int())  // None (overflow)
+    show("9223372036854775807".to_int())   // Int.max
+    show("-9223372036854775808".to_int())  // Int.min
+}

@@ -1,0 +1,17 @@
+struct Res { name: String }
+
+extension Res: Copy {
+    func copy(&self) -> Res {
+        print("copy {self.name}")
+        Res(name: self.name)
+    }
+    func deinit(&var self) { print("deinit {self.name}") }
+}
+
+func main() {
+    var res = Vector<Res>()
+    try! res.push(Res(name: "a"))
+    print("{res[0].name}")
+    let held = res[0]
+    print("have {held.name}")
+}

@@ -1,0 +1,61 @@
+// Design 246 row 4: two enums that reach each other, both legs through a
+// `Vector`. Neither type can be registered after the other, so this is the row
+// that needs demand-driven registration rather than an ordering: whichever one
+// the loop reaches first publishes its handle and registers the other from
+// inside its own member lowering.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// total 15
+
+enum Expr {
+    case Literal(v: Int),
+    case Group(g: Vector<Term>)
+}
+
+enum Term {
+    case Value(v: Int),
+    case Nested(e: Vector<Expr>)
+}
+
+extension Expr: NoCopy {}
+extension Term: NoCopy {}
+
+extension Expr {
+    func total(&self) -> Int {
+        match self {
+            case Literal(v) -> v,
+            case Group(g) -> {
+                var sum = 0
+                g.each({ [&var sum] t in sum = sum + t.total() })
+                sum
+            }
+        }
+    }
+}
+
+extension Term {
+    func total(&self) -> Int {
+        match self {
+            case Value(v) -> v,
+            case Nested(e) -> {
+                var sum = 0
+                e.each({ [&var sum] x in sum = sum + x.total() })
+                sum
+            }
+        }
+    }
+}
+
+func main() {
+    var deep = Vector<Expr>()
+    try! deep.push(Expr.Literal(v: 4))
+    try! deep.push(Expr.Literal(v: 5))
+
+    var terms = Vector<Term>()
+    try! terms.push(Term.Value(v: 6))
+    try! terms.push(Term.Nested(e: move deep))
+
+    let root = Expr.Group(g: move terms)
+    print("total {root.total()}")
+}

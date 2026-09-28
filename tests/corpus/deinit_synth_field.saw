@@ -1,0 +1,30 @@
+// design 128: a struct holding an owning field needs no `deinit` BODY. The
+// compiler synthesizes the structural one, so `Outer` tears `Inner` down exactly
+// once with nothing written. (Replaces the old errors/deinit_containment.saw,
+// whose error design 128 abolished.) Its empty `NoCopy` conformance is the
+// containment rule, not a destruction one: a move-only field makes the container
+// move-only too, and since design 131 that is decided at every owning type.
+// EXPECT: success
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: inner cleanup
+
+struct Inner {
+    value: Int
+}
+
+extension Inner: NoCopy {
+    func deinit(&var self) {
+        print("inner cleanup")
+    }
+}
+
+struct Outer {
+    inner: Inner
+}
+
+extension Outer: NoCopy {}
+
+func main() {
+    let o = Outer(inner: Inner(value: 42))
+    print(o.inner.value)
+}

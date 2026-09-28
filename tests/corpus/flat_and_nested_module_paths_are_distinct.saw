@@ -1,0 +1,46 @@
+// SL-274 review r2 finding (codex): a module named `a_b` is not the module
+// `a.b`.
+//
+// `type_identity.module_tag` renders a defining module for a symbol, and it used
+// to render a path with `"_".join(parts)` — so `("a_b",)` and `("a", "b")` both
+// came out `a_b`, and the rendering was not injective over the complete path.
+// K109's fix gave the ENTRY module a rendering no module can take; this is the
+// other half, and the two `helper`s below were one symbol until it landed:
+//
+//     internal compiler error: helper$m$a_b
+//
+// The components are escaped now — a literal `_` inside a component is `_0`, a
+// bare `_` separates two components — so `a_b`'s helper is `helper$m$a_0b` and
+// `a.b`'s is `helper$m$a_b`. Nothing else in a tag moved: a one-component
+// module is still `helper$m$dep`, and std is still `State$m$std_once`.
+//
+// Reachable from these two declarations because SL-274 tags EVERY free function:
+// before it, `a_b`'s private `helper` carried the `$m$` tag and `a.b`'s public
+// one carried the distinct `$M$` census tag, so the two never met. The general
+// collision is older than that — see
+// `flat_and_nested_modules_declare_distinct_types.saw`, which fails on the
+// compiler before SL-274.
+//
+// The values are the oracle — +100 versus +200 — so which `helper` ran is
+// visible, and `a_b.reach(1)` reaching 101 says the flat module's own private
+// helper was not displaced by the nested module's public one.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 101
+// EXPECT-OUTPUT: 201
+
+module a_b {
+    func helper(n: Int) -> Int { n + 100 }
+    public func reach(n: Int) -> Int { helper(n) }
+}
+
+module a {
+    public module b {
+        public func helper(n: Int) -> Int { n + 200 }
+    }
+}
+
+func main() {
+    print(a_b.reach(1))
+    print(a.b.helper(1))
+}

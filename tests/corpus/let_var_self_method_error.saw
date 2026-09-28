@@ -1,0 +1,20 @@
+// Design 40 item 6 (L11): a `&var self` method mutates its receiver, so calling
+// one on a `let` binding is rejected at the call site (the probe found this was
+// NOT already enforced, contrary to the brief's expectation — now it is).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot call `&var self` method `bump` on immutable variable `c`
+struct Counter {
+    v: Int
+}
+
+extension Counter {
+    func bump(&var self) {
+        self.v = self.v + 1
+    }
+}
+
+func main() {
+    let c = Counter(v: 1)
+    c.bump()
+    print(c.v)
+}

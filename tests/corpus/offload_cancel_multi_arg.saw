@@ -1,0 +1,60 @@
+// design 183 unit 4: cancellation of a task parked on a MULTI-ARGUMENT offload,
+// with pointers in flight. `nanosleep(2)` takes two `struct timespec` pointers,
+// both addressing this task's frame.
+//
+// A sibling sets the cancel word while the task is parked. Design 102's pre-poll
+// cancelled scan wakes the frame, the park loop re-checks `__cancel` at its top
+// and leaves — and then TAKES, which joins the worker thread. The in-flight C
+// call is never aborted, so the join waits out the rest of the nap. That order is
+// what makes the pointer rule keepable: the frame still owns `req` and `rem` when
+// the worker stops reading them, which the surviving `req.nanos` shows. The
+// deinit oracle proves the held sentinel drops exactly once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -1
+// deinits=1
+
+struct TimeSpec { secs: Int, nanos: Int }
+
+extern "C" {
+    blocking func nanosleep(req: UnsafePointer<Int8>, rem: UnsafePointer<Int8>) -> Int32
+}
+
+static NAP_NANOS: Int = 150000000
+
+static DEINITS: Atomic<Int> = Atomic(0)
+
+struct Res { id: Int }
+extension Res: NoCopy { func deinit(&var self) { DEINITS.fetch_add(1) } }
+
+func worker() unsafe -> Int {
+    let _held = Res(id: 1)           // deinit oracle: drops exactly once on exit
+    var req = TimeSpec(secs: 0, nanos: NAP_NANOS)
+    var rem = TimeSpec(secs: 0, nanos: 0)
+    let rc = nanosleep((&req) as UnsafePointer<Int8>, (&rem) as UnsafePointer<Int8>)
+    if req.nanos != NAP_NANOS {
+        return 0 - 2                 // the frame lost the storage the call read
+    }
+    if cancelled() {
+        return 0 - 1                 // cooperative early return on cancel
+    }
+    return rc as Int
+}
+
+func canceller(addr: Int) unsafe {
+    let p = addr as UnsafePointer<Bool>
+    p[0] = true               // peer-cancel via the Send cancel-word address
+}
+
+func run() {
+    var group = TaskGroup()
+    let hr = group.spawn(worker())         // parks inside the offloaded nanosleep
+    let addr = hr.cancel_addr()
+    let _ = group.spawn(canceller(addr))   // runs after the worker parks
+    print(hr.join())
+}
+
+func main() {
+    run()
+    print("deinits={DEINITS.load()}")
+}

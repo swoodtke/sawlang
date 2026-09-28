@@ -1,0 +1,78 @@
+// A value more than ONE wrap below its nested-optional slot lands intact
+// (DF-174g).
+//
+// `_fit_optional_slot` wrapped exactly once, which was all any slot asked for
+// while the containers were the only source of a nested optional — their
+// payload is already a layer down. NAMING the type puts a bare value two layers
+// below its slot, and one wrap left an `Int?` in an `Int??` cell. Worse, the
+// `let` path never fit the value to its annotation at all: it leant on a
+// None-literal placeholder retag whose SHAPE test read a genuine `Int?` as a
+// placeholder and rebuilt the slot from its tag alone, dropping the payload. So
+// the outer layer read present, the inner was garbage, the first peel worked and
+// the second crashed (exit 133). Three layers did not even compile.
+//
+// Promoted from the `.build/scratch/p174*` probes the finding was filed with.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// three x
+// two 5
+// lifted 9
+// field 9
+// absent <none>
+// via get 7
+// none stays none
+
+func take3(o: Optional<Optional<String?>>) -> String {
+    if let a = o {
+        if let b = a {
+            if let c = b { return c }
+        }
+    }
+    "<none>"
+}
+
+struct Holder { slot: Int?? }
+
+func main() {
+    // THREE layers from a bare value — the shape that used to ICE with
+    // `'IntType' object has no attribute 'gep'`.
+    let three: Optional<Optional<String?>> = "x"
+    print("three {}", take3(three))
+
+    // TWO layers, in both spellings of the type.
+    let two: Int?? = 5
+    if let a = two {
+        if let b = a { print("two {}", b) }
+    }
+
+    // One wrap owed: an `Int?` local flowing into an `Int??` slot.
+    let one: Int? = 9
+    let lifted: Int?? = one
+    if let a = lifted {
+        if let b = a { print("lifted {}", b) }
+    }
+
+    // The same, into a struct FIELD slot.
+    let h = Holder(slot: one)
+    if let a = h.slot {
+        if let b = a { print("field {}", b) }
+    }
+
+    // A three-deep `None` always compiled; it still reads absent.
+    let absent: Optional<Optional<String?>> = None
+    print("absent {}", take3(absent))
+
+    // The CONTAINER route, which always worked and must keep working: one layer
+    // for "no such element", one for "the element is absent".
+    let v: Vector<Int?> = [7]
+    let got: Int?? = v.get(0)
+    if let o = got {
+        if let i = o { print("via get {}", i) }
+    }
+    let missing: Int?? = v.get(9)
+    if let _ = missing {
+        print("unexpectedly present")
+    } else {
+        print("none stays none")
+    }
+}

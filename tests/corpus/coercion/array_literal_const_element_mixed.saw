@@ -1,0 +1,30 @@
+// A fixed-array literal MIXING an element that is a bare literal with one that
+// is a constant EXPRESSION builds at the declared element width, in either
+// element order.
+//
+// Both elements adopt `UInt32` now. Before the adoption funnel had a
+// const-expression case, the bare literal adopted and the const expression did
+// not, so codegen's `_generate_array_literal` — which derives the array's LLVM
+// element type from element 0's own codegen'd type — met two widths and threw
+// (DF-235a):
+//
+//   error: internal compiler error ... (ArrayLiteral): Can only insert i64
+//   at [1] in [2 x i64]: got i32
+//
+// The SILENT twin of the same gap is array_literal_const_element_range_check.saw
+// (a uniform array of const-expression elements, which agreed on the same wrong
+// width and stored it). A `Vector<UInt32>` and a `(UInt32, UInt32)` tuple of the
+// same elements never ICE'd — Vector builds by per-element `push` and a tuple
+// addresses each slot by its own declared type — and still work.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0 24
+// 24 0
+
+func main() {
+    let a: [UInt32; 2] = [0, (1 << 3) | (1 << 4)]
+    print("{a[0]} {a[1]}")
+    let b: [UInt32; 2] = [(1 << 3) | (1 << 4), 0]
+    print("{b[0]} {b[1]}")
+}

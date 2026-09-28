@@ -1,0 +1,8 @@
+// design 46: reading a WriteOnly<T> register is a compile error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot `read()` a `WriteOnly` register
+
+struct Regs { intclr: WriteOnly<UInt32> }
+static DEV: UnsafeMemory<Regs, Device> = UnsafeMemory(0x40000000)
+
+func main() { print(DEV.intclr.read()) }

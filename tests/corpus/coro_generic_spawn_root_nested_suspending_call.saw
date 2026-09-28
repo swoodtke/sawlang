@@ -1,0 +1,88 @@
+// A GENERIC function driven as a root may contain a nested suspending call
+// (DF-218e, fixed by design 218 unit 2 stage E — consumption symmetry: a
+// template naming a consumed callee is consumed with it at the splice).
+//
+// `g.spawn(gworker(7))` where `gworker<T>` suspends only by `yield_now()`
+// compiles and runs (sweep S1 row p08c). Give the same generic body a nested
+// suspending CALL and the compiler reports `undefined function mk` at the call
+// site the author wrote, followed by an undefined-variable cascade for the
+// binding it feeds.
+//
+// MECHANISM (confirmed by design 237 unit 1's census, which was asked whether
+// this was the ANF hoist's entry gap reached through a monomorphized body — it
+// is NOT, and it exits design 237 on that finding):
+//
+//   * the error is emitted by the POST-TRANSFORM RE-CHECK (`-v` puts it after
+//     "Applied coroutine transform; re-checking..."), not by the hoist and not
+//     by codegen;
+//   * a suspending nested callee is CONSUMED by the transform — it becomes a
+//     frame plus a driver and the plain function is dropped from
+//     `program.functions` — which is why the NON-GENERIC twin below compiles:
+//     its own body is replaced by a frame too, so nothing names `mk` any more;
+//   * a GENERIC declaration also leaves its un-transformed TEMPLATE in the
+//     program, and that template's body still names `mk`. The re-check
+//     typechecks it and finds nothing there.
+//
+// It is the template, not the instantiations: driving `gworker` at TWO type
+// arguments produces exactly ONE `undefined function` error, not two.
+//
+// BOUNDARY, re-probed Aug 21 — WIDER than the original filing said. The
+// AMBIENT-entry cell fails too (`__saw_drive(gworker(7))`, the second function
+// below), so this is not the spawn path's handling of a generic root: it is
+// every driven generic body with a nested suspending call. The two cells that
+// still work are the ones with no consumed callee to lose (a generic body whose
+// only suspension is `yield_now()`) and the non-generic twin.
+//
+// THE FIX (218b section 4, ruling 5): the template is consumed with the callee,
+// to a fixpoint, on the free-function side and — through design 223's one strip
+// funnel, so a conformance-required method is refused — on the METHOD side too.
+// A template that suspends only CONDITIONALLY names no consumed callee and is
+// untouched, which keeps its sync instantiations reachable.
+//
+// ONE GUARD, earned by a probe: a template is consumed only when nothing that
+// survives the splice still CALLS it. The soundness argument says every driven
+// use was promoted to a concrete function first, and that premise fails where
+// `_promote_nested_generic_calls` DECLINES — a template suspending
+// unconditionally without calling a type-parameter method has no instantiation
+// effect node, so the call site still names it and codegen's late
+// monomorphization serves it. Consuming it there would trade this diagnostic
+// for a codegen one.
+//
+// Obligation-4 sweep, all probed: the two cells below, a generic root at TWO
+// type arguments, an MT `threads: 2` spawn, and an undriven generic METHOD
+// template naming a consumed callee. A generic METHOD ROOT is blocked by the
+// pre-existing DF-223a ICE, and a nested callee that is itself generic composes
+// with the promotion limit above.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// v 1
+// joined 0
+// ambient v 1
+// ambient 0
+import std.task.{yield_now}
+
+func mk(id: Int) -> Int {
+    yield_now()
+    id
+}
+
+func gworker<T>(seed: T) -> Int {
+    let v1 = mk(1)
+    print("v {v1}")
+    let _ = move seed
+    0
+}
+
+func gambient<T>(seed: T) -> Int {
+    let v1 = mk(1)
+    print("ambient v {v1}")
+    let _ = move seed
+    0
+}
+
+func main() {
+    var g = TaskGroup()
+    let h = g.spawn(gworker(7))
+    print("joined {h.join()}")
+    print("ambient {__saw_drive(gambient(9))}")
+}

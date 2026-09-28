@@ -1,0 +1,29 @@
+// XFAIL: DF-270e — a PRIMITIVE TYPE NAME written as a ZERO-ARGUMENT call is an
+// internal compiler error ("Undefined function: UInt8") where every other
+// nonsense call is a clean diagnostic.
+//
+// Found by the fuzz lane (seed 1, index 136: `yield_now` -> `UInt8` in
+// `channel_receive_in_main.saw`), and PRE-EXISTING — it has nothing to do with
+// the `Byte` alias that reshuffled the corpus onto it. The mechanism is the
+// arity: a call on a name that resolves to a primitive PSEUDO-STRUCT reaches
+// the struct-initialization path only when it has arguments, so `UInt8(5)`
+// lands on "struct initialization requires named arguments" while `UInt8()`
+// falls through to function lookup and raises instead of reporting.
+//
+// The whole family is affected — `Int`, `UInt`, `Int8`…`Int64`,
+// `UInt8`…`UInt64`, `Float`, `Bool`, `String`, all identical. `Never()` is
+// clean (it is not registered as an extendable pseudo-struct), and so is
+// `Byte()` over the design-250 alias, which reports "`Byte` is a type alias and
+// is constructed from exactly one value, but 0 were given".
+//
+// The intended behaviour is stated as an ABSENCE rather than a wording, since
+// the diagnostic this should produce has not been designed: whatever it says,
+// it must not be an ICE.
+// EXPECT: error
+// EXPECT-ERROR-ABSENT: internal compiler error
+
+func main() {
+    UInt8()
+    Int()
+    String()
+}

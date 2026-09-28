@@ -1,0 +1,150 @@
+// Conformance row K47 — a cooperative channel `receive()` reaches the
+// optional-binding and `try` heads on the same terms a suspending call does
+//
+// Three narrow hoists lift a suspension out of a head the state split cannot
+// host: the `if let`/`guard let` subject (design 62 G2), the `match` scrutinee
+// (design 96) and the `try!`/`try`/`try?` subject (design 92). All three asked
+// ONE predicate whether the expression suspends, and that predicate knew about
+// a suspending free function and a suspending method and NOT about a channel
+// `receive()` — while its twin, the general ANF hoist's, knew about all three.
+// Two disagreeing definitions of "is this a suspension" in one file: the shapes
+// only the narrow hoists reach were refused where they were expressible, and
+// silently spun where design 104 had already split the binding.
+//
+// EXPECT: success
+// EXPECT-IR-CONTAINS: __Frame_relay
+// EXPECT-OUTPUT:
+// A1
+// B1
+// A2
+// B2
+// heads 64
+
+import std.task.*
+import std.channel.{Channel}
+
+enum Boom { case Bad }
+
+extension Boom: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+
+extension Boom: Error {}
+
+func relay(tag: String, v: Int) -> Int? {
+    print("{tag}1")
+    yield_now()
+    print("{tag}2")
+    return v
+}
+
+// The `yield_now()`s are LOAD-BEARING (see K40): without them the feeder may
+// finish before the receiver's first `try_receive`, which then never parks and
+// the row passes on a broken cell.
+func feed_opt(ch: Channel<Int?>, v: Int?) {
+    yield_now()
+    try! ch.send(v)
+}
+
+func feed_res(ch: Channel<Result<Int, Boom>>, v: Result<Int, Boom>) {
+    yield_now()
+    try! ch.send(v)
+}
+
+func feed_int(ch: Channel<Int>, v: Int) {
+    yield_now()
+    try! ch.send(v)
+}
+
+func mk_res(v: Int) -> Result<Int, Boom> {
+    return v
+}
+
+func work(tag: String) -> Int {
+    var seen = 0
+    if let v = relay(tag, 3) { seen = v }
+    return seen
+}
+
+// the `if let` subject, with a body that ALSO suspends — design 104 splits the
+// binding, which is exactly when the subject slot stopped being visited at all
+func iflet_head(ch: Channel<Int?>) -> Int {
+    var seen = 0
+    if let v = (try! ch.receive()) {
+        yield_now()
+        seen = v
+    }
+    return seen
+}
+
+// the `guard let` subject
+func guardlet_head(ch: Channel<Int?>) -> Int {
+    guard let v = (try! ch.receive()) else { return 0 }
+    return v
+}
+
+// the `try!` subject, and its two siblings: all three spellings go through one
+// hoist, so all three are pinned rather than argued from the shared arm.
+//
+// design 230: `receive()` returns `Result<T, ChannelError>` itself now, so the
+// `try` heads have a subject without any help from the payload type. `try_head`
+// keeps the NESTED one (`Channel<Result<Int, Boom>>`, two wrappers, two peels)
+// because a doubled Result through the inline lowering is worth pinning; its two
+// siblings take the plain channel, where the `catch` arm and the `??` default
+// state the peeled type directly.
+func try_head(ch: Channel<Result<Int, Boom>>) -> Int {
+    let v = try! ch.receive()      // peels ChannelError -> Result<Int, Boom>
+    return try! v                  // peels Boom -> Int
+}
+
+func trycatch_head(ch: Channel<Int>) -> Int {
+    let v = try ch.receive() catch { 0 }
+    return v
+}
+
+func tryopt_head(ch: Channel<Int>) -> Int {
+    let o = try? ch.receive()
+    return o ?? 0
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(work("A"))
+    let b = g.spawn(work("B"))
+    let ra = a.join()
+    let rb = b.join()
+
+    let three: Int? = 3
+    let och = try! Channel<Int?>()
+    let w1 = g.spawn(iflet_head(och.copy()))
+    let f1 = g.spawn(feed_opt(och.copy(), three))
+    let r1 = w1.join()
+    f1.join()
+
+    let five: Int? = 5
+    let och2 = try! Channel<Int?>()
+    let w2 = g.spawn(guardlet_head(och2.copy()))
+    let f2 = g.spawn(feed_opt(och2.copy(), five))
+    let r2 = w2.join()
+    f2.join()
+
+    let rch = try! Channel<Result<Int, Boom>>()
+    let w3 = g.spawn(try_head(rch.copy()))
+    let f3 = g.spawn(feed_res(rch.copy(), mk_res(26)))
+    let r3 = w3.join()
+    f3.join()
+
+    let rch2 = try! Channel<Int>()
+    let w4 = g.spawn(trycatch_head(rch2.copy()))
+    let f4 = g.spawn(feed_int(rch2.copy(), 11))
+    let r4 = w4.join()
+    f4.join()
+
+    let rch3 = try! Channel<Int>()
+    let w5 = g.spawn(tryopt_head(rch3.copy()))
+    let f5 = g.spawn(feed_int(rch3.copy(), 13))
+    let r5 = w5.join()
+    f5.join()
+
+    print("heads {}", ra + rb + r1 + r2 + r3 + r4 + r5)
+}

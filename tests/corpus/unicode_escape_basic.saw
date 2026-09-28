@@ -1,0 +1,17 @@
+// Design 53 Part 4: `\u{...}` string escapes — 1-6 hex digits naming a valid
+// Unicode scalar, encoded to UTF-8 in the literal. Works for BMP and astral
+// code points, and composes with interpolation.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ✓
+// 😀
+// A is A
+// 5 ✓
+
+func main() {
+    print("\u{2713}")        // BMP: check mark
+    print("\u{1F600}")       // astral: grinning face
+    print("A is \u{41}")     // ASCII via \u
+    let x = 5
+    print("{x} \u{2713}")    // combined with interpolation
+}

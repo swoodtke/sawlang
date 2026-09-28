@@ -1,0 +1,148 @@
+// Conformance row V90 — control: the forwarding fence refuses only what names
+// storage somebody else owns
+//
+// Design 269 (SL-211). A producer classification is correct only if it is
+// NARROW: the three members this unit adds (`SelfExpr`, `TryExpr`, the four
+// auto-wraps) each have a neighbour that must stay legal, and the line between
+// them is the one DF-299a drew when a forwarding cast stopped being a fresh
+// temporary and a BUILDING one did not.
+//
+// Every value below is built once and released once — one `drop` per value,
+// exit 0 — which is what says the fence neither refused a sound program nor let
+// an unsound one through.
+//
+// THE ROW THAT EARNED ITS PLACE is the generic one. `func hand<T>(x: T) -> T?
+// { x }` is the commonest shape a generic body has, and the wrap peel routes
+// its tail into the tier arms for the first time. It stays callable at a
+// move-only type because design 218c §1c's provenance skips answer first: the
+// TEMPLATE raised a design-219 wave C requirement that every call site
+// discharges against its concrete argument, per PATH, so a body that forwards
+// its parameter once duplicates nothing. A per-MENTION reading here would have
+// made every `-> T?` forwarding helper in the language demand `T: Copy`.
+//
+// NINE values, NINE `drop` lines. The ORDER is the ordinary one and is pinned
+// with them: a payload extracted inside a callee dies at that callee's scope
+// end (so `drop 1` precedes the caller's print of the Int it returned), and the
+// two values still live at `main`'s end come apart in reverse declaration
+// order — `out` (9) before `g6` (6).
+//
+// EXPECT: success
+// EXPECT-OUTPUT: drop 1
+// EXPECT-OUTPUT: try-call 1
+// EXPECT-OUTPUT: drop 2
+// EXPECT-OUTPUT: try-move 2
+// EXPECT-OUTPUT: wrap-temporary 3
+// EXPECT-OUTPUT: drop 3
+// EXPECT-OUTPUT: wrap-move 4
+// EXPECT-OUTPUT: drop 4
+// EXPECT-OUTPUT: generic-optional 5
+// EXPECT-OUTPUT: drop 5
+// EXPECT-OUTPUT: generic-result 6
+// EXPECT-OUTPUT: branch-arm 7
+// EXPECT-OUTPUT: drop 7
+// EXPECT-OUTPUT: drop 8
+// EXPECT-OUTPUT: break-value 8
+// EXPECT-OUTPUT: consumed 9
+// EXPECT-OUTPUT: end
+// EXPECT-OUTPUT: drop 9
+// EXPECT-OUTPUT: drop 6
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+func made(n: Int) -> Result<Res, Bad> { Res(w: n) }
+
+// N1 — a `try` over a CALL RESULT forwards a fresh temporary the reader already
+// owns. This is the line the fix had to draw and it is DF-299a's: a BUILDING
+// producer stays a producer.
+func try_call(n: Int) -> Int {
+    let got = try! made(n)
+    got.w
+}
+
+// N6 — the consuming spelling the `try` refusal names. Probed before the
+// diagnostic was written: `try move r` compiles and releases the payload once.
+func try_move(n: Int) -> Int {
+    let r = made(n)
+    let got = try! move r
+    got.w
+}
+
+// N5 — a tail auto-wrapped around a FRESH TEMPORARY stays a `take`. This is the
+// overwhelming majority of wrapped returns in real code, and nothing about it
+// changed.
+func wrap_temporary(n: Int) -> Res? { Res(w: n) }
+
+// N6 — the `move` spelling the wrap refusal names, at an owned local.
+func wrap_move(n: Int) -> Res? {
+    let r = Res(w: n)
+    move r
+}
+
+// N9 — the generic rows. The tail reaches the tier arms as an abstract `T` and
+// DEFERS; the call site discharges the requirement against `Res`.
+func hand<T>(x: T) -> T? { x }
+func hand_result<T>(x: T) -> Result<T, Bad> { x }
+
+// N7 — a value BRANCH arm inside a wrapped tail. The peel runs AHEAD of
+// DF-299b's recursion, so the wrap comes off and each arm is then judged where
+// it is written; neither rule shadows the other.
+func branch_arm(n: Int) -> Res? {
+    let r = Res(w: n)
+    if n > 0 { move r } else { Res(w: 0) }
+}
+
+// N8 — `break <value>`, whose home is the LOOP's merged result and which takes
+// the checkpoint at the `break` itself (entry point 17).
+func break_value(n: Int) -> Int {
+    let r = Res(w: n)
+    var i = 0
+    let got = while {
+        i = i + 1
+        if i > 0 { break move r }
+    }
+    got.w
+}
+
+// N6 — the receiver route the `self` refusal names. A borrowed receiver has
+// nothing to move, so an author who means to END the caller's value declares
+// the method `consumes` (design 260) and the CALLER writes the `move`.
+struct Builder { held: Res }
+extension Builder: NoCopy {}
+extension Builder {
+    func finish(&var self) consumes -> Res { move self.held }
+}
+
+func main() {
+    print("try-call {}", try_call(1))
+    print("try-move {}", try_move(2))
+
+    var t3 = wrap_temporary(3)
+    if let g = move t3 { print("wrap-temporary {}", g.w) }
+
+    var t4 = wrap_move(4)
+    if let g = move t4 { print("wrap-move {}", g.w) }
+
+    var t5 = hand(Res(w: 5))
+    if let g = move t5 { print("generic-optional {}", g.w) }
+
+    var t6 = hand_result(Res(w: 6))
+    let g6 = try! move t6
+    print("generic-result {}", g6.w)
+
+    var t7 = branch_arm(7)
+    if let g = move t7 { print("branch-arm {}", g.w) }
+
+    print("break-value {}", break_value(8))
+
+    var b = Builder(held: Res(w: 9))
+    let out = (move b).finish()
+    print("consumed {}", out.w)
+
+    print("end")
+}

@@ -1,0 +1,8 @@
+struct Cell { n: Int }
+
+func main() {
+    var v: Vector<Cell> = [Cell(n: 1)]
+    let k = 3
+    let n = v.with_ref(0) { [k] c in c.n + k }
+    print(n)
+}

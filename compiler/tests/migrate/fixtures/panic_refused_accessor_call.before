@@ -1,0 +1,9 @@
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: out of range
+struct Cell { n: Int }
+
+func main() {
+    var v: Vector<Cell> = [Cell(n: 1)]
+    let n = v.with_ref(9) { c in c.n }
+    print(n)
+}

@@ -8,7 +8,8 @@ programs; compares `sawc2 lex` with the golden fixtures in `lex/`, whose token
 kinds and lex errors must cover the lexer's; runs the subset checker over the
 compiler source and its own fixtures in `subset/`; and runs the grammar lint,
 the reference recognizer's own tests in `grammar/`, and the parser corpus's
-checks over `parse/`. Each failure prints one line
+checks over `parse/`; and runs the corpus rewriter's golden fixtures in
+`migrate/`. Each failure prints one line
 in a fixed order, the summary comes last, and any failure exits 1.
 """
 import collections
@@ -31,6 +32,9 @@ import ast_nodes as A  # noqa: E402  (on sys.path through subset_check)
 import test_lint  # noqa: E402
 import test_parse  # noqa: E402
 import test_recognize  # noqa: E402
+
+sys.path.insert(0, os.path.join(HERE, "migrate"))
+import test_migrate  # noqa: E402
 
 UNIT_OUT = os.path.join(REPO, ".build", "compiler-tests")
 LEX_FIXTURES = os.path.join(HERE, "lex")
@@ -118,6 +122,7 @@ def check_fixture_whitespace(run):
     paths = [p for d in (LEX_FIXTURES, SUBSET_FIXTURES) for p in glob.glob(os.path.join(d, "*"))]
     paths += glob.glob(os.path.join(GRAMMAR_FIXTURES, "**", "*.*"), recursive=True)
     paths += glob.glob(os.path.join(PARSE_CORPUS, "**", "*.*"), recursive=True)
+    paths += glob.glob(os.path.join(test_migrate.FIXTURES, "*"))
     for path in sorted(paths):
         rel = os.path.relpath(path, REPO)
         with open(path, "rb") as fh:
@@ -299,6 +304,15 @@ def run_grammar(run):
             run.count(key, n)
 
 
+def run_migrate(run):
+    """The corpus rewriter's golden fixtures (compiler/tools/migrate)."""
+    failures, counts = test_migrate.run()
+    for failure in failures:
+        run.fail(failure)
+    for key, n in counts.items():
+        run.count(key, n)
+
+
 def main():
     run = Run()
     ok, output = build.build_sawc2()
@@ -310,6 +324,7 @@ def main():
         run_golden(run)
     run_subset(run)
     run_grammar(run)
+    run_migrate(run)
     for failure in run.failures:
         print(failure)
     summary = ", ".join("%d %s" % (n, key) for key, n in sorted(run.counts.items()))

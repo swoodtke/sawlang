@@ -1,0 +1,11 @@
+enum Slot { case Empty, case Named(name: String) }
+
+func main() {
+    var v = Vector<Slot>()
+    try! v.push(Slot.Named(name: "a"))
+    let n = match v[0] {
+        case Empty -> 0
+        case Named(s) -> s.len()
+    }
+    print(n)
+}

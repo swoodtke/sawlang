@@ -1,0 +1,19 @@
+// Every `deinit` body is an implicit `sync` context (design 18: suspending in
+// a destructor breaks deterministic destruction). Suspension is a compile error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `deinit` context
+// EXPECT-ERROR-CONTAINS: __saw_test_suspend
+
+struct Resource {
+    value: Int
+}
+
+extension Resource: NoCopy {
+    func deinit(&var self) {
+        __saw_test_suspend()
+    }
+}
+
+func main() {
+    let r = Resource(value: 42)
+}

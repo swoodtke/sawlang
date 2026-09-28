@@ -1,0 +1,13 @@
+// Design 144: real identities let two modules' public `Widget`s coexist, but a
+// BARE reference still cannot pick one. The ambiguity moved from the merge to
+// the use site (the design-142 pattern) and keeps its wording and its hint; the
+// fix is the alias, which d144_public_same_name_alias.saw exercises.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous struct `Widget`
+import modules.d144_pub_a.{Widget}
+import modules.d144_pub_b.{Widget}
+
+func main() {
+    let w = Widget(size: 7)
+    print(w.describe())
+}

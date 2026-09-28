@@ -1,0 +1,2 @@
+status: flagged
+8 E.lock flagged -- the closure's parameter name is bound elsewhere in the function, so the borrow binding could shadow it

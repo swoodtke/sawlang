@@ -1,0 +1,11 @@
+// Design 87: an if-arm result merging to a fixed-width binding is range-checked
+// at the arm literal — 300 does not fit `Int8`. Before 87 codegen narrowed the
+// arm value silently (300 wrapped to 44) with no diagnostic.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: integer literal 300 does not fit in `Int8`
+
+func main() {
+    let cond = true
+    let x: Int8 = if cond { 300 } else { 2 }
+    print(x)
+}

@@ -1,0 +1,8 @@
+//! Fixture for DF-232g: public compile-time constants an importer derives its
+//! own sizes from. `DERIVED` is the row that always worked — a const computed
+//! in its DEFINING module and imported whole.
+// EXPECT: skip
+
+public static A: Int = 4
+public static B: Int = 8
+public static DERIVED: Int = A * 2

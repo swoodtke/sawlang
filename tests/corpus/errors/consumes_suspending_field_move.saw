@@ -1,0 +1,41 @@
+// design 260 v1 — a consuming body may not both MOVE A FIELD OUT and SUSPEND.
+//
+// THE MECHANISM (which is why this is a fence rather than a bug): a suspending
+// method's receiver does not live in the callee. The coroutine transform hoists
+// it into the CALLER's frame, where it occupies one SLOT, and the frame's own
+// release is what ends it — whole value or nothing, on every teardown edge,
+// cancellation included. That release cannot skip a field, and a cancellation
+// point between the move and the body's end would need exactly the per-field
+// drop flag design 260 §3 excludes by construction.
+//
+// So the shape is refused rather than left to double-free (release the moved
+// field twice) or to leak (skip a field the move never reached). Both outs are
+// on the page: `take()` mutates the field to a valid state and needs no
+// all-paths rule at all, and a `sync` consuming method keeps the receiver in
+// the callee where the skipping release lives.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `harvest` moves field `a` out of `self` and also SUSPENDS
+// EXPECT-ERROR-CONTAINS: whose release is decided per slot and cannot skip a field
+// EXPECT-ERROR-CONTAINS: split the extraction into a `sync` consuming method
+
+import std.task.*
+
+struct Tag { id: Int }
+extension Tag: NoCopy {}
+
+struct Job { a: Tag, b: Tag }
+extension Job: NoCopy {}
+extension Job {
+    func harvest(&var self) consumes -> Tag {
+        yield_now()
+        move self.a
+    }
+}
+
+func drive(j: Job) -> Int { (move j).harvest().id }
+
+func main() {
+    var group = TaskGroup()
+    print("{}", group.spawn(drive(Job(a: Tag(id: 1), b: Tag(id: 2)))).join())
+}

@@ -1,0 +1,23 @@
+// Conformance row D12 — `__saw_drive` of a `-> Never` body is REFUSED, the
+// third position of the same rule
+//
+// Driving runs a frame to completion. A body that never completes would spin
+// the driver for ever, which is the same hang `join` would take in D10 wearing
+// different clothes — so it is the same refusal, from the same predicate.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a task body may not be `Never`
+// EXPECT-ERROR-CONTAINS: would drive it for ever
+
+import std.task.*
+
+func halt(n: Int) -> Never {
+    while {
+        yield_now()
+    }
+}
+
+func main() {
+    __saw_drive(halt(1))
+    print("driven")
+}

@@ -1,0 +1,61 @@
+// Design 111: chained assignment `x?.y = v` — writes the payload field in place
+// iff every optional hop is non-None; the RHS is skipped entirely on
+// short-circuit; the result types as `Void?`, discardable in statement position
+// and consumable via `guard let _ =` / `if let _ =`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 99
+// 77
+// 0
+// 42
+// 1
+// wrote
+// skipped
+// 55
+
+static RHS_CALLS: Atomic<Int> = Atomic(0)
+
+struct Point { x: Int, y: Int }
+struct Holder { p: Point }
+
+func rhs(v: Int) -> Int {
+    RHS_CALLS.fetch_add(1)
+    return v
+}
+
+// Consume the `Void?` result of a chained assignment via `guard let _`.
+func writeGuard(p: Point?) -> Bool {
+    var local = p
+    guard let _ = local?.x = 5 else { return false }
+    return true
+}
+
+func main() {
+    // Basic write-through: the mutation is caller-visible (statement discard).
+    var op: Point? = Point(x: 1, y: 2)
+    op?.x = 99
+    print(op!.x)                 // 99
+
+    // Longer chain: `var?.field.field = v`.
+    var oh: Holder? = Holder(p: Point(x: 10, y: 20))
+    oh?.p.x = 77
+    print(oh!.p.x)               // 77
+
+    // None head: the write AND the RHS are both skipped.
+    var none_op: Point? = None
+    none_op?.x = rhs(5)
+    print(RHS_CALLS.load())      // 0
+
+    // Present head: the RHS is evaluated exactly once.
+    op?.x = rhs(42)
+    print(op!.x)                 // 42
+    print(RHS_CALLS.load())      // 1
+
+    // Consume `Void?` via `guard let _` (written vs skipped).
+    if writeGuard(Point(x: 0, y: 0)) { print("wrote") }
+    if not writeGuard(None) { print("skipped") }
+
+    // Consume `Void?` via `if let _` (and the write lands).
+    var oi: Point? = Point(x: 0, y: 0)
+    if let _ = oi?.x = 55 { print(oi!.x) }   // 55
+}

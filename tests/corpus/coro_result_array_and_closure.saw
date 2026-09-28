@@ -1,0 +1,69 @@
+// A driven function may RETURN a fixed array or a closure, at every position a
+// result crosses: a nested call's target, a `return g(...)` tail, and the
+// driver's own move-out.
+//
+// These are the two return types design 218's migration does not put in a
+// `Slot` — a `[T; N]` because `a[i] = v` writes through element storage, and a
+// function type because a frame-resident closure is CALLED, which a `value()`
+// lend cannot spell. So a `__result` of either type keeps design 44's legacy
+// encoding, where the consuming read and the `__saw_forget` that clears the
+// drop flag are two statements the emission site has to pair correctly.
+//
+// Stage 4 traced those emissions over the whole suite and found the three
+// `__result` sites firing ZERO times: nothing in the corpus returned either
+// type from a driven function, so the one pairing the migration left in place
+// was also the one nothing covered. This is that coverage.
+//
+// `main` stays SYNC and reaches every root through `__saw_drive`, which is what
+// puts the driver's own move-out under test. (Mixing a `__saw_drive` site into
+// a body that itself suspends is DF-218n, an ICE, and not this file's subject.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 24
+// 24
+// 42
+// 42
+
+import std.task
+
+func mk_array() -> [Int; 3] {
+    task.yield_now()
+    [7, 8, 9]
+}
+
+// The `return g(...)` tail: the callee's result threads straight into this
+// frame's own `__result`.
+func tail_array() -> [Int; 3] {
+    return mk_array()
+}
+
+// A nested call's TARGET: the result moves into a frame-resident local.
+func sum_array() -> Int {
+    let a = mk_array()
+    a[0] + a[1] + a[2]
+}
+
+func mk_closure() -> () sync -> Int {
+    task.yield_now()
+    { 41 }
+}
+
+func tail_closure() -> () sync -> Int {
+    return mk_closure()
+}
+
+func call_closure() -> Int {
+    let f = mk_closure()
+    f() + 1
+}
+
+func main() {
+    // The driver's own move-out, for each return type.
+    let a = __saw_drive(tail_array())
+    print(a[0] + a[1] + a[2])
+    print(__saw_drive(sum_array()))
+
+    let f = __saw_drive(tail_closure())
+    print(f() + 1)
+    print(__saw_drive(call_closure()))
+}

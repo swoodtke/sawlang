@@ -1,0 +1,18 @@
+// Design 73 null-env fast path: a capture-less escaping closure has a null env
+// and no refcount word, so it stays trivially copyable — retain and drop are
+// null-guarded no-ops. Copy it repeatedly and call every copy; no heap env is
+// ever allocated or freed.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 42
+// 42
+
+func main() {
+    let f = { 42 }        // no captures -> null env
+    let g = f             // copy: retain is a no-op (null env)
+    let h = g             // copy again
+    print(f())            // 42
+    print(g())            // 42
+    print(h())            // 42
+}

@@ -1,0 +1,37 @@
+// Positive companion to nocopy_struct_field_init.saw: initializing a struct
+// field from a NoCopy value with `move` compiles, and the resource is deinit'd
+// exactly once (via the wrapper's automatic field deinit).
+// See todo_jul26.md must-fix #1.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// deinit
+// 42
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {
+        print("deinit")
+        print(self.fd)
+    }
+}
+
+struct Wrapper {
+    handle: FileHandle
+}
+
+extension Wrapper: NoCopy {
+    func deinit(&var self) {
+        // handle is auto-deinit'd after this body
+    }
+}
+
+func main() {
+    let f = FileHandle(fd: 42)
+    let w = Wrapper(handle: move f)   // ownership transferred into w.handle
+    print(w.handle.fd)
+    // w is deinit'd here; its handle field is deinit'd exactly once
+}

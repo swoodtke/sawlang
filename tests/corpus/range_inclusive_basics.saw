@@ -1,0 +1,37 @@
+// Design 53 Part 2: `..=` inclusive range. `0..=5` yields 0 through 5
+// inclusive; an inverted range (a > b) is empty; a for-in over an inclusive
+// range can break with a value.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 1
+// 2
+// 3
+// 4
+// 5
+// 100
+// 200
+// 4
+
+func main() {
+    for i in 0..=5 {
+        print(i)
+    }
+    print(100)
+
+    // Empty: start > end yields nothing.
+    for j in 3..=1 {
+        print(j)
+    }
+    print(200)
+
+    // For-in with a break value (Optional result).
+    let found = for k in 0..=10 {
+        if k == 4 {
+            break k
+        }
+    }
+    if let v = found {
+        print(v)
+    }
+}

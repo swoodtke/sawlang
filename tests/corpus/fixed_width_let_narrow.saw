@@ -1,0 +1,28 @@
+// Rider (design 77 item 8 follow-up): a fixed-width int LOCAL from a BARE
+// literal is stored at its ANNOTATED width, not platform width. Exercised as a
+// wire-format-shaped struct built from narrowed locals, read back field by
+// field — every value round-trips at its declared width.
+// EXPECT: success
+// EXPECT-OUTPUT: 200
+// EXPECT-OUTPUT: 8080
+// EXPECT-OUTPUT: 2130706433
+// EXPECT-OUTPUT: 127
+
+struct Packet {
+    flags: UInt8
+    port: Int16
+    addr: Int32
+}
+
+func main() {
+    let flags: UInt8 = 200        // bare literal, narrows to i8 storage
+    let port: Int16 = 8080        // bare literal, narrows to i16
+    let addr: Int32 = 2130706433  // 127.0.0.1 as an Int32 (fits i32, not i64-only)
+    let p = Packet(flags: flags, port: port, addr: addr)
+    print(p.flags)   // 200
+    print(p.port)    // 8080
+    print(p.addr)    // 2130706433
+
+    let hi: Int8 = 127            // Int8.max via a bare literal
+    print(hi)        // 127
+}

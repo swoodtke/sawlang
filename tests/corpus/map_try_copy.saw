@@ -1,0 +1,24 @@
+// Map.try_copy() is the reporting twin of Map.copy() (design 251, mirroring
+// Vector.try_copy verbatim): Ok on success, carrying an independent deep
+// copy exactly like `copy()`'s.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ok
+// 2
+// 3
+
+func main() {
+    var m = Map<String, Int>()
+    try! m.insert("a", 1)
+    try! m.insert("b", 2)
+
+    match m.try_copy() {
+        case Ok(w) -> {
+            print("ok")
+            print(w.len())
+            let _ = try! m.insert("c", 3)
+            print(m.len())     // the original grew; the copy did not share storage
+        },
+        case Err(e) -> print("err: {}", e)
+    }
+}

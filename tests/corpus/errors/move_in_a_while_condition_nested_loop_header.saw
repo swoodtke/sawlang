@@ -1,0 +1,93 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable `resource` across loop iterations
+// EXPECT-ERROR-CONTAINS: this move is in the loop's CONDITION
+// EXPECT-ERROR-CONTAINS: use of moved variable `deep` across loop iterations
+// EXPECT-ERROR-CONTAINS: use of moved variable `guarded` across loop iterations
+// EXPECT-ERROR-CONTAINS: use of moved variable `broken` across loop iterations
+//
+// SL-262 review r1's P1, and the mechanism behind it.
+//
+// The condition-move check is gated on the loop's BACK EDGE being reachable,
+// and `_body_continues_to_this_loop` decides whether a `continue` in the body
+// is a jump to that edge. It used to stop at an entire nested `while`/`for`, on
+// the reasoning that a nested loop captures its own jumps. A nested loop
+// captures the jumps in its BODY — but a HEAD is evaluated in the ENCLOSING
+// loop's control context, and a nested `for`'s ITERABLE is exactly that. So
+// `reviewer_repro` below read as "body ends in `break`, no back edge", the
+// check was disabled, and ONE `Res` was destroyed THREE times at exit 0.
+//
+// Which loop a head's jump targets is NOT uniform and was probed rather than
+// assumed (see `_body_continues_to_this_loop`): a nested `for`'s iterable
+// targets the OUTER loop, while a nested `while`'s condition and a `while let`'s
+// scrutinee bind to the INNER one. Only the `for` iterable is scanned.
+//
+// The ACCEPT half — the inner-BODY continue that must stay excluded, and the
+// two head shapes that bind inward — is
+// `examples/move_in_a_while_condition_back_edge.saw`.
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+func consume_bool(r: Res) -> Bool { true }
+
+// The reviewer's repro, verbatim in shape: printed `drop 7` three times and
+// then `3`, from one value, exit 0.
+func reviewer_repro() -> Int {
+    var resource = Res(name: "7")
+    var n = 0
+    while consume_bool(move resource) {
+        n = n + 1
+        for i in 0..(if n < 3 { continue } else { 0 }) {
+            print("{}", i)
+        }
+        break
+    }
+    n
+}
+
+// The iterable is reached through an `if`, so the scan has to descend to it
+// rather than only look at a nested loop sitting at the body's top level.
+func header_continue_under_an_if() -> Int {
+    var deep = Res(name: "deep")
+    var n = 0
+    while consume_bool(move deep) {
+        n = n + 1
+        if n > 0 {
+            for i in 0..(if n < 3 { continue } else { 0 }) { n = n + 100 }
+        }
+        break
+    }
+    n
+}
+
+// The same head with the body FALLING THROUGH: refused by the ordinary path
+// too, and here so the two reasons cannot be confused for one.
+func header_continue_body_falls_through() -> Int {
+    var guarded = Res(name: "guarded")
+    var n = 0
+    while consume_bool(move guarded) {
+        n = n + 1
+        for i in 0..(if n < 3 { continue } else { 0 }) { n = n + 100 }
+    }
+    n
+}
+
+// A `break` in a nested `for`'s iterable targets the OUTER loop too, so the
+// loop may still fall through to its back edge on the other path — the check
+// fires, correctly.
+func header_break_in_for_iterable() -> Int {
+    var broken = Res(name: "broken")
+    var n = 0
+    while consume_bool(move broken) {
+        n = n + 1
+        for i in 0..(if n == 2 { break } else { 2 }) { n = n + 10 }
+    }
+    n
+}
+
+func main() {
+    print("{reviewer_repro()} {header_continue_under_an_if()}")
+    print("{header_continue_body_falls_through()} {header_break_in_for_iterable()}")
+}

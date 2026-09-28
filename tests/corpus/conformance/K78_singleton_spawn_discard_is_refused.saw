@@ -1,0 +1,24 @@
+// Conformance row K78 — the two DISCARD spellings of a singleton spawn form
+// are REFUSED
+//
+// design 242 ruling 5: the result of `Thread.spawn { ... }` has a load-bearing
+// fate, so no spelling may throw it away. That includes the EXPLICIT discard
+// design 151 blessed for a `Result` — `let _ =` says "I read this and chose to
+// drop it", and dropping a live thread handle is not a choice the language
+// offers. The bare statement is the one a reader reaches for first (the
+// fire-and-forget guess), and it used to compile into a sequential call plus
+// thread overhead, because the handle's `deinit` joined.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Thread.spawn` hands back a `VoidThread` that must be consumed
+// EXPECT-ERROR-CONTAINS: `join()` waits for it
+
+func work() {
+    print("worked")
+}
+
+func main() {
+    Thread.spawn { work() }
+    let _ = Thread.spawn { work() }
+    print("unreachable")
+}

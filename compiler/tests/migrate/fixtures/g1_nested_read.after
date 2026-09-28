@@ -1,0 +1,4 @@
+func main() {
+    var g: Vector<Vector<Int>> = [[1, 2], [3, 4]]
+    print(borrow let g[1][0])
+}

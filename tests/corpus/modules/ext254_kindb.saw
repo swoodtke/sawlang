@@ -1,0 +1,13 @@
+//! Design 254 fixture: a SECOND module extending `Panel` with an
+//! indistinguishable `kind`. Reached directly while the facade forwards
+//! `ext254_knobs`' copy, it is the ordinary design-142 call-site ambiguity —
+//! the widened scope invents no new diagnostic.
+// EXPECT: skip
+
+import modules.ext254_panel.{Panel}
+
+extension Panel {
+    public func kind(&self) -> Int {
+        8
+    }
+}

@@ -1,0 +1,13 @@
+// Design 227 unit 4: the compound chained assignment takes design 111's head
+// rule unchanged — the head must be a mutable place — because it flows through
+// the same write-target funnel and the same head check as `p?.x = 9`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign through optional chain: `p` is not mutable
+
+struct Point { x: Int, y: Int }
+
+func main() {
+    let p: Point? = Point(x: 1, y: 2)
+    p?.x += 9
+    print(p!.x)
+}

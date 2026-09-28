@@ -1,0 +1,61 @@
+// DF-138a, the ownership half: a dual-role function that OWNS what it carries.
+//
+// `label` takes a move-only `Token` and returns a refcounted `String`, and is
+// both spawned directly and embedded below `relabel`. The spawn role's
+// trampoline frame holds the `Token` for exactly as long as it takes to hand it
+// down to the sub-frame, and threads the `String` back up to the cell — so the
+// live count has to reach 0 with the group still alive (design 124's eager
+// teardown), not merely by the end of the program. `note` is the `Void` twin:
+// no result to thread, so its trampoline's tail is a bare call.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// token-3
+// token-7
+// 3
+// 0
+
+import std.task.*
+
+static SEEN: Atomic<Int> = Atomic(0)
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Token { id: Int }
+extension Token {
+    init(tag: Int) -> Token {
+        LIVE.fetch_add(1)
+        Token(id: tag)
+    }
+}
+extension Token: NoCopy { func deinit(&var self) { LIVE.fetch_add(0 - 1) } }
+
+func label(t: Token) -> String {
+    yield_now()
+    "token-{t.id}"
+}
+
+func relabel() -> String {
+    return label(Token(tag: 7))
+}
+
+func note(n: Int) {
+    yield_now()
+    SEEN.fetch_add(n)
+}
+
+func announce() {
+    note(2)
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(label(Token(tag: 3)))
+    let b = group.spawn(relabel())
+    let v = group.spawn(note(1))
+    let w = group.spawn(announce())
+    print(a.join())
+    print(b.join())
+    v.join()
+    w.join()
+    print(SEEN.load())    // 1 + 2
+    print(LIVE.load())    // every Token released, group still alive
+}

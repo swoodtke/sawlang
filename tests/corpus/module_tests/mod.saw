@@ -1,0 +1,10 @@
+// Module that re-exports the lib module
+// EXPECT: skip
+
+// Re-export the lib module publicly
+public module lib
+
+// Also export some local symbols
+public func mod_func() -> Int {
+    77
+}

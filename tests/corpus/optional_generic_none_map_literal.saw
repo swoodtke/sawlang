@@ -1,0 +1,29 @@
+// Design 174 — DF-146l trigger site 1. A bare `None` as a Map literal VALUE
+// dies with an ICE rather than adopting the annotated value type:
+//
+//   internal compiler error: None literal has no type information
+//
+// The annotation says `Map<String, Int?>`, so the expected value type reaches
+// the literal element; the Vector form of the same shape types fine. The ICE
+// (rather than a clean anchored error) is itself the bug.
+// FIXED by design 176 unit 1: `_apply_literal_expected_type` — the recursion
+// that already pushes a fixed integer width down into a container's elements —
+// now pushes an OPTIONAL expectation onto a bare `None` too, and codegen reads
+// it. One fix, every element position: Map value, Vector/array element, Set
+// element, tuple element.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// len 1
+// x inner-absent
+// -- done
+
+func main() {
+    var m: Map<String, Int?> = {"x": None}
+    print("len {m.len()}")
+    if let inner = m.get("x") {
+        if let value = inner { print("x {value}") } else { print("x inner-absent") }
+    } else {
+        print("x outer-absent")
+    }
+    print("-- done")
+}

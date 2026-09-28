@@ -1,0 +1,21 @@
+// Calling an owning closure does NOT consume it; it drops once afterward at
+// scope exit (design 71). Calling twice runs the body twice but the capture is
+// released exactly once at drop.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 7
+// deinit 7
+
+struct Res { v: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.v}") }
+}
+
+func main() {
+    let r = Res(v: 7)
+    let f = { [move r] in r.v }
+    print(f())      // 7
+    print(f())      // 7 (body reads the still-owned capture)
+    // f drops at scope exit -> "deinit 7" (exactly once)
+}

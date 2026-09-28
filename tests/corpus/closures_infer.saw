@@ -1,0 +1,13 @@
+// Closure type inference test: omitting parameter types
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+
+func apply(x: Int, f: (Int) -> Int) -> Int {
+    f(x)
+}
+
+func main() {
+    let result = apply(5, { x in x * 2 })
+    print(result)
+}

@@ -1,0 +1,2 @@
+status: rewritten,expectation-pending
+7 A1.field-write rewritten => borrow var v[5].n = 2

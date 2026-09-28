@@ -1,0 +1,66 @@
+// design 126 R1 (RC-2): monomorphizing a driven generic-struct method must
+// substitute EVERY SawType the typechecker stamped on the cloned body -- not
+// only the ones that happened to be declared dataclass fields.
+//
+// `substitute_ast_types` walks `dataclasses.fields()`. While the typechecker's
+// annotations (`resolved_type` above all, plus the match/collection plans) were
+// grafted onto nodes at runtime they were invisible to it, so a generic
+// template's annotations were carried into every instantiation STALE -- still
+// mentioning `T` rather than the concrete argument, and shared between
+// instantiations. Declaring the fields makes the substituter see them.
+//
+// This drives ONE generic-struct method at THREE instantiations, with a body
+// whose annotations are all T-parameterized and all live across the suspension:
+// a `match` over a `T`-parameterized enum (stamps the match plan) and a
+// `Vector<T>` built from a collection literal (stamps the container type). Each
+// instantiation must produce its OWN concrete answers, and re-driving the first
+// after the second is built must not pick up the second's types.
+//
+// Honest scope: this pins the monomorphization-annotation path, but it is NOT a
+// failing-before/passing-after regression. Blinding `substitute_ast_types` to
+// `resolved_type` and to every annotation -- i.e. reproducing exactly what the
+// pre-R1 grafts hid from it -- still passes the whole suite, this test included.
+// So the un-substituted annotations are a latent contract defect that R1 closes,
+// not a reachable miscompile in today's corpus. See designs/todo.md (DF-126a).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 3
+// 2
+// 1
+// 1
+// 2
+
+enum Cell<T> { case Empty, case Full(v: T) }
+
+struct Holder<T> { slot: Cell<T>, seen: Int }
+
+extension Holder<T> {
+    // Suspends, so it is driven; every annotation below is monomorphized.
+    func settle(&var self, spare: T) -> Int {
+        let items: Vector<T> = [move spare]      // stamps the Vector container type
+        __saw_suspend()                          // everything above is frame-resident
+        let n = match self.slot {
+            case Full(v) -> 1,                   // stamps the match plan (Cell<T>)
+            case Empty -> 0
+        }
+        self.seen = self.seen + n + items.len()
+        self.seen
+    }
+}
+
+func main() {
+    var a = Holder<Int>(slot: Cell<Int>.Full(v: 99), seen: 5)
+    print(__saw_drive(a.settle(spare: 1)))    // 5 + 1 + 1 = 7
+    print(a.seen - 4)                          // 3
+
+    var b = Holder<String>(slot: Cell<String>.Empty, seen: 1)
+    print(__saw_drive(b.settle(spare: "x")))  // 1 + 0 + 1 = 2
+    print(b.seen - 1)                          // 1
+
+    // Re-drive the FIRST instantiation after the second was built: its own
+    // annotations must still be Int's, not String's.
+    var c = Holder<Int>(slot: Cell<Int>.Empty, seen: 0)
+    print(__saw_drive(c.settle(spare: 4)))    // 0 + 0 + 1 = 1
+    print(c.seen + 1)                          // 2
+}

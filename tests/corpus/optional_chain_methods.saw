@@ -1,0 +1,42 @@
+// Design 111: method hops in an optional chain — an extension method, a trait
+// DEFAULT method reached through the payload, and a mixed field/method chain.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// area 25
+// 30
+// -1
+
+struct Point { x: Int, y: Int }
+extension Point {
+    func doubledX(&self) -> Int { self.x * 2 }
+}
+
+trait Shape {
+    func area(&self) -> Int
+    func describe(&self) -> String { "area {self.area()}" }
+}
+struct Square { side: Int }
+extension Square: Shape {
+    func area(&self) -> Int { self.side * self.side }
+}
+
+struct Cell { p: Point, sq: Square }
+
+func main() {
+    let p: Point? = Point(x: 21, y: 0)
+    // `?.method()` — extension method on the payload.
+    print(p?.doubledX() ?? -1)
+
+    // A trait DEFAULT method (`describe`) reached through the payload.
+    let s: Square? = Square(side: 5)
+    print(s?.describe() ?? "none")
+
+    // Mixed chain: `?.` field then plain `.` method on the unwrapped payload.
+    let c: Cell? = Cell(p: Point(x: 15, y: 0), sq: Square(side: 4))
+    print(c?.p.doubledX() ?? -1)
+
+    // None head: the method (and any args) are skipped.
+    let none_p: Point? = None
+    print(none_p?.doubledX() ?? -1)
+}

@@ -1,0 +1,14 @@
+// Set iteration exclusivity (design 54): `each` borrows the set shared for the
+// whole walk (inherited from Map.each_key), so a visitor that also captures the
+// SAME set mutably is a static Law-of-Exclusivity error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+
+func main() {
+    var s = Set<Int>()
+    s.insert(1)
+    s.each { [&var s] e in
+        let _ = s.insert(e + 100)   // mutating the set being iterated: rejected
+    }
+    print(s.len())
+}

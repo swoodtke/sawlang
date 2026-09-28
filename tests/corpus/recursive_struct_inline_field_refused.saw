@@ -1,0 +1,17 @@
+// Design 246 row 10: a struct with a field of its own type, inline. Same
+// rule as the enum row, at the other declaration kind — a field embeds
+// storage exactly as a payload does.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: recursive type `Node` has infinite size
+// EXPECT-ERROR-CONTAINS: Node.next -> Node
+// EXPECT-ERROR-ABSENT: internal compiler error
+
+struct Node {
+    value: Int
+    next: Node
+}
+
+func main() -> Int {
+    0
+}

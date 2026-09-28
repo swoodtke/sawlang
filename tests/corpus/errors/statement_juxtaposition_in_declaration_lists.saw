@@ -1,0 +1,47 @@
+// SL-347 R3 — bare JUXTAPOSITION is refused: the four DECLARATION lists.
+//
+// Module scope is not the only newline-separated declaration list the parser
+// reads. An inline `module m { … }` body is the same list one brace in, an
+// extension's MEMBERS and a trait's REQUIREMENTS are member lists, and an
+// `extern "C" { … }` block is a list of function declarations. Each takes a
+// newline per unit and is never joined by a `;`, so each gets the declarations
+// message — and each is an entry of the statement-end chokepoint, named in its
+// docstring.
+//
+// Found by codex's r1 review of SL-347.p1: `module m { func a() … func b() … }`
+// compiled and RAN while the same two declarations at file level were refused,
+// because the inline-module loop only `skip_newlines()`. The sweep for the
+// same bypass found three more loops, all here.
+//
+// The COMMA-delimited lists are exempt and stay so — a struct's fields, an
+// enum's cases, a `match`'s arms, a map or set literal, an import's symbol
+// list — because a newline carries no meaning inside one (design 129/147).
+// The running half of this row is `examples/declaration_lists_take_a_line_each.saw`.
+//
+// Each row sits in its own TOP-LEVEL declaration (the parse loop batches one
+// error per declaration) and names a DIFFERENT pair of first tokens.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: two declarations on one line: the first begins with `public`, the second with `public`
+// EXPECT-ERROR-CONTAINS: two declarations on one line: the first begins with `func`, the second with `static`
+// EXPECT-ERROR-CONTAINS: two declarations on one line: the first begins with `type`, the second with `func`
+// EXPECT-ERROR-CONTAINS: two declarations on one line: the first begins with `func`, the second with `func`
+// EXPECT-ERROR-CONTAINS: declarations are not joined by `;` — put each declaration on its own line
+
+// ROW 14 — an inline `module m { … }` body.
+module inline_row { public func a() -> Int { 1 } public func b() -> Int { 2 } }
+
+struct Counter { n: Int }
+
+// ROW 15 — an extension's MEMBERS.
+extension Counter { func first(&self) -> Int { self.n } static func make() -> Counter { Counter(n: 7) } }
+
+// ROW 16 — a trait's REQUIREMENTS.
+trait Named { type Item func label(&self) -> Int }
+
+// ROW 17 — an `extern "C" { … }` block.
+extern "C" { func abs(n: Int32) -> Int32 func labs(n: Int) -> Int }
+
+func main() {
+    print("{}", inline_row.a())
+}

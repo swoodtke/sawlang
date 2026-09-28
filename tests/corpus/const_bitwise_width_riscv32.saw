@@ -1,0 +1,26 @@
+// Design 185 unit 1 at a 32-bit target. A constant is folded at the EFFECTIVE
+// target's integer width, which is the whole reason the evaluator masks instead
+// of using Python's unbounded integers: `1 << 31` is a positive 2147483648 on a
+// 64-bit host and `Int.min` on riscv32, and the register maps that write this
+// arithmetic are exactly the code that is cross-compiled.
+// COMPILE-FLAGS: --freestanding --target riscv32-unknown-none-elf
+// EXPECT: object
+// EXPECT-SYMBOL-UNDEFINED: __saw_rt_write
+
+static_assert((1 << 31) == Int.min, "the sign bit of a 32-bit word")
+static_assert((1 << 30) == 1073741824, "one below it still fits")
+static_assert(~0 == -1, "all ones is -1 at every width")
+static_assert((~0 & 0xFFFF) == 65535, "and masks down to a half word")
+static_assert((0x80000000 >> 16) == 32768, "an unsigned-looking constant")
+
+// A page table's arithmetic, which is what this profile writes.
+static PAGE_SHIFT: Int = 12
+
+static_assert((1 << PAGE_SHIFT) == 4096, "4K pages")
+static_assert(((1 << PAGE_SHIFT) - 1) == 0xFFF, "and the offset mask")
+
+@export("kmain")
+func kmain() {
+    var page = [0; 1 << 6]
+    print("{} {}", page.len(), (1 << PAGE_SHIFT) - 1)
+}

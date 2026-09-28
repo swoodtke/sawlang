@@ -1,0 +1,11 @@
+// Design 229: selecting a name the module only imports is refused AT the
+// import, which is the line that has to change either way.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `leaf_make` is not part of `modules.export229_wall`'s surface
+// EXPECT-ERROR-CONTAINS: add `public import` in `modules.export229_wall`
+import modules.export229_wall.{wall_make, leaf_make}
+
+func main() {
+    let f = wall_make(n: 3)
+    print("{f.size}")
+}

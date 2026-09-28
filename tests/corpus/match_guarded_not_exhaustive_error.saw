@@ -1,0 +1,15 @@
+// Design 63 T1d: a guarded arm never counts toward exhaustiveness (its guard
+// can fail), so a `case x if ...` catch-all-shaped arm still needs a fallback.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: not exhaustive
+
+func f(n: Int) -> Int {
+    match n {
+        case x if x > 0 -> 1
+        case y if y < 0 -> 2
+    }
+}
+
+func main() {
+    print(f(1))
+}

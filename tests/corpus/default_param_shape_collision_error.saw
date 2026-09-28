@@ -1,0 +1,12 @@
+// Design 53 Part 1: decl-site shape expansion vs design-55 overloads. The
+// defaulted `g(Int, Int=5)` expands to shapes {g(Int, Int), g(Int)}; the second
+// shape collides with `g(Int)`, so the declaration is rejected.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: indistinguishable signature
+
+func g(x: Int, y: Int = 5) -> Int { x + y }
+func g(x: Int) -> Int { x }
+
+func main() {
+    print(g(1))
+}

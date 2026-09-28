@@ -1,0 +1,19 @@
+// Containment looks through array-typed fields (design 33): a struct holding a
+// `[NoCopy; N]` field is itself move-only and must declare NoCopy. Without the
+// declaration, the containment check rejects it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: contains NoCopy field `files` of type `[F; 2]` but does not implement NoCopy
+
+struct F { fd: Int }
+extension F: NoCopy {
+    func deinit(&var self) { }
+}
+
+struct Holder {
+    files: [F; 2]
+}
+
+func main() {
+    let h = Holder(files: [F(fd: 1), F(fd: 2)])
+    print(h.files[0].fd)
+}

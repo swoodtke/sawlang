@@ -1,0 +1,11 @@
+// Conformance row R07 — return type `&Int?`
+//
+// The return position with an optional SUFFIX on the reference. `&Int?`
+// parses as a reference whose referent is optional, so the return rule
+// sees it directly rather than through a generic argument.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: may not return a reference
+// EXPECT-ERROR-CONTAINS: the return type `&Int?` is a reference
+
+func f(x: &Int) -> &Int? { x }
+func main() { print(1) }

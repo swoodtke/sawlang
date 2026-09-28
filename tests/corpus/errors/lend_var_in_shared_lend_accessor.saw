@@ -1,0 +1,32 @@
+// Design 179's always-constant rule, re-keyed by SL-333 R6 from the RECEIVER
+// spelling onto the DECLARED WINDOW MODE.
+//
+// Design 179 refused `#lend_var` in a `&var self` accessor, because that
+// spelling was then exclusive-only at every use: the constant would always be
+// true while reading as a live decision. R1 moved that fact into the return
+// type, so the declaration that opens one flavor only is now `borrows -> &T` —
+// a read-only lend, where the constant is always FALSE. Same rule, same reason,
+// the key it was always about. (`&var self ... borrows -> &var T` is now the
+// ORDINARY writable accessor and is exactly where the constant belongs; see
+// `lend_var_two_specializations.saw`.)
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `#lend_var` is always false in a `borrows -> &T` accessor
+
+struct Grid { cells: [Int; 4], gates: Int }
+
+extension Grid {
+    func run_gate(&var self) { self.gates = self.gates + 1 }
+
+    public func [](&var self, i: Int) borrows -> &Int {
+        if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
+        if #lend_var {
+            self.run_gate()
+        }
+        lend self.cells[i]
+    }
+}
+
+func main() {
+    let g = Grid(cells: [1, 2, 3, 4], gates: 0)
+    print("{g[0]}")
+}

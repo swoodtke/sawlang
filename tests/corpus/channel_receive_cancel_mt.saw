@@ -1,0 +1,85 @@
+// DF-230a at the OTHER engine: a task parked in `receive()` inside an MT group
+// (`threads: N`) is reached by `cancel()` too.
+//
+// The two engines promote a readiness-word park in different code — the ambient
+// sweep in `__saw_exec_wake_flags`, an MT worker in its own under-the-lock scan —
+// so the cancel clause had to be added twice and is worth checking twice. The
+// worker's scan is the one that could quietly keep the old behavior: it promotes
+// inline while it is already holding the slot, so a missing clause there shows up
+// only as a hang under `threads:`.
+//
+// DF-246a, the MT-test doctrine (TESTING.md "Waiting in a multi-threaded test"):
+// this used to `sleep(Duration.ms(50))` before the cancel, on the assumption
+// that the worker had by then drained both messages and parked. A margin is not
+// a synchronizer — under load the pool may not have claimed the task at all, and
+// the cancel would then land on a consumer that had handled nothing. What the
+// test waits on now is the CONSUMER'S OWN REPORT: it publishes its running total
+// on `progress` after every message, main polls that until it reads the total of
+// both, and only then cancels. The awaited state is stable once reached —
+// nothing ever sends on `orders` again, so a consumer that has handled both
+// messages stays in `receive()` until the cancel arrives — and the deadline
+// below bounds only genuine breakage. What the test ASSERTS is the same either
+// way: design 230 puts the cancel check at the loop top, ahead of the queue
+// read, so a cancel that lands in the instant before the park gives the same
+// `Cancelled` and the same total as one that reaches the parked frame through
+// the worker's under-the-lock scan. That is what makes the row deterministic
+// while still aiming at the promotion path (conformance K69).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// the receiving task was cancelled
+// handled 30
+
+import std.channel.{Channel, ChannelError}
+
+static FIRST_ORDER: Int = 10
+static SECOND_ORDER: Int = 20
+static BOTH_HANDLED: Int = FIRST_ORDER + SECOND_ORDER
+
+// The poll's pacing and its bound. The tick paces and decides nothing; the
+// deadline is ~10s, well inside the runner's own 30s runtime limit, so it fires
+// only when the consumer genuinely never reports in.
+static POLL_TICK_MS: UInt64 = 1
+static POLL_DEADLINE_TICKS: Int = 10000
+
+func consume(orders: Channel<Int>, progress: Channel<Int>) -> Int {
+    var handled = 0
+    while true {
+        match orders.receive() {
+            case Ok(v) -> {
+                handled = handled + v
+                try! progress.send(handled)
+            },
+            case Err(e) -> {
+                print("{}", e.describe())
+                return handled
+            }
+        }
+    }
+    return handled
+}
+
+func main() {
+    var g = try! TaskGroup(threads: 2)
+    let orders = try! Channel<Int>()
+    let progress = try! Channel<Int>()
+    try! orders.send(FIRST_ORDER)
+    try! orders.send(SECOND_ORDER)
+    let h = g.spawn(consume(orders.copy(), progress.copy()))
+    var handled = 0
+    var ticks = 0
+    while handled < BOTH_HANDLED {
+        sleep(Duration.ms(POLL_TICK_MS))
+        match progress.try_receive() {
+            case Ok(report) -> {
+                if let total = report { handled = total }
+            },
+            case Err(e) -> { panic("the progress channel failed: {}", e.describe()) }
+        }
+        ticks = ticks + 1
+        if ticks > POLL_DEADLINE_TICKS {
+            panic("the consumer never reported handling both orders")
+        }
+    }
+    h.cancel()
+    print("handled {}", h.join())
+}

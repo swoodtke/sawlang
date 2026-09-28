@@ -1,0 +1,51 @@
+// K148 (design 275 U3 / SL-215): DF-196b's MULTI-ERROR REFUSAL IS INHERITED
+// WHOLE.
+//
+// A suspending `try { } catch { }` block may raise only ONE error type: the
+// catch would bind a union the split lowering cannot build. SL-215 routes the
+// INLINE form through that same split, so the same fence applies — and it is
+// satisfied by construction for a one-expression inline catch, which raises
+// exactly one type. What is refused is the BLOCK the inline form desugars
+// into when an author writes two error types in it, which is the shape that
+// was refused before U3 and is refused identically after.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: may raise only ONE error type
+
+import std.task.{yield_now}
+
+struct Alpha { why: String }
+extension Alpha: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.why) }
+}
+
+struct Beta { why: String }
+extension Beta: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.why) }
+}
+
+func a(x: Int) -> Result<Int, Alpha> {
+    yield_now()
+    if x < 0 { return Alpha(why: "a") }
+    x
+}
+
+func b(x: Int) -> Result<Int, Beta> {
+    yield_now()
+    if x < 0 { return Beta(why: "b") }
+    x
+}
+
+func two_error_types(x: Int) -> Int {
+    var total = 0
+    try {
+        total = total + (try a(x))
+        total = total + (try b(x))
+    } catch {
+        total = 0
+    }
+    total
+}
+
+func main() {
+    print("{__saw_drive(two_error_types(1))}")
+}

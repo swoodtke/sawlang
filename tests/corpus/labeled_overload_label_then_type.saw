@@ -1,0 +1,15 @@
+// Design 66: the label filter runs first, then design-55 exact-type matching on
+// survivors. Here both overloads share the labels `a`/`b`, so the label filter
+// keeps both; the second argument's TYPE then selects the overload.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 42
+
+func h(a: Int, b: Int) -> Int { a + b }
+func h(a: Int, b: String) -> Int { 42 }
+
+func main() {
+    print(h(a: 1, b: 2))     // Int -> first
+    print(h(a: 1, b: "hi"))  // String -> second
+}

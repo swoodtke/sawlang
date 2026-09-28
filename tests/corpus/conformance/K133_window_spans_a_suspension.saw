@@ -1,0 +1,233 @@
+// K133 (design 275 U3 / SL-317): A TRACKED `for` WINDOW SPANS A SUSPENSION.
+//
+// The iterator value becomes frame state and the loop head re-enters through
+// `next()`, so a suspending call inside a collection `for` EMBEDS instead of
+// being refused. THE ORACLE IS THE SYNC TWIN: every cell runs the same body
+// without a suspension, and the two answers must agree.
+//
+// THE AXES this file walks, one cell per combination it names:
+//
+//   ITERATOR   Vector.iter, Vector.enumerated, a USER borrowing iterator, a
+//              RECORD-LESS user iterator (one that owns its source and opens
+//              NO window — the split admits any `Iterator` conformer, and the
+//              borrowing struct is what the std iterators ADD), and Map.keys
+//              (an owned copy — the control that shows the split is not about
+//              borrowing at all).
+//   SUSPENSION in the BODY. (The HEAD axis is K139's, where the ACQUIRE
+//              sequence is what it measures.)
+//   CONTEXT    a DRIVEN root, a SPAWNED root, an EMBEDDED callee inside a
+//              spawned parent, and NESTED inside a `while` and inside another
+//              `for`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// iter sync 12
+// iter driven 12
+// enumerated sync 15
+// enumerated driven 15
+// user sync 12
+// user driven 12
+// owned sync 12
+// owned driven 12
+// map sync 6
+// map driven 6
+// spawned 12
+// embedded in spawned 24
+// nested in while 24
+// nested in for 36
+
+import std.task.{yield_now}
+
+func step(x: Int) -> Int {
+    yield_now()
+    x * 2
+}
+
+func step_sync(x: Int) -> Int { x * 2 }
+
+// ---- a USER borrowing iterator over a user collection ----------------------
+
+struct Bag {
+    private items: Vector<Int>
+}
+extension Bag: NoCopy {}
+
+borrows struct BagIterator {
+    private bag: &Bag
+    private index: Int
+}
+
+extension Bag {
+    public func iter(&self) borrows -> BagIterator {
+        BagIterator(bag: lends self, index: 0)
+    }
+}
+
+extension BagIterator: Iterator {
+    type Item = Int
+    public func next(&var self) -> Int? {
+        if self.index < self.bag.items.len() {
+            let i = self.index
+            self.index = self.index + 1
+            self.bag.items.get(i)
+        } else {
+            None
+        }
+    }
+}
+
+// ---- a RECORD-LESS user iterator: it OWNS its source, so no window opens ---
+
+struct Counter {
+    private next_value: Int,
+    private last: Int
+}
+
+extension Counter: Iterator {
+    type Item = Int
+    public func next(&var self) -> Int? {
+        if self.next_value > self.last {
+            None
+        } else {
+            let v = self.next_value
+            self.next_value = self.next_value + 1
+            v
+        }
+    }
+}
+
+// ---- the cells -------------------------------------------------------------
+
+func iter_sync(v: &Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() { total = total + step_sync(x) }
+    total
+}
+
+func iter_driven(v: &Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() { total = total + step(x) }
+    total
+}
+
+func enumerated_sync(v: &Vector<Int>) -> Int {
+    var total = 0
+    for pair in v.enumerated() { total = total + pair.0 + step_sync(pair.1) }
+    total
+}
+
+func enumerated_driven(v: &Vector<Int>) -> Int {
+    var total = 0
+    for pair in v.enumerated() { total = total + pair.0 + step(pair.1) }
+    total
+}
+
+func user_sync(b: &Bag) -> Int {
+    var total = 0
+    for x in b.iter() { total = total + step_sync(x) }
+    total
+}
+
+func user_driven(b: &Bag) -> Int {
+    var total = 0
+    for x in b.iter() { total = total + step(x) }
+    total
+}
+
+func owned_sync() -> Int {
+    var total = 0
+    for x in Counter(next_value: 1, last: 3) { total = total + step_sync(x) }
+    total
+}
+
+func owned_driven() -> Int {
+    var total = 0
+    for x in Counter(next_value: 1, last: 3) { total = total + step(x) }
+    total
+}
+
+func map_sync(m: &Map<Int, Int>) -> Int {
+    var total = 0
+    let ks = try! m.keys()
+    for k in ks.iter() { total = total + step_sync(k) }
+    total
+}
+
+func map_driven(m: &Map<Int, Int>) -> Int {
+    var total = 0
+    let ks = try! m.keys()
+    for k in ks.iter() { total = total + step(k) }
+    total
+}
+
+// CONTEXT: an EMBEDDED callee — the window lives in a frame the parent embeds
+// by value (design 44), and the parent is itself spawned.
+func embedded_leaf(v: &Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() { total = total + step(x) }
+    total
+}
+
+func embedded_parent(v: Vector<Int>) -> Int {
+    let a = embedded_leaf(&v)
+    yield_now()
+    let b = embedded_leaf(&v)
+    a + b
+}
+
+func spawned_root(v: Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() { total = total + step(x) }
+    total
+}
+
+// CONTEXT: nested in a `while` and in another `for`.
+func nested_in_while(v: &Vector<Int>) -> Int {
+    var total = 0
+    var n = 0
+    while n < 2 {
+        for x in v.iter() { total = total + step(x) }
+        n = n + 1
+    }
+    total
+}
+
+func nested_in_for(v: &Vector<Int>, outer: &Vector<Int>) -> Int {
+    var total = 0
+    for _o in outer.iter() {
+        for x in v.iter() { total = total + step(x) }
+    }
+    total
+}
+
+func main() {
+    let v: Vector<Int> = [1, 2, 3]
+    print("iter sync {iter_sync(&v)}")
+    print("iter driven {__saw_drive(iter_driven(&v))}")
+    print("enumerated sync {enumerated_sync(&v)}")
+    print("enumerated driven {__saw_drive(enumerated_driven(&v))}")
+
+    var bv: Vector<Int> = [1, 2, 3]
+    let b = Bag(items: move bv)
+    print("user sync {user_sync(&b)}")
+    print("user driven {__saw_drive(user_driven(&b))}")
+
+    print("owned sync {owned_sync()}")
+    print("owned driven {__saw_drive(owned_driven())}")
+
+    let m: Map<Int, Int> = {1: 10, 2: 20}
+    print("map sync {map_sync(&m)}")
+    print("map driven {__saw_drive(map_driven(&m))}")
+
+    var g = TaskGroup()
+    var sv: Vector<Int> = [1, 2, 3]
+    let h = g.spawn(spawned_root(move sv))
+    print("spawned {h.join()}")
+
+    var ev: Vector<Int> = [1, 2, 3]
+    let e = g.spawn(embedded_parent(move ev))
+    print("embedded in spawned {e.join()}")
+
+    print("nested in while {__saw_drive(nested_in_while(&v))}")
+    let outer: Vector<Int> = [0, 0, 0]
+    print("nested in for {__saw_drive(nested_in_for(&v, &outer))}")
+}

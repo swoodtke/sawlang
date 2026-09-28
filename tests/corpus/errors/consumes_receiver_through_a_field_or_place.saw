@@ -1,0 +1,30 @@
+// design 260 §2 — a consuming call through a FIELD or a PLACE is refused by
+// the rules that already exist, with each shape's own escape named.
+//
+// Both come free from routing the transfer through the move checkpoint: a field
+// receiver is design 35's no-partial-moves error (`take()` is the field's own
+// move-out), and an indexed place is the same refusal with `swap_out` named.
+// Neither owes a rule of design 260's own — which is exactly why the design
+// spells the call with `move`.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot move out of field `b` of `h`
+// EXPECT-ERROR-CONTAINS: a field moves out with `h.b.take()`
+// EXPECT-ERROR-CONTAINS: cannot move out of element `[0]` of `v`
+// EXPECT-ERROR-CONTAINS: an indexed place moves out with `swap_out` instead
+
+struct Builder { n: Int }
+extension Builder: NoCopy {}
+extension Builder {
+    func finish(&var self) consumes -> Int { self.n }
+}
+
+struct Holder { b: Builder }
+extension Holder: NoCopy {}
+
+func main() {
+    var h = Holder(b: Builder(n: 3))
+    print("{}", (move h.b).finish())
+    var v: Vector<Builder> = []
+    print("{}", (move v[0]).finish())
+}

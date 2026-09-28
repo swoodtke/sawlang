@@ -1,0 +1,54 @@
+// Conformance row A11 (the `Box` half) — `Box.make` reports.
+//
+// The static factory (design 42 item 1) was `make_or`, then design 123's
+// `try_make` beside a panicking `make`, and since design 234 it is one `make`
+// that reports. Success returns `Ok(Box)`; on allocator failure it returns
+// `Err(AllocError)` carrying the request's size/align AND cleanly deinits the
+// value (never leaks it) — "reports" and "does not leak" are one guarantee
+// here, because the refusal path owns a value it never stored. The failure is
+// forced with an always-None probe allocator and a deinit-printing payload;
+// "gone 2" proves the clean drop, and the interpolated `Err` covers
+// AllocError's Printable/Error conformance.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// gone 2
+// 8
+// gone 3
+// allocation of 8 bytes (align 8) failed
+
+struct Res { id: Int }
+extension Res {
+    func peek(&self) -> Int { self.id }
+}
+extension Res: NoCopy {
+    func deinit(&var self) { print("gone {self.id}") }
+}
+
+// Always fails: exercises the fallible factory's Err path deterministically.
+struct NullAlloc {}
+extension NullAlloc: Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? { None }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {}
+}
+
+func main() {
+    // Success (GlobalAllocator, Int payload): Ok, value() reads 7.
+    match Box<Int>.make(7) {
+        case Ok(b) -> print(borrow let b.value()),   // 7
+        case Err(e) -> print(e.size)
+    }
+
+    // Failure (NullAlloc, Deinit payload): the value is cleanly deinit'd inside
+    // `make`'s scope exit ("gone 2"), then Err carries size = sizeof(Res) = 8.
+    match Box<Res, NullAlloc>.make(Res(id: 2)) {
+        case Ok(b) -> print(b.peek()),
+        case Err(e) -> print(e.size)      // gone 2, then 8
+    }
+
+    // AllocError is Printable (design 123), so an OOM can be logged directly.
+    match Box<Res, NullAlloc>.make(Res(id: 3)) {
+        case Ok(b) -> print(b.peek()),
+        case Err(e) -> print("{e}")
+    }
+}

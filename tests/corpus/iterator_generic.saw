@@ -1,0 +1,29 @@
+// Test extending built-in Range with custom methods
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 15
+
+// Uses built-in Iterator interface and Range struct from builtin.saw
+// Add sum method to built-in Range
+extension Range {
+    func sum(&var self) -> Int {
+        var total = 0
+        while {
+            if let value = self.next() {
+                total = total + value
+            } else {
+                break
+            }
+        }
+        total
+    }
+}
+func main() {
+    // Sum 0..4 = 0+1+2+3 = 6
+    var r1 = Range(current: 0, end: 4)
+    print(r1.sum())
+    // Sum 0..6 = 0+1+2+3+4+5 = 15
+    var r2 = Range(current: 0, end: 6)
+    print(r2.sum())
+}

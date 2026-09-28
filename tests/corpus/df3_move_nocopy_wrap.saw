@@ -1,0 +1,35 @@
+// DF3 preserves move semantics through the wrap (design 57): a NoCopy value
+// auto-wrapped into a T? parameter is MOVED (consumed) exactly as an explicit
+// Some(...) construction would be — no copy, and destroyed exactly once. The
+// deinit prints 99 on the single drop; the value is read out first (7).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 99
+// 7
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print(99)
+    }
+}
+
+func consume(r: Res?) -> Int {
+    // `move r` is the consuming unwrap (design 131): a NoCopy payload is never
+    // read out of a place, so the binding takes the whole optional with it.
+    if let v = move r {
+        v.id
+    } else {
+        -1
+    }
+}
+
+func main() {
+    let r = Res(id: 7)
+    // `move r` transfers the NoCopy value; DF3 wraps it into Res? at the edge,
+    // consuming it (no copy). It is dropped once inside `consume` (prints 99).
+    print(consume(move r))   // 7
+}

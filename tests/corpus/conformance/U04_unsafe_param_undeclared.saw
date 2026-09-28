@@ -1,0 +1,9 @@
+// Conformance row U04 — a function whose PARAMETER is unsafe-typed, undeclared
+//
+// The SIGNATURE half of the contact rule, on the parameter side: receiving an
+// unsafe-typed value is contact even if the body never names it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is not declared `unsafe`, but its signature receives a value of unsafe type
+
+func f(p: UnsafePointer<Int>) -> Int { 1 }
+func main() { print(1) }

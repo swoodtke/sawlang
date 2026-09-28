@@ -1,0 +1,36 @@
+// DF-232o: a TYPE refused by tier reports ONCE, and the uses below it are
+// silent. The refusal answers None and a type name that resolves to nothing
+// becomes an opaque type of the same name (canonicalization is total — a bare
+// name may be a type parameter or a forward reference), so every later use
+// disagreed with the real type STRUCTURALLY while the printer rendered both
+// sides short: "field `s` expects type `PkgBox` but got `PkgBox`", once per
+// use. The kernel narrowing that found this produced 100+ such lines around one
+// true refusal.
+//
+// The refused name is POISONED now, and `_types_compatible` — the one place two
+// types are judged — answers compatible for it, so the cascade never starts.
+// The compile still fails: the refusal was reported.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `PkgBox` is public(package) in `module_tests.pkg232n.src.lib`
+// EXPECT-ERROR-ABSENT: but got `PkgBox`
+// EXPECT-ERROR-ABSENT: body has no value
+import module_tests.pkg232n.src.lib.{PkgBox, make_box}
+
+struct Holder {
+    b: PkgBox
+}
+
+func take(b: PkgBox) -> Int {
+    b.n
+}
+
+func again(b: PkgBox) -> Int {
+    b.n + 1
+}
+
+func main() {
+    let a = make_box()
+    let h = Holder(b: a)
+    print(take(h.b))
+    print(again(make_box()))
+}

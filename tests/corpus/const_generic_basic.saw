@@ -1,0 +1,53 @@
+// Design 148 unit C: const generics — a type parameter that carries a VALUE.
+//
+// `Scratch<16>` and `Scratch<256>` are DIFFERENT types with different layouts,
+// monomorphized separately, and `N` reads inside the body as an ordinary Int
+// that costs nothing at runtime. This is the shape DF-137a was filed over.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 16
+// 7
+// 0
+// 256
+// 16
+// 256
+
+// Declared here rather than imported from `std.fixedbuf`, so the test shows the
+// whole shape — declaration, extension, use — in one file.
+struct Scratch<const N: Int> {
+    data: [UInt8; N]
+}
+
+extension Scratch<N> {
+    init() -> Scratch<N> {
+        Scratch<N>(data: [0; N])
+    }
+
+    // `N` is a value of type Int here, one per instantiation.
+    func capacity(&self) -> Int {
+        N
+    }
+
+    func at(&self, i: Int) -> UInt8 {
+        self.data[i]
+    }
+
+    func put(&var self, i: Int, b: UInt8) {
+        self.data[i] = b
+    }
+}
+
+func main() {
+    var small = Scratch<16>()
+    print(small.capacity())
+    small.put(3, 7)
+    print(small.at(3))
+    print(small.at(0))
+
+    var big = Scratch<256>()
+    print(big.capacity())
+
+    // Two instantiations, two layouts — the value is part of the type.
+    print(sizeof<Scratch<16>>())
+    print(sizeof<Scratch<256>>())
+}

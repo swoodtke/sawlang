@@ -1,0 +1,40 @@
+// Returning an erased error from a body that SUSPENDS works exactly as
+// returning one from a sync body does.
+//
+// `return MyErr(code: n)` in a `Result<Int, Box<any Error>>` function is an
+// ErasedErrWrap the typechecker inserts into the AST. A `yield_now()` ahead of
+// it makes the body suspending, so the coroutine transform lowers the return
+// into an ASSIGNMENT into the frame's result slot — and the Err has to be built
+// against the WRAP's own `result_type`, because the enclosing state-machine
+// step returns `Poll`. Its concrete sibling `ResultErrWrap` always passed its
+// own type down; the erased wrap called the one-argument overload and was a
+// codegen ICE (DF-192c, fixed by design 196).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// err MyErr(7)
+
+import std.task.*
+
+struct MyErr { code: Int }
+
+extension MyErr: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("MyErr(")
+        try! into.append(self.code)
+        try! into.append(")")
+    }
+}
+
+extension MyErr: Error {}
+
+func fail(n: Int) -> Result<Int, Box<any Error>> {
+    yield_now()
+    return MyErr(code: n)
+}
+
+func main() {
+    match fail(7) {
+        case Ok(v) -> print("ok {v}"),
+        case Err(e) -> print("err {e}")
+    }
+}

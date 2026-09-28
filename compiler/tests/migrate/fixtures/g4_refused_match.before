@@ -1,0 +1,14 @@
+struct Res { n: Int }
+extension Res: NoCopy {}
+enum Slot { case Empty, case Full(res: Res) }
+extension Slot: NoCopy {}
+
+func main() {
+    var v = Vector<Slot>()
+    try! v.push(Slot.Full(res: Res(n: 3)))
+    let n = match v[0] {
+        case Empty -> 0
+        case Full(r) -> r.n
+    }
+    print(n)
+}

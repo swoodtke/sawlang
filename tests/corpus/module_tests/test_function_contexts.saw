@@ -1,0 +1,83 @@
+// Test: Module functions in various block contexts
+// EXPECT: success
+// EXPECT-OUTPUT: 30
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 6
+// EXPECT-OUTPUT: 12
+// EXPECT-OUTPUT: 20
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: 100
+
+import lib
+
+// Test function call in if/else
+func test_if_else() -> Int {
+    let flag = true
+
+    if flag {
+        lib.add(10, 20)
+    } else {
+        lib.add(1, 2)
+    }
+}
+
+// Test function call in while loop
+func test_while() -> Int {
+    var result = 0
+    var i = 0
+
+    while i < 3 {
+        result = lib.add(result, i)
+        i = i + 1
+    }
+
+    result  // 0 + 1 + 2 = 3
+}
+
+// Test function call in for loop
+func test_for() -> Int {
+    var result = 0
+
+    for i in 0..4 {
+        result = lib.add(result, i)
+    }
+
+    result  // 0 + 1 + 2 + 3 = 6
+}
+
+// Test function as final expression
+func test_final_expr() -> Int {
+    let a = 5
+    let b = 7
+    lib.add(a, b)
+}
+
+// Test function returning struct from module
+func test_struct_return() -> Int {
+    let p = lib.make_point(10)
+    p.sum()  // 20
+}
+
+// Test function returning optional
+func test_optional_return() -> Int {
+    let maybe = lib.get_optional(true)
+    maybe ?? 0
+}
+
+// Test function returning result
+func test_result_return() -> Int {
+    match lib.get_result(true) {
+        case Ok(n) -> n,
+        case Err(_) -> 0
+    }
+}
+
+func main() {
+    print(test_if_else())       // 30
+    print(test_while())         // 3
+    print(test_for())           // 6
+    print(test_final_expr())    // 12
+    print(test_struct_return()) // 20
+    print(test_optional_return()) // 42
+    print(test_result_return()) // 100
+}

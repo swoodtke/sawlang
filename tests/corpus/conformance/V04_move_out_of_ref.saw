@@ -1,0 +1,13 @@
+// Conformance row V04 — `move` out of a `&` parameter
+//
+// The shared half of the rule: a `&` parameter borrows, so it cannot be the
+// source of a move any more than a `&var` one can.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot move out of reference `x`
+
+func steal(x: &Vector<Int>) -> Vector<Int> { move x }
+func main() {
+    var v: Vector<Int> = [1]
+    let w = steal(&v)
+    print(w.len())
+}

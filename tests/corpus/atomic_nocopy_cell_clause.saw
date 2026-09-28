@@ -1,0 +1,70 @@
+// design 202 unit 2: `Atomic` moved tier; the cell clause under it did not.
+//
+// Design 186 ruled that a cell FIELD contributes its `T`'s copy class rather
+// than forcing `NoCopy` onto whatever holds it, so a user wrapper over a cell
+// of a plain word copies for free until its author declares otherwise. Design
+// 202 moves ONE type across that line — `Atomic` now declares `NoCopy` itself,
+// which is the escape hatch the clause always pointed at, not a change to the
+// clause.
+//
+// Both directions in one file, because a clause with one test is a clause that
+// can be widened by accident:
+//
+//   * `Tally` holds a cell of `Int` and declares nothing. It copies. (The rule
+//     design 186 kept, and the reason `member_copy_tier` exists at all.)
+//   * `Gauge` holds an `Atomic<Int>` and declares `NoCopy`. It does not — the
+//     DECLARED policy on the field's type wins over the structural join, which
+//     is what the cell clause has to leave alone to stay narrow.
+//
+// The refusals are pinned separately: `conformance/V26` (`let b = a` on an
+// atomic) and `conformance/V27` (the holder that declares nothing).
+//
+// EXPECT: success
+// EXPECT-OUTPUT: cell wrapper copies: 5 5
+// EXPECT-OUTPUT: the copy is its own storage: 9 5
+// EXPECT-OUTPUT: atomic holder moves: 2
+// EXPECT-OUTPUT: one counter: 2
+
+// ---- the design-186 side: an undeclared cell wrapper is free-tier ----
+
+struct Tally {
+    slot: UnsafeMutableInterior<Int>
+}
+
+extension Tally {
+    init(start: Int) unsafe -> Tally { Tally(slot: UnsafeMutableInterior(start)) }
+    func _at(&self) unsafe -> UnsafePointer<Int> { self.slot.ptr() }
+    func get(&self) unsafe -> Int { self._at()[0] }
+    func set(&self, v: Int) unsafe { self._at()[0] = v }
+}
+
+// ---- the design-202 side: a holder of an `Atomic` declares its policy ----
+
+struct Gauge {
+    n: Atomic<Int>
+}
+
+extension Gauge: NoCopy {}
+
+extension Gauge {
+    func bump(&self) { let _old = self.n.fetch_add(1) }
+    func get(&self) -> Int { self.n.load() }
+}
+
+func main() {
+    let a = Tally(start: 5)
+    let b = a
+    print("cell wrapper copies: {a.get()} {b.get()}")
+
+    // And the copy is a SECOND cell, which is exactly why `Atomic` no longer
+    // takes this path: a write through one is invisible through the other.
+    a.set(9)
+    print("the copy is its own storage: {a.get()} {b.get()}")
+
+    let g = Gauge(n: Atomic(0))
+    g.bump()
+    g.bump()
+    let moved = move g
+    print("atomic holder moves: {moved.get()}")
+    print("one counter: {moved.n.load()}")
+}

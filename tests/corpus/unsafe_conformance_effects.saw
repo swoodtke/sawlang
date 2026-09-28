@@ -1,0 +1,76 @@
+// The ACCEPT side of design 188 unit 6. Enforcing the requirement-to-conformer
+// direction of the `unsafe` effect must not disturb the three shapes around it:
+//
+//   * an `unsafe` requirement satisfied by an `unsafe`-declared implementation
+//     — the conforming case, and now the only way to implement one
+//   * a SAFE requirement satisfied by an `unsafe`-declared implementation. That
+//     is rule 7's redundant declaration (audit U17/U25): it says something
+//     about the BODY, not about the contract, and callers through the
+//     requirement are unaffected. The reverse direction stays unchecked on
+//     purpose
+//   * calling an unsafe requirement through the existential, which is where the
+//     promise is actually kept
+//
+// Unsafety is not transitive either (U21): `Meter` holds a `Probe` whose method
+// is unsafe and is itself an ordinary safe type.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: raw 41
+// EXPECT-OUTPUT: erased 41
+// EXPECT-OUTPUT: redundant 9
+
+struct UnsafeCell {
+    slot: Int
+}
+
+trait Raw {
+    func peek(&self) unsafe -> Int
+}
+
+trait Plain {
+    func label(&self) -> Int
+}
+
+struct Probe {
+    cell: UnsafeCell
+}
+
+// The conforming case: the requirement declares `unsafe`, so the body does too.
+extension Probe: Raw {
+    func peek(&self) unsafe -> Int {
+        let c = self.cell
+        c.slot
+    }
+}
+
+// The redundant direction, which stays legal: the requirement is safe and the
+// implementation declares the effect anyway, because its own body has contact.
+extension Probe: Plain {
+    func label(&self) unsafe -> Int {
+        let c = self.cell
+        c.slot - 32
+    }
+}
+
+// Not transitive: a safe type may hold one whose methods are unsafe.
+struct Meter {
+    probe: Probe
+}
+
+extension Meter {
+    func read(&self) unsafe -> Int {
+        self.probe.peek()
+    }
+}
+
+func through_existential(r: &any Raw) unsafe -> Int {
+    r.peek()
+}
+
+func main() {
+    let p = Probe(cell: UnsafeCell(slot: 41))
+    let m = Meter(probe: p)
+    print("raw {m.read()}")
+    print("erased {through_existential(&p)}")
+    print("redundant {p.label()}")
+}

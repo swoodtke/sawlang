@@ -1,0 +1,18 @@
+// Design 142: two imported modules may each extend one type with the same
+// method name. Both are in scope here, so they form an ordinary overload set and
+// resolve by signature — no special rule, and no silent shadowing of one by the
+// other (which is what the old global registry did).
+// EXPECT: success
+// EXPECT-OUTPUT: 22
+// EXPECT-OUTPUT: 26
+
+import modules.ext142_base.{Reading}
+import modules.ext142_near
+import modules.ext142_alpha
+import modules.ext142_beta
+
+func main() {
+    let r = ext142_near.make_reading()
+    print(r.tag())
+    print(r.tag(5))
+}

@@ -1,0 +1,94 @@
+// SL-208 / DF-300e: suspending FREE functions reached across a module
+// boundary. A module-qualified call (`mod.f(...)`) parses as a MethodCall; the
+// coroutine transform now embeds it as a free-function frame exactly as a
+// same-module `FunctionCall`, so its suspension routes correctly instead of
+// lowering as a plain call whose park no-ops / wedges the reactor.
+import std.task.{yield_now}
+
+public struct Failure { public message: String }
+extension Failure: Error {
+    public func format(&self, into: &var StringBuilder) { try! into.append(self.message) }
+}
+
+public func respondN() -> Int {
+    yield_now()
+    9
+}
+
+public func fallibleN(x: Int) -> Result<Int, Failure> {
+    yield_now()
+    if x < 0 { return Failure(message: "neg") }
+    x + 1
+}
+
+// Face 2: a `Byte` local held ACROSS a suspension forces a `Slot<Byte>` frame
+// field, whose prelude alias (`Byte = UInt8`) must resolve identically in the
+// entry module the frame is materialized in.
+public func first_byte(s: String) -> Int {
+    let b: Byte = s.byte_at(0)
+    yield_now()
+    b as Int
+}
+
+// Review r1 finding 1: DEFAULTED parameters. An embedded callee frame is built
+// with one value per FORMAL, and a call carries only what the author wrote — so
+// each of these is a call site whose argument list is SHORTER than the frame's
+// parameter list, by a trailing default (design 53) or by a label skipping
+// forward over one (design 66). Every arm of the sum is distinct, so a value
+// landing in the wrong slot shows up as a wrong number rather than as a pass.
+public func posdefN(a: Int = 7) -> Int {
+    yield_now()
+    a
+}
+
+public func labdefN(a: Int, b: Int = 5) -> Int {
+    yield_now()
+    a * 100 + b
+}
+
+public func mixN(a: Int, b: Int = 50, c: Int = 900) -> Int {
+    yield_now()
+    a + b + c
+}
+
+// Review r2: a NON-suspending CALL in the default position, naming a helper
+// PRIVATE to this module. The default is materialized at the CALLER's site, in
+// a module that cannot see `seed_valueN` — so the copy travels under design
+// 210's embed contract (already resolved, never re-resolved) exactly as a
+// spliced imported BODY does. Without that it was `undefined function
+// seed_valueN` at every entry-module call that omitted `b`.
+func seed_valueN() -> Int {
+    40
+}
+
+public func syncdefN(a: Int, b: Int = seed_valueN()) -> Int {
+    yield_now()
+    a + b
+}
+
+// Review r2: a SUSPENDING default. Supplying the argument works (the default is
+// never looked at); OMITTING it is the SL-221 refusal, and this is the
+// cross-module half of the pair that pins the two modules answering alike.
+func suspend_seedN() -> Int {
+    yield_now()
+    7
+}
+
+public func suspdefN(x: Int = suspend_seedN()) -> Int {
+    yield_now()
+    x * 10
+}
+
+// Review r1 finding 2: a suspending GENERIC callee inside an imported body. The
+// spliced copy reaches the driven closure after the generic-promotion pass has
+// run over the entry seeds, so this instantiation has to be discovered when the
+// body is spliced or its call site keeps its generic AST and the caller's
+// synthesized `resume` is refused for calling a suspending callee.
+func identityN<T>(x: T) -> T {
+    yield_now()
+    x
+}
+
+public func wrappedN(x: Int) -> Int {
+    identityN<Int>(x)
+}

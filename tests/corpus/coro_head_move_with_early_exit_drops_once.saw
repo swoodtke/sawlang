@@ -1,0 +1,269 @@
+// SL-234: a `move` in a `guard let`, `for` or `while` HEAD relinquishes the
+// frame's claim EXACTLY ONCE — so the value is destroyed once when a contained
+// block exits early, and a block that REINITIALIZES the local keeps its
+// replacement's claim.
+//
+// The sibling of `coro_head_move_relinquishes_before_early_exit.saw`, which pins
+// the four heads SL-222 fixed (inline `try`, `if`, `if let`, `match`). These are
+// the three that were left: they emitted the move's drop-flag clear AFTER the
+// whole statement, which every `return`/`break`/`continue` inside their blocks
+// leaves before — the callee destroyed the value, then frame teardown destroyed
+// it again. Silent: exit 0, no diagnostic.
+//
+// All three now take `_hoist_head_and_relinquish`: the head is bound to a temp,
+// the claim is given up between it and the container, and there is NO trailing
+// clear — which is what also fixes the reinit half, since a trailing clear would
+// erase a claim a block re-established.
+//
+// WHERE those statements go is per container, and `while` is the one that
+// differs: `guard let` and `for` evaluate their head exactly ONCE (a statement's
+// subject; an iterator seeded before the first pass), so the relinquish is a
+// PRELUDE ahead of the container — which is what the two cells below measure. A
+// `while` CONDITION re-evaluates, so its relinquish goes INSIDE the loop ahead
+// of the body dispatch, on every iteration including a `continue` backedge; the
+// `while` cells here cover the exits (a body that `return`s, a body that
+// reinitializes and `break`s) and
+// `examples/coro_while_head_move_reevaluates_per_iteration.saw` covers the
+// repeated evaluation a once-only prelude would freeze (SL-226 review r1).
+//
+// THE ORACLE IS THE SYNC TWIN: every cell runs the same body without a
+// suspension, and the two destruction sequences must be identical. Drops are
+// NAMED, so a doubled `old` and a leaked `new` are distinguishable rather than
+// just counted.
+//
+// The two LEAF cells this file used to carry — a `let` initializer and an
+// assignment RHS whose value `if` moves in its condition and returns from an arm
+// — are REFUSALS now, not fixes: a leaf statement's blocks are operands and one
+// can sit to the LEFT of the move, so no placement is expressible. They are
+// pinned by examples/errors/coro_let_init_move_beside_early_exit.saw and
+// examples/errors/coro_assign_rhs_move_beside_early_exit.saw.
+// (The output is deliberately FLAT — `EXPECT-OUTPUT` strips each expected line,
+// so indented output cannot be matched by it.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// guard-exit sync
+// drop old
+// -> 1
+// guard-exit driven
+// drop old
+// -> 1
+// for-exit sync
+// drop old
+// -> 2
+// for-exit driven
+// drop old
+// -> 2
+// while-exit sync
+// drop old
+// -> 3
+// while-exit driven
+// drop old
+// -> 3
+// guard-reinit sync
+// drop old
+// drop new
+// -> 4
+// guard-reinit driven
+// drop old
+// drop new
+// -> 4
+// for-reinit sync
+// drop old
+// drop new
+// -> 5
+// for-reinit driven
+// drop old
+// drop new
+// -> 5
+// while-reinit sync
+// drop old
+// drop new
+// -> 6
+// while-reinit driven
+// drop old
+// drop new
+// -> 6
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+func note(r: &Res) -> Int { r.name.len() }
+
+func consume_none(r: Res) -> Int? { None }
+// design 275 U3: this used to return a `Vector<Int>` the head iterated with
+// `.iter()`, which is now the temporary-receiver REFUSAL — a BORROWED
+// iterator's receiver must be a place rooted in a named binding, because a
+// temporary has no persistent storage for the window to point into. An OWNED
+// iterator has no such restriction (it owns its source), so the head keeps its
+// shape by handing back a `String`: what this file pins is the `move` IN the
+// head and the drop that follows it, and `_hoist_head_and_relinquish` is the
+// same routine either way.
+func consume_text(r: Res) -> String { "a" }
+func consume_bool(r: Res) -> Bool { true }
+
+// ---- a contained block EXITS EARLY: the value dies once, in the callee ----
+
+func guard_exit_sync(items: Vector<Int>) -> Int {
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        guard let got = consume_none(move r) else { return 1 }
+    }
+    0
+}
+func guard_exit_driven(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        guard let got = consume_none(move r) else { return 1 }
+    }
+    0
+}
+
+func for_exit_sync(items: Vector<Int>) -> Int {
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        for j in consume_text(move r).bytes() { return 2 }
+    }
+    0
+}
+func for_exit_driven(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        for j in consume_text(move r).bytes() { return 2 }
+    }
+    0
+}
+
+// The two DRIVEN `while` cells below now exercise the SPLIT lowering, which is
+// what design 275 U3 changed about them: U3 charges a collection `for`'s
+// back-edge and everything nested inside it, so the inner `while` SPANS and its
+// head goes through `_split_while` rather than `_lower_inplace`. Both paths
+// reach `_hoist_head_and_relinquish` now (SL-338), so the driven cells answer
+// exactly as their sync twins do — which is the oracle this file is built on.
+
+func while_exit_sync(items: Vector<Int>) -> Int {
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        while consume_bool(move r) { return 3 }
+    }
+    0
+}
+func while_exit_driven(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        while consume_bool(move r) { return 3 }
+    }
+    0
+}
+
+// ---- a contained block REINITIALIZES the local: the replacement still dies ----
+
+func guard_reinit_sync(items: Vector<Int>) -> Int {
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        guard let got = consume_none(move r) else {
+            r = Res(name: "new")
+            continue
+        }
+    }
+    4
+}
+func guard_reinit_driven(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        guard let got = consume_none(move r) else {
+            r = Res(name: "new")
+            continue
+        }
+    }
+    4
+}
+
+func for_reinit_sync(items: Vector<Int>) -> Int {
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        for j in consume_text(move r).bytes() { r = Res(name: "new") }
+    }
+    5
+}
+func for_reinit_driven(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        for j in consume_text(move r).bytes() { r = Res(name: "new") }
+    }
+    5
+}
+
+func while_reinit_sync(items: Vector<Int>) -> Int {
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        while consume_bool(move r) {
+            r = Res(name: "new")
+            break
+        }
+    }
+    6
+}
+func while_reinit_driven(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        while consume_bool(move r) {
+            r = Res(name: "new")
+            break
+        }
+    }
+    6
+}
+
+func main() {
+    print("guard-exit sync")
+    print("-> {guard_exit_sync([1, 2])}")
+    print("guard-exit driven")
+    print("-> {__saw_drive(guard_exit_driven([1, 2]))}")
+
+    print("for-exit sync")
+    print("-> {for_exit_sync([1, 2])}")
+    print("for-exit driven")
+    print("-> {__saw_drive(for_exit_driven([1, 2]))}")
+
+    print("while-exit sync")
+    print("-> {while_exit_sync([1, 2])}")
+    print("while-exit driven")
+    print("-> {__saw_drive(while_exit_driven([1, 2]))}")
+
+    print("guard-reinit sync")
+    print("-> {guard_reinit_sync([1])}")
+    print("guard-reinit driven")
+    print("-> {__saw_drive(guard_reinit_driven([1]))}")
+
+    print("for-reinit sync")
+    print("-> {for_reinit_sync([1])}")
+    print("for-reinit driven")
+    print("-> {__saw_drive(for_reinit_driven([1]))}")
+
+    print("while-reinit sync")
+    print("-> {while_reinit_sync([1])}")
+    print("while-reinit driven")
+    print("-> {__saw_drive(while_reinit_driven([1]))}")
+}

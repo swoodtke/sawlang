@@ -1,0 +1,21 @@
+// Test process execution - Command.run(), Command.output()
+// EXPECT: success
+// EXPECT-OUTPUT: stdout: hello
+// EXPECT-OUTPUT: success: true
+
+import std.process.{Command}
+func main() {
+    // Test capturing output from printf (no trailing newline)
+    var cmd = Command(program: "/bin/echo")
+    try! cmd.arg("-n")
+    try! cmd.arg("hello")
+
+    if let result = try! cmd.output() {
+        let out = result.stdout
+        let ok = result.success()
+        print("stdout: {out}")
+        print("success: {ok}")
+    } else {
+        print("command failed")
+    }
+}

@@ -1,0 +1,12 @@
+// Design 111: `?.` on a non-Optional expression is a clean error (no silent
+// no-op) — the payload access is only meaningful over an Optional.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot use optional chaining on non-optional type `P`
+
+struct P { x: Int }
+
+func main() {
+    let p = P(x: 1)
+    let y = p?.x
+    print(y ?? 0)
+}

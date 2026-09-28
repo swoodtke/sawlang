@@ -1,0 +1,17 @@
+// DF-151e: an `[T?; N]` carries T's transfer tier (design 139), so making the
+// element optional does not buy it a free copy. A repeat literal needs an
+// element that copies for free, and a NoCopy payload behind a `?` is still
+// NoCopy — the refusal names the policy the payload has, not the wrapper.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: repeat literal needs a freely copyable element
+// EXPECT-ERROR-CONTAINS: NoCopy
+struct Handle {
+    id: Int
+}
+
+extension Handle: NoCopy {}
+
+func main() {
+    let slots: [Handle?; 4] = [Handle(id: 1); 4]
+    print("{slots[0]!.id}")
+}

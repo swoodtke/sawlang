@@ -1,0 +1,19 @@
+// design 51 unsized discipline: a bare `let x: any Shape` binding is rejected —
+// an erased value must live behind `&any` or `Box<any>`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: unsized
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+struct Circle { r: Int }
+extension Circle: Shape {
+    func area(&self) -> Int { self.r * self.r }
+}
+
+func main() {
+    let c = Circle(r: 2)
+    let x: any Shape = c
+    print(x.area())
+}

@@ -1,0 +1,10 @@
+// Design 53 Part 3: a suffixed literal has exactly its fixed-width type — it
+// does NOT implicitly convert to a different fixed-width type (unlike an
+// unsuffixed literal, which coerces from platform Int).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign `UInt16` to variable of type `Int8`
+
+func main() {
+    let x: Int8 = 5u16
+    print(x)
+}

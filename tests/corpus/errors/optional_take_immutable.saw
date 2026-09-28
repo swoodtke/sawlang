@@ -1,0 +1,16 @@
+// Design 131: `take()` writes `None` back into the place, so it needs a mutable
+// one — it is checked exactly like any other `&var self` method.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot call `take()` on immutable variable `o`
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop res {self.id}") }
+}
+
+func main() {
+    let o: Res? = Res(id: 3)
+    let g = o.take()!
+    print("g {g.id}")
+}

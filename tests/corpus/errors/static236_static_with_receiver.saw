@@ -1,0 +1,15 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: method `mag` is declared `static` but takes a receiver — remove the `static`, or drop the `&self`/`&var self` parameter if a static was intended
+//
+// Design 236, position-matrix row 6: the MIRROR error. Once the keyword is
+// the declaration, the parameter list is no longer free to disagree with it —
+// a `static` method that takes `&self` names two contradictory call shapes,
+// and neither reading is safe to pick for the author.
+
+struct Point { x: Int }
+
+extension Point {
+    static func mag(&self) -> Int { self.x }
+}
+
+func main() { print("unreached") }

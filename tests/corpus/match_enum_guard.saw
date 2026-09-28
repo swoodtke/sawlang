@@ -1,0 +1,23 @@
+// Design 63 T1d: guards compose with enum-variant patterns; the match stays
+// exhaustive via full variant coverage (no redundant `case _` needed).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 1000
+// -1
+
+enum Slot { case Num(n: Int), case Empty }
+
+func f(b: Slot) -> Int {
+    match b {
+        case Num(n) if n > 10 -> 1000
+        case Num(n) -> n
+        case Empty -> -1
+    }
+}
+
+func main() {
+    print(f(Slot.Num(n: 5)))
+    print(f(Slot.Num(n: 50)))
+    print(f(Slot.Empty))
+}

@@ -1,0 +1,84 @@
+// design 186 unit 4: a complete interior-mutable type, built out of the
+// primitive by a program the compiler has never heard of.
+//
+// `Counter` is not `Atomic`, not `SpinLock`, not `UnsafeMemory`. It gets every
+// behavior those three used to get from a list of names, because it CARRIES A
+// CELL:
+//
+//   * its `&self` methods reach the caller's storage (by-pointer receiver);
+//   * a `static` of it lands in writable storage;
+//   * it derives no `Sync` until it says `UnsafeSync`;
+//   * and `self.hits.bump()` — a `&var self`-shaped mutation through a `&self`
+//     receiver's FIELD — is exempt from design 176b's refusal, exactly as
+//     `self.n.fetch_add(1)` on an `Atomic` field is.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 0
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 30
+// EXPECT-OUTPUT: 1
+
+// ---- the wrapper idiom: a cell field, `&self` methods, one unsafe helper ----
+
+struct Counter {
+    cell: UnsafeMutableInterior<Int>
+}
+
+extension Counter: UnsafeSync {}
+
+extension Counter {
+    public init(start: Int) unsafe -> Counter {
+        Counter(cell: UnsafeMutableInterior(start))
+    }
+
+    // The ONE unsafe helper. Confinement is a signature (design 130).
+    func _at(&self) unsafe -> UnsafePointer<Int> {
+        self.cell.ptr()
+    }
+
+    // Everything below is safe to CALL and mutates through a shared borrow.
+    public func value(&self) unsafe -> Int { self._at()[0] }
+    public func bump(&self, by: Int) unsafe { self._at()[0] = self._at()[0] + by }
+}
+
+// ---- a holder whose own `&self` method drives the cell field ----
+
+struct Page {
+    hits: Counter,
+    id: Int
+}
+
+extension Page {
+    // The design-176b exemption: `hits` is cell-carrying, so this call reaches
+    // the caller's storage rather than a copy's. Without the exemption this
+    // would be a compile error; without the by-pointer receiver under it, it
+    // would be a silent no-op.
+    func record(&self) unsafe { self.hits.bump(by: 1) }
+    func seen(&self) unsafe -> Int { self.hits.value() }
+}
+
+static HOME: Page
+
+func main() {
+    print(HOME.seen())
+
+    HOME.record()
+    HOME.record()
+    HOME.record()
+    print(HOME.seen())
+
+    // A local, reached through a `let` binding and through a shared `&`.
+    let local = Counter(start: 10)
+    print(observe(&local) - 7)
+    local.bump(by: 20)
+    print(local.value())
+
+    // The cell is one word: no wrapper, no tag, no padding.
+    static_assert(sizeof<Counter>() == sizeof<Int>(), "the cell is transparent")
+    print(1)
+}
+
+func observe(c: &Counter) unsafe -> Int {
+    c.value()
+}

@@ -1,0 +1,22 @@
+// Conformance row G08 — a sync `main() -> Result<Int, E>` exits with the Ok
+// payload
+//
+// `Result` is how a program says "here is my status, and here is what went
+// wrong if it did". The Ok side is the ordinary answer: the payload IS the
+// status, exactly as a bare `Int` main's value is.
+// EXPECT: success
+// EXPECT-EXIT: 5
+// EXPECT-OUTPUT: res-ok
+
+enum Oops { case Bad }
+
+extension Oops: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+
+extension Oops: Error {}
+
+func main() -> Result<Int, Oops> {
+    print("res-ok")
+    return 5
+}

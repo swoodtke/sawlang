@@ -1,0 +1,23 @@
+//! Design 254 fixture: the module that OWNS `Panel`. Its own extension is the
+//! type's inherent API, in scope for anyone holding a `Panel`. The two `add`
+//! overloads here are what a forwarded one has to JOIN — the sawos shape, where
+//! `Waiter` already had three and the fourth lived a module away.
+// EXPECT: skip
+
+public struct Panel {
+    public raw: Int
+}
+
+extension Panel {
+    public func doubled(&self) -> Int {
+        self.raw * 2
+    }
+
+    public func add(&self, n: Int) -> Int {
+        self.raw + n
+    }
+
+    public func add(&self, other: &Panel) -> Int {
+        self.raw + other.raw
+    }
+}

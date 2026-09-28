@@ -1,0 +1,310 @@
+// SL-222 (review r1): a valueless tail that is itself a CONTROL-FLOW construct
+// keeps the discarded context all the way into the construct's own blocks.
+//
+// The sibling of `coro_discarded_tail_move_in_nested_block.saw`, which covers
+// the tail that is a plain CALL. The first fix demoted a valueless tail AFTER
+// handing it to `_rewrite_hosting`, which was too late for a tail that is an
+// `if`/`match`/`try`: the construct travelled the expression walker, and its
+// branch `Block`s arrived at `_rewrite_expr`'s generic `Block` arm — the one
+// position that means "somebody reads this value". A `move` in a void `if`'s
+// tail then raised the value-used refusal even though neither the `if` nor the
+// loop around it consumes anything. The demotion runs BEFORE the lowering now,
+// so the whole construct travels the STATEMENT path, where `_lower_inplace`
+// owns every container in `ast_walk.CONTAINER_KINDS` and hands each of its
+// blocks the discarded context that is true of them.
+//
+// THE MATRIX is every container that can BE a block's valueless tail, each with
+// a `move` of a frame local in the container's own tail. Nine of these ten rows
+// were REFUSED on the patch base; row H is the control that was already right.
+//
+//   A  void `if`, no else                     (the reviewer's repro)
+//   B  void `if`/`else`, a move in each arm
+//   D  `match` with void block arms
+//   E  `if let` as the tail
+//   F  `if` nested inside an `if` tail        (depth 2)
+//   G  `try { } catch { }` as the tail
+//   H  the same shape as a WHILE body tail    — CONTROL: this one always
+//      compiled, because design 127 instruments a `while`'s backedge, so the
+//      loop SPANS and takes the CFG split, whose `_lower_block` already
+//      demoted. An ITERATOR `for` is not instrumented and lowers in place,
+//      which is why SL-222's original ingredient list called it load-bearing.
+//   I  two nested `for`s, the tail `if` in the inner body
+//   J  a `while` as the tail, moved local declared inside it
+//   L  the discarded block is a statement-position `if` BRANCH, not a loop body
+//   M  an INLINE `try EXPR catch { }` as a statement (review r2)
+//   N  an inline catch whose value IS consumed — the control that proves the
+//      fix preserved value flow instead of flattening it
+//   O  a `guard let` else block, which is a container reached as a STATEMENT
+//
+// ROWS M-O CLOSE THE ENUMERATION rather than another case. `_lower_inplace` now
+// has one arm per member of `ast_walk.CONTAINER_KINDS`, and its fallback ASSERTS
+// against `control_blocks` — the same enumeration — so a container that reaches
+// the expression rewrite is a loud internal error naming itself instead of a
+// mis-refused program. The audit is mechanical and the assert is what keeps it
+// true: this bug was missed twice by re-asserting the list from memory.
+//
+// `guard let`'s else block DIVERGES, so a move can sit in it but never as its
+// TAIL — the tail has to be the exit. Row O moves in the body of the else and
+// exits after, which is the only shape the language admits.
+//
+// TWO CELLS ARE NOT EXPRESSIBLE and are recorded rather than invented:
+// `guard let` cannot BE a tail (it is a Statement, so the parser never promotes
+// one), and moving an OUTER binding from inside a nested loop is the language's
+// own across-iterations refusal ("a binding moved inside a loop is moved-from on
+// the next iteration"), not a transform question — row J declares its local
+// inside the inner loop for exactly that reason.
+//
+// The last row is the other side: a value-carrying `try { } catch { }` tail
+// still carries its value, so the demotion did not reach a block anybody reads.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 4
+// 5
+// 6
+// 7
+// 8
+// 9
+// 10
+// 8
+// 11
+// 12
+// 13
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {}
+
+struct Bad { why: String }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.why) }
+}
+
+func note(r: &Res) -> Int { r.name.len() }
+
+func sink(r: Res) { }
+
+func take(r: Res) -> Int { 1 }
+
+func fallible(k: Int) -> Result<Int, Bad> {
+    if k < 0 { return Bad(why: "neg") }
+    k
+}
+
+func fail() -> Result<Void, Bad> { Bad(why: "fail") }
+
+func slow() -> Int {
+    yield_now()
+    7
+}
+
+// A: void `if` with no else, as a loop-body tail.
+func a_if_no_else(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        if i > 0 { sink(move r) }
+    }
+    1
+}
+
+// B: void `if`/`else`, a move in EACH branch's tail.
+func b_if_else(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        if i > 0 { sink(move r) } else { sink(move r) }
+    }
+    2
+}
+
+// D: `match` with void block arms.
+func d_match_arms(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        match i {
+            case 0 -> { sink(move r) },
+            case _ -> { sink(move r) }
+        }
+    }
+    3
+}
+
+// E: `if let` as the tail.
+func e_if_let(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        let opt: Int? = i
+        if let got = opt { sink(move r) }
+    }
+    4
+}
+
+// F: an `if` nested inside an `if` tail.
+func f_nested_if(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        if i > 0 { if i < 100 { sink(move r) } }
+    }
+    5
+}
+
+// G: `try { } catch { }` as the tail.
+func g_try_catch(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        try {
+            let n = try fallible(i)
+            sink(move r)
+        } catch {
+            print("caught")
+        }
+    }
+    6
+}
+
+// H: the CONTROL row — a WHILE body tail, which the CFG split already handled.
+func h_while_body(n: Int) -> Int {
+    yield_now()
+    var k = 0
+    while k < n {
+        var r = Res(name: "item")
+        if note(&r) + k < 0 { return -1 }
+        k = k + 1
+        if k > 0 { sink(move r) }
+    }
+    7
+}
+
+// I: two nested `for`s, the tail `if` in the inner body.
+func i_nested_loops(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        for j in items.iter() {
+            var r = Res(name: "item")
+            if note(&r) + i + j < 0 { return -1 }
+            if j > 0 { sink(move r) }
+        }
+    }
+    8
+}
+
+// J: a `while` as the block's tail. The moved local is declared INSIDE it —
+// moving an outer binding from a loop is the language's own refusal.
+func j_while_as_tail(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var once = true
+        while once {
+            var r = Res(name: "item")
+            if note(&r) + i < 0 { return -1 }
+            once = false
+            if i > 0 { sink(move r) }
+        }
+    }
+    9
+}
+
+// L: the discarded block is a statement-position `if` BRANCH, not a loop body —
+// the mechanism is about a valueless block, and a loop is only its commonest
+// source.
+func l_if_branch(k: Int) -> Int {
+    yield_now()
+    if k > 0 {
+        var r = Res(name: "item")
+        if note(&r) + k < 0 { return -1 }
+        if k > 0 { sink(move r) }
+    }
+    10
+}
+
+// The other side: a `try { } catch { }` whose value IS used still carries it.
+// The value-conditional lowering turns such a tail into an assignment before it
+// reaches the tail handling, and an assignment hosts the forgets fine — which
+// is why the value-used refusal stays unreached by any source shape.
+func value_try_catch(k: Int) -> Int {
+    let n = slow()
+    let v = try {
+        let m = try fallible(k)
+        var r = Res(name: "item")
+        if note(&r) < 0 { return -1 }
+        take(move r)
+    } catch {
+        0
+    }
+    v + n
+}
+
+// M: an INLINE `try EXPR catch { }` as a statement — a `TryExpr`, which is a
+// DIFFERENT node from the block form in row G and its own CONTAINER_KINDS
+// member. Neither side suspends, so this is not SL-215's territory.
+func m_inline_catch(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        try fail() catch { sink(move r) }
+    }
+    11
+}
+
+// N: the CONTROL for row M — an inline catch whose value IS consumed still
+// carries it. It never reaches `_lower_inplace` at all (it is a `LetStatement`
+// value), which is exactly why the discarded arm could be added without
+// flattening the value path.
+func n_inline_catch_value(items: Vector<Int>) -> Int {
+    yield_now()
+    var total = 0
+    for i in items.iter() {
+        let got = try fallible(0 - i) catch { 5 }
+        total = total + got
+    }
+    total + 2
+}
+
+// O: a `guard let` else block — a container reached as a STATEMENT. Its else
+// diverges, so the move sits in the body and the exit is the tail.
+func o_guard_else(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        let opt: Int? = if i > 1 { i } else { None }
+        guard let got = opt else {
+            sink(move r)
+            continue
+        }
+        sink(move r)
+    }
+    13
+}
+
+func main() {
+    print(__saw_drive(a_if_no_else([1, 2])))
+    print(__saw_drive(b_if_else([0, 2])))
+    print(__saw_drive(d_match_arms([0, 2])))
+    print(__saw_drive(e_if_let([1, 2])))
+    print(__saw_drive(f_nested_if([1, 2])))
+    print(__saw_drive(g_try_catch([1, 2])))
+    print(__saw_drive(h_while_body(2)))
+    print(__saw_drive(i_nested_loops([1, 2])))
+    print(__saw_drive(j_while_as_tail([1, 2])))
+    print(__saw_drive(l_if_branch(1)))
+    print(__saw_drive(value_try_catch(0)))   // 1 + 7 = 8
+    print(__saw_drive(m_inline_catch([1, 2])))
+    print(__saw_drive(n_inline_catch_value([1, 2])))   // 5 + 5 + 2
+    print(__saw_drive(o_guard_else([1, 2])))
+}

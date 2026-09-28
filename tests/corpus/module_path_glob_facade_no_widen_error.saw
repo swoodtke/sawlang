@@ -1,0 +1,17 @@
+// DF-232j sweep, the GLOB facade: `public import pkgvis.secret.*` in the
+// facade, entry outside reaches the name qualified. The intended refusal is
+// the same tier error as every other shape.
+//
+// Both halves landed: DF-232k lets the facade compile (the glob arm asks the
+// accessor-aware predicate, so the sibling glob binds the name), and DF-232j
+// makes the outside reach refuse on the tier. Until then this file errored for
+// the WRONG reason — `undefined function` inside the facade, the tier decision
+// never exercised — which is why it was pinned XFAIL against BOTH.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `pkg_secret` is public(package) in `pkgvis.secret`
+// COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232j_glob
+import pkgvis
+
+func main() {
+    print(pkgvis.pkg_secret())
+}

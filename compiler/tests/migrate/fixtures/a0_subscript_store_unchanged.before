@@ -1,0 +1,6 @@
+func main() {
+    var v: Vector<Int> = [1, 2]
+    v[0] = 5
+    v[1] += 1
+    print(v.len())
+}

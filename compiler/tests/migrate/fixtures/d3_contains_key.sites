@@ -1,0 +1,2 @@
+status: rewritten
+4 D3.contains-key rewritten => if m.contains_key("k") { print("yes") } else { print("no") }

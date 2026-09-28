@@ -1,0 +1,28 @@
+// Position matrix (design 235), grid 1 "Adoption" — row: `??` operand.
+// `opt ?? <expr>` types the RHS against the OPTIONAL's peeled payload type
+// (design 176's `??` peels one layer), so a bare literal (S1) and a folded
+// const expression (S3) both adopt the payload's fixed width.
+//
+// The const-expression row demonstrates the VALUE flowing correctly when it
+// fits; the range check the same family owes is pinned by
+// const_expression_range_checked_wide.saw, this row's sibling in the family
+// that used to carry the value at PLATFORM width instead of the declared one.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// bare = 9
+// bare present = 5
+// const = 24
+
+func main() {
+    let absent: Int8? = None
+    let a = absent ?? 9
+    print("bare = {a}")
+
+    let present: Int8? = 5
+    let b = present ?? 9
+    print("bare present = {b}")
+
+    let absent2: UInt32? = None
+    let c = absent2 ?? ((1 << 3) | (1 << 4))
+    print("const = {c}")
+}

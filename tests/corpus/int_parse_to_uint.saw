@@ -1,0 +1,74 @@
+// String.to_uint / to_uint(radix:) — the checked unsigned parse (design 119,
+// closing DF-116b). Whole-string, no trimming, panic-free: overflow past
+// UInt.max is None. Reaches the 2^63..2^64-1 range a signed `to_int` cannot.
+// (Full-width UInt values >= 2^63 misformat under `print`, a separate known
+// bug, so this test asserts through comparisons and prints booleans / small
+// values only.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// dec_umax: true
+// dec_over: true
+// bin: true
+// oct: true
+// dec10: true
+// hex: true
+// hex_umax: true
+// hex_over: true
+// empty: true
+// junk: true
+// neg: true
+// plus: true
+// bad_radix_lo: true
+// bad_radix_hi: true
+// val: 12345
+
+func eq(opt: UInt?, want: UInt) -> Bool {
+    if let v = opt { v == want } else { false }
+}
+
+func is_none(opt: UInt?) -> Bool {
+    if let _ = opt { false } else { true }
+}
+
+func main() {
+    // Base 10, the u64 ceiling and just past it.
+    let dec_umax = eq("18446744073709551615".to_uint(), UInt.max)
+    let dec_over = is_none("18446744073709551616".to_uint())
+    print("dec_umax: {dec_umax}")
+    print("dec_over: {dec_over}")
+
+    // Radixes 2 / 8 / 10 / 16.
+    let bin = eq("1111".to_uint(2), 15)
+    let oct = eq("777".to_uint(8), 511)
+    let dec10 = eq("4294967296".to_uint(10), 4294967296)
+    let hex = eq("ff".to_uint(16), 255)
+    print("bin: {bin}")
+    print("oct: {oct}")
+    print("dec10: {dec10}")
+    print("hex: {hex}")
+
+    // Hex u64 ceiling (16 F's) and just past it (17 F's -> overflow).
+    let hex_umax = eq("ffffffffffffffff".to_uint(16), UInt.max)
+    let hex_over = is_none("1ffffffffffffffff".to_uint(16))
+    print("hex_umax: {hex_umax}")
+    print("hex_over: {hex_over}")
+
+    // Rejections: empty, trailing junk, negative sign, bad radix bounds.
+    let empty = is_none("".to_uint())
+    let junk = is_none("12x".to_uint())
+    let neg = is_none("-5".to_uint())
+    let plus = eq("+42".to_uint(), 42)
+    let bad_lo = is_none("10".to_uint(1))
+    let bad_hi = is_none("10".to_uint(37))
+    print("empty: {empty}")
+    print("junk: {junk}")
+    print("neg: {neg}")
+    print("plus: {plus}")
+    print("bad_radix_lo: {bad_lo}")
+    print("bad_radix_hi: {bad_hi}")
+
+    // A small value prints correctly through the ordinary signed path.
+    if let v = "12345".to_uint() {
+        print("val: {v}")
+    }
+}

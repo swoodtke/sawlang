@@ -1,0 +1,19 @@
+// design 128: the marker asks for a derived body, so a marker that derives
+// nothing is a mistake — here the conformance has no derivation at all.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `@synthesize` on `extension Point` derives nothing
+
+struct Point {
+    x: Int
+}
+
+@synthesize
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append(self.x)
+    }
+}
+
+func main() {
+    print("{Point(x: 1)}")
+}

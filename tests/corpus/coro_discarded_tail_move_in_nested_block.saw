@@ -1,0 +1,168 @@
+// SL-222: a DISCARDED tail expression in a nested block may move a frame local.
+//
+// `parse_block` promotes a block's last `ExpressionStatement` into
+// `final_expr` unconditionally — a discarded void call at the end of a loop
+// body included — and the in-place lowering then refused any `__saw_forget`
+// that tail owed ("`move` of a frame local in a nested tail-expression"). The
+// justification only ever applied to a tail whose value goes SOMEWHERE: such a
+// tail runs after every statement, so a drop-flag clear appended to the
+// statement list would run ahead of it. A tail nobody reads has no such
+// ordering to protect, so it is demoted back to the statement it was written
+// as and the forgets follow it — which is what `_norm_block`'s DF-158b branch
+// already did for a void FUNCTION-BODY tail and what `_lower_block`'s
+// CFG-split twin already did for a nested one.
+//
+// THE INGREDIENT CROSS is what makes this a matrix rather than one repro.
+// Three things had to coincide, and dropping any one of them compiled even
+// before the fix — so each cell below is a row that must keep working, and
+// `all_three` is the row that did not:
+//
+//   * an ITERATOR `for` (a range `for` desugars through the CFG split instead,
+//     where the tail was already demoted),
+//   * an early `return` inside the block (DF-218s: a block that transitively
+//     returns owes its OWNING locals frame fields whether or not it spans a
+//     suspension — that is what makes `r` a FRAME local here),
+//   * an `&`-borrow of the moved local (address-taken, so the field keeps the
+//     legacy drop-flag encoding and its `move` owes a `__saw_forget`; a
+//     slot-encoded local's `move` is a `take()` and owes nothing).
+//
+// `Res` owns a `String`, so a mis-paired forget is a double release rather
+// than a silent pass, and every cell runs to exit 0.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 15
+// 15
+// 15
+// 22
+// 1
+// 8
+// 8
+// 8
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {}
+
+func note(r: &Res) -> Int { r.name.len() }
+
+func sink(r: Res) { }
+
+func slow() -> Int {
+    yield_now()
+    7
+}
+
+// THE CELL SL-222 FILED: iterator `for` + early `return` + `&`-borrow, with the
+// move in the loop body's discarded tail.
+func all_three(items: Vector<Int>) -> Int {
+    var total = slow()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        total = total + i
+        sink(move r)
+    }
+    total
+}
+
+// Drop the early `return`: `r` is no longer frame-resident, so its `move` owes
+// no forget and the tail was always fine.
+func without_return(items: Vector<Int>) -> Int {
+    var total = slow()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        total = total + i + note(&r) - 4
+        sink(move r)
+    }
+    total
+}
+
+// Drop the `&`-borrow: `r` is not address-taken, so it migrates to a `Slot<T>`
+// and its `move` is a `take()` with no drop flag to clear.
+func without_borrow(items: Vector<Int>) -> Int {
+    var total = slow()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if r.name.len() + i < 0 { return -1 }
+        total = total + i
+        sink(move r)
+    }
+    total
+}
+
+// Drop the iterator: a RANGE `for` is state-split, and the split lowering
+// already ran a nested tail as an ordinary statement.
+func range_loop(n: Int) -> Int {
+    var total = slow()
+    for i in 0..n {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        total = total + i
+        sink(move r)
+    }
+    total
+}
+
+// The early-return path still leaves through the `return`, with the tail never
+// reached — the demotion must not have made the block fall through.
+func takes_the_return(items: Vector<Int>) -> Int {
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i > 0 { return 1 }
+        sink(move r)
+    }
+    slow() - 7
+}
+
+// THE OTHER SIDE OF THE DEMOTION: a tail whose value IS carried keeps carrying
+// it. Each of these moves a frame local in a tail that something reads, and the
+// forget it owes is hosted by the assignment the value-conditional lowering
+// already turns such a tail into (`_attach_sink_block`) or by the function's own
+// done sequence (DF-182d). The demotion must not have reached any of them —
+// a demoted value tail would leave its block with nothing to evaluate to.
+func take(r: Res) -> Int { 1 }
+
+func value_if_tail(k: Int) -> Int {
+    let n = slow()
+    let v = if k == 0 {
+        var r = Res(name: "item")
+        if note(&r) < 0 { return -1 }
+        take(move r)
+    } else {
+        0
+    }
+    v + n
+}
+
+func value_match_tail(k: Int) -> Int {
+    let n = slow()
+    let v = match k {
+        case 0 -> {
+            var r = Res(name: "item")
+            if note(&r) < 0 { return -1 }
+            take(move r)
+        },
+        case _ -> 0
+    }
+    v + n
+}
+
+func body_tail(k: Int) -> Int {
+    let n = slow()
+    if k > 100 { return n }
+    var r = Res(name: "item")
+    if note(&r) < 0 { return -1 }
+    take(move r) + n
+}
+
+func main() {
+    print(__saw_drive(all_three([3, 5])))        // 7 + 3 + 5           = 15
+    print(__saw_drive(without_return([3, 5])))   // 7 + 3 + 5           = 15
+    print(__saw_drive(without_borrow([3, 5])))   // 7 + 3 + 5           = 15
+    print(__saw_drive(range_loop(6)))            // 7 + 0+1+2+3+4+5     = 22
+    print(__saw_drive(takes_the_return([3, 5]))) // returns on the first element
+    print(__saw_drive(value_if_tail(0)))         // 1 + 7               = 8
+    print(__saw_drive(value_match_tail(0)))      // 1 + 7               = 8
+    print(__saw_drive(body_tail(0)))             // 1 + 7               = 8
+}

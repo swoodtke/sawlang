@@ -1,0 +1,6 @@
+status: flagged,expectation-pending
+12 unseen flagged -- no type evidence: subscript in unlowered method body
+13 unseen flagged -- no type evidence: call to accessor-named `get` in unlowered method body
+13 unseen flagged -- no type evidence: call to accessor-named `value` in unlowered method body
+16 unseen flagged -- no type evidence: call to accessor-named `value` in default parameter value
+19 unseen flagged -- no type evidence: closure-borrow call `lock` in unlowered function body

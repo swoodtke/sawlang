@@ -1,0 +1,73 @@
+// Design 177 pins the OTHER half of the rule: every `break` form keeps exactly
+// the typing it had. Divergence is the absence of a break, and it is judged per
+// loop — a break belongs to the innermost loop enclosing it, so one in a NESTED
+// loop leaves the outer conditionless loop diverging.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 6
+// 3
+// -1
+
+// `break v` out of an infinite loop still yields `T` directly.
+func count_to_five() -> Int {
+    var n = 0
+    let hit = while {
+        n = n + 1
+        if n == 5 {
+            break n
+        }
+    }
+    hit
+}
+
+// A valueless `break` out of a statement-position infinite loop still just
+// leaves the loop, and the code after it still runs.
+func first_over(limit: Int) -> Int {
+    var n = 0
+    while {
+        n = n + 1
+        if n > limit {
+            break
+        }
+    }
+    n
+}
+
+// A conditional loop still yields `T?` — `Some` when a `break v` ended it,
+// `None` when the condition did.
+func find(upto: Int, target: Int) -> Int? {
+    var i = 0
+    let found = while i < upto {
+        if i == target {
+            break i
+        }
+        i = i + 1
+    }
+    found
+}
+
+// The nested-break pin, judged at COMPILE time: the inner `break` belongs to
+// the inner loop, so the OUTER conditionless loop still has no break of its
+// own and still diverges — which is the only reason `-> Never` type-checks
+// here. Never called.
+func outer_still_diverges() -> Never {
+    var total = 0
+    while {
+        var i = 0
+        while i < 3 {
+            i = i + 1
+            if i == 2 {
+                break
+            }
+        }
+        total = total + i
+    }
+}
+
+func main() {
+    print(count_to_five())            // 5
+    print(first_over(5))              // 6
+    print(find(upto: 10, target: 3) ?? -1)   // 3
+    print(find(upto: 10, target: 99) ?? -1)  // -1
+}

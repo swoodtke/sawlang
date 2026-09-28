@@ -1,0 +1,88 @@
+// design 260 — the shapes a consuming call takes, all of them, running.
+//
+// The declaration keeps `&var self`: the receiver grammar stays closed at its
+// two modes, and `consumes` in the effect slot is what changes the contract's
+// ENDING — the exclusive borrow ends in the value's death. The call site says
+// so with `move`, which is also what routes the transfer through the move
+// checkpoint rather than beside it.
+//
+// Covered here:
+//   binding    — `(move b).finish()`, the headline form
+//   temporary  — `make().finish()`, legal bare (no binding to invalidate)
+//   chained    — the result is an owned value, so the chain continues
+//   revived    — a moved `var` revives on reassignment and consumes again
+//   copy_tier  — a Copy-tier receiver is legal; the call retires the binding
+//   enum       — enum receivers are IN (design 260 §4 says so by omission)
+//   generic    — one consuming method, two instantiations
+//   effects    — `consumes unsafe sync` is the canonical slot order
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// binding 7
+// temporary 3
+// chained 2
+// 1
+// revived 11
+// copy tier 5
+// enum fast
+// enum slow
+// generic 4
+// generic 8
+// effects 9
+
+struct Builder { items: Vector<Int>, count: Int }
+extension Builder: NoCopy {}
+extension Builder {
+    static func make(n: Int) -> Builder { Builder(items: [], count: n) }
+    func finish(&var self) consumes -> Int { self.count }
+    func label(&var self) consumes -> String { "ab" }
+    func reading(&var self) consumes unsafe sync -> Int { self.count + 2 }
+}
+
+struct Plain { n: Int }
+extension Plain {
+    func take_n(&var self) consumes -> Int { self.n }
+}
+
+enum Mode { case Fast, case Slow }
+extension Mode {
+    func name(&var self) consumes -> String {
+        match self { case Fast -> "fast", case Slow -> "slow" }
+    }
+}
+
+struct Wrap<T> { value: T, tag: Int }
+extension Wrap<T>: NoCopy {}
+extension Wrap<T> {
+    func into_tag(&var self) consumes -> Int { self.tag }
+}
+
+func main() {
+    var b = Builder(items: [], count: 7)
+    print("binding {}", (move b).finish())
+
+    print("temporary {}", Builder.make(n: 3).finish())
+
+    print("chained {}", Builder.make(n: 0).label().len())
+
+    var r = Builder(items: [], count: 1)
+    print("{}", (move r).finish())
+    r = Builder(items: [], count: 11)
+    print("revived {}", (move r).finish())
+
+    var p = Plain(n: 5)
+    print("copy tier {}", (move p).take_n())
+
+    var m1 = Mode.Fast
+    print("enum {}", (move m1).name())
+    var m2 = Mode.Slow
+    print("enum {}", (move m2).name())
+
+    var w1 = Wrap<String>(value: "hi", tag: 4)
+    print("generic {}", (move w1).into_tag())
+    var w2 = Wrap<Int>(value: 1, tag: 8)
+    print("generic {}", (move w2).into_tag())
+
+    var e = Builder(items: [], count: 7)
+    print("effects {}", (move e).reading())
+}

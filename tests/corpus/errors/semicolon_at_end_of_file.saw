@@ -1,0 +1,12 @@
+// SL-347 R2 — a `;` at END OF FILE.
+//
+// A block always closes with `}`, so the only place a `;` can sit with nothing
+// at all after it is module scope, at the end of the file. It separates
+// nothing there either, and gets the same answer.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a `;` joins two statements on one line; it does not end one — remove it
+
+func main() { print("{}", LIMIT) }
+
+static LIMIT: Int = 1;

@@ -1,0 +1,35 @@
+// design 62 G1 / design 89-b: nested groups. `inner` is a SUSPENDING function
+// owning its own frame-resident group, itself SPAWNED as a task of an OUTER group.
+// Under the design-89 unification every group links into the ONE ambient
+// scheduler; a nested `inner` that joins its `leaf` children drives that shared
+// scheduler REENTRANTLY — the sweep skips frames active on the C stack (it never
+// re-enters a live coroutine), and structured join still falls out LIFO. The
+// result (124) is unchanged; only the machinery beneath it did.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 124
+
+import std.task.*
+func leaf(n: Int) -> Int {
+    yield_now()
+    return n * 2
+}
+
+func inner(base: Int) -> Int {
+    var g = TaskGroup()
+    let a = g.spawn(leaf(base))
+    let b = g.spawn(leaf(base + 1))
+    sleep(Duration.ms(1))
+    return a.join() + b.join()       // 2*base + 2*(base+1)
+}
+
+func outer() -> Int {
+    var group = TaskGroup()
+    let h1 = group.spawn(inner(10))  // 20 + 22 = 42
+    let h2 = group.spawn(inner(20))  // 40 + 42 = 82
+    return h1.join() + h2.join()     // 124
+}
+
+func main() {
+    print(__saw_drive(outer()))          // 124
+}

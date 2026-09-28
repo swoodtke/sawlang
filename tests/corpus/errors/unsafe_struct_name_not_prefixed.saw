@@ -1,0 +1,13 @@
+// Design 130 rule 1: type unsafety is DECLARED by the `unsafe` keyword, and the
+// compiler then enforces the `Unsafe*` name so the unsafety is visible at every
+// use site without consulting the declaration.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: an unsafe type must be named `Unsafe*`
+// EXPECT-ERROR-CONTAINS: rename it to `UnsafeMmioReg`
+
+unsafe struct MmioReg { addr: Int }
+
+func main() {
+    let r = MmioReg(addr: 1)
+    print("{r.addr}")
+}

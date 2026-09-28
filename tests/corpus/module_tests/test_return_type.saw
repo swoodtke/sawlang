@@ -1,0 +1,15 @@
+// Test: Module-qualified types in return position
+// EXPECT: success
+// EXPECT-OUTPUT: 10
+
+import lib
+
+// This should work: returning a type from an imported module
+func create_point(x: Int) -> lib.Point {
+    lib.Point(x: x, y: x)
+}
+
+func main() {
+    let p = create_point(5)
+    print(p.sum())
+}

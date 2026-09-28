@@ -1,0 +1,30 @@
+// Design 249, the std import forms over a name TWO std files own. `encode` is
+// declared by `std.json` and by `std.cbor`, so each form has to say which.
+//
+// The selective form binds exactly the module it names, and `as` renames that
+// module's declaration — not whichever file happened to register the bare name
+// first, which is what `ns.functions` holds.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// selected: [1,2]
+// renamed: [1,2]
+// glob: [1,2]
+import std.json.{encode}
+import std.json.{encode as write_json}
+import std.json.*
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+@synthesize
+extension Point: Serialize {}
+
+func main() {
+    let p = Point(x: 1, y: 2)
+    print("selected: {try! encode(&p)}")
+    print("renamed: {try! write_json(&p)}")
+    // The glob line above binds the same declaration, so this is the same call.
+    print("glob: {try! encode(&p)}")
+}

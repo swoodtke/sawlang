@@ -1,0 +1,44 @@
+// The DF-226f refusal targets ONLY a static's own top-level type, so every
+// other static shape is untouched.
+//
+// The rows that matter: a plain scalar, a fixed-width scalar, a POD struct
+// whose FIELD is optional (the optional is nested, not the static's type), a
+// fixed array, and an `unsafe static var` — which the rule does not reopen,
+// since mutable global state is a different question.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// plain = 7
+// wide = 9
+// nested field absent = yes
+// arr = 2
+// mut = 5
+
+struct Holder { slot: Int?, tag: Int }
+
+static PLAIN: Int = 7
+static WIDE: UInt32 = 9
+static ARR: [Int; 2] = [1, 2]
+
+unsafe static var MUT: Int = 0
+
+func bump() unsafe -> Int {
+    MUT = 5
+    return MUT
+}
+
+func main() {
+    print("plain = {PLAIN}")
+    print("wide = {WIDE}")
+
+    // an optional NESTED in a struct is ordinary storage, not a static's type
+    let h = Holder(slot: None, tag: 1)
+    if let _ = h.slot {
+        print("nested field absent = no")
+    } else {
+        print("nested field absent = yes")
+    }
+
+    print("arr = {ARR[1]}")
+    print("mut = {bump()}")
+}

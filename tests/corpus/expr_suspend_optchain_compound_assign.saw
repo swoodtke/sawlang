@@ -1,0 +1,42 @@
+// Design 227 + 224: the COMPOUND chained assignment `x?.n += f()` whose RHS
+// SUSPENDS. The success twin of `expr_suspend_optchain_assign.saw`, and the
+// same three properties: the field is read, the operator applied and the result
+// written back on the non-None path; a None head runs neither the write nor the
+// RHS; and the counter proves the skip.
+//
+// This file was design 227's pinned clean REFUSAL. It was never a chain
+// limitation — `n += s(99)` on a plain local was refused in a suspending body
+// for the same reason (DF-224a's G3: `CompoundAssignStatement` had no arm in
+// the coroutine transform's ANF hoist), and the chained spelling reaches that
+// same statement through the transform's None-guarded read-modify-writeback.
+// Design 224 gave the arm to both.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 100
+// 1
+// -1
+// 1
+
+static CALLS: Atomic<Int> = Atomic(0)
+
+struct Point { x: Int, y: Int }
+
+func s(n: Int) -> Int {
+    CALLS.fetch_add(1)
+    __saw_suspend()
+    n
+}
+
+func doassign(o: Point?) -> Int {
+    var local = o
+    local?.x += s(99)         // Void?; RHS suspends; skipped on a None head
+    if let p = local { return p.x }
+    return -1
+}
+
+func main() {
+    print(__saw_drive(doassign(Point(x: 1, y: 2))))   // 100 (1 + 99)
+    print(CALLS.load())                               // 1
+    print(__saw_drive(doassign(None)))                // -1 (skipped)
+    print(CALLS.load())                               // 1 (unchanged)
+}

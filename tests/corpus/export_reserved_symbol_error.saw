@@ -1,0 +1,9 @@
+// design 58 Part 2: an exported symbol may not collide with the reserved
+// runtime namespace (`main`, `saw_*`, `__saw_*`).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: collides with a reserved runtime symbol
+
+@export("saw_thing")
+func t() -> Int { 1 }
+
+func main() { print(1) }

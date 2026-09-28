@@ -1,0 +1,47 @@
+// SL-306 review r1 (codex P1): ONE generic instantiation reached BOTH directly
+// from a driven body AND through a conservative-only helper.
+//
+// `apply<Int>`'s instance suspends only by the conservative closure-call rule (it
+// calls a non-`sync` function value), so nothing owes it a frame. Promotion and
+// framing are one decision seen from two ends, and the two ends disagreed: the
+// closure walk's edge-follow asked `suspends_ignoring_closure_calls` and left
+// `outer` unframed, while `_promote_nested_generic_calls`' `instantiation_suspends`
+// still read the BROAD `suspends` bit and promoted the instance for `main`'s
+// direct call. One instance body, rewritten into a resume state machine for that
+// frame and then reached by `outer`'s ordinary call:
+//
+//   internal compiler error at ...:5:51 (SelfExpr): 'self' not found in current scope
+//
+// — the frame's `self` inside what is still a free function. Both ends ask the
+// funnel now, the instance stays a plain function, and codegen's ordinary
+// monomorphization serves both call sites.
+//
+// The second half of the fix is at the other end of the same call: a SYNTHESIZED
+// frame method's `sync` marker guards the transform's own invariant (no REAL
+// suspension left un-lowered in a resume), so the conservative closure-call source
+// does not violate it — `__Frame_main.resume` may call `apply$1$Int`. An
+// author-declared `sync` context is untouched and still refuses it
+// (`examples/errors/sync_context_calls_a_closure_taking_helper.saw`).
+//
+// EXPECT: success
+// EXPECT-IR-ABSENT: __Frame_apply
+// EXPECT-IR-CONTAINS: __Frame_main
+// EXPECT-OUTPUT:
+// 20
+// 10
+
+import std.task.{yield_now}
+
+func apply<T>(value: T, f: (T) -> Int) -> Int { f(value) }
+
+func outer() -> Int {
+    apply<Int>(1, { n: Int in n * 10 })
+}
+
+func main() {
+    let direct = apply<Int>(2, { n: Int in n * 10 })
+    print(direct)
+    let indirect = outer()
+    print(indirect)
+    yield_now()
+}

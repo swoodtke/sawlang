@@ -1,0 +1,79 @@
+// Test: Module structs in various block contexts
+// EXPECT: success
+// EXPECT-OUTPUT: 30
+// EXPECT-OUTPUT: 6
+// EXPECT-OUTPUT: 9
+// EXPECT-OUTPUT: 15
+// EXPECT-OUTPUT: 14
+// EXPECT-OUTPUT: 16
+
+import lib
+
+// Test struct in if/else blocks
+func test_if_else() -> Int {
+    let flag = true
+
+    // Struct creation in if block
+    let p = if flag {
+        lib.Point(x: 10, y: 20)
+    } else {
+        lib.Point(x: 0, y: 0)
+    }
+
+    // Method call on module struct
+    p.sum()
+}
+
+// Test struct in while loop
+func test_while() -> Int {
+    var result = 0
+    var i = 0
+
+    while i < 3 {
+        let p = lib.Point(x: i, y: i)
+        result = result + p.sum()
+        i = i + 1
+    }
+
+    result  // 0 + 2 + 4 = 6
+}
+
+// Test struct in for loop
+func test_for() -> Int {
+    var result = 0
+
+    for i in 0..3 {
+        let p = lib.Point(x: i, y: i * 2)
+        result = result + p.sum()
+    }
+
+    result  // 0 + 3 + 6 = 9
+}
+
+// Test struct as final expression (returns Int since module-qualified return types not yet supported)
+func test_final_expr() -> Int {
+    let x = 5
+    let p = lib.Point(x: x, y: x * 2)
+    p.sum()
+}
+
+// Test static method from module
+func test_static_method() -> Int {
+    let p = lib.Point.create(7)
+    p.sum()  // 14
+}
+
+// Test module function returning struct
+func test_function_return() -> Int {
+    let p = lib.make_point(8)
+    p.sum()  // 16
+}
+
+func main() {
+    print(test_if_else())       // 30
+    print(test_while())         // 6
+    print(test_for())           // 9
+    print(test_final_expr())    // 15
+    print(test_static_method()) // 14
+    print(test_function_return()) // 16
+}

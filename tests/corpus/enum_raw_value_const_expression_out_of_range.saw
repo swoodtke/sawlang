@@ -1,0 +1,21 @@
+// Opening the raw-value slot to const expressions (DF-232c) did not open the
+// RANGE check: the folded value is checked against the declared backing exactly
+// as a literal always was.
+//
+// `1 << 9` is 512, which does not fit a `UInt8`. The check is unchanged code —
+// `_int_fits_kind` at registration — because the fold writes its result into
+// the same `raw_value` field a literal writes, before registration reads it.
+// That is the whole point of folding at that seam: the twelve consumers of the
+// field, this check among them, did not change.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: raw value 512 for case `Over` is out of range
+// EXPECT-ERROR-CONTAINS: backing type `UInt8`
+
+enum Bad: UInt8 {
+    case Over = 1 << 9,
+}
+
+func main() {
+    print("{}", Bad.Over as UInt8)
+}

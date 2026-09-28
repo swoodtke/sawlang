@@ -1,0 +1,10 @@
+// Statics are immutable (design 41): `&var STATIC` (a mutable lend) is rejected;
+// an `&STATIC` immutable lend is fine.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot take mutable reference `&var` to static `X`
+
+static X: Int = 1
+
+func bump(n: &var Int) { n += 1 }
+
+func main() { bump(&var X) }

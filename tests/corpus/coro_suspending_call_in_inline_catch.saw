@@ -1,0 +1,49 @@
+// SL-215 (design 275 U3): a suspending call in the catch block of the INLINE
+// `try EXPR catch { }` form EMBEDS. It used to be refused — "appears in a
+// nested/expression position" — because `_collect_calls`'s try/catch arm matched
+// `TryCatchExpr` only, and the inline form is a `TryExpr` carrying a
+// `catch_block` that nothing in the split walk ever looked at. The transform now
+// rewrites it into the BLOCK form it means (`_normalize_inline_catch`:
+// `try EXPR catch { B }` becomes `try { try EXPR } catch { B }`), so design 196
+// unit 3's CFG split does the work and the two spellings agree.
+//
+// MODULE-INDEPENDENT: SL-208 fixed the separate module-boundary divergence that
+// made this face's CROSS-module spelling silently token-0 miscompile, so the
+// two spellings reported the SAME refusal before this fix and run the same way
+// after it.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// caught 0
+// ok 5
+
+import std.task.{yield_now}
+
+struct Failure { message: String }
+extension Failure: Error {
+    public func format(&self, into: &var StringBuilder) { try! into.append(self.message) }
+}
+
+// A suspending void free function called from the catch block.
+func respond() {
+    yield_now()
+}
+
+func fallible(x: Int) -> Result<Int, Failure> {
+    yield_now()
+    if x < 0 { return Failure(message: "neg") }
+    x
+}
+
+func caller(x: Int) -> Int {
+    let n = try fallible(x) catch {
+        respond()
+        return 0
+    }
+    n
+}
+
+func main() {
+    print("caught {__saw_drive(caller(-1))}")   // Err -> catch runs respond(), returns 0
+    print("ok {__saw_drive(caller(5))}")        // Ok  -> 5
+}

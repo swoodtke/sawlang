@@ -1,0 +1,22 @@
+// Design 82 Part B (prelude discipline): `IoError` and `File` are NOT in the
+// prelude (they require `import std.net` / `import std.file`). A user module may
+// therefore define its OWN `IoError`/`File` with no clash against std — the
+// design-84 collision is gone. std's own IoError/File are not compiled into a
+// program that does not import them.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 8
+
+struct IoError {
+    code: Int
+}
+
+struct File {
+    handle: Int
+}
+
+func main() {
+    let e = IoError(code: 5)
+    let f = File(handle: 3)
+    print(e.code + f.handle)  // 8
+}

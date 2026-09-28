@@ -1,0 +1,20 @@
+// Design 170: a narrowing `as` whose value the target cannot represent PANICS
+// rather than silently producing a different number. `1000 as UInt8` used to
+// yield 232 — the last silent value-corrupting operation in a language where
+// overflow, bounds, shifts and allocation failure all trap.
+//
+// The panic carries the FILE:LINE of the cast itself (design 122) and the
+// offending VALUE, rendered through the design-137 alloc-free path so the
+// message survives an exhausted allocator.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: cast170_narrowing_panics.saw:19: cast to UInt8 out of range: 1000
+
+func main() {
+    // In range: no trap, and the check the compiler emitted here is one
+    // compare — the overflow-check cost class.
+    var n = 200
+    print(n as UInt8)
+
+    n = 1000
+    print(n as UInt8)
+}

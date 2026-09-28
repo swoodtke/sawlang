@@ -1,0 +1,73 @@
+// Design 177: the conditionless `while { ... }` whose body holds no `break`
+// DIVERGES. It types `Never` — the bottom type `panic(...)` produces — so a
+// function whose body ends in one satisfies `-> Never`, and satisfies any
+// other declared return type too, since Never flows to everything.
+//
+// Every loop below would spin forever if it were entered. Each sits behind a
+// branch this program does not take, so what runs is the surrounding code and
+// what is under test is the TYPING.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 4
+// 0
+// work 3
+// still here
+
+// The `-> Never` body: a bare diverging loop and nothing after it. This is the
+// kernel `halt()` shape, and the spelling a diverging runtime seam needs.
+func halt() -> Never {
+    while { }
+}
+
+// A diverging tail satisfies `-> Int` with no value in sight, exactly as a
+// trailing `panic(...)` does.
+func pick(n: Int) -> Int {
+    if n > 0 {
+        return n
+    }
+    while { }
+}
+
+// A loop whose only exits are `return`s still holds no `break`, so it still
+// diverges — and the function still owes no tail value.
+func drain(from: Int) -> Int {
+    var n = from
+    while {
+        if n <= 0 {
+            return 0
+        }
+        n = n - 1
+    }
+}
+
+// A diverging loop is a valid `guard` exit, on the same terms `panic(...)` is.
+func unwrap_or_spin(o: Int?) -> Int {
+    guard let v = o else { while { } }
+    v
+}
+
+enum Signal {
+    case Work(n: Int),
+    case Idle
+}
+
+// A `match` arm whose block diverges contributes no type to the match, so the
+// other arm decides it.
+func describe(s: Signal) -> String {
+    match s {
+        case Work(n) -> "work {n}",
+        case Idle -> { while { } }
+    }
+}
+
+func main() {
+    print(pick(7))                        // 7
+    print(unwrap_or_spin(4))              // 4
+    print(drain(0))                       // 0
+    print(describe(Signal.Work(n: 3)))    // work 3
+    if false {
+        halt()
+    }
+    print("still here")
+}

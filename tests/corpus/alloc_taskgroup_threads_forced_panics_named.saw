@@ -1,0 +1,28 @@
+// design 234: the operation REPORTS a refused allocation, so the only way to
+// meet it as a panic is to ask for one — `try!`. That is the corpus's own
+// migration spelling, and this file is the pin that taking it stays LOUD and
+// still says which allocation ran out (DF-245b renders the error after the
+// fixed text). Design 123's method-named panic is what this replaced.
+//
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: try! failed: allocation of
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+func work(n: Int) -> Int {
+    n * 2
+}
+
+func main() {
+    var single = TaskGroup()
+    let a = single.spawn(work(3))
+    print(a.join())                     // 6 — the single-threaded engine
+
+    // The run-queue mutex is the first allocation this constructor makes.
+    __saw_rt_alloc_deny_after(0)
+    var pool = try! TaskGroup(threads: 2)
+    let b = pool.spawn(work(4))
+    print(b.join())
+}

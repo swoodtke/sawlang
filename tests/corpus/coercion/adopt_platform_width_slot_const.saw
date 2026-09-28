@@ -1,0 +1,49 @@
+// Design 257 §1 — a PLATFORM-WIDTH slot is an adoption target for a const
+// expression, exactly as a fixed-width slot is. The derived-statics chain is
+// the sawos HANDLE_INDEX_MASK shape (DF-282a): `static M: UInt = (1 << BITS)
+// - 1` over a `static BITS: Int` was refused where the `UInt32` twin folded,
+// so a `UInt` slot needed an `as UInt` a `UInt32` slot did not.
+//
+// DF-235a/b drew the ladder at the fixed widths on the reasoning that a
+// platform expectation is what the expression already had. True of `Int`;
+// false of `UInt`, because the fold is in design 185's SIGNED platform-`Int`
+// domain and a `UInt` slot is a real target with a real range check
+// (`adopt_platform_width_slot_range_error.saw` is that check).
+// EXPECT: success
+// EXPECT-OUTPUT: 255
+// EXPECT-OUTPUT: 255
+// EXPECT-OUTPUT: 255
+// EXPECT-OUTPUT: 255
+// EXPECT-OUTPUT: 255
+// EXPECT-OUTPUT: 255
+// EXPECT-OUTPUT: 255
+// EXPECT-OUTPUT: 255
+
+static BITS: Int = 8
+static HANDLE_INDEX_MASK: UInt = (1 << BITS) - 1
+static SIGNED_MASK: Int = (1 << BITS) - 1
+
+func want(m: UInt) -> UInt { m }
+func give() -> UInt { (1 << BITS) - 1 }
+
+func main() {
+    print("{}", HANDLE_INDEX_MASK)
+    print("{}", SIGNED_MASK)
+
+    let bound: UInt = (1 << BITS) - 1
+    print("{}", bound)
+    print("{}", want(m: (1 << BITS) - 1))
+    print("{}", give())
+
+    let arm: UInt = if bound > 0 { (1 << BITS) - 1 } else { 0 }
+    print("{}", arm)
+    let picked: UInt = match bound {
+        case 255 -> (1 << BITS) - 1,
+        case _ -> 0
+    }
+    print("{}", picked)
+
+    var acc: UInt = 0
+    acc += (1 << BITS) - 1
+    print("{}", acc)
+}

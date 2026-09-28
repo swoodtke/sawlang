@@ -1,0 +1,2 @@
+status: flagged
+5 E.lock flagged -- the closure body has return, which a block would retarget

@@ -1,0 +1,18 @@
+// Design 100: a match variant-pattern binding that shadows an enclosing binding
+// is a flat error — patterns BIND, they do not compare (the classic
+// bind-when-you-meant-compare footgun). The hint says exactly that.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `x` shadows the binding declared at shadow_match_pattern.saw:12:5
+// EXPECT-ERROR-CONTAINS: patterns bind new variables, they do not compare against `x`
+// EXPECT-ERROR-CONTAINS: shadow_match_pattern.saw:15:9
+
+enum Msg { case Quit, case Move(x: Int, y: Int) }
+
+func main() {
+    let x = 100
+    let m = Msg.Move(x: 1, y: 2)
+    match m {
+        case Move(x, y) -> print("{x} {y}"),
+        case Quit -> print("q")
+    }
+}

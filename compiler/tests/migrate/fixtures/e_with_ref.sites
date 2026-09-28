@@ -1,0 +1,2 @@
+status: rewritten
+5 E.with-ref rewritten => let n = borrow let c = v[0] { c.n }

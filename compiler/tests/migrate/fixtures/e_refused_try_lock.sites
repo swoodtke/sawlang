@@ -1,0 +1,2 @@
+status: flagged
+6 E flagged -- E.try-lock: the conditional lock accessor that replaces SpinLock.try_lock is not spelled

@@ -1,0 +1,23 @@
+//! Fixture for the import-forms x name-positions grid (design 235): one
+//! vocabulary reused by all four form files, so the same code exercises
+//! each position under every import form.
+// EXPECT: skip
+
+public trait Named {
+    func label(&self) -> String
+}
+
+public struct Widget { public n: Int }
+extension Widget: Named {
+    func label(&self) -> String { "widget" }
+}
+
+public enum Shape { case Circle, case Square }
+
+public func make_widget(n: Int) -> Widget { Widget(n: n) }
+
+// Deliberately left OUT of any file's selective import list — the row that
+// demonstrates the qualifier still reaches what selective did not select.
+public func other_widget(n: Int) -> Widget { Widget(n: n) }
+
+public static DEFAULT_N: Int = 7

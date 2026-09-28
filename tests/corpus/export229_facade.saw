@@ -1,0 +1,33 @@
+// Design 229: `public import` is legal on every form, and each restores the
+// reach its own shape gives.
+//   selective  -> the named symbols, bare and qualified, through the facade
+//   whole      -> the qualifier, so the chain reaches the dependency's surface
+//   glob       -> every name the dependency publishes, bare
+// EXPECT: success
+// EXPECT-OUTPUT: selective 2 1
+// EXPECT-OUTPUT: whole 2
+// EXPECT-OUTPUT: glob 3 9
+import modules.export229_facade
+import modules.export229_facade_whole
+import modules.export229_facade_glob.*
+
+// A re-exported name is a name: it works in a signature position too, and the
+// type keeps its own module's inherent API.
+func label_of(w: &export229_facade.Widget) -> Int {
+    w.label() + w.doubled() - w.n
+}
+
+func main() {
+    // Selective: through the facade, qualified and bare alike.
+    let a = export229_facade.Widget(n: 1)
+    let b = export229_facade.facade_make(n: 1)
+    print("selective {label_of(&a)} {b.n}")
+
+    // Whole-module: the chain reaches what the facade re-exported.
+    let c: export229_facade_whole.export229_leaf.Widget = export229_facade_whole.whole_make(n: 2)
+    print("whole {c.n}")
+
+    // Glob: every published name arrived bare, statics included.
+    let d = glob_make(n: 3)
+    print("glob {d.n} {LEAF_LIMIT}")
+}

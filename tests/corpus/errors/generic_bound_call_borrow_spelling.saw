@@ -1,0 +1,57 @@
+// DF-239a: a call on a trait-BOUNDED type parameter checks the reference
+// SPELLING of every argument, in both directions.
+//
+// The generic-bound call path defers deep argument typing on purpose (a trait
+// signature may name associated types, which stay abstract in this body) and
+// used to defer reference-ness with it — so a missing or surplus borrow
+// type-checked and reached codegen, where it is an ICE rather than a
+// diagnostic (`Type of #2 arg mismatch: %"Bag"* != %"Bag"`). Reference-ness is
+// not a typing question: Saw writes the borrow at the call site, so a `&Self`
+// parameter demands `&b` at every instantiation, whatever `Self` turns out to
+// be.
+//
+// Both rows of the matrix are here. The two rows already covered by
+// `_check_reference_sigils` (`&x` against `&var X`, and its mirror) are pinned
+// by the sigil-mismatch tests.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: argument `other` expects `&T`, but the borrow is not written
+// EXPECT-ERROR-CONTAINS: write `&b`
+// EXPECT-ERROR-CONTAINS: argument `other` expects `T` by value, but a reference is written
+// EXPECT-ERROR-CONTAINS: drop the `&`
+
+trait Merges {
+    func merge(&self, other: &Self) -> Int
+}
+
+trait Absorbs {
+    func absorb(&self, other: Self) -> Int
+}
+
+struct Bag {
+    n: Int
+}
+
+extension Bag: Merges {
+    func merge(&self, other: &Self) -> Int { self.n + other.n }
+}
+
+extension Bag: Absorbs {
+    func absorb(&self, other: Self) -> Int { self.n + other.n }
+}
+
+// The borrow is owed and not written.
+func missing<T: Merges>(a: &T, b: &T) -> Int {
+    a.merge(b)
+}
+
+// A borrow is written where the parameter takes ownership.
+func surplus<T: Absorbs>(a: &T, b: &T) -> Int {
+    a.absorb(&b)
+}
+
+func main() {
+    let x = Bag(n: 3)
+    let y = Bag(n: 4)
+    print(missing(&x, &y))
+    print(surplus(&x, &y))
+}

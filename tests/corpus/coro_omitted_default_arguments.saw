@@ -1,0 +1,265 @@
+// SL-208 review r1 finding 1: a SUSPENDING call whose site omits a defaulted
+// argument, at every position the coroutine transform builds a frame from a
+// call's arguments.
+//
+// ONE MECHANISM: the transform reads the CALL's argument list where the
+// CALLEE's parameter list is what a frame needs. Design 53 lets a trailing
+// default be omitted and design 66 lets a label skip forward over a defaulted
+// parameter, so the two lists differ whenever the callee declares a default —
+// and nothing in the transform materialized the default. It reaches two
+// funnels, and `_arity_args` now answers for both:
+//
+//   EMBEDDED (`_build_sub_frame`): a nested suspending call whose callee frame
+//   is built by hand. Short list -> `IndexError: list index out of range` in
+//   `_build_frame_init`, a compiler traceback. Positions: a same-module free
+//   callee, SL-208's module-qualified `mod.f(...)` free callee, an instance
+//   method, a static method.
+//
+//   ROOT (`_rewrite_drive_sites` / `_spawn_site_rule`): `__saw_drive(f())` and
+//   `group.spawn(f())` / `Task.spawn(f())` are rewritten to a call to a
+//   SYNTHESIZED wrapper carrying one parameter per formal. Short list ->
+//   ``function `__saw_drive_posdef` takes 1 argument(s), but 0 were given``, an
+//   arity error against a name the author never wrote.
+//
+// (Only the cross-module embedded cell is this branch's own: before SL-208 it
+// lowered as a plain call, which is the wedge. The other six had been failing
+// since defaults met the transform.)
+//
+// THE DEFAULT IS MATERIALIZED AT THE SITE, which is what review r2 corrected.
+// Revision 2 copied the callee's defaults onto the synthesized wrapper's
+// PARAMETERS instead; a default lives in a declaration, so that copy was made
+// whether or not any site needed it, and a default calling a suspending helper
+// then named a function the closure walk had lowered away — `undefined function
+// seed`, on a program whose every call passed the argument explicitly. Filling
+// at the site is what makes an explicitly-supplied argument never even look at
+// the default, and the EXPLICIT rows below are that regression's pins.
+//
+// THE LABELED-REORDER SIBLING IS ABSENT ON PURPOSE, and that is not a gap: a
+// backward label is a compile error (``labeled argument `first` cannot bind
+// backward; arguments bind left to right``), so the binding plan is monotonic by
+// construction and no reordering case exists for a frame builder to get wrong.
+// What a label CAN do is skip forward over a default — `mix(a:, c:)` below,
+// whose plan has its hole in the MIDDLE rather than at the end.
+//
+// THE MATRIX is {literal, non-suspending call, suspending call} default x
+// {explicit, omitted} x {embedded, drive root, spawn root} x {same, cross}
+// module, with three collapses stated rather than left implicit:
+//
+//   * EXPLICIT ARG x {literal, non-suspending call} default — the site never
+//     reaches the default, so those cells are the ordinary no-default call the
+//     rest of the corpus already covers everywhere. Only the SUSPENDING kind is
+//     pinned explicitly below, because that is the r2 regression's exact face.
+//   * CROSS-MODULE x {drive root, spawn root} — not expressible at all: a
+//     module-qualified call cannot BE a root (SL-217), so every cross-module
+//     cell reaches a root through an entry-module wrapper, which is the
+//     cross-module EMBEDDED cell already listed.
+//   * OMITTED x suspending default — refused, not run; the refusal has its own
+//     pair of files (`coro_suspending_default_omitted*.saw`, SL-221) since a
+//     compile error and a run cannot share one.
+//
+// Every arm of every sum is a distinct magnitude, so a value landing in the
+// wrong parameter slot reads as a wrong number instead of passing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 105
+// 951
+// 7
+// 105
+// 951
+// 207
+// 3
+// 7
+// 207
+// 3
+// 7
+// 951
+// 7
+// 41
+// 44
+// 42
+// 43
+// 50
+// 80
+// 60
+// 70
+// 1
+// 1
+
+import std.task.{yield_now}
+import modules.sl208_calls
+
+// ---- same-module callees ----
+
+func posdef_local(a: Int = 7) -> Int {
+    yield_now()
+    a
+}
+
+func labdef_local(a: Int, b: Int = 5) -> Int {
+    yield_now()
+    a * 100 + b
+}
+
+func mix_local(a: Int, b: Int = 50, c: Int = 900) -> Int {
+    yield_now()
+    a + b + c
+}
+
+struct Bag { n: Int }
+
+extension Bag {
+    func take(&self, a: Int = 7) -> Int {
+        yield_now()
+        self.n * 100 + a
+    }
+    static func make(a: Int = 3) -> Int {
+        yield_now()
+        a
+    }
+}
+
+// A NON-SUSPENDING CALL in the default position. The materialized copy carries
+// a call, so it is the row that proves the site fills more than a literal.
+func seed_value_local() -> Int {
+    40
+}
+
+func syncdef_local(a: Int, b: Int = seed_value_local()) -> Int {
+    yield_now()
+    a + b
+}
+
+// A SUSPENDING default. Declaring one is fine and SUPPLYING the argument is
+// fine — the default is never looked at, which is exactly what revision 2 broke.
+// Omitting it is SL-221's refusal, pinned in its own files.
+func suspend_seed_local() -> Int {
+    yield_now()
+    7
+}
+
+func suspdef_local(x: Int = suspend_seed_local()) -> Int {
+    yield_now()
+    x * 10
+}
+
+// ---- EMBEDDED, cross-module: omitted positional default ----
+func cross_posdef() -> Int {
+    let v = sl208_calls.posdefN()
+    v
+}
+
+// ---- EMBEDDED, cross-module: omitted LABELED default ----
+func cross_labdef() -> Int {
+    let v = sl208_calls.labdefN(a: 1)
+    v
+}
+
+// ---- EMBEDDED, cross-module: a label skipping a MID-LIST default ----
+func cross_mix() -> Int {
+    let v = sl208_calls.mixN(a: 1, c: 900)
+    v
+}
+
+// ---- EMBEDDED, same-module controls, one per cross cell ----
+func same_posdef() -> Int {
+    let v = posdef_local()
+    v
+}
+
+func same_labdef() -> Int {
+    let v = labdef_local(a: 1)
+    v
+}
+
+func same_mix() -> Int {
+    let v = mix_local(a: 1, c: 900)
+    v
+}
+
+// ---- EMBEDDED, the method siblings of the same funnel ----
+func method_default() -> Int {
+    let b = Bag(n: 2)
+    let v = b.take()
+    v
+}
+
+func static_default() -> Int {
+    let v = Bag.make()
+    v
+}
+
+// ---- EMBEDDED, omitted NON-SUSPENDING-CALL default ----
+func same_syncdef() -> Int {
+    let v = syncdef_local(1)
+    v
+}
+
+// The cross twin is the design-210 cell: `syncdefN`'s default calls
+// `seed_valueN`, PRIVATE to `modules.sl208_calls`, and the copy lands in a
+// module that cannot see it. It travels under the embed contract instead.
+func cross_syncdef() -> Int {
+    let v = sl208_calls.syncdefN(4)
+    v
+}
+
+// ---- EMBEDDED, EXPLICIT arg against a SUSPENDING default (the r2 face) ----
+func same_suspdef_explicit() -> Int {
+    let v = suspdef_local(5)
+    v
+}
+
+func cross_suspdef_explicit() -> Int {
+    let v = sl208_calls.suspdefN(8)
+    v
+}
+
+func main() {
+    // The embedded funnel.
+    print(__saw_drive(cross_posdef()))     // 7     (a defaulted)
+    print(__saw_drive(cross_labdef()))     // 105   (a=1, b defaulted 5)
+    print(__saw_drive(cross_mix()))        // 951   (a=1, b defaulted 50, c=900)
+    print(__saw_drive(same_posdef()))      // 7
+    print(__saw_drive(same_labdef()))      // 105
+    print(__saw_drive(same_mix()))         // 951
+    print(__saw_drive(method_default()))   // 207   (self.n=2, a defaulted 7)
+    print(__saw_drive(static_default()))   // 3     (a defaulted)
+
+    // The root funnel: the drive site and both spawn forms, each omitting a
+    // default the synthesized wrapper has to carry.
+    print(__saw_drive(posdef_local()))     // 7
+    var bag = Bag(n: 2)
+    print(__saw_drive(bag.take()))         // 207   (method root)
+    print(__saw_drive(Bag.make()))         // 3     (static root)
+
+    var group = TaskGroup()
+    let h = group.spawn(posdef_local())
+    print(h.join())                        // 7
+    // A spawn site may label, so the mid-list hole reaches this funnel too.
+    let hm = group.spawn(mix_local(a: 1, c: 900))
+    print(hm.join())                       // 951
+
+    let bg = Task.spawn(posdef_local())
+    print(bg.join())                       // 7
+
+    // A NON-SUSPENDING CALL default, omitted, at each position it can reach.
+    print(__saw_drive(same_syncdef()))     // 41  (embedded, same module)
+    print(__saw_drive(cross_syncdef()))    // 44  (embedded, CROSS module)
+    print(__saw_drive(syncdef_local(2)))   // 42  (drive root)
+    let hs = group.spawn(syncdef_local(3))
+    print(hs.join())                       // 43  (spawn root)
+
+    // A SUSPENDING default with the argument SUPPLIED: the default is dead
+    // code on this path and must stay unexamined. Revision 2 failed all four
+    // of these with `undefined function suspend_seed_local`.
+    print(__saw_drive(same_suspdef_explicit()))   // 50  (embedded, same)
+    print(__saw_drive(cross_suspdef_explicit()))  // 80  (embedded, CROSS)
+    print(__saw_drive(suspdef_local(6)))          // 60  (drive root)
+    let hx = group.spawn(suspdef_local(7))
+    print(hx.join())                              // 70  (spawn root)
+
+    // …and the suspension still happens: a supplied argument must not turn the
+    // callee into a plain call. Both bodies below suspend once.
+    print(__saw_drive_steps(suspdef_local(6)))         // 1  (the root's own)
+    print(__saw_drive_steps(same_suspdef_explicit()))  // 1  (the embedded one's)
+}

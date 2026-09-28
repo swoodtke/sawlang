@@ -1,0 +1,35 @@
+// A call on a trait-BOUNDED type parameter must check an argument against a
+// FULLY CONCRETE parameter type. `Sig.concrete(&self, n: Int)` names no
+// associated type and no `Self`, so `Int` is what it means at every
+// instantiation — there is nothing abstract to defer.
+//
+// The generic-bound call path used to check argument COUNT and reference
+// SPELLING and nothing else, so a `String` handed to an `Int` parameter
+// type-checked and reached codegen, where it was an internal compiler error
+// (`Type of #2 arg mismatch: i64 != i8*`) rather than a diagnostic. The
+// deferral existed because a trait signature MAY name associated types; the
+// mechanism did not ask whether this one does. DF-239b: it asks now, against
+// the signature resolved in the module that DECLARED it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: argument `n` expects `Int` but got `String`
+
+trait Sig {
+    func concrete(&self, n: Int) -> Int
+}
+
+struct Bag {
+    n: Int
+}
+
+extension Bag: Sig {
+    func concrete(&self, n: Int) -> Int { self.n + n }
+}
+
+func widen<T: Sig>(a: &T) -> Int {
+    a.concrete("hi")
+}
+
+func main() {
+    let x = Bag(n: 3)
+    print(widen(&x))
+}

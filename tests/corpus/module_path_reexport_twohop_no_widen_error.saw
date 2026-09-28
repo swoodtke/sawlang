@@ -1,0 +1,15 @@
+// DF-232j sweep, the TWO-HOP facade: `secret` -> `mid` re-exports it ->
+// `lib` re-exports the re-export -> the entry, outside the package, reaches
+// it qualified. Each hop is legal alone; the tier must survive the chain —
+// it rides the SYMBOL (`def_module` + visibility are shared by reference),
+// so hop count must not matter.
+// DF-232j FIXED: the decision reads `sym.def_module`, which every hop shares
+// by reference, so hop count cannot matter. Ordinary regression test.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `pkg_secret` is public(package) in `pkgvis.secret`
+// COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232j_twohop
+import pkgvis
+
+func main() {
+    print(pkgvis.pkg_secret())
+}

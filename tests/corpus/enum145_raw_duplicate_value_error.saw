@@ -1,0 +1,14 @@
+// Design 145 unit B2: two cases cannot share a raw value. The values identify
+// the cases on the wire, so a duplicate would make decoding ambiguous and
+// `from(raw:)` arbitrary.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cases `A` and `B` of enum `Dup` both have raw value 1
+
+enum Dup: UInt8 {
+    case A = 1,
+    case B = 1
+}
+
+func main() {
+    print(Dup.A as UInt8)
+}

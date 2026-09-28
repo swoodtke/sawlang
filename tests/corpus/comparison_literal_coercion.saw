@@ -1,0 +1,29 @@
+// A bare integer literal in COMPARISON position adopts the fixed-width type of
+// the other operand (design 77 item 9), so `fd < 0` for `fd: Int32` no longer
+// needs `(0 as Int32)`. Range-checked like the design-65 coercion (an
+// out-of-range literal is a clean error — see
+// errors/comparison_literal_out_of_range).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 0
+// 15
+
+func sign(fd: Int32) -> Int {
+    if fd < 0 { 1 } else { 0 }
+}
+
+func flags(x: Int16) -> Int {
+    var c = 0
+    if x < 500 { c = c + 1 }
+    if x >= 0 { c = c + 2 }
+    if x == 100 { c = c + 4 }
+    if x != 3 { c = c + 8 }
+    c
+}
+
+func main() {
+    print(sign(-1i32))     // 1
+    print(sign(7i32))      // 0
+    print(flags(100i16))   // 100<500, >=0, ==100, !=3 -> 1+2+4+8 = 15
+}

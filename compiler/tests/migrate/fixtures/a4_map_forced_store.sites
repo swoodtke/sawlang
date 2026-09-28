@@ -1,0 +1,2 @@
+status: rewritten
+4 A4.map-forced-store rewritten => borrow var e = m["k"] { e = 5 }

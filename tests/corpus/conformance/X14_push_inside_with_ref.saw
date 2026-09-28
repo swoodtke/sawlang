@@ -1,0 +1,15 @@
+// Conformance row X14 — `v.push` inside a `with_ref` window on the same vector
+//
+// A reallocating `push` inside a SHARED element borrow. The existing pin is
+// the `with_var_ref` twin; `with_ref` charges its root just the same.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation: `v` is passed as `&var`
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    let r = v.with_ref(0, { [&var v] e in
+        v.push(9)
+        e
+    })
+    print(r)
+}

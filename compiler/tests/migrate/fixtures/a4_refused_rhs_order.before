@@ -1,0 +1,11 @@
+func seven() -> Int {
+    print("rhs")
+    7
+}
+
+func main() {
+    var m = Map<String, Int>()
+    let _ = m.insert("k", 1)
+    m["k"]! = seven()
+    print(m.len())
+}

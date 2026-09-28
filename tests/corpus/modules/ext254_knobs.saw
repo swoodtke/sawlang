@@ -1,0 +1,27 @@
+//! Design 254 fixture: defines `Knob` and extends the FOREIGN `Panel` with the
+//! overload that names it. Rule 3 consults `ext254_panel`, not this module, so
+//! before design 254 a file reaching `Panel` through a facade could not see
+//! `add(knob:key:)` however the facade was written.
+// EXPECT: skip
+
+import modules.ext254_panel.{Panel}
+
+public struct Knob {
+    public id: Int
+}
+
+extension Panel {
+    public func add(&self, knob: &Knob, key: Int) -> Int {
+        self.raw + knob.id + key
+    }
+
+    public func kind(&self) -> Int {
+        7
+    }
+
+    // Design 80 still gates each method separately: forwarding the module's
+    // extension SCOPE says nothing about a member's visibility tier.
+    func hidden(&self) -> Int {
+        99
+    }
+}

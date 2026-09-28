@@ -1,0 +1,56 @@
+// Design 87: an integer literal adopts a fixed-width EXPECTED type uniformly at
+// every position, routed through the central expected-type propagation. This
+// exercises the positions the pre-87 per-position patches missed: array-literal
+// elements into `[IntN; M]`, tuple elements, if/match arm results, compound-
+// assign RHS, default parameter values, and Map/Set literal keys+values. Each
+// materializes at the exact width and round-trips.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 60
+// 6
+// 5
+// 11
+// 200
+// 700
+// 1
+
+func with_default(x: Int8 = 100) -> Int8 { x }   // default param value
+
+func main() {
+    // Array literal elements into a fixed-width array.
+    let a: [Int8; 3] = [10, 20, 30]
+    print((a[0] as Int) + (a[1] as Int) + (a[2] as Int))   // 60
+
+    // Tuple elements adopt element-wise fixed widths.
+    let t: (Int8, Int16, Int32) = (1, 2, 3)
+    print((t.0 as Int) + (t.1 as Int) + (t.2 as Int))       // 6
+
+    // if-arm result merging to a fixed-width binding.
+    let cond = true
+    let picked: Int8 = if cond { 5 } else { 6 }
+    print(picked as Int)                                     // 5
+
+    // match-arm result.
+    let n = 2
+    let m_arm: Int16 = match n {
+        case 1 -> 10,
+        case 2 -> 11,
+        case _ -> 12
+    }
+    print(m_arm as Int)                                      // 11
+
+    // compound-assign RHS adopts the target's fixed width.
+    var acc: Int16 = 100
+    acc += 100
+    print(acc as Int)                                        // 200
+
+    // Map literal keys + values into a fixed-width Map.
+    let mp: Map<Int8, Int16> = {1: 300, 2: 400}
+    print((mp.get(1)! as Int) + (mp.get(2)! as Int))         // 700
+
+    // Set literal elements into a fixed-width Set; default parameter value.
+    let st: Set<Int8> = {1, 2, 3}
+    let has = if st.contains(2) { 1 } else { 0 }
+    let _ = with_default()
+    print(has)                                               // 1
+}

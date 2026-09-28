@@ -1,0 +1,24 @@
+// Design 135 unit B at the position SL-269 corrected: a capturing closure
+// STORED by the call it is passed to heap-allocates its environment, exactly as
+// one bound to a `let` does, and `--no-hidden-alloc` refuses it.
+//
+// It used to compile silently under the flag. The escape analysis read the
+// closure's syntactic position — "a call argument does not escape" — so a
+// closure pushed into a `Vector` was classified non-escaping: no hidden-alloc
+// error, and a STACK environment the vector then outlived. The flag's report
+// and the lowering are the same bit, so the two were wrong together.
+//
+// The mirror is `conformance/V116_non_escaping_closure_keeps_its_stack_env.saw`,
+// where the same literal at a slot the callee RUNS still compiles clean.
+//
+// COMPILE-FLAGS: --no-hidden-alloc
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: escaping closure heap-allocates its captured environment
+
+func main() {
+    let base = 10
+    var v = Vector<() sync -> Int>()
+    try! v.push({ base + 5 })
+    let g = v[0]
+    print("{}", g())
+}

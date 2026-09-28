@@ -1,0 +1,24 @@
+// Design 63 T1d: guards run AFTER binding; a false guard falls through to
+// later arms in order.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// neg
+// zero
+// small
+// big
+
+func describe(n: Int) -> String {
+    match n {
+        case x if x < 0 -> "neg"
+        case 0 -> "zero"
+        case x if x < 10 -> "small"
+        case _ -> "big"
+    }
+}
+
+func main() {
+    print(describe(-5))   // neg
+    print(describe(0))    // zero (guard x<0 fails, falls to case 0)
+    print(describe(7))    // small
+    print(describe(100))  // big  (both guards fail)
+}

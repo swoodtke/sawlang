@@ -1,0 +1,24 @@
+// DF-140f: a module-private `static` (and a module-private function) in a
+// dependency used to collide with a same-named one in the importer —
+// "ambiguous static `PT_LOAD`" — even though neither module can see the other's.
+// Every private constant in a dependency was effectively a reserved word for its
+// consumers. Private declarations now carry a module-local codegen symbol, so
+// each module reads its own.
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 9
+
+import modules.df140f_dep.{dep_kind}
+
+static PT_LOAD: Int = 7
+
+func header_kind() -> Int {
+    9
+}
+
+func main() {
+    print(dep_kind())
+    print(PT_LOAD)
+    print(header_kind())
+}

@@ -1,0 +1,29 @@
+// Conformance row K25 — a spliced body's module-private `static` still resolves
+// in a CONST position
+//
+// The hardest position for design 210's contract, and the one that shows why
+// the contract is a list rather than a feeling. `SLOTS` is private to
+// `embedmod`; `Buf.fill` names it as an array LENGTH and as a repeat COUNT.
+// Both are compile-time-only, so `ArrayLiteral.repeat_count` is a declared
+// ANNOTATION on purpose — the coroutine transform's hoist must never lift a
+// constant into a runtime `let`. Every structural walker therefore steps over
+// it, including the one that marks a spliced body's answers as carried, so the
+// count came out of the splice as a bare name to be looked up in the entry
+// module — where `SLOTS` is not a name.
+//
+// Design 84 hid this for std by merging std's statics into every compile and
+// turning the accessibility gate off for a std-sourced body. A user module gets
+// neither, so the position had to be covered rather than permitted: the marking
+// walk is the one walk in the transform that visits annotation fields.
+//
+// COMPILE-FLAGS: --module-path embedmod={TESTDIR}/modules/embedmod
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 8
+
+import embedmod.{Runner}
+
+func main() {
+    let b = Runner(tag: 1)
+    print(b.fill())
+}

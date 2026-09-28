@@ -1,0 +1,188 @@
+// SL-350: destination-aware struct construction preserves copy/move ownership,
+// reverse-field destruction, and assignment's transactional boundary.  A
+// failed second field drops the first new field but leaves the old target
+// intact; a successful RHS is fully built before the old target is destroyed.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// copy source held
+// copy field held
+// moved 1 2
+// drop 2
+// drop 1
+// --- zero repeat
+// make 3
+// drop 3
+// --- failed assignment
+// make 30
+// make 40
+// drop 30
+// failed 40
+// kept 10 20
+// drop 20
+// drop 10
+// --- failed optional assignment
+// make 130
+// make 140
+// drop 130
+// failed 140
+// kept 110 120
+// drop 120
+// drop 110
+// --- successful assignment
+// make 70
+// make 80
+// drop 60
+// drop 50
+// replaced 70 80
+// drop 80
+// drop 70
+
+struct Resource { id: Int }
+
+extension Resource: NoCopy {
+    func deinit(&var self) {
+        print("drop {self.id}")
+    }
+}
+
+struct OwnedPair {
+    first: Resource
+    second: Resource
+}
+
+extension OwnedPair: NoCopy {}
+
+struct OwnedBox { pair: OwnedPair }
+extension OwnedBox: NoCopy {}
+
+struct TextHolder { value: String }
+
+struct Failure { id: Int }
+
+extension Failure: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("failure {self.id}")
+    }
+}
+
+extension Failure: Error {}
+
+func make_resource(id: Int, fail: Bool) -> Result<Resource, Failure> {
+    print("make {id}")
+    if fail {
+        return Failure(id: id)
+    }
+    return Resource(id: id)
+}
+
+func replace(
+    target: &var OwnedPair,
+    first_id: Int,
+    second_id: Int,
+    fail_second: Bool
+) -> Result<Void, Failure> {
+    target = OwnedPair(
+        first: try make_resource(id: first_id, fail: false),
+        second: try make_resource(id: second_id, fail: fail_second)
+    )
+    return
+}
+
+func replace_optional(
+    target: &var OwnedBox?,
+    first_id: Int,
+    second_id: Int,
+    fail_second: Bool
+) -> Result<Void, Failure> {
+    target?.pair = OwnedPair(
+        first: try make_resource(id: first_id, fail: false),
+        second: try make_resource(id: second_id, fail: fail_second)
+    )
+    return
+}
+
+func transfer_rows() {
+    var builder = StringBuilder()
+    try! builder.append("held")
+    let source = builder.build()
+    let copied = TextHolder(value: source)
+    print("copy source {source}")
+    print("copy field {copied.value}")
+
+    let left = Resource(id: 1)
+    let right = Resource(id: 2)
+    let moved = OwnedPair(second: move right, first: move left)
+    print("moved {moved.first.id} {moved.second.id}")
+    // `moved` drops in reverse declaration order: second, then first.  The
+    // consumed bindings do not drop again.
+}
+
+func marked_id(id: Int) -> Int {
+    print("make {id}")
+    id
+}
+
+func zero_repeat() {
+    let _: [Resource; 0] = [
+        Resource(id: marked_id(id: 3));
+        0
+    ]
+}
+
+func failed_assignment() {
+    var target = OwnedPair(first: Resource(id: 10), second: Resource(id: 20))
+    match replace(
+        &var target,
+        first_id: 30,
+        second_id: 40,
+        fail_second: true
+    ) {
+        case Ok(_) -> print("unexpected success"),
+        case Err(error) -> print("failed {error.id}")
+    }
+    print("kept {target.first.id} {target.second.id}")
+}
+
+func failed_optional_assignment() {
+    var target: OwnedBox? = OwnedBox(
+        pair: OwnedPair(
+            first: Resource(id: 110),
+            second: Resource(id: 120)
+        )
+    )
+    match replace_optional(
+        &var target,
+        first_id: 130,
+        second_id: 140,
+        fail_second: true
+    ) {
+        case Ok(_) -> print("unexpected success"),
+        case Err(error) -> print("failed {error.id}")
+    }
+    print("kept {target!.pair.first.id} {target!.pair.second.id}")
+}
+
+func successful_assignment() {
+    var target = OwnedPair(first: Resource(id: 50), second: Resource(id: 60))
+    match replace(
+        &var target,
+        first_id: 70,
+        second_id: 80,
+        fail_second: false
+    ) {
+        case Ok(_) -> print("replaced {target.first.id} {target.second.id}"),
+        case Err(error) -> print("unexpected {error.id}")
+    }
+}
+
+func main() {
+    transfer_rows()
+    print("--- zero repeat")
+    zero_repeat()
+    print("--- failed assignment")
+    failed_assignment()
+    print("--- failed optional assignment")
+    failed_optional_assignment()
+    print("--- successful assignment")
+    successful_assignment()
+}

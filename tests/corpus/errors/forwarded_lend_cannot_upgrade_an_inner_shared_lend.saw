@@ -1,0 +1,36 @@
+// SL-333 R7 (conformance row K129, cell 2 of 3): an outer `borrows -> &var T`
+// whose lend is backed by an inner `borrows -> &T` is refused AT THE LEND.
+//
+// No upgrade: the inner accessor lends read-only, so it cannot supply the
+// exclusive place the outer declaration promises its callers. The forwarded
+// lend is the seventh entry of the window-opener funnel, so this is R1's
+// refusal reaching it — the exclusive specialization's `lend` is a write
+// through a read-only lend, and it is named as one.
+//
+// The two ways forward are the declaration's: widen the inner accessor, or lend
+// storage the outer type owns itself.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot write through `self.inner[…]`: `Inner.[]` is declared `borrows -> &Int`, which lends the place READ-ONLY
+// EXPECT-ERROR-CONTAINS: declare the accessor `borrows -> &var Int`
+
+struct Inner { cells: [Int; 2] }
+
+extension Inner {
+    public func [](&self, i: Int) borrows -> &Int {
+        if i < 0 || i >= 2 { panic("Inner.[]: index out of range") }
+        lend self.cells[i]
+    }
+}
+
+struct Outer { inner: Inner }
+
+extension Outer {
+    public func [](&var self, i: Int) borrows -> &var Int {
+        lend self.inner[i]
+    }
+}
+
+func main() {
+    var o = Outer(inner: Inner(cells: [3, 4]))
+    o[0] = 9
+}

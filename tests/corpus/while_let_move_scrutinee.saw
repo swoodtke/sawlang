@@ -1,0 +1,20 @@
+// Design 233: a `while let` scrutinee is evaluated per iteration inside the
+// loop body, so the LOOP's rules reach it. `move` of an enclosing binding is
+// the case that shows it: legal once in an `if let`, and moved-from on the
+// second iteration here. Caught by the existing loop move dataflow, anchored on
+// the `move`, with the reassign-or-fresh-value way out — no new check.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable `slot` across loop iterations
+// EXPECT-ERROR-CONTAINS: reassign it before the loop body ends
+
+struct Token { id: Int }
+extension Token: NoCopy {}
+
+func main() {
+    var slot: Token? = Token(id: 3)
+    var n = 0
+    while let t = move slot {
+        n = n + t.id
+    }
+    print("{n}")
+}

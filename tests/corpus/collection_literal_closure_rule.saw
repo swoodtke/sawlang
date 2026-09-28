@@ -1,0 +1,28 @@
+// The closure rule (design 54 Part 3): `{k: v}` is a map, `{a, b}` is a set,
+// but `{}`, `{expr}`, `{ x in ... }`, and `{ $0 ... }` are ALWAYS closures/
+// blocks. This locks the bounded-lookahead disambiguation.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 10
+// 99
+// 2
+// 3
+
+func apply(f: (Int) -> Int, x: Int) -> Int {
+    f(x)
+}
+
+func main() {
+    // Closures (unchanged): shorthand, named param, single-expr block.
+    print(apply({ $0 * 2 }, 21))       // 42 (closure)
+    print(apply({ x in x + 1 }, 9))    // 10 (closure)
+    let single = { 99 }                // single-expr block -> closure
+    print(single())                    // 99
+
+    // Collection literals (comma / colon disambiguate).
+    var m = {1: 10, 2: 20}             // map literal
+    print(m.len())                     // 2
+    var s = {7, 8, 9}                  // set literal
+    print(s.len())                     // 3
+}

@@ -1,0 +1,21 @@
+// Design 131: an ExplicitCopy payload is never implicitly duplicated either.
+// The compiler offers all three ways out — deep copy, whole-binding move, or
+// take the payload in place.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot read the payload out of `v`
+// EXPECT-ERROR-CONTAINS: implements ExplicitCopy
+// EXPECT-ERROR-CONTAINS: `v!.copy()` for an explicit deep copy
+// EXPECT-ERROR-CONTAINS: `move v!` to transfer the whole binding
+// EXPECT-ERROR-CONTAINS: `v.take()` to move the payload out in place
+
+func mk() -> Vector<Int>? {
+    var b = Vector<Int>()
+    b.push(1)
+    return move b
+}
+
+func main() {
+    var v = mk()
+    let x = v!
+    print(x.len())
+}

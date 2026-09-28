@@ -1,0 +1,71 @@
+// Conformance row D02 — `return <diverging>` compiles, at every callee kind
+//
+// `return panic("...")` and `return fault(p)` say "leave, and here is why".
+// The return site never asked the divergence question, so it walked on to
+// write a terminator into a block the operand had already terminated with
+// `unreachable`. llvmlite reported that as a bare `internal compiler error at
+// ...(ReturnStatement)` with no message at all (DF-178d), and it was broken
+// for `panic` too, which is why legs 2 and 3 could not reach it — design 228
+// leg 4 is its own question at its own site.
+//
+// Each function is guarded so the run takes the other exit: what is asserted
+// is that the program compiles and the surviving path answers.
+//
+// COMPILE-FLAGS: --module-path neverdiv={TESTDIR}/modules/neverdiv
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1 2 3 4 5 6
+
+import neverdiv
+
+extern "C" {
+    func _exit(code: Int32) -> Never
+}
+
+// Alone under its name (resolved by plain name); `die` below is an overload
+// set, and both kinds are exercised.
+func stop(r: Int) -> Never {
+    print("stop {r}")
+    while { }
+}
+
+func die(r: Int) -> Never {
+    print("die {r}")
+    while { }
+}
+
+func die(r: Bool) -> Never {
+    print("die {r}")
+    while { }
+}
+
+func by_panic(x: Int) -> Int {
+    if x > 0 { return x }
+    return panic("unreachable")
+}
+
+func by_plain(x: Int) -> Int {
+    if x > 0 { return x }
+    return stop(1)
+}
+
+func by_overloaded(x: Int) -> Int {
+    if x > 0 { return x }
+    return die(1)
+}
+
+func by_imported(x: Int) -> Int {
+    if x > 0 { return x }
+    return neverdiv.mdie(1)
+}
+
+func by_extern(x: Int) -> Int {
+    if x > 0 { return x }
+    return _exit(3)
+}
+
+func main() {
+    print("{} {} {} {} {} {}",
+          by_panic(1), by_plain(2), by_overloaded(3), by_imported(4),
+          by_extern(5), neverdiv.return_position(6))
+}

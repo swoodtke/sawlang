@@ -1,0 +1,2 @@
+status: flagged
+5 design-200 flagged -- pins a retired rule: a write through `self` inside a `&self` method (design 200's carve-out, SL:borrowing §9)

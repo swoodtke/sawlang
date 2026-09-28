@@ -1,0 +1,8 @@
+// Int.pow() with a negative exponent has no integer result, so it panics
+// (design 57).
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: negative exponent
+
+func main() {
+    print((2).pow(-3))   // negative exponent -> panic
+}

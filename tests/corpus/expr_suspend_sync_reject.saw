@@ -1,0 +1,19 @@
+// Design 120, pinned semantics 5: a suspending call in a `sync` context stays a
+// clean error regardless of position. Effect inference never cared about
+// position; expression-position suspension does not change that. Permanent error
+// test (NOT xfail) — this must never start compiling.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func`
+
+func s(n: Int) -> Int {
+    __saw_suspend()
+    n
+}
+
+func pure() sync -> Int {
+    1 + s(10)               // suspending call buried in a sync function: error
+}
+
+func main() {
+    print(pure())
+}

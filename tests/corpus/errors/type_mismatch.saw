@@ -1,0 +1,12 @@
+// Error: type mismatch
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: argument `a` expects `Int` but got `String`
+
+func add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+func main() {
+    let result = add("hello", 42)
+    print(result)
+}

@@ -1,0 +1,22 @@
+struct Counters { hits: [Int; 2] }
+
+extension Counters {
+    func [](&var self, i: Int) borrows -> &var Int {
+        if i < 0 || i >= 2 { panic("Counters.[]: index out of range") }
+        lend self.hits[i]
+    }
+}
+
+struct Log { counters: Counters, slots: [Int; 4] }
+
+extension Log {
+    func at(&self, i: Int) borrows -> &Int {
+        self.counters[0] += 1
+        lend self.slots[i]
+    }
+}
+
+func main() {
+    var l = Log(counters: Counters(hits: [0, 0]), slots: [7, 8, 9, 10])
+    print(l.slots[0])
+}

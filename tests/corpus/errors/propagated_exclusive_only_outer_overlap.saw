@@ -1,0 +1,46 @@
+// SL-333 R4 (conformance row K125): a WRONGLY-shared stamp would bypass the
+// pairwise root charge too, so the propagated case gets the overlap twins.
+//
+// The two halves of R4 read the same bit: the `let`-root refusal
+// (`exclusive_only_inner_makes_the_outer_exclusive_only.saw`) and the pairwise
+// root charge (`mixed_window_modes_conflict.saw`). An outer accessor that
+// becomes exclusive-only by PROPAGATION — it opens a receiver-rooted window on
+// an exclusive-only inner — must reach both, or a wrong stamp would show up as
+// a compiling program in the second even after the first was fixed. Both
+// orders, because the pairwise test reads one mode per entry and an ordering
+// bug would hide in exactly one of them.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation: the place `o.propagated(…)` borrows `o` EXCLUSIVELY even though this window only reads
+// EXPECT-ERROR-CONTAINS: `Outer.propagated` mutates `self` outside the place it lends (the window on `Inner.tally` at line 32)
+// EXPECT-ERROR-CONTAINS: a read-only RESULT is not a shared receiver BORROW
+
+struct Inner { n: Int, hits: Int }
+
+extension Inner {
+    // EXCLUSIVE-ONLY.
+    func tally(&var self) borrows -> &var Int {
+        self.hits = self.hits + 1
+        lend self.n
+    }
+}
+
+struct Outer { inner: Inner, n: Int, m: Int }
+
+extension Outer {
+    // EXCLUSIVE-ONLY by propagation.
+    func propagated(&var self) borrows -> &var Int {
+        let _ = self.inner.tally()
+        lend self.n
+    }
+
+    // SHARED-ELIGIBLE.
+    func plain(&var self) borrows -> &var Int { lend self.m }
+}
+
+func pair(a: &Int, b: &Int) -> Int { a + b }
+
+func main() {
+    var o = Outer(inner: Inner(n: 1, hits: 0), n: 2, m: 3)
+    print("{pair(&o.propagated(), &o.plain())}")   // exclusive-only first
+    print("{pair(&o.plain(), &o.propagated())}")   // shared-eligible first
+}

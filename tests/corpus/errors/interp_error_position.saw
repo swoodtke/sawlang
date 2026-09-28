@@ -1,0 +1,11 @@
+// Design 99: a type error inside a string interpolation must report the
+// real source position of the interpolated expression, not 1:1.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot interpolate value of type `Blob`
+// EXPECT-ERROR-CONTAINS: interp_error_position.saw:10:
+struct Blob { n: Int }
+
+func main() {
+    let b = Blob(n: 1)
+    print("blob {b}")
+}

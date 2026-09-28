@@ -1,0 +1,28 @@
+// Conformance row V55 — a BINDING receiver owes the visible `move`
+//
+// design 260. Both ends of a consuming call are marked: the declaration says
+// `consumes`, and the call site says `move`. A bare `b.finish()` would end `b`
+// with nothing on the page to say so, which is exactly the reading a reference
+// sigil exists to prevent — so it is refused with the mirror fixit.
+//
+// The control below is the other half of the rule: a TEMPORARY receiver needs
+// no `move` and gets no fixit. There is no binding to invalidate, and the temp
+// was already the callee's to end.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `finish` consumes its receiver — write `(move b).finish()`
+// EXPECT-ERROR-CONTAINS: is moved-from afterwards
+
+struct Builder { count: Int }
+extension Builder: NoCopy {}
+extension Builder {
+    static func make(n: Int) -> Builder { Builder(count: n) }
+    func finish(&var self) consumes -> Int { self.count }
+}
+
+func main() {
+    // The control: a temporary receiver, legal bare.
+    print("{}", Builder.make(n: 1).finish())
+    var b = Builder(count: 7)
+    print("{}", b.finish())
+}

@@ -1,0 +1,26 @@
+// Brief 14 item 3 (Map audit): Map's `copy()`/ExplicitCopy conformance is now
+// conditional on `<K: Copy, V: Copy>` (it delegates to Vector.copy()). A Map
+// whose value type is NoCopy must therefore still be constructible and usable
+// through its non-copy-requiring methods (init, len, is_empty); only `copy()`
+// is gated off (calling it names the unmet bound -- covered elsewhere).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 0
+
+struct R {
+    id: Int
+}
+
+extension R: NoCopy {
+    func deinit(&var self) {
+    }
+}
+
+func main() {
+    var m = Map<Int, R>()
+    if m.is_empty() {
+        print(1)        // 1: freshly constructed, empty
+    }
+    print(m.len())      // 0
+}

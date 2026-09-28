@@ -1,0 +1,12 @@
+// Design 63 Part 1: the cast is ONE-DIRECTIONAL (toward underlying). The reverse
+// `42 as UserId` stays an error — `UserId(42)` initialization is the sanctioned
+// explicit form for going the other way.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot cast
+
+type UserId = Int
+
+func main() {
+    let bad = 42 as UserId
+    print(bad as Int)
+}

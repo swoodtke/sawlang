@@ -1,0 +1,7 @@
+func main() {
+    var vm = Vector<Map<String, Int>>()
+    try! vm.push(Map<String, Int>())
+    let _ = vm[0].insert("k", 1)
+    vm[0]["k"]! = 5
+    print(vm.len())
+}

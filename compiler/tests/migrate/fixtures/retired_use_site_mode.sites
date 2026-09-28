@@ -1,0 +1,2 @@
+status: flagged
+21 use-site-mode flagged -- pins a retired rule: a shared window through `Bag.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)

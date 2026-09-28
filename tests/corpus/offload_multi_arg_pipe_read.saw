@@ -1,0 +1,61 @@
+// DF-181e (design 183 unit 2): a blocking extern may now have any signature the
+// C-ABI whitelist admits. `read(2)` is the shape design 103 always wanted and its
+// `(Int) -> Int` rule could not spell — three arguments, an `Int32` fd, a pointer
+// into the caller's storage, and a count. The reader parks inside the offloaded
+// read; the writer task runs while it is parked (single-threaded group, so its
+// line printing first IS the interleave proof) and feeds the pipe; the bytes the
+// worker thread wrote land in the reader's frame and are read back after the join.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// writer: fed the pipe
+// reader: n=4 bytes=83,97,119,33
+
+struct PipeFds { r: Int32, w: Int32 }
+
+extern "C" {
+    func pipe(fds: UnsafePointer<Int8>) -> Int32
+    func write(fd: Int32, buf: UnsafePointer<Int8>, n: Int) -> Int
+    blocking func read(fd: Int32, buf: UnsafePointer<Int8>, n: Int) -> Int
+}
+
+func make_pipe() unsafe -> PipeFds {
+    var fds = PipeFds(r: 0, w: 0)
+    if pipe((&fds) as UnsafePointer<Int8>) != 0 {
+        panic("pipe(2) failed")
+    }
+    fds
+}
+
+func reader(fd: Int32) unsafe -> Int {
+    // Frame-owned storage: `buf` spans the offload's park, so it lives in the
+    // heap-resident frame and the worker thread's write is still addressing it
+    // when the task resumes.
+    var buf: [Int8; 8] = [0; 8]
+    let n = read(fd, (&buf) as UnsafePointer<Int8>, 4)
+    let b0 = buf[0] as Int
+    let b1 = buf[1] as Int
+    let b2 = buf[2] as Int
+    let b3 = buf[3] as Int
+    print("reader: n={n} bytes={b0},{b1},{b2},{b3}")
+    return n
+}
+
+func writer(fd: Int32) unsafe -> Int {
+    var out: [Int8; 4] = [0; 4]
+    out[0] = 83     // S
+    out[1] = 97     // a
+    out[2] = 119    // w
+    out[3] = 33     // !
+    let n = write(fd, (&out) as UnsafePointer<Int8>, 4)
+    print("writer: fed the pipe")
+    return n
+}
+
+func main() unsafe {
+    let fds = make_pipe()
+    var group = TaskGroup()
+    let hr = group.spawn(reader(fds.r))     // parks inside the offloaded read
+    let hw = group.spawn(writer(fds.w))     // runs while the reader is parked
+    let _ = hw.join()
+    let _ = hr.join()
+}

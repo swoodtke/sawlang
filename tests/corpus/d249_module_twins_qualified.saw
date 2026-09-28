@@ -1,0 +1,22 @@
+// Design 249: two modules may hold SHAPE-IDENTICAL same-named free functions.
+// This is the user-module form of the DF-265a shape (`std.json.encode` beside
+// `std.cbor.encode`): before the free-function registry got module identity,
+// the second declaration was rejected by a declaration-site ambiguity check
+// that compared every registration under the name, cross-module.
+//
+// The qualified spelling names which module is meant, and each call reaches
+// that module's own definition — so the two also need two codegen symbols.
+// EXPECT: success
+// EXPECT-OUTPUT: A<7>
+// EXPECT-OUTPUT: B<7>
+// EXPECT-OUTPUT: A<hi>
+import modules.d249_twin_a
+import modules.d249_twin_b
+
+func main() {
+    let n = 7
+    print(d249_twin_a.wrap(&n))
+    print(d249_twin_b.wrap(&n))
+    let s = "hi"
+    print(d249_twin_a.wrap(&s))
+}

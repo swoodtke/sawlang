@@ -1,0 +1,17 @@
+// Design 254 row 6 — where the widened scope creates a collision, the existing
+// design-142 call-site diagnostic covers it and nothing new is invented.
+// `ext254_facade_sel` forwards `ext254_knobs`' `kind`; this file also imports
+// `ext254_kindb`, which extends `Panel` with an indistinguishable one. Neither
+// module knows the other exists, so the error is at the CALL and names both.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous method `kind` on `Panel`
+// EXPECT-ERROR-CONTAINS: modules.ext254_knobs
+// EXPECT-ERROR-CONTAINS: modules.ext254_kindb
+
+import modules.ext254_facade_sel.{Panel}
+import modules.ext254_kindb
+
+func main() {
+    let p = Panel(raw: 10)
+    print(p.kind())
+}

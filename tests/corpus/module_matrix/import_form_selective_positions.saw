@@ -1,0 +1,78 @@
+// Position matrix (design 235), grid 1 "Import forms x name positions" —
+// form: SELECTIVE (`import mod.lib.{A, B}` — every selected name bare, and
+// EXACTLY those: since DF-247b's amendment to design 150 the form binds no
+// qualifier). All 8 positions, mirroring import_form_glob_positions.saw's
+// coverage of (c) and (f) since selective also binds bare names.
+//
+// The last row is the amendment's own: a name this import did NOT select is
+// reached by writing the whole-module line beside it, which is legal and
+// complementary rather than a duplicate-qualifier collision.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// annotation = 5
+// expression = 6
+// extension receiver = 12
+// generic bound = widget
+// existential = widget
+// match pattern = circle
+// interpolation = 8
+// default param = 7
+// default param override = 2
+// unselected via qualifier = 9
+
+import modules.importforms.lib.{Widget, Named, Shape, make_widget, DEFAULT_N}
+import modules.importforms.lib
+
+// (a) annotation
+func take(w: Widget) -> Int { w.n }
+
+// (c) extension receiver — needs the BARE type a selective import gives
+extension Widget {
+    func doubled(&self) -> Int { self.n * 2 }
+}
+
+// (d) generic bound
+func show<T: Named>(t: &T) -> String { t.label() }
+
+// (e) existential
+func show_any(t: &any Named) -> String { t.label() }
+
+// (f) match pattern — needs the BARE case a selective import gives
+func describe(s: Shape) -> String {
+    match s {
+        case Circle -> "circle",
+        case Square -> "square"
+    }
+}
+
+// (h) default parameter value
+func with_default(n: Int = DEFAULT_N) -> Int { n }
+
+func main() {
+    // (a) annotation
+    let w: Widget = Widget(n: 5)
+    print("annotation = {take(w)}")
+
+    // (b) expression
+    let w2 = make_widget(6)
+    print("expression = {w2.n}")
+
+    print("extension receiver = {w2.doubled()}")
+
+    print("generic bound = {show(&w)}")
+    print("existential = {show_any(&w)}")
+
+    print("match pattern = {describe(Shape.Circle)}")
+
+    // (g) interpolation
+    print("interpolation = {make_widget(8).n}")
+
+    print("default param = {with_default()}")
+    print("default param override = {with_default(2)}")
+
+    // a name this selective import did NOT select, through the qualifier the
+    // whole-module line beside it binds — the design 150 amendment's
+    // complementary pair, and one identity from both spellings
+    print("unselected via qualifier = {lib.other_widget(9).n}")
+}

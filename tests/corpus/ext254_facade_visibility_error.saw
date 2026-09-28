@@ -1,0 +1,13 @@
+// Design 254 row 7 — scope and VISIBILITY stay two questions. `hidden` sits in
+// the same forwarded extension as `kind`, so the facade puts it in scope; it is
+// not `public`, so design 80's member gate refuses it. A method must pass both,
+// exactly as before, and the refusal is the tier's, not the scope's.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: method `hidden` of `Panel` is private and not accessible
+
+import modules.ext254_facade_sel.{Panel}
+
+func main() {
+    let p = Panel(raw: 10)
+    print(p.hidden())
+}

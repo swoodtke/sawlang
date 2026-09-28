@@ -1,0 +1,70 @@
+// Conformance row W24 — two FIXED widths never convert implicitly at a
+// transfer, whichever direction and whether or not the pair is lossless
+// (design 53; the no-code-change control design 205 measures itself against)
+//
+// This row is the reference the platform pair is being brought into line with.
+// `Int8` into `Int16` LOSES NOTHING and is still refused: an implicit
+// conversion between two written widths would make the reader work out which
+// one the arithmetic below it runs at. Design 170's three spellings say it
+// instead — `as` panics out of range, `from` answers `None`,
+// `from(truncating:)` keeps the low bits.
+//
+// Design 205 changes NOTHING here. The row exists so the ledger can be audited:
+// after 205, a platform `Int` in the same slot is refused for the same reason,
+// and if a later brief loosens one of the two it has to answer for the other.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign `Int8` to variable of type `Int16`
+// EXPECT-ERROR-CONTAINS: argument `x` expects `Int16` but got `Int8`
+// EXPECT-ERROR-CONTAINS: should return `Int16` but returns `Int8`
+// EXPECT-ERROR-CONTAINS: field `f` expects type `Int16` but got `Int8`
+// EXPECT-ERROR-CONTAINS: array element 0 has type `Int8`, expected `Int16`
+// EXPECT-ERROR-CONTAINS: tuple element 0 has type `Int8`, expected `Int16`
+// EXPECT-ERROR-CONTAINS: vector literal element 0 has type `Int8`, expected `Int16`
+// EXPECT-ERROR-CONTAINS: map value 0 has type `Int8`, expected `Int16`
+// EXPECT-ERROR-CONTAINS: cannot assign `Int8` to variable of type `Int16?`
+
+struct Rec { f: Int16 }
+
+enum Wrap { case Held(f: Int16) }
+
+func sink(x: Int16) -> Int16 { x }
+
+func produce(narrow: Int8) -> Int16 { narrow }
+
+func main() {
+    let narrow: Int8 = 5i8
+
+    let a: Int16 = narrow
+    print(a)
+
+    var b: Int16 = 0
+    b = narrow
+    print(b)
+
+    print(sink(narrow))
+    print(produce(narrow))
+    print(Rec(f: narrow).f)
+
+    let e = Wrap.Held(f: narrow)
+    match e { case Held(n) -> print(n) }
+
+    let arr: [Int16; 2] = [narrow, narrow]
+    print(arr[0])
+
+    let tup: (Int16, Int) = (narrow, 1)
+    print(tup.0)
+
+    let vec: Vector<Int16> = [narrow]
+    print(vec[0])
+
+    let m: Map<String, Int16> = {"a": narrow}
+    print(m["a"]!)
+
+    let o: Int16? = narrow
+    print(o!)
+
+    // …and the narrowing direction, which loses bits as well as the reading.
+    let wide: Int16 = 300i16
+    let back: Int8 = wide
+    print(back)
+}

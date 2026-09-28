@@ -1,0 +1,185 @@
+// DF-146d: `lend` from inside a borrowing match arm — an ENUM PAYLOAD as a
+// place.
+//
+// Design 146 already matched a place WHERE IT SITS, so an arm that binds binds
+// the payload in place. This is the other half: that binding can be LENT, which
+// is what gives a slot-shaped container an accessor at all. Tag stability comes
+// free — the window borrows the scrutinee's ROOT, so the Law of Exclusivity
+// freezes the whole enum for as long as the window is open, discriminant
+// included.
+//
+// The counts are the proof. `deinit` prints once, at teardown, for a payload
+// read twice and written through; a String payload read out as a VALUE retains,
+// so the container keeps its own.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- borrow through the payload place
+// a
+// a
+// -- write through the payload place
+// b
+// -- the absent path
+// absent
+// out of range
+// -- a Copy payload reads out as a value
+// hello
+// hello
+// hello
+// none
+// -- a diverging arm beside a lending one
+// 7
+// -- an epilogue inside the lending arm
+// epilogue ran
+// 8
+// -- teardown
+// deinit 8
+// deinit 7
+// deinit b
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.name}") }
+}
+
+extension Res {
+    func label(&self) -> String { self.name }
+    func rename(&var self, to: String) { self.name = to }
+}
+
+enum Slot { case Empty, case Filled(key: Int, res: Res) }
+
+extension Slot: NoCopy {}
+
+struct Table { slots: Vector<Slot> }
+
+extension Table: NoCopy {}
+
+extension Table {
+    /// The resource in the occupied slot at `i`, as a PLACE.
+    ///
+    /// The match reads `self.slots[i]` where it sits and `lend r` hands the
+    /// payload out of the arm; the Empty arm is the conditional lend's absent
+    /// path, which opens no window at all.
+    public func at(&var self, i: Int) borrows -> &var Res? {
+        if i < 0 || i >= self.slots.len() {
+            return None
+        }
+        match self.slots[i] {
+            case Filled(_, r) -> { lend r },
+            case Empty -> { return None }
+        }
+    }
+}
+
+// A non-optional place: the out-of-range and empty-slot paths diverge instead
+// of returning None, which covers a lending arm beside a panicking one.
+struct Dense { slots: Vector<Slot> }
+
+extension Dense: NoCopy {}
+
+extension Dense {
+    public func at(&self, i: Int) borrows -> &Res {
+        if i < 0 || i >= self.slots.len() {
+            panic("Dense.at: index out of range")
+        }
+        match self.slots[i] {
+            case Filled(_, r) -> { lend r },
+            case Empty -> { panic("Dense.at: empty slot") }
+        }
+    }
+}
+
+// An EPILOGUE inside the lending arm: the statements after `lend` run when the
+// caller's window closes, so they need a `&var self` receiver like any other.
+struct Counted { slots: Vector<Slot>, reads: Int }
+
+extension Counted: NoCopy {}
+
+extension Counted {
+    public func at(&self, i: Int) borrows -> &Res? {
+        if i < 0 || i >= self.slots.len() {
+            return None
+        }
+        match self.slots[i] {
+            case Filled(_, r) -> {
+                lend r
+                print("epilogue ran")
+            },
+            case Empty -> { return None }
+        }
+    }
+}
+
+enum Note { case Blank, case Text(body: String) }
+
+struct Log { notes: Vector<Note> }
+
+extension Log: NoCopy {}
+
+extension Log {
+    public func at(&self, i: Int) borrows -> &String? {
+        if i < 0 || i >= self.notes.len() {
+            return None
+        }
+        match self.notes[i] {
+            case Text(b) -> { lend b },
+            case Blank -> { return None }
+        }
+    }
+}
+
+func main() {
+    var t = Table(slots: Vector<Slot>())
+    try! t.slots.push(Slot.Filled(key: 1, res: Res(name: "a")))
+    try! t.slots.push(Slot.Empty)
+
+    // A move-only payload, borrowed twice: neither read copies it, so neither
+    // drops it.
+    print("-- borrow through the payload place")
+    print(t.at(0)!.label())
+    print(t.at(0)!.label())
+
+    // A `&var self` method on the payload opens an EXCLUSIVE window out of the
+    // same `&self` declaration, and the write lands in the slot.
+    print("-- write through the payload place")
+    t.at(0)!.rename(to: "b")
+    print(t.at(0)!.label())
+
+    print("-- the absent path")
+    if let _ = t.at(1) {
+        print("unreachable")
+    } else {
+        print("absent")
+    }
+    if let _ = t.at(9) {
+        print("unreachable")
+    } else {
+        print("out of range")
+    }
+
+    print("-- a Copy payload reads out as a value")
+    var l = Log(notes: Vector<Note>())
+    try! l.notes.push(Note.Text(body: "hello"))
+    let held = l.at(0)!
+    print(held)
+    print(l.at(0)!)
+    print(l.at(0) ?? "none")
+    print(l.at(5) ?? "none")
+
+    print("-- a diverging arm beside a lending one")
+    var d = Dense(slots: Vector<Slot>())
+    try! d.slots.push(Slot.Filled(key: 2, res: Res(name: "7")))
+    print(d.at(0).label())
+
+    print("-- an epilogue inside the lending arm")
+    var counted = Counted(slots: Vector<Slot>(), reads: 0)
+    try! counted.slots.push(Slot.Filled(key: 3, res: Res(name: "8")))
+    print(counted.at(0)!.label())
+
+    print("-- teardown")
+    let _ = move counted
+    let _ = move d
+    let _ = move l
+    let _ = move t
+}

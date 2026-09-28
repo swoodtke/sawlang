@@ -1,0 +1,55 @@
+// A generic extension's two same-named `init`s, and its two same-named method
+// OVERLOADS, each get their own body.
+//
+// DF-289c: the pristine template store the monomorphizer clones from was keyed
+// by (struct, method NAME), which is not a unique key — `std/vector.saw`
+// declares `init()` beside `init(capacity:)`, a generic extension may declare
+// two overloads of one name, and two extensions on one type may declare the
+// same name. One slot per name kept whichever was captured last, so the others
+// were not in the store at all. Invisible while the only readers asked by name
+// and used whatever a name answered with; fatal once every (instance, method)
+// pair is spliced as its own concrete body, where a template the store cannot
+// answer for is a symbol nothing declares.
+//
+// `Vector<String>()` is here because it is the shape that found it: `Vector`'s
+// no-argument `init` is the one std's own store had lost.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// one 1
+// pair 4
+// tag-int 8
+// tag-string 6
+// str one
+// vec 2
+
+struct Holder<T> { head: T, size: Int }
+
+extension Holder<T> {
+    init(first: T) -> Holder<T> { Holder<T>(head: first, size: 1) }
+    init(first: T, n: Int) -> Holder<T> { Holder<T>(head: first, size: n) }
+
+    func tag(&self, v: Int) -> Int { v + self.size }
+    func tag(&self, v: String) -> Int { v.len() + self.size }
+
+    func count(&self) -> Int { self.size }
+}
+
+func main() {
+    let one = Holder<Int>(first: 7)
+    print("one {one.count()}")
+
+    let pair = Holder<Int>(first: 7, n: 4)
+    print("pair {pair.count()}")
+
+    print("tag-int {pair.tag(4)}")
+    print("tag-string {pair.tag("ab")}")
+
+    let text = Holder<String>(first: "one")
+    print("str {text.head}")
+
+    var v = Vector<String>()
+    try! v.push("a")
+    try! v.push("b")
+    print("vec {v.len()}")
+}

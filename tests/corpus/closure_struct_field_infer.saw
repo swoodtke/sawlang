@@ -1,0 +1,26 @@
+// A closure literal passed as a struct-init field argument infers its
+// parameter types from the field's function type (design 27 item 2) — both
+// shorthand `$0` and un-annotated named params work without explicit types,
+// mirroring the call-argument path.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 9
+
+struct Handler {
+    fn: (Int) -> Int
+}
+
+struct Combiner {
+    op: (Int, Int) -> Int
+}
+
+func main() {
+    // Shorthand parameter inferred from `(Int) -> Int`.
+    let h = Handler(fn: { $0 * 2 })
+    print(h.fn(21))       // 42
+
+    // Named-but-un-annotated params inferred from `(Int, Int) -> Int`.
+    let c = Combiner(op: { a, b in a + b })
+    print(c.op(4, 5))     // 9
+}

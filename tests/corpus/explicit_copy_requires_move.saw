@@ -1,0 +1,22 @@
+// An ExplicitCopy value read out of an existing binding cannot be implicitly
+// copied: the transfer must be `move`, or duplication must be a visible .copy().
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: which implements ExplicitCopy
+
+struct Buf {
+    value: Int
+}
+
+extension Buf: ExplicitCopy {
+    func copy(&self) -> Buf {
+        Buf(value: self.value)
+    }
+    func deinit(&var self) {
+    }
+}
+
+func main() {
+    let a = Buf(value: 1)
+    let b = a          // ERROR: implicit copy of an ExplicitCopy value
+    print(b.value)
+}

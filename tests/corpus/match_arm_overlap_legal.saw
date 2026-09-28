@@ -1,0 +1,70 @@
+// Design 198, the accept side: an arm that OVERLAPS an earlier one is not a
+// duplicate of it, and first-match-wins is what resolves it. Ranges and guards
+// are how overlap is written, so both stay legal — the rule is textual pattern
+// equality, never overlap analysis.
+//
+// The reject side is match_duplicate_arm_spellings.saw.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// digit
+// digit
+// neg
+// zero
+// big
+// small
+// zero payload
+// 7
+
+// Two ranges that cover the same values, plus a literal inside both. Nothing
+// here is a duplicate: the first arm wins and the rest are simply not reached
+// for those inputs.
+func rank(n: Int) -> String {
+    match n {
+        case 1..=9 -> "digit",
+        case 5 -> "five",
+        case 1..=9 -> "digit again",
+        case _ -> "other"
+    }
+}
+
+// Three arms with the SAME pattern, two of them guarded. A guard can fail, so
+// every one of these is reachable.
+func sign(value: Int) -> String {
+    match value {
+        case n if n < 0 -> "neg",
+        case n if n > 0 -> "pos",
+        case n -> "zero"
+    }
+}
+
+enum Slot { case Num(n: Int), case Empty }
+
+// A guarded variant arm ahead of the plain one with the same pattern.
+func size(s: Slot) -> String {
+    match s {
+        case Num(n) if n > 3 -> "big",
+        case Num(n) -> "small",
+        case Empty -> "empty"
+    }
+}
+
+// A literal sub-pattern REFINES a bound one, so the two arms are different
+// patterns and both run.
+func payload(s: Slot) -> String {
+    match s {
+        case Num(0) -> "zero payload",
+        case Num(n) -> "{n}",
+        case Empty -> "empty"
+    }
+}
+
+func main() {
+    print(rank(5))
+    print(rank(9))
+    print(sign(-2))
+    print(sign(0))
+    print(size(Slot.Num(n: 9)))
+    print(size(Slot.Num(n: 1)))
+    print(payload(Slot.Num(n: 0)))
+    print(payload(Slot.Num(n: 7)))
+}

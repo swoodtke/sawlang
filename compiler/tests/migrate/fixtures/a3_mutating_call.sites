@@ -1,0 +1,2 @@
+status: rewritten
+3 A3.mutating-call rewritten => try! borrow var v[0].push(2)

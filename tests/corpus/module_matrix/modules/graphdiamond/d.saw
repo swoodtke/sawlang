@@ -1,0 +1,5 @@
+//! Fixture for the graph-shapes grid's diamond row (design 235). The
+//! shared base both `b` and `c` depend on.
+// EXPECT: skip
+
+public func delta() -> Int { 4 }

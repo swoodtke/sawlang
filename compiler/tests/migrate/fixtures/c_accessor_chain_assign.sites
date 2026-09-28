@@ -1,0 +1,2 @@
+status: rewritten
+21 C.accessor-chain-assign rewritten => borrow var b.slot(0)?.n = 5

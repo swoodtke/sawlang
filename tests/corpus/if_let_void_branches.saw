@@ -1,0 +1,44 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 0
+// 3
+// 99
+
+// Regression (design 67 / dogfood DF7): an `if let` whose branches produce a
+// VOID value — e.g. a call to a user function that returns Void, which (unlike
+// `print`) yields a non-None void value — reached the result-capturing path and
+// allocated a Void stack slot, asserting inside llvmlite
+// ("assert not isinstance(pointee, VoidType)"). `_generate_if_let_expression`
+// now normalizes a Void branch value to None, matching the `if` expression's
+// Void contract.
+
+// A user function that returns Void (its call is a non-None void value).
+func emit(n: Int) {
+    print(n)
+}
+
+// Both branches are void calls.
+func both(opt: Int?) {
+    if let x = opt {
+        emit(x)
+    } else {
+        emit(0)
+    }
+}
+
+// if-let with void branches sitting as a non-tail statement, followed by more.
+func mixed(opt: Int?) -> Int {
+    if let x = opt {
+        emit(x)
+    } else {
+        emit(0)
+    }
+    99
+}
+
+func main() {
+    both(5)       // 5
+    both(None)    // 0
+    print(mixed(3))   // emit 3, then 99
+}

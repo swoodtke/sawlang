@@ -1,0 +1,16 @@
+// Design 53 Part 6: a false static_assert is a compile error carrying the
+// message (kernel register-block drift motivation).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: static assertion failed: UartRegs layout drift
+
+struct UartRegs {
+    data: UInt32
+    state: UInt32
+    ctrl: UInt32
+}
+
+static_assert(sizeof<UartRegs>() == 0x1C, "UartRegs layout drift")
+
+func main() {
+    print(0)
+}

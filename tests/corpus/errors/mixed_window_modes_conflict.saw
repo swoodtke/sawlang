@@ -1,0 +1,65 @@
+// SL-333 R4 (conformance row K125, the MIXED cell): a window through a
+// SHARED-ELIGIBLE accessor beside one through an EXCLUSIVE-ONLY accessor, on
+// one root, is a shared borrow against an exclusive one.
+//
+// THE POINT OF THIS FILE IS THAT THERE IS NO SPECIAL CASE. The window's
+// RECEIVER borrow mode — the window's own mode, or exclusive when the accessor
+// is exclusive-only — is the one fact design 188's pairwise root-charge test
+// compares, so every pairing falls out of the one test:
+//
+//   shared-eligible × exclusive-only     both orders, below
+//   exclusive-only  × exclusive-only     `two_exclusive_only_windows_conflict.saw`
+//   exclusive-only  × plain `&root`      below
+//   exclusive-only  × plain `&var root`  design 188's own sigil half, unchanged
+//   shared-eligible × shared-eligible    COMPILES (two shared borrows compose —
+//                                        `K125_receiver_access_is_a_second_fact.saw`)
+//
+// The `!` head is here too, because a conditional lend reached through one is
+// the same access and had to join the set the same way.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation: the place `b.tally(…)` borrows `b` EXCLUSIVELY even though this window only reads
+// EXPECT-ERROR-CONTAINS: `Bag.tally` mutates `self` outside the place it lends (a write into receiver storage at line 41)
+// EXPECT-ERROR-CONTAINS: exclusive access violation: the place `b.opt(…)` borrows `b` EXCLUSIVELY even though this window only reads
+// EXPECT-ERROR-CONTAINS: `Bag.opt` mutates `self` outside the place it lends
+// EXPECT-ERROR-CONTAINS: a read-only RESULT is not a shared receiver BORROW
+
+struct Cell { n: Int }
+
+struct Bag { cells: [Int; 4], rows: [Cell; 2], visits: Int }
+
+extension Bag {
+    // SHARED-ELIGIBLE: it lends and does nothing else.
+    public func [](&var self, i: Int) borrows -> &var Int {
+        if i < 0 || i >= 4 { panic("Bag.[]: index out of range") }
+        lend self.cells[i]
+    }
+
+    // EXCLUSIVE-ONLY: the epilogue mutates the receiver.
+    public func tally(&var self, i: Int) borrows -> &var Int {
+        if i < 0 || i >= 4 { panic("Bag.tally: index out of range") }
+        lend self.cells[i]
+        self.visits = self.visits + 1
+    }
+
+    // EXCLUSIVE-ONLY, and CONDITIONAL — reached through a `!` head.
+    public func opt(&var self, i: Int) borrows -> &var Cell? {
+        if i < 0 || i >= 2 { return None }
+        lend self.rows[i]
+        self.visits = self.visits + 1
+    }
+
+    public func visits_seen(&self) -> Int { self.visits }
+}
+
+func pair(a: &Int, b: &Int) -> Int { a + b }
+func pair_cell(a: &Int, b: &Cell) -> Int { a + b.n }
+func with_root(a: &Int, r: &Bag) -> Int { a + r.visits_seen() }
+
+func main() {
+    var b = Bag(cells: [10, 20, 30, 40], rows: [Cell(n: 1), Cell(n: 2)],
+                visits: 0)
+    print("{pair(&b[0], &b.tally(1))}")        // shared-eligible first
+    print("{pair(&b.tally(0), &b[1])}")        // exclusive-only first
+    print("{pair_cell(&b[0], &b.opt(1)!)}")    // through a `!` head
+    print("{with_root(&b.tally(0), &b)}")      // beside a plain `&root`
+}

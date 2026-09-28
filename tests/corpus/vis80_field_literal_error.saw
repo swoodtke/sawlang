@@ -1,0 +1,10 @@
+// Design 80: cross-module memberwise struct construction requires ALL fields
+// visible — the private `secret` field blocks the literal (use a visible init).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: field `secret` of struct `Gadget` is private
+import modules.members80
+
+func main() {
+    let g = members80.Gadget(label: 1, secret: 2)   // memberwise literal — rejected
+    print(g.label)
+}

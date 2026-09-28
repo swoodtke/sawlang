@@ -1,0 +1,27 @@
+// Design 40 item 4 (L9): a trivial struct carrying an Optional field now
+// auto-conforms to Equatable (the restriction that excluded optional/array
+// members is lifted). `==` over the `Int?` field is None==None true, None vs
+// Some false, payload-deep otherwise. (Was equatable_optional_field_error.saw.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 4
+struct Q {
+    a: Int
+    b: Int?
+}
+
+func main() {
+    let x = Q(a: 1, b: 2)
+    let y = Q(a: 1, b: 2)
+    let z = Q(a: 1, b: 3)
+    let n1 = Q(a: 1, b: None)
+    let n2 = Q(a: 1, b: None)
+
+    if x == y { print(1) }        // Some(2) == Some(2), deep
+    if x != z { print(2) }        // Some(2) != Some(3)
+    if n1 == n2 { print(3) }      // None == None
+    if x != n1 { print(4) }       // Some vs None
+}

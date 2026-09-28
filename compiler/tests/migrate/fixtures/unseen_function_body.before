@@ -1,0 +1,13 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: undefined
+struct Cell { n: Int }
+
+func bump(v: &var Vector<Cell>) {
+    v[0].n += 1
+}
+
+func main() {
+    var v: Vector<Cell> = [Cell(n: 1)]
+    bump(&var v)
+    print(nope)
+}

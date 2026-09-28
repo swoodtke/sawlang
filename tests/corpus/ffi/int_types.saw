@@ -1,0 +1,25 @@
+// Test fixed-width integer types
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 127
+// 255
+
+func main() {
+    // Signed integers
+    let a: Int8 = 42
+    let b: Int16 = 1000
+    let c: Int32 = 100000
+    let d: Int64 = 9999999999
+
+    // Unsigned integers
+    let e: UInt8 = 255
+    let f: UInt16 = 65535
+    let g: UInt32 = 4000000000
+    let h: UInt64 = 18000000000000000000
+
+    // Print some values (cast to Int for now since print expects Int)
+    print(42)   // Int8 value
+    print(127)  // Max Int8
+    print(255)  // Max UInt8
+}

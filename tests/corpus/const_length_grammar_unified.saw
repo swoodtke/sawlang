@@ -1,0 +1,54 @@
+// Design 185 unit 2: the two const-required LENGTH positions accept one
+// grammar. A repeat count `[v; N]` has always taken a full expression and given
+// a clean semantic answer; the type length `[T; N]` parsed a small subset and
+// so failed at the PARSER on anything outside it — `[UInt8; 1 << 6]` was
+// "Expected `]` after array type", one rule with two spellings and two failure
+// modes (the same asymmetry DF-172f closed for statics, and DF-172l for member
+// access). The narrow grammar stays where it is load-bearing: a generic
+// argument list is closed by `>`, and the shift tokens ARE that delimiter.
+// EXPECT: success
+// EXPECT-OUTPUT: 64
+// EXPECT-OUTPUT: 15
+// EXPECT-OUTPUT: 17
+// EXPECT-OUTPUT: 8
+// EXPECT-OUTPUT: 64
+// EXPECT-OUTPUT: 4096
+// EXPECT-OUTPUT: 8
+
+static PAGE_SHIFT: Int = 12
+static BASE: Int = 4
+
+// A struct FIELD is the position that forces the fold to happen before
+// registration, so the grammar has to reach it there too.
+struct Page { bytes: [UInt8; 1 << PAGE_SHIFT] }
+
+// A `static` of the computed size, filled by the matching repeat literal: the
+// two spellings of the length now read identically.
+static TABLE: [UInt8; (1 << 3) | 1] = [0; (1 << 3) | 1]
+
+static_assert(sizeof<Page>() == 4096, "a page is a page")
+
+// A const generic parameter under the same operators: constant here, with its
+// value arriving per instantiation.
+func window<const BITS: Int>() -> Int {
+    let buf: [UInt8; 1 << BITS] = [0; 1 << BITS]
+    return buf.len()
+}
+
+func main() {
+    var shifted: [UInt8; 1 << 6] = [0; 1 << 6]
+    print(shifted.len())
+
+    var masked: [UInt8; (1 << 4) - 1] = [0; 15]
+    print(masked.len())
+
+    var combined: [UInt8; (BASE << 2) | 1] = [0; 17]
+    print(combined.len())
+
+    var complemented: [UInt8; ~0 + 9] = [0; 8]
+    print(complemented.len())
+
+    print(TABLE.len() * 8 - 8)
+    print(sizeof<Page>())
+    print(window<3>())
+}

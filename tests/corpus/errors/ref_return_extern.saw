@@ -1,0 +1,14 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Parse error at 11:30: `extern func lookup` may not return a reference
+// EXPECT-ERROR-CONTAINS: references in Saw are PARAMETERS ONLY
+//
+// An `extern` declaration is a PROMISE about foreign code, and this one cannot
+// be kept by construction: nothing on the C side can produce a Saw reference,
+// whose whole meaning is a borrow from a live Saw call. A foreign function that
+// really hands back an address returns `UnsafePointer<T>` and says so.
+
+extern "C" {
+    func lookup(key: Int) -> &Int
+}
+
+func main() {}

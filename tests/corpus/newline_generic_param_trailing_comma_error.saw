@@ -1,0 +1,10 @@
+// The generic PARAMETER list rejects a trailing comma for the same reason its
+// argument counterpart does (design 129).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a trailing comma is not allowed in a generic parameter list
+
+func wrap<T,>(v: T) -> T { move v }
+
+func main() {
+    print(wrap(5))
+}

@@ -1,0 +1,29 @@
+// Control for DF-239a: NESTED `Self` in a trait requirement (`Self?`)
+// survives the generic-bound path — the wrapper loss is specific to the
+// REFERENCE type, not to nesting in general.
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+trait Pairs {
+    func twin(&self) -> Self?
+}
+
+struct Card {
+    n: Int
+}
+
+extension Card: Pairs {
+    func twin(&self) -> Self? { Card(n: self.n) }
+}
+
+func pick<T: Pairs>(a: &T) -> Int {
+    if let t = a.twin() {
+        1
+    } else {
+        0
+    }
+}
+
+func main() {
+    let c = Card(n: 5)
+    print(pick(&c))
+}

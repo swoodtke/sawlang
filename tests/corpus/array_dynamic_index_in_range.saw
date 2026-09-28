@@ -1,0 +1,18 @@
+// Design 63 T1b: dynamic (non-constant) index into a fixed array is bounds
+// checked at runtime. An in-range index reads/writes normally.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 20
+// 30
+// 40
+// 50
+
+func main() {
+    let arr = [10, 20, 30, 40, 50]
+    var i = 0
+    while i < 5 {
+        print(arr[i])
+        i = i + 1
+    }
+}

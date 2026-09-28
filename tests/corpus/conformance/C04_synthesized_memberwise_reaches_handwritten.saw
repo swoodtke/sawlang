@@ -1,0 +1,45 @@
+// Conformance row C04 — a `@synthesize`d memberwise comparison that RECURSES
+// into a member's hand-written conformance
+//
+// `Holder` writes no comparison of its own, so nothing at its declaration says
+// what body the tree ends in — the memberwise emitter reaches `Tag.equals` /
+// `Tag.compare` and hands each a borrow. Under `other: &Self` (design 239) that
+// is exactly what those bodies declare they receive, so the recursion needs no
+// transitive query and no refusal: the whole tree compares, at every depth, and
+// destroys nothing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// gt
+// drop 3
+// drop 9
+
+struct Tag { id: Int }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+extension Tag: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        self.id == other.id
+    }
+}
+extension Tag: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        if self.id < other.id { Ordering.Less }
+        else if self.id > other.id { Ordering.Greater }
+        else { Ordering.Equal }
+    }
+}
+
+struct Holder { tag: Tag }
+extension Holder: NoCopy {}
+@synthesize
+extension Holder: Equatable {}
+@synthesize
+extension Holder: Comparable {}
+
+func main() {
+    let a = Holder(tag: Tag(id: 9))
+    let b = Holder(tag: Tag(id: 3))
+    if a == b { print("eq") }
+    if a > b { print("gt") }
+}

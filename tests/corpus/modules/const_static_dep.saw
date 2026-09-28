@@ -1,0 +1,16 @@
+//! DF-172j fixture: a dependency that OWNS a size. The point of naming a size
+//! once is that its consumers name it too, so the public static has to fold in
+//! an importer's array length exactly as it folds in this module's own.
+// EXPECT: skip
+
+public static FRAME_BYTES: Int = 32
+
+// Private, and therefore not nameable from outside — the visibility gate the
+// fold asks is the one an ordinary read asks.
+static SECRET_BYTES: Int = 7
+
+public func dep_frame() -> Int {
+    let f: [UInt8; FRAME_BYTES] = [0; FRAME_BYTES]
+    let s: [UInt8; SECRET_BYTES] = [0; SECRET_BYTES]
+    f.len() + s.len()
+}

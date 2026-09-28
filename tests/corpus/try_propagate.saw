@@ -1,0 +1,40 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 999
+
+// Test try (error propagation)
+// try unwraps Ok, propagates Err to caller
+
+struct ParseError {
+    code: Int
+}
+
+func parseNumber(valid: Bool) -> Result<Int, ParseError> {
+    if valid {
+        return 42
+    }
+    return ParseError(code: 1)
+}
+
+// This function uses try to propagate errors
+func processNumber(valid: Bool) -> Result<Int, ParseError> {
+    let n = try parseNumber(valid)  // Propagates Err if parseNumber fails
+    return n * 1  // Returns Ok(n * 1)
+}
+
+func main() {
+    // Test success path
+    let result1 = processNumber(true)
+    match result1 {
+        case Ok(n) -> print(n),     // 42
+        case Err(e) -> print(0)
+    }
+
+    // Test error path
+    let result2 = processNumber(false)
+    match result2 {
+        case Ok(n) -> print(n),
+        case Err(e) -> print(999)   // 999 indicates error was propagated
+    }
+}

@@ -1,0 +1,22 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 42
+
+// Debug optional
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+func main() {
+    let p: Point? = Point(x: 10, y: 20)
+
+    // First unwrap to check p works
+    print(p!.x)
+
+    // Now try nil coalescing with a simple value
+    let val: Int? = 42
+    print(val ?? -1)
+}

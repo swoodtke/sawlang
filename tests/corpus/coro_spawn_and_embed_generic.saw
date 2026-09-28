@@ -1,0 +1,44 @@
+// DF-138a across generic instantiations. A generic spawn root is keyed by its
+// MANGLED instantiation (design 70), so the dual role is per instantiation, not
+// per template: `work<A>` is spawned as a root AND embedded below `same`, while
+// `work<B>` is only ever embedded. The first needs the trampoline frame; the
+// second is an ordinary sub-frame and the template itself needs nothing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 31
+// 62
+
+import std.task.*
+
+trait Seed { func seed(&self) -> Int }
+struct A { n: Int }
+struct B { n: Int }
+extension A: Seed { func seed(&self) -> Int { self.n } }
+extension B: Seed { func seed(&self) -> Int { self.n * 2 } }
+
+func work<T: Seed>(w: T) -> Int {
+    let base = w.seed()
+    yield_now()
+    base * 10
+}
+
+func same() -> Int {
+    let r = work<A>(A(n: 3))    // the instantiation main also spawns
+    return r + 1
+}
+
+func other() -> Int {
+    let r = work<B>(B(n: 3))    // a different instantiation, embedded only
+    return r + 2
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(work<A>(A(n: 1)))
+    let b = group.spawn(same())
+    let c = group.spawn(other())
+    print(a.join())
+    print(b.join())
+    print(c.join())
+}

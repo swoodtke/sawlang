@@ -1,0 +1,66 @@
+// Conformance row V73 — a by-value closure parameter is OWNED by the body and
+// released exactly once at body end
+//
+// Design 264 ruling A. A closure's by-value parameter is an owned local of the
+// body on exactly the terms a named function's parameter is: the caller
+// TRANSFERS it, the body owes it a scope, and it is released at body end
+// unless a path moved it into a new owner (row V74). This is the same
+// `_needs_cleanup` -> `_register_cleanup` contract `methods.py` has always
+// given a named function's parameters, which is the control that isolated the
+// closure as the missing half.
+//
+// THE BODY-NEVER-MENTIONS-IT FACE IS HERE ON PURPOSE. The parameter leaked
+// even when the body never named it (DF-299c's measured edge fact), because
+// the leak was in the parameter SETUP, not in anything the body did with the
+// value. A rule that only released what the body touched would have left that
+// face open, so it is counted rather than assumed.
+//
+// The refcount face is the countable one: an `Arc` handed to a closure by
+// value used to read one HIGHER after the call than before it, per invocation.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: used 1
+// EXPECT-OUTPUT: drop 1
+// EXPECT-OUTPUT: after used
+// EXPECT-OUTPUT: ignored
+// EXPECT-OUTPUT: drop 2
+// EXPECT-OUTPUT: after ignored
+// EXPECT-OUTPUT: arc before 1
+// EXPECT-OUTPUT: arc inside 2
+// EXPECT-OUTPUT: arc after 1
+// EXPECT-OUTPUT: drop 9
+
+struct Owned { w: Int }
+extension Owned: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.id) }
+}
+
+func hand_over(body: (Owned) sync -> Void, v: Owned) {
+    body(move v)
+}
+
+func hand_arc(body: (Arc<Res>) sync -> Void, a: Arc<Res>) {
+    body(move a)
+}
+
+func main() {
+    // The body USES the value: one release, at the body's end.
+    hand_over({ o in print("used {}", o.w) }, Owned(w: 1))
+    print("after used")
+
+    // The body NEVER MENTIONS it: same one release, same place.
+    hand_over({ o in print("ignored") }, Owned(w: 2))
+    print("after ignored")
+
+    // The countable face. The handle the closure was given is released at the
+    // body's end, so the count returns to what it was before the call.
+    let shared = try! Arc<Res>(value: Res(id: 9))
+    print("arc before {}", shared.strong_count())
+    hand_arc({ a in print("arc inside {}", a.strong_count()) }, shared.copy())
+    print("arc after {}", shared.strong_count())
+}

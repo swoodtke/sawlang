@@ -1,0 +1,28 @@
+// DF-281a's try? position: `try? step()` over a Result<Void, E> was the same
+// codegen ICE — `_wrap_in_optional` read `.type` off the Void Ok's absent
+// value. The result is a `Void?` whose presence answers "did it succeed";
+// `try!` and plain `try` never merge or wrap the Ok value and always worked.
+// EXPECT: success
+// EXPECT-OUTPUT: true
+// EXPECT-OUTPUT: false
+// EXPECT-OUTPUT: done
+
+enum StepError { case Refused }
+extension StepError: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("refused") }
+}
+extension StepError: Error {}
+
+func step(ok: Bool) -> Result<Void, StepError> {
+    if not ok { return StepError.Refused }
+    return
+}
+
+func main() {
+    try! step(true)
+    let succeeded = try? step(true)
+    let failed = try? step(false)
+    print(succeeded.is_some())
+    print(failed.is_some())
+    print("done")
+}

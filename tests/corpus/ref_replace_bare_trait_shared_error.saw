@@ -1,0 +1,12 @@
+// Design 110 rider (shared-borrow position): a BARE trait name behind a `&`
+// reference — `&Shape` — is the same unsized-trait error as the `&var` position,
+// naming the fix (`&any Shape`). Previously an ICE.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `&Shape` names a trait, which is unsized
+// EXPECT-ERROR-CONTAINS: write `&any Shape`
+
+trait Shape { func area(&self) -> Int }
+
+func takes_shared(p: &Shape) { print("{p.area()}") }
+
+func main() {}

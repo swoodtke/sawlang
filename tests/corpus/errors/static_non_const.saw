@@ -1,0 +1,10 @@
+// Statics must be const-initialized (design 41 item 2): a function call is not a
+// compile-time constant.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: must be initialized by a compile-time constant
+
+func compute() -> Int { 5 }
+
+static X: Int = compute()
+
+func main() { print(X) }

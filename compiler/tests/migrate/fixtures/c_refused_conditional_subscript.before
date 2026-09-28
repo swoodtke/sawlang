@@ -1,0 +1,15 @@
+struct Cell { n: Int }
+struct Bag { a: Cell }
+extension Bag: NoCopy {}
+extension Bag {
+    public func [](&var self, i: Int) borrows -> &var Cell? {
+        if i != 0 { return None }
+        lend self.a
+    }
+}
+
+func main() {
+    var b = Bag(a: Cell(n: 1))
+    b[0]?.n = 5
+    print(b.a.n)
+}

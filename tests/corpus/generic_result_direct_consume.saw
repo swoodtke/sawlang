@@ -1,0 +1,35 @@
+// L7 (brief 30/36): consuming a generic-instantiated Result<T,E> via a DIRECT
+// match / try! at the call site. Previously this reported "Undefined struct: T"
+// because the Result's payload type was left unsubstituted when monomorphizing
+// the consumer. The concrete-typed-consumer workaround (result_generic_same_type
+// _instantiation.saw) must keep working; this covers the direct-consume path.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 99
+// 5
+
+func wrapOk<T, E>(x: T) -> Result<T, E> {
+    return x
+}
+
+func wrapErr<T, E>(e: E) -> Result<T, E> {
+    return e
+}
+
+func main() {
+    // direct match at the call site on a generic-instantiated Result
+    match wrapOk<Int, Int>(7) {
+        case Ok(n) -> print(n),      // 7
+        case Err(e) -> print(e)
+    }
+
+    // try! on a generic-instantiated Result
+    let v = try! wrapOk<Int, Int>(99)
+    print(v)                          // 99
+
+    match wrapErr<Int, Int>(5) {
+        case Ok(n) -> print(n),
+        case Err(e) -> print(e)       // 5
+    }
+}

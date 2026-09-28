@@ -1,0 +1,20 @@
+// Test generic struct with type parameter
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// hello
+
+struct Crate<T> {
+    value: T
+}
+extension Crate<T> {
+    func get(&self) -> T {
+        self.value
+    }
+}
+func main() {
+    let intCrate = Crate<Int>(value: 42)
+    print(intCrate.get())
+    let strCrate = Crate<String>(value: "hello")
+    print(strCrate.get())
+}

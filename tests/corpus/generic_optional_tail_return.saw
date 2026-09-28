@@ -1,0 +1,50 @@
+// DF-174a, widened. The generic `-> T?` tail auto-wrap, across the shapes that
+// share the path: a plain tail, a tail that is already the optional (no second
+// wrap), a bare `None` tail, a tail that diverges, a value `if` whose arms are
+// the tail, and a generic METHOD (which took a different path and was always
+// correct — pinned so the two stay in step).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// tail 7
+// passthrough 4
+// none absent
+// arms 1 -1
+// method 9
+// nested-instantiation 5
+// -- done
+
+struct Holder<T> { value: T }
+
+extension Holder<T> {
+    func lifted(&self) -> T? { self.value }
+}
+
+func wrap<T>(x: T) -> T? { x }
+func passthrough<T>(x: T?) -> T? { x }
+func absent<T>(x: T) -> T? { None }
+func pick<T>(x: T, take: Bool) -> T? { if take { x } else { None } }
+func never_returns<T>(x: T) -> T? { panic("never_returns: always") }
+
+func main() {
+    print("tail {wrap<Int>(7) ?? -1}")
+
+    let four: Int? = 4
+    print("passthrough {passthrough<Int>(four) ?? -1}")
+
+    if let value = absent<Int>(1) { print("none {value}") } else { print("none absent") }
+
+    print("arms {pick<Int>(1, take: true) ?? -1} {pick<Int>(1, take: false) ?? -1}")
+
+    let h = Holder<Int>(value: 9)
+    print("method {h.lifted() ?? -1}")
+
+    // T = Int?: the wrap is still exactly one level, so the result is `Int??`
+    // and one `if let` peels the outer layer.
+    let inner: Int? = 5
+    if let peeled = wrap<Int?>(inner) {
+        print("nested-instantiation {peeled ?? -1}")
+    } else {
+        print("nested-instantiation outer-absent")
+    }
+    print("-- done")
+}

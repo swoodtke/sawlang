@@ -1,0 +1,49 @@
+// Design 148 unit B: the repeat literal `[v; N]` — N copies of one value.
+//
+// `[0; 256]` is what finally spells a zero stack buffer. Before it the only
+// working spelling was 256 literal zeros, which is why a stack buffer of a
+// useful size was not writable in the language (DF-137b).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 0
+// 256
+// 9
+// 4
+// 15
+// 8
+// 42
+
+func main() {
+    var zeros: [Int8; 256] = [0; 256]
+    print(zeros[0])
+    print(zeros[255])
+    print(zeros.len())
+
+    // The array is ordinary storage — writing one element leaves the rest.
+    zeros[7] = 9
+    print(zeros[7])
+
+    // A small constant repeat is a constant array; the count is what the type
+    // carries, so `[1; 4]` has type `[Int; 4]`.
+    let ones = [1; 4]
+    print(ones[0] + ones[1] + ones[2] + ones[3])
+
+    // The value need not be constant. It is evaluated exactly once and the
+    // result is copied into every slot.
+    var n = 5
+    let five = [n; 3]
+    print(five[0] + five[1] + five[2])
+
+    // The count is a compile-time constant expression, not just a literal.
+    let sized = [0; 2 * 4]
+    print(sized.len())
+
+    // A repeat literal is a value like any other: it can initialize a field.
+    let holder = Holder(cells: [42; 3])
+    print(holder.cells[1])
+}
+
+struct Holder {
+    cells: [Int; 3]
+}

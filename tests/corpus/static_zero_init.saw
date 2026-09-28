@@ -1,0 +1,18 @@
+// Bare-declaration zero-init (design 41 item 2): no repeat-literal (`[0; N]`)
+// exists, so a POD / fixed-array static may be declared WITHOUT an initializer
+// and is zero-initialized (BSS) — the mechanism slab regions need for large
+// zero arrays.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 0
+// 0
+
+static BUF: [Int; 256]
+static N: Int
+
+func main() {
+    print(N)          // 0
+    print(BUF[0])     // 0
+    print(BUF[255])   // 0
+}

@@ -1,0 +1,16 @@
+// Design 135 unit B: an escaping closure's captured environment is rejected
+// under `--no-hidden-alloc`.
+//
+// Binding a closure to a `let` makes it outlive the frame that built it, so its
+// captures move to a refcounted heap block (design 73). The literal says
+// nothing about that block, which is what makes it hidden.
+// COMPILE-FLAGS: --no-hidden-alloc
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: escaping closure heap-allocates its captured environment
+// EXPECT-ERROR-CONTAINS: non-escaping closure keeps its environment on the stack
+
+func main() {
+    let base = 10
+    let shift = { n: Int in n + base }
+    print("{}", shift(5))
+}

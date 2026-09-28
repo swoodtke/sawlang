@@ -1,0 +1,21 @@
+// DF-232o, the other spelling: a QUALIFIED annotation of a tier-refused type
+// says which tier refused it. `_resolve_qualified_symbol` answers None for both
+// "the name is not there" and "the name is there and this module is not
+// entitled to it", so the diagnostic could only guess — it read "type
+// `lib.PkgBox` in parameter `b` does not resolve", hinting that the module
+// "must be an imported module exporting a public `PkgBox`", which is a guess at
+// what the compiler already knew.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `PkgBox` is public(package) in `module_tests.pkg232n.src.lib`
+// EXPECT-ERROR-CONTAINS: mark it `public` in `module_tests.pkg232n.src.lib` to expose it
+// EXPECT-ERROR-ABSENT: does not resolve
+// EXPECT-ERROR-ABSENT: body has no value
+import module_tests.pkg232n.src.lib
+
+func take(b: lib.PkgBox) -> Int {
+    b.n
+}
+
+func main() {
+    print(take(lib.make_box()))
+}

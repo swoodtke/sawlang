@@ -1,0 +1,11 @@
+// Rider (design 77 item 8 follow-up): because a bare-literal fixed-width LOCAL
+// now stores at its annotated width, unary minus checks overflow at THAT width.
+// `Int32.min` negated overflows i32 and panics — before the narrowing fix the
+// binding was i64, so `-a` computed 2147483648 with no i32 overflow check.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: integer overflow
+
+func main() {
+    let a: Int32 = -2147483648   // Int32.min, bare literal
+    print(-a)                    // negation overflows i32 -> panic
+}

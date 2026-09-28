@@ -1,0 +1,2 @@
+status: flagged
+5 E flagged -- E.with-unique: the borrows accessor that replaces Arc.with_unique is not named

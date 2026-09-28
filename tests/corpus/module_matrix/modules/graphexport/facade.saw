@@ -1,0 +1,6 @@
+//! Fixture for the graph-shapes grid's `@export` reachability row (design
+//! 235). A `public import` facade over `leaf` — design 229's whole-module
+//! re-export.
+// EXPECT: skip
+
+public import modules.graphexport.leaf

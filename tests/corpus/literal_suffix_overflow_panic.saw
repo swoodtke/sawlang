@@ -1,0 +1,10 @@
+// Design 53 Part 3: fixed-width arithmetic keeps the house overflow rule —
+// `255u8 + 1u8` overflows the 8-bit range and panics at runtime.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: integer overflow
+
+func main() {
+    let a = 255u8
+    let b = 1u8
+    print(a + b)
+}

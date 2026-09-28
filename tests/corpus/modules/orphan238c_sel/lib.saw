@@ -1,0 +1,19 @@
+// DF-238c's SELECTIVE-form row: a second trait module conforming the same
+// foreign `Rec`, reached with `import orphan238c_sel.{Tally, tally_outside}`.
+//
+// A separate module rather than a second trait in `orphan238c_trait`, because
+// what is under test is the IMPORT FORM and one file can spell only one form
+// per module.
+import orphan238c_type.{Rec}
+
+public trait Tally {
+    func tally(&self) -> Int
+}
+
+extension Rec: Tally {
+    func tally(&self) -> Int { self.n * 3 }
+}
+
+public func tally_outside<T: Tally>(value: &T) -> Int {
+    value.tally()
+}

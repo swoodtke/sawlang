@@ -1,0 +1,26 @@
+// DF-245a, the ruled-out form (user, Aug 24): an `init` may NOT return an
+// optional. A creation that can fail encodes as `Result<Self, E>`, because a
+// `None` names no cause — the never-hide-errors doctrine, applied at a
+// constructor.
+//
+// The refusal is at the DECLARATION and its fixit names the Result form, so the
+// author is told what to write rather than that a shape is unavailable. Before
+// DF-245a the declaration was accepted and codegen died on
+// ``ret {i1, %"Other"}`` from a function typed to return `%Other`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `init` may not return an optional
+// EXPECT-ERROR-CONTAINS: an optional creation encodes as `Result<Other, E>`, because a `None` names no cause
+// EXPECT-ERROR-CONTAINS: return that error where the `None` was
+
+struct Other { m: Int }
+
+extension Other {
+    init(seed: Int) -> Other? {
+        if seed < 0 { return None }
+        return Other(m: seed)
+    }
+}
+
+func main() {
+    print("unreachable")
+}

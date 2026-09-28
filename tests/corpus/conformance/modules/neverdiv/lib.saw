@@ -1,0 +1,166 @@
+//! Divergence helpers for the design-228 conformance rows.
+//!
+//! Two callee kinds live here, and they are the two that used to break where
+//! every single-file repro compiled:
+//!
+//! * `mdie` is PUBLIC, so an importer calls it qualified — the imported-public
+//!   callee kind.
+//! * `die` is MODULE-PRIVATE and is called from inside this module, so its call
+//!   sites carry a `$m$`-mangled `resolved_symbol` (design 142) and take
+//!   codegen's `resolved_symbol` fast path. That path is DF-178d's trigger
+//!   axis, which is why every standalone single-file repro of the bug
+//!   compiled. Each position below is a driver whose diverging call goes
+//!   through it, so an importer reaches the whole position matrix at this
+//!   callee kind by calling the drivers.
+//!
+//! `Reply` and `Pick` stay private — the public surface is plain `Int`/`Bool`,
+//! so a row file never has to name a type that belongs to this module. Each
+//! driver takes an argument that keeps the run on the NON-diverging path: what
+//! is asserted is that the program compiles and the surviving path answers.
+
+struct Reply {
+    status: Int,
+    value: UInt,
+    blocked: Bool
+}
+
+enum Pick {
+    case A,
+    case B
+}
+
+public func mdie(r: Int) -> Never {
+    print("mdie {r}")
+    while { }
+}
+
+func die(r: Int) -> Never {
+    print("die {r}")
+    while { }
+}
+
+func takes(x: Int) -> Int { x }
+
+func reply(status: Int) -> Reply {
+    Reply(status: status, value: 0, blocked: false)
+}
+
+/// P1: the diverging call is a `guard ... else` exit.
+public func guard_else(o: Int?) -> Int {
+    guard let v = o else { die(1) }
+    return v
+}
+
+/// P2: an arm of a value `if`.
+public func value_if(c: Bool) -> Int {
+    let x: Int = if c { die(2) } else { 1 }
+    return x
+}
+
+/// P3: an arm of a value `match`.
+public func value_match(first: Bool) -> Int {
+    let p = if first { Pick.A } else { Pick.B }
+    match p {
+        case A -> { die(3) },
+        case B -> { 1 }
+    }
+}
+
+/// P4: the operand of `return`.
+public func return_position(x: Int) -> Int {
+    if x > 0 { return x }
+    return die(4)
+}
+
+/// P5: the tail of a struct-returning function.
+func tail_struct(x: Int) -> Reply {
+    if x > 0 { return reply(0) }
+    die(5)
+}
+
+public func tail_struct_status(x: Int) -> Int {
+    tail_struct(x).status
+}
+
+/// P6: a bare statement.
+public func statement(x: Int) -> Int {
+    if x > 0 { return x }
+    die(6)
+    return x
+}
+
+/// P7: the default operand of `??`.
+public func coalesce(o: Int?) -> Int {
+    o ?? die(7)
+}
+
+/// P8: the FIRST arm of a struct-typed value `match` — the shape that poisoned
+/// the phi's type in `sos`'s syscall dispatch.
+func match_struct_first(p: Pick) -> Reply {
+    match p {
+        case A -> { die(8) },
+        case B -> { reply(0) }
+    }
+}
+
+public func match_struct_first_status(first: Bool) -> Int {
+    match_struct_first(if first { Pick.A } else { Pick.B }).status
+}
+
+/// P9: an arm of a struct-typed value `if`.
+func value_if_struct(c: Bool) -> Reply {
+    let x: Reply = if c { die(9) } else { reply(0) }
+    x
+}
+
+public func value_if_struct_status(c: Bool) -> Int {
+    value_if_struct(c).status
+}
+
+/// P10: an ARGUMENT of another call.
+public func call_argument(c: Bool) -> Int {
+    if c { return 0 }
+    takes(die(10))
+}
+
+/// P11: the SECOND arm of a struct-typed value `match`.
+func match_struct_second(p: Pick) -> Reply {
+    match p {
+        case A -> { reply(0) },
+        case B -> { die(11) }
+    }
+}
+
+public func match_struct_second_status(first: Bool) -> Int {
+    match_struct_second(if first { Pick.A } else { Pick.B }).status
+}
+
+/// P12: the tail of another `-> Never` function — the shape three `sos` bodies
+/// wrote a cosmetic `while { }` after.
+func onward(x: Int) -> Never {
+    die(12)
+}
+
+public func never_tail_in_never(x: Int) -> Int {
+    if x > 0 { return x }
+    onward(x)
+}
+
+/// Runs every driver on its surviving path and answers their sum, so one call
+/// from a row file exercises all twelve positions at the `$m$` callee kind.
+public func drive_all() -> Int {
+    var total = 0
+    total += guard_else(3)
+    total += value_if(false)
+    total += value_match(false)
+    total += return_position(1)
+    total += tail_struct_status(1)
+    total += statement(1)
+    total += coalesce(3)
+    total += match_struct_first_status(false)
+    total += value_if_struct_status(false)
+    total += call_argument(true)
+    total += match_struct_second_status(true)
+    total += never_tail_in_never(1)
+    return total
+}

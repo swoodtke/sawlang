@@ -1,0 +1,14 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Parse error at 11:28: trait method `current` may not return a reference
+// EXPECT-ERROR-CONTAINS: references in Saw are PARAMETERS ONLY
+//
+// A trait REQUIREMENT is refused at the requirement, not at each conformer:
+// one declaration would otherwise oblige every implementor to produce an
+// escaping reference, and the erased call through `any Trait` has no caller
+// frame to borrow from at all.
+
+trait Cursor {
+    func current(&self) -> &Int
+}
+
+func main() {}

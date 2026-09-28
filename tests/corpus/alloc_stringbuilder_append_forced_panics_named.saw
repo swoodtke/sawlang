@@ -1,0 +1,23 @@
+// design 234: the operation REPORTS a refused allocation, so the only way to
+// meet it as a panic is to ask for one — `try!`. That is the corpus's own
+// migration spelling, and this file is the pin that taking it stays LOUD and
+// still says which allocation ran out (DF-245b renders the error after the
+// fixed text). Design 123's method-named panic is what this replaced.
+//
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: try! failed: allocation of
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+func main() {
+    var b = try! StringBuilder(capacity: 8)
+    try! b.append("saw")             // fits: 3 bytes + terminator
+    print(b.len())              // 3
+
+    // Refuse everything from here, the grow this append needs included.
+    __saw_rt_alloc_deny_after(0)
+    try! b.append("a much longer run of bytes")
+    print(b.len())
+}

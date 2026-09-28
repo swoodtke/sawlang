@@ -1,0 +1,30 @@
+// Design 40 item 6 (L11): the enforcement must not over-reach — a `var` binding
+// still permits field assignment (direct and nested) and `&var self` methods.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 6
+// 7
+struct Inner {
+    v: Int
+}
+
+struct Outer {
+    x: Int
+    inner: Inner
+}
+
+extension Outer {
+    func bump(&var self) {
+        self.inner.v = self.inner.v + 1
+    }
+}
+
+func main() {
+    var o = Outer(x: 1, inner: Inner(v: 6))
+    o.x = 5
+    print(o.x)          // 5 (direct field write)
+    print(o.inner.v)    // 6 (nested field, unchanged)
+    o.bump()            // &var self method on a var: allowed
+    print(o.inner.v)    // 7
+}

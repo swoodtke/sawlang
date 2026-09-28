@@ -1,0 +1,20 @@
+// DF-307a, the control for DF-294c's widening: a static leaf may name an
+// earlier static at any TYPE, and never a MUTABLE one.
+//
+// An `unsafe static var` is state the running program changes, so its value is
+// a fact about execution and not about the source — the same sentence that
+// keeps it out of an array length (`array_length_nonconst_error.saw`) keeps it
+// out of a constant initializer. Widening the leaf to aggregates must not
+// widen it to mutability: `const_init` is asked of the named static, and a
+// `var` one is refused before it is even consulted.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: static `ALIAS_OF_MUTABLE` must be initialized by a compile-time constant
+// EXPECT-ERROR-CONTAINS: an earlier module `static` of ANY type
+
+struct Slot { a: Int, b: Int }
+
+unsafe static var LIVE: Slot = Slot(a: 1, b: 2)
+
+static ALIAS_OF_MUTABLE: Slot = LIVE
+
+func main() { print(ALIAS_OF_MUTABLE.a) }

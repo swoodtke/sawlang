@@ -1,0 +1,6 @@
+status: manual,rewritten
+10 C manual => let key = "k"\nborrow var m.find(&key)?.n = 5
+13 G4 manual => let n = borrow let lent = v[0] { match lent {
+15 G4.companion manual => case Full(borrow let r) -> r.n
+16 G4.companion manual => } }
+18 A1.field-write rewritten => borrow var w[0].n = 2

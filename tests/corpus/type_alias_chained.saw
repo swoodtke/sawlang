@@ -1,0 +1,25 @@
+// Test that chained type aliases work correctly
+// type B = A, type A = Int means B -> A -> Int all work
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 20
+// 30
+
+type BaseInt = Int
+type MyInt = BaseInt
+type SuperInt = MyInt
+
+func double(x: Int) -> Int {
+    x * 2
+}
+
+func triple(x: BaseInt) -> BaseInt {
+    x * 3
+}
+
+func main() {
+    // SuperInt -> MyInt -> BaseInt -> Int chain
+    let x: SuperInt = 10
+    print(double(x))   // SuperInt -> Int
+    print(triple(x))   // SuperInt -> BaseInt
+}

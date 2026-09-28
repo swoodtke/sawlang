@@ -1,0 +1,9 @@
+// Design 87: a tuple-literal element adopts its element-position fixed-width
+// type and is range-checked — 300 does not fit the `Int8` first element.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: integer literal 300 does not fit in `Int8`
+
+func main() {
+    let t: (Int8, Int16) = (300, 2)
+    print(t.1)
+}

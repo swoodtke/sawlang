@@ -1,0 +1,9 @@
+// design 46: the intent marker must be `Device` or `Normal` — any other type is
+// rejected.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: intent marker of `UnsafeMemory` must be `Device` or `Normal`
+
+struct Foo {}
+static DEV: UnsafeMemory<Int, Foo> = UnsafeMemory(0x40000000)
+
+func main() { print(1) }

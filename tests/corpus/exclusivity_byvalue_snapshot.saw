@@ -1,0 +1,18 @@
+// A by-value argument overlapping a `&var` is permitted with snapshot
+// semantics: the copy happens at call setup, before the callee mutates. This
+// pins argument evaluation order -- the by-value side sees the PRE-call value.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 101
+
+func f(snapshot: Int, r: &var Int) {
+    r += 100                 // mutate the caller's `b`
+    print(snapshot)          // still 1: snapshot was copied at call setup
+}
+
+func main() {
+    var b = 1
+    f(b, &var b)             // `b` by value + `&var b`: snapshot, not aliasing
+    print(b)                 // 101: the mutation is visible here
+}

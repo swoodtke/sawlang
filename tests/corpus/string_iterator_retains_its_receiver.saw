@@ -1,0 +1,39 @@
+// `String.bytes()` and `String.scalars()` hold their own retain on the String,
+// so an iterator outlives the temporary receiver it was built from.
+//
+// std promises this in `string.saw`'s own comment — "the iterator holds its OWN
+// retain on the String ... so `for b in makeString().bytes()` keeps the bytes
+// alive for the whole loop even though the temporary receiver is gone" — and
+// emitted no retain at all until SL-275. The iterators are built as
+// `StringBytes(s: self, ...)` / `StringScalars(s: self, ...)`, and the struct
+// literal's field-source test was an inline node-type list with no `SelfExpr`
+// arm, so the field took a bare alias of a String the temporary receiver then
+// released. Both loops below summed to 0 — exit 0, no diagnostic, an answer
+// read out of freed storage.
+//
+// The heap String is load-bearing: a string LITERAL is immortal, so
+// `"x1".bytes()` passed vacuously throughout.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: bytes 169
+// EXPECT-OUTPUT: scalars 170
+// EXPECT-OUTPUT: for-loop 169
+
+func heap(n: Int) -> String { "x{n}" }
+
+func main() {
+    var it = heap(1).bytes()
+    var total = 0
+    while let b = it.next() { total = total + (b as Int) }
+    print("bytes {}", total)
+
+    var sc = heap(2).scalars()
+    var stotal = 0
+    while let s = sc.next() { stotal = stotal + s.value() }
+    print("scalars {}", stotal)
+
+    // The spelling std's comment actually names.
+    var loop_total = 0
+    for b in heap(1).bytes() { loop_total = loop_total + (b as Int) }
+    print("for-loop {}", loop_total)
+}

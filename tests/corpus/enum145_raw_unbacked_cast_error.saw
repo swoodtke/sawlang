@@ -1,0 +1,16 @@
+// Design 145 unit B2: only a DECLARED backing makes an enum castable. An
+// ordinary enum's tag values are the compiler's business, so reordering its
+// cases stays a free edit — and `as` would quietly change meaning if it were
+// allowed to read them.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: enum `Plain` has no backing type, so it cannot be cast to `UInt8`
+
+enum Plain {
+    case X,
+    case Y
+}
+
+func main() {
+    let p = Plain.X
+    print(p as UInt8)
+}

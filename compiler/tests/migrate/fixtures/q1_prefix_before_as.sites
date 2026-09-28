@@ -1,0 +1,2 @@
+status: rewritten
+3 SL-400.Q1-prefix-binds-tighter-than-as rewritten => let c = ~(b as UInt64)

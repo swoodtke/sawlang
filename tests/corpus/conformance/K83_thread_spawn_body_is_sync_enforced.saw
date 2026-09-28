@@ -1,0 +1,28 @@
+// Conformance row K83 — a `Thread.spawn { ... }` body is a `sync` context
+//
+// design 242 ruling 8: a suspending body needs an executor, and a fresh OS
+// thread has none. Before this the body compiled as ORDINARY SYNC CODE — no
+// coroutine frame in the emitted IR at all — so a `yield_now()` inside it was a
+// silent no-op and the task simply never ceded. That is design 242 unit 0's
+// probe finding, and this row is the refusal that replaces it.
+//
+// The diagnostic names the structured spelling for the thing the author was
+// reaching for: `TaskGroup(threads: 1)` is suspending work on a dedicated
+// thread, and it brings an executor with it.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in a `Thread.spawn { ... }` body
+// EXPECT-ERROR-CONTAINS: a spawned thread runs no executor
+// EXPECT-ERROR-CONTAINS: `TaskGroup(threads: 1)`
+
+import std.task.*
+
+func cedes() -> Int {
+    yield_now()
+    7
+}
+
+func main() {
+    var t = Thread.spawn { cedes() }
+    print(t.join())
+}

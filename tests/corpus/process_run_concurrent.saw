@@ -1,0 +1,54 @@
+// Design 182 (was the DF-181a starvation xfail): `Command.run()` waits for its
+// child on the REACTOR, so a sibling task runs the whole time the child does.
+//
+// Task A runs `/bin/sleep 1`. Task B does nothing but record when it FIRST gets
+// scheduled. B is runnable from the moment it is spawned, so its first tick lands
+// immediately. Before design 182 the executor thread sat inside `waitpid` for the
+// child's whole lifetime and B's first tick landed at 1000 ms — it had been
+// runnable the entire time and could not be scheduled.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sibling: concurrent
+// child exit: 0
+// -- done
+
+import std.process.*
+import std.task.*
+import std.time.*
+
+// The threshold that separates "ran immediately" from "waited out the child".
+// The child sleeps 1000ms, so either answer clears this by a wide margin.
+static STARVED_MS: UInt64 = 400
+
+func run_child() -> Int {
+    var c = Command(program: "/bin/sleep")
+    try! c.arg("1")
+    match c.run() {
+        case Ok(code) -> code as Int,
+        case Err(_) -> -1
+    }
+}
+
+// Report how long it took this task to be scheduled for the first time.
+func first_tick(start: Instant) -> UInt64 {
+    start.elapsed().as_millis()
+}
+
+func main() {
+    let start = Instant.now()
+    var group = TaskGroup()
+    let child = group.spawn(run_child())
+    let sibling = group.spawn(first_tick(start))
+
+    let when = sibling.join()
+    let code = child.join()
+
+    if when < STARVED_MS {
+        print("sibling: concurrent")
+    } else {
+        print("sibling: starved ({when} ms)")
+    }
+    print("child exit: {code}")
+    print("-- done")
+}

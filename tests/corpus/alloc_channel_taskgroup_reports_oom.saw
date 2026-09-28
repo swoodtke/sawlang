@@ -1,0 +1,99 @@
+// Conformance rows A11 and A12 — the constructors that own a heap block.
+//
+// Design 123: Arc, Mutex and Channel each used to construct an INERT object on
+// allocator exhaustion — one that reports success, accepts calls forever and
+// does nothing:
+//   Arc      -> ptr None: the value silently dropped, strong_count() == 0, and
+//               any forwarded payload method dereferencing a null block
+//   Mutex    -> block None: lock() returning false WITHOUT running the body
+//   Channel  -> block None: send() swallowing every message, recv()
+//               force-unwrapping a None, receive() looping forever
+// All three then PANICKED, with a `try_make` twin beside each that reported.
+//
+// Design 234 retires the split, and DF-245a is what let it retire in place: an
+// `init` may return `Result<Self, E>`, so `Arc(value:)`, `Channel()` and
+// `TaskGroup(threads:)` REPORT under their own names rather than moving to
+// static factories. There is no inert state left to construct and no second
+// spelling to learn.
+//
+// `Mutex` LEFT THIS SET in design 186: it is one inline word beside an inline
+// payload now, so its constructor allocates nothing and cannot be refused. The
+// rule is intact — a fallible signature exists exactly where an allocation does
+// — and the mutex under a denied allocator is checked here instead: it still
+// locks.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// arc denied
+// 1
+// true
+// true
+// channel denied
+// group denied
+// 42
+
+import std.mutex.{Mutex}
+import std.channel.*
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+func main() {
+    let a = try! Arc<Int>(value: 5)
+    print(a.strong_count())             // 1 — a real block
+
+    __saw_rt_alloc_deny_after(0)
+    let arc_made = Arc<Int>(value: 6)
+    __saw_rt_alloc_deny_after(-1)
+    match arc_made {
+        case Ok(made) -> print(made.strong_count()),
+        case Err(_) -> print("arc denied")
+    }
+    print(a.strong_count())             // 1 — the live Arc is unaffected
+
+    // A mutex built and locked with the allocator refusing everything: it needs
+    // no block, so there is nothing to refuse.
+    __saw_rt_alloc_deny_after(0)
+    let denied = Mutex<Int>(value: 7)
+    let held = borrow var c = denied.lock() { c == 7 }
+    __saw_rt_alloc_deny_after(-1)
+    print(held)
+
+    let m = Mutex<Int>(value: 1)
+    print(borrow var c = m.lock() { c > 0 })    // true — a real mutex still locks
+
+    __saw_rt_alloc_deny_after(0)
+    let chan_made = Channel<Int>()
+    __saw_rt_alloc_deny_after(-1)
+    match chan_made {
+        case Ok(_) -> print("channel ok"),
+        case Err(_) -> print("channel denied")
+    }
+
+    // A multi-threaded group needs one 128-byte block for its run-queue lock
+    // and condition variable, and that is the allocation this refuses. Nothing
+    // is half-built on the `Err` path: the vectors above it own no storage yet.
+    __saw_rt_alloc_deny_after(0)
+    let group_made = TaskGroup(threads: 2)
+    __saw_rt_alloc_deny_after(-1)
+    match group_made {
+        case Ok(_) -> print("group ok"),
+        case Err(_) -> print("group denied")
+    }
+
+    // `send` reports a refused queue node rather than eating the message, and
+    // since design 234 it is the ONLY spelling that does: the `try_send` twin
+    // this used to call retired with the panic tier, and its allocator refusal
+    // is now `Err(Alloc(e))` in `send`'s own error type.
+    // Denial is a mode, so the retry below needs it explicitly turned back off.
+    let ch = try! Channel<Int>()
+    __saw_rt_alloc_deny_after(0)
+    let sent = ch.send(99)
+    __saw_rt_alloc_deny_after(-1)
+    match sent {
+        case Ok(_) -> print("sent"),
+        case Err(_) -> { try! ch.send(42) }
+    }
+    print((try! ch.try_receive())!)     // 42 — the retry landed
+}

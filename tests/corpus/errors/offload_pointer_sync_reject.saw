@@ -1,0 +1,21 @@
+// design 183 unit 3: the fence that makes the pointer-lifetime rule keepable.
+// An offloaded call's pointer arguments must point into storage that survives the
+// park — the suspended frame or the heap. A `sync` function has neither: its
+// locals are ordinary stack, and it returns while the worker thread is still
+// reading them. It cannot reach an offload at all, because a blocking extern is a
+// suspension source and a `sync` body may not suspend. That rule predates the
+// widened signature; this pins that widening did not open a hole in it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
+// EXPECT-ERROR-CONTAINS: blocking extern `slow_into`
+
+extern "C" {
+    blocking func slow_into(buf: UnsafePointer<Int8>, n: Int) -> Int
+}
+
+func fill() unsafe sync -> Int {
+    var scratch: [Int8; 16] = [0; 16]
+    slow_into((&scratch) as UnsafePointer<Int8>, 16)
+}
+
+func main() {}

@@ -1,0 +1,15 @@
+// design 186 unit 3 legality: an assertion is legal only where the DERIVATION
+// FAILED. `Plain` is Sync by the ordinary structural rule, so the declaration
+// asserts nothing and would teach the next reader that it did.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: already derives `Sync`, so `UnsafeSync` asserts nothing
+
+struct Plain {
+    n: Int,
+    label: String
+}
+
+extension Plain: UnsafeSync {}
+
+func main() {
+}

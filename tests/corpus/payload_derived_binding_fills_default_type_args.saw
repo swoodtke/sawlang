@@ -1,0 +1,172 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// iflet-field 2
+// tuple-local 2 3
+// for-field 1
+// for-field 1
+// iflet 2
+// guardlet 2
+// whilelet 2
+// closure 2
+// tuple 2 3
+// for 1
+// for 1
+
+// DF-267b, the rest of the matrix: every binding form that takes its type FROM
+// a match payload binding inherited the missing default-type-argument fill, so
+// fixing the payload read at its one funnel (`_variant_payload_types`) fixes
+// all of them at once. These rows are the obligation-4 sweep, each one a
+// failing cell before that funnel existed:
+//
+//   `if let` / `guard let` payload, `while let` payload, a closure PARAMETER
+//   whose type is the payload's element type, a tuple destructuring, and a
+//   `for` binding over a generic container whose Iterator `Item` names the
+//   container's defaulted parameter.
+//
+// The first three rows are the controls the filing already had: the same forms
+// fed by a struct FIELD and by an annotated LOCAL, which resolved throughout.
+
+struct Drain<T, A: Allocator = GlobalAllocator> {
+    left: Int
+}
+
+extension Drain<T, A: Allocator>: Iterator {
+    type Item = Vector<Int, A>
+    public func next(&var self) -> Vector<Int, A>? {
+        if self.left <= 0 { return None }
+        self.left = self.left - 1
+        var v = Vector<Int, A>()
+        try! v.push(self.left)
+        return move v
+    }
+}
+
+enum Cell {
+    case Opt(m: Map<String, Int>?),
+    case List(v: Vector<Map<String, Int>>),
+    case Pair(p: (Map<String, Int>, Int)),
+    case Src(d: Drain<Int>)
+}
+extension Cell: NoCopy {}
+
+struct OptField { m: Map<String, Int>? }
+extension OptField: NoCopy {}
+
+struct SrcField { d: Drain<Int> }
+
+func fresh() -> Map<String, Int> {
+    var m = Map<String, Int>()
+    let _ = m.insert("a", 1)
+    let _ = m.insert("b", 2)
+    return move m
+}
+
+func one() -> Vector<Map<String, Int>> {
+    var v = Vector<Map<String, Int>>()
+    try! v.push(fresh())
+    return move v
+}
+
+// --- Controls: the same forms fed by an already-resolved source. ---
+
+func iflet_field() {
+    var s = OptField(m: fresh())
+    if let m = s.m.take() {
+        let ks = try! m.keys()
+        print("iflet-field {}", ks.len())
+    }
+}
+
+func tuple_local() {
+    let p: (Map<String, Int>, Int) = (fresh(), 3)
+    let (m, n) = move p
+    let ks = try! m.keys()
+    print("tuple-local {} {}", ks.len(), n)
+}
+
+func for_field() {
+    let s = SrcField(d: Drain<Int>(left: 2))
+    for v in s.d { print("for-field {}", v.len()) }
+}
+
+// --- The sweep: the source is an enum payload binding. ---
+
+func iflet_payload() {
+    match Cell.Opt(m: fresh()) {
+        case Opt(o) -> {
+            var oo = move o
+            if let m = oo.take() {
+                let ks = try! m.keys()
+                print("iflet {}", ks.len())
+            }
+        },
+        case _ -> print("other")
+    }
+}
+
+func guardlet_payload() {
+    match Cell.Opt(m: fresh()) {
+        case Opt(o) -> {
+            var oo = move o
+            guard let m = oo.take() else { return }
+            let ks = try! m.keys()
+            print("guardlet {}", ks.len())
+        },
+        case _ -> print("other")
+    }
+}
+
+func whilelet_payload() {
+    match Cell.List(v: one()) {
+        case List(v) -> {
+            var vv = move v
+            while let m = vv.pop() {
+                let ks = try! m.keys()
+                print("whilelet {}", ks.len())
+            }
+        },
+        case _ -> print("other")
+    }
+}
+
+func closure_payload() {
+    match Cell.List(v: one()) {
+        case List(v) -> v.each({ m in
+            let ks = try! m.keys()
+            print("closure {}", ks.len())
+        }),
+        case _ -> print("other")
+    }
+}
+
+func tuple_payload() {
+    match Cell.Pair(p: (fresh(), 3)) {
+        case Pair(p) -> {
+            let (m, n) = move p
+            let ks = try! m.keys()
+            print("tuple {} {}", ks.len(), n)
+        },
+        case _ -> print("other")
+    }
+}
+
+func for_payload() {
+    match Cell.Src(d: Drain<Int>(left: 2)) {
+        case Src(d) -> {
+            for v in d { print("for {}", v.len()) }
+        },
+        case _ -> print("other")
+    }
+}
+
+func main() {
+    iflet_field()
+    tuple_local()
+    for_field()
+    iflet_payload()
+    guardlet_payload()
+    whilelet_payload()
+    closure_payload()
+    tuple_payload()
+    for_payload()
+}

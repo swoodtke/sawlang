@@ -1,0 +1,36 @@
+// Test: Module-qualified enum variant access
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: 2
+// EXPECT-OUTPUT: 3
+
+import lib
+
+func main() {
+    // Access enum variants through module prefix
+    let red = lib.Color.Red
+    let green = lib.Color.Green
+    let custom = lib.Color.Custom(r: 10, g: 20, b: 30)
+
+    // Match on module enum values
+    match red {
+        case Red -> print(1),
+        case Green -> print(0),
+        case Blue -> print(0),
+        case Custom(r, g, b) -> print(0)
+    }
+
+    match green {
+        case Red -> print(0),
+        case Green -> print(2),
+        case Blue -> print(0),
+        case Custom(r, g, b) -> print(0)
+    }
+
+    match custom {
+        case Red -> print(0),
+        case Green -> print(0),
+        case Blue -> print(0),
+        case Custom(r, g, b) -> print(3)
+    }
+}

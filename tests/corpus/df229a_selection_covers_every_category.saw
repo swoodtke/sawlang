@@ -1,0 +1,27 @@
+// DF-229a: a selective import binds every category a module can publish —
+// struct, enum, trait, function, static and type ALIAS. The alias is the one
+// the category loop never checked, so `Meters` used to arrive unbound. Bare it
+// still resolved through the design-40 cross-module type fallback, which is
+// what hid the gap; the RENAME had nothing to resolve and failed at a distance
+// ("cannot assign `Int` to variable of type `Length`").
+// EXPECT: success
+// EXPECT-OUTPUT: 3 1 12 7
+import modules.df229a_leaf.{Gauge, Scale, Measured, gauge_make, GAUGE_LIMIT, Meters as Length}
+
+func reading_of<T: Measured>(m: &T) -> Int {
+    m.measure()
+}
+
+func rank(s: Scale) -> Int {
+    match s {
+        case Metric -> 1,
+        case Imperial -> 2
+    }
+}
+
+func main() {
+    let g = Gauge(reading: 3)
+    let made = gauge_make(reading: 7)
+    let span: Length = 7
+    print("{reading_of(&g)} {rank(Scale.Metric)} {GAUGE_LIMIT} {made.reading + (span as Int) - 7}")
+}

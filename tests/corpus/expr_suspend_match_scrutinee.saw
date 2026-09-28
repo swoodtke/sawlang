@@ -1,0 +1,34 @@
+// Design 120 positive control (already supported via the design-96 match-
+// scrutinee hoist): a suspending call as a `match` scrutinee, including at
+// nesting depth (a callee that itself calls a suspending function). Lands
+// WITHOUT an XFAIL marker.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 30
+// 40
+
+func s(n: Int) -> Int {
+    __saw_suspend()
+    n
+}
+func deep(n: Int) -> Int {
+    s(n)                // depth: `deep` suspends only via a nested call
+}
+
+func shallow() -> Int {
+    match s(3) {
+        case 3 -> 30,
+        case _ -> 0
+    }
+}
+func nested() -> Int {
+    match deep(4) {
+        case 4 -> 40,
+        case _ -> 0
+    }
+}
+
+func main() {
+    print(__saw_drive(shallow()))   // 30
+    print(__saw_drive(nested()))    // 40
+}

@@ -1,0 +1,7 @@
+//! Design 254 fixture: the WHOLE-MODULE facade. It re-exports both qualifiers,
+//! so an importer reaches `ext254_facade.ext254_panel.Panel` — and, since design
+//! 254, `ext254_knobs`' extensions on `Panel` too.
+// EXPECT: skip
+
+public import modules.ext254_panel
+public import modules.ext254_knobs

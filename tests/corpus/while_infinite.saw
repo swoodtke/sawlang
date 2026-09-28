@@ -1,0 +1,21 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 1
+// 2
+// 3
+// 4
+// 5
+
+func main() {
+    // Infinite loop with break
+    var counter = 0
+    while {
+        print(counter)
+        counter = counter + 1
+        if counter == 5 {
+            break
+        }
+    }
+    print(counter)
+}

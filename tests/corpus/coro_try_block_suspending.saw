@@ -1,0 +1,56 @@
+// A suspension inside a `try { ... } catch { ... }` BLOCK in a task body.
+// The inline-catch spelling (`try f() catch { … }`, coro_try_catch_suspending)
+// drives because the try hoist lifts the tried call to a preceding temp and
+// what is left is ordinary sync error handling. The BLOCK form cannot be
+// lifted that way — a statement after a `try` inside the block runs only if
+// the earlier one succeeded, so the suspension is conditional and the catch
+// arm is a resume target reachable from every state the try body lowers into.
+// Design 196 unit 3 makes the catch a STATE (DF-193a); the full position
+// matrix is `examples/coro_try_block_positions.saw`.
+//
+// Prints 41 — 40 from the successful call, then the catch adds 1 for the
+// failing one.
+// EXPECT: success
+// EXPECT-OUTPUT-CONTAINS: worker 41
+
+import std.task.*
+
+struct Flaky {
+    n: Int
+}
+
+extension Flaky: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("flaky ")
+        try! into.append(self.n)
+    }
+}
+
+extension Flaky: Error {}
+
+func compute(ok: Bool) -> Result<Int, Flaky> {
+    yield_now()
+    if ok {
+        return 40
+    }
+    return Flaky(n: 2)
+}
+
+func worker() -> Int {
+    var total = 0
+    try {
+        let a = try compute(true)
+        total = total + a
+        let b = try compute(false)
+        total = total + b
+    } catch {
+        total = total + 1
+    }
+    total
+}
+
+func main() {
+    var group = TaskGroup()
+    let w = group.spawn(worker())
+    print("worker {w.join()}")
+}

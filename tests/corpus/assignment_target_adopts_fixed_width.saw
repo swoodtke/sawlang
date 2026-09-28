@@ -1,0 +1,177 @@
+// An assignment TARGET names an expected type exactly as an annotation does, so
+// a bare integer literal assigned into a fixed-width slot adopts that width —
+// at every one of the nine assignment target kinds (DF-232a, design 232).
+//
+// Found while writing SOS design 232 unit 1: `TIMERS[slot].deadline_ns = 0` on a
+// `UInt64` field died with `cannot store i32 to i64*` on riscv32. Nothing about
+// the kernel was involved — three lines reproduced it on the host at any two
+// widths, and the sweep found six of the nine target kinds affected.
+//
+// TWO FUNNELS, one per half of the compiler, because the bug was the same shape
+// in both. `_check_assign_rhs` (typechecker) is where an assignment's RHS is
+// reconciled against its target's type — it pushes the target's type down as an
+// expected type, so the literal adopts and is range-checked AT the literal;
+// before DF-232a only three of the nine arms did that. `_store_assigned_value`
+// (codegen) is the store itself — it fits the integer width and the optional
+// layers; before DF-232a only the array-element arm coerced the width. Each
+// docstring names its entry points.
+//
+// THE MATRIX, row by row (every row below ICE'd or is a guard against one):
+//
+//   v = 4              a local variable            <- ICE'd
+//   STATIC = 3         an `unsafe static var`      adopted already
+//   r = 11             a `&var T` referent         <- ICE'd
+//   self.n = 3         a field through `self`      <- ICE'd
+//   w.b = 2            a struct field              <- ICE'd
+//   nt.p = 6           a named-tuple element       <- ICE'd
+//   t.0 = 5            a tuple index               <- ICE'd
+//   rows[0].b = 7      a field through an element  <- ICE'd
+//   arr[0] = 5         a fixed-array element       adopted already
+//   vec[0] = 9         a Vector element (a place)  adopted already
+//   c += 1             COMPOUND assignment         adopted already
+//
+// Two rows the original finding did not name, both fixed by the codegen half:
+// `v = k` for a plain `Int` k used to ICE because no fit ran, and a folded
+// `v = 2 + 3` is not a literal at all, so adoption cannot reach it and only the
+// store-side coercion can. Out-of-range refusal has its own test,
+// `assignment_target_literal_out_of_range.saw`.
+//
+// MIGRATED by design 205: `nl = k` for a plain `Int k` into a `UInt32` is a
+// same-width-or-narrower sign flip and is no longer implicit — the "a platform
+// `Int` converts to and from any integer type by design" this file used to
+// assert was DF-195b/c, and closing it is what design 205 did. The row stays,
+// with the conversion written: an assignment TARGET adopting a literal is the
+// rule being pinned here, and the non-literal row is its control.
+//
+// NEGATIVE ROWS: a platform `Int` target leaves the literal at platform width
+// (the load-bearing invariant of the expected-type funnel), and a negative
+// literal reaches the target through the unary-minus arm, range-checked on the
+// FOLDED value.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// local = 4
+// static = 3
+// ref = 11
+// self field = 3
+// field = 2
+// named tuple = 6
+// tuple idx = 5
+// elem field = 7
+// arr = 5
+// vec = 9
+// compound = 2
+// nonliteral = 5
+// folded = 5
+// neg local = -5
+// neg field = -128
+// branch = 7
+// platform = 5
+
+struct Wide { a: UInt64, b: UInt32 }
+struct Small { a: Int8 }
+struct Counter { n: UInt16 }
+
+static N: Int = 2
+unsafe static var SLOT: UInt32 = 0
+
+extension Counter {
+    func reset(&var self) {
+        self.n = 3
+    }
+}
+
+func set_static() unsafe -> UInt32 {
+    SLOT = 3
+    return SLOT
+}
+
+func through_ref(r: &var UInt32) {
+    r = 11
+}
+
+func main() {
+    // a local variable
+    var v: UInt32 = 9
+    v = 4
+    print("local = {v}")
+
+    // an `unsafe static var`
+    print("static = {set_static()}")
+
+    // a `&var T` referent
+    var rv: UInt32 = 0
+    through_ref(&var rv)
+    print("ref = {rv}")
+
+    // a field through `self` in a `&var self` method
+    var counter = Counter(n: 0)
+    counter.reset()
+    print("self field = {counter.n}")
+
+    // a struct field
+    var w = Wide(a: 0, b: 0)
+    w.b = 2
+    print("field = {w.b}")
+
+    // a named-tuple element
+    var nt: (p: UInt16, q: UInt16) = (p: 1u16, q: 1u16)
+    nt.p = 6
+    print("named tuple = {nt.p}")
+
+    // a tuple index
+    var t: (UInt32, UInt64) = (1u32, 1u64)
+    t.0 = 5
+    print("tuple idx = {t.0}")
+
+    // a field THROUGH an array element
+    var rows: [Wide; N] = [Wide(a: 0, b: 0); N]
+    rows[0].b = 7
+    print("elem field = {rows[0].b}")
+
+    // a fixed-array element, a Vector element, a compound assignment — the
+    // three that already adopted, kept as no-regression rows
+    var arr: [UInt32; N] = [0u32; N]
+    arr[0] = 5
+    print("arr = {arr[0]}")
+
+    var vec: Vector<UInt8> = [1u8, 2u8]
+    vec[0] = 9
+    print("vec = {vec[0]}")
+
+    var c: UInt8 = 1
+    c += 1
+    print("compound = {c}")
+
+    // a non-literal platform `Int` RHS, and a folded expression: neither can
+    // adopt, and both need the store-side width fit. The non-literal one is a
+    // sign flip a reader cannot see, so design 205 asks for it in writing —
+    // `k` is a program constant here, so an out-of-range value would be a bug
+    // and `as` is the spelling that says so.
+    let k: Int = 5
+    var nl: UInt32 = 0
+    nl = k as UInt32
+    print("nonliteral = {nl}")
+    var fold: UInt32 = 0
+    fold = 2 + 3
+    print("folded = {fold}")
+
+    // negative literals, range-checked on the folded value
+    var neg: Int8 = 0
+    neg = -5
+    print("neg local = {neg}")
+    var s = Small(a: 0)
+    s.a = -128
+    print("neg field = {s.a}")
+
+    // a branching RHS forwards the expectation to each arm
+    var b: UInt16 = 0
+    let cond = true
+    b = if cond { 7 } else { 8 }
+    print("branch = {b}")
+
+    // NEGATIVE ROW: a platform `Int` target leaves the literal at platform width
+    var p: Int = 0
+    p = 5
+    print("platform = {p}")
+}

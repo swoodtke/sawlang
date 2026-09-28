@@ -1,0 +1,44 @@
+// Conformance row A17 — `copy()` is the ONE named std operation design 234
+// leaves on the panic tier, and it says so.
+//
+// `copy` is the `ExplicitCopy` HOOK: its signature is the trait's
+// (`func copy(&self) -> Self`) and the compiler emits calls to it, so a
+// `Result` return would have to change the trait — which design 219's contract
+// forbids. The panic is spelled by hand in `Vector.copy` rather than left to a
+// `try!`, so it still NAMES the method a caller wrote instead of reading
+// `try! failed` out of a std file they never opened.
+//
+// DF-257b records what this boundary costs: `Vector.try_copy` is the one alloc
+// `try_` twin the flip could not retire, because the operation it doubles
+// cannot become the reporting one.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Vector.copy: allocation of
+
+// Room for the source vector's buffer and nothing more.
+static BUDGET: Atomic<Int> = Atomic(1)
+
+struct FailAlloc {}
+extension FailAlloc: Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? {
+        let left = BUDGET.load()
+        if left <= 0 {
+            return None
+        }
+        BUDGET.store(left - 1)
+        GlobalAllocator().alloc(size, align)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
+        GlobalAllocator().dealloc(ptr, size, align)
+    }
+}
+
+func main() {
+    var v = Vector<Int, FailAlloc>()
+    try! v.push(1)
+    try! v.push(2)
+    print(v.len())      // 2 — the source is real
+
+    // The duplicate needs a buffer of its own and the budget is gone.
+    let dup = v.copy()
+    print(dup.len())
+}

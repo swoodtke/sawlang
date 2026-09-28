@@ -1,0 +1,28 @@
+// design 139: struct parity for enums. A struct holding a move-only field has
+// had to name its transfer class since design 9 — the compiler knows how to
+// DESTROY such a value but not whether the author wants it duplicated. An enum
+// with the same payload used to answer that question by itself, and answered it
+// wrong: `Reel` got no tier at all, so every transfer bitwise-aliased the tape
+// and both halves ran its deinit.
+//
+// Now the same question is asked of the enum, in the same words. Declaring
+// `extension Reel: NoCopy {}` is the fix; see enum_policy_nocopy_move_only.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: enum `Reel` carries NoCopy payload `t` of type `Tape` in variant `Loaded` but does not implement NoCopy
+// EXPECT-ERROR-CONTAINS: add `extension Reel: NoCopy {}`
+
+struct Tape { id: Int }
+
+extension Tape: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+
+enum Reel {
+    case Loaded(t: Tape),
+    case Empty
+}
+
+func main() {
+    let r = Reel.Loaded(t: Tape(id: 4))
+    print(1)
+}

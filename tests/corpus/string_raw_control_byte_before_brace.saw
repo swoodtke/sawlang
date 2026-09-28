@@ -1,0 +1,39 @@
+// Design 268 / SL-238: a RAW U+0001 byte typed straight into a string literal
+// is ordinary content, exactly as the `\u{1}` escape is. This file carries real
+// 0x01 bytes inside its string literals (the byte is invisible in an editor but
+// it is what the lexer reads), so it pins the collision one step earlier than
+// its `\u{1}` twin: the old lexer wrote 0x01 + brace to mark an ESCAPED brace,
+// and the parser deleted any such pair it found — including this one.
+// EXPECT: success
+// EXPECT-OUTPUT: raw-then-escaped-open 2 1 123
+// EXPECT-OUTPUT: raw-then-escaped-close 2 1 125
+// EXPECT-OUTPUT: raw-then-bare-close 2 1 125
+// EXPECT-OUTPUT: raw-then-interp 2 1 55
+// EXPECT-OUTPUT: raw-inside-interp-text 3 97 1 55
+// EXPECT-OUTPUT: raw-alone 1 1
+
+func main() {
+    let n = 7
+
+    // A raw 0x01 before an escaped brace, either way round.
+    let open_escape = "\{"
+    print("raw-then-escaped-open {open_escape.len()} {open_escape.byte_at(0) as Int} {open_escape.byte_at(1) as Int}")
+    let close_escape = "\}"
+    print("raw-then-escaped-close {close_escape.len()} {close_escape.byte_at(0) as Int} {close_escape.byte_at(1) as Int}")
+
+    // A raw 0x01 before an unescaped `}`, which is ordinary text.
+    let bare_close = "}"
+    print("raw-then-bare-close {bare_close.len()} {bare_close.byte_at(0) as Int} {bare_close.byte_at(1) as Int}")
+
+    // A raw 0x01 before a real interpolation.
+    let before_interp = "{n}"
+    print("raw-then-interp {before_interp.len()} {before_interp.byte_at(0) as Int} {before_interp.byte_at(1) as Int}")
+
+    // A raw 0x01 in the literal text of a string that also interpolates.
+    let inside = "a{n}"
+    print("raw-inside-interp-text {inside.len()} {inside.byte_at(0) as Int} {inside.byte_at(1) as Int} {inside.byte_at(2) as Int}")
+
+    // And on its own, where no brace follows it.
+    let alone = ""
+    print("raw-alone {alone.len()} {alone.byte_at(0) as Int}")
+}

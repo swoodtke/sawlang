@@ -1,0 +1,26 @@
+// Error: a struct with an ExplicitCopy field must declare ExplicitCopy (or
+// NoCopy) itself - containment stays explicit, no silent inference.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: contains ExplicitCopy field
+
+struct Buf {
+    value: Int
+}
+
+extension Buf: ExplicitCopy {
+    func copy(&self) -> Buf {
+        Buf(value: self.value)
+    }
+    func deinit(&var self) {
+    }
+}
+
+// Container holds an ExplicitCopy field but declares no copy policy.
+struct Container {
+    data: Buf
+}
+
+func main() {
+    let c = Container(data: Buf(value: 1))
+    print(c.data.value)
+}

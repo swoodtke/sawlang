@@ -1,0 +1,56 @@
+// Conformance row K37 — dispatching to a SUSPENDING conformance body through
+// `any Trait` is refused, not silently run to completion
+//
+// A frame is a compile-time identity: the caller embeds the callee's frame BY
+// VALUE, so it has to know at compile time which body it is embedding. Dynamic
+// dispatch has no such identity — the concrete type behind `&any Greeter` is a
+// vtable word — so there is nothing to embed and no design that says what
+// should be. What the compiler did instead was worse than refusing: the
+// existential dispatch was recorded as a merely-CONSERVATIVE suspension
+// source (the same treatment a call through a closure gets), no frame was
+// built anywhere in the program, and `yield_now()` inside the conformance body
+// ran outside any frame — where it is a no-op. The cooperative contract was
+// simply not applied, with no diagnostic.
+//
+// Design 223's ruling: work where the mechanism exists, refuse cleanly where
+// it does not. This is the second half. The refusal names the design that is
+// owed, and it is ANCHORED at the dispatch the author wrote.
+//
+// AND THE REFUSAL IS PENDING, NOT PERMANENT (design 275 §3 ruling 2, user,
+// Sep 18). The design that is owed has a carrier: SL-322, a heap-allocated
+// frame with an indirect resume. Suspending RECURSION needs the same runtime
+// shape, so the two land together and neither alone — which is why the hint
+// names SL-322 beside DF-223b, and why `examples/errors/coro_suspending_recursion.saw`
+// asserts the same citation from the other side. `coro_shapes.PENDING_SL322`
+// is the row both messages render their pending note from, so the table, the
+// message and this file cannot say three different things.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: dispatch through `any Greeter`
+// EXPECT-ERROR-CONTAINS: DF-223b
+// EXPECT-ERROR-CONTAINS: SL-322
+
+import std.task.*
+
+trait Greeter {
+    func greet(&self) -> String
+}
+
+struct Person { n: String }
+
+extension Person: Greeter {
+    func greet(&self) -> String {
+        yield_now()
+        self.n
+    }
+}
+
+func shout(g: &any Greeter) -> String {
+    g.greet()
+}
+
+func main() {
+    let p = Person(n: "ada")
+    let s = shout(&p)
+    print("{s}")
+}

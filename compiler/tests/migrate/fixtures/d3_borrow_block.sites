@@ -1,0 +1,2 @@
+status: rewritten
+21 D3.borrow-block rewritten => let found = if (borrow let e = b.slot(9) { if let _ = e { true } else { false } }) { "some" } else { "none" }

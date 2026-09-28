@@ -1,0 +1,174 @@
+// Conformance row K125 — the LENT VALUE's mode and the RECEIVER's required
+// access are TWO facts (SL-333 R4), permitted half
+//
+// The window's mode comes from the declaration and the use site (R1/R3). The
+// receiver access an accessor REQUIRES at a call is a property of its BODY: it
+// is SHARED-ELIGIBLE when its shared specialization passes the ordinary
+// receiver-permission rules — nothing writes `self`, calls a `&var self` method
+// on it, or re-borrows it `&var`, outside the place it lends — and
+// EXCLUSIVE-ONLY otherwise.
+//
+// This file pins the shared-eligible side, which is what makes R2's `&var self`
+// requirement livable: a writable accessor is still READABLE on a `let` root,
+// and two such reads compose, because a read borrows the receiver SHARED out of
+// the same `&var self` declaration.
+//
+// The refused side is `errors/exclusive_only_accessor_on_let_root.saw` (a `let`
+// root, naming the mutating line) and
+// `errors/two_exclusive_only_windows_conflict.saw` (two read-only windows on one
+// `var` root, refused as two exclusive receiver borrows).
+// The requirement also PROPAGATES: an accessor that opens a receiver-rooted
+// window on an exclusive-only one is exclusive-only itself, whatever shape the
+// window comes in (`errors/exclusive_only_inner_makes_the_outer_exclusive_only.saw`
+// is the refused matrix). The CONTROLS for that are here — a `var` root through
+// each shape, and the shared-eligible inner that costs nothing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// let root reads 10
+// two shared windows compose 30
+// var root writes 11
+// exclusive-only on a var root 20, visits 1
+// propagated, var root: ordinary 2, projected 3, forced 2, written 9
+// inner hits 3
+// shared-eligible inner on a let root: 3
+// exclusive window in a `&self` lend, var root: 2, inner 2
+// shared window in a `&self` lend, let root: 2, inner 1
+// -- done
+
+struct Cell { n: Int }
+
+struct Inner { cells: [Cell; 2], n: Int, hits: Int }
+
+extension Inner {
+    // EXCLUSIVE-ONLY.
+    func tally(&var self) borrows -> &var Int {
+        self.hits = self.hits + 1
+        lend self.n
+    }
+
+    func [](&var self, i: Int) borrows -> &var Cell {
+        self.hits = self.hits + 1
+        lend self.cells[i]
+    }
+
+    func opt(&var self, i: Int) borrows -> &var Cell? {
+        if i < 0 || i >= 2 { return None }
+        self.hits = self.hits + 1
+        lend self.cells[i]
+    }
+
+    // SHARED-ELIGIBLE.
+    func plain(&var self, i: Int) borrows -> &var Cell { lend self.cells[i] }
+
+    func hits_seen(&self) -> Int { self.hits }
+}
+
+struct Outer { inner: Inner, n: Int }
+
+extension Outer {
+    func ordinary(&var self) borrows -> &var Int {
+        let _ = self.inner.tally()
+        lend self.n
+    }
+
+    func projected(&var self, i: Int) borrows -> &var Int {
+        lend self.inner[i].n
+    }
+
+    func forced(&var self) borrows -> &var Int {
+        let _ = self.inner.opt(0)!.n
+        lend self.n
+    }
+
+    func written(&var self) borrows -> &var Int {
+        self.inner.plain(0).n = 9
+        lend self.inner.plain(0).n
+    }
+
+    // SHARED-ELIGIBLE: a shared window on a shared-eligible inner accessor
+    // requires nothing, so a `let` root may still read through it.
+    func shared_inner(&var self, i: Int) borrows -> &var Int {
+        lend self.inner.plain(i).n
+    }
+
+    func inner_hits(&self) -> Int { self.inner.hits_seen() }
+}
+
+// An EXCLUSIVE window rooted at `self` is a receiver mutation whatever the
+// receiver SIGIL says (`errors/exclusive_window_in_a_shared_lend_accessor.saw`
+// is the refused matrix) — so `mutating` is exclusive-only and needs a `var`
+// root, while `reading`, which opens a SHARED window on the same accessor,
+// stays shared-eligible and works on a `let` one. Both are `&self`.
+struct Plain { n: Int }
+
+extension Plain {
+    func slot(&var self) borrows -> &var Int { lend self.n }
+}
+
+func nudge(n: &var Int) { n += 1 }
+func peek(a: &Int) -> Int { a }
+
+struct Holder { inner: Plain, n: Int }
+
+extension Holder {
+    func mutating(&self) borrows -> &Int {
+        nudge(&var self.inner.slot())
+        lend self.n
+    }
+
+    func reading(&self) borrows -> &Int {
+        let _ = peek(&self.inner.slot())
+        lend self.n
+    }
+
+    func inner_n(&self) -> Int { self.inner.n }
+}
+
+struct Bag { cells: [Int; 4], visits: Int }
+
+extension Bag {
+    // SHARED-ELIGIBLE: the body lends and does nothing else.
+    public func [](&var self, i: Int) borrows -> &var Int {
+        if i < 0 || i >= 4 { panic("Bag.[]: index out of range") }
+        lend self.cells[i]
+    }
+
+    // EXCLUSIVE-ONLY: the epilogue mutates the receiver, so every use site —
+    // this read included — borrows it exclusively.
+    public func tally(&var self, i: Int) borrows -> &var Int {
+        if i < 0 || i >= 4 { panic("Bag.tally: index out of range") }
+        lend self.cells[i]
+        self.visits = self.visits + 1
+    }
+
+    public func visits_seen(&self) -> Int { self.visits }
+}
+
+func pair(a: &Int, b: &Int) -> Int { a + b }
+
+func main() {
+    let frozen = Bag(cells: [10, 20, 30, 40], visits: 0)
+    print("let root reads {frozen[0]}")
+    print("two shared windows compose {pair(&frozen[0], &frozen[1])}")
+
+    var b = Bag(cells: [10, 20, 30, 40], visits: 0)
+    b[0] += 1
+    print("var root writes {b[0]}")
+
+    print("exclusive-only on a var root {b.tally(1)}, visits {b.visits_seen()}")
+
+    var o = Outer(inner: Inner(cells: [Cell(n: 3), Cell(n: 4)], n: 1, hits: 0),
+                  n: 2)
+    print("propagated, var root: ordinary {o.ordinary()}, projected {o.projected(0)}, forced {o.forced()}, written {o.written()}")
+    print("inner hits {o.inner_hits()}")
+
+    let held = Outer(inner: Inner(cells: [Cell(n: 3), Cell(n: 4)], n: 1,
+                                  hits: 0), n: 2)
+    print("shared-eligible inner on a let root: {held.shared_inner(0)}")
+
+    var h = Holder(inner: Plain(n: 1), n: 2)
+    print("exclusive window in a `&self` lend, var root: {h.mutating()}, inner {h.inner_n()}")
+    let hr = Holder(inner: Plain(n: 1), n: 2)
+    print("shared window in a `&self` lend, let root: {hr.reading()}, inner {hr.inner_n()}")
+    print("-- done")
+}

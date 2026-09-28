@@ -1,0 +1,51 @@
+// DF-182d: a tail expression that is `move local`, in a body that suspends.
+//
+// A frame-resident local moved out owes a drop-flag clear so the frame does not drop
+// it again at teardown. `return move r` has always carried one; the tail-expression
+// position refused instead ("move it in a `return` statement"), even though the tail
+// IS the return value and the done sequence it builds already takes the clears.
+//
+// The deinit oracle is the real assertion: a missing clear is a double-drop and a
+// stray one is a leak, neither of which is a compile error. Two values are made and
+// each drops exactly once, after `main` has read the id out of it.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// first: 1
+// second: 2
+// deinits=2
+
+import std.task.*
+
+static DEINITS: Atomic<Int> = Atomic(0)
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        DEINITS.fetch_add(1)
+    }
+}
+
+// Suspends, then hands the value out through the TAIL, not a `return`.
+func take_one(id: Int) -> Res {
+    var r = Res(id: id)
+    yield_now()
+    move r
+}
+
+func id_of(id: Int) -> Int {
+    let held = take_one(id)
+    held.id                       // `held` drops here, exactly once
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(id_of(1))
+    print("first: {a.join()}")
+    let b = group.spawn(id_of(2))
+    print("second: {b.join()}")
+    print("deinits={DEINITS.load()}")
+}

@@ -1,0 +1,14 @@
+// Callee-side forwarding (design 16/29 item 5): CAPTURING a non-escaping closure
+// parameter in an escaping closure lets it escape — rejected. The inner closure
+// is returned (escaping) and captures the non-escaping parameter `f`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot capture non-escaping closure `f`
+
+func wrap(f: (Int) -> Int) -> (Int) -> Int {
+    { x: Int in f(x) }
+}
+
+func main() {
+    let g = wrap({ $0 + 1 })
+    print(g(4))
+}

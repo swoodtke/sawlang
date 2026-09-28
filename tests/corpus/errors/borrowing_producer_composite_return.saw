@@ -1,0 +1,86 @@
+// K143 (design 275 U3, codex r3 #2): the producer's exemption is the BARE
+// return and nothing wider.
+//
+// `func iter(&self) borrows -> It` is the one declaration that may name a
+// borrowing struct in a return position, and it is exempt from the type walk
+// because `check_borrowing_producer` proves it instead (a reference receiver,
+// `lends self` on every path). A COMPOSITE spelling on a `borrows` method —
+// `It?`, `Optional<It>`, `Result<It, E>`, `(It, Int)`, `Vector<It>`,
+// `Box<It>`, and a distinct alias of each — is a plain return that happens to
+// sit beside the word, and it takes exactly the refusal the same signature
+// takes without `borrows`. For one revision the exemption keyed on
+// `is_borrows` alone while the proof keyed on the bare struct, so `borrows ->
+// It?` fell between the two and COMPILED, and `borrows -> Optional<It>`
+// reached codegen and died with `Unknown generic struct: Optional`.
+//
+// A CALLABLE is a composite too (codex r4 #1): `borrows -> () -> It` is a
+// closure's return wearing the word, and the walk descends a function type's
+// return and parameters exactly as it descends `Optional<It>` — for one
+// revision it answered "safe" for the whole function type, so this row
+// compiled beside the refused `It?`.
+//
+// `Result<It, E>` has no alias row: a type alias of an enum is refused on its
+// own terms (DF-194b). A generic `borrows -> T` instantiated at `It` never
+// reaches this walk and needs no row here: a `let` of the call is the value
+// fence's refusal, and a `for` head over it is refused by the origin proof on
+// the instantiation (`errors/borrowing_struct_origin.saw` is that family).
+// `borrowing_producer_every_path.saw` keeps the bare-return producer running.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: the return type of `opt_sugar` may not name a borrowing struct: `It?` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: the return type of `opt_named` may not name a borrowing struct: `Optional<It>` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: the return type of `result` may not name a borrowing struct: `Result<It, Bad>` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: the return type of `tuple` may not name a borrowing struct: `(It, Int)` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: the return type of `vector` may not name a borrowing struct: `Vector<It>` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: the return type of `box` may not name a borrowing struct: `Box<It>` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: the return type of `alias_opt_sugar` may not name a borrowing struct: `OptIt` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: the return type of `alias_opt_named` may not name a borrowing struct: `OptNamedIt` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: the return type of `alias_tuple` may not name a borrowing struct: `TupIt` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: the return type of `alias_vector` may not name a borrowing struct: `VecIt` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: the return type of `alias_box` may not name a borrowing struct: `BoxIt` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: the return type of `callable` may not name a borrowing struct: `() -> It` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: the return type of `alias_callable` may not name a borrowing struct: `MkIt` names a `borrows struct` (`It`)
+// EXPECT-ERROR-ABSENT: internal compiler error
+// EXPECT-ERROR-ABSENT: the return type of `iter`
+
+struct Owner { value: Int }
+borrows struct It { source: &Owner, done: Bool }
+
+struct Bad { n: Int }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+
+type OptIt = It?
+type OptNamedIt = Optional<It>
+type TupIt = (It, Int)
+type VecIt = Vector<It>
+type BoxIt = Box<It>
+type MkIt = () -> It
+
+extension Owner {
+    // The CONTROL: the bare producer, exempt because it is proven.
+    func iter(&self) borrows -> It { It(source: lends self, done: false) }
+
+    // ---- the composite spellings, each a plain return beside the word ----
+    func opt_sugar(&self) borrows -> It? { panic("never") }
+    func opt_named(&self) borrows -> Optional<It> { panic("never") }
+    func result(&self) borrows -> Result<It, Bad> { panic("never") }
+    func tuple(&self) borrows -> (It, Int) { panic("never") }
+    func vector(&self) borrows -> Vector<It> { panic("never") }
+    func box(&self) borrows -> Box<It> { panic("never") }
+
+    // ---- the same rows through a DISTINCT ALIAS ----
+    func alias_opt_sugar(&self) borrows -> OptIt { panic("never") }
+    func alias_opt_named(&self) borrows -> OptNamedIt { panic("never") }
+    func alias_tuple(&self) borrows -> TupIt { panic("never") }
+    func alias_vector(&self) borrows -> VecIt { panic("never") }
+    func alias_box(&self) borrows -> BoxIt { panic("never") }
+
+    // ---- the CALLABLE spelling, bare and through an alias (codex r4 #1) ----
+    func callable(&self) borrows -> () -> It { panic("never") }
+    func alias_callable(&self) borrows -> MkIt { panic("never") }
+}
+
+func main() {
+    print("unreached")
+}

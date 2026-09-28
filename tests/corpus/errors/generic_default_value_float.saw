@@ -1,0 +1,12 @@
+// Design 108: the default value of a generic parameter type-checks against the
+// INSTANTIATED type at each call. A bare integer literal default (`b: T = 0`)
+// does NOT adopt a non-integer instantiation, so `f<Float>(1)` is a clean,
+// call-anchored diagnostic — never the former `list index out of range` ICE.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has type `Int` but the parameter is instantiated as `Float`
+
+func f<T>(a: Int, b: T = 0) -> Int { a }
+
+func main() {
+    print(f<Float>(1))
+}

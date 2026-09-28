@@ -1,0 +1,12 @@
+// UInt modulo (design 41 item 0): `%` must emit urem for unsigned operands.
+// A UInt with the high bit set (> 2^63) taken mod a small value gives the wrong
+// result under srem; urem is correct. 10000000000000000000 % 7 == 3 (unsigned),
+// whereas srem on the two's-complement bit pattern would differ.
+// EXPECT: success
+// EXPECT-OUTPUT: 3
+
+func main() {
+    let u: UInt = 10000000000000000000
+    let r = u % 7
+    print("{r}")
+}

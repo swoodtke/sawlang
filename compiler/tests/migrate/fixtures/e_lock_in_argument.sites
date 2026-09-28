@@ -1,0 +1,2 @@
+status: rewritten
+5 E.lock rewritten => print(borrow var c = m.lock() { c + 1 })

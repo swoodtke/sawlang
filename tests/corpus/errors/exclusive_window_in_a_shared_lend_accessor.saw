@@ -1,0 +1,75 @@
+// SL-333 R4 (conformance row K125): an EXCLUSIVE window rooted at `self` is a
+// receiver mutation whatever the DECLARATION's receiver sigil says.
+//
+// Design 146's whole point is that a `borrows` accessor's receiver is borrowed
+// with the WINDOW's flavor rather than the sigil's — so the question "does this
+// body take its receiver exclusively" cannot be gated on the sigil either. It
+// was: the recording asked `_self_borrow_is_exclusive()` first, which is false
+// for a `&self` accessor, and the eligibility closure read a reference's mode
+// only for a `lend`'s own. An ordinary `&var self.inner.plain()` ARGUMENT
+// therefore left the accessor shared-eligible, and a `let`-bound receiver was
+// mutated through it (codex, SL-333.p1 r2).
+//
+// THE CELLS, one accessor each, all declared `&self ... borrows -> &Int` —
+// which is the point: not one of them may pass as a shared borrow.
+//
+//   `arg`      a `&var` REFERENCE ARGUMENT over a receiver-rooted place
+//   `forced`   the same through a `!` head
+//   `written`  the place as a WRITE TARGET
+//   `bumped`   the place under a COMPOUND assignment
+//
+// `K125_receiver_access_is_a_second_fact.saw` carries the `var`-root controls
+// that must keep running, and the two shared-reference controls that must stay
+// shared-eligible. `&var self.inner[i].n` is NOT here: design 146 refuses that
+// projection at the declaration, before R4 is asked, because its path has no
+// place hop for the walk to stop at.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot read through the place window `arg` opens on immutable variable `o`
+// EXPECT-ERROR-CONTAINS: the `&var self.…` projection at line 49
+// EXPECT-ERROR-CONTAINS: cannot read through the place window `forced` opens on immutable variable `o`
+// EXPECT-ERROR-CONTAINS: cannot read through the place window `written` opens on immutable variable `o`
+// EXPECT-ERROR-CONTAINS: the exclusive window on `Inner.plain` at line 59
+// EXPECT-ERROR-CONTAINS: cannot read through the place window `bumped` opens on immutable variable `o`
+
+struct Inner { n: Int }
+
+extension Inner {
+    // SHARED-ELIGIBLE: it lends and does nothing else. The exclusivity below
+    // is the CALL's, not this accessor's.
+    func plain(&var self) borrows -> &var Int { lend self.n }
+    func opt(&var self) borrows -> &var Int? { lend self.n }
+}
+
+func bump(n: &var Int) { n += 1 }
+
+struct Outer { inner: Inner, n: Int }
+
+extension Outer {
+    func arg(&self) borrows -> &Int {
+        bump(&var self.inner.plain())
+        lend self.n
+    }
+
+    func forced(&self) borrows -> &Int {
+        bump(&var self.inner.opt()!)
+        lend self.n
+    }
+
+    func written(&self) borrows -> &Int {
+        self.inner.plain() = 5
+        lend self.n
+    }
+
+    func bumped(&self) borrows -> &Int {
+        self.inner.plain() += 1
+        lend self.n
+    }
+}
+
+func main() {
+    let o = Outer(inner: Inner(n: 1), n: 2)
+    print("{o.arg()}")
+    print("{o.forced()}")
+    print("{o.written()}")
+    print("{o.bumped()}")
+}

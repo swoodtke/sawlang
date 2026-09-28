@@ -1,0 +1,17 @@
+// Conformance row T12 — `Vector.get` out of range yields `None`
+//
+// The `get`-shaped half of the accessor rule: out of range yields `None`
+// rather than trapping.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ok
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    var i = 5
+    if let e = v.get(i) {
+        print("unexpectedly present {e}")
+    } else {
+        print("ok")
+    }
+}

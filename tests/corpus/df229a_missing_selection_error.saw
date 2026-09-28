@@ -1,0 +1,12 @@
+// DF-229a: a selective import naming something the module does not have is
+// refused AT the import, with the module's surface for a hint — the diagnostic
+// std has had since design 150, now in the user-module branch too. It used to
+// compile clean and simply never bind the name.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `NoSuchThing` is not defined in `modules.df229a_leaf`
+// EXPECT-ERROR-CONTAINS: available: GAUGE_LIMIT, Gauge, Measured, Meters, Scale, gauge_make
+import modules.df229a_leaf.{Gauge, NoSuchThing}
+
+func main() {
+    print("{gauge_make(reading: 1).reading}")
+}

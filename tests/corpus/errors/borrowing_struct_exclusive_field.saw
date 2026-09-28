@@ -1,0 +1,30 @@
+// K145 (design 275 U3): A BORROWING STRUCT HOLDS SHARED REFERENCES ONLY.
+//
+// U3 is a shared-window feature. An iterator carrying `&var Collection` could
+// REALLOCATE the very collection an outer shared iterator is reading through
+// its own field, and recording the root alone would not catch it — so a `&var`
+// field is refused at the field, with the rule named. That is DISTINCT from
+// `next(&var self)`: the cursor is the iterator's OWN state, and mutating it
+// is not mutable access to the borrowed collection.
+//
+// The generic window record still reserves shared/exclusive MODES for later
+// clients; the exclusive-window derivation, with its writer-versus-reader and
+// nested-window rows, is the follow-up's to specify.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: may not be an EXCLUSIVE reference
+// EXPECT-ERROR-CONTAINS: a borrowing struct holds SHARED references only
+// EXPECT-ERROR-CONTAINS: Lend it shared
+
+struct Bag {
+    private items: Vector<Int>
+}
+extension Bag: NoCopy {}
+
+borrows struct Writer {
+    private bag: &var Bag
+    private index: Int
+}
+
+func main() {
+    print("unreached")
+}

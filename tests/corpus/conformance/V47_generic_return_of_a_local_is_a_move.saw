@@ -1,0 +1,43 @@
+// Conformance row V47 — control: returning a whole binding out of a generic
+// body is a MOVE, so it imposes no requirement
+//
+// The tail-expression idiom std is built on: run something, bind the result,
+// return it (`SpinLock.lock`'s `let result = body(...)` / `result`). A return
+// of a whole binding is the last read on its path by construction, so nothing
+// is duplicated and the body accepts every tier including move-only.
+//
+// The row exists because this was a live false positive: the tail-expression
+// transfer check runs after the body scope has been popped, so the name no
+// longer resolves and every generic returning a local looked like a read out of
+// storage it does not own. It surfaced the moment the public-declaration rule
+// reached methods, which is what a hard error buys over a warning.
+// ONE `DEINIT r1`, at the end of `main` where the returned binding lives: the
+// value crossed two frames and was released exactly once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// r1
+// 7
+// DEINIT r1
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+// Both spellings of the return, at a move-only argument.
+public func run_and_return<R>(body: () sync -> R) sync -> R {
+    let result = body()
+    result
+}
+
+public func explicit_return<R>(body: () sync -> R) sync -> R {
+    let result = body()
+    return move result
+}
+
+func main() {
+    let r = run_and_return<Res>({ Res(name: "r1") })
+    print(r.name)
+    let n = explicit_return<Int>({ 7 })
+    print(n)
+}

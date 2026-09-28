@@ -1,0 +1,16 @@
+// Design 257 §1, the check that comes with the adoption: a platform slot
+// range-checks the FOLDED value, so a fold that goes negative into a `UInt` is
+// the same clean "does not fit" a bare negative literal gives — never a
+// silent reinterpretation of the bits.
+//
+// The signed-domain gotcha at the fixed widths is unchanged and lives in
+// `const_expression_signed_domain_error.saw` (`1 << 63` is `Int.min`, so it
+// does not fit a `UInt64`); this is the platform pair's own row.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: constant expression -2 does not fit in `UInt`
+
+static NEG: UInt = 3 - 5
+
+func main() {
+    print("{}", NEG)
+}

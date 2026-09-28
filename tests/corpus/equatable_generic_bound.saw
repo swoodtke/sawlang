@@ -1,0 +1,31 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 4
+// 5
+
+// A `T: Equatable` bound grants `==` (and `.equals`) in a generic body
+// (design 32 item 5), resolved via the bound-aware method resolution. The
+// bound is satisfied by primitives, auto-conforming structs, and String alike.
+struct Point {
+    x: Int
+    y: Int
+}
+
+func eq<T: Equatable>(a: T, b: T) -> Bool {
+    a == b
+}
+
+func neq<T: Equatable>(a: T, b: T) -> Bool {
+    a != b
+}
+
+func main() {
+    if eq<Int>(3, 3) { print(1) }
+    if neq<Int>(3, 4) { print(2) }
+    if eq<Point>(Point(x: 1, y: 2), Point(x: 1, y: 2)) { print(3) }
+    if neq<Point>(Point(x: 1, y: 2), Point(x: 9, y: 2)) { print(4) }
+    if eq<String>("saw", "saw") { print(5) }
+}

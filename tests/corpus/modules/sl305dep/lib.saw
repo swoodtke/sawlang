@@ -1,0 +1,31 @@
+// Fixture for `dependency_named_main_keeps_the_entry_point.saw` (SL-305).
+//
+// A dependency that declares the name `main`. Nothing here is unusual: `main`
+// is an ordinary identifier to every module but the entry one, and a library
+// that grew a `main` helper (a state-machine driver, a REPL loop) has no reason
+// to know the entry module is about to lose its C entry point over it.
+//
+// Design 249 took its module tag from a CENSUS of which modules declare each
+// free-function name, and counted the root module like any other — so this
+// declaration gave the ENTRY module's `main` a `$M$root` tag, the program
+// emitted no `main` symbol at all, and the link failed with
+// `Undefined symbols: "_main", referenced from: <initial-undefines>`: a bare
+// linker error naming no user construct. SL-274 replaced the census with a
+// per-module tag plus ONE exemption — the ENTRY module's `main`, and only that
+// one — so this `main` is an ordinary free function with an ordinary
+// `main$m$sl305dep` symbol and internal linkage.
+//
+// It SUSPENDS, so its coroutine frame is keyed by that symbol too: the entry
+// module's `main` and this one must name two different frames, which is the
+// half a symbol-only rename would have got wrong.
+
+import std.task.{yield_now}
+
+func main(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+/// The only public surface: nothing outside this module can even name `main`
+/// here, which is why the collision was invisible at the source level.
+public func reach(n: Int) -> Int { main(n) }

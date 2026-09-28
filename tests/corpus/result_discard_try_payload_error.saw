@@ -1,0 +1,35 @@
+// design 151: `try!`/`try` CONSUME the Result they are applied to, so the rule
+// has nothing to say about them — discarding the `T` they yield is ordinary.
+// Unless `T` is itself a Result: then the rule applies to THAT one, on its own
+// terms. The check is on the type in hand, never on the syntax that produced
+// it, which is also why an erased Result and a suspending call need no special
+// case.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is silently discarded
+
+struct ParseError { at: Int }
+extension ParseError: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("bad input at ")
+        into.append(self.at)
+    }
+}
+extension ParseError: Error {}
+
+func might(n: Int) -> Result<Int, ParseError> {
+    if n < 0 { return ParseError(at: n) }
+    return n * 2
+}
+
+// A staged pipeline: the outer Result reports whether the STAGE ran, the value
+// it carries reports whether the parse succeeded. Two failures, two Results.
+func staged<T>(v: T) -> Result<T, ParseError> {
+    return v
+}
+
+func main() {
+    // `try!` unwraps the outer Result and hands back the inner one, which this
+    // statement then drops on the floor.
+    try! staged(might(3))
+    print("kept going")
+}

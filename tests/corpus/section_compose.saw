@@ -1,0 +1,26 @@
+// design 58 Part 4: `@section` composes with `@export` on a function, and also
+// applies on its own (no export required). Both functions are called, so this
+// verifies sectioned code still links and runs.
+//
+// NOTE: mach-o `SEG,sect` section names for host portability (see
+// export_static_section.saw).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 84
+// 43
+
+extern "C" {
+    func boot_double(x: Int) -> Int
+}
+
+@export("boot_double")
+@section("__TEXT,__boot")
+func doubler(x: Int) -> Int { x * 2 }
+
+@section("__TEXT,__hot")
+func hot(x: Int) -> Int { x + 1 }
+
+func main() {
+    print(boot_double(42))
+    print(hot(42))
+}

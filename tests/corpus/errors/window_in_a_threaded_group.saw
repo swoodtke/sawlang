@@ -1,0 +1,31 @@
+// K146 (design 275 U3, part (ii)): `threads: 2` STAYS REFUSED ON SEND.
+//
+// FRAME ADDRESS STABILITY IS NO ARGUMENT TO RELAX SEND (the U3 ruling). A
+// collection `for` in a driven body spans a suspension — design 127 charges
+// its back-edge like every other loop's — so its iterator is a local held
+// across one, and the Send-on-frames rule (K19) asks whether that local may
+// cross to a worker thread. A borrowing struct holds `&Vector<T, A>`, a
+// reference is not `Send`, and the answer is no.
+//
+// The multi-threaded spelling is an INDEX loop, which is what
+// `examples/taskgroup_send_containers.saw` uses.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: multi-threaded
+// EXPECT-ERROR-CONTAINS: is held across a suspension but is not `Send`
+// EXPECT-ERROR-CONTAINS: VectorIterator
+
+import std.task.{yield_now}
+
+func sum_vector(v: Vector<Int>) -> Int {
+    yield_now()
+    var total = 0
+    for x in v.iter() { total = total + x }
+    total
+}
+
+func main() {
+    var g = try! TaskGroup(threads: 2)
+    var v: Vector<Int> = [1, 2, 3]
+    let h = g.spawn(sum_vector(move v))
+    print("{h.join()}")
+}

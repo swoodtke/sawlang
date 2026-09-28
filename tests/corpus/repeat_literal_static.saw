@@ -1,0 +1,25 @@
+// Design 148 unit B: a repeat literal is a const initializer, so a static may
+// hold one. An all-zero repeat lowers to `zeroinitializer` and lands in .bss,
+// which is what keeps a large zeroed static free.
+//
+// This is the spelling `static_zero_init.saw` had to do without: before the
+// repeat literal, a zeroed static could only be declared BARE, which meant the
+// zero was implicit and a non-zero fill was unwritable.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 0
+// 4096
+// 7
+// 7
+
+static SCRATCH: [Int8; 4096] = [0; 4096]
+static MARKS: [Int; 8] = [7; 8]
+
+func main() {
+    print(SCRATCH[0])
+    print(SCRATCH[4095])
+    print(SCRATCH.len())
+    print(MARKS[0])
+    print(MARKS[7])
+}

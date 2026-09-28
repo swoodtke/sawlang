@@ -1,0 +1,18 @@
+// A nested-field partial move is forbidden too (design 35). The diagnostic
+// names the leaf field and its base path.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot move out of field `v` of `o.inner`
+
+struct Inner {
+    v: Int
+}
+
+struct Outer {
+    inner: Inner
+}
+
+func main() {
+    var o = Outer(inner: Inner(v: 7))
+    let z = move o.inner.v
+    print(z)
+}

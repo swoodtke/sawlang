@@ -1,0 +1,31 @@
+// A `static` may not have an optional type — refused AT THE DECLARATION, by the
+// rule rather than by an incidental type mismatch (DF-226f, ruled Aug 17).
+//
+// A static is initialized once at compile time and never changes, so the one
+// thing an optional buys — "not there yet, ask before using" — is a state a
+// static cannot be in. Whichever of present/absent the initializer names is the
+// value forever, and every read would pay an unwrap for an answer fixed at
+// compile time.
+//
+// `static SLOT: Int? = 7` used to report ``static `SLOT` has type `Int?` but
+// its initializer has type `Int` `` — true, but it names the symptom (statics
+// never auto-wrapped) instead of the rule, and it invites the reader to "fix"
+// it by wrapping, which then fails for a second reason. DF-226d only changed
+// which WIDTH that message reported. Auto-wrap is deliberately NOT added.
+//
+// The check is asked on the TYPE, before the initializer is looked at, so every
+// spelling meets one rule — see static_optional_type_refused_none.saw for the
+// bare-`None` and no-initializer forms. It also does not bail out: the static
+// still registers, so a later USE of the name resolves instead of drawing a
+// second, misleading `is declared after this point`.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: static `SLOT` may not have an optional type (`Int?`)
+// EXPECT-ERROR-CONTAINS: initialized once at compile time
+// EXPECT-ERROR-CONTAINS: declare it as the payload type
+
+static SLOT: Int? = 7
+
+func main() {
+    print("{SLOT!}")
+}

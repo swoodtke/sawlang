@@ -1,0 +1,7 @@
+func main() {
+    var m = Map<String, Int>()
+    let _ = m.insert("a", 1)
+    let _ = m.insert("b", 2)
+    m["a"]! = m["b"]! + 10
+    print(m.len())
+}

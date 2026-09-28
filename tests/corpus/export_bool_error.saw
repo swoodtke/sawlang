@@ -1,0 +1,9 @@
+// design 58 Part 2: Bool is NOT on the C-export whitelist in v1 (the extern
+// path lowers it as a bare i1, which does not match the platform C `_Bool` ABI).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: parameter `b` has type `Bool`, which is not C-ABI-safe
+
+@export
+func flag(b: Bool) -> Int { 1 }
+
+func main() { print(1) }

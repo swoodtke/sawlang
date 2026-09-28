@@ -1,0 +1,52 @@
+// A GENERIC extension's `init` releases an owning parameter no path moved into
+// the built value — exactly as the non-generic twin has since DF-217m.
+//
+// An `init`'s by-value owning parameter is the initializer's to release when
+// the body does not consume it. `_generate_init_method`, the non-generic
+// generator, pushes a param cleanup scope and registers each owning parameter
+// into it; `_generate_init_method_generic`, the generic twin, pushes the scope
+// and registers nothing. So `Plain` drops its witness and `Holder<T>` leaks
+// one, in the same program, for the same reason spelled two ways.
+//
+// The witness is a `deinit` print, so the leak is visible in stdout rather than
+// under a leak checker: the missing `drop 9` below is the whole finding.
+//
+// DF-251b, CLOSED by design 218 unit 1.5 stage 3c-2c: the generator that
+// registered nothing — `_generate_init_method_generic` — is DELETED. A generic
+// init instance is a concrete method spliced onto a concrete extension and
+// emitted through `_generate_init_method`, which has pushed the param cleanup
+// scope AND registered each owning parameter into it since DF-217m. There is
+// no second body path left to lack it, which is why the fix is a deletion
+// rather than a second copy of the registration.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// drop 7
+// plain 1
+// drop 9
+// holder 2
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+
+struct Plain { n: Int }
+extension Plain {
+    init(seed: Int, witness: Res) -> Plain {
+        Plain(n: seed)
+    }
+}
+
+struct Holder<T> { n: T }
+extension Holder<T> {
+    init(seed: T, witness: Res) -> Holder<T> {
+        Holder<T>(n: seed)
+    }
+}
+
+func main() {
+    let p = Plain(seed: 1, witness: Res(id: 7))
+    print("plain {p.n}")
+    let h = Holder<Int>(seed: 2, witness: Res(id: 9))
+    print("holder {h.n}")
+}

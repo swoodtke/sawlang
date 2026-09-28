@@ -1,0 +1,32 @@
+// The caller writes and reads `n` while a spawned task holds [&var n] —
+// writer aliases writer across the spawn/join window, silently before design
+// 189 (probe 2, DF-189b). The handle carries an exclusive borrow of `n` from
+// the spawn to the join, so BOTH caller touches below are refused: an
+// exclusive borrow excludes readers too, the standard one-writer-XOR-many-
+// readers table over a task-length window. A caller that wants to watch
+// mid-task state uses `Arc<Mutex>`/`Channel`, where the synchronization is
+// visible in the types. After `h.join()` the root is free again — line 26
+// reads it with no complaint, which is what keeps spawn-join-use legal.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+// EXPECT-ERROR-CONTAINS: `n` cannot be written here
+// EXPECT-ERROR-CONTAINS: `n` cannot be read here
+// EXPECT-ERROR-CONTAINS: holds `&var n` until `h.join()` releases it
+
+import std.task.*
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    var n = 0
+    var group = TaskGroup()
+    let h = group.spawn(run({ [&var n] in n = n + 100; n }))
+    n = 5
+    let seen = n
+    print("caller wrote 5, read {seen}")
+    print("task saw {h.join()}")
+    print("n is {n}")
+}

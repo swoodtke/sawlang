@@ -1,0 +1,17 @@
+// Design 63 T1d: matching String literal patterns against an owning String
+// scrutinee must not retain/release-imbalance it (equals is a borrow). The
+// String is used again after the match, and dropped exactly once at scope end.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// hit
+// build
+
+func main() {
+    let cmd = "build"
+    let r = match cmd {
+        case "build" -> "hit"
+        case _ -> "miss"
+    }
+    print(r)
+    print(cmd)   // still valid after the match (not consumed)
+}

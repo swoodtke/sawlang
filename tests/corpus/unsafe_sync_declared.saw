@@ -1,0 +1,75 @@
+// design 186 unit 3: `UnsafeSync` / `UnsafeSend`, the declared thread-safety
+// assertion — and the derivation they stand in for.
+//
+// `Send` and `Sync` stay derivation-only. What is new is a way to SAY the
+// property holds for a reason the derivation cannot see, in a line beside the
+// type where a reviewer can find it. Three things are shown:
+//
+//   * an interior cell BLOCKS `Sync` derivation, and a declared `UnsafeSync`
+//     unblocks it — which is what lets a cell-carrying type be a `static`;
+//   * the block sits AT THE CELL: a type holding a `Cell` derives `Sync` from
+//     the declaration it passes through, with nothing written;
+//   * `Send` is untouched — a cell moves fine, and it is sharing that needs the
+//     argument.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 0
+// EXPECT-OUTPUT: 12
+// EXPECT-OUTPUT: 12
+// EXPECT-OUTPUT: 30
+
+// A user-written cell. The compiler has never heard of this type.
+struct Cell<T> {
+    slot: UnsafeMutableInterior<T>
+}
+
+extension Cell<T> {
+    init(value: T) unsafe -> Cell<T> {
+        Cell<T>(slot: UnsafeMutableInterior(value))
+    }
+
+    func _at(&self) unsafe -> UnsafePointer<T> { self.slot.ptr() }
+}
+
+extension Cell<T: Copy> {
+    func get(&self) unsafe -> T { self._at()[0] }
+    func set(&self, v: T) unsafe { self._at()[0] = v }
+}
+
+// THE ASSERTION. `Cell<T>` holds a cell, so it derives no `Sync`; the argument
+// that makes sharing one sound is the caller's, not the compiler's, and the
+// conditional header says which instantiations it covers.
+extension Cell<T: Send>: UnsafeSync {}
+
+// Derives `Sync` with NOTHING written: the cell is behind `Cell`'s declaration,
+// and passing through a declaration is exactly what makes the derivation sound
+// again.
+struct Registry {
+    hits: Cell<Int>,
+    limit: Int
+}
+
+static COUNTS: Registry
+static SEEDED: Cell<Int> = Cell<Int>(slot: UnsafeMutableInterior(12))
+
+func record() unsafe {
+    COUNTS.hits.set(COUNTS.hits.get() + 10)
+}
+
+func main() {
+    print(COUNTS.hits.get())
+    print(SEEDED.get())
+
+    // A `T: Sync` bound is satisfied THROUGH the declared conformance — generic
+    // code never names the assertion.
+    print(shared_limit(&SEEDED))
+
+    record()
+    record()
+    record()
+    print(COUNTS.hits.get() + COUNTS.limit)
+}
+
+func shared_limit<T: Sync>(x: &T) unsafe -> Int {
+    12
+}

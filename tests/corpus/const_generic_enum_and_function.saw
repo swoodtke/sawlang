@@ -1,0 +1,40 @@
+// Design 148 unit C: enums and free functions take const parameters too — a
+// const parameter is a generic parameter, so every declaration that has a
+// generic list has this one. Design 145 gave enums methods and extensions; a
+// const-generic enum falls out of the two, with no special case either way.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 12
+// 32
+// 105
+// 8
+
+enum Slot<const N: Int> {
+    case Empty
+    case Full
+}
+
+extension Slot<N> {
+    func width(&self) -> Int {
+        N
+    }
+}
+
+func total<const N: Int>(base: Int) -> Int {
+    base + N
+}
+
+func bytes<const BITS: Int>() -> Int {
+    BITS / 8
+}
+
+func main() {
+    let small = Slot<12>.Empty
+    print(small.width())
+
+    let wide = Slot<32>.Full
+    print(wide.width())
+
+    print(total<5>(base: 100))
+    print(bytes<64>())
+}

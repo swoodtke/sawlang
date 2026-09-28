@@ -1,0 +1,25 @@
+// design 151: an expression whose value is a `Result` and whose value nobody
+// consumes is a compile error — the last silent drop in the language. A bare
+// statement call to a failable function used to throw the failure away with no
+// diagnostic at all.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: result of `might` is `Result<Int, ParseError>` and is silently discarded
+
+struct ParseError { at: Int }
+extension ParseError: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("bad input at ")
+        into.append(self.at)
+    }
+}
+extension ParseError: Error {}
+
+func might(n: Int) -> Result<Int, ParseError> {
+    if n < 0 { return ParseError(at: n) }
+    return n * 2
+}
+
+func main() {
+    might(3)
+    print("kept going")
+}

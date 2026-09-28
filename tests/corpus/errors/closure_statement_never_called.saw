@@ -1,0 +1,17 @@
+// Design 122 unit D1: `{ ... }` is ALWAYS a closure (the collection-literal
+// rule), so a bare block in statement position built a closure, discarded it,
+// and never ran a single statement inside — silently. It compiled clean and
+// printed nothing for the whole block, the one place the language quietly did
+// nothing at all. It is now an error naming both fixes.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: closure literal is never called
+// EXPECT-ERROR-CONTAINS: there is no bare block statement
+
+func main() {
+    let a = 1
+    {
+        // Looks like an anonymous scope; is actually an uncalled closure.
+        print(100)
+    }
+    print(a)
+}

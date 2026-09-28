@@ -1,0 +1,8 @@
+func main() {
+    var v = Vector<String?>()
+    try! v.push("a")
+    if let _ = v[0] {
+        print("yes")
+    }
+    print(v.len())
+}

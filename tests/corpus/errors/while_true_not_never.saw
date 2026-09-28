@@ -1,0 +1,17 @@
+// Design 177's carve-out, pinned: the `while true { ... }` spelling is
+// EXPLICITLY EXCLUDED from the divergence rule and keeps today's typing. Only
+// the conditionless form is the deliberate "this diverges" spelling; a literal
+// `true` condition stays an ordinary loop a later edit may falsify, so a body
+// that is one owes its declared return type a value like any other.
+//
+// Written `while { }`, this function compiles.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: function `spin` should return `Never` but body has no value
+
+func spin() -> Never {
+    while true { }
+}
+
+func main() {
+    spin()
+}

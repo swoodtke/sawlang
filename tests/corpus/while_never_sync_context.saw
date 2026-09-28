@@ -1,0 +1,45 @@
+// Design 177 against design 127's op budget. The budget charges a LOOP BACKEDGE
+// by inserting a `yield_now()` — a real suspension point — and it does so only
+// in the bodies that become coroutine frames: task bodies and the suspending
+// callees the transform embeds. A diverging loop in a `sync` function must
+// therefore stay sync-legal, and this program proves it the only way that
+// counts: `halt` is declared `sync`, so an inserted `yield_now()` would be a
+// suspension in a checked suspension-free context and the compile would fail.
+//
+// The program also spawns a real task, so the coroutine transform is running
+// while `halt` is compiled — the instrumentation pass is live and simply does
+// not reach a sync callee.
+//
+// The task body carries a diverging loop of its own, on a branch it does not
+// take: inside a task body the loop IS instrumented, and it still holds no
+// `break`, so it still diverges.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// still here
+
+import std.task.*
+
+func halt() sync -> Never {
+    while { }
+}
+
+func worker(n: Int) -> Int {
+    yield_now()
+    if n < 0 {
+        while {
+            yield_now()
+        }
+    }
+    n * 2
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(worker(21))
+    print(h.join())          // 42
+    if false {
+        halt()
+    }
+    print("still here")
+}

@@ -1,0 +1,31 @@
+// A MANIFEST-LESS tree compiled from one entry is ONE package, so
+// `public(package)` reaches across a relative import inside it.
+//
+// This cell was the visibility grid's one red row while DF-232n was open: with
+// neither side carrying a `--module-path` name, `check_visibility` was asked
+// with no package root at all and read that as "assume same package" — a
+// fail-OPEN default that made the tier real only for consumers arriving through
+// `--module-path` or std. DF-232n closed it by IDENTITY rather than by a
+// blanket fail-closed, and the identity a manifest-less file gets is the ENTRY
+// file's directory tree (`ModuleResolver.package_identity` arm 2, DF-229c's
+// ruling generalized). Both files here are under `examples/module_matrix/`, so
+// they are one package and the reach is CORRECT.
+//
+// The refusal side of the same rule lives at
+// `examples/package_tier_foreign_relative_reach_error.saw`, where the callee is
+// under its own `Saw.toml` (arm 1) and the entry is outside that root, and the
+// same-manifest accept side at
+// `examples/module_tests/pkg232n/tests/package_tier_same_package_reach.saw`.
+// So all three arms an in-tree compile can take are pinned.
+//
+// The file this replaces asserted the OPPOSITE (`EXPECT: error`, citing
+// DF-232n), and kept asserting it for two days after that finding closed — an
+// xfail whose citation has closed still FAILS, so no gate looks at it. DF-248c.
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+
+import modules.vis232n.inner
+
+func main() {
+    print("{inner.pkg_secret()}")
+}

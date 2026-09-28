@@ -1,0 +1,53 @@
+//! Doc comments (design 121) attach to every documentable declaration: this
+//! module doc, and the `///` blocks below.
+
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+
+/// A point on the integer grid.
+struct Point {
+    /// The horizontal coordinate.
+    public x: Int
+    /// The vertical coordinate.
+    public y: Int
+}
+
+/// How dark a shade is.
+enum Shade {
+    /// The lighter one.
+    case Light,
+    /// The darker one.
+    case Dark
+}
+
+/// A type that can report its own name.
+trait Named {
+    /// Returns the name.
+    func name(&self) -> String
+}
+
+/// Construction and arithmetic for `Point`.
+extension Point {
+    /// Builds the point at the given coordinates.
+    init(across: Int, down: Int) -> Point { Point(x: across, y: down) }
+
+    /// Returns the sum of the two coordinates.
+    func total(&self) -> Int { self.x + self.y }
+}
+
+/// A grid coordinate.
+type Coordinate = Int
+
+/// The coordinate every grid starts from.
+static ORIGIN: Coordinate = 0
+
+/// Prints the total of a point built from the origin.
+func main() {
+    let p = Point(across: ORIGIN + 3, down: 4)
+    let shade = Shade.Dark
+    match shade {
+        case Light -> print(0),
+        case Dark -> print(p.total())
+    }
+}

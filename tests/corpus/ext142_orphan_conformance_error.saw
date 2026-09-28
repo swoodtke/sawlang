@@ -1,0 +1,21 @@
+// Design 142, the orphan rule: a conformance may be declared only in the module
+// that defines the type or the module that defines the trait. This file owns
+// neither `Reading` nor `Printable`, so it may not decide what printing a
+// `Reading` means for the whole program.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot be conformed to `Printable` here
+// EXPECT-ERROR-CONTAINS: modules.ext142_base
+
+import modules.ext142_base.{Reading}
+import modules.ext142_near
+
+extension Reading: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("mine")
+    }
+}
+
+func main() {
+    let r = ext142_near.make_reading()
+    print("{r}")
+}

@@ -1,0 +1,12 @@
+// Test error: undefined variant
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: enum `Status` has no variant `Unknown`
+
+enum Status {
+    case Success,
+    case Failure
+}
+
+func main() {
+    let x = Status.Unknown
+}

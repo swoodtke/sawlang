@@ -1,0 +1,26 @@
+// Assigning to a struct field through a by-reference (&var) struct parameter must
+// work: `set(&b)` passes `b` by mutable reference, and `r.field = 5` updates the
+// caller's struct in place, so main should print 5.
+//
+// Today codegen crashes with a Python traceback: `_generate_assign_statement`
+// cannot determine the struct type of a field-assignment target whose base is a
+// reference parameter, and raises ValueError("Cannot determine struct type for
+// field assignment") (codegen/statements.py:246). Brief 10 report.
+// See todo_jul26.md "Known follow-ups" (field assignment through a &var Struct param).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+
+struct Crate {
+    field: Int
+}
+
+func set(r: &var Crate) {
+    r.field = 5
+}
+
+func main() {
+    var b = Crate(field: 0)
+    set(&var b)
+    print(b.field)
+}

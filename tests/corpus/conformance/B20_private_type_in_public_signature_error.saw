@@ -1,0 +1,34 @@
+// Conformance row B20 — no declaration exposes a type its callers cannot see
+//
+// "A public API needs public types" (user ruling, Aug 21). A declaration may
+// not name a type LESS VISIBLE than its own effective reach, so a `public`
+// function's parameters and return, and a `public` field's type, are all
+// `public` or the declaration is refused where it is written. Without the rule
+// a caller could hold a value it has no way to name — and did: the value path
+// let one through and the design-141 PLACE path over the same type failed with
+// a synthesized-closure type mismatch that never said "visibility" (DF-232o).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: function `take` is public, but parameter `h` names `Hidden`, which is private — a public API needs public types
+// EXPECT-ERROR-CONTAINS: function `give` is public, but the return type names `Hidden`, which is private
+// EXPECT-ERROR-CONTAINS: field `slot` of `Exposed` is public, but its type names `Hidden`, which is private
+// EXPECT-ERROR-CONTAINS: either widen the type — mark the struct `Hidden` `public` — or narrow the declaration
+
+struct Hidden {
+    n: Int
+}
+
+public struct Exposed {
+    public slot: Hidden
+}
+
+public func take(h: Hidden) -> Int {
+    h.n
+}
+
+public func give() -> Hidden {
+    Hidden(n: 2)
+}
+
+func main() {
+    print(take(give()))
+}

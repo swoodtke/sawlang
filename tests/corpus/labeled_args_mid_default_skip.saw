@@ -1,0 +1,21 @@
+// Design 66: a labeled argument may skip FORWARD over a parameter that has a
+// default (design 53), filling the skipped default at the call site. This
+// closes the trailing-only limitation: `connect(host, retries: 5)` skips the
+// defaulted `port`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 838001
+// 858001
+// 38001
+// 898002
+
+func connect(host: Int, port: Int = 8080, retries: Int = 3) -> Int {
+    host + port * 100 + retries * 10000
+}
+
+func main() {
+    print(connect(1))                    // both defaults
+    print(connect(1, retries: 5))        // skip the defaulted `port`
+    print(connect(1, port: 80))          // trailing default `retries`
+    print(connect(host: 2, retries: 9))  // labeled host, skip port
+}

@@ -1,0 +1,110 @@
+// DF-151l: a tuple LITERAL is checked against the tuple type its context
+// declared, so an optional element gets the same auto-wrap every other declared
+// slot gives.
+//
+// `_check_tuple_literal` ignored `expected_type` entirely and took each
+// element's OWN type, so an annotated `(Int?, Int)` never reached its elements.
+// Both halves were an ICE, and neither needed the write side to show up:
+//
+//     var t: (Int?, Int) = (None, 0)   // None stayed untyped (inner_type=None)
+//     var t: (Int?, Int) = (1, 0)      // stored UNWRAPPED: laid out {i64,i64}
+//                                      // while every read believed {{i1,i64},i64}
+//
+// This is DF-151e's array-literal bug one container over, and it takes the same
+// fix: check each element against the DECLARED element type through
+// `_element_fits`, which records the one-level `T -> T?` wrap on the element for
+// codegen to build `Some(x)` from. The expectation reaches the literal because
+// `_apply_literal_expected_type` now stamps the tuple type on it, exactly as it
+// already stamped an array/Vector type — which is also what makes nesting work.
+//
+// Found while testing DF-151j (the tuple element becoming a place); it predates
+// that change and is independent of it — the read-only shapes below reproduce on
+// the DF-151j parent commit.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// payload_wraps 1
+// bare_none_types 99
+// rest_element_survives 7
+// fixed_width_element 5
+// call_argument 7
+// nested_annotation 42
+// string_payload hi
+// string_cleared none
+// named_annotation 3
+// inference_unchanged 8
+
+func take(t: (Int?, Int)) -> Int { (t.0 ?? 0) + t.1 }
+
+// A bare `T` in an optional element slot WRAPS, so the read finds the payload.
+func payload_wraps() -> Int {
+    let t: (Int?, Int) = (1, 0)
+    t.0 ?? 99
+}
+
+// A bare `None` picks up the element's inner type instead of staying untyped.
+func bare_none_types() -> Int {
+    let t: (Int?, Int) = (None, 7)
+    t.0 ?? 99
+}
+
+func rest_element_survives() -> Int {
+    let t: (Int?, Int) = (None, 7)
+    t.1
+}
+
+// The fixed-width adoption design 87 promises at a tuple element position: the
+// literal takes `Int8` from the annotation and is range-checked there.
+func fixed_width_element() -> Int8 {
+    let t: (Int8, Int) = (5, 1)
+    t.0
+}
+
+// A CALL ARGUMENT declares the tuple type too, so the same wrap happens there.
+func call_argument() -> Int {
+    take((3, 4))
+}
+
+// The expectation recurses into a nested tuple literal.
+func nested_annotation() -> Int {
+    let t: ((Int?, Int), Int) = ((None, 1), 2)
+    t.0.0 ?? 42
+}
+
+// A refcounted payload: the wrap is the same, and the element is still owned by
+// the tuple (the replacement below releases it exactly once).
+func string_payload() -> String {
+    let t: (String?, Int) = ("hi", 0)
+    t.0 ?? "none"
+}
+
+func string_cleared() -> String {
+    var t: (String?, Int) = ("hi", 0)
+    t.0 = None
+    t.0 ?? "none"
+}
+
+// A NAMED tuple annotation keeps its labels when the literal is written
+// positionally.
+func named_annotation() -> Int {
+    let p: (x: Int, y: Int) = (3, 4)
+    p.x
+}
+
+// With NO annotation nothing changes: the literal still infers element-wise.
+func inference_unchanged() -> Int {
+    let t = (8, 9)
+    t.0
+}
+
+func main() {
+    print("payload_wraps {payload_wraps()}")
+    print("bare_none_types {bare_none_types()}")
+    print("rest_element_survives {rest_element_survives()}")
+    print("fixed_width_element {fixed_width_element()}")
+    print("call_argument {call_argument()}")
+    print("nested_annotation {nested_annotation()}")
+    print("string_payload {string_payload()}")
+    print("string_cleared {string_cleared()}")
+    print("named_annotation {named_annotation()}")
+    print("inference_unchanged {inference_unchanged()}")
+}

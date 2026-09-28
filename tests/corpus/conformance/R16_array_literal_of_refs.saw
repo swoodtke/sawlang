@@ -1,0 +1,12 @@
+// Conformance row R16 — array literal holding references
+//
+// An array literal is storage, so a reference may not be an element.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `&` here is not a call argument
+
+func main() {
+    var a = 1
+    var b = 2
+    let v = [&a, &b]
+    print(1)
+}

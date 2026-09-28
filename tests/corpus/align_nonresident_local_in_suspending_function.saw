@@ -1,0 +1,47 @@
+// DF-300b / DF-306a: the refusal of `@align` inside a suspending body is keyed
+// on frame RESIDENCY, not on whether the function suspends.
+//
+// `scratch` below lives in a scope that does NOT span the suspension — the
+// `yield_now()` is in a sibling position — so it keeps ordinary stack-slot
+// codegen and keeps its alignment. Getting this wrong in the obvious direction
+// ("does this function suspend?") would refuse a perfectly emittable request
+// and push authors out of suspending code for no reason.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// nonresident%64 = 0
+// value = 7
+
+import std.task.*
+
+func worker() unsafe -> Int {
+    var seen = 0
+    if seen == 0 {
+        @align(64)
+        var scratch: [UInt8; 32] = [0; 32]
+        scratch[0] = 7
+        seen = ((&scratch) as UnsafePointer<UInt8> as Int) % 64
+    }
+    yield_now()
+    seen
+}
+
+// The same body, reading a value back out rather than an address, so the
+// buffer is doing real work either side of the check.
+func valued() unsafe -> Int {
+    var out = 0
+    if out == 0 {
+        @align(16)
+        var scratch: [UInt8; 8] = [0; 8]
+        scratch[0] = 7
+        out = scratch[0] as Int
+    }
+    yield_now()
+    out
+}
+
+func main() unsafe {
+    var group = TaskGroup()
+    print("nonresident%64 = {group.spawn(worker()).join()}")
+    print("value = {group.spawn(valued()).join()}")
+}

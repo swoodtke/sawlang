@@ -1,0 +1,10 @@
+// Design 53 Part 5: an alias that collides with another name bound by the same
+// selective import is an error, reported with the offending (alias) name.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `dup` is already bound
+
+import lib.{add as dup, make_point as dup}
+
+func main() {
+    print(0)
+}

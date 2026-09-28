@@ -1,0 +1,70 @@
+// `Slot<T?>` — the honest second tag (design 218 unit 1, ruling 6).
+//
+// A coroutine local that is ITSELF an optional used to share one tag with the
+// frame's drop flag: the field was the same `T?` the local was, so "the local
+// is absent" and "the slot was never filled" had one bit between them. Nothing
+// downstream could tell them apart, which is the pun DF-217b was made of.
+//
+// `Slot<T?>` spends a word to separate them, and the state this file exists to
+// exhibit is the one the pun could not represent: a slot that IS OCCUPIED and
+// holds `None`. Clearing that slot drops nothing; clearing one holding `Some`
+// drops the payload exactly once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// empty: occupied false
+// holds None: occupied true
+// cleared a None: occupied false, live 0
+// holds Some: occupied true
+// took r1
+// after take: occupied false
+// deinit r2
+// after clearing a Some: live 1
+// deinit r1
+// live 0
+
+import std.compiler.frame.{Slot}
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        LIVE.fetch_add(0 - 1)
+        print("deinit {self.name}")
+    }
+}
+
+func res(tag: String) -> Res {
+    LIVE.fetch_add(1)
+    Res(name: tag)
+}
+
+func body() {
+    var s = Slot<Res?>.empty()
+    print("empty: occupied {s.is_occupied()}")
+
+    // The local is LIVE and its value is `None`. One tag says each.
+    let absent: Res? = None
+    s.put(move absent)
+    print("holds None: occupied {s.is_occupied()}")
+
+    s.clear()
+    print("cleared a None: occupied {s.is_occupied()}, live {LIVE.load()}")
+
+    s.put(res("r1"))                  // auto-wraps to `Some`
+    print("holds Some: occupied {s.is_occupied()}")
+
+    var taken = s.take()              // a `Res?`, owned
+    print("took {taken!.name}")       // `!` borrows the payload, copies nothing
+    print("after take: occupied {s.is_occupied()}")
+
+    s.put(res("r2"))
+    s.clear()                         // drops the `Some` payload, once
+    print("after clearing a Some: live {LIVE.load()}")
+}                                     // `taken` dies here
+
+func main() {
+    body()
+    print("live {LIVE.load()}")
+}

@@ -1,0 +1,276 @@
+//! A tiny documented module, used as the `--emit-docs` golden.
+
+// EXPECT: docs
+// COMPILE-FLAGS: --emit-docs
+// EXPECT-OUTPUT:
+// {
+//   "schema_version": 4,
+//   "modules": [
+//     {
+//       "name": "doc_emit_json",
+//       "source": "doc_emit_json.saw",
+//       "doc": "A tiny documented module, used as the `--emit-docs` golden.",
+//       "items": [
+//         {
+//           "kind": "enum",
+//           "name": "Edge",
+//           "signature": "public enum Edge",
+//           "visibility": "public",
+//           "generics": [],
+//           "conformances": [],
+//           "cases": [
+//             {
+//               "name": "Start",
+//               "payload": [],
+//               "doc": "The reading at the start."
+//             },
+//             {
+//               "name": "End",
+//               "payload": [
+//                 {
+//                   "name": "at",
+//                   "type": "Int"
+//                 }
+//               ],
+//               "doc": "The reading at the end, carrying the tick it landed on."
+//             }
+//           ],
+//           "doc": "Which end of a span a reading came from.",
+//           "line": 230,
+//           "module": "doc_emit_json"
+//         },
+//         {
+//           "kind": "extension",
+//           "name": "Tick",
+//           "signature": "extension Tick: Ticked",
+//           "generics": [],
+//           "conformances": [
+//             "Ticked"
+//           ],
+//           "methods": [
+//             {
+//               "kind": "method",
+//               "name": "advance",
+//               "signature": "public func advance(&var self, by: Int)",
+//               "visibility": "public",
+//               "generics": [],
+//               "params": [
+//                 {
+//                   "name": "by",
+//                   "label": "by",
+//                   "type": "Int"
+//                 }
+//               ],
+//               "returns": "Void",
+//               "effect": "sync",
+//               "self": "borrows-var",
+//               "static": false,
+//               "doc": "Advances the count in place.",
+//               "line": 252
+//             },
+//             {
+//               "kind": "init",
+//               "name": "init",
+//               "signature": "public init(count: Int = 0) -> Tick",
+//               "visibility": "public",
+//               "generics": [],
+//               "params": [
+//                 {
+//                   "name": "count",
+//                   "label": "count",
+//                   "type": "Int",
+//                   "default": "0"
+//                 }
+//               ],
+//               "returns": "Tick",
+//               "effect": "sync",
+//               "self": null,
+//               "static": false,
+//               "doc": "Builds a tick count, defaulting to the start of the counter.",
+//               "line": 246
+//             },
+//             {
+//               "kind": "method",
+//               "name": "ticks",
+//               "signature": "public func ticks(&self) -> Int",
+//               "visibility": "public",
+//               "generics": [],
+//               "params": [],
+//               "returns": "Int",
+//               "effect": "sync",
+//               "self": "borrows",
+//               "static": false,
+//               "doc": "Returns the tick count.",
+//               "line": 249
+//             }
+//           ],
+//           "doc": "Construction and arithmetic for `Tick`.",
+//           "line": 244,
+//           "module": "doc_emit_json"
+//         },
+//         {
+//           "kind": "func",
+//           "name": "main",
+//           "signature": "func main()",
+//           "visibility": "private",
+//           "generics": [],
+//           "params": [],
+//           "returns": "Void",
+//           "effect": "sync",
+//           "self": null,
+//           "static": false,
+//           "doc": null,
+//           "line": 272
+//         },
+//         {
+//           "kind": "func",
+//           "name": "reading",
+//           "signature": "public func reading(edge: Edge) -> Int",
+//           "visibility": "public",
+//           "generics": [],
+//           "params": [
+//             {
+//               "name": "edge",
+//               "label": "edge",
+//               "type": "Edge"
+//             }
+//           ],
+//           "returns": "Int",
+//           "effect": "sync",
+//           "self": null,
+//           "static": false,
+//           "doc": "Returns the tick count a reading landed on.",
+//           "line": 265
+//         },
+//         {
+//           "kind": "static",
+//           "name": "FIRST_TICK",
+//           "signature": "public static FIRST_TICK: Ticks",
+//           "visibility": "public",
+//           "unsafe": false,
+//           "mutable": false,
+//           "type": "Ticks",
+//           "doc": "The tick every counter starts at.",
+//           "line": 262
+//         },
+//         {
+//           "kind": "struct",
+//           "name": "Tick",
+//           "signature": "public struct Tick",
+//           "visibility": "public",
+//           "unsafe": false,
+//           "generics": [],
+//           "conformances": [
+//             "Ticked"
+//           ],
+//           "fields": [
+//             {
+//               "name": "count",
+//               "type": "Int",
+//               "visibility": "public",
+//               "doc": "Ticks since the counter started.",
+//               "line": 224
+//             }
+//           ],
+//           "doc": "A span measured in whole ticks.",
+//           "line": 222,
+//           "module": "doc_emit_json"
+//         },
+//         {
+//           "kind": "trait",
+//           "name": "Ticked",
+//           "signature": "public trait Ticked",
+//           "visibility": "public",
+//           "generics": [],
+//           "parent_traits": [],
+//           "methods": [
+//             {
+//               "kind": "method",
+//               "name": "ticks",
+//               "signature": "public func ticks(&self) -> Int",
+//               "visibility": "public",
+//               "generics": [],
+//               "params": [],
+//               "returns": "Int",
+//               "effect": "sync",
+//               "self": "borrows",
+//               "static": false,
+//               "doc": "Returns the tick count.",
+//               "line": 240
+//             }
+//           ],
+//           "doc": "A value with a tick count.",
+//           "line": 238,
+//           "module": "doc_emit_json"
+//         },
+//         {
+//           "kind": "typealias",
+//           "name": "Ticks",
+//           "signature": "public type Ticks = Int",
+//           "visibility": "public",
+//           "target": "Int",
+//           "doc": "A count of ticks.",
+//           "line": 259,
+//           "module": "doc_emit_json"
+//         }
+//       ]
+//     }
+//   ]
+// }
+
+/// A span measured in whole ticks.
+public struct Tick {
+    /// Ticks since the counter started.
+    public count: Int
+    /// Scratch space the documentation must not show.
+    private scratch: Int
+}
+
+/// Which end of a span a reading came from.
+public enum Edge {
+    /// The reading at the start.
+    case Start,
+    /// The reading at the end, carrying the tick it landed on.
+    case End(at: Int)
+}
+
+/// A value with a tick count.
+public trait Ticked {
+    /// Returns the tick count.
+    func ticks(&self) -> Int
+}
+
+/// Construction and arithmetic for `Tick`.
+extension Tick: Ticked {
+    /// Builds a tick count, defaulting to the start of the counter.
+    public init(count: Int = 0) -> Tick { Tick(count: count, scratch: 0) }
+
+    /// Returns the tick count.
+    public func ticks(&self) -> Int { self.count }
+
+    /// Advances the count in place.
+    public func advance(&var self, by: Int) { self.count = self.count + by }
+
+    // Undocumented and private: absent from the emitted JSON.
+    func scratch_value(&self) -> Int { self.scratch }
+}
+
+/// A count of ticks.
+public type Ticks = Int
+
+/// The tick every counter starts at.
+public static FIRST_TICK: Ticks = 0
+
+/// Returns the tick count a reading landed on.
+public func reading(edge: Edge) -> Int {
+    match edge {
+        case Start -> FIRST_TICK,
+        case End(at) -> at
+    }
+}
+
+func main() {
+    var t = Tick()
+    t.advance(by: reading(edge: Edge.End(at: 3)))
+    print(t.ticks())
+}

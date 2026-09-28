@@ -1,0 +1,21 @@
+// Conformance row U31 — a zero-capture closure literal COERCES to
+// `FuncPointer<F>`, and that closed construction is what makes the type safe.
+//
+// The acceptance side of U32-U34. Every inhabitant of a `FuncPointer` is
+// either verified code of signature `F` (this row and the named-function form)
+// or came through `from_raw`, which is `unsafe` and says so. Code is immortal,
+// so an inhabitant cannot dangle -- which is the whole soundness argument for
+// receiving one in safe code with no ceremony.
+//
+// The literal here names nothing outside itself, so it is emitted under `F`'s
+// bare ABI with no environment, and the value is the code address alone.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// coerced
+
+func takes(p: FuncPointer<(Int) sync -> Int>) { print("coerced") }
+
+func main() {
+    takes({ n in n * 2 })
+}

@@ -1,0 +1,17 @@
+// Test nested for loops
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 1
+// 2
+// 10
+// 11
+// 12
+
+func main() {
+    for i in 0..2 {
+        for j in 0..3 {
+            print(i * 10 + j)
+        }
+    }
+}

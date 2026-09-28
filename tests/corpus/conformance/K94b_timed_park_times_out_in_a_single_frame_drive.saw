@@ -1,0 +1,44 @@
+// Conformance row K94 (second file) — the SINGLE-FRAME DRIVE honours a deadline
+//
+// Design 272 unit 1 (SL-204), funnel entry point 4. A suspending `main` with no
+// cooperative spawns is not scheduled by the sweep at all: the compiler wraps it
+// in the entry executor, which drives exactly one frame and parks it through
+// `__saw_exec_park`. That path passed a hardcoded "block forever" for every io
+// park, so a timed read here would have waited on a socket nobody would ever
+// write to — forever — while the identical program with one spawn in it timed
+// out correctly.
+//
+// It is its own file because it is its own PROGRAM SHAPE: adding a spawn to
+// K94's process to test this would move it onto the sweep and test the sweep
+// twice. There is deliberately no TaskGroup below.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// drive timed out, waited long enough
+
+import std.net.{TcpStream, Timed}
+import std.time
+
+static ASKED_MS: UInt64 = 60
+static FLOOR_MS: UInt64 = 50
+
+func main() {
+    let (a, b) = TcpStream.pair()
+    let start = time.Instant.now()
+    // Suspends in `main` itself — no group, no sibling, one frame.
+    match a.read(timeout: Duration.ms(ASKED_MS)) {
+        case Ok(o) -> match o {
+            case Value(d) -> print("DRIVE READ {} BYTES", d.len()),
+            case TimedOut -> {
+                let waited = start.elapsed()
+                if waited.as_millis() >= FLOOR_MS {
+                    print("drive timed out, waited long enough")
+                } else {
+                    print("DRIVE TIMED OUT EARLY: {}", waited)
+                }
+            }
+        },
+        case Err(e) -> print("DRIVE ERR {}", e)
+    }
+    let _ = move a
+    let _ = move b
+}

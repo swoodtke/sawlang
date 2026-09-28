@@ -1,0 +1,17 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is not declared `sync`, so it cannot be a `FuncPointer
+//
+// Design 226: `F` is sync-only, so a named source must be a `sync` CONTEXT --
+// a declaration the compiler has checked transitively suspension-free. A body
+// that merely happens not to suspend is not one: the next edit could add a
+// suspension, and the error would then land on a body nobody was reading.
+//
+// The closure form needs no marker for the same rule: a coerced literal is
+// checked against `F` AT the coercion, which makes it a `sync` context there.
+
+func plain(n: Int) -> Int { n }
+
+func main() {
+    let p: FuncPointer<(Int) sync -> Int> = plain
+    print("unreached")
+}

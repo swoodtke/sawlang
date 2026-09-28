@@ -1,0 +1,56 @@
+// Conformance row K98 — a delivered signal wakes a PARKED watcher, and a
+// watched signal's default action does not run
+//
+// Design 272 unit 3 (SL-228). Two guarantees in one program because they are
+// two halves of one fact: watching `SIGTERM` replaces its disposition, so the
+// signal that would have ENDED this process instead makes a parked task
+// runnable. If the replacement did not take, this test does not print a wrong
+// line — the process dies on the signal and the runner reports that, which is
+// the clearest possible failure.
+//
+// The park is FORCED rather than raced. The watcher announces on a channel that
+// it is about to call `next()`, and `main` only sends the signal after reading
+// that announcement, so the delivery provably arrives at a task that is already
+// parked on the reactor. A test that signalled first might find the byte
+// already on the pipe and would prove nothing about waking a parked watcher —
+// the SL-208 io_wake precedent.
+//
+// `send_to_self` is the oracle: deterministic, needs nothing outside the
+// process, and works under the suite runner and in a sandbox where an external
+// signaller would not.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// watcher parked
+// signal arrived
+// main still running
+
+import std.signal.{Signal, SignalWatch}
+import std.channel.{Channel}
+
+func watcher(w: SignalWatch, ready: Channel<Int>) {
+    print("watcher parked")
+    try! ready.send(1)
+    match w.next() {
+        case Ok(_) -> print("signal arrived"),
+        case Err(e) -> print("WATCHER ERR {}", e)
+    }
+    let _ = move w
+}
+
+func main() {
+    let w = match SignalWatch.watch(Signal.Terminate) {
+        case Ok(x) -> move x,
+        case Err(e) -> {
+            print("WATCH FAILED {}", e)
+            return
+        }
+    }
+    var group = TaskGroup()
+    let ready = try! Channel<Int>()
+    let t = group.spawn(watcher(move w, ready.copy()))
+    let _ = try! ready.receive()        // the watcher is at its park
+    try! Signal.Terminate.send_to_self()
+    t.join()
+    // Reaching this line is the second guarantee: SIGTERM did not end us.
+    print("main still running")
+}

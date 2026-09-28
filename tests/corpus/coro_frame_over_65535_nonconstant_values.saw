@@ -1,0 +1,31 @@
+// SL-336 / SL-350: a suspending function's frame local contains 65,536
+// runtime pointer leaves, one more than SelectionDAG's 16-bit NumValues limit.
+// Keeping the wide value local isolates frame materialization from the separate
+// by-value aggregate ABI: only the scalar pointer crosses the ordinary call
+// boundary.  A second suspending function embeds the wide frame, exercising
+// nested resume/release as well as direct initialization.  The local stays live
+// across the suspension, and both ends are read afterward.
+// EXPECT: success
+// FLAGS: -O0
+// EXPECT-OUTPUT:
+// 42
+
+import std.task.{yield_now}
+
+static FRAME_VALUES: Int = 65_536
+
+func inspect(pointer: UnsafePointer<Int>) unsafe -> Int {
+    let values: [UnsafePointer<Int>; FRAME_VALUES] = [pointer; FRAME_VALUES]
+    yield_now()
+    values[0][0] + values[FRAME_VALUES - 1][0]
+}
+
+func outer(pointer: UnsafePointer<Int>) unsafe -> Int {
+    inspect(pointer)
+}
+
+func main() unsafe {
+    var live = 21
+    let pointer = (&var live) as UnsafePointer<Int>
+    print(__saw_drive(outer(pointer)))
+}

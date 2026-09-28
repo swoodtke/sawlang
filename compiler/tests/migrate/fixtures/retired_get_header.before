@@ -1,0 +1,9 @@
+// `Vector.get` is the conditional lend: a read through it borrows the place.
+struct Cell { n: Int }
+extension Cell: NoCopy {}
+
+func main() {
+    var v = Vector<Cell>()
+    try! v.push(Cell(n: 3))
+    print(v.get(0)!.n)
+}

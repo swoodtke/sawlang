@@ -1,0 +1,19 @@
+// Use-after-move: moving the same binding twice. The second `move f` reads a
+// value whose ownership was already transferred by the first `move` -- a
+// double-move that must be a compile error (design 15 rule 5).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {}
+}
+
+func main() {
+    let f = FileHandle(fd: 1)
+    let a = move f
+    let b = move f   // error: f was already moved into `a`
+}

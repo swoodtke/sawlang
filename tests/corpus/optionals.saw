@@ -1,0 +1,22 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 10
+// 5
+
+// Test optional types
+
+func main() {
+    // Implicit wrapping
+    let x: Int? = 5
+    print(x!)
+
+    // None literal
+    let y: Int? = None
+
+    // Nil coalescing - should print 10
+    print(y ?? 10)
+
+    // Nil coalescing with Some value - should print 5
+    print(x ?? 99)
+}

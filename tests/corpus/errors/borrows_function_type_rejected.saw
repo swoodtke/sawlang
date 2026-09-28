@@ -1,0 +1,14 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a function TYPE may not be `borrows`
+//
+// Design 141 v1 fence: no borrows function VALUES. A borrows call yields a
+// PLACE for a window, and a place is never a value -- binding it, storing it in
+// a field, or erasing it behind `any Trait` would each outlive the window that
+// makes it valid. The type grammar accepts the word so the refusal can name it
+// instead of failing as a bare syntax error.
+
+func apply(f: (Int) borrows -> Int) -> Int {
+    f(1)
+}
+
+func main() { print("unreached") }

@@ -1,0 +1,15 @@
+// design 260 — the DEFINING module of `Handle`, and the only place a
+// `consumes` method on it may be declared.
+//
+// `close` is that method: it replaces the type's teardown for its own endpoint,
+// which is the type author's privilege. The entry module beside this one tries
+// to declare a second one and is refused.
+
+public struct Handle { public n: Int }
+extension Handle: NoCopy {
+    func deinit(&var self) { print("Handle {} deinit body", self.n) }
+}
+extension Handle {
+    public static func make(id: Int) -> Handle { Handle(n: id) }
+    public func close(&var self) consumes -> Int { self.n }
+}

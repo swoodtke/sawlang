@@ -1,0 +1,32 @@
+// Design 255 test 6 — the other cells the unit-0 sweep found asymmetric. The
+// ruling is about the TIER a name comes from, so it covers every kind and every
+// form: a non-generic struct (`File`, `std.file`'s), an enum (`IoErrorKind`,
+// `std.net`'s), and the RENAMING import, which is a pure rename and should
+// never have met std's declaration at all.
+//
+// These two differ from `Thread` in the mechanism, not in the rule: std's
+// `File` and `IoErrorKind` carry UNQUALIFIED identities, so the import used to
+// bind std's own symbol under the name and the program failed later on a field
+// or a variant the wrong type does not have — no ambiguity reported, nothing
+// said.
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: 9
+
+import modules.shadow255_kinds.{File, IoErrorKind}
+import modules.shadow255_kinds.{File as Handle}
+
+func main() {
+    let f = File(tag: 7)
+    print(f.tag)
+
+    let k = IoErrorKind.Marker
+    match k {
+        case Marker -> print(1),
+        case Other -> print(2)
+    }
+
+    let h = Handle(tag: 9)
+    print(h.tag)
+}

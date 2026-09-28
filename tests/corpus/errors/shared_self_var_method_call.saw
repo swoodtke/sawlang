@@ -1,0 +1,35 @@
+// The second form DF-175a named, and the half design 176 unit 13 did not close:
+// a `&var self` METHOD CALL on `self` inside a plain `&self` method.
+//
+// Unit 13 scoped itself to the direct WRITE, so the whole-receiver mutation
+// spelled as a method call still went through. Here the receiver arrives BY
+// VALUE, so `bump()` counts in a copy that is discarded when `peek` returns and
+// the caller sees nothing — the same vanishing write, through the door the
+// assignment walk does not cover.
+//
+// The FIELD form is banned too (DF-176b,
+// `examples/errors/shared_self_field_var_method_call.saw`), but it carries a
+// carve-out this one does not need: design 149 receives a struct holding an
+// `Atomic` by pointer even at `&self`, so `self.n.fetch_add(1)` and the rest
+// of the interior-mutability family stay callable. A `self` receiver takes the
+// WHOLE receiver exclusively and nothing blesses that.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot call `&var self` method `bump` on a `&self` receiver
+
+struct Counter { hits: Int }
+
+extension Counter {
+    func bump(&var self) {
+        self.hits = self.hits + 1
+    }
+
+    public func peek(&self) -> Int {
+        self.bump()
+        self.hits
+    }
+}
+
+func main() {
+    var c = Counter(hits: 0)
+    print("{c.peek()}")
+}

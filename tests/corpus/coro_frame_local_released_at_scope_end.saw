@@ -1,0 +1,61 @@
+// A frame-resident local in a driven body is released at the end of the scope
+// that owns it, not at frame teardown (DF-217p, fixed by design 218 unit 2's
+// scope-end migration — designs/218b-scope-end-spec.md).
+//
+// 66 cells of one mechanism in the corodiff matrix, with two faces, both pinned
+// here against the order their non-suspending twins produce:
+//   - the LOOP face: a loop-body local used to survive into the next iteration,
+//     and the last iteration's survived the whole loop (`after loop` printed
+//     before the last `DEINIT`). It now clears on the body's fallthrough edge,
+//     before the backedge;
+//   - the SHADOW face: a scope that ends INSIDE the body — here a design-107
+//     same-scope redefinition, which drops the replaced binding AT the
+//     redefinition point — used to hold the replaced value to teardown.
+//
+// The counts always balanced, so this was never a leak; what it cost was
+// deterministic destruction, which is a language guarantee and not a detail. A
+// `File` or a `TcpStream` bound in a driven loop stayed open for the rest of the
+// frame, and the shadow-rebind face released the OLD value after the new one was
+// already in use.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// iter a0
+// DEINIT a0
+// iter a1
+// DEINIT a1
+// after loop
+// DEINIT s1
+// now s1-2
+// DEINIT s1-2
+// done
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+func driven_loop() {
+    var i = 0
+    while i < 2 {
+        yield_now()
+        let a = Res(name: "a{i}")
+        print("iter {a.name}")
+        i += 1
+    }
+    print("after loop")
+}
+
+func driven_shadow_rebind() {
+    yield_now()
+    let s = Res(name: "s1")
+    let s = Res(name: "{s.name}-2")
+    print("now {s.name}")
+}
+
+func main() {
+    driven_loop()
+    driven_shadow_rebind()
+    print("done")
+}

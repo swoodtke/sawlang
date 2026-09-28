@@ -1,0 +1,39 @@
+// Rule 1 of DF-146e: reading a place out as a VALUE when the element type
+// mentions an unbounded type parameter is refused IN THE GENERIC BODY.
+//
+// `Slot<K>` is a copy for `K = String` and an alias for `K = File`. Deciding
+// that at the instantiation would be a post-monomorphization error — a body
+// that type-checks and then fails to compile for one caller — which design 132
+// unit C's instantiation-uniformity rule exists to prevent. So the question is
+// asked once, of the BOUNDS, where the author can answer it: bound `K` so
+// every instantiation copies, or reach the place through a borrow.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: whose copy policy depends on the type parameter `K`
+
+struct Res { name: String }
+
+enum Slot<K> { case Empty, case Occupied(key: K) }
+
+struct Holder<K> { slots: Vector<Slot<K>> }
+
+extension Holder<K>: NoCopy {}
+
+extension Holder<K> {
+    init() -> Holder<K> {
+        let v = Vector<Slot<K>>()
+        Holder<K>(slots: move v)
+    }
+
+    func tag_at(&self, i: Int) -> Int {
+        let s = self.slots[i]
+        match s {
+            case Empty -> 0,
+            case Occupied(_) -> 1
+        }
+    }
+}
+
+func main() {
+    var h = Holder<Res>()
+    print("{h.tag_at(0)}")
+}

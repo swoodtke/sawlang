@@ -1,0 +1,13 @@
+// Design 137: a format string carrying arguments must be a literal, because the
+// `{}` count is what the arity check compares against. A String variable could
+// only be scanned at runtime, which is the check this design refuses to defer.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `print` with format arguments needs a literal format string
+
+func fmt_for(n: Int) -> String {
+    if n > 0 { "positive {}" } else { "other {}" }
+}
+
+func main() {
+    print(fmt_for(1), 3)
+}

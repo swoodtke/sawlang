@@ -1,0 +1,15 @@
+// Design 100: a function parameter that shadows a module-level `static` is a
+// flat error (a bare use would otherwise resolve to the parameter). The
+// diagnostic names the static's exact declaration site.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `count` shadows the binding declared at shadow_param.saw:9:1
+// EXPECT-ERROR-CONTAINS: rename the parameter
+// EXPECT-ERROR-CONTAINS: shadow_param.saw:11:1
+
+static count: Int = 0
+
+func bump(count: Int) -> Int { count + 1 }
+
+func main() {
+    print(bump(5))
+}

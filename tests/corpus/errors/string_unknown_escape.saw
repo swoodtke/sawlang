@@ -1,0 +1,10 @@
+// An unknown string escape is a clean lex error naming the sequence (design 81
+// rider), NOT a silent backslash-drop. Only \\ \" \n \t \r \0 \u{...} (+ \{ \})
+// are supported.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: unknown escape `\d`
+
+func main() {
+    let s = "\d"
+    print(s.len())
+}

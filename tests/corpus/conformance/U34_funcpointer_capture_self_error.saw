@@ -1,0 +1,23 @@
+// Conformance row U34 — a method's `self`, named by the body, is a capture
+// too, and refuses the coercion.
+//
+// The third spelling, and the one that would have been missed by any check
+// written against the capture list: `self` appears in no list, and a receiver
+// is a BORROW of storage the caller owns (design 216). A function pointer with
+// no environment cannot carry a receiver, so a bare address built here would
+// call a body reading a `self` that was never passed.
+//
+// This is the DF-216a lesson applied to a new rule: count what the body NAMES.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: may capture nothing, but this one captures `self`
+
+struct Counter { n: Int }
+
+extension Counter {
+    func bump(&self) -> FuncPointer<(Int) sync -> Int> {
+        { x in x + self.n }
+    }
+}
+
+func main() { print("unreached") }

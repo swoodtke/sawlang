@@ -1,0 +1,3 @@
+status: flagged
+6 A3.mutating-call withheld -- withheld: the file keeps a flagged site, C at 8:10
+8 C flagged -- a chain assignment inside a longer chain

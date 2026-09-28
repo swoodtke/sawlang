@@ -1,0 +1,26 @@
+// Design 170: a cast whose operand FOLDS to a value the target cannot hold is
+// a compile error, not a program that builds and then aborts on its first run.
+// The same const evaluator backs `static_assert` and `[T; N]`, and its own
+// out-of-range rule set this policy — so a folded cast and its runtime twin can
+// never disagree.
+//
+// Folding sees through const arithmetic and a raw-backed enum's case value, so
+// none of these three survive to codegen.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `1000` is not representable as `UInt8`
+// EXPECT-ERROR-CONTAINS: `UInt8` holds 0 through 255
+// EXPECT-ERROR-CONTAINS: `UInt8.from(truncating: ...)` to keep the low bits
+// EXPECT-ERROR-CONTAINS: `300` is not representable as `UInt8`
+// EXPECT-ERROR-CONTAINS: `-1` is not representable as `UInt`
+
+enum Wide: UInt16 {
+    case Big = 1000
+}
+
+func main() {
+    let a = 1000 as UInt8
+    let b = (200 + 100) as UInt8
+    let c = (0 - 1) as UInt
+    let d = Wide.Big as UInt8
+    print("{a}{b}{c}{d}")
+}

@@ -1,0 +1,26 @@
+// SL-316 — the same imported suspending CLOSURE BODY as
+// `coro_imported_closure_body_suspends.saw`, in a program with NO COROUTINE
+// ROOT: `main` drives nothing, spawns nothing and does not suspend.
+//
+// The refusal used to sit behind frame construction — `_build_frame_ledger`
+// answered "no root" and `transform_program` returned before the closure walk
+// ran — so THIS file compiled and printed `2` while its one-line-longer twin,
+// which adds an unrelated `__saw_drive_steps` call elsewhere in `main`, was
+// correctly refused at this same closure. Whether an unsupported closure is
+// rejected must not depend on an unrelated drive site (codex, SL-318.p6 r1).
+// The rootless ledger is a real ledger now: it holds the body tables and the
+// cause set, which is all the closure question needs.
+//
+// EXPECT: error
+// COMPILE-FLAGS: --module-path sl316closure={TESTDIR}/../modules/sl316closure
+// EXPECT-ERROR-CONTAINS: this closure body suspends
+// EXPECT-ERROR-CONTAINS: a closure body is not driven
+// EXPECT-ERROR-CONTAINS: lib.saw:23:17
+
+import std.task.*
+import sl316closure.{each_yield_public}
+
+func main() {
+    let values: Vector<Int> = [1, 2]
+    print(each_yield_public(&values))
+}

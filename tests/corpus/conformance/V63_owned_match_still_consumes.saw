@@ -1,0 +1,92 @@
+// Conformance row V63 — the CONTROL side of DF-288a's fence: what a borrowed
+// scrutinee refuses, an OWNED one still does, and a borrow still reads
+//
+// The fence is only correct if it is narrow. Four shapes have to survive it,
+// and the oracle is a printing `deinit` counted against the drops:
+//
+//   1. an OWNED local scrutinee — the documented consuming match (design
+//      190a/193 u1): the payload moves out and dies exactly once;
+//   2. an owned TEMPORARY scrutinee (`match make()`), which nobody else owns
+//      and which codegen runs through the same consume model;
+//   3. a Copy-tier payload out of an OWNED local, which DF-190d retains at
+//      extraction — so `move` transfers that retain and the scrutinee keeps
+//      its own reference and stays readable;
+//   4. reading a payload binding through a BORROW without moving it — a
+//      presence test (`case Full(_)`), a field read, and a whole-value read
+//      that follows the copy tier. None of these consume anything, so the
+//      fence must not reach them.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: owned 7
+// EXPECT-OUTPUT: drop 7
+// EXPECT-OUTPUT: temp 5
+// EXPECT-OUTPUT: drop 5
+// EXPECT-OUTPUT: moved hello
+// EXPECT-OUTPUT: kept hello
+// EXPECT-OUTPUT: occupied true
+// EXPECT-OUTPUT: width 3
+// EXPECT-OUTPUT: drop 3
+
+struct Owned { w: Int }
+extension Owned: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+enum Slot { case Empty, case Full(o: Owned) }
+extension Slot: NoCopy {}
+
+struct Tag { name: String }
+enum Copyable { case Empty, case Full(t: Tag) }
+
+func make() -> Slot { Slot.Full(o: Owned(w: 5)) }
+
+func occupied(s: &Slot) -> Bool {
+    match s {
+        case Empty -> { false },
+        case Full(_) -> { true },
+    }
+}
+
+func width(s: &Slot) -> Int {
+    match s {
+        case Empty -> { 0 },
+        case Full(o) -> { o.w },
+    }
+}
+
+func main() {
+    // 1: owned local, consuming match.
+    var owned = Slot.Full(o: Owned(w: 7))
+    let a = match owned {
+        case Empty -> Owned(w: 0),
+        case Full(o) -> move o,
+    }
+    print("owned {}", a.w)
+    let _ = move a
+
+    // 2: owned temporary.
+    let b = match make() {
+        case Empty -> Owned(w: 0),
+        case Full(o) -> move o,
+    }
+    print("temp {}", b.w)
+    let _ = move b
+
+    // 3: Copy tier out of an owned local — retained at extraction, so the
+    //    scrutinee is still readable afterwards.
+    var c = Copyable.Full(t: Tag(name: "hello"))
+    let t = match c {
+        case Empty -> Tag(name: "none"),
+        case Full(t) -> move t,
+    }
+    print("moved {}", t.name)
+    match c {
+        case Empty -> { print("kept <empty>") },
+        case Full(u) -> { print("kept {}", u.name) },
+    }
+
+    // 4: reads through a borrow, none of them a consume.
+    var s = Slot.Full(o: Owned(w: 3))
+    print("occupied {}", occupied(&s))
+    print("width {}", width(&s))
+}

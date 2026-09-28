@@ -1,0 +1,9 @@
+// Design 72 L12: a fixed array has only the builtins `.len()` / `.swap(i, j)`.
+// Any other method is a clean error naming the supported surface.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has no method `push`
+func main() {
+    var a = [1, 2, 3]
+    a.push(4)
+    print(a[0])
+}

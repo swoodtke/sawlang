@@ -1,0 +1,22 @@
+// design 128 rider: `var self` was an undocumented receiver spelling quietly
+// accepted as `&var self`. The spec has two receivers, both borrows, and the
+// sigil is what says so — so the bare form is now an error carrying the fix.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `var self` is not a receiver spelling
+// EXPECT-ERROR-CONTAINS: write `&var self` to borrow mutably
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func bump(var self) {
+        self.n += 1
+    }
+}
+
+func main() {
+    var c = Counter(n: 0)
+    c.bump()
+    print(c.n)
+}

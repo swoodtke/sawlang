@@ -1,0 +1,16 @@
+// Design 136: an extension `init` spells its effects after the parameter list
+// like every other signature, so the pre-136 prefix gets the fixit for the slot
+// — with `init`'s own head, not a function's.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `unsafe` goes after the parameter list
+// EXPECT-ERROR-CONTAINS: write `init(...) unsafe -> T`
+
+unsafe struct UnsafeMmioReg { addr: Int }
+
+extension UnsafeMmioReg {
+    unsafe init(at: Int) -> UnsafeMmioReg { UnsafeMmioReg(addr: at) }
+}
+
+func main() {
+    print("hi")
+}

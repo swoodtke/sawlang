@@ -1,0 +1,30 @@
+// SL-222 cross-module face: the moved local's type, the borrow, the consumer
+// and the suspension all live HERE, and `gather` puts the whole shape in this
+// module so the refusing frame is built for a body the entry module never saw.
+// That is how sawtracker met it — the loop was in `store.open_store`, several
+// modules away from the program that drove it.
+import std.task.{yield_now}
+
+public struct Res { name: String }
+extension Res: NoCopy {}
+
+public func note(r: &Res) -> Int { r.name.len() }
+
+public func sink(r: Res) { }
+
+public func slow() -> Int {
+    yield_now()
+    7
+}
+
+// The loop body's discarded tail moves a frame local, in THIS module.
+public func gather(items: Vector<Int>) -> Int {
+    var total = slow()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        total = total + i
+        sink(move r)
+    }
+    total
+}

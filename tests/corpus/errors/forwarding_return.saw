@@ -1,0 +1,13 @@
+// Callee-side forwarding (design 16/29 item 5): RETURNING a non-escaping closure
+// parameter lets it escape — rejected. The return type is an escaping slot.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: non-escaping closure into an escaping
+
+func ret(f: (Int) -> Int) -> (Int) -> Int {
+    f
+}
+
+func main() {
+    let g = ret({ $0 + 1 })
+    print(g(4))
+}

@@ -1,0 +1,49 @@
+// Design 129 keeps `{` `}` newline-SIGNIFICANT: a block or closure is a
+// statement container, so a `{` opened inside a wrapped `(` restores newline
+// significance and a multi-statement closure argument still parses as a block.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 20
+// 6
+// 2
+
+func apply(
+    v: Vector<Int>,
+    f: (Int) -> Int,
+) -> Int {
+    f(v.get(0)!)
+}
+
+func main() {
+    let v: Vector<Int> = [10, 20, 30]
+
+    // The closure body holds two statements; their separating newline is inside
+    // `{ }` and therefore still ends a statement.
+    let doubled = apply(
+        v: v.copy(),
+        f: { n in
+            let scaled = n * 2
+            scaled
+        },
+    )
+    print(doubled)
+
+    // A trailing closure attached to a wrapped call.
+    let folded = v.fold(
+        0,
+    ) { acc, n in
+        acc + n / 10
+    }
+    print(folded)
+
+    // A map literal nested inside a wrapped argument list.
+    let counts = tally(
+        m: {
+            "a": 1,
+            "b": 1,
+        },
+    )
+    print(counts)
+}
+
+func tally(m: Map<String, Int>) -> Int { m.len() }

@@ -1,0 +1,28 @@
+// SL-333 R2 (conformance row K124): the RECEIVER MODE BOUNDS the return mode.
+//
+// An exclusive place cannot be projected out of a shared receiver — design 106's
+// no-upgrade rule, one position over. `&self ... borrows -> &var T` promises a
+// caller a window it may write through, out of a receiver the accessor itself
+// only has read access to; the fixit names the receiver, because the receiver is
+// what has to change. (The other direction is legal and useful:
+// `&var self ... borrows -> &T` is an accessor that keeps its own bookkeeping
+// and still lends read-only.)
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `borrows -> &var Cell` lends a place a use site may WRITE through
+// EXPECT-ERROR-CONTAINS: declare the accessor `&var self`
+// EXPECT-ERROR-CONTAINS: A `&self` accessor may still lend read-only: `borrows -> &Cell`
+
+struct Cell { n: Int }
+struct Grid { cells: [Cell; 4] }
+
+extension Grid {
+    public func at(&self, i: Int) borrows -> &var Cell {
+        if i < 0 || i >= 4 { panic("Grid.at: index out of range") }
+        lend self.cells[i]
+    }
+}
+
+func main() {
+    var g = Grid(cells: [Cell(n: 1), Cell(n: 2), Cell(n: 3), Cell(n: 4)])
+    g.at(0).n = 9
+}

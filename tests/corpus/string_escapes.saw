@@ -1,0 +1,27 @@
+// String escape set (design 81 rider): the SUPPORTED escapes are exactly
+// \\ \" \n \t \r \0 \u{...} plus the \{ \} brace forms. `\r` is CR (13), `\0`
+// is NUL (0) and is counted by len() (interior NULs are representable). An
+// unknown escape is a clean lex error (see errors/string_unknown_escape), never
+// a silent backslash-drop — `"\r\n"` used to mis-lex as "r\n".
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 13
+// 10
+// 3
+// 0
+// 9
+
+func main() {
+    let crlf = "\r\n"
+    print(crlf.len())               // 2
+    print(crlf.byte_at(0) as Int)   // 13 (CR)
+    print(crlf.byte_at(1) as Int)   // 10 (LF)
+
+    let withnul = "a\0b"
+    print(withnul.len())            // 3 — the NUL is counted
+    print(withnul.byte_at(1) as Int)  // 0
+
+    let tab = "\t"
+    print(tab.byte_at(0) as Int)    // 9
+}

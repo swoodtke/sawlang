@@ -1,0 +1,25 @@
+// DF-238c's SECOND FACE: a DECLARED thread-safety assertion, in the type's own
+// module. `_lookup_thread_assertion` walks the same imported namespaces
+// `type_conforms_to` does, so it lost the assertion through a glob for the same
+// reason — one funnel, two queries.
+//
+// `Shared` carries an interior cell, so no `Sync` derives for it and the
+// assertion is what a `static` slot of this type rests on (design 186).
+
+public struct Shared {
+    public cell: UnsafeMutableInterior<Int>
+}
+
+extension Shared: UnsafeSync {}
+
+extension Shared {
+    public init(start: Int) unsafe -> Shared {
+        Shared(cell: UnsafeMutableInterior(start))
+    }
+
+    public func value(&self) unsafe -> Int { self.cell.ptr()[0] }
+
+    public func bump(&self, by: Int) unsafe {
+        self.cell.ptr()[0] = self.cell.ptr()[0] + by
+    }
+}

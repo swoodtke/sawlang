@@ -1,0 +1,72 @@
+// SL-236: a short-circuit `&&`/`||` whose NOT-evaluated operand builds an owned
+// temporary (a method/call result whose String field is then read) must not run
+// that temporary's destructor on the short-circuit path — it was never
+// constructed, so the drop ran over an uninitialized slot (a garbage String
+// pointer -> SIGBUS). The RHS is evaluated in a conditionally-taken block, so
+// its statement temps are now confined there (design 94, third entry point)
+// instead of being drained at the enclosing statement's merge.
+//
+// The oracle counts destructor calls: a skipped operand builds nothing (0
+// drops, no crash), an evaluated one builds exactly one temp (1 drop).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// and_skip drops=0
+// and_eval drops=1
+// or_skip drops=0
+// or_eval drops=1
+// lhs_temp drops=1
+// nested_skip drops=0
+// nested_eval drops=1
+
+static DROPS: Atomic<Int> = Atomic(0)
+
+struct Probe { value: String }
+extension Probe: NoCopy { func deinit(&var self) { DROPS.fetch_add(1) } }
+func probe(s: String) -> Probe { Probe(value: s) }
+
+func fbool(b: Bool) -> Bool { b }
+
+func and_rhs(lhs: Bool) -> Bool {
+    if fbool(lhs) && probe("a").value == "x" { return true }
+    false
+}
+func or_rhs(lhs: Bool) -> Bool {
+    if fbool(lhs) || probe("b").value == "x" { return true }
+    false
+}
+func lhs_temp(rhs: Bool) -> Bool {
+    if probe("c").value == "x" && fbool(rhs) { return true }
+    false
+}
+func nested(a: Bool, b: Bool) -> Bool {
+    if fbool(a) || (fbool(b) && probe("d").value == "x") { return true }
+    false
+}
+
+func report(label: String, before: Int) {
+    print("{} drops={}", label, DROPS.load() - before)
+}
+
+func main() {
+    var b = DROPS.load()
+    let _ = and_rhs(false)
+    report("and_skip", b)
+    b = DROPS.load()
+    let _ = and_rhs(true)
+    report("and_eval", b)
+    b = DROPS.load()
+    let _ = or_rhs(true)
+    report("or_skip", b)
+    b = DROPS.load()
+    let _ = or_rhs(false)
+    report("or_eval", b)
+    b = DROPS.load()
+    let _ = lhs_temp(false)
+    report("lhs_temp", b)
+    b = DROPS.load()
+    let _ = nested(true, false)
+    report("nested_skip", b)
+    b = DROPS.load()
+    let _ = nested(false, true)
+    report("nested_eval", b)
+}

@@ -1,0 +1,21 @@
+// Position matrix (design 235), grid 2 — `mod.STATIC` × assign.
+// `mod.STATIC = v` writes the static through the qualifier, exactly as the
+// bare `STATIC = v` spelling does. Same storage, same rules; only the way the
+// name was found differs.
+//
+// This was DF-232d's ORIGINAL row: a clean but wrong `undefined variable
+// `mod`` pointed at the assignment, while READING the same static worked.
+// A write target was the one member-access position that never reached the
+// qualifier — `_check_assign_statement` type-checks a `MemberAccess` target's
+// OBJECT as an expression, which is right for `a.b.c = v`, whose object is a
+// value, and wrong for a module NAME, which is not one.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 5
+
+import modules.qualname_static_dep
+
+func main() unsafe {
+    qualname_static_dep.X = 5
+    print("{qualname_static_dep.X}")
+}

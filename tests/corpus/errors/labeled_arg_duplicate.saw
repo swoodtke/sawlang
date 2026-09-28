@@ -1,0 +1,11 @@
+// Design 66: the same parameter cannot be labeled twice in one call.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: specified more than once
+
+func sub(a: Int, b: Int) -> Int {
+    a - b
+}
+
+func main() {
+    print(sub(a: 1, a: 2))
+}

@@ -1,0 +1,42 @@
+// SL-274's audit finding: the cross-module extension-method tie-break told the
+// entry module apart from a module named `root` by the same broken rendering
+// SL-274's review found on free functions — and it PREDATES SL-274.
+//
+// Design 142: two modules may each extend one type with the same method name and
+// the SAME signature. Those are legal declarations only a call site seeing both
+// can complain about, so their codegen symbols are discriminated by defining
+// module (`_stamp_overload_symbols`, `$M$<tag>`). That site spelled
+// `module_tag(())` long before free functions did, and `module_tag` rendered both
+// the entry module and a module named `root` as `root`:
+//
+//     internal compiler error: Marker$m$sl274marker_describe$OL$$M$root
+//
+// on the compiler before SL-274. Nothing else reached it — design 144 exempts the
+// entry module's types outright and `_module_private_symbol` returns None for it —
+// which is why the collision sat there unprobed until SL-274 tagged every free
+// function and made the same rendering reachable from two lines of source.
+//
+// Fixing the rendering in `module_tag` fixes both sites, which is why it belongs
+// there and not in the free-function funnel.
+//
+// EXPECT: success
+// COMPILE-FLAGS: --module-path sl274marker={TESTDIR}/modules/sl274marker
+// EXPECT-OUTPUT: entry 2
+
+import sl274marker.{Marker}
+
+module root {
+    import sl274marker.{Marker}
+    extension Marker {
+        public func describe(&self) -> Int { self.n + 100 }
+    }
+}
+
+extension Marker {
+    func describe(&self) -> Int { self.n + 1 }
+}
+
+func main() {
+    let m = Marker(n: 1)
+    print("entry {m.describe()}")
+}

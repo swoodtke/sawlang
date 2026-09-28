@@ -1,0 +1,6 @@
+func main() {
+    var v: Vector<Int> = [1]
+    let x = v.get(0) ?? 0
+    let y = v.get(0)!
+    print(x + y)
+}

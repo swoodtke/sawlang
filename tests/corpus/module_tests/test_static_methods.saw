@@ -1,0 +1,15 @@
+// Test: Calling static methods defined in an imported module
+// EXPECT: success
+// EXPECT-OUTPUT: 5
+// EXPECT-OUTPUT: 5
+// EXPECT-OUTPUT: 10
+
+import lib
+
+func main() {
+    // Call static method on struct from module
+    let p = lib.Point.create(val: 5)
+    print(p.x)  // 5
+    print(p.y)  // 5
+    print(p.sum())  // 10
+}

@@ -1,0 +1,50 @@
+// Design 226: a `FuncPointer` is an ordinary value, so it travels through the
+// composites without anything written for it.
+//
+// The copy tier is trivial and `Send`/`Sync` derive, both from the one-word
+// representation -- so a generic `Cell<T>` holds one at `T`, an `Optional`
+// wraps one with no policy owed (design 139: a wrapper carries the tier of
+// what it wraps, and trivial is the weakest), and a `Vector` stores them with
+// no `ExplicitCopy` bound to satisfy. The `v.push({ ... })` line is the
+// coercion in argument position again, one generic layer down.
+//
+// This file used to carry a fourth section claiming that a `FuncPointer` held
+// across a suspension rides through the coroutine frame. It never checked that:
+// it spawned the body onto a THREAD, where nothing is driven, so its
+// `yield_now()`s were no-ops and no frame was ever built (design 242 unit 0's
+// probe; ruling 8 now refuses the shape). Moved to
+// `funcpointer_call_in_a_driven_body.saw`, which spawns it into a `TaskGroup`
+// and is XFAIL under DF-252a — the claim does not hold today.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// through a generic 42
+// through an optional 8
+// out of a vector 2 101
+
+struct Cell<T> { v: T }
+
+func hold<T>(v: T) -> Cell<T> { Cell<T>(v: v) }
+
+func run_it(c: Cell<FuncPointer<(Int) sync -> Int>>, n: Int) -> Int {
+    let p = c.v
+    p(n)
+}
+
+func doubled(n: Int) sync -> Int { n * 2 }
+
+func main() {
+    let p: FuncPointer<(Int) sync -> Int> = doubled
+
+    let c = hold(p)
+    print("through a generic {run_it(c, 21)}")
+
+    let o: FuncPointer<(Int) sync -> Int>? = p
+    if let q = o { print("through an optional {q(4)}") }
+
+    var v: Vector<FuncPointer<(Int) sync -> Int>> = [p]
+    try! v.push({ n in n + 100 })
+    let first = v[0]
+    let second = v[1]
+    print("out of a vector {first(1)} {second(1)}")
+}

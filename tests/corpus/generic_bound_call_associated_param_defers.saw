@@ -1,0 +1,44 @@
+// DF-239b's other side: an ASSOCIATED-TYPE parameter stays deferred, which is
+// what keeps the new check from inventing errors.
+//
+// `take(&var self, item: Item)` says nothing a `<T: Sink>` body can check —
+// `Item` is whatever the conformer chose — so the argument is passed through
+// untyped exactly as it always was, and the call compiles. The decidability
+// test is per PARAMETER, not per requirement: the mixed-signature test next
+// door shows the concrete slot of a signature like this one still being caught.
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 19
+
+trait Sink {
+    type Item
+    func take(&var self, item: Item) -> Int
+}
+
+struct IntSink { total: Int }
+extension IntSink: Sink {
+    type Item = Int
+    func take(&var self, item: Int) -> Int {
+        self.total = self.total + item
+        self.total
+    }
+}
+
+struct LenSink { total: Int }
+extension LenSink: Sink {
+    type Item = String
+    func take(&var self, item: String) -> Int {
+        self.total = self.total + item.len()
+        self.total
+    }
+}
+
+func feed_int<T: Sink>(s: &var T, v: Int) -> Int { s.take(v) }
+func feed_text<T: Sink>(s: &var T, v: String) -> Int { s.take(v) }
+
+func main() {
+    var a = IntSink(total: 0)
+    print(feed_int(&var a, 7))
+    var b = LenSink(total: 14)
+    print(feed_text(&var b, "hello"))
+}

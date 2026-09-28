@@ -1,0 +1,59 @@
+// XFAIL: SL-231 a value-carrying INLINE catch cannot host a `move` of a frame
+// local in its tail — `let x = try f() catch { take(move r) }` is refused with
+// "move of a frame local in a nested tail-expression ... whose value is used".
+//
+// This is the ONE source shape that reaches SL-222's value-used refusal, and
+// finding it is what turned that brief's "nothing reaches it" claim into a
+// stated exception. Every OTHER value-carrying tail is rewritten into an
+// ASSIGNMENT before the tail handling sees it — `_cond_to_branch` /
+// `_attach_sink_block` do that for a value `if`, a value `match`, `??` and the
+// BLOCK form `try { } catch { }`, and `_done` does it for a function body's own
+// tail — and an assignment hosts the drop-flag clears fine. The INLINE catch is
+// a `TryExpr`, which `_is_value_conditional` does not list, so no sink lowering
+// runs and its catch tail stays a genuine value tail with nowhere to put the
+// forget. Listing `TryExpr` there is the shape of the fix.
+//
+// PRE-EXISTING: refuses identically with none of SL-222's changes applied, so
+// this pins a limitation the batch surfaced rather than one it caused. The
+// diagnostic already names the workaround — bind the value inside the catch and
+// make the binding its tail.
+//
+// Remove the marker in the landing that fixes SL-231.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {}
+
+struct Bad { why: String }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.why) }
+}
+
+func note(r: &Res) -> Int { r.name.len() }
+
+func take(r: Res) -> Int { 1 }
+
+func fallible(k: Int) -> Result<Int, Bad> {
+    if k < 0 { return Bad(why: "neg") }
+    k
+}
+
+func run(items: Vector<Int>) -> Int {
+    yield_now()
+    var total = 0
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        let got = try fallible(0 - i) catch { take(move r) }
+        total = total + got
+    }
+    total
+}
+
+func main() {
+    print(__saw_drive(run([1, 2])))   // both fail -> catch each time -> 1 + 1
+}

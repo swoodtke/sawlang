@@ -1,0 +1,22 @@
+// Design 63 T1b: a loop that reads AND writes fixed-array elements through a
+// dynamic index stays correct with bounds checks on both paths (regression
+// against perf-shaped surprises — the in-range check folds away).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 150
+
+func main() {
+    var arr = [0, 0, 0, 0, 0]
+    var i = 0
+    while i < 5 {
+        arr[i] = (i + 1) * 10   // write path
+        i = i + 1
+    }
+    var sum = 0
+    var j = 0
+    while j < 5 {
+        sum = sum + arr[j]      // read path
+        j = j + 1
+    }
+    print(sum)                  // 10+20+30+40+50 = 150
+}

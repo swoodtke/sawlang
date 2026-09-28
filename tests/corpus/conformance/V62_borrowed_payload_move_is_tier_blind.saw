@@ -1,0 +1,58 @@
+// Conformance row V62 — the borrowed-payload move refusal is TIER-BLIND
+//
+// DF-288a. It would be natural to read this as a NoCopy problem and fence only
+// the owning tiers. It is not one. For a BORROWED scrutinee codegen takes
+// neither of its two ownership modes: not the consume path, and not DF-190d's
+// Copy-tier retain path, which is gated on the scrutinee being an owned named
+// local. So the arm binding is un-retained at EVERY tier, and `move`ing a
+// Copy-tier payload out mints a second owner with no refcount to match it — a
+// probe on an `Arc` payload read `strong_count()` UNCHANGED across the move
+// while a second owner existed, which is an underflow and a later double free.
+//
+// The FIELD scrutinee is the fourth face of the same gate: `match h.s` names
+// storage `h` still owns, exactly as `match s` through a `&var Slot` does, and
+// codegen aliases it identically. A PLACE scrutinee (`match v[0]`) is NOT this
+// rule's — design 146 already answers it at every tier, since an arm that moves
+// a binding drops the match onto the value-read path (a Copy element is read
+// out with a retain and then consumed as an owned temporary; a move-only one is
+// refused by the diagnostic that can name `with_ref`/`swap_out`). Row P-series
+// covers it, and this rule stays out rather than preempting a better message.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot move out of `t`
+// EXPECT-ERROR-CONTAINS: cannot move out of `o`
+
+struct Tag { name: String }
+
+enum Copyable { case Empty, case Full(t: Tag) }
+
+struct Owned { w: Int }
+extension Owned: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+enum Slot { case Empty, case Full(o: Owned) }
+extension Slot: NoCopy {}
+
+struct Holder { s: Slot }
+extension Holder: NoCopy {}
+
+// The Copy tier through a shared borrow: un-retained, so refused.
+func steal_tag(c: &Copyable) -> Tag {
+    match c {
+        case Empty -> { Tag(name: "none") },
+        case Full(t) -> { move t },
+    }
+}
+
+func main() {
+    var c = Copyable.Full(t: Tag(name: "hello"))
+    print("{}", steal_tag(&c).name)
+    // A FIELD scrutinee off an OWNED local — the same borrow.
+    var h = Holder(s: Slot.Full(o: Owned(w: 7)))
+    let got = match h.s {
+        case Empty -> Owned(w: 0),
+        case Full(o) -> move o,
+    }
+    print("{}", got.w)
+}

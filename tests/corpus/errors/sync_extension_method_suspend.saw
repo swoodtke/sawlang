@@ -1,0 +1,21 @@
+// design 24 item 3: a `sync` method in an extension is parsed and checked. Its
+// body is a `sync` context, so a suspension inside it is rejected — with the
+// suspension path anchored at the method.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` method
+// EXPECT-ERROR-CONTAINS: __saw_test_suspend
+
+struct Sensor {
+    id: Int
+}
+
+extension Sensor {
+    func poll(&self) sync -> Int {
+        __saw_test_suspend()
+        self.id
+    }
+}
+
+func main() {
+    print(1)
+}

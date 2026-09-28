@@ -1,0 +1,5 @@
+// Design 249 fixture: same name as d249_pair_b's `tag`, DISTINCT parameter
+// type — so a bare import of both modules merges them into one overload set
+// that resolves. Not a standalone test.
+
+public func tag(n: Int) sync -> String { "A:{n}" }

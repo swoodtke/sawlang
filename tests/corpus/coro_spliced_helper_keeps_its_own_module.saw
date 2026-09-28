@@ -1,0 +1,43 @@
+// SL-280: a body spliced out of an imported module into the entry module for
+// frame building keeps its OWN module's meaning. Two modules may declare one
+// free-function name (design 249), and the spliced body's call must still
+// reach the helper its author wrote.
+//
+// This is the face of the bug that was a WRONG ANSWER rather than a dropped
+// suspension, and it is why the fix could not stop at the discovery tables.
+// `_classify_call` decided which frame a call embeds by comparing the call's
+// PLAIN NAME against the driven closure. So once the entry module's
+// `tagged_helper` was itself in that closure — which the `entry_direct` row
+// below is what arranges — the spliced `reach_tagged` body's call to
+// `sl280tag`'s `tagged_helper` matched the entry module's instead, and the
+// entry module's frame was embedded in its place. The dependency's helper never
+// ran, nothing was reported, and the program answered 2 where 101 is right.
+//
+// Measured before the fix: entry_direct 1, imported_value 2.
+//
+// EXPECT: success
+// COMPILE-FLAGS: --module-path sl280tag={TESTDIR}/modules/sl280tag
+// EXPECT-OUTPUT:
+// entry_direct 1
+// imported_value 101
+// entry_value 2
+
+import std.task.{yield_now}
+import sl280tag.{reach_tagged}
+
+/// Same name as `sl280tag`'s, a different body, and +1 rather than +100 — so
+/// which of the two ran is visible in the value.
+func tagged_helper(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+func main() {
+    // Driving the entry module's helper puts it in the driven closure, which is
+    // the precondition for the collision.
+    print("entry_direct {}", __saw_drive_steps(tagged_helper(1)))
+    // The imported caller reaches ITS module's helper: 1 + 100.
+    print("imported_value {}", __saw_drive(reach_tagged(1)))
+    // …and the entry module's own call still reaches the entry module's: 1 + 1.
+    print("entry_value {}", __saw_drive(tagged_helper(1)))
+}

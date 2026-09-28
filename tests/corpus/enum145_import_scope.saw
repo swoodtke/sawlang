@@ -1,0 +1,21 @@
+// Design 145 unit B: design 142's import-scoped extension lookup applies to an
+// enum extension unchanged — an enum extension IS an extension. The owning
+// module's `rank` is inherent API (no import needed beyond the type); the
+// directly-imported module's `label` is in scope; and the conformance declared
+// under the orphan rule needs no import at all.
+// EXPECT: success
+// EXPECT-OUTPUT: 9
+// EXPECT-OUTPUT: high water
+// EXPECT-OUTPUT: Level(9)
+// EXPECT-OUTPUT: HIGH
+import modules.enum145_base.{Level}
+import modules.enum145_near
+
+func main() {
+    let l = enum145_near.top()
+    print(l.rank())
+    print(l.label())
+    print(l)
+    // `shout` is out of scope here, but in scope inside the module that imports it.
+    print(enum145_near.shout_here(&l))
+}

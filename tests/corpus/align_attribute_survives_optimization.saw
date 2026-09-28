@@ -1,0 +1,37 @@
+// DF-300b: the fixture the `ircontract` lane reads to prove `@align(N)` reaches
+// the emitted IR at every optimization level.
+//
+// The statics are `@export`ed on purpose. An internal static whose address only
+// a foldable check takes is DEAD at `-Oz` — LLVM propagates the alignment,
+// folds `addr % N == 0` to `true` and deletes the global, so an IR oracle
+// pointed at one would be asserting against nothing at exactly the level that
+// matters. External linkage means the symbol survives, and the `align` on it is
+// then the real, checkable claim: this is what a kernel linking against Saw
+// actually gets.
+//
+// It runs as an ordinary example too, so the addresses are observed as well as
+// asserted about.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 0
+// 0
+
+@export("align_fixture_arena")
+@align(64)
+static ARENA: [UInt8; 256] = [0; 256]
+
+@export("align_fixture_seeded")
+@align(16)
+static SEEDED: [UInt8; 8] = [7; 8]
+
+@export("align_fixture_placed")
+@align(32)
+static PLACED: [UInt8; 16] = [1; 16]
+
+func main() unsafe {
+    print(((&ARENA) as UnsafePointer<UInt8> as Int) % 64)
+    print(((&SEEDED) as UnsafePointer<UInt8> as Int) % 16)
+    print(((&PLACED) as UnsafePointer<UInt8> as Int) % 32)
+}

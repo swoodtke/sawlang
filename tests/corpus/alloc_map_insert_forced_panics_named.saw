@@ -1,0 +1,39 @@
+// design 234: the operation REPORTS a refused allocation, so the only way to
+// meet it as a panic is to ask for one — `try!`. That is the corpus's own
+// migration spelling, and this file is the pin that taking it stays LOUD and
+// still says which allocation ran out (DF-245b renders the error after the
+// fixed text). Design 123's method-named panic is what this replaced.
+//
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: try! failed: allocation of
+
+static BUDGET: Atomic<Int> = Atomic(64)
+
+struct FailAlloc {}
+extension FailAlloc: Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? {
+        let left = BUDGET.load()
+        if left <= 0 {
+            return None
+        }
+        BUDGET.store(left - 1)
+        GlobalAllocator().alloc(size, align)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
+        GlobalAllocator().dealloc(ptr, size, align)
+    }
+}
+
+func main() {
+    var m = Map<Int, Int, FailAlloc>()
+    var i = 0
+    while i < 6 {
+        try! m.insert(i, i * 10)
+        i = i + 1
+    }
+    print(m.len())          // 6 — the load factor tips on the next one
+
+    BUDGET.store(0)
+    try! m.insert(7, 70)         // rehash denied -> panic
+    print(m.len())
+}

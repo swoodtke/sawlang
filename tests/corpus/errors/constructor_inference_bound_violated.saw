@@ -1,0 +1,15 @@
+// Design 109's bound checking applies to an INFERRED constructor type argument
+// exactly as it does to a written one: the solved `T` is checked against the
+// struct's declared bound, and a violation is reported at the construction.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not satisfy bound
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct NeedsCopy<T: Copy> { v: T }
+
+func main() {
+    let n = NeedsCopy(v: Res(id: 1))
+    print(n.v.id)
+}

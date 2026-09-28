@@ -1,0 +1,71 @@
+// DF-307a (closing DF-294c): a const leaf that NAMES an earlier module
+// `static` works at ANY type, not only at `Int`/`UInt`.
+//
+// The design-186 evaluator's static leaf answers with a NUMBER — the value
+// `const_value` carries — and a `Slot`-typed static folds to no number, so
+// every aggregate face of one alias was refused by a rule whose own hint listed
+// "an earlier module `static`" as a leaf and "memberwise aggregation over
+// those" as the tier. Three faces, one mechanism, all here:
+//
+//   (a) the degenerate one — `static ALIAS: Slot = ZERO_SLOT`
+//   (b) the repeat VALUE  — `[ZERO_SLOT; N]`, which is what sos SL-21 wrote
+//   (c) a struct-literal FIELD — `Region(zero: ZERO_SLOT, n: 1)`
+//
+// What makes them constant is not a value the typechecker can compute but the
+// answer the NAMED static already got (`StaticSymbol.const_init`): an alias of a
+// constant is a constant, and codegen emits the very bytes that static's global
+// holds. `errors/const_static_leaf_names_mutable_error.saw` is the control.
+//
+// The CONTROL that always worked — the body-position repeat `[ZERO_SLOT; 2]` in
+// a local — is at the bottom: the runtime copy path was never the problem.
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 9
+// EXPECT-OUTPUT: 16
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 0
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: 7
+
+struct Slot { a: Int, b: Int }
+struct Region { zero: Slot, n: Int }
+
+static MAX_SLOTS: Int = 4
+
+// The seed, at a non-zero value: a zerofilled table would prove nothing about
+// which bytes the alias carries.
+static SEED_SLOT: Slot = Slot(a: 7, b: 9)
+
+// A BARE static is design 186's tier 1 (zerofill), and it is a constant leaf on
+// the same terms — the tier is what matters, not whether an initializer was
+// written.
+static BARE_SLOT: Slot
+
+// FACE (a): the degenerate alias.
+static ALIAS_SLOT: Slot = SEED_SLOT
+
+// FACE (b): the repeat VALUE, in both static flavors — sos SL-21 wrote the
+// `unsafe static var` one, and the immutable spelling is the same leaf.
+unsafe static var TABLE: [Slot; MAX_SLOTS] = [SEED_SLOT; MAX_SLOTS]
+static ZERO_TABLE: [Slot; 2] = [BARE_SLOT; 2]
+
+// FACE (c): a struct-literal FIELD, which is the aggregation the hint promised.
+static REGION: Region = Region(zero: SEED_SLOT, n: 1)
+
+func table_first() unsafe -> Int {
+    TABLE[0].a + TABLE[3].b
+}
+
+func main() {
+    print(ALIAS_SLOT.a)          // 7  — face (a)
+    print(ALIAS_SLOT.b)          // 9
+    print(table_first())         // 16 — face (b), 7 + 9
+    print(REGION.zero.a)         // 7  — face (c)
+    print(ZERO_TABLE[1].a)       // 0  — the bare-static leaf, zerofilled
+    print(REGION.n)              // 1
+
+    // CONTROL: the same repeat in BODY position, which compiled and ran before
+    // any of the above did. The runtime copy path was never the defect.
+    var local: [Slot; 2] = [SEED_SLOT; 2]
+    print(local[1].a)            // 7
+}

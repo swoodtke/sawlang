@@ -1,0 +1,7 @@
+struct Cell { n: Int }
+
+func main() {
+    var v: Vector<Cell> = [Cell(n: 1)]
+    let n = borrow let c = v[0] { c.n }
+    print(n)
+}

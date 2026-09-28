@@ -1,0 +1,6 @@
+// Submodule of the `mp` package for the --module-path (B0) fixtures.
+// Reached via `import mp.helper` -> <mapped dir>/helper.saw.
+
+public func helper_val() -> Int {
+    7
+}

@@ -1,0 +1,19 @@
+// Test: Multiple wildcard bindings in match
+// EXPECT: success
+// EXPECT-OUTPUT: 60
+
+import lib
+
+func main() {
+    // Test multiple wildcards - should be allowed since _ discards values
+    let c = lib.Color.Custom(r: 10, g: 20, b: 30)
+
+    let sum = match c {
+        case Red -> 0,
+        case Green -> 0,
+        case Blue -> 0,
+        case Custom(_, _, _) -> 60  // All three wildcards should work
+    }
+
+    print(sum)
+}

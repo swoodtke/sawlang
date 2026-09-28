@@ -1,0 +1,31 @@
+// Design 131: with a policy declared, DF-128a's shapes destroy exactly once.
+// `Res` is move-only, `Pair` inherits that by containment, and each value's
+// deinit runs on exactly one owner — the double-drop oracle that used to print
+// twice now prints once per value.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// alive 7
+// drop res 7
+// paired 9
+// drop res 9
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop res {self.id}") }
+}
+
+struct Pair { a: Res }
+extension Pair: NoCopy {}
+
+func main() {
+    let r = Res(id: 7)
+    let s = move r
+    print("alive {s.id}")
+    consume(move s)
+
+    let p = Pair(a: Res(id: 9))
+    print("paired {p.a.id}")
+}
+
+func consume(v: Res) {}

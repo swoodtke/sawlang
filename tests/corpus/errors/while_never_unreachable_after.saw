@@ -1,0 +1,17 @@
+// Design 177 reuses `panic(...)`'s handling of what follows a diverging
+// expression: the code after it is unreachable, and it is still type-checked
+// where it stands. So a trailing statement after a diverging loop is still the
+// block's tail expression, and it still decides the body's type — which is how
+// a `-> Never` function with dead code after the loop reports itself. Writing
+// `panic("...")` in place of the loop gives the identical error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: function `halt` should return `Never` but returns `Void`
+
+func halt() -> Never {
+    while { }
+    print("unreachable")
+}
+
+func main() {
+    halt()
+}

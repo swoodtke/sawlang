@@ -1,0 +1,14 @@
+// Fixture for never_extern_module_abi.saw (DF-172h). It DECLARES the seam and
+// the entry file DEFINES it, which is the order that matters: the `extern`
+// declaration is emitted first, and an `@export`ed definition of the same
+// symbol unifies with it.
+// EXPECT: skip
+
+extern "C" {
+    func d172h_stop(code: UInt32) -> Never
+}
+
+/// Reach the seam. `-> Never` here too, so the caller owes no value either.
+public func halt(code: UInt32) -> Never {
+    d172h_stop(code)
+}

@@ -1,0 +1,8 @@
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Map.[]: no place to lend
+func main() {
+    var m = Map<String, Int>()
+    let _ = m.insert("a", 1)
+    let x = m["zz"]!
+    print(x)
+}

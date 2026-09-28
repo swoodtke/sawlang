@@ -1,0 +1,48 @@
+// design 139: `@synthesize extension Bag: ExplicitCopy {}` derives a
+// payload-deep `copy` for an enum. The active variant is a runtime choice, so
+// the derived body switches on the tag and duplicates only that variant's
+// payload — each field at ITS own tier, so the `Vector<Int>` here is a real deep
+// copy rather than a retain.
+//
+// Independence is proved by OUTLIVING the original: `make_copy` returns the
+// duplicate and lets the source enum die at its own scope exit. An aliasing copy
+// would have freed the buffer there, and the length read in `main` would be
+// reading freed memory.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// source len 3
+// duplicate outlives source, len 3
+// empty variant copies as itself, len 0
+
+enum Bag {
+    case Nums(v: Vector<Int>),
+    case Empty
+}
+
+@synthesize
+extension Bag: ExplicitCopy {}
+
+func len_of(b: &Bag) -> Int {
+    match b {
+        case Nums(v) -> v.len(),
+        case Empty -> 0
+    }
+}
+
+func make_copy() -> Bag {
+    let v: Vector<Int> = [1, 2, 3]
+    let source = Bag.Nums(v: move v)
+    print("source len {len_of(b: &source)}")
+    let duplicate = source.copy()
+    move duplicate
+}
+
+func main() {
+    let outlived = make_copy()
+    print("duplicate outlives source, len {len_of(b: &outlived)}")
+
+    // A payload-free variant is a bare tag and copies as itself.
+    let empty = Bag.Empty
+    let empty_copy = empty.copy()
+    print("empty variant copies as itself, len {len_of(b: &empty_copy)}")
+}

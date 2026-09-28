@@ -1,0 +1,100 @@
+// Conformance row S09 — a same-scope REDEFINITION of an OWNING local in a
+// driven body is a SECOND binding with a slot of its own
+//
+// Design 107 blesses `let s = derive(move s)`: the new binding REPLACES the
+// old one in the same scope, and the initializer mentioning the name is what
+// makes it legal rather than a shadowing error. Row S08 already pins that two
+// same-named bindings across a suspension keep distinct frame slots — but its
+// covering test binds an `Int`, and for a trivial type a collapsed slot is
+// invisible: the old value has no deinit to run twice.
+//
+// With an OWNING value it is memory corruption. Sharing one field meant the
+// consumed original was released a second time at frame teardown, and reading
+// the rebound name found the field the transform had already forgotten
+// (`DEINIT s1` twice, then `force unwrap of None`, SIGABRT) — on a program the
+// spec teaches. DF-217a.
+//
+// The fault is frame-field IDENTITY, so it is copy-tier-independent: the row
+// carries the NoCopy spelling, where a deinit count makes it legible, AND the
+// ExplicitCopy one, where the rebound binding's own value is what the crash
+// destroyed.
+//
+// The non-suspending spelling is the oracle: both halves of each pair print the
+// same sequence.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// plain p1
+// DEINIT p1
+// plain p12
+// DEINIT p12
+// driven d1
+// DEINIT d1
+// driven d12
+// DEINIT d12
+// plain 2 3
+// driven 2 3
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+func derive(r: Res) -> Res { Res(name: "{r.name}2") }
+
+struct Bag { v: Vector<Int> }
+
+@synthesize
+extension Bag: ExplicitCopy {}
+
+func grow(b: Bag) -> Bag {
+    var v = b.v.copy()
+    try! v.push(9)
+    Bag(v: move v)
+}
+
+// No suspension anywhere: no frame is built, and this is what the driven half
+// has to match exactly.
+func plain() {
+    let s = Res(name: "p1")
+    print("plain {s.name}")
+    let s = derive(move s)
+    print("plain {s.name}")
+}
+
+// The same body, driven — every binding lives in the frame.
+func driven() {
+    let s = Res(name: "d1")
+    yield_now()
+    print("driven {s.name}")
+    let s = derive(move s)
+    yield_now()
+    print("driven {s.name}")
+}
+
+// The ExplicitCopy pair. Reading both lengths is what a collapsed field made
+// impossible: the rebind overwrote the field the first binding still owned.
+func plain_explicit() {
+    let b = Bag(v: [1, 2])
+    let n = b.v.len()
+    let b = grow(move b)
+    print("plain {n} {b.v.len()}")
+}
+
+func driven_explicit() {
+    let b = Bag(v: [1, 2])
+    yield_now()
+    let n = b.v.len()
+    let b = grow(move b)
+    yield_now()
+    print("driven {n} {b.v.len()}")
+}
+
+func main() {
+    plain()
+    __saw_drive(driven())
+    plain_explicit()
+    __saw_drive(driven_explicit())
+}

@@ -1,0 +1,22 @@
+// Conformance row U32 — a closure coerced to `FuncPointer` may capture
+// NOTHING, and an enclosing local named by the body is a capture.
+//
+// THE property that keeps the bare ABI sound. A coerced literal is emitted as
+// `F`'s own function: parameters exactly as written, and no environment
+// parameter at all. There is physically nowhere for `bias` to travel, so
+// accepting this would either read uninitialized storage or need the hidden
+// environment the type exists to avoid.
+//
+// The capture set comes from the SAME body-names walk the escaping-capture
+// analysis uses (`_analyze_closure_captures`), which is why a plainly-named
+// local counts here without anything being written in a capture list.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: may capture nothing, but this one captures `bias`
+
+func make() -> FuncPointer<(Int) sync -> Int> {
+    let bias = 7
+    { n in n + bias }
+}
+
+func main() { print("unreached") }

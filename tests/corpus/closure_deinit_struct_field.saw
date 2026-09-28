@@ -1,0 +1,21 @@
+// A closure that owns captures, stored in a struct FIELD, drops where the owning
+// struct drops (design 71): the closure value carries its own env destructor, so
+// releasing the struct's field runs it exactly once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// built
+// deinit 9
+
+struct Res { v: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.v}") }
+}
+
+struct Holder { fn: () -> Int }
+
+func main() {
+    let r = Res(v: 9)
+    let h = Holder(fn: { [move r] in r.v })
+    print("built")
+    // h drops -> h.fn (closure) drops -> env destructor -> "deinit 9"
+}

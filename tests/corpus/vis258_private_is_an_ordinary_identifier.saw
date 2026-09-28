@@ -1,0 +1,30 @@
+// Design 258 ruling 2: `private` is a CONTEXTUAL keyword — a modifier only in
+// the one position it is a modifier in (ahead of a struct field's name), and an
+// ordinary identifier everywhere else. All four spellings live in one file on
+// purpose: the parser separates them with one token of lookahead, so a file
+// that uses the word both ways is the thing that pins the disambiguation.
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: 2
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 9
+
+public struct Holder {
+    public n: Int
+    private secret: Int    // the MODIFIER: an identifier follows it
+    private: Int           // a field NAMED `private`: a colon follows it
+}
+
+func scaled(private: Int) -> Int {
+    // ...and an ordinary parameter name, read like any other binding.
+    private * 3
+}
+
+func main() {
+    let private = 3        // an ordinary local
+    let h = Holder(n: 1, secret: 2, private: private)
+    print(h.n)             // 1
+    print(h.secret)        // 2  — same-module access is ungated, as ever
+    print(h.private)       // 3
+    print(scaled(private: private))   // 9 — and an ordinary argument label
+}

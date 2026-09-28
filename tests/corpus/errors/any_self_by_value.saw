@@ -1,0 +1,14 @@
+// design 51 object safety: a trait method that returns `Self` by value (the
+// Copy family shape) is not object-safe, so the trait cannot be erased.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: returns `Self` by value
+
+trait Clone {
+    func clone(&self) -> Self
+}
+
+func use(x: &any Clone) {
+}
+
+func main() {
+}

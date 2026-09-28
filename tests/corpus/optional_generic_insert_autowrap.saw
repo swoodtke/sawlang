@@ -1,0 +1,33 @@
+// Design 174 — DF-146m. Call-site optional auto-wrap does not fire at a GENERIC
+// parameter instantiated to an Optional. `Map<String, Int?>.insert` takes a
+// `value: V` with `V = Int?`, so design 55's auto-wrap should lift the `7`:
+//
+//   error: argument `value` expects `Int?` but got `Int`
+//
+// The same wrap DOES fire for a written `Int?` parameter, and a bare `None`
+// types correctly at this very position — so the two paths diverge.
+// FIXED by design 176 unit 2, which retires design 57's DF3 rule that auto-wrap
+// must be explicit at a generic boundary. The rule was invisible from the
+// caller's side: whether `7` wrapped depended on how the callee happened to
+// spell the parameter.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// len 2
+// y 7
+// v 3
+// -- done
+
+func main() {
+    var m = Map<String, Int?>()
+    let _ = m.insert("y", 7)
+
+    var v = Vector<Int?>()
+    try! v.push(3)
+
+    print("len {m.len() + v.len()}")
+    if let inner = m.get("y") {
+        if let value = inner { print("y {value}") } else { print("y inner-absent") }
+    } else { print("y outer-absent") }
+    print("v {v[0] ?? -1}")
+    print("-- done")
+}

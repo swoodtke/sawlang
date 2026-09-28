@@ -1,0 +1,25 @@
+// DF-239b: a requirement's parameter type is resolved in the module that
+// DECLARES it, so a generic bound over that trait is callable from a module
+// with entirely different imports.
+//
+// `traitgate239b.Sink.take` takes a `&data.Data` — a spelling that only means
+// anything inside `traitgate239b`, which wrote `import std.data`. THIS file
+// never imports `std.data` and never writes `Data`. Resolving the requirement
+// here would run design 194's prelude gate against this module and refuse a
+// type the author never mentioned, which is exactly why deep argument checking
+// on this path stayed deferred until the resolution moved to the declaration.
+// COMPILE-FLAGS: --module-path traitgate239b={TESTDIR}/modules/traitgate239b
+// EXPECT: success
+// EXPECT-OUTPUT: 13
+
+import traitgate239b
+
+func drive<T: traitgate239b.Sink>(s: &T) -> Int {
+    let bytes = traitgate239b.sample()
+    s.take(&bytes)
+}
+
+func main() {
+    let sink = traitgate239b.ByteSink(start: 10)
+    print(drive(&sink))
+}

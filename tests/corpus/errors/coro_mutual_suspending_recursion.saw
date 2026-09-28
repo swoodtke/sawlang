@@ -1,0 +1,27 @@
+// SL-227, the MUTUAL-recursion row: the cycle a spawn root reaches need not be a
+// self-call, and the diagnostic names the whole loop rather than one function.
+//
+// This is the row that shows the check is a graph search and not a "does this
+// function call itself" test — `ping` and `pong` each call only the other.
+// `RecursionError` before the fix.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: suspending recursion is not allowed
+// EXPECT-ERROR-CONTAINS: ping -> pong -> ping
+
+import std.task.{yield_now}
+
+func ping(n: Int) -> Int {
+    yield_now()
+    if n <= 0 { return 0 }
+    return pong(n - 1)
+}
+
+func pong(n: Int) -> Int {
+    yield_now()
+    return ping(n - 1)
+}
+
+func main() {
+    let t = Task.spawn(ping(3))
+    print("{t.join()}")
+}

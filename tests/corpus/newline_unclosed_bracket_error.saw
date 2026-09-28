@@ -1,0 +1,12 @@
+// The `[` counterpart of newline_unclosed_paren_error: an unclosed collection
+// literal is reported at its opener too (design 129).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Parse error at 8:26: unclosed `[`
+// EXPECT-ERROR-CONTAINS: no matching `]` before the end of the file
+
+func main() {
+    let v: Vector<Int> = [
+        1,
+        2,
+    print(v.len())
+}

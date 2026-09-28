@@ -1,0 +1,61 @@
+// Conformance row O12 — an `if let` binding out of a `move` scrutinee releases
+// its payload exactly once inside a coroutine, as it does outside one
+//
+// `if let v = move opt` is the sanctioned way to read an owning value out of an
+// Optional local (design 131): the `move` retires the whole binding and the
+// payload becomes the `if let` binding's, so it is released when that binding's
+// scope ends. Codegen decided "the binding owns this" by looking for a
+// `MoveExpr` scrutinee — and inside a coroutine body the transform has already
+// rewritten that `MoveExpr` into a read of the frame field paired with a
+// `__saw_forget` that tells the frame not to release it either. Nobody released
+// it: the value leaked in EVERY driven function, with no suspension anywhere
+// near either binding. DF-217b.
+//
+// ORACLE: `LIVE` counts live `Res` values. The plain and driven spellings of one
+// body are the same program, so both report zero once the value's scope (for the
+// driven half, the frame) is gone.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// in plain
+// plain live 0
+// in driven
+// driven live 0
+
+import std.task.*
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { LIVE.fetch_add(0 - 1) }
+}
+
+func res(tag: String) -> Res {
+    LIVE.fetch_add(1)
+    Res(name: tag)
+}
+
+func plain() {
+    var opt: Res? = res("plain")
+    if let v = move opt {
+        print("in {v.name}")
+    }
+}
+
+// The same body in a coroutine. The suspension is nowhere near either binding —
+// membership alone is what routed the scrutinee through the frame.
+func driven() {
+    var opt: Res? = res("driven")
+    yield_now()
+    if let v = move opt {
+        print("in {v.name}")
+    }
+}
+
+func main() {
+    plain()
+    print("plain live {LIVE.load()}")
+    __saw_drive(driven())
+    print("driven live {LIVE.load()}")
+}

@@ -1,0 +1,25 @@
+// Conformance row V53 — a `NoMove` receiver is refused AT THE CALL
+//
+// design 260 §2. The refusal is free, and that is the point of recording it:
+// the caller spelling IS the transfer, so `move` on a `NoMove` binding is
+// already that axis's own error and the design owes no declaration-side check.
+// A `NoMove` value moves exactly once, from its constructor into its binding;
+// whether in-place consumption of one should ever be allowed — since nothing
+// relocates under the `&var self` shape — is recorded as a future question,
+// not v1's.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot `move` `p`
+// EXPECT-ERROR-CONTAINS: is `NoMove`, so it lives where its constructor built it
+
+struct Pinned { n: Int }
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+extension Pinned {
+    func finish(&var self) consumes -> Int { self.n }
+}
+
+func main() {
+    var p = Pinned(n: 1)
+    print("{}", (move p).finish())
+}

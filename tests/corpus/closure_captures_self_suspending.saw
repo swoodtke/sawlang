@@ -1,0 +1,37 @@
+// Design 216's rule reaching a SUSPENDING method (DF-216g, closed by design 218
+// stage 3). A non-escaping closure naming `self` works in a sync method
+// (closure_captures_self); in a suspending one it used to ICE, because the
+// coroutine transform moves the receiver behind the frame: inside a resume body
+// the name `self` IS the frame, so the capture grabbed the frame and `self.n`
+// was looked up in `__Frame_Counter_slow`.
+//
+// What it needed was a VALUE that carries "borrow of the receiver" into a
+// closure environment, which Saw has no local reference binding to express. The
+// frame vocabulary's `UnsafeRef<T>` is that value: the frame holds one as
+// `__recv`, the capture materialization mints a second with `copy()`, the env
+// owns it by move, and `deref()` lends the referent as a place. So `self.n`
+// inside the closure is `__cap0_self.deref().n` — ordinary code the checker
+// judges, reading the LIVE receiver on both sides of both suspensions.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 16
+
+import std.task
+
+func run_int(body: () sync -> Int) -> Int { body() }
+
+struct Counter { n: Int }
+
+extension Counter {
+    func slow(&self) -> Int {
+        task.yield_now()
+        let a = run_int({ self.n + 1 })
+        task.yield_now()
+        a + run_int({ self.n * 2 })
+    }
+}
+
+func main() {
+    let c = Counter(n: 5)
+    print("{}", c.slow())      // 6 + 10
+}

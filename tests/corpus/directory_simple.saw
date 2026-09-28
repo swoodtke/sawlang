@@ -1,0 +1,35 @@
+// EXPECT: success
+// EXPECT-OUTPUT: Current directory exists
+// EXPECT-OUTPUT: Created test directory
+// EXPECT-OUTPUT: Removed test directory
+
+// Test basic directory operations using Path
+
+import std.directory.{Directory}
+import std.path.{Path}
+func main() {
+    // Get and display current directory
+    if let cwd = Directory.current() {
+        print("Current directory exists")
+    } else {
+        print("Could not get current directory")
+    }
+
+    // Create a test directory
+    let test_dir = Path(s: "/tmp/saw_test_dir")
+
+    // Remove if it exists from previous run (ignore — it may not exist)
+    let _ = Directory.remove(test_dir)
+
+    // Create directory
+    match Directory.create(test_dir) {
+        case Ok(_) -> print("Created test directory"),
+        case Err(e) -> print("Could not create test directory: {e}")
+    }
+
+    // Remove directory
+    match Directory.remove(test_dir) {
+        case Ok(_) -> print("Removed test directory"),
+        case Err(e) -> print("Could not remove test directory: {e}")
+    }
+}

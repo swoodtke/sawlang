@@ -1,0 +1,97 @@
+// Conformance rows A06 and A07 — `Map.insert` and `Set.insert` under a
+// refusing allocator, and the all-or-nothing they promise.
+//
+// Design 123: Map and Set. `Map._grow` built its slot table with
+// `Vector(capacity:)` + `push`, both of which degraded silently, so on a
+// refused allocation:
+//   * the FIRST grow set `self.cap = 8` over an EMPTY slot vector, and every
+//     later insert dropped its key and value while still incrementing `count` —
+//     the map reported `len() == N` with `get()` answering None for every key;
+//   * a LATER grow sent the rehash probe into an INFINITE LOOP, because
+//     `new_slots.get(b)` answering None never satisfies its exit condition.
+//     A hang, not a crash.
+// Set inherited all of it and additionally returned `true` ("newly inserted")
+// for an element it had just dropped.
+//
+// Design 123 made `insert` panic and added a `try_insert` twin that reported;
+// design 234 retires the split — `insert` REPORTS, and the table is intact
+// after an `Err`: every key that was in it still is.
+//
+// The refused size is the slot table's, so this line reads the layout of
+// `MapSlot<Int, Int>`: design 265 U2 types an enum's payload union at the
+// payload's own alignment, which took that slot from 20 bytes at align 4 —
+// under-aligned for the two `Int`s it holds — to 24 at align 8, so the
+// 16-slot table asks for 384 bytes rather than 320. On a 32-bit target the
+// slot is unchanged.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// insert denied: allocation of 384 bytes (align 8) failed
+// 30
+// 20
+// true
+// set insert denied
+// 2
+// true
+// 4
+
+static BUDGET: Atomic<Int> = Atomic(64)
+
+struct FailAlloc {}
+extension FailAlloc: Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? {
+        let left = BUDGET.load()
+        if left <= 0 {
+            return None
+        }
+        BUDGET.store(left - 1)
+        GlobalAllocator().alloc(size, align)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
+        GlobalAllocator().dealloc(ptr, size, align)
+    }
+}
+
+func main() {
+    var m = Map<Int, Int, FailAlloc>()
+    try! m.insert(1, 10)
+    try! m.insert(2, 20)
+    try! m.insert(3, 30)
+    print(m.len())                      // 3
+
+    // Load factor: the 7th entry (7*4 > 8*3) triggers the rehash. Get to 6 with
+    // budget, then starve the allocator.
+    try! m.insert(4, 40)
+    try! m.insert(5, 50)
+    try! m.insert(6, 60)
+    BUDGET.store(0)
+    let inserted = m.insert(7, 70)
+    BUDGET.store(64)
+    match inserted {
+        case Ok(_) -> print("inserted"),
+        case Err(e) -> print("insert denied: {e}")
+    }
+    print(m.get(3)!)                    // 30 — the old table is intact...
+    print(m.get(2)!)                    // 20 — ...every entry of it
+
+    // Set rides on the same path.
+    var s = Set<Int, FailAlloc>()
+    print(try! s.insert(1))             // true — newly inserted
+    try! s.insert(2)
+    try! s.insert(3)
+    try! s.insert(4)
+    try! s.insert(5)
+    try! s.insert(6)
+    BUDGET.store(0)
+    let added = s.insert(7)
+    BUDGET.store(64)
+    match added {
+        case Ok(_) -> print("set inserted"),
+        case Err(_) -> print("set insert denied")
+    }
+    print(s.len() - 4)                  // 2 — six members, unchanged by the Err
+    print(s.contains(6))                // true — nothing was dropped
+
+    // With budget the same insert lands.
+    print(m.get(3)! - 26)               // 4
+}

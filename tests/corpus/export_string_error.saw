@@ -1,0 +1,8 @@
+// design 58 Part 2: String has no C ABI on the export boundary; rejected.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: return type `String` is not
+
+@export
+func greeting() -> String { "hi" }
+
+func main() { print(1) }

@@ -1,0 +1,33 @@
+// SL-306's other half: dropping the frame around a conservative-only callee must
+// not drop the REFUSAL a really-suspending closure body has always owed.
+//
+// `Vector.each` is conservative-only, so it is no longer embedded — but the
+// closure the author wrote parks, and a closure body is not driven. The refusal
+// comes from the DRIVEN CALLER's own scan of the body its author wrote
+// (`_reject_buried_suspend_call`), which never depended on the callee's frame: the
+// closure's real suspension is on the enclosing body's own effect node, so the
+// body is a frame whatever `each` is. Silent degradation here would be SL-287's
+// class, and it is what this row exists to keep out.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: appears inside a CLOSURE BODY in driven `worker`
+// EXPECT-ERROR-CONTAINS: a closure body is not driven
+// EXPECT-ERROR-CONTAINS: coro_suspending_closure_body_in_a_visitor.saw:22:9
+
+import std.task.{yield_now}
+import std.channel.{Channel}
+
+func worker(out: Channel<Int>, values: Vector<Int>) {
+    values.each({ n in
+        yield_now()
+    })
+    let _ = out.send(values.len())
+}
+
+func main() {
+    let out = try! Channel<Int>()
+    var group = TaskGroup()
+    let h = group.spawn(worker(out.copy(), [1, 2]))
+    print(try! out.receive())
+    h.join()
+}

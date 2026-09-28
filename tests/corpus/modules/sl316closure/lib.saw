@@ -1,0 +1,41 @@
+//! Fixture for SL-316 — a CLOSURE BODY that really parks, written in an
+//! IMPORTED module.
+//!
+//! The three helpers below are the cell SL-316 found: a closure literal handed
+//! to a conservative-only std method (`Vector.each`, whose only suspension cause
+//! is the rule that a call through a non-`sync` function value might), with a
+//! real cooperative primitive inside it. The enclosing function therefore
+//! carries NO cause of its own, no frame is built for it, no frame builder ever
+//! scans its body — and before design 275 U2 the `yield_now()` lowered outside
+//! every frame, where it codegens to nothing. The program compiled and printed
+//! `0` drive steps where two were owed, while the byte-identical entry-module
+//! twin was refused.
+//!
+//! They live in a module of their OWN because the refusal is now a property of
+//! the closure rather than of who calls it: any test importing this module is
+//! refused, which is exactly the point, and is why these three could not stay in
+//! `sl306mod` beside helpers four passing tests import.
+
+import std.task.{yield_now}
+
+/// `public`, reached by a selective import.
+public func each_yield_public(values: &Vector<Int>) -> Int {
+    values.each({ n in
+        yield_now()
+    })
+    values.len()
+}
+
+/// MODULE-PRIVATE — the one design 249 tags with a `$m$<module>` symbol, which
+/// is the keying SL-280 found the splice reading two ways.
+func _each_yield_private(values: &Vector<Int>) -> Int {
+    values.each({ n in
+        yield_now()
+    })
+    values.len()
+}
+
+/// The same reached one hop further in, through the private helper.
+public func each_yield_via_private(values: &Vector<Int>) -> Int {
+    _each_yield_private(&values)
+}

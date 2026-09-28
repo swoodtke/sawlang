@@ -1,0 +1,9 @@
+func main() {
+    var m = Map<String, Int>()
+    let _ = m.insert("k", 1)
+    let n = match m.get("k") {
+        case Some(x) -> x
+        case _ -> 0
+    }
+    print(n)
+}

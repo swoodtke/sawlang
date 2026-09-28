@@ -1,0 +1,14 @@
+// DF-238c, the TYPE's module. It declares `Rec` and — as the CONTROL — a trait
+// of its own with a conformance beside the type, which is the orphan rule's
+// other half and works today.
+public struct Rec {
+    public n: Int
+}
+
+public trait Named {
+    func label(&self) -> Int
+}
+
+extension Rec: Named {
+    func label(&self) -> Int { self.n }
+}

@@ -1,0 +1,70 @@
+// A call-result receiver's temp is released at the end of the statement that
+// produced it, unwrapped or not (DF-217m, closed by design 240 item 9 on the
+// sync side and design 218 unit 2 stage D on the driven one).
+//
+// HALF FIXED by design 218 stage 2. The plain call-result receiver
+// (`mk(10).describe()`) releases where the statement ends — its ANF temp is
+// a `Slot` whose one read is `take()`, so the value leaves the frame and dies
+// as an ordinary statement temporary. The UNWRAPPED shape below did not, and
+// the reason it was DF-217m's rather than that row's: unwrapping projects
+// the payload out and leaves the optional itself as a temporary nobody
+// registers, which the SYNC twin leaked OUTRIGHT (no coroutine anywhere).
+// Stage 2 kept that read a borrow deliberately — a late release beats no
+// release. Stage D leaves the READ alone and moves only the husk's lifetime:
+// a clear at the end of the statement the hoist lifted the temp from.
+//
+// Sweep S2 rows b1-b4/m7. `mk(10).describe()` hoists the receiver into a frame
+// temp, and that temp used to be a frame local for the rest of the function:
+// the value was released exactly once, but at teardown rather than at the end
+// of the statement that produced it. Both shapes now print their `deinit`
+// BEFORE the line that uses the result, which is what the non-suspending twin
+// does.
+//
+// Same `_anf_lift` temp-lifecycle chokepoint as the argument positions (see
+// `coro_hoisted_call_arg_consumed_once.saw`), on its non-consuming face:
+// nothing double-freed here, deterministic destruction just stopped being
+// deterministic — a `File` or a `TcpStream` built this way stayed open for the
+// rest of the frame.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// deinit 10
+// x=10
+// deinit 44
+// n=44
+// done
+
+import std.task.{yield_now}
+
+struct Res { n: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.n}") }
+}
+extension Res {
+    func describe(&self) -> Int { self.n }
+}
+
+func mk(n: Int) -> Res {
+    yield_now()
+    Res(n: n)
+}
+
+func mk_opt(n: Int) -> Res? {
+    yield_now()
+    Res(n: n)
+}
+
+func call_result_receiver() {
+    let x = mk(10).describe()
+    print("x={x}")
+}
+
+func forced_optional_receiver() {
+    let n = mk_opt(44)!.describe()
+    print("n={n}")
+}
+
+func main() {
+    call_result_receiver()
+    forced_optional_receiver()
+    print("done")
+}

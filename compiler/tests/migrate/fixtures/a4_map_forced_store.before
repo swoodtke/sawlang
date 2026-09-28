@@ -1,0 +1,6 @@
+func main() {
+    var m = Map<String, Int>()
+    let _ = m.insert("k", 1)
+    m["k"]! = 5
+    print(m.len())
+}

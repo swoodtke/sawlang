@@ -1,0 +1,16 @@
+// Test sizeof<T>() with generic type parameters
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 8
+// 4
+// 1
+
+func get_size<T>() -> Int {
+    sizeof<T>()
+}
+
+func main() {
+    print(get_size<Int>())    // 8
+    print(get_size<Int32>())  // 4
+    print(get_size<Int8>())   // 1
+}

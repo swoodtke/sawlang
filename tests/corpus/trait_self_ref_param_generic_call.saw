@@ -1,0 +1,35 @@
+// A trait requirement may name `&Self` as a parameter type, and a call through
+// a generic bound passes the borrow — spelled, like every other reference
+// argument in Saw (design 34). This is the path generic `T: Comparable` code
+// takes, so design 239 rests on it.
+//
+// DF-239a was filed against the spelling WITHOUT the `&`, on the reading that
+// substitution had dropped the wrapper. It had not: the capability below has
+// always worked. What was broken is that `a.merge(b)` — a plain missing borrow
+// — was not diagnosed at all, because the generic-bound call path checks
+// argument COUNT and nothing else, so the mismatch reached codegen as an ICE.
+// `errors/generic_bound_call_borrow_spelling.saw` pins the diagnostic that
+// replaced it.
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+trait Merges {
+    func merge(&self, other: &Self) -> Int
+}
+
+struct Bag {
+    n: Int
+}
+
+extension Bag: Merges {
+    func merge(&self, other: &Self) -> Int { self.n + other.n }
+}
+
+func combine<T: Merges>(a: &T, b: &T) -> Int {
+    a.merge(&b)
+}
+
+func main() {
+    let x = Bag(n: 3)
+    let y = Bag(n: 4)
+    print(combine(&x, &y))
+}

@@ -1,0 +1,111 @@
+// Conformance row V79 — every construct that hands a BLOCK TAIL on as its
+// value is a transfer site: `if`, `if let`, `match`, an inline `catch`, a
+// `try { } catch { }` block, and `break <value>`
+//
+// DF-299b's obligation-4 sweep, second axis. The filing named the value `if`;
+// the mechanism is "a value-branch arm's tail is not a transfer site", so the
+// question is which constructs have such a tail. Six do, and every one of them
+// was open.
+//
+// `break <value>` is the one that mattered most and the one the funnel could
+// not reach: its home is the LOOP's merged value, not an enclosing expression,
+// so it takes the checkpoint at the `break` itself. It was also the only face
+// that ABORTED rather than leaking — `let b = while { break a }` gave two
+// names one value and both ran `deinit`, a real double free (SIGABRT at exit),
+// where the branch faces lost a drop instead.
+//
+// The two error-handling constructs are here because a `catch` block's tail is
+// an arm of a value branch exactly as an `else` block's is; nothing about the
+// error path earns a different rule. Nesting is a row too, since a branch whose
+// arm is another branch is just an arm result that is itself a branch.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Res` which implements NoCopy
+// EXPECT-ERROR-CONTAINS: use `move` to transfer ownership instead
+
+struct Bad { code: Int }
+extension Bad: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+extension Bad: Error {}
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func fail() -> Result<Res, Bad> { return Bad(code: 1) }
+
+func value_if() -> Int {
+    let a = Res(w: 7)
+    let b = if true { a } else { a }         // error
+    a.w + b.w
+}
+
+func value_if_let() -> Int {
+    let a = Res(w: 7)
+    let o: Int? = 3
+    let b = if let n = o { a } else { a }    // error
+    a.w + b.w
+}
+
+func value_match_block_arms() -> Int {
+    let a = Res(w: 7)
+    let n = 1
+    let b = match n {
+        case 1 -> {
+            print("arm one")
+            a                                // error: a BLOCK arm's tail
+        },
+        case _ -> {
+            print("arm two")
+            a                                // error
+        }
+    }
+    a.w + b.w
+}
+
+func inline_catch() -> Int {
+    let a = Res(w: 7)
+    let b = try fail() catch { a }           // error: the handler's tail
+    a.w + b.w
+}
+
+func try_catch_block() -> Int {
+    let a = Res(w: 7)
+    let b = try {
+        try fail()
+    } catch {
+        a                                    // error
+    }
+    a.w + b.w
+}
+
+func break_value() -> Int {
+    let a = Res(w: 7)
+    let b = while {
+        break a                              // error: the LOOP's merged home
+    }
+    a.w + b.w
+}
+
+func nested_branches() -> Int {
+    let a = Res(w: 7)
+    let b = if true {
+        match 1 {
+            case 1 -> a,                     // error: an arm of an arm
+            case _ -> a                      // error
+        }
+    } else { a }                             // error
+    a.w + b.w
+}
+
+func main() {
+    print("{}", value_if())
+    print("{}", value_if_let())
+    print("{}", value_match_block_arms())
+    print("{}", inline_catch())
+    print("{}", try_catch_block())
+    print("{}", break_value())
+    print("{}", nested_branches())
+}

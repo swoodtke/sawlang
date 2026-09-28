@@ -1,0 +1,10 @@
+// Design 54: the old `HashMap` name is retired — it was renamed to `Map` (the
+// one dictionary type). Using `HashMap` is now a clean undefined-name error, not
+// a silent alias.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: undefined function `HashMap`
+
+func main() {
+    var m = HashMap<Int, Int>()
+    print(m.len())
+}

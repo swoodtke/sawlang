@@ -1,0 +1,149 @@
+// SL-339: a `move` of a frame local in the BODY of a suspension-SPANNING
+// `try { } catch { }` relinquishes the frame's claim on BOTH edges out of the
+// call — the ERROR edge as well as the straight-line one.
+//
+// THE RULE. `move r` hands ownership to the callee AT THE CALL, so the value is
+// gone whichever way control leaves afterwards. A leaf statement's lowering
+// emits the drop-flag clear as a TRAILING statement, which is correct and
+// sufficient for a straight-line edge (it is where SL-234 put it); a statement
+// inside a split try body then gets wrapped by `_emit_try_landing` in a
+// synthesized `try { <it> } catch { … }` whose error edge leaves BEFORE the
+// clear is reached, and `_emit_try_propagate` wraps the same way for a `try`
+// that leaves the coroutine entirely. Both edges now re-emit the clears that
+// `_trailing_forgets` recorded while the statement lowered, so exactly one runs
+// per path. Before that the error edge left the claim standing and frame
+// teardown destroyed what the callee had already destroyed — silent, exit 0.
+//
+// WHY THIS FILE EXISTS. Measured on MAIN with the BLOCK spelling, so the defect
+// is older than design 275 U3; what U3 changed is the REACH, by routing the
+// INLINE `try EXPR catch { … }` through the same split (SL-215) and by charging
+// a collection `for`'s back-edge (SL-317) so such a loop spans. These two bodies
+// are the inline spelling, and they also sit as the `try_break` / `try_continue`
+// cells of `examples/coro_head_move_relinquishes_before_early_exit.saw`.
+//
+// THE ORACLE IS THE DROP COUNT: one `Res` per iteration, destroyed exactly once,
+// in the callee.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// drop old
+// 2
+// drop old
+// drop old
+// 3
+// drop blk
+// 100
+// drop let
+// 200
+// drop prop
+// prop err fail
+// drop ret
+// ret err fail
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+struct Bad { why: String }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.why) }
+}
+
+func note(r: &Res) -> Int { r.name.len() }
+func consume(r: Res) -> Result<Void, Bad> { Bad(why: "fail") }
+
+func try_break(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        try consume(move r) catch { break }
+    }
+    2
+}
+
+func try_continue(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        try consume(move r) catch { continue }
+    }
+    3
+}
+
+// --- the BLOCK spelling, which is where SL-339 was measured on main ----------
+
+func consume_int(r: Res) -> Result<Int, Bad> { Bad(why: "fail") }
+
+func block_body(items: Vector<Int>) -> Int {
+    var n = 0
+    try {
+        yield_now()
+        for i in items.iter() {
+            var r = Res(name: "blk")
+            if note(&r) + i < 0 { return -1 }
+            try consume(move r)
+            n = n + 1
+        }
+    } catch { n = 100 }
+    n
+}
+
+// The same edge reached from a `let` rather than a bare expression statement:
+// `_trailing_forgets` has one entry per leaf statement kind, and this is the
+// second of them.
+func block_let(items: Vector<Int>) -> Int {
+    var n = 0
+    try {
+        yield_now()
+        for i in items.iter() {
+            var r = Res(name: "let")
+            if note(&r) + i < 0 { return -1 }
+            let v = try consume_int(move r)
+            n = n + v
+        }
+    } catch { n = 200 }
+    n
+}
+
+// --- the OTHER edge: no enclosing catch, so the `try` leaves the COROUTINE ---
+// (`_emit_try_propagate`, whose landing is the frame's own done sequence).
+
+func propagate_body(items: Vector<Int>) -> Result<Int, Bad> {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "prop")
+        if note(&r) + i < 0 { return -1 }
+        try consume(move r)
+    }
+    5
+}
+
+// …and through `return try f(move r)`, whose trailing clears are `_done_seq`'s.
+func propagate_return(items: Vector<Int>) -> Result<Int, Bad> {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "ret")
+        if note(&r) + i < 0 { return -1 }
+        return try consume_int(move r)
+    }
+    6
+}
+
+func main() {
+    print(__saw_drive(try_break([1, 2])))
+    print(__saw_drive(try_continue([1, 2])))
+    print(__saw_drive(block_body([1, 2])))
+    print(__saw_drive(block_let([1, 2])))
+    match __saw_drive(propagate_body([1, 2])) {
+        case Ok(v) -> print("prop ok {v}"),
+        case Err(e) -> print("prop err {e}")
+    }
+    match __saw_drive(propagate_return([1, 2])) {
+        case Ok(v) -> print("ret ok {v}"),
+        case Err(e) -> print("ret err {e}")
+    }
+}

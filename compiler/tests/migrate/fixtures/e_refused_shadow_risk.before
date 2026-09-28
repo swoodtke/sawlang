@@ -1,0 +1,10 @@
+import std.mutex.{Mutex}
+
+func main() {
+    let m = Mutex<Int>(value: 1)
+    for c in 0..2 {
+        print(c)
+    }
+    let seen = m.lock { &var c in c + 1 }
+    print(seen)
+}

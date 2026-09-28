@@ -1,0 +1,15 @@
+// Design 63 Part 1: distinct-alias projection works for a non-Int primitive
+// underlying — here Bool (identity reinterpretation, same layout).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// true
+// false
+
+type Flag = Bool
+
+func main() {
+    let on: Flag = true
+    let off: Flag = false
+    print(on as Bool)    // true
+    print(off as Bool)   // false
+}

@@ -1,0 +1,30 @@
+// Design 53 Part 1: default parameter values on a method and on an init.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 15
+// 25
+// 8
+// 3
+
+struct Adder { base: Int }
+
+extension Adder {
+    init(seed: Int = 3) -> Adder {
+        Adder(base: seed)
+    }
+    func add(&self, y: Int = 5) -> Int {
+        self.base + y
+    }
+}
+
+func main() {
+    let a = Adder(base: 10)
+    print(a.add())        // 10 + 5
+    print(a.add(15))      // 10 + 15
+
+    let d = Adder(seed: 8)  // explicit init arg
+    print(d.base)           // 8
+
+    let e = Adder()         // init default seed = 3
+    print(e.base)           // 3
+}

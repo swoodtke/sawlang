@@ -1,0 +1,8 @@
+//! Fixture for the graph-shapes grid's 3-cycle row (design 235). Closes the
+//! cycle back to `a`.
+// EXPECT: skip
+
+import modules.graphcyc3.a.{alpha}
+
+public func gamma() -> Int { 3 }
+func use_alpha() -> Int { alpha() }

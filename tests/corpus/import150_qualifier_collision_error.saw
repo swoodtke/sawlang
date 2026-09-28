@@ -1,0 +1,15 @@
+// Design 150 pin 5: two imports binding one qualifier is an error AT THE
+// IMPORT, naming both paths. Reporting it at the use site could only say the
+// qualifier reached the wrong module — which is the wrong place to learn that
+// two imports disagree about a name. `as` is the fix, and the hint says so.
+// COMPILE-FLAGS: --module-path data={TESTDIR}/modules/import150_dup
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: two imports bind the qualifier `data`
+// EXPECT-ERROR-CONTAINS: `std.data` and `data`
+// EXPECT-ERROR-CONTAINS: rename one with `as`
+import std.data
+import data
+
+func main() {
+    print("{data.tripled(14)}")
+}

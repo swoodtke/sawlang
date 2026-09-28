@@ -1,0 +1,27 @@
+// Test: Re-exported modules are accessible via parent module
+// EXPECT: success
+// EXPECT-OUTPUT: 77
+// EXPECT-OUTPUT: 8
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 6
+
+import mod
+
+func main() {
+    // Access local function from mod
+    print(mod.mod_func())  // 77
+
+    // Access function from re-exported lib via mod.lib
+    let sum = mod.lib.add(3, 5)
+    print(sum)  // 8
+
+    // Access struct from re-exported lib
+    let p = mod.lib.Point(x: 3, y: 4)
+    print(p.x)  // 3
+
+    // Call static method on re-exported struct
+    let p2 = mod.lib.Point.create(val: 3)
+    print(p2.x)  // 3
+    print(p2.sum())  // 6
+}

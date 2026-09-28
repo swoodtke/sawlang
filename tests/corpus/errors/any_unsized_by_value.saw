@@ -1,0 +1,14 @@
+// design 51 unsized discipline: a bare `any Shape` by-value parameter is
+// rejected — an erased value must live behind `&any` or `Box<any>`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: unsized
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+func use(x: any Shape) {
+}
+
+func main() {
+}
