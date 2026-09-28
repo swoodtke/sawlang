@@ -679,16 +679,31 @@ modules also defeat the checker's own name resolution.
 ### S23. An owned temporary as a comparison operand, or a receiver in a control-flow head (SL-404)
 
 **Shape (leak only), two halves:**
-- **A comparison operand, anywhere.** A fresh owned value (a `String`, a struct
-  holding one, a `String?`) that is an operand of `==`, `!=`, `<` or another
-  comparison leaks on every evaluation, in any position, with no head and no
-  early return needed: `let b = f() == x` leaks too. `for _ in 0..1000000 { let
-  _ = s.substring(1, 6) == "zzzzz" }` leaks 32 bytes per iteration at -O2 and
-  -O0, and nothing when the substring is bound to a `let` first (SL-404 c2,
-  main 3cbb4dea). Codegen never registers a comparison operand as a statement
-  temporary, and it retains a fresh right operand that has no owner. In
-  sawtracker this cost 3.5 GB at startup: a byte-at-a-time `find` compared a
-  fresh substring at every position of 114 MB of journal.
+- **A comparison operand, anywhere.** An owned operand of `==`, `!=`, `<` or
+  another comparison (a `String`, a struct holding one, a `String?`) leaks its
+  buffer unless the operand is a named place or a literal. It leaks in any
+  position, with no head and no early return needed.
+  - **Leaks, once per evaluation:**
+    - a call result: `f() == x`, `s.substring(1, 6) == "zzzzz"`;
+    - a subscript read: `v[i] == "x"`, `m["k"]! == "x"`, `v.get(i)! == "x"`;
+    - a field reached through a subscript: `v[i].text == "x"`, and a parser's
+      `self.toks[self.pos].text == word`;
+    - an interpolation: `req.token != "Bearer {token}"`.
+  - **Does not leak:**
+    - a named place: a local, a parameter, a field path (`t.text`), a tuple
+      field, and `o!` on a bound optional;
+    - a literal;
+    - a call or subscript that is only a receiver inside a trivial operand:
+      `v[i].len() == 99`.
+
+  `for _ in 0..1000000 { let _ = s.substring(1, 6) == "zzzzz" }` leaks 32 bytes
+  per iteration at -O2 and -O0, and nothing when the substring is bound to a
+  `let` first (SL-404 c2). A container that outlives its comparisons leaks once
+  per distinct element compared, since the element's buffer is over-retained.
+  Codegen never registers a comparison operand as a statement temporary, and it
+  retains the right operand even when nothing owns it. In sawtracker this cost
+  3.5 GB at startup: a byte-at-a-time `find` compared a fresh substring at every
+  position of 114 MB of journal. The measurements are in chat f13.
 - **A receiver in a control-flow head.** A temporary receiver the head does not
   bind is dropped late, and an early `return` skips the drop, with or without a
   `try`: `if make_res("x").size() > 0 { return 1 }` in the head of an `if`,
@@ -698,14 +713,16 @@ modules also defeat the checker's own name resolution.
 A temporary passed by value as an argument is dropped by its callee. An owned
 `match` or `if let` scrutinee that the pattern binds drops correctly.
 
-**Instead:** bind a fresh owned comparison operand to a `let` first, always,
-not only where it seems to matter. Bind a head's temporary receiver to a `let`
-before the head.
+**Instead:** a comparison operand that is not a named place or a literal is
+bound to a `let` first, always: `let text = self.toks[self.pos].text` and then
+`text == word`. Bind a head's temporary receiver to a `let` before the head.
 
-**Checker:** no, pending the user: the entry is leak only, and leak-only
-entries get no rule (the Stage 1 leak ruling). The operand half is the one
-worth reconsidering, because a lexer or parser comparing fresh token text in
-its hot loop would leak per token over every file Stage 1 compiles.
+**Checker:** no, pending the user. The entry is leak only, and leak-only entries
+get no rule (the Stage 1 leak ruling). The operand half is the one worth
+reconsidering: a parser comparing token text through a subscript leaks per
+token, over every file Stage 1 compiles. A rule would refuse a call, a subscript
+read and an interpolation as an owned comparison operand in `compiler/`. Today
+`compiler/lex` and `compiler/driver` compare bytes as `Int`, so they are clean.
 
 ## Loud hazards
 
