@@ -1280,7 +1280,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-401 | S21 A line break inside an interpolation | silent (found in the compiler-skeleton review) |
 | SL-402 | L18 An extension of a generic type without its parameters | loud (found in the compiler-skeleton review) |
 | SL-403 | S22 Types declared in an inline module | silent, leak only (found in the compiler-skeleton review) |
-| SL-404 | S23 An owned temporary as a comparison operand, or a receiver in a control-flow head | silent, leak only (found in the compiler-skeleton review; widened by SL-404 c2) |
+| SL-404 | S23 An owned temporary as a comparison operand, or a receiver in a control-flow head | silent, leak only (found in the compiler-skeleton review; widened by sawtracker's ST-64) |
 | SL-407 | L19 A receiver outside a method | loud (found by the grammar-rulings work) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
