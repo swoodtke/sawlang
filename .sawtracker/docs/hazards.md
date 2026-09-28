@@ -676,56 +676,52 @@ scope and name-resolution findings, and the compiler source needs none.
 The drop failure alone is **leak only**. The refusal stands because inline
 modules also defeat the checker's own name resolution.
 
-### S23. An owned temporary as a comparison operand, or a receiver in a control-flow head (SL-404)
+### S23. An owned value consumed without a binding: comparison operands, interpolation segments, format arguments, or a head's receiver (SL-404)
 
-**Shape (leak only), two halves:**
-- **A comparison operand, anywhere.** An owned operand of `==`, `!=`, `<` or
-  another comparison (a `String`, a struct holding one, a `String?`) leaks its
-  buffer unless the operand is a named place or a literal. It leaks in any
-  position, with no head and no early return needed.
-  - **Leaks, once per evaluation:**
-    - a call result: `f() == x`, `s.substring(1, 6) == "zzzzz"`;
-    - a subscript read: `v[i] == "x"`, `m["k"]! == "x"`, `v.get(i)! == "x"`;
-    - a field reached through a subscript: `v[i].text == "x"`, and a parser's
-      `self.toks[self.pos].text == word`;
-    - an interpolation: `req.token != "Bearer {token}"`.
-  - **Does not leak, in a sync function:**
-    - a named place: a local, a parameter, a field path (`t.text`), a tuple
-      field, and `o!` on a bound optional. In a coroutine a named place is read
-      out of a frame slot as a fresh value, so it leaks too, and binding to a
-      `let` does not help there (chat m249). The self-hosted compiler is
-      sync-only, so this part does not reach Stage 1;
-    - a literal;
-    - a call or subscript that is only a receiver inside a trivial operand:
-      `v[i].len() == 99`.
+**Mechanism.** The frozen compiler's owned-temporary check (`_is_owned_temporary`) lists the positions that consume a value without binding it:
+- a member-access object;
+- a method-call receiver;
+- an `is_some`/`is_none` receiver;
+- an expression statement;
+- an `if let`/`guard let` scrutinee;
+- a `match` scrutinee.
 
-  `for _ in 0..1000000 { let _ = s.substring(1, 6) == "zzzzz" }` leaks 32 bytes
-  per iteration at -O2 and -O0, and nothing when the substring is bound to a
-  `let` first (SL-404 c2). A container that outlives its comparisons leaks once
-  per distinct element compared, since the element's buffer is over-retained.
-  Codegen never registers a comparison operand as a statement temporary, and it
-  retains the right operand even when nothing owns it. In sawtracker this cost
-  3.5 GB at startup: a byte-at-a-time `find` compared a fresh substring at every
-  position of 114 MB of journal. The measurements are in chat f13.
-- **A receiver in a control-flow head.** A temporary receiver the head does not
-  bind is dropped late, and an early `return` skips the drop, with or without a
-  `try`: `if make_res("x").size() > 0 { return 1 }` in the head of an `if`,
-  `while`, `match` or `for`. In `leaks --atExit` over 1000 calls it counts 1001
-  leaks against a by-value argument's baseline of 1 (main 2fa71814).
+Three more positions consume without binding and are missing from that list: a comparison operand, an interpolation segment, and a format argument of `print`, `panic` or `assert`. There, an owned value (a `String`, a struct holding one, a `String?`) is never released. On a comparison, the right operand is also retained even when nothing owns it.
 
-A temporary passed by value as an argument is dropped by its callee. An owned
-`match` or `if let` scrutinee that the pattern binds drops correctly.
+**Shape (leak only):**
+- **What leaks, at those three positions:** an operand that is not a named place or a literal.
+  - a call result: `f() == x`, `"{pad2(m)}"`, `print("{}", make(n: i))`;
+  - a subscript read, including a field reached through one: `v[i] == "x"`, `m["k"]! == "x"`, `v.get(i)! == "x"`, `"{v[0]}"`, and a parser's `self.toks[self.pos].text == word`;
+  - an interpolation used as a comparison operand: `req.token != "Bearer {token}"`.
 
-**Instead:** a comparison operand that is not a named place or a literal is
-bound to a `let` first, always: `let text = self.toks[self.pos].text` and then
-`text == word`. Bind a head's temporary receiver to a `let` before the head.
+  A call result leaks once per evaluation. A subscript read of a container that outlives its uses leaks once per distinct element, because the element's buffer is over-retained.
+- **What does not leak, in a sync function:**
+  - a named place: a local, a parameter, a field path (`t.text`), a tuple field, `o!` on a bound optional;
+  - a literal;
+  - a call or subscript that is only a receiver inside a trivial operand: `v[i].len() == 99`.
+- **In a coroutine** a named place is read out of a frame slot as a fresh value, so it leaks at these positions too, and binding to a `let` does not help (chat m249). The self-hosted compiler is sync-only, so this does not reach Stage 1.
+- **A receiver in a control-flow head.** A temporary receiver the head does not bind is dropped late, and an early `return` skips the drop, with or without a `try`: `if make_res("x").size() > 0 { return 1 }` in the head of an `if`, `while`, `match` or `for`. Over 1000 calls, `leaks --atExit` counts 1001 leaks, against a by-value argument's baseline of 1.
 
-**Checker:** no, pending the user. The entry is leak only, and leak-only entries
-get no rule (the Stage 1 leak ruling). The operand half is the one worth
-reconsidering: a parser comparing token text through a subscript leaks per
-token, over every file Stage 1 compiles. A rule would refuse a call, a subscript
-read and an interpolation as an owned comparison operand in `compiler/`. Today
-`compiler/lex` and `compiler/driver` compare bytes as `Int`, so they are clean.
+A temporary passed by value as an argument is dropped by its callee. An owned `match` or `if let` scrutinee that the pattern binds drops correctly. `StringBuilder.append` transfers its argument and does not leak.
+
+**Evidence.**
+- **Comparisons.** `for _ in 0..1000000 { let _ = s.substring(1, 6) == "zzzzz" }` leaks 32 bytes per iteration at -O2 and -O0, and nothing when the substring is bound first (SL-404 c2). In sawtracker this cost 3.5 GB at startup: a byte-at-a-time `find` compared a fresh substring at every position of 114 MB of journal.
+- **Segments.** `"{pad2(m)}-{pad2(m + 1)}"` and `"{v[0]}-{v[1]}"` each leak 2 per evaluation in sync code, and 0 with the segments bound first.
+- **Format arguments,** measured by the lead over 2,000 iterations:
+  - `print("{}", make(n: i))` leaks 1,999;
+  - `print("{}", v[i % 2])` leaks 2, once per distinct element;
+  - `let s = make(n: i)` then `print("{}", s)` leaks 0.
+- The census tool asks `_is_owned_temporary` at every comparison operand whose type needs cleanup. Excluding string literals, its answer matches every probe, leaking and not. Measurements and the tool are in chat f13 and f14.
+
+**Instead:**
+- **In sync code, and so in all of Stage 1:** at a comparison, an interpolation segment or a format argument, an operand that is not a named place or a literal is bound to a `let` first, always. For example, `let text = self.toks[self.pos].text`, then `text == word`.
+- **In a coroutine,** where binding does not help: use the receiver form `a.equals(b)` or `not a.equals(b)`, a `match` on the value, or a synchronous helper that does the check or builds the string.
+- **In a control-flow head:** bind a temporary receiver to a `let` before the head.
+
+**Checker:** no, pending the user. The entry is leak only, and leak-only entries get no rule (the Stage 1 leak ruling).
+- **The case for an exception.** A parser comparing token text through a subscript, or a dump or diagnostic interpolating `"{kind_name(t.kind)} {t.text}"`, leaks per token over every file Stage 1 compiles.
+- **An exact rule:** refuse an owned operand that `_is_owned_temporary` accepts, at a comparison, an interpolation segment or a format argument in `compiler/`. String literals are exempt, since they are static.
+- **Today:** that predicate finds 0 leaking comparison operands in sawc2 (the driver, the lexer and the std they use). `compiler/lex` compares bytes as `Int` and builds records with `StringBuilder.append`.
 
 ## Loud hazards
 
@@ -1300,7 +1296,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-401 | S21 A line break inside an interpolation | silent (found in the compiler-skeleton review) |
 | SL-402 | L18 An extension of a generic type without its parameters | loud (found in the compiler-skeleton review) |
 | SL-403 | S22 Types declared in an inline module | silent, leak only (found in the compiler-skeleton review) |
-| SL-404 | S23 An owned temporary as a comparison operand, or a receiver in a control-flow head | silent, leak only (found in the compiler-skeleton review; widened by sawtracker's ST-64) |
+| SL-404 | S23 An owned value consumed without a binding: comparison operands, interpolation segments, format arguments, or a head's receiver | silent, leak only (found in the compiler-skeleton review; widened by sawtracker's ST-64) |
 | SL-407 | L19 A receiver outside a method | loud (found by the grammar-rulings work) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
