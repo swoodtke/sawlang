@@ -676,22 +676,36 @@ scope and name-resolution findings, and the compiler source needs none.
 The drop failure alone is **leak only**. The refusal stands because inline
 modules also defeat the checker's own name resolution.
 
-### S23. An owned temporary in a control-flow head (SL-404)
+### S23. An owned temporary as a comparison operand, or a receiver in a control-flow head (SL-404)
 
-**Shape (leak only):** a temporary the head does not bind is dropped late, and
-an early `return` skips the drop, with or without a `try`. That covers a
-receiver (`if make_res("x").size() > 0 { return 1 }`) and an operator operand
-(`if make_s(k) == "never" { … }`) in the head of an `if`, `while`, `match` or
-`for`. A temporary passed by value as an argument is dropped by its callee. An
-owned `match` or `if let` scrutinee that the pattern binds drops correctly. In
-`leaks --atExit` over 1000 calls, an operand counts 2001 leaks (two heads per
-call), a receiver 1001, and a by-value argument 1, the baseline (reproduced on
-main 2fa71814).
+**Shape (leak only), two halves:**
+- **A comparison operand, anywhere.** A fresh owned value (a `String`, a struct
+  holding one, a `String?`) that is an operand of `==`, `!=`, `<` or another
+  comparison leaks on every evaluation, in any position, with no head and no
+  early return needed: `let b = f() == x` leaks too. `for _ in 0..1000000 { let
+  _ = s.substring(1, 6) == "zzzzz" }` leaks 32 bytes per iteration at -O2 and
+  -O0, and nothing when the substring is bound to a `let` first (SL-404 c2,
+  main 3cbb4dea). Codegen never registers a comparison operand as a statement
+  temporary, and it retains a fresh right operand that has no owner. In
+  sawtracker this cost 3.5 GB at startup: a byte-at-a-time `find` compared a
+  fresh substring at every position of 114 MB of journal.
+- **A receiver in a control-flow head.** A temporary receiver the head does not
+  bind is dropped late, and an early `return` skips the drop, with or without a
+  `try`: `if make_res("x").size() > 0 { return 1 }` in the head of an `if`,
+  `while`, `match` or `for`. In `leaks --atExit` over 1000 calls it counts 1001
+  leaks against a by-value argument's baseline of 1 (main 2fa71814).
 
-**Instead:** bind the temporary with a `let` before the head, where it
-matters.
+A temporary passed by value as an argument is dropped by its callee. An owned
+`match` or `if let` scrutinee that the pattern binds drops correctly.
 
-**Checker:** no: leak only.
+**Instead:** bind a fresh owned comparison operand to a `let` first, always,
+not only where it seems to matter. Bind a head's temporary receiver to a `let`
+before the head.
+
+**Checker:** no, pending the user: the entry is leak only, and leak-only
+entries get no rule (the Stage 1 leak ruling). The operand half is the one
+worth reconsidering, because a lexer or parser comparing fresh token text in
+its hot loop would leak per token over every file Stage 1 compiles.
 
 ## Loud hazards
 
@@ -1266,7 +1280,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-401 | S21 A line break inside an interpolation | silent (found in the compiler-skeleton review) |
 | SL-402 | L18 An extension of a generic type without its parameters | loud (found in the compiler-skeleton review) |
 | SL-403 | S22 Types declared in an inline module | silent, leak only (found in the compiler-skeleton review) |
-| SL-404 | S23 An owned temporary in a control-flow head | silent, leak only (found in the compiler-skeleton review) |
+| SL-404 | S23 An owned temporary as a comparison operand, or a receiver in a control-flow head | silent, leak only (found in the compiler-skeleton review; widened by SL-404 c2) |
 | SL-407 | L19 A receiver outside a method | loud (found by the grammar-rulings work) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
