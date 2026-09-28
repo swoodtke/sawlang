@@ -81,3 +81,51 @@ func f() {
 func f() {
     let a = buf[4..=]
 }
+
+// case: syntax.rule.block-tail/while-then-a-binary-operator
+func f() {
+    while a { } + 1
+}
+
+// case: syntax.rule.block-tail/for-then-a-binary-operator
+func f() {
+    for x in y { } + 1
+}
+
+// case: syntax.rule.block-tail/loop-then-a-member-hop
+func f() {
+    while a { }.b
+}
+
+// case: syntax.rule.block-tail/loop-then-a-subscript
+func f() {
+    for x in y { }[0]
+}
+
+// case: syntax.rule.block-tail/while-let-then-a-cast
+func f() {
+    while let x = y { } as T
+}
+
+// case: syntax.rule.block-tail/loop-then-a-coalesce
+func f() {
+    for x in y { } ?? b
+}
+
+// case: syntax.rule.block-tail/loop-continuing-at-a-closure-tail
+func f() {
+    let g = { while a { } + 1 }
+}
+
+// case: syntax.rule.block-tail/loop-continuing-in-an-arm-body
+// A statement arm means what the same statement in braces means.
+func f() {
+    match m {
+        case _ -> for x in y { }.b
+    }
+}
+
+// case: syntax.rule.block-tail/loop-starting-an-assignment-target
+func f() {
+    while a { }.b = 1
+}

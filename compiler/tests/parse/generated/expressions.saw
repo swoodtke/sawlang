@@ -1033,30 +1033,11 @@ func a() { { b,
 // case: syntax.expr.closure/alt
 func a() { { } }
 
-// case: syntax.expr.closure/rep:1:NEWLINE*=0
+// case: syntax.expr.closure/opt:1:(NEWLINE* closure-head)?=absent
 func a() { { } }
 
-// case: syntax.expr.closure/rep:1:NEWLINE*=1
-func a() { {
-        b in } }
-
-// case: syntax.expr.closure/rep:1:NEWLINE*=many
-func a() { {
-
-
-        b in } }
-
-// case: syntax.expr.closure/opt:2:closure-head?=absent
-func a() { { } }
-
-// case: syntax.expr.closure/opt:2:closure-head?=present
+// case: syntax.expr.closure/opt:1:(NEWLINE* closure-head)?=present
 func a() { { b in } }
-
-// case: syntax.expr.closure/pair:1:NEWLINE*=many,2:closure-head?=present
-func a() { {
-
-
-        b in } }
 
 // case: syntax.expr.closure-head.captures/alt
 func a() { { [b] in } }
@@ -1074,9 +1055,6 @@ func a() { { [b]
 
         in } }
 
-// case: syntax.expr.closure-head.captures/rep:3:NEWLINE*=0
-func a() { { [b] in } }
-
 // case: syntax.expr.closure-head.captures-params/alt
 func a() { { [b] c in } }
 
@@ -1093,13 +1071,7 @@ func a() { { [b]
 
         c in } }
 
-// case: syntax.expr.closure-head.captures-params/rep:4:NEWLINE*=0
-func a() { { [b] c in } }
-
 // case: syntax.expr.closure-head.params/alt
-func a() { { b in } }
-
-// case: syntax.expr.closure-head.params/rep:2:NEWLINE*=0
 func a() { { b in } }
 
 // case: syntax.expr.capture-list/alt

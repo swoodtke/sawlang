@@ -32,7 +32,7 @@ postfix_per_hop.saw: 1 tree(s)
             (IntLit 4))
           (Let.immutable
             (BindingName m)
-            (Move.place
+            (Move
               (Member
                 (Subscript.single
                   (Member (Name r) s)

@@ -1,0 +1,5 @@
+// refuses: syntax.rule.block-tail
+// verdict: FAIL 4:17 refused by syntax.rule.block-tail
+func main() {
+    while a { } + 1
+}

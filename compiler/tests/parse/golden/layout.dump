@@ -353,6 +353,57 @@
             (Block
               (ExprStmt (IntLit 0)))))))))
 
+// case: syntax.rule.block-tail/try-block-continues-on-its-line
+(File
+  (Declaration.func
+    (Func f
+      (NamedType (Path Int))
+      (Block
+        (ExprStmt
+          (Binary
+            (TryBlock
+              (Block
+                (ExprStmt
+                  (Call.paren (Name g))))
+              (Block
+                (ExprStmt (IntLit 0))))
+            +
+            (IntLit 1)))))))
+
+// case: syntax.rule.block-tail/loop-at-the-end-of-a-closure-is-a-statement
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName g)
+          (Closure
+            (ExprStmt
+              (For.plain (BindingName x) (Name y) (Block)))))))))
+
+// case: syntax.rule.block-tail/loop-as-an-arm-body-is-the-arm
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name m)
+            (MatchArm
+              (WildcardPat)
+              (While.conditional (Name a) (Block)))))))))
+
+// case: syntax.rule.block-tail/parenthesized-loop-continues
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Binary
+            (While.conditional (Name a) (Block))
+            +
+            (IntLit 1)))))))
+
 // case: syntax.rule.module-inline/brace-on-the-same-line
 (File
   (ModuleDecl.inline m

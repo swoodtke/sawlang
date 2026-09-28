@@ -19,6 +19,39 @@ refuses syntax.rule.head-restriction at 2:13
 // case: syntax.rule.head-restriction/trailing-closure-in-an-arm-guard
 refuses syntax.rule.head-restriction at 3:25
 
+// case: syntax.rule.head-restriction/trailing-closure-in-an-if-condition
+refuses syntax.rule.head-restriction at 3:14
+
+// case: syntax.rule.head-restriction/trailing-closure-in-an-else-if-condition
+refuses syntax.rule.head-restriction at 3:21
+
+// case: syntax.rule.head-restriction/trailing-closure-in-a-while-condition
+refuses syntax.rule.head-restriction at 2:13
+
+// case: syntax.rule.head-restriction/trailing-closure-on-an-if-let-subject
+refuses syntax.rule.head-restriction at 2:18
+
+// case: syntax.rule.head-restriction/trailing-closure-on-a-while-let-subject
+refuses syntax.rule.head-restriction at 2:21
+
+// case: syntax.rule.head-restriction/trailing-closure-on-a-guard-let-subject
+refuses syntax.rule.head-restriction at 2:21
+
+// case: syntax.rule.head-restriction/trailing-closure-on-a-for-iterable
+refuses syntax.rule.head-restriction at 2:16
+
+// case: syntax.rule.head-restriction/trailing-closure-after-a-match-in-an-if-condition
+refuses syntax.rule.head-restriction at 2:36
+
+// case: syntax.rule.head-restriction/trailing-closure-in-a-borrow-block-head
+refuses syntax.rule.head-restriction at 3:22
+
+// case: syntax.rule.head-restriction/generic-list-in-a-borrow-unwrap-head
+refuses syntax.rule.head-restriction at 4:28
+
+// case: syntax.rule.head-restriction/trailing-closure-in-a-borrow-for-head
+refuses syntax.rule.head-restriction at 2:27
+
 // case: syntax.rule.head-restriction/generic-list-kept-by-the-body-brace
 refuses syntax.rule.head-restriction at 2:13
 

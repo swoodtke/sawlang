@@ -373,10 +373,10 @@
       (Block
         (Let.immutable
           (BindingName a)
-          (Move.place (Name x)))
+          (Move (Name x)))
         (Let.immutable
           (BindingName b)
-          (Move.place
+          (Move
             (Member
               (Subscript.single
                 (Member (SelfExpr) buf)
@@ -384,14 +384,14 @@
               name)))
         (Let.immutable
           (BindingName c)
-          (Move.place
+          (Move
             (Deref.name (Name p))))
         (Let.immutable
           (BindingName d)
-          (Move.place (Name o) !))
+          (Move (Name o) !))
         (Let.immutable
           (BindingName e)
-          (Move.place
+          (Move
             (TupleIndex (Name t) 0)))))))
 
 // case: syntax.rule.move-place/parenthesized-move-then-a-call
@@ -403,7 +403,7 @@
           (BindingName r)
           (Call.paren
             (Member
-              (Move.place (Name b))
+              (Move (Name b))
               finish)))))))
 
 // case: syntax.rule.assignment-target/place-shapes

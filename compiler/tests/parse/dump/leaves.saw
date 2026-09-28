@@ -7,7 +7,7 @@ unsafe struct Raw {
 
 extension Raw {
     static func make(n: Int) unsafe sync -> Raw {
-        Raw(p: (n + 1_000) * 0XFF)
+        Raw(p: (n + 1_000) * 0xFF)
     }
 
     func apply(&self, f: (Int) escaping -> Int?) -> Int?? {
@@ -17,9 +17,9 @@ lines"
         f(self.p) << 2u8 >> 1
     }
 
-    // Every underscore the lexer takes is in the leaf.
+    // Every underscore is in the leaf.
     static func spelled() {
-        let n = 1_ + 0xFF_ + 2_u8 + 2__u8
-        let x = 1.0_ + 1_0.5 + t.0.1
+        let n = 0xFF_FF + 2_u8
+        let x = 1_0.5 + t.0.1
     }
 }

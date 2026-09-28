@@ -180,6 +180,29 @@ func f() -> Int {
     try { g() } catch { 0 }
 }
 
+// case: syntax.rule.block-tail/try-block-continues-on-its-line
+func f() -> Int {
+    try { g() } catch { 0 } + 1
+}
+
+// case: syntax.rule.block-tail/loop-at-the-end-of-a-closure-is-a-statement
+func f() {
+    let g = { for x in y { } }
+}
+
+// case: syntax.rule.block-tail/loop-as-an-arm-body-is-the-arm
+func f() {
+    match m {
+        case _ -> while a { }
+    }
+}
+
+// case: syntax.rule.block-tail/parenthesized-loop-continues
+// The statement starts with the parenthesis, so the loop does not start it.
+func f() {
+    (while a { }) + 1
+}
+
 // case: syntax.rule.module-inline/brace-on-the-same-line
 module m {
     func f() {

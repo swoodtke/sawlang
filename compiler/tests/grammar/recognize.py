@@ -80,6 +80,8 @@ FILTERS = [
     ("statement", "_static_assert_word", "syntax.rule.contextual-words"),
     ("arm-body", "_static_assert_word", "syntax.rule.contextual-words"),
     ("arm-body", "_arm_body", "syntax.rule.arm-body"),
+    ("statement", "_block_tail", "syntax.rule.block-tail"),
+    ("arm-body", "_block_tail", "syntax.rule.block-tail"),
     ("cast-suffix", "_cast_question", "syntax.rule.cast-target-question"),
     ("range-from", "_range_open_end", "syntax.rule.range-open-end"),
     ("range-upto", "_range_open_end", "syntax.rule.range-open-end"),
@@ -103,6 +105,9 @@ FILTERS = [
 # so do these wherever the refused token lies past the derivation.
 LOOKAHEAD_FILTERS = ("_generic_or_less", "_cast_list", "_generic_kept", "_borrow_form",
                      "_cast_question", "_range_open_end")
+# A rule a parser reports over any other that refuses another reading of the
+# same text (GRAMMAR.md section 13, syntax.rule.head-restriction).
+PRECEDENCE = ("syntax.rule.head-restriction",)
 # Rules applied outside the two tables: in `prepare`, in the chart's terminals,
 # in the head walk, and against the doc comments.
 OTHER_RULES = ("syntax.rule.generic-close-split", "syntax.rule.head-reset",
@@ -122,6 +127,9 @@ TRAILING_CALLEES = {"syntax.expr.primary.name", "syntax.expr.primary.implicit-me
 # each makes; every other hop makes a callee that takes no trailing closure.
 LEAF_HOPS = {"member-hop": "member", "optional-hop": "member", "call-hop": "call",
              "trailing-hop": "trailing"}
+# The loops, which never continue as an operand after starting a statement
+# (syntax.rule.block-tail).
+LOOPS = ("while-expr", "while-let-expr", "for-expr")
 # Inside a head, these start a fresh level where trailing closures attach again
 # (syntax.rule.head-reset): the brackets, a call's arguments, and each nested
 # brace-delimited block: a closure body, a match's arms, and every construct's
@@ -826,7 +834,7 @@ class Forest:
     rule behind a text no tree survives.
     """
 
-    def __init__(self, chart):
+    def __init__(self, chart, skip=()):
         self.c = chart
         self.memo = {}
         self.active = set()
@@ -835,7 +843,7 @@ class Forest:
         self.dead = collections.defaultdict(set)
         self.filters = collections.defaultdict(list)
         for nt, method, rule in FILTERS:
-            if applies(rule):
+            if applies(rule) and rule not in skip:
                 self.filters[nt].append((getattr(self, method), rule))
 
     def derivations(self, nt, i, j):
@@ -1093,6 +1101,19 @@ class Forest:
             return None
         return d.i
 
+    def _block_tail(self, d):
+        """A loop that starts a statement, or an arm body, is the whole of it,
+        never an operand that continues on its line (syntax.rule.block-tail).
+        Only the leftmost chain of derivations can hold a loop starting there."""
+        cur = d
+        while True:
+            first = next((k for k in cur.kids if isinstance(k, int) or k.i < k.j), None)
+            if first is None or isinstance(first, int):
+                return None
+            if first.nt in LOOPS:
+                return first.j if first.j < d.j else None
+            cur = first
+
     def _arm_body(self, d):
         """An arm body that starts with `{` is a block (syntax.rule.arm-body)."""
         if self._alt(d) != "syntax.expr.arm-body.block" and self.c.tokens[d.i].value == "{":
@@ -1298,7 +1319,7 @@ class Forest:
         suffix = g.suffix(nt, ai)
         if nt == "cast-expr":
             return cast_chain(flat)
-        if nt == "move-expr" and suffix == "place":
+        if nt == "move-expr":
             chain = nest(nodes)
             return ("node", node, tuple([toks[0], chain] + toks[1:]), suffix)
         return ("node", node, tuple(flat), suffix)
@@ -1392,6 +1413,7 @@ class Parse:
         self.chart = Chart(g, start, tokens)
         self._derivations = None
         self._forest = None
+        self._precedence = False
 
     @property
     def accepted(self):
@@ -1415,17 +1437,46 @@ class Parse:
         why = self._forest.refusal((self.start, 0, len(self.tokens)))
         if why is None:
             return None
-        at, rule = why
+        first = self.precedence()
+        at, rule = first[:2] if first else why
         t = self.tokens[min(at, len(self.tokens) - 1)]
         return "%d:%d refused by %s" % (t.line, t.column, rule)
 
     def refusal_rules(self):
         """The rules that refused some reading of a text the chart accepts and
-        the rules leave no tree, sorted; `refusal` reports the furthest."""
+        the rules leave no tree, sorted; `refusal` reports one of them."""
         if self.derivations() or self._forest is None:
             return []
-        return sorted({rule for _, rule in
-                       self._forest.refusals((self.start, 0, len(self.tokens)))})
+        rules = {rule for _, rule in self._forest.refusals((self.start, 0, len(self.tokens)))}
+        first = self.precedence()
+        return sorted(rules | {first[1]} if first else rules)
+
+    def precedence(self):
+        """(token index, rule, end of the refused derivation) for the first
+        PRECEDENCE rule that alone refuses some reading of a refused text, the
+        reading that got furthest, or None. A reading that rule alone refuses
+        is a tree of the text with the rule switched off; the refusals that
+        name it can lie inside a span another reading gives a tree, where
+        `Forest.refusals` does not look."""
+        if self._precedence is not False:
+            return self._precedence
+        self._precedence = None
+        if not self.derivations() and self._forest is not None:
+            for rule in PRECEDENCE:
+                forest = Forest(self.chart, skip={rule})
+                found = []
+                for d in forest.derivations(self.start, 0, len(self.tokens)):
+                    for x in walk_real(self.g, d):
+                        for nt, method, r in FILTERS:
+                            if r == rule and x.nt == nt:
+                                at = getattr(forest, method)(x)
+                                if at is not None:
+                                    found.append((at, x.j))
+                if found:
+                    at, end = max(found)
+                    self._precedence = (at, rule, end)
+                    break
+        return self._precedence
 
     def documented(self, derivation):
         """The token indices where a declaration a `///` run may document starts.

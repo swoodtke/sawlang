@@ -3958,6 +3958,9 @@ refuses parse-error at 1:27
 // case: syntax.expr.else-if/alt/close:15
 refuses parse-error at 2:1
 
+// case: syntax.expr.else/alt/drop:10
+refuses syntax.rule.head-restriction at 1:17
+
 // case: syntax.expr.else/alt/dup:4
 refuses parse-error at 1:10
 

@@ -119,8 +119,8 @@ whitespace, so CRLF files lex like LF files.
 | kind | spelling | notes |
 |---|---|---|
 | IDENT | an ASCII letter or `_`, then ASCII letters, digits and `_` | Keywords (§2.2) are not identifiers. Contextual words are. `_` alone is an identifier. Identifiers are ASCII only (syntax.lex.ascii-identifier). |
-| INT | decimal digits, or `0x`, `0b`, `0o` and digits of that base, with `_` separators, and an optional width suffix | Suffixes are `i8 i16 i32 i64 u8 u16 u32 u64`, optionally after one `_`. |
-| FLOAT | digits, `.`, digits | A digit is required on both sides of the point. There is no exponent and no suffix. |
+| INT | decimal digits, or the lowercase prefix `0x`, `0b` or `0o` and digits of that base, with `_` separators, and an optional width suffix | A prefix is lowercase only, so `0XFF`, `0B1` and `0O7` are refused; the digits after it are either case, as in `0xff` and `0xFF`. Suffixes are `i8 i16 i32 i64 u8 u16 u32 u64`, optionally after one `_`. A `_` separates two digits (below). |
+| FLOAT | digits, `.`, digits, with `_` separators | A digit is required on both sides of the point. There is no exponent and no suffix. A `_` separates two digits (below). |
 | STRING | `"…"` with no interpolation | The token's value is the decoded content. |
 | INTERP_STRING | `"…{…}…"` | The token carries typed segments (§2.5). |
 | DOLLAR_PARAM | `$` then digits | A closure's shorthand parameter, `$0`. |
@@ -129,6 +129,26 @@ whitespace, so CRLF files lex like LF files.
 | SHL | two `<` tokens with nothing between them, in expression position | Formed by the parser, not the lexer (§2.7). |
 | SHR | two `>` tokens with nothing between them, in expression position | Formed by the parser, not the lexer (§2.7). |
 | NON_BRACE | any token except `{`, `}` and EOF | Used only by the brace matcher of a refusal case body (§4). |
+
+In a number, a `_` is a single separator between two digits, in an integer and
+in each of a float's two digit runs alike. So `1_000`, `0xFF_FF` and `1_0.5`
+are numbers, and a `_` is refused doubled (`1__000`, `0b1__0`, `1.0__5`), right
+after a base prefix (`0x_FF`), at the end (`1_`, `0xFF_`, `1_000_`, `1.0_`) and
+beside the point (`1_.5`). The one `_` a width suffix may follow is not a
+separator: `2_u8` is a number, and `2__u8` is refused. The block below spells
+the two number tokens by character. `DIGIT` is a decimal digit, and
+`BASE_DIGIT` a digit of the base its prefix names, a hexadecimal letter in
+either case. It is not a production of the token grammar.
+
+```ebnf-lexical
+INT          ::= decimal-run width-suffix?
+               | base-prefix base-run width-suffix?
+FLOAT        ::= decimal-run "." decimal-run
+decimal-run  ::= DIGIT ( "_"? DIGIT )*
+base-run     ::= BASE_DIGIT ( "_"? BASE_DIGIT )*
+width-suffix ::= "_"? ( "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" )
+base-prefix  ::= "0x" | "0b" | "0o"
+```
 
 Every keyword, operator and delimiter is a token of its own and is written in
 the grammar as a quoted terminal:
@@ -1177,12 +1197,15 @@ lends-expr ::= 'lends' prefix-expr
 
 `move` takes a place path: a name or `self`, optionally dereferenced, then
 field, tuple-index and subscript hops, and an optional final `!`. It does not
-call, so `(move b).finish()` needs its parentheses.
+call, so `(move b).finish()` needs its parentheses. `move self` hands the whole
+receiver onward and `move self.field` one field of it. Only the body of a
+`consumes` method may move out of its receiver, and that restriction is
+semantic: the grammar accepts both forms in every body, and a later stage
+refuses them outside a consuming one.
 
 ```ebnf
 # syntax.expr.move  status=current  spec="Move-Only Types"  node=Move
 move-expr ::= "move" move-base move-hop* "!"?  @syntax.expr.move.place
-    | refused-move-self  @syntax.expr.move.refused-self
 
 # syntax.expr.move-base  status=current  spec="Pointer-place reads (`move ptr[i]`)"  node=-
 move-base ::= name-ref  @syntax.expr.move-base.name
@@ -1401,16 +1424,18 @@ set-literal ::= "{" NEWLINE* expr NEWLINE* "," NEWLINE* ( expr ( NEWLINE* "," NE
 
 A closure is a brace holding an optional capture list, optional parameters
 closed by `in`, and a statement list whose last expression statement is its
-value. Without named parameters, `$0`, `$1`, … name the parameters.
+value. Without named parameters, `$0`, `$1`, … name the parameters. The head
+ends at `in`: line breaks before it belong to the head, and those after it to
+the statement list, so each line break has one derivation.
 
 ```ebnf
 # syntax.expr.closure  status=current  spec="Capturing `self` and reference parameters"  node=Closure
-closure-literal ::= "{" NEWLINE* closure-head? block-body "}"
+closure-literal ::= "{" ( NEWLINE* closure-head )? block-body "}"
 
 # syntax.expr.closure-head  status=current  spec="Capturing `self` and reference parameters"  node=-
-closure-head ::= capture-list NEWLINE* "in" NEWLINE*  @syntax.expr.closure-head.captures
-    | capture-list NEWLINE* closure-params "in" NEWLINE*  @syntax.expr.closure-head.captures-params
-    | closure-params "in" NEWLINE*  @syntax.expr.closure-head.params
+closure-head ::= capture-list NEWLINE* "in"  @syntax.expr.closure-head.captures
+    | capture-list NEWLINE* closure-params "in"  @syntax.expr.closure-head.captures-params
+    | closure-params "in"  @syntax.expr.closure-head.params
 
 # syntax.expr.capture-list  status=current  spec="The spawn brace's capture list"  node=-
 capture-list ::= "[" capture ( "," capture )* ","? "]"
@@ -1695,9 +1720,6 @@ refused-compare-chain ::= range-expr compare-op NEWLINE* range-expr ( compare-op
 # syntax.expr.refused-ellipsis-range  status=removed  spec="Control Flow"  node=Error
 refused-ellipsis-range ::= shift-expr "..." shift-expr
 
-# syntax.expr.refused-move-self  status=removed  spec="Moving a field out"  node=Error
-refused-move-self ::= "move" "self"
-
 # syntax.expr.refused-capture-self  status=removed  spec="Capturing `self` and reference parameters"  node=Error
 refused-capture-self ::= "self"  @syntax.expr.refused-capture-self.value
     | "move" "self"  @syntax.expr.refused-capture-self.move
@@ -1767,7 +1789,6 @@ Each refused form, why it is refused, and what its diagnostic suggests:
 | syntax.expr.refused-try-route | `try!` panics and `try?` discards, so neither has an error to route, and a routed `try` leaves no error for a `catch`. | `try(as E.Case) f()` alone |
 | syntax.expr.refused-compare-chain | A comparison takes two operands. A chain would compare the first result, a `Bool`, with the next operand. | `a < b && b < c` |
 | syntax.expr.refused-ellipsis-range | Saw's ranges are `..` and `..=`; `...` only ends a variadic extern parameter list. | `a..=b` |
-| syntax.expr.refused-move-self | A receiver is borrowed. Only a consuming body moves out of it, one field at a time. | `move self.field` in a `consumes` method |
 | syntax.expr.refused-capture-self | `self` may be captured only as a borrow. | `[&self]` or `[&var self]` |
 | syntax.expr.refused-partial-named-tuple | A named tuple labels every element or none. | label every element, or none |
 | syntax.expr.refused-while-let-else | The loop ends when the binding fails, so an `else` has nothing to mean. | `if let … else` |
@@ -2013,7 +2034,7 @@ decides. The constructs column names the productions a rule governs.
 | syntax.rule.generic-or-less | syntax.expr.name, syntax.expr.member, syntax.expr.optional-member, syntax.generic.args, syntax.expr.compare, syntax.type.cast-target | After a name or a member in an expression, `<` starts a speculative generic list. It is kept only if it parses and its `>` is followed by `(`, `.`, or, where a trailing closure may attach, `{`. Otherwise the tokens are re-read as comparisons. Once kept, the list ignores line breaks, and an error inside it, such as a trailing comma, is reported rather than re-read. So `f < g > (x)` is the generic call `f<g>(x)`, `show(a < b, c > (d))` calls `a<b, c>(d)`, and `FixedBuf<1 << 4>()` compares, because a shift is not in the constant grammar. Parenthesize a comparison to force it. A `<` after a complete cast target is speculative too, and the parser decides it at the list, never after a later failure. It opens a generic list when two things hold. First, the tokens up to its `>` parse as generic arguments, with a closing `>=` or `>>=` split as in a type. Second, the token after that `>` is one the productions allow after the cast target's type: `?`, another `as`, or any token that can follow a cast expression, such as a binary operator, a closing bracket, `,`, a line break, the end of input, a head's `{`, or `else` or `case`. Otherwise the `<` compares. A list opened this way ignores line breaks, as a committed one does. So `g(x as T<a, b> - c)` casts to `T<a, b>` and subtracts `c`, `for e in xs as Vector<Int> { }` casts, and `let t = x as Map<String,` followed by `Int>` on the next line is one cast. `n as Int < lim` compares the result of the cast, because no `>` closes a list. `let t = (n as Int < lim, m >= 0)` is a tuple of two comparisons, because `=` cannot follow a cast, and `(n as Int < lim, m > 0)` is too, because `0` cannot. In every other type, `<` always opens a generic list. | Layout; SL:architecture §3.2; SL-406 c17; SL-406 c22; SL-406 c23; SL-406 c25 | current |
 | syntax.rule.generic-close-split | syntax.generic.args, syntax.generic.params, syntax.type.named | The lexer keeps longest match (syntax.lex.longest-match). Where the first `>` of a `>=` or `>>=` token closes a generic list the parser has committed to, the parser splits the token after that `>`, and splits what remains the same way when it closes an enclosing list: `let v: Vector<Int>= w` closes the list and assigns, and `let m: Map<K, Vector<V>>= w` closes both lists and assigns. `>>` needs no split, because the lexer has no `>>` token. Elsewhere longest match stands, and a warning, never an error, flags the two spellings whose longest-match reading may not be the one meant: `o!= 5`, a comparison written directly after what reads as a postfix `!`, compares where `o! = 5` writes the payload; and `a&-b`, a wrapping operator written where a unary minus could follow `&`, subtracts where `a & -b` is a bitwise and of a negation. The warnings' category name is not part of the grammar. | Appendix B: Operators; SL-400 c6 | lockdown |
 | syntax.rule.trailing-closure | syntax.expr.call, syntax.expr.trailing-call, syntax.expr.closure, syntax.expr.implicit-member | A closure literal right after a call's `)`, or right after a name, a member or an implicit member, is a trailing-closure argument when its `{` is on the same line and the position allows one (syntax.rule.head-restriction). A name takes one bare (`run { 10 }`), with or without generic arguments. Only a name, member or implicit-member callee takes a trailing closure, and `.Case` takes one exactly as `Enum.Case` does; `foo() { }` attaches to `foo`, and a general callee such as `foo()(1)` takes none. There is at most one trailing closure. A line break before the `{` ends the call. | Functions; SL-310; SL-73 | current |
-| syntax.rule.head-restriction | syntax.expr.head, syntax.expr.if-head, syntax.expr.while, syntax.expr.while-let, syntax.expr.for, syntax.expr.match, syntax.expr.arm-guard, syntax.stmt.guard, syntax.stmt.binding-subject, syntax.borrow.binding, syntax.borrow.unwrap, syntax.borrow.for | In a head context (an `if`, `else if` or `while` condition, a binding subject, a `match` scrutinee, a match-arm guard, a `for` iterable, a `borrow` head) no trailing closure attaches at the outer level, because a `{` there begins the construct's body. `if v.any { $0 } { }` is refused; write `if v.any({ $0 }) { }`. | Control Flow; SL-2 c24 | current |
+| syntax.rule.head-restriction | syntax.expr.head, syntax.expr.if-head, syntax.expr.while, syntax.expr.while-let, syntax.expr.for, syntax.expr.match, syntax.expr.arm-guard, syntax.stmt.guard, syntax.stmt.binding-subject, syntax.borrow.binding, syntax.borrow.unwrap, syntax.borrow.for | In a head context (an `if`, `else if` or `while` condition, a binding subject, a `match` scrutinee, a match-arm guard, a `for` iterable, a `borrow` head) no trailing closure attaches at the outer level, because a `{` there begins the construct's body. `if v.any { $0 } { }` is refused; write `if v.any({ $0 }) { }`. Where this rule refuses one reading of a text and another rule refuses another reading, a parser reports this rule: `if v.any { $0 } { }` is also refused as a trailing closure on the `if`, and `borrow let x = f { a } {` as a place borrow, yet each is reported as a head restriction. | Control Flow; SL-2 c24; SL-411 c1 | current |
 | syntax.rule.head-reset | syntax.expr.head, syntax.expr.paren, syntax.expr.tuple, syntax.expr.array, syntax.expr.closure, syntax.expr.args, syntax.expr.subscript, syntax.expr.interpolation, syntax.stmt.block, syntax.expr.match-arms | Inside a head, any bracket, an interpolation segment and any brace-delimited block nested in the head start a fresh level where trailing closures attach again. The nested blocks are a closure body, a `match` expression's arms, and the body of an `if`, `else`, `while`, `for`, `try`, `catch` or `borrow` construct. So `if f(v.map { $0 }) { }`, `if (v.any { $0 > 1 }) { }` and `while match mode { case Draining -> queue.any { $0.urgent }, case _ -> false } { step() }` parse. | Control Flow; SL-400 c6; SL-406 c11 | lockdown |
 | syntax.rule.interpolation-segment | syntax.expr.interpolation, syntax.expr.interp-segment | Each expression segment of an interpolated string is parsed on its own as `interp-segment`. A blank segment is a format placeholder. Positions are source positions, and the nesting depth continues from the string's. | String; SL:architecture §3.1 | current |
 | syntax.rule.static-head | syntax.decl.static, syntax.decl.method, syntax.decl.requirement, syntax.decl.refused-effect-prefix | At a top-level item, `static` followed by a name declares a static, so `static sync: Int = 0` names a static `sync`. In an extension or trait body, `static` must be followed by `func`, and marks a static method. In either place, an effect word after `static` that is followed by `func`, `init`, a visibility, `static` or another effect word begins a refused head (syntax.rule.contextual-words). | Static methods | current |
@@ -2189,12 +2210,13 @@ the two disagree, a row below says which way and why. Where a grammar rule
 | syntax.decl.refused-effect-prefix | refuses `sync`, `constexpr`, `consumes` and `const` before `func` or `init` in every head position, with the effect-slot fixit | gives a generic error in every position, such as "Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration" | ruled | Spelling |
 | syntax.decl.refused-const | refuses a top-level `const NAME: T = …` with the fixit `static` | gives the generic "Expected import, export, module, …" error | ruled | Module-level statics |
 | syntax.stmt.refused-local-const | refuses a statement `const x = 5` with the fixit `let` | reads `const` as an identifier and fails on the juxtaposition | ruled | Variables and Mutability |
+| syntax.expr.move-base.self | parses `move self` in every body, as a move of the whole receiver; a later stage refuses it outside a `consumes` method | refuses `move self` in every body with a dedicated error ("`move self` is not a receiver spelling"), consuming ones included | ruled | Moving a field out; SL-414 c1 |
 | syntax.type.ref | parses `&T` wherever a type goes | refuses a reference type outside a parameter, whatever the declaration | later | Reference passing; SL:borrowing §2.6; SL-400 c6 |
 | syntax.rule.effect-slot | parses `consumes` beside `borrows` | refuses the pair | later | Consuming method receivers (`consumes`) |
 | syntax.stmt.lend, syntax.expr.closure | parses `lend` as a closure-body statement | refuses it | later | `lend` suspends the accessor; it does not return |
 | syntax.decl.requirement | parses generic parameters on a trait requirement | refuses them | later | Traits; SL-400 c6 |
 | syntax.expr.refused-try-route | refuses a routing clause on `try!` or `try?`, and beside `catch` | parses them, and the type checker refuses them | earlier | Error routing at `try` |
-| syntax.expr.int, syntax.expr.float | refuses, in the `INT` and `FLOAT` tokens of §2.1, a width suffix after more than one `_`, as in `2__u8`, and a `_` that ends a number, as in `1_`, `0xFF_` and `1.0_`: a `_` separates digits, and a suffix follows one `_` at most | both lexers, `sawc/lexer.py` and `compiler/lex/`, accept them, reading `2__u8` as `2u8`, `1_` as `1` and `1.0_` as `1.0`; the recognizer reads their tokens, so it accepts them too | defect | Primitive Types |
+| syntax.expr.int, syntax.expr.float | refuses, in the `INT` and `FLOAT` tokens of §2.1, a `_` that does not stand between two digits: doubled (`1__000`, `0b1__0`, `1.0__5`), right after a base prefix (`0x_FF`), at the end (`1_`, `0xFF_`, `1_000_`, `1.0_`) or beside the point (`1_.5`); a width suffix after more than one `_` (`2__u8`); and an uppercase base prefix (`0XFF`, `0B1`, `0O7`) | both lexers, `sawc/lexer.py` and `compiler/lex/`, accept every one, reading `2__u8` as `2u8`, `1_` as `1`, `1.0_` as `1.0`, `1_.5` as `1.5`, `1.0__5` as `1.05` and `0XFF` as `0xFF`; the recognizer reads their tokens, so it accepts them too | defect | Primitive Types; SL-408 c1; SL-408 c3 |
 | syntax.lex.unterminated-string | reports an unterminated string at its opening quote | both lexers, `sawc/lexer.py` and `compiler/lex/`, report it at the end of input | defect | String |
 | syntax.lex.unclosed-bracket | reports an unclosed `(`, `[` or `{` at its opener | reports an unclosed `(` or `[` at its opener, but an unclosed `{` at the first token it cannot place, such as the next function's `func` | defect | Layout |
 | syntax.lex.float-point | refuses `.5` with a hint naming `0.5`, as it refuses `7.` with one naming `7.0` | refuses `.5` as an unexpected `.`, with no hint | defect | Primitive Types |

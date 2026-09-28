@@ -253,3 +253,72 @@ func f() {
         0
     }
 }
+
+// case: SL-408-c1/separators-between-digits
+func f() {
+    let a = 1_000
+    let b = 0xFF_FF
+    let c = 1_0.5
+}
+
+// case: SL-408-c1/one-underscore-before-a-width-suffix
+func f() {
+    let a = 2_u8
+}
+
+// case: SL-409-c1/line-breaks-before-a-head
+func f() {
+    let g = {
+
+        x in x + 1 }
+}
+
+// case: SL-409-c1/line-breaks-after-in
+func f() {
+    let g = { [a] x in
+
+        x + a
+    }
+}
+
+// case: SL-409-c1/line-breaks-around-a-capture-list
+func f() {
+    let g = {
+        [a]
+        in
+        a
+    }
+}
+
+// case: SL-409-c1/line-breaks-with-no-head
+func f() {
+    let g = {
+
+        a
+    }
+}
+
+// case: SL-414-c1/consuming-builder
+extension Builder {
+    func with(&var self, n: Int) consumes -> Builder {
+        self.count = self.count + n
+        move self
+    }
+}
+func f() {
+    let total = (move b).with(n: 4).finish()
+}
+
+// case: SL-414-c1/forwarding
+extension Session {
+    func end(&var self) consumes {
+        (move self).close()
+    }
+}
+
+// case: SL-414-c1/wrapping
+extension Inner {
+    func wrap(&var self) consumes -> Wrapper {
+        Wrapper(inner: move self)
+    }
+}

@@ -137,7 +137,11 @@ which is why each row carries the identifier CONTROL that the routing must not
 change alongside the projection rows that were broken; and V115-V116, SL-269's
 closure-environment ownership — the guarantee and its negative, paired on
 purpose, because the fix moves a classification and the two directions of
-getting it wrong fail in ways no single oracle can see at once.)
+getting it wrong fail in ways no single oracle can see at once; and V117-V120,
+SL-414's whole-receiver `move self` in a consuming body — the value going
+onward, the every-path rule taken whole, the order against a field move, and
+the refusal outside a consuming body — all four owed to the self-hosted
+compiler, because the frozen `sawc` refuses `move self` while parsing.)
 
 ## How to read it
 
@@ -150,6 +154,12 @@ getting it wrong fail in ways no single oracle can see at once.)
   is history: every row here was re-compiled against the tree and authored to
   what the compiler does now, and where that differs from the audit the brief
   that decided it is named.
+- **Owed** — a *Covered by* cell that reads `owed to the self-hosted compiler`
+  records a guarantee the language claims that no passing test can check yet,
+  because the frozen `sawc` refuses the construct while parsing. The row names
+  the GRAMMAR.md §16 row that records that disagreement. It gains its covering
+  test when the self-hosted compiler checks the construct, and is never
+  dropped for lack of one.
 
 ## Conventions
 
@@ -378,7 +388,11 @@ method receivers*; designs 34, 131, 139, 159, 202, 260
 | V53 | a `NoMove` receiver is refused AT THE CALL | `V53_consuming_call_nomove_receiver.saw` | 260 §2 — free from `move`'s own axis, and recorded BECAUSE it is free: the design owes no declaration-side check. Whether in-place consumption of a `NoMove` value should ever be allowed, since nothing relocates under the `&var self` shape, is a recorded future question |
 | V54 | Option A's EVERY-PATH-OR-NO-PATH field-move rule, per field | `V54_consumes_field_move_all_paths.saw` | 260 §3 — the rule that keeps the end-of-body release flag-free. Per FIELD and independent, so a CONDITIONAL SPLIT (field `a` on one branch, `b` on the other) fails for BOTH and is named twice; that shape is v1's excluded drop-flag case |
 | V55 | a BINDING receiver owes the visible `move`; a TEMPORARY one does not | `V55_consuming_receiver_needs_move.saw` | 260 — both ends are marked, and the mirror fixit is the `&var` precedent. The temporary control is the other half: there is no binding to invalidate, and the temp was already the callee's to end |
-| V56 | the consuming body REPLACES the hand-written deinit body for its endpoint; the synthesized drops still sweep the unmoved remainder | `V56_consuming_body_replaces_deinit_body.saw` | 260 §2/§3, sos-proposed and USER-RATIFIED Sep 1 (superseding the lead's E0509-analog draft) — a consuming method occupies the design-131 PREFIX slot, so the hand-written body does not run for a consumed receiver and manual teardown is the author's, including deliberately none. Per ENDPOINT, not per type: the ordinary-drop section is the control, and `self = v` inside a consuming body deinits the OLD referent WHOLE because it is not the consumed endpoint |
+| V56 | the consuming body REPLACES the hand-written deinit body for its endpoint; the synthesized drops still sweep the unmoved remainder — only where the consuming body ENDS the value: a body that hands the value on with `move self` is not its endpoint (V117) | `V56_consuming_body_replaces_deinit_body.saw` | 260 §2/§3, sos-proposed and USER-RATIFIED Sep 1 (superseding the lead's E0509-analog draft) — a consuming method occupies the design-131 PREFIX slot, so the hand-written body does not run for a consumed receiver and manual teardown is the author's, including deliberately none. Per ENDPOINT, not per type: the ordinary-drop section is the control, and `self = v` inside a consuming body deinits the OLD referent WHOLE because it is not the consumed endpoint |
+| V117 | `move self` in a consuming body hands the WHOLE receiver onward: the end-of-body sweep releases nothing, and the type's deinit runs exactly once, where the value finally ends | owed to the self-hosted compiler (GRAMMAR.md §16, the `syntax.expr.move-base.self` row) | SL-414 c1 (user, Sep 26) — the field rule taken whole. The referent is the callee's to end, so moving all of it leaves the sweep nothing to release, and the value's endpoint is wherever the new owner ends it: a consuming builder's caller, a forwarded consuming call, a wrapper's own drop. That is also why V56 holds only where the consuming body ends the value |
+| V118 | `move self` on some paths and not others is REFUSED; a diverging path is exempt | owed to the self-hosted compiler (GRAMMAR.md §16, the `syntax.expr.move-base.self` row) | SL-414 c1 — V54's every-path-or-no-path rule applied to the whole receiver, for the same reason: the end-of-body sweep stays flag-free only if the move is decided statically on every path or on none |
+| V119 | `move self` after a `move self.<field>` is REFUSED | owed to the self-hosted compiler (GRAMMAR.md §16, the `syntax.expr.move-base.self` row) | SL-414 c1 — once a field has left, the receiver is partial, and handing it onward would give the new owner a value with a hole in it |
+| V120 | `move self` outside a consuming body is a TYPE error, not a grammar refusal | owed to the self-hosted compiler (GRAMMAR.md §16, the `syntax.expr.move-base.self` row) | SL-414 c1 — like the field form, which `errors/consumes_field_move_outside_a_consuming_body.saw` covers today: a `&self` or `&var self` receiver is borrowed, so only a consuming body may move it. GRAMMAR.md parses `move self` everywhere (`syntax.expr.move-base.self`), so the refusal belongs to the checker |
 | V57 | a `NoMove` by-value PARAMETER may be placement-moved into freshly allocated storage — the value reaching its HOME | `nomove_placement_into_its_home.saw` | 188's fresh-journey amendment, USER-RATIFIED Sep 2 (218c B4) — "moves exactly once, constructor into binding" becomes "moves exactly once, INTO ITS HOME". Both carriers in one program: std's `Box<T, A>.make`, whose body is the placement, and the hand-written concrete twin the ruling exists to make writable. Deinit-once is what the expected output checks |
 | V58 | …and the trip ENDS at the first reference to the parameter | `errors/nomove_placement_after_borrow.saw` | 188 fresh-journey — the address was observable from there on, so the ordinary NoMove refusal stands. This is the condition that keeps V57 from being a general permission |
 | V59 | the CALLER-SIDE FENCE V57 rests on: a BOUND `NoMove` value cannot be moved into an argument | `errors/nomove_bound_value_into_argument.saw` | 188 fresh-journey — unchanged design-188 behaviour, recorded because it is the whole soundness argument for V57: no caller can hand over a value whose address was ever observable, so a `NoMove` by-value parameter is always a fresh temporary |

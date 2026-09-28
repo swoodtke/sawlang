@@ -147,16 +147,25 @@ refuses parse-error at 2:23
 refuses parse-error at 2:21
 
 // case: syntax.expr.trailing-call/cell:cond
-refuses syntax.rule.head-restriction at 2:13
+refuses syntax.rule.head-restriction at 2:10
 
 // case: syntax.expr.trailing-call/cell:subj
-refuses syntax.rule.head-restriction at 2:21
+refuses syntax.rule.head-restriction at 2:18
 
 // case: syntax.expr.trailing-call/cell:scrut
 refuses syntax.rule.head-restriction at 2:13
 
 // case: syntax.expr.trailing-call/cell:aguard
 refuses syntax.rule.head-restriction at 3:21
+
+// case: syntax.expr.trailing-call/cell:iter
+refuses syntax.rule.head-restriction at 2:16
+
+// case: syntax.expr.trailing-call/cell:rend
+refuses syntax.rule.head-restriction at 2:16
+
+// case: syntax.expr.trailing-call/cell:bhead
+refuses syntax.rule.head-restriction at 2:22
 
 // case: syntax.expr.trailing-call/cell:atgt
 refuses parse-error at 2:13

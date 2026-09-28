@@ -21,7 +21,7 @@
                   (Binary
                     (Binary (Name n) + (IntLit 1_000))
                     *
-                    (IntLit 0XFF))))))))
+                    (IntLit 0xFF))))))))
       (ExtensionMember.method
         (Method apply
           (Param.receiver (Receiver.shared))
@@ -52,12 +52,10 @@
           (Block
             (Let.immutable
               (BindingName n)
-              (Binary (IntLit 1_) + (IntLit 0xFF_) + (IntLit 2_u8) + (IntLit 2__u8)))
+              (Binary (IntLit 0xFF_FF) + (IntLit 2_u8)))
             (Let.immutable
               (BindingName x)
               (Binary
-                (FloatLit 1.0_)
-                +
                 (FloatLit 1_0.5)
                 +
                 (TupleIndex

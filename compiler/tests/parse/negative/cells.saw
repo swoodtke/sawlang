@@ -193,15 +193,13 @@ func f() {
 
 // case: syntax.expr.trailing-call/cell:cond
 func f() {
-    guard f { a } else {
-        return
+    if f { a } {
     }
 }
 
 // case: syntax.expr.trailing-call/cell:subj
 func f() {
-    guard let x = f { a } else {
-        return
+    if let x = f { a } {
     }
 }
 
@@ -216,6 +214,24 @@ func f() {
 func f() {
     match x {
         case _ if f { a } -> x
+    }
+}
+
+// case: syntax.expr.trailing-call/cell:iter
+func f() {
+    for i in f { a } {
+    }
+}
+
+// case: syntax.expr.trailing-call/cell:rend
+func f() {
+    for i in f { a }..x {
+    }
+}
+
+// case: syntax.expr.trailing-call/cell:bhead
+func f() {
+    borrow let x = f { a } {
     }
 }
 

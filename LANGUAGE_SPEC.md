@@ -3670,6 +3670,67 @@ diverging path (a `panic`, a `return`) is exempt for the fields it never
 reaches. `self = v` inside a consuming body deinits the OLD referent whole,
 hand-written body included, because it is not the consumed endpoint.
 
+**The whole receiver.** *Status: planned.* `sawc` does not build this yet: it
+refuses `move self` while parsing, where the grammar accepts it (GRAMMAR.md
+§16). The examples below are *illustrative*.
+
+Inside a consuming body, `move self` hands the whole receiver onward: to the
+caller as the result, to another consuming call, or into a new value. It is the
+field rule taken whole. The referent is the callee's to end, so once all of it
+has left, the end-of-body release has nothing to release. The type's deinit
+runs exactly once, wherever the value finally ends. A body that hands the value
+on is not its endpoint, so the replacement of a hand-written `deinit` body
+described above does not apply to it.
+
+The field rules carry over:
+
+- `move self` is decided on every path or on none. A diverging path is exempt.
+- It cannot follow a `move self.<field>`: once a field has left, the receiver
+  is no longer whole.
+- Outside a consuming body it is a type error, as `move self.<field>` is.
+
+A consuming builder changes the receiver and returns it, so its calls chain:
+
+```saw-fragment
+// (illustrative — planned)
+extension Builder {
+    func with(&var self, n: Int) consumes -> Builder {
+        self.count = self.count + n
+        move self
+    }
+}
+
+var b = Builder(items: [1, 2, 3], count: 3)
+let items = (move b).with(n: 4).finish()
+```
+
+A consuming method can forward the value to another one, which becomes the
+endpoint:
+
+```saw-fragment
+// (illustrative — planned)
+extension Session {
+    func end(&var self) consumes -> Int {
+        let sent = self.sent
+        (move self).close()
+        sent
+    }
+}
+```
+
+A wrapper can take the value whole, and its own drop then ends it. For the
+`Conn` above, the hand-written `deinit` closes the descriptor when the
+`Logged` value is dropped:
+
+```saw-fragment
+// (illustrative — planned)
+extension Conn {
+    func logged(&var self) consumes -> Logged {
+        Logged(inner: move self)
+    }
+}
+```
+
 #### v1 boundaries
 
 Each is a clean error naming the boundary.

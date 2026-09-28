@@ -584,3 +584,136 @@
             (Catch
               (Block
                 (ExprStmt (IntLit 0))))))))))
+
+// case: SL-408-c1/separators-between-digits
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName a) (IntLit 1_000))
+        (Let.immutable (BindingName b) (IntLit 0xFF_FF))
+        (Let.immutable (BindingName c) (FloatLit 1_0.5))))))
+
+// case: SL-408-c1/one-underscore-before-a-width-suffix
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable (BindingName a) (IntLit 2_u8))))))
+
+// case: SL-409-c1/line-breaks-before-a-head
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName g)
+          (Closure
+            (ClosureParam.value x)
+            in
+            (ExprStmt
+              (Binary (Name x) + (IntLit 1)))))))))
+
+// case: SL-409-c1/line-breaks-after-in
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName g)
+          (Closure
+            (Capture.value a)
+            (ClosureParam.value x)
+            in
+            (ExprStmt
+              (Binary (Name x) + (Name a)))))))))
+
+// case: SL-409-c1/line-breaks-around-a-capture-list
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName g)
+          (Closure
+            (Capture.value a)
+            in
+            (ExprStmt (Name a))))))))
+
+// case: SL-409-c1/line-breaks-with-no-head
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName g)
+          (Closure
+            (ExprStmt (Name a))))))))
+
+// case: SL-414-c1/consuming-builder
+(File
+  (Declaration.extension
+    (Extension
+      (Path Builder)
+      (ExtensionMember.method
+        (Method with
+          (Param.receiver (Receiver.exclusive))
+          (Param.plain n
+            (NamedType (Path Int)))
+          consumes
+          (NamedType (Path Builder))
+          (Block
+            (Assign
+              (Member (SelfExpr) count)
+              (Binary
+                (Member (SelfExpr) count)
+                +
+                (Name n)))
+            (ExprStmt
+              (Move (SelfExpr))))))))
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName total)
+          (Call.paren
+            (Member
+              (Call.paren
+                (Member
+                  (Move (Name b))
+                  with)
+                (Arg.labelled n (IntLit 4)))
+              finish)))))))
+
+// case: SL-414-c1/forwarding
+(File
+  (Declaration.extension
+    (Extension
+      (Path Session)
+      (ExtensionMember.method
+        (Method end
+          (Param.receiver (Receiver.exclusive))
+          consumes
+          (Block
+            (ExprStmt
+              (Call.paren
+                (Member
+                  (Move (SelfExpr))
+                  close)))))))))
+
+// case: SL-414-c1/wrapping
+(File
+  (Declaration.extension
+    (Extension
+      (Path Inner)
+      (ExtensionMember.method
+        (Method wrap
+          (Param.receiver (Receiver.exclusive))
+          consumes
+          (NamedType (Path Wrapper))
+          (Block
+            (ExprStmt
+              (Call.paren
+                (Name Wrapper)
+                (Arg.labelled inner
+                  (Move (SelfExpr)))))))))))

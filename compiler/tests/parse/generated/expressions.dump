@@ -607,7 +607,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place (Name b)))))))
+          (Move (Name b)))))))
 
 // case: syntax.expr.prefix.try/alt
 (File
@@ -695,7 +695,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place (Name b)))))))
+          (Move (Name b)))))))
 
 // case: syntax.expr.move.place/rep:2:move-hop*=0
 (File
@@ -703,7 +703,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place (Name b)))))))
+          (Move (Name b)))))))
 
 // case: syntax.expr.move.place/rep:2:move-hop*=1
 (File
@@ -711,7 +711,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place
+          (Move
             (Member (Name b) c)))))))
 
 // case: syntax.expr.move.place/rep:2:move-hop*=many
@@ -720,7 +720,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place
+          (Move
             (Member
               (Member
                 (Member (Name b) c)
@@ -733,7 +733,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place (Name b)))))))
+          (Move (Name b)))))))
 
 // case: syntax.expr.move.place/opt:3:"!"?=present
 (File
@@ -741,7 +741,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place (Name b) !))))))
+          (Move (Name b) !))))))
 
 // case: syntax.expr.move.place/pair:2:move-hop*=many,3:"!"?=present
 (File
@@ -749,7 +749,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place
+          (Move
             (Member
               (Member
                 (Member (Name b) c)
@@ -763,7 +763,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place (Name b)))))))
+          (Move (Name b)))))))
 
 // case: syntax.expr.move-base.self/alt
 (File
@@ -771,7 +771,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place (SelfExpr)))))))
+          (Move (SelfExpr)))))))
 
 // case: syntax.expr.move-base.deref/alt
 (File
@@ -779,7 +779,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place
+          (Move
             (Deref.name (Name b))))))))
 
 // case: syntax.expr.move-deref.name/alt
@@ -788,7 +788,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place
+          (Move
             (Deref.name (Name b))))))))
 
 // case: syntax.expr.move-deref.self/alt
@@ -797,7 +797,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place
+          (Move
             (Deref.self (SelfExpr))))))))
 
 // case: syntax.expr.move-hop.member/alt
@@ -806,7 +806,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place
+          (Move
             (Member (Name b) c)))))))
 
 // case: syntax.expr.move-hop.tuple-index/alt
@@ -815,7 +815,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place
+          (Move
             (TupleIndex (Name b) 1)))))))
 
 // case: syntax.expr.move-hop.subscript/alt
@@ -824,7 +824,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place
+          (Move
             (Subscript.single (Name b) (Name c))))))))
 
 // case: syntax.expr.try.propagate/alt
@@ -1894,7 +1894,7 @@
     (Func a
       (Block
         (ExprStmt
-          (Move.place (Name b)))))))
+          (Move (Name b)))))))
 
 // case: syntax.expr.implicit-member/alt
 (File
@@ -2455,45 +2455,14 @@
       (Block
         (ExprStmt (Closure))))))
 
-// case: syntax.expr.closure/rep:1:NEWLINE*=0
+// case: syntax.expr.closure/opt:1:(NEWLINE* closure-head)?=absent
 (File
   (Declaration.func
     (Func a
       (Block
         (ExprStmt (Closure))))))
 
-// case: syntax.expr.closure/rep:1:NEWLINE*=1
-(File
-  (Declaration.func
-    (Func a
-      (Block
-        (ExprStmt
-          (Closure (ClosureParam.value b) in))))))
-
-// case: syntax.expr.closure/rep:1:NEWLINE*=many
-(File
-  (Declaration.func
-    (Func a
-      (Block
-        (ExprStmt
-          (Closure (ClosureParam.value b) in))))))
-
-// case: syntax.expr.closure/opt:2:closure-head?=absent
-(File
-  (Declaration.func
-    (Func a
-      (Block
-        (ExprStmt (Closure))))))
-
-// case: syntax.expr.closure/opt:2:closure-head?=present
-(File
-  (Declaration.func
-    (Func a
-      (Block
-        (ExprStmt
-          (Closure (ClosureParam.value b) in))))))
-
-// case: syntax.expr.closure/pair:1:NEWLINE*=many,2:closure-head?=present
+// case: syntax.expr.closure/opt:1:(NEWLINE* closure-head)?=present
 (File
   (Declaration.func
     (Func a
@@ -2533,14 +2502,6 @@
         (ExprStmt
           (Closure (Capture.value b) in))))))
 
-// case: syntax.expr.closure-head.captures/rep:3:NEWLINE*=0
-(File
-  (Declaration.func
-    (Func a
-      (Block
-        (ExprStmt
-          (Closure (Capture.value b) in))))))
-
 // case: syntax.expr.closure-head.captures-params/alt
 (File
   (Declaration.func
@@ -2573,23 +2534,7 @@
         (ExprStmt
           (Closure (Capture.value b) (ClosureParam.value c) in))))))
 
-// case: syntax.expr.closure-head.captures-params/rep:4:NEWLINE*=0
-(File
-  (Declaration.func
-    (Func a
-      (Block
-        (ExprStmt
-          (Closure (Capture.value b) (ClosureParam.value c) in))))))
-
 // case: syntax.expr.closure-head.params/alt
-(File
-  (Declaration.func
-    (Func a
-      (Block
-        (ExprStmt
-          (Closure (ClosureParam.value b) in))))))
-
-// case: syntax.expr.closure-head.params/rep:2:NEWLINE*=0
 (File
   (Declaration.func
     (Func a
@@ -12168,7 +12113,7 @@
     (Func f
       (Block
         (ExprStmt
-          (Move.place (Name a)))
+          (Move (Name a)))
         (ExprStmt (Name x))))))
 
 // case: syntax.expr.move/cell:tail
@@ -12177,7 +12122,7 @@
     (Func f
       (Block
         (ExprStmt
-          (Move.place (Name a)))))))
+          (Move (Name a)))))))
 
 // case: syntax.expr.move/cell:clos
 (File
@@ -12188,7 +12133,7 @@
           (BindingName c)
           (Closure
             (ExprStmt
-              (Move.place (Name a)))
+              (Move (Name a)))
             (ExprStmt (Name x))))))))
 
 // case: syntax.expr.move/cell:catch
@@ -12202,7 +12147,7 @@
               (ExprStmt (Name x)))
             (Block
               (ExprStmt
-                (Move.place (Name a)))
+                (Move (Name a)))
               (ExprStmt (Name x)))))))))
 
 // case: syntax.expr.move/cell:arm
@@ -12215,7 +12160,7 @@
             (Name x)
             (MatchArm
               (WildcardPat)
-              (Move.place (Name a)))))))))
+              (Move (Name a)))))))))
 
 // case: syntax.expr.move/cell:opnd
 (File
@@ -12225,7 +12170,7 @@
         (Let.immutable
           (BindingName v)
           (Binary
-            (Move.place (Name a))
+            (Move (Name a))
             *
             (Name x)))))))
 
@@ -12239,7 +12184,7 @@
           (Binary
             (Name x)
             &&
-            (Move.place (Name a))))))))
+            (Move (Name a))))))))
 
 // case: syntax.expr.move/cell:arg
 (File
@@ -12250,7 +12195,7 @@
           (Call.paren
             (Name f)
             (Arg.positional
-              (Move.place (Name a)))))))))
+              (Move (Name a)))))))))
 
 // case: syntax.expr.move/cell:larg
 (File
@@ -12261,7 +12206,7 @@
           (Call.paren
             (Name f)
             (Arg.labelled a
-              (Move.place (Name a)))))))))
+              (Move (Name a)))))))))
 
 // case: syntax.expr.move/cell:elem
 (File
@@ -12271,7 +12216,7 @@
         (Let.immutable
           (BindingName v)
           (Array
-            (Move.place (Name a))))))))
+            (Move (Name a))))))))
 
 // case: syntax.expr.move/cell:recv
 (File
@@ -12281,7 +12226,7 @@
         (Let.immutable
           (BindingName v)
           (Member
-            (Move.place (Name a))
+            (Move (Name a))
             b))))))
 
 // case: syntax.expr.move/cell:idx
@@ -12293,7 +12238,7 @@
           (BindingName v)
           (Subscript.single
             (Name a)
-            (Move.place (Name a))))))))
+            (Move (Name a))))))))
 
 // case: syntax.expr.move/cell:interp
 (File
@@ -12305,7 +12250,7 @@
             (Name print)
             (Arg.positional
               (Interp
-                (Move.place (Name a))))))))))
+                (Move (Name a))))))))))
 
 // case: syntax.expr.move/cell:cond
 (File
@@ -12314,7 +12259,7 @@
       (Block
         (ExprStmt
           (If
-            (Move.place (Name a))
+            (Move (Name a))
             (Block)))))))
 
 // case: syntax.expr.move/cell:subj
@@ -12326,7 +12271,7 @@
           (If
             (LetArm.let
               (BindingName x)
-              (Move.place (Name a)))
+              (Move (Name a)))
             (Block)))))))
 
 // case: syntax.expr.move/cell:scrut
@@ -12336,7 +12281,7 @@
       (Block
         (ExprStmt
           (Match
-            (Move.place (Name a))
+            (Move (Name a))
             (MatchArm (WildcardPat) (Name x))))))))
 
 // case: syntax.expr.move/cell:aguard
@@ -12350,7 +12295,7 @@
             (MatchArm
               (WildcardPat)
               if
-              (Move.place (Name a))
+              (Move (Name a))
               (Name x))))))))
 
 // case: syntax.expr.move/cell:iter
@@ -12361,7 +12306,7 @@
         (ExprStmt
           (For.plain
             (BindingName i)
-            (Move.place (Name a))
+            (Move (Name a))
             (Block)))))))
 
 // case: syntax.expr.move/cell:rend
@@ -12373,7 +12318,7 @@
           (For.plain
             (BindingName i)
             (Range.closed
-              (Move.place (Name a))
+              (Move (Name a))
               ..
               (Name x))
             (Block)))))))
@@ -12387,7 +12332,7 @@
           (BorrowBlock
             (BorrowBinding.let
               (BindingName x)
-              (Move.place (Name a)))
+              (Move (Name a)))
             (Block)))))))
 
 // case: syntax.expr.move/cell:init
@@ -12397,7 +12342,7 @@
       (Block
         (Let.immutable
           (BindingName v)
-          (Move.place (Name a)))))))
+          (Move (Name a)))))))
 
 // case: syntax.expr.move/cell:asgn
 (File
@@ -12406,7 +12351,7 @@
       (Block
         (Assign
           (Name v)
-          (Move.place (Name a)))))))
+          (Move (Name a)))))))
 
 // case: syntax.expr.move/cell:crhs
 (File
@@ -12416,7 +12361,7 @@
         (CompoundAssign
           (Name v)
           +=
-          (Move.place (Name a)))))))
+          (Move (Name a)))))))
 
 // case: syntax.expr.move/cell:ret
 (File
@@ -12424,7 +12369,7 @@
     (Func f
       (Block
         (Return
-          (Move.place (Name a)))))))
+          (Move (Name a)))))))
 
 // case: syntax.expr.move/cell:brk
 (File
@@ -12436,7 +12381,7 @@
             (Name x)
             (Block
               (Break
-                (Move.place (Name a))))))))))
+                (Move (Name a))))))))))
 
 // case: syntax.expr.move/cell:lend
 (File
@@ -12444,7 +12389,7 @@
     (Func f
       (Block
         (Lend
-          (Move.place (Name a)))))))
+          (Move (Name a)))))))
 
 // case: syntax.expr.move/cell:try
 (File
@@ -12454,7 +12399,7 @@
         (Let.immutable
           (BindingName v)
           (Try.propagate
-            (Move.place (Name a))))))))
+            (Move (Name a))))))))
 
 // case: syntax.expr.move/cell:dflt
 (File
@@ -12462,7 +12407,7 @@
     (Func f
       (Param.default p
         (NamedType (Path T))
-        (Move.place (Name a)))
+        (Move (Name a)))
       (Block))))
 
 // case: syntax.expr.move/cell:sinit
@@ -12471,7 +12416,7 @@
     (Static.immutable S
       (NamedType (Path T))
       =
-      (Move.place (Name a)))))
+      (Move (Name a)))))
 
 // case: syntax.expr.move/cell:alen
 (File
@@ -12482,7 +12427,7 @@
           (BindingName v)
           (ArrayType
             (NamedType (Path T))
-            (Move.place (Name a)))
+            (Move (Name a)))
           (Name w))))))
 
 // case: syntax.expr.move/cell:rcnt
@@ -12494,7 +12439,7 @@
           (BindingName v)
           (Repeat
             (Name x)
-            (Move.place (Name a))))))))
+            (Move (Name a))))))))
 
 // case: syntax.expr.move/cell:raw
 (File
@@ -12502,13 +12447,13 @@
     (Enum E
       (NamedType (Path T))
       (Case A =
-        (Move.place (Name a))))))
+        (Move (Name a))))))
 
 // case: syntax.expr.move/cell:aarg
 (File
   (Declaration.static
     (Attribute.align
-      (Move.place (Name a)))
+      (Move (Name a)))
     (Static.immutable S
       (NamedType (Path T))
       =
@@ -12517,7 +12462,7 @@
 // case: syntax.expr.move/cell:sassert
 (File
   (StaticAssert
-    (Move.place (Name a))
+    (Move (Name a))
     "m"))
 
 // case: syntax.expr.try/cell:stmt

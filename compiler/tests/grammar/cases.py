@@ -187,7 +187,7 @@ class Expectations:
         m = REFUSED_BY.search(checked.detail)
         if m:
             others = sorted(set(checked.rules) - {m.group(2)})
-            if others:
+            if others and m.group(2) not in recognize.PRECEDENCE:
                 # Each rule refuses another reading, and the grammar does not
                 # say which refusal a parser reports.
                 raise Problem("refused by %s and by %s, each refusing another reading"
@@ -214,13 +214,19 @@ class Expectations:
         parse = recognize.Parse(self.g, start, recognize.prepare(self.g, toks, start))
         if not parse.accepted or parse.derivations() or parse._forest is None:
             return False
-        forest = parse._forest
-        refused = refused_spans(forest, (start, 0, len(parse.tokens)))
-        if not refused:
-            return False
-        reported = max(why for _, why in refused)
-        ends = sorted({key[2] for key, why in refused if why == reported
-                       and looks_ahead(key, why)})
+        first = parse.precedence()
+        if first is not None:
+            # A precedence rule's refusal lies in the head it refuses, and the
+            # token after that head decides it only when it is the refused token.
+            at, _, end = first
+            ends = [end] if at == end else []
+        else:
+            refused = refused_spans(parse._forest, (start, 0, len(parse.tokens)))
+            if not refused:
+                return False
+            reported = max(why for _, why in refused)
+            ends = sorted({key[2] for key, why in refused if why == reported
+                           and looks_ahead(key, why)})
         starts = lexdump.line_starts(text)
         for j in ends:
             if j >= len(parse.tokens):
@@ -320,10 +326,6 @@ class Expectations:
         if (construct, ctx) in cells(checked):
             raise Problem("accepted, and its tree places %s in %s, which section 12 says "
                           "it may not stand in" % (construct, ctx))
-        if loop_operand(checked):
-            raise Problem("accepted, but its tree continues a loop that starts a statement "
-                          "as an operand, which syntax.rule.block-tail forbids and the "
-                          "recognizer does not refuse, so the reading is not recorded")
         lines = self.dump(self.g, case.text, case.start, checked)
         return [PARSES_AS] + lines, None, alternatives(checked)
 
@@ -391,28 +393,6 @@ def cell_of(name):
     """(construct, context) of a cell case's name, or (None, None)."""
     base, sep, ctx = name.partition(CELL)
     return (base, ctx) if sep else (None, None)
-
-
-# A loop, and the positions whose first token starts a statement: a loop that
-# starts one is the whole statement, never an operand (syntax.rule.block-tail).
-LOOPS = ("while-expr", "while-let-expr", "for-expr")
-STATEMENT_STARTS = ("expr-stmt", "arm-body")
-
-
-def loop_operand(checked):
-    """Whether an accepted text's tree holds a loop that starts a statement and
-    continues on as an operand."""
-    for _, parse in checked.parses:
-        for d in parse.derivations()[:1]:
-            statements, loops = set(), []
-            for x in recognize.walk_real(parse.g, d):
-                if x.nt in STATEMENT_STARTS:
-                    statements.add((x.i, x.j))
-                elif x.nt in LOOPS:
-                    loops.append((x.i, x.j))
-            if any(i == si and j < sj for i, j in loops for si, sj in statements):
-                return True
-    return False
 
 
 def alternatives(checked):
@@ -541,7 +521,7 @@ DESIGN_259 = tuple("design259-R%d" % n for n in range(1, 9))
 RULINGS = tuple("SL-400-c6-Q%d" % n for n in range(1, 24) if n != 15) + (
     "SL-400-c6-U2a", "SL-400-c7", "SL-400-c9",
     "SL-406-c11-1", "SL-406-c11-2", "SL-406-c11-3",
-    "SL-406-c17", "SL-406-c22", "SL-406-c23", "SL-406-c25")
+    "SL-406-c17", "SL-406-c22", "SL-406-c23", "SL-406-c25", "SL-408-c1", "SL-409-c1", "SL-414-c1")
 # The lexical rules recognize.check names when it refuses a text.
 NAMED_LEXICAL = ("syntax.lex.ascii-identifier", "syntax.lex.doc-attach", "syntax.lex.module-doc")
 

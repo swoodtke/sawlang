@@ -3971,6 +3971,9 @@ func a() { if b { } else  c   if  { } }
 // case: syntax.expr.else-if/alt/close:15
 func a() { if b { } else if c { }
 
+// case: syntax.expr.else/alt/drop:10
+func a() { if b { }   { } }
+
 // case: syntax.expr.else/alt/dup:4
 func a() ) { if b { } else { } }
 

@@ -39,6 +39,76 @@ func f() {
     }
 }
 
+// case: syntax.rule.head-restriction/trailing-closure-in-an-if-condition
+// Also refused as a trailing closure on the `if`; head-restriction is reported.
+func f() {
+    if v.any { $0 } { }
+}
+
+// case: syntax.rule.head-restriction/trailing-closure-in-an-else-if-condition
+func f() {
+    if a {
+    } else if v.any { $0 } { }
+}
+
+// case: syntax.rule.head-restriction/trailing-closure-in-a-while-condition
+func f() {
+    while f { a } {
+    }
+}
+
+// case: syntax.rule.head-restriction/trailing-closure-on-an-if-let-subject
+func f() {
+    if let x = f { a } {
+    }
+}
+
+// case: syntax.rule.head-restriction/trailing-closure-on-a-while-let-subject
+func f() {
+    while let x = f { a } {
+    }
+}
+
+// case: syntax.rule.head-restriction/trailing-closure-on-a-guard-let-subject
+func f() {
+    guard let x = f { a } else {
+        return
+    }
+}
+
+// case: syntax.rule.head-restriction/trailing-closure-on-a-for-iterable
+func f() {
+    for i in f { a } {
+    }
+}
+
+// case: syntax.rule.head-restriction/trailing-closure-after-a-match-in-an-if-condition
+func f() {
+    if match m { case _ -> v }.any { $0 } {
+    }
+}
+
+// case: syntax.rule.head-restriction/trailing-closure-in-a-borrow-block-head
+// Also refused as a place borrow and as a trailing closure on the block.
+func f() {
+    borrow let x = f { a } {
+    }
+}
+
+// case: syntax.rule.head-restriction/generic-list-in-a-borrow-unwrap-head
+// With a trailing closure in its place, `if borrow let x = f { a } {` parses:
+// the condition is the borrow block `borrow let x = f { a }`.
+func f() {
+    if borrow let x = f<T> {
+    }
+}
+
+// case: syntax.rule.head-restriction/trailing-closure-in-a-borrow-for-head
+func f() {
+    for borrow let x in f { a } {
+    }
+}
+
 // case: syntax.rule.head-restriction/generic-list-kept-by-the-body-brace
 func f() {
     if a<b> {
