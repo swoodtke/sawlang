@@ -718,7 +718,7 @@ A temporary passed by value as an argument is dropped by its callee. An owned `m
 - **In a coroutine,** where binding does not help: use the receiver form `a.equals(b)` or `not a.equals(b)`, a `match` on the value, or a synchronous helper that does the check or builds the string.
 - **In a control-flow head:** bind a temporary receiver to a `let` before the head.
 
-**Checker:** no, pending the user. The entry is leak only, and leak-only entries get no rule (the Stage 1 leak ruling).
+**Checker:** yes, an exception to the Stage 1 leak ruling (the user, Sep 29). The checker refuses an owned operand that `_is_owned_temporary` accepts, at a comparison, an interpolation segment or a format argument in `compiler/`. The rule is built under SL-422.
 - **The case for an exception.** A parser comparing token text through a subscript, or a dump or diagnostic interpolating `"{kind_name(t.kind)} {t.text}"`, leaks per token over every file Stage 1 compiles.
 - **An exact rule:** refuse an owned operand that `_is_owned_temporary` accepts, at a comparison, an interpolation segment or a format argument in `compiler/`. String literals are exempt, since they are static.
 - **Today:** that predicate finds 0 leaking comparison operands in sawc2 (the driver, the lexer and the std they use). `compiler/lex` compares bytes as `Int` and builds records with `StringBuilder.append`.
