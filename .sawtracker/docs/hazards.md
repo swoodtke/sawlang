@@ -715,7 +715,7 @@ A temporary passed by value as an argument is dropped by its callee. An owned `m
 - The census tool asks `_is_owned_temporary` at every comparison operand whose type needs cleanup. Excluding string literals, its answer matches every probe, leaking and not. Measurements and the tool are in chat f13 and f14.
 
 **Instead:**
-- **In sync code, and so in all of Stage 1:** at a comparison, an interpolation segment or a format argument, an operand that is not a named place or a literal is bound to a `let` first, always. For example, `let text = self.toks[self.pos].text`, then `text == word`. A user `Printable` value is never interpolated directly: render it through a `StringBuilder` with `format(into:)`, or pass it as a format argument. SL-422's measured fix names the exact spelling.
+- **In sync code, and so in all of Stage 1:** at a comparison, an interpolation segment or a format argument, an operand that is not a named place or a literal is bound to a `let` first, always. For example, `let text = self.toks[self.pos].text`, then `text == word`. A user `Printable` value is never interpolated directly: bind its rendered text first, `let text = t.to_string()`, then `"[{text}]"`, which leaks nothing (the Air's probe_leak12, at -O2), or pass it as a format argument. It is the same bind-it-first rule, applied to the rendered text rather than the value.
 - **In a coroutine,** where binding does not help: use the receiver form `a.equals(b)` or `not a.equals(b)`, a `match` on the value, or a synchronous helper that does the check or builds the string.
 - **In a control-flow head:** bind a temporary receiver to a `let` before the head.
 
