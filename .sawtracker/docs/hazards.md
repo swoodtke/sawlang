@@ -349,15 +349,18 @@ func main() { print(18446744073709551615) }   // prints -1
 protect a literal. Stage 0 checks a suffixed literal only against its width's
 unsigned range, so `255_i8` prints -1, `128_i8` prints -128, and
 `18446744073709551615_i64` prints -1. `256_u8` is refused by the lexer, and
-`-129_i8` once negated. A literal typed by context, as in `let v: Int8 = 255`,
-is refused correctly.
+`-129_i8` once negated. Only a typed `let` or `var` refuses a signed-suffixed
+literal (`let v: Int8 = 200_i8`). Every other position wraps it silently: an
+argument (`take8(x: 200_i8)` passes -56), a typed `static`
+(`static s: Int8 = 200_i8` holds -56), a return, an assignment, an array
+element, and a binary operand (`x - 128_i8`).
 
 **Instead:** write large constants with an **unsigned** suffix,
 `14695981039346656037u64`, or bind them to a `UInt64`-typed `let` or `static`.
 
 **Checker:** yes, for an unsuffixed integer literal whose magnitude exceeds
-`Int.max`. The signed-suffix face is queued as SL-435: refuse a signed-suffixed
-literal above 2^(w−1) − 1, allowing 2^(w−1) as a unary minus's operand.
+`Int.max`, and for a signed-suffixed literal above 2^(w−1) − 1, allowing
+2^(w−1) as a unary minus's direct operand (SL-435). Both are `int-literal-range`.
 
 ### S8. Enum `==` with a hand-written `equals` (SL-61)
 
