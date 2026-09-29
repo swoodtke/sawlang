@@ -710,7 +710,7 @@ modules also defeat the checker's own name resolution.
 Four more positions consume without binding and are missing from that list: a comparison operand, an interpolation segment, a format argument of `print`, `panic` or `assert`, and a cast operand (`as`). There, an owned value (a `String`, a struct holding one, a `String?`) is never released. The cast leaks in std itself: `std/file.saw` and `std/directory.saw` write `path.as_str() as UnsafePointer<Int8>`, so every `File` or `Directory` call made with a freshly built path leaks one block (SL-427). The lead measured `make(n) as UnsafePointer<Int8>` at 1 leak per call, and 0 with the value bound first. A fresh value on either side of `??` measured clean. On a comparison, the right operand is also retained even when nothing owns it.
 
 **Shape (leak only):**
-- **What leaks, at those three positions:** an operand that is not a named place or a literal.
+- **What leaks, at those four positions:** an operand that is not a named place or a literal.
   - a call result: `f() == x`, `"{pad2(m)}"`, `print("{}", make(n: i))`;
   - a subscript read, including a field reached through one: `v[i] == "x"`, `m["k"]! == "x"`, `v.get(i)! == "x"`, `"{v[0]}"`, and a parser's `self.toks[self.pos].text == word`;
   - an interpolation used as a comparison operand: `req.token != "Bearer {token}"`.
@@ -736,13 +736,13 @@ A temporary passed by value as an argument is dropped by its callee. An owned `m
 - The census tool asks `_is_owned_temporary` at every comparison operand whose type needs cleanup. Excluding string literals, its answer matches every probe, leaking and not. Measurements and the tool are in chat f13 and f14.
 
 **Instead:**
-- **In sync code, and so in all of Stage 1:** at a comparison, an interpolation segment or a format argument, an operand that is not a named place or a literal is bound to a `let` first, always. For example, `let text = self.toks[self.pos].text`, then `text == word`. A user `Printable` value is never interpolated directly: bind its rendered text first, `let text = t.to_string()`, then `"[{text}]"`, which leaks nothing (the Air's probe_leak12, at -O2), or pass it as a format argument. It is the same bind-it-first rule, applied to the rendered text rather than the value.
+- **In sync code, and so in all of Stage 1:** at a comparison, an interpolation segment, a format argument or a cast, an operand that is not a named place or a literal is bound to a `let` first, always. For example, `let text = self.toks[self.pos].text`, then `text == word`. A user `Printable` value is never interpolated directly: bind its rendered text first, `let text = t.to_string()`, then `"[{text}]"`, which leaks nothing (the Air's probe_leak12, at -O2), or pass it as a format argument. It is the same bind-it-first rule, applied to the rendered text rather than the value.
 - **In a coroutine,** where binding does not help: use the receiver form `a.equals(b)` or `not a.equals(b)`, a `match` on the value, or a synchronous helper that does the check or builds the string.
 - **In a control-flow head:** bind a temporary receiver to a `let` before the head.
 
-**Checker:** yes, an exception to the Stage 1 leak ruling (the user, Sep 29). The checker refuses an owned operand that `_is_owned_temporary` accepts, at a comparison, an interpolation segment or a format argument in `compiler/`. The rule is built under SL-422.
+**Checker:** yes, an exception to the Stage 1 leak ruling (the user, Sep 29). The checker refuses an owned operand that `_is_owned_temporary` accepts, at a comparison, an interpolation segment, a format argument or a cast in `compiler/`. The rule is built under SL-422, and SL-405 adds the cast.
 - **The case for an exception.** A parser comparing token text through a subscript, or a dump or diagnostic interpolating `"{kind_name(t.kind)} {t.text}"`, leaks per token over every file Stage 1 compiles.
-- **An exact rule:** refuse an owned operand that `_is_owned_temporary` accepts, at a comparison, an interpolation segment or a format argument in `compiler/`. String literals are exempt, since they are static.
+- **An exact rule:** refuse an owned operand that `_is_owned_temporary` accepts, at a comparison, an interpolation segment, a format argument or a cast in `compiler/`. String literals are exempt, since they are static.
 - **Today:** that predicate finds 0 leaking comparison operands in sawc2 (the driver, the lexer and the std they use). `compiler/lex` compares bytes as `Int` and builds records with `StringBuilder.append`.
 
 ## Loud hazards
