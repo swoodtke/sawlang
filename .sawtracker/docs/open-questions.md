@@ -61,7 +61,7 @@ Suppose a list parses and the follow rule rejects it. If the token after its `>`
 - **Why:** a parser's speculative "try this, else fall back" paths are where `try?` would naturally appear, so the leak would be per attempt. The rule is structural (refuse a `try?` expression), costs nothing today because `compiler/` has none, and its Instead is `match`.
 - **Reversal:** delete the rule.
 
-It is queued as a small side-queue item.
+Landed in SL-432.p1, which the Air approved.
 
 ### D2. SL-426's `bhead` cell: recode §12 from P to S (Sep 29; the Air's t1)
 Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent used **S** ("parses; a later stage refuses the construct in this position"), whose legend matches this decision's reason word for word. Y is the alternative, since a borrow head "may be any expression" (SL:borrowing §2.1). Either is one character, and the generator treats them alike.
