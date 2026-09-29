@@ -12,7 +12,17 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Decided by the lead, for review (reversible)
 
-(none yet)
+### D2. SL-426's `bhead` cell: recode §12 from P to B (Sep 29; the Air's t1)
+**The finding:** §12 codes `syntax.borrow.block` × `bhead` as P (parenthesized only). But `syntax.rule.head-reset` admits a nested borrow construct's body in any head (SL-426 c1), so GRAMMAR.md's text says `borrow let x = borrow let x = a { x } {` parses. The recognizer agrees.
+
+**The options:**
+- (a) a new refusal rule, which would be a new language rule and so the user's call;
+- (b) recode the cell B, a §12 correction that matches the text.
+
+**Decided: (b).** The type layer refuses the case either way, since a block's value is not a place, so no program changes meaning.
+- **Reversal:** a later ruling for (a) adds the rule and flips the cell back.
+- **`cond`,** SL-426's other cell, is a plain recognizer fix: borrow-form's "at an `if` head … unwrap" clause already backs its P.
+- Both land when SL-426 is dispatched, before U4h.
 
 ## Resolved
 
