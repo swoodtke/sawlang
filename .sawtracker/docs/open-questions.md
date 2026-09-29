@@ -12,6 +12,15 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Decided by the lead, for review (reversible)
 
+### D3. A checker rule refusing `try?` in `compiler/`, an S23-style exception (Sep 29; the Air's t20 on SL:hazards)
+**The finding:** `try?` never releases the error it discards (SL-429, SL:hazards S3), and it reaches Stage 1 because the compiler is sync code. The leak ruling gives leak-only hazards no checker rule. You granted S23 an exception because a parser's hot paths would leak per token.
+
+**Decided: add the rule** as the same kind of exception.
+- **Why:** a parser's speculative "try this, else fall back" paths are where `try?` would naturally appear, so the leak would be per attempt. The rule is structural (refuse a `try?` expression), costs nothing today because `compiler/` has none, and its Instead is `match`.
+- **Reversal:** delete the rule.
+
+It is queued as a small side-queue item.
+
 ### D2. SL-426's `bhead` cell: recode §12 from P to B (Sep 29; the Air's t1)
 **The finding:** §12 codes `syntax.borrow.block` × `bhead` as P (parenthesized only). But `syntax.rule.head-reset` admits a nested borrow construct's body in any head (SL-426 c1), so GRAMMAR.md's text says `borrow let x = borrow let x = a { x } {` parses. The recognizer agrees.
 
