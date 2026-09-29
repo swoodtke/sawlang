@@ -209,7 +209,9 @@ identifiers. The planned reservations `and`, `defer`, `do`, `generic`, `macro`,
 ### 2.3 Literals
 
 - **Integers.** An integer literal is a non-negative number; a leading `-` is a
-  separate token. It must fit in 64 unsigned bits, or in its suffix's width.
+  separate token. It must fit in 64 unsigned bits, or in the unsigned range of
+  its suffix's width; a signed suffix is held to its signed range later
+  (syntax.lex.int-range).
   Digits right after a member `.` are a tuple index: a decimal integer that
   takes no second `.`, no base prefix and no suffix, so `t.0.1` is two index
   hops and not the float `0.1`.
@@ -286,7 +288,7 @@ token. A doc comment that documents nothing is an error. `////` and a
 | syntax.lex.double-question | In a type, a `??` token is two optional layers. In an expression it is the coalescing operator. | Optionals |
 | syntax.lex.tuple-index | Digits after a member `.` are a tuple index (§2.3). | Composite Types |
 | syntax.lex.float-point | `7.` and `.5` are refused with a hint naming `7.0` and `0.5`. | Primitive Types |
-| syntax.lex.int-range | An integer literal must fit in 64 unsigned bits, or in its suffix's width. | Primitive Types |
+| syntax.lex.int-range | An integer literal must fit in 64 unsigned bits, or in the unsigned range of its suffix's width, so `256_u8` and `256_i8` are both errors. A later stage holds a literal with a signed suffix to its width's signed range, so `128_i8` is refused there. The one exception is the magnitude of the width's minimum, such as `128` for `i8`, as the direct operand of a unary minus: `-128_i8` is allowed, because a leading `-` is a separate token (§2.3) and the lexer cannot tell a negation from a subtraction. | Primitive Types; SL-435 |
 | syntax.lex.escape | An unknown escape, or a `\u{…}` that is a surrogate, exceeds 0x10FFFF or has no digits, is an error at the escape. | String |
 | syntax.lex.unterminated-string | An unterminated string is reported at its opening quote. When an interpolation inside it holds an odd number of unescaped quotes outside comments, so that the brace swallowed the literal's closing quote, the stray `{` is reported instead. | String |
 | syntax.lex.directive | `#` must be followed by `file`, `line`, `function` or `lend_var`. | Source-location literals |
@@ -2229,6 +2231,7 @@ the two disagree, a row below says which way and why. Where a grammar rule
 | syntax.decl.requirement | parses generic parameters on a trait requirement | refuses them | later | Traits; SL-400 c6 |
 | syntax.expr.refused-try-route | refuses a routing clause on `try!` or `try?`, and beside `catch` | parses them, and the type checker refuses them | earlier | Error routing at `try` |
 | syntax.expr.int, syntax.expr.float | refuses, in the `INT` and `FLOAT` tokens of §2.1, a `_` that does not stand between two digits: doubled (`1__000`, `0b1__0`, `1.0__5`), right after a base prefix (`0x_FF`), at the end (`1_`, `0xFF_`, `1_000_`, `1.0_`) or beside the point (`1_.5`); a width suffix after more than one `_` (`2__u8`); and an uppercase base prefix (`0XFF`, `0B1`, `0O7`) | `sawc/lexer.py` accepts every one, reading `2__u8` as `2u8`, `1_` as `1`, `1.0_` as `1.0`, `1_.5` as `1.5`, `1.0__5` as `1.05` and `0XFF` as `0xFF` | defect | Primitive Types; SL-408 c1; SL-408 c3 |
+| syntax.lex.int-range | holds a literal with a signed suffix to its width's signed range in a later stage, the self-hosted type layer, so `128_i8` is refused and `-128_i8` is allowed (§2.7) | `sawc/` checks only the width's unsigned range and wraps the rest silently: `255_i8` is -1, `128_i8` is -128, `take8(x: 200_i8)` passes -56 to an `Int8` parameter, and `static s: Int8 = 200_i8` holds -56; only a typed `let` or `var` refuses one | defect | Primitive Types; SL-435 |
 | syntax.lex.unterminated-string | reports an unterminated string at its opening quote, or at the `{` of an interpolation holding an odd number of unescaped quotes outside comments | `sawc/lexer.py` reports it at the end of input, or, once the literal has opened an interpolation, at that interpolation's `{` whatever it holds, so `"a {1 // comment: "` is reported at its `{`; it accepts `"a {"b} c"`, whose segment then fails to lex | defect | String |
 | syntax.lex.escape | reports a bad escape at its backslash | `sawc/lexer.py` reports it where its scan stopped: at the character after the escape's letter, or past the `}` of a `\u{…}` | defect | String |
 | syntax.lex.unclosed-bracket | reports an unclosed `(`, `[` or `{` at its opener | reports an unclosed `(` or `[` at its opener, but an unclosed `{` at the first token it cannot place, such as the next function's `func` | defect | Layout |

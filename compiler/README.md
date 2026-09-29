@@ -182,7 +182,7 @@ so it is compiled by itself, without the source rules.
 | `root-reuse` | an argument reading the receiver's or a `&` argument's root; an index write whose right side reads its root | S4 |
 | `var-ref-into-let` | `&var`, or a call of a `&var self` method, reaching into a binding that is not a `var`, or into any `static` | S5 |
 | `function-exit` | a value-returning body, `init` or closure that can fall off its end or end in a `Void` call; code after `return`, `break` or `continue` | S6 |
-| `int-literal-range` | an unsuffixed integer literal above `Int.max`, except as a `UInt64` binding's value or as `-9223372036854775808` | S7 |
+| `int-literal-range` | an unsuffixed integer literal above `Int.max`, except as a `UInt64` binding's value or as `-9223372036854775808`; a literal with a signed suffix above its width's signed maximum, in any context, except the magnitude of the width's minimum under a unary minus (`-128_i8`) | S7 |
 | `enum-equatable-body` | a hand-written `equals` on an enum, in its `Equatable` conformance or apart from it | S8 |
 | `nested-optional` | `T??`, and an optional element or value type in `Vector`, `Map` or `Set` | S10 |
 | `argument-labels` | a repeated label; a labeled call to a `borrows` accessor, std's or the build's, judged by the receiver's type | S14 |

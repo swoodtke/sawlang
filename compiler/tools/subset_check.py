@@ -140,6 +140,7 @@ NON_INT_INTEGERS = (A.TypeKind.UINT, A.TypeKind.INT8, A.TypeKind.INT16, A.TypeKi
                     A.TypeKind.UINT32, A.TypeKind.UINT64)
 UNSIGNED_64 = (A.TypeKind.UINT, A.TypeKind.UINT64)
 INT_MAX = (1 << 63) - 1
+SIGNED_SUFFIX_WIDTHS = {"i8": 8, "i16": 16, "i32": 32, "i64": 64}
 
 # Methods a call may reach through an indexed receiver or a `get` result: each
 # only reads it, so a copy of the element gives the same answer.
@@ -959,8 +960,8 @@ class FileChecker:
     # -- literals ------------------------------------------------------------
 
     def check_literals(self):
-        """Integer literals past `Int.max` and float literals, wherever an
-        expression can sit, interpolations included."""
+        """Integer literals past their signed maximum and float literals,
+        wherever an expression can sit, interpolations included."""
         allowed = set()
         for n in walk(self.src.program):
             if isinstance(n, A.LetStatement):
@@ -968,15 +969,23 @@ class FileChecker:
             elif isinstance(n, A.StaticDecl):
                 _allow_typed(n.initializer, n.type, allowed)
             elif isinstance(n, A.UnaryOp) and n.op == "-" \
-                    and isinstance(n.operand, A.IntLiteral) and n.operand.value == INT_MAX + 1:
+                    and isinstance(n.operand, A.IntLiteral) \
+                    and _signed_max(n.operand) is not None \
+                    and n.operand.value == _signed_max(n.operand) + 1:
                 allowed.add(id(n.operand))
         for n in walk(self.src.program):
-            if isinstance(n, A.IntLiteral) and n.suffix is None \
-                    and isinstance(n.value, int) and n.value > INT_MAX \
+            if isinstance(n, A.IntLiteral) and _signed_max(n) is not None \
+                    and isinstance(n.value, int) and n.value > _signed_max(n) \
                     and id(n) not in allowed:
-                self.report(n.line, "int-literal-range",
-                            "an unsuffixed integer literal above Int.max wraps; give it a "
-                            "suffix or a `UInt64` binding")
+                if n.suffix is None:
+                    self.report(n.line, "int-literal-range",
+                                "an unsuffixed integer literal above Int.max wraps; give it "
+                                "a suffix or a `UInt64` binding")
+                else:
+                    self.report(n.line, "int-literal-range",
+                                "an `%s` literal above %d wraps; give it the unsigned suffix "
+                                "`u%s` or a typed binding"
+                                % (n.suffix, _signed_max(n), n.suffix[1:]))
             elif isinstance(n, A.FloatLiteral):
                 self.report(n.line, "float-literal", "the subset has no float literals")
 
@@ -1128,9 +1137,20 @@ class FileChecker:
 
 def _allow_typed(value, annotation, allowed):
     """The typed binding SL:hazards S7 recommends for a constant past `Int.max`."""
-    if isinstance(value, A.IntLiteral) and annotation is not None \
+    if isinstance(value, A.IntLiteral) and value.suffix is None and annotation is not None \
             and annotation.kind in UNSIGNED_64:
         allowed.add(id(value))
+
+
+def _signed_max(lit):
+    """The largest value an integer literal may spell without wrapping, or None
+    for an unsigned suffix, which the lexer already holds to its width. A signed
+    suffix outranks any context type, so it is judged alone (SL:hazards S7)."""
+    if lit.suffix is None:
+        return INT_MAX
+    if lit.suffix in SIGNED_SUFFIX_WIDTHS:
+        return (1 << (SIGNED_SUFFIX_WIDTHS[lit.suffix] - 1)) - 1
+    return None
 
 
 def _significant_newlines(toks):

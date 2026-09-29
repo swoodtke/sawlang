@@ -1,0 +1,33 @@
+// A signed-suffixed integer literal above its width's signed maximum, except
+// 2^(w-1) as a unary minus's direct operand. No context type exempts one.
+static wide: Int8 = 200_i8   // refuses: int-literal-range
+static least: Int8 = -128_i8
+
+func take8(x: Int8) -> Int8 {
+    x
+}
+
+func signed_fixture() -> Int {
+    let a = 128_i8   // refuses: int-literal-range
+    let b = 127_i8
+    let c = -128_i8
+    let d = 32768_i16   // refuses: int-literal-range
+    let e = 32767_i16
+    let f = -32768_i16
+    let g = 2147483648_i32   // refuses: int-literal-range
+    let h = 2147483647_i32
+    let i = -2147483648_i32
+    let j = 9223372036854775808_i64   // refuses: int-literal-range
+    let k = 9223372036854775807_i64
+    let l = -9223372036854775808_i64
+    let m = 255_i8   // refuses: int-literal-range
+    let n = 0x80_i8   // refuses: int-literal-range
+    let o = 255_u8
+    let p = -129_i8   // refuses: int-literal-range
+    let q = take8(x: 200_i8)   // refuses: int-literal-range
+    let r = b - 128_i8   // refuses: int-literal-range
+    let s: Int8 = 200_i8   // refuses: int-literal-range
+    let t: UInt64 = 9223372036854775808_i64   // refuses: int-literal-range
+    print("wraps {128_i8}")   // refuses: int-literal-range
+    3
+}
