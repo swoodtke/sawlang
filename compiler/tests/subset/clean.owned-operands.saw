@@ -40,6 +40,14 @@ func pass_segments(t: &PassTok, v: &Vector<String>, n: Int) -> String {
 
 func pass_primitive_segments(n: Int, ok: Bool, b: UInt8) -> String { "{n} {ok} {b}" }
 
+func pass_generic_segment<T: Printable>(x: T) -> String { "[{x}]" }
+
+func pass_generic_instances(s: String, n: Int) -> Int {
+    let a = pass_generic_segment(s)
+    let b = pass_generic_segment(n)
+    a.len() + b.len()
+}
+
 func pass_rendered(t: &PassTok) -> String {
     let text = t.to_string()
     "[{text}]"

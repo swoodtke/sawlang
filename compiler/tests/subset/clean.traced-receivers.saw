@@ -1,6 +1,7 @@
 // The build's own methods, named like std methods, on receivers whose type is
 // traced: `self` in a trait default body, a bounded type parameter, a match-arm
-// binding and a destructured tuple's elements.
+// binding, a destructured tuple's elements, and the result of an overloaded
+// method whose overload the call's argument count or labels pick.
 struct Tok { tag: Int, at: Int }
 
 extension Tok {
@@ -49,6 +50,23 @@ func total_of<T: Sized2>(x: &T) -> Int { x.count() }
 
 func make_pair() -> (Table, Cursor) { (Table(n: 1), Cursor(i: 0)) }
 
+struct Doc { n: Int }
+
+extension Doc {
+    func cursor(&self) -> Cursor { Cursor(i: self.n) }
+    func cursor(&self, offset: Int) -> Int { self.n + offset }
+    func table(&self, n: Int) -> Table { Table(n: n) }
+    func table(&self, n: Int, scale: Int) -> Int { n * scale }
+}
+
+func doc_use() -> Int {
+    let d = Doc(n: 3)
+    var c = d.cursor()
+    let off = d.cursor(offset: 2)
+    var t = d.table(n: 4)
+    c.next() + c.peek() + off + t.insert(1)
+}
+
 func node_kind(n: &Node) -> Int {
     match n {
         case Leaf(tok) -> tok.kind(),
@@ -67,6 +85,7 @@ func main() {
     let leaf = Node.Leaf(tok: Tok(tag: 5, at: 0))
     print(node_kind(&leaf))
     print(pair_use())
+    print(doc_use())
     let c = Cursor(i: 4)
     print(c.peek_twice())
     let t = Table(n: 9)

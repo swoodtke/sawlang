@@ -19,3 +19,8 @@ func ren_local(n: Int) -> String {
 func ren_param(t: &RenTok) -> String { "<{t}>" }   // refuses: owned-operand
 func ren_field(h: &RenHolder) -> String { "{h.tok} x{h.count}" }   // refuses: owned-operand
 func ren_call(n: Int) -> String { "{ren_make(n)}" }   // refuses: owned-operand
+
+// A generic body is judged at each instantiation: `T` bound to a user
+// `Printable` renders, while `U` bound to `String` takes the fast path.
+func ren_generic<T: Printable, U: Printable>(x: T, y: U) -> String { "{x}/{y}" }   // refuses: owned-operand
+func ren_instances(t: RenTok) -> String { ren_generic(t, "s") }

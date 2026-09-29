@@ -1,5 +1,6 @@
 // An extension head that names a generic build type's type parameters, for
-// methods and a conformance, and one on a non-generic type (SL:hazards L18).
+// methods and a conformance, `Result`'s, which the typechecker declares itself,
+// and one on a non-generic type (SL:hazards L18).
 struct Gen<T> { item: T }
 
 enum Pick<T> { case One(item: T), case Empty }
@@ -18,4 +19,8 @@ extension Pick<T> {
 
 extension Flat {
     func tag(&self) -> Int { self.n }
+}
+
+extension Result<T, E> {
+    func tag(&self) -> Int { 3 }
 }

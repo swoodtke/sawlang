@@ -147,7 +147,10 @@ Each rule has at least one fixture, `tests/subset/RULE.saw` or
 exactly the lines and rules the checker must report; a rule named twice on a line
 expects two findings of it there, each with its own message. The `clean`
 fixtures, which hold the spellings SL:hazards recommends and ordinary subset
-code, must report nothing. The runner fails for a rule with no fixture.
+code, must report nothing. The runner fails for a rule with no fixture. A
+fixture in `tests/subset/generated/` holds an `owned-operand` position that
+only code another rule refuses can reach, such as a `String` cast to a pointer,
+so it is compiled by itself, without the source rules.
 
 | Rule | Refuses | Source |
 |---|---|---|
@@ -157,7 +160,7 @@ code, must report nothing. The runner fails for a rule with no fixture.
 | `sync-only` | tasks, threads, channels, `sleep`, a `blocking` extern | §4 |
 | `closure-capture` | a closure naming an enclosing binding or `self`, a capture list | §4 |
 | `type-alias` | any `type` alias | §4, S9 |
-| `prelude-type-name` | a declared type named like a public std type, import-gated ones included | §4, L17 |
+| `prelude-type-name` | a declared type named like a public std type, import-gated ones included, or like `Optional` or `Result` | §4, L17 |
 | `selective-imports` | `import m` and `import m.*` | §4, L3 |
 | `import-allowlist` | a std module off `ALLOWED_STD_MODULES`, or a package that is not a compiler stage | §4 |
 | `std-api` | a std call off `STD_API`; `m[k]` on a Map; a write, a mutating method or a presence test through `get`; `m[k]! = v`; `with_ref`, `with_var_ref`, `with_unique`, a closure-taking `lock` | §4 |
@@ -189,7 +192,7 @@ code, must report nothing. The runner fails for a rule with no fixture.
 | `float-literal` | any float literal | §4, S20 |
 | `interpolation-line-break` | a line break inside an interpolation's braces | S21 |
 | `inline-module` | every inline `module name { }` | S22 |
-| `owned-operand` | an operand Stage 0's `_is_owned_temporary` calls an owned temporary, as a comparison operand, an interpolation segment, or a format argument of `print`, `panic` or `assert`, a string literal exempt; any interpolation segment codegen renders through a synthesized `to_string()` (a type off its builtin fast path, such as a user `Printable`), a named place included | S23 |
+| `owned-operand` | an operand Stage 0's `_is_owned_temporary` calls an owned temporary, as a comparison operand, an interpolation segment, a format argument of `print`, `panic` or `assert`, or the operand of an `as` cast that builds a new value rather than forwarding it, a string literal exempt; any interpolation segment codegen renders through a synthesized `to_string()` (a type off its builtin fast path, such as a user `Printable`), a named place included | S23 |
 | `from-raw-literal` | `from(raw:)` with a bare literal | L1 |
 | `closure-syntax` | an unannotated closure parameter, `$0`, a trailing closure, a function type under `?` | L2 |
 | `default-value-literal` | a default parameter value that is not a literal | L3 |
@@ -200,7 +203,7 @@ code, must report nothing. The runner fails for a rule with no fixture.
 | `type-param-receiver` | a call whose receiver is a type parameter | L10 |
 | `leading-minus` | a line that begins with `-` after a token that can end an operand | L12 |
 | `nesting-depth`, `chain-length` | brackets nested past 30; an operator, `??`, postfix, `else if` or `else if let` chain past 100 | L14 |
-| `generic-extension-params` | an extension head naming a generic type, the build's or std's, without its type parameters, as `extension Gen { }`, `extension Gen: NoCopy {}` or `extension Vector { }` | L18 |
+| `generic-extension-params` | an extension head naming a generic type, the build's or std's (`Optional` and `Result` included), without its type parameters, as `extension Gen { }`, `extension Gen: NoCopy {}`, `extension Vector { }` or `extension Result { }` | L18 |
 | `interpolation-content` | `//`, a brace or a quote inside an interpolation | C3 |
 | `workaround-marker` | a comment that reads as a Stage 0 workaround marker but is not in its one form, or names an S or L entry SL:hazards does not declare | SL:hazards |
 
@@ -226,8 +229,9 @@ Several checks are syntactic, so they are partial. What they cannot see stays a
 trust obligation, as SL:hazards describes:
 
 - `std-api` traces a receiver's type through written types: bindings, fields,
-  the build's function and method returns (untraced when overloads return
-  different types, since which overload a call picks is not traced), `get` and
+  the build's function and method returns (of the overloads a call's argument
+  count and labels can bind to, untraced when those return different types,
+  since argument types are not traced), `get` and
   subscripts, `self` in an extension or a trait default body, a match-arm
   binding (from the scrutinee's enum, `Optional` or `Result` payload), and a
   destructured tuple's elements. A

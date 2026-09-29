@@ -1,0 +1,14 @@
+// An extension head naming `Result` or `Optional` without its parameters. The
+// typechecker declares both itself, so no std source does: a bare `Result`
+// crashes Stage 0 as a build generic's does (SL:hazards L18; probe g3).
+extension Result {   // refuses: generic-extension-params
+    func res_mark(&self) -> Int { 1 }
+}
+
+extension Optional {   // refuses: generic-extension-params
+    func opt_mark(&self) -> Int { 2 }
+}
+
+extension Result<T, E> {
+    func res_tag(&self) -> Int { 3 }
+}

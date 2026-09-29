@@ -1,0 +1,72 @@
+// The operand of an `as` cast that builds a new value: a fresh `String` cast to
+// a pointer is left with no owner (SL:hazards S23). Only a cast to a pointer
+// builds from an operand that needs a release, and `raw-pointer` refuses every
+// one, so this fixture is compiled without the source rules. A bound local, a
+// parameter, a field, a pointer, a reference, an integer and a forwarding cast
+// leave nothing unreleased.
+struct CastHolder { text: String, n: Int }
+
+extension CastHolder {
+    func as_text(&self) -> String { self.text }
+}
+
+extension String {
+    func cast_raw_len(&self) unsafe -> Int { cast_use(self as UnsafePointer<Int8>) }
+}
+
+func cast_make(n: Int) -> String { "w{n}" }
+
+func cast_use(p: UnsafePointer<Int8>) unsafe -> Int { 1 }
+
+func cast_use_int(p: UnsafePointer<Int>) unsafe -> Int { 1 }
+
+func cast_call(n: Int) unsafe -> Int {
+    let p = cast_make(n) as UnsafePointer<Int8>   // refuses: owned-operand
+    cast_use(p)
+}
+
+func cast_argument(n: Int) unsafe -> Int {
+    cast_use(cast_make(n) as UnsafePointer<Int8>)   // refuses: owned-operand
+}
+
+func cast_method(h: &CastHolder) unsafe -> Int {
+    let p = h.as_text() as UnsafePointer<Int8>   // refuses: owned-operand
+    cast_use(p)
+}
+
+func cast_interpolation(n: Int) unsafe -> Int {
+    let p = "v{n}" as UnsafePointer<Int8>   // refuses: owned-operand
+    cast_use(p)
+}
+
+func cast_bound(n: Int) unsafe -> Int {
+    let text = cast_make(n)
+    cast_use(text as UnsafePointer<Int8>)
+}
+
+func cast_param(s: String) unsafe -> Int { cast_use(s as UnsafePointer<Int8>) }
+
+func cast_field(h: &CastHolder) unsafe -> Int { cast_use(h.text as UnsafePointer<Int8>) }
+
+func cast_pointer(s: String) unsafe -> Int {
+    let q = s as UnsafePointer<Int8>
+    cast_use_int(q as UnsafePointer<Int>)
+}
+
+func cast_reference(x: &Int) unsafe -> Int { cast_use_int(x as UnsafePointer<Int>) }
+
+func cast_int(n: Int) -> Int {
+    let b = (n % 7) as UInt8
+    b as Int
+}
+
+func cast_address(s: String) unsafe -> Int {
+    let q = s as UnsafePointer<Int8>
+    let block = q as Int
+    cast_use_int((block + 8) as UnsafePointer<Int>)
+}
+
+func cast_forwarding(n: Int) -> Int {
+    let t = cast_make(n) as String
+    t.len()
+}

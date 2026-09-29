@@ -130,6 +130,9 @@ CELL_NAMES = ("Mutex", "SpinLock", "Once", "UnsafeMutableInterior", "Atomic", "A
 # The frozen parser's raw-pointer spellings. The other unsafe types are the
 # `unsafe struct`s std declares, which `StdFacts` collects.
 POINTER_TYPE_NAMES = ("UnsafePointer", "UnsafeConstPointer")
+# The generic prelude types the frozen typechecker declares itself, so no std
+# source names them.
+BUILTIN_GENERIC_TYPES = ("Optional", "Result")
 COLLECTIONS = ("Vector", "Map", "Set")
 NON_INT_INTEGERS = (A.TypeKind.UINT, A.TypeKind.INT8, A.TypeKind.INT16, A.TypeKind.INT32,
                     A.TypeKind.INT64, A.TypeKind.UINT8, A.TypeKind.UINT16,
@@ -237,14 +240,14 @@ class StdFacts:
         self.names = {}
         self.generic_functions = set()
         self.generic_methods = set()
-        self.types = set(PRIMITIVE_TYPE_NAMES) | {"Void", "Never"}
+        self.types = set(PRIMITIVE_TYPE_NAMES) | {"Void", "Never"} | set(BUILTIN_GENERIC_TYPES)
         # Names a compiler type may not take: every type the builtins or a std
         # module make public, gated or not (SL:hazards L17).
         self.reserved_types = set(self.types)
         self.methods = set()
         self.borrows_methods = set()
         self.unsafe_types = set(POINTER_TYPE_NAMES)
-        self.generic_types = set()
+        self.generic_types = set(BUILTIN_GENERIC_TYPES)
         self.method_kinds = {}
         std_dir = os.path.join(REPO, "sawc", "std")
         paths = sorted(glob.glob(os.path.join(std_dir, "**", "*.saw"), recursive=True))
@@ -360,6 +363,44 @@ def _shared_type(types):
     return types[0]
 
 
+def _binds(params, args):
+    """Can a call's `args`, as (label, value) pairs, bind to `params`? A
+    positional argument takes the next unbound parameter; a label names one at
+    or after it, and every parameter it skips carries a default. That is sawc's
+    own binding rule, which decides the overload before any type does (design 66)."""
+    params = [p for p in params if p.name != "self"]
+    names = [p.name for p in params]
+    defaulted = [p.default_value is not None for p in params]
+    bound = set()
+    next_pos = 0
+    for label, _ in args:
+        if label is None:
+            target = next_pos
+            if target >= len(params):
+                return False
+        else:
+            if label not in names:
+                return False
+            target = names.index(label)
+            if target < next_pos or not all(defaulted[next_pos:target]):
+                return False
+        bound.add(target)
+        next_pos = target + 1
+    return all(k in bound or defaulted[k] for k in range(len(params)))
+
+
+def _picked(decls, args):
+    """The overloads in `decls` a call with `args` can bind to."""
+    return [d for d in decls if _binds(d.parameters, args)]
+
+
+def _picked_return(decls, args):
+    """The written return type every overload a call with `args` can bind to
+    shares, or None: a tie on labels and count is left to the argument types,
+    which are not traced."""
+    return _shared_type([d.return_type for d in _picked(decls, args)])
+
+
 class BuildFacts:
     """What one build's own files declare, inline modules included: the names a
     call may resolve to without reaching std, and the written types an
@@ -380,8 +421,8 @@ class BuildFacts:
         self.borrows_owned = set()
         self.fields = {}
         self.variants = {}
-        self.returns = {}
-        self.method_returns = {}
+        self.function_decls = {}
+        self.method_decls = {}
         self.method_mutates = {}
         self.name_mutates = {}
         nonvoid = set()
@@ -401,7 +442,7 @@ class BuildFacts:
             self.functions.add(fn.name)
             if fn.type_params:
                 self.generic_functions.add(fn.name)
-            self.returns.setdefault(fn.name, []).append(fn.return_type)
+            self.function_decls.setdefault(fn.name, []).append(fn)
             if fn.return_type is None or fn.return_type.kind == A.TypeKind.VOID:
                 self.void_functions.add(fn.name)
             else:
@@ -430,7 +471,7 @@ class BuildFacts:
                 if getattr(m, "is_borrows", False):
                     self.borrows_methods.add(m.name)
                     self.borrows_owned.add((owner, m.name))
-                self.method_returns.setdefault((owner, m.name), []).append(m.return_type)
+                self.method_decls.setdefault((owner, m.name), []).append(m)
                 if _instance_method(m):
                     self.method_mutates[(owner, m.name)] = _mutates_self(m)
                     self.name_mutates.setdefault(m.name, set()).add(_mutates_self(m))
@@ -440,14 +481,21 @@ class BuildFacts:
         kinds = self.name_mutates.get(name)
         return bool(kinds) and kinds == {False}
 
-    def function_return(self, name):
-        """The written return type every overload of the function shares, or None."""
-        return _shared_type(self.returns.get(name))
+    def function_return(self, name, args):
+        """The written return type of the function overload a call with `args`
+        picks, or None."""
+        return _picked_return(self.function_decls.get(name, ()), args)
 
-    def method_return(self, owner, name):
-        """The written return type every overload of the method shares, or None:
-        a call's overload is not traced, so differing returns leave it unknown."""
-        return _shared_type(self.method_returns.get((owner, name)))
+    def method_return(self, owner, name, args):
+        """The written return type of the method overload a call with `args`
+        picks, or None."""
+        return _picked_return(self.method_decls.get((owner, name), ()), args)
+
+    def method_is_void(self, owner, name, args):
+        """Does every overload a call with `args` can bind to return nothing?"""
+        decls = _picked(self.method_decls.get((owner, name), ()), args)
+        return bool(decls) and all(d.return_type is None
+                                   or d.return_type.kind == A.TypeKind.VOID for d in decls)
 
     def module_member(self, path):
         """What a path headed by an inline module's name reaches, walked through
@@ -1048,12 +1096,12 @@ class FileChecker:
             if k == A.TypeKind.TUPLE and any(p.kind == A.TypeKind.SELF
                                              for p in type_parts(part)):
                 self.report(line, "written-type-shape", "no `Self` inside a tuple type")
+            # A pointer type is not reported here: the frozen parser builds one
+            # only from a `POINTER_TYPE_NAMES` token, which the token rules report.
             if k == A.TypeKind.EXISTENTIAL:
                 self.report(line, "any-type", "no `any`; dispatch over an enum")
             elif k == A.TypeKind.ARRAY:
                 self.report(line, "fixed-array", "no fixed-size arrays; use `Vector`")
-            elif k == A.TypeKind.POINTER:
-                self.report(line, "raw-pointer", "a raw pointer type")
             if is_optional(part):
                 inner = optional_payload(part)
                 if is_optional(inner):
@@ -1264,11 +1312,8 @@ class BodyChecker:
         if isinstance(expr, A.FunctionCall) and not self.is_local(expr.name):
             return expr.name in ("print", "assert") or expr.name in self.facts.void_functions
         if isinstance(expr, A.MethodCall):
-            key = (_type_name(self.type_of(expr.object)), expr.method_name)
-            if key not in self.facts.method_returns:
-                return False
-            return all(rt is None or rt.kind == A.TypeKind.VOID
-                       for rt in self.facts.method_returns[key])
+            return self.facts.method_is_void(_type_name(self.type_of(expr.object)),
+                                             expr.method_name, arguments_of(expr))
         return False
 
     def arm_ends(self, body):
@@ -1839,15 +1884,16 @@ class BodyChecker:
         if isinstance(expr, A.MethodCall):
             receiver = _peel(self.type_of(expr.object))
             owner = _type_name(receiver)
+            args = arguments_of(expr)
             if owner in facts.types:
-                return _peel(facts.method_return(owner, expr.method_name))
+                return _peel(facts.method_return(owner, expr.method_name, args))
             if expr.method_name == "get" and owner in ("Vector", "Map") and receiver.type_args:
                 return A.SawType(A.TypeKind.OPTIONAL, inner_type=receiver.type_args[-1])
             if isinstance(expr.object, A.Identifier) and expr.object.name in facts.types:
                 variants = facts.variants.get(expr.object.name, {})
                 if expr.method_name in variants:
                     return _named(expr.object.name)
-                return _peel(facts.method_return(expr.object.name, expr.method_name))
+                return _peel(facts.method_return(expr.object.name, expr.method_name, args))
             return None
         if isinstance(expr, A.ArrayIndex):
             container = _peel(self.type_of(expr.array_expr))
@@ -1859,11 +1905,14 @@ class BodyChecker:
             return optional_payload(inner) if is_optional(inner) else None
         if isinstance(expr, A.FunctionCall):
             if expr.name in facts.functions:
-                return _peel(facts.function_return(expr.name))
+                return _peel(facts.function_return(expr.name, arguments_of(expr)))
             if expr.name[:1].isupper():
                 return _named(expr.name)
             return None
         if isinstance(expr, A.StructInit):
+            # The frozen parser reads any `name(label: ...)` as a construction.
+            if expr.struct_name in facts.functions and expr.struct_name not in facts.types:
+                return _peel(facts.function_return(expr.struct_name, arguments_of(expr)))
             return _named(expr.struct_name)
         if isinstance(expr, A.EnumInit):
             return _named(expr.enum_name)
@@ -1970,11 +2019,11 @@ class BodyChecker:
         if name in self.type_params:
             # A type parameter's methods are its bounds': a build trait's is the
             # build's; any other is judged as untraced.
-            if any((bound, e.method_name) in facts.method_returns
+            if any((bound, e.method_name) in facts.method_decls
                    for bound in self.type_params[name]):
                 return None
         elif name is not None:
-            if name in facts.types or (name, e.method_name) in facts.method_returns:
+            if name in facts.types or (name, e.method_name) in facts.method_decls:
                 return None
             return "." + e.method_name
         # An untraced receiver: a name std also declares is judged as std's, so
@@ -2175,6 +2224,7 @@ def generated_sites(entry):
       `_generate_binary_op` -- a comparison operand
       `visit_StringInterpolation` -- an interpolation segment
       `_format_pieces` -- a format argument of `print`, `panic` or `assert`
+      `_generate_cast_expr` -- the operand of an `as` cast that builds a new value
     """
     import sawc as driver
     from codegen.core import CodeGenerator
@@ -2217,7 +2267,9 @@ def generated_sites(entry):
             position = "interpolation segment %d" % i
             # Off the builtin fast path, codegen renders the segment through a
             # `to_string()` call it synthesizes, and that String is never
-            # released, whatever the segment names.
+            # released, whatever the segment names. `_expr_type` is the type
+            # codegen itself reads, the instantiation's bindings applied, so a
+            # `T` bound to `String` takes the fast path here as it does there.
             if not gen._is_builtin_interp_type(gen._expr_type(segment)):
                 record(gen, segment, position, expr.line, "rendered")
             else:
@@ -2232,6 +2284,16 @@ def generated_sites(entry):
             judge(gen, arg.value, "format argument %d of %s" % (i, callee), fmt_expr.line)
         return format_pieces(gen, fmt_expr, value_args)
 
+    cast_expr = CodeGenerator._generate_cast_expr
+
+    def generate_cast(gen, expr):
+        # A forwarding cast hands its operand on to whatever consumes the cast,
+        # so that position answers for it; any other cast builds a scalar or an
+        # address and leaves the operand with no owner.
+        if not expr.forwards_operand:
+            judge(gen, expr.expr, "the operand of `as`", expr.line)
+        return cast_expr(gen, expr)
+
     def naming(name, generate):
         def wrapper(gen, *args, **kwargs):
             callees.append(name)
@@ -2244,6 +2306,7 @@ def generated_sites(entry):
     CodeGenerator._generate_binary_op = generate_binary_op
     CodeGenerator.visit_StringInterpolation = visit_interpolation
     CodeGenerator._format_pieces = pieces
+    CodeGenerator._generate_cast_expr = generate_cast
     for attr, name in FORMAT_CALLEES:
         setattr(CodeGenerator, attr, naming(name, getattr(CodeGenerator, attr)))
     driver._emit_object = lambda *args, **kwargs: None

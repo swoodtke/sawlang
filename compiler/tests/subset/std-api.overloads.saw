@@ -1,7 +1,9 @@
-// A receiver bound from an overloaded build method or function. The checker does
-// not trace which overload a call picks, so when the overloads return different
-// types the receiver is untraced and a std name on it is judged as std's
-// (probe t1b). Overloads that agree still trace.
+// A receiver bound from an overloaded build method or function. The checker
+// picks the overloads a call can bind to by its argument count and labels, as
+// sawc does before it looks at a type, and traces the return they share. A
+// traced std type still has its std methods judged, and overloads that differ
+// only in argument types tie, so their receiver is untraced and a std name on
+// it is judged as std's (probes t1b and o1).
 struct Bag { n: Int }
 
 extension Bag {
@@ -14,6 +16,18 @@ extension Bag {
     func listing(&self) -> Vector<Int> { self.render(true) }
     func twin(&self) -> Bag { Bag(n: self.n) }
     func twin(&self, k: Int) -> Bag { Bag(n: k) }
+    func typed(&self, k: Int) -> Bag { Bag(n: k) }
+    func typed(&self, s: String) -> Vector<Int> {
+        var v: Vector<Int> = Vector()
+        try! v.push(s.len())
+        return move v
+    }
+    func span(&self, from: Int = 0) -> Bag { Bag(n: from) }
+    func span(&self, from: Int, to: Int) -> Vector<Int> {
+        var v: Vector<Int> = Vector()
+        try! v.push(to - from)
+        return move v
+    }
     func keys(&self) -> Int { self.n }
 }
 
@@ -37,13 +51,57 @@ func method_overload(b: Bag) -> Int {
     return v.len()
 }
 
+func labeled_overload(b: Bag) -> Int {
+    var v = b.render(full: false)
+    v.sort()   // refuses: std-api
+    return v.len()
+}
+
 func function_overload(k: Int) -> Int {
     var v = make(k, 2)
     v.sort()   // refuses: std-api
     return v.len()
 }
 
+func labeled_function_overload(k: Int) -> Int {
+    var v = make(k: k, m: 2)
+    v.sort()   // refuses: std-api
+    return v.len()
+}
+
+func type_tie(b: Bag) -> Int {
+    let t = b.typed(1)
+    return t.keys()   // refuses: std-api
+}
+
+func defaulted_overload(b: Bag) -> Int {
+    var v = b.span(1, 2)
+    v.sort()   // refuses: std-api
+    return v.len()
+}
+
 func shared_return(b: Bag) -> Int {
     let t = b.twin(1)
+    return t.keys()
+}
+
+func picked_by_count(b: Bag) -> Int {
+    let t = b.render()
+    return t.keys()
+}
+
+func picked_by_label(b: Bag) -> Int {
+    let t = b.typed(k: 1)
+    return t.keys()
+}
+
+func picked_with_default(b: Bag) -> Int {
+    let t = b.span()
+    let u = b.span(from: 2)
+    return t.keys() + u.keys()
+}
+
+func picked_function(k: Int) -> Int {
+    let t = make(k: k)
     return t.keys()
 }

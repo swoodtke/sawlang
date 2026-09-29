@@ -46,6 +46,7 @@ import test_migrate  # noqa: E402
 UNIT_OUT = os.path.join(REPO, ".build", "compiler-tests")
 LEX_FIXTURES = os.path.join(HERE, "lex")
 SUBSET_FIXTURES = os.path.join(HERE, "subset")
+SUBSET_GENERATED = os.path.join(SUBSET_FIXTURES, "generated")
 GRAMMAR_FIXTURES = os.path.join(HERE, "grammar", "fixtures")
 PARSE_CORPUS = os.path.join(HERE, "parse")
 FUNNEL_FIXTURES = os.path.join(HERE, "funnel")
@@ -128,8 +129,8 @@ def check_fixture_whitespace(run):
     """No fixture line ends in whitespace, and no fixture ends in a blank line.
     `git apply --whitespace=fix` (the patch server's setting) and editors strip
     both, which would change a fixture on its way into the tree."""
-    paths = [p for d in (LEX_FIXTURES, SUBSET_FIXTURES, FUNNEL_FIXTURES)
-             for p in glob.glob(os.path.join(d, "*"))]
+    paths = [p for d in (LEX_FIXTURES, SUBSET_FIXTURES, SUBSET_GENERATED, FUNNEL_FIXTURES)
+             for p in glob.glob(os.path.join(d, "*")) if os.path.isfile(p)]
     paths.append(parse_lane.CLAIMS)
     paths += glob.glob(os.path.join(GRAMMAR_FIXTURES, "**", "*.*"), recursive=True)
     paths += glob.glob(os.path.join(PARSE_CORPUS, "**", "*.*"), recursive=True)
@@ -270,6 +271,14 @@ def run_subset(run):
         reported[d.path].append(d)
     for path in fixtures:
         check_subset_fixture(run, path, reported[os.path.relpath(path, REPO)])
+        run.count("checker fixtures")
+    # An `owned-operand` position that only refused source can reach is asked of
+    # Stage 0 directly: the checker never compiles a build another rule refuses.
+    for path in sorted(glob.glob(os.path.join(SUBSET_GENERATED, "*.saw"))):
+        rel = os.path.relpath(path, REPO)
+        diags = subset_check.check_generated([(path, [subset_check.SourceFile(path)])],
+                                             {path: rel})
+        check_subset_fixture(run, path, diags)
         run.count("checker fixtures")
 
 
