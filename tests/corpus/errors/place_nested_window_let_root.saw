@@ -1,20 +1,21 @@
-// DF-175b, second live case. Windows NEST — `b[0][1].count += 10` is two — and
-// the write reaches the outer place's storage, so both windows are exclusive.
-// The classifier only asked whether the chain called a `&var self` METHOD, and
-// an already-lowered inner window is not one, so every CONTAINING window came
-// out shared. The outer borrow of the root was therefore joined as a shared
-// one and a `let` root took the write.
+// Borrows NEST: `borrow var frozen[0][1].count += 10` is a chain of two
+// reborrows, and the write reaches the outer place's storage, so both
+// accessors lend exclusively and the root is charged exclusively
+// (SL:borrowing §2.2, §3). A `let` root refuses it.
 //
-// The inner window is where the error used to surface, if at all: against the
-// synthesized `__p58`, a name no author wrote. It now names the root.
+// Both accessors declare their shared twin with `@synthesize(shared)` (§4),
+// so the plain read that follows is a copy under a shared charge, and the
+// nested write is the one refusal. The refusal is about the root the chain
+// starts at, not about the inner accessor alone.
+//
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot open an exclusive place window on immutable variable `frozen`
 
 struct Cell { count: Int }
 struct Row { cells: [Cell; 2] }
 struct Bag { rows: [Row; 2] }
 
 extension Row {
+    @synthesize(shared)
     public func [](&var self, i: Int) borrows -> &var Cell {
         if i < 0 || i >= 2 { panic("Row.[]: index out of range") }
         lend self.cells[i]
@@ -22,6 +23,7 @@ extension Row {
 }
 
 extension Bag {
+    @synthesize(shared)
     public func [](&var self, i: Int) borrows -> &var Row {
         if i < 0 || i >= 2 { panic("Bag.[]: index out of range") }
         lend self.rows[i]
@@ -31,6 +33,6 @@ extension Bag {
 func main() {
     let frozen = Bag(rows: [Row(cells: [Cell(count: 1), Cell(count: 2)]),
                             Row(cells: [Cell(count: 3), Cell(count: 4)])])
-    frozen[0][1].count += 10
+    borrow var frozen[0][1].count += 10
     print("{frozen[0][1].count}")
 }

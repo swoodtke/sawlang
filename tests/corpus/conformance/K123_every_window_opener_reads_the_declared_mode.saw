@@ -1,26 +1,27 @@
-// Conformance row K123 — EVERY window opener reads the accessor's DECLARED
-// mode, and the use site narrows within it (SL-333 R1/R3)
+// Conformance row K123 — EVERY borrow form reads the accessor's DECLARED mode
+// (SL:borrowing §1, §3)
 //
-// The rule quantifies over "every position where a place window opens", so it
-// is a FUNNEL with a matrix (obligation 1): `place_uses._window_call` is the one
-// chokepoint, and its docstring names the seven author-visible entries. This
-// file is the matrix's PERMITTED half — each entry opened at a mode the
-// declaration allows — and `errors/shared_lend_write_refused_at_every_opener.saw`
-// is its refused half, cell for cell.
+// Modes are declared, never inferred. The binding keyword is a capability on the
+// place: a bare `borrow` (or `borrow let`) gives a read-only place and is always
+// allowed, and `borrow var` gives a writable one and needs a `&var` lend. The
+// ROOT charge follows the declaration alone: the `&var self` accessors below
+// hold their root exclusively for every row, reads included, and the `&self`
+// ones hold it shared. This file is the matrix's PERMITTED half, and
+// `errors/shared_lend_write_refused_at_every_opener.saw` is its refused half.
 //
-//   entry                                   `-> &var T`        `-> &T`
-//   1  subscript read/chain  `b[i].n`       shared   (here)    shared (here)
-//   2  named accessor        `b.at(i).n`    shared   (here)    shared (here)
-//   3  write through either  `b[i].n += 1`  exclusive(here)    REFUSED
-//   4  `?.` chain assignment `b.get(i)?.n=` exclusive(here)    REFUSED
-//   5  `!` head              `b.get(i)!.n`  either   (here)    shared (here)
-//   6  `match`/`if let` on a place          shared   (here)    shared (here)
-//   7  reference argument    `&var b[i]`    exclusive(here)    REFUSED
-//   8  forwarded `lend b[i]` inside another accessor           (here; R7)
+//   form                                          `-> &var T`   `-> &T`
+//   1  subscript read       `borrow b[i]`         read  (here)  read (here)
+//   2  named accessor read  `borrow b.at(i)`      read  (here)  read (here)
+//   3  write                `borrow var b[i] += 1` write (here) REFUSED
+//   4  `?.` chain assignment `borrow var b.pair(i)?.n = …`  (here)  REFUSED
+//   5  `!` head             `borrow b.get(i)!`    read  (here)  read (here)
+//   6  `match` on a borrow block `borrow let s = b.slot(i)`  (here)  (here)
+//   7  reference argument   `bump(borrow var b[i])` write (here) REFUSED
+//   8  a `lend` inside another accessor           (here)
 //
-// (Seven openers, eight rows: the write and the reference argument are two
-// spellings of the same entry in the funnel and two different things to a
-// reader, so both are listed.)
+// A plain `b[i]` on `Bag` is no read at all: getitem derives only from a `&self`
+// accessor (§5.2), and `Bag` declares none, so every read is written `borrow`.
+// `View`'s plain `v[0]` is the derived getitem.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 1 subscript read 10
@@ -41,7 +42,8 @@ struct Cell { n: Int }
 struct Bag { cells: [Int; 4], slots: [Slot; 2], pairs: [Cell; 2] }
 
 extension Bag {
-    // The WRITABLE declaration: a use site may open either flavor.
+    // The WRITABLE declaration: every borrow through it charges the root
+    // exclusively, and `borrow var` may write.
     public func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 4 { panic("Bag.[]: index out of range") }
         lend self.cells[i]
@@ -67,16 +69,16 @@ extension Bag {
         lend self.pairs[i]
     }
 
-    // Entry 8: a FORWARDED lend. It carries THIS specialization's mode, so the
-    // shared copy reaches `[]` shared and the exclusive one reaches it
-    // exclusively (R7).
+    // Row 8: a `lend` of the receiver's own storage inside another accessor,
+    // borrowed here through the writable declaration, so the read below
+    // charges `b` exclusively like every other row.
     public func forwarded(&var self, i: Int) borrows -> &var Int {
         lend self.cells[i]
     }
 }
 
-// The READ-ONLY declaration: every use site opens a shared window, and nothing
-// may widen it.
+// The READ-ONLY declaration: every borrow through it charges the root shared,
+// and nothing may widen it to a write.
 struct View { cells: [Int; 4], slots: [Slot; 2], pairs: [Cell; 2] }
 
 extension View {
@@ -108,35 +110,35 @@ func main() {
                 slots: [Slot.Filled(n: 1), Slot.Empty],
                 pairs: [Cell(n: 5), Cell(n: 6)])
 
-    print("1 subscript read {b[0]}")
-    print("2 named read {b.at(1)}")
+    print("1 subscript read {borrow b[0]}")
+    print("2 named read {borrow b.at(1)}")
 
-    b[0] += 1
-    print("3 write {b[0]}")
+    borrow var b[0] += 1
+    print("3 write {borrow b[0]}")
 
-    b.pair(1)?.n = 21
-    print("4 chain write {b.pair(1)!.n}")
+    borrow var b.pair(1)?.n = 21
+    print("4 chain write {borrow b.pair(1)!.n}")
 
-    print("5 forced read {b.get(0)!}")
+    print("5 forced read {borrow b.get(0)!}")
 
-    match b.slot(0) {
+    borrow let s = b.slot(0) { match s {
         case Filled(_) -> { print("6 match sees Filled") },
         case Empty -> { print("6 match sees Empty") }
-    }
+    } }
 
-    bump(&var b[0])
-    print("7 ref arg {b.forwarded(0)}")
-    print("8 forwarded {b.forwarded(0)}")
+    bump(borrow var b[0])
+    print("7 ref arg {borrow b.forwarded(0)}")
+    print("8 forwarded {borrow b.forwarded(0)}")
 
-    // A `let` root may still READ through a writable accessor: the body mutates
-    // nothing outside the place it lends, so it is shared-eligible (R4).
+    // A `let` root READS through the read-only declaration: its `&self`
+    // accessors charge the root shared (§3).
     let v = View(cells: [10, 20, 30, 40],
                  slots: [Slot.Filled(n: 1), Slot.Empty],
                  pairs: [Cell(n: 5), Cell(n: 6)])
-    let matched = match v.slot(0) {
+    let matched = borrow let s = v.slot(0) { match s {
         case Filled(_) -> "Filled",
         case Empty -> "Empty"
-    }
-    print("read-only: subscript {v[0]}, named {v.at(0)}, forced {v.get(0)!}, match {matched}")
+    } }
+    print("read-only: subscript {v[0]}, named {borrow v.at(0)}, forced {borrow v.get(0)!}, match {matched}")
     print("-- done")
 }

@@ -188,7 +188,7 @@ struct CallableChain {
 }
 extension CallableChain: Iterator {
     type Item = () -> BagIterator                      // ROW: an `Item`
-    public func next(&var self) -> (() -> BagIterator)? { None }
+    public func next(&var self) -> (() -> BagIterator,)? { None }
 }
 struct CallableDefault<T = () -> BagIterator> {        // ROW: a generic DEFAULT
     private n: Int

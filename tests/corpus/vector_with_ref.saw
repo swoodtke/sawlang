@@ -1,8 +1,8 @@
-// Design 81: Vector.with_ref / with_var_ref — the scoped, no-copy element
-// borrow that replaced `ref_at`. `body` gets a non-escaping `&T`/`&var T` in
-// place; the receiver holds the whole vector borrowed for the call (so it can
-// neither be reallocated nor the element invalidated), and the borrow is a lend
-// (nothing retained). `R` (method-generic) flows out.
+// The scoped, no-copy element borrow: a `borrow let`/`borrow var` block over
+// `v[i]` (SL:borrowing §2.1, §9). The binding reaches the element in place;
+// the vector's root is charged for the whole block (so it can neither be
+// reallocated nor the element invalidated), and the borrow is a lend
+// (nothing retained). The block's value flows out.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 20
@@ -12,12 +12,12 @@
 func main() {
     var v: Vector<Int> = [10, 20, 30]
 
-    // Immutable borrow: read the element out (R = Int).
-    let x = v.with_ref<Int>(1, { e in e })
+    // Shared borrow: the block's value is the element, copied out.
+    let x = borrow let e = v[1] { e }
     print(x)              // 20
 
-    // Mutable borrow: mutate in place through `&var` (compound assignment).
-    v.with_var_ref<Void>(1, { e in e += 79 })
+    // Exclusive borrow: mutate in place through the `borrow var` binding.
+    borrow var e = v[1] { e += 79 }
     print(v.get(1)!)     // 99
 
     // The vector is intact and unchanged in length after the borrows.

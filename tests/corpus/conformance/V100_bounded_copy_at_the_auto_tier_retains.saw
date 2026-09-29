@@ -70,13 +70,13 @@ func sink(v: Vector<Watched>) -> Int { v.len() }
 
 func main() {
     let structs = copied_structs()
-    print("struct: {structs[0].text} {structs[1].text}")
+    print("struct: {borrow structs[0].text} {borrow structs[1].text}")
 
     let tags = copied_enums()
-    match tags[0] {
-        case Named(s) -> print("enum: {s}"),
+    borrow let lent = tags[0] { match lent {
+        case Named(borrow let s) -> print("enum: {s}"),
         case Anon -> print("enum: ANON")
-    }
+    } }
 
     // The counting half. `shared` is one reference; `held` is the second, moved
     // into a closure env that a `Watched` element owns.

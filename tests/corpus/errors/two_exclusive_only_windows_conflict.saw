@@ -1,29 +1,29 @@
-// SL-333 R4 (conformance row K125, refused half 2 of 2): TWO READ-ONLY windows
-// through an EXCLUSIVE-ONLY accessor, on ONE `var` root, are two EXCLUSIVE
-// receiver borrows and conflict.
+// SL:borrowing §3: two READ-ONLY borrows through an accessor declared
+// `&var self`, on ONE `var` root, are two EXCLUSIVE root charges and
+// conflict.
 //
-// This is the cell that says the receiver's mode is a second fact rather than a
-// restatement of the window's. Both sigils here are `&`, both windows only
-// read, and the ordinary design-188 pairwise test — which reads the SIGILS —
-// calls two shared borrows compatible and is right to. What it cannot see is
-// that each of these windows takes the whole of `b` exclusively, because the
-// accessor's epilogue mutates `self`: the same shape as
-// `setboth(&var b.at(0), &var b.at(1))`, reached through a pair of `&`.
+// The root charge follows the accessor's declaration, never how a use site
+// happens to use the place: an accessor that takes `&var self` holds its root
+// exclusively under bare `borrow` and `borrow var` alike. Both borrows below
+// only read, and each lasts for the call it is an argument of (§2.2), so `b`
+// would be charged exclusively twice at once: the same conflict as
+// `setboth(borrow var b.tally(0), borrow var b.tally(1))`, reached through a
+// pair of shared `borrow` arguments.
 //
-// The control is one line up in `K125_receiver_access_is_a_second_fact.saw`: the
-// identical expression through a SHARED-ELIGIBLE accessor compiles, on a `let`
-// root at that. The MIXED pair — one of each, in both orders — is
-// `mixed_window_modes_conflict.saw`.
+// A read that should share the root needs a declared shared accessor, written
+// or `@synthesize(shared)` (§4). `tally` cannot take the synthesized one: its
+// epilogue writes `self`, so its body fails under the shared signature, and
+// no use site can narrow the charge instead.
 //
-// It is the ORDINARY pairwise root-charge test that reports this, with the
-// receiver borrow's mode as its one input: there is no second rule for two
-// exclusive-only windows, which is why the mixed pair and a window beside a
-// plain `&root` are refused by the same code with the same words.
+// The MIXED pair — one borrow through a shared twin and one through an
+// accessor with none, in both orders — is `mixed_window_modes_conflict.saw`.
+// Every pairing is one rule: borrows of one root that are live together in a
+// statement are checked together, and an exclusive charge conflicts with any
+// other access to that root (§2.2, §3).
+//
+// Nothing about `tally`'s epilogue enters into it: the declaration alone
+// decides the charge.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: exclusive access violation: the place `b.tally(…)` borrows `b` EXCLUSIVELY even though this window only reads
-// EXPECT-ERROR-CONTAINS: `Bag.tally` mutates `self` outside the place it lends (a write into receiver storage at line 34)
-// EXPECT-ERROR-CONTAINS: and `b` is accessed by reference a second time in the same call
-// EXPECT-ERROR-CONTAINS: a read-only RESULT is not a shared receiver BORROW
 
 struct Bag { cells: [Int; 4], visits: Int }
 
@@ -39,5 +39,5 @@ func pair(a: &Int, b: &Int) -> Int { a + b }
 
 func main() {
     var b = Bag(cells: [10, 20, 30, 40], visits: 0)
-    print("{pair(&b.tally(0), &b.tally(1))}")
+    print("{pair(borrow b.tally(0), borrow b.tally(1))}")
 }

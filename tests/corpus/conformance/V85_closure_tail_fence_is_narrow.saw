@@ -1,5 +1,5 @@
 // Conformance row V85 — control: `move` tails, fresh temporaries, `.copy()`
-// tails, a PLACE WINDOW's tail and a GENERIC body's tail are untouched
+// tails, a `borrow` block's tail and a GENERIC body's tail are untouched
 //
 // DF-304a — the fence is correct only if it is narrow, and each row below is a
 // shape that had to keep compiling:
@@ -11,13 +11,13 @@
 //     to judge. (Its call also releases the parameter the body did not hand on,
 //     which is design 264's ruling A and the `drop 7` below.)
 //   * A `.copy()` tail at the ExplicitCopy tier — the other way out.
-//   * A PLACE WINDOW's tail. `place_uses._window_call` synthesizes a closure to
-//     write down "run this while the window is open", and its tail is the value
-//     of the place expression the AUTHOR wrote in the enclosing scope — already
-//     judged at its own site. Judging it again refused the lowering's own
-//     bookkeeping: measured on `match_borrowed_payload_in_a_driven_body`, whose
-//     driven `match plan.job` lowers to a window whose tail IS `plan.job`, so
-//     the carve-out is `is_place_window` and nothing wider.
+//   * A `borrow` block's tail. A block is an expression whose value is its
+//     tail (SL:borrowing §2.1), which must be owned or copied out and never
+//     carries the borrow; `e.w` copies an Int out of the lent element, so
+//     there is no transfer to judge: the element stays in the vector and is
+//     released once, at the end (`drop 3`). A plain `v[0].w` would be a
+//     getitem copy of the whole element (§5.1), which a NoCopy `Res` refuses;
+//     the block spells the in-place read.
 //   * A GENERIC body's tail. Design 219 wave C counts per PATH and raises a
 //     REQUIREMENT the call site discharges, so `{ x in move x }` at a move-only
 //     `T` stays callable and the ordinary forwarding shape owes no `Copy`.
@@ -90,10 +90,10 @@ func main() {
     // The ExplicitCopy way out: the copy comes back, the original dies inside.
     print("copied {}", run_cell({ c in c.copy() }))
 
-    // A place window's tail is the lowering's, not the author's transfer.
+    // A borrow block's tail copies out of the lent place; nothing transfers.
     var v = Vector<Res>()
     try! v.push(Res(w: 3))
-    print("window {}", v.with_ref(0, { &e in e.w }))
+    print("window {}", borrow let e = v[0] { e.w })
 
     // A generic body forwards without owing `Copy`.
     let g = forward({ x in move x }, Res(w: 4))

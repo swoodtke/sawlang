@@ -1,10 +1,10 @@
-// Design 165 unit 1: `Arc.with_unique` — the copy-on-write gate.
+// `Arc.unique()`: the copy-on-write gate, a conditional lend (SL:borrowing §9).
 //
 // Payload-method forwarding (design 21b) passes `&self` methods through an Arc
 // and REFUSES `&var self` ones, so a shared payload cannot be written at all.
-// Uniqueness is the other sound answer, and this is it: the strong-count test
-// and the `&var` access are one operation, so the count cannot go stale between
-// them, and a shared handle gets `None` without the body ever running.
+// Uniqueness is the other sound answer: `unique()` lends `&var T?`, present
+// only when the strong count is 1, so the count test and the `&var` access are
+// one operation, and a shared handle's block sees an absent place (§2.4).
 //
 // EXPECT: success
 // EXPECT-OUTPUT:
@@ -35,35 +35,38 @@ extension Res: NoCopy {
 func main() {
     var solo = try! Arc<Counter>(value: Counter(n: 0))
 
-    // Unique: the body runs and its own result comes back.
-    print("unique -> {solo.with_unique({ c in c.bump(); c.n }) ?? -1}")
+    // Unique: the place is present, and the arm's value comes back.
+    let first = borrow var c = solo.unique() { if borrow var c = c { c.bump(); c.n } else { -1 } }
+    print("unique -> {first}")
 
-    // R = Void instantiates too — a critical section that computes nothing.
-    if let _ = solo.with_unique({ c in c.bump() }) {
-        print("void arm ran, n = {solo.with_unique({ c in c.n }) ?? -1}")
-    }
+    // A statement block: the present arm writes and yields nothing.
+    borrow var c = solo.unique() { if borrow var c = c {
+        c.bump()
+        print("void arm ran, n = {c.n}")
+    } }
 
-    // Shared: None, and the body does NOT run (n stays 2 below).
+    // Shared: the place is absent, so the write arm does NOT run (n stays 2).
     let theirs = solo.copy()
-    if let v = solo.with_unique({ c in c.bump(); c.n }) {
-        print("BAD: a shared payload was written, n = {v}")
+    borrow var c = solo.unique() { if borrow var c = c {
+        c.bump()
+        print("BAD: a shared payload was written, n = {c.n}")
     } else {
         print("shared -> None (body did not run)")
-    }
+    } }
 
-    // The `None` arm is the caller's cue: clone, then write to the clone. This
+    // The absent arm is the caller's cue: clone, then write to the clone. This
     // is exactly what `Data`'s mutations do.
     var mine = try! Arc<Counter>(value: Counter(n: theirs.value()))
-    let _ = mine.with_unique({ c in c.bump() })
+    borrow var c = mine.unique() { if borrow var c = c { c.bump() } }
     print("clone-and-write: mine {mine.value()}, theirs {theirs.value()}")
 
     // The gate borrows rather than retains, so asking does not itself share.
     var lone = try! Arc<Counter>(value: Counter(n: 0))
-    let _ = lone.with_unique({ c in c.bump() })
-    let _ = lone.with_unique({ c in c.bump() })
+    borrow var c = lone.unique() { if borrow var c = c { c.bump() } }
+    borrow var c = lone.unique() { if borrow var c = c { c.bump() } }
     print("no double count: strong {lone.strong_count()}")
 
     // A NoCopy payload releases once, through Arc's ordinary two-phase drop.
     var res = try! Arc<Res>(value: Res(tag: 7))
-    let _ = res.with_unique({ r in r.tag })
+    let _tag = borrow var r = res.unique() { if borrow var r = r { r.tag } else { -1 } }
 }

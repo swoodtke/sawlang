@@ -3,18 +3,18 @@
 // migrated, so the negative fixtures are owed in the shape an author would
 // write them.
 //
-// A `borrows` call returning a borrowing struct is legal in exactly ONE
-// position: the DIRECT head of a `for` whose receiver is a place rooted in a
-// named binding. Everything else goes through ONE rejector, whose sentence is
+// A `borrows` call returning a borrowing struct is legal only as the DIRECT
+// head of a `for` or a `borrow` block (SL:borrowing §2.6, §3), a temporary
+// receiver included. Everything else goes through ONE rejector, whose sentence is
 // the RULE — a borrowing struct holds a lent place, so its values live only
 // inside their window, and the extent is the `for` statement. ELEVEN rows
 // below reach that one message; the matrix is the rows, not a table of
 // phrasings.
 //
-// TWO positions get their own diagnosis because the ACT is different: a
-// TEMPORARY receiver ("bind the collection first" — a temporary has no
-// persistent storage for the window to point into) and a head that is an
-// EXPRESSION yielding the call rather than the call itself.
+// ONE position gets its own diagnosis because the ACT is different: a head
+// that is an EXPRESSION yielding the call rather than the call itself. A
+// TEMPORARY receiver is not a row: the temporary gets a local that lives
+// until the loop ends, so the window has storage to point into (§2.6).
 //
 // The positions that are IMPOSSIBLE SPELLINGS rather than value-position rows
 // — a parameter, a field, a plain return, a type argument, an existential, an
@@ -38,7 +38,7 @@
 // struct has no borrowing-typed expression in its body at all, and the
 // refusal names the function type that carried it.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: may not be produced from a TEMPORARY receiver
+// (no TEMPORARY-receiver refusal: SL:borrowing §2.6 admits that head)
 // EXPECT-ERROR-CONTAINS: may not be produced by an `if` / `match` / block / `try` expression in the head
 // EXPECT-ERROR-CONTAINS: may not be used outside a window head
 // EXPECT-ERROR-CONTAINS: a borrowing struct holds a LENT PLACE
@@ -133,7 +133,7 @@ func row_optional(b: &Bag) -> Int {
 
 func row_temporary() -> Int {
     var total = 0
-    for x in make().iter() {                // ROW 10: a TEMPORARY receiver
+    for x in make().iter() {                // not a row: a temporary head is legal (SL:borrowing §2.6)
         total = total + x
     }
     total

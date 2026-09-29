@@ -1,15 +1,15 @@
-// The other side of DF-176b: what a `&self` method may still call on a field.
+// What a `&self` method may still call on a field.
 //
-// The ban asks where the bytes live. Storage INSIDE the receiver is refused
-// (`examples/errors/shared_self_field_var_method_call.saw`); everything here
-// either lives elsewhere or is an interior-mutable field's own `&self` method,
-// which writes the caller's storage because the receiver travels by pointer.
+// `&self` is read-only all the way down (SL:borrowing §9): storage inside the
+// receiver and storage it reaches through a pointer alike. What remains is a
+// `&self` method on an interior-mutable field (a cell), which writes the
+// caller's storage because the receiver travels by pointer, and a shared read
+// through indirection. A write through a `Vector` field at `&self` is refused
+// (`conformance/M32_shared_self_place_window_heap_field.saw`, which covers row
+// M28); the fix is a `&var self` receiver, section 3 below.
 //
-// Design 186 dissolved the by-NAME exemption this file was written around and
-// found it protected nothing: every blessed call is a `&self` method, and this
-// rule only ever refused `&var self` ones. What is NOT exempt — a wrapper's
-// `&var self` method reached through `&self` storage — is pinned by
-// `examples/errors/interior_cell_wrapper_var_self.saw`.
+// What is NOT exempt — a wrapper's `&var self` method reached through `&self`
+// storage — is pinned by `examples/errors/interior_cell_wrapper_var_self.saw`.
 // EXPECT: success
 // EXPECT-OUTPUT: counter 2
 // EXPECT-OUTPUT: spinlock held false, sum 4
@@ -38,18 +38,18 @@ extension Shared: NoCopy {}
 
 extension Shared {
     func probe(&self) -> Bool { self.cell.is_locked() }
-    func add(&self, v: Int) -> Int { self.cell.lock({ n in n = n + v; n }) }
+    func add(&self, v: Int) -> Int { borrow var n = self.cell.lock() { n = n + v; n } }
 }
 
-// 3. INDIRECTION. A `Vector` field's heap elements are shared by the copy, not
-//    duplicated by it, so reaching one through a place window is untouched.
+// 3. INDIRECTION. A `&self` method READS a `Vector` field's heap elements through
+//    a shared borrow; a write through them takes `&var self` (SL:borrowing §9).
 struct Rows { rows: Vector<Vector<Int>> }
 
 extension Rows: NoCopy {}
 
 extension Rows {
-    func widen(&self) { try! self.rows[0].push(9) }
-    func width(&self) -> Int { self.rows[0].len() }
+    func widen(&var self) { try! borrow var self.rows[0].push(9) }
+    func width(&self) -> Int { borrow self.rows[0].len() }
 }
 
 // 4. The fix the diagnostic names: declare the method `&var self`.

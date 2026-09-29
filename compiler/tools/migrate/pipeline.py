@@ -16,6 +16,9 @@ import verify
 
 # The rule of a manual row that only accompanies the row before it.
 COMPANION = "+"
+# The rule of a manual row that resolves no flag: a person's hold on a whole
+# file (a re-aim of an unflagged file), which its companions then edit.
+ANCHOR = "reaim"
 
 
 class Result:
@@ -92,9 +95,7 @@ def process(job):
     path, text = job["path"], job["text"]
     res = Result(path)
     if not path.endswith(".saw"):
-        res.text = text
-        res.statuses = ["copied"]
-        return res
+        return document(res, text, job.get("manual") or [])
     kind = layout.directive(text)
     error_test = kind == "error"
     panics = panic_test(text)
@@ -154,9 +155,13 @@ def process(job):
 
     # -- manual: each row resolves one flag at its (line, col), by editing it
     # or by leaving it as it is; a row whose rule is `+` is a companion edit
-    # of the row before it.
+    # of the row before it, and an anchor row lets companions edit a file that
+    # has no flag of its own.
     manual = job.get("manual") or []
-    resolving = {(m["line"], m["col"]): m for m in manual if m["rule"] != COMPANION}
+    for m in manual:
+        if m["rule"] == ANCHOR and ((m["line"], m["col"]) != (0, 0) or m["old"] != m["new"]):
+            raise ValueError("%s: an anchor row sits at line 0, column 0, and edits nothing" % path)
+    resolving = {(m["line"], m["col"]): m for m in manual if m["rule"] not in (COMPANION, ANCHOR)}
     flagged_at = {(f[1], f[2]): f for f in flags}
     for key, m in resolving.items():
         if key not in flagged_at or flagged_at[key][0] != m["rule"]:
@@ -189,6 +194,8 @@ def process(job):
         if m["rule"] == COMPANION:
             res.sites.append(site_row(path, m["line"], m["col"], m["parent"] + ".companion",
                                       "manual", line_of(m["line"]), "", "", m["rationale"]))
+        elif m["rule"] == ANCHOR:
+            res.sites.append(site_row(path, 0, 0, ANCHOR, "reviewed", reason=m["rationale"]))
 
     new = text
     if not unresolved:
@@ -248,7 +255,10 @@ def process(job):
             res.statuses.append("rewritten")
         if not changed_by_hand and not rewritten:
             res.statuses.append("reviewed" if manual else "copied")
-    if error_test or (panics and new != text):
+    # A hand edit can turn a success test into a refusal or a panic test, and
+    # the new expectation is as unconfirmed as a migrated one.
+    if (error_test or layout.directive(new) == "error"
+            or (new != text and (panics or panic_test(new)))):
         res.statuses.append("expectation-pending")
     if error_test:
         frozen_error, grammar_ok = grammar_pass.parse_outcomes(text, new, path)
@@ -262,6 +272,32 @@ def process(job):
         res.statuses.append("ir-test")
     for x in manifest.xfail_lines(text):
         res.notes.append("xfail twin: %s" % x)
+    return res
+
+
+def document(res, text, manual):
+    """A file that is not Saw source, such as an INDEX.md: copied, or edited by
+    its manual rows, which have no flag to resolve since nothing is scanned."""
+    res.text = text
+    if not manual:
+        res.statuses = ["copied"]
+        return res
+    by_hand = manual_edits(res.path, text, manual)
+    hand = [by_hand[k] for k in sorted(by_hand)]
+    new, spans = edits.apply_mapped(text, hand)
+    landed = {id(e): s for e, s in zip(hand, spans)}
+    lines = text.split("\n")
+    for m in manual:
+        status = "reviewed" if m["old"] == m["new"] else "manual"
+        rule = m["parent"] + ".companion" if m["rule"] == COMPANION else m["rule"]
+        row = site_row(res.path, m["line"], m["col"], rule, status, lines[m["line"] - 1].strip(),
+                       "", "", m["rationale"])
+        if status == "manual":
+            row["after"] = touched_lines(new, [landed[id(by_hand[(m["line"], m["col"])])]])
+        res.sites.append(row)
+        res.rules[status + "." + rule] += 1
+    res.text = new
+    res.statuses = ["manual" if new != text else "reviewed"]
     return res
 
 

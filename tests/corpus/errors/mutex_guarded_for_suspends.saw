@@ -1,13 +1,13 @@
-// K141's REFUSAL half (design 275 U3, part (iii)): a suspension inside a
-// `Mutex.lock` body is refused by the `sync`-body rule.
+// K141's refusal half: a suspension inside a `for` over the guarded
+// collection, inside the `Mutex.lock()` borrow, is refused.
 //
-// `Mutex.lock<R>(&self, body: (&var T) sync -> R)` declares a `sync` body, so
-// the `for` inside one is a SYNC window: it works with the window's guarantees
-// intact, and a suspension there is the existing design-141/230 fence rather
-// than a new rule. Nothing about U3 extends a guard's lifetime, and nothing
-// has to.
+// `Mutex.lock()` is declared `borrows(sync)` (SL:borrowing §2.5, §8), so the
+// lock's borrow cannot be held across a suspension. The `for` inside the block
+// works with the borrow's guarantees intact; the suspending `step` call in its
+// body is what is refused, and the refusal names the accessor. Nothing extends
+// the lock's borrow past the block.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: sync
+// EXPECT-ERROR-CONTAINS: cannot be held across a suspension
 
 import std.mutex.{Mutex}
 import std.task.{yield_now}
@@ -20,10 +20,10 @@ func step(x: Int) -> Int {
 func main() {
     var v: Vector<Int> = [1, 2, 3]
     let guarded = Mutex(value: move v)
-    let a = guarded.lock({ items in
+    let a = borrow var items = guarded.lock() {
         var total = 0
         for x in items.iter() { total = total + step(x) }
         total
-    })
+    }
     print("{a}")
 }

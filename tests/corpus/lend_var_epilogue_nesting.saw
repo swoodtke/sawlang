@@ -1,16 +1,17 @@
-// Design 179 composition: EPILOGUES per specialization, and LIFO window nesting
-// with a flavored accessor at both levels.
+// EPILOGUES per accessor, and LIFO nesting of borrows with a pair of accessors
+// at both levels.
 //
-// An epilogue is whatever follows the `lend` — it runs when the caller's window
-// closes. Gating one on `#lend_var` means the shared copy has no epilogue AT
-// ALL (the statement is pruned, so the window call stays in return position and
-// the accessor is one call) while the exclusive copy has a real one. That is a
-// stronger statement than "the epilogue does nothing on reads".
+// An epilogue is whatever follows the `lend`: it runs when the caller's borrow
+// closes. The shared and exclusive bodies differ, so both are written
+// (SL:borrowing §4): the `&self` accessor has no epilogue AT ALL, while the
+// `&var self` accessor has a real one. That is a stronger statement than "the
+// epilogue does nothing on reads".
 //
-// Nesting then composes as design 146 already had it: `g[0][1].n += 1` is two
-// windows, the outer opens first and closes last, and a nested WRITE makes every
-// containing window exclusive — so BOTH gates run and both epilogues run in LIFO
-// order. A nested READ makes neither exclusive, so neither gate runs.
+// Nesting composes as a chain of reborrows (§2.2): `borrow var g[0][1].n += 1`
+// charges the grid first, then borrows the row through the place the grid lent,
+// and closes them in reverse order, so BOTH exclusive gates run and both
+// epilogues run in LIFO order. A plain nested READ is two getitems through the
+// `&self` accessors (§5.2), so neither gate runs.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // nested read 7, row gates 0, grid gates 0, closes 0
@@ -36,19 +37,22 @@ extension Row {
         self.closes = self.closes + 1
     }
 
+    public func [](&self, i: Int) borrows -> &Cell {
+        if i < 0 || i >= 2 {
+            panic("Row.[]: index out of range")
+        }
+        lend self.cells[i]
+    }
+
     public func [](&var self, i: Int) borrows -> &var Cell {
         if i < 0 || i >= 2 {
             panic("Row.[]: index out of range")
         }
-        if #lend_var {
-            self.run_gate()
-        }
+        self.run_gate()
         lend self.cells[i]
-        // The epilogue, exclusive-only. In the shared specialization this
-        // statement does not exist, so there is no epilogue to run.
-        if #lend_var {
-            self.note_close()
-        }
+        // The epilogue, exclusive only: the shared accessor above has no
+        // statement after its `lend`, so there is no epilogue to run.
+        self.note_close()
     }
 
     public func gates_seen(&self) -> Int { self.gates }
@@ -70,17 +74,20 @@ extension Grid {
         self.closes = self.closes + 1
     }
 
+    public func [](&self, i: Int) borrows -> &Row {
+        if i < 0 || i >= 2 {
+            panic("Grid.[]: index out of range")
+        }
+        lend self.rows[i]
+    }
+
     public func [](&var self, i: Int) borrows -> &var Row {
         if i < 0 || i >= 2 {
             panic("Grid.[]: index out of range")
         }
-        if #lend_var {
-            self.run_gate()
-        }
+        self.run_gate()
         lend self.rows[i]
-        if #lend_var {
-            self.note_close()
-        }
+        self.note_close()
     }
 
     public func gates_seen(&self) -> Int { self.gates }
@@ -98,19 +105,19 @@ func main() {
         gates: 0,
         closes: 0)
 
-    // Two nested SHARED windows: neither gate runs, neither epilogue exists.
+    // Two nested SHARED reads: neither gate runs, neither epilogue exists.
     print("nested read {g[0][1].n}, row gates {g.row_gates(0)}, grid gates {g.gates_seen()}, closes {g.closes_seen()}")
 
-    // A nested WRITE: the inner window is exclusive, and so is every window
-    // containing it, so both gates run.
-    g[0][1].n += 1
+    // A nested WRITE: both borrows in the chain are exclusive, so both gates
+    // run.
+    borrow var g[0][1].n += 1
     print("nested write: {g[0][1].n}, row gates {g.row_gates(0)}, grid gates {g.gates_seen()}")
     print("epilogues, LIFO: grid closed {g.closes_seen()}, row closed {g.row_closes(0)}")
 
-    // And a write through one window only, to show the row accessor alone.
+    // And a write through one borrow only, to show the row accessor alone.
     var row = Row(cells: [Cell(n: 8), Cell(n: 9)], gates: 0, closes: 0)
     let read = row[1].n
-    row[1].n += 0
+    borrow var row[1].n += 0
     print("direct row write {read}, row gates {row.gates_seen()}")
     print("-- done")
 }

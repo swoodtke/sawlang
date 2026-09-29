@@ -1,31 +1,32 @@
 // Conformance row M33 — a place write in the PROLOGUE of a `&self` borrows body
+// is refused (language changed)
 //
-// The other half of DF-176c, and the half design 200 RATIFIES rather than
-// refuses. A borrows accessor's receiver travels by POINTER whichever flavor
-// the use site opens (`place_self_by_pointer`, design 146), so a place write in
-// the prologue reaches the caller's own storage instead of a copy — it LANDS,
-// which is what an accessor that has to touch its receiver before lending
-// needs.
+// `&self` is read-only all the way down (SL:borrowing §9), and a `borrows`
+// accessor's body is ordinary code under its receiver: before and after the
+// `lend` it may read `self` but not write it. `Log.at` bumps a counter reached
+// through `self` in its prologue, which is a write through a shared borrow, so
+// the accessor is refused where it is declared, whatever the use site does.
 //
-// The cost is the one M24 names for a plain field write: the write runs for a
-// SHARED window too, so two pure reads leave the counter at 2. An accessor that
-// means to count only writes gates on `#lend_var` — row M34.
+// An accessor that has to touch its receiver before lending declares
+// `&var self`, and then every borrow through it charges the root exclusively
+// (§3). An accessor that means to count only writes spells the two flavors as
+// two accessors (§4).
 //
-// SL-333 R4 PRICES THAT COST. The write is still ratified here — it lands, and
-// this row is about its landing — but an accessor whose body mutates `self`
-// outside the place it lends borrows its receiver EXCLUSIVELY at every use
-// site, so the root is a `var` now and a `let` one is refused by name
-// (`errors/exclusive_only_inner_makes_the_outer_exclusive_only.saw`, the
-// `written` cell). That is the same guarantee, one step earlier: two pure reads
-// of an IMMUTABLE root leaving a counter at 2 is what R4 exists to stop.
-// EXPECT: success
-// EXPECT-OUTPUT: slot 8
-// EXPECT-OUTPUT: slot 9
-// EXPECT-OUTPUT: reads 2
+// The read in `reads` is a shared borrow through the declared
+// `@synthesize(shared)` twin of `Counters.[]`, so the prologue write is the one
+// refusal.
+//
+// SL:borrowing §9 retires the writes design 200 let a `&self` receiver make
+// through storage it reaches, so this row is a refusal.
+//
+//
+//
+// EXPECT: error
 
 struct Counters { hits: [Int; 2] }
 
 extension Counters {
+    @synthesize(shared)
     func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 2 { panic("Counters.[]: index out of range") }
         lend self.hits[i]
@@ -45,7 +46,7 @@ extension Log {
 
 func main() {
     var l = Log(counters: Counters(hits: [0, 0]), slots: [7, 8, 9, 10])
-    print("slot {l.at(1)}")
-    print("slot {l.at(2)}")
+    print("slot {borrow l.at(1)}")
+    print("slot {borrow l.at(2)}")
     print("reads {l.reads()}")
 }

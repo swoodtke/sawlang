@@ -15,7 +15,7 @@ func main() {
     var t0 = Thread.spawn { [shared] in
         var k = 0
         while k < 250 {
-            shared.lock { &var c in
+            borrow var c = shared.lock() {
                 c = c + 1
                 true
             }
@@ -26,7 +26,7 @@ func main() {
     var t1 = Thread.spawn { [shared] in
         var k = 0
         while k < 250 {
-            shared.lock { &var c in
+            borrow var c = shared.lock() {
                 c = c + 1
                 true
             }
@@ -37,7 +37,7 @@ func main() {
     var t2 = Thread.spawn { [shared] in
         var k = 0
         while k < 250 {
-            shared.lock { &var c in
+            borrow var c = shared.lock() {
                 c = c + 1
                 true
             }
@@ -48,7 +48,7 @@ func main() {
     var t3 = Thread.spawn { [shared] in
         var k = 0
         while k < 250 {
-            shared.lock { &var c in
+            borrow var c = shared.lock() {
                 c = c + 1
                 true
             }
@@ -62,7 +62,7 @@ func main() {
     let _c = t2.join()
     let _d = t3.join()
 
-    shared.lock { &var c in
+    borrow var c = shared.lock() {
         print(c)   // 1000 = 4 tasks * 250 increments, exactly
         true
     }

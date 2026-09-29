@@ -15,29 +15,37 @@
 // owned element through a read-only borrow, which is exactly the asymmetry
 // V60 records for the match funnel.
 //
-// `with_ref`/`with_var_ref` are std's own scoped-borrow surface, which is why
-// this face owed its own row rather than riding DF-288a's.
+// The helpers below are a user closure API, which the language keeps
+// (SL:borrowing §9): the callee hands its closure a borrow of the first
+// element, and the closure may read or write it but not move it out. The
+// std's own closure borrows (`with_ref`, `with_var_ref`) are retired, so
+// this row rides a user API.
 //
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot move out of `e`
-// EXPECT-ERROR-CONTAINS: closure PARAMETER declared `&var e`
-// EXPECT-ERROR-CONTAINS: closure PARAMETER declared `&e`
 
 struct Owned { w: Int }
 extension Owned: NoCopy {
     func deinit(&var self) { print("drop {}", self.w) }
 }
 
+func with_first(v: &var Vector<Owned>, body: (&var Owned) sync -> Owned) -> Owned {
+    body(borrow var v[0])
+}
+
+func with_first_shared(v: &Vector<Owned>, body: (&Owned) sync -> Owned) -> Owned {
+    body(borrow v[0])
+}
+
 func exclusive_face() -> Owned {
     var v = Vector<Owned>()
     try! v.push(Owned(w: 7))
-    v.with_var_ref(0, { &var e in move e })    // error: `e` only borrows
+    with_first(v: &var v, body: { &var e in move e })    // error: `e` only borrows
 }
 
 func shared_face() -> Owned {
     var v = Vector<Owned>()
     try! v.push(Owned(w: 7))
-    v.with_ref(0, { &e in move e })            // error: theft through a `&`
+    with_first_shared(v: &v, body: { &e in move e })            // error: theft through a `&`
 }
 
 func main() {

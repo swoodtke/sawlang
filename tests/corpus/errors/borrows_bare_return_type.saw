@@ -27,5 +27,5 @@ extension Grid {
 
 func main() {
     let g = Grid(cells: [Cell(n: 1), Cell(n: 2), Cell(n: 3), Cell(n: 4)])
-    print("{g.at(0).n}")
+    print("{borrow g.at(0).n}")
 }

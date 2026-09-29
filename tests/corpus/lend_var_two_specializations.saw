@@ -1,17 +1,18 @@
-// Design 179: `#lend_var`, the constant a `borrows` body reads to see which
-// window flavor it is being compiled for.
+// An accessor whose shared and exclusive bodies differ is written twice
+// (SL:borrowing §4): a `&self` accessor that runs no gate and a `&var self`
+// accessor that runs it. Each is an ordinary body, and the declared receiver
+// says which roots may call it (§3).
 //
-// A `borrows` accessor has ONE body serving both flavors and cannot see which is
-// coming — but the compiler can, because every use site's flavor is static. So a
-// body that names `#lend_var` is emitted TWICE before the type checker runs: the
-// authored `&self` declaration folded with the constant FALSE (the gate is not
-// in the tree, so the copy is an honestly non-mutating `&self` body a `let` root
-// may call) and a `&var self` twin folded TRUE (the gate stays, and an exclusive
-// use site is retargeted at it).
+// Neither body tests which flavor it serves: there is no mode test inside one
+// body (§9), so the gate is in the tree of the exclusive accessor alone, and
+// the shared accessor is an honestly non-mutating `&self` body that a `let`
+// root may call.
 //
-// What that buys, and what this pins: a pure READ through a `let` root works and
-// runs no gate at all, while a WRITE runs it exactly once per window and needs a
-// `var` root like any other exclusive borrow.
+// What this pins: a pure READ, the getitem derived from the shared accessor
+// (§5.2), works through a `let` root and a `&Grid` and runs no gate at all. A
+// WRITE is the setitem derived from the exclusive accessor, so it runs the gate
+// exactly once and needs a `var` root. A compound write is a getitem then a
+// setitem (§5.1), so it too runs the gate once.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // shared read through a let root: 3
@@ -30,20 +31,25 @@ struct Grid {
 
 extension Grid {
     // The flavor-dependent work. It is `&var self`, so naming it at all is what
-    // would make the accessor's body a mutating one — which is exactly why the
-    // shared specialization must not contain this call rather than merely not
-    // reach it.
+    // makes a body a mutating one, which is why only the exclusive accessor
+    // calls it: the shared accessor is checked as a `&self` body and could not
+    // contain this call.
     func run_gate(&var self) {
         self.gates = self.gates + 1
+    }
+
+    public func [](&self, i: Int) borrows -> &Int {
+        if i < 0 || i >= 4 {
+            panic("Grid.[]: index out of range")
+        }
+        lend self.cells[i]
     }
 
     public func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 4 {
             panic("Grid.[]: index out of range")
         }
-        if #lend_var {
-            self.run_gate()
-        }
+        self.run_gate()
         lend self.cells[i]
     }
 
@@ -53,7 +59,7 @@ extension Grid {
 }
 
 // A `&Grid` parameter is the same shared receiver a `let` root is, so a read
-// through one selects the shared specialization too.
+// through one goes through the shared accessor too.
 func forwarded_read(g: &Grid) -> Int {
     g[1]
 }

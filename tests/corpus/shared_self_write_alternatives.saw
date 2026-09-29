@@ -1,19 +1,19 @@
-// DF-175a, the positive half: what a `&self` body may still write, and what an
-// accessor that genuinely counts its reads is declared as.
+// The positive half of the `&self` write rule: what a method that writes the
+// receiver's storage is declared as, and what an accessor that genuinely counts
+// its reads is declared as.
 //
-// The rule is about where the BYTES live, not what the expression is rooted at.
-// A field, a nested field, a tuple element, an optional payload and an inline
-// `[T; N]` element are all inside the receiver, and a `&self` copy takes them
-// with it — so a write there is refused. Storage reached through an
-// INDIRECTION is not the receiver's: a `Vector`'s heap buffer is shared by the
-// copy, which is why `self.cells[i] = v` still writes the caller's element.
-// std's `Task.cancel` is the same shape one level lower (it writes a
-// pointee in a group-owned cell through an `UnsafePointer` field).
+// `&self` is read-only all the way down (SL:borrowing §9). A field, a nested
+// field, an inline `[T; N]` element and an element in a `Vector`'s heap buffer
+// are all refused through `&self`: another holder of the shared borrow may be
+// reading the buffer while a write lands or reallocates it. So `put`, which
+// writes an element, declares `&var self`. Interior mutation through a shared
+// borrow goes only through cell types (`Mutex`, `Atomic`).
 //
-// An accessor whose epilogue mutates the receiver declares `&var self`. That is
-// STRICTER, not a loophole: every use site then borrows the receiver
-// exclusively, reads included, so a `let` root stops working — which is exactly
-// the property DF-175a was breaking.
+// An accessor whose epilogue mutates the receiver declares `&var self` and has
+// no `&self` twin. Every borrow through it then charges the root exclusively,
+// reads included (§3), so a `let` root refuses it, and a plain `g[1]` is not a
+// getitem, since getitem derives only from a `&self` accessor (§5.2): each read
+// is written `borrow g[1]`.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // through the buffer 40
@@ -25,8 +25,8 @@ struct Grid { cells: Vector<Int>, reads: Int }
 extension Grid: NoCopy {}
 
 extension Grid {
-    // A `&self` method may write an element: the buffer is not in the receiver.
-    func put(&self, i: Int, v: Int) {
+    // Writing an element writes the receiver's storage, so it takes `&var self`.
+    func put(&var self, i: Int, v: Int) {
         self.cells[i] = v
     }
 
@@ -47,8 +47,8 @@ func main() {
     g.put(0, v: 40)
     print("through the buffer {g.cells[0]}")
 
-    print("counted {g[1]}")
-    let _ = g[0]
+    print("counted {borrow g[1]}")
+    let _ = borrow g[0]
     print("reads {g.reads}")
     print("-- done")
 }

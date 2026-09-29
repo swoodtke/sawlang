@@ -3,11 +3,11 @@
 // The data-race smoke row: an MT group accumulating a PER-TASK amount into a
 // shared `Arc<Mutex<Int>>`, which is the sanctioned way to share mutable state
 // across worker threads. The amount is the task's own parameter, so the lock
-// body CAPTURES a frame-resident local of the driven function — the shape the
-// coroutine transform used to refuse (DF-191a), leaving the canonical
-// shared-counter idiom with no legal spelling at all: the diagnostic's way out
-// was to bind the closure to a `let` first, and `Mutex.lock` takes a `sync`
-// closure LITERAL.
+// block's body reads a frame-resident local of the driven function, the shape
+// DF-191a pins. The lock lends its payload to a `borrow var` block over
+// `Mutex.lock()`, a `borrows(sync)` accessor (SL:borrowing §8), so the body
+// may not suspend, and this one does not: it adds and yields the new count
+// as the block's value (§2.1).
 //
 // Asserted on the SUM, never on interleaving: four tasks add 1, 2, 3 and 4, so
 // the total is 10 whatever order the workers run in.
@@ -18,10 +18,10 @@
 import std.mutex.*
 
 func add(shared: Arc<Mutex<Int>>, n: Int) -> Int {
-    shared.lock({ &var c in
+    borrow var c = shared.lock() {
         c = c + n
         c
-    })
+    }
 }
 
 func main() {
@@ -35,5 +35,5 @@ func main() {
     let _ = b.join()
     let _ = c.join()
     let _ = d.join()
-    print("total {shared.lock({ &var total in total })}")
+    print("total {borrow var total = shared.lock() { total }}")
 }

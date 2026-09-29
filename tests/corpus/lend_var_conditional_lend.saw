@@ -1,16 +1,16 @@
-// Design 179 composition: `#lend_var` in a CONDITIONAL lend (`borrows -> T?`).
+// A pair of CONDITIONAL lends (`borrows -> &T?` and `borrows -> &var T?`) whose
+// shared and exclusive bodies differ, so both are written (SL:borrowing §4).
 //
-// The absent path specializes exactly like the present one — it is the same
-// body, folded the same way — so the interesting question is not whether it
-// works but WHERE the author puts the gate. The prologue runs on BOTH paths: a
-// gate written above the presence test runs on a MISS too, where no window ever
-// opens and nothing needed separating. Writing it below the test is the fix, and
-// it is the author's call to make, which is why both shapes are here.
+// The absent path runs the same prologue as the present one, so the question is
+// WHERE the author puts the gate. A prologue runs on BOTH paths: a gate written
+// above the presence test runs on a MISS too, where no borrow ever opens (§2.4)
+// and nothing needed separating. Writing it below the test is the fix, and it
+// is the author's call to make, which is why both shapes are here.
 // EXPECT: success
 // The transcript is the evidence for both halves. `eager prologue` prints twice
 // — once for the PRESENT shared read and once for the ABSENT one, which is the
-// prologue running on a path where no window opens — and not at all for the
-// exclusive write, whose specialization runs the gate instead.
+// prologue running on a path where no borrow opens — and not at all for the
+// exclusive write, whose accessor runs the gate instead.
 // EXPECT-OUTPUT:
 // eager prologue
 // present 20
@@ -37,30 +37,38 @@ extension Bag {
         print("eager prologue")
     }
 
-    /// The gate ABOVE the presence test. Both specializations run their half of
-    /// the prologue on the absent path as well — visible here because the shared
-    /// half prints.
-    public func at_eager(&var self, i: Int) borrows -> &var Int? {
-        if #lend_var {
-            self.run_gate()
-        } else {
-            self.note_shared()
-        }
+    /// The gate ABOVE the presence test. Both accessors run their prologue on
+    /// the absent path as well — visible here because the shared one prints.
+    public func at_eager(&self, i: Int) borrows -> &Int? {
+        self.note_shared()
         if i < 0 || i >= self.count {
             return None
         }
         lend self.slots[i]
     }
 
-    /// The gate BELOW it: a miss returns before the prologue's flavored half,
+    public func at_eager(&var self, i: Int) borrows -> &var Int? {
+        self.run_gate()
+        if i < 0 || i >= self.count {
+            return None
+        }
+        lend self.slots[i]
+    }
+
+    /// The gate BELOW it: a miss returns before the exclusive accessor's gate,
     /// so nothing is separated for a lookup that found nothing.
+    public func at_late(&self, i: Int) borrows -> &Int? {
+        if i < 0 || i >= self.count {
+            return None
+        }
+        lend self.slots[i]
+    }
+
     public func at_late(&var self, i: Int) borrows -> &var Int? {
         if i < 0 || i >= self.count {
             return None
         }
-        if #lend_var {
-            self.run_gate()
-        }
+        self.run_gate()
         lend self.slots[i]
     }
 
@@ -73,33 +81,33 @@ func main() {
     var b = Bag(slots: [10, 20, 30, 40], count: 3, gates: 0)
 
     // present, shared: a value read out of a conditional lend
-    if let v = b.at_eager(1) {
+    if let v = borrow b.at_eager(1) {
         print("present {v}")
     }
 
-    // absent, shared: no window opens, and the gate has still not run
+    // absent, shared: no borrow opens, and the gate has still not run
     var missing = true
-    if let _ = b.at_eager(9) {
+    if (borrow let e = b.at_eager(9) { if let _ = e { true } else { false } }) {
         missing = false
     }
     print("absent, gates {b.gates_seen()}")
     assert(missing, "at_eager(9) on a 3-slot Bag found something")
 
-    // present, exclusive: `!` is the promise the window keeps
-    b.at_eager(1)! += 5
-    print("after write {b.at_late(1)!}, gates {b.gates_seen()}")
+    // present, exclusive: `!` panics if absent (SL:borrowing §2.2)
+    borrow var b.at_eager(1)! += 5
+    print("after write {borrow b.at_late(1)!}, gates {b.gates_seen()}")
 
     // the same three through the late gate
-    if let v = b.at_late(1) {
+    if let v = borrow b.at_late(1) {
         print("late: present {v}")
     }
     var late_missing = true
-    if let _ = b.at_late(9) {
+    if (borrow let e = b.at_late(9) { if let _ = e { true } else { false } }) {
         late_missing = false
     }
     print("late: absent, gates {b.gates_seen()}")
     assert(late_missing, "at_late(9) on a 3-slot Bag found something")
-    b.at_late(1)! += 0
-    print("late: after write {b.at_late(1)!}, gates {b.gates_seen()}")
+    borrow var b.at_late(1)! += 0
+    print("late: after write {borrow b.at_late(1)!}, gates {b.gates_seen()}")
     print("-- done")
 }

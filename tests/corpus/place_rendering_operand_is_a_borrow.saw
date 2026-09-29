@@ -51,7 +51,7 @@ extension Bag: Printable {
 // `panic`'s format arguments are a rendering position too. It cannot be RUN in
 // a success test, so this row is compile coverage: the function is never called.
 func fail_loudly(v: &Vector<Res>) -> Never {
-    panic("no room for {}", v[0])
+    panic("no room for {}", borrow v[0])
 }
 
 func main() {
@@ -59,33 +59,33 @@ func main() {
     try! v.push(Res(n: 1))
 
     // The controls: a place hop and a `&self` call, both borrows all along.
-    print("field {v[0].n}")
-    print("method {v[0].bump()}")
+    print("field {borrow v[0].n}")
+    print("method {borrow v[0].bump()}")
 
     // An interpolation operand, in the two positions an interpolation sits in.
-    print("interpolated {v[0]}")
-    let bound = "bound {v[0]}"
+    print("interpolated {borrow v[0]}")
+    let bound = "bound {borrow v[0]}"
     print(bound)
 
     // A single-argument `print` of a Printable.
     print("printed:")
-    print(v[0])
+    print(borrow v[0])
 
     // Format arguments (design 137), on `print` and on `assert`. The
     // condition is bound ahead of the call because `assert`'s message window
     // spans it, and a condition naming the window's own ROOT is DF-248a.
-    print("format arg {}", v[0])
-    let ok = v[0].n == 1
-    assert(ok, "asserted {}", v[0])
-    print("asserted {v[0]}")
+    print("format arg {}", borrow v[0])
+    let ok = borrow v[0].n == 1
+    assert(ok, "asserted {}", borrow v[0])
+    print("asserted {borrow v[0]}")
 
-    // A conditional lend the source promised is there: the `!` is consumed by
-    // the window, whose absent path is the panic it asked for.
-    print("forced {v.get(0)!}")
+    // A conditional lend the source promised is there: `Vector.find` lends the
+    // element (SL:borrowing §2.4), and its absent path is the panic `!` asks for.
+    print("forced {borrow v.find(0)!}")
 
     var bags = Vector<Bag>()
     var items: Vector<Int> = [7]
     try! bags.push(Bag(items: move items))
-    print("explicit {bags[0]}")
-    print("explicit arg {}", bags[0])
+    print("explicit {borrow bags[0]}")
+    print("explicit arg {}", borrow bags[0])
 }

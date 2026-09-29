@@ -1,11 +1,11 @@
-// Conformance row T18 — `m[k]!` on an absent key
+// Conformance row T18 — `m[k]` on an absent key
 //
-// `m[k]!` promises the key is there. When it is not, the force-unwrap traps
-// at the place rather than lending a slot that does not exist.
+// A plain `m[k]` is getitem: it copies the value out, and panics when the
+// key is absent (SL:borrowing §5.1). The optional form is `m.get(k)`;
+// `Map.[]` does not return an optional, so there is no `!` to write (§9).
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: Map.[]: no place to lend
 
 func main() {
     var m = {"a": 1}
-    print(m["zz"]!)
+    print(m["zz"])
 }

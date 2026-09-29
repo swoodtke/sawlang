@@ -1,19 +1,19 @@
-// Conformance row K128 — `#lend_var` lives in a `&var self ... -> &var T`
-// accessor, and its copy-on-write gate costs a READ nothing (SL-333 R6)
+// Conformance row K128 — a copy-on-write gate lives only in the exclusive
+// accessor, so it costs a READ nothing (SL:borrowing §4)
 //
-// R2 moves every writable accessor to `&var self`, which is the spelling design
-// 179 forbade `#lend_var` in. R6 lifts that fence and re-keys the split onto the
-// DECLARED MODE, which is what now says whether a use site can open both
-// flavors: `-> &var T` compiles as two specializations, the authored
-// declaration folding the constant FALSE and the twin folding it TRUE.
+// When the shared and exclusive bodies differ, both are written: the `&var self`
+// accessor separates shared storage before it lends, and the `&self` one does
+// not. `Data` is the language's worked example (§4).
 //
-// R4 is then computed on the SHARED specialization AFTER the fold, which is the
-// whole load-bearing claim: the gate is a `&var self` call on `self`, so an
-// accessor that kept it would be EXCLUSIVE-ONLY and `let frozen = load()` plus
-// `frozen[0]` would stop compiling. It is folded out, so the shared body mutates
-// nothing, the read borrows the receiver shared, and `std.data`'s own subscript
-// — the language's worked example of this — keeps working on a `let` binding
-// with no separation.
+// There is no mode test inside one body (§9). The gate is a `&var self` call on
+// `self`, so it can live only in the `&var self` accessor; a single `&var self`
+// accessor with no shared twin would charge every read's root exclusively (§3),
+// and `let frozen = load()` plus `frozen[0]` would stop compiling.
+//
+// A plain read is the getitem derived from the `&self` accessor (§5.2), so it
+// borrows the receiver shared, works on a `let` binding, and runs no gate. A
+// write is the setitem derived from the `&var self` accessor, and a compound
+// write is a getitem then a setitem (§5.1), so each runs the gate once.
 //
 // Both halves are here: a hand-written accessor with a visible gate counter, and
 // `Data` itself, where the observable is the SHARING PARTNER's bytes.
@@ -33,11 +33,14 @@ struct Bag { cells: [Int; 4], gates: Int }
 extension Bag {
     func separate(&var self) { self.gates = self.gates + 1 }
 
+    public func [](&self, i: Int) borrows -> &Int {
+        if i < 0 || i >= 4 { panic("Bag.[]: index out of range") }
+        lend self.cells[i]
+    }
+
     public func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 4 { panic("Bag.[]: index out of range") }
-        if #lend_var {
-            self.separate()
-        }
+        self.separate()
         lend self.cells[i]
     }
 

@@ -1,9 +1,9 @@
-// The marquee consumer: `Mutex.lock`'s closure parameter is a `sync` function
-// type, so holding the lock across a suspension point is a COMPILE ERROR (the
-// async-mutex deadlock class, ruled out by construction — design 18).
+// `Mutex.lock()` is a `borrows(sync)` accessor, so the lock's borrow cannot be
+// held across a suspension, and a suspending call inside the `borrow var`
+// block is a compile error naming the accessor (SL:borrowing §2.5, §8): the
+// async-mutex deadlock class, ruled out by construction.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot suspend in a `sync` closure context
-// EXPECT-ERROR-CONTAINS: __saw_test_suspend
+// EXPECT-ERROR-CONTAINS: cannot be held across a suspension
 
 import std.mutex.{Mutex}
 func block_forever() {
@@ -12,7 +12,7 @@ func block_forever() {
 
 func main() {
     let m = Mutex<Int>(value: 0)
-    m.lock { &var c in
+    borrow var c = m.lock() {
         block_forever()
         c = c + 1
         true

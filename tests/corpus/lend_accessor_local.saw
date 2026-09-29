@@ -23,6 +23,6 @@ extension Counter {
 
 func main() {
     var c = Counter(n: 1)
-    c.slot() = 99
+    borrow var c.slot() = 99
     print("n={c.n}")
 }

@@ -1,15 +1,15 @@
-// Two by-reference accesses to one root in one call, at least one a
-// `borrows` place, must be an exclusivity error — the place borrow charges
-// its ROOT (spec, design 146). Today the compiler instead COPIES the
-// receiver to open the second access: on a free-copy receiver like this one
-// both writes land in copies and are silently lost (a=1 b=2 survives), and
-// on std Data the buffer corrupts. RULED (user, Aug 9): window roots join
-// the path-disjointness check, exclusivity diagnostic on every copy tier —
-// so this reports the Law, on a receiver that copies for free.
+// Two by-reference accesses to one root in one call, at least one a `borrows`
+// place, are an exclusivity error: a borrow charges its ROOT, and `Pair.at`
+// takes `&var self`, so each `borrow var p.at(i)` charges `p` exclusively for
+// the call (SL:borrowing §2.2, §3). The two places are disjoint fields, but the
+// charge is on the root, so the pair conflicts on every copy tier — here a
+// receiver that copies for free, where opening the second access on a copy
+// would silently lose both writes. Lending two places of one root at once is
+// the job of an `unsafe` tuple-lending accessor (§7).
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: exclusive access violation
-// EXPECT-ERROR-CONTAINS: borrows `p` for the whole window
-// EXPECT-ERROR-CONTAINS: a place borrow charges its ROOT
+//
+// A shared twin would not help: it lends `&Int`, and `setboth` writes through
+// both arguments, which needs a writable lend (§3).
 
 struct Pair {
     a: Int,
@@ -17,7 +17,7 @@ struct Pair {
 }
 
 extension Pair {
-    func at(&self, i: Int) borrows -> &Int {
+    func at(&var self, i: Int) borrows -> &var Int {
         if i == 0 { lend self.a } else { lend self.b }
     }
 }
@@ -29,6 +29,6 @@ func setboth(x: &var Int, y: &var Int) {
 
 func main() {
     var p = Pair(a: 1, b: 2)
-    setboth(&var p.at(0), &var p.at(1))
+    setboth(borrow var p.at(0), borrow var p.at(1))
     print("a={p.a} b={p.b}")
 }

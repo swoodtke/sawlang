@@ -13,12 +13,12 @@
 //
 // K141 (design 275 U3, part (iii)): THE `Mutex` ROW IS CLOSED, NOT OPEN.
 //
-// `Mutex.lock<R>(&self, body: (&var T) sync -> R)` runs a `sync` body, so a
-// `for` over the guarded collection INSIDE `lock` is a SYNC window and works,
-// with the window's guarantees intact — and a suspension inside it is refused
-// by the `sync`-body rule, which is design 141/230's existing fence and not a
-// new one. The two together are a PAIRED test: nothing here extends a guard's
-// lifetime, and nothing has to.
+// `Mutex.lock()` lends `&var T` and is `borrows(sync)` (SL:borrowing §2.5,
+// §8), so a `for` over the guarded collection INSIDE its `borrow var` block
+// is a nested borrow that works, with its guarantees intact (§2.6), and a
+// suspension inside it is refused by the `borrows(sync)` rule, which names
+// the accessor. The two together are a PAIRED test: nothing here extends a
+// guard's lifetime, and nothing has to.
 //
 // The refusal half is `examples/errors/mutex_guarded_for_suspends.saw`.
 // EXPECT: success
@@ -32,20 +32,20 @@ func main() {
     var v: Vector<Int> = [1, 2, 3]
     let guarded = Mutex(value: move v)
 
-    let a = guarded.lock({ items in
+    let a = borrow var items = guarded.lock() {
         var total = 0
         for x in items.iter() { total = total + x }
         total
-    })
+    }
     print("guarded sum {a}")
 
-    // The window closes with the `for` statement, so the very next statement
-    // inside the same `sync` body may grow the collection again.
-    let b = guarded.lock({ items in
+    // The `for`'s borrow lasts only for the `for` statement (SL:borrowing §2.6),
+    // so the same block may also grow the collection outside it.
+    let b = borrow var items = guarded.lock() {
         let _ = items.push(9)
         var total = 0
         for x in items.iter() { total = total + x }
         total
-    })
+    }
     print("guarded sum after a push {b}")
 }

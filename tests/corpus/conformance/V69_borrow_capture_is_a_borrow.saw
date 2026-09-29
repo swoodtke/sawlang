@@ -6,10 +6,10 @@
 // type, which is what makes `[&var o]` read and write `o` directly, and the
 // alias-ness then exists nowhere in the binding's type.
 //
-// The LOCK BODY is here because it is the shape a reader meets first: every
-// `Mutex.lock` / `SpinLock.lock` body is a closure taking `&var T`, so the
-// whole interior-mutability surface sat on this hole. It was measured
-// double-freeing before the fix.
+// The LOCK face is here because it is the shape a reader meets first: the
+// `Mutex.lock()` binding is a borrow of the payload (SL:borrowing §8, §9),
+// so moving out of it is refused exactly as moving out of a borrow capture
+// is.
 //
 // Both sigils again, for V68's reason.
 //
@@ -18,7 +18,7 @@
 // EXPECT-ERROR-CONTAINS: BORROW CAPTURE
 // EXPECT-ERROR-CONTAINS: `[&var o]`
 // EXPECT-ERROR-CONTAINS: `[&o]`
-// EXPECT-ERROR-CONTAINS: cannot move out of `c`
+// (no message is pinned for the lock face; the governing text quotes none)
 
 import std.mutex.{Mutex}
 
@@ -41,7 +41,7 @@ func shared_capture() -> Owned {
 
 func lock_body() -> Owned {
     let m = Mutex<Owned>(value: Owned(w: 7))
-    m.lock({ &var c in move c })            // error: the lock lends its payload
+    borrow var c = m.lock() { move c }            // error: the lock lends its payload
 }
 
 func main() {

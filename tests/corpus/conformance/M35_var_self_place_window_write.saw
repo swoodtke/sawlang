@@ -6,15 +6,16 @@
 // The control that keeps the refusal honest: what M31 refuses is the receiver's
 // sharing, not the window.
 //
-// The shared READ beside it is the second control — a `&self` method may still
-// open a shared window on the same inline field, which is what makes `first`
-// compile.
+// The shared READ beside it is the second control: the accessor declares its
+// `&self` twin with `@synthesize(shared)` (SL:borrowing §4), and that twin is
+// what lets the `&self` method `first` read the same inline field.
 // EXPECT: success
 // EXPECT-OUTPUT: first 101
 
 struct Grid { cells: [Int; 4] }
 
 extension Grid {
+    @synthesize(shared)
     func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
         lend self.cells[i]

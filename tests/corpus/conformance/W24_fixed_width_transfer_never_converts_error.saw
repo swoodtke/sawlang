@@ -58,7 +58,7 @@ func main() {
     print(vec[0])
 
     let m: Map<String, Int16> = {"a": narrow}
-    print(m["a"]!)
+    print(m.get("a")!)
 
     let o: Int16? = narrow
     print(o!)

@@ -65,7 +65,7 @@ func main() {
     print(vec[0])
 
     let m: Map<String, Int8> = {"a": n}   // Map value
-    print(m["a"]!)
+    print(m.get("a")!)
 
     let s: Set<Int8> = {n, 1}             // Set element
     print(s.len())

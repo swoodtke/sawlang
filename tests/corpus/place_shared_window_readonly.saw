@@ -1,14 +1,14 @@
-// DF-175b, the positive half. A shared place window binds its element READ-ONLY,
-// so the two flavors are told apart by the binding and not only by the use-site
-// classifier that picked them. What still works is every read, at every nesting
-// depth and on a `let` root; what changed is that a misclassified WRITE is now a
-// compile error rather than a write through storage the root holds immutably.
+// A shared borrow binds its element READ-ONLY. Every read works, at every
+// nesting depth and on a `let` root, through the `@synthesize(shared)` twins
+// (SL:borrowing §4). A write through bare `borrow` is refused (§2.2), so a
+// write says `borrow var` and needs a `var` root.
 //
-// The enum element is the case that used to slip through: `&var self` methods on
-// enums were invisible to the classifier, so `v[0].flip()` opened a shared
-// window. It opens an exclusive one now, which is why the `var` root below is
-// required and the `let` root in errors/place_window_enum_method_let_root.saw is
-// refused.
+//
+// The enum element: `flip` is a `&var self` method, so `borrow var v[0].flip()`
+// borrows the vector's element exclusively, which is why the `var` root below
+// is required and the `let` root in
+// errors/place_window_enum_method_let_root.saw is refused. The enum's
+// `&self` method reads through the vector's shared accessor.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // flipped green
@@ -36,6 +36,7 @@ struct Row { cells: [Cell; 2] }
 struct Bag { rows: [Row; 2] }
 
 extension Row {
+    @synthesize(shared)
     public func [](&var self, i: Int) borrows -> &var Cell {
         if i < 0 || i >= 2 { panic("Row.[]: index out of range") }
         lend self.cells[i]
@@ -43,6 +44,7 @@ extension Row {
 }
 
 extension Bag {
+    @synthesize(shared)
     public func [](&var self, i: Int) borrows -> &var Row {
         if i < 0 || i >= 2 { panic("Bag.[]: index out of range") }
         lend self.rows[i]
@@ -57,17 +59,17 @@ func lights() -> Vector<Light> {
 
 func main() {
     var v = lights()
-    v[0].flip()
+    borrow var v[0].flip()
     print("flipped {v[0].name()}")
 
-    // A shared window over the same accessor, on an immutable root.
+    // A shared read over the same vector, on an immutable root.
     let frozen = lights()
     print("frozen {frozen[0].name()}")
 
     var b = Bag(rows: [Row(cells: [Cell(count: 1), Cell(count: 2)]),
                        Row(cells: [Cell(count: 3), Cell(count: 4)])])
     print("nested read {b[0][1].count}")
-    b[0][1].count += 10
+    borrow var b[0][1].count += 10
     print("nested write {b[0][1].count}")
     print("-- done")
 }

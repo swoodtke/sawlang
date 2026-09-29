@@ -4,7 +4,8 @@ MIGRATION.tsv has one row per file, keyed by its path below the corpus root,
 which is the same under examples/ and tests/corpus/. MIGRATION_SITES.tsv has
 one row per rewritten, flagged, withheld, hand-migrated or reviewed site. A
 reviewed site or file is one a person looked at and left unchanged; manual
-means changed by hand.
+means changed by hand. A retired file tests nothing the language still has:
+it stays in examples/, has no twin, and its note names what retired it.
 
 ENTRY POINTS
     write
@@ -21,8 +22,10 @@ SITES = "MIGRATION_SITES.tsv"
 FILE_HEADER = ("path", "status", "rules", "notes")
 SITE_HEADER = ("path", "line", "col", "rule", "status", "before", "after", "evidence", "reason")
 STATUSES = {"copied", "rewritten", "manual", "reviewed", "flagged", "expectation-pending",
-            "ir-test", "grammar-flip", "frozen-only", "new"}
-PRIMARY = {"copied", "rewritten", "manual", "reviewed", "flagged", "frozen-only", "new"}
+            "ir-test", "grammar-flip", "frozen-only", "retired", "new"}
+PRIMARY = {"copied", "rewritten", "manual", "reviewed", "flagged", "frozen-only", "retired", "new"}
+# A file with one of these statuses has no twin, and its row names why.
+TWINLESS = ("frozen-only", "retired")
 # A twin with one of these statuses is its original, byte for byte.
 UNCHANGED = {"copied", "reviewed", "flagged"}
 SITE_STATUSES = {"rewritten", "flagged", "withheld", "manual", "reviewed"}
@@ -127,8 +130,9 @@ def pairing_failures(root=layout.REPO, tracked=layout.tracked):
         if len(primary) != 1 and primary != {"manual", "rewritten"}:
             fails.append("pairing: %s: want one of %s, or manual with rewritten"
                          % (path, ", ".join(sorted(PRIMARY))))
-        if "frozen-only" in statuses and not row["notes"]:
-            fails.append("pairing: %s: a frozen-only row names its reason" % path)
+        for s in TWINLESS:
+            if s in statuses and not row["notes"]:
+                fails.append("pairing: %s: a %s row names its reason" % (path, s))
         if "flagged" in statuses and not row["notes"]:
             fails.append("pairing: %s: a flagged row names its reason" % path)
         for item in filter(None, row["rules"].split(",")):
@@ -139,9 +143,9 @@ def pairing_failures(root=layout.REPO, tracked=layout.tracked):
         row = by_path.get(path)
         if row is None:
             fails.append("pairing: examples/%s has no manifest row" % path)
-        elif "frozen-only" in row["status"].split(","):
+        elif set(TWINLESS) & set(row["status"].split(",")):
             if path in copies:
-                fails.append("pairing: %s is frozen-only but has a twin" % path)
+                fails.append("pairing: %s is %s but has a twin" % (path, row["status"]))
         elif path not in copies:
             fails.append("pairing: examples/%s has no twin in %s/" % (path, layout.TARGET))
     for path in sorted(copies):

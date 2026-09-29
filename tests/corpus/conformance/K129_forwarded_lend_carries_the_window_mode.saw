@@ -1,24 +1,24 @@
 // Conformance row K129 — a FORWARDED lend reaches the inner accessor at the
-// OUTER window's mode (SL-333 R7), cell 1 of 3
+// OUTER accessor's declared mode (SL:borrowing §2.7, §3)
 //
-// `lend self.inner[i]` hands another accessor's place on. Design 179 lowered
-// `lend X` to `__window(&var X)` unconditionally, so the inner accessor was
-// always reached EXCLUSIVELY — sound (separating storage is never wrong) but a
-// shared read of a nested copy-on-write buffer copied for nothing, and design
-// 179 shipped that as a stated v1 limit.
+// `lend self.inner[i]` hands another accessor's place on, with no `borrow`
+// keyword on the operand (§2.7). The inner borrow opens for as long as the
+// outer lend is open, and which inner accessor it reaches follows from the
+// outer declaration: inside a `&self` accessor the receiver is shared, so only
+// the inner `&self` accessor can serve it — no gate, no separation; inside a
+// `&var self` accessor the lend is `&var`, so it needs the inner exclusive one.
 //
-// The forwarded lend is the seventh entry of the window-opener funnel, and R7
-// gives it the same answer as the other six: the mode comes from the window
-// being opened. The outer accessor's SHARED specialization lends `&X`, so the
-// inner call is a shared window — no gate, no separation; its EXCLUSIVE twin
-// lends `&var X` and reaches the inner exclusive specialization.
+// A shared read of a nested copy-on-write buffer therefore copies nothing. The
+// forwarding accessors are written in pairs where the bodies differ (§4), and
+// `Blob` derives its shared twin with `@synthesize(shared)`, since its body is
+// valid under both signatures: typechecked again under `&self`, its operand
+// reaches `Data`'s shared accessor, which does not separate (§4).
 //
-// The other two cells are refusals:
+// The refusal cell is
 //   `errors/forwarded_lend_cannot_upgrade_an_inner_shared_lend.saw` — an outer
-//     `-> &var T` backed by an inner `-> &T` is refused AT THE LEND;
-//   `errors/forwarded_lend_inherits_exclusive_only.saw` — an EXCLUSIVE-ONLY
-//     inner accessor makes the outer one exclusive-only too, propagated through
-//     the recorded eligibility rather than re-derived.
+//     `-> &var T` backed by an inner `-> &T` is refused AT THE LEND, since a
+//     read-only place cannot back a writable lend.
+// Nothing is inferred from a body: the modes are the declarations' (§1, §3).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // shared forward reads 3, inner gates 0
@@ -33,9 +33,14 @@ struct Inner { cells: [Int; 2], gates: Int }
 extension Inner {
     func run_gate(&var self) { self.gates = self.gates + 1 }
 
+    public func [](&self, i: Int) borrows -> &Int {
+        if i < 0 || i >= 2 { panic("Inner.[]: index out of range") }
+        lend self.cells[i]
+    }
+
     public func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 2 { panic("Inner.[]: index out of range") }
-        if #lend_var { self.run_gate() }
+        self.run_gate()
         lend self.cells[i]
     }
 
@@ -45,6 +50,10 @@ extension Inner {
 struct Outer { inner: Inner }
 
 extension Outer {
+    public func [](&self, i: Int) borrows -> &Int {
+        lend self.inner[i]
+    }
+
     public func [](&var self, i: Int) borrows -> &var Int {
         lend self.inner[i]
     }
@@ -52,14 +61,15 @@ extension Outer {
     public func inner_gates(&self) -> Int { self.inner.gates_seen() }
 }
 
-// The nested copy-on-write case the v1 limit was really about: a `Data` reached
-// through a forwarding accessor. A shared read must not separate, so the
-// partner sharing the buffer keeps its bytes AND its identity.
+// The nested copy-on-write case: a `Data` reached through a forwarding
+// accessor. A shared read must not separate, so the partner sharing the buffer
+// keeps its bytes AND its identity.
 struct Blob { bytes: Data }
 
 @synthesize extension Blob: Copy {}
 
 extension Blob {
+    @synthesize(shared)
     public func [](&var self, i: Int) borrows -> &var UInt8 {
         lend self.bytes[i]
     }

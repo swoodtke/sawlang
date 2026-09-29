@@ -3,8 +3,8 @@
 // `--no-hidden-alloc`, which rejects every allocation the compiler inserts that
 // the source did not name.
 //
-// The closures are passed straight to the call that runs them, so their
-// environments stay on the stack; the `print("{}", x)` form writes its pieces
+// The lock's `borrow var` blocks are not closures, so they build no
+// environment at all (SL:borrowing §9); the `print("{}", x)` form writes its pieces
 // without building a String.
 //
 // COMPILE-FLAGS: --no-hidden-alloc
@@ -25,13 +25,13 @@ static STATS: SpinLock<Counters>
 unsafe static var BOOT_STAGE: Int = 0
 
 func record(hit: Bool) {
-    STATS.lock({ c in
+    borrow var c = STATS.lock() {
         if hit {
             c.hits = c.hits + 1
         } else {
             c.misses = c.misses + 1
         }
-    })
+    }
 }
 
 func advance() unsafe -> Int {
@@ -43,7 +43,7 @@ func main() {
     record(true)
     record(false)
     record(true)
-    print("hits {}", STATS.lock({ c in c.hits }))
-    print("misses {}", STATS.lock({ c in c.misses }))
+    print("hits {}", borrow var c = STATS.lock() { c.hits })
+    print("misses {}", borrow var c = STATS.lock() { c.misses })
     print("stage {}", advance())
 }

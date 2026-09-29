@@ -33,6 +33,7 @@
 struct Grid { cells: [Int; 4] }
 
 extension Grid {
+    @synthesize(shared)
     func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
         lend self.cells[i]
@@ -83,13 +84,13 @@ extension Board {
     func tuple_element(&self) { self.pair.0[0] += 100 }
     func optional_payload(&self) { self.maybe![0] += 100 }
     func array_element(&self) { self.grids[0][0] += 100 }
-    func enum_payload(&self) { self.slot.at()! += 100 }
+    func enum_payload(&self) { borrow var self.slot.at()! += 100 }
 
     // Not an assignment: a `&var self` method on the lent element makes the
     // window exclusive too, and enters the lowering by its other door.
-    func method_through_window(&self) { self.cells[0].bump() }
+    func method_through_window(&self) { borrow var self.cells[0].bump() }
 
-    // The control: a shared window reads inline storage off the copy honestly.
+    // The control: the synthesized shared twin reads inline storage honestly.
     func first(&self) -> Int { self.grid[0] }
 }
 

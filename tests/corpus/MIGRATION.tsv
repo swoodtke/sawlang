@@ -36,9 +36,9 @@ any_vector_shapes.saw	copied	-	-
 arc_basic.saw	copied	-	-
 arc_forward.saw	rewritten	E.lock:2	-
 arc_forward_generic_method.saw	copied	-	-
-arc_with_unique.saw	flagged	-	E: tests a retired closure API: the file's name or header names `with_unique` x8
+arc_with_unique.saw	manual	manual.E:8,manual.E.companion:11	re-aimed: now tests `Arc.unique()`, the conditional lend present only at strong count 1, discriminated with `if borrow var` (SL:borrowing §2.4, §8, §9)
 arithmetic_no_false_overflow.saw	copied	-	-
-array_const_index_out_of_bounds.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+array_const_index_out_of_bounds.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 array_dynamic_compound_oob_panic.saw	copied	-	-
 array_dynamic_index_in_range.saw	copied	-	-
 array_dynamic_index_negative_panic.saw	copied	-	-
@@ -51,30 +51,30 @@ array_elem_field_nested.saw	copied	-	-
 array_elem_field_through_ref.saw	copied	-	-
 array_elem_overwrite_deinit.saw	copied	-	-
 array_elem_overwrite_move.saw	copied	-	-
-array_element_literal_out_of_range_error.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+array_element_literal_out_of_range_error.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 array_explicit_copy_dotcopy.saw	copied	-	-
 array_explicit_copy_move.saw	copied	-	-
-array_explicit_copy_requires_move.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+array_explicit_copy_requires_move.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 array_field_element_write.saw	copied	-	-
 array_implicit_copy_whole.saw	copied	-	-
 array_in_struct_deinit.saw	copied	-	-
 array_len_builtin.saw	copied	-	-
-array_length_mismatch_error.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+array_length_mismatch_error.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 array_length_negative_error.saw	copied,expectation-pending	-	-
 array_length_nonconst_error.saw	copied,expectation-pending	-	-
 array_length_nonint_static_error.saw	copied,expectation-pending	-	-
 array_length_runtime_local_error.saw	copied,expectation-pending	-	-
 array_literal_move_in.saw	copied	-	-
 array_no_extension_error.saw	copied,expectation-pending	-	-
-array_nocopy_requires_move.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+array_nocopy_requires_move.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 array_string_field.saw	copied	-	-
-array_struct_containment.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+array_struct_containment.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 array_swap_builtin.saw	copied	-	-
-array_swap_const_oob_error.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+array_swap_const_oob_error.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 array_swap_dynamic_oob_panic.saw	copied	-	-
-array_swap_immutable_error.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+array_swap_immutable_error.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 array_trivial_copy.saw	copied	-	-
-array_unknown_method_error.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+array_unknown_method_error.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 arrays.saw	copied	-	-
 assert_fail.saw	copied	-	-
 assert_non_bool_error.saw	copied,expectation-pending	-	-
@@ -117,7 +117,7 @@ borrowing_field_reads_compose.saw	copied	-	-
 borrowing_producer_every_path.saw	copied	-	-
 borrowing_rules_resolve_aliases.saw	copied	-	-
 borrows_declaration_lowers.saw	copied	-	-
-borrows_fold_preserves_lexical_scope.saw	flagged	-	removed-form: `#lend_var` (K1): the two accessors are written by hand; use-site-mode: pins a retired rule: a shared window through `Bag.shadowed`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Both.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2; use-site-mode: pins a retired rule: a shared window through `Gated.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Lending.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2; use-site-mode: pins a retired rule: a shared window through `Tiers.ceremonial`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Tiers.copied`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Tiers.moved`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Valued.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2; use-site-mode: pins a retired rule: a shared window through `Valued.deep`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2; use-site-mode: pins a retired rule: a shared window through `Valued.noisy`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2
+borrows_fold_preserves_lexical_scope.saw	retired	-	retired: it tests the frozen compiler's `#lend_var` fold (SL-333 R6: the selected branch keeps its scope, destruction order, value and tail transfer); a body never tests its lend mode any more, so there is no fold (SL:borrowing §4, §9; GRAMMAR syntax.expr.refused-lend-var); its negative twin is errors/fold_selected_tail_is_an_ownership_transfer.saw; K131 goes with it
 box_basic.saw	rewritten	G1.accessor-read:3	-
 box_deinit_once.saw	copied	-	-
 box_forward.saw	copied	-	-
@@ -129,7 +129,7 @@ byte_append_discrimination.saw	copied	-	-
 byte_data_reads.saw	copied	-	-
 byte_type_flow.saw	copied	-	-
 capture_exclusivity_disjoint.saw	copied	-	-
-capture_write_allowed_forms.saw	flagged	-	E: tests a retired closure API: the file's header is about the closure its `lock` call takes
+capture_write_allowed_forms.saw	manual	manual.E:1,manual.E.companion:2	migrated: the header's closures are user closures (design 132), which stay (SL:borrowing §9); only the Mutex.lock closure inside one becomes a lock() block
 cast170_checked_as.saw	copied	-	-
 cast170_from_family.saw	copied	-	-
 cast170_narrowing_panics.saw	copied	-	-
@@ -175,7 +175,7 @@ closure_deinit_vector.saw	copied	-	-
 closure_escaping_move_capture_consumed_once.saw	copied	-	xfail twin: // XFAIL: DF-255a an escaping closure's env destructor releases a capture the
 closure_leaves_enclosing_void_local_visible.saw	copied	-	-
 closure_module_struct_field_infer.saw	copied	-	-
-closure_move_capture_transfers_when_body_runs.saw	flagged	-	E: tests a retired closure API: the file's name or header names `with_ref` x3; use-site-mode: pins a retired rule: a shared window through `Bag.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `DeepBag.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Ledger.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x3; use-site-mode: pins a retired rule: a shared window through `ShallowBag.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
+closure_move_capture_transfers_when_body_runs.saw	manual,rewritten	A3.mutating-call:4,manual.E:3,manual.E.companion:15,manual.use-site-mode:6,manual.use-site-mode.companion:3	re-aimed: rows 1-3 stay the closure matrix (user closures, SL:borrowing §9); the with_ref/with_var_ref and place-window rows are `borrow` blocks and statement-form borrows whose moved values transfer when the body or call runs, the `&var self` accessors charging exclusively (§2.1, §2.2, §3)
 closure_nested_ref_param_capture.saw	copied	-	xfail twin: // XFAIL: DF-248b a nested closure captures an enclosing closure's reference
 closure_propagates_to_its_own_result_not_the_enclosing_catch.saw	copied	-	-
 closure_pushed_into_a_vector_keeps_its_captures.saw	copied	-	-
@@ -216,12 +216,12 @@ coercion/adopt_static_initializer.saw	copied	-	-
 coercion/adopt_struct_literal_field.saw	copied	-	-
 coercion/adopt_typed_source_sweep.saw	copied	-	-
 coercion/array_literal_const_element_mixed.saw	copied	-	-
-coercion/array_literal_const_element_range_check.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+coercion/array_literal_const_element_range_check.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 coercion/compound_assign_const_expression.saw	copied	-	-
 coercion/const_expression_named_enum_case_operand.saw	copied	-	-
 coercion/const_expression_named_static_operand.saw	copied,expectation-pending	-	-
 coercion/const_expression_range_checked_narrow.saw	copied,expectation-pending	-	-
-coercion/const_expression_range_checked_wide.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+coercion/const_expression_range_checked_wide.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 coercion/const_expression_signed_domain_error.saw	copied,expectation-pending	-	-
 coercion/const_expression_unary_adopts.saw	copied	-	-
 coercion/modules/qualname_static_dep.saw	copied	-	-
@@ -263,7 +263,7 @@ conformance/B13_import_is_not_reexport.saw	copied,expectation-pending	-	-
 conformance/B14_public_import_reexports.saw	copied,expectation-pending	-	-
 conformance/B20_private_type_in_public_signature_error.saw	copied,expectation-pending	-	-
 conformance/B21_private_declaration_names_anything.saw	copied	-	-
-conformance/B22_private_type_escapes_module_error.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `at` in unlowered function body; unseen: no type evidence: call to accessor-named `get` in unlowered function body
+conformance/B22_private_type_escapes_module_error.saw	manual,expectation-pending	manual.unseen:1,reviewed.unseen:1	-
 conformance/C01_order_operator_nocopy_handwritten_compare.saw	copied	-	-
 conformance/C02_equality_operator_nocopy_handwritten_equals.saw	copied	-	-
 conformance/C03_match_guard_equality_nocopy.saw	copied	-	-
@@ -311,29 +311,29 @@ conformance/G15_main_int_exit_status_truncates.saw	copied	-	-
 conformance/G16_try_propagates_out_of_main.saw	copied	-	-
 conformance/G17_early_return_from_main.saw	copied	-	-
 conformance/G18_main_result_void_ok_exit_zero.saw	copied	-	-
-conformance/INDEX.md	copied	-	-
+conformance/INDEX.md	manual	manual.index:23	-
 conformance/K02_nonsend_across_suspend_local_mt.saw	copied,expectation-pending	-	-
 conformance/K100_shutdown_rides_cancellation.saw	copied	-	-
 conformance/K111_suspension_causes_decide_framing.saw	copied,ir-test	-	-
-conformance/K112_thread_body_refuses_a_multi_cause_std_method.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `arg` in unlowered function body
+conformance/K112_thread_body_refuses_a_multi_cause_std_method.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 conformance/K113_test_suspend_is_a_frame_boundary_not_an_executor.saw	copied,ir-test	-	-
 conformance/K114_thread_body_refuses_every_cause_but_blocking.saw	copied,expectation-pending	-	-
 conformance/K116_one_frame_ledger_answers_every_discovery_question.saw	copied,ir-test	-	-
 conformance/K118_every_shape_splits_hoists_or_refuses.saw	copied	-	-
-conformance/K11_spinlock_captured.saw	flagged,expectation-pending	-	unseen: no type evidence: closure-borrow call `lock` in unlowered function body
-conformance/K123_every_window_opener_reads_the_declared_mode.saw	flagged	-	G4: a `match` on a place that a copy cannot serve: the `borrow let` block needs each arm's payload bindings decided; use-site-mode: pins a retired rule: a shared window through `Bag.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2; use-site-mode: pins a retired rule: a shared window through `Bag.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Bag.forwarded`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2; use-site-mode: pins a retired rule: a shared window through `Bag.get`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Bag.pair`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Bag.slot`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
-conformance/K125_receiver_access_is_a_second_fact.saw	flagged	-	Fwd: lend forwarding through another accessor (K2); design-200: pins a retired rule: a write through `self` inside a `&self` method (design 200's carve-out, SL:borrowing §9); use-site-mode: pins a retired rule: a shared window through `Bag.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x4; use-site-mode: pins a retired rule: a shared window through `Inner.plain`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2; use-site-mode: pins a retired rule: a shared window through `Outer.shared_inner`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Plain.slot`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
+conformance/K11_spinlock_captured.saw	manual,expectation-pending	manual.unseen:1	-
+conformance/K123_every_window_opener_reads_the_declared_mode.saw	manual,rewritten	B.place-argument:1,C.accessor-chain-assign:1,G1.accessor-read:2,manual.G4:1,manual.G4.companion:33,manual.use-site-mode:8	re-aimed: every borrow form reads the accessor's declared mode, the keyword is a capability on the place and the root charge follows the declaration, with no use-site narrowing (SL:borrowing §1, §3, §5.2)
+conformance/K125_receiver_access_is_a_second_fact.saw	retired	-	retired: it pins SL-333 R4, a receiver access computed from the accessor's BODY (shared-eligible vs exclusive-only); modes are declared, never inferred, and the root charge follows the declaration (SL:borrowing §1, §3); the declared-mode ground is covered by the re-aimed errors/exclusive_only_accessor_on_let_root.saw (a read through a `&var self` accessor on a `let` root), K123, K128, conformance/M22 and lend_var_two_specializations.saw
 conformance/K127_conditional_lend_modes.saw	rewritten	A1.field-write:1,D3.borrow-block:4,G2.accessor-read:3	-
-conformance/K128_cow_gate_survives_the_var_self_spelling.saw	flagged	-	removed-form: `#lend_var` (K1): the two accessors are written by hand; use-site-mode: pins a retired rule: a shared window through `Bag.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x3
-conformance/K129_forwarded_lend_carries_the_window_mode.saw	flagged	-	Fwd: lend forwarding through another accessor (K2); removed-form: `#lend_var` (K1): the two accessors are written by hand; use-site-mode: pins a retired rule: a shared window through `Blob.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Inner.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Outer.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x3
+conformance/K128_cow_gate_survives_the_var_self_spelling.saw	manual	manual.use-site-mode.companion:19,reviewed.removed-form:1,reviewed.use-site-mode:3	re-aimed: the copy-on-write gate lives only in the `&var self` accessor and the `&self` accessor is written separately, so a read costs nothing, as `Data` does (SL:borrowing §4); `#lend_var` is retired (§9)
+conformance/K129_forwarded_lend_carries_the_window_mode.saw	manual	manual.use-site-mode.companion:31,reviewed.Fwd:1,reviewed.removed-form:1,reviewed.use-site-mode:5	re-aimed: a forwarded lend reaches the inner accessor at the outer accessor's declared mode, a `&self` pair reaching the inner `&self` accessor and a `&var self` one the exclusive, so a shared read of nested copy-on-write storage separates nothing (SL:borrowing §2.7, §3, §4)
 conformance/K133_window_spans_a_suspension.saw	copied	-	-
 conformance/K135_window_conflicts_that_compose.saw	copied	-	-
 conformance/K136_window_release_routes.saw	copied	-	-
 conformance/K137_window_destruction_order.saw	copied	-	-
 conformance/K138_window_acquire_sequence.saw	copied	-	-
-conformance/K13_mt_sum_under_mutex.saw	flagged	-	E: tests a retired closure API: the file's header is about the closure its `lock` call takes x2
+conformance/K13_mt_sum_under_mutex.saw	manual	manual.E:2,manual.E.companion:6	re-aimed: the lock body is a `borrow var` block over the `borrows(sync)` `Mutex.lock()` that reads a driven function's frame local (SL:borrowing §2.1, §8)
 conformance/K140_window_under_cancellation.saw	copied	-	-
-conformance/K141_mutex_guarded_for_is_sync.saw	flagged	-	E: tests a retired closure API: the file's header spells the closure typing of `lock` x2; xfail twin: // XFAIL: SL-340 — `Mutex(value: move v)` at a HEAP-OWNING payload frees the
+conformance/K141_mutex_guarded_for_is_sync.saw	manual	manual.E:2,manual.E.companion:10	re-aimed: the `for` over the guarded collection sits in a `borrow var` block over the `borrows(sync)` `Mutex.lock()` (SL:borrowing §2.5, §2.6, §8); XFAIL SL-340 unchanged; xfail twin: // XFAIL: SL-340 — `Mutex(value: move v)` at a HEAP-OWNING payload frees the
 conformance/K147_inline_catch_splits.saw	copied	-	-
 conformance/K149_sawtracker_loop_shape.saw	copied	-	-
 conformance/K14_spawn_ref_param_join_releases.saw	copied	-	-
@@ -422,27 +422,27 @@ conformance/M12_varself_method_through_shared_ref.saw	copied,expectation-pending
 conformance/M17_assign_for_loop_var.saw	copied,expectation-pending	-	-
 conformance/M19_assign_parameter.saw	copied,expectation-pending	-	-
 conformance/M21_write_field_of_capture.saw	copied,expectation-pending	-	-
-conformance/M22_place_write_let_root.saw	flagged,expectation-pending	-	use-site-mode: pins a retired rule: a shared window through `Grid.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
-conformance/M23_write_through_shared_borrow.saw	flagged,expectation-pending	-	unseen: no type evidence: closure-borrow call `with_ref` in unlowered function body
+conformance/M22_place_write_let_root.saw	manual,expectation-pending	manual.use-site-mode.companion:7,reviewed.use-site-mode:1	re-aimed: a write through a `&var self` accessor charges its root exclusively, so a `let` root refuses it (SL:borrowing §3); the read goes through a declared `@synthesize(shared)` twin (§4) instead of use-site inference
+conformance/M23_write_through_shared_borrow.saw	manual,expectation-pending	manual.unseen:1,manual.unseen.companion:4	re-aimed: now tests that `borrow let` binds a read-only place, so a write through it is refused (SL:borrowing §2.1, §3); `with_ref` is retired (§9)
 conformance/M26_varself_on_let_implicitcopy.saw	copied,expectation-pending	-	-
-conformance/M31_shared_self_place_window_write.saw	flagged,expectation-pending	-	design-200: pins a retired rule: a write through `self` inside a `&self` method (design 200's carve-out, SL:borrowing §9) x7; use-site-mode: pins a retired rule: a shared window through `Grid.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
-conformance/M32_shared_self_place_window_heap_field.saw	flagged	-	design-200: pins a retired rule: a write through `self` inside a `&self` method (design 200's carve-out, SL:borrowing §9) x3
-conformance/M33_borrows_body_prologue_place_write.saw	flagged	-	design-200: pins a retired rule: a write through `self` inside a `&self` method (design 200's carve-out, SL:borrowing §9); use-site-mode: pins a retired rule: a shared window through `Counters.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
-conformance/M34_lend_var_gated_place_write.saw	flagged	-	removed-form: `#lend_var` (K1): the two accessors are written by hand; use-site-mode: pins a retired rule: a shared window through `Counters.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Log.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2
-conformance/M35_var_self_place_window_write.saw	flagged	-	use-site-mode: pins a retired rule: a shared window through `Grid.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
+conformance/M31_shared_self_place_window_write.saw	manual,expectation-pending	manual.design-200:2,manual.use-site-mode.companion:2,reviewed.design-200:5,reviewed.use-site-mode:1	migrated: the refusal is live (`&self` is read-only all the way down, SL:borrowing §9); the named-accessor writes are spelled `borrow var`, and `Grid.[]` declares its `@synthesize(shared)` twin (§4) so the control read and the getitem halves go through a declared mode
+conformance/M32_shared_self_place_window_heap_field.saw	manual,rewritten,expectation-pending	G1.nested-read:2,G3.borrow-let:1,manual.design-200:3,manual.design-200.companion:20	re-aimed, language changed: a write through heap indirection from a `&self` method is refused (SL:borrowing §9 retires design 200's carve-out and names M28 and M32 as refusals); `widen` is row M28's shape
+conformance/M33_borrows_body_prologue_place_write.saw	manual,rewritten,expectation-pending	G1.accessor-read:2,manual.use-site-mode.companion:23,reviewed.design-200:1,reviewed.use-site-mode:1	re-aimed, language changed: a place write in the prologue of a `&self` borrows body is refused (SL:borrowing §9); the read goes through a declared `@synthesize(shared)` twin (§4)
+conformance/M34_lend_var_gated_place_write.saw	manual,rewritten	A0.accessor-store:1,manual.use-site-mode:3,manual.use-site-mode.companion:27,reviewed.removed-form:1	re-aimed: a place write in the exclusive accessor's prologue runs only for `borrow var`; `borrow` reads pick the separately written `&self` accessor (SL:borrowing §4); `#lend_var` is retired (§9)
+conformance/M35_var_self_place_window_write.saw	manual	manual.use-site-mode.companion:4,reviewed.use-site-mode:1	re-aimed: the `&self` method's read of the inline field goes through a declared `@synthesize(shared)` twin (SL:borrowing §4) instead of use-site inference; the `&var self` write is unchanged
 conformance/M36_shared_self_capture_refuses_write.saw	copied,expectation-pending	-	-
-conformance/M37_inline_array_immutability_every_shape.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body x14
+conformance/M37_inline_array_immutability_every_shape.saw	reviewed,expectation-pending	reviewed.unseen:14	-
 conformance/M38_compound_assign_rhs_exclusivity.saw	copied,expectation-pending	-	-
 conformance/M39_chain_assign_through_shared_self.saw	copied,expectation-pending	-	-
 conformance/M40_compound_chain_assign.saw	copied	-	-
-conformance/M41_shared_self_indirection_carveout_spellings.saw	flagged	-	Fwd: lend forwarding through another accessor (K2); design-200: pins a retired rule: a write through `self` inside a `&self` method (design 200's carve-out, SL:borrowing §9) x8; use-site-mode: pins a retired rule: a shared window through `Slotted.slot`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
-conformance/M42_shared_self_inline_array_element.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body; unseen: no type evidence: subscript in unlowered method body x2
+conformance/M41_shared_self_indirection_carveout_spellings.saw	manual,rewritten,expectation-pending	G1.map-get:1,K14.get-to-place:1,manual.Fwd:1,manual.design-200:5,manual.design-200.companion:25,manual.use-site-mode:1,reviewed.design-200:3	re-aimed (language changed): a write through `&self` into storage reached through an indirection is refused at every accessor spelling, since the design-200 carve-out is retired (SL:borrowing §9)
+conformance/M42_shared_self_inline_array_element.saw	reviewed,expectation-pending	reviewed.unseen:3	-
 conformance/M43_write_optional_payload_of_let.saw	copied,expectation-pending	-	-
-conformance/M44_var_self_call_through_inline_array_element.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body x2
+conformance/M44_var_self_call_through_inline_array_element.saw	reviewed,expectation-pending	reviewed.unseen:2	-
 conformance/N05_freestanding_hosted_module.saw	copied,expectation-pending	-	-
 conformance/N08_align_local_is_honored.saw	copied	-	-
 conformance/N09_align_static_is_honored.saw	copied	-	-
-conformance/N10_align_rejects_non_power_of_two.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+conformance/N10_align_rejects_non_power_of_two.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 conformance/N11_align_refuses_frame_resident_local.saw	copied,expectation-pending	-	-
 conformance/O12_iflet_move_binding_released_in_coroutine.saw	copied	-	-
 conformance/O13_wildcard_optional_binding_releases_moved_payload.saw	copied	-	-
@@ -468,15 +468,15 @@ conformance/S09_same_scope_redefinition_owning_across_suspend.saw	copied	-	-
 conformance/T10_vector_index_oob.saw	copied	-	-
 conformance/T11_vector_negative_index.saw	copied	-	-
 conformance/T12_vector_get_none.saw	copied	-	-
-conformance/T18_map_forced_absent_key.saw	flagged	-	G1: a panic test, and the migrated spelling reaches a different accessor, which panics differently (K14)
+conformance/T18_map_forced_absent_key.saw	manual,expectation-pending	manual.G1:1,manual.G1.companion:5	re-aimed: `m[k]` is getitem and panics on an absent key (SL:borrowing §5.1); `Map.[]` returns no optional (§9). The std panic message is dropped, since no governing text quotes one (SL:testing §4: a std message is never a test's key)
 conformance/T25_data_index_oob.saw	copied	-	-
 conformance/U02_plain_struct_unsafe_name.saw	copied	-	-
 conformance/U04_unsafe_param_undeclared.saw	copied,expectation-pending	-	-
 conformance/U05_unsafe_return_undeclared.saw	copied,expectation-pending	-	-
 conformance/U06_reads_unsafe_field_undeclared.saw	copied,expectation-pending	-	-
 conformance/U22_derivation_does_not_propagate.saw	copied	-	-
-conformance/U27_unsafe_body_via_safe_trait_call.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered method body
-conformance/U28_pointer_place_read_needs_move.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+conformance/U27_unsafe_body_via_safe_trait_call.saw	reviewed,expectation-pending	reviewed.unseen:1	-
+conformance/U28_pointer_place_read_needs_move.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 conformance/U29_pointer_place_move_out.saw	copied	-	-
 conformance/U30_generic_instantiation_unsafe_signature.saw	copied,expectation-pending	-	-
 conformance/U31_funcpointer_zero_capture_coercion.saw	copied	-	-
@@ -484,7 +484,7 @@ conformance/U32_funcpointer_capture_local_error.saw	copied,expectation-pending	-
 conformance/U33_funcpointer_capture_list_error.saw	copied,expectation-pending	-	-
 conformance/U34_funcpointer_capture_self_error.saw	copied,expectation-pending	-	-
 conformance/V04_move_out_of_ref.saw	copied,expectation-pending	-	-
-conformance/V100_bounded_copy_at_the_auto_tier_retains.saw	flagged	-	G4: a `match` on a place that a copy cannot serve: the `borrow let` block needs each arm's payload bindings decided
+conformance/V100_bounded_copy_at_the_auto_tier_retains.saw	manual,rewritten	G3.borrow-let:2,manual.G4:1,manual.G4.companion:2	-
 conformance/V101_copy_family_carries_the_tier.saw	rewritten	G3.borrow-let:1	-
 conformance/V102_derived_copy_duplicates_every_field.saw	copied	-	-
 conformance/V103_copy_funnel_duplicates_exactly_once.saw	rewritten	A3.mutating-call:1,B.place-argument:2,G3.borrow-let:2	-
@@ -511,12 +511,12 @@ conformance/V27_atomic_field_no_policy.saw	copied,expectation-pending	-	-
 conformance/V28_atomic_holder_declares_nocopy.saw	copied	-	-
 conformance/V29_static_atomic_unaffected.saw	copied	-	-
 conformance/V30_move_atomic_local.saw	copied	-	-
-conformance/V31_move_out_of_vector_element.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+conformance/V31_move_out_of_vector_element.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 conformance/V32_copy_bound_is_tier_derived.saw	copied	-	-
 conformance/V33_explicitcopy_refused_at_silent_bound.saw	copied,expectation-pending	-	-
 conformance/V34_explicitcopy_bound_is_the_copyable_family.saw	copied	-	-
 conformance/V36_generic_body_double_bind_refused_at_call.saw	copied,expectation-pending	-	-
-conformance/V37_generic_body_field_read_requires_copy.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `get` in unlowered function body
+conformance/V37_generic_body_field_read_requires_copy.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 conformance/V38_generic_requirement_propagates_through_forwarding.saw	copied,expectation-pending	-	-
 conformance/V39_generic_method_body_honors_copy_tier.saw	copied,expectation-pending	-	-
 conformance/V40_generic_coroutine_body_honors_copy_tier.saw	copied,expectation-pending	-	-
@@ -530,7 +530,7 @@ conformance/V47_generic_return_of_a_local_is_a_move.saw	copied	-	-
 conformance/V51_consuming_call_double_consume.saw	copied,expectation-pending	-	-
 conformance/V52_use_after_consume.saw	copied,expectation-pending	-	-
 conformance/V53_consuming_call_nomove_receiver.saw	copied,expectation-pending	-	-
-conformance/V54_consumes_field_move_all_paths.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `pick` in unlowered function body
+conformance/V54_consumes_field_move_all_paths.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 conformance/V55_consuming_receiver_needs_move.saw	copied,expectation-pending	-	-
 conformance/V56_consuming_body_replaces_deinit_body.saw	copied	-	-
 conformance/V60_match_through_a_reference_is_a_borrow.saw	copied,expectation-pending	-	-
@@ -541,10 +541,10 @@ conformance/V64_forwarding_cast_takes_the_move_checkpoint.saw	copied,expectation
 conformance/V65_forwarding_cast_is_tier_blind.saw	copied	-	-
 conformance/V66_alias_projection_cast_forwards.saw	copied,expectation-pending	-	-
 conformance/V67_building_casts_are_untouched.saw	copied	-	-
-conformance/V68_closure_reference_parameter_is_a_borrow.saw	flagged,expectation-pending	-	unseen: no type evidence: closure-borrow call `with_ref` in unlowered function body; unseen: no type evidence: closure-borrow call `with_var_ref` in unlowered function body
-conformance/V69_borrow_capture_is_a_borrow.saw	flagged,expectation-pending	-	unseen: no type evidence: closure-borrow call `lock` in unlowered function body
-conformance/V70_borrowed_closure_binding_refusal_is_tier_blind.saw	flagged,expectation-pending	-	unseen: no type evidence: closure-borrow call `with_var_ref` in unlowered function body
-conformance/V71_borrowed_closure_binding_fence_is_narrow.saw	flagged	-	E: tests a retired closure API: the file's header is about the closure its `with_ref` call takes x2; E: tests a retired closure API: the file's header is about the closure its `with_var_ref` call takes
+conformance/V68_closure_reference_parameter_is_a_borrow.saw	manual,expectation-pending	manual.unseen:2,manual.unseen.companion:8	re-aimed: now tests moving out of a closure's `&`/`&var` parameter through a user closure API; std's `with_ref`/`with_var_ref` are retired (SL:borrowing §9), user closure APIs stay
+conformance/V69_borrow_capture_is_a_borrow.saw	manual,expectation-pending	manual.unseen:1,manual.unseen.companion:5	re-aimed lock face: moving out of a `borrow var c = m.lock()` binding is refused; the closure form of `Mutex.lock` is retired (SL:borrowing §8, §9); the capture faces are unchanged
+conformance/V70_borrowed_closure_binding_refusal_is_tier_blind.saw	manual,expectation-pending	manual.unseen:1,manual.unseen.companion:5	re-aimed: the tier-blind refusal now reaches a Copy-tier element through a user closure API; `with_var_ref` is retired (SL:borrowing §9)
+conformance/V71_borrowed_closure_binding_fence_is_narrow.saw	manual	manual.E:3,manual.E.companion:7	re-aimed: the read-through-the-borrow row reads and writes through `borrow let`/`borrow var` blocks over v[0] (SL:borrowing §9); the capture and by-value parameter rows are user closures and stay
 conformance/V72_std_visitors_lend.saw	copied	-	-
 conformance/V73_closure_by_value_parameter_is_owned.saw	copied	-	-
 conformance/V74_closure_parameter_moved_into_a_new_owner.saw	rewritten	G3.borrow-let:1	-
@@ -558,7 +558,7 @@ conformance/V81_value_arm_fence_is_narrow.saw	copied	-	-
 conformance/V82_closure_tail_takes_the_transfer_checkpoint.saw	copied,expectation-pending	-	-
 conformance/V83_closure_tail_refusal_reaches_every_source.saw	copied,expectation-pending	-	-
 conformance/V84_copy_tier_closure_tail_retains_exactly_once.saw	copied	-	-
-conformance/V85_closure_tail_fence_is_narrow.saw	flagged	-	E: tests a retired closure API: the file's header is about the closure its `with_ref` call takes
+conformance/V85_closure_tail_fence_is_narrow.saw	manual	manual.E:1,manual.E.companion:9	re-aimed: the place-window row is a `borrow let` block whose tail copies an Int out (SL:borrowing §2.1, §9); the other rows are user closures and stay
 conformance/V86_self_receiver_read_is_a_transfer.saw	copied,expectation-pending	-	-
 conformance/V87_try_subject_read_is_a_transfer.saw	copied,expectation-pending	-	-
 conformance/V88_auto_wrapped_return_is_a_transfer.saw	copied,expectation-pending	-	-
@@ -590,24 +590,24 @@ conformance/W16_range_bounds_mixed_types.saw	copied,expectation-pending	-	-
 conformance/W17_bare_literal_adopts_operand_type.saw	copied	-	-
 conformance/W18_compound_assign_mixed_width.saw	copied,expectation-pending	-	-
 conformance/W19_bitwise_mixed_width.saw	copied,expectation-pending	-	-
-conformance/W20_narrowing_transfer_positions_error.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body x3
-conformance/W21_sign_flip_transfer_positions_error.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body x3
+conformance/W20_narrowing_transfer_positions_error.saw	manual,expectation-pending	manual.unseen:1,reviewed.unseen:2	-
+conformance/W21_sign_flip_transfer_positions_error.saw	manual,expectation-pending	manual.unseen:1,reviewed.unseen:2	-
 conformance/W22_lossless_widening_transfer_positions.saw	rewritten	G1.map-get:1	-
 conformance/W23_bare_literal_adopts_transfer_positions.saw	rewritten	G1.map-get:1	-
-conformance/W24_fixed_width_transfer_never_converts_error.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body x3
+conformance/W24_fixed_width_transfer_never_converts_error.saw	manual,expectation-pending	manual.unseen:1,reviewed.unseen:2	-
 conformance/X02_varref_aliased_by_shared.saw	copied,expectation-pending	-	-
 conformance/X09_disjoint_tuple_elements.saw	copied	-	-
-conformance/X14_push_inside_with_ref.saw	flagged,expectation-pending	-	unseen: no type evidence: closure-borrow call `with_ref` in unlowered function body
+conformance/X14_push_inside_with_ref.saw	manual,expectation-pending	manual.unseen:1,manual.unseen.companion:7	re-aimed: now tests `push` inside a shared `borrow let` of an element of the same vector (SL:borrowing §3, §4); `with_ref` is retired (§9)
 conformance/X17_nested_windows.saw	rewritten	A1.field-write:1,G2.nested-read:2	-
-conformance/X33_two_windows_implicitcopy_struct.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `at` in unlowered function body x2
+conformance/X33_two_windows_implicitcopy_struct.saw	manual,expectation-pending	manual.unseen:1,manual.unseen.companion:4,reviewed.unseen:1	re-aimed: the accessor is declared `&var self ... -> &var Int`, and two `borrow var` arguments conflict on the root (SL:borrowing §2.2, §3); the use-site upgrade of a `&self` accessor is retired
 conformance/X41_nested_call_ref_overlaps_sibling.saw	copied,expectation-pending	-	-
 conformance/X42_nested_call_ref_disjoint_roots.saw	copied	-	-
 conformance/X43_nested_ref_disjoint_from_every_sibling.saw	copied	-	-
 conformance/X44_nested_call_ref_overlaps_receiver.saw	copied,expectation-pending	-	-
 conformance/X45_two_nested_calls_one_root.saw	copied,expectation-pending	-	-
-conformance/Z03_replace_container_during_window.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body x2
+conformance/Z03_replace_container_during_window.saw	manual,expectation-pending	manual.unseen:1,reviewed.unseen:1	-
 conformance/Z05_escaping_closure_env_deinit_once.saw	copied	-	-
-conformance/k74_refused_at_the_call.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered method body
+conformance/k74_refused_at_the_call.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 conformance/k74_refused_unbounded.saw	copied,expectation-pending	-	-
 conformance/k84_blocking_refused_in_an_ordinary_sync_body.saw	copied,expectation-pending	-	-
 conformance/modules/coro223/lib.saw	copied	-	-
@@ -636,7 +636,7 @@ const_generic_default_and_arith.saw	copied	-	-
 const_generic_enum_and_function.saw	copied	-	-
 const_generic_infer_length.saw	copied	-	-
 const_generic_specialized_extension_unsupported.saw	copied,expectation-pending	-	-
-const_generic_type_for_value_error.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+const_generic_type_for_value_error.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 const_generic_value_for_type_error.saw	copied,expectation-pending	-	-
 const_length_grammar_bool_error.saw	copied,expectation-pending	-	-
 const_length_grammar_unified.saw	copied	-	-
@@ -897,7 +897,7 @@ df151b_implicit_tier_transfers.saw	rewritten	G3.borrow-let:1	-
 df151c_optional_dest_copy.saw	copied	-	-
 df151d_match_temporary_scrutinee.saw	copied	-	-
 df151e_optional_element_array.saw	copied	-	-
-df151e_optional_element_repeat_error.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+df151e_optional_element_repeat_error.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 df151f_tuple_drop_glue.saw	copied	-	-
 df151h_assign_rhs_retain.saw	copied	-	-
 df151i_tuple_copy.saw	rewritten	K14.get-to-place:2	-
@@ -907,7 +907,7 @@ df151j_tuple_element_mutate.saw	copied	-	-
 df151j_tuple_element_ref.saw	copied	-	-
 df151j_tuple_element_write.saw	copied	-	-
 df151l_tuple_literal_expected_type.saw	copied	-	-
-df165b_place_literal_range_error.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body x2
+df165b_place_literal_range_error.saw	reviewed,expectation-pending	reviewed.unseen:2	-
 df165b_place_literal_width.saw	copied	-	-
 df229a_missing_selection_error.saw	copied,expectation-pending	-	-
 df229a_private_selection_error.saw	copied,expectation-pending	-	-
@@ -1014,8 +1014,8 @@ erased_result_return.saw	copied	-	-
 erased_result_try.saw	copied	-	-
 error_any_box.saw	copied	-	-
 error_split_conformance.saw	copied	-	-
-errors/align_above_cap.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
-errors/align_non_constant.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+errors/align_above_cap.saw	reviewed,expectation-pending	reviewed.unseen:1	-
+errors/align_non_constant.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/align_on_function.saw	copied,expectation-pending	-	-
 errors/align_on_struct_field.saw	copied,expectation-pending	-	-
 errors/alloc_try_twins_are_retired.saw	copied,expectation-pending	-	-
@@ -1029,36 +1029,36 @@ errors/any_unsized_binding.saw	copied,expectation-pending	-	-
 errors/any_unsized_by_value.saw	copied,expectation-pending	-	-
 errors/any_unsized_container.saw	copied,expectation-pending	-	-
 errors/arc_forward_var_self.saw	copied,expectation-pending	-	-
-errors/array_elem_field_immutable.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body x2
-errors/array_immutable.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+errors/array_elem_field_immutable.saw	reviewed,expectation-pending	reviewed.unseen:2	-
+errors/array_immutable.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/array_mixed_types.saw	copied,expectation-pending	-	-
-errors/array_non_int_index.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
-errors/array_wrong_type.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+errors/array_non_int_index.saw	reviewed,expectation-pending	reviewed.unseen:1	-
+errors/array_wrong_type.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/background_spawn_needs_a_hosted_entry.saw	copied,expectation-pending	-	-
 errors/blocking_extern_decl_conflict.saw	copied,expectation-pending	-	-
 errors/blocking_extern_sync_reject.saw	copied,expectation-pending	-	-
 errors/borrowing_field_alias_exclusive.saw	copied,expectation-pending	-	-
-errors/borrowing_field_is_read_only.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `get` in unlowered method body; unseen: no type evidence: subscript in unlowered method body
-errors/borrowing_producer_alias_return.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `iter` in unlowered method body x2
+errors/borrowing_field_is_read_only.saw	reviewed,expectation-pending	reviewed.unseen:2	-
+errors/borrowing_producer_alias_return.saw	reviewed,expectation-pending	reviewed.unseen:2	-
 errors/borrowing_producer_composite_return.saw	copied,expectation-pending	-	-
-errors/borrowing_producer_stores_no_borrow.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `iter` in unlowered method body x2
+errors/borrowing_producer_stores_no_borrow.saw	reviewed,expectation-pending	reviewed.unseen:2	-
 errors/borrowing_struct_alias_compositions.saw	copied,expectation-pending	-	-
 errors/borrowing_struct_exclusive_field.saw	copied,expectation-pending,grammar-flip	-	grammar-flip: GRAMMAR.md accepts what the frozen parser refuses (Parse error at 24:18: field `bag` of `borrows struct Writer` may not be an EXCLUSIVE reference: its type `&var Bag` is `&var`, and a borrowing struct holds SHAR)
-errors/borrowing_struct_origin.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `iter` in unlowered method body x5
-errors/borrowing_struct_type_positions.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `get` in unlowered method body; unseen: no type evidence: call to accessor-named `iter` in unlowered function body x2
-errors/borrowing_struct_value_positions.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `get` in unlowered method body; unseen: no type evidence: call to accessor-named `iter` in unlowered function body x12
-errors/borrows_bare_return_type.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `at` in unlowered function body; unseen: no type evidence: subscript in unlowered method body
+errors/borrowing_struct_origin.saw	manual,expectation-pending	manual.unseen.companion:4,reviewed.unseen:5	migrated: the `&var self` origin row is admitted by SL:borrowing §2.6, so it is no longer a row and its expectation goes; the other rows stand
+errors/borrowing_struct_type_positions.saw	rewritten,expectation-pending	SL-400.Q5-parenthesized-type-is-grouping:1,reviewed.unseen:3	-
+errors/borrowing_struct_value_positions.saw	manual,expectation-pending	manual.unseen:1,manual.unseen.companion:8,reviewed.unseen:12	migrated: ROW 10 (a temporary head) is admitted by SL:borrowing §2.6, so it is no longer a row and its expectation goes; the other rows stand
+errors/borrows_bare_return_type.saw	manual,expectation-pending	manual.unseen:1,reviewed.unseen:1	-
 errors/borrows_body_never_lends.saw	copied,expectation-pending	-	-
 errors/borrows_effect_slot_order.saw	copied,expectation-pending	-	-
 errors/borrows_function_type_rejected.saw	copied,expectation-pending,grammar-flip	-	grammar-flip: GRAMMAR.md accepts what the frozen parser refuses (Parse error at 10:21: a function TYPE may not be `borrows` (design 141 v1): a borrows call yields a place for a window, and a place is never a value, so there i)
-errors/borrows_lend_coverage_partial.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered method body
-errors/borrows_lend_in_loop.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered method body x3
-errors/borrows_lend_needs_a_place.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered method body
-errors/borrows_lends_twice.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered method body x2
-errors/borrows_return_none_needs_optional.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered method body
-errors/borrows_returns_value.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered method body
+errors/borrows_lend_coverage_partial.saw	reviewed,expectation-pending	reviewed.unseen:1	-
+errors/borrows_lend_in_loop.saw	reviewed,expectation-pending	reviewed.unseen:3	-
+errors/borrows_lend_needs_a_place.saw	reviewed,expectation-pending	reviewed.unseen:1	-
+errors/borrows_lends_twice.saw	reviewed,expectation-pending	reviewed.unseen:2	-
+errors/borrows_return_none_needs_optional.saw	reviewed,expectation-pending	reviewed.unseen:1	-
+errors/borrows_returns_value.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/borrows_trait_requirement_rejected.saw	copied,expectation-pending,grammar-flip	-	grammar-flip: GRAMMAR.md accepts what the frozen parser refuses (Parse error at 10:40: `borrows` may not appear on a trait requirement (design 141 v1): a place is not a value, so it cannot be yielded through an erased `any Tr)
-errors/borrows_var_lend_needs_var_self.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `at` in unlowered function body; unseen: no type evidence: subscript in unlowered method body
+errors/borrows_var_lend_needs_var_self.saw	manual,expectation-pending	manual.unseen:1,reviewed.unseen:1	-
 errors/box_forward_var_rejected.saw	copied,expectation-pending	-	-
 errors/box_value_move_only_read.saw	copied,expectation-pending	-	-
 errors/builtin_redefinition_rejected.saw	copied,expectation-pending	-	-
@@ -1076,7 +1076,7 @@ errors/channel_not_send.saw	copied,expectation-pending	-	-
 errors/closure_statement_never_called.saw	copied,expectation-pending	-	-
 errors/comparison_literal_out_of_range.saw	copied,expectation-pending	-	-
 errors/compound_assign_immutable.saw	copied,expectation-pending	-	-
-errors/const_builtin_aggregate_length_error.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+errors/const_builtin_aggregate_length_error.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/const_operand_does_not_fit_error.saw	copied,expectation-pending	-	-
 errors/const_static_leaf_names_mutable_error.saw	copied,expectation-pending	-	-
 errors/constructor_inference_bound_violated.saw	copied,expectation-pending	-	-
@@ -1090,7 +1090,7 @@ errors/consumes_free_function.saw	copied,expectation-pending	-	-
 errors/consumes_function_type.saw	copied,expectation-pending	-	-
 errors/consumes_needs_a_receiver.saw	copied,expectation-pending	-	-
 errors/consumes_needs_var_self.saw	copied,expectation-pending	-	-
-errors/consumes_receiver_through_a_field_or_place.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+errors/consumes_receiver_through_a_field_or_place.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/consumes_suspending_field_move.saw	copied,expectation-pending	-	-
 errors/consumes_suspending_handwritten_deinit.saw	copied,expectation-pending	-	-
 errors/consumes_trait_requirement.saw	copied,expectation-pending	-	-
@@ -1127,18 +1127,18 @@ errors/enum_ordering.saw	copied,expectation-pending	-	-
 errors/enum_wrong_args.saw	copied,expectation-pending	-	-
 errors/escaping_marker_redundant.saw	copied,expectation-pending	-	-
 errors/escaping_variance_error.saw	copied,expectation-pending	-	-
-errors/exclusive_only_accessor_on_let_root.saw	rewritten,expectation-pending	G1.accessor-read:1	-
-errors/exclusive_only_inner_makes_the_outer_exclusive_only.saw	rewritten,expectation-pending	A1.field-write:1,G1.accessor-read:5,G2.accessor-read:1,reviewed.Fwd:1	-
-errors/exclusive_window_in_a_shared_lend_accessor.saw	flagged,expectation-pending	-	design-200: pins a retired rule: a write through `self` inside a `&self` method (design 200's carve-out, SL:borrowing §9) x4
-errors/existential_arg_wrong_trait.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `relay` in unlowered function body
+errors/exclusive_only_accessor_on_let_root.saw	manual,rewritten,expectation-pending	G1.accessor-read:1,manual.reaim.companion:16,reviewed.reaim:1	re-aimed: a borrow read through an accessor declared `&var self`, with no `&self` twin, charges its root exclusively, so a `let` root refuses it; the root charge follows the declaration, never the body (SL:borrowing §1, §3, §4); was K125's refused half 1
+errors/exclusive_only_inner_makes_the_outer_exclusive_only.saw	retired	-	retired with K125: it pins the PROPAGATION of the body-derived exclusive-only property (SL-333 R4); there is no such property, since every accessor here is declared `&var self` and charges its root exclusively by declaration alone (SL:borrowing §1, §3); the declaration-only refusal is errors/exclusive_only_accessor_on_let_root.saw
+errors/exclusive_window_in_a_shared_lend_accessor.saw	manual,rewritten,expectation-pending	G1.accessor-read:4,manual.design-200:4,manual.design-200.companion:33	re-aimed: an exclusive borrow through `self` inside a `&self` accessor body is refused at the declaration (SL:borrowing §3, §9), not at a use site on a `let` root
+errors/existential_arg_wrong_trait.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/explicit_copy_containment.saw	copied,expectation-pending	-	-
 errors/extern_c_compiler_symbol_mismatch_error.saw	copied,expectation-pending	-	-
 errors/fixed_width_arith_literal_out_of_range.saw	copied,expectation-pending	-	-
-errors/fold_selected_tail_is_an_ownership_transfer.saw	flagged,expectation-pending,grammar-flip	-	unseen: no type evidence: call to accessor-named `ceremonial` in unlowered function body; unseen: no type evidence: call to accessor-named `inner` in unlowered function body; unseen: no type evidence: call to accessor-named `outer` in unlowered function body; unseen: no type evidence: subscript in unlowered method body x3; grammar-flip: GRAMMAR.md refuses what the frozen parser accepts (a-removed: syntax.expr.refused-lend-var)
-errors/for_head_is_a_transfer.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered method body
-errors/for_iter_body_mutates_the_collection.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `iter` in unlowered function body
+errors/fold_selected_tail_is_an_ownership_transfer.saw	retired	-	retired: it pins the transfer judgment of a `#lend_var` fold's selected tail, and `#lend_var` is gone (SL:borrowing §4, §9); writing one is GRAMMAR's removed syntax.expr.refused-lend-var, covered by compiler/tests/parse/negative/removed.saw; conformance row K131 goes with it
+errors/for_head_is_a_transfer.saw	reviewed,expectation-pending	reviewed.unseen:1	-
+errors/for_iter_body_mutates_the_collection.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/forwarded_lend_cannot_upgrade_an_inner_shared_lend.saw	reviewed,expectation-pending	reviewed.Fwd:1	-
-errors/forwarded_lend_inherits_exclusive_only.saw	reviewed,expectation-pending	reviewed.Fwd:1	-
+errors/forwarded_lend_inherits_exclusive_only.saw	retired	-	pins exclusive-only propagation through a forwarded lend, which SL:borrowing §1 and §3 retire: modes are declared, never inferred from a body; the refusal left in its place (a read through a `&var self` accessor with no `&self` twin, on a `let` root) is errors/exclusive_only_accessor_on_let_root.saw, and forwarding at the outer declared mode is K129
 errors/forwarding_capture_escaping.saw	copied,expectation-pending	-	-
 errors/forwarding_return.saw	copied,expectation-pending	-	-
 errors/forwarding_store_field.saw	copied,expectation-pending	-	-
@@ -1189,13 +1189,13 @@ errors/labeled_arg_unknown.saw	copied,expectation-pending	-	-
 errors/labeled_overload_effects_sync_error.saw	copied,expectation-pending	-	-
 errors/labeled_overload_positional_ambiguous.saw	copied,expectation-pending	-	-
 errors/labeled_overload_same_name_decl_error.saw	copied,expectation-pending	-	-
-errors/lend_accessor_param.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `pick` in unlowered function body; unseen: no type evidence: call to accessor-named `relay` in unlowered function body
-errors/lend_outside_borrows_body.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered method body
+errors/lend_accessor_param.saw	manual,expectation-pending	manual.unseen:2	migrated: the stores spell `borrow var` (SL:borrowing §2.2); the pinned declaration refusal is unchanged
+errors/lend_outside_borrows_body.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/lend_payload_not_receiver_storage.saw	copied,expectation-pending	-	-
-errors/lend_var_in_shared_lend_accessor.saw	flagged,expectation-pending,grammar-flip	-	unseen: no type evidence: subscript in unlowered function body; unseen: no type evidence: subscript in unlowered method body; grammar-flip: GRAMMAR.md refuses what the frozen parser accepts (a-removed: syntax.expr.refused-lend-var)
-errors/lend_var_outside_borrows.saw	flagged,expectation-pending,grammar-flip	-	unseen: no type evidence: call to accessor-named `peek` in unlowered function body; grammar-flip: GRAMMAR.md refuses what the frozen parser accepts (a-removed: syntax.expr.refused-lend-var)
+errors/lend_var_in_shared_lend_accessor.saw	retired	-	retired: it pins where `#lend_var` is always false, and `#lend_var` is gone (SL:borrowing §4, §9); writing one anywhere is GRAMMAR's removed syntax.expr.refused-lend-var, covered by compiler/tests/parse/negative/removed.saw
+errors/lend_var_outside_borrows.saw	retired	-	retired: it pins `#lend_var` outside a `borrows` body, and `#lend_var` is gone everywhere (SL:borrowing §4, §9); writing one is GRAMMAR's removed syntax.expr.refused-lend-var, covered by compiler/tests/parse/negative/removed.saw; conformance row P06 goes with it
 errors/lend_var_ungated_receiver_mutation.saw	copied,expectation-pending,grammar-flip	-	grammar-flip: GRAMMAR.md refuses what the frozen parser accepts (a-removed: syntax.expr.refused-lend-var)
-errors/lend_var_write_needs_var_root.saw	flagged,expectation-pending,grammar-flip	-	use-site-mode: pins a retired rule: a shared window through `Grid.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); grammar-flip: GRAMMAR.md refuses what the frozen parser accepts (a-removed: syntax.expr.refused-lend-var)
+errors/lend_var_write_needs_var_root.saw	manual,expectation-pending	manual.use-site-mode.companion:17,reviewed.use-site-mode:1	re-aimed: the `#lend_var` accessor becomes a hand-written shared/exclusive pair (SL:borrowing §4); the setitem derived from the exclusive one charges a `let` root exclusively and is refused (§3, §5.2), while the getitem from the shared one reads it
 errors/let_void_expression_rejected.saw	copied,expectation-pending	-	-
 errors/manual_deinit.saw	copied,expectation-pending	-	-
 errors/map_get_nocopy_value_read.saw	copied,expectation-pending	-	-
@@ -1203,23 +1203,23 @@ errors/map_subscript_immutable_root.saw	rewritten,expectation-pending	A1.field-w
 errors/map_subscript_nocopy_value_read.saw	copied,expectation-pending	-	-
 errors/match_non_exhaustive.saw	copied,expectation-pending	-	-
 errors/match_on_suspending_call_in_a_loop.saw	copied	-	-
-errors/method_overload_identical_signature.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `at` in unlowered function body
-errors/mixed_window_modes_conflict.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `opt` in unlowered function body; unseen: no type evidence: call to accessor-named `tally` in unlowered function body x3; unseen: no type evidence: subscript in unlowered function body x3; unseen: no type evidence: subscript in unlowered method body x3
+errors/method_overload_identical_signature.saw	reviewed,expectation-pending	reviewed.unseen:1	-
+errors/mixed_window_modes_conflict.saw	manual,expectation-pending	manual.unseen:7,manual.unseen.companion:30,reviewed.unseen:3	re-aimed: now tests that a borrow through a declared `@synthesize(shared)` twin (a shared root charge, SL:borrowing §4) beside a borrow through a `&var self` accessor with no twin (an exclusive charge, §3) conflicts, in both orders, through a `!` head and beside a plain `&root` (§2.2)
 errors/move_in_a_while_condition_nested_loop_header.saw	copied,expectation-pending	-	-
 errors/move_in_a_while_condition_positions.saw	copied,expectation-pending	-	-
 errors/multiple.saw	copied,expectation-pending	-	-
 errors/mutex_closure_stored.saw	copied,expectation-pending	-	-
-errors/mutex_guarded_for_suspends.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `iter` in unlowered function body; unseen: no type evidence: closure-borrow call `lock` in unlowered function body
-errors/mutex_lock_suspend.saw	flagged,expectation-pending	-	unseen: no type evidence: closure-borrow call `lock` in unlowered function body
+errors/mutex_guarded_for_suspends.saw	manual,expectation-pending	manual.unseen:1,manual.unseen.companion:9,reviewed.unseen:1	re-aimed: now tests that a suspension in a `for` inside a `Mutex.lock()` borrow is refused because the accessor is `borrows(sync)` (SL:borrowing §2.5, §8), replacing the retired `sync` closure form
+errors/mutex_lock_suspend.saw	manual,expectation-pending	manual.unseen:1,manual.unseen.companion:6	re-aimed: now tests that a suspension inside a `Mutex.lock()` borrow is refused because the accessor is `borrows(sync)` (SL:borrowing §2.5, §8), replacing the retired `sync` closure form
 errors/never_emitted_instance_reports.saw	copied,expectation-pending	-	-
 errors/no_copy.saw	copied,expectation-pending	-	-
 errors/no_copy_containment.saw	copied,expectation-pending	-	-
-errors/no_hidden_alloc_closure_pushed_into_a_vector.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+errors/no_hidden_alloc_closure_pushed_into_a_vector.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/nocopy_override_implicit_tier_copy.saw	copied,expectation-pending	-	-
-errors/nomove_bound_value_into_argument.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `value` in unlowered function body
+errors/nomove_bound_value_into_argument.saw	manual,expectation-pending	manual.unseen:1	migrated: the read through `Box.value` spells `borrow` (SL:borrowing §2.2)
 errors/nomove_containment_cascade.saw	copied,expectation-pending	-	-
 errors/nomove_not_a_bound.saw	copied,expectation-pending	-	-
-errors/nomove_placement_after_borrow.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body x2
+errors/nomove_placement_after_borrow.saw	reviewed,expectation-pending	reviewed.unseen:2	-
 errors/nomove_requires_nocopy.saw	copied,expectation-pending	-	-
 errors/none_default_underdetermined.saw	copied,expectation-pending	-	-
 errors/offload_freestanding_reject.saw	copied,expectation-pending	-	-
@@ -1232,7 +1232,7 @@ errors/optional_chain_assign_method_target.saw	copied,expectation-pending	-	-
 errors/optional_chain_compound_assign_immutable_head.saw	copied,expectation-pending	-	-
 errors/optional_chain_nocopy_field.saw	copied,expectation-pending	-	-
 errors/optional_chain_non_optional.saw	copied,expectation-pending	-	-
-errors/optional_coalesce_default_too_deep.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `get` in unlowered function body x2
+errors/optional_coalesce_default_too_deep.saw	reviewed,expectation-pending	reviewed.unseen:2	-
 errors/optional_move_unwrap_field.saw	copied,expectation-pending	-	-
 errors/optional_move_unwrap_retires.saw	copied,expectation-pending	-	-
 errors/optional_payload_read_explicit_copy.saw	copied,expectation-pending	-	-
@@ -1241,33 +1241,33 @@ errors/optional_presence_takes_no_arguments.saw	copied,expectation-pending	-	-
 errors/optional_take_exclusivity.saw	copied,expectation-pending	-	-
 errors/optional_take_immutable.saw	copied,expectation-pending	-	-
 errors/partial_move_field.saw	copied,expectation-pending	-	-
-errors/partial_move_index.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+errors/partial_move_index.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/partial_move_nested_field.saw	copied,expectation-pending	-	-
 errors/place_abstract_value_read_unbounded.saw	copied,expectation-pending	-	-
-errors/place_assign_wrong_element_type.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body x2
+errors/place_assign_wrong_element_type.saw	reviewed,expectation-pending	reviewed.unseen:2	-
 errors/place_exclusive_window_immutable_root.saw	rewritten,expectation-pending	A3.mutating-call:1	-
 errors/place_force_target_not_a_place.saw	copied,expectation-pending	-	-
-errors/place_nested_window_let_root.saw	flagged,expectation-pending	-	use-site-mode: pins a retired rule: a shared window through `Row.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
+errors/place_nested_window_let_root.saw	manual,rewritten,expectation-pending	A1.field-write:1,manual.use-site-mode.companion:13,reviewed.use-site-mode:1	re-aimed: a nested `borrow var` chain charges its root exclusively, so a `let` root refuses it (SL:borrowing §2.2, §3); the read goes through declared `@synthesize(shared)` twins instead of use-site inference
 errors/place_target_not_a_place.saw	copied,expectation-pending	-	-
-errors/place_window_beside_var_root.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `at` in unlowered function body x2
-errors/place_window_data_corruption.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body x4
+errors/place_window_beside_var_root.saw	manual,expectation-pending	manual.unseen:2,manual.unseen.companion:13	re-aimed: the accessor now declares `(&var self) borrows -> &var Int` (use-site mode inference is retired, SL:borrowing §3); still tests one `borrow var` argument beside a `&var` of its root in the same call
+errors/place_window_data_corruption.saw	manual,expectation-pending	manual.unseen:2,reviewed.unseen:2	migrated: the place arguments spell `borrow var` (SL:borrowing §2.2)
 errors/place_window_enum_method_let_root.saw	rewritten,expectation-pending	A3.mutating-call:1	-
 errors/place_window_root_read_teaches_the_asymmetry.saw	rewritten,expectation-pending	A3.mutating-call:1,G3.borrow-let:1,G4.borrow-operand:4	-
-errors/place_window_through_a_forced_lend_charges_its_root.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `first` in unlowered function body; unseen: no type evidence: call to accessor-named `opt` in unlowered function body x3; unseen: no type evidence: subscript in unlowered method body x2
+errors/place_window_through_a_forced_lend_charges_its_root.saw	manual,expectation-pending	manual.unseen:3,reviewed.unseen:3	migrated: the place arguments spell `borrow var` (SL:borrowing §2.2)
 errors/place_write_immutable_root.saw	rewritten,expectation-pending	A4.map-forced-store:1,D1.map-get:1	-
-errors/prelude_tcp_needs_import.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `pair` in unlowered function body
+errors/prelude_tcp_needs_import.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/primitive_box_erasure_refused.saw	copied,expectation-pending	-	-
 errors/primitive_erasure_refused.saw	copied,expectation-pending	-	-
 errors/primitive_type_called_as_a_function.saw	copied,expectation-pending	-	xfail twin: // XFAIL: DF-270e — a PRIMITIVE TYPE NAME written as a ZERO-ARGUMENT call is an
-errors/print_optional_not_printable.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `get` in unlowered function body x2
-errors/propagated_exclusive_only_outer_overlap.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `plain` in unlowered function body x2; unseen: no type evidence: call to accessor-named `propagated` in unlowered function body x2; unseen: no type evidence: call to accessor-named `tally` in unlowered method body
-errors/ref_associated_type_assignment.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `get` in unlowered function body
+errors/print_optional_not_printable.saw	reviewed,expectation-pending	reviewed.unseen:2	-
+errors/propagated_exclusive_only_outer_overlap.saw	retired	-	retired: it pins exclusive-only PROPAGATION, a mode inferred from an accessor's body, which SL:borrowing §1 and §3 retire (modes are declared); two borrows through a `&var self` accessor conflicting is errors/two_exclusive_only_windows_conflict.saw, and a shared twin beside an exclusive accessor is errors/mixed_window_modes_conflict.saw (both re-aimed)
+errors/ref_associated_type_assignment.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/ref_cast_to_int_not_blessed.saw	copied,expectation-pending	-	-
 errors/ref_closure_return_inferred.saw	copied,expectation-pending	-	-
 errors/ref_field_nested_in_tuple.saw	copied,expectation-pending,grammar-flip	-	grammar-flip: GRAMMAR.md accepts what the frozen parser refuses (Parse error at 12:21: field `pair` of `Both` may not be a reference: its type `(Int, &Int)` names a reference (`&Int`), and references in Saw are PARAMETERS ONL)
 errors/ref_field_type.saw	copied,expectation-pending,grammar-flip	-	grammar-flip: GRAMMAR.md accepts what the frozen parser refuses (Parse error at 12:20: field `r` of `Holder` may not be a reference: its type `&Int` is a reference, and references in Saw are PARAMETERS ONLY — a reference borr)
 errors/ref_forwarding_exclusivity.saw	copied,expectation-pending	-	-
-errors/ref_forwarding_self_upgrade.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `bad` in unlowered function body
+errors/ref_forwarding_self_upgrade.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/ref_forwarding_upgrade.saw	copied,expectation-pending	-	-
 errors/ref_generic_param_default.saw	copied,expectation-pending	-	-
 errors/ref_nonarg_binding.saw	copied,expectation-pending	-	-
@@ -1303,19 +1303,19 @@ errors/serde169_deserialize_not_any.saw	copied,expectation-pending	-	-
 errors/serde169_underivable_field.saw	copied,expectation-pending	-	-
 errors/shadow_closure_param.saw	copied,expectation-pending	-	-
 errors/shadow_for_nested_loop.saw	copied,expectation-pending	-	-
-errors/shadow_for_nonderived.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `iter` in unlowered function body
+errors/shadow_for_nonderived.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/shadow_for_tuple_pattern.saw	copied,expectation-pending	-	-
 errors/shadow_inner_let.saw	copied,expectation-pending	-	-
 errors/shadow_match_pattern.saw	copied,expectation-pending	-	-
 errors/shadow_param.saw	copied,expectation-pending	-	-
 errors/shadow_redef_nonderived.saw	copied,expectation-pending	-	-
-errors/shared_lend_accessor_exclusive_window_overlap.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `arg` in unlowered function body x2; unseen: no type evidence: call to accessor-named `plain2` in unlowered function body x2; unseen: no type evidence: call to accessor-named `plain` in unlowered method body
+errors/shared_lend_accessor_exclusive_window_overlap.saw	retired	-	retired: it pins the use-site overlap of a `&self` accessor made exclusive-only by a `&var` borrow in its body, an inference SL:borrowing §3 retires; under §9 (`&self` is read-only all the way down) that body is refused where it is written, so the overlap cannot be reached; the body refusal is the design-200 rule's ground
 errors/shared_lend_write_refused_at_every_opener.saw	rewritten,expectation-pending	A1.field-write:3,B.place-argument:1,C.accessor-chain-assign:1	-
-errors/shared_self_borrows_epilogue_write.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body; unseen: no type evidence: subscript in unlowered method body
-errors/shared_self_borrows_field_var_method_call.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body x2; unseen: no type evidence: subscript in unlowered method body
-errors/shared_self_field_var_method_call.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `peek` in unlowered function body
-errors/shared_self_field_write.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `peek` in unlowered function body
-errors/shared_self_var_method_call.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `peek` in unlowered function body
+errors/shared_self_borrows_epilogue_write.saw	reviewed,expectation-pending	reviewed.unseen:2	-
+errors/shared_self_borrows_field_var_method_call.saw	reviewed,expectation-pending	reviewed.unseen:3	-
+errors/shared_self_field_var_method_call.saw	reviewed,expectation-pending	reviewed.unseen:1	-
+errors/shared_self_field_write.saw	reviewed,expectation-pending	reviewed.unseen:1	-
+errors/shared_self_var_method_call.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/signal_is_hosted_only.saw	copied,expectation-pending	-	-
 errors/sleep_bare_int.saw	copied,expectation-pending	-	-
 errors/spawn_capture_across_iterations.saw	copied,expectation-pending	-	-
@@ -1326,8 +1326,8 @@ errors/spawn_handle_may_not_escape_the_function.saw	copied,expectation-pending	-
 errors/spawn_names_its_engine.saw	copied,expectation-pending	-	-
 errors/spawn_result_not_send.saw	copied,expectation-pending	-	-
 errors/specialized_method_wrong_type.saw	copied,expectation-pending	-	-
-errors/spinlock_needs_atomics.saw	flagged,expectation-pending	-	unseen: no type evidence: closure-borrow call `lock` in unlowered function body
-errors/spinlock_suspending_body.saw	flagged,expectation-pending	-	unseen: no type evidence: closure-borrow call `lock` in unlowered function body
+errors/spinlock_needs_atomics.saw	manual,expectation-pending	manual.unseen:1,manual.unseen.companion:1	migrated: `SpinLock.lock { }` becomes a `borrow var` block over `lock()` (SL:borrowing §9)
+errors/spinlock_suspending_body.saw	manual,expectation-pending	manual.unseen:1,manual.unseen.companion:9	re-aimed: now tests that a suspension inside a `SpinLock.lock()` borrow is refused because the accessor is `borrows(sync)` (SL:borrowing §2.5, §8), replacing the retired `sync` closure form
 errors/statement_juxtaposition_in_closure_and_module_scope.saw	copied,expectation-pending	-	-
 errors/statement_juxtaposition_in_control_flow_bodies.saw	copied,expectation-pending	-	-
 errors/statement_juxtaposition_in_declaration_lists.saw	copied,expectation-pending	-	-
@@ -1342,7 +1342,7 @@ errors/static236_static_with_receiver.saw	copied,expectation-pending	-	-
 errors/static236_struct_method_no_receiver.saw	copied,expectation-pending	-	-
 errors/static236_trait_default_no_receiver.saw	copied,expectation-pending	-	-
 errors/static236_trait_requirement_no_receiver.saw	copied,expectation-pending	-	-
-errors/static_assign_element.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+errors/static_assign_element.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/static_assign_field.saw	copied,expectation-pending	-	-
 errors/static_assign_whole.saw	copied,expectation-pending	-	-
 errors/static_forward_reference.saw	copied,expectation-pending	-	-
@@ -1378,10 +1378,10 @@ errors/synthesize_required_equatable.saw	copied,expectation-pending	-	-
 errors/synthesize_required_explicit_copy.saw	copied,expectation-pending	-	-
 errors/synthesize_required_hashable.saw	copied,expectation-pending	-	-
 errors/taskgroup_threads_nonsend_reject.saw	copied,expectation-pending	-	-
-errors/thread_body_reports_both_violations.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `arg` in unlowered function body
+errors/thread_body_reports_both_violations.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/trailing_dot_float.saw	copied,expectation-pending	-	-
 errors/trait_inheritance_missing_method.saw	copied,expectation-pending	-	-
-errors/two_exclusive_only_windows_conflict.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `tally` in unlowered function body x2; unseen: no type evidence: subscript in unlowered method body
+errors/two_exclusive_only_windows_conflict.saw	manual,expectation-pending	manual.unseen:2,manual.unseen.companion:23,reviewed.unseen:1	re-aimed: now tests that two read-only `borrow` arguments through an accessor declared `&var self` charge the root exclusively twice and conflict (SL:borrowing §2.2, §3)
 errors/type_mismatch.saw	copied,expectation-pending	-	-
 errors/typealias_ref_construction.saw	copied,expectation-pending	-	-
 errors/typealias_ref_generic_argument.saw	copied,expectation-pending	-	-
@@ -1392,8 +1392,8 @@ errors/undefined_var.saw	copied,expectation-pending	-	-
 errors/undefined_variant.saw	copied,expectation-pending	-	-
 errors/unknown_directive.saw	copied,expectation-pending	-	the lexer refuses the text
 errors/unknown_generic_type_name.saw	copied,expectation-pending	-	-
-errors/unsafe_closure_in_safe_function.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body x2
-errors/unsafe_contact_intake.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `value` in default parameter value
+errors/unsafe_closure_in_safe_function.saw	reviewed,expectation-pending	reviewed.unseen:2	-
+errors/unsafe_contact_intake.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/unsafe_effect_slot_order.saw	copied,expectation-pending	-	-
 errors/unsafe_expression_marker_removed.saw	copied,expectation-pending	-	-
 errors/unsafe_fn_type_missing_effect.saw	copied,expectation-pending	-	-
@@ -1410,7 +1410,7 @@ errors/unsafe_prefix_on_init.saw	copied,expectation-pending	-	-
 errors/unsafe_reference_param_triggers.saw	copied,expectation-pending	-	-
 errors/unsafe_send_not_erasable.saw	copied,expectation-pending	-	-
 errors/unsafe_static_needs_deinit.saw	copied,expectation-pending	-	-
-errors/unsafe_static_trigger.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+errors/unsafe_static_trigger.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/unsafe_static_without_var.saw	copied,expectation-pending	-	-
 errors/unsafe_struct_name_not_prefixed.saw	copied,expectation-pending	-	-
 errors/unsafe_sync_already_derives.saw	copied,expectation-pending	-	-
@@ -1435,24 +1435,24 @@ errors/var_ref_into_shared_self.saw	copied,expectation-pending	-	-
 errors/var_self_receiver.saw	copied,expectation-pending	-	-
 errors/vector_copy_nocopy_elem.saw	copied,expectation-pending	-	-
 errors/vector_get_nocopy_alias.saw	copied,expectation-pending	-	-
-errors/vector_iter_requires_copy.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `iter` in unlowered function body
-errors/vector_ref_at_removed.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+errors/vector_iter_requires_copy.saw	manual,expectation-pending	manual.unseen.companion:8,reviewed.unseen:1	re-aimed: now tests that a plain `for` over a NoCopy vector is refused because the loop copies each element (SL:borrowing §2.6); `iter()` itself no longer carries a Copy bound
+errors/vector_ref_at_removed.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/while_break_not_never.saw	copied,expectation-pending	-	-
 errors/while_break_outside_loop.saw	copied,expectation-pending	-	-
 errors/while_continue_outside_loop.saw	copied,expectation-pending	-	-
 errors/while_expr_incompatible_break_types.saw	copied,expectation-pending	-	-
 errors/while_never_unreachable_after.saw	copied,expectation-pending	-	-
 errors/while_true_not_never.saw	copied,expectation-pending	-	-
-errors/window_acquire_mutating_argument.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `get` in unlowered method body; unseen: no type evidence: call to accessor-named `iter_from` in unlowered function body
-errors/window_conflicts.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `iter` in unlowered function body x8; unseen: no type evidence: closure-borrow call `with_var_ref` in unlowered function body; unseen: no type evidence: subscript in unlowered function body x2
+errors/window_acquire_mutating_argument.saw	reviewed,expectation-pending	reviewed.unseen:2	-
+errors/window_conflicts.saw	manual,expectation-pending	manual.unseen:1,manual.unseen.companion:1,reviewed.unseen:10	migrated: the `with_var_ref` row is a `borrow var` of an element (SL:borrowing §9)
 errors/window_in_a_threaded_group.saw	copied,expectation-pending	-	-
-errors/window_static_root_write.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `iter` in unlowered function body
-errors/with_var_ref_invalidation.saw	flagged,expectation-pending	-	unseen: no type evidence: closure-borrow call `with_var_ref` in unlowered function body
+errors/window_static_root_write.saw	reviewed,expectation-pending	reviewed.unseen:1	-
+errors/with_var_ref_invalidation.saw	manual,expectation-pending	manual.unseen:1,manual.unseen.companion:12	re-aimed: now tests that a reallocating push inside a `borrow var e = v[0]` block is refused, since the block holds `v` exclusively (SL:borrowing §3), replacing the retired `with_var_ref` closure
 errors/withcstring_escape.saw	copied,expectation-pending	-	-
 errors/wrong_args.saw	copied,expectation-pending	-	-
 errors/yield_now_bare_gated.saw	copied,expectation-pending	-	-
-escaping_closure_borrow_capture_local_container.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
-escaping_closure_borrow_capture_stored.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+escaping_closure_borrow_capture_local_container.saw	reviewed,expectation-pending	reviewed.unseen:1	-
+escaping_closure_borrow_capture_stored.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 escaping_on_declaration_rejected.saw	copied,expectation-pending	-	-
 escaping_variance_safe.saw	copied	-	-
 exclusivity_assign_rhs_allowed_shapes.saw	copied	-	-
@@ -1460,8 +1460,8 @@ exclusivity_assign_rhs_borrow.saw	copied,expectation-pending	-	-
 exclusivity_byvalue_snapshot.saw	copied	-	-
 exclusivity_const_indices.saw	copied	-	-
 exclusivity_disjoint_fields.saw	copied	-	-
-exclusivity_dynamic_index.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body x2
-exclusivity_erased_and_generic_receivers.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `pair` in unlowered function body x3
+exclusivity_dynamic_index.saw	reviewed,expectation-pending	reviewed.unseen:2	-
+exclusivity_erased_and_generic_receivers.saw	reviewed,expectation-pending	reviewed.unseen:3	-
 exclusivity_forwarding.saw	copied,expectation-pending	-	-
 exclusivity_move_and_ref.saw	copied,expectation-pending	-	-
 exclusivity_parent_child.saw	copied,expectation-pending	-	-
@@ -1628,7 +1628,7 @@ generic_bound_call_concrete_param_type.saw	copied,expectation-pending	-	-
 generic_bound_call_cross_module_gated_param.saw	copied	-	-
 generic_bound_call_cross_module_gated_param_mismatch.saw	copied,expectation-pending	-	-
 generic_bound_call_decidable_param_conversions.saw	copied	-	-
-generic_bound_call_mixed_signature_error.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `at` in unlowered function body x2
+generic_bound_call_mixed_signature_error.saw	reviewed,expectation-pending	reviewed.unseen:2	-
 generic_bound_call_self_param_type.saw	copied,expectation-pending	-	-
 generic_bound_not_trait_error.saw	copied,expectation-pending	-	-
 generic_bound_propagation.saw	copied	-	-
@@ -1653,7 +1653,7 @@ generic_local_at_void.saw	copied	-	-
 generic_local_move_at_void.saw	copied	-	-
 generic_method_basic.saw	copied	-	-
 generic_method_default_type_and_value_param.saw	copied	-	-
-generic_method_not_generic_type_args.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `get` in unlowered function body
+generic_method_not_generic_type_args.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 generic_method_plain_extension.saw	copied	-	-
 generic_method_type_arg_inference.saw	copied	-	-
 generic_nested_tuple_mangling.saw	copied	-	-
@@ -1759,7 +1759,7 @@ json_map_keys.saw	copied	-	-
 json_number_edges.saw	copied	-	-
 json_roundtrip_struct.saw	copied	-	-
 json_structural_reject.saw	copied	-	-
-json_value_accessors.saw	flagged	-	D3: a presence test inside a longer chain x4
+json_value_accessors.saw	manual,rewritten	D3.borrow-block:4,G3.borrow-let:1,K14.get-to-place:4,manual.D3:4,manual.D3.companion:3	migrated: presence tests inside a chain become a `find` block (Vector) or `contains_key` (Map) reached through the lent value (SL:borrowing §9.1 K8)
 json_value_deinit.saw	rewritten	B.place-argument:1,D3.borrow-block:1,G3.borrow-let:1	-
 json_value_escape_grid.saw	copied	-	-
 json_value_number_edges.saw	copied	-	-
@@ -1789,14 +1789,14 @@ labeled_overload_generic.saw	copied	-	-
 labeled_overload_label_then_type.saw	copied	-	-
 labeled_overload_method_static.saw	copied	-	-
 labeled_overload_same_type_diff_label.saw	copied	-	-
-lend_accessor_local.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `slot` in unlowered function body
-lend_rooted_in_receiver.saw	flagged	-	Fwd: lend forwarding through another accessor (K2); use-site-mode: pins a retired rule: a shared window through `Board.cell`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Board.head`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Board.slot`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
-lend_var_both_branches.saw	flagged	-	removed-form: `#lend_var` (K1): the two accessors are written by hand; use-site-mode: pins a retired rule: a shared window through `Grid.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x3
-lend_var_conditional_lend.saw	flagged	-	removed-form: `#lend_var` (K1): the two accessors are written by hand; use-site-mode: pins a retired rule: a shared window through `Bag.at_eager`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2; use-site-mode: pins a retired rule: a shared window through `Bag.at_late`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x4
-lend_var_coro_and_forwarding.saw	flagged	-	removed-form: `#lend_var` (K1): the two accessors are written by hand; use-site-mode: pins a retired rule: a shared window through `Grid.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Inner.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3); use-site-mode: pins a retired rule: a shared window through `Outer.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2
-lend_var_epilogue_nesting.saw	flagged	-	removed-form: `#lend_var` (K1): the two accessors are written by hand; use-site-mode: pins a retired rule: a shared window through `Row.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x3
-lend_var_generic_and_match.saw	flagged	-	removed-form: `#lend_var` (K1): the two accessors are written by hand; use-site-mode: pins a retired rule: a shared window through `Holder.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x4; use-site-mode: pins a retired rule: a shared window through `Table.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x3
-lend_var_two_specializations.saw	flagged	-	removed-form: `#lend_var` (K1): the two accessors are written by hand; use-site-mode: pins a retired rule: a shared window through `Grid.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x5
+lend_accessor_local.saw	manual,expectation-pending	manual.unseen:1	migrated: the store spells `borrow var` (SL:borrowing §2.2); the pinned declaration refusal is unchanged
+lend_rooted_in_receiver.saw	manual,rewritten	A1.field-write:3,manual.use-site-mode:3,manual.use-site-mode.companion:8,reviewed.Fwd:1	-
+lend_var_both_branches.saw	manual	manual.use-site-mode.companion:14,reviewed.removed-form:1,reviewed.use-site-mode:3	re-aimed: an accessor whose shared and exclusive bodies differ is written as two accessors, a read runs the `&self` one and a write the `&var self` one (SL:borrowing §4, §5.2); `#lend_var` is retired (§9)
+lend_var_conditional_lend.saw	manual,rewritten	A4.accessor-forced-store:2,manual.use-site-mode:6,manual.use-site-mode.companion:33,reviewed.removed-form:1	re-aimed: a pair of conditional lends; a prologue above the presence test runs on the absent path too, one below it does not (SL:borrowing §2.4, §4)
+lend_var_coro_and_forwarding.saw	manual	manual.use-site-mode.companion:24,reviewed.removed-form:1,reviewed.use-site-mode:4	re-aimed: borrows through a pair of accessors inside a coroutine body, and a forwarding pair whose `lend` reaches the inner pair at its own mode (SL:borrowing §2.5, §2.7, §4)
+lend_var_epilogue_nesting.saw	manual,rewritten	A1.field-write:2,manual.use-site-mode.companion:33,reviewed.removed-form:1,reviewed.use-site-mode:3	re-aimed: epilogues run when a borrow closes, LIFO across a nested chain (SL:borrowing §2.2); each level is a pair of accessors whose exclusive one alone has a gate and an epilogue (§4)
+lend_var_generic_and_match.saw	manual,rewritten	A4.accessor-forced-store:1,manual.use-site-mode:3,manual.use-site-mode.companion:21,reviewed.removed-form:1,reviewed.use-site-mode:4	re-aimed: a generic pair of accessors, and a pair lending a match-arm payload bound with `borrow let`/`borrow var` (SL:borrowing §2.4, §4)
+lend_var_two_specializations.saw	manual	manual.use-site-mode.companion:24,reviewed.removed-form:1,reviewed.use-site-mode:5	re-aimed: two hand-written accessors replace the `#lend_var` split; a read through a `let` root or a `&Grid` runs the `&self` accessor and no gate, a write and a compound write run the exclusive one once (SL:borrowing §4, §5.1, §5.2)
 lends_is_contextual.saw	copied	-	-
 let_refutable_pattern_error.saw	copied,expectation-pending	-	-
 let_struct_field_assign_error.saw	copied,expectation-pending	-	-
@@ -1821,7 +1821,7 @@ map_custom_alloc_deinit_pairs.saw	copied	-	-
 map_each.saw	copied	-	-
 map_each_mutate_error.saw	copied,expectation-pending	-	-
 map_each_string_enum.saw	copied	-	-
-map_get_is_a_place.saw	flagged	-	get-place: pins a retired rule: the file describes a std `get` as a place (SL:borrowing §9.1, K14) x9
+map_get_is_a_place.saw	manual	manual.get-place:4,manual.get-place.companion:11,reviewed.get-place:5	re-aimed: `Map.get` is the optional copy and `Map.find` the conditional lend (SL:borrowing §2.4, §5.1, §9.1 K14); writes and the move-only value go through `find`, Copy reads and presence tests through `get`. The file name keeps the retired claim; the paths pair with examples/
 map_grow_collision.saw	copied	-	-
 map_hashmap_name_gone_error.saw	copied,expectation-pending	-	-
 map_key_not_hashable_error.saw	copied,expectation-pending	-	-
@@ -2085,9 +2085,9 @@ move_out_then_reassign.saw	copied	-	-
 move_whole_binding.saw	copied	-	-
 moved_variables_per_function_reset.saw	copied	-	-
 mpshadow.saw	copied	-	-
-mutex_basic.saw	flagged	-	E: tests a retired closure API: the file's header is about the closure its `lock` call takes x4
-mutex_counter.saw	flagged	-	E: tests a retired closure API: the file's header is about the closure its `lock` call takes x5
-mutex_lock_result.saw	flagged	-	E: tests a retired closure API: the file's header is about the closure its `lock` call takes x8
+mutex_basic.saw	manual	manual.E:4,manual.E.companion:9	re-aimed: now tests `Mutex.lock()` lending `&var T` to a `borrow var` block whose value is its tail (SL:borrowing §2.1, §8, §9)
+mutex_counter.saw	manual	manual.E:5	migrated: a false positive, since the header's closures are the Thread.spawn bodies; each Mutex.lock closure is a `borrow var c = shared.lock() { }` block (SL:borrowing §9)
+mutex_lock_result.saw	manual	manual.E:8,manual.E.companion:12	re-aimed: now tests that a `borrow var` block over `Mutex.lock()` yields its tail's value (Int, Bool, String) or nothing, directly and through the Arc forward (SL:borrowing §2.1, §9)
 mutex_static_contention_mt.saw	rewritten	E.lock:1	-
 mutex_static_inline.saw	rewritten	E.lock:5	-
 myutils.saw	copied	-	-
@@ -2165,7 +2165,7 @@ no_hidden_alloc_named_allocations.saw	copied	-	-
 no_hidden_alloc_off_by_default.saw	copied	-	-
 no_hidden_alloc_panic_interpolation.saw	copied,expectation-pending	-	-
 no_hidden_alloc_print_printable.saw	copied,expectation-pending	-	-
-nocopy_array_elem_requires_move.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+nocopy_array_elem_requires_move.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 nocopy_call_arg_requires_move.saw	copied,expectation-pending	-	-
 nocopy_call_arg_with_move.saw	copied	-	-
 nocopy_enum_payload_requires_move.saw	copied,expectation-pending	-	-
@@ -2211,7 +2211,7 @@ optional_explicit_read_hints_error.saw	copied,expectation-pending	-	-
 optional_field_store_retain.saw	copied	-	-
 optional_force_unwrap_field_store.saw	copied	-	-
 optional_generic_chain_assign_place_head.saw	rewritten	C.find-chain-assign:2,G2.map-get:1	-
-optional_generic_concurrency.saw	flagged	-	E: tests a retired closure API: the file's name or header names `with_unique` x4
+optional_generic_concurrency.saw	manual	manual.E:4,manual.E.companion:6	re-aimed: `Arc<Int?>.unique()` and `Mutex<Int?>.lock()` lend an optional payload to `borrow var` blocks; unique()'s absence is the outer layer (SL:borrowing §2.4, §9)
 optional_generic_hashable_keys.saw	rewritten	D1.map-get:3	-
 optional_generic_infer_later_arg.saw	copied	-	-
 optional_generic_insert_autowrap.saw	rewritten	D1.map-get:1	-
@@ -2228,7 +2228,7 @@ optional_generic_place_assign.saw	copied	-	-
 optional_generic_return_tail.saw	copied	-	-
 optional_generic_spawn_result.saw	copied	-	-
 optional_generic_traits_result.saw	copied	-	-
-optional_generic_vector.saw	flagged	-	E: tests a retired closure API: the file's name or header names `with_ref`; get-place: pins a retired rule: the file describes a std `get` as a place (SL:borrowing §9.1, K14) x3
+optional_generic_vector.saw	manual	manual.E:1,manual.E.companion:2,manual.get-place.companion:2,reviewed.get-place:3	re-aimed: `get` is described as the optional copy it is (SL:borrowing §2.4, §9.1 K14), and the with_ref row reads the element under a `borrow let` block (§9)
 optional_guard_let_payload_read.saw	copied	-	-
 optional_move_unwrap.saw	copied	-	-
 optional_nested_type_sugar.saw	copied	-	-
@@ -2289,31 +2289,31 @@ panic_source_location.saw	copied	-	-
 parse_recovery_two_errors.saw	copied,expectation-pending	-	-
 path_simple.saw	copied	-	-
 payload_derived_binding_fills_default_type_args.saw	copied	-	-
-place_abstract_value_read.saw	flagged	-	G4: a `match` on a place that a copy cannot serve: the `borrow let` block needs each arm's payload bindings decided
-place_assignment_targets.saw	flagged	-	Fwd: lend forwarding through another accessor (K2); get-place: pins a retired rule: the file describes a std `get` as a place (SL:borrowing §9.1, K14) x2; use-site-mode: pins a retired rule: a shared window through `Carrier.slot`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2
+place_abstract_value_read.saw	manual	manual.G4:1,manual.G4.companion:1	-
+place_assignment_targets.saw	flagged	-	open question: does `borrow var v.find(9)?.value = loud(3)` evaluate its right side when the lend is absent? The file pins "rhs not evaluated" (the old `?.` short-circuit); SL:borrowing §2.2 says an assignment's right side is evaluated before the left side's borrow opens, and K9 keeps only the `Void?` typing; the rewriter already calls this order not settled (rule C). The rest is decidable: `v.get(i)?.value = x` becomes `borrow var v.find(i)?.value = x` (§2.4, K14); Fwd: lend forwarding through another accessor (K2); get-place: pins a retired rule: the file describes a std `get` as a place (SL:borrowing §9.1, K14) x2; use-site-mode: pins a retired rule: a shared window through `Carrier.slot`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2
 place_comparison_operand_is_a_borrow.saw	rewritten	G4.borrow-operand:16	-
-place_conditional_lend_uses.saw	flagged	-	use-site-mode: pins a retired rule: a shared window through `Bag.get`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x5
-place_cross_module_same_name_type.saw	flagged	-	use-site-mode: pins a retired rule: a shared window through `Bag.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x3; use-site-mode: pins a retired rule: a shared window through `Bag.maybe`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
-place_enum_payload_lend.saw	flagged	-	G4: a `match` on a place that a copy cannot serve: the `borrow let` block needs each arm's payload bindings decided x4; use-site-mode: pins a retired rule: a shared window through `Table.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x5
+place_conditional_lend_uses.saw	manual,rewritten	A1.field-write:1,B.place-argument:1,D5.optional-copy:1,G3.borrow-let:2,manual.use-site-mode:5,manual.use-site-mode.companion:3	re-aimed: the conditional lend `get` declares its shared twin (SL:borrowing §4), so reads are `borrow` and the write `borrow var`; whole reads are optional copies (§2.2); the epilogue accessor `tracked` stays exclusive-only
+place_cross_module_same_name_type.saw	manual,rewritten	A1.field-write:2,manual.use-site-mode:4	migrated: reads through the dependency's `&var self` accessors are spelled `borrow` and charge the `var` root exclusively for one statement (SL:borrowing §3), which changes no outcome; the test is about type identity
+place_enum_payload_lend.saw	manual,rewritten	A3.mutating-call:1,D5.optional-copy:2,G1.accessor-read:2,G3.borrow-let:2,manual.G4:4,manual.use-site-mode:5,manual.use-site-mode.companion:19	-
 place_match_arm_move_in_literal.saw	copied,expectation-pending	-	-
 place_nocopy_arg_in_window.saw	rewritten	G3.borrow-let:2	-
-place_paired_literal_fields.saw	flagged	-	Fwd: lend forwarding through another accessor (K2) x2
+place_paired_literal_fields.saw	rewritten	D1.map-get:2,D5.optional-copy:1,G3.borrow-let:5,reviewed.Fwd:2	-
 place_presence_test_borrows.saw	manual,rewritten	D3.borrow-block:3,manual.G4:2,manual.G4.companion:3,reviewed.Fwd:1	-
-place_read_retains_owning.saw	flagged	-	get-place: pins a retired rule: the file describes a std `get` as a place (SL:borrowing §9.1, K14)
+place_read_retains_owning.saw	manual,rewritten	G3.borrow-let:1,manual.get-place.companion:4,reviewed.get-place:1	migrated: `Vector.get` is the optional copy (SL:borrowing §9.1 K14), the retain this file's oracle reads; only the header's place wording changes
 place_reentry_idempotent.saw	rewritten	A1.field-write:1	-
 place_rendered_frame_local_migrates.saw	copied	-	-
-place_rendering_operand_is_a_borrow.saw	flagged	-	get-place: pins a retired rule: the file describes a std `get` as a place (SL:borrowing §9.1, K14)
-place_shared_accessor_flavors.saw	flagged	-	use-site-mode: pins a retired rule: a shared window through `Row.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x7
-place_shared_window_readonly.saw	flagged	-	use-site-mode: pins a retired rule: a shared window through `Row.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2
-place_two_windows_one_nocopy_root.saw	flagged	-	A4: the right side is not a single token; use-site-mode: pins a retired rule: a shared window through `Holder.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x3; use-site-mode: pins a retired rule: a shared window through `Plain.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x4
-place_use_sites.saw	flagged	-	use-site-mode: pins a retired rule: a shared window through `Row.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x8
+place_rendering_operand_is_a_borrow.saw	manual,rewritten	G3.borrow-let:3,G4.borrow-operand:9,manual.get-place:1,manual.get-place.companion:2	migrated: the forced read of a move-only element goes through the conditional lend `Vector.find` (SL:borrowing §2.4), since `get` returns a copy (§9.1 K14)
+place_shared_accessor_flavors.saw	manual,rewritten	A1.field-write:1,B.place-argument:1,manual.use-site-mode:7,manual.use-site-mode.companion:18	re-aimed: one `&var self` accessor with `@synthesize(shared)` serves both borrow flavors (SL:borrowing §4), replacing use-site inference; a `let` root reads through the shared twin
+place_shared_window_readonly.saw	manual,rewritten	A1.field-write:1,A3.mutating-call:1,manual.use-site-mode.companion:13,reviewed.use-site-mode:2	re-aimed: reads, nested and on a `let` root, go through declared `@synthesize(shared)` twins (SL:borrowing §4) instead of use-site inference; the write says `borrow var`
+place_two_windows_one_nocopy_root.saw	manual,rewritten	A1.field-write:3,B.place-argument:2,C.find-chain-assign:1,G1.map-get:2,G2.map-get:2,manual.A4:1,manual.use-site-mode:7	migrated: reads through `&var self` accessors are `borrow`, sequenced by the right-side-first rule (SL:borrowing §2.2); the forced Map store is the statement form `borrow var m["a"] = …`, which keeps the order and the absent-key panic (§2.2, §5.1)
+place_use_sites.saw	manual,rewritten	A1.field-write:1,B.place-argument:1,manual.use-site-mode:8,manual.use-site-mode.companion:7	re-aimed: the accessors declare their shared twins (SL:borrowing §4), so `borrow` reads and `borrow var` writes; the epilogue accessor `counted` has none and charges its root exclusively (§3)
 place_value_read_retain_oracle.saw	rewritten	G3.borrow-let:1	-
 place_window_borrows_enclosing_locals.saw	rewritten	G3.borrow-let:6	-
-place_window_exclusivity.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `at` in unlowered function body x2
+place_window_exclusivity.saw	manual,expectation-pending	manual.unseen:2,manual.unseen.companion:12	re-aimed: the accessor now declares `(&var self) borrows -> &var Int` (use-site mode inference is retired, SL:borrowing §3); still tests two `borrow var` arguments of one root in one call
 place_window_exclusivity_boundary.saw	rewritten	A1.field-write:1,B.place-argument:4,G2.nested-read:1	-
 place_window_move_arg_consumes_local.saw	rewritten	A3.mutating-call:2,G3.borrow-let:2	-
 place_window_nested_writes_land.saw	rewritten	A1.field-write:2,B.place-argument:5	-
-place_window_root_read_in_assignment_rhs.saw	flagged	-	use-site-mode: pins a retired rule: a shared window through `Holder.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
+place_window_root_read_in_assignment_rhs.saw	manual,rewritten	A1.field-write:6,C.find-chain-assign:1,G3.borrow-let:6,G3.borrow-let+map-unwrap:1,manual.use-site-mode:1	migrated: the read through the `&var self` accessor is spelled `borrow` and charges the root exclusively for one statement (SL:borrowing §3); the right side still runs before the target's borrow opens (§2.2)
 place_write_self_rhs.saw	copied	-	-
 plain_type_generic_method.saw	copied	-	-
 pointer_prefix_deref.saw	copied	-	-
@@ -2326,7 +2326,7 @@ printable_enum_data.saw	copied	-	-
 printable_interp_error.saw	copied,expectation-pending	-	-
 printable_nested.saw	copied	-	-
 printable_struct.saw	copied	-	-
-private_in_public_extension_surface_error.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `first` in unlowered function body
+private_in_public_extension_surface_error.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 private_in_public_positions_error.saw	copied,expectation-pending	-	-
 process_argv_no_shell.saw	copied	-	-
 process_cancel_during_child.saw	copied	-	-
@@ -2368,7 +2368,7 @@ ref_forwarding_suspend.saw	copied	-	-
 ref_forwarding_suspend_nested.saw	copied	-	-
 ref_into_array_element_addresses_real_storage.saw	copied	-	-
 ref_no_escape_alias_boundary.saw	copied	-	-
-ref_parameter_positions.saw	flagged	-	E: tests a retired closure API: the file's name or header names `with_ref`; use-site-mode: pins a retired rule: a shared window through `Bin.slot`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
+ref_parameter_positions.saw	manual,rewritten	A1.field-write:1,manual.E:1,manual.E.companion:3,manual.use-site-mode:1	re-aimed: the with_ref identity closure row is a `borrow let` block's value (SL:borrowing §2.1, §9), and the accessor read is `borrow` with its root charge declared by `&var self` (§3)
 ref_pointer_cast_blessed.saw	copied	-	-
 ref_replace_across_suspend.saw	copied	-	-
 ref_replace_bare_trait_error.saw	copied,expectation-pending	-	-
@@ -2383,7 +2383,7 @@ ref_replace_generic_wrong_type_error.saw	copied,expectation-pending	-	-
 ref_replace_self.saw	copied	-	-
 ref_replace_self_immutable_error.saw	copied,expectation-pending	-	-
 ref_replace_through_param.saw	copied	-	-
-ref_return_alternatives.saw	flagged	-	use-site-mode: pins a retired rule: a shared window through `Wrap.slot`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2
+ref_return_alternatives.saw	manual,rewritten	A1.field-write:1,manual.use-site-mode:2,manual.use-site-mode.companion:3	re-aimed: the lending answer declares its shared twin with `@synthesize(shared)` (SL:borrowing §4) instead of letting the use site pick the mode
 ref_sigil_both_correct.saw	copied	-	-
 ref_sigil_capture_and_arg.saw	copied	-	-
 reference_assign_error.saw	copied,expectation-pending	-	-
@@ -2394,8 +2394,8 @@ renamed_extension_type_param.saw	copied	-	-
 repeat_literal_basic.saw	copied	-	-
 repeat_literal_implicit_copy.saw	copied	-	-
 repeat_literal_negative_error.saw	copied,expectation-pending	-	-
-repeat_literal_nocopy_error.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
-repeat_literal_nonconst_error.saw	flagged,expectation-pending	-	unseen: no type evidence: subscript in unlowered function body
+repeat_literal_nocopy_error.saw	reviewed,expectation-pending	reviewed.unseen:1	-
+repeat_literal_nonconst_error.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 repeat_literal_static.saw	copied	-	-
 repeat_literal_vector_error.saw	copied,expectation-pending	-	-
 resolve_seam_offloads.saw	copied	-	-
@@ -2434,7 +2434,7 @@ self_type_generic_extension_positions.saw	copied	-	-
 self_type_in_extension_parameter.saw	copied	-	-
 self_type_in_generic_extension.saw	copied	-	-
 self_type_signature_positions.saw	copied	-	-
-semicolon_joins_statements_on_one_line.saw	flagged	-	Fwd: lend forwarding through another accessor (K2); use-site-mode: pins a retired rule: a shared window through `Grid.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
+semicolon_joins_statements_on_one_line.saw	manual,rewritten	A2.accessor-compound:1,manual.use-site-mode:1,reviewed.Fwd:1	-
 send_sync_bounds.saw	copied	-	-
 serde169_derived.saw	rewritten	G3.borrow-let:2	-
 serde169_hand_written.saw	copied	-	-
@@ -2467,8 +2467,8 @@ shadow_for_derived.saw	copied	-	-
 shadow_owning_lifetime.saw	copied	-	-
 shadow_redef_nested_owning.saw	copied	-	-
 shadow_redef_same_scope.saw	copied	-	-
-shared_self_field_call_exemption.saw	flagged	-	design-200: pins a retired rule: a write through `self` inside a `&self` method (design 200's carve-out, SL:borrowing §9)
-shared_self_write_alternatives.saw	flagged	-	Fwd: lend forwarding through another accessor (K2); design-200: pins a retired rule: a write through `self` inside a `&self` method (design 200's carve-out, SL:borrowing §9)
+shared_self_field_call_exemption.saw	manual,rewritten	E.lock:1,G3.borrow-let:1,manual.design-200:1,manual.design-200.companion:13	re-aimed: section 3 reads through indirection at `&self` and writes at `&var self` (SL:borrowing §9); the M28 refusal moves to conformance/M32_shared_self_place_window_heap_field.saw
+shared_self_write_alternatives.saw	manual	manual.Fwd.companion:20,reviewed.Fwd:1,reviewed.design-200:1	re-aimed: a method that writes the receiver's heap storage declares `&var self` (the design-200 carve-out is retired, SL:borrowing §9), and an accessor with only a `&var self` flavor is read with `borrow`, charging its root exclusively (§3, §5.2)
 shift_negative_panic.saw	copied	-	-
 shift_out_of_range_panic.saw	copied	-	-
 shift_signed_unsigned.saw	copied	-	-
@@ -2497,10 +2497,10 @@ spawn_ref_param_dual_role_and_cancel.saw	copied	-	-
 spawn_ref_param_referent_deinit_once.saw	rewritten	G3.borrow-let:3	-
 spawn_void_body.saw	copied	-	-
 spawned_task_runs_before_reactor_park.saw	copied	-	-
-spinlock_basic.saw	flagged	-	E.try-lock: the call's value is read, and the conditional lend's block yields none (IfLetExpr.optional_expr) x2; K10: the closure names its call's own root
+spinlock_basic.saw	flagged	-	open (K10): under SL:borrowing §8 the nested `STATS.try_lock()` and `STATS.is_locked()` inside `borrow var c = STATS.lock() { }` are same-name re-entry and root touches, compile errors; §9.1 K10 moves that pin to an `@test(refuses: …)` case whose rule ID no source names, plus a runtime panic through two names for one lock, which a `static SpinLock` has no spelling for. The file cannot drop that section (the tool cannot delete lines or add a file). Decidable parts, once split: the lock closures migrate by the tool's E.lock rule, and `if let v = local.try_lock({ n in n })` becomes `if let v = borrow local.try_lock()` (the optional copy of §2.2); E.try-lock: the call's value is read, and the conditional lend's block yields none (IfLetExpr.optional_expr) x2; K10: the closure names its call's own root
 spinlock_contention_mt.saw	rewritten	E.lock:3	-
-spinlock_import_gate.saw	flagged,expectation-pending	-	unseen: no type evidence: closure-borrow call `lock` in unlowered function body
-spinlock_no_hidden_alloc.saw	flagged	-	E: tests a retired closure API: the file's header is about the closure its `lock` call takes x3
+spinlock_import_gate.saw	manual,expectation-pending	manual.unseen:1	migrated: `SpinLock.lock { }` becomes a `borrow var` block over `lock()` (SL:borrowing §9)
+spinlock_no_hidden_alloc.saw	manual	manual.E:3,manual.E.companion:3	migrated: the SpinLock.lock closures are lock() blocks, which build no environment (SL:borrowing §8, §9); the file still pins that SpinLock and `unsafe static var` allocate nothing
 static236_declared_static.saw	copied	-	-
 static236_module_level_funcs_untouched.saw	copied	-	-
 static_and_instance_method_share_a_name.saw	copied	-	-
@@ -2578,7 +2578,7 @@ suspending_binding_scrutinee_propagates_a_try.saw	copied	-	-
 suspending_return_propagates_a_try.saw	copied	-	-
 sync_call_temp_released_once.saw	copied	-	-
 sync_extension_method_pure.saw	copied	-	-
-sync_mutex_pure_closure.saw	flagged	-	E: tests a retired closure API: the file's header is about the closure its `lock` call takes
+sync_mutex_pure_closure.saw	manual	manual.E:1,manual.E.companion:3	re-aimed: now tests that a block over the `borrows(sync)` `Mutex.lock()` accepts a body calling suspension-free helpers (SL:borrowing §2.5, §8)
 sync_pure_chain.saw	copied	-	-
 sync_suspending_mainline.saw	copied	-	-
 synthesize_across_coro_reentry.saw	copied	-	-
@@ -2712,7 +2712,7 @@ unsafe_closure_domain.saw	copied	-	-
 unsafe_conformance_effects.saw	copied	-	-
 unsafe_declarations_accepted.saw	copied	-	-
 unsafe_effect_slot.saw	copied	-	-
-unsafe_fn_type_generic_slot.saw	flagged	-	E: tests a retired closure API: the file's name or header names `with_ref`
+unsafe_fn_type_generic_slot.saw	manual	manual.E:1,manual.E.companion:6	re-aimed: the generic callback slot is `Vector.fold`'s, a visitor API that stays (SL:borrowing §2.6); with_ref is retired (§9)
 unsafe_mem_device_read_twice.saw	copied	-	-
 unsafe_mem_device_registers.saw	copied	-	-
 unsafe_mem_mmio_sim.saw	copied	-	-
@@ -2723,7 +2723,7 @@ unsafe_not_transitive.saw	copied	-	-
 unsafe_static_var.saw	copied	-	-
 unsafe_surface_ok.saw	copied	-	-
 unsafe_sync_declared.saw	copied	-	-
-unsafe_trait_requirement_effect.saw	flagged,expectation-pending	-	unseen: no type evidence: call to accessor-named `peek` in unlowered function body
+unsafe_trait_requirement_effect.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 unsaferef_captured_by_closure.saw	rewritten	A3.mutating-call:1,G2.accessor-read:3	-
 unsaferef_deref_places.saw	rewritten	A1.field-write:4,A3.mutating-call:1,G2.accessor-read:10	-
 unsigned_comparable_compare.saw	copied	-	-
@@ -2775,9 +2775,9 @@ vector_swap_oob_panic.saw	copied	-	-
 vector_swap_out_oob_panic.saw	copied	-	-
 vector_swap_string.saw	copied	-	-
 vector_test.saw	copied	-	-
-vector_with_ref.saw	flagged	-	E: tests a retired closure API: the file's name or header names `with_ref` x2
-vector_with_ref_oob_panic.saw	flagged	-	E: tests a retired closure API: the file's name or header names `with_ref` x2
-vector_with_var_ref_oob_panic.saw	flagged	-	E: tests a retired closure API: the file's name or header names `with_var_ref` x2
+vector_with_ref.saw	manual	manual.E:2,manual.E.companion:7	re-aimed: now tests the scoped element borrow as `borrow let`/`borrow var` blocks over v[i] (SL:borrowing §2.1, §9)
+vector_with_ref_oob_panic.saw	manual,expectation-pending	manual.E:2,manual.E.companion:8	re-aimed: now tests that a `borrow let` block over v[99] panics in Vector's place accessor (SL:borrowing §4, §9); the panic text is §4's quoted `index {i} out of range`
+vector_with_var_ref_oob_panic.saw	manual,expectation-pending	manual.E:2,manual.E.companion:5	re-aimed: now tests that a `borrow var` block over v[99] panics in Vector's place accessor (SL:borrowing §4, §9); the panic text is §4's quoted `index {i} out of range`
 version_semver_sort.saw	copied	-	-
 vis258_extension_members_do_not_inherit_error.saw	copied,expectation-pending	-	-
 vis258_field_inherits_package.saw	copied	-	-

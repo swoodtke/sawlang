@@ -188,10 +188,6 @@ tests/corpus/attr_on_struct_error.saw	FAIL	a-error: 7:1 near STRUCT 'struct'
 tests/corpus/attr_synthesize_arg_error.saw	FAIL	a-error: 7:13 near STRING 'deep'
 tests/corpus/attr_synthesize_on_func_error.saw	FAIL	a-error: 6:1 refused by syntax.rule.attribute-position
 tests/corpus/attr_unknown_error.saw	FAIL	a-error: 5:2 near IDENT 'inline'
-tests/corpus/borrows_fold_preserves_lexical_scope.saw	FAIL	a-removed: syntax.expr.refused-lend-var
-tests/corpus/conformance/K128_cow_gate_survives_the_var_self_spelling.saw	FAIL	a-removed: syntax.expr.refused-lend-var
-tests/corpus/conformance/K129_forwarded_lend_carries_the_window_mode.saw	FAIL	a-removed: syntax.expr.refused-lend-var
-tests/corpus/conformance/M34_lend_var_gated_place_write.saw	FAIL	a-removed: syntax.expr.refused-lend-var
 tests/corpus/const_generic_specialized_extension_unsupported.saw	FAIL	a-error: 30:16 near INT '4'
 tests/corpus/discard_var_error.saw	FAIL	a-removed: syntax.stmt.refused-var-discard
 tests/corpus/doc_comment_module_placement_error.saw	LEXERR	a-error: 11:1 refused by syntax.lex.module-doc
@@ -206,11 +202,7 @@ tests/corpus/errors/consumes_function_type.saw	FAIL	a-removed: syntax.type.refus
 tests/corpus/errors/consumes_needs_a_receiver.saw	FAIL	a-error: 15:32 refused by syntax.rule.effect-slot
 tests/corpus/errors/consumes_needs_var_self.saw	FAIL	a-error: 13:24 refused by syntax.rule.effect-slot
 tests/corpus/errors/consumes_trait_requirement.saw	FAIL	a-error: 13:28 refused by syntax.rule.requirement-borrows
-tests/corpus/errors/fold_selected_tail_is_an_ownership_transfer.saw	FAIL	a-removed: syntax.expr.refused-lend-var
-tests/corpus/errors/lend_var_in_shared_lend_accessor.saw	FAIL	a-removed: syntax.expr.refused-lend-var
-tests/corpus/errors/lend_var_outside_borrows.saw	FAIL	a-removed: syntax.expr.refused-lend-var
 tests/corpus/errors/lend_var_ungated_receiver_mutation.saw	FAIL	a-removed: syntax.expr.refused-lend-var
-tests/corpus/errors/lend_var_write_needs_var_root.saw	FAIL	a-removed: syntax.expr.refused-lend-var
 tests/corpus/errors/semicolon_at_end_of_file.saw	FAIL	a-error: 12:22 near SEMICOLON ';'
 tests/corpus/errors/semicolon_at_line_start.saw	FAIL	a-error: 13:5 near SEMICOLON ';'
 tests/corpus/errors/semicolon_before_closing_brace.saw	FAIL	a-error: 12:21 near RBRACE '}'
@@ -249,12 +241,6 @@ tests/corpus/export_outside_init_error.saw	FAIL	a-removed: syntax.decl.refused-e
 tests/corpus/extension_head_visibility_error.saw	FAIL	a-removed: syntax.decl.refused-visibility-prefix
 tests/corpus/extension_head_visibility_package_error.saw	FAIL	a-removed: syntax.decl.refused-visibility-prefix
 tests/corpus/int_literal_out_of_range.saw	LEXERR	a-error: 8:19 refused by syntax.lex.int-range: integer literal out of range for a 64-bit integer
-tests/corpus/lend_var_both_branches.saw	FAIL	a-removed: syntax.expr.refused-lend-var
-tests/corpus/lend_var_conditional_lend.saw	FAIL	a-removed: syntax.expr.refused-lend-var
-tests/corpus/lend_var_coro_and_forwarding.saw	FAIL	a-removed: syntax.expr.refused-lend-var
-tests/corpus/lend_var_epilogue_nesting.saw	FAIL	a-removed: syntax.expr.refused-lend-var
-tests/corpus/lend_var_generic_and_match.saw	FAIL	a-removed: syntax.expr.refused-lend-var
-tests/corpus/lend_var_two_specializations.saw	FAIL	a-removed: syntax.expr.refused-lend-var
 tests/corpus/lexer_unterminated_interpolation.saw	LEXERR	a-error: 10:22 refused by syntax.lex.unterminated-string: unterminated string: this interpolation holds an odd number of quotes, so it took the literal's closing quote
 tests/corpus/literal_suffix_out_of_range_error.saw	LEXERR	a-error: 7:13 refused by syntax.lex.int-range: integer literal out of range for its suffix
 tests/corpus/module_tests/test_import_alias_collision_error.saw	FAIL	a-error: 6:25 refused by syntax.rule.import-names

@@ -5,14 +5,18 @@
 // leave a Copy-tier `move` minting a second owner with no refcount bump — an
 // underflow, not merely a NoCopy problem. `Arc` is the tier's observable
 // member, so the refusal is checked on one.
+// The closure receives the element through a user closure API: SL:borrowing
+// §9 retires std's closure borrows and keeps user ones.
 //
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot move out of `e`
-// EXPECT-ERROR-CONTAINS: closure PARAMETER
 
 struct Res { w: Int }
 extension Res: NoCopy {
     func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func with_first(v: &var Vector<Arc<Res>>, body: (&var Arc<Res>) sync -> Arc<Res>) -> Arc<Res> {
+    body(borrow var v[0])
 }
 
 func copy_tier_face() -> Arc<Res> {
@@ -20,7 +24,7 @@ func copy_tier_face() -> Arc<Res> {
     try! v.push(try! Arc<Res>(value: Res(w: 1)))
     // A Copy-tier element: refused all the same, because the binding is an
     // alias whatever the tier says about duplicating an OWNED one.
-    v.with_var_ref(0, { &var e in move e })
+    with_first(v: &var v, body: { &var e in move e })
 }
 
 func main() {

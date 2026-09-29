@@ -27,6 +27,6 @@ func main() {
     var d = Data()
     d.push(1)
     d.push(2)
-    swap2(&var d[0], &var d[1])
+    swap2(borrow var d[0], borrow var d[1])
     print("d0={d[0]} d1={d[1]}")
 }

@@ -1,11 +1,12 @@
-// Design 179: each specialization gets its OWN body, so `#lend_var` takes an
-// `else` and both halves are real.
+// When an accessor's shared and exclusive bodies differ, both are written
+// (SL:borrowing §4): a `&self` accessor for reads and a `&var self` one for
+// writes, each an ordinary body.
 //
-// The exclusive copy runs the gate; the shared copy runs the other branch and
-// does not contain the gate at all — which is the difference between "not
-// reached" and "not there", and is what lets the shared copy check as a
-// non-mutating `&self` body. The printed transcript is the proof: a read says
-// `shared path` and leaves `gates` alone, a write says nothing and bumps it.
+// A read goes through the shared accessor, since a plain read is the getitem
+// derived from it (§5.2), and a write through the exclusive one. So the gate
+// lives only in the body that may write `self`. The printed transcript is the
+// proof: a read says `shared path` and leaves `gates` alone, a write says
+// nothing and bumps it.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // shared path
@@ -31,15 +32,19 @@ extension Grid {
         print("shared path")
     }
 
+    public func [](&self, i: Int) borrows -> &Int {
+        if i < 0 || i >= 4 {
+            panic("Grid.[]: index out of range")
+        }
+        self.note_shared()
+        lend self.cells[i]
+    }
+
     public func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 4 {
             panic("Grid.[]: index out of range")
         }
-        if #lend_var {
-            self.run_gate()
-        } else {
-            self.note_shared()
-        }
+        self.run_gate()
         lend self.cells[i]
     }
 

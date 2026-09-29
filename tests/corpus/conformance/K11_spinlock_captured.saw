@@ -8,6 +8,6 @@
 import std.spinlock.*
 func main() {
     let lock = SpinLock<Int>(value: 0)
-    let f = { lock.lock({ c in c }) }
+    let f = { borrow var c = lock.lock() { c } }
     print(f())
 }

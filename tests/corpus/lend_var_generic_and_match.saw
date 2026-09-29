@@ -1,14 +1,14 @@
-// Design 179 composition: a GENERIC accessor with a flavored body, and a
-// flavored accessor whose place is a MATCH-ARM PAYLOAD.
-//
-// The specialization set becomes (type arguments) x (flavor), which the
-// distinct-method-name approach handles for free: each instantiation of the
-// twin mangles under the twin's name exactly as each instantiation of the
-// authored accessor mangles under its own.
+// A GENERIC pair of accessors whose shared and exclusive bodies differ, and a
+// pair whose place is a MATCH-ARM PAYLOAD. Differing bodies are both written
+// (SL:borrowing §4), so each instantiation has a `&self` accessor and a `&var
+// self` one, and only the exclusive one runs the gate.
 //
 // The match-arm payload lend (a slot enum's `Filled` arm) composes with a gate
 // the same way: the prologue runs before the match, so the gate is in the
-// exclusive specialization and the arm lends the payload where it sits.
+// exclusive accessor, and the arm lends the payload where it sits. Its payload
+// is bound as a place with `borrow let` or `borrow var`, since a plain
+// `case Filled(v)` would copy it (§2.4, §2.7). A read of a present slot copies
+// the lend out with `!` (§2.2).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // Int read 7, gates 0
@@ -31,13 +31,22 @@ extension Holder<T> {
         self.gates = self.gates + 1
     }
 
+    public func [](&self, i: Int) borrows -> &T {
+        if i < 0 || i >= 2 {
+            panic("Holder.[]: index out of range")
+        }
+        if i == 0 {
+            lend self.a
+        } else {
+            lend self.b
+        }
+    }
+
     public func [](&var self, i: Int) borrows -> &var T {
         if i < 0 || i >= 2 {
             panic("Holder.[]: index out of range")
         }
-        if #lend_var {
-            self.run_gate()
-        }
+        self.run_gate()
         if i == 0 {
             lend self.a
         } else {
@@ -65,15 +74,23 @@ extension Table {
         self.gates = self.gates + 1
     }
 
+    public func at(&self, i: Int) borrows -> &Int? {
+        if i < 0 || i >= 3 {
+            return None
+        }
+        match self.slots[i] {
+            case Filled(borrow let v) -> { lend v },
+            case Empty -> { return None }
+        }
+    }
+
     public func at(&var self, i: Int) borrows -> &var Int? {
         if i < 0 || i >= 3 {
             return None
         }
-        if #lend_var {
-            self.run_gate()
-        }
+        self.run_gate()
         match self.slots[i] {
-            case Filled(v) -> { lend v },
+            case Filled(borrow var v) -> { lend v },
             case Empty -> { return None }
         }
     }
@@ -95,12 +112,12 @@ func main() {
     print("String write {names[0]}, gates {names.gates_seen()}")
 
     var t = Table(slots: [Slot.Filled(v: 5), Slot.Empty, Slot.Empty], gates: 0)
-    print("slot read {t.at(0)!}, gates {t.gates_seen()}")
-    t.at(0)! += 1
-    print("slot write {t.at(0)!}, gates {t.gates_seen()}")
+    print("slot read {borrow t.at(0)!}, gates {t.gates_seen()}")
+    borrow var t.at(0)! += 1
+    print("slot write {borrow t.at(0)!}, gates {t.gates_seen()}")
 
     var absent = true
-    if let _ = t.at(1) {
+    if (borrow let e = t.at(1) { if let _ = e { true } else { false } }) {
         absent = false
     }
     print("empty slot: absent, gates {t.gates_seen()}")

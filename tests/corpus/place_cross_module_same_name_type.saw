@@ -28,13 +28,13 @@ func main() {
     let mine = Cell(label: "mine")
     print(mine.label)
 
-    print(bag.at(0).n)          // the dependency's `Cell`, read through a window
-    bag.at(0).n += 1            // …written in place through an exclusive one
-    print(bag.at(0).n)
+    print(borrow bag.at(0).n)          // the dependency's `Cell`, read through a window
+    borrow var bag.at(0).n += 1            // …written in place through an exclusive one
+    print(borrow bag.at(0).n)
 
-    if let c = bag.maybe(0) {   // the conditional lend, present path
+    if let c = borrow bag.maybe(0) {   // the conditional lend, present path
         print(c.n)
     }
-    bag.maybe(0)!.n += 1
-    print(bag.at(0).n)
+    borrow var bag.maybe(0)!.n += 1
+    print(borrow bag.at(0).n)
 }

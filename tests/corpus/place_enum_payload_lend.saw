@@ -1,12 +1,12 @@
 // DF-146d: `lend` from inside a borrowing match arm — an ENUM PAYLOAD as a
 // place.
 //
-// Design 146 already matched a place WHERE IT SITS, so an arm that binds binds
-// the payload in place. This is the other half: that binding can be LENT, which
-// is what gives a slot-shaped container an accessor at all. Tag stability comes
-// free — the window borrows the scrutinee's ROOT, so the Law of Exclusivity
-// freezes the whole enum for as long as the window is open, discriminant
-// included.
+// A `match` on a borrowed element binds its payload IN PLACE with `borrow let`
+// or `borrow var` (SL:borrowing §2.4), and that binding can be LENT (§2.7),
+// which is what gives a slot-shaped container an accessor at all. Tag stability
+// comes free — the borrow charges the scrutinee's ROOT, so the Law of
+// Exclusivity freezes the whole enum for as long as the lend is open,
+// discriminant included.
 //
 // The counts are the proof. `deinit` prints once, at teardown, for a payload
 // read twice and written through; a String payload read out as a VALUE retains,
@@ -58,17 +58,17 @@ extension Table: NoCopy {}
 extension Table {
     /// The resource in the occupied slot at `i`, as a PLACE.
     ///
-    /// The match reads `self.slots[i]` where it sits and `lend r` hands the
+    /// The match borrows `self.slots[i]` where it sits and `lend r` hands the
     /// payload out of the arm; the Empty arm is the conditional lend's absent
-    /// path, which opens no window at all.
+    /// path, which lends nothing.
     public func at(&var self, i: Int) borrows -> &var Res? {
         if i < 0 || i >= self.slots.len() {
             return None
         }
-        match self.slots[i] {
-            case Filled(_, r) -> { lend r },
+        borrow var lent = self.slots[i] { match lent {
+            case Filled(_, borrow var r) -> { lend r },
             case Empty -> { return None }
-        }
+        } }
     }
 }
 
@@ -83,15 +83,15 @@ extension Dense {
         if i < 0 || i >= self.slots.len() {
             panic("Dense.at: index out of range")
         }
-        match self.slots[i] {
-            case Filled(_, r) -> { lend r },
+        borrow let lent = self.slots[i] { match lent {
+            case Filled(_, borrow let r) -> { lend r },
             case Empty -> { panic("Dense.at: empty slot") }
-        }
+        } }
     }
 }
 
 // An EPILOGUE inside the lending arm: the statements after `lend` run when the
-// caller's window closes, so they need a `&var self` receiver like any other.
+// caller's borrow closes.
 struct Counted { slots: Vector<Slot>, reads: Int }
 
 extension Counted: NoCopy {}
@@ -101,13 +101,13 @@ extension Counted {
         if i < 0 || i >= self.slots.len() {
             return None
         }
-        match self.slots[i] {
-            case Filled(_, r) -> {
+        borrow let lent = self.slots[i] { match lent {
+            case Filled(_, borrow let r) -> {
                 lend r
                 print("epilogue ran")
             },
             case Empty -> { return None }
-        }
+        } }
     }
 }
 
@@ -122,10 +122,10 @@ extension Log {
         if i < 0 || i >= self.notes.len() {
             return None
         }
-        match self.notes[i] {
-            case Text(b) -> { lend b },
+        borrow let lent = self.notes[i] { match lent {
+            case Text(borrow let b) -> { lend b },
             case Blank -> { return None }
-        }
+        } }
     }
 }
 
@@ -137,22 +137,22 @@ func main() {
     // A move-only payload, borrowed twice: neither read copies it, so neither
     // drops it.
     print("-- borrow through the payload place")
-    print(t.at(0)!.label())
-    print(t.at(0)!.label())
+    print(borrow t.at(0)!.label())
+    print(borrow t.at(0)!.label())
 
-    // A `&var self` method on the payload opens an EXCLUSIVE window out of the
-    // same `&self` declaration, and the write lands in the slot.
+    // A `&var self` method on the payload needs `borrow var` through the
+    // exclusive accessor, and the write lands in the slot.
     print("-- write through the payload place")
-    t.at(0)!.rename(to: "b")
-    print(t.at(0)!.label())
+    borrow var t.at(0)!.rename(to: "b")
+    print(borrow t.at(0)!.label())
 
     print("-- the absent path")
-    if let _ = t.at(1) {
+    if (borrow let e = t.at(1) { if let _ = e { true } else { false } }) {
         print("unreachable")
     } else {
         print("absent")
     }
-    if let _ = t.at(9) {
+    if (borrow let e = t.at(9) { if let _ = e { true } else { false } }) {
         print("unreachable")
     } else {
         print("out of range")
@@ -161,21 +161,21 @@ func main() {
     print("-- a Copy payload reads out as a value")
     var l = Log(notes: Vector<Note>())
     try! l.notes.push(Note.Text(body: "hello"))
-    let held = l.at(0)!
+    let held = borrow l.at(0)!
     print(held)
-    print(l.at(0)!)
-    print(l.at(0) ?? "none")
-    print(l.at(5) ?? "none")
+    print(borrow l.at(0)!)
+    print(borrow l.at(0) ?? "none")
+    print(borrow l.at(5) ?? "none")
 
     print("-- a diverging arm beside a lending one")
     var d = Dense(slots: Vector<Slot>())
     try! d.slots.push(Slot.Filled(key: 2, res: Res(name: "7")))
-    print(d.at(0).label())
+    print(borrow d.at(0).label())
 
     print("-- an epilogue inside the lending arm")
     var counted = Counted(slots: Vector<Slot>(), reads: 0)
     try! counted.slots.push(Slot.Filled(key: 3, res: Res(name: "8")))
-    print(counted.at(0)!.label())
+    print(borrow counted.at(0)!.label())
 
     print("-- teardown")
     let _ = move counted

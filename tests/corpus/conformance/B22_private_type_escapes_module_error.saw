@@ -23,5 +23,5 @@ import hidden232o.{Carrier}
 func main() {
     let c = Carrier()
     print(c.get().doubled())
-    print(c.at(0).doubled())
+    print(borrow c.at(0).doubled())
 }

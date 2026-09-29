@@ -56,10 +56,10 @@ extension Holder<K: Copy> {
 
     // The same question through the place: no arm binds, so nothing is read.
     func borrowed_tag_at(&self, i: Int) -> Int {
-        match self.slots[i] {
+        borrow let lent = self.slots[i] { match lent {
             case Empty -> 0,
             case Occupied(_) -> 1
-        }
+        } }
     }
 }
 

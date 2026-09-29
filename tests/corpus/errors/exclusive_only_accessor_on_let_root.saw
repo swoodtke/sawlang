@@ -1,19 +1,20 @@
-// SL-333 R4 (conformance row K125, refused half 1 of 2): an EXCLUSIVE-ONLY
-// accessor is refused on a `let` root even when the window it opens only READS,
-// and the diagnostic names the line that made it exclusive-only.
+// A read through an accessor declared `&var self` is refused on a `let` root,
+// even though the borrow only READS (SL:borrowing §3).
 //
-// Two read-only results never imply two compatible receiver borrows, and a
-// read-only RESULT never implies a shared RECEIVER either. The accessor's body
-// mutates `self` outside the place it lends — the epilogue counts the visit —
-// so every call takes the whole receiver exclusively, exactly as a `&var self`
-// method does. What the caller sees is not "you may not write this", which
-// would be about the window; it is "this accessor cannot be used on an
-// immutable binding at all", which is about the body, so the body's line is in
-// the message.
+// The root charge follows the declaration, never the body: an accessor that
+// takes `&var self` holds its root exclusively for every borrow, a bare
+// `borrow` read included, exactly as a `&var self` method call does. A
+// read-only RESULT never implies a shared RECEIVER. What lets a read share the
+// root is a `&self` accessor, written or derived with `@synthesize(shared)`
+// (§4). This one has no twin, and could not derive one: its epilogue writes
+// `self`, so `@synthesize(shared)` would be refused.
+//
+// So the refusal is "this accessor needs a writable root", which is about the
+// declaration, not "you may not write this", which would be about the lend.
+// Nothing is inferred from the body (§1).
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot read through the place window `tally` opens on immutable variable `frozen`
-// EXPECT-ERROR-CONTAINS: the accessor borrows its receiver exclusively at every use site, because its body mutates `self`
-// EXPECT-ERROR-CONTAINS: a write into receiver storage at line 24
+// On a `var` root the same read compiles: an exclusive root charge is legal
+// there, and the epilogue counts the visit.
 
 struct Bag { cells: [Int; 4], visits: Int }
 

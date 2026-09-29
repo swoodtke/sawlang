@@ -114,5 +114,5 @@ func main() {
     print("first {}", first_positive(&empty))
 
     var g = Grid(cells: [40, 50])
-    g.at(0) += 1; print("lent {}", g.at(0))
+    borrow var g.at(0) += 1; print("lent {}", borrow g.at(0))
 }

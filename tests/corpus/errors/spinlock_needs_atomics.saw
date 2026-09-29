@@ -15,8 +15,8 @@ static COUNT: SpinLock<Int>
 
 @export("kmain")
 func kmain() -> Int {
-    COUNT.lock({ n in
+    borrow var n = COUNT.lock() {
         n = n + 1
         n
-    })
+    }
 }

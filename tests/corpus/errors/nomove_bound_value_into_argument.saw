@@ -23,5 +23,5 @@ extension Anchor: NoMove {}
 func main() {
     let a = Anchor(n: 5)
     let boxed = try! Box<Anchor>.make(move a)
-    print(boxed.value().n)
+    print(borrow boxed.value().n)
 }

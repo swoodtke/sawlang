@@ -7,15 +7,15 @@
 // distinguishable, and a sent `None` is neither swallowed nor reordered.
 //
 // Also pinned here: an `Int??` local held ACROSS A SUSPEND keeps both layers
-// through the coroutine frame slot, and `Arc<Int?>`/`Mutex<Int?>` forward an
-// optional payload to their closure bodies.
+// through the coroutine frame slot, and `Arc<Int?>`/`Mutex<Int?>` lend an
+// optional payload to `borrow var` blocks (SL:borrowing §9).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // t1 present -1
 // t2 present 7
 // t3 EMPTY
 // across suspend 106
-// with_unique 5
+// unique 5
 // mutex 5
 // mutex after -7
 // -- done
@@ -62,15 +62,15 @@ func main() {
 
     let payload: Int? = 5
     var arc = try! Arc<Int?>(value: payload)
-    let r = arc.with_unique({ p in p ?? -1 })
-    print("with_unique {r ?? -1}")
+    let r = borrow var p = arc.unique() { if borrow var p = p { p ?? -1 } else { -1 } }
+    print("unique {r}")
 
     var m = Mutex<Int?>(value: payload)
-    print("mutex {m.lock({ p in p ?? -1 })}")
-    let _ = m.lock({ p in
+    print("mutex {borrow var p = m.lock() { p ?? -1 }}")
+    borrow var p = m.lock() {
         p = None
-        0
-    })
-    print("mutex after {m.lock({ p in p ?? -7 })}")
+        // the block is a statement, so it yields nothing
+    }
+    print("mutex after {borrow var p = m.lock() { p ?? -7 }}")
     print("-- done")
 }

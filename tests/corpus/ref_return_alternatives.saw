@@ -24,8 +24,9 @@ extension Counter {
 }
 
 extension Wrap {
-    // The other answer: lend the place for a window, and the use site picks
-    // whether that window is shared or exclusive.
+    // The other answer: lend the place. The declared shared twin serves `borrow`
+    // and the `&var self` accessor serves `borrow var` (SL:borrowing §4).
+    @synthesize(shared)
     func slot(&var self) borrows -> &var Counter { lend self.c }
 }
 
@@ -39,9 +40,9 @@ func main() {
     var w = Wrap(c: Counter(n: 7))
     print("{w.c.value()}")
 
-    print("{w.slot().n}")
-    w.slot().n += 1
-    print("{w.slot().n}")
+    print("{borrow w.slot().n}")
+    borrow var w.slot().n += 1
+    print("{borrow w.slot().n}")
 
     var n = 12
     print("{forward(&n)}")

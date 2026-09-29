@@ -1,9 +1,9 @@
-// `Mutex.lock` hands back what the critical section computed (review M1). The
-// result type is the closure's own, so a value can be computed under the lock
-// and carried out of it; a critical section that computes nothing instantiates
-// `R = Void`. Reached directly and through `Arc<Mutex<T>>` — the Arc forward is
-// what DF-123c blocked, because a method-generic payload method could not be
-// mangled. The `-> Bool` shape every earlier caller wrote is just `R = Bool`.
+// A `borrow var` block over `Mutex.lock()` yields what the critical section
+// computed (review M1): a block is an expression whose value is its tail
+// (SL:borrowing §2.1), so a value computed under the lock is carried out of
+// it, and a block that computes nothing is a statement. Reached directly and
+// through `Arc<Mutex<T>>`, the Arc forward DF-123c pins. The tail's type is
+// the block's own: Int, Bool or String here.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 10
@@ -18,18 +18,18 @@ import std.mutex.{Mutex}
 
 func main() {
     let m = Mutex<Int>(value: 5)
-    print(m.lock { &var n in n * 2 })        // R = Int
-    m.lock { &var n in n = n + 1 }           // R = Void
+    print(borrow var n = m.lock() { n * 2 })        // yields Int
+    borrow var n = m.lock() { n = n + 1 }           // yields nothing
     print(m.get())
-    print(m.lock { &var n in n > 0 })        // R = Bool, the pre-M1 shape
-    print(m.lock { &var n in "n={n}" })      // R = String
+    print(borrow var n = m.lock() { n > 0 })        // yields Bool
+    print(borrow var n = m.lock() { "n={n}" })      // yields String
 
     let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 10))
-    print(shared.lock { &var n in n + 1 })   // forwarded, R = Int
-    shared.lock { &var n in n = n * 3 }      // forwarded, R = Void
-    print(shared.lock { &var n in n })
+    print(borrow var n = shared.lock() { n + 1 })   // forwarded, yields Int
+    borrow var n = shared.lock() { n = n * 3 }      // forwarded, yields nothing
+    print(borrow var n = shared.lock() { n })
 
     // A String computed under the lock outlives the critical section.
-    let greeting = shared.lock { &var n in "hello {n}" }
+    let greeting = borrow var n = shared.lock() { "hello {n}" }
     print(greeting)
 }

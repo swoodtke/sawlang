@@ -1,11 +1,11 @@
-// DF-146j: `Map.get` is the NAMED spelling of `Map.[]` — one conditional lend
-// under two names. It used to hand back an owned `V?` built by copying the slot,
-// the last copy-shaped exception in the places model, and for a move-only `V`
-// that copy was a non-retained alias two lookups double-freed.
+// `Map.get` is the optional COPY and `Map.find` the conditional LEND
+// (SL:borrowing §2.4, §5.1, §9.1 K14). `get` copies the value out, following
+// its copy tier, so it serves Copy reads and presence tests; a write, or a
+// move-only value, goes through `find`, whose place is reached where it sits.
 //
-// Everything a place does, `get` now does: the value is reached where it sits,
-// an absent key opens no window, a value read follows design 131's copy tier,
-// and a write through the window writes the stored value.
+// Through `find`, an absent key opens no borrow, and a write through the lent
+// place writes the stored value. A move-only value is reached through the
+// borrow and never copied out.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // read 1
@@ -31,24 +31,24 @@ func main() {
     let _ = m.insert("k", 1)
     print("read {m.get("k") ?? -1}")
 
-    // The absent path opens no window at all.
+    // `get` copies, so a presence test through it is a test of the copy.
     if let _ = m.get("nope") { print("present") } else { print("absent") }
     if let _ = m.get("k") { print("present") } else { print("absent") }
 
-    // An exclusive window through the named spelling.
+    // An exclusive borrow through the conditional lend.
     var c = Map<String, Counted>()
     let _ = c.insert("x", Counted(count: 1, tag: "a"))
-    c.get("x")!.count += 10
-    print("window {c.get("x")!.count}")
+    borrow var c.find(&"x")!.count += 10
+    print("window {borrow c.find(&"x")!.count}")
 
-    // A value read of a Copy field retains: the map keeps its own.
+    // `get` copies the entry, retaining its string: the map keeps its own.
     let tag = c.get("x")!.tag
     print("retained tag-{tag} {c.get("x")!.tag}")
 
-    // A move-only value is reached THROUGH the window and never copied out.
+    // A move-only value is reached THROUGH the borrow and never copied out.
     var r = Map<String, Res>()
     let _ = r.insert("only", Res(n: 5))
-    print("nocopy through the window {r.get("only")!.peek()}")
-    print("nocopy still there {r.get("only")!.peek()}")
+    print("nocopy through the window {borrow r.find(&"only")!.peek()}")
+    print("nocopy still there {borrow r.find(&"only")!.peek()}")
     print("-- done")
 }

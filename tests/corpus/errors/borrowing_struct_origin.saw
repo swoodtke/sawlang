@@ -13,8 +13,8 @@
 //   * a by-value receiver is not a row here: the PARSER already refuses `self`
 //     without a sigil ("'self' must be a reference"), so the origin rule's own
 //     refusal for it is unreachable from source and is the belt to that braces.
-//   * a `&var self` receiver — U3 admits SHARED reference fields only, so an
-//     exclusive lend would be the origin of a field this type may not hold.
+//   * an EXCLUSIVE receiver is not a row: an accessor declared `&var self` may
+//     lend a borrowing struct, and its root charge is exclusive (SL:borrowing §2.6).
 //   * a field NOT initialized with `lends self` on a returning path.
 //   * a `borrows struct` with NO reference field — design 130's rule-7
 //     teaching error: the keyword says values of this type carry a borrow, and
@@ -32,7 +32,7 @@
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: U3 admits the receiver as the only borrow origin
 // EXPECT-ERROR-CONTAINS: lend the ROOT, not the buffer
-// EXPECT-ERROR-CONTAINS: requires a SHARED receiver (`&self`)
+// (no EXCLUSIVE-receiver refusal: SL:borrowing §2.6 admits that origin)
 // EXPECT-ERROR-CONTAINS: holds no lent place
 // EXPECT-ERROR-CONTAINS: every returning path of `path_if_arm`
 // EXPECT-ERROR-CONTAINS: every returning path of `path_return`
@@ -79,7 +79,7 @@ extension Bag {
         Foreign(bag: lends other, index: 0)
     }
 
-    // ROW: an EXCLUSIVE receiver.
+    // Not a row: an EXCLUSIVE receiver may lend one (SL:borrowing §2.6).
     public func exclusive(&var self) borrows -> Exclusive {
         Exclusive(bag: lends self, index: 0)
     }

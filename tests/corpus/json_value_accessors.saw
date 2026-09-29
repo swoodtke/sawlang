@@ -2,7 +2,7 @@
 // `is_null`/`as_bool`/`as_int`/`as_text`/`as_array`/`as_object`, each on a
 // value of its own type (present), a value of a DIFFERENT type (wrong-type,
 // answers `None`/`false` cleanly rather than panicking), and a member/index
-// that does not exist (absent, through `as_object()!.get`/`as_array()!.get`
+// that does not exist (absent, through `as_object()!`/`as_array()!`
 // composition — see `as_array`/`as_object`'s doc comments for why there is
 // no combined `member`/`element` accessor).
 // EXPECT: success
@@ -64,40 +64,40 @@ func main() {
     print("as_text on text: {}", txt.as_text() ?? "?")
     print("as_text on array: {}", if let _ = arr.as_text() { "some" } else { "none" })
 
-    if let _ = arr.as_array() {
-        print("as_array on array: len={}", arr.as_array()!.len())
+    if (borrow let e = arr.as_array() { if let _ = e { true } else { false } }) {
+        print("as_array on array: len={}", borrow arr.as_array()!.len())
     } else {
         print("as_array on array: none")
     }
-    print("as_array on object: {}", if let _ = obj.as_array() { "some" } else { "none" })
+    print("as_array on object: {}", if (borrow let e1 = obj.as_array() { if let _ = e1 { true } else { false } }) { "some" } else { "none" })
 
-    if let _ = obj.as_object() {
+    if (borrow let e2 = obj.as_object() { if let _ = e2 { true } else { false } }) {
         print("as_object on object: present")
     } else {
         print("as_object on object: absent")
     }
-    print("as_object on array: {}", if let _ = arr.as_object() { "some" } else { "none" })
+    print("as_object on array: {}", if (borrow let e3 = arr.as_object() { if let _ = e3 { true } else { false } }) { "some" } else { "none" })
 
-    // element by index: as_array() + Vector's own get()/[]
-    if let _ = arr.as_array()!.get(1) {
-        print("element present: {}", arr.as_array()!.get(1)!.as_int() ?? -1)
+    // element by index: as_array() + Vector's own find()/[]
+    if (borrow let e4 = arr.as_array()!.find(1) { if let _ = e4 { true } else { false } }) {
+        print("element present: {}", borrow arr.as_array()![1].as_int() ?? -1)
     } else {
         print("element present: none")
     }
-    if let _ = arr.as_array()!.get(9) {
-        print("element absent: {}", arr.as_array()!.get(9)!.as_int() ?? -1)
+    if (borrow let e5 = arr.as_array()!.find(9) { if let _ = e5 { true } else { false } }) {
+        print("element absent: {}", borrow arr.as_array()![9].as_int() ?? -1)
     } else {
         print("element absent: none")
     }
 
-    // member by key: as_object() + Map's own get()
-    if let _ = obj.as_object()!.get("a") {
-        print("member present: {}", obj.as_object()!.get("a")!.as_int() ?? -1)
+    // member by key: as_object() + Map's own contains_key()/[]
+    if borrow obj.as_object()!.contains_key("a") {
+        print("member present: {}", borrow obj.as_object()!["a"].as_int() ?? -1)
     } else {
         print("member present: none")
     }
-    if let _ = obj.as_object()!.get("z") {
-        print("member absent: {}", obj.as_object()!.get("z")!.as_int() ?? -1)
+    if borrow obj.as_object()!.contains_key("z") {
+        print("member absent: {}", borrow obj.as_object()!["z"].as_int() ?? -1)
     } else {
         print("member absent: none")
     }

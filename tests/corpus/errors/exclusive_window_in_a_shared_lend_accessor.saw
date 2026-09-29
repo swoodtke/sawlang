@@ -1,41 +1,41 @@
-// SL-333 R4 (conformance row K125): an EXCLUSIVE window rooted at `self` is a
-// receiver mutation whatever the DECLARATION's receiver sigil says.
+// A `&self` accessor body that opens an EXCLUSIVE borrow through `self` is
+// refused where it is declared (SL:borrowing §3, §9).
 //
-// Design 146's whole point is that a `borrows` accessor's receiver is borrowed
-// with the WINDOW's flavor rather than the sigil's — so the question "does this
-// body take its receiver exclusively" cannot be gated on the sigil either. It
-// was: the recording asked `_self_borrow_is_exclusive()` first, which is false
-// for a `&self` accessor, and the eligibility closure read a reference's mode
-// only for a `lend`'s own. An ordinary `&var self.inner.plain()` ARGUMENT
-// therefore left the accessor shared-eligible, and a `let`-bound receiver was
-// mutated through it (codex, SL-333.p1 r2).
+// `&self` is read-only all the way down, and a `borrows` body is ordinary code
+// under its receiver: the `lend` operand is the one place it names a place
+// without writing `borrow` (§2.7). `Inner.plain` and `Inner.opt` are declared
+// `&var self`, so any borrow through them charges their root exclusively, and
+// here that root is storage reached through a shared `self`. Whether the
+// caller's root is `let` or `var` does not come into it: the uses in `main`
+// are shared borrows of a `let` root, which a `&self` accessor allows.
 //
-// THE CELLS, one accessor each, all declared `&self ... borrows -> &Int` —
-// which is the point: not one of them may pass as a shared borrow.
+// Modes are declared, never inferred (§1), so the refusal does not wait for a
+// use site to classify the accessor.
 //
-//   `arg`      a `&var` REFERENCE ARGUMENT over a receiver-rooted place
-//   `forced`   the same through a `!` head
-//   `written`  the place as a WRITE TARGET
-//   `bumped`   the place under a COMPOUND assignment
+// THE CELLS, one accessor each, all declared `&self ... borrows -> &Int`:
 //
-// `K125_receiver_access_is_a_second_fact.saw` carries the `var`-root controls
-// that must keep running, and the two shared-reference controls that must stay
-// shared-eligible. `&var self.inner[i].n` is NOT here: design 146 refuses that
-// projection at the declaration, before R4 is asked, because its path has no
-// place hop for the walk to stop at.
+//   `arg`      a `borrow var` ARGUMENT over a receiver-rooted place: the
+//              callee gets `&var` to storage inside a shared receiver
+//   `forced`   the same through a `!` head on a conditional lend, which
+//              opens the same exclusive borrow when the place is present
+//   `written`  the place as the WRITE TARGET of a statement-form
+//              `borrow var`, which assigns through the lent place
+//   `bumped`   the place under a COMPOUND assignment, which reads and
+//              writes it in one exclusive borrow
+//
+// The fix each refusal points at is a `&var self` receiver on the outer
+// accessor, which then charges its own root exclusively (§3); a shared read
+// through `Inner` needs a shared twin, which `@synthesize(shared)` derives
+// (§4). Every cell is a separate refusal; none depends on another.
+//
+//
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot read through the place window `arg` opens on immutable variable `o`
-// EXPECT-ERROR-CONTAINS: the `&var self.…` projection at line 49
-// EXPECT-ERROR-CONTAINS: cannot read through the place window `forced` opens on immutable variable `o`
-// EXPECT-ERROR-CONTAINS: cannot read through the place window `written` opens on immutable variable `o`
-// EXPECT-ERROR-CONTAINS: the exclusive window on `Inner.plain` at line 59
-// EXPECT-ERROR-CONTAINS: cannot read through the place window `bumped` opens on immutable variable `o`
 
 struct Inner { n: Int }
 
 extension Inner {
-    // SHARED-ELIGIBLE: it lends and does nothing else. The exclusivity below
-    // is the CALL's, not this accessor's.
+    // Declared `&var self`, so every borrow through them charges the root
+    // exclusively (SL:borrowing §3).
     func plain(&var self) borrows -> &var Int { lend self.n }
     func opt(&var self) borrows -> &var Int? { lend self.n }
 }
@@ -46,30 +46,30 @@ struct Outer { inner: Inner, n: Int }
 
 extension Outer {
     func arg(&self) borrows -> &Int {
-        bump(&var self.inner.plain())
+        bump(borrow var self.inner.plain())
         lend self.n
     }
 
     func forced(&self) borrows -> &Int {
-        bump(&var self.inner.opt()!)
+        bump(borrow var self.inner.opt()!)
         lend self.n
     }
 
     func written(&self) borrows -> &Int {
-        self.inner.plain() = 5
+        borrow var self.inner.plain() = 5
         lend self.n
     }
 
     func bumped(&self) borrows -> &Int {
-        self.inner.plain() += 1
+        borrow var self.inner.plain() += 1
         lend self.n
     }
 }
 
 func main() {
     let o = Outer(inner: Inner(n: 1), n: 2)
-    print("{o.arg()}")
-    print("{o.forced()}")
-    print("{o.written()}")
-    print("{o.bumped()}")
+    print("{borrow o.arg()}")
+    print("{borrow o.forced()}")
+    print("{borrow o.written()}")
+    print("{borrow o.bumped()}")
 }

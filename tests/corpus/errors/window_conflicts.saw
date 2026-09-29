@@ -6,7 +6,7 @@
 // reaching the root while the window holds it:
 //
 //   * the body PUSHES (`&var self` receiver)
-//   * `with_var_ref` on the root in the body
+//   * a `borrow var` of one of the root's elements in the body
 //   * a `&var` EXTENT STARTED inside the body (a design-189/201 spawn)
 //   * a MOVE of the root — (ii)'s address-stability rule, K20's precedent
 //   * a REASSIGNMENT of the root (whole-referent replacement)
@@ -47,7 +47,7 @@ func row_with_var_ref(v: &var Vector<Int>) -> Int {
     var total = 0
     for x in v.iter() {
         total = total + x
-        v.with_var_ref(0, { e in e = 7 })   // ROW: an exclusive element borrow
+        borrow var e = v[0] { e = 7 }   // ROW: an exclusive element borrow
     }
     total
 }

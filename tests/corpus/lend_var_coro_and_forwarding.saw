@@ -1,18 +1,18 @@
-// Design 179 composition: a flavored window inside a COROUTINE frame, and the
-// FORWARDED lend, which SL-333 R7 turned from a pessimization into the rule.
+// A pair of accessors (a `&self` one and a `&var self` one, SL:borrowing §4)
+// used inside a COROUTINE body, and the FORWARDED lend through such a pair.
 //
-// Coroutines: the declaration lowering forces every accessor `sync`, so an
-// accessor never becomes a coroutine frame itself. What has to work is a window
-// OPENED inside a suspending body, on either side of a suspension, in both
-// flavors. It does.
+// Coroutines: what has to work is a borrow OPENED inside a suspending body, on
+// either side of a suspension, through either accessor. A borrow may be held
+// across a suspension unless its accessor is `borrows(sync)` (§2.5); these
+// borrows each last one statement.
 //
-// The forwarded lend: `lend self.inner[i]` hands another accessor's place on,
-// and `lend X` now hands it over at THIS SPECIALIZATION's mode — `&X` inside
-// the shared copy, `&var X` inside the exclusive one. So a shared read through
-// `Outer` reaches `Inner` SHARED and runs no gate at all, and only the write
-// does. Design 179 shipped this as a known v1 limit (`lend X` was always
-// `&var X`, so three gate runs served one read, one write and one more read);
-// the gate counts below are what R7 costs instead.
+// The forwarded lend: `lend self.inner[i]` hands another accessor's place on
+// with no `borrow` keyword (§2.7). Inside the `&self` accessor the receiver is
+// shared, so the operand reaches `Inner`'s `&self` accessor; inside the `&var
+// self` accessor it must lend `&var Int`, so it reaches `Inner`'s exclusive one.
+// So a shared read through `Outer` reaches `Inner` SHARED and runs no gate at
+// all, and only the write does. The gate counts below say so: one read, one
+// write and one more read cost one gate run.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // task results 12 22
@@ -26,9 +26,14 @@ struct Grid { cells: [Int; 4], gates: Int }
 extension Grid {
     func run_gate(&var self) { self.gates = self.gates + 1 }
 
+    public func [](&self, i: Int) borrows -> &Int {
+        if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
+        lend self.cells[i]
+    }
+
     public func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
-        if #lend_var { self.run_gate() }
+        self.run_gate()
         lend self.cells[i]
     }
 
@@ -49,9 +54,14 @@ struct Inner { cells: [Int; 2], gates: Int }
 extension Inner {
     func run_gate(&var self) { self.gates = self.gates + 1 }
 
+    public func [](&self, i: Int) borrows -> &Int {
+        if i < 0 || i >= 2 { panic("Inner.[]: index out of range") }
+        lend self.cells[i]
+    }
+
     public func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 2 { panic("Inner.[]: index out of range") }
-        if #lend_var { self.run_gate() }
+        self.run_gate()
         lend self.cells[i]
     }
 
@@ -61,10 +71,13 @@ extension Inner {
 struct Outer { inner: Inner }
 
 extension Outer {
-    // Forwards the inner accessor's place. `lend X` becomes `__window(&X)` in
-    // this accessor's SHARED specialization and `__window(&var X)` in its
-    // exclusive one, so the inner accessor is reached at the outer window's own
-    // mode (SL-333 R7).
+    // Each forwards the inner accessor's place. The shared receiver can reach
+    // only `Inner`'s `&self` accessor, and the writable lend needs `Inner`'s
+    // exclusive one, so the inner accessor is reached at the outer one's mode.
+    public func [](&self, i: Int) borrows -> &Int {
+        lend self.inner[i]
+    }
+
     public func [](&var self, i: Int) borrows -> &var Int {
         lend self.inner[i]
     }
@@ -80,7 +93,7 @@ func main() {
 
     var o = Outer(inner: Inner(cells: [3, 4], gates: 0))
     // A SHARED read of the outer place reaches the inner accessor SHARED, so
-    // the inner gate does not run at all (SL-333 R7).
+    // the inner gate does not run at all.
     print("forwarded read {o[0]}, inner gates {o.inner_gates()}")
     o[0] += 1
     print("forwarded write {o[0]}, inner gates {o.inner_gates()}")

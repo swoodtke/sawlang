@@ -1,14 +1,15 @@
-// Conformance row M34 — a `#lend_var`-gated place write in a flavored accessor
+// Conformance row M34 — a place write in the exclusive accessor's prologue
 //
-// M33's prologue write, with the gate design 179 built for exactly this. The
-// accessor compiles TWICE and the gated branch is REMOVED from the shared copy,
-// so the write runs in the EXCLUSIVE specialization only: one read, one write
+// M33's prologue write, paid only by the borrows that may write. The shared and
+// exclusive bodies differ, so both are written (SL:borrowing §4): the `&var
+// self` accessor bumps the counter before it lends, and the `&self` accessor
+// does not. A `borrow` read picks the `&self` accessor, the least privilege
+// that works, and a `borrow var` write the exclusive one: one read, one write
 // and one more read leave the counter at 1.
 //
-// This is the third out the DF-175a diagnostic names, and design 200 ratifies
-// it alongside the ungated form — the receiver of a borrows body travels by
-// pointer either way, so the gate is about WHICH window flavor pays for the
-// mutation, not about whether the write can land.
+// The counter's own accessor only checks and lends, so its shared twin is
+// derived with `@synthesize(shared)` (§4), and `self.counters[0] += 1` is the
+// derived getitem and setitem (§5.1, §5.2).
 // EXPECT: success
 // EXPECT-OUTPUT: read 8
 // EXPECT-OUTPUT: read 99
@@ -17,6 +18,7 @@
 struct Counters { hits: [Int; 2] }
 
 extension Counters {
+    @synthesize(shared)
     func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 2 { panic("Counters.[]: index out of range") }
         lend self.hits[i]
@@ -26,10 +28,12 @@ extension Counters {
 struct Log { counters: Counters, slots: [Int; 4] }
 
 extension Log {
+    func at(&self, i: Int) borrows -> &Int {
+        if i < 0 || i >= 4 { panic("Log.at: index out of range") }
+        lend self.slots[i]
+    }
     func at(&var self, i: Int) borrows -> &var Int {
-        if #lend_var {
-            self.counters[0] += 1
-        }
+        self.counters[0] += 1
         if i < 0 || i >= 4 { panic("Log.at: index out of range") }
         lend self.slots[i]
     }
@@ -38,8 +42,8 @@ extension Log {
 
 func main() {
     var l = Log(counters: Counters(hits: [0, 0]), slots: [7, 8, 9, 10])
-    print("read {l.at(1)}")
-    l.at(2) = 99
-    print("read {l.at(2)}")
+    print("read {borrow l.at(1)}")
+    borrow var l.at(2) = 99
+    print("read {borrow l.at(2)}")
     print("writes {l.writes()}")
 }

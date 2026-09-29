@@ -31,7 +31,7 @@ extension Counter {
 func main() {
     var c = Counter(n: 1)
     var side = 5
-    c.pick(9) = 42
-    c.relay(&var side) = 7
+    borrow var c.pick(9) = 42
+    borrow var c.relay(&var side) = 7
     print("n={c.n} side={side}")
 }

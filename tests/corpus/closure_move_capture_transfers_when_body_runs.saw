@@ -8,12 +8,12 @@
 // environment carries a pointer to the local, and the body takes the value and
 // clears that flag as it starts (DF-218h, ruled Aug 24).
 //
-// The rule is uniform across every shape that reaches a non-escaping closure —
-// a literal passed straight to a non-escaping parameter, a `with_ref` /
-// `with_var_ref` element borrow, the closure a place window is lowered into,
-// and a conditional lend on both of its paths. This file is that matrix, with
-// deinit counting as its oracle: every id below is constructed once and printed
-// once.
+// The rule is uniform across every closure shape that reaches a non-escaping
+// parameter: a literal passed straight to one, consuming, keeping, or never
+// run (rows 1-3). Rows 4-8 are the same moves under the borrow forms: a
+// `borrow` block and a statement-form borrow (SL:borrowing §2.1, §2.2). A
+// move in a borrow's body or call happens when it runs, and on a conditional
+// lend's absent path nothing moves. Deinit counting is the oracle, once per id.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // sank 1
@@ -24,11 +24,11 @@
 // held done
 // absent done
 // deinit 3
-// with_var_ref 1
+// exclusive 1
 // deinit 4
 // sank 5
 // deinit 5
-// with_ref 0
+// shared 0
 // window len 1
 // deinit 6
 // deinit 7
@@ -53,8 +53,8 @@ extension Bin {
     func count(&self) -> Int { self.held.len() }
 }
 
-// A `borrows` accessor, so the window the place lowering writes is the closure
-// under test.
+// A `borrows` accessor, reached with statement-form borrows whose root charge
+// follows its `&var self` declaration (SL:borrowing §3).
 struct Bag { slot: Bin }
 extension Bag: NoCopy {}
 extension Bag {
@@ -102,52 +102,52 @@ func absent_row() {
     print("absent done")
 }
 
-// 4. `with_var_ref`: an exclusive element borrow whose body moves a local in.
+// 4. A `borrow var` element block whose body moves a local in.
 func with_var_ref_row() {
     var bins = Vector<Bin>()
     try! bins.push(Bin(held: Vector<Res>()))
     let h = Res(id: 4)
-    bins.with_var_ref(0) { [move h] b in b.take(r: move h) }
-    print("with_var_ref {bins.with_ref(0) { b in b.count() }}")
+    borrow var b = bins[0] { b.take(r: move h) }
+    print("exclusive {borrow let b = bins[0] { b.count() }}")
 }
 
-// 5. `with_ref`: a SHARED element borrow whose body moves a local OUT.
+// 5. A `borrow let` element block whose body moves a local OUT.
 func with_ref_row() {
     var bins = Vector<Bin>()
     try! bins.push(Bin(held: Vector<Res>()))
     let h = Res(id: 5)
-    let n = bins.with_ref(0) { [move h] b in
+    let n = borrow let b = bins[0] {
         sink(r: move h)
         b.count()
     }
-    print("with_ref {n}")
+    print("shared {n}")
 }
 
-// 6. The closure a PLACE WINDOW is lowered into. The author wrote no closure at
-//    all here, so the `[move h]` is the lowering's own.
+// 6. A statement-form borrow whose call moves a local into the lent place
+//    (SL:borrowing §2.2).
 func window_row() {
     var bag = Bag(slot: Bin(held: Vector<Res>()))
     let h = Res(id: 6)
-    bag.at().take(r: move h)
-    print("window len {bag.at().count()}")
+    borrow var bag.at().take(r: move h)
+    print("window len {borrow bag.at().count()}")
 }
 
-// 7. A conditional lend, both paths. The present one runs the body and the
-//    transfer happens; the absent one opens no window, so `g` is still the
+// 7. A conditional lend, both paths. The present one makes the call and the
+//    transfer happens; the absent one skips the call (`?`), so `g` is still the
 //    frame's and drops at scope end. `absorb` owns its by-value parameter, so
 //    `deinit 7` prints inside it — before the line that reports the result.
 func lend_row() {
     var led = Ledger(c: Counter(n: 0))
     let h = Res(id: 7)
-    led.at(0)!.absorb(r: move h)
-    print("present {led.at(0)!.read()}")
+    borrow var led.at(0)!.absorb(r: move h)
+    print("present {borrow led.at(0)!.read()}")
     let g = Res(id: 8)
-    led.at(9)?.absorb(r: move g)
-    print("absent {led.at(0)!.read()}")
+    borrow var led.at(9)?.absorb(r: move g)
+    print("absent {borrow led.at(0)!.read()}")
     print("lend done")
 }
 
-// 8. The two other owning tiers, through a window.
+// 8. The two other owning tiers, through a statement-form borrow.
 struct Deep { items: Vector<Int>, tag: Int }
 extension Deep: ExplicitCopy {
     func copy(&self) -> Deep {
@@ -197,15 +197,15 @@ func explicit_tier_row() {
     var buf = Vector<Int>()
     try! buf.push(7)
     let d = Deep(items: move buf, tag: 9)
-    bag.at().take(d: move d)
-    print("explicit {bag.at().count()}")
+    borrow var bag.at().take(d: move d)
+    print("explicit {borrow bag.at().count()}")
 }
 
 func copy_tier_row() {
     var bag = ShallowBag(slot: ShallowBin(held: Vector<Shallow>()))
     let s = Shallow(tag: 10)
-    bag.at().take(s: move s)
-    print("copy tier {bag.at().count()}")
+    borrow var bag.at().take(s: move s)
+    print("copy tier {borrow bag.at().count()}")
 }
 
 func main() {

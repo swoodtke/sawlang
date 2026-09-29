@@ -6,7 +6,9 @@
 
 `observe` runs the instrument over every entry and caches its records under
 .build/migrate/runs/. `apply` reads them and writes tests/corpus/ with its two
-manifests.
+manifests. A person's work is two tables beside this file: manual.tsv edits or
+reviews single sites, and decisions.tsv records a verdict on a whole file (a
+retirement, or the note on what a re-aimed file now tests).
 """
 import argparse
 import concurrent.futures
@@ -98,6 +100,45 @@ def group_manual(rows, key):
     return out
 
 
+DECISIONS = os.path.join(HERE, "decisions.tsv")
+DECISIONS_HEADER = ("path", "decision", "note")
+# A decision names the primary status the file must come out with; `retired`
+# files are not written at all.
+DECISION_KINDS = {"retired", "manual", "reviewed", "flagged"}
+
+
+def load_decisions(path=DECISIONS):
+    """{examples path: (decision, note)}: a person's verdict on a whole file,
+    recorded in its manifest row (SL-420)."""
+    if not os.path.exists(path):
+        return {}
+    rows, problems = manifest.load(path, DECISIONS_HEADER)
+    out = {}
+    for r in rows:
+        if r["decision"] not in DECISION_KINDS:
+            problems.append("%s: %s: unknown decision %r" % (path, r["path"], r["decision"]))
+        if not r["note"]:
+            problems.append("%s: %s: a decision names its reason" % (path, r["path"]))
+        key = layout.SOURCE + "/" + r["path"]
+        if key in out:
+            problems.append("%s: %s has two decisions" % (path, r["path"]))
+        out[key] = (r["decision"], unescape(r["note"]))
+    if problems:
+        raise SystemExit("\n".join(problems))
+    return out
+
+
+def decided_row(row, decision, note):
+    """The manifest row with the decision's note, or a SystemExit when the
+    file did not come out with the decided status."""
+    primary = [s for s in row["status"].split(",") if s in manifest.PRIMARY]
+    if decision not in primary:
+        raise SystemExit("decisions.tsv: %s is decided %s but came out %s"
+                         % (row["path"], decision, row["status"]))
+    row["notes"] = "; ".join(filter(None, [note, row["notes"]]))
+    return row
+
+
 def load_expected():
     """corpus_expected.tsv's rows, read by the grammar corpus's own loader."""
     import importlib.util
@@ -160,9 +201,18 @@ def cmd_apply(args):
     obs = mechanical.Observations(RUNS)
     expected = load_expected()
     manual = load_manual() if "manual" in passes else {}
+    decisions = load_decisions() if "manual" in passes else {}
     accessors = sorted(scan.accessor_names())
     jobs = []
+    file_rows, site_rows = [], []
     for path in layout.tracked(layout.SOURCE):
+        decision, note = decisions.get(path, (None, None))
+        if decision == "retired":
+            if path in manual:
+                raise SystemExit("decisions.tsv: %s is retired but has manual rows" % path)
+            file_rows.append({"path": manifest.rel(path), "status": "retired", "rules": "",
+                              "notes": note})
+            continue
         with open(os.path.join(layout.REPO, path), encoding="utf-8", newline="") as fh:
             text = fh.read()
         jobs.append({"path": path, "text": text, "passes": passes,
@@ -171,13 +221,14 @@ def cmd_apply(args):
                      "expected": expected.get(path), "manual": manual.get(path)})
     target = os.path.join(layout.REPO, layout.TARGET)
     written = set()
-    file_rows, site_rows = [], []
     for path, text, _, row, sites in run_pool(jobs, args.jobs):
         out = os.path.join(layout.REPO, layout.target_of(path))
         os.makedirs(os.path.dirname(out), exist_ok=True)
         with open(out, "w", encoding="utf-8", newline="") as fh:
             fh.write(text)
         written.add(os.path.realpath(out))
+        if path in decisions:
+            row = decided_row(row, *decisions[path])
         file_rows.append(row)
         site_rows.extend(sites)
     for dirpath, _, names in os.walk(target):

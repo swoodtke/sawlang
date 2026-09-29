@@ -1,14 +1,15 @@
 // Conformance row M22 — place write through a `borrows` accessor on a `let` root
 //
-// A write through a user-declared `borrows` accessor opens an EXCLUSIVE
-// window, which borrows the root mutably — so a `let` root refuses it.
-// The existing pins reach the window through `Vector`/`Map`/an enum method;
-// this is the hand-written accessor.
+// A write through a `borrows` accessor declared `&var self` charges its root
+// exclusively (SL:borrowing §3), so a `let` root refuses it. The accessor's
+// `@synthesize(shared)` twin serves the plain read (§4, §5.2), so the write
+// is the one refusal. The existing pins reach the root through
+// `Vector`/`Map`/an enum method; this is the hand-written accessor.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot open an exclusive place window on immutable variable `g`
 
 struct Grid { cells: [Int; 4] }
 extension Grid {
+    @synthesize(shared)
     func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 4 { panic("Grid.[]: out of range") }
         lend self.cells[i]

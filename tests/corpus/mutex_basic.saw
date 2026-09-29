@@ -1,13 +1,13 @@
-// Mutex<T>: mutual-exclusion wrapper. lock(body) runs the closure with &var
-// access to the guarded payload under the lock; get() snapshots it (T: Copy).
+// Mutex<T>: mutual-exclusion wrapper. `lock()` lends `&var` access to the
+// guarded payload to a `borrow var` block (SL:borrowing §8); get() copies it.
 // (Single task here; the cross-task counter lands with spawn in this stage.)
 //
-// Design 123 (review H7): `get` is no longer optional and `lock`'s `false` no
-// longer has two meanings. Both used to be shaped by the OOM path — an
-// allocation failure built an INERT mutex whose `lock` returned `false` without
-// running the critical section at all, and whose `get` answered `None`.
-// Construction panics on allocator exhaustion now, so the only `false` a caller
-// sees is the one the closure computed.
+// Design 123 (review H7): `get` is not optional, and a block's `false` has
+// one meaning. Construction panics on allocator exhaustion, so there is no
+// inert mutex whose `lock()` would skip the critical section and whose `get`
+// would answer `None`: the only `false` a caller sees is the one the block's
+// body computed, as its value (SL:borrowing §2.1).
+//
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 5
@@ -21,7 +21,7 @@ func main() {
 
     var i = 0
     while i < 5 {
-        m.lock { &var c in
+        borrow var c = m.lock() {
             c = c + 1
             true
         }
@@ -30,13 +30,13 @@ func main() {
     print(m.get())   // 5
 
     // Mutate by a larger step, still under the lock.
-    m.lock { &var c in
+    borrow var c = m.lock() {
         c = c * 10
         true
     }
     print(m.get())   // 50
 
-    // The closure's own answers, both of them, and neither one ambiguous.
-    print(m.lock { &var c in c > 0 })     // true
-    print(m.lock { &var c in c < 0 })     // false
+    // The block's own answers, both of them, and neither one ambiguous.
+    print(borrow var c = m.lock() { c > 0 })     // true
+    print(borrow var c = m.lock() { c < 0 })     // false
 }

@@ -1,12 +1,12 @@
 // Conformance row M23 — writing through the `&T` a shared borrow hands out
 //
-// `Vector.with_ref` hands out a SHARED `&T`, so a write through the closure's
-// element binding is refused. The exclusive twin is `with_var_ref`.
+// `borrow let` binds a read-only place (SL:borrowing §2.1, §3), so a write
+// through the binding is refused. The writable twin is `borrow var`, and a
+// bare `borrow` is shared the same way (§2.2).
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot assign through immutable reference `e`
 
 func main() {
     var v: Vector<Int> = [1, 2, 3]
-    let r = v.with_ref(0, { e in e = 9; e })
+    let r = borrow let e = v[0] { e = 9; e }
     print(r)
 }

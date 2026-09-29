@@ -6,9 +6,9 @@
 // `borrows` accessor makes. So: `&`/`&var` arguments to a function and to a
 // method, a re-borrow forwarded onward (design 106), a reference argument to a
 // GENERIC call (whose type argument is the value type -- refusing `f<&Int>` must
-// never refuse `f(&x)`), the `with_ref` identity closure (its parameter is a
-// reference; reading it yields the value, so the closure returns `Int` and the
-// closure-return rule leaves it alone), and a `borrows` window read and write.
+// never refuse `f(&x)`), a `borrow let` binding read out as its block's
+// value (SL:borrowing §2.1), and a `borrows` accessor's read and write under
+// `borrow`/`borrow var`, whose root charge follows its `&var self` (§3).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 7
@@ -58,9 +58,9 @@ func main() {
     print("{peek<Int>(&n)}")
 
     var v: Vector<Int> = [20, 30]
-    print("{v.with_ref(0) { e in e }}")
+    print("{borrow let e = v[0] { e }}")
 
     var b = Bin(c: Cell(n: 20), v: move v)
-    b.slot().n += 1
-    print("{b.slot().n}")
+    borrow var b.slot().n += 1
+    print("{borrow b.slot().n}")
 }

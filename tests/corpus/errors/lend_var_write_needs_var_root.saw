@@ -1,27 +1,30 @@
-// Design 179, the semantics of the EXCLUSIVE specialization: it takes the
-// `&var self` receiver it always needed, so a write through the accessor
-// demands a mutable root exactly as any other exclusive borrow does.
+// A write through the exclusive accessor of a hand-written pair demands a
+// mutable root, exactly as any other exclusive borrow does. The shared
+// `(&self) borrows -> &Int` accessor and the exclusive `(&var self)` one
+// have different bodies (the exclusive one runs a gate), so both are
+// written (SL:borrowing §4).
 //
-// Worth pinning because the diagnostic is the one that already existed. The
-// retarget is written by the use-site lowering, which sits BETWEEN two full
-// type checks, so the second check judges the twin as an ordinary `&var self`
-// call and there was no new error text to author.
+// The setitem `frozen[0] = 9` is derived from the exclusive accessor
+// (§5.2), which charges `frozen` exclusively (§3), so a `let` root refuses
+// it. The same root READS fine: the getitem is derived from the shared
+// accessor, so the read copies out under a shared charge. The
+// declarations, not the use site, decide each mode.
 //
-// The same root READS fine — see lend_var_two_specializations.saw. That is the
-// whole point of the feature: the flavor, not the declaration, decides.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot open an exclusive place window on immutable variable `frozen`
 
 struct Grid { cells: [Int; 4], gates: Int }
 
 extension Grid {
     func run_gate(&var self) { self.gates = self.gates + 1 }
 
+    public func [](&self, i: Int) borrows -> &Int {
+        if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
+        lend self.cells[i]
+    }
+
     public func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
-        if #lend_var {
-            self.run_gate()
-        }
+        self.run_gate()
         lend self.cells[i]
     }
 }

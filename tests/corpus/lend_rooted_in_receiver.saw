@@ -5,8 +5,9 @@
 //   * a field of the receiver (`lend self.a`)
 //   * an element of a container the receiver owns (`lend self.cells[i]`) — this
 //     is the ordinary accessor, and the one std's own types are written as
-//   * a MATCH-ARM payload of a receiver-rooted scrutinee (design 146, DF-146d),
-//     which is how a slot-enum container gets an accessor at all
+//   * a MATCH-ARM payload of a borrowed receiver element, bound with `borrow
+//     var` (SL:borrowing §2.7), which is how a slot-enum container gets an
+//     accessor at all
 //   * an INDIRECTION out of the receiver. `Vector.[]` lends `buf[index]` where
 //     `buf` came out of `self.buffer`, and `Data.[]` lends through a pointer
 //     local cast from `self.byte_ptr()`. Neither place is `self.…` on its face
@@ -52,9 +53,11 @@ extension Board {
 
     func slot(&var self, i: Int) borrows -> &var Cell? {
         if i < 0 || i >= self.slots.len() { return None }
-        match self.slots[i] {
-            case Filled(c) -> { lend c },
-            case Empty -> { return None }
+        borrow var entry = self.slots[i] {
+            match entry {
+                case Filled(borrow var c) -> { lend c },
+                case Empty -> { return None }
+            }
         }
     }
 }
@@ -66,14 +69,14 @@ func main() {
     try! slots.push(Slot.Filled(c: Cell(n: 30)))
     var b = Board(a: Cell(n: 1), cells: move cells, slots: move slots)
 
-    b.head().n += 7
-    print("field={b.head().n}")
+    borrow var b.head().n += 7
+    print("field={borrow b.head().n}")
 
-    b.cell(0).n += 10
-    print("element={b.cell(0).n}")
+    borrow var b.cell(0).n += 10
+    print("element={borrow b.cell(0).n}")
 
-    b.slot(0)!.n += 3
-    print("payload={b.slot(0)!.n}")
+    borrow var b.slot(0)!.n += 3
+    print("payload={borrow b.slot(0)!.n}")
 
     var v: Vector<Int> = [1, 2]
     v[0] += 6

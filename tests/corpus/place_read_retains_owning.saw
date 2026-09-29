@@ -1,4 +1,4 @@
-// A place VALUE READ is a container-slot read, and an owning element must be
+// A VALUE READ out of a container slot copies, and an owning element must be
 // RETAINED at one — including the elements nothing declares a policy for.
 //
 // A struct whose only field is a `String` needs no copy policy: the compiler
@@ -8,9 +8,9 @@
 // this shape, and `Directory.list` hands back a `Vector<Path>`, so the read
 // below is the one Blade's `remove_tree` makes on every entry.
 //
-// The old by-value `Vector.get` retained it inside the accessor, where the read
-// was an ordinary indexed one. A place moves the read into the CALLER, where it
-// arrives as a window-closure parameter, and the rule had to move with it.
+// `Vector.get` is that value read: it copies the element out as an optional
+// (SL:borrowing §9.1 K14), so the copy retains the string while the vector
+// keeps its own, and each copy's drop releases only what it retained.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // -- read out, vector still owns
@@ -60,7 +60,7 @@ func main() {
     print("-- vector dropped")
     var j = 0
     while j < reg.entries.len() {
-        reg.entries[j].farewell()
+        borrow reg.entries[j].farewell()
         j = j + 1
     }
     print("-- done")

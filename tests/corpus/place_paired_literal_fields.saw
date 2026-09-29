@@ -74,9 +74,9 @@ func main() {
     // 1. Struct-literal FIELDS: a bare place read, a place read through `??`,
     //    and an absent conditional lend that must take the default.
     let cfg = Cfg(
-        count: h.at(0).n,
+        count: borrow h.at(0).n,
         name: h.label(0) ?? "none",
-        fallback: h.find(9)?.tag ?? "dflt",
+        fallback: borrow h.find(9)?.tag ?? "dflt",
     )
     print("{}", cfg.count)
     print("{}", cfg.name)
@@ -84,8 +84,8 @@ func main() {
 
     // 2. NESTED struct literals — the outer walk must reach the inner pairs.
     let outer = Outer(
-        inner: Cfg(count: h.at(0).n, name: "x", fallback: "y"),
-        doubled: h.at(0).n * 2,
+        inner: Cfg(count: borrow h.at(0).n, name: "x", fallback: "y"),
+        doubled: borrow h.at(0).n * 2,
     )
     print("{}", outer.inner.count)
     print("{}", outer.doubled)
@@ -93,9 +93,9 @@ func main() {
     // 3. MAP-LITERAL entries, the other paired carrier — place in the VALUE
     //    position, and an entry whose value is computed through a window.
     let m: Map<String, Int> = {
-        "a": h.at(0).n,
-        "b": h.at(0).n * 3,
+        "a": borrow h.at(0).n,
+        "b": borrow h.at(0).n * 3,
     }
-    print("{}", m["a"] ?? -1)
-    print("{}", m["b"] ?? -1)
+    print("{}", m.get("a") ?? -1)
+    print("{}", m.get("b") ?? -1)
 }

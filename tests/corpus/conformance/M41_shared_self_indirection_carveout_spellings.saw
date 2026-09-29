@@ -1,24 +1,24 @@
-// Conformance row M41 — the design-200 indirection carve-out, at every accessor
-// spelling
+// Conformance row M41 — a write through `&self` into storage the receiver
+// reaches through an indirection is refused, at every accessor spelling
+// (language changed: SL:borrowing §9)
 //
-// M32 pins the carve-out for `Vector`'s subscript. This is the rest of the
-// table the DF-225g sweep probed, and it is the must-not-flip side of design
-// 227: a write through storage the `&self` copy only POINTS AT reaches the
-// caller's bytes, so it is honest and stays legal — whatever spelling gets
-// there, and whether the write is plain or compound.
+// `&self` is read-only all the way down. A write through a pointer the receiver
+// holds is a write through a shared borrow: another holder of the same `&x` may
+// be reading that heap buffer while the write lands or reallocates it. So the
+// design-200 carve-out is gone, whatever spelling reaches the storage, and
+// whether the write is plain or compound. Interior mutation goes only through
+// cell types (`Mutex`, `Atomic`).
 //
-// Five accessors, ten writes: `Vector`'s subscript, `Map`'s forced conditional
-// lend (`m[k]!`), a hand-written NAMED accessor over a `Vector`, `Data`'s
-// copy-on-write element, and a NESTED chain through two heap containers. Each
-// lends out of a heap buffer the copy shares, so none of them is inside the
-// receiver's own bytes — which is exactly the distinction row M42's refusals
-// draw from the other side, on INLINE `[T; N]` storage.
-// EXPECT: success
-// EXPECT-OUTPUT: vector 101
-// EXPECT-OUTPUT: map 101
-// EXPECT-OUTPUT: named 101
-// EXPECT-OUTPUT: data 6
-// EXPECT-OUTPUT: nested 101
+// Five accessors, ten writes, every one refused: `Vector`'s setitem and compound
+// subscript, `Map`'s place and compound subscript, a hand-written NAMED accessor
+// over a `Vector` under `borrow var`, `Data`'s element, and a NESTED chain
+// through two heap containers. The reads beside them are legal: each goes
+// through a shared accessor (`get`, or a `&self` twin), so the writes are the
+// only refusals. M32 is the `Vector` row of the same rule, and M42 the inline
+// `[T; N]` one.
+// EXPECT: error
+// Declaring each writing method `&var self` instead is the same program made
+// legal, which is what the carve-out's callers now write.
 
 import std.data.*
 
@@ -38,9 +38,9 @@ struct Reg { m: Map<String, Int> }
 extension Reg: NoCopy {}
 
 extension Reg {
-    func stamp(&self) { self.m["a"]! = 100 }
-    func bump(&self) { self.m["a"]! += 1 }
-    func at(&self) -> Int { self.m["a"]! }
+    func stamp(&self) { borrow var e = self.m["a"] { e = 100 } }
+    func bump(&self) { self.m["a"] += 1 }
+    func at(&self) -> Int { self.m.get("a")! }
 }
 
 struct Slotted { cells: Vector<Int> }
@@ -48,6 +48,7 @@ struct Slotted { cells: Vector<Int> }
 extension Slotted: NoCopy {}
 
 extension Slotted {
+    @synthesize(shared)
     public func slot(&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= self.cells.len() { panic("Slotted.slot: out of range") }
         lend self.cells[i]
@@ -59,9 +60,9 @@ struct Owner { s: Slotted }
 extension Owner: NoCopy {}
 
 extension Owner {
-    func stamp(&self) { self.s.slot(0) = 100 }
-    func bump(&self) { self.s.slot(0) += 1 }
-    func at(&self) -> Int { self.s.slot(0) }
+    func stamp(&self) { borrow var self.s.slot(0) = 100 }
+    func bump(&self) { borrow var self.s.slot(0) += 1 }
+    func at(&self) -> Int { borrow self.s.slot(0) }
 }
 
 struct Buf { d: Data }
@@ -87,8 +88,8 @@ struct Grid { rows: Vector<Row> }
 extension Grid: ExplicitCopy {}
 
 extension Grid {
-    func bump(&self) { self.rows[0].cells[0].n += 100 }
-    func at(&self) -> Int { self.rows.get(0)!.cells.get(0)!.n }
+    func bump(&self) { borrow var self.rows[0].cells[0].n += 100 }
+    func at(&self) -> Int { borrow self.rows[0].cells[0].n }
 }
 
 func main() {

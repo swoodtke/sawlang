@@ -40,10 +40,10 @@ func main() {
     print(projected())
 
     // Escaping state is shared, not captured: the closure mutates the payload
-    // through a `&var` parameter the lock hands it.
+    // through the place its `lock()` lends (SL:borrowing §9).
     let cell = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
-    let inc = { cell.lock({ &var v in v = v + 1
-                                      true }) }
+    let inc = { borrow var v = cell.lock() { v = v + 1
+                                      true } }
     let _ = inc()
     let _ = inc()
     print(cell.get())

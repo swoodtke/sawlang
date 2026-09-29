@@ -1,36 +1,36 @@
-// Conformance row M32 — the indirection carve-out, reached through a place
-// window
+// Conformance row M32 — a place write through heap indirection at `&self` is
+// refused (language changed)
 //
-// M28 pins the carve-out for a `&var self` METHOD call on a heap-reaching field
-// (`self.rows[0].push(9)`). This is the write shape design 200's refusal must
-// leave alone: a direct place WRITE through the element accessor, at one window
-// and at two nested ones. Both reach a `Vector`'s heap buffer, which the
-// `&self` copy SHARES rather than duplicates, so the write lands in the
-// caller's storage and the method is honest.
+// `&self` is read-only all the way down (SL:borrowing §9). A `Vector` field's
+// heap buffer is shared by every holder of `&x`, so a write through it from a
+// `&self` method is a write through a shared borrow: another holder may be
+// reading `rows[0]` while a push reallocates it. Each method below takes an
+// exclusive borrow of storage reached through `self`, and each is refused:
 //
-// The distinction the refusal draws is where the accessor lends FROM, not what
-// the use site does: `Vector.[]` lends out of the buffer `self.buffer` points
-// at, so nothing here is inside the receiver's own bytes.
+//   `widen`       a `&var self` method call through an element (row M28)
+//   `bump_head`   a compound assignment through two nested borrows
+//   `stamp_tail`  a store through two nested borrows
 //
-// The `&var` ARGUMENT spelling of the same write (`f(&var self.rows[0][2])`) is
-// refused by design 176's projection rule, which reads the lvalue
-// syntactically rather than by where the bytes live — DF-200a.
-// EXPECT: success
-// EXPECT-OUTPUT: width 3
-// EXPECT-OUTPUT: head 101
-// EXPECT-OUTPUT: tail 55
+// The reads beside them are shared borrows, which `&self` allows. Interior
+// mutation goes only through cell types (`Mutex`, `Atomic`, a cell-carrying
+// `(&self) borrows -> &var T`, §3); the fix for these methods is a `&var self`
+// receiver.
+//
+// SL:borrowing §9 names this row and M28 as refusals, annotated "language
+// changed".
+// EXPECT: error
 
 struct Rows { rows: Vector<Vector<Int>> }
 
 extension Rows: NoCopy {}
 
 extension Rows {
-    func widen(&self) { try! self.rows[0].push(9) }
-    func bump_head(&self) { self.rows[0][0] += 100 }
-    func stamp_tail(&self) { self.rows[0][2] = 55 }
-    func width(&self) -> Int { self.rows[0].len() }
-    func head(&self) -> Int { self.rows[0][0] }
-    func tail(&self) -> Int { self.rows[0][2] }
+    func widen(&self) { try! borrow var self.rows[0].push(9) }
+    func bump_head(&self) { borrow var self.rows[0][0] += 100 }
+    func stamp_tail(&self) { borrow var self.rows[0][2] = 55 }
+    func width(&self) -> Int { borrow self.rows[0].len() }
+    func head(&self) -> Int { borrow self.rows[0][0] }
+    func tail(&self) -> Int { borrow self.rows[0][2] }
 }
 
 func main() {
