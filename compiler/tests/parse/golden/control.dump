@@ -169,6 +169,29 @@
               (ExprStmt
                 (Call.paren (Name h))))))))))
 
+// case: syntax.rule.head-restriction/generic-call-in-a-condition
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (Call.paren
+              (Name f
+                (NamedType (Path Int)))
+              (Arg.positional (IntLit 1)))
+            (Block)))))))
+
+// case: syntax.rule.head-restriction/comparison-in-a-condition
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (Binary.pair (Name a) < (Name b))
+            (Block)))))))
+
 // case: syntax.rule.try-block/try-then-a-brace
 (File
   (Declaration.func

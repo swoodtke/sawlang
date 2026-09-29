@@ -77,6 +77,18 @@ func f() {
     }
 }
 
+// case: syntax.rule.head-restriction/generic-call-in-a-condition
+// A list is kept before `(` in a head as anywhere else.
+func f() {
+    if f<Int>(1) { }
+}
+
+// case: syntax.rule.head-restriction/comparison-in-a-condition
+// No `>` can close a list, so the `<` compares and the `{` is the body.
+func f() {
+    if a < b { }
+}
+
 // case: syntax.rule.try-block/try-then-a-brace
 func f() {
     try {

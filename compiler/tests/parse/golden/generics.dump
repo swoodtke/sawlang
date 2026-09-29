@@ -104,6 +104,97 @@
             (Name Vector
               (NamedType (Path Int)))))))))
 
+// case: syntax.rule.generic-or-less/list-holding-an-exclusive-reference-is-kept
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Call.paren
+            (Name g)
+            (Arg.positional
+              (Call.paren
+                (Name a
+                  (RefType.exclusive
+                    (NamedType (Path b)))
+                  (NamedType (Path c)))
+                (Arg.positional (Name d))))))
+        (Let.immutable
+          (BindingName a)
+          (Call.paren
+            (Name f
+              (RefType.exclusive
+                (NamedType (Path Int))))
+            (Arg.positional (IntLit 1))))
+        (Let.immutable
+          (BindingName b)
+          (Call.paren
+            (Member
+              (Name Box
+                (RefType.exclusive
+                  (NamedType (Path Int))))
+              new)))
+        (Let.immutable
+          (BindingName c)
+          (Cast
+            (Name x)
+            as
+            (NamedType
+              (Path Vector)
+              (RefType.exclusive
+                (NamedType (Path Int))))))))))
+
+// case: syntax.rule.generic-or-less/list-holding-its-own-tokens-is-kept
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Call.paren
+            (Name f
+              (OptionalType
+                (OptionalType
+                  (NamedType (Path Int)))))
+            (Arg.positional (IntLit 1))))
+        (Let.immutable
+          (BindingName b)
+          (Call.paren
+            (Name f
+              (FuncType
+                (NamedType (Path Int))
+                unsafe
+                sync
+                escaping
+                borrows
+                (OptionalType
+                  (NamedType (Path Int)))))
+            (Arg.positional (IntLit 1))))
+        (Let.immutable
+          (BindingName c)
+          (Call.paren
+            (Name f
+              (AnyType (Path m Shape))
+              (ArrayType
+                (NamedType (Path Int))
+                (IntLit 2)))
+            (Arg.positional (IntLit 1))))
+        (Let.immutable
+          (BindingName d)
+          (Call.paren
+            (Name f
+              (Binary
+                (Binary
+                  (Unary (Path N))
+                  *
+                  (IntLit 2))
+                +
+                (Binary (Path M) / (IntLit 3))
+                -
+                (Binary (Path K) % (IntLit 4))))
+            (Arg.positional (IntLit 1))))))))
+
 // case: syntax.rule.generic-or-less/parenthesized-comparison
 (File
   (Declaration.func

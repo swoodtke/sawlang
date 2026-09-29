@@ -37,6 +37,27 @@ func f() {
         Int>()
 }
 
+// case: syntax.rule.generic-or-less/list-holding-an-exclusive-reference-is-kept
+// `g(a < &var b, c > (d))` is one argument, the generic call
+// `a<&var b, c>(d)`: a list holds `var` at its own depth.
+func f() {
+    let v = g(a < &var b, c > (d))
+    let a = f<&var Int>(1)
+    let b = Box<&var Int>.new()
+    let c = x as Vector<&var Int>
+}
+
+// case: syntax.rule.generic-or-less/list-holding-its-own-tokens-is-kept
+// Each token a list holds at its own depth: a double optional, a function
+// type's effects and arrow, an existential, a qualified name, a constant's
+// operators and a nested group.
+func f() {
+    let a = f<Int??>(1)
+    let b = f<(Int) unsafe sync escaping borrows -> Int?>(1)
+    let c = f<any m.Shape, [Int; 2]>(1)
+    let d = f<-N * 2 + M / 3 - K % 4>(1)
+}
+
 // case: syntax.rule.generic-or-less/parenthesized-comparison
 func f() {
     let t = f((a < b), (c > d))

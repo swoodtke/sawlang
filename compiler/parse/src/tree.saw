@@ -198,6 +198,16 @@ extension TreeBuilder {
 
     // The builder's state now; the scratch below the current height is the
     // speculation's to leave alone until `restore` or `commit`.
+    // SPECULATION LEDGER:
+    //     tree.source: unchanged, because nothing writes the source after the builder is made
+    //     tree.nodes: restored by node_count
+    //     tree.children: restored by child_count
+    //     tree.root: restored
+    //     scratch: restored by top
+    //     top: restored
+    //     node_count: restored
+    //     child_count: restored
+    //     low: restored
     public func checkpoint(&var self) -> BuilderCheckpoint {
         let saved = BuilderCheckpoint(nodes: self.node_count, children: self.child_count,
                                       top: self.top, root: self.tree.root, low: self.low)

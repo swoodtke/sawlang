@@ -14,8 +14,9 @@ a fixture of one kind or the other, so each is seen deciding something.
 VERDICTS pins more verdicts, REMOVED_FORMS the removed form a refusal is
 classified as, CORPUS_CASES the corpus lane's comparison; each token of
 OPEN_END_FOLLOW must decide a tree of OPEN_END_FIXTURE, the cast-list FOLLOW
-set and each of CAST_WITNESSES a tree of CAST_FIXTURE, and
-`contexts.problems` must be empty.
+set and each of CAST_WITNESSES a tree of CAST_FIXTURE, the parser's generated
+closer-scan table must pass exactly the tokens a generic list holds at its own
+depth, and `contexts.problems` must be empty.
 """
 import glob
 import os
@@ -25,9 +26,11 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "tools"))
 
 import contexts  # noqa: E402
 import extract  # noqa: E402
+import grammar_tables  # noqa: E402
 import recognize  # noqa: E402
 
 TREES = os.path.join(HERE, "fixtures", "trees")
@@ -137,6 +140,12 @@ OPEN_END_FIXTURE = "range_open_end.saw"
 # and the terminals of that set each of its casts is decided by.
 CAST_FIXTURE = "cast_target_list.saw"
 CAST_WITNESSES = ('"-"', "NEWLINE", '"?"', '"{"', '"else"', '"case"')
+# The parser's generated tables, the function in them the closer scan stops by,
+# the list it scans for, and the kinds it passes that no production writes.
+GRAMMAR_TABLES = os.path.join(extract.REPO, "compiler", "parse", "src", "grammar.saw")
+LIST_SCAN_FUNC = "stops_list_scan"
+LIST_SCAN_START = grammar_tables.LIST_SCAN_START
+LIST_SCAN_LAYOUT = {"Newline"}
 
 
 def _first_difference(want, got):
@@ -340,6 +349,130 @@ def check_cast_follow(failures, g):
     return len(trials)
 
 
+def shortest_yields(g):
+    """nonterminal -> a shortest terminal sequence it derives."""
+    best = {}
+    changed = True
+    while changed:
+        changed = False
+        for nt in g.prods:
+            for alt in g._live(nt):
+                if any(recognize.is_nonterminal(s) and s not in best for s in alt):
+                    continue
+                y = _expand(alt, best)
+                if nt not in best or len(y) < len(best[nt]):
+                    best[nt] = y
+                    changed = True
+    return best
+
+
+def _expand(seq, yields):
+    out = []
+    for sym in seq:
+        out.extend(yields[sym] if recognize.is_nonterminal(sym) else [sym])
+    return out
+
+
+def _depth(terms):
+    return (sum(t in recognize.DEPTH_OPENERS for t in terms)
+            - sum(t in recognize.DEPTH_CLOSERS for t in terms))
+
+
+def depth_witnesses(g, top):
+    """terminal -> a sentence of `top` holding it at top's own bracket depth.
+
+    Found by counting the brackets of each sentence rather than of the rules,
+    so the witnesses check `Grammar.depth_terms` by other means."""
+    yields = shortest_yields(g)
+    witnesses = {}
+    seen = {top}
+    pending = [(top, [], [])]
+    while pending:
+        nt, prefix, suffix = pending.pop(0)
+        for alt in g._live(nt):
+            for k, sym in enumerate(alt):
+                before = prefix + _expand(alt[:k], yields)
+                if _depth(before) != 0:
+                    continue
+                after = _expand(alt[k + 1:], yields) + suffix
+                if not recognize.is_nonterminal(sym):
+                    if sym not in witnesses:
+                        witnesses[sym] = before + [sym] + after
+                elif sym not in seen:
+                    seen.add(sym)
+                    pending.append((sym, before, after))
+    return witnesses
+
+
+def witness_tokens(terms):
+    """The tokens of a sentence of terminals, one spelling per terminal."""
+    out = []
+    for k, t in enumerate(terms):
+        if t == "IDENT":
+            tok = recognize.Token("IDENT", "a", 1, 2 * k + 1)
+        elif t == "INT":
+            tok = recognize.Token("INT", "1", 1, 2 * k + 1)
+        elif t.startswith("'"):
+            tok = recognize.Token("IDENT", t[1:-1], 1, 2 * k + 1)
+        else:
+            tok = recognize.Token("WITNESS", t[1:-1], 1, 2 * k + 1)
+        out.append(tok)
+    return out
+
+
+def scan_holds(text):
+    """The TokenKinds the committed `stops_list_scan` passes, or None."""
+    m = re.search(r"func %s\(kind: TokenKind\) -> Bool \{\n    match kind \{\n(.*?)\n"
+                  r"        case _ -> true" % LIST_SCAN_FUNC, text, re.S)
+    if m is None:
+        return None
+    return set(re.findall(r"^        case (\w+) -> false,$", m.group(1), re.M))
+
+
+def list_scan_problems(witnesses, holds, rel):
+    """How the scan's committed stops disagree with the grammar's witnesses: a
+    stop a witness holds changes a list's meaning, and a pass no witness holds
+    is not the grammar's."""
+    if holds is None:
+        return ["%s: no %s table" % (rel, LIST_SCAN_FUNC)]
+    kinds = {}
+    for term, sentence in sorted(witnesses.items()):
+        kinds.setdefault(grammar_tables.token_kind(term), " ".join(sentence))
+    out = ["%s: the list scan stops at %s, which %s holds at its own depth"
+           % (rel, kind, sentence) for kind, sentence in sorted(kinds.items())
+           if kind not in holds]
+    out += ["%s: the list scan passes %s, which no generic list holds at its own depth"
+            % (rel, kind) for kind in sorted(holds - set(kinds) - LIST_SCAN_LAYOUT)]
+    return out
+
+
+def check_list_scan(failures, g):
+    """The parser's closer scan stops at exactly the tokens no generic list
+    holds at its own depth: its committed table agrees with witness sentences
+    the recognizer accepts, and with `Grammar.depth_terms`, and fails with
+    `var` made a stop or `:` made a pass."""
+    witnesses = depth_witnesses(g, LIST_SCAN_START)
+    for term, sentence in sorted(witnesses.items()):
+        if not recognize.Chart(g, LIST_SCAN_START, witness_tokens(sentence)).accepted:
+            failures.append("list scan witness for %s: %s is not a %s"
+                            % (term, " ".join(sentence), LIST_SCAN_START))
+    computed = g.depth_terms(LIST_SCAN_START)
+    if set(witnesses) != computed:
+        failures.append("list scan: the rules hold %s and the witnesses %s"
+                        % (sorted(computed - set(witnesses)), sorted(set(witnesses) - computed)))
+    rel = os.path.relpath(GRAMMAR_TABLES, extract.REPO)
+    text = _read(GRAMMAR_TABLES)
+    failures.extend(list_scan_problems(witnesses, scan_holds(text), rel))
+    injections = [("`var` a stop", text.replace("        case Var -> false,\n", "")),
+                  ("`:` a pass", text.replace("        case Newline -> false,\n",
+                                              "        case Newline -> false,\n"
+                                              "        case Colon -> false,\n"))]
+    for label, injected in injections:
+        if injected == text or not list_scan_problems(witnesses, scan_holds(injected), rel):
+            failures.append("list scan: with %s the check still passes" % label)
+    return len(witnesses) + len(injections)
+
+
 def _without(rule, run):
     """run() with one rule switched off, restored however run() ends."""
     recognize.DISABLED.add(rule)
@@ -413,6 +546,7 @@ def run():
     counts["removed forms"] = check_removed_forms(failures, model, g)
     counts["open-end follow tokens"] = check_open_end(failures, g)
     counts["cast follow trials"] = check_cast_follow(failures, g)
+    counts["list scan witnesses and injections"] = check_list_scan(failures, g_removed)
     counts["corpus lane cases"] = check_corpus(failures, model)
     failures.extend(contexts.problems(model))
     return failures, counts

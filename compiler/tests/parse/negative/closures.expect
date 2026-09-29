@@ -55,5 +55,8 @@ refuses syntax.rule.head-restriction at 2:27
 // case: syntax.rule.head-restriction/generic-list-kept-by-the-body-brace
 refuses syntax.rule.head-restriction at 2:13
 
+// case: syntax.rule.head-restriction/generic-list-kept-by-a-while-body-brace
+refuses syntax.rule.head-restriction at 4:19
+
 // case: syntax.rule.head-reset/only-inside-the-nested-block
 refuses syntax.rule.head-restriction at 4:39

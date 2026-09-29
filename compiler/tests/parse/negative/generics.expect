@@ -10,6 +10,27 @@ refuses syntax.generic.refused-arg-comma
 // case: syntax.rule.generic-or-less/cast-target-list-before-a-token-no-cast-takes
 refuses parse-error at 4:26
 
+// case: syntax.rule.generic-or-less/list-before-a-minus-compares-into-a-chain
+refuses syntax.expr.refused-compare-chain
+
+// case: syntax.rule.generic-or-less/list-before-a-negated-name-compares-into-a-chain
+refuses syntax.expr.refused-compare-chain
+
+// case: syntax.rule.generic-or-less/list-before-a-subscript-compares-into-a-chain
+refuses syntax.expr.refused-compare-chain
+
+// case: syntax.rule.generic-or-less/list-before-a-star-compares-into-a-chain
+refuses syntax.expr.refused-compare-chain
+
+// case: syntax.rule.generic-or-less/list-before-an-ampersand-compares-into-a-chain
+refuses syntax.expr.refused-compare-chain
+
+// case: syntax.rule.generic-or-less/list-before-a-range-compares-into-a-chain
+refuses syntax.expr.refused-compare-chain
+
+// case: syntax.rule.generic-or-less/list-before-a-force-is-refused
+refuses syntax.rule.generic-or-less at 3:14
+
 // case: syntax.rule.generic-close-split/no-split-in-an-expression
 refuses parse-error at 2:12
 

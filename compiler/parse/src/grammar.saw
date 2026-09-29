@@ -2287,3 +2287,34 @@ public func follows_cast_list(kind: TokenKind) -> Bool {
         case _ -> false
     }
 }
+
+// Whether a scan for a generic list's closer stops at a token of this kind:
+// no generic-arguments derivation holds one at the list's own bracket
+// depth, so the list closed before it or never closes. Every kind outside
+// the list's own is a stop (syntax.rule.generic-or-less).
+public func stops_list_scan(kind: TokenKind) -> Bool {
+    match kind {
+        case Ampersand -> false,
+        case Arrow -> false,
+        case Borrows -> false,
+        case Comma -> false,
+        case Dot -> false,
+        case DoubleQuestion -> false,
+        case Gt -> false,
+        case Ident -> false,
+        case IntLit -> false,
+        case LBracket -> false,
+        case LParen -> false,
+        case Lt -> false,
+        case Minus -> false,
+        case Newline -> false,
+        case Percent -> false,
+        case Plus -> false,
+        case Question -> false,
+        case Slash -> false,
+        case Star -> false,
+        case Unsafe_ -> false,
+        case Var -> false,
+        case _ -> true
+    }
+}

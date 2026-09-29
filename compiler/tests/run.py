@@ -10,7 +10,7 @@ compiler source and its own fixtures in `subset/`; and runs the grammar lint,
 the reference recognizer's own tests in `grammar/`, and the parser corpus's
 checks over `parse/`; runs the corpus rewriter's golden fixtures in
 `migrate/`; checks that the parser's grammar tables are current and that its
-speculation ledger names every field, runs the
+speculation ledgers, the parser's and the tree builder's, name every field, runs the
 depth-funnel lane with its fixtures in `funnel/`, and runs the parse lane, which
 holds `sawc2 parse` to the parser corpus as far as `compiler/parse/CLAIMS.tsv`
 claims. The inventory of Stage 0 workaround markers prints first, then each

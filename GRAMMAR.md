@@ -1893,6 +1893,11 @@ of top-level items, and the `?` suffixes of a type.
 | syntax.const.negate | 1 | its operand's end |
 | syntax.const.atom | 1 for a parenthesized constant | its `)` |
 
+A speculative generic list (syntax.rule.generic-or-less) charges its level
+while its contents are parsed, as a committed one does. A list the limit cuts
+short is refused as syntax.rule.depth-limit, never re-read as comparisons, so
+the limit decides no reading (SL-424).
+
 ## 12. Contexts
 
 A context is a position a construct can stand in. The positions below are

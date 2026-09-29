@@ -143,6 +143,9 @@ GENERIC_HOSTS = ("name-expr", "member-hop", "optional-hop")
 GENERIC_FOLLOW = ("(", ".", "{")
 # A type whose `<` is speculative, as an expression name's is.
 CAST_TARGET = "cast-target"
+# The brackets whose contents `Grammar.depth_terms` counts one level deeper.
+DEPTH_OPENERS = ('"("', '"["')
+DEPTH_CLOSERS = ('")"', '"]"')
 # The start symbols the recognizer parses from, which FOLLOW sets are taken over.
 STARTS = ("source-file", "interp-segment", "refusal-unit")
 # The tokens after `..` that let a range omit its upper bound, besides a line
@@ -373,6 +376,42 @@ class Grammar:
                     if is_nonterminal(sym) and self._ends(alt, k):
                         pending.append(sym)
         return self._follow_over(region, {top: set(top_follow)})[target]
+
+    def depth_terms(self, top):
+        """The terminals a `top` can hold at its own bracket depth: every
+        terminal of its derivations outside a `(` `)` or `[` `]` pair, the
+        pair's opener included. Each rule holds its brackets balanced, so the
+        pair a symbol sits in is the one its own rule writes; a rule that does
+        not fails here rather than giving a set that is wrong."""
+        held = set()
+        seen = set()
+        pending = [top]
+        while pending:
+            nt = pending.pop()
+            if nt in seen:
+                continue
+            seen.add(nt)
+            for alt in self._live(nt):
+                depth = 0
+                for sym in alt:
+                    if sym in DEPTH_OPENERS:
+                        if depth == 0:
+                            held.add(sym)
+                        depth += 1
+                    elif sym in DEPTH_CLOSERS:
+                        depth -= 1
+                        if depth < 0:
+                            raise ValueError("%s: %s closes a bracket it did not open"
+                                             % (self.real(nt), " ".join(alt)))
+                    elif depth == 0:
+                        if is_nonterminal(sym):
+                            pending.append(sym)
+                        else:
+                            held.add(sym)
+                if depth != 0:
+                    raise ValueError("%s: %s leaves a bracket open"
+                                     % (self.real(nt), " ".join(alt)))
+        return held
 
     def _follow_over(self, region, seeds):
         follow = collections.defaultdict(set)

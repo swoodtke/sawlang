@@ -417,6 +417,59 @@ def cut_speculation(k):
     return in_function("f<" + "(" * (k - 1) + "Int" + ")" * (k - 1) + ">(x)")
 
 
+def flat_comparisons(pairs):
+    """An argument list of `pairs` comparisons. No `>` follows any `<`, so no
+    generic list is speculated and the run charges nothing per pair."""
+    args = ", ".join("x%d < x%d" % (2 * i, 2 * i + 1) for i in range(pairs))
+    return in_function("g(" + args + ")")
+
+
+def balanced_speculation(k):
+    """A call hop and k - 1 generic lists, each nested in the one before, which
+    the `>` run and `(d)` keep: k levels, so the limit refuses the list at the
+    257th, never re-reading the lists as comparisons."""
+    lists = ", ".join("a%d < a%d" % (2 * i, 2 * i + 1) for i in range(k - 1))
+    return in_function("g(" + lists + " " + "> " * (k - 1) + "(d))")
+
+
+def nested_ifs(k):
+    return in_function("if a { " * k + "1" + " }" * k)
+
+
+def ifs_in_else_if_arms(k):
+    """An `if` nested in an `else if` arm's body charges a level of its own."""
+    return in_function("if a { 1 } else if a { " * k + "1" + " }" * k)
+
+
+def else_if_chain(arms):
+    """One `if` chain: one level, whatever its number of arms."""
+    return in_function("if a { 1 }" + " else if a { 1 }" * (arms - 1) + " else { 1 }")
+
+
+def nested_matches(k):
+    return in_function("match a { case _ -> " * k + "1" + " }" * k)
+
+
+def nested_whiles(k):
+    return in_function("while a { " * k + "1" + " }" * k)
+
+
+def nested_while_lets(k):
+    return in_function("while let x = a { " * k + "1" + " }" * k)
+
+
+def nested_fors(k):
+    return in_function("for i in a { " * k + "1" + " }" * k)
+
+
+def nested_try_blocks(k):
+    return in_function("try { " * k + "1" + " } catch { 1 }" * k)
+
+
+def nested_guards(k):
+    return "func f() {\n    " + "guard a else { " * k + "return" + " }" * k + "\n}\n"
+
+
 def nth(text, needle, n, shift=0):
     """The offset of the nth occurrence of `needle` in `text`, plus `shift`."""
     at = -1
@@ -443,7 +496,18 @@ def cells():
             ("a failed speculation's levels", failed_speculation,
              lambda t: t.index("(" * (LIMIT + 1)) + LIMIT),
             ("a speculation the limit cuts short", cut_speculation,
-             lambda t: t.index("(" * LIMIT) + LIMIT - 1)):
+             lambda t: t.index("(" * LIMIT) + LIMIT - 1),
+            ("balanced speculated lists", balanced_speculation,
+             lambda t: nth(t, " < ", LIMIT, 1)),
+            ("nested `if` chains", nested_ifs, lambda t: nth(t, "if a", LIMIT + 1)),
+            ("`if` chains in `else if` arms", ifs_in_else_if_arms,
+             lambda t: nth(t, "if a { 1 }", LIMIT + 1)),
+            ("nested `match` expressions", nested_matches, lambda t: nth(t, "match", LIMIT + 1)),
+            ("nested `while` loops", nested_whiles, lambda t: nth(t, "while", LIMIT + 1)),
+            ("nested `while let` loops", nested_while_lets, lambda t: nth(t, "while", LIMIT + 1)),
+            ("nested `for` loops", nested_fors, lambda t: nth(t, "for", LIMIT + 1)),
+            ("nested try blocks", nested_try_blocks, lambda t: nth(t, "try", LIMIT + 1)),
+            ("nested `guard` statements", nested_guards, lambda t: nth(t, "guard", LIMIT + 1))):
         out.append(("%s at %d" % (name, LIMIT), build_text(LIMIT), None, None))
         text = build_text(LIMIT + 1)
         at = find(text) if find else None
@@ -452,6 +516,11 @@ def cells():
         chain = (" %s " % op).join(["a"] * FLAT_TERMS)
         out.append(("a flat `%s` chain of %d operands" % (op, FLAT_TERMS),
                     "func f() {\n    let x = %s\n}\n" % chain, None, None))
+    for pairs in (LIMIT + 1, FLAT_TERMS // 2):
+        out.append(("a flat run of %d comparison arguments" % pairs, flat_comparisons(pairs),
+                    None, None))
+    for arms in (300, FLAT_TERMS // 4):
+        out.append(("an `if` chain of %d arms" % arms, else_if_chain(arms), None, None))
     recovered = ("func f() {\n    let x = " + "(" * (LIMIT + 1) + "1" + ")" * (LIMIT + 1)
                  + "\n    let y = " + "(" * LIMIT + "1" + ")" * LIMIT + "\n}\n")
     out.append(("a refused statement gives its depth back", recovered, DEPTH_RULE, None))

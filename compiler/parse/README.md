@@ -24,10 +24,11 @@ parse/
 
 `grammar.saw` is written by `compiler/tools/grammar_tables.py`: an `Alt` case
 per alternative of GRAMMAR.md, with its stable name and the Kind of the node it
-builds, a `Rule` case per name a refusal can carry, and the tokens that may
-follow a cast target's generic list, the FOLLOW set the recognizer computes.
-Regenerate it when GRAMMAR.md changes; `compiler/tests/run.py` fails while it
-is stale.
+builds, a `Rule` case per name a refusal can carry, the tokens that may
+follow a cast target's generic list, the FOLLOW set the recognizer computes,
+and the tokens a generic list can hold at its own bracket depth, which the
+recognizer computes too (Speculation, below). Regenerate it when GRAMMAR.md
+changes; `compiler/tests/run.py` fails while it is stale.
 
 ## Speculation
 
@@ -37,9 +38,32 @@ list and looking at the token after it. `Parser.checkpoint` opens such a
 speculation and `restore` undoes it: the nodes built, the tokens an
 interpolation appended or a list's close split, the alternatives recorded and
 the levels taken. Nothing is reported while one is open. The SPECULATION LEDGER
-above `checkpoint` gives every field of `Parser` its decision, restored or
-unchanged and why, and `compiler/tools/speculation_ledger.py` fails when a
-field has none or `restore` does not name one it claims to restore.
+above `Parser.checkpoint` gives every field of `Parser` its decision, restored,
+unchanged or kept and why, and the one above `TreeBuilder.checkpoint` does the
+same for the builder and the tree it builds; `compiler/tools/speculation_ledger.py`
+fails when a field has none or a `restore` does not name one it claims to
+restore.
+
+Before speculating, the parser scans ahead of the `<` for a token that could
+close the list at its bracket depth, and compares at once when there is none,
+so a flat run of comparisons speculates nothing. The scan passes nested `( )`
+and `[ ]` groups whole and stops at an unmatched `)` or `]`, or at any token no
+generic-arguments derivation holds at the list's own depth: `stops_list_scan`
+in `grammar.saw`, which is generated, never listed by hand, since a token
+wrongly on it turns a generic list into comparisons. The recognizer tests
+check the committed table against sentences of `generic-args` that hold each
+token, and fail with `var` made a stop or `:` made a pass.
+
+## Assignment targets
+
+A statement that starts with a postfix chain, or with `*`, may be an
+assignment, and only the operator after the chain says so. The parser parses
+the chain once, keeping its own alternative and each hop's aside
+(`spine_alts`). Before an assignment operator it records them as the target's
+production derives them (a place hop, a call target, an optional-chain target,
+a bare name or `self`); otherwise it records them as an expression's and goes on
+parsing the expression with the chain already on the scratch stack as its first
+operand (`primed`). No statement is parsed twice.
 
 ## `sawc2 parse`
 

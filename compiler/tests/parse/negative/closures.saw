@@ -115,6 +115,13 @@ func f() {
     }
 }
 
+// case: syntax.rule.head-restriction/generic-list-kept-by-a-while-body-brace
+// The list parses and is kept before `{`, where a trailing closure would
+// attach, but in a head the `{` begins the body.
+func f() {
+    while a < b > { }
+}
+
 // case: syntax.rule.head-reset/only-inside-the-nested-block
 // The block resets the head only inside its braces; the hop after it is
 // back in the head.

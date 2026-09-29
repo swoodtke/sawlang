@@ -22,6 +22,44 @@ func f() {
     let t = x as T<a, b> c
 }
 
+// case: syntax.rule.generic-or-less/list-before-a-minus-compares-into-a-chain
+func f() {
+    let v = a<b> - 1
+}
+
+// case: syntax.rule.generic-or-less/list-before-a-negated-name-compares-into-a-chain
+// Read as `a < b > -c`, a chain, which enabling the removed chain alone parses.
+func f() {
+    let v = a<b> - c
+}
+
+// case: syntax.rule.generic-or-less/list-before-a-subscript-compares-into-a-chain
+// Read as `a < b > [0]`, with an array literal as the chain's third operand.
+func f() {
+    let v = a<b>[0]
+}
+
+// case: syntax.rule.generic-or-less/list-before-a-star-compares-into-a-chain
+func f() {
+    let v = a<b> * c
+}
+
+// case: syntax.rule.generic-or-less/list-before-an-ampersand-compares-into-a-chain
+func f() {
+    let v = a<b> & c
+}
+
+// case: syntax.rule.generic-or-less/list-before-a-range-compares-into-a-chain
+func f() {
+    let v = a<b> .. c
+}
+
+// case: syntax.rule.generic-or-less/list-before-a-force-is-refused
+// `a < b > !` has no reading, so the list's rule names the refusal.
+func f() {
+    let v = a<b>!
+}
+
 // case: syntax.rule.generic-close-split/no-split-in-an-expression
 func f() {
     x = a<b>>= 1

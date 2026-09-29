@@ -9,9 +9,11 @@ alternative as an `Alt` case with its stable name and the node Kind it builds,
 and every refusal a parser names as a `Rule` case. They come from the same model
 of GRAMMAR.md the recognizer reads (`compiler/tests/grammar/extract.py`), so a
 grammar change is a regeneration, and `compiler/tests/run.py` fails while the
-committed file differs from what this writes. One table is computed rather than
-listed: the tokens that may follow a cast target's generic list, the FOLLOW set
-the recognizer derives from the productions.
+committed file differs from what this writes. Two tables are computed rather
+than listed, each by the recognizer's model of the productions: the tokens that
+may follow a cast target's generic list, its FOLLOW set, and the tokens a
+generic list can hold at its own bracket depth, which the parser's closer scan
+passes and stops at every other.
 """
 import argparse
 import os
@@ -37,7 +39,11 @@ TOKEN_KINDS = {
     '"]"': "RBracket", '"^"': "Caret", '"as"': "As", '"case"': "Case", '"else"': "Else",
     '"{"': "LBrace", '"|"': "Pipe", '"||"': "Or", '"}"': "RBrace", "EOF": "Eof",
     "NEWLINE": "Newline", '"="': "Assign", '"("': "LParen", '"["': "LBracket", '"."': "Dot",
+    "IDENT": "Ident", "INT": "IntLit", '"var"': "Var", '"unsafe"': "Unsafe_",
+    '"borrows"': "Borrows",
 }
+# The nonterminal whose own-depth terminals a generic list's closer scan passes.
+LIST_SCAN_START = "generic-args"
 # The production whose layers the dump spells as one Kind whatever token wrote
 # them (compiler/tests/parse/README.md, Optional types).
 OPTIONAL_TYPE_PRODUCTION = "syntax.type.suffix"
@@ -89,11 +95,27 @@ def cast_list_follow(model):
     generic list, sorted: the FOLLOW set the recognizer computes from the
     productions (syntax.rule.generic-or-less)."""
     follow = recognize.Grammar(model, set()).cast_list_follow
-    missing = sorted(t for t in follow if t not in TOKEN_KINDS)
-    if missing:
-        raise SystemExit("grammar_tables: no TokenKind for the terminals %s; add them to "
-                         "TOKEN_KINDS" % ", ".join(missing))
-    return sorted(TOKEN_KINDS[t] for t in follow)
+    return sorted({token_kind(t) for t in follow})
+
+
+def token_kind(term):
+    """The lexer's TokenKind for a grammar terminal: a quoted word is an
+    identifier the grammar reads by its spelling."""
+    if term.startswith("'"):
+        return "Ident"
+    if term not in TOKEN_KINDS:
+        raise SystemExit("grammar_tables: no TokenKind for the terminal %s; add it to "
+                         "TOKEN_KINDS" % term)
+    return TOKEN_KINDS[term]
+
+
+def list_scan_holds(model):
+    """The TokenKind cases a generic argument list can hold at its own bracket
+    depth, sorted: the terminals of every generic-arguments derivation outside a
+    nested `( )` or `[ ]`, a refused form's included, since the parser reads one
+    to name it; and the line break, which a list ignores (section 5.1)."""
+    held = recognize.Grammar(model, "all").depth_terms(LIST_SCAN_START)
+    return sorted({token_kind(t) for t in held} | {"Newline"})
 
 
 def render(model):
@@ -150,6 +172,14 @@ def render(model):
     for kind in cast_list_follow(model):
         lines.append("        case %s -> true," % kind)
     lines += ["        case _ -> false", "    }", "}", ""]
+    lines += ["// Whether a scan for a generic list's closer stops at a token of this kind:",
+              "// no generic-arguments derivation holds one at the list's own bracket",
+              "// depth, so the list closed before it or never closes. Every kind outside",
+              "// the list's own is a stop (syntax.rule.generic-or-less).",
+              "public func stops_list_scan(kind: TokenKind) -> Bool {", "    match kind {"]
+    for kind in list_scan_holds(model):
+        lines.append("        case %s -> false," % kind)
+    lines += ["        case _ -> true", "    }", "}", ""]
     return "\n".join(lines)
 
 
