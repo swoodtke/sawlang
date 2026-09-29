@@ -58,7 +58,9 @@ extension Directory {
     // `Err` carries the errno cause of the failing opendir(3). An empty `Ok`
     // means the directory is empty.
     public static func list(path: Path) unsafe -> Result<Vector<Path>, IoError> {
-        let path_ptr = path.as_str() as UnsafePointer<Int8>
+        // Stage 0 workaround (SL:hazards S23): canonical: let path_ptr = path.as_str() as UnsafePointer<Int8>
+        let path_text = path.as_str()
+        let path_ptr = path_text as UnsafePointer<Int8>
         var status = 0
         let status_ptr = (&status) as UnsafePointer<Int>
         if let dir = __saw_rt_fs_opendir(path_ptr, status_ptr) {
@@ -109,7 +111,9 @@ extension Directory {
     // Create a directory with permissions 0755. `Err` carries the errno cause
     // of the failing mkdir(2).
     public static func create(path: Path) unsafe -> Result<Void, IoError> {
-        let path_ptr = path.as_str() as UnsafePointer<Int8>
+        // Stage 0 workaround (SL:hazards S23): canonical: let path_ptr = path.as_str() as UnsafePointer<Int8>
+        let path_text = path.as_str()
+        let path_ptr = path_text as UnsafePointer<Int8>
         let e = __saw_rt_fs_mkdir(path_ptr, 493)   // 0755 = 493 decimal
         if e != 0 {
             return IoError.of("mkdir", -e)
@@ -120,7 +124,9 @@ extension Directory {
     // Remove an empty directory. `Err` carries the errno cause of the failing
     // rmdir(2).
     public static func remove(path: Path) unsafe -> Result<Void, IoError> {
-        let path_ptr = path.as_str() as UnsafePointer<Int8>
+        // Stage 0 workaround (SL:hazards S23): canonical: let path_ptr = path.as_str() as UnsafePointer<Int8>
+        let path_text = path.as_str()
+        let path_ptr = path_text as UnsafePointer<Int8>
         let e = __saw_rt_fs_rmdir(path_ptr)
         if e != 0 {
             return IoError.of("rmdir", -e)
@@ -130,7 +136,9 @@ extension Directory {
 
     // Works for both files and directories. `access` is declared in file.saw.
     public static func exists(path: Path) unsafe -> Bool {
-        let ptr = path.as_str() as UnsafePointer<Int8>
+        // Stage 0 workaround (SL:hazards S23): canonical: let ptr = path.as_str() as UnsafePointer<Int8>
+        let path_text = path.as_str()
+        let ptr = path_text as UnsafePointer<Int8>
         access(ptr, 0 as Int32) == (0 as Int32)
     }
 
@@ -165,7 +173,9 @@ extension Directory {
     // Change the current working directory. `Err` carries the errno cause of
     // the failing chdir(2).
     public static func set_current(path: Path) unsafe -> Result<Void, IoError> {
-        let path_ptr = path.as_str() as UnsafePointer<Int8>
+        // Stage 0 workaround (SL:hazards S23): canonical: let path_ptr = path.as_str() as UnsafePointer<Int8>
+        let path_text = path.as_str()
+        let path_ptr = path_text as UnsafePointer<Int8>
         let e = __saw_rt_fs_chdir(path_ptr)
         if e != 0 {
             return IoError.of("chdir", -e)
