@@ -12,6 +12,18 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Decided by the lead, for review (reversible)
 
+### D5. The depth limit decides no reading (Sep 29; U4c)
+A speculative generic list that the depth limit cuts short is refused with `syntax.rule.depth-limit`. It is not re-read as comparisons, because otherwise the depth budget could change what a program means. A speculation that fails for any other reason still gives its levels back, and a depth cell pins that.
+
+**Decided:** as implemented in U4c. The Air reviews it in SL-424.p3.
+
+### D4. When the parser names a refusal `generic-or-less` (Sep 29; U4c)
+Suppose a list parses, the follow rule rejects it, and the comparison re-read then fails with a plain error or a comparison chain starting at that `<`. The parser then reports `syntax.rule.generic-or-less` at the `<`.
+- **Evidence:** this matches every corpus case and U4c's differential of about 200 texts: `a<b>` before a line break, `a<b> - 1`, `a<b>[0]`, and `x as T<a, b> c` staying `parse-error`.
+- **Caveat:** it is a model of the recognizer's "the chart accepts, a filter refuses" condition, not a derivation of it.
+
+**Decided:** accept the model. If SL-410 (the recognizer naming every refusing rule) produces a case that disagrees, the recognizer's name wins, and the parser follows it.
+
 ### D3. A checker rule refusing `try?` in `compiler/`, an S23-style exception (Sep 29; the Air's t20 on SL:hazards)
 **The finding:** `try?` never releases the error it discards (SL-429, SL:hazards S3), and it reaches Stage 1 because the compiler is sync code. The leak ruling gives leak-only hazards no checker rule. You granted S23 an exception because a parser's hot paths would leak per token.
 
