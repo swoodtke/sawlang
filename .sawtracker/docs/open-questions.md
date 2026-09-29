@@ -12,21 +12,12 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Decided by the lead, for review (reversible)
 
-### D1. Autonomy defaults for this stretch (Sep 29)
-The lead asked four questions before the user left, and took these defaults:
-1. **Decision policy:** the one in this doc's header.
-2. **Two agents at a time,** when their files do not overlap: one parser unit plus one side-queue item.
-3. **Order:** the parser units U4b to U4i in sequence, each landing before the next dispatches. The side queue runs alongside, in this order:
-   - SL-426 (borrow-block P cells; its fix precedes U4h);
-   - SL-410 (the recognizer names every refusing rule);
-   - SL-412 (the depth limit in the recognizer);
-   - SL-408 and SL-413, the lexer halves (numeric spellings, lexical diagnostics, C3);
-   - SL-405 (subset-checker follow-ups);
-   - SL-420 and SL-421 (flagged corpus files, and shared twins).
-4. **Off-limits without the user:** sawos, release tags and version bumps, and CLAUDE.md or other instruction files.
-
-**To change:** say which default to change.
+(none yet)
 
 ## Resolved
 
-(none yet)
+### D1. Autonomy settings for this stretch (user, Sep 29)
+- **Decision policy:** as in this doc's header.
+- **One agent at a time.**
+- **The work order is the lead's to decide,** consulting the Air when useful. The current plan interleaves the parser units with side-queue items between units: SL-426, SL-410, SL-412, the lexer halves of SL-408 and SL-413, SL-405, SL-420 and SL-421.
+- **Nothing is off-limits** unless the lead needs the user's feedback.
