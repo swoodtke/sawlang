@@ -130,3 +130,24 @@ func f() {
         return
     }
 }
+
+// case: syntax.rule.brace/map-key-with-its-colon-on-the-next-line
+// A map entry's `:` stands on its key's line, so this is a closure whose
+// second line begins with `:`.
+func f() {
+    let m = { a
+        : 1 }
+}
+
+// case: syntax.rule.head-restriction/trailing-closure-in-a-map-value-in-a-head
+// A map literal starts no fresh level: its value is at the head's outer level.
+func f() {
+    if m == { a: g { 1 } } {
+    }
+}
+
+// case: syntax.rule.head-restriction/trailing-closure-in-a-set-element-in-a-head
+func f() {
+    for x in { g { 1 }, 2 } {
+    }
+}

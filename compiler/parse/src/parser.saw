@@ -15,12 +15,18 @@
 import sawlex.src.lib.{DocComment, TokenKind, lex}
 import sawparse.src.source.{source_file}
 import sawparse.src.diag.{Diagnostic}
-import sawparse.src.grammar.{ALT_COUNT, Alt, Rule, follows_cast_list, stops_list_scan}
+import sawparse.src.grammar.{ALT_COUNT, Alt, Rule, follows_cast_list, holds_closure_head, rule_named,
+                             stops_list_scan}
 import sawparse.src.tokens.{InterpPiece, ParseToken, closes_bracket, opens_bracket, parser_tokens}
 import sawparse.src.tree.{BuilderCheckpoint, NodeShape, TreeBuilder, put_at, trim_to}
 
 public static PARSE_MAX_DEPTH: Int = 256
 static PARSE_SPACE: Int = 32
+static PARSE_UNDERSCORE: Int = 95
+static PARSE_DIGIT_0: Int = 48
+static PARSE_DIGIT_9: Int = 57
+
+func is_decimal_byte(b: Int) -> Bool { b >= PARSE_DIGIT_0 && b <= PARSE_DIGIT_9 }
 
 // A run of `///` lines and the token it documents: the first token after its
 // last line that is not a line break.
@@ -67,9 +73,59 @@ struct ResumePoint {
     mark: Int
     depth: Int
     lists: Int
-    head: Bool
+    head: HeadState
+    head_at: Int
+    head_until: TokenKind
     spine: Int
     literal_arm: Int
+    shadow_brace: Int
+}
+
+// Where the parser stands with respect to a head (syntax.rule.head-restriction).
+// `On` is a head's outer level, where a `{` after an operand begins the body.
+// `Shadow` is the first element of a brace literal that stands at a head's
+// outer level: a map or set there is still in the head, a closure body is
+// not, and which of them the brace is waits on the element, so a trailing
+// closure attaches and is noted, and refused should the brace be a literal.
+// `Lifted` is a head read again with the restriction lifted, to see whether
+// it refused what failed: a trailing closure attaches where it may, and any
+// other `{` ends the head.
+public enum HeadState {
+    case Off,
+    case On,
+    case Shadow,
+    case Lifted
+}
+
+// Where a statement stands: in a block, as an unbraced arm body, or as the
+// first element of a brace in expression position, which may yet be a map
+// key or a set element rather than a closure's first statement.
+enum StatementPlace {
+    case Block,
+    case Arm,
+    case BraceFirst
+}
+
+// The head the parser stood in before it entered another.
+struct HeadFrame {
+    state: HeadState
+    at: Int
+    until: TokenKind
+}
+
+// A head a statement noted, kept aside while a brace body inside it parses.
+struct HeadNote {
+    brace: Int
+    start: Int
+    follow: TokenKind
+}
+
+// What a `{` in expression position opens, as far as its first element
+// decides (syntax.rule.brace).
+enum BraceForm {
+    case Closure,
+    case Map,
+    case Set
 }
 
 // Where the parser stood when a speculation began: what `restore` returns it
@@ -89,10 +145,17 @@ public struct Checkpoint {
     public speculating: Int
     public trailing_comma: Int
     public rejected_list: Int
-    public head: Bool
+    public head: HeadState
+    public head_at: Int
+    public head_until: TokenKind
     public primed: Bool
     public spine: Int
     public literal_arm: Int
+    public head_brace: Int
+    public head_start: Int
+    public head_follow: TokenKind
+    public shadow_brace: Int
+    public lifted_brace: Int
 }
 
 public struct Parser {
@@ -145,7 +208,23 @@ public struct Parser {
     // begins the construct's body (syntax.rule.head-restriction). A bracket, an
     // interpolation segment and a nested block clear it for their contents
     // (syntax.rule.head-reset).
-    private head: Bool
+    private head: HeadState
+    // Where the head being parsed began, and the token its construct takes
+    // after it; read only while `head` is not `Off`.
+    private head_at: Int
+    private head_until: TokenKind
+    // The `{` a head of this statement stopped at where a trailing closure
+    // could have attached, or -1; the token that head began at; and the
+    // token its construct takes after it: `{`, `else` or `->`. A refusal
+    // later in the statement is that rule's when the head, read with the
+    // closure attached, goes on to that token (syntax.rule.head-restriction).
+    private head_brace: Int
+    private head_start: Int
+    private head_follow: TokenKind
+    // The first trailing closure that attached in `HeadState.Shadow`, or -1.
+    private shadow_brace: Int
+    // The one `{` a head read in `HeadState.Lifted` attaches a closure at.
+    private lifted_brace: Int
     // Whether the operand of the expression about to be parsed is already
     // on the scratch stack: a statement that parsed a postfix chain as a
     // possible assignment target, and found no assignment after it.
@@ -190,7 +269,10 @@ public func new_parser(builder: TreeBuilder, tokens: Vector<ParseToken>,
                         taken: Vector<Alt>(), taken_count: 0, edits: Vector<TokenEdit>(),
                         edit_count: 0, lists: 0, speculating: 0, trailing_comma: -1,
                         rejected_list: -1, failed_lists: Vector<Bool>(),
-                        closer_scans: Vector<CloserScan>(), head: false, primed: false,
+                        closer_scans: Vector<CloserScan>(), head: HeadState.Off,
+                        head_at: -1, head_until: TokenKind.LBrace,
+                        head_brace: -1, head_start: -1, head_follow: TokenKind.LBrace,
+                        shadow_brace: -1, lifted_brace: -1, primed: false,
                         spine_alts: Vector<Alt>(), spine_count: 0, literal_arm: -1,
                         depth_refusals: 0,
                         depth_opener: -1)
@@ -266,6 +348,7 @@ func chain_hop(hop: Alt) -> Alt {
     match hop {
         case Expr_Hop_Optional -> Alt.Stmt_ChainHop_Optional,
         case Expr_Hop_Call -> Alt.Stmt_ChainHop_Call,
+        case Expr_Hop_Trailing -> Alt.Stmt_ChainHop_Trailing,
         case _ -> Alt.Stmt_ChainHop_Member
     }
 }
@@ -468,6 +551,13 @@ extension Parser {
     //     failed_lists: kept, because a list that failed to parse fails in every context, a depth refusal being refused rather than recorded, and parse_segment clears a slot it reuses
     //     closer_scans: kept, because a scan reads only the tokens after its `<`, which no speculation has split yet, and parse_segment clears a slot it reuses
     //     head: restored
+    //     head_at: restored
+    //     head_until: restored
+    //     head_brace: restored
+    //     head_start: restored
+    //     head_follow: restored
+    //     shadow_brace: restored
+    //     lifted_brace: restored
     //     primed: restored
     //     spine_alts: restored by spine_count
     //     spine_count: restored
@@ -483,8 +573,11 @@ extension Parser {
                                speculating: self.speculating,
                                trailing_comma: self.trailing_comma,
                                rejected_list: self.rejected_list, head: self.head,
+                               head_at: self.head_at, head_until: self.head_until,
                                primed: self.primed, spine: self.spine_count,
-                               literal_arm: self.literal_arm)
+                               literal_arm: self.literal_arm, head_brace: self.head_brace,
+                               head_start: self.head_start, head_follow: self.head_follow,
+                               shadow_brace: self.shadow_brace, lifted_brace: self.lifted_brace)
         self.speculating = self.speculating + 1
         saved
     }
@@ -518,9 +611,16 @@ extension Parser {
         self.trailing_comma = saved.trailing_comma
         self.rejected_list = saved.rejected_list
         self.head = saved.head
+        self.head_at = saved.head_at
+        self.head_until = saved.head_until
         self.primed = saved.primed
         self.spine_count = saved.spine
         self.literal_arm = saved.literal_arm
+        self.head_brace = saved.head_brace
+        self.head_start = saved.head_start
+        self.head_follow = saved.head_follow
+        self.shadow_brace = saved.shadow_brace
+        self.lifted_brace = saved.lifted_brace
     }
 
     // Keeps what the speculation since `saved` parsed.
@@ -582,6 +682,9 @@ extension Parser {
     // list its reading could have gone on with, the error is that rule's
     // refusal, at the list's `<` (syntax.rule.generic-or-less).
     func error(&var self, message: String) -> Bool {
+        if self.head_restricted() {
+            return self.refuse_head_restriction()
+        }
         let list = self.rejected_list
         if list >= 0 && self.speculating == 0 {
             return self.refuse_rejected_list(list)
@@ -608,14 +711,63 @@ extension Parser {
     }
 
     // The lexer's refusal, at byte `at`: the whole parse, since the lexer
-    // stops at its first error.
-    public func lex_error(&var self, at: Int, message: String) {
-        self.record(Diagnostic(rule: None, start: at, end: at, message: message, hint: ""))
+    // stops at its first error. `rule` is the name the lexer gives it, which
+    // is a section 2.7 rule's or else no refusal's (`parse-error`, or a
+    // token production's), and is reported as a plain parse error.
+    public func lex_error(&var self, at: Int, message: String, rule: String, hint: String) {
+        self.record(Diagnostic(rule: rule_named(rule), start: at, end: at, message: message,
+                               hint: hint))
     }
 
-    // A refusal named by `rule`, at the token `at`.
+    // A refusal named by `rule`, at the token `at`. A rule that refuses a
+    // reading the head restriction also refuses gives way to it
+    // (syntax.rule.head-restriction).
     func refuse(&var self, rule: Rule, at: Int, message: String, hint: String) -> Bool {
+        let yields = rule == Rule.Rule_TrailingClosure || rule == Rule.Rule_BlockTail
+        if yields && self.head_restricted() {
+            return self.refuse_head_restriction()
+        }
         self.report(rule, at, message, hint)
+        false
+    }
+
+    // Whether the statement's noted head, read with a trailing closure at the
+    // `{` it stopped at, goes on to the token its construct takes next: then
+    // the head restriction refuses what failed since, and outranks every
+    // other rule that refuses it. Tried only on the way to a refusal, and
+    // undone whatever it finds.
+    func head_restricted(&var self) -> Bool {
+        let at = self.head_start
+        if self.speculating > 0 || self.head_brace < 0 || at < 0 || at > self.limit {
+            return false
+        }
+        let follow = self.head_follow
+        let saved = self.checkpoint()
+        self.lifted_brace = self.head_brace
+        self.pos = at
+        self.head = HeadState.Lifted
+        self.lists = 0
+        self.primed = false
+        // The reading takes a level of its own, so that the refusal it runs
+        // under never recurs through it uncharged.
+        var goes = self.enter_level(at)
+        if goes {
+            goes = self.parse_expr()
+        }
+        if goes && follow != TokenKind.Arrow {
+            self.skip_newlines()
+        }
+        goes = goes && self.kind() == follow
+        self.restore(&saved)
+        goes
+    }
+
+    func refuse_head_restriction(&var self) -> Bool {
+        let at = self.head_brace
+        self.head_brace = -1
+        self.report(Rule.Rule_HeadRestriction, at,
+                    "a `\{` after a head's outer level begins the body, so no trailing closure attaches there",
+                    "pass the closure in parentheses: `f(\{ … \})`")
         false
     }
 
@@ -682,6 +834,9 @@ extension Parser {
     //     parse_match
     //     parse_tuple_pattern
     //     parse_variant_pattern
+    //     parse_brace
+    //     parse_closure_literal
+    //     head_restricted
     func enter_level(&var self, opener: Int) -> Bool {
         if self.depth >= PARSE_MAX_DEPTH {
             self.depth_refusals = self.depth_refusals + 1
@@ -692,9 +847,12 @@ extension Parser {
         true
     }
 
+    // Reported directly: the depth budget decides no reading, so no other
+    // rule's refusal replaces it.
     func refuse_depth(&var self, opener: Int) -> Bool {
-        self.refuse(Rule.Rule_DepthLimit, opener, "nesting exceeds the parser depth limit (256)",
+        self.report(Rule.Rule_DepthLimit, opener, "nesting exceeds the parser depth limit (256)",
                     "split the expression or the declaration into smaller ones")
+        false
     }
 
     func leave_level(&var self) {
@@ -862,6 +1020,7 @@ extension Parser {
     // `source-file ::= NEWLINE* top-level-list? EOF`
     public func parse_file(&var self) {
         self.check_module_docs()
+        self.check_brackets()
         self.see(Alt.File_Source)
         let mark = self.builder.mark()
         self.module_docs()
@@ -876,6 +1035,7 @@ extension Parser {
     // the body of a refusal case parsed on its own in a test build.
     public func parse_refusal_unit(&var self) {
         self.check_module_docs()
+        self.check_brackets()
         self.see(Alt.Test_RefusalUnit)
         let mark = self.builder.mark()
         self.skip_newlines()
@@ -910,7 +1070,7 @@ extension Parser {
             }
             let from = self.pos
             let point = self.resume_point()
-            self.rejected_list = -1
+            self.begin_statement()
             if not self.parse_item() {
                 self.resume(&point)
                 self.recover(from)
@@ -1275,10 +1435,59 @@ extension Parser {
     }
 
     // The bracket at `open` is never closed (syntax.lex.unclosed-bracket),
-    // reported at the opener.
+    // reported at the opener, once: `check_brackets` may have reported it
+    // before the parse began.
     func refuse_unclosed(&var self, open: Int) -> Bool {
+        let at = self.tokens[open].start
+        var k = 0
+        while k < self.diagnostics.len() {
+            let d = self.diagnostics[k]
+            if let rule = d.rule {
+                if d.start == at && rule == Rule.Lex_UnclosedBracket {
+                    return false
+                }
+            }
+            k = k + 1
+        }
         self.report(Rule.Lex_UnclosedBracket, open, "this bracket is never closed", "")
         false
+    }
+
+    // The file's first unclosed bracket, reported at its opener before any
+    // other refusal (syntax.lex.unclosed-bracket): the parse would otherwise
+    // meet a later token first, where the text stops making sense. A closer
+    // that closes an opener deeper in the stack leaves the ones above it
+    // unclosed, and one that closes nothing is stray, which the parse reports.
+    func check_brackets(&var self) {
+        var open = Vector<Int>()
+        var depth = 0
+        var first = -1
+        var k = 0
+        while k < self.limit {
+            let kind = self.tokens[k].kind
+            if opens_bracket(kind) {
+                put_at(&var open, depth, k)
+                depth = depth + 1
+            } else if closes_bracket(kind) {
+                var j = depth - 1
+                while j >= 0 && not closes_opener(kind, self.tokens[open[j]].kind) {
+                    j = j - 1
+                }
+                if j >= 0 {
+                    if j + 1 < depth && (first < 0 || open[j + 1] < first) {
+                        first = open[j + 1]
+                    }
+                    depth = j
+                }
+            }
+            k = k + 1
+        }
+        if depth > 0 && (first < 0 || open[0] < first) {
+            first = open[0]
+        }
+        if first >= 0 {
+            let _ = self.refuse_unclosed(first)
+        }
     }
 
     // ---- functions -------------------------------------------------------------
@@ -1411,27 +1620,49 @@ extension Parser {
         let mark = self.builder.mark()
         let open = self.pos
         let head = self.head
-        self.head = false
+        let lists = self.lists
+        let noted = self.note_head()
+        self.head = HeadState.Off
+        self.lists = 0
         self.advance()
         self.skip_newlines()
-        self.parse_statement_list()
+        self.parse_statement_list(false)
         if self.kind() != TokenKind.RBrace {
             return self.refuse_unclosed(open)
         }
+        self.lists = lists
         self.advance()
         self.head = head
+        self.restore_head(&noted)
         self.close(mark, Alt.Stmt_Block, start)
         true
     }
 
-    // `statement ( stmt-sep statement )* NEWLINE*`, up to a block's `}`.
-    func parse_statement_list(&var self) {
-        var list = ListState(any: false, need: false)
+    // What the statement around a brace body has noted about its heads, which
+    // the body's own statements clear and the statement needs back after it.
+    func note_head(&var self) -> HeadNote {
+        let noted = HeadNote(brace: self.head_brace, start: self.head_start,
+                             follow: self.head_follow)
+        self.head_brace = -1
+        noted
+    }
+
+    func restore_head(&var self, noted: &HeadNote) {
+        self.head_brace = noted.brace
+        self.head_start = noted.start
+        self.head_follow = noted.follow
+    }
+
+    // `statement ( stmt-sep statement )* NEWLINE*`, up to a block's `}`;
+    // after its first statement when `any`, which a brace whose first
+    // element decided it is a closure has parsed already.
+    func parse_statement_list(&var self, any: Bool) {
+        var list = ListState(any: any, need: false)
         while self.next_item(false, &var list) {
             let from = self.pos
             let point = self.resume_point()
-            self.rejected_list = -1
-            if not self.parse_statement(false) {
+            self.begin_statement()
+            if not self.parse_statement(StatementPlace.Block) {
                 self.resume(&point)
                 self.recover(from)
             }
@@ -1443,7 +1674,9 @@ extension Parser {
     // set on the way in and never got to set back.
     func resume_point(&self) -> ResumePoint {
         ResumePoint(mark: self.builder.mark(), depth: self.depth, lists: self.lists,
-                    head: self.head, spine: self.spine_count, literal_arm: self.literal_arm)
+                    head: self.head, head_at: self.head_at, head_until: self.head_until,
+                    spine: self.spine_count, literal_arm: self.literal_arm,
+                    shadow_brace: self.shadow_brace)
     }
 
     func resume(&var self, point: &ResumePoint) {
@@ -1451,9 +1684,19 @@ extension Parser {
         self.depth = point.depth
         self.lists = point.lists
         self.head = point.head
+        self.head_at = point.head_at
+        self.head_until = point.head_until
         self.spine_count = point.spine
         self.literal_arm = point.literal_arm
+        self.shadow_brace = point.shadow_brace
         self.primed = false
+    }
+
+    // Clears what one statement notes for its own refusals, as the next
+    // statement begins.
+    func begin_statement(&var self) {
+        self.rejected_list = -1
+        self.head_brace = -1
     }
 
     // A refusal unit's items, statements and top-level items alike, separated
@@ -1464,14 +1707,14 @@ extension Parser {
         while self.next_item(true, &var list) {
             let from = self.pos
             let point = self.resume_point()
-            self.rejected_list = -1
+            self.begin_statement()
             var ok = true
             if self.starts_item() {
                 self.see(Alt.Test_RefusalUnitItem_Declaration)
                 ok = self.parse_item()
             } else {
                 self.see(Alt.Test_RefusalUnitItem_Statement)
-                ok = self.parse_statement(false)
+                ok = self.parse_statement(StatementPlace.Block)
             }
             if not ok {
                 self.resume(&point)
@@ -1530,9 +1773,12 @@ extension Parser {
     }
 
     // `statement ::= expr-stmt | non-expr-statement`, or, for an unbraced
-    // match-arm body (`arm`), `arm-body`'s expression or statement, which
+    // match-arm body (`Arm`), `arm-body`'s expression or statement, which
     // means what the same statement in braces means (syntax.rule.arm-body).
-    func parse_statement(&var self, arm: Bool) -> Bool {
+    // At a brace's first element (`BraceFirst`) an expression is left bare,
+    // since only the token after it says whether it is a statement.
+    func parse_statement(&var self, place: StatementPlace) -> Bool {
+        let arm = place == StatementPlace.Arm
         let kind = self.kind()
         if kind == TokenKind.Let || kind == TokenKind.Var {
             if self.kind_at(1) == TokenKind.LParen {
@@ -1585,7 +1831,7 @@ extension Parser {
                                "declare the alias at module level, or as an associated type")
         }
         if kind == TokenKind.While || kind == TokenKind.For {
-            return self.parse_loop_statement(arm)
+            return self.parse_loop_statement(place)
         }
         let start = self.here()
         let mark = self.builder.mark()
@@ -1601,17 +1847,17 @@ extension Parser {
                 return false
             }
         } else {
-            self.see_expression(arm)
+            self.see_expression(place)
             if not self.parse_expr() {
                 return false
             }
-            return self.close_expression(mark, start, arm)
+            return self.close_expression(mark, start, place)
         }
         if is_assignment(self.kind()) {
             return self.parse_assignment(mark, start, from, base, first, arm)
         }
         // Not a target: the chain is the first operand of an expression.
-        self.see_expression(arm)
+        self.see_expression(place)
         if kind == TokenKind.Star {
             self.release_spine(base)
         } else {
@@ -1622,7 +1868,7 @@ extension Parser {
         if not self.parse_expr() {
             return false
         }
-        self.close_expression(mark, start, arm)
+        self.close_expression(mark, start, place)
     }
 
     // Records a non-expression statement's alternative, reached through
@@ -1634,18 +1880,19 @@ extension Parser {
     }
 
     // Records an expression statement's alternatives; in an arm body the
-    // expression stands alone, with no statement node around it.
-    func see_expression(&var self, arm: Bool) {
-        if arm {
+    // expression stands alone, with no statement node around it, and at a
+    // brace's first element nothing is known yet.
+    func see_expression(&var self, place: StatementPlace) {
+        if place == StatementPlace.Arm {
             self.see(Alt.Expr_ArmBody_Expr)
-        } else {
+        } else if place == StatementPlace.Block {
             self.see(Alt.Stmt_Statement_Expr)
             self.see(Alt.Stmt_Expr)
         }
     }
 
-    func close_expression(&var self, mark: Int, start: Int, arm: Bool) -> Bool {
-        if not arm {
+    func close_expression(&var self, mark: Int, start: Int, place: StatementPlace) -> Bool {
+        if place == StatementPlace.Block {
             self.close(mark, Alt.Stmt_Expr, start)
         }
         true
@@ -1678,6 +1925,7 @@ extension Parser {
             case HashDirective -> true,
             case LParen -> true,
             case LBracket -> true,
+            case LBrace -> true,
             case If -> true,
             case Match -> true,
             case While -> true,
@@ -1794,6 +2042,9 @@ extension Parser {
             return self.finish_assignment(mark, start, compound, form)
         }
         let last = self.spine_alts[self.spine_count - 1]
+        if last == Alt.Expr_Hop_Trailing {
+            return self.error("an assignment's target is a name, `self`, a field, an element or a pointee")
+        }
         var k = first
         while k < self.spine_count - 1 {
             let alt = self.spine_alts[k]
@@ -1901,8 +2152,8 @@ extension Parser {
     // A `while` or `for` loop that starts a statement: a statement, never an
     // operand, so a token after it that would continue an expression is
     // refused (syntax.rule.block-tail).
-    func parse_loop_statement(&var self, arm: Bool) -> Bool {
-        self.see_expression(arm)
+    func parse_loop_statement(&var self, place: StatementPlace) -> Bool {
+        self.see_expression(place)
         self.see_operand_tiers()
         let start = self.here()
         let mark = self.builder.mark()
@@ -1915,7 +2166,7 @@ extension Parser {
                                "a loop that starts a statement is a statement, not an operand",
                                "parenthesize the loop to use its value")
         }
-        self.close_expression(mark, start, arm)
+        self.close_expression(mark, start, place)
     }
 
     // The alternatives an operand reached through `expr` down to a primary
@@ -2028,16 +2279,47 @@ extension Parser {
     // ---- control flow --------------------------------------------------------------
 
     // `head-expr ::= expr`, parsed where a `{` at its outer level begins the
-    // construct's body (syntax.rule.head-restriction).
-    func parse_head_expr(&var self) -> Bool {
+    // construct's body (syntax.rule.head-restriction); `follow` is the token
+    // the construct takes after the head.
+    func parse_head_expr(&var self, follow: TokenKind) -> Bool {
         self.see(Alt.Expr_Head)
-        let head = self.head
-        self.head = true
+        let saved = self.enter_head(follow)
         if not self.parse_expr() {
             return false
         }
-        self.head = head
+        self.leave_head(&saved)
         true
+    }
+
+    // Enters a head that begins here, which its construct follows with
+    // `follow`, and returns what `leave_head` gives back.
+    func enter_head(&var self, follow: TokenKind) -> HeadFrame {
+        let saved = HeadFrame(state: self.head, at: self.head_at, until: self.head_until)
+        self.head = HeadState.On
+        self.head_at = self.pos
+        self.head_until = follow
+        saved
+    }
+
+    func leave_head(&var self, saved: &HeadFrame) {
+        self.head = saved.state
+        self.head_at = saved.at
+        self.head_until = saved.until
+    }
+
+    // Whether a `{` here, after an operand, begins a construct's body rather
+    // than a trailing closure: at a head's outer level, and, in a head read
+    // with the restriction lifted, at every `{` but the one it was noted at.
+    func brace_ends_head(&self) -> Bool {
+        self.head == HeadState.On || (self.head == HeadState.Lifted && self.pos != self.lifted_brace)
+    }
+
+    // Notes that the head being parsed stops at the `{` here, where a
+    // trailing closure could have attached.
+    func note_head_stop(&var self) {
+        self.head_brace = self.pos
+        self.head_start = self.head_at
+        self.head_follow = self.head_until
     }
 
     // A construct's body, `NEWLINE* block`: its `{` may start the line after
@@ -2128,7 +2410,7 @@ extension Parser {
             return self.error("a borrow in an `if` head is not parsed yet")
         }
         self.see(Alt.Expr_IfHead_Condition)
-        self.parse_head_expr()
+        self.parse_head_expr(TokenKind.LBrace)
     }
 
     // `optional-binding ::= ("let" | "var") binding-target "=" binding-subject`
@@ -2145,7 +2427,7 @@ extension Parser {
             return self.error("expected `=` and the optional to bind")
         }
         self.advance()
-        if not self.parse_binding_subject() {
+        if not self.parse_binding_subject(TokenKind.LBrace) {
             return false
         }
         self.close(mark, alt, start)
@@ -2181,13 +2463,12 @@ extension Parser {
     // `binding-subject ::= head-expr | optional-chain-target "=" expr`: a
     // chain whose optional run is open at its end, then `=`, writes through
     // the chain and tests whether it did; anything else is the value tested.
-    func parse_binding_subject(&var self) -> Bool {
+    func parse_binding_subject(&var self, follow: TokenKind) -> Bool {
         if not self.starts_postfix() {
             self.see(Alt.Stmt_BindingSubject_Value)
-            return self.parse_head_expr()
+            return self.parse_head_expr(follow)
         }
-        let head = self.head
-        self.head = true
+        let head = self.enter_head(follow)
         let base = self.spine_count
         if not self.parse_postfix(true) {
             return false
@@ -2200,7 +2481,7 @@ extension Parser {
             if not self.parse_expr() {
                 return false
             }
-            self.head = head
+            self.leave_head(&head)
             return true
         }
         self.see(Alt.Stmt_BindingSubject_Value)
@@ -2211,7 +2492,7 @@ extension Parser {
         if not self.parse_expr() {
             return false
         }
-        self.head = head
+        self.leave_head(&head)
         true
     }
 
@@ -2277,14 +2558,14 @@ extension Parser {
                 return self.error("expected `=` and the optional to bind")
             }
             self.advance()
-            if not self.parse_binding_subject() {
+            if not self.parse_binding_subject(TokenKind.Else) {
                 return false
             }
         } else {
             self.see(alt)
             self.see(Alt.Stmt_GuardCondition)
             self.take_leaf()
-            if not self.parse_head_expr() {
+            if not self.parse_head_expr(TokenKind.Else) {
                 return false
             }
         }
@@ -2334,13 +2615,13 @@ extension Parser {
                 return self.error("expected `=` and the optional to bind")
             }
             self.advance()
-            if not self.parse_head_expr() {
+            if not self.parse_head_expr(TokenKind.LBrace) {
                 return false
             }
         } else {
             self.see(alt)
             self.advance()
-            if not self.parse_head_expr() {
+            if not self.parse_head_expr(TokenKind.LBrace) {
                 return false
             }
         }
@@ -2392,7 +2673,7 @@ extension Parser {
             return self.error("expected `in` and what to iterate")
         }
         self.advance()
-        if not self.parse_head_expr() {
+        if not self.parse_head_expr(TokenKind.LBrace) {
             return false
         }
         if not self.parse_body() {
@@ -2415,7 +2696,7 @@ extension Parser {
         let start = self.here()
         let mark = self.builder.mark()
         self.advance()
-        if not self.parse_head_expr() {
+        if not self.parse_head_expr(TokenKind.LBrace) {
             return false
         }
         self.skip_newlines()
@@ -2424,7 +2705,7 @@ extension Parser {
         }
         let brace = self.pos
         let head = self.head
-        self.head = false
+        self.head = HeadState.Off
         self.advance()
         self.skip_newlines()
         if self.kind() != TokenKind.RBrace {
@@ -2493,7 +2774,7 @@ extension Parser {
         if self.kind() == TokenKind.If {
             self.see(Alt.Expr_ArmGuard)
             self.take_leaf()
-            if not self.parse_head_expr() {
+            if not self.parse_head_expr(TokenKind.Arrow) {
                 return false
             }
         }
@@ -2514,7 +2795,7 @@ extension Parser {
     // names that rule when it fails.
     func parse_arm_body(&var self) -> Bool {
         if self.kind() != TokenKind.LBrace {
-            return self.parse_statement(true)
+            return self.parse_statement(StatementPlace.Arm)
         }
         self.see(Alt.Expr_ArmBody_Block)
         let saved = self.literal_arm
@@ -2529,10 +2810,25 @@ extension Parser {
     }
 
     // Whether the brace here would read as a map or set literal where no
-    // block is required: `{:}`, or a `:` or `,` at its own level
-    // (syntax.rule.brace).
+    // block is required (syntax.rule.brace): `{:}`, or a first element, one
+    // that no statement-only keyword or closure head begins, followed by a
+    // `:` on its line or a `,`. Only a refusal's name rests on it, so it
+    // scans the element's tokens rather than parsing them, and a generic
+    // list's comma inside the element reads as the set's.
     func brace_reads_as_literal(&self) -> Bool {
+        if self.empty_map_ahead() {
+            return true
+        }
+        if self.closure_head_ahead() {
+            return false
+        }
         var k = 1
+        while self.kind_at(k) == TokenKind.Newline {
+            k = k + 1
+        }
+        if self.starts_statement_only(k) {
+            return false
+        }
         var nested = 0
         while true {
             let kind = self.kind_at(k)
@@ -2546,8 +2842,19 @@ extension Parser {
                     return false
                 }
                 nested = nested - 1
-            } else if nested == 0 && (kind == TokenKind.Colon || kind == TokenKind.Comma) {
-                return true
+            } else if nested == 0 {
+                if kind == TokenKind.Colon || kind == TokenKind.Comma {
+                    return true
+                }
+                if kind == TokenKind.Semicolon {
+                    return false
+                }
+                if kind == TokenKind.Newline {
+                    while self.kind_at(k) == TokenKind.Newline {
+                        k = k + 1
+                    }
+                    return self.kind_at(k) == TokenKind.Comma
+                }
             }
             k = k + 1
         }
@@ -3590,7 +3897,7 @@ extension Parser {
                                 "a generic argument list takes no trailing comma", "drop the comma")
             return ListOutcome.Refused
         }
-        if not cast && after == TokenKind.LBrace && self.head {
+        if not cast && after == TokenKind.LBrace && self.brace_ends_head() {
             // A list is kept before a `{` only where a trailing closure may
             // attach, and in a head the `{` begins the body.
             let at = self.pos
@@ -3857,7 +4164,7 @@ extension Parser {
         if not self.primed && (lead == TokenKind.DotDot || lead == TokenKind.DotDotEq) {
             self.see(Alt.Expr_Range_Upto)
             self.take_leaf()
-            if self.head && self.kind() == TokenKind.LBrace {
+            if self.kind() == TokenKind.LBrace && self.brace_ends_head() {
                 return self.refuse_open_end()
             }
             if lead == TokenKind.DotDot && self.range_ends() {
@@ -3891,7 +4198,7 @@ extension Parser {
             return true
         }
         self.take_leaf()
-        if self.head && self.kind() == TokenKind.LBrace {
+        if self.kind() == TokenKind.LBrace && self.brace_ends_head() {
             return self.refuse_open_end()
         }
         if op == TokenKind.DotDot && self.range_ends() {
@@ -4347,18 +4654,48 @@ extension Parser {
     // around the chain so far (syntax.rule.optional-chain-run). On a
     // statement's leading chain (`spine`) the chain's alternative and each
     // hop's are kept until the statement knows whether the chain is a target.
+    // A `{` right after the chain is a trailing closure, which only a name,
+    // an implicit member or a member takes, once; at a head's outer level it
+    // begins the body instead (syntax.rule.trailing-closure).
     func parse_postfix(&var self, spine: Bool) -> Bool {
         self.see_spine(Alt.Expr_Postfix, spine)
         let start = self.here()
         let mark = self.builder.mark()
+        let lead = self.kind()
         if not self.parse_primary() {
             return false
         }
+        // Whether a trailing closure may attach after the chain so far.
+        var callee = lead == TokenKind.Ident || lead == TokenKind.Dot
         var hops = 0
         var run = false
         while true {
             let kind = self.kind()
             let after = self.kind_at(1)
+            if kind == TokenKind.LBrace {
+                if self.brace_ends_head() {
+                    if callee && self.head == HeadState.On {
+                        self.note_head_stop()
+                    }
+                    break
+                }
+                let at = self.pos
+                if not callee {
+                    return self.refuse(Rule.Rule_TrailingClosure, at,
+                                       "only a name or a member takes a trailing closure, and only one",
+                                       "pass the closure in parentheses: `f(…)(\{ … \})`")
+                }
+                self.note_shadow_closure()
+                if not self.enter_level(at) {
+                    return false
+                }
+                hops = hops + 1
+                if not self.parse_trailing_hop(mark, start, spine) {
+                    return false
+                }
+                callee = false
+                continue
+            }
             let continues = (kind == TokenKind.QuestionDot || kind == TokenKind.LParen
                              || (kind == TokenKind.Dot && after == TokenKind.Ident))
             let closes = (kind == TokenKind.Exclaim || kind == TokenKind.LBracket
@@ -4375,12 +4712,13 @@ extension Parser {
                 return false
             }
             hops = hops + 1
-            if not self.parse_hop(mark, start, spine) {
+            if not self.parse_hop(mark, start, spine, callee) {
                 return false
             }
             if kind == TokenKind.QuestionDot {
                 run = true
             }
+            callee = kind == TokenKind.QuestionDot || (kind == TokenKind.Dot && after == TokenKind.Ident)
         }
         if run {
             self.close_run(mark, start)
@@ -4399,11 +4737,12 @@ extension Parser {
         let _ = self.builder.close(mark, NodeShape.OptionalChain, None, start, end)
     }
 
-    // One `postfix-hop`, applied to the chain begun at `mark`.
-    func parse_hop(&var self, mark: Int, start: Int, spine: Bool) -> Bool {
+    // One `postfix-hop`, applied to the chain begun at `mark`; `callee` when a
+    // trailing closure may follow a call's `)` here.
+    func parse_hop(&var self, mark: Int, start: Int, spine: Bool, callee: Bool) -> Bool {
         let kind = self.kind()
         if kind == TokenKind.LParen {
-            return self.parse_call(mark, start, spine)
+            return self.parse_call(mark, start, spine, callee)
         }
         if kind == TokenKind.LBracket {
             return self.parse_subscript(mark, start, spine)
@@ -4469,14 +4808,16 @@ extension Parser {
         true
     }
 
-    // `call-hop ::= "(" arg-list? ")"`, one Call node whatever the callee is
-    // (syntax.rule.one-call-node), with `arg-list ::= argument ( "," argument )* ","?`.
-    func parse_call(&var self, mark: Int, start: Int, spine: Bool) -> Bool {
+    // `call-hop ::= "(" arg-list? ")" closure-literal?`, one Call node whatever
+    // the callee is (syntax.rule.one-call-node), with
+    // `arg-list ::= argument ( "," argument )* ","?`. A closure right after
+    // the `)` is the call's trailing closure when the callee takes one
+    // (`attach`), and the parser is not at a head's outer level.
+    func parse_call(&var self, mark: Int, start: Int, spine: Bool, attach: Bool) -> Bool {
         self.see_spine(Alt.Expr_Hop_Call, spine)
-        self.see(Alt.Expr_Call_Paren)
         let open = self.pos
         let head = self.head
-        self.head = false
+        self.head = HeadState.Off
         self.advance()
         if self.kind() != TokenKind.RParen {
             self.see(Alt.Expr_Args)
@@ -4496,8 +4837,43 @@ extension Parser {
         }
         self.advance()
         self.head = head
-        self.close(mark, Alt.Expr_Call_Paren, start)
+        var alt = Alt.Expr_Call_Paren
+        if attach && self.kind() == TokenKind.LBrace {
+            if self.brace_ends_head() {
+                if self.head == HeadState.On {
+                    self.note_head_stop()
+                }
+            } else {
+                alt = Alt.Expr_Call_ParenTrailing
+                self.note_shadow_closure()
+                if not self.parse_closure_literal() {
+                    return false
+                }
+            }
+        }
+        self.see(alt)
+        self.close(mark, alt, start)
         true
+    }
+
+    // `trailing-hop ::= closure-literal`, a Call node of its own.
+    func parse_trailing_hop(&var self, mark: Int, start: Int, spine: Bool) -> Bool {
+        self.see_spine(Alt.Expr_Hop_Trailing, spine)
+        self.see(Alt.Expr_TrailingCall)
+        if not self.parse_closure_literal() {
+            return false
+        }
+        self.close(mark, Alt.Expr_TrailingCall, start)
+        true
+    }
+
+    // A trailing closure attaching at the `{` here, which a brace literal the
+    // first element turns out to be in refuses, should that literal stand at a
+    // head's outer level (HeadState.Shadow).
+    func note_shadow_closure(&var self) {
+        if self.head == HeadState.Shadow && self.shadow_brace < 0 {
+            self.shadow_brace = self.pos
+        }
     }
 
     // `argument ::= expr | IDENT ":" expr`: a name and `:` at an argument's
@@ -4526,7 +4902,7 @@ extension Parser {
         self.see(Alt.Expr_Subscript_Single)
         let open = self.pos
         let head = self.head
-        self.head = false
+        self.head = HeadState.Off
         self.advance()
         if self.kind() == TokenKind.Ident && self.kind_at(1) == TokenKind.Colon {
             return self.error("a labelled subscript is not parsed yet")
@@ -4573,7 +4949,9 @@ extension Parser {
             return self.parse_try_block()
         }
         if kind == TokenKind.IntLit {
-            return self.literal(Alt.Expr_Literal_Int, Alt.Expr_Int, true)
+            let digits = self.pos
+            let _ = self.literal(Alt.Expr_Literal_Int, Alt.Expr_Int, true)
+            return self.check_trailing_point(digits)
         }
         if kind == TokenKind.FloatLit {
             return self.literal(Alt.Expr_Literal_Float, Alt.Expr_Float, true)
@@ -4626,7 +5004,41 @@ extension Parser {
         if kind == TokenKind.LBracket {
             return self.parse_bracket()
         }
+        if kind == TokenKind.LBrace {
+            return self.parse_brace()
+        }
         self.error("expected an expression")
+    }
+
+    // After the integer literal at `digits`, a `.` written against it that no
+    // name, digit or second `.` follows is a float with no digit after its
+    // point, `7.` (syntax.lex.float-point). The lexer reads `7.to_string()`
+    // and `1..=9` by that lookahead too, so it leaves the `.` to the parser,
+    // which alone sees the token after it. A tuple index never reaches here.
+    func check_trailing_point(&var self, digits: Int) -> Bool {
+        if self.kind() != TokenKind.Dot || self.tokens[digits].end != self.here() {
+            return true
+        }
+        let next = self.kind_at(1)
+        if next == TokenKind.Ident || next == TokenKind.IntLit || next == TokenKind.Dot {
+            return true
+        }
+        let t = self.tokens[digits]
+        var hint = StringBuilder()
+        var k = t.start
+        while k < t.end {
+            let b = self.builder.tree.source.byte(k)
+            if not (is_decimal_byte(b) || b == PARSE_UNDERSCORE) {
+                // A based or suffixed integer spells no float, `.` or not.
+                return true
+            }
+            k = k + 1
+        }
+        try! hint.append("write `")
+        try! hint.append(self.builder.tree.source.slice(t.start, t.end))
+        try! hint.append(".0`")
+        self.refuse(Rule.Lex_FloatPoint, digits, "a float needs a digit after its point",
+                    hint.build())
     }
 
     // A node of one token with `node`'s Kind, which records it; `shown` when
@@ -4705,7 +5117,7 @@ extension Parser {
             case Err(e) -> {
                 let segment_source = source_file("", text)
                 let at = start + segment_source.offset_of(e.line, e.col)
-                self.lex_error(at, e.message)
+                self.lex_error(at, e.message, e.rule, e.hint)
                 return false
             }
         }
@@ -4744,10 +5156,13 @@ extension Parser {
         let saved_end = self.prev_end
         let saved_lists = self.lists
         let saved_head = self.head
+        // A head noted inside the segment names the segment's own tokens,
+        // which no refusal after it reads.
+        let noted = self.note_head()
         self.pos = first
         self.limit = self.token_count - 1
         self.lists = 0
-        self.head = false
+        self.head = HeadState.Off
         var ok = true
         if self.kind() == TokenKind.Eof {
             self.see(Alt.Expr_InterpSegment_Placeholder)
@@ -4764,6 +5179,7 @@ extension Parser {
         self.prev_end = saved_end
         self.lists = saved_lists
         self.head = saved_head
+        self.restore_head(&noted)
         ok
     }
 
@@ -4806,7 +5222,7 @@ extension Parser {
             return false
         }
         let head = self.head
-        self.head = false
+        self.head = HeadState.Off
         if not self.parse_paren_body(open) {
             return false
         }
@@ -4912,7 +5328,7 @@ extension Parser {
         let start = self.here()
         let mark = self.builder.mark()
         let head = self.head
-        self.head = false
+        self.head = HeadState.Off
         self.advance()
         var alt = Alt.Expr_Array
         if self.kind() != TokenKind.RBracket {
@@ -4947,6 +5363,535 @@ extension Parser {
         self.see(alt)
         self.close(mark, alt, start)
         self.leave_level()
+        true
+    }
+
+    // ---- braces and closures ----------------------------------------------------------
+
+    // A `{` in expression position: a map literal, a set literal or a closure,
+    // one level for the `{` whichever it is (syntax.rule.brace). A bounded look
+    // decides `{:}` and a closure head; after that the first element decides,
+    // parsed once as a closure's first statement would be and read by the
+    // token after it: `:` on its line makes a map, `,` after any line breaks a
+    // set, anything else a closure. A statement-only keyword first is a closure.
+    func parse_brace(&var self) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        if not self.parse_brace_body(open) {
+            return false
+        }
+        self.leave_level()
+        true
+    }
+
+    func parse_brace_body(&var self, open: Int) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        let outer = self.head
+        let lists = self.lists
+        self.lists = 0
+        if self.empty_map_ahead() {
+            self.see(Alt.Expr_Primary_Map)
+            self.see(Alt.Expr_Map_Empty)
+            self.advance()
+            self.skip_newlines()
+            self.advance()
+            self.skip_newlines()
+            self.lists = lists
+            self.advance()
+            self.close(mark, Alt.Expr_Map_Empty, start)
+            return true
+        }
+        let noted = self.note_head()
+        if self.closure_head_ahead() {
+            self.see(Alt.Expr_Primary_Closure)
+            self.advance()
+            return self.parse_closure_rest(open, start, mark, true, lists, outer, &noted)
+        }
+        self.advance()
+        self.skip_newlines()
+        if self.kind() == TokenKind.RBrace || self.starts_statement_only(0) {
+            self.see(Alt.Expr_Primary_Closure)
+            return self.parse_closure_rest(open, start, mark, false, lists, outer, &noted)
+        }
+        let saved_shadow = self.shadow_brace
+        if outer != HeadState.Off {
+            self.head = HeadState.Shadow
+            self.shadow_brace = -1
+        }
+        let first = self.pos
+        let first_start = self.here()
+        let element = self.builder.mark()
+        let point = self.resume_point()
+        var ok = true
+        var bare = true
+        if self.word_at(0, "static_assert") && self.kind_at(1) == TokenKind.LParen {
+            // Only an element reaches here (starts_statement_only), and an
+            // element names a call.
+            ok = self.parse_expr()
+        } else {
+            ok = self.parse_statement(StatementPlace.BraceFirst)
+            bare = ok && not self.is_statement_node(element)
+        }
+        var form = BraceForm.Closure
+        if ok && bare {
+            form = self.brace_form_after_element()
+        }
+        if form == BraceForm.Closure {
+            if not ok {
+                self.resume(&point)
+                self.recover(first)
+            }
+            self.shadow_brace = saved_shadow
+            if ok && bare {
+                self.see(Alt.Stmt_Statement_Expr)
+                self.see(Alt.Stmt_Expr)
+                self.close(element, Alt.Stmt_Expr, first_start)
+            }
+            self.see(Alt.Expr_Primary_Closure)
+            return self.parse_closure_body(open, start, mark, true, lists, outer, &noted)
+        }
+        // A literal's elements stand where the brace does, so they are in any
+        // head the brace is in (syntax.rule.head-reset names no literal).
+        if outer == HeadState.On && self.shadow_brace >= 0 {
+            let at = self.shadow_brace
+            self.shadow_brace = saved_shadow
+            return self.refuse(Rule.Rule_HeadRestriction, at,
+                               "a map or set literal in a head is at the head's outer level, so no trailing closure attaches there",
+                               "pass the closure in parentheses: `f(\{ … \})`")
+        }
+        if outer != HeadState.Shadow || saved_shadow >= 0 {
+            self.shadow_brace = saved_shadow
+        }
+        self.head = outer
+        if self.head_brace < 0 {
+            self.restore_head(&noted)
+        }
+        var alt = Alt.Expr_Set
+        if form == BraceForm.Map {
+            alt = Alt.Expr_Map_Entries
+            self.see(Alt.Expr_Primary_Map)
+            if not self.parse_map_rest(open, element, first_start) {
+                return false
+            }
+        } else {
+            self.see(Alt.Expr_Primary_Set)
+            if not self.parse_set_rest(open) {
+                return false
+            }
+        }
+        self.lists = lists
+        self.advance()
+        self.close(mark, alt, start)
+        true
+    }
+
+    // Whether the brace here is `{:}`, line breaks allowed around the `:`.
+    func empty_map_ahead(&self) -> Bool {
+        var k = 1
+        while self.kind_at(k) == TokenKind.Newline {
+            k = k + 1
+        }
+        if self.kind_at(k) != TokenKind.Colon {
+            return false
+        }
+        k = k + 1
+        while self.kind_at(k) == TokenKind.Newline {
+            k = k + 1
+        }
+        self.kind_at(k) == TokenKind.RBrace
+    }
+
+    // Whether a closure head follows the brace here: past line breaks, a run
+    // of tokens a head holds at the brace's own depth, then `in`. The scan
+    // passes nested `( )` and `[ ]` groups whole and stops at the first token
+    // no head holds (`holds_closure_head`, generated from the grammar). Only
+    // `for` puts an `in` in a statement, so a body never reaches one this way.
+    func closure_head_ahead(&self) -> Bool {
+        var k = 1
+        while self.kind_at(k) == TokenKind.Newline {
+            k = k + 1
+        }
+        let first = k
+        var nested = 0
+        while true {
+            let kind = self.kind_at(k)
+            if kind == TokenKind.Eof {
+                return false
+            }
+            if nested > 0 {
+                if opens_bracket(kind) {
+                    nested = nested + 1
+                } else if closes_bracket(kind) {
+                    nested = nested - 1
+                }
+            } else if kind == TokenKind.In {
+                return k > first
+            } else if kind == TokenKind.LParen || kind == TokenKind.LBracket {
+                nested = 1
+            } else if not holds_closure_head(kind) {
+                return false
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // Whether the token `ahead` tokens on begins a statement no expression
+    // begins, which makes the brace around it a closure. `static_assert` and
+    // its `(` begin the assertion, unless the token after its `)` makes it a
+    // map key or a set element, where it is an ordinary call.
+    func starts_statement_only(&self, ahead: Int) -> Bool {
+        if self.word_at(ahead, "static_assert") && self.kind_at(ahead + 1) == TokenKind.LParen {
+            return not self.assertion_is_element(ahead)
+        }
+        let named = self.word_at(ahead, "const") || self.word_at(ahead, "type")
+        if named && self.kind_at(ahead + 1) == TokenKind.Ident {
+            return true
+        }
+        match self.kind_at(ahead) {
+            case Let -> true,
+            case Var -> true,
+            case Return -> true,
+            case Break -> true,
+            case Continue -> true,
+            case Guard -> true,
+            case Lend -> true,
+            case At -> true,
+            case Semicolon -> true,
+            case _ -> false
+        }
+    }
+
+    // Whether the `static_assert (…)` `ahead` tokens on is followed by what
+    // makes it a map key or a set element: `:` on its line, or `,` after any
+    // line breaks.
+    func assertion_is_element(&self, ahead: Int) -> Bool {
+        var k = ahead + 1
+        var nested = 0
+        while true {
+            let kind = self.kind_at(k)
+            if kind == TokenKind.Eof {
+                return false
+            }
+            if opens_bracket(kind) {
+                nested = nested + 1
+            } else if closes_bracket(kind) {
+                nested = nested - 1
+                if nested == 0 {
+                    break
+                }
+            }
+            k = k + 1
+        }
+        k = k + 1
+        if self.kind_at(k) == TokenKind.Colon {
+            return true
+        }
+        while self.kind_at(k) == TokenKind.Newline {
+            k = k + 1
+        }
+        self.kind_at(k) == TokenKind.Comma
+    }
+
+    // Whether the node at scratch slot `slot` is a statement that no
+    // expression is: an assignment, the one kind a brace's first element can
+    // be that starts like an expression.
+    func is_statement_node(&self, slot: Int) -> Bool {
+        let node = self.builder.node_at(slot)
+        if let alt = node.alt {
+            return (alt == Alt.Stmt_Assign || alt == Alt.Stmt_CompoundAssign
+                    || alt == Alt.Stmt_OptionalAssign_Plain || alt == Alt.Stmt_OptionalAssign_Compound)
+        }
+        false
+    }
+
+    // What the token after a brace's first element makes the brace. A map
+    // entry's `:` stands on its key's line; a set may break before its `,`.
+    func brace_form_after_element(&self) -> BraceForm {
+        if self.kind() == TokenKind.Colon {
+            return BraceForm.Map
+        }
+        var k = 0
+        while self.kind_at(k) == TokenKind.Newline {
+            k = k + 1
+        }
+        if self.kind_at(k) == TokenKind.Comma {
+            return BraceForm.Set
+        }
+        BraceForm.Closure
+    }
+
+    // `map-literal`'s entries after its first key, which is on the scratch
+    // stack at `key` and stands before the current `:`, up to its `}`.
+    func parse_map_rest(&var self, open: Int, key: Int, key_start: Int) -> Bool {
+        self.see(Alt.Expr_Map_Entries)
+        var entry = key
+        var entry_start = key_start
+        while true {
+            self.advance()
+            if not self.parse_expr() {
+                return false
+            }
+            self.see(Alt.Expr_MapEntry)
+            self.close(entry, Alt.Expr_MapEntry, entry_start)
+            var ahead = 0
+            while self.kind_at(ahead) == TokenKind.Newline {
+                ahead = ahead + 1
+            }
+            if self.kind_at(ahead) == TokenKind.RBrace {
+                self.skip_newlines()
+                return true
+            }
+            if self.kind_at(ahead) != TokenKind.Comma {
+                return self.list_error(open, "expected `,` or `\}` after a map entry")
+            }
+            self.skip_newlines()
+            self.advance()
+            self.skip_newlines()
+            if self.kind() == TokenKind.RBrace {
+                return true
+            }
+            entry = self.builder.mark()
+            entry_start = self.here()
+            if not self.parse_expr() {
+                return false
+            }
+            if self.kind() != TokenKind.Colon {
+                return self.list_error(open, "expected `:` and the entry's value")
+            }
+        }
+        false
+    }
+
+    // `set-literal`'s elements after its first, which is on the scratch stack
+    // and stands before the `,` that line breaks may precede, up to its `}`.
+    func parse_set_rest(&var self, open: Int) -> Bool {
+        self.see(Alt.Expr_Set)
+        while true {
+            self.skip_newlines()
+            self.advance()
+            self.skip_newlines()
+            if self.kind() == TokenKind.RBrace {
+                return true
+            }
+            if not self.parse_expr() {
+                return false
+            }
+            var ahead = 0
+            while self.kind_at(ahead) == TokenKind.Newline {
+                ahead = ahead + 1
+            }
+            if self.kind_at(ahead) == TokenKind.RBrace {
+                self.skip_newlines()
+                return true
+            }
+            if self.kind_at(ahead) != TokenKind.Comma {
+                return self.list_error(open, "expected `,` or `\}` after a set element")
+            }
+        }
+        false
+    }
+
+    // `closure-literal` as a call's trailing closure, where no map or set can
+    // stand, one level for its `{`.
+    func parse_closure_literal(&var self) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        let start = self.here()
+        let mark = self.builder.mark()
+        let outer = self.head
+        let lists = self.lists
+        self.lists = 0
+        let noted = self.note_head()
+        let headed = self.closure_head_ahead()
+        self.advance()
+        if not self.parse_closure_rest(open, start, mark, headed, lists, outer, &noted) {
+            return false
+        }
+        self.leave_level()
+        true
+    }
+
+    // A closure after its `{`: its head when the scan found one (`headed`),
+    // then its statements. `lists`, `outer` and `noted` are what the brace
+    // found, which the closure gives back at its `}`.
+    func parse_closure_rest(&var self, open: Int, start: Int, mark: Int, headed: Bool, lists: Int,
+                            outer: HeadState, noted: &HeadNote) -> Bool {
+        if headed {
+            self.skip_newlines()
+            self.head = HeadState.Off
+            if not self.parse_closure_head() {
+                return false
+            }
+        }
+        self.parse_closure_body(open, start, mark, false, lists, outer, &noted)
+    }
+
+    // `block-body "}"` of a closure, after its first statement when `any`,
+    // closed into the Closure node. A closure body resets any head around it
+    // (syntax.rule.head-reset), and its line breaks are significant inside a
+    // generic list.
+    func parse_closure_body(&var self, open: Int, start: Int, mark: Int, any: Bool, lists: Int,
+                            outer: HeadState, noted: &HeadNote) -> Bool {
+        self.see(Alt.Expr_Closure)
+        self.see(Alt.Stmt_Body)
+        self.head = HeadState.Off
+        self.parse_statement_list(any)
+        if self.kind() != TokenKind.RBrace {
+            return self.refuse_unclosed(open)
+        }
+        self.lists = lists
+        self.advance()
+        self.head = outer
+        self.restore_head(&noted)
+        self.close(mark, Alt.Expr_Closure, start)
+        true
+    }
+
+    // `closure-head`: a capture list, parameters, or both, then `in`, which
+    // prints, since `closure-head` builds no node to imply it. Line breaks may
+    // stand after the capture list, and after each parameter's `,`.
+    func parse_closure_head(&var self) -> Bool {
+        if self.kind() == TokenKind.LBracket {
+            if not self.parse_capture_list() {
+                return false
+            }
+            self.skip_newlines()
+            if self.kind() == TokenKind.In {
+                self.see(Alt.Expr_ClosureHead_Captures)
+                self.take_leaf()
+                return true
+            }
+            self.see(Alt.Expr_ClosureHead_CapturesParams)
+        } else {
+            self.see(Alt.Expr_ClosureHead_Params)
+        }
+        self.see(Alt.Expr_ClosureParams)
+        while true {
+            if not self.parse_closure_param() {
+                return false
+            }
+            if self.kind() != TokenKind.Comma {
+                break
+            }
+            self.advance()
+            self.skip_newlines()
+        }
+        if self.kind() != TokenKind.In {
+            return self.error("expected `in` to end the closure's head")
+        }
+        self.take_leaf()
+        true
+    }
+
+    // `capture-list ::= "[" capture ( "," capture )* ","? "]"`
+    func parse_capture_list(&var self) -> Bool {
+        self.see(Alt.Expr_CaptureList)
+        let open = self.pos
+        self.advance()
+        while true {
+            if not self.parse_capture() {
+                return false
+            }
+            if self.kind() == TokenKind.Comma {
+                self.advance()
+                if self.kind() == TokenKind.RBracket {
+                    break
+                }
+            } else if self.kind() == TokenKind.RBracket {
+                break
+            } else {
+                return self.list_error(open, "expected `,` or `]` in the capture list")
+            }
+        }
+        self.advance()
+        true
+    }
+
+    // `capture`: a name, `move`, `copy`, `&` or `&var` and a name, or `&` or
+    // `&var` and `self`. A plain or moved `self` is the refused capture
+    // (syntax.expr.refused-capture-self).
+    func parse_capture(&var self) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        let kind = self.kind()
+        let next = self.kind_at(1)
+        var alt = Alt.Expr_Capture_Value
+        if kind == TokenKind.SelfKw || (kind == TokenKind.Move_ && next == TokenKind.SelfKw) {
+            let at = self.pos
+            return self.refuse(Rule.Expr_RefusedCaptureSelf, at,
+                               "`self` is captured only by borrowing it",
+                               "write `[&self]` or `[&var self]`")
+        }
+        if kind == TokenKind.Ident && next == TokenKind.Ident && self.word_at(0, "copy") {
+            alt = Alt.Expr_Capture_Copy
+            self.advance()
+        } else if kind == TokenKind.Move_ {
+            alt = Alt.Expr_Capture_Move
+            self.advance()
+        } else if kind == TokenKind.Ampersand {
+            let exclusive = next == TokenKind.Var
+            let width = if exclusive { 2 } else { 1 }
+            if self.kind_at(width) == TokenKind.SelfKw {
+                alt = if exclusive { Alt.Expr_Capture_SelfExclusive } else { Alt.Expr_Capture_Self }
+                var k = 0
+                while k <= width {
+                    self.advance()
+                    k = k + 1
+                }
+                self.see(alt)
+                self.close(mark, alt, start)
+                return true
+            }
+            alt = if exclusive { Alt.Expr_Capture_BorrowExclusive } else { Alt.Expr_Capture_Borrow }
+            var k = 0
+            while k < width {
+                self.advance()
+                k = k + 1
+            }
+        }
+        if self.kind() != TokenKind.Ident {
+            return self.error("expected a name to capture")
+        }
+        self.take_leaf()
+        self.see(alt)
+        self.close(mark, alt, start)
+        true
+    }
+
+    // `closure-param`: a name, or `&` or `&var` and a name, with an optional
+    // type annotation.
+    func parse_closure_param(&var self) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        var alt = Alt.Expr_ClosureParam_Value
+        if self.kind() == TokenKind.Ampersand {
+            if self.kind_at(1) == TokenKind.Var {
+                alt = Alt.Expr_ClosureParam_RefExclusive
+                self.advance()
+            } else {
+                alt = Alt.Expr_ClosureParam_Ref
+            }
+            self.advance()
+        }
+        if self.kind() != TokenKind.Ident {
+            return self.error("expected a parameter name")
+        }
+        self.take_leaf()
+        if self.kind() == TokenKind.Colon {
+            self.see(Alt.Stmt_TypeAnnotation)
+            self.advance()
+            if not self.parse_type(false) {
+                return false
+            }
+        }
+        self.see(alt)
+        self.close(mark, alt, start)
         true
     }
 }

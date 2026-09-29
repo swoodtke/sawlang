@@ -213,3 +213,107 @@ func f() {
 func f() {
     { a }
 }
+
+// case: syntax.rule.brace/typed-let-first-is-a-closure
+// The `:` of a statement's annotation stands at the brace's own level; the
+// statement-only keyword before it decides.
+func f() {
+    let c = { let x: Int = 1
+        x }
+    let d = { var n: Int = 0
+        n }
+}
+
+// case: syntax.rule.brace/typed-let-on-a-later-line-is-a-closure
+func f() {
+    let c = { foo()
+        let y: Int = 2
+        y }
+}
+
+// case: syntax.rule.brace/closure-heads
+func f() {
+    let c = { n: Int in n + 1 }
+    let d = { a, b in a }
+    let e = { [a] in a }
+}
+
+// case: syntax.rule.brace/match-body-is-a-closure
+func f() {
+    let c = { match x { case 1 -> a, case _ -> b } }
+}
+
+// case: syntax.rule.brace/first-element-statements-are-closures
+func f() {
+    let c = { f(x: 1) }
+    let d = { a(); b() }
+    let e = { x }
+    let g = {}
+}
+
+// case: syntax.rule.brace/sets-by-the-first-comma
+func f() {
+    let s = { 1, 2 }
+    let t = { x, }
+}
+
+// case: syntax.rule.brace/set-whose-first-comma-is-on-the-next-line
+func f() {
+    let s = { a
+        , b }
+}
+
+// case: syntax.rule.brace/maps-by-the-first-colon
+func f() {
+    let m = { "a": 1 }
+    let n = {
+        "a": 1
+    }
+    let o = { if a { 1 } else { 2 }: "x" }
+    let p = {:}
+}
+
+// case: syntax.rule.brace/a-generic-call-first-is-one-element
+// The first element is parsed, so a generic list's comma is not the set's.
+func f() {
+    let c = { g<A, B>(x) }
+    let s = { g<A, B>(x), c }
+}
+
+// case: syntax.rule.brace/an-assertion-first
+// `static_assert` and its `(` begin the assertion in a statement; as a set
+// element it is a call.
+func f() {
+    let c = { static_assert(a, "m") }
+    let s = { static_assert(a, "m"), 1 }
+}
+
+// case: syntax.rule.brace/a-loop-first-is-a-map-key
+func f() {
+    let m = { while c { }: 1 }
+}
+
+// case: syntax.rule.brace/an-assignment-first-is-a-closure
+func f() {
+    let c = { n = 1 }
+}
+
+// case: syntax.rule.brace/a-literal-in-a-head
+func f() {
+    for x in { a, b } {
+    }
+    if m == { a: 1 } {
+    }
+}
+
+// case: syntax.rule.head-reset/inside-a-closure-in-a-head
+func f() {
+    if { v.any { $0 } }() {
+    }
+}
+
+// case: syntax.rule.trailing-closure/closure-heads-and-captures
+func f() {
+    run { [a, move b, copy c, &d, &var e, &self, &var self] in a }
+    run { &x, &var y: Int in x }
+}

@@ -52,9 +52,11 @@ PARSES_AS = "parses as another construct"
 # construct, so that the case says so.
 PARSES_AS_NOTE = "// " + PARSES_AS
 # The line a negative case writes when it leaves a bracket unclosed. Section
-# 2.7 reports that at the opener and section 16 lists the recognizer's later
-# position as a defect, so its parse error records no position.
+# 2.7 names that refusal and reports it at the opener, where the recognizer,
+# which balances no brackets, only fails later, so the case records the
+# lexical rule at the opener rather than the recognizer's parse error.
 UNCLOSED_NOTE = "// an unclosed bracket, refused at its opener"
+UNCLOSED_RULE = "syntax.lex.unclosed-bracket"
 CELL = "/cell:"
 # A P cell's construct written bare in its context, which the cell allows only
 # parenthesized.
@@ -327,7 +329,7 @@ class Expectations:
                 if name != PARSE_ERROR or not unclosed(case.text):
                     raise Problem("says `%s`, but %s" % (UNCLOSED_NOTE, "it leaves no bracket "
                                   "unclosed" if name == PARSE_ERROR else "is refused by " + name))
-                at = None
+                name, at = UNCLOSED_RULE, unclosed_opener(case.text)
             return ["refuses %s%s" % (name, " at " + at if at else "")], name, alts
         construct, ctx = cell_of(case.name)
         if construct is None or PARSES_AS_NOTE not in case.text.split("\n"):
@@ -399,6 +401,34 @@ def unclosed(text):
         return False
     opens = sum(1 for t in toks if t.kind in ("LPAREN", "LBRACKET", "LBRACE"))
     return opens > sum(1 for t in toks if t.kind in ("RPAREN", "RBRACKET", "RBRACE"))
+
+
+def unclosed_opener(text):
+    """"L:C" of a text's first unclosed bracket, where section 2.7 reports it.
+    A closer that closes an opener deeper in the stack leaves the openers above
+    it unclosed; one that closes nothing is stray and leaves the stack alone."""
+    toks, _, _ = recognize.lex_with_docs(text)
+    stack = []
+    first = None
+    for t in toks:
+        if t.kind in OPENERS:
+            stack.append(t)
+        elif t.kind in CLOSERS:
+            want = OPENERS[CLOSERS.index(t.kind)]
+            j = len(stack) - 1
+            while j >= 0 and stack[j].kind != want:
+                j -= 1
+            if j >= 0:
+                if j + 1 < len(stack):
+                    first = min(first or stack[j + 1], stack[j + 1], key=_at)
+                del stack[j:]
+    if stack:
+        first = min(first or stack[0], stack[0], key=_at)
+    return "%d:%d" % _at(first)
+
+
+def _at(t):
+    return (t.line, t.column)
 
 
 def cell_of(name):

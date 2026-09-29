@@ -146,6 +146,9 @@ GRAMMAR_TABLES = os.path.join(extract.REPO, "compiler", "parse", "src", "grammar
 LIST_SCAN_FUNC = "stops_list_scan"
 LIST_SCAN_START = grammar_tables.LIST_SCAN_START
 LIST_SCAN_LAYOUT = {"Newline"}
+# The function the brace scan for a closure head passes by, and the head.
+HEAD_SCAN_FUNC = "holds_closure_head"
+HEAD_SCAN_START = grammar_tables.HEAD_SCAN_START
 
 
 def _first_difference(want, got):
@@ -414,6 +417,8 @@ def witness_tokens(terms):
             tok = recognize.Token("INT", "1", 1, 2 * k + 1)
         elif t.startswith("'"):
             tok = recognize.Token("IDENT", t[1:-1], 1, 2 * k + 1)
+        elif t == "NEWLINE":
+            tok = recognize.Token("NEWLINE", "\n", 1, 2 * k + 1)
         else:
             tok = recognize.Token("WITNESS", t[1:-1], 1, 2 * k + 1)
         out.append(tok)
@@ -470,6 +475,69 @@ def check_list_scan(failures, g):
     for label, injected in injections:
         if injected == text or not list_scan_problems(witnesses, scan_holds(injected), rel):
             failures.append("list scan: with %s the check still passes" % label)
+    return len(witnesses) + len(injections)
+
+
+def head_scan_table(text):
+    """(start, end) of the committed `holds_closure_head` body, or None."""
+    m = re.search(r"func %s\(kind: TokenKind\) -> Bool \{\n    match kind \{\n(.*?)\n"
+                  r"        case _ -> false" % HEAD_SCAN_FUNC, text, re.S)
+    return None if m is None else m.span(1)
+
+
+def head_scan_holds(text):
+    """The TokenKinds the committed brace scan passes on its way to `in`, or None."""
+    span = head_scan_table(text)
+    if span is None:
+        return None
+    return set(re.findall(r"^        case (\w+) -> true,$", text[span[0]:span[1]], re.M))
+
+
+def head_scan_problems(witnesses, holds, rel):
+    """How the brace scan's committed table disagrees with the grammar's
+    witnesses: a token a head holds that stops the scan hides a closure head,
+    so its brace reads as a map, a set or a headless closure; one no head
+    holds is not the grammar's."""
+    if holds is None:
+        return ["%s: no %s table" % (rel, HEAD_SCAN_FUNC)]
+    kinds = {}
+    for term, sentence in sorted(witnesses.items()):
+        kinds.setdefault(grammar_tables.token_kind(term), " ".join(sentence))
+    out = ["%s: the brace scan stops at %s, which %s holds at its own depth"
+           % (rel, kind, sentence) for kind, sentence in sorted(kinds.items())
+           if kind not in holds]
+    out += ["%s: the brace scan passes %s, which no closure head holds at its own depth"
+            % (rel, kind) for kind in sorted(holds - set(kinds))]
+    return out
+
+
+def check_head_scan(failures, g):
+    """The parser's scan for a closure head passes exactly the tokens a head
+    holds at its brace's own depth: its committed table agrees with witness
+    sentences the recognizer accepts, and with `Grammar.depth_terms`, and fails
+    with `:` made a stop or `{` made a pass."""
+    witnesses = depth_witnesses(g, HEAD_SCAN_START)
+    for term, sentence in sorted(witnesses.items()):
+        if not recognize.Chart(g, HEAD_SCAN_START, witness_tokens(sentence)).accepted:
+            failures.append("head scan witness for %s: %s is not a %s"
+                            % (term, " ".join(sentence), HEAD_SCAN_START))
+    computed = g.depth_terms(HEAD_SCAN_START)
+    if set(witnesses) != computed:
+        failures.append("head scan: the rules hold %s and the witnesses %s"
+                        % (sorted(computed - set(witnesses)), sorted(set(witnesses) - computed)))
+    rel = os.path.relpath(GRAMMAR_TABLES, extract.REPO)
+    text = _read(GRAMMAR_TABLES)
+    failures.extend(head_scan_problems(witnesses, head_scan_holds(text), rel))
+    span = head_scan_table(text)
+    injections = []
+    if span is not None:
+        body = text[span[0]:span[1]]
+        for label, edited in (("`:` a stop", body.replace("        case Colon -> true,\n", "")),
+                              ("`{` a pass", body + "\n        case LBrace -> true,")):
+            injections.append((label, text[:span[0]] + edited + text[span[1]:]))
+    for label, injected in injections:
+        if injected == text or not head_scan_problems(witnesses, head_scan_holds(injected), rel):
+            failures.append("head scan: with %s the check still passes" % label)
     return len(witnesses) + len(injections)
 
 
@@ -547,6 +615,7 @@ def run():
     counts["open-end follow tokens"] = check_open_end(failures, g)
     counts["cast follow trials"] = check_cast_follow(failures, g)
     counts["list scan witnesses and injections"] = check_list_scan(failures, g_removed)
+    counts["head scan witnesses and injections"] = check_head_scan(failures, g_removed)
     counts["corpus lane cases"] = check_corpus(failures, model)
     failures.extend(contexts.problems(model))
     return failures, counts

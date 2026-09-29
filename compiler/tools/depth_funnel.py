@@ -486,6 +486,25 @@ def mixed_patterns(k):
     return "func f() {\n    let " + openers + "a" + ")" * k + " = w\n}\n"
 
 
+def nested_closures(k):
+    """A closure whose one statement is a closure, k deep: one level each."""
+    return in_function("{ " * k + "1" + " }" * k)
+
+
+def nested_maps(k):
+    return in_function("{1: " * k + "1" + "}" * k)
+
+
+def nested_sets(k):
+    return in_function("{1, " * k + "1" + "}" * k)
+
+
+def trailing_closures(k):
+    """Trailing closures each holding the next: the hop and its closure take
+    a level each, so an odd k ends in a plain closure."""
+    return in_function("f { " * (k // 2) + ("{ 1 }" if k % 2 else "1") + " }" * (k // 2))
+
+
 def nth(text, needle, n, shift=0):
     """The offset of the nth occurrence of `needle` in `text`, plus `shift`."""
     at = -1
@@ -528,7 +547,12 @@ def cells():
             ("nested variant payloads", nested_variant_payloads,
              lambda t: nth(t, "(", LIMIT + 1)),
             ("mixed tuple and variant patterns", mixed_patterns,
-             lambda t: nth(t, "(", LIMIT + 2))):
+             lambda t: nth(t, "(", LIMIT + 2)),
+            ("nested closures", nested_closures, lambda t: nth(t, "{", LIMIT + 2)),
+            ("nested map literals", nested_maps, lambda t: nth(t, "{", LIMIT + 2)),
+            ("nested set literals", nested_sets, lambda t: nth(t, "{", LIMIT + 2)),
+            ("closures nested in trailing closures", trailing_closures,
+             lambda t: t.rindex("{ 1 }"))):
         out.append(("%s at %d" % (name, LIMIT), build_text(LIMIT), None, None))
         text = build_text(LIMIT + 1)
         at = find(text) if find else None

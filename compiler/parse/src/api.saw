@@ -45,7 +45,7 @@ public func parse_source(path: String, text: String, unit: Bool) -> Parser {
             let no_docs = Vector<DocComment>()
             var parser = new_parser(tree_builder(move source), Vector<ParseToken>(),
                                     Vector<InterpPiece>(), &no_docs)
-            parser.lex_error(at, e.message)
+            parser.lex_error(at, e.message, e.rule, e.hint)
             move parser
         }
     }

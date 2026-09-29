@@ -24,11 +24,13 @@ parse/
 
 `grammar.saw` is written by `compiler/tools/grammar_tables.py`: an `Alt` case
 per alternative of GRAMMAR.md, with its stable name and the Kind of the node it
-builds, a `Rule` case per name a refusal can carry, the tokens that may
-follow a cast target's generic list, the FOLLOW set the recognizer computes,
-and the tokens a generic list can hold at its own bracket depth, which the
-recognizer computes too (Speculation, below). Regenerate it when GRAMMAR.md
-changes; `compiler/tests/run.py` fails while it is stale.
+builds, a `Rule` case per name a refusal can carry, and `rule_named`, which
+maps a lexer's rule name onto its case, the tokens that may follow a cast
+target's generic list, the FOLLOW set the recognizer computes, the tokens a
+generic list can hold at its own bracket depth, which the recognizer computes
+too (Speculation, below), and the tokens a closure head can hold at its
+brace's own depth (Braces, below). Regenerate it when GRAMMAR.md changes;
+`compiler/tests/run.py` fails while it is stale.
 
 ## Speculation
 
@@ -54,6 +56,34 @@ wrongly on it turns a generic list into comparisons. The recognizer tests
 check the committed table against sentences of `generic-args` that hold each
 token, and fail with `var` made a stop or `:` made a pass.
 
+## Braces
+
+A `{` in expression position is a map, a set or a closure
+(syntax.rule.brace), and the parser decides it without speculating. `{:}` is
+the empty map. A closure head is found by a scan past the `{` that passes
+nested `( )` and `[ ]` groups whole and every token a closure head holds at
+the brace's own depth, and finds its `in`: `holds_closure_head` in
+`grammar.saw`, generated, and checked by the recognizer tests against a
+sentence of `closure-head` holding each token, failing with `:` made a stop or
+`{` made a pass. Only a `for` puts an `in` in a statement, and `for` is no head
+token, so a body never reads as a head. Otherwise a statement-only keyword
+first makes a closure, and any other first element is parsed once, as a
+closure's first statement would be (`StatementPlace.BraceFirst`, which leaves
+an expression without its statement node), and the token after it decides: a
+`:` on its line makes a map whose first key it is, a `,` after any line breaks
+a set, and anything else a closure whose first statement it is.
+
+A trailing closure attaches after a name, an implicit member, a member, or a
+call of one (syntax.rule.trailing-closure). At a head's outer level such a `{`
+begins the body instead, and the statement notes it. A refusal later in the
+statement, a plain parse error or a rule the head restriction outranks, is
+syntax.rule.head-restriction when the head, read again inside a speculation
+with a closure attached at that `{` (`HeadState.Lifted`), goes on to the token
+its construct takes next. Map and set literals start no fresh level, so their
+elements stand in any head around them; a brace's first element is parsed
+before the brace is known to be a literal, so a closure attaching there is
+noted (`HeadState.Shadow`) and refused if the brace turns out to be one.
+
 ## Assignment targets
 
 A statement that starts with a postfix chain, or with `*`, may be an
@@ -78,7 +108,9 @@ record starts with the line `FILE<TAB>path` and holds:
 
 - for a refused file, one `ERROR<TAB>id<TAB>line:col<TAB>message[<TAB>hint]` line
   per diagnostic, in the order they were found, where `id` is the refusing
-  rule's or removed production's stable name, or `parse-error`;
+  rule's or removed production's stable name, a lexical rule's for a lex error
+  one names, or `parse-error`. An unclosed bracket is found before the parse
+  begins, so its refusal, at the opener, comes first;
 - for an accepted file, with `--dump`, its canonical dump; with
   `--alternatives`, one `ALT` line naming, tab-separated, every alternative its
   derivation took; and an `INVARIANT<TAB>message` line should its tree break

@@ -60,3 +60,12 @@ refuses syntax.rule.head-restriction at 4:19
 
 // case: syntax.rule.head-reset/only-inside-the-nested-block
 refuses syntax.rule.head-restriction at 4:39
+
+// case: syntax.rule.brace/map-key-with-its-colon-on-the-next-line
+refuses parse-error at 5:9
+
+// case: syntax.rule.head-restriction/trailing-closure-in-a-map-value-in-a-head
+refuses syntax.rule.head-restriction at 3:20
+
+// case: syntax.rule.head-restriction/trailing-closure-in-a-set-element-in-a-head
+refuses syntax.rule.head-restriction at 2:18

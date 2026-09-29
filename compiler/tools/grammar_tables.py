@@ -40,10 +40,13 @@ TOKEN_KINDS = {
     '"{"': "LBrace", '"|"': "Pipe", '"||"': "Or", '"}"': "RBrace", "EOF": "Eof",
     "NEWLINE": "Newline", '"="': "Assign", '"("': "LParen", '"["': "LBracket", '"."': "Dot",
     "IDENT": "Ident", "INT": "IntLit", '"var"': "Var", '"unsafe"': "Unsafe_",
-    '"borrows"': "Borrows",
+    '"borrows"': "Borrows", '"in"': "In",
 }
 # The nonterminal whose own-depth terminals a generic list's closer scan passes.
 LIST_SCAN_START = "generic-args"
+# The nonterminal whose own-depth terminals the brace scan for a closure head
+# passes, on its way to the `in` that ends the head (syntax.rule.brace).
+HEAD_SCAN_START = "closure-head"
 # The production whose layers the dump spells as one Kind whatever token wrote
 # them (compiler/tests/parse/README.md, Optional types).
 OPTIONAL_TYPE_PRODUCTION = "syntax.type.suffix"
@@ -118,6 +121,14 @@ def list_scan_holds(model):
     return sorted({token_kind(t) for t in held} | {"Newline"})
 
 
+def head_scan_holds(model):
+    """The TokenKind cases a closure head can hold at the brace's own bracket
+    depth, sorted, computed as `list_scan_holds` is; `in`, which ends the head,
+    among them."""
+    held = recognize.Grammar(model, "all").depth_terms(HEAD_SCAN_START)
+    return sorted({token_kind(t) for t in held})
+
+
 def render(model):
     alts = alternatives(model)
     refusals = rules(model)
@@ -165,6 +176,12 @@ def render(model):
     for k, (case, name) in enumerate(refusals):
         lines.append('        case %s -> "%s"%s' % (case, name, "," if k + 1 < len(refusals) else ""))
     lines += ["    }", "}", ""]
+    lines += ["// The refusal a stable name names, or None for a name that is no rule's,",
+              "// such as `parse-error` or a token production's.",
+              "public func rule_named(name: String) -> Rule? {", "    match name {"]
+    for case, name in refusals:
+        lines.append('        case "%s" -> Rule.%s,' % (name, case))
+    lines += ["        case _ -> None", "    }", "}", ""]
     lines += ["// Whether a token of this kind may follow a cast target's generic list: it",
               "// continues the target or follows the cast, by the FOLLOW set of the",
               "// productions (syntax.rule.generic-or-less).",
@@ -180,6 +197,13 @@ def render(model):
     for kind in list_scan_holds(model):
         lines.append("        case %s -> false," % kind)
     lines += ["        case _ -> true", "    }", "}", ""]
+    lines += ["// Whether a closure head can hold a token of this kind at its brace's own",
+              "// bracket depth, so that a scan for the `in` that ends a head passes it.",
+              "// Every other kind ends the scan: no head stands there (syntax.rule.brace).",
+              "public func holds_closure_head(kind: TokenKind) -> Bool {", "    match kind {"]
+    for kind in head_scan_holds(model):
+        lines.append("        case %s -> true," % kind)
+    lines += ["        case _ -> false", "    }", "}", ""]
     return "\n".join(lines)
 
 

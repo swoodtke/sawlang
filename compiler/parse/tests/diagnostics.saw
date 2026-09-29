@@ -28,8 +28,14 @@ func main() {
     expect_ids("func f() \{\n    let a = 1\n\}\n", false, "")
     // Two statements that fail on their own lines are two diagnostics, and the
     // statement between them still parses.
-    expect_ids("func f() \{\n    let = 1\n    let b = 2\n    let c = (\n\}\n", false,
+    expect_ids("func f() \{\n    let = 1\n    let b = 2\n    let c = -\n\}\n", false,
                "parse-error parse-error")
+    // An unclosed bracket is reported at its opener before anything the parse
+    // meets on the way to it (syntax.lex.unclosed-bracket).
+    expect_ids("func f() \{\n    let = 1\n    let c = (\n\}\n", false,
+               "syntax.lex.unclosed-bracket parse-error parse-error")
+    expect_ids("func a() \{\n    let x = 1\n\nfunc b() \{\n\}\n", false,
+               "syntax.lex.unclosed-bracket parse-error")
     // A statement after a juxtaposition is skipped to its line's end.
     expect_ids("func f() \{\n    let a = 1 b\n    let c = 2\n\}\n", false, "parse-error")
     // A named rule refuses by name.
@@ -38,8 +44,12 @@ func main() {
     expect_ids("func f() consumes \{\n\}\n", false, "syntax.rule.effect-slot")
     expect_ids("func f() \{\n\}\n/// orphaned\n", false, "syntax.lex.doc-attach")
     expect_ids("func f() \{\n\}\n//! late\n", false, "syntax.lex.module-doc")
-    // A lex error is the whole parse's one diagnostic.
-    expect_ids("func f() \{\n    let s = \"open\n\}\n", false, "parse-error")
+    // A lex error is the whole parse's one diagnostic, named by its lexical
+    // rule when one names it.
+    expect_ids("func f() \{\n    let s = \"open\n\}\n", false, "syntax.lex.unterminated-string")
+    expect_ids("func f() \{\n    let x = 0XFF\n\}\n", false, "parse-error")
+    // `7.` is refused where the parser sees what follows the point.
+    expect_ids("func f() \{\n    let x = 7.\n\}\n", false, "syntax.lex.float-point")
     // A refusal unit takes statements and declarations, separated as statements are.
     expect_ids("func g() \{\n\}; let x = 1\n", true, "")
     expect_ids("let x = 1;\n", true, "parse-error")

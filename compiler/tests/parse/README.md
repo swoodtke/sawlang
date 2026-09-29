@@ -241,7 +241,9 @@ A rule the productions encode, such as syntax.rule.statement-separator, refuses
 without the recognizer naming it, so its cases record `parse-error`. A lexical
 rule the lexer applies, such as syntax.lex.unterminated-string, is named by the
 lexer's error, and the recognizer passes that name on with the lexer's position,
-the one §2.7 fixes. A lex error no §2.7 rule names, such as an unexpected
+the one §2.7 fixes. syntax.lex.unclosed-bracket, which no lexer applies, is
+recorded at its opener by `cases.py` itself (The negative corpus, below). A
+lex error no §2.7 rule names, such as an unexpected
 character or a number whose `_` stands between no two digits, records
 `parse-error` at the lexer's position. A lex error inside an interpolation's
 segment records `parse-error` with no position, since the segment is lexed on
@@ -384,9 +386,12 @@ DUMP
 NAME is the refusing rule's or removed production's stable id (Refusals,
 above), and `at L:C` the recognizer's position when it gives one, for
 information only. A case that leaves a bracket unclosed holds the line
-`// an unclosed bracket, refused at its opener` and records no position: §2.7
-reports it at the opener, and the recognizer's position is later, where the
-chart stops. A lexical refusal records the lexer's position (Refusals, above).
+`// an unclosed bracket, refused at its opener` and records
+`refuses syntax.lex.unclosed-bracket at L:C`, the first unclosed opener, where
+§2.7 reports it: the recognizer balances no brackets and only fails later,
+where the chart stops, with a plain parse error. A closer that closes an
+opener deeper in the stack leaves the openers above it unclosed. A lexical
+refusal records the lexer's position (Refusals, above).
 A negative case that the recognizer accepts is an error,
 except an N cell, or a P cell's bare form, whose tokens parse as another
 construct: its text holds

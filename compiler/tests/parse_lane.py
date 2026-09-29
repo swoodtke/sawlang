@@ -62,6 +62,7 @@ REFUSAL_UNIT = "refusal-unit"
 # The C3 shape of SL:hazards: a quote inside a `//` comment inside an
 # interpolation, which must be refused end to end.
 C3_TEXT = 'func main() { let s = "a {1 // comment: "\n}\n'
+C3_RULE = "syntax.lex.unterminated-string"
 # The lane's counts, as run.py's summary names them.
 ACCEPTED = "parse lane cases accepted as expected"
 REFUSED = "parse lane cases refused as expected"
@@ -202,7 +203,7 @@ def collect(failures):
             text = fh.read()
         out.append(Case("corpus", "", SOURCE_FILE, text, path, "corpus", None))
     out.append(Case("pin", "C3", SOURCE_FILE, C3_TEXT, case_file(SOURCE_FILE, C3_TEXT),
-                    "refuses", PARSE_ERROR))
+                    "refuses", C3_RULE))
     # A case file no case holds any longer is one an edited case left behind.
     kept = {c.path for c in out}
     for path in glob.glob(os.path.join(WORK, "cases", "*.saw")):

@@ -44,10 +44,10 @@ refuses syntax.expr.refused-lend-var
 refuses syntax.lex.unterminated-string at 2:13
 
 // case: syntax.lex.unclosed-bracket/unclosed-parenthesis
-refuses parse-error
+refuses syntax.lex.unclosed-bracket at 3:13
 
 // case: syntax.lex.unclosed-bracket/unclosed-brace
-refuses parse-error
+refuses syntax.lex.unclosed-bracket at 2:10
 
 // case: syntax.lex.int-range/literal-past-64-bits
 refuses syntax.lex.int-range at 2:13
@@ -65,7 +65,7 @@ refuses syntax.lex.escape at 2:14
 refuses syntax.lex.unterminated-string at 3:16
 
 // case: syntax.lex.unclosed-bracket/unclosed-square-bracket
-refuses parse-error
+refuses syntax.lex.unclosed-bracket at 3:13
 
 // case: syntax.lex.unterminated-string/quote-in-an-interpolation-comment
 refuses syntax.lex.unterminated-string at 3:23
