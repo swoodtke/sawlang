@@ -27,7 +27,7 @@ The three places a tuple is spelled disagree about one element:
 **Why it waits:** it decides what `case (x)` means.
 - **Meanwhile:** U4e implements §8 as written, keeps the decision in one place in the parser, and pins it with one golden, so a ruling flips one spot and one case.
 
-**The lead's lean:** (b2). It is consistent with the other two, and refusing `(p)` rather than grouping it means no text silently changes meaning. The change costs nothing in existing code. A grep of every tracked `.saw` for a `case`, `let` or `var` whose pattern is a lone parenthesized name finds only the generated `compiler/tests/parse/generated/patterns.saw`, and no real program.
+**The lead's lean:** (b2). It is consistent with the other two, and refusing `(p)` rather than grouping it means no text silently changes meaning. The change costs nothing in existing code. A grep of every tracked `.saw` for a `case`, `let` or `var` whose pattern is a lone parenthesized name finds only the generated `compiler/tests/parse/generated/patterns.saw`, and no real program. The Air ran the same grep over sawtracker (18 `.saw` files) and sawos (205), and found none there either (t3).
 
 ### W1. `borrow let x = e` in a `while` or `guard` head: an unwrap, or a borrow block condition? (Sep 29; found by the SL-426 batch)
 SL:borrowing §2.4 (ruled, t21) makes a binding at an **`if`** head the optional-place unwrap: `if borrow var entry = e { … }`. It says nothing about `while` or boolean `guard` heads. There, GRAMMAR.md's head-reset admits a bare borrow block, so today the following parse with the block's value as the condition:
