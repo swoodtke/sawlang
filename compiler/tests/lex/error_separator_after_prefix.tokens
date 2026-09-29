@@ -1,0 +1,1 @@
+ERROR	2:3	a `_` in a number separates two digits, so it cannot follow the base prefix	syntax.expr.int	write `0xFF`

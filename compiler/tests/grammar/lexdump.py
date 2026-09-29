@@ -69,11 +69,16 @@ class Doc:
 
 
 class LexError(Exception):
-    def __init__(self, line, column, message):
+    """A lex error: its position, message, the id of the rule that refuses
+    (`parse-error` when none names it) and a hint, or ""."""
+
+    def __init__(self, line, column, message, rule="parse-error", hint=""):
         Exception.__init__(self, "%d:%d %s" % (line, column, message))
         self.line = line
         self.column = column
         self.message = message
+        self.rule = rule
+        self.hint = hint
 
 
 _ESCAPES = {"\\": 0x5C, "n": 0x0A, "t": 0x09, "r": 0x0D, "0": 0x00}
@@ -117,8 +122,11 @@ def parse_tokens(dump):
         kind = fields[0]
         line, column = _position(fields[1])
         if kind == "ERROR":
-            # The message is prose, written as it is, not an escaped field.
-            raise LexError(line, column, "\t".join(fields[2:]))
+            # ERROR, the position, the message, the rule's id, then the hint
+            # when there is one; the prose is written as it is, not escaped.
+            raise LexError(line, column, fields[2] if len(fields) > 2 else "",
+                           fields[3] if len(fields) > 3 else "parse-error",
+                           fields[4] if len(fields) > 4 else "")
         value = unescape(fields[2]) if len(fields) > 2 else ""
         if kind == "INTERP_STRING":
             segments = []
@@ -231,8 +239,8 @@ NUMBER_CHARS = frozenset("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQR
 
 def raw_spelling(source, starts, tok, after=None):
     """A literal token's spelling in `source`, whose `line_starts` are `starts`.
-    The dump strips a number's underscores, lowercases its base prefix, and
-    decodes a string, so the spelling comes from the text. `after` is the next
+    The dump strips a number's underscores and decodes a string, so the
+    spelling comes from the text. `after` is the next
     token, which bounds a number: the lexer's own reading says where it ends,
     whatever underscores it took."""
     at = starts[tok.line - 1] + tok.column - 1

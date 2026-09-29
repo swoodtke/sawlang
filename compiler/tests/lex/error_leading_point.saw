@@ -1,0 +1,2 @@
+// Fixture: a float with no digit before its point. Taken from the inputs of compiler/lex/tests/errors.saw.
+let x = .25

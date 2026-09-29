@@ -3073,9 +3073,6 @@ refuses parse-error at 1:10
 // case: syntax.expr.hop.tuple-index/alt/dup:3
 refuses parse-error at 1:9
 
-// case: syntax.expr.hop.tuple-index/alt/swap:5
-refuses parse-error at 1:11
-
 // case: syntax.expr.hop.tuple-index/alt/close:9
 refuses parse-error at 2:1
 
@@ -3138,12 +3135,6 @@ refuses parse-error at 1:16
 
 // case: syntax.expr.member/alt/dup:2
 refuses parse-error at 1:8
-
-// case: syntax.expr.tuple-index/alt/drop:6
-refuses parse-error at 1:14
-
-// case: syntax.expr.tuple-index/alt/dup:7
-refuses parse-error at 1:15
 
 // case: syntax.expr.tuple-index/alt/swap:2
 refuses parse-error at 1:7

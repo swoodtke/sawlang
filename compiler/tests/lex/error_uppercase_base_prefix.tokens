@@ -1,0 +1,1 @@
+ERROR	2:2	a base prefix is lowercase: `0x`, `0b` or `0o`	syntax.expr.int	write `0xFF`

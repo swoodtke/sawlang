@@ -19,11 +19,11 @@ func at(r: &LexResult, i: Int) -> String {
 }
 
 func main() {
-    // Decimal, hex (digit case preserved, prefix lowercased), binary, octal,
-    // underscores stripped, float.
-    let a = lexed("42 0XFf 0b1010 0o17 1_000 3.14")
+    // Decimal, hex (digit case preserved), binary, octal, underscores
+    // stripped, float.
+    let a = lexed("42 0xFf 0b1010 0o17 1_000 3.14")
     assert(at(&a, 0).equals("INT\t1:1\t42"), "decimal")
-    assert(at(&a, 1).equals("INT\t1:4\t0xFf"), "hex: prefix lowercased, digits kept")
+    assert(at(&a, 1).equals("INT\t1:4\t0xFf"), "hex: the digits keep their case")
     assert(at(&a, 2).equals("INT\t1:9\t0b1010"), "binary")
     assert(at(&a, 3).equals("INT\t1:16\t0o17"), "octal")
     assert(at(&a, 4).equals("INT\t1:21\t1000"), "underscores stripped")
@@ -36,6 +36,15 @@ func main() {
     assert(at(&b, 0).equals("INT\t1:1\t255\tu8"), "255u8 -> INT 255 u8")
     assert(at(&b, 1).equals("INT\t1:7\t65535\tu16"), "65535u16 -> INT 65535 u16")
     assert(at(&b, 2).equals("INT\t1:16\t1000\ti32"), "1_000i32 -> INT 1000 i32")
+
+    // A `_` between two digits, in each digit run of a float too, and the one
+    // `_` a width suffix may follow (GRAMMAR.md §2.1).
+    let s = lexed("0xFF_FF 1_0.5 2_u8 0xFF_u8 1_000_i32")
+    assert(at(&s, 0).equals("INT\t1:1\t0xFFFF"), "hex groups")
+    assert(at(&s, 1).equals("FLOAT\t1:9\t10.5"), "a separator in a float's digit run")
+    assert(at(&s, 2).equals("INT\t1:15\t2\tu8"), "one `_` before a suffix")
+    assert(at(&s, 3).equals("INT\t1:20\t0xFF\tu8"), "one `_` before a suffix, in hex")
+    assert(at(&s, 4).equals("INT\t1:28\t1000\ti32"), "groups, then one `_` before a suffix")
 
     // `5abc` stays INT + IDENT (no bogus suffix, no 4th column); `0xFace` is hex.
     let c = lexed("5abc 0xFace")
@@ -56,6 +65,14 @@ func main() {
     assert(at(&f, 2).equals("INT\t1:3\t0"), "t.0.1: first hop")
     assert(at(&f, 3).equals("DOT\t1:4\t."), "t.0.1: two hops, not the float 0.1")
     assert(at(&f, 4).equals("INT\t1:5\t1"), "t.0.1: second hop")
+
+    // A `.` before a digit is a tuple index after whatever can end an operand:
+    // a closing bracket, `!` and `self` among them.
+    let p = lexed("f().0 a[0].1 o!.2 self.3")
+    assert(at(&p, 4).equals("INT\t1:5\t0"), "after `)`")
+    assert(at(&p, 10).equals("INT\t1:12\t1"), "after `]`")
+    assert(at(&p, 14).equals("INT\t1:17\t2"), "after `!`")
+    assert(at(&p, 17).equals("INT\t1:24\t3"), "after `self`")
 
     let g = lexed("t.0u8")
     assert(at(&g, 2).equals("INT\t1:3\t0"), "a tuple index takes no width suffix")

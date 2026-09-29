@@ -1,0 +1,2 @@
+// Fixture: a `_` right after a base prefix. Taken from the inputs of compiler/lex/tests/errors.saw.
+0x_FF

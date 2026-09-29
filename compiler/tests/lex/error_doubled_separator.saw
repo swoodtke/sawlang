@@ -1,0 +1,2 @@
+// Fixture: a doubled `_` in a number. Taken from the inputs of compiler/lex/tests/errors.saw.
+1__000

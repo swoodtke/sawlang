@@ -1,11 +1,21 @@
 # sawlex: the Saw lexer, in Saw
 
 The lexer stage of the self-hosted compiler (`compiler/README.md`). It produces
-the same token kinds, token boundaries, 1-based `line:col` positions and lex-error
-positions as the Python lexer in `sawc/lexer.py`, but for `borrow`, which is a
-keyword here and an identifier there (GRAMMAR.md §16). `LANGUAGE_SPEC.md`'s
-lexical section is authoritative where the two disagree. The golden fixtures in
-`compiler/tests/lex/` pin its output.
+the same token kinds, token boundaries and 1-based `line:col` positions as the
+Python lexer in `sawc/lexer.py`, except where GRAMMAR.md's lexical layer (§2)
+decides otherwise, and GRAMMAR.md §16 records each such difference:
+
+- `borrow` is a keyword here and an identifier there;
+- a number's `_` stands between two digits, or is the one `_` before a width
+  suffix, and a base prefix is lowercase (§2.1); the Python lexer accepts
+  `1__000`, `1_`, `0x_FF`, `0XFF` and the like;
+- `.5` is refused, with a hint naming `0.5` (syntax.lex.float-point);
+- an unterminated string is reported at its opening quote, or at the `{` of an
+  interpolation that took its closing quote (syntax.lex.unterminated-string),
+  and a bad escape at its backslash (syntax.lex.escape).
+
+`LANGUAGE_SPEC.md` is authoritative for meaning and GRAMMAR.md for spelling.
+The golden fixtures in `compiler/tests/lex/` pin its output.
 
 ## Layout
 
@@ -35,7 +45,7 @@ KIND<TAB>line:col[<TAB>escaped-text][<TAB>suffix]
 * `KIND` is the token kind's dump name (see the mapping table below).
 * `line:col` is 1-based, at the token's first byte or character.
 * `escaped-text` is the token's canonical text (decoded for strings; underscores
-  stripped and the base prefix lowercased for numbers), escaped at the **byte**
+  and a width suffix's `_` stripped for numbers), escaped at the **byte**
   level: `\\` for backslash, `\n` `\t` `\r` for those controls, `\0` for NUL, any
   other control byte (`< 0x20` or `0x7F`) as `\xHH`, a space that ends the text
   as `\x20`, and every other byte, including raw UTF-8 `>= 0x80`, verbatim.
@@ -84,11 +94,19 @@ into the token's bytes.
 On a lex error the CLI emits a single record and exits 1:
 
 ```
-ERROR<TAB>line:col<TAB>message
+ERROR<TAB>line:col<TAB>message<TAB>rule[<TAB>hint]
 ```
 
-The position and the kind of error match the Python lexer. The message is this
-lexer's own wording.
+* `line:col` is where GRAMMAR.md §2.7 reports the refusal, at the offending
+  character.
+* `message` is this lexer's own wording, for the reader.
+* `rule` is the stable id the refusal is compared by: the §2.7 rule it applies
+  (`syntax.lex.escape`, `syntax.lex.unterminated-string`, ...); for a number
+  that breaks §2.1's spelling, which no §2.7 rule names, the token production,
+  `syntax.expr.int` or `syntax.expr.float`; and `parse-error` for the rest, an
+  unexpected character and a `$` with no digits.
+* `hint` suggests a fix, such as `` write `1_000` ``, and is left out with its
+  tab when there is none.
 
 ## Doc-comment trivia dump
 

@@ -66,6 +66,8 @@ CLOSERS = ("RPAREN", "RBRACKET", "RBRACE")
 STAND_IN = "z"
 REFUSED_BY = re.compile(r"(\d+:\d+) refused by (syntax\.[a-z-]+\.[a-z-]+)")
 NEAR = re.compile(r"^(\d+:\d+) near ")
+# A lex error no lexical rule names: the lexer's position (recognize.lex_error_detail).
+LEXER_AT = re.compile(r"^Lexer error at (\d+:\d+): ")
 
 
 class Case:
@@ -199,7 +201,12 @@ class Expectations:
             if settle and self.unsettled(text, start, m.group(2)):
                 return PARSE_ERROR, m.group(1), []
             return m.group(2), m.group(1), []
-        m = NEAR.match(checked.detail) if checked.verdict == "FAIL" else None
+        if checked.verdict == "FAIL":
+            m = NEAR.match(checked.detail)
+        elif checked.verdict == "LEXERR":
+            m = LEXER_AT.match(checked.detail)
+        else:
+            m = None
         return PARSE_ERROR, m.group(1) if m else None, []
 
     def unsettled(self, text, start, rule):
@@ -530,8 +537,11 @@ RULINGS = tuple("SL-400-c6-Q%d" % n for n in range(1, 24) if n not in (12, 15)) 
     "SL-400-c6-U2a", "SL-400-c7", "SL-400-c9",
     "SL-406-c11-1", "SL-406-c11-2", "SL-406-c11-3",
     "SL-406-c17", "SL-406-c22", "SL-406-c23", "SL-406-c25", "SL-408-c1", "SL-409-c1", "SL-414-c1")
-# The lexical rules recognize.check names when it refuses a text.
-NAMED_LEXICAL = ("syntax.lex.ascii-identifier", "syntax.lex.doc-attach", "syntax.lex.module-doc")
+# The lexical rules recognize.check names when it refuses a text: the ones it
+# applies itself, and the ones the lexer names in its lex error.
+NAMED_LEXICAL = ("syntax.lex.ascii-identifier", "syntax.lex.doc-attach", "syntax.lex.module-doc",
+                 "syntax.lex.directive", "syntax.lex.escape", "syntax.lex.float-point",
+                 "syntax.lex.int-range", "syntax.lex.unterminated-string")
 
 
 def refusing_rules():

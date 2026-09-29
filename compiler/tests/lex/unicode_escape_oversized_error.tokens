@@ -1,1 +1,1 @@
-ERROR	8:22	Unicode escape is greater than the maximum scalar 0x10FFFF
+ERROR	8:12	Unicode escape is greater than the maximum scalar 0x10FFFF	syntax.lex.escape

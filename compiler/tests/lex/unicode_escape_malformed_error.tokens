@@ -1,1 +1,1 @@
-ERROR	7:16	Unicode escape must contain 1-6 hexadecimal digits
+ERROR	7:12	Unicode escape must contain 1-6 hexadecimal digits	syntax.lex.escape

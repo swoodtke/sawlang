@@ -1,0 +1,1 @@
+ERROR	2:23	unterminated string: this quote opens a literal that is never closed	syntax.lex.unterminated-string

@@ -1,1 +1,1 @@
-ERROR	8:20	Unicode escape is a surrogate code point
+ERROR	8:12	Unicode escape is a surrogate code point	syntax.lex.escape

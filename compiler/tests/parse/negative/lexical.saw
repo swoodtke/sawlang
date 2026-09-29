@@ -123,3 +123,79 @@ func f() {
 func f() {
     let x = [1, 2
 }
+
+// case: syntax.lex.unterminated-string/quote-in-an-interpolation-comment
+// SL:hazards C3: the segment's quote is in a comment, so the literal's own
+// opening quote is reported.
+func main() { let s = "a {1 // comment: "
+}
+
+// case: syntax.lex.float-point/leading-point-in-an-argument
+func f() {
+    g(1, .25)
+}
+
+// case: SL-408-c1/doubled-separator
+func f() {
+    let a = 1__000
+}
+
+// case: SL-408-c1/doubled-separator-in-a-binary-literal
+func f() {
+    let a = 0b1__0
+}
+
+// case: SL-408-c1/doubled-separator-in-a-float
+func f() {
+    let a = 1.0__5
+}
+
+// case: SL-408-c1/separator-after-a-base-prefix
+func f() {
+    let a = 0x_FF
+}
+
+// case: SL-408-c1/trailing-separator
+func f() {
+    let a = 1_
+}
+
+// case: SL-408-c1/trailing-separator-after-hex-digits
+func f() {
+    let a = 0xFF_
+}
+
+// case: SL-408-c1/trailing-separator-after-a-group
+func f() {
+    let a = 1_000_
+}
+
+// case: SL-408-c1/trailing-separator-in-a-float
+func f() {
+    let a = 1.0_
+}
+
+// case: SL-408-c1/separator-before-the-point
+func f() {
+    let a = 1_.5
+}
+
+// case: SL-408-c1/two-underscores-before-a-width-suffix
+func f() {
+    let a = 2__u8
+}
+
+// case: syntax.expr.int/uppercase-hex-prefix
+func f() {
+    let a = 0XFF
+}
+
+// case: syntax.expr.int/uppercase-binary-prefix
+func f() {
+    let a = 0B1
+}
+
+// case: syntax.expr.int/uppercase-octal-prefix
+func f() {
+    let a = 0O7
+}

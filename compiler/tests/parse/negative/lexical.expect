@@ -1,5 +1,5 @@
 // case: syntax.lex.ascii-identifier/non-ascii-letter-starting-a-name
-refuses parse-error
+refuses parse-error at 2:9
 
 // case: syntax.lex.module-doc/after-the-first-token
 refuses syntax.lex.module-doc at 3:1
@@ -26,22 +26,22 @@ refuses parse-error at 2:17
 refuses parse-error at 2:15
 
 // case: syntax.lex.float-point/leading-point
-refuses parse-error at 2:14
+refuses syntax.lex.float-point at 2:13
 
 // case: syntax.lex.int-range/literal-past-its-suffix
-refuses parse-error
+refuses syntax.lex.int-range at 2:13
 
 // case: syntax.lex.escape/unknown-escape
-refuses parse-error
+refuses syntax.lex.escape at 2:14
 
 // case: syntax.lex.directive/unknown-directive
-refuses parse-error
+refuses syntax.lex.directive at 2:13
 
 // case: syntax.lex.directive/lend-var-is-refused
 refuses syntax.expr.refused-lend-var
 
 // case: syntax.lex.unterminated-string/no-closing-quote
-refuses parse-error
+refuses syntax.lex.unterminated-string at 2:13
 
 // case: syntax.lex.unclosed-bracket/unclosed-parenthesis
 refuses parse-error
@@ -50,19 +50,64 @@ refuses parse-error
 refuses parse-error
 
 // case: syntax.lex.int-range/literal-past-64-bits
-refuses parse-error
+refuses syntax.lex.int-range at 2:13
 
 // case: syntax.lex.escape/surrogate-scalar
-refuses parse-error
+refuses syntax.lex.escape at 2:14
 
 // case: syntax.lex.escape/scalar-past-the-maximum
-refuses parse-error
+refuses syntax.lex.escape at 2:14
 
 // case: syntax.lex.escape/unicode-escape-with-no-digits
-refuses parse-error
+refuses syntax.lex.escape at 2:14
 
 // case: syntax.lex.unterminated-string/closing-quote-swallowed-by-an-interpolation
-refuses parse-error
+refuses syntax.lex.unterminated-string at 3:16
 
 // case: syntax.lex.unclosed-bracket/unclosed-square-bracket
 refuses parse-error
+
+// case: syntax.lex.unterminated-string/quote-in-an-interpolation-comment
+refuses syntax.lex.unterminated-string at 3:23
+
+// case: syntax.lex.float-point/leading-point-in-an-argument
+refuses syntax.lex.float-point at 2:10
+
+// case: SL-408-c1/doubled-separator
+refuses parse-error at 2:15
+
+// case: SL-408-c1/doubled-separator-in-a-binary-literal
+refuses parse-error at 2:17
+
+// case: SL-408-c1/doubled-separator-in-a-float
+refuses parse-error at 2:17
+
+// case: SL-408-c1/separator-after-a-base-prefix
+refuses parse-error at 2:15
+
+// case: SL-408-c1/trailing-separator
+refuses parse-error at 2:14
+
+// case: SL-408-c1/trailing-separator-after-hex-digits
+refuses parse-error at 2:17
+
+// case: SL-408-c1/trailing-separator-after-a-group
+refuses parse-error at 2:18
+
+// case: SL-408-c1/trailing-separator-in-a-float
+refuses parse-error at 2:16
+
+// case: SL-408-c1/separator-before-the-point
+refuses parse-error at 2:14
+
+// case: SL-408-c1/two-underscores-before-a-width-suffix
+refuses parse-error at 2:15
+
+// case: syntax.expr.int/uppercase-hex-prefix
+refuses parse-error at 2:14
+
+// case: syntax.expr.int/uppercase-binary-prefix
+refuses parse-error at 2:14
+
+// case: syntax.expr.int/uppercase-octal-prefix
+refuses parse-error at 2:14

@@ -1,0 +1,3 @@
+// Fixture: SL:hazards C3, a quote in a comment inside an interpolation. Taken from the inputs of compiler/lex/tests/errors.saw.
+func main() { let s = "a {1 // comment: "
+}

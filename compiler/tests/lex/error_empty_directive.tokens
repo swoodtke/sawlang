@@ -1,1 +1,1 @@
-ERROR	2:1	expected a directive name after `#`
+ERROR	2:1	expected a directive name after `#`	syntax.lex.directive

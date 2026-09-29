@@ -1,0 +1,1 @@
+ERROR	2:6	a `_` in a number separates two digits, so it cannot end a run of digits	syntax.expr.int	write `1_000`

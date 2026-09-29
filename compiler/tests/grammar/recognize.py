@@ -1607,6 +1607,15 @@ def lex_error_detail(err):
     return "Lexer error at %d:%d: %s" % (err.line, err.column, err.message)
 
 
+def lex_refusal_detail(err):
+    """A file's lex error as check() reports it: "L:C refused by RULE: ..." when
+    the lexer names the §2.7 rule it applies, so the refusal carries that name
+    and the lexer's position as a rule's refusal does; else lex_error_detail."""
+    if err.rule.startswith("syntax.lex."):
+        return "%d:%d refused by %s: %s" % (err.line, err.column, err.rule, err.message)
+    return lex_error_detail(err)
+
+
 def doc_runs(docs):
     """[(first line, first column, last line)] for each run of `///` lines."""
     runs = []
@@ -1680,7 +1689,7 @@ def check(g, src, trees=False, path=None, start="source-file"):
     the lexical ones included, is decided here once."""
     toks, docs, err = lex_with_docs(src, path)
     if err is not None:
-        return Checked("LEXERR", lex_error_detail(err))
+        return Checked("LEXERR", lex_refusal_detail(err))
     bad = non_ascii_identifier(toks)
     if bad is not None:
         return Checked("LEXERR", "%d:%d refused by syntax.lex.ascii-identifier: %r"

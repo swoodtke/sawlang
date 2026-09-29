@@ -1,6 +1,8 @@
 // Fixture: integer, float and keyword forms, tuple indexes. Taken from the inputs of compiler/lex/tests/literals.saw.
-42 0XFf 0b1010 0o17 1_000 3.14
+42 0xFf 0b1010 0o17 1_000 3.14
 255u8 65535u16 1_000i32
+0xFF_FF 1_0.5 2_u8 0xFF_u8 1_000_i32
+f().0 a[0].1 o!.2 self.3
 5abc 0xFace
 t.0.name
 t.0.1

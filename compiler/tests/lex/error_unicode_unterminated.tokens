@@ -1,1 +1,1 @@
-ERROR	2:7	unterminated Unicode escape
+ERROR	2:2	unterminated Unicode escape	syntax.lex.escape

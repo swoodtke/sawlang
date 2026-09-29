@@ -1,0 +1,1 @@
+ERROR	2:9	a float needs a digit before its point	syntax.lex.float-point	write `0.25`

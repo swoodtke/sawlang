@@ -1,1 +1,1 @@
-ERROR	2:1	integer literal out of range for its suffix
+ERROR	2:1	integer literal out of range for its suffix	syntax.lex.int-range

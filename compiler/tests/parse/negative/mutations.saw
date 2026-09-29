@@ -3080,9 +3080,6 @@ func a(  { b.1 }
 // case: syntax.expr.hop.tuple-index/alt/dup:3
 func a( () { b.1 }
 
-// case: syntax.expr.hop.tuple-index/alt/swap:5
-func a()  b   { .1 }
-
 // case: syntax.expr.hop.tuple-index/alt/close:9
 func a() { b.1
 
@@ -3145,12 +3142,6 @@ func a() { b.  }
 
 // case: syntax.expr.member/alt/dup:2
 func a a() { b.c }
-
-// case: syntax.expr.tuple-index/alt/drop:6
-func a() {  .1 }
-
-// case: syntax.expr.tuple-index/alt/dup:7
-func a() { b. .1 }
 
 // case: syntax.expr.tuple-index/alt/swap:2
 func  (  a ) { b.1 }

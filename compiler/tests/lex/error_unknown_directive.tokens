@@ -1,1 +1,1 @@
-ERROR	2:1	unknown directive after `#`
+ERROR	2:1	unknown directive after `#`	syntax.lex.directive

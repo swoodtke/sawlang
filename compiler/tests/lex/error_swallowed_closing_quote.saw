@@ -1,0 +1,2 @@
+// Fixture: an interpolation that took the literal's closing quote. Taken from the inputs of compiler/lex/tests/errors.saw.
+"a {"b} c"

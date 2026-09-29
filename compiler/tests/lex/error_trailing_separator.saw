@@ -1,0 +1,2 @@
+// Fixture: a `_` at the end of a number. Taken from the inputs of compiler/lex/tests/errors.saw.
+1_000_
