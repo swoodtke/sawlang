@@ -13,8 +13,11 @@ How the ledger is used:
 - **Authors** of the compiler source avoid every shape here and write the
   entry's **Instead** spelling. An **Instead** spelling is a Stage 0
   workaround, not a Saw idiom (the user, Sep 29), so every site that uses one
-  is marked `// Stage 0 workaround (SL:hazards <id>): <why>`. A check validates
-  each marker's id and prints the inventory. After self-hosting, every marked
+  is marked `// Stage 0 workaround (SL:hazards <id>): canonical: <original>`,
+  where the original is the canonical spelling the workaround replaced (a
+  ` — <why>` may follow). The same marker serves sawlang and sawtracker. A check
+  validates each marker's id and prints the inventory with the canonical text,
+  so restoring the canonical spelling is mechanical. After self-hosting, every marked
   site returns to its natural spelling and the marker check turns into a
   refusal (SL-425). Do not copy an **Instead** spelling into code that Stage 0
   does not build.
