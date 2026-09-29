@@ -353,7 +353,9 @@ unsigned range, so `255_i8` prints -1, `128_i8` prints -128, and
 literal (`let v: Int8 = 200_i8`). Every other position wraps it silently: an
 argument (`take8(x: 200_i8)` passes -56), a typed `static`
 (`static s: Int8 = 200_i8` holds -56), a return, an assignment, an array
-element, and a binary operand (`x - 128_i8`).
+element, and a binary operand (`x - 128_i8`). A wrapped pattern literal also
+changes control flow: `case 200_i8` matches -56, so a different arm runs (the
+Air, SL-435.p1 review).
 
 **Instead:** write large constants with an **unsigned** suffix,
 `14695981039346656037u64`, or bind them to a `UInt64`-typed `let` or `static`.
