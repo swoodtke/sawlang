@@ -155,6 +155,20 @@ capability is written:
 - `if let _ = e` and `case Some(_)` bind nothing, so they read no payload and
   copy nothing. They are presence tests at every copy tier, NoCopy payloads
   included (Air t25; K8 relies on this).
+- **A `while` head unwraps the same way** (Ruled, Sep 29). With
+  `while borrow var e = it.find(&k) { e.count += 1 }`, the loop runs while the
+  place is present. The window is the loop body. The head is evaluated again at
+  each iteration, after the previous body's window has closed, so each
+  iteration borrows afresh. As at an `if` head, a binding there is always the
+  unwrap: the bare borrow-block condition `while borrow let e = m[k] { e.ok } { }`
+  is refused, and `while (borrow let e = m[k] { e.ok }) { }` keeps it as a
+  boolean condition.
+- **A `guard` takes no borrow binding** (Ruled, Sep 29). A guard's braces run
+  on the absent path. On the present path the binding would have to stay live
+  to the end of the enclosing block, a window shape no rule defines. So
+  `guard borrow let e = … else { … }` is refused, with a hint naming
+  `if borrow let e = … { … } else { … }`. A parenthesized borrow block is still
+  a boolean guard condition.
 
 **`Vector.find(i)` is the Vector's conditional lend** (Ruled, Sep 29):
 `(&var self, index: Int) borrows -> &var T?`, absent when `i` is out of range,
