@@ -193,6 +193,16 @@ syntax, so the rule and the recipe above agree (codex t5):
 
   A checker that traces which operands own something has missed a face in each
   review round, so the subset enforces the Instead structurally (Checker).
+- **SL-427** (silent, leak): the *error* itself is never released on two
+  paths, found by sawtracker's ST-66.
+  - A `try … catch` whose catch diverges, as in
+    `let v = try fail(n) catch { return -1 }`, leaks the caught error once per
+    failure, in sync code and in a coroutine alike. The lead measured 1,000
+    leaks at N=1,000 and 2,000 at N=2,000.
+  - In a coroutine, `return try f()` leaks the error it propagates; sync code
+    does not.
+
+  A `match` on the `Result` releases the error in both cases (0 leaks).
 - **SL-74** (loud): a `move` inside a `catch` block that diverges (`return`,
   `panic`) still retires the binding on the fall-through path, so the next use
   is refused. All three `catch` forms do this.
@@ -211,7 +221,9 @@ value by value:
 `let k = try fail()`, then `sink_rev(move r, k)`; and
 `let k = try fail_it()`, then `sink2(make_res("fresh"), k)` (Air t10). When an error path must
 consume a local, `match` on the `Result` instead of writing `move` in a
-`catch`.
+`catch`. Where a caught error's path diverges (`catch { return … }`), or a
+coroutine would write `return try f()`, `match` on the `Result` too, so the
+error is released.
 
 **Checker:** no: **leak only**. SL-240 and SL-348 leak, and SL-74 is loud.
 Hoisting each `try` into its own `let` remains good style, but nothing
@@ -695,7 +707,7 @@ modules also defeat the checker's own name resolution.
 - an `if let`/`guard let` scrutinee;
 - a `match` scrutinee.
 
-Three more positions consume without binding and are missing from that list: a comparison operand, an interpolation segment, and a format argument of `print`, `panic` or `assert`. There, an owned value (a `String`, a struct holding one, a `String?`) is never released. On a comparison, the right operand is also retained even when nothing owns it.
+Four more positions consume without binding and are missing from that list: a comparison operand, an interpolation segment, a format argument of `print`, `panic` or `assert`, and a cast operand (`as`). There, an owned value (a `String`, a struct holding one, a `String?`) is never released. The cast leaks in std itself: `std/file.saw` and `std/directory.saw` write `path.as_str() as UnsafePointer<Int8>`, so every `File` or `Directory` call made with a freshly built path leaks one block (SL-427). The lead measured `make(n) as UnsafePointer<Int8>` at 1 leak per call, and 0 with the value bound first. A fresh value on either side of `??` measured clean. On a comparison, the right operand is also retained even when nothing owns it.
 
 **Shape (leak only):**
 - **What leaks, at those three positions:** an operand that is not a named place or a literal.
