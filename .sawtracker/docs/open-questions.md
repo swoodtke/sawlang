@@ -8,9 +8,24 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Waiting for the user (fundamental)
 
-None right now.
+### W3. Does an absent conditional write still evaluate its right side? (Sep 29; SL-420, `place_assignment_targets`)
+`borrow var v.find(9)?.value = loud(3)`, where `v.find(9)` is absent.
+- **SL:borrowing §2.2:** "The right side of an assignment is evaluated before the left side's borrow opens." Read literally, `loud(3)` always runs, and its value is then dropped when the place turns out to be absent.
+- **Today's language** (optional chaining, design 111, Swift's rule) skips the rest of the chain, the right side included, so `loud(3)` doesn't run. The corpus file pins that.
+
+**The options:**
+- **(a) Always evaluate the right side.** It is uniform with every other assignment, and §2.2's order also lets `borrow var v[i].x = borrow v[j].x` work. A conditional write evaluates its value even when nothing is written.
+- **(b) Skip it when absent,** as Swift does and today's language does. Presence is decided first, so the order becomes: open the left conditional lend; if absent, stop; otherwise evaluate the right side. But then the right side runs while the left borrow is open, which breaks the §2.2 order that makes `v[i].x = v[j].x` work, unless the presence test is a separate step before the right side.
+
+**The lead's lean:** (a). It is one evaluation order for every assignment, so what runs is predictable and no special case sits in the borrow checker. `if borrow var p = v.find(9) { p.value = loud(3) }` is the spelling when the value should be computed only when present. The corpus file is re-aimed to pin (a).
 
 ## Decided by the lead, for review (reversible)
+
+### D8. Getitem and setitem derivation with an accessor pair (Sep 29; SL-420 finding 4)
+§5.2 states the derivation for a type that declares "only the place accessor". **Decided:** a type that declares a pair derives getitem from the `&self` accessor and setitem from the `&var self` one. That is the reading SL-420's re-aims use. **Reversal:** restrict derivation to single-accessor types.
+
+### D7. What the root column of SL:borrowing §3's table means (Sep 29; SL-420 finding 3)
+§3 says `(&self) borrows -> &var T` (`Mutex.lock`) holds its root "exclusive", yet `lock()` must work on `let`, `&self` and static roots (§8, §8a). **Decided:** the column is the *overlap* charge: no other use of the root while the borrow is open, so `m.lock()` inside its own window is refused, as §8 says. Whether the root must be *mutable* comes from the receiver. A `&var self` accessor needs a mutable root; a cell accessor takes `&self`, so `let`, `&self` and static roots serve. This is a wording clarification to add to §3. **Reversal:** a cell accessor would need a mutable root, which contradicts §8a.
 
 ### D6. How a signed width suffix bounds a literal (Sep 29; the Air, SL:hazards t21; SL-435)
 GRAMMAR.md §2.7 `syntax.lex.int-range` says a literal must fit "in its suffix's width", but not how a signed width counts. Stage 0 and sawlex both check the unsigned range, so `255_i8` lexes, and Stage 0 wraps it to -1 (S7's signed-suffix face).
