@@ -470,6 +470,22 @@ def nested_guards(k):
     return "func f() {\n    " + "guard a else { " * k + "return" + " }" * k + "\n}\n"
 
 
+def nested_tuple_patterns(k):
+    return "func f() {\n    let " + "(" * k + "a" + ")" * k + " = w\n}\n"
+
+
+def nested_variant_payloads(k):
+    """The `match` takes one level, and each payload's `(` one more."""
+    return ("func f() {\n    match w { case " + "A(" * (k - 1) + "b" + ")" * (k - 1)
+            + " -> 1 }\n}\n")
+
+
+def mixed_patterns(k):
+    """Tuple and variant patterns alternating, from a destructuring `let`."""
+    openers = "".join("(" if i % 2 == 0 else "A(" for i in range(k))
+    return "func f() {\n    let " + openers + "a" + ")" * k + " = w\n}\n"
+
+
 def nth(text, needle, n, shift=0):
     """The offset of the nth occurrence of `needle` in `text`, plus `shift`."""
     at = -1
@@ -507,7 +523,12 @@ def cells():
             ("nested `while let` loops", nested_while_lets, lambda t: nth(t, "while", LIMIT + 1)),
             ("nested `for` loops", nested_fors, lambda t: nth(t, "for", LIMIT + 1)),
             ("nested try blocks", nested_try_blocks, lambda t: nth(t, "try", LIMIT + 1)),
-            ("nested `guard` statements", nested_guards, lambda t: nth(t, "guard", LIMIT + 1))):
+            ("nested `guard` statements", nested_guards, lambda t: nth(t, "guard", LIMIT + 1)),
+            ("nested tuple patterns", nested_tuple_patterns, lambda t: nth(t, "(", LIMIT + 2)),
+            ("nested variant payloads", nested_variant_payloads,
+             lambda t: nth(t, "(", LIMIT + 1)),
+            ("mixed tuple and variant patterns", mixed_patterns,
+             lambda t: nth(t, "(", LIMIT + 2))):
         out.append(("%s at %d" % (name, LIMIT), build_text(LIMIT), None, None))
         text = build_text(LIMIT + 1)
         at = find(text) if find else None

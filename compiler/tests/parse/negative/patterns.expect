@@ -1,0 +1,53 @@
+// case: syntax.pat.tuple.positional/one-element-trailing-comma
+refuses parse-error at 3:17
+
+// case: syntax.pat.tuple.positional/trailing-comma
+refuses parse-error at 3:20
+
+// case: syntax.pat.tuple.positional/one-element-trailing-comma-in-a-let
+refuses parse-error at 2:12
+
+// case: syntax.pat.variant/trailing-comma
+refuses parse-error at 3:21
+
+// case: syntax.pat.range/open-end
+refuses parse-error at 3:18
+
+// case: syntax.pat.range/open-start
+refuses parse-error at 3:14
+
+// case: syntax.pat.int/name-as-an-end
+refuses parse-error at 3:17
+
+// case: syntax.pat.int/expression-as-an-end
+refuses parse-error at 3:17
+
+// case: syntax.pat.literal/negated-name
+refuses parse-error at 3:15
+
+// case: syntax.pat.literal/float
+refuses parse-error at 3:14
+
+// case: syntax.pat.literal/interpolated-string
+refuses parse-error at 3:14
+
+// case: syntax.stmt.destructure/type-annotation
+refuses parse-error at 2:15
+
+// case: syntax.pat.refused-qualified-variant/qualified-name
+refuses syntax.pat.refused-qualified-variant
+
+// case: syntax.pat.refused-qualified-variant/qualified-payload
+refuses syntax.pat.refused-qualified-variant
+
+// case: syntax.pat.refused-dot-variant/dotted-name
+refuses syntax.pat.refused-dot-variant
+
+// case: syntax.pat.refused-dot-variant/dotted-payload-nested
+refuses syntax.pat.refused-dot-variant
+
+// case: syntax.pat.refused-named-tuple/labelled-elements
+refuses syntax.pat.refused-named-tuple
+
+// case: syntax.pat.refused-named-tuple/in-a-destructuring-let
+refuses syntax.pat.refused-named-tuple

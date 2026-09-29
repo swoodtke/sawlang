@@ -1,0 +1,92 @@
+// case: syntax.pat.tuple.positional/one-element-is-a-tuple
+func f() {
+    match t {
+        case (a) -> 1
+        case ((b)) -> 2
+    }
+    let (c) = t
+    if let (d) = t { }
+}
+
+// case: syntax.pat.tuple.positional/nested
+func f() {
+    match t {
+        case (Some((a, _)), -1..=2, ()) -> 1
+    }
+}
+
+// case: syntax.pat.tuple.positional/line-breaks-inside
+func f() {
+    match t {
+        case (
+            A(x,
+              y),
+            2
+        ) -> 1
+    }
+}
+
+// case: syntax.pat.range.exclusive/integer-ends
+func f() {
+    match n {
+        case 1..5 -> 1
+        case 0x10..0b1_00 -> 2
+    }
+}
+
+// case: syntax.pat.range.inclusive/negative-ends
+func f() {
+    match n {
+        case -5..=-1 -> 1
+        case -3..4 -> 2
+    }
+}
+
+// case: syntax.pat.literal.negative-int/negative-zero-and-a-negative-literal
+func f() {
+    match n {
+        case -0 -> 1
+        case -1 -> 2
+        case - 7 -> 3
+    }
+}
+
+// case: syntax.pat.variant/empty-single-and-multiple-payloads
+func f() {
+    match m {
+        case A() -> 1
+        case B(x) -> 2
+        case Move(x, _, 3, "s", true, None, (a, b), C(d)) -> 3
+    }
+}
+
+// case: syntax.rule.name-pattern/underscore-before-a-paren-is-a-variant
+func f() {
+    match m {
+        case _(x) -> 1
+        case _ -> 2
+    }
+}
+
+// case: syntax.pat.none/none
+func f() {
+    match o {
+        case None -> 1
+        case Some(v) -> v
+    }
+}
+
+// case: syntax.stmt.destructure.mutable/nested-tuple
+func f() {
+    var (a, (b, _)) = t
+    let () = u
+}
+
+// case: syntax.stmt.binding-target.tuple/every-binding-head
+func f() {
+    if let (A(x), 1) = w { } else if var (y, z) = w { }
+    guard let (p, q) = w else { return }
+    guard var (r) = w else { return }
+    while let (s, -3..4) = w { }
+    while var (m, "k") = n.next() { }
+}

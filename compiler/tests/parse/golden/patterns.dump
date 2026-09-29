@@ -1,0 +1,188 @@
+// case: syntax.pat.tuple.positional/one-element-is-a-tuple
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name t)
+            (MatchArm
+              (TuplePat.positional (NamePat a))
+              (IntLit 1))
+            (MatchArm
+              (TuplePat.positional
+                (TuplePat.positional (NamePat b)))
+              (IntLit 2))))
+        (DestructureLet.immutable
+          (TuplePat.positional (NamePat c))
+          (Name t))
+        (ExprStmt
+          (If
+            (LetArm.let
+              (TuplePat.positional (NamePat d))
+              (Name t))
+            (Block)))))))
+
+// case: syntax.pat.tuple.positional/nested
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name t)
+            (MatchArm
+              (TuplePat.positional
+                (VariantPat Some
+                  (TuplePat.positional (NamePat a) (WildcardPat)))
+                (RangePat.inclusive - 1 2)
+                (TuplePat.positional))
+              (IntLit 1))))))))
+
+// case: syntax.pat.tuple.positional/line-breaks-inside
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name t)
+            (MatchArm
+              (TuplePat.positional
+                (VariantPat A (NamePat x) (NamePat y))
+                (LiteralPat.int 2))
+              (IntLit 1))))))))
+
+// case: syntax.pat.range.exclusive/integer-ends
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name n)
+            (MatchArm (RangePat.exclusive 1 5) (IntLit 1))
+            (MatchArm (RangePat.exclusive 0x10 0b1_00) (IntLit 2))))))))
+
+// case: syntax.pat.range.inclusive/negative-ends
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name n)
+            (MatchArm (RangePat.inclusive - 5 - 1) (IntLit 1))
+            (MatchArm (RangePat.exclusive - 3 4) (IntLit 2))))))))
+
+// case: syntax.pat.literal.negative-int/negative-zero-and-a-negative-literal
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name n)
+            (MatchArm (LiteralPat.negative-int 0) (IntLit 1))
+            (MatchArm (LiteralPat.negative-int 1) (IntLit 2))
+            (MatchArm (LiteralPat.negative-int 7) (IntLit 3))))))))
+
+// case: syntax.pat.variant/empty-single-and-multiple-payloads
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name m)
+            (MatchArm (VariantPat A) (IntLit 1))
+            (MatchArm
+              (VariantPat B (NamePat x))
+              (IntLit 2))
+            (MatchArm
+              (VariantPat Move
+                (NamePat x)
+                (WildcardPat)
+                (LiteralPat.int 3)
+                (LiteralPat.string "s")
+                (LiteralPat.true)
+                (NonePat)
+                (TuplePat.positional (NamePat a) (NamePat b))
+                (VariantPat C (NamePat d)))
+              (IntLit 3))))))))
+
+// case: syntax.rule.name-pattern/underscore-before-a-paren-is-a-variant
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name m)
+            (MatchArm
+              (VariantPat _ (NamePat x))
+              (IntLit 1))
+            (MatchArm (WildcardPat) (IntLit 2))))))))
+
+// case: syntax.pat.none/none
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name o)
+            (MatchArm (NonePat) (IntLit 1))
+            (MatchArm
+              (VariantPat Some (NamePat v))
+              (Name v))))))))
+
+// case: syntax.stmt.destructure.mutable/nested-tuple
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (DestructureLet.mutable
+          (TuplePat.positional
+            (NamePat a)
+            (TuplePat.positional (NamePat b) (WildcardPat)))
+          (Name t))
+        (DestructureLet.immutable (TuplePat.positional) (Name u))))))
+
+// case: syntax.stmt.binding-target.tuple/every-binding-head
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (LetArm.let
+              (TuplePat.positional
+                (VariantPat A (NamePat x))
+                (LiteralPat.int 1))
+              (Name w))
+            (Block)
+            (IfArm
+              (LetArm.var
+                (TuplePat.positional (NamePat y) (NamePat z))
+                (Name w))
+              (Block))))
+        (Guard.let
+          (TuplePat.positional (NamePat p) (NamePat q))
+          (Name w)
+          (Block (Return)))
+        (Guard.var
+          (TuplePat.positional (NamePat r))
+          (Name w)
+          (Block (Return)))
+        (ExprStmt
+          (WhileLet.let
+            (TuplePat.positional (NamePat s) (RangePat.exclusive - 3 4))
+            (Name w)
+            (Block)))
+        (ExprStmt
+          (WhileLet.var
+            (TuplePat.positional (NamePat m) (LiteralPat.string "k"))
+            (Call.paren
+              (Member (Name n) next))
+            (Block)))))))

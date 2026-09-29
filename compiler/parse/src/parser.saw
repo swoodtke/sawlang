@@ -680,6 +680,8 @@ extension Parser {
     //     parse_while
     //     parse_for
     //     parse_match
+    //     parse_tuple_pattern
+    //     parse_variant_pattern
     func enter_level(&var self, opener: Int) -> Bool {
         if self.depth >= PARSE_MAX_DEPTH {
             self.depth_refusals = self.depth_refusals + 1
@@ -1533,6 +1535,10 @@ extension Parser {
     func parse_statement(&var self, arm: Bool) -> Bool {
         let kind = self.kind()
         if kind == TokenKind.Let || kind == TokenKind.Var {
+            if self.kind_at(1) == TokenKind.LParen {
+                self.see_other(Alt.Stmt_NonExpr_Destructure, arm)
+                return self.parse_destructure()
+            }
             self.see_other(Alt.Stmt_NonExpr_Let, arm)
             return self.parse_let()
         }
@@ -1941,9 +1947,6 @@ extension Parser {
         let keyword = self.pos
         let mutable = self.kind() == TokenKind.Var
         self.advance()
-        if self.kind() == TokenKind.LParen {
-            return self.error("a destructuring binding is not parsed yet")
-        }
         if self.kind() != TokenKind.Ident {
             return self.error("expected the binding's name")
         }
@@ -1975,6 +1978,28 @@ extension Parser {
                                    "write `= value` after the type")
             }
             return self.error("expected `=` and the binding's value")
+        }
+        self.advance()
+        if not self.parse_expr() {
+            return false
+        }
+        self.close(mark, alt, start)
+        true
+    }
+
+    // `destructure-stmt ::= ("let" | "var") tuple-pattern "=" expr`, which
+    // takes no type annotation.
+    func parse_destructure(&var self) -> Bool {
+        let alt = if self.kind() == TokenKind.Var { Alt.Stmt_Destructure_Mutable } else { Alt.Stmt_Destructure_Immutable }
+        self.see(alt)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        if not self.parse_tuple_pattern() {
+            return false
+        }
+        if self.kind() != TokenKind.Assign {
+            return self.error("expected `=` and the value to destructure")
         }
         self.advance()
         if not self.parse_expr() {
@@ -2127,11 +2152,11 @@ extension Parser {
         true
     }
 
-    // `binding-target ::= binding-name | tuple-pattern`; a tuple pattern is
-    // not parsed yet.
+    // `binding-target ::= binding-name | tuple-pattern`
     func parse_binding_target(&var self) -> Bool {
         if self.kind() == TokenKind.LParen {
-            return self.error("a tuple pattern is not parsed yet")
+            self.see(Alt.Stmt_BindingTarget_Tuple)
+            return self.parse_tuple_pattern()
         }
         if self.kind() != TokenKind.Ident {
             return self.error("expected the binding's name")
@@ -2337,7 +2362,8 @@ extension Parser {
 
     // `for-expr ::= "for" binding-name "in" head-expr NEWLINE* block`, one
     // level held to the end of the body. A `for` head binds one name, so a
-    // tuple pattern there is refused (syntax.expr.refused-for-tuple).
+    // tuple pattern there is refused once it has parsed
+    // (syntax.expr.refused-for-tuple).
     func parse_for(&var self) -> Bool {
         let open = self.pos
         if not self.enter_level(open) {
@@ -2348,6 +2374,9 @@ extension Parser {
         self.advance()
         if self.kind() == TokenKind.LParen {
             let at = self.pos
+            if not self.parse_tuple_pattern() {
+                return false
+            }
             return self.refuse(Rule.Expr_RefusedForTuple, at,
                                "a `for` head binds one name",
                                "bind the element and destructure it in the body: `for p in v \{ let (a, b) = p \}`")
@@ -2525,15 +2554,24 @@ extension Parser {
         false
     }
 
-    // `pattern`, as far as the patterns without parts: `_`, a name, a
-    // literal and `None` (syntax.rule.name-pattern). Variant, tuple and range
-    // patterns are not parsed yet.
+    // `pattern`. A name followed by `(` is a variant pattern, `_` the
+    // wildcard, and any other lone name a name pattern, whether it binds or
+    // names a payload-free variant being resolution's to decide
+    // (syntax.rule.name-pattern). A name followed by `.`, and a leading `.`,
+    // are the refused qualified and dotted variant patterns.
     func parse_pattern(&var self) -> Bool {
         let kind = self.kind()
         let next = self.kind_at(1)
         if kind == TokenKind.Ident {
-            if next == TokenKind.LParen || next == TokenKind.Dot {
-                return self.error("a variant pattern is not parsed yet")
+            if next == TokenKind.Dot {
+                let at = self.pos
+                return self.refuse(Rule.Pat_RefusedQualifiedVariant, at,
+                                   "a variant pattern names the case alone",
+                                   "write the case bare, as in `case Red`; the scrutinee's type supplies the enum")
+            }
+            if next == TokenKind.LParen {
+                self.see(Alt.Pat_Pattern_Variant)
+                return self.parse_variant_pattern()
             }
             if self.word_at(0, "_") {
                 self.see(Alt.Pat_Pattern_Wildcard)
@@ -2542,14 +2580,25 @@ extension Parser {
             self.see(Alt.Pat_Pattern_Name)
             return self.token_node(Alt.Pat_Name, true)
         }
+        if kind == TokenKind.Dot && next == TokenKind.Ident {
+            let at = self.pos
+            return self.refuse(Rule.Pat_RefusedDotVariant, at,
+                               "a variant pattern names the case bare",
+                               "drop the `.`, as in `case North`")
+        }
         if kind == TokenKind.NoneKw {
             self.see(Alt.Pat_Pattern_None)
             return self.token_node(Alt.Pat_None, false)
         }
+        if kind == TokenKind.LParen {
+            self.see(Alt.Pat_Pattern_Tuple)
+            return self.parse_tuple_pattern()
+        }
         if kind == TokenKind.IntLit || (kind == TokenKind.Minus && next == TokenKind.IntLit) {
             let after = if kind == TokenKind.Minus { self.kind_at(2) } else { next }
             if after == TokenKind.DotDot || after == TokenKind.DotDotEq {
-                return self.error("a range pattern is not parsed yet")
+                self.see(Alt.Pat_Pattern_Range)
+                return self.parse_range_pattern()
             }
             self.see(Alt.Pat_Pattern_Literal)
             if kind == TokenKind.IntLit {
@@ -2572,10 +2621,140 @@ extension Parser {
             let alt = if kind == TokenKind.True_ { Alt.Pat_Literal_True } else { Alt.Pat_Literal_False }
             return self.token_node(alt, false)
         }
-        if kind == TokenKind.LParen || kind == TokenKind.Dot {
-            return self.error("a tuple or dotted pattern is not parsed yet")
-        }
         self.error("expected a pattern")
+    }
+
+    // `range-pattern ::= pattern-int (".." | "..=") pattern-int`, whose ends
+    // are integers only; a `-` before either prints, since `pattern-int`
+    // builds no node to imply it.
+    func parse_range_pattern(&var self) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        if not self.pattern_int() {
+            return false
+        }
+        let alt = if self.kind() == TokenKind.DotDotEq { Alt.Pat_Range_Inclusive } else { Alt.Pat_Range_Exclusive }
+        self.see(alt)
+        self.advance()
+        if not self.pattern_int() {
+            return false
+        }
+        self.close(mark, alt, start)
+        true
+    }
+
+    // `pattern-int ::= INT | "-" INT`, as leaves of the range around it.
+    func pattern_int(&var self) -> Bool {
+        if self.kind() == TokenKind.Minus && self.kind_at(1) == TokenKind.IntLit {
+            self.see(Alt.Pat_Int_Negative)
+            self.take_leaf()
+            self.take_leaf()
+            return true
+        }
+        if self.kind() != TokenKind.IntLit {
+            return self.error("a range pattern's ends are integer literals")
+        }
+        self.see(Alt.Pat_Int_Positive)
+        self.take_leaf()
+        true
+    }
+
+    // `tuple-pattern ::= "(" ( pattern ( "," pattern )* )? ")"`, one level
+    // held for its `(`. A name and `:` first make it the refused named tuple
+    // pattern (syntax.pat.refused-named-tuple).
+    func parse_tuple_pattern(&var self) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        if not self.parse_tuple_pattern_body(open) {
+            return false
+        }
+        self.leave_level()
+        true
+    }
+
+    func parse_tuple_pattern_body(&var self, open: Int) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        if self.kind() == TokenKind.Ident && self.kind_at(1) == TokenKind.Colon {
+            return self.refuse(Rule.Pat_RefusedNamedTuple, open,
+                               "patterns destructure tuples by position only",
+                               "drop the labels, as in `(a, b)`")
+        }
+        if self.kind() != TokenKind.RParen {
+            if not self.parse_pattern() {
+                return false
+            }
+            // The one place a lone element is decided: `(p)` is a tuple
+            // pattern of one element, never a parenthesized pattern, and so
+            // no `,` may follow a last element, `(p,)` included, as GRAMMAR.md
+            // section 8 is written. Pinned by the one-element cases of
+            // golden/patterns.saw and negative/patterns.saw (SL:open-questions W2).
+            while self.kind() == TokenKind.Comma {
+                self.advance()
+                if not self.parse_pattern() {
+                    return false
+                }
+            }
+            if self.kind() != TokenKind.RParen {
+                return self.list_error(open, "expected `,` or `)` in the tuple pattern")
+            }
+        }
+        self.advance()
+        self.see(Alt.Pat_Tuple_Positional)
+        self.close(mark, Alt.Pat_Tuple_Positional, start)
+        true
+    }
+
+    // `variant-pattern ::= IDENT "(" ( payload-pattern ( "," payload-pattern )* )? ")"`,
+    // one level held for the payload's `(`.
+    func parse_variant_pattern(&var self) -> Bool {
+        let open = self.pos + 1
+        if not self.enter_level(open) {
+            return false
+        }
+        if not self.parse_variant_pattern_body(open) {
+            return false
+        }
+        self.leave_level()
+        true
+    }
+
+    func parse_variant_pattern_body(&var self, open: Int) -> Bool {
+        self.see(Alt.Pat_Variant)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.take_leaf()
+        self.advance()
+        if self.kind() != TokenKind.RParen {
+            if not self.payload_pattern() {
+                return false
+            }
+            while self.kind() == TokenKind.Comma {
+                self.advance()
+                if not self.payload_pattern() {
+                    return false
+                }
+            }
+            if self.kind() != TokenKind.RParen {
+                return self.list_error(open, "expected `,` or `)` in the payload pattern")
+            }
+        }
+        self.advance()
+        self.close(mark, Alt.Pat_Variant, start)
+        true
+    }
+
+    // `payload-pattern ::= pattern | borrow-binding-pattern`; a borrow
+    // binding is not parsed yet.
+    func payload_pattern(&var self) -> Bool {
+        if self.kind() == TokenKind.Borrow {
+            return self.error("a borrow binding in a payload is not parsed yet")
+        }
+        self.see(Alt.Pat_Payload_Pattern)
+        self.parse_pattern()
     }
 
     // ---- types -------------------------------------------------------------------

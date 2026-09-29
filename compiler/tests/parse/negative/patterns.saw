@@ -1,0 +1,119 @@
+// case: syntax.pat.tuple.positional/one-element-trailing-comma
+func f() {
+    match t {
+        case (a,) -> 1
+    }
+}
+
+// case: syntax.pat.tuple.positional/trailing-comma
+func f() {
+    match t {
+        case (a, b,) -> 1
+    }
+}
+
+// case: syntax.pat.tuple.positional/one-element-trailing-comma-in-a-let
+func f() {
+    let (a,) = t
+}
+
+// case: syntax.pat.variant/trailing-comma
+func f() {
+    match o {
+        case Some(x,) -> 1
+    }
+}
+
+// case: syntax.pat.range/open-end
+func f() {
+    match n {
+        case 1.. -> 1
+    }
+}
+
+// case: syntax.pat.range/open-start
+func f() {
+    match n {
+        case ..5 -> 1
+    }
+}
+
+// case: syntax.pat.int/name-as-an-end
+func f() {
+    match n {
+        case 1..k -> 1
+    }
+}
+
+// case: syntax.pat.int/expression-as-an-end
+func f() {
+    match n {
+        case 1..(2) -> 1
+    }
+}
+
+// case: syntax.pat.literal/negated-name
+func f() {
+    match n {
+        case -x -> 1
+    }
+}
+
+// case: syntax.pat.literal/float
+func f() {
+    match n {
+        case 1.5 -> 1
+    }
+}
+
+// case: syntax.pat.literal/interpolated-string
+func f() {
+    match s {
+        case "a{b}" -> 1
+    }
+}
+
+// case: syntax.stmt.destructure/type-annotation
+func f() {
+    let (a, b): (Int, Int) = t
+}
+
+// case: syntax.pat.refused-qualified-variant/qualified-name
+func f() {
+    match e {
+        case E.a -> 1
+    }
+}
+
+// case: syntax.pat.refused-qualified-variant/qualified-payload
+func f() {
+    match e {
+        case m.E.a(x, _) -> 1
+    }
+}
+
+// case: syntax.pat.refused-dot-variant/dotted-name
+func f() {
+    match e {
+        case .a -> 1
+    }
+}
+
+// case: syntax.pat.refused-dot-variant/dotted-payload-nested
+func f() {
+    match e {
+        case (1, .a(x)) -> 1
+    }
+}
+
+// case: syntax.pat.refused-named-tuple/labelled-elements
+func f() {
+    match t {
+        case (x: 1, y: 2) -> 1
+    }
+}
+
+// case: syntax.pat.refused-named-tuple/in-a-destructuring-let
+func f() {
+    let (x: a, y: b) = t
+}
