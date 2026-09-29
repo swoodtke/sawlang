@@ -178,6 +178,7 @@ so it is compiled by itself, without the source rules.
 | `test-directive` | `@test` | §4 |
 | `deinit-body` | a `deinit` in an extension, a conformance or a trait body | leak tolerance |
 | `borrowed-match-payload` | `move` of an arm binding, or a `match` on one, when the scrutinee is borrowed | S2 |
+| `optional-try` | every `try?` | S3 |
 | `root-reuse` | an argument reading the receiver's or a `&` argument's root; an index write whose right side reads its root | S4 |
 | `var-ref-into-let` | `&var`, or a call of a `&var self` method, reaching into a binding that is not a `var`, or into any `static` | S5 |
 | `function-exit` | a value-returning body, `init` or closure that can fall off its end or end in a `Void` call; code after `return`, `break` or `continue` | S6 |
@@ -203,7 +204,7 @@ so it is compiled by itself, without the source rules.
 | `type-param-receiver` | a call whose receiver is a type parameter | L10 |
 | `leading-minus` | a line that begins with `-` after a token that can end an operand | L12 |
 | `nesting-depth`, `chain-length` | brackets nested past 30; an operator, `??`, postfix, `else if` or `else if let` chain past 100 | L14 |
-| `generic-extension-params` | an extension head naming a generic type, the build's or std's (`Optional` and `Result` included), without its type parameters, as `extension Gen { }`, `extension Gen: NoCopy {}`, `extension Vector { }` or `extension Result { }` | L18 |
+| `generic-extension-params` | an extension head naming a generic type, the build's or std's (`Optional` and `Result` included), without its type parameters, as `extension Gen { }`, `extension Gen: NoCopy {}`, `extension Vector { }` or `extension Result { }`; its message for `extension Optional { }` says Stage 0 cannot extend `Optional` at all | L18 |
 | `interpolation-content` | `//`, a brace or a quote inside an interpolation | C3 |
 | `workaround-marker` | a comment that reads as a Stage 0 workaround marker but is not in its one form, or names an S or L entry SL:hazards does not declare | SL:hazards |
 
@@ -217,7 +218,9 @@ checking that every `deinit` it reaches only frees memory or closes a
 descriptor. S13, a nested generic with defaulted parameters, only leaks, so it
 has no rule. S23 only leaks too, and has one anyway: a parser comparing token
 text, or a diagnostic interpolating it, would leak once per token of every file
-Stage 1 compiles.
+Stage 1 compiles. S3's `try?`, which never releases the error it discards, has
+one for the same reason: a parser's "try this, else fall back" paths would leak
+once per attempt.
 
 `owned-operand` asks the compiler, not the source: its code generator's
 predicate judges each operand of the build Stage 0 is given, generic bodies at

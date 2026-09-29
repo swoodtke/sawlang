@@ -58,6 +58,7 @@ RULES = {
     "test-directive": ARCH,
     "deinit-body": "SL:hazards: leaks are tolerated in Stage 1",
     "borrowed-match-payload": "SL:hazards S2",
+    "optional-try": "SL:hazards S3",
     "root-reuse": "SL:hazards S4",
     "var-ref-into-let": "SL:hazards S5",
     "function-exit": "SL:hazards S6",
@@ -1007,7 +1008,13 @@ class FileChecker:
         for fn in prog.functions:
             BodyChecker(self, fn, None).run()
         for ext in prog.extensions:
-            if not ext.type_params and self.is_generic_type(ext.struct_name):
+            if not ext.type_params and ext.struct_name == "Optional":
+                # Stage 0 has no struct named `Optional`, so writing the
+                # parameters trades this refusal for a `compile` one.
+                self.report(ext.line, "generic-extension-params",
+                            "`Optional` cannot be extended under Stage 0; it refuses "
+                            "`extension Optional<T>` too, as an undefined struct")
+            elif not ext.type_params and self.is_generic_type(ext.struct_name):
                 self.report(ext.line, "generic-extension-params",
                             "`%s` is generic; write its type parameters in the extension "
                             "head" % ext.struct_name)
@@ -1530,6 +1537,11 @@ class BodyChecker:
                 self.pop()
             self.block(e.else_branch)
         elif isinstance(e, A.TryExpr):
+            if e.variant == "optional":
+                self.report(e.line, "optional-try",
+                            "`try?` never releases the error it discards; `match` on the "
+                            "`Result` instead, and mark it `// Stage 0 workaround "
+                            "(SL:hazards S3): canonical: <the original line>`")
             self.expr(e.expr, e)
             if e.catch_block is not None:
                 self.catch_block(e.catch_block, "error")

@@ -1,0 +1,24 @@
+// The spelling SL:hazards S3 gives for `try?`: a `match` on the `Result`,
+// which releases the error on the failing path.
+enum MtryError { case Bad(text: String) }
+
+func mtry_parse(n: Int) -> Result<Int, MtryError> {
+    if n < 0 {
+        return MtryError.Bad(text: "negative")
+    }
+    n
+}
+
+func mtry_optional(n: Int) -> Int? {
+    match mtry_parse(n) {
+        case Ok(v) -> v,
+        case Err(e) -> None
+    }
+}
+
+func mtry_positive(n: Int) -> Bool {
+    match mtry_parse(n) {
+        case Ok(v) -> v > 0,
+        case Err(e) -> false
+    }
+}

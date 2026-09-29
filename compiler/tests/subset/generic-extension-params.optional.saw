@@ -1,0 +1,6 @@
+// An extension head naming `Optional` without its parameters (SL:hazards L18).
+// Stage 0 also refuses `extension Optional<T>`, as an undefined struct, so the
+// message says `Optional` cannot be extended rather than naming a spelling.
+extension Optional {   // refuses: generic-extension-params
+    func opt_mark(&self) -> Int { 2 }
+}

@@ -1,0 +1,39 @@
+// A `try?`, which never releases the error it discards (SL:hazards S3): bound
+// to `_`, bound to a name, as an argument, and in a condition.
+enum OtryError { case Bad(text: String) }
+
+func otry_parse(n: Int) -> Result<Int, OtryError> {
+    if n < 0 {
+        return OtryError.Bad(text: "negative")
+    }
+    n
+}
+
+func otry_take(value: Int?) -> Int { value ?? 0 }
+
+func otry_discard(n: Int) {
+    let _ = try? otry_parse(n)   // refuses: optional-try
+}
+
+func otry_bound(n: Int) -> Int? {
+    let o = try? otry_parse(n)   // refuses: optional-try
+    o
+}
+
+func otry_argument(n: Int) -> Int {
+    otry_take(try? otry_parse(n))   // refuses: optional-try
+}
+
+func otry_condition(n: Int) -> Bool {
+    if (try? otry_parse(n) ?? 0) > 0 {   // refuses: optional-try
+        return true
+    }
+    false
+}
+
+func otry_unwrap(n: Int) -> Bool {
+    if let v = try? otry_parse(n) {   // refuses: optional-try
+        return v > 0
+    }
+    false
+}
