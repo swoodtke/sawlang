@@ -8,20 +8,7 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Waiting for the user (fundamental)
 
-### W3. Does an absent conditional write still evaluate its right side? (Sep 29; SL-420, `place_assignment_targets`)
-`borrow var v.find(9)?.value = loud(3)`, where `v.find(9)` is absent.
-- **SL:borrowing §2.2:** "The right side of an assignment is evaluated before the left side's borrow opens." Read literally, `loud(3)` always runs, and its value is then dropped when the place turns out to be absent.
-- **Today's language** (optional chaining, design 111, Swift's rule) skips the rest of the chain, the right side included, so `loud(3)` doesn't run. The corpus file pins that.
-
-**The options:**
-- **(a) Always evaluate the right side.** It is uniform with every other assignment, and §2.2's order also lets `borrow var v[i].x = borrow v[j].x` work. A conditional write evaluates its value even when nothing is written.
-- **(b) Skip it when absent,** as Swift does and today's language does. Presence is decided first, so the order becomes: open the left conditional lend; if absent, stop; otherwise evaluate the right side. But then the right side runs while the left borrow is open, which breaks the §2.2 order that makes `v[i].x = v[j].x` work, unless the presence test is a separate step before the right side.
-
-**The Air's facts (t5):**
-- Stage 0 skips it today, measured: `absent.p?.x = loud(n: 1)` doesn't call `loud`.
-- No real program uses an optional-chained assignment: none in std, Blade, libs, devtools, sawtracker or sawos. The uses are all test programs: 260 lines in sawlang's corpora, 51 of them with a call on the right side, 17 of those in `tests/corpus/`. Under (a) the ones that pin the skip get re-aimed; under (b) none do.
-
-**The lead's lean:** (a). It is one evaluation order for every assignment, so what runs is predictable and no special case sits in the borrow checker. `if borrow var p = v.find(9) { p.value = loud(3) }` is the spelling when the value should be computed only when present. The corpus file is re-aimed to pin (a).
+None right now.
 
 ## Decided by the lead, for review (reversible)
 
@@ -29,7 +16,7 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 §5.2 states the derivation for a type that declares "only the place accessor". **Decided:** a type that declares a pair derives getitem from the `&self` accessor and setitem from the `&var self` one. That is the reading SL-420's re-aims use. **Reversal:** restrict derivation to single-accessor types.
 
 ### D7. What the root column of SL:borrowing §3's table means (Sep 29; SL-420 finding 3)
-§3 says `(&self) borrows -> &var T` (`Mutex.lock`) holds its root "exclusive", yet `lock()` must work on `let`, `&self` and static roots (§8, §8a). **Decided:** the column is the *overlap* charge: no other use of the root while the borrow is open, so `m.lock()` inside its own window is refused, as §8 says. Whether the root must be *mutable* comes from the receiver. A `&var self` accessor needs a mutable root; a cell accessor takes `&self`, so `let`, `&self` and static roots serve. This is a wording clarification to add to §3. **Reversal:** a cell accessor would need a mutable root, which contradicts §8a.
+§3 says `(&self) borrows -> &var T` (`Mutex.lock`) holds its root "exclusive", yet `lock()` must work on `let`, `&self` and static roots (§8, §8a). **Decided:** the column is the *overlap* charge: no other use of the root while the borrow is open, so `m.lock()` inside its own window is refused, as §8 says. Whether the root must be *mutable* comes from the receiver. A `&var self` accessor needs a mutable root; a cell accessor takes `&self`, so `let`, `&self` and static roots serve. The clarification is in SL:borrowing §3 (r24). **Reversal:** a cell accessor would need a mutable root, which contradicts §8a.
 
 ### D6. How a signed width suffix bounds a literal (Sep 29; the Air, SL:hazards t21; SL-435)
 GRAMMAR.md §2.7 `syntax.lex.int-range` says a literal must fit "in its suffix's width", but not how a signed width counts. Stage 0 and sawlex both check the unsigned range, so `255_i8` lexes, and Stage 0 wraps it to -1 (S7's signed-suffix face).
@@ -85,6 +72,12 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 - Both land when SL-426 is dispatched, before U4h.
 
 ## Resolved
+
+### W3. An absent conditional write evaluates its right side (user, Sep 29): (a)
+**Ruling:** `borrow var v.find(9)?.value = loud(3)` calls `loud(3)` whether or not the place is present. Every assignment has one order: the right side first, then the left borrow. `?` skips only the write. The block form `if borrow var p = v.find(9) { p.value = loud(3) }` computes the value only when present.
+- **Recorded in:** SL:borrowing §2.2 (r24).
+- **This changes today's optional chaining,** which skips the right side (LANGUAGE_SPEC, Optionals: "the RHS is skipped entirely on short-circuit"). GRAMMAR §15 lists the passage (SL-437).
+- **No real program uses it** (the Air, t5). The tests/corpus files that pin the skip are re-aimed in SL-438, `place_assignment_targets` among them.
 
 ### W2. The one-element tuple pattern (user, Sep 29): (b2)
 **Ruling:** a one-element tuple pattern is spelled `(p,)`, as in expressions and types. A bare `(p)` in a pattern is refused, with a hint naming `(p,)`. No text silently changes meaning, and no real program in sawlang, sawtracker or sawos uses `(p)`.
