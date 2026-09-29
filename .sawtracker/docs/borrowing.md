@@ -96,6 +96,13 @@ print(borrow doc.section("net").name)
 - A conditional lend used inline to reach *into* the place needs `!` (panic if
   absent) or `?` (skip if absent), since there is no block in which to
   discriminate it.
+- **An absent conditional write still evaluates its right side** (Ruled, Sep 29;
+  SL:open-questions W3). `borrow var v.find(9)?.value = loud(3)` calls `loud(3)`
+  whether or not the place is present, and drops the value when it isn't. Every
+  assignment has this one order: the right side first, then the left borrow.
+  `?` skips only the write. To compute the value only when the place is present,
+  write the block form: `if borrow var p = v.find(9) { p.value = loud(3) }`.
+  This changes today's optional chaining, which skips the right side.
 - **A conditional lend read as a whole value is an optional copy** (Ruled,
   Sep 29). `let c = borrow b.slot(0)` copies the lent place out, if there is
   one, as `T?`. The element must be copyable, and the borrow closes once the
@@ -379,6 +386,14 @@ Two independent facts, both read from the accessor's declaration:
 | `(&var self) borrows -> &T` | read-only place | error: the lend is read-only | exclusive |
 | `(&var self) borrows -> &var T` | read-only place | writable place | exclusive |
 | `(&self) borrows -> &var T` (cell-carrying types only, e.g. `Mutex.lock`) | read-only place | writable place | exclusive |
+
+The Root column is the *overlap* charge: while the borrow is open, no other use
+of the root is allowed, so a second `m.lock()` inside a lock's own window is
+refused (§8). It is not a mutability requirement. Whether the root must be
+mutable follows from the receiver: a `&var self` accessor needs a mutable root,
+and a `&self` accessor, cell-carrying ones included, serves a `let` root, a
+`&self` parameter or a static (§8a). (SL:open-questions D7, decided by the lead
+for review.)
 
 - Under a shared root, other shared reads of the root are allowed. Under an
   exclusive root, the body cannot touch the root at all.
