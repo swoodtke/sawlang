@@ -9,7 +9,8 @@ kinds and lex errors must cover the lexer's; runs the subset checker over the
 compiler source and its own fixtures in `subset/`; and runs the grammar lint,
 the reference recognizer's own tests in `grammar/`, and the parser corpus's
 checks over `parse/`; runs the corpus rewriter's golden fixtures in
-`migrate/`; checks that the parser's grammar tables are current, runs the
+`migrate/`; checks that the parser's grammar tables are current and that its
+speculation ledger names every field, runs the
 depth-funnel lane with its fixtures in `funnel/`, and runs the parse lane, which
 holds `sawc2 parse` to the parser corpus as far as `compiler/parse/CLAIMS.tsv`
 claims. The inventory of Stage 0 workaround markers prints first, then each
@@ -33,6 +34,7 @@ sys.path.insert(0, os.path.join(HERE, "grammar"))
 import build  # noqa: E402
 import depth_funnel  # noqa: E402
 import grammar_tables  # noqa: E402
+import speculation_ledger  # noqa: E402
 import subset_check  # noqa: E402
 import ast_nodes as A  # noqa: E402  (on sys.path through subset_check)
 import parse_lane  # noqa: E402
@@ -339,12 +341,12 @@ def run_migrate(run):
 
 
 def run_parser(run):
-    """The parser's grammar tables, its depth funnel and its parse lane; the
-    last two run sawc2, so they wait for it to build."""
+    """The parser's grammar tables, its speculation ledger, its depth funnel
+    and its parse lane; the last two run sawc2, so they wait for it to build."""
     stale = grammar_tables.check()
     if stale:
         run.fail("grammar tables: " + stale)
-    for module in (depth_funnel, parse_lane):
+    for module in (speculation_ledger, depth_funnel, parse_lane):
         failures, counts = module.run()
         for failure in failures:
             run.fail(failure)

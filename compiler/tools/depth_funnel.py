@@ -389,6 +389,34 @@ def interpolations(k):
     return in_function('"{' * k + "1" + '}"' * k)
 
 
+def in_type(ty):
+    return "func f() {\n    let x: " + ty + " = w\n}\n"
+
+
+def generic_args(k):
+    return in_type("A<" * k + "B" + ">" * k)
+
+
+def function_types(k):
+    return in_type("() -> " * k + "Int")
+
+
+def tuple_types(k):
+    return in_type("(" * k + "Int" + ", Int)" * k)
+
+
+def failed_speculation(k):
+    """A generic list that fails and is re-read as comparisons, then k levels,
+    which fit only if the failed speculation gave its level back."""
+    return in_function("(a < b, c) + " + "(" * k + "1" + ")" * k)
+
+
+def cut_speculation(k):
+    """A generic list k levels deep. Cut short by the limit it is refused
+    there, never re-read as the comparisons that would fit."""
+    return in_function("f<" + "(" * (k - 1) + "Int" + ")" * (k - 1) + ">(x)")
+
+
 def nth(text, needle, n, shift=0):
     """The offset of the nth occurrence of `needle` in `text`, plus `shift`."""
     at = -1
@@ -408,7 +436,14 @@ def cells():
             ("nested array literals", brackets, lambda t: nth(t, "[", LIMIT + 1)),
             ("a postfix chain", postfix_chain, lambda t: nth(t, ".b", LIMIT + 1)),
             ("a `try` run", try_run, lambda t: nth(t, "try ", LIMIT + 1)),
-            ("nested interpolations", interpolations, lambda t: nth(t, '"{', LIMIT + 1))):
+            ("nested interpolations", interpolations, lambda t: nth(t, '"{', LIMIT + 1)),
+            ("nested generic arguments", generic_args, lambda t: nth(t, "<", LIMIT + 1)),
+            ("nested function types", function_types, lambda t: nth(t, "() ->", LIMIT + 1)),
+            ("nested tuple types", tuple_types, lambda t: t.index("(" * (LIMIT + 1)) + LIMIT),
+            ("a failed speculation's levels", failed_speculation,
+             lambda t: t.index("(" * (LIMIT + 1)) + LIMIT),
+            ("a speculation the limit cuts short", cut_speculation,
+             lambda t: t.index("(" * LIMIT) + LIMIT - 1)):
         out.append(("%s at %d" % (name, LIMIT), build_text(LIMIT), None, None))
         text = build_text(LIMIT + 1)
         at = find(text) if find else None

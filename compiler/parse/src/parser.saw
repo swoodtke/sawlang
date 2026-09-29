@@ -15,9 +15,9 @@
 import sawlex.src.lib.{DocComment, TokenKind, lex}
 import sawparse.src.source.{source_file}
 import sawparse.src.diag.{Diagnostic}
-import sawparse.src.grammar.{ALT_COUNT, Alt, Rule}
+import sawparse.src.grammar.{ALT_COUNT, Alt, Rule, follows_cast_list}
 import sawparse.src.tokens.{InterpPiece, ParseToken, closes_bracket, opens_bracket, parser_tokens}
-import sawparse.src.tree.{NodeShape, TreeBuilder}
+import sawparse.src.tree.{BuilderCheckpoint, NodeShape, TreeBuilder, put_at, trim_to}
 
 public static PARSE_MAX_DEPTH: Int = 256
 static PARSE_SPACE: Int = 32
@@ -38,12 +38,49 @@ struct ListState {
     need: Bool
 }
 
+// A token a generic list's close split, and the token it was before, so that
+// a restore can put it back (syntax.rule.generic-close-split).
+struct TokenEdit {
+    index: Int
+    token: ParseToken
+}
+
+// What a speculative generic list came to: kept, re-read as comparisons, or
+// kept and refused, which is reported (syntax.rule.generic-or-less).
+enum ListOutcome {
+    case Kept,
+    case Compares,
+    case Refused
+}
+
+// Where the parser stood when a speculation began: what `restore` returns it
+// to. SPECULATION LEDGER below lists each field of `Parser` and why a restore
+// leaves it right.
+public struct Checkpoint {
+    public tree: BuilderCheckpoint
+    public tokens: Int
+    public pieces: Int
+    public pos: Int
+    public limit: Int
+    public prev_end: Int
+    public depth: Int
+    public taken: Int
+    public edits: Int
+    public lists: Int
+    public speculating: Int
+    public trailing_comma: Int
+    public rejected_list: Int
+}
+
 public struct Parser {
     builder: TreeBuilder
     // The file's tokens, and after them each interpolation segment's, as it
-    // is parsed, each run ending in its own Eof.
+    // is parsed, each run ending in its own Eof. The first `token_count` are
+    // live; a restore lowers the count, and the slots above are reused.
     private tokens: Vector<ParseToken>
+    private token_count: Int
     private pieces: Vector<InterpPiece>
+    private piece_count: Int
     private docs: Vector<DocComment>
     private runs: Vector<DocRun>
     private pos: Int
@@ -54,9 +91,33 @@ public struct Parser {
     private depth: Int
     diagnostics: Vector<Diagnostic>
     // Which alternatives the derivation took, and the same set in the order
-    // first taken.
+    // first taken; the first `taken_count` of `taken` are live.
     private seen: Vector<Bool>
     taken: Vector<Alt>
+    private taken_count: Int
+    // The tokens split so far, the first `edit_count` live.
+    private edits: Vector<TokenEdit>
+    private edit_count: Int
+    // How many generic lists are open, inside which line breaks are
+    // insignificant (syntax.rule.generic-or-less).
+    private lists: Int
+    // How many speculations are open; none reports a diagnostic.
+    private speculating: Int
+    // The first trailing comma a speculative list met, or -1: refused only if
+    // the list is kept.
+    private trailing_comma: Int
+    // The `<` of the last list the statement re-read as comparisons although
+    // it parsed and its reading could go on, or -1; a plain error in that
+    // statement is then that rule's refusal (syntax.rule.generic-or-less).
+    private rejected_list: Int
+    // For each token, whether a generic list speculated at it failed to parse,
+    // which it then does wherever it is retried: a retry answers at once, so
+    // nested speculations do not double their cost per level.
+    private failed_lists: Vector<Bool>
+    // How many depth refusals the parse has met, speculations included, and
+    // the opener of the last.
+    private depth_refusals: Int
+    private depth_opener: Int
 }
 
 extension Parser: NoCopy {}
@@ -76,12 +137,16 @@ public func new_parser(builder: TreeBuilder, tokens: Vector<ParseToken>,
         try! own_docs.push(d)
         k = k + 1
     }
-    let limit = tokens.len() - 1
-    var parser = Parser(builder: move builder, tokens: move tokens, pieces: move pieces,
-                        docs: move own_docs, runs: Vector<DocRun>(), pos: 0, limit: limit,
-                        prev_end: 0, depth: 0,
-                        diagnostics: Vector<Diagnostic>(), seen: move seen,
-                        taken: Vector<Alt>())
+    let token_count = tokens.len()
+    let piece_count = pieces.len()
+    var parser = Parser(builder: move builder, tokens: move tokens, token_count: token_count,
+                        pieces: move pieces, piece_count: piece_count, docs: move own_docs,
+                        runs: Vector<DocRun>(), pos: 0, limit: token_count - 1, prev_end: 0,
+                        depth: 0, diagnostics: Vector<Diagnostic>(), seen: move seen,
+                        taken: Vector<Alt>(), taken_count: 0, edits: Vector<TokenEdit>(),
+                        edit_count: 0, lists: 0, speculating: 0, trailing_comma: -1,
+                        rejected_list: -1, failed_lists: Vector<Bool>(), depth_refusals: 0,
+                        depth_opener: -1)
     parser.find_doc_runs()
     move parser
 }
@@ -142,6 +207,27 @@ func is_declaration_keyword(kind: TokenKind) -> Bool {
     }
 }
 
+// Whether a token of this kind is an operator of the constant grammar
+// (GRAMMAR.md section 5.2).
+func is_const_operator(kind: TokenKind) -> Bool {
+    match kind {
+        case Plus -> true,
+        case Minus -> true,
+        case Star -> true,
+        case Slash -> true,
+        case Percent -> true,
+        case _ -> false
+    }
+}
+
+// Whether a token of this kind can go on after a postfix expression, so that
+// a generic list re-read before it had a reading that went on
+// (syntax.rule.generic-or-less).
+func continues_postfix(kind: TokenKind) -> Bool {
+    (follows_cast_list(kind) || kind == TokenKind.LBracket || kind == TokenKind.Exclaim
+     || kind == TokenKind.QuestionDot)
+}
+
 // Whether a token of this kind makes the statement before it an assignment.
 func is_assignment(kind: TokenKind) -> Bool {
     match kind {
@@ -184,11 +270,19 @@ extension Parser {
         self.builder.tree.source.span_is(t.start, t.end, word)
     }
 
+    // Consumes the current token. Inside a generic list the line breaks after
+    // it are insignificant, so they are passed over too, without moving where
+    // a node closing now ends.
     func advance(&var self) {
         let t = self.current()
         self.prev_end = t.end
         if self.pos < self.limit {
             self.pos = self.pos + 1
+        }
+        if self.lists > 0 {
+            while self.pos < self.limit && self.tokens[self.pos].kind == TokenKind.Newline {
+                self.pos = self.pos + 1
+            }
         }
     }
 
@@ -215,8 +309,89 @@ extension Parser {
         let index = (alt as UInt16) as Int
         if not self.seen[index] {
             self.seen[index] = true
-            try! self.taken.push(alt)
+            // Stage 0 workaround (SL:hazards S4): canonical: put_at(&var self.taken, self.taken_count, alt)
+            let at = self.taken_count
+            put_at(&var self.taken, at, alt)
+            self.taken_count = at + 1
         }
+    }
+
+    // ---- speculation ----------------------------------------------------------
+
+    // Opens a speculation: parsing goes on from here, reporting nothing, until
+    // `restore` undoes all of it or `commit` keeps it.
+    // SPECULATION LEDGER:
+    //     builder: restored
+    //     tokens: restored
+    //     token_count: restored
+    //     pieces: restored by piece_count
+    //     piece_count: restored
+    //     docs: unchanged, because nothing writes it after the parser is built
+    //     runs: unchanged, because only a declaration attaches a doc run, and attach_docs refuses to run inside a speculation
+    //     pos: restored
+    //     limit: restored
+    //     prev_end: restored
+    //     depth: restored
+    //     diagnostics: unchanged, because record drops a diagnostic while a speculation is open
+    //     seen: restored
+    //     taken: restored
+    //     taken_count: restored
+    //     edits: restored
+    //     edit_count: restored
+    //     lists: restored
+    //     speculating: restored
+    //     trailing_comma: restored
+    //     rejected_list: restored
+    //     failed_lists: kept, because a list that failed to parse fails in every context, a depth refusal being refused rather than recorded, and parse_segment clears a slot it reuses
+    //     depth_refusals: kept, because it only counts up, so a speculation sees the refusals of those nested in it
+    //     depth_opener: kept, because it names the opener a depth refusal a restore undid is reported at
+    public func checkpoint(&var self) -> Checkpoint {
+        let tree = self.builder.checkpoint()
+        let saved = Checkpoint(tree: tree, tokens: self.token_count, pieces: self.piece_count,
+                               pos: self.pos, limit: self.limit, prev_end: self.prev_end,
+                               depth: self.depth, taken: self.taken_count,
+                               edits: self.edit_count, lists: self.lists,
+                               speculating: self.speculating,
+                               trailing_comma: self.trailing_comma,
+                               rejected_list: self.rejected_list)
+        self.speculating = self.speculating + 1
+        saved
+    }
+
+    // Undoes everything since `saved`: the nodes built, the tokens appended
+    // and split, the alternatives seen and the levels taken.
+    public func restore(&var self, saved: &Checkpoint) {
+        self.builder.restore(&saved.tree)
+        var k = self.edit_count
+        while k > saved.edits {
+            k = k - 1
+            let edit = self.edits[k]
+            self.tokens[edit.index] = edit.token
+        }
+        self.edit_count = saved.edits
+        k = self.taken_count
+        while k > saved.taken {
+            k = k - 1
+            let index = (self.taken[k] as UInt16) as Int
+            self.seen[index] = false
+        }
+        self.taken_count = saved.taken
+        self.token_count = saved.tokens
+        self.piece_count = saved.pieces
+        self.pos = saved.pos
+        self.limit = saved.limit
+        self.prev_end = saved.prev_end
+        self.depth = saved.depth
+        self.lists = saved.lists
+        self.speculating = saved.speculating
+        self.trailing_comma = saved.trailing_comma
+        self.rejected_list = saved.rejected_list
+    }
+
+    // Keeps what the speculation since `saved` parsed.
+    public func commit(&var self, saved: &Checkpoint) {
+        self.builder.commit(&saved.tree)
+        self.speculating = saved.speculating
     }
 
     // Closes the construct begun at `mark` into a node of `alt`'s Kind that
@@ -238,26 +413,47 @@ extension Parser {
 
     // ---- diagnostics --------------------------------------------------------
 
+    // The one place a diagnostic is kept. Inside a speculation nothing is: a
+    // speculation that fails is undone and its errors with it.
+    func record(&var self, d: Diagnostic) {
+        if self.speculating == 0 {
+            try! self.diagnostics.push(d)
+        }
+    }
+
     func report(&var self, rule: Rule?, at: Int, message: String, hint: String) {
         let t = self.tokens[at]
-        try! self.diagnostics.push(Diagnostic(rule: rule, start: t.start, end: t.end,
-                                              message: message, hint: hint))
+        self.record(Diagnostic(rule: rule, start: t.start, end: t.end, message: message,
+                               hint: hint))
     }
 
     // A plain parse error at the current token. Always false, so a method
-    // reports and fails in one step.
+    // reports and fails in one step. In a statement that re-read a generic
+    // list its reading could have gone on with, the error is that rule's
+    // refusal, at the list's `<` (syntax.rule.generic-or-less).
     func error(&var self, message: String) -> Bool {
+        let list = self.rejected_list
+        if list >= 0 && self.speculating == 0 {
+            return self.refuse_rejected_list(list)
+        }
         // Stage 0 workaround (SL:hazards S4): canonical: self.report(None, self.pos, message, "")
         let at = self.pos
         self.report(None, at, message, "")
         false
     }
 
+    // The refusal of the generic list at `at`, which parsed and was re-read as
+    // comparisons, when that reading fails and its own would have gone on.
+    func refuse_rejected_list(&var self, at: Int) -> Bool {
+        self.rejected_list = -1
+        self.refuse(Rule.Rule_GenericOrLess, at, "these generic arguments are read as comparisons",
+                    "a generic list is kept before `(`, `.` or `\{`; parenthesize a comparison")
+    }
+
     // The lexer's refusal, at byte `at`: the whole parse, since the lexer
     // stops at its first error.
     public func lex_error(&var self, at: Int, message: String) {
-        try! self.diagnostics.push(Diagnostic(rule: None, start: at, end: at, message: message,
-                                              hint: ""))
+        self.record(Diagnostic(rule: None, start: at, end: at, message: message, hint: ""))
     }
 
     // A refusal named by `rule`, at the token `at`.
@@ -299,8 +495,10 @@ extension Parser {
     // its level here, at its opener, and gives it back with `leave_level` when
     // it ends; the 257th level is refused at the opener that would take it.
     // A failed construct gives nothing back: the recovery loop that catches it
-    // restores the depth it saved. Every recursion passes through here, which
-    // compiler/tools/depth_funnel.py checks against this list.
+    // restores the depth it saved, as a failed speculation's restore does.
+    // Every recursion passes through here, which compiler/tools/depth_funnel.py
+    // checks against this list; so a speculation nested in another is charged
+    // at least the generic list that holds it.
     // ENTRY POINTS:
     //     parse_paren
     //     parse_module
@@ -310,14 +508,28 @@ extension Parser {
     //     parse_postfix
     //     parse_try
     //     parse_interp
+    //     parse_ref_type
+    //     parse_slice_type
+    //     parse_array_type
+    //     parse_func_type
+    //     parse_paren_type
+    //     parse_generic_params
+    //     parse_generic_args
+    //     parse_const_negate
+    //     parse_const_group
     func enter_level(&var self, opener: Int) -> Bool {
         if self.depth >= PARSE_MAX_DEPTH {
-            return self.refuse(Rule.Rule_DepthLimit, opener,
-                               "nesting exceeds the parser depth limit (256)",
-                               "split the expression or the declaration into smaller ones")
+            self.depth_refusals = self.depth_refusals + 1
+            self.depth_opener = opener
+            return self.refuse_depth(opener)
         }
         self.depth = self.depth + 1
         true
+    }
+
+    func refuse_depth(&var self, opener: Int) -> Bool {
+        self.refuse(Rule.Rule_DepthLimit, opener, "nesting exceeds the parser depth limit (256)",
+                    "split the expression or the declaration into smaller ones")
     }
 
     func leave_level(&var self) {
@@ -345,11 +557,11 @@ extension Parser {
                 last = last + 1
             }
             let end_line = self.docs[last].line
-            while k < self.tokens.len() && (self.tokens[k].line <= end_line
-                                          || self.tokens[k].kind == TokenKind.Newline) {
+            while k < self.token_count && (self.tokens[k].line <= end_line
+                                         || self.tokens[k].kind == TokenKind.Newline) {
                 k = k + 1
             }
-            let target = if k < self.tokens.len() { k } else { self.tokens.len() - 1 }
+            let target = if k < self.token_count { k } else { self.token_count - 1 }
             try! self.runs.push(DocRun(first: i, last: last, target: target, attached: false))
             i = last + 1
         }
@@ -393,6 +605,9 @@ extension Parser {
         while r < self.runs.len() {
             let run = self.runs[r]
             if run.target == first {
+                // A restore does not return the runs to an earlier state, so
+                // none may be attached inside a speculation (SPECULATION LEDGER).
+                assert(self.speculating == 0, "parse: a doc run attached inside a speculation")
                 self.runs[r] = DocRun(first: run.first, last: run.last, target: run.target,
                                       attached: true)
                 return self.doc_node(run.first, run.last)
@@ -440,10 +655,10 @@ extension Parser {
     // A `//!` line after the file's first token (syntax.lex.module-doc).
     func check_module_docs(&var self) {
         var k = 0
-        while k < self.tokens.len() && self.tokens[k].kind == TokenKind.Newline {
+        while k < self.token_count && self.tokens[k].kind == TokenKind.Newline {
             k = k + 1
         }
-        if k >= self.tokens.len() || self.tokens[k].kind == TokenKind.Eof {
+        if k >= self.token_count || self.tokens[k].kind == TokenKind.Eof {
             return
         }
         let first_line = self.tokens[k].line
@@ -452,10 +667,9 @@ extension Parser {
             let d = self.docs[i]
             if d.kind.equals("module") && d.line > first_line {
                 let at = self.builder.tree.source.offset_of(d.line, d.col)
-                try! self.diagnostics.push(Diagnostic(rule: Rule.Lex_ModuleDoc, start: at,
-                                                      end: at + 3,
-                                                      message: "a `//!` comment stands only before the file's first token",
-                                                      hint: "make it a `//` comment, or move it to the top"))
+                self.record(Diagnostic(rule: Rule.Lex_ModuleDoc, start: at, end: at + 3,
+                                       message: "a `//!` comment stands only before the file's first token",
+                                       hint: "make it a `//` comment, or move it to the top"))
                 return
             }
             i = i + 1
@@ -470,10 +684,9 @@ extension Parser {
             if not run.attached {
                 let d = self.docs[run.first]
                 let at = self.builder.tree.source.offset_of(d.line, d.col)
-                try! self.diagnostics.push(Diagnostic(rule: Rule.Lex_DocAttach, start: at,
-                                                      end: at + 3,
-                                                      message: "this doc comment documents no declaration",
-                                                      hint: "make it a `//` comment, or move it before a declaration"))
+                self.record(Diagnostic(rule: Rule.Lex_DocAttach, start: at, end: at + 3,
+                                       message: "this doc comment documents no declaration",
+                                       hint: "make it a `//` comment, or move it before a declaration"))
             }
             r = r + 1
         }
@@ -511,6 +724,9 @@ extension Parser {
         if self.diagnostics.len() == 0 {
             self.check_doc_runs()
         }
+        // Stage 0 workaround (SL:hazards S4): canonical: trim_to(&var self.taken, self.taken_count)
+        let used = self.taken_count
+        trim_to(&var self.taken, used)
         self.builder.finish()
     }
 
@@ -530,9 +746,12 @@ extension Parser {
             let from = self.pos
             let mark = self.builder.mark()
             let depth = self.depth
+            let lists = self.lists
+            self.rejected_list = -1
             if not self.parse_item() {
                 self.builder.discard(mark)
                 self.depth = depth
+                self.lists = lists
                 self.recover(from)
             }
             let after = self.kind()
@@ -640,7 +859,50 @@ extension Parser {
             self.close(mark, Alt.Decl_Item_Func, start)
             return true
         }
+        if self.word_at(0, "type") && self.kind_at(1) == TokenKind.Ident {
+            self.see(Alt.File_Item_Declaration)
+            self.see(Alt.Decl_Item_TypeAlias)
+            if not self.parse_type_alias() {
+                return false
+            }
+            self.close(mark, Alt.Decl_Item_TypeAlias, start)
+            return true
+        }
+        if self.kind() == TokenKind.Enum && self.kind_at(1) == TokenKind.Ident {
+            return self.parse_enum_head()
+        }
         self.error("expected a declaration")
+    }
+
+    // `type-alias-decl ::= 'type' IDENT "=" type`
+    func parse_type_alias(&var self) -> Bool {
+        self.see(Alt.Decl_TypeAlias)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        self.take_leaf()
+        if self.kind() != TokenKind.Assign {
+            return self.error("expected `=` and the type the alias names")
+        }
+        self.advance()
+        if not self.parse_type(false) {
+            return false
+        }
+        self.close(mark, Alt.Decl_TypeAlias, start)
+        true
+    }
+
+    // An enum's head, as far as its generic parameters, so that a refusal
+    // there is reported by name; the rest of an enum is not parsed yet.
+    func parse_enum_head(&var self) -> Bool {
+        self.advance()
+        self.take_leaf()
+        if self.kind() == TokenKind.Lt {
+            if not self.parse_generic_params() {
+                return false
+            }
+        }
+        self.error("an enum is not parsed yet")
     }
 
     // `visibility ::= "public" | "public" "(" 'package' ")" | "public" "(" 'parent' ")"`
@@ -789,10 +1051,10 @@ extension Parser {
                 let b = self.symbol_binding(first + 1 + j)
                 if self.builder.tree.source.spans_equal(a.start, a.end, b.start, b.end) {
                     let symbol = self.builder.node_at(first + 1 + i)
-                    try! self.diagnostics.push(Diagnostic(rule: Rule.Rule_ImportNames,
-                                                          start: symbol.start, end: symbol.end,
-                                                          message: "this import binds a name the list already binds",
-                                                          hint: "import each name once, and give a second one its own alias"))
+                    self.record(Diagnostic(rule: Rule.Rule_ImportNames, start: symbol.start,
+                                           end: symbol.end,
+                                           message: "this import binds a name the list already binds",
+                                           hint: "import each name once, and give a second one its own alias"))
                     return false
                 }
                 j = j + 1
@@ -867,7 +1129,9 @@ extension Parser {
         }
         self.take_leaf()
         if self.kind() == TokenKind.Lt {
-            return self.error("generic parameters are not parsed yet")
+            if not self.parse_generic_params() {
+                return false
+            }
         }
         if self.kind() != TokenKind.LParen {
             return self.error("expected `(` to open the parameters")
@@ -881,7 +1145,7 @@ extension Parser {
         if self.kind() == TokenKind.Arrow {
             self.see(Alt.Decl_Return)
             self.advance()
-            if not self.parse_type() {
+            if not self.parse_type(false) {
                 return false
             }
         }
@@ -932,7 +1196,7 @@ extension Parser {
             return self.error("expected `:` and the parameter's type")
         }
         self.advance()
-        if not self.parse_type() {
+        if not self.parse_type(false) {
             return false
         }
         var alt = Alt.Decl_Param_Plain
@@ -999,9 +1263,12 @@ extension Parser {
             let from = self.pos
             let mark = self.builder.mark()
             let depth = self.depth
+            let lists = self.lists
+            self.rejected_list = -1
             if not self.parse_statement() {
                 self.builder.discard(mark)
                 self.depth = depth
+                self.lists = lists
                 self.recover(from)
             }
         }
@@ -1016,6 +1283,8 @@ extension Parser {
             let from = self.pos
             let mark = self.builder.mark()
             let depth = self.depth
+            let lists = self.lists
+            self.rejected_list = -1
             var ok = true
             if self.starts_item() {
                 self.see(Alt.Test_RefusalUnitItem_Declaration)
@@ -1027,6 +1296,7 @@ extension Parser {
             if not ok {
                 self.builder.discard(mark)
                 self.depth = depth
+                self.lists = lists
                 self.recover(from)
             }
         }
@@ -1152,7 +1422,7 @@ extension Parser {
             self.see(Alt.Stmt_TypeAnnotation)
             annotated = true
             self.advance()
-            if not self.parse_type() {
+            if not self.parse_type(false) {
                 return false
             }
         }
@@ -1190,27 +1460,33 @@ extension Parser {
 
     // ---- types -------------------------------------------------------------------
 
-    // `type ::= type-atom type-suffix*`, where the atom is a named type:
-    // `named-type ::= path generic-args?`. Each `?` wraps it in one
-    // OptionalType, and a `??` in two.
-    func parse_type(&var self) -> Bool {
-        let kind = self.kind()
-        if kind != TokenKind.Ident || (self.word_at(0, "any") && self.kind_at(1) == TokenKind.Ident) {
-            return self.error("only a named type is parsed yet")
+    // `type ::= ref-type | func-type | type-atom type-suffix*`. A reference and
+    // a function type are not atoms, so a `?` after `&` or `->` belongs to the
+    // type after it (syntax.rule.prefix-type-suffix). In a type `<` opens a
+    // generic list, but where the type ends a cast target (`cast`) the list
+    // after its last named type is speculative (syntax.rule.generic-or-less).
+    func parse_type(&var self, cast: Bool) -> Bool {
+        if self.kind() == TokenKind.Ampersand && not self.slice_ahead() {
+            self.see(Alt.Type_Type_Ref)
+            return self.parse_ref_type(cast)
+        }
+        if self.kind() == TokenKind.LParen && self.func_type_ahead() {
+            self.see(Alt.Type_Type_Func)
+            return self.parse_func_type(cast)
         }
         self.see(Alt.Type_Type_Suffixed)
-        self.see(Alt.Type_Atom_Named)
-        self.see(Alt.Type_Named)
         let start = self.here()
         let mark = self.builder.mark()
-        if not self.parse_path() {
+        if not self.parse_type_atom(cast) {
             return false
         }
-        if self.kind() == TokenKind.Lt {
-            return self.error("generic arguments are not parsed yet")
-        }
-        self.close(mark, Alt.Type_Named, start)
         while self.kind() == TokenKind.Question || self.kind() == TokenKind.DoubleQuestion {
+            // At the end of a cast target a `?` is the type's only when what
+            // follows it may follow the cast; otherwise it is the cast's, and
+            // a `??` there is refused (syntax.rule.cast-target-question).
+            if cast && not follows_cast_list(self.kind_at(1)) {
+                break
+            }
             let double = self.kind() == TokenKind.DoubleQuestion
             let alt = if double { Alt.Type_Suffix_DoubleOptional } else { Alt.Type_Suffix_Optional }
             self.see(alt)
@@ -1221,6 +1497,798 @@ extension Parser {
             }
         }
         true
+    }
+
+    // `type-atom`: a named type, a slice, an array, a tuple or a grouped
+    // type, or `any` and a path.
+    func parse_type_atom(&var self, cast: Bool) -> Bool {
+        let kind = self.kind()
+        if kind == TokenKind.Ident && self.word_at(0, "any") && self.kind_at(1) == TokenKind.Ident {
+            self.see(Alt.Type_Atom_Any)
+            self.see(Alt.Type_Any)
+            let start = self.here()
+            let mark = self.builder.mark()
+            self.advance()
+            if not self.parse_path() {
+                return false
+            }
+            self.close(mark, Alt.Type_Any, start)
+            return true
+        }
+        if kind == TokenKind.Ident {
+            self.see(Alt.Type_Atom_Named)
+            return self.parse_named_type(cast)
+        }
+        if kind == TokenKind.Ampersand {
+            self.see(Alt.Type_Atom_Slice)
+            return self.parse_slice_type()
+        }
+        if kind == TokenKind.LBracket {
+            self.see(Alt.Type_Atom_Array)
+            return self.parse_array_type()
+        }
+        if kind == TokenKind.LParen {
+            return self.parse_paren_type()
+        }
+        self.error("expected a type")
+    }
+
+    // `named-type ::= path generic-args?`
+    func parse_named_type(&var self, cast: Bool) -> Bool {
+        self.see(Alt.Type_Named)
+        let start = self.here()
+        let mark = self.builder.mark()
+        if not self.parse_path() {
+            return false
+        }
+        if self.kind() == TokenKind.Lt {
+            if cast {
+                if self.speculate_list(true) == ListOutcome.Refused {
+                    return false
+                }
+            } else if not self.parse_generic_args() {
+                return false
+            }
+        }
+        self.close(mark, Alt.Type_Named, start)
+        true
+    }
+
+    // Whether the `&` here opens a slice, `&[T]` or `&var [T]`, which is an
+    // atom, rather than a reference: to an array, `&[T; N]`, when a `;`
+    // stands at its bracket's own level.
+    func slice_ahead(&self) -> Bool {
+        var k = 1
+        if self.kind_at(k) == TokenKind.Var {
+            k = 2
+        }
+        if self.kind_at(k) != TokenKind.LBracket {
+            return false
+        }
+        var open = 0
+        while true {
+            let kind = self.kind_at(k)
+            if kind == TokenKind.Eof || kind == TokenKind.LBrace || kind == TokenKind.RBrace {
+                return true
+            }
+            if kind == TokenKind.LParen || kind == TokenKind.LBracket {
+                open = open + 1
+            } else if kind == TokenKind.RParen || kind == TokenKind.RBracket {
+                open = open - 1
+                if open == 0 {
+                    return true
+                }
+            } else if kind == TokenKind.Semicolon && open == 1 {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // `ref-type ::= "&" type | "&" "var" type`, charging one level held to
+    // the end of the type it refers to.
+    func parse_ref_type(&var self, cast: Bool) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        let alt = if self.kind_at(1) == TokenKind.Var { Alt.Type_Ref_Exclusive } else { Alt.Type_Ref_Shared }
+        self.see(alt)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        if alt == Alt.Type_Ref_Exclusive {
+            self.advance()
+        }
+        if not self.parse_type(cast) {
+            return false
+        }
+        self.close(mark, alt, start)
+        self.leave_level()
+        true
+    }
+
+    // `slice-type ::= "&" "[" type "]" | "&" "var" "[" type "]"`, one level.
+    func parse_slice_type(&var self) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        let alt = if self.kind_at(1) == TokenKind.Var { Alt.Type_Slice_Exclusive } else { Alt.Type_Slice_Shared }
+        self.see(alt)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        if alt == Alt.Type_Slice_Exclusive {
+            self.advance()
+        }
+        let bracket = self.pos
+        self.advance()
+        if not self.parse_type(false) {
+            return false
+        }
+        if self.kind() != TokenKind.RBracket {
+            return self.list_error(bracket, "expected `]` after the slice's element type")
+        }
+        self.advance()
+        self.close(mark, alt, start)
+        self.leave_level()
+        true
+    }
+
+    // `array-type ::= "[" type ";" expr "]"`, one level for the `[`. A length
+    // is closed by `]`, so it takes the full expression grammar.
+    func parse_array_type(&var self) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        self.see(Alt.Type_Array)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        if not self.parse_type(false) {
+            return false
+        }
+        if self.kind() != TokenKind.Semicolon {
+            return self.list_error(open, "expected `;` and the array's length")
+        }
+        self.advance()
+        if not self.parse_expr() {
+            return false
+        }
+        if self.kind() != TokenKind.RBracket {
+            return self.list_error(open, "expected `]` after the array's length")
+        }
+        self.advance()
+        self.close(mark, Alt.Type_Array, start)
+        self.leave_level()
+        true
+    }
+
+    // Whether the `(` here opens a function type: its `)` is followed by an
+    // effect word or `->` (syntax.rule.paren-type). `consumes` counts, so that
+    // a function type that writes it is refused as one.
+    func func_type_ahead(&self) -> Bool {
+        var k = self.pos
+        var open = 0
+        while k < self.limit {
+            let kind = self.tokens[k].kind
+            if kind == TokenKind.LParen || kind == TokenKind.LBracket {
+                open = open + 1
+            } else if kind == TokenKind.RParen || kind == TokenKind.RBracket {
+                open = open - 1
+                if open == 0 {
+                    break
+                }
+            } else if kind == TokenKind.Eof || kind == TokenKind.LBrace || kind == TokenKind.RBrace {
+                return false
+            }
+            k = k + 1
+        }
+        let after = k + 1 - self.pos
+        let next = self.kind_at(after)
+        if next == TokenKind.Arrow || next == TokenKind.Unsafe_ || next == TokenKind.Borrows {
+            return true
+        }
+        self.word_at(after, "sync") || self.word_at(after, "escaping") || self.word_at(after, "consumes")
+    }
+
+    // `func-type ::= "(" func-type-params? ")" func-type-effects "->" type`,
+    // one level for the parameter list, held to the end of the return type.
+    // The effects print, in their one order (syntax.rule.effect-slot).
+    func parse_func_type(&var self, cast: Bool) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        self.see(Alt.Type_Func)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        if self.kind() != TokenKind.RParen {
+            self.see(Alt.Type_FuncParams)
+        }
+        while self.kind() != TokenKind.RParen {
+            if not self.parse_type(false) {
+                return false
+            }
+            if self.kind() == TokenKind.Comma {
+                self.advance()
+            } else if self.kind() != TokenKind.RParen {
+                return self.list_error(open, "expected `,` or `)` after a parameter type")
+            }
+        }
+        self.advance()
+        self.see(Alt.Type_FuncEffects)
+        if self.kind() == TokenKind.Unsafe_ {
+            self.take_leaf()
+        }
+        if self.word_at(0, "sync") {
+            self.take_leaf()
+        }
+        if self.word_at(0, "escaping") {
+            self.take_leaf()
+        }
+        if self.kind() == TokenKind.Borrows {
+            self.take_leaf()
+            if self.kind() == TokenKind.LParen && self.word_at(1, "sync") && self.kind_at(2) == TokenKind.RParen {
+                self.see(Alt.Type_FuncBorrows_Sync)
+                self.advance()
+                self.take_leaf()
+                self.advance()
+            } else {
+                self.see(Alt.Type_FuncBorrows_Plain)
+            }
+        }
+        if self.word_at(0, "consumes") {
+            let at = self.pos
+            return self.refuse(Rule.Type_RefusedFuncConsumes, at,
+                               "`consumes` ends a method's receiver, and a function type has none",
+                               "call the method")
+        }
+        if self.kind() != TokenKind.Arrow {
+            return self.error("expected `->` and the function type's return type")
+        }
+        self.advance()
+        if not self.parse_type(cast) {
+            return false
+        }
+        self.close(mark, Alt.Type_Func, start)
+        self.leave_level()
+        true
+    }
+
+    // A `(` that opens no function type: `()`, a tuple type, a one-element
+    // tuple `(T,)`, or grouping parentheses, which build no node
+    // (syntax.rule.paren-type). A tuple labels every element or none
+    // (syntax.rule.label-or-tuple); a mix is refused once it has parsed.
+    // Each charges one level for its `(`.
+    func parse_paren_type(&var self) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        if not self.parse_paren_type_body(open) {
+            return false
+        }
+        self.leave_level()
+        true
+    }
+
+    func parse_paren_type_body(&var self, open: Int) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        if self.kind() == TokenKind.RParen {
+            self.advance()
+            self.see(Alt.Type_Atom_Tuple)
+            self.see(Alt.Type_Tuple_Unit)
+            self.close(mark, Alt.Type_Tuple_Unit, start)
+            return true
+        }
+        let named = self.kind() == TokenKind.Ident && self.kind_at(1) == TokenKind.Colon
+        var elements = 0
+        var mixed = -1
+        var trailing = false
+        while true {
+            if elements > 0 {
+                if self.kind() == TokenKind.Comma {
+                    self.advance()
+                    if self.kind() == TokenKind.RParen {
+                        trailing = true
+                        break
+                    }
+                } else if self.kind() == TokenKind.RParen {
+                    break
+                } else {
+                    return self.list_error(open, "expected `,` or `)` in the tuple type")
+                }
+            }
+            let labelled = self.kind() == TokenKind.Ident && self.kind_at(1) == TokenKind.Colon
+            if labelled != named && mixed < 0 {
+                mixed = self.pos
+            }
+            if labelled {
+                if not self.parse_tuple_type_field() {
+                    return false
+                }
+            } else if not self.parse_type(false) {
+                return false
+            }
+            elements = elements + 1
+        }
+        self.advance()
+        if mixed >= 0 {
+            return self.refuse(Rule.Type_RefusedPartialNamedTuple, mixed,
+                               "a named tuple type labels every element or none",
+                               "label every element, or none")
+        }
+        if named {
+            self.see(Alt.Type_Atom_Tuple)
+            self.see(Alt.Type_Tuple_Named)
+            self.close(mark, Alt.Type_Tuple_Named, start)
+        } else if elements == 1 && trailing {
+            self.see(Alt.Type_Atom_SingleTuple)
+            self.see(Alt.Type_SingleTuple)
+            self.close(mark, Alt.Type_SingleTuple, start)
+        } else if elements == 1 {
+            self.see(Alt.Type_Atom_Paren)
+            self.see(Alt.Type_Paren)
+        } else {
+            self.see(Alt.Type_Atom_Tuple)
+            self.see(Alt.Type_Tuple_Positional)
+            self.close(mark, Alt.Type_Tuple_Positional, start)
+        }
+        true
+    }
+
+    // `tuple-type-field ::= IDENT ":" type`
+    func parse_tuple_type_field(&var self) -> Bool {
+        self.see(Alt.Type_TupleField)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.take_leaf()
+        self.advance()
+        if not self.parse_type(false) {
+            return false
+        }
+        self.close(mark, Alt.Type_TupleField, start)
+        true
+    }
+
+    // ---- generic lists ------------------------------------------------------------
+
+    // `generic-params ::= "<" generic-param ( "," generic-param )* ">"`, one
+    // level for the list. A trailing comma is refused
+    // (syntax.generic.refused-param-comma).
+    func parse_generic_params(&var self) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        if not self.parse_generic_params_body() {
+            return false
+        }
+        self.leave_level()
+        true
+    }
+
+    func parse_generic_params_body(&var self) -> Bool {
+        self.see(Alt.Generic_Params_List)
+        self.lists = self.lists + 1
+        self.advance()
+        while true {
+            if not self.parse_generic_param() {
+                return false
+            }
+            if self.kind() == TokenKind.Comma {
+                let comma = self.pos
+                self.advance()
+                if self.closes_list() {
+                    return self.refuse(Rule.Generic_RefusedParamComma, comma,
+                                       "a generic parameter list takes no trailing comma",
+                                       "drop the comma")
+                }
+            } else if self.closes_list() {
+                break
+            } else {
+                return self.error("expected `,` or `>` in the generic parameters")
+            }
+        }
+        self.close_list()
+        true
+    }
+
+    // `generic-param ::= IDENT bound-list? ( "=" type )? | 'const' IDENT ":" type ( "=" const-expr )?`,
+    // with `bound-list ::= ":" path ( "+" path )*`.
+    func parse_generic_param(&var self) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        if self.word_at(0, "const") && self.kind_at(1) == TokenKind.Ident {
+            self.see(Alt.Generic_Param_Const)
+            self.advance()
+            self.take_leaf()
+            if self.kind() != TokenKind.Colon {
+                return self.error("expected `:` and the constant parameter's type")
+            }
+            self.advance()
+            if not self.parse_type(false) {
+                return false
+            }
+            if self.kind() == TokenKind.Assign {
+                self.take_leaf()
+                if not self.parse_const_expr() {
+                    return false
+                }
+            }
+            self.close(mark, Alt.Generic_Param_Const, start)
+            return true
+        }
+        if self.kind() != TokenKind.Ident {
+            return self.error("expected a generic parameter's name")
+        }
+        self.see(Alt.Generic_Param_Type)
+        self.take_leaf()
+        if self.kind() == TokenKind.Colon {
+            self.see(Alt.Generic_Bounds)
+            self.advance()
+            if not self.parse_path() {
+                return false
+            }
+            while self.kind() == TokenKind.Plus {
+                self.take_leaf()
+                if not self.parse_path() {
+                    return false
+                }
+            }
+        }
+        if self.kind() == TokenKind.Assign {
+            self.take_leaf()
+            if not self.parse_type(false) {
+                return false
+            }
+        }
+        self.close(mark, Alt.Generic_Param_Type, start)
+        true
+    }
+
+    // `generic-args ::= "<" generic-arg ( "," generic-arg )* ">"`, one level
+    // for the list, held to its `>`. A trailing comma is refused
+    // (syntax.generic.refused-arg-comma); inside a speculation it is noted,
+    // and refused only if the list is kept.
+    func parse_generic_args(&var self) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        if not self.parse_generic_args_body() {
+            return false
+        }
+        self.leave_level()
+        true
+    }
+
+    func parse_generic_args_body(&var self) -> Bool {
+        self.see(Alt.Generic_Args_List)
+        self.lists = self.lists + 1
+        self.advance()
+        while true {
+            if not self.parse_generic_arg() {
+                return false
+            }
+            if self.kind() == TokenKind.Comma {
+                let comma = self.pos
+                self.advance()
+                if self.closes_list() {
+                    if self.speculating == 0 {
+                        return self.refuse(Rule.Generic_RefusedArgComma, comma,
+                                           "a generic argument list takes no trailing comma",
+                                           "drop the comma")
+                    }
+                    if self.trailing_comma < 0 {
+                        self.trailing_comma = comma
+                    }
+                    break
+                }
+            } else if self.closes_list() {
+                break
+            } else {
+                return self.error("expected `,` or `>` in the generic arguments")
+            }
+        }
+        self.close_list()
+        true
+    }
+
+    // Whether the current token closes the innermost generic list: a `>`, or
+    // the first `>` of a `>=`, or of a `>>=` whose second `>` closes the list
+    // around it (syntax.rule.generic-close-split).
+    func closes_list(&self) -> Bool {
+        let kind = self.kind()
+        kind == TokenKind.Gt || kind == TokenKind.Gte || (kind == TokenKind.ShrAssign && self.lists >= 2)
+    }
+
+    // Consumes the `>` that closes the innermost list. A `>=` or `>>=` is split
+    // after that `>`, and what remains of it is the current token.
+    func close_list(&var self) {
+        self.lists = self.lists - 1
+        let t = self.current()
+        if t.kind == TokenKind.Gt {
+            self.advance()
+            return
+        }
+        let rest = if t.kind == TokenKind.ShrAssign { TokenKind.Gte } else { TokenKind.Assign }
+        let edit = TokenEdit(index: self.pos, token: t)
+        // Stage 0 workaround (SL:hazards S4): canonical: put_at(&var self.edits, self.edit_count, edit)
+        let at = self.edit_count
+        put_at(&var self.edits, at, edit)
+        self.edit_count = at + 1
+        self.tokens[self.pos] = ParseToken(kind: rest, start: t.start + 1, end: t.end, line: t.line,
+                                           seg_start: 0, seg_count: 0)
+        self.prev_end = t.start + 1
+    }
+
+    // `generic-arg ::= type | const-expr`. An argument that starts with an
+    // integer, `-`, `sizeof` or `alignof` is a value, and so is one a type
+    // cannot spell; the rest are types (syntax.rule.generic-arg-value).
+    func parse_generic_arg(&var self) -> Bool {
+        if self.value_ahead() {
+            self.see(Alt.Generic_Arg_Value)
+            return self.parse_const_expr()
+        }
+        self.see(Alt.Generic_Arg_Type)
+        self.parse_type(false)
+    }
+
+    // Whether the generic argument here is a value. A path followed by an
+    // arithmetic operator is one, as is a parenthesized argument holding an
+    // integer, an operator or a layout query outside any `[]` or `<>` of its
+    // own, or followed by an operator.
+    func value_ahead(&self) -> Bool {
+        let kind = self.kind()
+        if kind == TokenKind.IntLit || kind == TokenKind.Minus {
+            return true
+        }
+        if self.layout_ahead(0) {
+            return true
+        }
+        var k = 0
+        if kind == TokenKind.Ident {
+            k = 1
+            while self.kind_at(k) == TokenKind.Dot && self.kind_at(k + 1) == TokenKind.Ident {
+                k = k + 2
+            }
+            return is_const_operator(self.kind_at(k))
+        }
+        if kind != TokenKind.LParen {
+            return false
+        }
+        var parens = 0
+        var nested = 0
+        while true {
+            let at = self.kind_at(k)
+            if at == TokenKind.Eof || at == TokenKind.LBrace || at == TokenKind.RBrace {
+                return false
+            }
+            if at == TokenKind.LParen {
+                parens = parens + 1
+            } else if at == TokenKind.RParen {
+                parens = parens - 1
+                if parens == 0 {
+                    return is_const_operator(self.kind_at(k + 1))
+                }
+            } else if at == TokenKind.LBracket || at == TokenKind.Lt {
+                nested = nested + 1
+            } else if at == TokenKind.RBracket || at == TokenKind.Gt {
+                nested = nested - 1
+            } else if nested == 0 && (at == TokenKind.IntLit || is_const_operator(at) || self.layout_ahead(k)) {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // Whether `sizeof` or `alignof` and a `<` stand `ahead` tokens on.
+    func layout_ahead(&self, ahead: Int) -> Bool {
+        let word = self.word_at(ahead, "sizeof") || self.word_at(ahead, "alignof")
+        word && self.kind_at(ahead + 1) == TokenKind.Lt
+    }
+
+    // `const-expr ::= const-term ( const-add-op const-term )*`, one flat node.
+    func parse_const_expr(&var self) -> Bool {
+        self.see(Alt.Const_Expr)
+        let mark = self.builder.mark()
+        if not self.parse_const_term() {
+            return false
+        }
+        var ops = 0
+        while self.kind() == TokenKind.Plus || self.kind() == TokenKind.Minus {
+            let op = if self.kind() == TokenKind.Plus { Alt.Const_AddOp_Plus } else { Alt.Const_AddOp_Minus }
+            self.see(op)
+            self.take_leaf()
+            if not self.parse_const_term() {
+                return false
+            }
+            ops = ops + 1
+        }
+        if ops > 0 {
+            self.close_chain(mark, Alt.Const_Expr)
+        }
+        true
+    }
+
+    // `const-term ::= const-unary ( const-mul-op const-unary )*`
+    func parse_const_term(&var self) -> Bool {
+        self.see(Alt.Const_Term)
+        let mark = self.builder.mark()
+        if not self.parse_const_unary() {
+            return false
+        }
+        var ops = 0
+        while let op = self.const_mul_op() {
+            self.see(op)
+            self.take_leaf()
+            if not self.parse_const_unary() {
+                return false
+            }
+            ops = ops + 1
+        }
+        if ops > 0 {
+            self.close_chain(mark, Alt.Const_Term)
+        }
+        true
+    }
+
+    func const_mul_op(&self) -> Alt? {
+        match self.kind() {
+            case Star -> Alt.Const_MulOp_Times,
+            case Slash -> Alt.Const_MulOp_Divide,
+            case Percent -> Alt.Const_MulOp_Remainder,
+            case _ -> None
+        }
+    }
+
+    // `const-unary ::= const-negate | const-atom`
+    func parse_const_unary(&var self) -> Bool {
+        if self.kind() == TokenKind.Minus {
+            self.see(Alt.Const_Unary_Negate)
+            return self.parse_const_negate()
+        }
+        self.see(Alt.Const_Unary_Atom)
+        self.parse_const_atom()
+    }
+
+    // `const-negate ::= "-" const-unary`, one level held to its operand's end.
+    func parse_const_negate(&var self) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        self.see(Alt.Const_Negate)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        if not self.parse_const_unary() {
+            return false
+        }
+        self.close(mark, Alt.Const_Negate, start)
+        self.leave_level()
+        true
+    }
+
+    // `const-atom ::= int-literal | path | "(" const-expr ")" | layout-query`.
+    // The parentheses group, and charge one level.
+    func parse_const_atom(&var self) -> Bool {
+        let kind = self.kind()
+        if kind == TokenKind.IntLit {
+            self.see(Alt.Const_Atom_Int)
+            return self.token_node(Alt.Expr_Int, true)
+        }
+        if self.layout_ahead(0) {
+            self.see(Alt.Const_Atom_Layout)
+            return self.parse_layout_query()
+        }
+        if kind == TokenKind.Ident {
+            self.see(Alt.Const_Atom_Name)
+            return self.parse_path()
+        }
+        if kind == TokenKind.LParen {
+            return self.parse_const_group()
+        }
+        self.error("expected a constant: an integer, a name or a parenthesized constant")
+    }
+
+    func parse_const_group(&var self) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        self.see(Alt.Const_Atom_Group)
+        self.advance()
+        if not self.parse_const_expr() {
+            return false
+        }
+        if self.kind() != TokenKind.RParen {
+            return self.list_error(open, "expected `)` after the constant")
+        }
+        self.advance()
+        self.leave_level()
+        true
+    }
+
+    // `layout-query ::= 'sizeof' generic-args "(" ")" | 'alignof' generic-args "(" ")"`,
+    // whose list is committed: `sizeof` and `alignof` begin no type.
+    func parse_layout_query(&var self) -> Bool {
+        let alt = if self.word_at(0, "sizeof") { Alt.Const_LayoutQuery_Size } else { Alt.Const_LayoutQuery_Align }
+        self.see(alt)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        if not self.parse_generic_args() {
+            return false
+        }
+        if self.kind() != TokenKind.LParen || self.kind_at(1) != TokenKind.RParen {
+            return self.error("expected `()` after the layout query's type")
+        }
+        self.advance()
+        self.advance()
+        self.close(mark, alt, start)
+        true
+    }
+
+    // A generic list at the `<` after a name, a member or a cast target,
+    // kept only where the token after its `>` may follow it: `(`, `.` or `{`
+    // after a name or member, and after a cast target what the productions
+    // allow there (syntax.rule.generic-or-less). A list not kept is undone,
+    // and its `<` compares.
+    func speculate_list(&var self, cast: Bool) -> ListOutcome {
+        let open = self.pos
+        if open < self.failed_lists.len() && self.failed_lists[open] {
+            return ListOutcome.Compares
+        }
+        let saved = self.checkpoint()
+        self.trailing_comma = -1
+        let refusals = self.depth_refusals
+        if not self.parse_generic_args() {
+            let by_depth = self.depth_refusals > refusals
+            self.restore(&saved)
+            if by_depth {
+                // The depth budget decides no reading: a list the limit cut
+                // short is refused, never re-read as comparisons.
+                let at = self.depth_opener
+                let _ = self.refuse_depth(at)
+                return ListOutcome.Refused
+            }
+            while self.failed_lists.len() <= open {
+                try! self.failed_lists.push(false)
+            }
+            self.failed_lists[open] = true
+            return ListOutcome.Compares
+        }
+        let after = self.kind()
+        var kept = after == TokenKind.LParen || after == TokenKind.Dot || after == TokenKind.LBrace
+        if cast {
+            kept = follows_cast_list(after)
+        }
+        if not kept {
+            self.restore(&saved)
+            if not cast && continues_postfix(after) {
+                self.rejected_list = open
+            }
+            return ListOutcome.Compares
+        }
+        let comma = self.trailing_comma
+        self.commit(&saved)
+        self.trailing_comma = saved.trailing_comma
+        if comma >= 0 {
+            let _ = self.refuse(Rule.Generic_RefusedArgComma, comma,
+                                "a generic argument list takes no trailing comma", "drop the comma")
+            return ListOutcome.Refused
+        }
+        ListOutcome.Kept
     }
 
     // ---- expressions -----------------------------------------------------------------
@@ -1367,6 +2435,7 @@ extension Parser {
             return false
         }
         guard let op = self.compare_op() else { return true }
+        let first = self.pos
         self.see(op)
         self.take_leaf()
         self.skip_newlines()
@@ -1383,6 +2452,11 @@ extension Parser {
             if not self.parse_range() {
                 return false
             }
+        }
+        if chained && first == self.rejected_list && self.speculating == 0 {
+            // The chain is a generic list re-read, whose own reading went on:
+            // that rule refused it, at its `<` (syntax.rule.generic-or-less).
+            return self.refuse_rejected_list(first)
         }
         if chained {
             return self.refuse(Rule.Expr_RefusedCompareChain, second,
@@ -1622,27 +2696,34 @@ extension Parser {
         true
     }
 
-    // `cast-target ::= type-atom | type-atom "?" | ...`: a type with at most
-    // one `?`, so a `?` or `??` after it is refused at that token, whatever the
-    // spacing (syntax.rule.cast-target-question). Only a named target without
-    // generic arguments is parsed yet.
+    // `cast-target ::= type-atom | type-atom "?" | ref-type | func-type`: a
+    // type with at most one `?` of its own, so a `?` or `??` after it is
+    // refused at that token, whatever the spacing
+    // (syntax.rule.cast-target-question). The `<` after its last named type
+    // is speculative (syntax.rule.generic-or-less).
     func parse_cast_target(&var self) -> Bool {
-        if self.kind() != TokenKind.Ident || (self.word_at(0, "any") && self.kind_at(1) == TokenKind.Ident) {
-            return self.error("only a named cast target is parsed yet")
-        }
-        self.see(Alt.Type_Atom_Named)
-        self.see(Alt.Type_Named)
         let start = self.here()
         let mark = self.builder.mark()
-        if not self.parse_path() {
-            return false
-        }
-        self.close(mark, Alt.Type_Named, start)
         var alt = Alt.Type_CastTarget_Plain
-        if self.kind() == TokenKind.Question {
-            alt = Alt.Type_CastTarget_Optional
-            self.advance()
-            self.close(mark, Alt.Type_Suffix_Optional, start)
+        if self.kind() == TokenKind.Ampersand && not self.slice_ahead() {
+            alt = Alt.Type_CastTarget_Ref
+            if not self.parse_ref_type(true) {
+                return false
+            }
+        } else if self.kind() == TokenKind.LParen && self.func_type_ahead() {
+            alt = Alt.Type_CastTarget_Func
+            if not self.parse_func_type(true) {
+                return false
+            }
+        } else {
+            if not self.parse_type_atom(true) {
+                return false
+            }
+            if self.kind() == TokenKind.Question {
+                alt = Alt.Type_CastTarget_Optional
+                self.advance()
+                self.close(mark, Alt.Type_Suffix_Optional, start)
+            }
         }
         let after = self.kind()
         if after == TokenKind.Question || after == TokenKind.DoubleQuestion {
@@ -1909,7 +2990,39 @@ extension Parser {
         self.see(hop)
         self.see(node)
         self.take_leaf()
+        if node != Alt.Expr_TupleIndex && self.opens_generic_list() {
+            if self.speculate_list(false) == ListOutcome.Refused {
+                return false
+            }
+        }
         self.close(mark, node, start)
+        true
+    }
+
+    // Whether a `<` here may open a generic list after a name or member: a
+    // `<` that is not the first half of a shift (syntax.lex.shift-adjacent).
+    func opens_generic_list(&self) -> Bool {
+        if self.kind() != TokenKind.Lt {
+            return false
+        }
+        if let _ = self.shift_op() {
+            return false
+        }
+        true
+    }
+
+    // `name-expr ::= IDENT generic-args?`
+    func parse_name(&var self) -> Bool {
+        self.see(Alt.Expr_Name)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.take_leaf()
+        if self.opens_generic_list() {
+            if self.speculate_list(false) == ListOutcome.Refused {
+                return false
+            }
+        }
+        self.close(mark, Alt.Expr_Name, start)
         true
     }
 
@@ -2007,7 +3120,7 @@ extension Parser {
         }
         if kind == TokenKind.Ident {
             self.see(Alt.Expr_Primary_Name)
-            return self.token_node(Alt.Expr_Name, true)
+            return self.parse_name()
         }
         if kind == TokenKind.SelfKw {
             self.see(Alt.Expr_Primary_Self)
@@ -2110,11 +3223,12 @@ extension Parser {
         let start = piece.open + 1
         let text = self.builder.tree.source.slice(start, start + piece.len)
         var toks = Vector<ParseToken>()
+        var found = Vector<InterpPiece>()
         let lexed = lex(text)
         match lexed {
             case Ok(result) -> {
                 let segment_source = source_file("", text)
-                parser_tokens(&segment_source, &result, start, &var toks, &var self.pieces)
+                parser_tokens(&segment_source, &result, start, &var toks, &var found)
             },
             case Err(e) -> {
                 let segment_source = source_file("", text)
@@ -2123,17 +3237,40 @@ extension Parser {
                 return false
             }
         }
-        let first = self.tokens.len()
+        // The segment's tokens and pieces go at the live ends of the parser's
+        // own, so each nested string's piece indices move by where they land.
+        let base = self.piece_count
         var k = 0
+        while k < found.len() {
+            // Stage 0 workaround (SL:hazards S4): canonical: put_at(&var self.pieces, self.piece_count, found[k])
+            let nested = found[k]
+            let at = self.piece_count
+            put_at(&var self.pieces, at, nested)
+            self.piece_count = at + 1
+            k = k + 1
+        }
+        let first = self.token_count
+        k = 0
         while k < toks.len() {
-            try! self.tokens.push(toks[k])
+            let t = toks[k]
+            let moved = ParseToken(kind: t.kind, start: t.start, end: t.end, line: t.line,
+                                   seg_start: t.seg_start + base, seg_count: t.seg_count)
+            // Stage 0 workaround (SL:hazards S4): canonical: put_at(&var self.tokens, self.token_count, moved)
+            let at = self.token_count
+            put_at(&var self.tokens, at, moved)
+            if at < self.failed_lists.len() {
+                self.failed_lists[at] = false
+            }
+            self.token_count = at + 1
             k = k + 1
         }
         let saved_pos = self.pos
         let saved_limit = self.limit
         let saved_end = self.prev_end
+        let saved_lists = self.lists
         self.pos = first
-        self.limit = self.tokens.len() - 1
+        self.limit = self.token_count - 1
+        self.lists = 0
         var ok = true
         if self.kind() == TokenKind.Eof {
             self.see(Alt.Expr_InterpSegment_Placeholder)
@@ -2148,6 +3285,7 @@ extension Parser {
         self.pos = saved_pos
         self.limit = saved_limit
         self.prev_end = saved_end
+        self.lists = saved_lists
         ok
     }
 

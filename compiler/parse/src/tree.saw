@@ -54,6 +54,42 @@ public func is_leaf_shape(shape: NodeShape) -> Bool {
     }
 }
 
+// Writes `value` at `used`, the logical end of `v`: over a slot a restore
+// freed, or onto the end. A vector kept this way shrinks by lowering its
+// logical length, which is how a speculation's work is undone in O(1).
+public func put_at<T: Copy>(v: &var Vector<T>, used: Int, value: T) {
+    if used < v.len() {
+        v[used] = value
+    } else {
+        try! v.push(value)
+    }
+}
+
+// Cuts `v` down to its first `used` elements.
+public func trim_to<T: Copy>(v: &var Vector<T>, used: Int) {
+    if v.len() <= used {
+        return
+    }
+    var kept = Vector<T>()
+    var k = 0
+    while k < used {
+        try! kept.push(v[k])
+        k = k + 1
+    }
+    v = move kept
+}
+
+// Where a builder stood when a speculation began, so that `restore` can
+// return it there.
+public struct BuilderCheckpoint {
+    public nodes: Int
+    public children: Int
+    public top: Int
+    public root: Int
+    // The watermark of the checkpoint this one is nested in.
+    public low: Int
+}
+
 // Builds an arena bottom-up. A construct under way owns the run of the
 // scratch stack above its mark; closing it moves that run into `children` as
 // the new node's range and leaves the node on the stack in its place. So a
@@ -64,6 +100,14 @@ public struct TreeBuilder {
     private scratch: Vector<Int>
     // The scratch stack's logical height; slots above it are reused.
     private top: Int
+    // The arena's logical sizes. A restore lowers them, the slots above are
+    // reused, and `finish` trims what is left over.
+    private node_count: Int
+    private child_count: Int
+    // The lowest scratch height since the innermost open checkpoint. A
+    // speculation that closed below its checkpoint's height would have
+    // overwritten scratch slots a restore cannot give back.
+    private low: Int
 }
 
 extension TreeBuilder: NoCopy {}
@@ -71,12 +115,16 @@ extension TreeBuilder: NoCopy {}
 public func tree_builder(source: SourceFile) -> TreeBuilder {
     let tree = AstTree(source: move source, nodes: Vector<AstNode>(), children: Vector<Int>(),
                        root: -1)
-    TreeBuilder(tree: move tree, scratch: Vector<Int>(), top: 0)
+    TreeBuilder(tree: move tree, scratch: Vector<Int>(), top: 0, node_count: 0, child_count: 0,
+                low: 0)
 }
 
 extension TreeBuilder {
     // The scratch height a construct starting now closes back to.
     public func mark(&self) -> Int { self.top }
+
+    // How many nodes the arena holds.
+    public func node_total(&self) -> Int { self.node_count }
 
     // The id of the node at scratch slot `slot`.
     public func at(&self, slot: Int) -> Int { self.scratch[slot] }
@@ -100,18 +148,26 @@ extension TreeBuilder {
         self.top = self.top + 1
     }
 
+    func lower(&var self, height: Int) {
+        self.top = height
+        if height < self.low {
+            self.low = height
+        }
+    }
+
     // Drops what a failed construct left above `mark`. Its nodes stay in the
     // arena unreachable, so a tree that took a recovery is never a result.
     public func discard(&var self, mark: Int) {
-        self.top = mark
+        self.lower(mark)
     }
 
     // A leaf node over [start, end), pushed as a child of the construct under way.
     public func leaf(&var self, shape: NodeShape, start: Int, end: Int) -> Int {
-        let id = self.tree.nodes.len()
-        let first = self.tree.children.len()
-        try! self.tree.nodes.push(AstNode(shape: shape, alt: None, start: start, end: end,
-                                       first: first, count: 0))
+        let id = self.node_count
+        let node = AstNode(shape: shape, alt: None, start: start, end: end,
+                           first: self.child_count, count: 0)
+        put_at(&var self.tree.nodes, id, node)
+        self.node_count = id + 1
         self.push_slot(id)
         id
     }
@@ -119,24 +175,69 @@ extension TreeBuilder {
     // Closes the construct that began at `mark` into one node whose children
     // are everything pushed since, and pushes that node in their place.
     public func close(&var self, mark: Int, shape: NodeShape, alt: Alt?, start: Int, end: Int) -> Int {
-        let first = self.tree.children.len()
+        let first = self.child_count
         var k = mark
         while k < self.top {
             let child = self.scratch[k]
-            try! self.tree.children.push(child)
+            // Stage 0 workaround (SL:hazards S4): canonical: put_at(&var self.tree.children, self.child_count, child)
+            let at = self.child_count
+            put_at(&var self.tree.children, at, child)
+            self.child_count = at + 1
             k = k + 1
         }
         let count = self.top - mark
-        self.top = mark
-        let id = self.tree.nodes.len()
-        try! self.tree.nodes.push(AstNode(shape: shape, alt: alt, start: start, end: end,
-                                       first: first, count: count))
+        self.lower(mark)
+        let id = self.node_count
+        let node = AstNode(shape: shape, alt: alt, start: start, end: end, first: first,
+                           count: count)
+        put_at(&var self.tree.nodes, id, node)
+        self.node_count = id + 1
         self.push_slot(id)
         id
     }
 
-    // Makes the one node left on the stack the root.
+    // The builder's state now; the scratch below the current height is the
+    // speculation's to leave alone until `restore` or `commit`.
+    public func checkpoint(&var self) -> BuilderCheckpoint {
+        let saved = BuilderCheckpoint(nodes: self.node_count, children: self.child_count,
+                                      top: self.top, root: self.tree.root, low: self.low)
+        self.low = self.top
+        saved
+    }
+
+    // Returns to `saved`, dropping every node and child range built since, so
+    // no speculation leaves an unreachable node behind.
+    public func restore(&var self, saved: &BuilderCheckpoint) {
+        if self.low < saved.top {
+            panic("tree: a speculation closed a construct it did not open")
+        }
+        self.node_count = saved.nodes
+        self.child_count = saved.children
+        self.top = saved.top
+        self.tree.root = saved.root
+        self.low = saved.low
+    }
+
+    // Keeps what was built since `saved`, which becomes part of the
+    // construct around it.
+    public func commit(&var self, saved: &BuilderCheckpoint) {
+        if self.low < saved.top {
+            panic("tree: a speculation closed a construct it did not open")
+        }
+        if saved.low < self.low {
+            self.low = saved.low
+        }
+    }
+
+    // Makes the one node left on the stack the root, and trims the arena to
+    // what it holds.
     public func finish(&var self) {
+        // Stage 0 workaround (SL:hazards S4): canonical: trim_to(&var self.tree.nodes, self.node_count)
+        let nodes = self.node_count
+        trim_to(&var self.tree.nodes, nodes)
+        // Stage 0 workaround (SL:hazards S4): canonical: trim_to(&var self.tree.children, self.child_count)
+        let children = self.child_count
+        trim_to(&var self.tree.children, children)
         if self.top > 0 {
             self.tree.root = self.scratch[self.top - 1]
         }

@@ -1,0 +1,154 @@
+// Rollback: a restore returns the parser to its checkpoint exactly, whatever
+// was parsed since, and a parse after it is the parse a fresh parser makes.
+import sawlex.src.lib.{lex}
+import sawparse.src.api.{parse_source}
+import sawparse.src.grammar.{Alt}
+import sawparse.src.parser.{Checkpoint, Parser, new_parser}
+import sawparse.src.render.{render_tree}
+import sawparse.src.source.{source_file}
+import sawparse.src.tokens.{InterpPiece, ParseToken, parser_tokens}
+import sawparse.src.tree.{tree_builder, tree_problem}
+
+// A parser over `text` that has parsed nothing yet.
+func unparsed(text: String) -> Parser {
+    let source = source_file("t.saw", text)
+    let lexed = lex(text)
+    match lexed {
+        case Ok(result) -> {
+            var tokens = Vector<ParseToken>()
+            var pieces = Vector<InterpPiece>()
+            parser_tokens(&source, &result, 0, &var tokens, &var pieces)
+            new_parser(tree_builder(move source), move tokens, move pieces, &result.docs)
+        },
+        case Err(_) -> panic("rollback: the test text does not lex")
+    }
+}
+
+func same(a: &Checkpoint, b: &Checkpoint) -> Bool {
+    let tree = (a.tree.nodes == b.tree.nodes && a.tree.children == b.tree.children
+                && a.tree.top == b.tree.top && a.tree.root == b.tree.root
+                && a.tree.low == b.tree.low)
+    let place = (a.pos == b.pos && a.limit == b.limit && a.prev_end == b.prev_end
+                 && a.depth == b.depth)
+    let logs = (a.tokens == b.tokens && a.pieces == b.pieces && a.taken == b.taken
+                && a.edits == b.edits)
+    let state = (a.lists == b.lists && a.speculating == b.speculating
+                 && a.trailing_comma == b.trailing_comma && a.rejected_list == b.rejected_list)
+    tree && place && logs && state
+}
+
+func dump(parser: &Parser) -> String {
+    var out = StringBuilder()
+    render_tree(out: &var out, tree: &parser.builder.tree)
+    out.build()
+}
+
+// Speculates over the whole file, fails, restores, and parses for real: the
+// restore is exact, and the parse after it is a fresh parser's.
+func whole_file(text: String, segments: Bool) {
+    var p = unparsed(text)
+    let before = p.checkpoint()
+    p.parse_file()
+    let mid = p.checkpoint()
+    p.restore(&mid)
+    assert(mid.tree.nodes > before.tree.nodes, "the speculation built nodes")
+    assert(mid.taken > before.taken, "the speculation took alternatives")
+    assert((mid.tokens > before.tokens) == segments, "the speculation appended segment tokens")
+    assert(p.diagnostics.len() == 0, "a speculation reports nothing")
+    p.restore(&before)
+    let after = p.checkpoint()
+    p.restore(&after)
+    assert(same(&before, &after), "a restore returns to its checkpoint exactly")
+    p.parse_file()
+    let fresh = parse_source("t.saw", text, false)
+    let got = dump(&p)
+    let want = dump(&fresh)
+    assert(got.equals(want), "the parse after a restore dumps as a fresh one")
+    assert(p.taken.len() == fresh.taken.len(), "the derivation record is a fresh one")
+    var k = 0
+    while k < p.taken.len() {
+        assert(p.taken[k] == fresh.taken[k], "the derivation record is a fresh one")
+        k = k + 1
+    }
+    assert(p.diagnostics.len() == fresh.diagnostics.len(), "the diagnostics are a fresh parse's")
+    let after_parse = p.checkpoint()
+    p.restore(&after_parse)
+    let fresh_parser_end = fresh_end(text)
+    assert(after_parse.tokens == fresh_parser_end.tokens, "segment tokens are appended once")
+    if p.diagnostics.len() == 0 {
+        if let problem = tree_problem(&p.builder.tree) {
+            panic("rollback: {}", problem)
+        }
+    }
+}
+
+// Where a fresh parser of `text` ends.
+func fresh_end(text: String) -> Checkpoint {
+    var p = unparsed(text)
+    p.parse_file()
+    let end = p.checkpoint()
+    p.restore(&end)
+    end
+}
+
+func has(parser: &Parser, alt: Alt) -> Bool {
+    var k = 0
+    while k < parser.taken.len() {
+        if parser.taken[k] == alt {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
+
+// A parse that is accepted, keeps the arena's invariants and holds exactly
+// the nodes it built.
+func accepted(text: String) -> Parser {
+    let p = parse_source("t.saw", text, false)
+    assert(p.diagnostics.len() == 0, "the text is accepted")
+    if let problem = tree_problem(&p.builder.tree) {
+        panic("rollback: {}", problem)
+    }
+    assert(p.builder.node_total() == p.builder.tree.nodes.len(), "the arena holds what it built")
+    move p
+}
+
+func main() {
+    // A generic list after `a` is speculated, fails at the line break, and is
+    // undone: nothing it took stays in the derivation record.
+    let compared = accepted("func f() \{\n    let x = a < b\n\}\n")
+    assert(not has(&compared, Alt.Generic_Args_List), "an undone list leaves no record")
+    assert(not has(&compared, Alt.Type_Named), "an undone list leaves no record")
+    // A speculation across a string literal, undone and re-read as a repeat
+    // literal, appends the segment's tokens once.
+    let across = "func f() \{\n    let y = (a < [Int; \"\{x\}\"], c)\n\}\n"
+    let twin = "func f() \{\n    let y = (a == [Int; \"\{x\}\"], c)\n\}\n"
+    let read = accepted(across)
+    assert(not has(&read, Alt.Type_Array), "the undone list's array type leaves no record")
+    let _ = accepted(twin)
+    assert(fresh_end(across).tokens == fresh_end(twin).tokens, "segment tokens are appended once")
+    // Each failed list is re-read, and each re-reading holds the next; a
+    // retried list answers from what its first failure recorded, so forty
+    // levels parse at once rather than in 2^40 steps.
+    var nested = StringBuilder()
+    try! nested.append("func f() \{\n    let x = ")
+    var level = 0
+    while level < 40 {
+        try! nested.append("a < [Int; ")
+        level = level + 1
+    }
+    try! nested.append("1")
+    while level > 0 {
+        try! nested.append("]")
+        level = level - 1
+    }
+    try! nested.append("\n\}\n")
+    let _ = accepted(nested.build())
+    // Two committed lists closed by one `>>=` split it twice; a restore puts
+    // the token back.
+    whole_file("func f() \{\n    let v: Vector<Vector<Int>>= w\n    let u = a < b\n\}\n", false)
+    whole_file("func f() \{\n    let s = \"a \{b\} c \{(d)\}\"\n    let t = (a, [1; 2], -x)\n\}\n",
+               true)
+    whole_file("func f() \{\n    let = 1\n    let b = 2\n\}\n", false)
+}

@@ -9,7 +9,9 @@ alternative as an `Alt` case with its stable name and the node Kind it builds,
 and every refusal a parser names as a `Rule` case. They come from the same model
 of GRAMMAR.md the recognizer reads (`compiler/tests/grammar/extract.py`), so a
 grammar change is a regeneration, and `compiler/tests/run.py` fails while the
-committed file differs from what this writes.
+committed file differs from what this writes. One table is computed rather than
+listed: the tokens that may follow a cast target's generic list, the FOLLOW set
+the recognizer derives from the productions.
 """
 import argparse
 import os
@@ -20,8 +22,22 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(REPO, "compiler", "tests", "grammar"))
 
 import extract  # noqa: E402
+import recognize  # noqa: E402
 
 OUT = os.path.join(REPO, "compiler", "parse", "src", "grammar.saw")
+# The lexer's TokenKind for each terminal a FOLLOW set below may hold. A
+# terminal missing here fails the generation, so a grammar change that adds
+# one is seen rather than dropped.
+TOKEN_KINDS = {
+    '"!="': "Neq", '"%"': "Percent", '"&"': "Ampersand", '"&&"': "And", '"&*"': "WrapMul",
+    '"&+"': "WrapAdd", '"&-"': "WrapSub", '")"': "RParen", '"*"': "Star", '"+"': "Plus",
+    '","': "Comma", '"-"': "Minus", '"->"': "Arrow", '".."': "DotDot", '"..="': "DotDotEq",
+    '"/"': "Slash", '":"': "Colon", '";"': "Semicolon", '"<"': "Lt", '"<="': "Lte",
+    '"=="': "Eq", '">"': "Gt", '">="': "Gte", '"?"': "Question", '"??"': "DoubleQuestion",
+    '"]"': "RBracket", '"^"': "Caret", '"as"': "As", '"case"': "Case", '"else"': "Else",
+    '"{"': "LBrace", '"|"': "Pipe", '"||"': "Or", '"}"': "RBrace", "EOF": "Eof",
+    "NEWLINE": "Newline", '"="': "Assign", '"("': "LParen", '"["': "LBracket", '"."': "Dot",
+}
 # The production whose layers the dump spells as one Kind whatever token wrote
 # them (compiler/tests/parse/README.md, Optional types).
 OPTIONAL_TYPE_PRODUCTION = "syntax.type.suffix"
@@ -68,6 +84,18 @@ def unique(pairs, what):
         seen[case] = name
 
 
+def cast_list_follow(model):
+    """The TokenKind cases of the terminals that may follow a cast target's
+    generic list, sorted: the FOLLOW set the recognizer computes from the
+    productions (syntax.rule.generic-or-less)."""
+    follow = recognize.Grammar(model, set()).cast_list_follow
+    missing = sorted(t for t in follow if t not in TOKEN_KINDS)
+    if missing:
+        raise SystemExit("grammar_tables: no TokenKind for the terminals %s; add them to "
+                         "TOKEN_KINDS" % ", ".join(missing))
+    return sorted(TOKEN_KINDS[t] for t in follow)
+
+
 def render(model):
     alts = alternatives(model)
     refusals = rules(model)
@@ -76,6 +104,8 @@ def render(model):
     lines = [
         "// The parser's grammar tables, written from GRAMMAR.md by",
         "// compiler/tools/grammar_tables.py: edit the grammar and regenerate this file.",
+        "",
+        "import sawlex.src.lib.{TokenKind}",
         "",
         "// Every alternative of GRAMMAR.md, in document order.",
         "public enum Alt: UInt16 {",
@@ -113,6 +143,13 @@ def render(model):
     for k, (case, name) in enumerate(refusals):
         lines.append('        case %s -> "%s"%s' % (case, name, "," if k + 1 < len(refusals) else ""))
     lines += ["    }", "}", ""]
+    lines += ["// Whether a token of this kind may follow a cast target's generic list: it",
+              "// continues the target or follows the cast, by the FOLLOW set of the",
+              "// productions (syntax.rule.generic-or-less).",
+              "public func follows_cast_list(kind: TokenKind) -> Bool {", "    match kind {"]
+    for kind in cast_list_follow(model):
+        lines.append("        case %s -> true," % kind)
+    lines += ["        case _ -> false", "    }", "}", ""]
     return "\n".join(lines)
 
 

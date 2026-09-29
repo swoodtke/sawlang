@@ -1,6 +1,8 @@
 // The parser's grammar tables, written from GRAMMAR.md by
 // compiler/tools/grammar_tables.py: edit the grammar and regenerate this file.
 
+import sawlex.src.lib.{TokenKind}
+
 // Every alternative of GRAMMAR.md, in document order.
 public enum Alt: UInt16 {
     case File_Source = 0,
@@ -2238,5 +2240,50 @@ public func rule_name(rule: Rule) -> String {
         case Pat_RefusedNamedTuple -> "syntax.pat.refused-named-tuple",
         case Pat_RefusedQualifiedVariant -> "syntax.pat.refused-qualified-variant",
         case Pat_RefusedDotVariant -> "syntax.pat.refused-dot-variant"
+    }
+}
+
+// Whether a token of this kind may follow a cast target's generic list: it
+// continues the target or follows the cast, by the FOLLOW set of the
+// productions (syntax.rule.generic-or-less).
+public func follows_cast_list(kind: TokenKind) -> Bool {
+    match kind {
+        case Ampersand -> true,
+        case And -> true,
+        case Arrow -> true,
+        case As -> true,
+        case Caret -> true,
+        case Case -> true,
+        case Colon -> true,
+        case Comma -> true,
+        case DotDot -> true,
+        case DotDotEq -> true,
+        case DoubleQuestion -> true,
+        case Else -> true,
+        case Eof -> true,
+        case Eq -> true,
+        case Gt -> true,
+        case Gte -> true,
+        case LBrace -> true,
+        case Lt -> true,
+        case Lte -> true,
+        case Minus -> true,
+        case Neq -> true,
+        case Newline -> true,
+        case Or -> true,
+        case Percent -> true,
+        case Pipe -> true,
+        case Plus -> true,
+        case Question -> true,
+        case RBrace -> true,
+        case RBracket -> true,
+        case RParen -> true,
+        case Semicolon -> true,
+        case Slash -> true,
+        case Star -> true,
+        case WrapAdd -> true,
+        case WrapMul -> true,
+        case WrapSub -> true,
+        case _ -> false
     }
 }

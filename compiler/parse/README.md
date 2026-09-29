@@ -24,8 +24,22 @@ parse/
 
 `grammar.saw` is written by `compiler/tools/grammar_tables.py`: an `Alt` case
 per alternative of GRAMMAR.md, with its stable name and the Kind of the node it
-builds, and a `Rule` case per name a refusal can carry. Regenerate it when
-GRAMMAR.md changes; `compiler/tests/run.py` fails while it is stale.
+builds, a `Rule` case per name a refusal can carry, and the tokens that may
+follow a cast target's generic list, the FOLLOW set the recognizer computes.
+Regenerate it when GRAMMAR.md changes; `compiler/tests/run.py` fails while it
+is stale.
+
+## Speculation
+
+A `<` after a name, a member or a cast target may open a generic list or
+compare (syntax.rule.generic-or-less), and the parser decides by parsing the
+list and looking at the token after it. `Parser.checkpoint` opens such a
+speculation and `restore` undoes it: the nodes built, the tokens an
+interpolation appended or a list's close split, the alternatives recorded and
+the levels taken. Nothing is reported while one is open. The SPECULATION LEDGER
+above `checkpoint` gives every field of `Parser` its decision, restored or
+unchanged and why, and `compiler/tools/speculation_ledger.py` fails when a
+field has none or `restore` does not name one it claims to restore.
 
 ## `sawc2 parse`
 
@@ -84,6 +98,7 @@ running `sawc2 parse`, that 256 levels parse, the 257th is refused at its opener
 as syntax.rule.depth-limit, a flat chain of any length parses, and a refused
 statement gives its levels back. The run-time cells cover each charging
 construct kind, those a loop charges too (an `as` chain and a postfix chain),
-since the static check sees only recursion. Its fixtures, in
+since the static check sees only recursion, and a speculation that fails at the
+limit, which must give its levels back to the reading that follows it. Its fixtures, in
 `compiler/tests/funnel/`, and a copy of the parser with the funnel cut out of
 `parse_paren` show that it fails on a recursion that bypasses the funnel.
