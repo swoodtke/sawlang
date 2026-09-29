@@ -33,6 +33,11 @@ borrow var n = counter.lock() { n += 1 }
 ```
 
 - `borrow let` gives a read-only place; `borrow var` gives a writable one.
+- **The construct comes first** (Ruled, Sep 29: `borrow let`, not `let borrow`).
+  A statement that starts with `let` or `var` declares a name that lives to the
+  end of the enclosing block, and the block form's name dies at its `}`. So the
+  word in front names the construct, as in `if let`, `guard let` and `while let`,
+  and `let`/`var` after `borrow` introduces the name and gives its mode.
 - The binding is always named. Inside the block, only the name reaches the
   place. The head expression (`v[i]`) cannot be used there, so the place the
   body works on is always the one that was borrowed.
@@ -61,9 +66,15 @@ directly, and the borrow lasts exactly that statement:
 ```saw
 borrow var grid[r][c].weight += bias
 borrow var queues[k].push(job)
-print(borrow let doc.section("net").name)
+print(borrow doc.section("net").name)
 ```
 
+- **Where no name is bound, bare `borrow` is shared and `borrow var` is
+  exclusive** (Ruled, Sep 29). This mirrors `&` and `&var` in reference types
+  and receivers. `let` or `var` follows `borrow` only where a name follows it
+  (§2.1, §2.4), so a bare `borrow` tells the reader that nothing is bound. Bare
+  `borrow` is always shared, never inferred from use: a write through it is
+  refused, with a hint naming `borrow var`.
 - The prefix covers the place expression up to and including its `borrows`
   call. What follows (`.weight`, `.push(job)`) acts on the lent place.
 - A chain with several `borrows` calls (`grid[r][c]`) is a chain of nested
@@ -74,24 +85,34 @@ print(borrow let doc.section("net").name)
   (`borrow var row = grid[r] { borrow var cell = row[c] { … } }`), so it does
   not depend on §2.3's several-bindings form (Air t24).
 - Several borrows in one statement are checked together, so
-  `borrow var a[i].x = borrow let b[j].x` is fine.
+  `borrow var a[i].x = borrow b[j].x` is fine.
 - **A borrow whose result is only copied closes as soon as the value is read**
   (Ruled: "if it can be copied, then yes"). The right side of an assignment is
   evaluated before the left side's borrow opens, so
-  `borrow var v[i].x = borrow let v[j].x` works when `x` is copyable: the right
+  `borrow var v[i].x = borrow v[j].x` works when `x` is copyable: the right
   borrow opens, `x` is copied out, the right borrow closes, and only then does
   the left borrow open. Two borrows are live together only when both are still
   in use.
-- A conditional lend used inline needs `!` (panic if absent) or `?` (skip if
-  absent), since there is no block in which to discriminate it.
+- A conditional lend used inline to reach *into* the place needs `!` (panic if
+  absent) or `?` (skip if absent), since there is no block in which to
+  discriminate it.
+- **A conditional lend read as a whole value is an optional copy** (Ruled,
+  Sep 29). `let c = borrow b.slot(0)` copies the lent place out, if there is
+  one, as `T?`. The element must be copyable, and the borrow closes once the
+  value is read. This follows the rule that a borrow's value is a copy (§2.1),
+  and matches the statement form's `Void?` for a conditional write (K9).
 - **In argument position it passes the place by reference** (Ruled).
-  `borrow var <place>` passes `&var`, and `borrow let <place>` passes `&`. The
+  `borrow var <place>` passes `&var`, and `borrow <place>` passes `&`. The
   prefix replaces the `&`/`&var` sigil at that argument, and the borrow lasts
   for the call:
   ```saw
   bump(borrow var g[4])
-  checksum(borrow let buf[4..])
+  checksum(borrow buf[4..])
   ```
+- **`&` of a temporary is allowed for a shared `&` argument** (Ruled, Sep 29),
+  as in `m.find(&"zz")` or `m.find(&key_of(x))`. The temporary lives to the end
+  of the statement. In a borrow's head it lives until that borrow closes. The
+  reference cannot outlive either, since a reference is never stored.
   A local, or a field path with no `borrows` accessor in it, is still passed as
   `&x` / `&var s.field`. `borrow` is written only where a `borrows` accessor is
   called.
@@ -134,6 +155,13 @@ capability is written:
 - `if let _ = e` and `case Some(_)` bind nothing, so they read no payload and
   copy nothing. They are presence tests at every copy tier, NoCopy payloads
   included (Air t25; K8 relies on this).
+
+**`Vector.find(i)` is the Vector's conditional lend** (Ruled, Sep 29):
+`(&var self, index: Int) borrows -> &var T?`, absent when `i` is out of range,
+and symmetric with `Map.find`. It serves presence tests on non-copyable elements
+and writes through an index that may be out of range, which `get` cannot serve
+now that it returns a copy (K8, K14). `v[i]` stays the panicking place, and
+`v.get(i)` the optional copy.
 
 On the absent path no borrow was ever opened, so touching the root there is
 sound. **The borrow checker is path-sensitive** (Ruled) on the MIR control-flow
@@ -562,7 +590,7 @@ first:
   and a length.
 - **Views go through `borrow`, like every other place.**
   `borrow let header = packet[0..20] { parse(header) }`, or the statement form
-  at a call site: `checksum(borrow let buf[4..])`. A range subscript is a
+  at a call site: `checksum(borrow buf[4..])`. A range subscript is a
   `borrows` call, so there is no exception for slices. `&buf[4..]` is refused,
   as `bump(&var g[4])` is, with a hint naming the `borrow let` form.
 - **A view is not a copy.** `borrow let s = buf[4..]` is a view into `buf`. A
@@ -573,7 +601,7 @@ first:
   a whole `Vector`, `[T; N]` or `Data`.
 - **Copies follow the parent's copy policy.**
   - `let h = vec[0..20]` is refused for an ExplicitCopy parent (`Vector`).
-    Write `let h = borrow let vec[0..20].copy()` for an owned copy, or `borrow`
+    Write `let h = borrow vec[0..20].copy()` for an owned copy, or `borrow`
     for a view. `.copy()` gets no exemption: it is a method call on a place
     reached through a `borrows` accessor, so it is spelled with `borrow let`
     like every other (Air t24).
@@ -662,6 +690,10 @@ It does not prove the lent places are disjoint from *each other*, so:
     and does not exist on freestanding targets.
 - The runtime contract: re-acquiring a held lock must fail loudly and never
   deadlock, on freestanding runtimes too.
+- **`try_lock()` is a conditional lend** (Ruled, Sep 29), replacing the closure
+  form `try_lock { … }`: `borrows(sync) -> &var T?`, absent when another owner
+  holds the lock. `try_` keeps its Saw meaning, non-blocking:
+  `borrow var n = spin.try_lock() { if borrow var n = n { n += 1 } }`.
 - **`try_lock` panics on re-entry too** (Air t24). It returns `None` only when
   *another* owner holds the lock, which is contention. When the caller already
   holds it through another name, that is the same logic error as with `lock`,
@@ -746,7 +778,13 @@ to validate safety.")
 - **The stdlib's closure-based borrowing APIs** (`with_ref`, `with_var_ref`,
   `Mutex.lock` taking a closure, `Arc.with_unique`) become `borrows` accessors.
   (Ruled: yes for the stdlib.) The visitor APIs (`each`, `map`, `fold`,
-  `sort_by`, …) are not in this list. They stay (§2.6).
+  `sort_by`, …) are not in this list. They stay (§2.6). The replacements are
+  named (Ruled, Sep 29):
+  - `with_ref` and `with_var_ref` become `v[i]` under `borrow` or `borrow var`;
+  - `Mutex.lock { }` becomes `lock()`;
+  - `Arc.with_unique { }` becomes `arc.unique()`, a conditional lend
+    `borrows -> &var T?` that is absent unless the reference count is 1;
+  - `SpinLock.try_lock { }` becomes `try_lock()` (§8).
 - **User code may still hand references to closures.** A non-escaping closure
   that captures a reference, or receives one, stays a language feature, and
   nothing forbids a user library from offering a closure-based API. (Ruled: "no
@@ -789,7 +827,7 @@ in them. Each note says what the migrated code looks like.
   `V` and `MapSlot<K, V>`, which getitem cannot copy. They use `borrow let`,
   with the block form for a `match`.
 - **toml section reads (K16).** Each `doc.section_at(x).get("k") ?? ""`
-  becomes `borrow let doc.section_at(x).get("k") ?? ""`. This is admitted as
+  becomes `borrow doc.section_at(x).get("k") ?? ""`. This is admitted as
   is and flagged only for volume (34 sites).
 
 ## 10. Deferred
