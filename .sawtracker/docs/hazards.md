@@ -141,7 +141,7 @@ syntax, so the rule and the recipe above agree (codex t5):
   an arm binding is refused there, as is a `match` whose scrutinee is an
   enclosing arm's binding.
 
-### S3. Owned values around `try` and `catch` (SL-240, SL-348, SL-74)
+### S3. Owned values around `try` and `catch` (SL-240, SL-348, SL-74, SL-427, SL-429, SL-430)
 
 **Shape:**
 - **SL-240** (silent, leak): a statement-position `try f() catch { fallback }`
@@ -203,6 +203,33 @@ syntax, so the rule and the recipe above agree (codex t5):
     does not.
 
   A `match` on the `Result` releases the error in both cases (0 leaks).
+- **SL-429** (silent, leak): `try?` never releases the error it discards, in
+  sync code too. `let _ = try? fail(i)` and `let o = try? fail(i)` each leak
+  one block per failure. The lead reproduced 1,000 leaks at N=1,000 and 2,000
+  at N=2,000, in sync code at -O2, and a `match` on the same `Result` leaks 0.
+  This reaches Stage 1, because the compiler is sync code (the Air's
+  probe_leak18).
+- **SL-430** (silent, leak): in a coroutine, a propagating `try` leaks the
+  error in every position but one, and SL-427's `return try` is one case of
+  it.
+  - **Leaks:**
+    - a `try g()` statement;
+    - `let v = try f()`;
+    - `v = try f()`;
+    - `total += try f()`;
+    - `return try f()`;
+    - any of those inside an `if`;
+    - `try … catch { return 0 }`.
+  - **Clean:** a `try` nested in a call argument (`add1(try f(i))`),
+    `return f(i)`, and a `match`.
+  - Where the `try` sits relative to the suspension makes no difference.
+  - **The loud twin:** an ExplicitCopy error type is refused in the same
+    position ("cannot copy value of type `Solo` which implements
+    ExplicitCopy"), while the sync form compiles and leaks 0. So the coroutine
+    path copies the error instead of moving it, and for a Copy-tier error that
+    copy is the unbalanced retain (the Air's probe_leak15, probe_leak16 and
+    probe_leak17).
+  - The self-hosted compiler is sync-only, so this face does not reach Stage 1.
 - **SL-74** (loud): a `move` inside a `catch` block that diverges (`return`,
   `panic`) still retires the binding on the fall-through path, so the next use
   is refused. All three `catch` forms do this.
@@ -221,9 +248,9 @@ value by value:
 `let k = try fail()`, then `sink_rev(move r, k)`; and
 `let k = try fail_it()`, then `sink2(make_res("fresh"), k)` (Air t10). When an error path must
 consume a local, `match` on the `Result` instead of writing `move` in a
-`catch`. Where a caught error's path diverges (`catch { return … }`), or a
-coroutine would write `return try f()`, `match` on the `Result` too, so the
-error is released.
+`catch`. Where a caught error's path diverges (`catch { return … }`), where
+the code would write `try?`, or where a coroutine would propagate with `try`,
+`match` on the `Result` too, so the error is released.
 
 **Checker:** no: **leak only**. SL-240 and SL-348 leak, and SL-74 is loud.
 Hoisting each `try` into its own `let` remains good style, but nothing
@@ -1154,6 +1181,30 @@ internal compiler error. The new grammar refuses both while parsing
 
 **Checker:** not needed: the build fails loudly.
 
+### L20. A coroutine returning `Result<Void, E>` that falls off the end (SL-431)
+
+**Shape:** a coroutine (a function that suspends) declared `-> Result<Void, E>`
+whose last statement is an `if` that returns, and which then falls off its
+end, crashes Stage 0 with an internal compiler error:
+
+```saw
+func f(i: Int) -> Result<Void, Oops> {
+    yield_now()
+    if i >= 0 { return Oops(text: "no {i}") }
+}
+// internal compiler error (MethodCall): 'NoneType' object has no attribute 'type'
+```
+
+An `else {}`, any statement after the `if`, a trailing `return`, the sync form
+and a `-> Void` coroutine all compile and run correctly. A related loud
+refusal: `yield_now()` as the last statement of such a function is refused as
+"a nested/expression position" (the Air's probe_ice_tryopt).
+
+**Instead:** end a `Result<Void, E>` coroutine with an explicit `return`.
+
+**Checker:** not needed: the build fails loudly, and the self-hosted compiler
+is sync-only.
+
 ## Cases with no issue
 
 These four come from codex's review of the parked SL-2.p2 r3 (SL-2 c29, with
@@ -1320,6 +1371,10 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-403 | S22 Types declared in an inline module | silent, leak only (found in the compiler-skeleton review) |
 | SL-404 | S23 An owned value consumed without a binding: comparison operands, interpolation segments, format arguments, or a head's receiver | silent, leak only (found in the compiler-skeleton review; widened by sawtracker's ST-64) |
 | SL-407 | L19 A receiver outside a method | loud (found by the grammar-rulings work) |
+| SL-427 | S3 and S23 The error around `try`/`catch`, and a cast operand in std | silent, leak only (found by sawtracker's ST-66; the std half fixed under a freeze exception) |
+| SL-429 | S3 `try?` never releases the error it discards | silent, leak only (found in ST-69's review) |
+| SL-430 | S3 A coroutine's propagating `try` leaks the error | silent, leak only (found in ST-69's review) |
+| SL-431 | L20 A coroutine returning `Result<Void, E>` that falls off the end | loud (found in ST-69's review) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
