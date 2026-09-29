@@ -28,6 +28,10 @@ A borrow block's value is a copy, and a `Bool` copy is a valid condition, so the
 - the unwrap spelling `while borrow var e = it.find(&k) { e.count += 1 }` does not parse at all: it fails at the missing loop body;
 - so no option silently changes a program's meaning, since under (a) today's bare-block programs become refusals.
 
+**What GRAMMAR.md already says (the lead, found after r8):** §9 lists where a borrow binding stands: "a `borrow` block, an `if` or `else if` head, a `for` head, and a variant's payload pattern. A `guard`, a `while`, the top level of a `case` pattern and a tuple pattern take none."
+- So today's text already gives the unwrap no meaning at `while` and `guard`. That is (c)'s unwrap half; (a) and (a′) would each amend §9.
+- Whether "take none" also covers a bare borrow block, which carries its own binding, standing as a `while` or `guard` condition is the open part. If it does, §12's P is backed there too, and (c) is a recognizer fix rather than a new rule.
+
 **Why it waits:** the choice decides what these programs mean. Nothing is blocked until U4h, which parses borrow forms. The `if` host is already fixed (SL-426).
 
 **The lead's recommendation:** (c) now, since it closes the unbacked P code without committing to either meaning. Then (a′) when a real loop wants to unwrap a place. `guard` stays out until its window shape has a design.
