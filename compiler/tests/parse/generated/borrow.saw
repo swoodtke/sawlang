@@ -576,7 +576,7 @@ func f() {
 
 // case: syntax.borrow.block/cell:bhead
 func f() {
-    borrow let x = (borrow let x = a { x }) {
+    borrow let x = borrow let x = a { x } {
     }
 }
 

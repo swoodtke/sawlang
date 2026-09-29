@@ -119,6 +119,22 @@
           (NamedType (Path Int))))
       (Block))))
 
+// case: syntax.type.array/behind-a-reference
+(File
+  (Declaration.func
+    (Func f
+      (Param.plain a
+        (RefType.shared
+          (ArrayType
+            (NamedType (Path Int))
+            (IntLit 4))))
+      (Param.plain b
+        (RefType.exclusive
+          (ArrayType
+            (NamedType (Path T))
+            (Name N))))
+      (Block))))
+
 // case: syntax.rule.prefix-type-suffix/optional-function-in-parentheses
 (File
   (Declaration.func

@@ -1,0 +1,6 @@
+// refuses: syntax.rule.borrow-form
+// verdict: FAIL 4:8 refused by syntax.rule.borrow-form
+func main() {
+    if borrow let (a, b) = t { a } {
+    }
+}

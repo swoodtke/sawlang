@@ -2011,7 +2011,7 @@ column:
 | syntax.borrow.for | Y | N | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | N | Y | Y | S | Y | Y | S | S | S | N | S | S | S | N |
 | syntax.expr.try-block | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | N | Y | Y | S | Y | Y | S | S | S | N | S | S | S | N |
 | syntax.borrow.place | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | P | Y | Y | H | H | H | H | S | H | S | Y | Y | Y | T | Y | Y | S | Y | S | S | S | S | N | S | S | S | N |
-| syntax.borrow.block | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | P | Y | Y | Y | Y | Y | P | Y | Y | Y | N | Y | Y | S | Y | S | S | S | S | N | S | S | S | N |
+| syntax.borrow.block | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y | P | Y | Y | Y | Y | Y | S | Y | Y | Y | N | Y | Y | S | Y | S | S | S | S | N | S | S | S | N |
 | syntax.expr.optional-binding | N | N | N | N | N | N | N | N | N | N | N | N | N | Y | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N |
 | syntax.borrow.unwrap | N | N | N | N | N | N | N | N | N | N | N | N | N | Y | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N |
 | syntax.stmt.let | Y | N | Y | Y | Y | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N |

@@ -51,3 +51,17 @@ func f() {
 func f() {
     let y = x as Box<Int> ?? z
 }
+
+// case: syntax.rule.cast-target-question/coalesce-after-a-reference-cast-target
+// The `??` also reads as a suffix of the type after `&`: without `z` this is
+// a cast to `&Int??`, so the refusal is a parse error (README, Refusals).
+func f() {
+    let y = x as &Int ?? z
+}
+
+// case: syntax.rule.cast-target-question/coalesce-after-a-function-cast-target
+// The `??` also reads as a suffix of the return type: without `z` this is a
+// cast to `(A) -> B??`, so the refusal is a parse error (README, Refusals).
+func f() {
+    let y = x as (A) -> B ?? z
+}

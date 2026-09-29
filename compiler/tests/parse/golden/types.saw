@@ -40,6 +40,11 @@ func f() {
 func f(a: &[Int]?, b: &var [Int]) {
 }
 
+// case: syntax.type.array/behind-a-reference
+// With `;` and a length, a bracketed type behind `&` is an array, not a slice.
+func f(a: &[Int; 4], b: &var [T; N]) {
+}
+
 // case: syntax.rule.prefix-type-suffix/optional-function-in-parentheses
 func f() {
     let o: ((Int) -> Int)?? = w

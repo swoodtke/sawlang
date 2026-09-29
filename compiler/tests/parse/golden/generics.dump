@@ -340,6 +340,20 @@
               (NamedType (Path V))))
           (Name w))))))
 
+// case: syntax.rule.generic-close-split/list-holding-an-array-length-comparison
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (NamedType
+            (Path Vector)
+            (ArrayType
+              (NamedType (Path Int))
+              (Binary.pair (Name a) == (Name b))))
+          (Name w))))))
+
 // case: syntax.rule.generic-close-split/two-lists-closed-by-two-greaters
 (File
   (Declaration.func

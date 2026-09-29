@@ -39,6 +39,8 @@ REFUSES_RE = re.compile(r"^// refuses: (syntax\.(?:rule|lex)\.\S+)\n// verdict: 
 VERDICTS = [
     ("func f() {\n    let v: Vector<Int>= w\n}\n", "OK"),        # generic-close-split
     ("func f() {\n    let m: Map<K, Vector<V>>= w\n}\n", "OK"),  # both lists close
+    # An array length takes the full expression grammar, inside a list too.
+    ("func f() {\n    let v: Vector<[Int; a == b]>= w\n}\n", "OK"),
     ("func f() {\n    let s = a << 2 >> b\n}\n", "OK"),          # SHL and SHR
     ("func f() {\n    g(a,\n      b)\n}\n", "OK"),                # a line break in ( )
     ("func f() {\n    let v = Vector<\n        Int>()\n}\n", "OK"),  # in a generic list

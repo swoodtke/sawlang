@@ -137,7 +137,7 @@ func f() {
 
 // case: syntax.rule.head-reset/inside-a-borrow-block-in-a-head
 func f() {
-    if borrow let e = m[k] { e.all { $0 } } {
+    for x in borrow let e = m[k] { e.all { $0 } } {
     }
 }
 

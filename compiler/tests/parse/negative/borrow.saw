@@ -8,6 +8,12 @@ func f() {
     borrow let (a, b) = t
 }
 
+// case: syntax.rule.borrow-form/tuple-binding-at-an-if-head
+func f() {
+    if borrow let (a, b) = t { a } {
+    }
+}
+
 // case: syntax.rule.borrow-form/borrow-binding-in-a-while-let
 func f() {
     while borrow let x = m[k] {

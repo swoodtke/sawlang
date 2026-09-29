@@ -108,6 +108,11 @@ func f() {
     let m: Map<K, Vector<V>>= w
 }
 
+// case: syntax.rule.generic-close-split/list-holding-an-array-length-comparison
+func f() {
+    let v: Vector<[Int; a == b]>= w
+}
+
 // case: syntax.rule.generic-close-split/two-lists-closed-by-two-greaters
 func f() {
     let v: Vector<Vector<Int>> = w

@@ -551,3 +551,6 @@ parses as another construct
             (Member
               (Subscript.single (Name a) (IntLit 0))
               b)))))))
+
+// case: syntax.borrow.block/bare:cond
+refuses syntax.rule.head-restriction at 2:25

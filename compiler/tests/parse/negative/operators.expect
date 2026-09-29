@@ -27,3 +27,9 @@ refuses syntax.rule.cast-target-question at 2:22
 
 // case: syntax.rule.cast-target-question/coalesce-after-a-generic-cast-target
 refuses syntax.rule.cast-target-question at 2:27
+
+// case: syntax.rule.cast-target-question/coalesce-after-a-reference-cast-target
+refuses parse-error at 4:23
+
+// case: syntax.rule.cast-target-question/coalesce-after-a-function-cast-target
+refuses parse-error at 4:27

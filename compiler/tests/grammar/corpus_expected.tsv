@@ -4,6 +4,7 @@ compiler/tests/grammar/fixtures/refusals/arm_body_brace_is_a_block.saw	FAIL	a-er
 compiler/tests/grammar/fixtures/refusals/attribute_on_the_wrong_declaration.saw	FAIL	a-error: 3:1 refused by syntax.rule.attribute-position
 compiler/tests/grammar/fixtures/refusals/attribute_repeated.saw	FAIL	a-error: 4:1 refused by syntax.rule.attribute-position
 compiler/tests/grammar/fixtures/refusals/borrow_binding_without_a_block.saw	FAIL	a-error: 4:5 refused by syntax.rule.borrow-form
+compiler/tests/grammar/fixtures/refusals/borrow_block_at_an_if_head.saw	FAIL	a-error: 4:8 refused by syntax.rule.borrow-form
 compiler/tests/grammar/fixtures/refusals/cast_target_then_coalesce.saw	FAIL	c-conflict: 4:22 refused by syntax.rule.cast-target-question
 compiler/tests/grammar/fixtures/refusals/consumes_on_a_free_function.saw	FAIL	a-error: 3:16 refused by syntax.rule.effect-slot
 compiler/tests/grammar/fixtures/refusals/consumes_on_a_requirement.saw	FAIL	a-error: 4:23 refused by syntax.rule.requirement-borrows

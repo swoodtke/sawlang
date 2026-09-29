@@ -75,6 +75,7 @@ FILTERS = [
     ("head-expr", "_head_restriction", "syntax.rule.head-restriction"),
     ("binding-subject", "_head_restriction", "syntax.rule.head-restriction"),
     ("borrow-place", "_borrow_form", "syntax.rule.borrow-form"),
+    ("if-head", "_if_head_binding", "syntax.rule.borrow-form"),
     ("try-expr", "_try_block", "syntax.rule.try-block"),
     ("lends-expr", "_lends_word", "syntax.rule.contextual-words"),
     ("statement", "_static_assert_word", "syntax.rule.contextual-words"),
@@ -564,12 +565,8 @@ def token_terms(tok):
     return terms
 
 
-_GENERIC_INNER = {
-    "IDENT", "COMMA", "DOT", "NEWLINE", "QUESTION", "DOUBLE_QUESTION", "AMPERSAND",
-    "VAR", "INT", "COLON", "LPAREN", "RPAREN", "LBRACKET", "RBRACKET", "SEMICOLON",
-    "ARROW", "UNSAFE", "BORROWS", "ASSIGN", "MINUS", "PLUS", "STAR", "SLASH", "PERCENT",
-    "LT", "GT",
-}
+OPENERS = ("LPAREN", "LBRACKET", "LBRACE")
+CLOSERS = ("RPAREN", "RBRACKET", "RBRACE")
 
 
 # What a generic list reads as: arguments after a type's path, a layout query's
@@ -618,11 +615,15 @@ def cast_follows(g, terms):
 def generic_close(tokens, i):
     """(j, closes, newlines) for the `<` at i: the token j holding the `>` that
     closes it, how many lists the leading `>`s of a `>=` or `>>=` at j close (0
-    for a plain `>`), and the NEWLINEs between; (None, 0, []) when a token no
-    generic list holds comes first."""
+    for a plain `>`), and the NEWLINEs between; (None, 0, []) when nothing can
+    close it. Every derivation of a list holds its brackets balanced, so a `<`
+    or `>` inside a bracket is never one of the list's, and a closer the list
+    did not open ends the search. Which tokens a list may hold is the chart's
+    to decide (`keeps`)."""
     depth = 0
     inside = []
-    for j in range(i, len(tokens)):
+    j = i
+    while j < len(tokens):
         t = tokens[j].kind
         if t == "LT":
             depth += 1
@@ -635,15 +636,22 @@ def generic_close(tokens, i):
             return (j, closes, inside) if depth == closes else (None, 0, [])
         elif t == "NEWLINE":
             inside.append(j)
-        elif t not in _GENERIC_INNER:
+        elif t in OPENERS:
+            close = matching_close(tokens, j)
+            if close is None:
+                break
+            inside.extend(k for k in range(j, close) if tokens[k].kind == "NEWLINE")
+            j = close
+        elif t in CLOSERS:
             break
+        j += 1
     return None, 0, []
 
 
 def matching_close(tokens, i):
     """The index of the bracket closing the `(`, `[` or `{` at i, or None."""
     opener = tokens[i].kind
-    closer = {"LPAREN": "RPAREN", "LBRACKET": "RBRACKET", "LBRACE": "RBRACE"}[opener]
+    closer = CLOSERS[OPENERS.index(opener)]
     depth = 0
     for j in range(i, len(tokens)):
         if tokens[j].kind == opener:
@@ -652,6 +660,19 @@ def matching_close(tokens, i):
             depth -= 1
             if depth == 0:
                 return j
+    return None
+
+
+def binding_target_end(tokens, i):
+    """The index after the binding target at i, a name or a parenthesized
+    pattern, or None when none starts there (syntax.rule.borrow-form)."""
+    if i >= len(tokens):
+        return None
+    if tokens[i].kind == "IDENT":
+        return i + 1
+    if tokens[i].kind == "LPAREN":
+        close = matching_close(tokens, i)
+        return None if close is None else close + 1
     return None
 
 
@@ -1068,11 +1089,19 @@ class Forest:
         toks = self.c.tokens
         if self._after(d) != "=" or toks[d.i + 1].kind not in ("LET", "VAR"):
             return None
-        first, last = d.i + 2, d.j - 1
-        if first == last and toks[first].kind == "IDENT":
-            return d.i
-        if toks[first].value == "(" and toks[last].value == ")" \
-                and matching_close(toks, first) == last:
+        return d.i if binding_target_end(toks, d.i + 2) == d.j else None
+
+    def _if_head_binding(self, d):
+        """At an `if` head, `borrow let` or `borrow var`, a binding target and
+        `=` is the optional-place unwrap, so the condition that reads them as
+        a `borrow` block is refused (syntax.rule.borrow-form)."""
+        if self._alt(d) != "syntax.expr.if-head.condition":
+            return None
+        toks = self.c.tokens
+        if toks[d.i].kind != "BORROW" or toks[d.i + 1].kind not in ("LET", "VAR"):
+            return None
+        end = binding_target_end(toks, d.i + 2)
+        if end is not None and end < d.j and toks[end].value == "=":
             return d.i
         return None
 

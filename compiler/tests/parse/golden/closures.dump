@@ -377,7 +377,8 @@
     (Func f
       (Block
         (ExprStmt
-          (If
+          (For.plain
+            (BindingName x)
             (BorrowBlock
               (BorrowBinding.let
                 (BindingName e)
