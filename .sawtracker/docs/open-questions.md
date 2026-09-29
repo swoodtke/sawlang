@@ -30,7 +30,9 @@ A borrow block's value is a copy, and a `Bool` copy is a valid condition, so the
 
 **What GRAMMAR.md already says (the lead, found after r8):** §9 lists where a borrow binding stands: "a `borrow` block, an `if` or `else if` head, a `for` head, and a variant's payload pattern. A `guard`, a `while`, the top level of a `case` pattern and a tuple pattern take none."
 - So today's text already gives the unwrap no meaning at `while` and `guard`. That is (c)'s unwrap half; (a) and (a′) would each amend §9.
-- Whether "take none" also covers a bare borrow block, which carries its own binding, standing as a `while` or `guard` condition is the open part. If it does, §12's P is backed there too, and (c) is a recognizer fix rather than a new rule.
+- "Take none" does not cover the bare borrow block (the Air, t2 m3). §9 lists "a `borrow` block" as one of the places a binding stands, so the block's binding stands in its block, not in the head.
+- What bars the bare form is §12's table: `cond` covers `if`, `else if`, `while` and a boolean `guard`, and the borrow block's `cond` cell is P. head-reset's text admits the bare form, so the table and the text conflict, as in D2.
+- Unlike D2, the bare block here is a real program. So the table winning is (c), and the text winning is (b). Both remain the user's call.
 
 **Why it waits:** the choice decides what these programs mean. Nothing is blocked until U4h, which parses borrow forms. The `if` host is already fixed (SL-426).
 
