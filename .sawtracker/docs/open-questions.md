@@ -19,7 +19,18 @@ A borrow block's value is a copy, and a `Bool` copy is a valid condition, so the
 - **(a) Extend the unwrap to `while` and `guard` heads,** like `if`: `while borrow var e = it.find(&k) { … }` loops while the place is present, and `guard borrow let e = … else { … }` binds it for the rest of the scope. The bare block form there is then refused, as at `if` heads.
 - **(b) Keep them as borrow-block conditions.** The §12 `cond` cell's P code would then be wrong for `while` and `guard` hosts, and gets recoded, as D2 did for `bhead`.
 
+- **(a′) The split form of (a):** extend the unwrap to `while` only, where the borrow window is the loop body, as with `if`, and leave `guard` out.
+  - **Why split:** under `guard`, `guard borrow var e = m.find(&k) else { return }` would hold the borrow to the end of the enclosing block. That is a new window shape, since every window today ends at a `}` or at the end of a statement, and every later use of `m` in that block would be an exclusivity error.
+- **(c) Refuse, and decide later:** refuse the bare borrow block in `while` and `guard` heads, as §12's P code already says, and give the unwrap no meaning yet. The parenthesized `while (borrow let e = m[k] { e.ok }) { }` still spells the condition, and both meanings stay open. Like D2's first option, (c) is a new refusal rule.
+
+**The Air's check (t2):**
+- today the bare examples, and the parenthesized one, parse as conditions;
+- the unwrap spelling `while borrow var e = it.find(&k) { e.count += 1 }` does not parse at all: it fails at the missing loop body;
+- so no option silently changes a program's meaning, since under (a) today's bare-block programs become refusals.
+
 **Why it waits:** the choice decides what these programs mean. Nothing is blocked until U4h, which parses borrow forms. The `if` host is already fixed (SL-426).
+
+**The lead's recommendation:** (c) now, since it closes the unbacked P code without committing to either meaning. Then (a′) when a real loop wants to unwrap a place. `guard` stays out until its window shape has a design.
 
 ## Decided by the lead, for review (reversible)
 
