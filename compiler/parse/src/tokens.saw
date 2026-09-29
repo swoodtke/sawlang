@@ -1,7 +1,7 @@
 // The parser's token stream: the lexer's tokens with byte spans, and without
 // the line breaks GRAMMAR.md section 2.4 rule 1 makes insignificant.
 
-import sawlex.src.lib.{LexResult, Token, TokenKind}
+import sawlex.src.lib.{LexResult, SegmentKind, Token, TokenKind}
 import sawparse.src.source.{SourceFile}
 
 static TOKEN_QUOTE: Int = 34
@@ -22,9 +22,17 @@ public struct ParseToken {
     public start: Int
     public end: Int
     public line: Int
-    // Its run in the lexer's segment arena, for an interpolated string.
+    // Its run of the parser's interpolation pieces, for an interpolated string.
     public seg_start: Int
     public seg_count: Int
+}
+
+// One expression segment of an interpolated string: the source byte of its
+// opening `{`, and how many bytes stand between its braces. The lexer keeps a
+// segment's text raw, so those bytes are the segment's text as written.
+public struct InterpPiece {
+    public open: Int
+    public len: Int
 }
 
 func is_digit_byte(b: Int) -> Bool { b >= TOKEN_DIGIT_0 && b <= TOKEN_DIGIT_9 }
@@ -53,7 +61,6 @@ func token_end(source: &SourceFile, t: &Token, start: Int, bound: Int) -> Int {
         case IntLit -> number_end(&source, start, bound),
         case FloatLit -> number_end(&source, start, bound),
         case HashDirective -> start + t.value.len() + 1,
-        case DollarParam -> start + t.value.len() + 1,
         case _ -> start + t.value.len()
     }
 }
@@ -92,9 +99,14 @@ func quiet_inside(kind: TokenKind) -> Bool {
     kind == TokenKind.LParen || kind == TokenKind.LBracket
 }
 
-// The parser's tokens for a lexed source: each with its byte span, and
-// without a line break whose innermost enclosing bracket is `(` or `[`.
-public func parser_tokens(source: &SourceFile, lexed: &LexResult) -> Vector<ParseToken> {
+// The parser's tokens for a lexed text, appended to `out`: each with its byte
+// span, and without a line break whose innermost enclosing bracket is `(` or
+// `[`. `source` is the text that was lexed, which starts at byte `base` of the
+// file, so an interpolation segment's tokens keep the file's byte positions.
+// Each interpolated string's expression segments are appended to `pieces`,
+// which its token then names.
+public func parser_tokens(source: &SourceFile, lexed: &LexResult, base: Int,
+                          out: &var Vector<ParseToken>, pieces: &var Vector<InterpPiece>) {
     let n = lexed.tokens.len()
     var starts = Vector<Int>()
     var i = 0
@@ -103,7 +115,6 @@ public func parser_tokens(source: &SourceFile, lexed: &LexResult) -> Vector<Pars
         try! starts.push(source.offset_of(t.line, t.col))
         i = i + 1
     }
-    var out = Vector<ParseToken>()
     var brackets = Vector<TokenKind>()
     var open = 0
     i = 0
@@ -112,6 +123,16 @@ public func parser_tokens(source: &SourceFile, lexed: &LexResult) -> Vector<Pars
         let start = starts[i]
         let bound = if i + 1 < n { starts[i + 1] } else { source.len() }
         let end = token_end(&source, &t, start, bound)
+        let first_piece = pieces.len()
+        var k = 0
+        while k < t.seg_count {
+            let seg = lexed.segments[t.seg_start + k]
+            if seg.kind == SegmentKind.Expr {
+                let at = base + source.offset_of(seg.line, seg.col)
+                try! pieces.push(InterpPiece(open: at, len: seg.text.len()))
+            }
+            k = k + 1
+        }
         var keep = true
         if t.kind == TokenKind.Newline {
             keep = open == 0 || not quiet_inside(brackets[open - 1])
@@ -128,10 +149,10 @@ public func parser_tokens(source: &SourceFile, lexed: &LexResult) -> Vector<Pars
             }
         }
         if keep {
-            try! out.push(ParseToken(kind: t.kind, start: start, end: end, line: t.line,
-                              seg_start: t.seg_start, seg_count: t.seg_count))
+            try! out.push(ParseToken(kind: t.kind, start: base + start, end: base + end,
+                                     line: t.line, seg_start: first_piece,
+                                     seg_count: pieces.len() - first_piece))
         }
         i = i + 1
     }
-    move out
 }

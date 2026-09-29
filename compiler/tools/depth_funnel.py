@@ -330,9 +330,14 @@ def injected_failures():
     as a recursion that bypasses the funnel."""
     with open(FUNNEL_FILE, encoding="utf-8") as fh:
         text = fh.read()
-    head = text.index("func parse_paren(")
-    cut = text.index("self.%s(open)" % FUNNEL, head)
-    injected = text[:cut] + "true" + text[cut + len("self.%s(open)" % FUNNEL):]
+    anchor = "self.%s(open)" % FUNNEL
+    head = text.find("func parse_paren(")
+    body_end = text.find("\n    func ", head + 1) if head >= 0 else -1
+    cut = text.find(anchor, head, body_end if body_end >= 0 else len(text)) if head >= 0 else -1
+    if cut < 0:
+        return ["depth-funnel: the injection's anchor, `%s` in `parse_paren`, is gone from %s; "
+                "move the anchor with the code" % (anchor, os.path.relpath(FUNNEL_FILE, REPO))]
+    injected = text[:cut] + "true" + text[cut + len(anchor):]
     os.makedirs(WORK, exist_ok=True)
     path = os.path.join(WORK, "parser.saw")
     with open(path, "w", encoding="utf-8") as fh:
@@ -348,12 +353,48 @@ def injected_failures():
 
 # ---- the run-time cells ---------------------------------------------------------------
 
+def in_function(expr):
+    return "func f() {\n    let x = " + expr + "\n}\n"
+
+
 def parens(k):
-    return "func f() {\n    let x = " + "(" * k + "1" + ")" * k + "\n}\n"
+    return in_function("(" * k + "1" + ")" * k)
 
 
 def modules(k):
     return "module m {\n" * k + "}\n" * k
+
+
+def prefix_run(k):
+    return in_function("- " * k + "1")
+
+
+def cast_chain(k):
+    return in_function("1" + " as Int" * k)
+
+
+def brackets(k):
+    return in_function("[" * k + "1" + "]" * k)
+
+
+def postfix_chain(k):
+    return in_function("a" + ".b" * k)
+
+
+def try_run(k):
+    return in_function("try " * k + "1")
+
+
+def interpolations(k):
+    return in_function('"{' * k + "1" + '}"' * k)
+
+
+def nth(text, needle, n, shift=0):
+    """The offset of the nth occurrence of `needle` in `text`, plus `shift`."""
+    at = -1
+    for _ in range(n):
+        at = text.index(needle, at + 1)
+    return at + shift
 
 
 def cells():
@@ -361,7 +402,13 @@ def cells():
     out = []
     for name, build_text, find in (
             ("nested parentheses", parens, lambda t: t.index("(" * 256) + 256),
-            ("nested inline modules", modules, None)):
+            ("nested inline modules", modules, None),
+            ("a prefix run", prefix_run, lambda t: nth(t, "- ", LIMIT + 1)),
+            ("an `as` chain", cast_chain, lambda t: nth(t, " as ", LIMIT + 1, 1)),
+            ("nested array literals", brackets, lambda t: nth(t, "[", LIMIT + 1)),
+            ("a postfix chain", postfix_chain, lambda t: nth(t, ".b", LIMIT + 1)),
+            ("a `try` run", try_run, lambda t: nth(t, "try ", LIMIT + 1)),
+            ("nested interpolations", interpolations, lambda t: nth(t, '"{', LIMIT + 1))):
         out.append(("%s at %d" % (name, LIMIT), build_text(LIMIT), None, None))
         text = build_text(LIMIT + 1)
         at = find(text) if find else None

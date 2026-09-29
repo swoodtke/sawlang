@@ -11,7 +11,8 @@ parse/
   src/
     api.saw         parse_source and the record `sawc2 parse` prints for a file
     parser.saw      recursive descent, the depth funnel, recovery, doc comments
-    tokens.saw      the lexer's tokens with byte spans, line breaks settled
+    tokens.saw      the lexer's tokens with byte spans, line breaks settled, and
+                    the expression segments of interpolated strings
     tree.saw        the arena, its builder and its invariant checker
     render.saw      the canonical dump, rendered from the arena
     reader.saw      a reader of the dump's text back into an arena
@@ -81,6 +82,8 @@ over the source, that every recursive call cycle crosses that funnel and that
 the funnel's ENTRY POINTS list names exactly the methods that charge; and, by
 running `sawc2 parse`, that 256 levels parse, the 257th is refused at its opener
 as syntax.rule.depth-limit, a flat chain of any length parses, and a refused
-statement gives its levels back. Its fixtures, in `compiler/tests/funnel/`, and
-a copy of the parser with the funnel cut out of `parse_paren` show that it
-fails on a recursion that bypasses the funnel.
+statement gives its levels back. The run-time cells cover each charging
+construct kind, those a loop charges too (an `as` chain and a postfix chain),
+since the static check sees only recursion. Its fixtures, in
+`compiler/tests/funnel/`, and a copy of the parser with the funnel cut out of
+`parse_paren` show that it fails on a recursion that bypasses the funnel.

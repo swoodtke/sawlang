@@ -12,10 +12,11 @@
 // which skips to the next boundary at the same bracket depth and goes on, so
 // one run reports every independent error.
 
-import sawlex.src.lib.{DocComment, TokenKind}
+import sawlex.src.lib.{DocComment, TokenKind, lex}
+import sawparse.src.source.{source_file}
 import sawparse.src.diag.{Diagnostic}
 import sawparse.src.grammar.{ALT_COUNT, Alt, Rule}
-import sawparse.src.tokens.{ParseToken, closes_bracket, opens_bracket}
+import sawparse.src.tokens.{InterpPiece, ParseToken, closes_bracket, opens_bracket, parser_tokens}
 import sawparse.src.tree.{NodeShape, TreeBuilder}
 
 public static PARSE_MAX_DEPTH: Int = 256
@@ -39,10 +40,15 @@ struct ListState {
 
 public struct Parser {
     builder: TreeBuilder
+    // The file's tokens, and after them each interpolation segment's, as it
+    // is parsed, each run ending in its own Eof.
     private tokens: Vector<ParseToken>
+    private pieces: Vector<InterpPiece>
     private docs: Vector<DocComment>
     private runs: Vector<DocRun>
     private pos: Int
+    // The Eof that ends the run being parsed: the file's, or a segment's.
+    private limit: Int
     // The end of the last token consumed, where a node closing now ends.
     private prev_end: Int
     private depth: Int
@@ -56,7 +62,7 @@ public struct Parser {
 extension Parser: NoCopy {}
 
 public func new_parser(builder: TreeBuilder, tokens: Vector<ParseToken>,
-                       docs: &Vector<DocComment>) -> Parser {
+                       pieces: Vector<InterpPiece>, docs: &Vector<DocComment>) -> Parser {
     var seen = Vector<Bool>()
     var k = 0
     while k < ALT_COUNT {
@@ -70,8 +76,10 @@ public func new_parser(builder: TreeBuilder, tokens: Vector<ParseToken>,
         try! own_docs.push(d)
         k = k + 1
     }
-    var parser = Parser(builder: move builder, tokens: move tokens, docs: move own_docs,
-                        runs: Vector<DocRun>(), pos: 0, prev_end: 0, depth: 0,
+    let limit = tokens.len() - 1
+    var parser = Parser(builder: move builder, tokens: move tokens, pieces: move pieces,
+                        docs: move own_docs, runs: Vector<DocRun>(), pos: 0, limit: limit,
+                        prev_end: 0, depth: 0,
                         diagnostics: Vector<Diagnostic>(), seen: move seen,
                         taken: Vector<Alt>())
     parser.find_doc_runs()
@@ -159,17 +167,17 @@ extension Parser {
 
     func kind(&self) -> TokenKind { self.tokens[self.pos].kind }
 
-    // The kind `ahead` tokens on, or Eof past the end.
+    // The kind `ahead` tokens on, or Eof past the end of the run.
     func kind_at(&self, ahead: Int) -> TokenKind {
         let at = self.pos + ahead
-        if at < self.tokens.len() { self.tokens[at].kind } else { TokenKind.Eof }
+        if at <= self.limit { self.tokens[at].kind } else { TokenKind.Eof }
     }
 
     // Whether the token `ahead` tokens on is an identifier spelled `word`: a
     // contextual word, recognized only where the grammar asks for it.
     func word_at(&self, ahead: Int, word: String) -> Bool {
         let at = self.pos + ahead
-        if at >= self.tokens.len() || self.tokens[at].kind != TokenKind.Ident {
+        if at > self.limit || self.tokens[at].kind != TokenKind.Ident {
             return false
         }
         let t = self.tokens[at]
@@ -179,7 +187,7 @@ extension Parser {
     func advance(&var self) {
         let t = self.current()
         self.prev_end = t.end
-        if self.pos + 1 < self.tokens.len() {
+        if self.pos < self.limit {
             self.pos = self.pos + 1
         }
     }
@@ -296,6 +304,12 @@ extension Parser {
     // ENTRY POINTS:
     //     parse_paren
     //     parse_module
+    //     parse_cast
+    //     parse_prefix_operator
+    //     parse_bracket
+    //     parse_postfix
+    //     parse_try
+    //     parse_interp
     func enter_level(&var self, opener: Int) -> Bool {
         if self.depth >= PARSE_MAX_DEPTH {
             return self.refuse(Rule.Rule_DepthLimit, opener,
@@ -558,6 +572,16 @@ extension Parser {
 
     // `top-level-item`: an import, a module, or a declaration.
     func parse_item(&var self) -> Bool {
+        // Nothing else starts with `import` or `module` at an item's head, so
+        // without a name after it what is missing is that name.
+        if self.kind_at(1) != TokenKind.Ident && self.word_at(0, "import") {
+            self.advance()
+            return self.error("expected the path of the module to import")
+        }
+        if self.kind_at(1) != TokenKind.Ident && self.word_at(0, "module") {
+            self.advance()
+            return self.error("expected the module's name")
+        }
         if self.kind() == TokenKind.Ident && self.kind_at(1) == TokenKind.Ident {
             if self.word_at(0, "import") {
                 self.see(Alt.File_Item_Import)
@@ -1082,7 +1106,15 @@ extension Parser {
             return false
         }
         if is_assignment(self.kind()) {
-            return self.error("an assignment is not parsed yet")
+            // The right side is parsed first, so a refusal inside it is the
+            // statement's first.
+            let at = self.pos
+            self.advance()
+            if not self.parse_expr() {
+                return false
+            }
+            self.report(None, at, "an assignment is not parsed yet", "")
+            return false
         }
         self.close(mark, Alt.Stmt_Expr, start)
         true
@@ -1325,55 +1357,631 @@ extension Parser {
         true
     }
 
-    // `compare-expr ::= range-expr ( compare-op NEWLINE* range-expr )?`; the
-    // operators are not parsed yet, so a comparison stops the expression.
+    // `compare-expr ::= range-expr ( compare-op NEWLINE* range-expr )?`. A
+    // comparison takes two operands, so a chain of them is refused, at its
+    // second operator, once the chain has parsed (syntax.rule.compare-chain).
     func parse_compare(&var self) -> Bool {
         self.see(Alt.Expr_Compare_Pair)
-        self.parse_range()
+        let mark = self.builder.mark()
+        if not self.parse_range() {
+            return false
+        }
+        guard let op = self.compare_op() else { return true }
+        self.see(op)
+        self.take_leaf()
+        self.skip_newlines()
+        if not self.parse_range() {
+            return false
+        }
+        let second = self.pos
+        var chained = false
+        while let more = self.compare_op() {
+            self.see(more)
+            chained = true
+            self.advance()
+            self.skip_newlines()
+            if not self.parse_range() {
+                return false
+            }
+        }
+        if chained {
+            return self.refuse(Rule.Expr_RefusedCompareChain, second,
+                               "a comparison takes two operands, so comparisons do not chain",
+                               "join two comparisons with `&&`: `a < b && b < c`")
+        }
+        self.close_chain(mark, Alt.Expr_Compare_Pair)
+        true
     }
 
-    // `range-expr ::= shift-expr ( range-op shift-expr )?`; the range
-    // operators are not parsed yet.
+    // The comparison operator at the current token, if there is one.
+    func compare_op(&self) -> Alt? {
+        match self.kind() {
+            case Eq -> Alt.Expr_CompareOp_Equal,
+            case Neq -> Alt.Expr_CompareOp_NotEqual,
+            case Lt -> Alt.Expr_CompareOp_Less,
+            case Gt -> Alt.Expr_CompareOp_Greater,
+            case Lte -> Alt.Expr_CompareOp_LessEqual,
+            case Gte -> Alt.Expr_CompareOp_GreaterEqual,
+            case _ -> None
+        }
+    }
+
+    // `range-expr`: a closed range `a..b` or `a..=b`, an open end `a..`, an
+    // open start `..b`, `..=b` or `..`, or a lone shift operand. A range's
+    // upper bound is omitted only where a closer, a separator or a line break
+    // follows its `..` (syntax.rule.range-open-end), and a line break after
+    // `..=` leaves it without the bound it needs.
     func parse_range(&var self) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        let lead = self.kind()
+        if lead == TokenKind.DotDot || lead == TokenKind.DotDotEq {
+            self.see(Alt.Expr_Range_Upto)
+            self.take_leaf()
+            if lead == TokenKind.DotDot && self.range_ends() {
+                self.see(Alt.Expr_RangeUpto_Full)
+            } else {
+                let alt = if lead == TokenKind.DotDot { Alt.Expr_RangeUpto_Exclusive } else { Alt.Expr_RangeUpto_Inclusive }
+                self.see(alt)
+                if not self.parse_shift() {
+                    return false
+                }
+            }
+            self.close(mark, Alt.Expr_Range_Upto, start)
+            return true
+        }
+        if not self.parse_shift() {
+            return false
+        }
+        let op = self.kind()
+        if op == TokenKind.Ellipsis {
+            let at = self.pos
+            self.advance()
+            if not self.parse_shift() {
+                return false
+            }
+            return self.refuse(Rule.Expr_RefusedEllipsisRange, at,
+                               "a range is written `..` or `..=`; `...` ends a variadic parameter list",
+                               "write `a..=b` for a range that includes `b`")
+        }
+        if op != TokenKind.DotDot && op != TokenKind.DotDotEq {
+            self.see(Alt.Expr_Range_Closed)
+            return true
+        }
+        self.take_leaf()
+        if op == TokenKind.DotDot && self.range_ends() {
+            self.see(Alt.Expr_Range_From)
+            self.see(Alt.Expr_RangeFrom)
+            self.close(mark, Alt.Expr_Range_From, start)
+            return true
+        }
         self.see(Alt.Expr_Range_Closed)
-        self.parse_shift()
+        let alt = if op == TokenKind.DotDot { Alt.Expr_RangeOp_Exclusive } else { Alt.Expr_RangeOp_Inclusive }
+        self.see(alt)
+        if not self.parse_shift() {
+            return false
+        }
+        self.close(mark, Alt.Expr_Range_Closed, start)
+        true
+    }
+
+    // Whether the current token ends a range whose upper bound is omitted.
+    func range_ends(&self) -> Bool {
+        match self.kind() {
+            case RBracket -> true,
+            case RParen -> true,
+            case Comma -> true,
+            case Semicolon -> true,
+            case Newline -> true,
+            case RBrace -> true,
+            case Eof -> true,
+            case _ -> false
+        }
     }
 
     // `shift-expr ::= additive-expr ( shift-op NEWLINE* additive-expr )*`
     func parse_shift(&var self) -> Bool {
         self.see(Alt.Expr_Shift)
-        self.parse_additive()
+        let mark = self.builder.mark()
+        if not self.parse_additive() {
+            return false
+        }
+        var ops = 0
+        while let op = self.shift_op() {
+            self.see(op)
+            self.take_shift()
+            self.skip_newlines()
+            if not self.parse_additive() {
+                return false
+            }
+            ops = ops + 1
+        }
+        if ops > 0 {
+            self.close_chain(mark, Alt.Expr_Shift)
+        }
+        true
+    }
+
+    // The shift at the current token, if there is one: two `<` or two `>`
+    // tokens with nothing between them (syntax.lex.shift-adjacent).
+    func shift_op(&self) -> Alt? {
+        let kind = self.kind()
+        if kind != TokenKind.Lt && kind != TokenKind.Gt {
+            return None
+        }
+        if self.kind_at(1) != kind || self.tokens[self.pos].end != self.tokens[self.pos + 1].start {
+            return None
+        }
+        if kind == TokenKind.Lt { Alt.Expr_ShiftOp_Left } else { Alt.Expr_ShiftOp_Right }
+    }
+
+    // A shift's two tokens, as the one leaf `<<` or `>>`.
+    func take_shift(&var self) {
+        let first = self.current()
+        self.advance()
+        let second = self.current()
+        let _ = self.builder.leaf(NodeShape.Token, first.start, second.end)
+        self.advance()
     }
 
     // `additive-expr ::= multiplicative-expr ( add-op NEWLINE* multiplicative-expr )*`
     func parse_additive(&var self) -> Bool {
         self.see(Alt.Expr_Additive)
-        self.parse_multiplicative()
+        let mark = self.builder.mark()
+        if not self.parse_multiplicative() {
+            return false
+        }
+        var ops = 0
+        while let op = self.additive_op() {
+            self.see(op)
+            self.take_leaf()
+            self.skip_newlines()
+            if not self.parse_multiplicative() {
+                return false
+            }
+            ops = ops + 1
+        }
+        if ops > 0 {
+            self.close_chain(mark, Alt.Expr_Additive)
+        }
+        true
     }
 
-    // `multiplicative-expr ::= cast-expr ( mul-op NEWLINE* cast-expr )*`
+    func additive_op(&self) -> Alt? {
+        match self.kind() {
+            case Plus -> Alt.Expr_AddOp_Plus,
+            case Minus -> Alt.Expr_AddOp_Minus,
+            case WrapAdd -> Alt.Expr_AddOp_WrappingPlus,
+            case WrapSub -> Alt.Expr_AddOp_WrappingMinus,
+            case _ -> None
+        }
+    }
+
+    // `multiplicative-expr ::= cast-expr ( mul-op NEWLINE* cast-expr )*`. A
+    // `*` between operands multiplies, and one before an operand is a
+    // dereference (syntax.rule.deref-or-multiply).
     func parse_multiplicative(&var self) -> Bool {
         self.see(Alt.Expr_Multiplicative)
-        self.parse_cast()
+        let mark = self.builder.mark()
+        if not self.parse_cast() {
+            return false
+        }
+        var ops = 0
+        while let op = self.multiplicative_op() {
+            self.see(op)
+            self.take_leaf()
+            self.skip_newlines()
+            if not self.parse_cast() {
+                return false
+            }
+            ops = ops + 1
+        }
+        if ops > 0 {
+            self.close_chain(mark, Alt.Expr_Multiplicative)
+        }
+        true
     }
 
-    // `cast-expr ::= prefix-expr cast-suffix*`
+    func multiplicative_op(&self) -> Alt? {
+        match self.kind() {
+            case Star -> Alt.Expr_MulOp_Times,
+            case Slash -> Alt.Expr_MulOp_Divide,
+            case Percent -> Alt.Expr_MulOp_Remainder,
+            case WrapMul -> Alt.Expr_MulOp_WrappingTimes,
+            case _ -> None
+        }
+    }
+
+    // `cast-expr ::= prefix-expr cast-suffix*`, one Cast node per `as`, each
+    // charging a level held to the end of the cast chain.
     func parse_cast(&var self) -> Bool {
         self.see(Alt.Expr_Cast)
-        self.parse_prefix()
+        let start = self.here()
+        let mark = self.builder.mark()
+        if not self.parse_prefix() {
+            return false
+        }
+        var casts = 0
+        while self.kind() == TokenKind.As {
+            let at = self.pos
+            if not self.enter_level(at) {
+                return false
+            }
+            casts = casts + 1
+            self.see(Alt.Expr_CastSuffix_Cast)
+            self.take_leaf()
+            if not self.parse_cast_target() {
+                return false
+            }
+            self.close(mark, Alt.Expr_Cast, start)
+        }
+        while casts > 0 {
+            self.leave_level()
+            casts = casts - 1
+        }
+        true
     }
 
-    // `prefix-expr ::= postfix-expr | ...`; the prefix operators are not
-    // parsed yet.
+    // `cast-target ::= type-atom | type-atom "?" | ...`: a type with at most
+    // one `?`, so a `?` or `??` after it is refused at that token, whatever the
+    // spacing (syntax.rule.cast-target-question). Only a named target without
+    // generic arguments is parsed yet.
+    func parse_cast_target(&var self) -> Bool {
+        if self.kind() != TokenKind.Ident || (self.word_at(0, "any") && self.kind_at(1) == TokenKind.Ident) {
+            return self.error("only a named cast target is parsed yet")
+        }
+        self.see(Alt.Type_Atom_Named)
+        self.see(Alt.Type_Named)
+        let start = self.here()
+        let mark = self.builder.mark()
+        if not self.parse_path() {
+            return false
+        }
+        self.close(mark, Alt.Type_Named, start)
+        var alt = Alt.Type_CastTarget_Plain
+        if self.kind() == TokenKind.Question {
+            alt = Alt.Type_CastTarget_Optional
+            self.advance()
+            self.close(mark, Alt.Type_Suffix_Optional, start)
+        }
+        let after = self.kind()
+        if after == TokenKind.Question || after == TokenKind.DoubleQuestion {
+            let at = self.pos
+            return self.refuse(Rule.Rule_CastTargetQuestion, at,
+                               "a cast target takes at most one `?`",
+                               "coalesce first, then convert: `(n ?? 9) as Int`")
+        }
+        self.see(alt)
+        true
+    }
+
+    // `prefix-expr`: a prefix operator and its operand, or a postfix
+    // expression. Each operator binds tighter than `as`
+    // (syntax.rule.prefix-or-cast).
     func parse_prefix(&var self) -> Bool {
+        let kind = self.kind()
+        if kind == TokenKind.Minus {
+            return self.parse_prefix_operator(Alt.Expr_Prefix_Unary, Alt.Expr_Unary_Negate, 1)
+        }
+        if kind == TokenKind.Not_ {
+            return self.parse_prefix_operator(Alt.Expr_Prefix_Unary, Alt.Expr_Unary_Not, 1)
+        }
+        if kind == TokenKind.Tilde {
+            return self.parse_prefix_operator(Alt.Expr_Prefix_Unary, Alt.Expr_Unary_Complement, 1)
+        }
+        if kind == TokenKind.Star {
+            return self.parse_prefix_operator(Alt.Expr_Prefix_Deref, Alt.Expr_Deref, 1)
+        }
+        if kind == TokenKind.Ampersand {
+            if self.kind_at(1) == TokenKind.Var {
+                return self.parse_prefix_operator(Alt.Expr_Prefix_Ref, Alt.Expr_Ref_Exclusive, 2)
+            }
+            return self.parse_prefix_operator(Alt.Expr_Prefix_Ref, Alt.Expr_Ref_Shared, 1)
+        }
+        let next = self.kind_at(1)
+        if self.word_at(0, "lends") && (next == TokenKind.SelfKw || next == TokenKind.Ident) {
+            return self.parse_prefix_operator(Alt.Expr_Prefix_Lends, Alt.Expr_Lends, 1)
+        }
+        if kind == TokenKind.Unsafe_ {
+            let at = self.pos
+            return self.refuse(Rule.Expr_RefusedUnsafe, at,
+                               "unsafety belongs to a declaration, not to an expression",
+                               "mark the enclosing function `unsafe`, after its parameters")
+        }
+        if kind == TokenKind.Try {
+            return self.parse_try()
+        }
+        if kind == TokenKind.Move_ || kind == TokenKind.Borrow {
+            return self.error("this prefix form is not parsed yet")
+        }
         self.see(Alt.Expr_Prefix_Postfix)
         self.parse_postfix()
     }
 
-    // `postfix-expr ::= primary-expr postfix-hop*`; the hops are not parsed yet.
+    // A prefix operator spelled by `width` tokens, which its node's Kind
+    // implies, so it prints nothing. It charges one level, held to its
+    // operand's end.
+    func parse_prefix_operator(&var self, form: Alt, node: Alt, width: Int) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        self.see(form)
+        self.see(node)
+        let start = self.here()
+        let mark = self.builder.mark()
+        var k = 0
+        while k < width {
+            self.advance()
+            k = k + 1
+        }
+        if not self.parse_prefix() {
+            return false
+        }
+        self.close(mark, node, start)
+        self.leave_level()
+        true
+    }
+
+    // `try-expr`: `try`, `try?` or `try!` applied to the prefix expression
+    // after it, and only that (syntax.rule.try-extent), charging one level.
+    // `try` followed by `{`, on its line or the next, is a try block
+    // (syntax.rule.try-block), which is not parsed yet.
+    func parse_try(&var self) -> Bool {
+        let open = self.pos
+        var ahead = 1
+        while self.kind_at(ahead) == TokenKind.Newline {
+            ahead = ahead + 1
+        }
+        if self.kind_at(ahead) == TokenKind.LBrace {
+            return self.error("a try block is not parsed yet")
+        }
+        if not self.enter_level(open) {
+            return false
+        }
+        if not self.parse_try_body(open) {
+            return false
+        }
+        self.leave_level()
+        true
+    }
+
+    // What follows a `try` at `open`. Only a plain `try` routes its error,
+    // and a routed one takes no `catch`: a routing clause after `try!` or
+    // `try?`, or before a `catch`, is refused once the operand has parsed.
+    func parse_try_body(&var self, open: Int) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        var alt = Alt.Expr_Try_Propagate
+        if self.kind() == TokenKind.Exclaim {
+            alt = Alt.Expr_Try_Force
+            self.advance()
+        } else if self.kind() == TokenKind.Question {
+            alt = Alt.Expr_Try_Optional
+            self.advance()
+        }
+        let route = self.pos
+        let routed = self.kind() == TokenKind.LParen && self.kind_at(1) == TokenKind.As
+        if routed {
+            if not self.parse_try_route() {
+                return false
+            }
+        }
+        self.skip_newlines()
+        if not self.parse_prefix() {
+            return false
+        }
+        var ahead = 0
+        while self.kind_at(ahead) == TokenKind.Newline {
+            ahead = ahead + 1
+        }
+        let caught = self.kind_at(ahead) == TokenKind.Catch
+        if routed && (caught || alt != Alt.Expr_Try_Propagate) {
+            return self.refuse(Rule.Expr_RefusedTryRoute, route,
+                               "only a plain `try` routes its error, and a routed `try` takes no `catch`",
+                               "write `try(as E.Case) f()` alone")
+        }
+        if caught {
+            return self.error("an inline `catch` is not parsed yet")
+        }
+        if routed {
+            alt = Alt.Expr_Try_Route
+        }
+        self.see(Alt.Expr_Prefix_Try)
+        self.see(alt)
+        self.close(mark, alt, start)
+        true
+    }
+
+    // `try-route ::= "(" "as" path ")"`, whose path names an enum and one of
+    // its cases (syntax.rule.try-route-case). The `as` prints.
+    func parse_try_route(&var self) -> Bool {
+        let open = self.pos
+        self.advance()
+        self.take_leaf()
+        let path = self.pos
+        if not self.parse_path() {
+            return false
+        }
+        if self.pos - path < 3 {
+            return self.refuse(Rule.Rule_TryRouteCase, path,
+                               "a routing clause names an enum and a case",
+                               "write the case with its enum: `try(as ConfigError.Alloc)`")
+        }
+        if self.kind() != TokenKind.RParen {
+            return self.list_error(open, "expected `)` after the routing clause")
+        }
+        self.advance()
+        self.see(Alt.Expr_TryRoute)
+        true
+    }
+
+    // `postfix-expr ::= primary-expr postfix-hop*`: one node per hop, the
+    // primary innermost, each hop charging a level held until the chain ends
+    // (syntax.rule.postfix-per-hop). A `?.` hop opens an optional-chain run,
+    // which member, `?.` and call hops continue, and which a `!`, a subscript,
+    // a tuple index or the chain's end closes into one OptionalChain node
+    // around the chain so far (syntax.rule.optional-chain-run).
     func parse_postfix(&var self) -> Bool {
         self.see(Alt.Expr_Postfix)
-        self.parse_primary()
+        let start = self.here()
+        let mark = self.builder.mark()
+        if not self.parse_primary() {
+            return false
+        }
+        var hops = 0
+        var run = false
+        while true {
+            let kind = self.kind()
+            let after = self.kind_at(1)
+            let continues = (kind == TokenKind.QuestionDot || kind == TokenKind.LParen
+                             || (kind == TokenKind.Dot && after == TokenKind.Ident))
+            let closes = (kind == TokenKind.Exclaim || kind == TokenKind.LBracket
+                          || (kind == TokenKind.Dot && after == TokenKind.IntLit))
+            if not continues && not closes {
+                break
+            }
+            if run && closes {
+                self.close_run(mark, start)
+                run = false
+            }
+            let at = self.pos
+            if not self.enter_level(at) {
+                return false
+            }
+            hops = hops + 1
+            if not self.parse_hop(mark, start) {
+                return false
+            }
+            if kind == TokenKind.QuestionDot {
+                run = true
+            }
+        }
+        if run {
+            self.close_run(mark, start)
+        }
+        while hops > 0 {
+            self.leave_level()
+            hops = hops - 1
+        }
+        true
+    }
+
+    // Closes the chain begun at `mark` into the OptionalChain node of a run.
+    func close_run(&var self, mark: Int, start: Int) {
+        // Stage 0 workaround (SL:hazards S4): canonical: let _ = self.builder.close(mark, NodeShape.OptionalChain, None, start, self.prev_end)
+        let end = self.prev_end
+        let _ = self.builder.close(mark, NodeShape.OptionalChain, None, start, end)
+    }
+
+    // One `postfix-hop`, applied to the chain begun at `mark`.
+    func parse_hop(&var self, mark: Int, start: Int) -> Bool {
+        let kind = self.kind()
+        if kind == TokenKind.LParen {
+            return self.parse_call(mark, start)
+        }
+        if kind == TokenKind.LBracket {
+            return self.parse_subscript(mark, start)
+        }
+        if kind == TokenKind.Exclaim {
+            self.see(Alt.Expr_Hop_Force)
+            self.see(Alt.Expr_Force)
+            self.advance()
+            self.close(mark, Alt.Expr_Force, start)
+            return true
+        }
+        var hop = Alt.Expr_Hop_Member
+        var node = Alt.Expr_Member
+        if kind == TokenKind.QuestionDot {
+            hop = Alt.Expr_Hop_Optional
+            node = Alt.Expr_OptionalMember
+        } else if self.kind_at(1) == TokenKind.IntLit {
+            // Digits after a member `.` are a tuple index, which never takes
+            // the next `.` as a decimal point (syntax.rule.tuple-index-dot).
+            hop = Alt.Expr_Hop_TupleIndex
+            node = Alt.Expr_TupleIndex
+        }
+        self.advance()
+        if self.kind() != TokenKind.Ident && node != Alt.Expr_TupleIndex {
+            return self.error("expected a member name after `?.`")
+        }
+        self.see(hop)
+        self.see(node)
+        self.take_leaf()
+        self.close(mark, node, start)
+        true
+    }
+
+    // `call-hop ::= "(" arg-list? ")"`, one Call node whatever the callee is
+    // (syntax.rule.one-call-node), with `arg-list ::= argument ( "," argument )* ","?`.
+    func parse_call(&var self, mark: Int, start: Int) -> Bool {
+        self.see(Alt.Expr_Hop_Call)
+        self.see(Alt.Expr_Call_Paren)
+        let open = self.pos
+        self.advance()
+        if self.kind() != TokenKind.RParen {
+            self.see(Alt.Expr_Args)
+        }
+        while self.kind() != TokenKind.RParen {
+            if self.kind() == TokenKind.Eof {
+                return self.refuse_unclosed(open)
+            }
+            if not self.parse_argument() {
+                return false
+            }
+            if self.kind() == TokenKind.Comma {
+                self.advance()
+            } else if self.kind() != TokenKind.RParen {
+                return self.list_error(open, "expected `,` or `)` after an argument")
+            }
+        }
+        self.advance()
+        self.close(mark, Alt.Expr_Call_Paren, start)
+        true
+    }
+
+    // `argument ::= expr | IDENT ":" expr`: a name and `:` at an argument's
+    // start is its label (syntax.rule.label-or-tuple).
+    func parse_argument(&var self) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        var alt = Alt.Expr_Argument_Positional
+        if self.kind() == TokenKind.Ident && self.kind_at(1) == TokenKind.Colon {
+            alt = Alt.Expr_Argument_Labelled
+            self.take_leaf()
+            self.advance()
+        }
+        self.see(alt)
+        if not self.parse_expr() {
+            return false
+        }
+        self.close(mark, alt, start)
+        true
+    }
+
+    // `subscript-hop ::= "[" expr "]"`. A subscript with a label or a second
+    // argument is the multi-argument form, which is not parsed yet.
+    func parse_subscript(&var self, mark: Int, start: Int) -> Bool {
+        self.see(Alt.Expr_Hop_Subscript)
+        self.see(Alt.Expr_Subscript_Single)
+        let open = self.pos
+        self.advance()
+        if self.kind() == TokenKind.Ident && self.kind_at(1) == TokenKind.Colon {
+            return self.error("a labelled subscript is not parsed yet")
+        }
+        if not self.parse_expr() {
+            return false
+        }
+        if self.kind() == TokenKind.Comma {
+            return self.error("a subscript of more than one argument is not parsed yet")
+        }
+        if self.kind() != TokenKind.RBracket {
+            return self.list_error(open, "expected `]`")
+        }
+        self.advance()
+        self.close(mark, Alt.Expr_Subscript_Single, start)
+        true
     }
 
     // `primary-expr`: a literal, a name, or a parenthesized expression.
@@ -1399,24 +2007,46 @@ extension Parser {
         }
         if kind == TokenKind.Ident {
             self.see(Alt.Expr_Primary_Name)
-            self.see(Alt.Expr_Name)
+            return self.token_node(Alt.Expr_Name, true)
+        }
+        if kind == TokenKind.SelfKw {
+            self.see(Alt.Expr_Primary_Self)
+            return self.token_node(Alt.Expr_Self, false)
+        }
+        if kind == TokenKind.DollarParam {
+            self.see(Alt.Expr_Primary_ShorthandParam)
+            return self.token_node(Alt.Expr_ShorthandParam, true)
+        }
+        if kind == TokenKind.HashDirective {
+            return self.parse_directive()
+        }
+        if kind == TokenKind.InterpString {
+            return self.parse_interp()
+        }
+        if kind == TokenKind.Dot && self.kind_at(1) == TokenKind.Ident {
+            // `.` and a name at the start of an operand name an enum case
+            // (syntax.rule.implicit-member).
+            self.see(Alt.Expr_Primary_ImplicitMember)
+            self.see(Alt.Expr_ImplicitMember)
             let start = self.here()
             let mark = self.builder.mark()
+            self.advance()
             self.take_leaf()
-            self.close(mark, Alt.Expr_Name, start)
+            self.close(mark, Alt.Expr_ImplicitMember, start)
             return true
         }
         if kind == TokenKind.LParen {
             return self.parse_paren()
         }
+        if kind == TokenKind.LBracket {
+            return self.parse_bracket()
+        }
         self.error("expected an expression")
     }
 
-    // A literal's node; `shown` when its token prints, which a keyword the
-    // node's Kind implies does not.
-    func literal(&var self, form: Alt, node: Alt, shown: Bool) -> Bool {
-        self.see(Alt.Expr_Primary_Literal)
-        self.see(form)
+    // A node of one token with `node`'s Kind, which records it; `shown` when
+    // the token prints, which a keyword the Kind implies does not.
+    func token_node(&var self, node: Alt, shown: Bool) -> Bool {
         self.see(node)
         let start = self.here()
         let mark = self.builder.mark()
@@ -1429,29 +2059,271 @@ extension Parser {
         true
     }
 
-    // `paren-expr ::= "(" expr ")"`, which builds no node: grouping
-    // parentheses print nothing. It charges one level for its `(`.
+    // `interp-string ::= INTERP_STRING`: an Interp node holding, in order, the
+    // literal runs as written, in quotes, and the segments. The string
+    // charges one level, and its segments' nesting continues from it.
+    func parse_interp(&var self) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        if not self.parse_interp_body() {
+            return false
+        }
+        self.leave_level()
+        true
+    }
+
+    func parse_interp_body(&var self) -> Bool {
+        let t = self.current()
+        let mark = self.builder.mark()
+        var run = t.start + 1
+        var k = 0
+        while k < t.seg_count {
+            let piece = self.pieces[t.seg_start + k]
+            if piece.open > run {
+                let _ = self.builder.leaf(NodeShape.Segment, run, piece.open)
+            }
+            if not self.parse_segment(piece) {
+                return false
+            }
+            run = piece.open + piece.len + 2
+            k = k + 1
+        }
+        if run < t.end - 1 {
+            let _ = self.builder.leaf(NodeShape.Segment, run, t.end - 1)
+        }
+        self.advance()
+        self.see(Alt.Expr_Primary_Interpolation)
+        self.see(Alt.Expr_Interpolation)
+        self.close(mark, Alt.Expr_Interpolation, t.start)
+        true
+    }
+
+    // One expression segment, lexed and parsed on its own from
+    // `interp-segment ::= expr EOF | EOF` (syntax.rule.interpolation-segment):
+    // its tokens are appended after every token so far, with their file
+    // positions, and parsed as a run of their own. A blank segment is a
+    // format placeholder, and any other must be exactly one expression
+    // (syntax.rule.interpolation-whole).
+    func parse_segment(&var self, piece: InterpPiece) -> Bool {
+        let start = piece.open + 1
+        let text = self.builder.tree.source.slice(start, start + piece.len)
+        var toks = Vector<ParseToken>()
+        let lexed = lex(text)
+        match lexed {
+            case Ok(result) -> {
+                let segment_source = source_file("", text)
+                parser_tokens(&segment_source, &result, start, &var toks, &var self.pieces)
+            },
+            case Err(e) -> {
+                let segment_source = source_file("", text)
+                let at = start + segment_source.offset_of(e.line, e.col)
+                self.lex_error(at, e.message)
+                return false
+            }
+        }
+        let first = self.tokens.len()
+        var k = 0
+        while k < toks.len() {
+            try! self.tokens.push(toks[k])
+            k = k + 1
+        }
+        let saved_pos = self.pos
+        let saved_limit = self.limit
+        let saved_end = self.prev_end
+        self.pos = first
+        self.limit = self.tokens.len() - 1
+        var ok = true
+        if self.kind() == TokenKind.Eof {
+            self.see(Alt.Expr_InterpSegment_Placeholder)
+            let _ = self.builder.leaf(NodeShape.Placeholder, piece.open, start + piece.len + 1)
+        } else {
+            self.see(Alt.Expr_InterpSegment_Expr)
+            ok = self.parse_expr()
+            if ok && self.kind() != TokenKind.Eof {
+                ok = self.error("an interpolation segment holds exactly one expression")
+            }
+        }
+        self.pos = saved_pos
+        self.limit = saved_limit
+        self.prev_end = saved_end
+        ok
+    }
+
+    // `source-location ::= "#file" | "#line" | "#function"`, and `#lend_var`,
+    // which the lexer passes on only to be refused.
+    func parse_directive(&var self) -> Bool {
+        let t = self.current()
+        let name_start = t.start + 1
+        var alt = Alt.Expr_SourceLocation_File
+        if self.builder.tree.source.span_is(name_start, t.end, "line") {
+            alt = Alt.Expr_SourceLocation_Line
+        } else if self.builder.tree.source.span_is(name_start, t.end, "function") {
+            alt = Alt.Expr_SourceLocation_Function
+        } else if not self.builder.tree.source.span_is(name_start, t.end, "file") {
+            let at = self.pos
+            return self.refuse(Rule.Expr_RefusedLendVar, at,
+                               "a `borrows` body never tests its lend mode",
+                               "write the shared and the exclusive accessor apart, or use `@synthesize(shared)`")
+        }
+        self.see(Alt.Expr_Primary_SourceLocation)
+        self.token_node(alt, false)
+    }
+
+    // A literal's node; `shown` when its token prints, which a keyword the
+    // node's Kind implies does not.
+    func literal(&var self, form: Alt, node: Alt, shown: Bool) -> Bool {
+        self.see(Alt.Expr_Primary_Literal)
+        self.see(form)
+        self.token_node(node, shown)
+    }
+
+    // `paren-expr ::= "(" expr ")"`, which builds no node, since grouping
+    // parentheses print nothing, or a `tuple-expr`. Either charges one level
+    // for its `(`. A name and `:` first make the tuple named, and then every
+    // element is labelled, or else none is (syntax.rule.label-or-tuple); a
+    // mix is refused once the tuple has parsed.
     func parse_paren(&var self) -> Bool {
         let open = self.pos
         if not self.enter_level(open) {
             return false
         }
+        if not self.parse_paren_body(open) {
+            return false
+        }
+        self.leave_level()
+        true
+    }
+
+    func parse_paren_body(&var self, open: Int) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
         self.advance()
         if self.kind() == TokenKind.RParen {
-            return self.error("the empty tuple is not parsed yet")
+            self.advance()
+            self.see(Alt.Expr_Primary_Tuple)
+            self.see(Alt.Expr_Tuple_Unit)
+            self.close(mark, Alt.Expr_Tuple_Unit, start)
+            return true
         }
-        self.see(Alt.Expr_Primary_Paren)
-        self.see(Alt.Expr_Paren)
+        let named = self.kind() == TokenKind.Ident && self.kind_at(1) == TokenKind.Colon
+        var elements = 0
+        if not named {
+            if not self.parse_expr() {
+                return false
+            }
+            if self.kind() == TokenKind.RParen {
+                self.advance()
+                self.see(Alt.Expr_Primary_Paren)
+                self.see(Alt.Expr_Paren)
+                return true
+            }
+            elements = 1
+        }
+        var mixed = -1
+        while true {
+            if elements > 0 {
+                if self.kind() == TokenKind.Comma {
+                    self.advance()
+                } else if self.kind() != TokenKind.RParen {
+                    return self.list_error(open, "expected `,` or `)`")
+                }
+                if self.kind() == TokenKind.RParen {
+                    break
+                }
+            }
+            let labelled = self.kind() == TokenKind.Ident && self.kind_at(1) == TokenKind.Colon
+            if labelled != named && mixed < 0 {
+                mixed = self.pos
+            }
+            if labelled {
+                if not self.parse_tuple_field() {
+                    return false
+                }
+            } else if not self.parse_expr() {
+                return false
+            }
+            elements = elements + 1
+        }
+        self.advance()
+        if mixed >= 0 {
+            return self.refuse(Rule.Expr_RefusedPartialNamedTuple, mixed,
+                               "a named tuple labels every element or none",
+                               "label every element, or none")
+        }
+        let alt = if named { Alt.Expr_Tuple_Named } else { Alt.Expr_Tuple_Positional }
+        self.see(Alt.Expr_Primary_Tuple)
+        self.see(alt)
+        self.close(mark, alt, start)
+        true
+    }
+
+    // `tuple-field ::= IDENT ":" expr`
+    func parse_tuple_field(&var self) -> Bool {
+        self.see(Alt.Expr_TupleField)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.take_leaf()
+        self.advance()
         if not self.parse_expr() {
             return false
         }
+        self.close(mark, Alt.Expr_TupleField, start)
+        true
+    }
+
+    // A bracketed list that goes on neither with a separator nor with its
+    // closer: unclosed at the end of input, reported at its opener, and
+    // otherwise a plain error here.
+    func list_error(&var self, open: Int, message: String) -> Bool {
         if self.kind() == TokenKind.Eof {
             return self.refuse_unclosed(open)
         }
-        if self.kind() != TokenKind.RParen {
-            return self.error("expected `)`")
+        self.error(message)
+    }
+
+    // `array-literal ::= "[" ( expr ( "," expr )* ","? )? "]"` or
+    // `repeat-literal ::= "[" expr ";" expr "]"`, charging one level for the `[`.
+    func parse_bracket(&var self) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        var alt = Alt.Expr_Array
+        if self.kind() != TokenKind.RBracket {
+            if not self.parse_expr() {
+                return false
+            }
+            if self.kind() == TokenKind.Semicolon {
+                alt = Alt.Expr_Repeat
+                self.advance()
+                if not self.parse_expr() {
+                    return false
+                }
+            } else {
+                while self.kind() == TokenKind.Comma {
+                    self.advance()
+                    if self.kind() == TokenKind.RBracket {
+                        break
+                    }
+                    if not self.parse_expr() {
+                        return false
+                    }
+                }
+            }
+            if self.kind() != TokenKind.RBracket {
+                return self.list_error(open, "expected `,` or `]`")
+            }
         }
         self.advance()
+        let form = if alt == Alt.Expr_Repeat { Alt.Expr_Primary_Repeat } else { Alt.Expr_Primary_Array }
+        self.see(form)
+        self.see(alt)
+        self.close(mark, alt, start)
         self.leave_level()
         true
     }
