@@ -101,5 +101,17 @@
     (Call.paren (Name g)))
   (Let.immutable (BindingName x) (IntLit 1)))
 
+// case from refusal-unit: syntax.test.refusal-unit-item.declaration/a-function-then-a-statement
+(RefusalUnit
+  (Declaration.func
+    (Func g (Block)))
+  (Let.immutable (BindingName x) (IntLit 1)))
+
+// case from refusal-unit: syntax.test.refusal-unit-item.statement/statements-around-an-import
+(RefusalUnit
+  (Let.immutable (BindingName a) (IntLit 1))
+  (Import.private (Path m))
+  (Return (Name a)))
+
 // case from refusal-unit: syntax.rule.refusal-body/empty-body
 (RefusalUnit)

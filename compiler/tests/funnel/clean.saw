@@ -1,0 +1,55 @@
+// A recursion that takes its level from the funnel, and walks that recurse
+// nowhere: the lane reports nothing.
+
+struct P {
+    depth: Int
+    pos: Int
+}
+
+extension P {
+    // The funnel.
+    // ENTRY POINTS:
+    //     group
+    func enter_level(&var self, opener: Int) -> Bool {
+        if self.depth >= 256 {
+            return false
+        }
+        self.depth = self.depth + 1
+        true
+    }
+
+    func leave_level(&var self) {
+        self.depth = self.depth - 1
+    }
+
+    func expr(&var self) -> Bool {
+        self.primary()
+    }
+
+    func primary(&var self) -> Bool {
+        if self.pos > 3 {
+            return self.group()
+        }
+        true
+    }
+
+    func group(&var self) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        if not self.expr() {
+            return false
+        }
+        self.leave_level()
+        true
+    }
+}
+
+func count(n: Int) -> Int {
+    var k = 0
+    while k < n {
+        k = k + 1
+    }
+    k
+}

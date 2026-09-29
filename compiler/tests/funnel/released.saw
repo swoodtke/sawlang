@@ -1,0 +1,39 @@
+// A call after the level is given back is not charged, and neither is the
+// one in the statement that takes the level: a recursion through either
+// bypasses the funnel.
+// expect: a recursion never enters `self.enter_level(...)`: P.group -> P.group
+// expect: a recursion never enters `self.enter_level(...)`: P.guard_first -> P.guard_first
+
+struct P {
+    depth: Int
+}
+
+extension P {
+    // ENTRY POINTS:
+    //     group
+    //     guard_first
+    func enter_level(&var self, opener: Int) -> Bool {
+        self.depth = self.depth + 1
+        true
+    }
+
+    func leave_level(&var self) {
+        self.depth = self.depth - 1
+    }
+
+    func group(&var self) -> Bool {
+        if not self.enter_level(0) {
+            return false
+        }
+        self.leave_level()
+        self.group()
+    }
+
+    func guard_first(&var self) -> Bool {
+        if not self.enter_level(0) {
+            return self.guard_first()
+        }
+        self.leave_level()
+        true
+    }
+}

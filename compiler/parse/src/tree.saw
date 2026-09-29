@@ -1,0 +1,215 @@
+// The arena AST (SL:architecture §3.2): nodes in one flat vector, each node's
+// children a contiguous, ordered run of the `children` vector, and every edge
+// pointing backward, from a node to nodes built before it. A leaf is a node
+// too, so a node's children hold its leaves and its child nodes in source
+// order, which is the order the dump prints them in.
+
+import sawparse.src.grammar.{Alt}
+import sawparse.src.source.{SourceFile}
+
+// What a node is, which decides how the dump prints it.
+public enum NodeShape {
+    // Built by an alternative, and named by that alternative's Kind.
+    case Built,
+    // One run of an optional chain (GRAMMAR.md section 1).
+    case OptionalChain,
+    // A declaration's `///` lines, or the file's `//!` lines.
+    case Doc,
+    // A token, printed as its source spelling.
+    case Token,
+    // A literal run of an interpolated string, printed in quotes.
+    case Segment,
+    // A blank interpolation segment, the format placeholder `{}`.
+    case Placeholder,
+    // One doc comment line's text, printed quoted.
+    case DocLine
+}
+
+public struct AstNode {
+    public shape: NodeShape
+    // The alternative a `Built` node records; None for every other shape.
+    public alt: Alt?
+    public start: Int
+    public end: Int
+    public first: Int
+    public count: Int
+}
+
+public struct AstTree {
+    public source: SourceFile
+    public nodes: Vector<AstNode>
+    public children: Vector<Int>
+    public root: Int
+}
+
+extension AstTree: NoCopy {}
+
+public func is_leaf_shape(shape: NodeShape) -> Bool {
+    match shape {
+        case Token -> true,
+        case Segment -> true,
+        case Placeholder -> true,
+        case DocLine -> true,
+        case _ -> false
+    }
+}
+
+// Builds an arena bottom-up. A construct under way owns the run of the
+// scratch stack above its mark; closing it moves that run into `children` as
+// the new node's range and leaves the node on the stack in its place. So a
+// node is always built after its children, which is what keeps every edge
+// backward.
+public struct TreeBuilder {
+    tree: AstTree
+    private scratch: Vector<Int>
+    // The scratch stack's logical height; slots above it are reused.
+    private top: Int
+}
+
+extension TreeBuilder: NoCopy {}
+
+public func tree_builder(source: SourceFile) -> TreeBuilder {
+    let tree = AstTree(source: move source, nodes: Vector<AstNode>(), children: Vector<Int>(),
+                       root: -1)
+    TreeBuilder(tree: move tree, scratch: Vector<Int>(), top: 0)
+}
+
+extension TreeBuilder {
+    // The scratch height a construct starting now closes back to.
+    public func mark(&self) -> Int { self.top }
+
+    // The id of the node at scratch slot `slot`.
+    public func at(&self, slot: Int) -> Int { self.scratch[slot] }
+
+    public func node(&self, id: Int) -> AstNode { self.tree.nodes[id] }
+
+    // The node at scratch slot `slot`.
+    public func node_at(&self, slot: Int) -> AstNode { self.tree.nodes[self.scratch[slot]] }
+
+    // The last child of `parent`, which has one.
+    public func last_child(&self, parent: &AstNode) -> AstNode {
+        self.tree.nodes[self.tree.children[parent.first + parent.count - 1]]
+    }
+
+    func push_slot(&var self, id: Int) {
+        if self.top < self.scratch.len() {
+            self.scratch[self.top] = id
+        } else {
+            try! self.scratch.push(id)
+        }
+        self.top = self.top + 1
+    }
+
+    // Drops what a failed construct left above `mark`. Its nodes stay in the
+    // arena unreachable, so a tree that took a recovery is never a result.
+    public func discard(&var self, mark: Int) {
+        self.top = mark
+    }
+
+    // A leaf node over [start, end), pushed as a child of the construct under way.
+    public func leaf(&var self, shape: NodeShape, start: Int, end: Int) -> Int {
+        let id = self.tree.nodes.len()
+        let first = self.tree.children.len()
+        try! self.tree.nodes.push(AstNode(shape: shape, alt: None, start: start, end: end,
+                                       first: first, count: 0))
+        self.push_slot(id)
+        id
+    }
+
+    // Closes the construct that began at `mark` into one node whose children
+    // are everything pushed since, and pushes that node in their place.
+    public func close(&var self, mark: Int, shape: NodeShape, alt: Alt?, start: Int, end: Int) -> Int {
+        let first = self.tree.children.len()
+        var k = mark
+        while k < self.top {
+            let child = self.scratch[k]
+            try! self.tree.children.push(child)
+            k = k + 1
+        }
+        let count = self.top - mark
+        self.top = mark
+        let id = self.tree.nodes.len()
+        try! self.tree.nodes.push(AstNode(shape: shape, alt: alt, start: start, end: end,
+                                       first: first, count: count))
+        self.push_slot(id)
+        id
+    }
+
+    // Makes the one node left on the stack the root.
+    public func finish(&var self) {
+        if self.top > 0 {
+            self.tree.root = self.scratch[self.top - 1]
+        }
+    }
+}
+
+extension AstTree {
+    public func node(&self, id: Int) -> AstNode { self.nodes[id] }
+
+    public func child(&self, parent: &AstNode, k: Int) -> Int { self.children[parent.first + k] }
+}
+
+// The first way the tree breaks the arena's invariants, or None: every edge
+// backward, each child range contiguous, ordered and inside `children`, each
+// node but the root in exactly one range and reachable from the root, each
+// span inside the buffer and inside its parent's, siblings in source order,
+// and leaves without children.
+public func tree_problem(tree: &AstTree) -> String? {
+    let n = tree.nodes.len()
+    if n == 0 {
+        return "the tree has no nodes"
+    }
+    if tree.root != n - 1 {
+        return "the root is not the last node built"
+    }
+    var owner = Vector<Int>()
+    var i = 0
+    while i < n {
+        try! owner.push(-1)
+        i = i + 1
+    }
+    let size = tree.source.len()
+    i = 0
+    while i < n {
+        let node = tree.nodes[i]
+        if node.start < 0 || node.end < node.start || node.end > size {
+            return "a node's span lies outside the source"
+        }
+        if node.first < 0 || node.first + node.count > tree.children.len() {
+            return "a child range lies outside the children"
+        }
+        if is_leaf_shape(node.shape) && node.count != 0 {
+            return "a leaf has children"
+        }
+        var previous_end = node.start
+        var k = 0
+        while k < node.count {
+            let c = tree.children[node.first + k]
+            if c < 0 || c >= i {
+                return "an edge points forward"
+            }
+            if owner[c] != -1 {
+                return "a node has two parents"
+            }
+            owner[c] = i
+            let child = tree.nodes[c]
+            if child.start < node.start || child.end > node.end {
+                return "a child's span is not inside its parent's"
+            }
+            if child.start < previous_end {
+                return "siblings are out of source order"
+            }
+            previous_end = child.end
+            k = k + 1
+        }
+        i = i + 1
+    }
+    i = 0
+    while i < n - 1 {
+        if owner[i] == -1 {
+            return "a node is unreachable from the root"
+        }
+        i = i + 1
+    }
+    None
+}

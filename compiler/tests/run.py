@@ -8,8 +8,11 @@ programs; compares `sawc2 lex` with the golden fixtures in `lex/`, whose token
 kinds and lex errors must cover the lexer's; runs the subset checker over the
 compiler source and its own fixtures in `subset/`; and runs the grammar lint,
 the reference recognizer's own tests in `grammar/`, and the parser corpus's
-checks over `parse/`; and runs the corpus rewriter's golden fixtures in
-`migrate/`. The inventory of Stage 0 workaround markers prints first, then each
+checks over `parse/`; runs the corpus rewriter's golden fixtures in
+`migrate/`; checks that the parser's grammar tables are current, runs the
+depth-funnel lane with its fixtures in `funnel/`, and runs the parse lane, which
+holds `sawc2 parse` to the parser corpus as far as `compiler/parse/CLAIMS.tsv`
+claims. The inventory of Stage 0 workaround markers prints first, then each
 failure as one line in a fixed order; the summary comes last, and any failure
 exits 1.
 """
@@ -28,8 +31,11 @@ sys.path.insert(0, os.path.join(COMPILER, "tools"))
 sys.path.insert(0, os.path.join(HERE, "grammar"))
 
 import build  # noqa: E402
+import depth_funnel  # noqa: E402
+import grammar_tables  # noqa: E402
 import subset_check  # noqa: E402
 import ast_nodes as A  # noqa: E402  (on sys.path through subset_check)
+import parse_lane  # noqa: E402
 import test_lint  # noqa: E402
 import test_parse  # noqa: E402
 import test_recognize  # noqa: E402
@@ -42,6 +48,7 @@ LEX_FIXTURES = os.path.join(HERE, "lex")
 SUBSET_FIXTURES = os.path.join(HERE, "subset")
 GRAMMAR_FIXTURES = os.path.join(HERE, "grammar", "fixtures")
 PARSE_CORPUS = os.path.join(HERE, "parse")
+FUNNEL_FIXTURES = os.path.join(HERE, "funnel")
 LEXER_SOURCE = os.path.join(COMPILER, "lex", "src", "lib.saw")
 RUN_TIMEOUT = 60
 
@@ -121,7 +128,9 @@ def check_fixture_whitespace(run):
     """No fixture line ends in whitespace, and no fixture ends in a blank line.
     `git apply --whitespace=fix` (the patch server's setting) and editors strip
     both, which would change a fixture on its way into the tree."""
-    paths = [p for d in (LEX_FIXTURES, SUBSET_FIXTURES) for p in glob.glob(os.path.join(d, "*"))]
+    paths = [p for d in (LEX_FIXTURES, SUBSET_FIXTURES, FUNNEL_FIXTURES)
+             for p in glob.glob(os.path.join(d, "*"))]
+    paths.append(parse_lane.CLAIMS)
     paths += glob.glob(os.path.join(GRAMMAR_FIXTURES, "**", "*.*"), recursive=True)
     paths += glob.glob(os.path.join(PARSE_CORPUS, "**", "*.*"), recursive=True)
     paths += glob.glob(os.path.join(test_migrate.FIXTURES, "*"))
@@ -320,6 +329,20 @@ def run_migrate(run):
         run.count(key, n)
 
 
+def run_parser(run):
+    """The parser's grammar tables, its depth funnel and its parse lane; the
+    last two run sawc2, so they wait for it to build."""
+    stale = grammar_tables.check()
+    if stale:
+        run.fail("grammar tables: " + stale)
+    for module in (depth_funnel, parse_lane):
+        failures, counts = module.run()
+        for failure in failures:
+            run.fail(failure)
+        for key, n in counts.items():
+            run.count(key, n)
+
+
 def main():
     run = Run()
     ok, output = build.build_sawc2()
@@ -332,6 +355,8 @@ def main():
     run_subset(run)
     run_grammar(run)
     run_migrate(run)
+    if ok:
+        run_parser(run)
     for line in run.inventory:
         print(line)
     for failure in run.failures:

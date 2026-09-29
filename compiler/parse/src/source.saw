@@ -1,0 +1,128 @@
+// A source buffer, its file identity and its line index. Every span in the
+// tree is a pair of byte offsets into one of these, so the tree keeps no text
+// of its own (SL:architecture §3.0).
+
+static SOURCE_NEWLINE: Int = 10
+static UTF8_CONTINUATION_LOW: Int = 128
+static UTF8_CONTINUATION_HIGH: Int = 191
+
+// A line:column position. The column counts Unicode scalars from 1, as the
+// lexer does, so a diagnostic points where the lexer's own positions point.
+public struct Position {
+    public line: Int
+    public col: Int
+}
+
+public struct SourceFile {
+    // The file's identity as the driver was given it; rendering a diagnostic
+    // is the only place it is shown.
+    public path: String
+    public text: String
+    // The byte offset at which each 1-based line starts.
+    private line_starts: Vector<Int>
+}
+
+extension SourceFile: NoCopy {}
+
+public func source_file(path: String, text: String) -> SourceFile {
+    var starts = Vector<Int>()
+    try! starts.push(0)
+    let n = text.len()
+    var i = 0
+    while i < n {
+        if (text.byte_at(i) as Int) == SOURCE_NEWLINE {
+            try! starts.push(i + 1)
+        }
+        i = i + 1
+    }
+    SourceFile(path: path, text: text, line_starts: move starts)
+}
+
+func is_continuation(b: Int) -> Bool {
+    b >= UTF8_CONTINUATION_LOW && b <= UTF8_CONTINUATION_HIGH
+}
+
+extension SourceFile {
+    public func len(&self) -> Int { self.text.len() }
+
+    // The byte at `i`, as an unsigned value.
+    public func byte(&self, i: Int) -> Int { self.text.byte_at(i) as Int }
+
+    public func line_count(&self) -> Int { self.line_starts.len() }
+
+    // The byte offset of a 1-based line and scalar column, clamped to the
+    // buffer: the lexer places the end of input one line past the last.
+    public func offset_of(&self, line: Int, col: Int) -> Int {
+        let n = self.text.len()
+        if line < 1 || line > self.line_starts.len() {
+            return n
+        }
+        var at = self.line_starts[line - 1]
+        var k = col - 1
+        while k > 0 && at < n {
+            at = at + 1
+            while at < n && is_continuation(self.byte(at)) {
+                at = at + 1
+            }
+            k = k - 1
+        }
+        at
+    }
+
+    // The line and scalar column of a byte offset.
+    public func position(&self, offset: Int) -> Position {
+        var low = 0
+        var high = self.line_starts.len() - 1
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if self.line_starts[mid] <= offset {
+                low = mid
+            } else {
+                high = mid - 1
+            }
+        }
+        var col = 1
+        var at = self.line_starts[low]
+        while at < offset && at < self.text.len() {
+            if not is_continuation(self.byte(at)) {
+                col = col + 1
+            }
+            at = at + 1
+        }
+        Position(line: low + 1, col: col)
+    }
+
+    // Whether the bytes of [start, end) spell `word`.
+    public func span_is(&self, start: Int, end: Int, word: String) -> Bool {
+        if end - start != word.len() {
+            return false
+        }
+        var k = 0
+        while k < word.len() {
+            if self.byte(start + k) != (word.byte_at(k) as Int) {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // Whether two spans of this buffer hold the same bytes.
+    public func spans_equal(&self, a_start: Int, a_end: Int, b_start: Int, b_end: Int) -> Bool {
+        if a_end - a_start != b_end - b_start {
+            return false
+        }
+        var k = 0
+        while a_start + k < a_end {
+            if self.byte(a_start + k) != self.byte(b_start + k) {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    public func slice(&self, start: Int, end: Int) -> String {
+        self.text.substring(start, end)
+    }
+}

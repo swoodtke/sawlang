@@ -1,0 +1,46 @@
+// Diagnostics and recovery: one run reports every independent error, a named
+// rule reports its name, and a refusal unit parses statements and items alike.
+import sawparse.src.api.{parse_source}
+import sawparse.src.diag.{diagnostic_id}
+import sawparse.src.parser.{Parser}
+
+func ids(parser: &Parser) -> String {
+    var out = StringBuilder()
+    var k = 0
+    while k < parser.diagnostics.len() {
+        if k > 0 {
+            try! out.append(" ")
+        }
+        let d = parser.diagnostics[k]
+        try! out.append(diagnostic_id(&d))
+        k = k + 1
+    }
+    out.build()
+}
+
+func expect_ids(text: String, unit: Bool, want: String) {
+    let parser = parse_source("t.saw", text, unit)
+    let got = ids(&parser)
+    assert(got.equals(want), "diagnostics: {}", got)
+}
+
+func main() {
+    expect_ids("func f() \{\n    let a = 1\n\}\n", false, "")
+    // Two statements that fail on their own lines are two diagnostics, and the
+    // statement between them still parses.
+    expect_ids("func f() \{\n    let = 1\n    let b = 2\n    let c = (\n\}\n", false,
+               "parse-error parse-error")
+    // A statement after a juxtaposition is skipped to its line's end.
+    expect_ids("func f() \{\n    let a = 1 b\n    let c = 2\n\}\n", false, "parse-error")
+    // A named rule refuses by name.
+    expect_ids("func f() \{\n    var _ = 1\n\}\n", false, "syntax.stmt.refused-var-discard")
+    expect_ids("import m.\{a, b as a\}\n", false, "syntax.rule.import-names")
+    expect_ids("func f() consumes \{\n\}\n", false, "syntax.rule.effect-slot")
+    expect_ids("func f() \{\n\}\n/// orphaned\n", false, "syntax.lex.doc-attach")
+    expect_ids("func f() \{\n\}\n//! late\n", false, "syntax.lex.module-doc")
+    // A lex error is the whole parse's one diagnostic.
+    expect_ids("func f() \{\n    let s = \"open\n\}\n", false, "parse-error")
+    // A refusal unit takes statements and declarations, separated as statements are.
+    expect_ids("func g() \{\n\}; let x = 1\n", true, "")
+    expect_ids("let x = 1;\n", true, "parse-error")
+}

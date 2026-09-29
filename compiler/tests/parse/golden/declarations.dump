@@ -496,3 +496,15 @@
           (BindingName _)
           (NamedType (Path Int))
           (Name e))))))
+
+// case: syntax.decl.visibility.package/on-a-function
+(File
+  (Declaration.func
+    (Visibility.package)
+    (Func f (Block))))
+
+// case: syntax.decl.visibility.parent/on-a-function
+(File
+  (Declaration.func
+    (Visibility.parent)
+    (Func f (Block))))

@@ -1,0 +1,43 @@
+// Diagnostics as records (SL:architecture §3.0): the refusal's stable name, a
+// span, a message and a hint. A refusal no named rule decides is a plain parse
+// error, and carries no name.
+
+import sawparse.src.grammar.{Rule, rule_name}
+import sawparse.src.source.{SourceFile}
+
+public struct Diagnostic {
+    // The rule, lexical rule or removed production that refuses; None for a
+    // plain parse error.
+    public rule: Rule?
+    public start: Int
+    public end: Int
+    public message: String
+    public hint: String
+}
+
+// The name a refusal is compared by: its rule's, or `parse-error`.
+public func diagnostic_id(d: &Diagnostic) -> String {
+    if let rule = d.rule {
+        rule_name(rule)
+    } else {
+        "parse-error"
+    }
+}
+
+// One record, `ERROR<TAB>id<TAB>line:col<TAB>message`, then `<TAB>hint` when
+// there is one. The position is where the span starts.
+public func append_diagnostic(out: &var StringBuilder, source: &SourceFile, d: &Diagnostic) {
+    let at = source.position(d.start)
+    try! out.append("ERROR\t")
+    try! out.append(diagnostic_id(&d))
+    try! out.append("\t")
+    try! out.append(at.line)
+    try! out.append(":")
+    try! out.append(at.col)
+    try! out.append("\t")
+    try! out.append(d.message)
+    if d.hint.len() > 0 {
+        try! out.append("\t")
+        try! out.append(d.hint)
+    }
+}

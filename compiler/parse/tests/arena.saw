@@ -1,0 +1,81 @@
+// The arena's invariants: a tree the builder makes keeps them, and the checker
+// finds each way a tree can break them.
+import sawparse.src.grammar.{Alt}
+import sawparse.src.source.{source_file}
+import sawparse.src.tree.{AstTree, AstNode, NodeShape, TreeBuilder, tree_builder, tree_problem}
+
+func leaf(start: Int, end: Int) -> AstNode {
+    AstNode(shape: NodeShape.Token, alt: None, start: start, end: end, first: 0, count: 0)
+}
+
+func built(start: Int, end: Int, first: Int, count: Int) -> AstNode {
+    AstNode(shape: NodeShape.Built, alt: Alt.Expr_Name, start: start, end: end, first: first, count: count)
+}
+
+// A tree over "abc": two leaves under one node, which is the root.
+func sound() -> AstTree {
+    var nodes = Vector<AstNode>()
+    try! nodes.push(leaf(0, 1))
+    try! nodes.push(leaf(2, 3))
+    try! nodes.push(built(0, 3, 0, 2))
+    var children = Vector<Int>()
+    try! children.push(0)
+    try! children.push(1)
+    AstTree(source: source_file("t", "abc"), nodes: move nodes, children: move children, root: 2)
+}
+
+func expect_problem(tree: &AstTree, what: String) {
+    if let problem = tree_problem(&tree) {
+        assert(problem.equals(what), "a different problem was found")
+    } else {
+        panic("a broken tree passes the invariant check")
+    }
+}
+
+func main() {
+    let good = sound()
+    if let _ = tree_problem(&good) {
+        panic("a sound tree fails the invariant check")
+    }
+
+    var forward = sound()
+    forward.children[0] = 2
+    expect_problem(&forward, "an edge points forward")
+
+    var shared = sound()
+    shared.children[1] = 0
+    expect_problem(&shared, "a node has two parents")
+
+    var outside = sound()
+    outside.nodes[1] = leaf(2, 9)
+    expect_problem(&outside, "a node's span lies outside the source")
+
+    var escaped = sound()
+    escaped.nodes[2] = built(1, 3, 0, 2)
+    expect_problem(&escaped, "a child's span is not inside its parent's")
+
+    var swapped = sound()
+    swapped.children[0] = 1
+    swapped.children[1] = 0
+    expect_problem(&swapped, "siblings are out of source order")
+
+    var orphan = sound()
+    orphan.nodes[2] = built(0, 3, 0, 1)
+    expect_problem(&orphan, "a node is unreachable from the root")
+
+    var rooted = sound()
+    rooted.root = 1
+    expect_problem(&rooted, "the root is not the last node built")
+
+    // The builder closes a construct over what was pushed since its mark.
+    var b = tree_builder(source_file("t", "abc"))
+    let mark = b.mark()
+    let _ = b.leaf(NodeShape.Token, 0, 1)
+    let _ = b.leaf(NodeShape.Token, 2, 3)
+    let _ = b.close(mark, NodeShape.Built, Alt.Expr_Name, 0, 3)
+    b.finish()
+    assert(b.tree.root == 2, "the root is the last node closed")
+    if let _ = tree_problem(&b.tree) {
+        panic("a built tree fails the invariant check")
+    }
+}

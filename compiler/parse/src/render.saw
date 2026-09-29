@@ -1,0 +1,258 @@
+// The canonical dump of compiler/tests/parse/README.md, rendered from the
+// arena. It is byte for byte what compiler/tests/grammar/dump.py prints: the
+// layout of its `render`, and the leaf escapes of its `escape_leaf` and
+// `quote_doc`. Every walk here is a loop over the arena, never a recursion,
+// since a tree may be as deep as the parser's depth budget allows.
+
+import sawparse.src.grammar.{alt_kind}
+import sawparse.src.tree.{AstTree, AstNode, NodeShape, is_leaf_shape}
+
+static RENDER_BACKSLASH: Int = 92
+static RENDER_QUOTE: Int = 34
+static RENDER_LPAREN: Int = 40
+static RENDER_RPAREN: Int = 41
+static RENDER_SPACE: Int = 32
+static RENDER_DEL: Int = 127
+static RENDER_UTF8_C2: Int = 194
+static RENDER_UTF8_E2: Int = 226
+static RENDER_UTF8_80: Int = 128
+static RENDER_NEL_LOW: Int = 133
+static RENDER_LS_LOW: Int = 168
+static RENDER_PS_LOW: Int = 169
+// A tree no taller than this prints on one line.
+static RENDER_FLAT_HEIGHT: Int = 2
+
+func dump_hex_digit(n: Int) -> String { "0123456789abcdef".substring(n, n + 1) }
+
+// The length of the escape a character starting at byte `i` of `text` needs,
+// in bytes of the source, or 0 when it prints as written: a C0 control, DEL,
+// U+0085, U+2028 and U+2029 are the characters str.splitlines ends a line at.
+func line_break_width(text: &String, i: Int, n: Int) -> Int {
+    let b = text.byte_at(i) as Int
+    if b < RENDER_SPACE || b == RENDER_DEL {
+        return 1
+    }
+    if b == RENDER_UTF8_C2 && i + 1 < n && (text.byte_at(i + 1) as Int) == RENDER_NEL_LOW {
+        return 2
+    }
+    if b == RENDER_UTF8_E2 && i + 2 < n && (text.byte_at(i + 1) as Int) == RENDER_UTF8_80 {
+        let last = text.byte_at(i + 2) as Int
+        if last == RENDER_LS_LOW || last == RENDER_PS_LOW {
+            return 3
+        }
+    }
+    0
+}
+
+// The escape of the line-breaking character at byte `i`, `width` bytes long.
+func append_line_break(out: &var StringBuilder, text: &String, i: Int, width: Int) {
+    if width == 1 {
+        let b = text.byte_at(i) as Int
+        try! out.append("\\x")
+        try! out.append(dump_hex_digit(b / 16))
+        try! out.append(dump_hex_digit(b % 16))
+    } else if width == 2 {
+        try! out.append("\\x85")
+    } else if (text.byte_at(i + 2) as Int) == RENDER_LS_LOW {
+        try! out.append("\\u2028")
+    } else {
+        try! out.append("\\u2029")
+    }
+}
+
+// A leaf's text on one line: a line-breaking character escaped, and a
+// parenthesis, which would read as the S-expression's own, as `\(` or `\)`.
+// With `doc`, a backslash and a quote are escaped instead of a parenthesis,
+// which is how a doc comment line, whose text is not source spelling, prints.
+func append_escaped(out: &var StringBuilder, text: &String, start: Int, end: Int, doc: Bool) {
+    var run = start
+    var i = start
+    while i < end {
+        let b = text.byte_at(i) as Int
+        let width = line_break_width(&text, i, end)
+        let bracket = not doc && (b == RENDER_LPAREN || b == RENDER_RPAREN)
+        let quoted = doc && (b == RENDER_BACKSLASH || b == RENDER_QUOTE)
+        if width > 0 || bracket || quoted {
+            if run < i {
+                try! out.append(text.substring(run, i))
+            }
+            if width > 0 {
+                append_line_break(out: &var out, text: &text, i: i, width: width)
+                i = i + width
+            } else {
+                try! out.append("\\")
+                try! out.append(text.substring(i, i + 1))
+                i = i + 1
+            }
+            run = i
+        } else {
+            i = i + 1
+        }
+    }
+    if run < end {
+        try! out.append(text.substring(run, end))
+    }
+}
+
+func append_leaf(out: &var StringBuilder, tree: &AstTree, node: &AstNode) {
+    match node.shape {
+        case Segment -> {
+            try! out.append("\"")
+            append_escaped(out: &var out, text: &tree.source.text, start: node.start,
+                           end: node.end, doc: false)
+            try! out.append("\"")
+        },
+        case Placeholder -> try! out.append("\{\}"),
+        case DocLine -> {
+            try! out.append("\"")
+            append_escaped(out: &var out, text: &tree.source.text, start: node.start,
+                           end: node.end, doc: true)
+            try! out.append("\"")
+        },
+        case _ -> append_escaped(out: &var out, text: &tree.source.text, start: node.start,
+                                 end: node.end, doc: false)
+    }
+}
+
+// A node's Kind as the dump names it.
+public func dump_kind(node: &AstNode) -> String {
+    match node.shape {
+        case OptionalChain -> "OptionalChain",
+        case Doc -> "Doc",
+        case _ -> {
+            if let alt = node.alt {
+                alt_kind(alt)
+            } else {
+                panic("render: a built node records no alternative")
+            }
+        }
+    }
+}
+
+// Each node's height, where a leaf is 0 and a node one more than its tallest
+// child. Children are built before their parents, so one pass in id order
+// sees every child's height before its parent's.
+func heights(tree: &AstTree) -> Vector<Int> {
+    var out = Vector<Int>()
+    var i = 0
+    while i < tree.nodes.len() {
+        let node = tree.nodes[i]
+        var h = 0
+        if not is_leaf_shape(node.shape) {
+            h = 1
+            var k = 0
+            while k < node.count {
+                let c = tree.children[node.first + k]
+                let below = out[c] + 1
+                if below > h {
+                    h = below
+                }
+                k = k + 1
+            }
+        }
+        try! out.push(h)
+        i = i + 1
+    }
+    move out
+}
+
+// A node of height two or less on one line: `(Kind leaf (Kind leaf))`.
+func append_flat(out: &var StringBuilder, tree: &AstTree, id: Int) {
+    let node = tree.nodes[id]
+    if is_leaf_shape(node.shape) {
+        append_leaf(out: &var out, tree: &tree, node: &node)
+        return
+    }
+    try! out.append("(")
+    try! out.append(dump_kind(&node))
+    var k = 0
+    while k < node.count {
+        try! out.append(" ")
+        let c = tree.children[node.first + k]
+        let child = tree.nodes[c]
+        if is_leaf_shape(child.shape) {
+            append_leaf(out: &var out, tree: &tree, node: &child)
+        } else {
+            try! out.append("(")
+            try! out.append(dump_kind(&child))
+            var j = 0
+            while j < child.count {
+                try! out.append(" ")
+                let g = tree.children[child.first + j]
+                let grand = tree.nodes[g]
+                append_leaf(out: &var out, tree: &tree, node: &grand)
+                j = j + 1
+            }
+            try! out.append(")")
+        }
+        k = k + 1
+    }
+    try! out.append(")")
+}
+
+// One node being printed: which child comes next, and how deep it is.
+struct RenderFrame {
+    id: Int
+    next: Int
+    depth: Int
+}
+
+func start_line(out: &var StringBuilder, lines: Int, depth: Int) {
+    if lines > 0 {
+        try! out.append("\n")
+    }
+    var k = 0
+    while k < depth {
+        try! out.append("  ")
+        k = k + 1
+    }
+}
+
+// The tree's dump from its root, its lines joined by line breaks, with no line
+// break after the last.
+public func render_tree(out: &var StringBuilder, tree: &AstTree) {
+    let height = heights(&tree)
+    var stack = Vector<RenderFrame>()
+    try! stack.push(RenderFrame(id: tree.root, next: -1, depth: 0))
+    var top = 1
+    var lines = 0
+    while top > 0 {
+        let frame = stack[top - 1]
+        let node = tree.nodes[frame.id]
+        if frame.next < 0 {
+            start_line(out: &var out, lines: lines, depth: frame.depth)
+            lines = lines + 1
+            if height[frame.id] <= RENDER_FLAT_HEIGHT {
+                append_flat(out: &var out, tree: &tree, id: frame.id)
+                top = top - 1
+                continue
+            }
+            try! out.append("(")
+            try! out.append(dump_kind(&node))
+            var k = 0
+            while k < node.count && is_leaf_shape(tree.nodes[tree.children[node.first + k]].shape) {
+                try! out.append(" ")
+                let c = tree.children[node.first + k]
+                let leaf = tree.nodes[c]
+                append_leaf(out: &var out, tree: &tree, node: &leaf)
+                k = k + 1
+            }
+            stack[top - 1] = RenderFrame(id: frame.id, next: k, depth: frame.depth)
+            continue
+        }
+        if frame.next < node.count {
+            let c = tree.children[node.first + frame.next]
+            stack[top - 1] = RenderFrame(id: frame.id, next: frame.next + 1, depth: frame.depth)
+            let pushed = RenderFrame(id: c, next: -1, depth: frame.depth + 1)
+            if top < stack.len() {
+                stack[top] = pushed
+            } else {
+                try! stack.push(pushed)
+            }
+            top = top + 1
+        } else {
+            try! out.append(")")
+            top = top - 1
+        }
+    }
+}

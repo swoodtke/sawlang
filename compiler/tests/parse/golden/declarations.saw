@@ -224,3 +224,11 @@ func f() {
     let _ = e
     let _: Int = e
 }
+
+// case: syntax.decl.visibility.package/on-a-function
+public(package) func f() {
+}
+
+// case: syntax.decl.visibility.parent/on-a-function
+public(parent) func f() {
+}

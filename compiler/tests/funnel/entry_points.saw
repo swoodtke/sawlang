@@ -1,0 +1,29 @@
+// The ENTRY POINTS list names exactly the methods that charge: one that
+// charges unlisted, and one listed that never charges, are both reported.
+// expect: `group` charges the depth budget, but the funnel's ENTRY POINTS: list does not name it
+// expect: the funnel's ENTRY POINTS: list names `gone`, which never calls `self.enter_level`
+
+struct P {
+    depth: Int
+}
+
+extension P {
+    // ENTRY POINTS:
+    //     gone
+    func enter_level(&var self, opener: Int) -> Bool {
+        self.depth = self.depth + 1
+        true
+    }
+
+    func leave_level(&var self) {
+        self.depth = self.depth - 1
+    }
+
+    func group(&var self) -> Bool {
+        if not self.enter_level(0) {
+            return false
+        }
+        self.leave_level()
+        true
+    }
+}

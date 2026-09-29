@@ -1,0 +1,50 @@
+// A recursion through a second path that never charges: `list` reaches
+// `expr` directly, beside the charged `group`.
+// expect: a recursion never enters `self.enter_level(...)`: P.expr -> P.primary -> P.list -> P.expr
+
+struct P {
+    depth: Int
+    pos: Int
+}
+
+extension P {
+    // The funnel.
+    // ENTRY POINTS:
+    //     group
+    func enter_level(&var self, opener: Int) -> Bool {
+        self.depth = self.depth + 1
+        true
+    }
+
+    func leave_level(&var self) {
+        self.depth = self.depth - 1
+    }
+
+    func expr(&var self) -> Bool {
+        self.primary()
+    }
+
+    func primary(&var self) -> Bool {
+        if self.pos > 3 {
+            return self.group()
+        }
+        if self.pos > 2 {
+            return self.list()
+        }
+        true
+    }
+
+    func list(&var self) -> Bool {
+        self.expr()
+    }
+
+    func group(&var self) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        let ok = self.expr()
+        self.leave_level()
+        ok
+    }
+}

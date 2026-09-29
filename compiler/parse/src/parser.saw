@@ -1,0 +1,1458 @@
+// The parser: bounded recursive descent over GRAMMAR.md (SL:architecture §3.2).
+//
+// Each construct is one method, named for its production, which builds the
+// construct's node from the scratch stack of `TreeBuilder` and records every
+// alternative its derivation takes, so a parse reports the same coverage the
+// reference recognizer's record does. A binary tier is a loop into one flat
+// node. Recursion only ever passes through `enter_level`, the one depth funnel;
+// compiler/tools/depth_funnel.py proves that of every call cycle.
+//
+// A method returns false once it has reported an error. Nothing above it
+// reports again: the error unwinds to the statement or declaration loop,
+// which skips to the next boundary at the same bracket depth and goes on, so
+// one run reports every independent error.
+
+import sawlex.src.lib.{DocComment, TokenKind}
+import sawparse.src.diag.{Diagnostic}
+import sawparse.src.grammar.{ALT_COUNT, Alt, Rule}
+import sawparse.src.tokens.{ParseToken, closes_bracket, opens_bracket}
+import sawparse.src.tree.{NodeShape, TreeBuilder}
+
+public static PARSE_MAX_DEPTH: Int = 256
+static PARSE_SPACE: Int = 32
+
+// A run of `///` lines and the token it documents: the first token after its
+// last line that is not a line break.
+struct DocRun {
+    first: Int
+    last: Int
+    target: Int
+    attached: Bool
+}
+
+// Where a statement list stands between items: whether it holds one yet, and
+// whether a `;` is waiting for the statement it joins.
+struct ListState {
+    any: Bool
+    need: Bool
+}
+
+public struct Parser {
+    builder: TreeBuilder
+    private tokens: Vector<ParseToken>
+    private docs: Vector<DocComment>
+    private runs: Vector<DocRun>
+    private pos: Int
+    // The end of the last token consumed, where a node closing now ends.
+    private prev_end: Int
+    private depth: Int
+    diagnostics: Vector<Diagnostic>
+    // Which alternatives the derivation took, and the same set in the order
+    // first taken.
+    private seen: Vector<Bool>
+    taken: Vector<Alt>
+}
+
+extension Parser: NoCopy {}
+
+public func new_parser(builder: TreeBuilder, tokens: Vector<ParseToken>,
+                       docs: &Vector<DocComment>) -> Parser {
+    var seen = Vector<Bool>()
+    var k = 0
+    while k < ALT_COUNT {
+        try! seen.push(false)
+        k = k + 1
+    }
+    var own_docs = Vector<DocComment>()
+    k = 0
+    while k < docs.len() {
+        let d = docs[k]
+        try! own_docs.push(d)
+        k = k + 1
+    }
+    var parser = Parser(builder: move builder, tokens: move tokens, docs: move own_docs,
+                        runs: Vector<DocRun>(), pos: 0, prev_end: 0, depth: 0,
+                        diagnostics: Vector<Diagnostic>(), seen: move seen,
+                        taken: Vector<Alt>())
+    parser.find_doc_runs()
+    move parser
+}
+
+// Whether a token of this kind ends a statement, and so leaves a `return`
+// without an operand (GRAMMAR.md section 6.3).
+func ends_statement(kind: TokenKind) -> Bool {
+    match kind {
+        case Newline -> true,
+        case Semicolon -> true,
+        case RBrace -> true,
+        case Eof -> true,
+        case _ -> false
+    }
+}
+
+// The bracket depth after a token of this kind, where `open` holds the
+// openers still open, innermost at `depth - 1`. A closer pops only an opener
+// of its own kind.
+func track_bracket(open: &var Vector<TokenKind>, depth: Int, kind: TokenKind) -> Int {
+    if opens_bracket(kind) {
+        if depth < open.len() {
+            open[depth] = kind
+        } else {
+            try! open.push(kind)
+        }
+        return depth + 1
+    }
+    if depth > 0 && closes_bracket(kind) && closes_opener(kind, open[depth - 1]) {
+        return depth - 1
+    }
+    depth
+}
+
+func closes_opener(closer: TokenKind, opener: TokenKind) -> Bool {
+    match closer {
+        case RParen -> opener == TokenKind.LParen,
+        case RBracket -> opener == TokenKind.LBracket,
+        case RBrace -> opener == TokenKind.LBrace,
+        case _ -> false
+    }
+}
+
+// Whether a token of this kind begins a declaration at a top-level item's head.
+func is_declaration_keyword(kind: TokenKind) -> Bool {
+    match kind {
+        case Func -> true,
+        case Public -> true,
+        case At -> true,
+        case Struct -> true,
+        case Enum -> true,
+        case Trait -> true,
+        case Extension -> true,
+        case Extern -> true,
+        case Static -> true,
+        case Unsafe_ -> true,
+        case _ -> false
+    }
+}
+
+// Whether a token of this kind makes the statement before it an assignment.
+func is_assignment(kind: TokenKind) -> Bool {
+    match kind {
+        case Assign -> true,
+        case PlusAssign -> true,
+        case MinusAssign -> true,
+        case StarAssign -> true,
+        case SlashAssign -> true,
+        case PercentAssign -> true,
+        case AmpAssign -> true,
+        case PipeAssign -> true,
+        case CaretAssign -> true,
+        case ShlAssign -> true,
+        case ShrAssign -> true,
+        case _ -> false
+    }
+}
+
+extension Parser {
+    // ---- tokens -------------------------------------------------------------
+
+    func current(&self) -> ParseToken { self.tokens[self.pos] }
+
+    func kind(&self) -> TokenKind { self.tokens[self.pos].kind }
+
+    // The kind `ahead` tokens on, or Eof past the end.
+    func kind_at(&self, ahead: Int) -> TokenKind {
+        let at = self.pos + ahead
+        if at < self.tokens.len() { self.tokens[at].kind } else { TokenKind.Eof }
+    }
+
+    // Whether the token `ahead` tokens on is an identifier spelled `word`: a
+    // contextual word, recognized only where the grammar asks for it.
+    func word_at(&self, ahead: Int, word: String) -> Bool {
+        let at = self.pos + ahead
+        if at >= self.tokens.len() || self.tokens[at].kind != TokenKind.Ident {
+            return false
+        }
+        let t = self.tokens[at]
+        self.builder.tree.source.span_is(t.start, t.end, word)
+    }
+
+    func advance(&var self) {
+        let t = self.current()
+        self.prev_end = t.end
+        if self.pos + 1 < self.tokens.len() {
+            self.pos = self.pos + 1
+        }
+    }
+
+    // The byte where the current token starts, where a construct starting
+    // here begins its span.
+    func here(&self) -> Int { self.tokens[self.pos].start }
+
+    func skip_newlines(&var self) {
+        while self.kind() == TokenKind.Newline {
+            self.advance()
+        }
+    }
+
+    // The current token as a leaf of the construct under way.
+    func take_leaf(&var self) {
+        let t = self.current()
+        let _ = self.builder.leaf(NodeShape.Token, t.start, t.end)
+        self.advance()
+    }
+
+    // ---- the tree -----------------------------------------------------------
+
+    func see(&var self, alt: Alt) {
+        let index = (alt as UInt16) as Int
+        if not self.seen[index] {
+            self.seen[index] = true
+            try! self.taken.push(alt)
+        }
+    }
+
+    // Closes the construct begun at `mark` into a node of `alt`'s Kind that
+    // spans from `start` to the last token consumed.
+    func close(&var self, mark: Int, alt: Alt, start: Int) {
+        // Stage 0 workaround (SL:hazards S4): canonical: let _ = self.builder.close(mark, NodeShape.Built, alt, start, self.prev_end)
+        let end = self.prev_end
+        let _ = self.builder.close(mark, NodeShape.Built, alt, start, end)
+    }
+
+    // Closes a binary tier's flat node, which spans from its first operand. A
+    // chain production builds its node only over a second operand, so a
+    // caller closes one only once it has taken an operator.
+    func close_chain(&var self, mark: Int, alt: Alt) {
+        let first = self.builder.at(mark)
+        let start = self.builder.node(first).start
+        self.close(mark, alt, start)
+    }
+
+    // ---- diagnostics --------------------------------------------------------
+
+    func report(&var self, rule: Rule?, at: Int, message: String, hint: String) {
+        let t = self.tokens[at]
+        try! self.diagnostics.push(Diagnostic(rule: rule, start: t.start, end: t.end,
+                                              message: message, hint: hint))
+    }
+
+    // A plain parse error at the current token. Always false, so a method
+    // reports and fails in one step.
+    func error(&var self, message: String) -> Bool {
+        // Stage 0 workaround (SL:hazards S4): canonical: self.report(None, self.pos, message, "")
+        let at = self.pos
+        self.report(None, at, message, "")
+        false
+    }
+
+    // The lexer's refusal, at byte `at`: the whole parse, since the lexer
+    // stops at its first error.
+    public func lex_error(&var self, at: Int, message: String) {
+        try! self.diagnostics.push(Diagnostic(rule: None, start: at, end: at, message: message,
+                                              hint: ""))
+    }
+
+    // A refusal named by `rule`, at the token `at`.
+    func refuse(&var self, rule: Rule, at: Int, message: String, hint: String) -> Bool {
+        self.report(rule, at, message, hint)
+        false
+    }
+
+    // Skips what is left of a construct that failed, from the token it started
+    // at: forward to the line break or `;` that ends it at its own bracket
+    // depth, or to the `}` or end of input that ends what holds it. A closer
+    // ends only a bracket of its own kind, so an unclosed `(` never swallows
+    // the block's `}`, and a `)` or `]` that closes nothing is stray.
+    func recover(&var self, from: Int) {
+        var open = Vector<TokenKind>()
+        var depth = 0
+        var k = from
+        while k < self.pos {
+            depth = track_bracket(&var open, depth, self.tokens[k].kind)
+            k = k + 1
+        }
+        while self.kind() != TokenKind.Eof {
+            let kind = self.kind()
+            let boundary = kind == TokenKind.Newline || kind == TokenKind.Semicolon
+            if depth == 0 && boundary {
+                return
+            }
+            if kind == TokenKind.RBrace && (depth == 0 || open[depth - 1] != TokenKind.LBrace) {
+                return
+            }
+            depth = track_bracket(&var open, depth, kind)
+            self.advance()
+        }
+    }
+
+    // ---- the depth funnel -----------------------------------------------------
+
+    // The one depth funnel. Each construct GRAMMAR.md section 11 charges takes
+    // its level here, at its opener, and gives it back with `leave_level` when
+    // it ends; the 257th level is refused at the opener that would take it.
+    // A failed construct gives nothing back: the recovery loop that catches it
+    // restores the depth it saved. Every recursion passes through here, which
+    // compiler/tools/depth_funnel.py checks against this list.
+    // ENTRY POINTS:
+    //     parse_paren
+    //     parse_module
+    func enter_level(&var self, opener: Int) -> Bool {
+        if self.depth >= PARSE_MAX_DEPTH {
+            return self.refuse(Rule.Rule_DepthLimit, opener,
+                               "nesting exceeds the parser depth limit (256)",
+                               "split the expression or the declaration into smaller ones")
+        }
+        self.depth = self.depth + 1
+        true
+    }
+
+    func leave_level(&var self) {
+        self.depth = self.depth - 1
+    }
+
+    // ---- doc comments ---------------------------------------------------------
+
+    func find_doc_runs(&var self) {
+        var i = 0
+        var k = 0
+        while i < self.docs.len() {
+            let d = self.docs[i]
+            if not d.kind.equals("doc") {
+                i = i + 1
+                continue
+            }
+            var last = i
+            while last + 1 < self.docs.len() {
+                let next = self.docs[last + 1]
+                let current = self.docs[last]
+                if not next.kind.equals("doc") || next.line != current.line + 1 {
+                    break
+                }
+                last = last + 1
+            }
+            let end_line = self.docs[last].line
+            while k < self.tokens.len() && (self.tokens[k].line <= end_line
+                                          || self.tokens[k].kind == TokenKind.Newline) {
+                k = k + 1
+            }
+            let target = if k < self.tokens.len() { k } else { self.tokens.len() - 1 }
+            try! self.runs.push(DocRun(first: i, last: last, target: target, attached: false))
+            i = last + 1
+        }
+    }
+
+    // A doc line's text: what follows its three-character marker and one
+    // space, if there is one.
+    func doc_line_span_start(&self, d: &DocComment) -> Int {
+        let at = self.builder.tree.source.offset_of(d.line, d.col) + 3
+        if at < self.builder.tree.source.len() && self.builder.tree.source.byte(at) == PARSE_SPACE {
+            at + 1
+        } else {
+            at
+        }
+    }
+
+    // The Doc node of docs[first..last], pushed as a child of the construct
+    // under way. Returns where it starts.
+    func doc_node(&var self, first: Int, last: Int) -> Int {
+        let mark = self.builder.mark()
+        let d0 = self.docs[first]
+        let start = self.builder.tree.source.offset_of(d0.line, d0.col)
+        var end = start
+        var i = first
+        while i <= last {
+            let d = self.docs[i]
+            let text_start = self.doc_line_span_start(&d)
+            end = text_start + d.text.len()
+            let _ = self.builder.leaf(NodeShape.DocLine, text_start, end)
+            i = i + 1
+        }
+        let _ = self.builder.close(mark, NodeShape.Doc, None, start, end)
+        start
+    }
+
+    // Attaches the doc run that documents the declaration starting at token
+    // `first`, if there is one, and returns where the declaration's span
+    // starts: at its doc comment, or at its first token.
+    func attach_docs(&var self, first: Int) -> Int {
+        var r = 0
+        while r < self.runs.len() {
+            let run = self.runs[r]
+            if run.target == first {
+                self.runs[r] = DocRun(first: run.first, last: run.last, target: run.target,
+                                      attached: true)
+                return self.doc_node(run.first, run.last)
+            }
+            r = r + 1
+        }
+        self.tokens[first].start
+    }
+
+    // The file's `//!` lines, as the File node's first child.
+    func module_docs(&var self) {
+        var first = -1
+        var last = -1
+        var i = 0
+        while i < self.docs.len() {
+            let d = self.docs[i]
+            if d.kind.equals("module") {
+                if first < 0 {
+                    first = i
+                }
+                last = i
+            }
+            i = i + 1
+        }
+        if first < 0 {
+            return
+        }
+        let mark = self.builder.mark()
+        let d0 = self.docs[first]
+        let start = self.builder.tree.source.offset_of(d0.line, d0.col)
+        var end = start
+        i = first
+        while i <= last {
+            let d = self.docs[i]
+            if d.kind.equals("module") {
+                let text_start = self.doc_line_span_start(&d)
+                end = text_start + d.text.len()
+                let _ = self.builder.leaf(NodeShape.DocLine, text_start, end)
+            }
+            i = i + 1
+        }
+        let _ = self.builder.close(mark, NodeShape.Doc, None, start, end)
+    }
+
+    // A `//!` line after the file's first token (syntax.lex.module-doc).
+    func check_module_docs(&var self) {
+        var k = 0
+        while k < self.tokens.len() && self.tokens[k].kind == TokenKind.Newline {
+            k = k + 1
+        }
+        if k >= self.tokens.len() || self.tokens[k].kind == TokenKind.Eof {
+            return
+        }
+        let first_line = self.tokens[k].line
+        var i = 0
+        while i < self.docs.len() {
+            let d = self.docs[i]
+            if d.kind.equals("module") && d.line > first_line {
+                let at = self.builder.tree.source.offset_of(d.line, d.col)
+                try! self.diagnostics.push(Diagnostic(rule: Rule.Lex_ModuleDoc, start: at,
+                                                      end: at + 3,
+                                                      message: "a `//!` comment stands only before the file's first token",
+                                                      hint: "make it a `//` comment, or move it to the top"))
+                return
+            }
+            i = i + 1
+        }
+    }
+
+    // A `///` run that documents nothing (syntax.lex.doc-attach).
+    func check_doc_runs(&var self) {
+        var r = 0
+        while r < self.runs.len() {
+            let run = self.runs[r]
+            if not run.attached {
+                let d = self.docs[run.first]
+                let at = self.builder.tree.source.offset_of(d.line, d.col)
+                try! self.diagnostics.push(Diagnostic(rule: Rule.Lex_DocAttach, start: at,
+                                                      end: at + 3,
+                                                      message: "this doc comment documents no declaration",
+                                                      hint: "make it a `//` comment, or move it before a declaration"))
+            }
+            r = r + 1
+        }
+    }
+
+    // ---- files ----------------------------------------------------------------
+
+    // `source-file ::= NEWLINE* top-level-list? EOF`
+    public func parse_file(&var self) {
+        self.check_module_docs()
+        self.see(Alt.File_Source)
+        let mark = self.builder.mark()
+        self.module_docs()
+        self.skip_newlines()
+        self.parse_items(false)
+        let end = self.builder.tree.source.len()
+        let _ = self.builder.close(mark, NodeShape.Built, Alt.File_Source, 0, end)
+        self.finish()
+    }
+
+    // `refusal-unit ::= NEWLINE* ( refusal-unit-item ( stmt-sep refusal-unit-item )* NEWLINE* )? EOF`,
+    // the body of a refusal case parsed on its own in a test build.
+    public func parse_refusal_unit(&var self) {
+        self.check_module_docs()
+        self.see(Alt.Test_RefusalUnit)
+        let mark = self.builder.mark()
+        self.skip_newlines()
+        self.parse_unit_items()
+        let end = self.builder.tree.source.len()
+        let _ = self.builder.close(mark, NodeShape.Built, Alt.Test_RefusalUnit, 0, end)
+        self.finish()
+    }
+
+    func finish(&var self) {
+        if self.diagnostics.len() == 0 {
+            self.check_doc_runs()
+        }
+        self.builder.finish()
+    }
+
+    // `top-level-list ::= top-level-item ( NEWLINE+ top-level-item )* NEWLINE*`,
+    // inside an inline module when `inline`, which a `}` closes.
+    func parse_items(&var self, inline: Bool) {
+        var any = false
+        while true {
+            let kind = self.kind()
+            if kind == TokenKind.Eof || (inline && kind == TokenKind.RBrace) {
+                break
+            }
+            if not any {
+                self.see(Alt.File_List)
+                any = true
+            }
+            let from = self.pos
+            let mark = self.builder.mark()
+            let depth = self.depth
+            if not self.parse_item() {
+                self.builder.discard(mark)
+                self.depth = depth
+                self.recover(from)
+            }
+            let after = self.kind()
+            if after == TokenKind.Newline {
+                self.skip_newlines()
+            } else if after == TokenKind.Eof || (inline && after == TokenKind.RBrace) {
+                break
+            } else {
+                let from_here = self.pos
+                if after == TokenKind.Semicolon {
+                    let _ = self.error("declarations are not joined by `;`; put each on its own line")
+                } else {
+                    let _ = self.error("two declarations on one line need a line break between them")
+                }
+                self.recover(from_here)
+                if self.kind() == TokenKind.Semicolon || (not inline && self.kind() == TokenKind.RBrace) {
+                    self.advance()
+                }
+                self.skip_newlines()
+            }
+        }
+    }
+
+    // Whether the current token begins a top-level item rather than a
+    // statement, which is how a refusal unit tells its two kinds of item apart.
+    func starts_item(&self) -> Bool {
+        let kind = self.kind()
+        if is_declaration_keyword(kind) {
+            return true
+        }
+        if kind == TokenKind.Ident && self.kind_at(1) == TokenKind.Ident {
+            let module = self.word_at(0, "import") || self.word_at(0, "module")
+            return module || self.word_at(0, "export")
+        }
+        false
+    }
+
+    // `top-level-item`: an import, a module, or a declaration.
+    func parse_item(&var self) -> Bool {
+        if self.kind() == TokenKind.Ident && self.kind_at(1) == TokenKind.Ident {
+            if self.word_at(0, "import") {
+                self.see(Alt.File_Item_Import)
+                return self.parse_import(false)
+            }
+            if self.word_at(0, "module") {
+                self.see(Alt.File_Item_Module)
+                return self.parse_module(false)
+            }
+            if self.word_at(0, "export") {
+                let at = self.pos
+                return self.refuse(Rule.Decl_RefusedExport, at,
+                                   "an `export` declaration is not Saw's re-export",
+                                   "write `public import m.\{name\}`, `public import m.\{name as alias\}` or `public import m.*`")
+            }
+        }
+        if self.kind() == TokenKind.Public {
+            if self.word_at(1, "import") {
+                self.see(Alt.File_Item_Import)
+                return self.parse_import(true)
+            }
+            if self.word_at(1, "module") && self.kind_at(2) == TokenKind.Ident {
+                self.see(Alt.File_Item_Module)
+                return self.parse_module(true)
+            }
+            let scoped = self.kind_at(1) == TokenKind.LParen && self.kind_at(2) == TokenKind.Ident
+            if scoped && self.kind_at(3) == TokenKind.RParen && self.word_at(4, "import") {
+                let at = self.pos
+                return self.refuse(Rule.Decl_RefusedScopedImport, at,
+                                   "an import takes no scoped visibility",
+                                   "`public import` is the only re-export form: write `public import m`")
+            }
+        }
+        self.parse_declaration()
+    }
+
+    // `declaration-item`, with its doc comment and visibility inside it.
+    func parse_declaration(&var self) -> Bool {
+        let first = self.pos
+        let mark = self.builder.mark()
+        let start = self.attach_docs(first)
+        if self.kind() == TokenKind.At {
+            return self.error("an attribute is not parsed yet")
+        }
+        if self.kind() == TokenKind.Public {
+            if not self.parse_visibility() {
+                return false
+            }
+        }
+        if self.kind() == TokenKind.Func {
+            self.see(Alt.File_Item_Declaration)
+            self.see(Alt.Decl_Item_Func)
+            if not self.parse_func() {
+                return false
+            }
+            self.close(mark, Alt.Decl_Item_Func, start)
+            return true
+        }
+        self.error("expected a declaration")
+    }
+
+    // `visibility ::= "public" | "public" "(" 'package' ")" | "public" "(" 'parent' ")"`
+    func parse_visibility(&var self) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        var alt = Alt.Decl_Visibility_Public
+        if self.kind() == TokenKind.LParen {
+            if self.word_at(1, "package") && self.kind_at(2) == TokenKind.RParen {
+                alt = Alt.Decl_Visibility_Package
+            } else if self.word_at(1, "parent") && self.kind_at(2) == TokenKind.RParen {
+                alt = Alt.Decl_Visibility_Parent
+            } else {
+                return self.error("a visibility names `package` or `parent`")
+            }
+            self.advance()
+            self.advance()
+            self.advance()
+        }
+        self.see(alt)
+        self.close(mark, alt, start)
+        true
+    }
+
+    // ---- imports and modules ----------------------------------------------------
+
+    // `path ::= IDENT ( "." IDENT )*`
+    func parse_path(&var self) -> Bool {
+        if self.kind() != TokenKind.Ident {
+            return self.error("expected a name")
+        }
+        self.see(Alt.Type_Path)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.take_leaf()
+        while self.kind() == TokenKind.Dot && self.kind_at(1) == TokenKind.Ident {
+            self.advance()
+            self.take_leaf()
+        }
+        self.close(mark, Alt.Type_Path, start)
+        true
+    }
+
+    // `import-decl ::= 'import' import-target | "public" 'import' import-target`
+    func parse_import(&var self, reexport: Bool) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        if reexport {
+            self.advance()
+        }
+        self.advance()
+        let alt = if reexport { Alt.Decl_Import_Reexport } else { Alt.Decl_Import_Private }
+        self.see(alt)
+        if not self.parse_path() {
+            return false
+        }
+        if self.kind() == TokenKind.As {
+            self.see(Alt.Decl_ImportTarget_ModuleAlias)
+            self.take_leaf()
+            if self.kind() != TokenKind.Ident {
+                return self.error("expected the module's alias")
+            }
+            self.take_leaf()
+        } else if self.kind() == TokenKind.Dot && self.kind_at(1) == TokenKind.Star {
+            self.see(Alt.Decl_ImportTarget_Glob)
+            self.take_leaf()
+            self.take_leaf()
+        } else if self.kind() == TokenKind.Dot && self.kind_at(1) == TokenKind.LBrace {
+            self.see(Alt.Decl_ImportTarget_Selective)
+            self.take_leaf()
+            if not self.parse_import_symbols() {
+                return false
+            }
+        } else if self.kind() == TokenKind.Dot {
+            self.advance()
+            return self.error("expected a name, `*` or `\{` after the `.`")
+        } else {
+            self.see(Alt.Decl_ImportTarget_Module)
+        }
+        self.close(mark, alt, start)
+        true
+    }
+
+    // `"{" NEWLINE* import-symbol-list? "}"`, the braces as leaves, then the
+    // check that each local name is bound once (syntax.rule.import-names).
+    func parse_import_symbols(&var self) -> Bool {
+        let first = self.builder.mark()
+        let open = self.pos
+        self.take_leaf()
+        self.skip_newlines()
+        var count = 0
+        while self.kind() != TokenKind.RBrace {
+            if self.kind() != TokenKind.Ident {
+                if self.kind() == TokenKind.Eof {
+                    return self.refuse_unclosed(open)
+                }
+                return self.error("expected a name to import")
+            }
+            if count == 0 {
+                self.see(Alt.Decl_ImportSymbols)
+            }
+            if not self.parse_import_symbol() {
+                return false
+            }
+            count = count + 1
+            if self.kind() == TokenKind.Comma {
+                self.advance()
+                self.skip_newlines()
+            } else if self.kind() != TokenKind.RBrace {
+                return self.error("expected `,` or `\}` in the import list")
+            }
+        }
+        self.take_leaf()
+        self.check_import_names(first, count)
+    }
+
+    // `import-symbol ::= IDENT NEWLINE* | IDENT "as" IDENT NEWLINE*`
+    func parse_import_symbol(&var self) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.take_leaf()
+        var alt = Alt.Decl_ImportSymbol_Name
+        if self.kind() == TokenKind.As {
+            alt = Alt.Decl_ImportSymbol_Alias
+            self.advance()
+            if self.kind() != TokenKind.Ident {
+                return self.error("expected the name's alias")
+            }
+            self.take_leaf()
+        }
+        self.see(alt)
+        self.close(mark, alt, start)
+        self.skip_newlines()
+        true
+    }
+
+    // The symbols are the `count` nodes after the `{` leaf at scratch slot
+    // `first`; the name each binds is its last leaf.
+    func check_import_names(&var self, first: Int, count: Int) -> Bool {
+        var i = 0
+        while i < count {
+            let a = self.symbol_binding(first + 1 + i)
+            var j = 0
+            while j < i {
+                let b = self.symbol_binding(first + 1 + j)
+                if self.builder.tree.source.spans_equal(a.start, a.end, b.start, b.end) {
+                    let symbol = self.builder.node_at(first + 1 + i)
+                    try! self.diagnostics.push(Diagnostic(rule: Rule.Rule_ImportNames,
+                                                          start: symbol.start, end: symbol.end,
+                                                          message: "this import binds a name the list already binds",
+                                                          hint: "import each name once, and give a second one its own alias"))
+                    return false
+                }
+                j = j + 1
+            }
+            i = i + 1
+        }
+        true
+    }
+
+    // The leaf naming what the import symbol at scratch slot `slot` binds.
+    func symbol_binding(&self, slot: Int) -> ParseToken {
+        let symbol = self.builder.node_at(slot)
+        let leaf = self.builder.last_child(&symbol)
+        ParseToken(kind: TokenKind.Ident, start: leaf.start, end: leaf.end, line: 0, seg_start: 0,
+                   seg_count: 0)
+    }
+
+    // `module-decl ::= "public"? 'module' IDENT` or the inline form, whose
+    // braces follow on its line or the next (syntax.rule.module-inline).
+    func parse_module(&var self, visible: Bool) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        if visible {
+            self.take_leaf()
+        }
+        self.advance()
+        self.take_leaf()
+        var ahead = 0
+        while self.kind_at(ahead) == TokenKind.Newline {
+            ahead = ahead + 1
+        }
+        if self.kind_at(ahead) != TokenKind.LBrace {
+            self.see(Alt.Decl_Module_File)
+            self.close(mark, Alt.Decl_Module_File, start)
+            return true
+        }
+        self.see(Alt.Decl_Module_Inline)
+        self.skip_newlines()
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        self.advance()
+        self.skip_newlines()
+        self.parse_items(true)
+        if self.kind() != TokenKind.RBrace {
+            return self.refuse_unclosed(open)
+        }
+        self.advance()
+        self.leave_level()
+        self.close(mark, Alt.Decl_Module_Inline, start)
+        true
+    }
+
+    // The bracket at `open` is never closed (syntax.lex.unclosed-bracket),
+    // reported at the opener.
+    func refuse_unclosed(&var self, open: Int) -> Bool {
+        self.report(Rule.Lex_UnclosedBracket, open, "this bracket is never closed", "")
+        false
+    }
+
+    // ---- functions -------------------------------------------------------------
+
+    // `func-decl ::= "func" IDENT generic-params? "(" param-list? ")" effect-slot return-clause? NEWLINE* block`
+    func parse_func(&var self) -> Bool {
+        self.see(Alt.Decl_Func)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        if self.kind() != TokenKind.Ident {
+            return self.error("expected the function's name")
+        }
+        self.take_leaf()
+        if self.kind() == TokenKind.Lt {
+            return self.error("generic parameters are not parsed yet")
+        }
+        if self.kind() != TokenKind.LParen {
+            return self.error("expected `(` to open the parameters")
+        }
+        if not self.parse_params() {
+            return false
+        }
+        if not self.parse_effects() {
+            return false
+        }
+        if self.kind() == TokenKind.Arrow {
+            self.see(Alt.Decl_Return)
+            self.advance()
+            if not self.parse_type() {
+                return false
+            }
+        }
+        self.skip_newlines()
+        if self.kind() != TokenKind.LBrace {
+            return self.error("expected `\{` to open the function's body")
+        }
+        if not self.parse_block() {
+            return false
+        }
+        self.close(mark, Alt.Decl_Func, start)
+        true
+    }
+
+    // `"(" param-list? ")"`, with `param-list ::= param ( "," param )* ","?`
+    func parse_params(&var self) -> Bool {
+        let open = self.pos
+        self.advance()
+        if self.kind() != TokenKind.RParen {
+            self.see(Alt.Decl_Params)
+        }
+        while self.kind() != TokenKind.RParen {
+            if self.kind() == TokenKind.Eof {
+                return self.refuse_unclosed(open)
+            }
+            if not self.parse_param() {
+                return false
+            }
+            if self.kind() == TokenKind.Comma {
+                self.advance()
+            } else if self.kind() != TokenKind.RParen {
+                return self.error("expected `,` or `)` after a parameter")
+            }
+        }
+        self.advance()
+        true
+    }
+
+    // `param ::= IDENT ":" type | IDENT ":" type "=" expr`
+    func parse_param(&var self) -> Bool {
+        if self.kind() != TokenKind.Ident {
+            return self.error("expected a parameter name")
+        }
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.take_leaf()
+        if self.kind() != TokenKind.Colon {
+            return self.error("expected `:` and the parameter's type")
+        }
+        self.advance()
+        if not self.parse_type() {
+            return false
+        }
+        var alt = Alt.Decl_Param_Plain
+        if self.kind() == TokenKind.Assign {
+            alt = Alt.Decl_Param_Default
+            self.advance()
+            if not self.parse_expr() {
+                return false
+            }
+        }
+        self.see(alt)
+        self.close(mark, alt, start)
+        true
+    }
+
+    // `effect-slot ::= 'consumes'? "unsafe"? constexpr-effect? 'sync'? borrows-effect? refused-escaping?`,
+    // each word a leaf of the function. A free function takes no `consumes`,
+    // which needs a `&var self` receiver (syntax.rule.effect-slot).
+    func parse_effects(&var self) -> Bool {
+        self.see(Alt.Decl_Effects)
+        var consumes = -1
+        if self.word_at(0, "consumes") {
+            consumes = self.pos
+            self.take_leaf()
+        }
+        if self.kind() == TokenKind.Unsafe_ {
+            self.take_leaf()
+        }
+        if self.word_at(0, "sync") {
+            self.take_leaf()
+        }
+        if consumes >= 0 {
+            return self.refuse(Rule.Rule_EffectSlot, consumes,
+                               "`consumes` ends a method's receiver, and a function has none",
+                               "declare the function as a method whose receiver is `&var self`")
+        }
+        true
+    }
+
+    // ---- statements --------------------------------------------------------------
+
+    // `block ::= "{" block-body "}"`
+    func parse_block(&var self) -> Bool {
+        self.see(Alt.Stmt_Block)
+        self.see(Alt.Stmt_Body)
+        let start = self.here()
+        let mark = self.builder.mark()
+        let open = self.pos
+        self.advance()
+        self.skip_newlines()
+        self.parse_statement_list()
+        if self.kind() != TokenKind.RBrace {
+            return self.refuse_unclosed(open)
+        }
+        self.advance()
+        self.close(mark, Alt.Stmt_Block, start)
+        true
+    }
+
+    // `statement ( stmt-sep statement )* NEWLINE*`, up to a block's `}`.
+    func parse_statement_list(&var self) {
+        var list = ListState(any: false, need: false)
+        while self.next_item(false, &var list) {
+            let from = self.pos
+            let mark = self.builder.mark()
+            let depth = self.depth
+            if not self.parse_statement() {
+                self.builder.discard(mark)
+                self.depth = depth
+                self.recover(from)
+            }
+        }
+    }
+
+    // A refusal unit's items, statements and top-level items alike, separated
+    // as statements are, up to the end of input. A separate loop from a
+    // block's, so that no block can reach a declaration.
+    func parse_unit_items(&var self) {
+        var list = ListState(any: false, need: false)
+        while self.next_item(true, &var list) {
+            let from = self.pos
+            let mark = self.builder.mark()
+            let depth = self.depth
+            var ok = true
+            if self.starts_item() {
+                self.see(Alt.Test_RefusalUnitItem_Declaration)
+                ok = self.parse_item()
+            } else {
+                self.see(Alt.Test_RefusalUnitItem_Statement)
+                ok = self.parse_statement()
+            }
+            if not ok {
+                self.builder.discard(mark)
+                self.depth = depth
+                self.recover(from)
+            }
+        }
+    }
+
+    // Takes the separators before a list's next item and returns whether one
+    // starts here; false at the list's end, a block's `}` or, for a refusal
+    // unit, the end of input. A `;` joins two statements on one line and never
+    // ends one (syntax.rule.statement-separator), and two statements on one
+    // line need one (syntax.rule.juxtaposition).
+    func next_item(&var self, unit: Bool, list: &var ListState) -> Bool {
+        while true {
+            let kind = self.kind()
+            if kind == TokenKind.Eof || (not unit && kind == TokenKind.RBrace) {
+                if list.need {
+                    let _ = self.error("a `;` joins two statements on one line; it does not end one")
+                }
+                return false
+            }
+            if list.need && kind == TokenKind.Newline {
+                let _ = self.error("a `;` joins two statements on one line; it does not end one")
+                list.need = false
+            }
+            if kind == TokenKind.Newline {
+                self.skip_newlines()
+                let closes = self.kind() == TokenKind.Eof || (not unit && self.kind() == TokenKind.RBrace)
+                if list.any && not closes {
+                    self.see(Alt.Stmt_Sep_Newline)
+                }
+                continue
+            }
+            if kind == TokenKind.Semicolon {
+                if not list.any || list.need {
+                    let _ = self.error("a `;` joins two statements on one line; it does not end one")
+                }
+                self.see(Alt.Stmt_Sep_Semicolon)
+                self.advance()
+                list.need = true
+                continue
+            }
+            if list.any && not list.need && self.tokens[self.pos - 1].kind != TokenKind.Newline {
+                let from_here = self.pos
+                let _ = self.error("two statements on one line need a `;` between them")
+                self.recover(from_here)
+                continue
+            }
+            list.need = false
+            list.any = true
+            return true
+        }
+        false
+    }
+
+    // `statement ::= expr-stmt | non-expr-statement`
+    func parse_statement(&var self) -> Bool {
+        let kind = self.kind()
+        if kind == TokenKind.Let || kind == TokenKind.Var {
+            self.see(Alt.Stmt_Statement_Other)
+            self.see(Alt.Stmt_NonExpr_Let)
+            return self.parse_let()
+        }
+        if kind == TokenKind.Return {
+            self.see(Alt.Stmt_Statement_Other)
+            self.see(Alt.Stmt_NonExpr_Return)
+            return self.parse_return()
+        }
+        if self.word_at(0, "const") && self.kind_at(1) == TokenKind.Ident {
+            let at = self.pos
+            return self.refuse(Rule.Stmt_RefusedLocalConst, at,
+                               "a local constant is a `let`", "write `let` for `const`")
+        }
+        self.see(Alt.Stmt_Statement_Expr)
+        self.see(Alt.Stmt_Expr)
+        let start = self.here()
+        let mark = self.builder.mark()
+        if not self.parse_expr() {
+            return false
+        }
+        if is_assignment(self.kind()) {
+            return self.error("an assignment is not parsed yet")
+        }
+        self.close(mark, Alt.Stmt_Expr, start)
+        true
+    }
+
+    // `let-stmt ::= ("let" | "var") binding-name type-annotation? "=" expr`,
+    // where `var _` is the refused discard (syntax.rule.discard-binding) and a
+    // binding with no initializer is refused (syntax.stmt.refused-uninitialized).
+    func parse_let(&var self) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        let keyword = self.pos
+        let mutable = self.kind() == TokenKind.Var
+        self.advance()
+        if self.kind() == TokenKind.LParen {
+            return self.error("a destructuring binding is not parsed yet")
+        }
+        if self.kind() != TokenKind.Ident {
+            return self.error("expected the binding's name")
+        }
+        if mutable && self.word_at(0, "_") {
+            return self.refuse(Rule.Stmt_RefusedVarDiscard, keyword,
+                               "`_` binds nothing, so there is nothing to mutate",
+                               "write `let _ = e`")
+        }
+        let alt = if mutable { Alt.Stmt_Let_Mutable } else { Alt.Stmt_Let_Immutable }
+        self.see(alt)
+        self.see(Alt.Stmt_BindingName)
+        let name_start = self.here()
+        let name_mark = self.builder.mark()
+        self.take_leaf()
+        self.close(name_mark, Alt.Stmt_BindingName, name_start)
+        var annotated = false
+        if self.kind() == TokenKind.Colon {
+            self.see(Alt.Stmt_TypeAnnotation)
+            annotated = true
+            self.advance()
+            if not self.parse_type() {
+                return false
+            }
+        }
+        if self.kind() != TokenKind.Assign {
+            if annotated && ends_statement(self.kind()) {
+                return self.refuse(Rule.Stmt_RefusedUninitialized, keyword,
+                                   "every binding is initialized where it is declared",
+                                   "write `= value` after the type")
+            }
+            return self.error("expected `=` and the binding's value")
+        }
+        self.advance()
+        if not self.parse_expr() {
+            return false
+        }
+        self.close(mark, alt, start)
+        true
+    }
+
+    // `return-stmt ::= "return" expr?`: an operand when the next token can
+    // begin one.
+    func parse_return(&var self) -> Bool {
+        self.see(Alt.Stmt_Return)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        if not ends_statement(self.kind()) {
+            if not self.parse_expr() {
+                return false
+            }
+        }
+        self.close(mark, Alt.Stmt_Return, start)
+        true
+    }
+
+    // ---- types -------------------------------------------------------------------
+
+    // `type ::= type-atom type-suffix*`, where the atom is a named type:
+    // `named-type ::= path generic-args?`. Each `?` wraps it in one
+    // OptionalType, and a `??` in two.
+    func parse_type(&var self) -> Bool {
+        let kind = self.kind()
+        if kind != TokenKind.Ident || (self.word_at(0, "any") && self.kind_at(1) == TokenKind.Ident) {
+            return self.error("only a named type is parsed yet")
+        }
+        self.see(Alt.Type_Type_Suffixed)
+        self.see(Alt.Type_Atom_Named)
+        self.see(Alt.Type_Named)
+        let start = self.here()
+        let mark = self.builder.mark()
+        if not self.parse_path() {
+            return false
+        }
+        if self.kind() == TokenKind.Lt {
+            return self.error("generic arguments are not parsed yet")
+        }
+        self.close(mark, Alt.Type_Named, start)
+        while self.kind() == TokenKind.Question || self.kind() == TokenKind.DoubleQuestion {
+            let double = self.kind() == TokenKind.DoubleQuestion
+            let alt = if double { Alt.Type_Suffix_DoubleOptional } else { Alt.Type_Suffix_Optional }
+            self.see(alt)
+            self.advance()
+            self.close(mark, alt, start)
+            if double {
+                self.close(mark, alt, start)
+            }
+        }
+        true
+    }
+
+    // ---- expressions -----------------------------------------------------------------
+
+    // `expr ::= coalesce-expr`
+    func parse_expr(&var self) -> Bool {
+        self.see(Alt.Expr_Expr)
+        self.parse_coalesce()
+    }
+
+    // `coalesce-expr ::= or-expr ( "??" NEWLINE* or-expr )*`
+    func parse_coalesce(&var self) -> Bool {
+        self.see(Alt.Expr_Coalesce)
+        let mark = self.builder.mark()
+        if not self.parse_or() {
+            return false
+        }
+        if self.kind() != TokenKind.DoubleQuestion {
+            return true
+        }
+        while self.kind() == TokenKind.DoubleQuestion {
+            self.take_leaf()
+            self.skip_newlines()
+            if not self.parse_or() {
+                return false
+            }
+        }
+        self.close_chain(mark, Alt.Expr_Coalesce)
+        true
+    }
+
+    // `or-expr ::= and-expr ( "||" NEWLINE* and-expr )*`
+    func parse_or(&var self) -> Bool {
+        self.see(Alt.Expr_Or)
+        let mark = self.builder.mark()
+        if not self.parse_and() {
+            return false
+        }
+        if self.kind() != TokenKind.Or {
+            return true
+        }
+        while self.kind() == TokenKind.Or {
+            self.take_leaf()
+            self.skip_newlines()
+            if not self.parse_and() {
+                return false
+            }
+        }
+        self.close_chain(mark, Alt.Expr_Or)
+        true
+    }
+
+    // `and-expr ::= bitor-expr ( "&&" NEWLINE* bitor-expr )*`
+    func parse_and(&var self) -> Bool {
+        self.see(Alt.Expr_And)
+        let mark = self.builder.mark()
+        if not self.parse_bitor() {
+            return false
+        }
+        if self.kind() != TokenKind.And {
+            return true
+        }
+        while self.kind() == TokenKind.And {
+            self.take_leaf()
+            self.skip_newlines()
+            if not self.parse_bitor() {
+                return false
+            }
+        }
+        self.close_chain(mark, Alt.Expr_And)
+        true
+    }
+
+    // `bitor-expr ::= bitxor-expr ( "|" NEWLINE* bitxor-expr )*`
+    func parse_bitor(&var self) -> Bool {
+        self.see(Alt.Expr_Bitor)
+        let mark = self.builder.mark()
+        if not self.parse_bitxor() {
+            return false
+        }
+        if self.kind() != TokenKind.Pipe {
+            return true
+        }
+        while self.kind() == TokenKind.Pipe {
+            self.take_leaf()
+            self.skip_newlines()
+            if not self.parse_bitxor() {
+                return false
+            }
+        }
+        self.close_chain(mark, Alt.Expr_Bitor)
+        true
+    }
+
+    // `bitxor-expr ::= bitand-expr ( "^" NEWLINE* bitand-expr )*`
+    func parse_bitxor(&var self) -> Bool {
+        self.see(Alt.Expr_Bitxor)
+        let mark = self.builder.mark()
+        if not self.parse_bitand() {
+            return false
+        }
+        if self.kind() != TokenKind.Caret {
+            return true
+        }
+        while self.kind() == TokenKind.Caret {
+            self.take_leaf()
+            self.skip_newlines()
+            if not self.parse_bitand() {
+                return false
+            }
+        }
+        self.close_chain(mark, Alt.Expr_Bitxor)
+        true
+    }
+
+    // `bitand-expr ::= compare-expr ( "&" NEWLINE* compare-expr )*`
+    func parse_bitand(&var self) -> Bool {
+        self.see(Alt.Expr_Bitand)
+        let mark = self.builder.mark()
+        if not self.parse_compare() {
+            return false
+        }
+        if self.kind() != TokenKind.Ampersand {
+            return true
+        }
+        while self.kind() == TokenKind.Ampersand {
+            self.take_leaf()
+            self.skip_newlines()
+            if not self.parse_compare() {
+                return false
+            }
+        }
+        self.close_chain(mark, Alt.Expr_Bitand)
+        true
+    }
+
+    // `compare-expr ::= range-expr ( compare-op NEWLINE* range-expr )?`; the
+    // operators are not parsed yet, so a comparison stops the expression.
+    func parse_compare(&var self) -> Bool {
+        self.see(Alt.Expr_Compare_Pair)
+        self.parse_range()
+    }
+
+    // `range-expr ::= shift-expr ( range-op shift-expr )?`; the range
+    // operators are not parsed yet.
+    func parse_range(&var self) -> Bool {
+        self.see(Alt.Expr_Range_Closed)
+        self.parse_shift()
+    }
+
+    // `shift-expr ::= additive-expr ( shift-op NEWLINE* additive-expr )*`
+    func parse_shift(&var self) -> Bool {
+        self.see(Alt.Expr_Shift)
+        self.parse_additive()
+    }
+
+    // `additive-expr ::= multiplicative-expr ( add-op NEWLINE* multiplicative-expr )*`
+    func parse_additive(&var self) -> Bool {
+        self.see(Alt.Expr_Additive)
+        self.parse_multiplicative()
+    }
+
+    // `multiplicative-expr ::= cast-expr ( mul-op NEWLINE* cast-expr )*`
+    func parse_multiplicative(&var self) -> Bool {
+        self.see(Alt.Expr_Multiplicative)
+        self.parse_cast()
+    }
+
+    // `cast-expr ::= prefix-expr cast-suffix*`
+    func parse_cast(&var self) -> Bool {
+        self.see(Alt.Expr_Cast)
+        self.parse_prefix()
+    }
+
+    // `prefix-expr ::= postfix-expr | ...`; the prefix operators are not
+    // parsed yet.
+    func parse_prefix(&var self) -> Bool {
+        self.see(Alt.Expr_Prefix_Postfix)
+        self.parse_postfix()
+    }
+
+    // `postfix-expr ::= primary-expr postfix-hop*`; the hops are not parsed yet.
+    func parse_postfix(&var self) -> Bool {
+        self.see(Alt.Expr_Postfix)
+        self.parse_primary()
+    }
+
+    // `primary-expr`: a literal, a name, or a parenthesized expression.
+    func parse_primary(&var self) -> Bool {
+        let kind = self.kind()
+        if kind == TokenKind.IntLit {
+            return self.literal(Alt.Expr_Literal_Int, Alt.Expr_Int, true)
+        }
+        if kind == TokenKind.FloatLit {
+            return self.literal(Alt.Expr_Literal_Float, Alt.Expr_Float, true)
+        }
+        if kind == TokenKind.StringLit {
+            return self.literal(Alt.Expr_Literal_String, Alt.Expr_String, true)
+        }
+        if kind == TokenKind.True_ {
+            return self.literal(Alt.Expr_Literal_Bool, Alt.Expr_Bool_True, false)
+        }
+        if kind == TokenKind.False_ {
+            return self.literal(Alt.Expr_Literal_Bool, Alt.Expr_Bool_False, false)
+        }
+        if kind == TokenKind.NoneKw {
+            return self.literal(Alt.Expr_Literal_None, Alt.Expr_None, false)
+        }
+        if kind == TokenKind.Ident {
+            self.see(Alt.Expr_Primary_Name)
+            self.see(Alt.Expr_Name)
+            let start = self.here()
+            let mark = self.builder.mark()
+            self.take_leaf()
+            self.close(mark, Alt.Expr_Name, start)
+            return true
+        }
+        if kind == TokenKind.LParen {
+            return self.parse_paren()
+        }
+        self.error("expected an expression")
+    }
+
+    // A literal's node; `shown` when its token prints, which a keyword the
+    // node's Kind implies does not.
+    func literal(&var self, form: Alt, node: Alt, shown: Bool) -> Bool {
+        self.see(Alt.Expr_Primary_Literal)
+        self.see(form)
+        self.see(node)
+        let start = self.here()
+        let mark = self.builder.mark()
+        if shown {
+            self.take_leaf()
+        } else {
+            self.advance()
+        }
+        self.close(mark, node, start)
+        true
+    }
+
+    // `paren-expr ::= "(" expr ")"`, which builds no node: grouping
+    // parentheses print nothing. It charges one level for its `(`.
+    func parse_paren(&var self) -> Bool {
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        self.advance()
+        if self.kind() == TokenKind.RParen {
+            return self.error("the empty tuple is not parsed yet")
+        }
+        self.see(Alt.Expr_Primary_Paren)
+        self.see(Alt.Expr_Paren)
+        if not self.parse_expr() {
+            return false
+        }
+        if self.kind() == TokenKind.Eof {
+            return self.refuse_unclosed(open)
+        }
+        if self.kind() != TokenKind.RParen {
+            return self.error("expected `)`")
+        }
+        self.advance()
+        self.leave_level()
+        true
+    }
+}

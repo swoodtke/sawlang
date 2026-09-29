@@ -1,0 +1,88 @@
+// The parse stage's entry points: a source text in, a tree and its
+// diagnostics out, and the record `sawc2 parse` prints for one file.
+
+import sawlex.src.lib.{DocComment, LexResult, lex}
+import sawparse.src.diag.{Diagnostic, append_diagnostic}
+import sawparse.src.grammar.{alt_name}
+import sawparse.src.parser.{Parser, new_parser}
+import sawparse.src.render.{render_tree}
+import sawparse.src.source.{SourceFile, source_file}
+import sawparse.src.tokens.{ParseToken, parser_tokens}
+import sawparse.src.tree.{tree_builder, tree_problem}
+
+// How `sawc2 parse` treats one file.
+public struct ParseOptions {
+    // Parse from `refusal-unit`, as a test build parses a refusal case's
+    // body, rather than from `source-file`.
+    public unit: Bool
+    // Print the dump of an accepted file.
+    public dump: Bool
+    // Print the alternatives an accepted file's derivation took.
+    public alternatives: Bool
+}
+
+// Parses `text`, the file `path`, from `source-file`, or from `refusal-unit`
+// when `unit` is set. A lex error is the parse's one diagnostic.
+public func parse_source(path: String, text: String, unit: Bool) -> Parser {
+    let source = source_file(path, text)
+    let lexed = lex(text)
+    match lexed {
+        case Ok(result) -> {
+            let tokens = parser_tokens(&source, &result)
+            var parser = new_parser(tree_builder(move source), move tokens, &result.docs)
+            if unit {
+                parser.parse_refusal_unit()
+            } else {
+                parser.parse_file()
+            }
+            move parser
+        },
+        case Err(e) -> {
+            let at = source.offset_of(e.line, e.col)
+            let no_docs = Vector<DocComment>()
+            var parser = new_parser(tree_builder(move source), Vector<ParseToken>(), &no_docs)
+            parser.lex_error(at, e.message)
+            move parser
+        }
+    }
+}
+
+// The record of one parsed file, after its `FILE` line: the dump when it is
+// accepted and asked for, an `INVARIANT` line when its tree breaks the arena's
+// invariants, an `ALT` line of the alternatives its derivation took when asked
+// for, or one `ERROR` line per diagnostic. Returns 0 for an accepted file and
+// 1 for a refused one.
+public func parse_record(out: &var StringBuilder, path: String, text: String,
+                         options: &ParseOptions) -> Int {
+    let parser = parse_source(path, text, options.unit)
+    if parser.diagnostics.len() > 0 {
+        var k = 0
+        while k < parser.diagnostics.len() {
+            let d = parser.diagnostics[k]
+            append_diagnostic(out: &var out, source: &parser.builder.tree.source, d: &d)
+            try! out.append("\n")
+            k = k + 1
+        }
+        return 1
+    }
+    if let problem = tree_problem(&parser.builder.tree) {
+        try! out.append("INVARIANT\t")
+        try! out.append(problem)
+        try! out.append("\n")
+    }
+    if options.dump {
+        render_tree(out: &var out, tree: &parser.builder.tree)
+        try! out.append("\n")
+    }
+    if options.alternatives {
+        try! out.append("ALT")
+        var k = 0
+        while k < parser.taken.len() {
+            try! out.append("\t")
+            try! out.append(alt_name(parser.taken[k]))
+            k = k + 1
+        }
+        try! out.append("\n")
+    }
+    0
+}

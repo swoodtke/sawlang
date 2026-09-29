@@ -24,10 +24,10 @@ sys.path.insert(0, os.path.join(COMPILER, "tools"))
 
 import build  # noqa: E402
 
-# What a fresh sawc2 depends on: the stages it is built from, and the frozen
-# compiler that builds it.
-SAWC2_SOURCES = (os.path.join(COMPILER, "lex"), os.path.join(COMPILER, "driver"),
-                 os.path.join(REPO, "sawc"))
+# What a fresh sawc2 depends on: every stage it is built from, its driver, and
+# the frozen compiler that builds it.
+SAWC2_SOURCES = tuple(os.path.join(REPO, rel) for _, rel in build.STAGE_PACKAGES) + (
+    os.path.join(COMPILER, "driver"), os.path.join(REPO, "sawc"))
 LEX_TIMEOUT = 60
 
 

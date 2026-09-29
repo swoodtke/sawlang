@@ -1,0 +1,23 @@
+// The generated grammar tables: names, Kinds and the reverse Kind lookup.
+import sawparse.src.grammar.{ALT_COUNT, Alt, Rule, alt_for_kind, alt_kind, alt_name, rule_name}
+
+func main() {
+    assert(alt_name(Alt.File_Source).equals("syntax.file.source"), "a single alternative")
+    assert(alt_name(Alt.Decl_Item_Func).equals("syntax.decl.item.func"), "a named alternative")
+    assert(alt_kind(Alt.Decl_Item_Func).equals("Declaration.func"), "a suffixed Kind")
+    assert(alt_kind(Alt.Decl_Func).equals("Func"), "an unsuffixed Kind")
+    assert(alt_kind(Alt.Expr_Expr).equals(""), "a production that builds no node")
+    assert(alt_kind(Alt.Type_Suffix_DoubleOptional).equals("OptionalType"), "an optional layer")
+    assert(rule_name(Rule.Rule_DepthLimit).equals("syntax.rule.depth-limit"), "a rule")
+    assert(rule_name(Rule.Decl_RefusedExport).equals("syntax.decl.refused-export"), "a removed production")
+    if let found = alt_for_kind("Declaration.func") {
+        assert(found == Alt.Decl_Item_Func, "the Kind's alternative")
+    } else {
+        panic("Declaration.func has no alternative")
+    }
+    if let _ = alt_for_kind("NoSuchKind") {
+        panic("an unknown Kind has an alternative")
+    }
+    let last = (Alt.Test_RefusalUnitItem_Statement as UInt16) as Int
+    assert(last < ALT_COUNT, "the backing is an index")
+}

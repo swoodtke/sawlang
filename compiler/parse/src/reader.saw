@@ -1,0 +1,374 @@
+// A reader of the canonical dump's text back into an arena. It exists to prove
+// the renderer before the parser: a dump read into a tree and rendered again
+// must come back byte for byte (the renderer differential of SL-424). Leaf
+// text is unescaped into a buffer the tree's spans point into, so rendering
+// escapes it afresh.
+
+import sawparse.src.grammar.{Alt, alt_for_kind}
+import sawparse.src.render.{render_tree}
+import sawparse.src.source.{source_file}
+import sawparse.src.tree.{NodeShape, TreeBuilder, tree_builder, tree_problem}
+
+static READ_NEWLINE: Int = 10
+static READ_SPACE: Int = 32
+static READ_QUOTE: Int = 34
+static READ_LPAREN: Int = 40
+static READ_RPAREN: Int = 41
+static READ_BACKSLASH: Int = 92
+static READ_LOWER_X: Int = 120
+static READ_LOWER_U: Int = 117
+static READ_LBRACE: Int = 123
+static READ_RBRACE: Int = 125
+static READ_TWO_BYTE_LEAD: Int = 192
+static READ_THREE_BYTE_LEAD: Int = 224
+static READ_CONTINUATION: Int = 128
+static READ_SIX_BITS: Int = 64
+static READ_ONE_BYTE_LIMIT: Int = 128
+static READ_TWO_BYTE_LIMIT: Int = 2048
+
+// What a node's Kind makes of the leaves inside it.
+enum Frame {
+    case Plain,
+    case Doc,
+    case Interp
+}
+
+struct ReadFrame {
+    mark: Int
+    shape: NodeShape
+    alt: Alt?
+    kind: Frame
+    // Where the unescaped buffer stood when the node opened.
+    at: Int
+}
+
+struct DumpReader {
+    text: String
+    pos: Int
+    buffer: StringBuilder
+    // The buffer's length, which StringBuilder does not report.
+    written: Int
+    builder: TreeBuilder
+    // The open nodes, innermost last; slots at `open` and above are reused.
+    frames: Vector<ReadFrame>
+    open: Int
+    failure: String
+}
+
+extension DumpReader: NoCopy {}
+
+func byte_of(u: Int) -> Byte { Byte(UInt8.from(truncating: u)) }
+
+func dump_hex_value(b: Int) -> Int {
+    if b >= 48 && b <= 57 {
+        b - 48
+    } else if b >= 97 && b <= 102 {
+        b - 87
+    } else if b >= 65 && b <= 70 {
+        b - 55
+    } else {
+        -1
+    }
+}
+
+extension DumpReader {
+    func peek(&self) -> Int {
+        // Stage 0 workaround (SL:hazards S4): canonical: self.at(self.pos)
+        let here = self.pos
+        self.at(here)
+    }
+
+    func at(&self, i: Int) -> Int {
+        if i < self.text.len() { self.text.byte_at(i) as Int } else { -1 }
+    }
+
+    func put(&var self, u: Int) {
+        try! self.buffer.append(byte_of(u))
+        self.written = self.written + 1
+    }
+
+    // A scalar value as UTF-8. Only the characters a leaf escapes reach here,
+    // and none needs four bytes.
+    func put_scalar(&var self, code: Int) {
+        if code < READ_ONE_BYTE_LIMIT {
+            self.put(code)
+        } else if code < READ_TWO_BYTE_LIMIT {
+            self.put(READ_TWO_BYTE_LEAD + code / READ_SIX_BITS)
+            self.put(READ_CONTINUATION + code % READ_SIX_BITS)
+        } else {
+            self.put(READ_THREE_BYTE_LEAD + code / (READ_SIX_BITS * READ_SIX_BITS))
+            self.put(READ_CONTINUATION + (code / READ_SIX_BITS) % READ_SIX_BITS)
+            self.put(READ_CONTINUATION + code % READ_SIX_BITS)
+        }
+    }
+
+    // The value of `count` hex digits at `i`, or -1.
+    func hex_at(&self, i: Int, count: Int) -> Int {
+        var value = 0
+        var k = 0
+        while k < count {
+            let d = dump_hex_value(self.at(i + k))
+            if d < 0 {
+                return -1
+            }
+            value = value * 16 + d
+            k = k + 1
+        }
+        value
+    }
+
+    // Unescapes [start, end) of the dump text into the buffer. A leaf's own
+    // escapes are `\xHH`, `\uHHHH` and, outside a doc line, `\(` and `\)`;
+    // a doc line also escapes `\\` and `\"`. Any other backslash starts one of
+    // a literal's escapes, which stays as written, both of its characters.
+    func unescape(&var self, start: Int, end: Int, doc: Bool) {
+        var i = start
+        while i < end {
+            let b = self.at(i)
+            if b != READ_BACKSLASH || i + 1 >= end {
+                self.put(b)
+                i = i + 1
+                continue
+            }
+            let c = self.at(i + 1)
+            let hex2 = if c == READ_LOWER_X { self.hex_at(i + 2, 2) } else { -1 }
+            let hex4 = if c == READ_LOWER_U { self.hex_at(i + 2, 4) } else { -1 }
+            let bracket = not doc && (c == READ_LPAREN || c == READ_RPAREN)
+            let quoted = doc && (c == READ_BACKSLASH || c == READ_QUOTE)
+            if hex2 >= 0 {
+                self.put_scalar(hex2)
+                i = i + 4
+            } else if hex4 >= 0 {
+                self.put_scalar(hex4)
+                i = i + 6
+            } else if bracket || quoted {
+                self.put(c)
+                i = i + 2
+            } else {
+                self.put(b)
+                self.put(c)
+                i = i + 2
+            }
+        }
+    }
+
+    func skip_space(&var self) {
+        while self.peek() == READ_SPACE || self.peek() == READ_NEWLINE {
+            self.pos = self.pos + 1
+        }
+    }
+
+    func fail(&var self, message: String) {
+        if self.failure.len() == 0 {
+            self.failure = message
+        }
+    }
+
+    // The end of the leaf starting at `pos`: a quoted leaf runs to its closing
+    // quote, anything else to a space, a line break or a `)`.
+    func leaf_end(&self) -> Int {
+        var i = self.pos
+        if self.at(i) == READ_QUOTE {
+            i = i + 1
+            while i < self.text.len() && self.at(i) != READ_QUOTE {
+                if self.at(i) == READ_BACKSLASH { i = i + 2 } else { i = i + 1 }
+            }
+            return i + 1
+        }
+        while i < self.text.len() {
+            let b = self.at(i)
+            if b == READ_SPACE || b == READ_NEWLINE || b == READ_RPAREN {
+                return i
+            }
+            if b == READ_BACKSLASH { i = i + 2 } else { i = i + 1 }
+        }
+        i
+    }
+
+    func read_leaf(&var self, frame: Frame) {
+        let start = self.pos
+        let end = self.leaf_end()
+        self.pos = end
+        let at = self.written
+        let quoted = self.at(start) == READ_QUOTE && end - start >= 2
+        match frame {
+            case Doc -> {
+                if not quoted {
+                    self.fail("a doc line is not quoted")
+                    return
+                }
+                self.unescape(start + 1, end - 1, true)
+                self.leaf_since(NodeShape.DocLine, at)
+            },
+            case Interp -> {
+                if end - start == 2 && self.at(start) == READ_LBRACE && self.at(start + 1) == READ_RBRACE {
+                    let _ = self.builder.leaf(NodeShape.Placeholder, at, at)
+                } else if quoted {
+                    self.unescape(start + 1, end - 1, false)
+                    self.leaf_since(NodeShape.Segment, at)
+                } else {
+                    self.fail("an interpolation holds a leaf that is neither a segment nor `\{\}`")
+                }
+            },
+            case Plain -> {
+                self.unescape(start, end, false)
+                self.leaf_since(NodeShape.Token, at)
+            }
+        }
+    }
+
+    // A leaf over what the buffer took since it stood at `at`.
+    func leaf_since(&var self, shape: NodeShape, at: Int) {
+        // Stage 0 workaround (SL:hazards S4): canonical: let _ = self.builder.leaf(shape, at, self.written)
+        let end = self.written
+        let _ = self.builder.leaf(shape, at, end)
+    }
+
+    func open_node(&var self) {
+        self.pos = self.pos + 1
+        let start = self.pos
+        while self.pos < self.text.len() {
+            let b = self.peek()
+            if b == READ_SPACE || b == READ_NEWLINE || b == READ_RPAREN {
+                break
+            }
+            self.pos = self.pos + 1
+        }
+        // Stage 0 workaround (SL:hazards S4): canonical: let kind = self.text.substring(start, self.pos)
+        let stop = self.pos
+        let kind = self.text.substring(start, stop)
+        let mark = self.builder.mark()
+        var frame = ReadFrame(mark: mark, shape: NodeShape.Built, alt: None, kind: Frame.Plain,
+                              at: self.written)
+        if kind.equals("Doc") {
+            frame = ReadFrame(mark: mark, shape: NodeShape.Doc, alt: None, kind: Frame.Doc,
+                              at: self.written)
+        } else if kind.equals("OptionalChain") {
+            frame = ReadFrame(mark: mark, shape: NodeShape.OptionalChain, alt: None,
+                              kind: Frame.Plain, at: self.written)
+        } else if let alt = alt_for_kind(kind) {
+            let interp = kind.equals("Interp")
+            frame = ReadFrame(mark: mark, shape: NodeShape.Built, alt: alt,
+                              kind: if interp { Frame.Interp } else { Frame.Plain },
+                              at: self.written)
+        } else {
+            self.fail("an unknown Kind")
+        }
+        if self.open < self.frames.len() {
+            self.frames[self.open] = frame
+        } else {
+            try! self.frames.push(frame)
+        }
+        self.open = self.open + 1
+    }
+
+    // The span of the node closing now: from its first child to its last, or
+    // empty where the buffer stood when it opened.
+    func close_node(&var self, frame: &ReadFrame) {
+        var start = frame.at
+        var end = frame.at
+        let top = self.builder.mark()
+        if top > frame.mark {
+            start = self.builder.node_at(frame.mark).start
+            end = self.builder.node_at(top - 1).end
+        }
+        let _ = self.builder.close(frame.mark, frame.shape, frame.alt, start, end)
+    }
+
+    // Reads the S-expression at `pos` into the builder; its root is the one
+    // node left on the builder's stack.
+    func read_expression(&var self) {
+        self.open = 0
+        while self.failure.len() == 0 {
+            self.skip_space()
+            let b = self.peek()
+            if b < 0 {
+                self.fail("the dump ends inside a node")
+                return
+            }
+            if b == READ_LPAREN {
+                self.open_node()
+            } else if b == READ_RPAREN {
+                self.pos = self.pos + 1
+                if self.open == 0 {
+                    self.fail("a `)` closes nothing")
+                    return
+                }
+                let frame = self.frames[self.open - 1]
+                self.close_node(&frame)
+                self.open = self.open - 1
+                if self.open == 0 {
+                    return
+                }
+            } else if self.open == 0 {
+                self.fail("a leaf outside every node")
+                return
+            } else {
+                let frame = self.frames[self.open - 1]
+                self.read_leaf(frame.kind)
+            }
+        }
+    }
+}
+
+// Where the line starting at `i` ends: its line break, or the end of the text.
+func line_end(text: &String, i: Int) -> Int {
+    var k = i
+    while k < text.len() && (text.byte_at(k) as Int) != READ_NEWLINE {
+        k = k + 1
+    }
+    k
+}
+
+// Reads the dump starting at `start` of `text` and renders it again into
+// `out`. Returns where the dump ended, or -1 once `out` holds why it could not
+// be read or its tree breaks the arena's invariants.
+func redump_one(out: &var StringBuilder, text: &String, start: Int) -> Int {
+    var reader = DumpReader(text: text, pos: start, buffer: StringBuilder(), written: 0,
+                            builder: tree_builder(source_file("<dump>", "")),
+                            frames: Vector<ReadFrame>(), open: 0, failure: "")
+    reader.read_expression()
+    if reader.failure.len() > 0 {
+        try! out.append("REREAD-ERROR\t")
+        try! out.append(reader.failure)
+        return -1
+    }
+    reader.builder.finish()
+    let buffer = reader.buffer.build()
+    reader.builder.tree.source = source_file("<dump>", buffer)
+    if let problem = tree_problem(&reader.builder.tree) {
+        try! out.append("REREAD-INVARIANT\t")
+        try! out.append(problem)
+        return -1
+    }
+    render_tree(out: &var out, tree: &reader.builder.tree)
+    reader.pos
+}
+
+// The text of a file of dumps, with each dump read and rendered again and
+// every other line kept: an expectation file of compiler/tests/parse reads
+// back unchanged exactly when the renderer agrees with its reader.
+public func redump(text: String) -> String {
+    var out = StringBuilder()
+    var i = 0
+    let n = text.len()
+    while i < n {
+        if (text.byte_at(i) as Int) == READ_LPAREN {
+            let end = redump_one(out: &var out, text: &text, start: i)
+            if end < 0 {
+                i = line_end(&text, i)
+            } else {
+                i = end
+            }
+        }
+        let stop = line_end(&text, i)
+        if stop > i {
+            try! out.append(text.substring(i, stop))
+        }
+        if stop < n {
+            try! out.append("\n")
+        }
+        i = stop + 1
+    }
+    out.build()
+}

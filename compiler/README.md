@@ -19,15 +19,24 @@ compiler/
   lex/                the lexer, package `sawlex` (lex/README.md has its dump format)
     src/lib.saw
     tests/*.saw       unit programs
+  parse/              the parser, package `sawparse` (parse/README.md has its
+                      records, its claims and its depth funnel)
+    CLAIMS.tsv        the alternatives and rules the parser implements so far
+    src/*.saw
+    tests/*.saw       unit programs
   driver/             the `sawc2` binary, package `sawc2`
     src/main.saw
   tools/
     build.py          builds sawc2, or any program over the stage packages
     subset_check.py   the subset checker
+    grammar_tables.py writes parse/src/grammar.saw from GRAMMAR.md
+    depth_funnel.py   the parser's depth-funnel lane
   tests/
     run.py            the test runner
+    parse_lane.py     the parse lane: sawc2 parse against the parser corpus
     lex/              golden token fixtures
     subset/           the subset checker's own fixtures
+    funnel/           the depth-funnel lane's own fixtures
     grammar/          the tools over GRAMMAR.md: extract.py, lint.py, the
                       reference recognizer (recognize.py, contexts.py, and
                       lexdump.py, which reads sawc2's token dump), the corpus
@@ -51,10 +60,13 @@ Use the venv's Python, since it runs the frozen compiler:
 ./.venv/bin/python compiler/tools/build.py            # builds .build/sawc2
 .build/sawc2 lex [--docs] <file.saw>                   # the token dump, or the doc trivia
 .build/sawc2 lex --kinds                               # every token kind's dump name
+.build/sawc2 parse --dump FILE...                      # each file's canonical AST dump
+.build/sawc2 parse --check FILE...                     # each file's diagnostics
 ./.venv/bin/python compiler/tools/build.py ENTRY.saw -o OUT   # another program
 ```
 
-A lex error prints one `ERROR` record and exits 1. A usage or I/O failure exits 2.
+A lex error prints one `ERROR` record and exits 1, and so does a file the parser
+refuses. A usage or I/O failure exits 2.
 
 ## Testing
 
@@ -64,8 +76,8 @@ A lex error prints one `ERROR` record and exits 1. A usage or I/O failure exits 
 
 The runner prints each failure on its own line, then one summary line, and exits
 1 if anything failed. Its output is deterministic. The battery's `compiler` lane
-runs it, and so does every per-patch gate run (`./build.sh test`). It checks six
-things.
+runs it, and so does every per-patch gate run (`./build.sh test`). It checks
+these things.
 
 - **Unit programs**: `compiler/<stage>/tests/*.saw`. These are small programs in
   the subset, built by the frozen compiler against the stage packages. Each
@@ -98,6 +110,12 @@ things.
 - **The parser corpus** in `tests/parse/`: the hand-checked dumps, and the
   generated cases, which regenerating must reproduce byte for byte, with the
   `parsecoverage` check over them (`tests/parse/README.md`).
+- **The parser** (`parse/README.md`): its grammar tables are current, its depth
+  funnel holds (`tools/depth_funnel.py`, with fixtures in `tests/funnel/`), and
+  the parse lane (`tests/parse_lane.py`) runs one `sawc2 parse` process over
+  the parser corpus and `tests/corpus/`, requiring what `parse/CLAIMS.tsv`
+  claims, and re-renders every expected dump through `sawc2 parse --redump`.
+  The lane caches the recognizer's records under `.build/parse-lane/`.
 
 ## The subset
 

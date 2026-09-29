@@ -1,0 +1,27 @@
+// A recursion through a method of another type, reached through a field and
+// through a free function, is followed like any other.
+// expect: a recursion never enters `self.enter_level(...)`: Inner.visit -> step -> Outer.walk -> Inner.visit
+
+struct Inner {
+    n: Int
+}
+
+struct Outer {
+    inner: Inner
+}
+
+extension Inner {
+    func visit(&self, outer: &Outer) -> Int {
+        step(outer)
+    }
+}
+
+func step(outer: &Outer) -> Int {
+    outer.walk()
+}
+
+extension Outer {
+    func walk(&self) -> Int {
+        self.inner.visit(self)
+    }
+}

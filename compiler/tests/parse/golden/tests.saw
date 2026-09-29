@@ -71,4 +71,13 @@ func g() {
 func g() {
 }; g(); let x = 1
 
+// case from refusal-unit: syntax.test.refusal-unit-item.declaration/a-function-then-a-statement
+func g() {
+}; let x = 1
+
+// case from refusal-unit: syntax.test.refusal-unit-item.statement/statements-around-an-import
+let a = 1
+import m
+return a
+
 // case from refusal-unit: syntax.rule.refusal-body/empty-body

@@ -1,0 +1,137 @@
+// The parser's token stream: the lexer's tokens with byte spans, and without
+// the line breaks GRAMMAR.md section 2.4 rule 1 makes insignificant.
+
+import sawlex.src.lib.{LexResult, Token, TokenKind}
+import sawparse.src.source.{SourceFile}
+
+static TOKEN_QUOTE: Int = 34
+static TOKEN_BACKSLASH: Int = 92
+static TOKEN_DOT: Int = 46
+static TOKEN_UNDERSCORE: Int = 95
+static TOKEN_DIGIT_0: Int = 48
+static TOKEN_DIGIT_9: Int = 57
+static TOKEN_UPPER_A: Int = 65
+static TOKEN_UPPER_Z: Int = 90
+static TOKEN_LOWER_A: Int = 97
+static TOKEN_LOWER_Z: Int = 122
+
+// A token as the parser reads it: its kind, its bytes in the source, and the
+// line the lexer placed it on, which is how a doc comment finds what follows it.
+public struct ParseToken {
+    public kind: TokenKind
+    public start: Int
+    public end: Int
+    public line: Int
+    // Its run in the lexer's segment arena, for an interpolated string.
+    public seg_start: Int
+    public seg_count: Int
+}
+
+func is_digit_byte(b: Int) -> Bool { b >= TOKEN_DIGIT_0 && b <= TOKEN_DIGIT_9 }
+
+// A byte a number literal can be spelled with; a `.` only between digits.
+func is_number_byte(b: Int) -> Bool {
+    let letter = (b >= TOKEN_UPPER_A && b <= TOKEN_UPPER_Z) || (b >= TOKEN_LOWER_A && b <= TOKEN_LOWER_Z)
+    letter || is_digit_byte(b) || b == TOKEN_UNDERSCORE || b == TOKEN_DOT
+}
+
+// Where a token that starts at `start` ends. A literal's value is decoded, so
+// its extent comes from the source: a string runs to its closing quote, and a
+// number to the first byte it cannot hold, or to the next token, whichever
+// comes first, since the lexer's reading of a tuple index or of `7e5` stops
+// short of what the characters could spell.
+func token_end(source: &SourceFile, t: &Token, start: Int, bound: Int) -> Int {
+    match t.kind {
+        case StringLit -> {
+            var k = start + 1
+            while k < source.len() && source.byte(k) != TOKEN_QUOTE {
+                if source.byte(k) == TOKEN_BACKSLASH { k = k + 2 } else { k = k + 1 }
+            }
+            k + 1
+        },
+        case InterpString -> start + t.value.len() + 2,
+        case IntLit -> number_end(&source, start, bound),
+        case FloatLit -> number_end(&source, start, bound),
+        case HashDirective -> start + t.value.len() + 1,
+        case DollarParam -> start + t.value.len() + 1,
+        case _ -> start + t.value.len()
+    }
+}
+
+func number_end(source: &SourceFile, start: Int, bound: Int) -> Int {
+    var k = start
+    while k < bound && is_number_byte(source.byte(k)) {
+        if source.byte(k) == TOKEN_DOT && not (k + 1 < bound && is_digit_byte(source.byte(k + 1))) {
+            return k
+        }
+        k = k + 1
+    }
+    k
+}
+
+public func opens_bracket(kind: TokenKind) -> Bool {
+    match kind {
+        case LParen -> true,
+        case LBracket -> true,
+        case LBrace -> true,
+        case _ -> false
+    }
+}
+
+public func closes_bracket(kind: TokenKind) -> Bool {
+    match kind {
+        case RParen -> true,
+        case RBracket -> true,
+        case RBrace -> true,
+        case _ -> false
+    }
+}
+
+// Whether a line break inside this innermost bracket is insignificant.
+func quiet_inside(kind: TokenKind) -> Bool {
+    kind == TokenKind.LParen || kind == TokenKind.LBracket
+}
+
+// The parser's tokens for a lexed source: each with its byte span, and
+// without a line break whose innermost enclosing bracket is `(` or `[`.
+public func parser_tokens(source: &SourceFile, lexed: &LexResult) -> Vector<ParseToken> {
+    let n = lexed.tokens.len()
+    var starts = Vector<Int>()
+    var i = 0
+    while i < n {
+        let t = lexed.tokens[i]
+        try! starts.push(source.offset_of(t.line, t.col))
+        i = i + 1
+    }
+    var out = Vector<ParseToken>()
+    var brackets = Vector<TokenKind>()
+    var open = 0
+    i = 0
+    while i < n {
+        let t = lexed.tokens[i]
+        let start = starts[i]
+        let bound = if i + 1 < n { starts[i + 1] } else { source.len() }
+        let end = token_end(&source, &t, start, bound)
+        var keep = true
+        if t.kind == TokenKind.Newline {
+            keep = open == 0 || not quiet_inside(brackets[open - 1])
+        } else if opens_bracket(t.kind) {
+            if open < brackets.len() {
+                brackets[open] = t.kind
+            } else {
+                try! brackets.push(t.kind)
+            }
+            open = open + 1
+        } else if closes_bracket(t.kind) {
+            if open > 0 {
+                open = open - 1
+            }
+        }
+        if keep {
+            try! out.push(ParseToken(kind: t.kind, start: start, end: end, line: t.line,
+                              seg_start: t.seg_start, seg_count: t.seg_count))
+        }
+        i = i + 1
+    }
+    move out
+}
