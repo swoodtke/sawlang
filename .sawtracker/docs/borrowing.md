@@ -161,7 +161,11 @@ capability is written:
 and symmetric with `Map.find`. It serves presence tests on non-copyable elements
 and writes through an index that may be out of range, which `get` cannot serve
 now that it returns a copy (K8, K14). `v[i]` stays the panicking place, and
-`v.get(i)` the optional copy.
+`v.get(i)` the optional copy. Both `Vector.find` and `KeyedPlace.find` have a
+shared twin, `(&self, …) borrows -> &T?`, derived with `@synthesize(shared)`
+(§4), since each body only bounds-checks or probes and lends. So a presence
+test or a read under `borrow let` works on a `&Vector` or `&Map` (§3's
+least-privilege choice), and `borrow var` uses the exclusive accessor.
 
 On the absent path no borrow was ever opened, so touching the root there is
 sound. **The borrow checker is path-sensitive** (Ruled) on the MIR control-flow
