@@ -85,7 +85,7 @@ func main() {
     // 2. A declared-tier enum element: the duplicate's payload is its OWN
     //    buffer, so it survives the original's death intact.
     let bags_dup = copied_bags()
-    print("enum payload independent: {bag_len(borrow let bags_dup[0])} {bag_len(borrow let bags_dup[1])}")
+    print("enum payload independent: {bag_len(borrow bags_dup[0])} {bag_len(borrow bags_dup[1])}")
 
     // 3. An ExplicitCopy element, the same claim by mutation rather than by
     //    survival: a push into the duplicate is invisible through the original.
@@ -95,7 +95,7 @@ func main() {
     try! nested.push(move row)
     var nested_dup = nested.copy()
     try! borrow var nested_dup[0].push(2)
-    let original_len = borrow let nested[0].len()
-    let duplicate_len = borrow let nested_dup[0].len()
+    let original_len = borrow nested[0].len()
+    let duplicate_len = borrow nested_dup[0].len()
     print("vector element independent: {original_len} {duplicate_len}")
 }

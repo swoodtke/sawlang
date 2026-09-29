@@ -18,7 +18,7 @@ import dump  # noqa: E402
 import extract  # noqa: E402
 import recognize  # noqa: E402
 
-PREFIXES = ("borrow var ", "borrow let ")
+PREFIXES = ("borrow var ", "borrow ")
 _GRAMMAR = []
 
 

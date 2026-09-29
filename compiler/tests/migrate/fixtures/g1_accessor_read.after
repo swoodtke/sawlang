@@ -18,6 +18,6 @@ func make() -> Bag { Bag(a: Cell(n: 1), b: Cell(n: 2), count: 0) }
 
 func main() {
     var b = make()
-    let t = borrow let b.total()
+    let t = borrow b.total()
     print(t)
 }

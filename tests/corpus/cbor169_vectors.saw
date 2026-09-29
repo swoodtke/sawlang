@@ -54,9 +54,9 @@ func vector_names(kind: String) -> Vector<String> {
     // which is free whatever the element's tier.
     var i = 0
     while i < entries.len() {
-        if let ext = borrow let entries[i].ext() {
+        if let ext = borrow entries[i].ext() {
             if ext.equals("cbor") {
-                if let stem = borrow let entries[i].stem() {
+                if let stem = borrow entries[i].stem() {
                     try! out.push(stem)
                 }
             }

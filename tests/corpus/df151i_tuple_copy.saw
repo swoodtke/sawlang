@@ -107,7 +107,7 @@ func element_deep_copy_retains(k: Int) -> Int {
     var (a, b) = t.copy()
     try! a.push(res(tag: k + 1))
     assert(b == k, "the trivial element came through wrong")
-    t.0.len() * 100 + a.len() * 10 + borrow let t.0[0].strong_count()
+    t.0.len() * 100 + a.len() * 10 + borrow t.0[0].strong_count()
 }
 
 // A Copy element copies at ITS tier — a refcount bump, not a duplicate
@@ -219,7 +219,7 @@ func generic_tuple() -> Int {
 func tuple_in_vector_copy(k: Int) -> Int {
     var v: Vector<(Arc<Res>, Int)> = Vector<(Arc<Res>, Int)>()
     try! v.push((res(tag: k), k))
-    let u = borrow let v[0].copy()
+    let u = borrow v[0].copy()
     u.0.strong_count() - 1
 }
 

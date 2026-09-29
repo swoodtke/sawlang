@@ -72,7 +72,7 @@ func j_ref_index() -> Result<Int, Bad> {
     print(note(&r))
     let values: Vector<Int> = [9]
     yield_now()
-    let n = sink_ref(borrow let values[try fail_index()], move r)
+    let n = sink_ref(borrow values[try fail_index()], move r)
     n
 }
 
@@ -92,7 +92,7 @@ func j2_ok() -> Result<Int, Bad> {
     print(note(&r))
     let values: Vector<Int> = [9]
     yield_now()
-    let n = sink_ref(borrow let values[try ok_index()], move r)
+    let n = sink_ref(borrow values[try ok_index()], move r)
     n
 }
 

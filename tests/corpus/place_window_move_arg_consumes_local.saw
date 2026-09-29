@@ -62,7 +62,7 @@ func direct_row() {
     s.put(Vector<Res>())
     let h = Res(id: 1)
     try! borrow var s.value().push(move h)
-    print("direct len {borrow let s.value().len()}")
+    print("direct len {borrow s.value().len()}")
     s.clear()
 }
 
@@ -77,7 +77,7 @@ func binding_row() {
             try! borrow var s.value().push(move h)
         }
     }
-    print("binding len {borrow let s.value().len()}")
+    print("binding len {borrow s.value().len()}")
     s.clear()
 }
 

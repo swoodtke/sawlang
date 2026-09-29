@@ -1,2 +1,2 @@
 line	col	rule	old	new	rationale
-6	6	C	m["k"]?.n = 5	m["k"]?.n = 5	left as it is: the person keeps the frozen spelling for review
+8	6	C	m[key_of()]?.n = 5	m[key_of()]?.n = 5	left as it is: the person keeps the frozen spelling for review

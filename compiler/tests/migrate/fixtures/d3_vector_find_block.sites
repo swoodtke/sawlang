@@ -1,0 +1,2 @@
+status: rewritten
+7 K8.vector-find-block rewritten => if (borrow let e = v.find(0) { if let _ = e { true } else { false } }) { print("yes") }

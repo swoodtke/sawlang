@@ -89,5 +89,11 @@ func main() {
     assert(at(&d, 4).equals("FALSE\t1:17\tfalse"), "false")
     assert(at(&d, 5).equals("IDENT\t1:23\tmodule"), "module is IDENT, not a keyword")
 
+    // `borrow` is a keyword wherever it stands, beside the `borrows` effect.
+    let w = lexed("borrow borrows borrowed")
+    assert(at(&w, 0).equals("BORROW\t1:1\tborrow"), "borrow keyword")
+    assert(at(&w, 1).equals("BORROWS\t1:8\tborrows"), "borrows keyword")
+    assert(at(&w, 2).equals("IDENT\t1:16\tborrowed"), "a longer word is IDENT")
+
     print("literals: ok")
 }

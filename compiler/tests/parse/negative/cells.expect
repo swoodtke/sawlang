@@ -355,6 +355,9 @@ refuses syntax.rule.range-open-end at 2:18
 // case: syntax.expr.range-from/cell:rend
 refuses parse-error at 2:18
 
+// case: syntax.expr.range-from/cell:bhead
+refuses syntax.rule.range-open-end at 2:24
+
 // case: syntax.expr.range-from/cell:atgt
 refuses parse-error at 2:9
 
@@ -540,16 +543,16 @@ refuses parse-error at 2:14
 refuses parse-error at 2:39
 
 // case: syntax.borrow.place/cell:cgen
-refuses parse-error at 2:21
+refuses parse-error at 2:14
 
 // case: syntax.borrow.place/cell:cap
-refuses parse-error at 2:33
+refuses parse-error at 2:29
 
 // case: syntax.borrow.block/cell:atgt
 refuses parse-error at 2:28
 
 // case: syntax.borrow.block/cell:cgen
-refuses parse-error at 2:21
+refuses parse-error at 2:14
 
 // case: syntax.borrow.block/cell:cap
 refuses parse-error at 2:40
@@ -704,19 +707,19 @@ refuses parse-error at 1:15
 refuses parse-error at 2:16
 
 // case: syntax.borrow.unwrap/cell:stmt
-refuses parse-error at 2:5
+refuses parse-error at 3:5
 
 // case: syntax.borrow.unwrap/cell:tail
-refuses parse-error at 2:5
+refuses parse-error at 3:1
 
 // case: syntax.borrow.unwrap/cell:clos
-refuses parse-error at 3:9
+refuses parse-error at 4:9
 
 // case: syntax.borrow.unwrap/cell:catch
-refuses parse-error at 5:9
+refuses parse-error at 6:9
 
 // case: syntax.borrow.unwrap/cell:arm
-refuses parse-error at 3:19
+refuses parse-error at 4:5
 
 // case: syntax.borrow.unwrap/cell:opnd
 refuses parse-error at 3:1
@@ -758,7 +761,7 @@ refuses parse-error at 4:1
 refuses parse-error at 4:1
 
 // case: syntax.borrow.unwrap/cell:bhead
-refuses parse-error at 2:5
+refuses parse-error at 4:1
 
 // case: syntax.borrow.unwrap/cell:init
 refuses parse-error at 3:1
@@ -797,7 +800,7 @@ refuses parse-error at 2:32
 refuses parse-error at 2:33
 
 // case: syntax.borrow.unwrap/cell:cgen
-refuses parse-error at 2:21
+refuses parse-error at 2:14
 
 // case: syntax.borrow.unwrap/cell:raw
 refuses parse-error at 3:1

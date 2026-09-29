@@ -2096,17 +2096,14 @@ func a() ) { * b = c }
 // case: syntax.stmt.assign-target.deref/alt/close:10
 func a() { * b = c
 
-// case: syntax.stmt.assign-target.borrow/alt/drop:5
-func a()   borrow let true = b }
+// case: syntax.stmt.assign-target.borrow/alt/dup:7
+func a() { borrow b b = c }
 
-// case: syntax.stmt.assign-target.borrow/alt/dup:9
-func a() { borrow let true = = b }
+// case: syntax.stmt.assign-target.borrow/alt/swap:1
+ a   func () { borrow b = c }
 
-// case: syntax.stmt.assign-target.borrow/alt/swap:9
-func a() { borrow let true  b   =  }
-
-// case: syntax.stmt.assign-target.borrow/alt/close:11
-func a() { borrow let true = b
+// case: syntax.stmt.assign-target.borrow/alt/close:10
+func a() { borrow b = c
 
 // case: syntax.stmt.assign-target.call/alt/drop:2
 func  () { b() = c }
@@ -2147,17 +2144,14 @@ func a() ) { * b += c }
 // case: syntax.stmt.compound-target.deref/alt/swap:5
 func a()  *   {  b += c }
 
-// case: syntax.stmt.compound-target.borrow/alt/drop:7
-func a() { borrow   b += c }
+// case: syntax.stmt.compound-target.borrow/alt/drop:4
+func a(  { borrow b += c }
 
-// case: syntax.stmt.compound-target.borrow/alt/dup:7
-func a() { borrow let let b += c }
+// case: syntax.stmt.compound-target.borrow/alt/dup:8
+func a() { borrow b += += c }
 
-// case: syntax.stmt.compound-target.borrow/alt/swap:7
-func a() { borrow  b   let  += c }
-
-// case: syntax.stmt.compound-target.borrow/alt/close:4
-func a(  { borrow let b += c }
+// case: syntax.stmt.compound-target.borrow/alt/swap:5
+func a()  borrow   {  b += c }
 
 // case: syntax.stmt.compound-target.call/alt/drop:3
 func a ) { b() += c }
@@ -2816,17 +2810,17 @@ func a( {   )  lends b }
 // case: syntax.expr.prefix.lends/alt/close:8
 func a() { lends b
 
-// case: syntax.expr.prefix.borrow/alt/drop:7
-func a() { borrow   b }
+// case: syntax.expr.prefix.borrow/alt/drop:2
+func  () { borrow b }
 
-// case: syntax.expr.prefix.borrow/alt/dup:5
-func a() { { borrow let b }
+// case: syntax.expr.prefix.borrow/alt/dup:8
+func a() { borrow b } }
 
-// case: syntax.expr.prefix.borrow/alt/swap:3
-func a )  (  { borrow let b }
+// case: syntax.expr.prefix.borrow/alt/swap:6
+func a() {  b   borrow  }
 
 // case: syntax.expr.prefix.borrow/alt/close:4
-func a(  { borrow let b }
+func a(  { borrow b }
 
 // case: syntax.expr.unary.negate/alt/drop:4
 func a(  { - b }
@@ -4458,20 +4452,14 @@ func a() { borrow  b   let  = c { } }
 // case: syntax.borrow.binding.var/alt/drop:11
 func a() { borrow var b = c   } }
 
-// case: syntax.borrow.binding.var/alt/dup:6
-func a() { borrow borrow var b = c { } }
-
 // case: syntax.borrow.binding.var/alt/swap:3
 func a )  (  { borrow var b = c { } }
 
 // case: syntax.borrow.binding.var/alt/close:13
 func a() { borrow var b = c { }
 
-// case: syntax.borrow.place.let/alt/swap:1
- a   func () { borrow let b }
-
-// case: syntax.borrow.place.let/alt/close:9
-func a() { borrow let b
+// case: syntax.borrow.place.shared/alt/close:8
+func a() { borrow b
 
 // case: syntax.borrow.place.var/alt/drop:8
 func a() { borrow var   }

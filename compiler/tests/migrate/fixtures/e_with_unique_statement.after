@@ -1,0 +1,9 @@
+struct Cell { n: Int }
+
+func main() {
+    var a = try! Arc<Cell>(value: Cell(n: 1))
+    borrow var c = a.unique() { if borrow var c = c {
+        c.n += 1
+    } }
+    print(a.strong_count())
+}

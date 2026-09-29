@@ -43,6 +43,6 @@ func main() {
     var group = TaskGroup()
     let h = group.spawn(fill(&var buf, 3))
     print("task filled {h.join()}")
-    print("root len {buf.len()} tags {borrow let buf[0].tag} {borrow let buf[1].tag} {borrow let buf[2].tag}")
+    print("root len {buf.len()} tags {borrow buf[0].tag} {borrow buf[1].tag} {borrow buf[2].tag}")
     print("scope ends")
 }

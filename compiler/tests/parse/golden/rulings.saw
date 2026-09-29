@@ -75,13 +75,6 @@ extension a.B: c.D, E {
 trait T: m.P, Q {
 }
 
-// case: SL-400-c6-Q12/borrow-is-an-identifier-before-anything-but-let-or-var
-func f() {
-    let borrow = 1
-    let b = borrow + 1
-    borrow(x)
-}
-
 // case: SL-400-c6-Q13/lone-name-pattern
 func f() {
     match d {

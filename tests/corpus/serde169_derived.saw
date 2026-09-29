@@ -284,7 +284,7 @@ func main() {
             // `Dep` is NoCopy, so the element is reached as a PLACE — the field
             // read off it copies a String, which is free.
             print("deps={} first={}/{}", back.deps.len(),
-                  borrow let back.deps[0].name, borrow let back.deps[0].version)
+                  borrow back.deps[0].name, borrow back.deps[0].version)
             print("narrow={}/{}", back.lo, back.hi)
         },
         case Err(e) -> print("decode failed: {}", e)

@@ -50,18 +50,18 @@ func main() unsafe {
     var c = Counter(a: 1, inner: Inner(n: 5))
     var r = mint(&var c)
 
-    print("read a {borrow let r.deref().a}")
-    print("read method {borrow let r.deref().get_a()}")
-    print("read nested {borrow let r.deref().inner.n}")
+    print("read a {borrow r.deref().a}")
+    print("read method {borrow r.deref().get_a()}")
+    print("read nested {borrow r.deref().inner.n}")
 
     borrow var r.deref().a = 7
-    print("write a {borrow let r.deref().a}")
+    print("write a {borrow r.deref().a}")
     borrow var r.deref().a += 1
-    print("compound a {borrow let r.deref().a}")
+    print("compound a {borrow r.deref().a}")
     borrow var r.deref().bump()
-    print("method bump {borrow let r.deref().a}")
+    print("method bump {borrow r.deref().a}")
     borrow var r.deref().inner.n = 42
-    print("nested write {borrow let r.deref().inner.n}")
+    print("nested write {borrow r.deref().inner.n}")
 
     // Every write landed in the caller's own storage, not in a copy.
     print("caller sees {c.a} {c.inner.n}")
@@ -69,8 +69,8 @@ func main() unsafe {
     // Duplication is written where it happens: `copy` is the one spelling, and
     // both handles name the same storage.
     var second = r.copy()
-    print("second handle sees {borrow let second.deref().a}")
+    print("second handle sees {borrow second.deref().a}")
     borrow var second.deref().a = 30
-    print("through second handle {borrow let second.deref().a}")
-    print("original sees {borrow let r.deref().a}")
+    print("through second handle {borrow second.deref().a}")
+    print("original sees {borrow r.deref().a}")
 }

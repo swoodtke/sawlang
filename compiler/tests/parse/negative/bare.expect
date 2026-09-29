@@ -1,0 +1,553 @@
+// case: syntax.expr.map/bare:arm
+refuses syntax.rule.arm-body at 3:19
+
+// case: syntax.expr.set/bare:arm
+refuses syntax.rule.arm-body at 3:19
+
+// case: syntax.expr.closure/bare:arm
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name x)
+            (MatchArm
+              (WildcardPat)
+              (Block
+                (ExprStmt (Name a))))))))))
+
+// case: syntax.expr.unary/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Unary.negate
+            (Member (Name a) b)))))))
+
+// case: syntax.expr.deref/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Deref
+            (Member (Name a) b)))))))
+
+// case: syntax.expr.ref/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Ref.shared
+            (Member (Name a) b)))))))
+
+// case: syntax.expr.move/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Move
+            (Member (Name a) b)))))))
+
+// case: syntax.expr.try/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Try.propagate
+            (Member
+              (Call.paren (Name f))
+              b)))))))
+
+// case: syntax.expr.lends/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Lends
+            (Member (Name a) b)))))))
+
+// case: syntax.expr.cast/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Cast
+            (Name a)
+            as
+            (NamedType (Path T b))))))))
+
+// case: syntax.expr.cast/bare:try
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Cast
+            (Try.propagate (Name a))
+            as
+            (NamedType (Path T))))))))
+
+// case: syntax.expr.multiplicative/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Name a)
+            *
+            (Member (Name b) b)))))))
+
+// case: syntax.expr.multiplicative/bare:try
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Try.propagate (Name a))
+            *
+            (Name b)))))))
+
+// case: syntax.expr.additive/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Name a)
+            +
+            (Member (Name b) b)))))))
+
+// case: syntax.expr.additive/bare:try
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Try.propagate (Name a))
+            +
+            (Name b)))))))
+
+// case: syntax.expr.shift/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Name a)
+            <<
+            (Member (Name b) b)))))))
+
+// case: syntax.expr.shift/bare:try
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Try.propagate (Name a))
+            <<
+            (Name b)))))))
+
+// case: syntax.expr.range/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Range.closed
+            (Name a)
+            ..
+            (Member (Name b) b)))))))
+
+// case: syntax.expr.range/bare:try
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Range.closed
+            (Try.propagate (Name a))
+            ..
+            (Name b)))))))
+
+// case: syntax.expr.range-from/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Range.closed (Name a) .. (ImplicitMember b)))))))
+
+// case: syntax.expr.range-from/bare:try
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Range.from
+            (Try.propagate (Name a))
+            ..))))))
+
+// case: syntax.expr.range-upto/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Range.upto ..
+            (Member (Name b) b)))))))
+
+// case: syntax.expr.range-upto/bare:try
+refuses parse-error at 2:17
+
+// case: syntax.expr.compare/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary.pair
+            (Name a)
+            <
+            (Member (Name b) b)))))))
+
+// case: syntax.expr.compare/bare:rend
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName i)
+            (Binary.pair
+              (Name a)
+              <
+              (Range.closed (Name b) .. (Name x)))
+            (Block)))))))
+
+// case: syntax.expr.compare/bare:try
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary.pair
+            (Try.propagate (Name a))
+            <
+            (Name b)))))))
+
+// case: syntax.expr.bitand/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Name a)
+            &
+            (Member (Name b) b)))))))
+
+// case: syntax.expr.bitand/bare:rend
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName i)
+            (Binary
+              (Name a)
+              &
+              (Range.closed (Name b) .. (Name x)))
+            (Block)))))))
+
+// case: syntax.expr.bitand/bare:try
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Try.propagate (Name a))
+            &
+            (Name b)))))))
+
+// case: syntax.expr.bitxor/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Name a)
+            ^
+            (Member (Name b) b)))))))
+
+// case: syntax.expr.bitxor/bare:rend
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName i)
+            (Binary
+              (Name a)
+              ^
+              (Range.closed (Name b) .. (Name x)))
+            (Block)))))))
+
+// case: syntax.expr.bitxor/bare:try
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Try.propagate (Name a))
+            ^
+            (Name b)))))))
+
+// case: syntax.expr.bitor/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Name a)
+            |
+            (Member (Name b) b)))))))
+
+// case: syntax.expr.bitor/bare:rend
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName i)
+            (Binary
+              (Name a)
+              |
+              (Range.closed (Name b) .. (Name x)))
+            (Block)))))))
+
+// case: syntax.expr.bitor/bare:try
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Try.propagate (Name a))
+            |
+            (Name b)))))))
+
+// case: syntax.expr.and/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Name a)
+            &&
+            (Member (Name b) b)))))))
+
+// case: syntax.expr.and/bare:rend
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName i)
+            (Binary
+              (Name a)
+              &&
+              (Range.closed (Name b) .. (Name x)))
+            (Block)))))))
+
+// case: syntax.expr.and/bare:try
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Try.propagate (Name a))
+            &&
+            (Name b)))))))
+
+// case: syntax.expr.or/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Name a)
+            ||
+            (Member (Name b) b)))))))
+
+// case: syntax.expr.or/bare:rend
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName i)
+            (Binary
+              (Name a)
+              ||
+              (Range.closed (Name b) .. (Name x)))
+            (Block)))))))
+
+// case: syntax.expr.or/bare:try
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Binary
+            (Try.propagate (Name a))
+            ||
+            (Name b)))))))
+
+// case: syntax.expr.coalesce/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Coalesce
+            (Name a)
+            ??
+            (Member (Name b) b)))))))
+
+// case: syntax.expr.coalesce/bare:rend
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (For.plain
+            (BindingName i)
+            (Coalesce
+              (Name a)
+              ??
+              (Range.closed (Name b) .. (Name x)))
+            (Block)))))))
+
+// case: syntax.expr.coalesce/bare:try
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (Coalesce
+            (Try.propagate (Name a))
+            ??
+            (Name b)))))))
+
+// case: syntax.borrow.place/bare:recv
+parses as another construct
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName v)
+          (BorrowPlace.shared
+            (Member
+              (Subscript.single (Name a) (IntLit 0))
+              b)))))))

@@ -37,11 +37,11 @@ func build() -> JsonValue {
 }
 
 func nums_len(v: &JsonValue) -> Int {
-    borrow let v.as_object()!["nums"].as_array()!.len()
+    borrow v.as_object()!["nums"].as_array()!.len()
 }
 
 func name_of(v: &JsonValue) -> String {
-    borrow let v.as_object()!["name"].as_text()!
+    borrow v.as_object()!["name"].as_text()!
 }
 
 func main() {

@@ -50,10 +50,10 @@ func main() {
     print("-- a move-only value, borrowed")
     var m = Map<String, Res>()
     let _ = try! m.insert("a", Res(id: 1))
-    print(borrow let m["a"].id_of())
-    print(borrow let m["a"].id_of())
+    print(borrow m["a"].id_of())
+    print(borrow m["a"].id_of())
     borrow var m["a"].bump()
-    print(borrow let m["a"].id_of())
+    print(borrow m["a"].id_of())
     if m.contains_key("zz") {
         print("unreachable")
     } else {
@@ -87,8 +87,8 @@ func main() {
     let _ = try! g.insert("v", move v)
     try! borrow var g["v"].push(2)
     try! borrow var g["v"].push(3)
-    print(borrow let g["v"].len())
-    print(borrow let g["v"].fold(0, { acc, n in acc + n }))
+    print(borrow g["v"].len())
+    print(borrow g["v"].fold(0, { acc, n in acc + n }))
 
     print("-- teardown")
     let _ = move g

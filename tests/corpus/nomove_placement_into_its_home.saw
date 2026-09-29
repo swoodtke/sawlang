@@ -68,7 +68,7 @@ extension Pin: NoCopy {
 
 func main() {
     let boxed = try! Box<Anchor>.make(Anchor(n: 5))
-    print("boxed {borrow let boxed.value().get()}")
+    print("boxed {borrow boxed.value().get()}")
 
     let pinned = Pin.of(Anchor(n: 12))
     print("pinned {pinned.get()}")

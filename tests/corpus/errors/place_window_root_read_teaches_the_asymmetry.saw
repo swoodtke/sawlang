@@ -41,11 +41,11 @@ func main() {
     borrow var v[0].bump(by: v.len())
 
     // A rendering operand beside the place, inside the same window.
-    print("{v.len()} {borrow let v[0]}")
+    print("{v.len()} {borrow v[0]}")
 
     // The comparison's second operand names the first's root.
-    print("{borrow let v[0] == borrow let v[1]}")
+    print("{borrow v[0] == borrow v[1]}")
 
     // `assert`'s condition is inside the message's window.
-    assert(borrow let v[0].id == 1, "{}", borrow let v[0])
+    assert(borrow v[0].id == 1, "{}", borrow v[0])
 }

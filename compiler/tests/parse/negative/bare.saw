@@ -1,0 +1,279 @@
+// case: syntax.expr.map/bare:arm
+func f() {
+    match x {
+        case _ -> {a: b}
+    }
+}
+
+// case: syntax.expr.set/bare:arm
+func f() {
+    match x {
+        case _ -> {a, b}
+    }
+}
+
+// case: syntax.expr.closure/bare:arm
+// parses as another construct
+func f() {
+    match x {
+        case _ -> { a }
+    }
+}
+
+// case: syntax.expr.unary/bare:recv
+// parses as another construct
+func f() {
+    let v = -a.b
+}
+
+// case: syntax.expr.deref/bare:recv
+// parses as another construct
+func f() {
+    let v = *a.b
+}
+
+// case: syntax.expr.ref/bare:recv
+// parses as another construct
+func f() {
+    let v = &a.b
+}
+
+// case: syntax.expr.move/bare:recv
+// parses as another construct
+func f() {
+    let v = move a.b
+}
+
+// case: syntax.expr.try/bare:recv
+// parses as another construct
+func f() {
+    let v = try f().b
+}
+
+// case: syntax.expr.lends/bare:recv
+// parses as another construct
+func f() {
+    let v = lends a.b
+}
+
+// case: syntax.expr.cast/bare:recv
+// parses as another construct
+func f() {
+    let v = a as T.b
+}
+
+// case: syntax.expr.cast/bare:try
+// parses as another construct
+func f() {
+    let v = try a as T
+}
+
+// case: syntax.expr.multiplicative/bare:recv
+// parses as another construct
+func f() {
+    let v = a * b.b
+}
+
+// case: syntax.expr.multiplicative/bare:try
+// parses as another construct
+func f() {
+    let v = try a * b
+}
+
+// case: syntax.expr.additive/bare:recv
+// parses as another construct
+func f() {
+    let v = a + b.b
+}
+
+// case: syntax.expr.additive/bare:try
+// parses as another construct
+func f() {
+    let v = try a + b
+}
+
+// case: syntax.expr.shift/bare:recv
+// parses as another construct
+func f() {
+    let v = a << b.b
+}
+
+// case: syntax.expr.shift/bare:try
+// parses as another construct
+func f() {
+    let v = try a << b
+}
+
+// case: syntax.expr.range/bare:recv
+// parses as another construct
+func f() {
+    let v = a..b.b
+}
+
+// case: syntax.expr.range/bare:try
+// parses as another construct
+func f() {
+    let v = try a..b
+}
+
+// case: syntax.expr.range-from/bare:recv
+// parses as another construct
+func f() {
+    let v = a.. .b
+}
+
+// case: syntax.expr.range-from/bare:try
+// parses as another construct
+func f() {
+    let v = try a..
+}
+
+// case: syntax.expr.range-upto/bare:recv
+// parses as another construct
+func f() {
+    let v = ..b.b
+}
+
+// case: syntax.expr.range-upto/bare:try
+func f() {
+    let v = try ..b
+}
+
+// case: syntax.expr.compare/bare:recv
+// parses as another construct
+func f() {
+    let v = a < b.b
+}
+
+// case: syntax.expr.compare/bare:rend
+// parses as another construct
+func f() {
+    for i in a < b..x {
+    }
+}
+
+// case: syntax.expr.compare/bare:try
+// parses as another construct
+func f() {
+    let v = try a < b
+}
+
+// case: syntax.expr.bitand/bare:recv
+// parses as another construct
+func f() {
+    let v = a & b.b
+}
+
+// case: syntax.expr.bitand/bare:rend
+// parses as another construct
+func f() {
+    for i in a & b..x {
+    }
+}
+
+// case: syntax.expr.bitand/bare:try
+// parses as another construct
+func f() {
+    let v = try a & b
+}
+
+// case: syntax.expr.bitxor/bare:recv
+// parses as another construct
+func f() {
+    let v = a ^ b.b
+}
+
+// case: syntax.expr.bitxor/bare:rend
+// parses as another construct
+func f() {
+    for i in a ^ b..x {
+    }
+}
+
+// case: syntax.expr.bitxor/bare:try
+// parses as another construct
+func f() {
+    let v = try a ^ b
+}
+
+// case: syntax.expr.bitor/bare:recv
+// parses as another construct
+func f() {
+    let v = a | b.b
+}
+
+// case: syntax.expr.bitor/bare:rend
+// parses as another construct
+func f() {
+    for i in a | b..x {
+    }
+}
+
+// case: syntax.expr.bitor/bare:try
+// parses as another construct
+func f() {
+    let v = try a | b
+}
+
+// case: syntax.expr.and/bare:recv
+// parses as another construct
+func f() {
+    let v = a && b.b
+}
+
+// case: syntax.expr.and/bare:rend
+// parses as another construct
+func f() {
+    for i in a && b..x {
+    }
+}
+
+// case: syntax.expr.and/bare:try
+// parses as another construct
+func f() {
+    let v = try a && b
+}
+
+// case: syntax.expr.or/bare:recv
+// parses as another construct
+func f() {
+    let v = a || b.b
+}
+
+// case: syntax.expr.or/bare:rend
+// parses as another construct
+func f() {
+    for i in a || b..x {
+    }
+}
+
+// case: syntax.expr.or/bare:try
+// parses as another construct
+func f() {
+    let v = try a || b
+}
+
+// case: syntax.expr.coalesce/bare:recv
+// parses as another construct
+func f() {
+    let v = a ?? b.b
+}
+
+// case: syntax.expr.coalesce/bare:rend
+// parses as another construct
+func f() {
+    for i in a ?? b..x {
+    }
+}
+
+// case: syntax.expr.coalesce/bare:try
+// parses as another construct
+func f() {
+    let v = try a ?? b
+}
+
+// case: syntax.borrow.place/bare:recv
+// parses as another construct
+func f() {
+    let v = borrow a[0].b
+}

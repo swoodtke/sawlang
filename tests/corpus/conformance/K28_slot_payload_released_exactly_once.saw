@@ -59,7 +59,7 @@ func nocopy_round_trip() {
     s.put(res("r1"))
     // `value()` lends the payload where it sits: a borrow, so nothing is
     // copied and nothing is released.
-    print("borrow {borrow let s.value().name}")
+    print("borrow {borrow s.value().name}")
 
     // Replace. The previous occupant dies HERE, at the statement that
     // displaces it — not at teardown.
@@ -91,7 +91,7 @@ func implicitcopy_tier() {
     let a = try! Arc<Res>(value: res("a"))
     var s = Slot<Arc<Res>>.empty()
     s.put(a)
-    print("inside {borrow let s.value().strong_count()}")
+    print("inside {borrow s.value().strong_count()}")
 
     let taken = s.take()
     print("after take {taken.strong_count()}")

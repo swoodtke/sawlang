@@ -15,7 +15,7 @@ func clone(t: &Tok) -> Tok {
 struct Reader { tokens: Vector<Tok>, pos: Int }
 extension Reader: NoCopy {}
 extension Reader {
-    func token(&self) -> Tok { clone(borrow let self.tokens[self.pos]) }
+    func token(&self) -> Tok { clone(borrow self.tokens[self.pos]) }
     func at(&self, k: Kind) -> Bool { self.token().kind == k }
     func classify(&self) -> Bool {
         if self.at(Kind.Let) || self.at(Kind.Var) || self.at(Kind.Return) || self.at(Kind.While) || self.at(Kind.Brace) { return true }

@@ -31,7 +31,7 @@ public func beta_vector_sum() -> Int {
     var total = 0
     var i = 0
     while i < v.len() {
-        total = total + borrow let v[i].score()
+        total = total + borrow v[i].score()
         i = i + 1
     }
     total

@@ -1,2 +1,2 @@
 status: flagged
-5 E flagged -- E.with-unique: the borrows accessor that replaces Arc.with_unique is not named
+5 E.with-unique flagged -- the call's value is read, and the conditional lend's block yields none (NilCoalesce.expr)

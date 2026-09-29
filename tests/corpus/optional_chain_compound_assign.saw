@@ -62,8 +62,7 @@ func main() {
     // A PLACE head — the Map subscript's conditional lend. The compound write
     // is the window's body, exactly as the plain one is.
     var scores = {"a": Point(x: 10, y: 0)}
-    let key_a = "a"
-    borrow var scores.find(&key_a)?.x += 20
+    borrow var scores.find(&"a")?.x += 20
     print(scores.get("a")!.x)        // 30
 
     // A fixed-width field: the bare literal adopts `Int8` (design 87).

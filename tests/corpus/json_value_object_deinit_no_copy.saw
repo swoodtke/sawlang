@@ -48,7 +48,7 @@ func main() {
     print("serialized twice, stable: {}", text1.equals(text2))
 
     // The tree is still there afterward, unconsumed.
-    let nums_len = borrow let carrier.tree.as_object()!["nums"].as_array()!.len()
+    let nums_len = borrow carrier.tree.as_object()!["nums"].as_array()!.len()
     print("tree still usable after serialize: nums_len={}", nums_len)
 
     print("about to drop carrier")

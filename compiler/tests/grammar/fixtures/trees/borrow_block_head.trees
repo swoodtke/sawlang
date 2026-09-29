@@ -5,7 +5,7 @@ borrow_block_head.saw: 1 tree(s)
         (Block
           (ExprStmt
             (BorrowBlock
-              (BorrowBinding.let
+              (BorrowBinding.var
                 (BindingName e)
                 (Call.paren
                   (Member (Name m) find)

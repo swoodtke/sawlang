@@ -631,7 +631,7 @@
     (Func a
       (Block
         (ExprStmt
-          (BorrowPlace.let (Name b)))))))
+          (BorrowPlace.shared (Name b)))))))
 
 // case: syntax.expr.unary.negate/alt
 (File

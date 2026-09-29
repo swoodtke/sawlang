@@ -1,19 +1,87 @@
-// case: syntax.rule.borrow-form/identifier-when-no-let-or-var-follows
+// case: syntax.rule.borrow-form/shared-before-anything-but-let-or-var
 (File
   (Declaration.func
     (Func f
       (Block
-        (Let.immutable (BindingName borrow) (IntLit 1))
+        (ExprStmt
+          (Call.paren
+            (Name g)
+            (Arg.positional
+              (BorrowPlace.shared (Name x)))))
         (Let.immutable
-          (BindingName b)
-          (Binary (Name borrow) + (IntLit 1)))
+          (BindingName n)
+          (BorrowPlace.shared
+            (Call.paren
+              (Member
+                (Deref (Name p))
+                slot)
+              (Arg.positional (IntLit 0)))))
+        (ExprStmt
+          (Call
+            (Name h)
+            (Closure
+              (ExprStmt
+                (BorrowPlace.shared
+                  (Subscript.single (ShorthandParam $0) (IntLit 0)))))))
+        (Let.immutable
+          (BindingName c)
+          (BorrowPlace.shared
+            (Subscript.single
+              (Array (Name a) (Name b))
+              (Name i))))))))
+
+// case: syntax.rule.borrow-form/exclusive-before-a-place
+(File
+  (Declaration.func
+    (Func f
+      (Block
         (ExprStmt
           (Call.paren
-            (Name borrow)
-            (Arg.positional (Name x))))
+            (Name g)
+            (Arg.positional
+              (BorrowPlace.var (Name x)))))
+        (CompoundAssign
+          (BorrowPlace.var
+            (Member
+              (Call.paren
+                (Member
+                  (Deref (Name p))
+                  slot)
+                (Arg.positional (IntLit 0)))
+              n))
+          +=
+          (IntLit 1))
+        (ExprStmt
+          (Call
+            (Name h)
+            (Closure
+              (Assign
+                (BorrowPlace.var
+                  (Subscript.single (ShorthandParam $0) (IntLit 0)))
+                (IntLit 1)))))))))
+
+// case: syntax.rule.borrow-form/line-break-inside-brackets
+(File
+  (Declaration.func
+    (Func f
+      (Block
         (ExprStmt
           (Call.paren
-            (Member (Name borrow) run)))))))
+            (Name g)
+            (Arg.positional
+              (BorrowPlace.shared
+                (Subscript.single (Name v) (Name i))))))
+        (ExprStmt
+          (Call.paren
+            (Name g)
+            (Arg.positional
+              (BorrowPlace.var
+                (Subscript.single (Name v) (Name i))))))
+        (Let.immutable
+          (BindingName t)
+          (Array
+            (BorrowPlace.shared
+              (Subscript.single (Name v) (Name i)))))))))
 
 // case: syntax.rule.borrow-form/block-binds-a-name
 (File
@@ -106,7 +174,7 @@
           (Call.paren
             (Name g)
             (Arg.positional
-              (BorrowPlace.let
+              (BorrowPlace.shared
                 (Subscript.single (Name v) (Name i))))
             (Arg.positional
               (BorrowPlace.var
@@ -168,7 +236,7 @@
         (Let.immutable
           (BindingName s)
           (Coalesce
-            (BorrowPlace.let
+            (BorrowPlace.shared
               (Call.paren
                 (Member
                   (Call.paren
@@ -189,7 +257,7 @@
             (Member
               (Subscript.single (Name v) (Name i))
               x))
-          (BorrowPlace.let
+          (BorrowPlace.shared
             (Member
               (Subscript.single (Name v) (Name j))
               x)))))))
@@ -202,14 +270,180 @@
         (Let.immutable
           (BindingName n)
           (Cast
-            (BorrowPlace.let
+            (BorrowPlace.shared
               (Subscript.single (Name v) (Name i)))
             as
             (NamedType (Path Int))))
         (Let.immutable
           (BindingName m)
           (Binary
-            (BorrowPlace.let
+            (BorrowPlace.shared
               (Subscript.single (Name v) (Name i)))
             +
             (IntLit 1)))))))
+
+// case: syntax.borrow.place/statement
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (BorrowPlace.shared
+            (Call.paren
+              (Member
+                (Subscript.single (Name v) (Name i))
+                touch))))
+        (ExprStmt
+          (BorrowPlace.var
+            (Call.paren
+              (Member
+                (Subscript.single (Name v) (Name i))
+                push)
+              (Arg.positional (Name x)))))))))
+
+// case: syntax.borrow.place/expression
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (BorrowPlace.shared
+            (Subscript.single (Name v) (Name i))))
+        (Let.immutable
+          (BindingName b)
+          (BorrowPlace.var
+            (Subscript.single (Name v) (Name i))))
+        (Let.immutable
+          (BindingName c)
+          (Binary
+            (BorrowPlace.shared
+              (Subscript.single (Name v) (Name i)))
+            +
+            (BorrowPlace.var
+              (Subscript.single (Name w) (Name j)))))))))
+
+// case: syntax.borrow.place/argument
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name g)
+            (Arg.positional
+              (BorrowPlace.shared
+                (Subscript.single (Name v) (Name i))))
+            (Arg.positional
+              (BorrowPlace.var
+                (Subscript.single (Name w) (Name j))))))
+        (ExprStmt
+          (Call.paren
+            (Name g)
+            (Arg.labelled a
+              (BorrowPlace.shared
+                (Subscript.single (Name v) (Name i))))
+            (Arg.labelled b
+              (BorrowPlace.var
+                (Subscript.single (Name w) (Name j))))))))))
+
+// case: syntax.borrow.place/interpolation-segment
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name print)
+            (Arg.positional
+              (Interp
+                (BorrowPlace.shared
+                  (Member
+                    (Subscript.single (Name v) (Name i))
+                    name))
+                " "
+                (BorrowPlace.var
+                  (Member
+                    (Subscript.single (Name w) (Name j))
+                    name))))))))))
+
+// case: syntax.borrow.place/assignment-target
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign
+          (BorrowPlace.var
+            (Subscript.single (Name v) (Name i)))
+          (Name x))
+        (Assign
+          (BorrowPlace.shared
+            (Subscript.single (Name v) (Name i)))
+          (Name x))
+        (CompoundAssign
+          (BorrowPlace.var
+            (Member
+              (Subscript.single (Name v) (Name i))
+              n))
+          +=
+          (IntLit 1))
+        (CompoundAssign
+          (BorrowPlace.shared
+            (Member
+              (Subscript.single (Name v) (Name i))
+              n))
+          +=
+          (IntLit 1))))))
+
+// case: syntax.borrow.place/right-side
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Assign
+          (Name x)
+          (BorrowPlace.shared
+            (Subscript.single (Name v) (Name i))))
+        (Assign
+          (Name x)
+          (BorrowPlace.var
+            (Subscript.single (Name v) (Name i))))
+        (CompoundAssign
+          (Name x)
+          +=
+          (BorrowPlace.shared
+            (Member
+              (Subscript.single (Name v) (Name i))
+              n)))))))
+
+// case: syntax.borrow.place/head
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (If
+            (BorrowPlace.shared
+              (Member
+                (Subscript.single (Name v) (Name i))
+                ready))
+            (Block)))
+        (ExprStmt
+          (While.conditional
+            (BorrowPlace.var
+              (Call.paren
+                (Member
+                  (Subscript.single (Name q) (Name k))
+                  pending)))
+            (Block)))
+        (ExprStmt
+          (For.plain
+            (BindingName e)
+            (BorrowPlace.shared
+              (Member
+                (Subscript.single (Name v) (Name i))
+                items))
+            (Block)))
+        (Return
+          (BorrowPlace.shared
+            (Subscript.single (Name v) (Name i))))))))

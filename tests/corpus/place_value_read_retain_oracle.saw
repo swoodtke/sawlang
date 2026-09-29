@@ -47,7 +47,7 @@ func main() {
 
     // A BORROW through the place costs nothing.
     print("-- borrow, no copy")
-    print("{borrow let res[0].name}")
+    print("{borrow res[0].name}")
 
     // A VALUE READ retains, so the holder and the vector each own one.
     print("-- value read retains")

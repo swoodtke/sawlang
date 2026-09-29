@@ -174,10 +174,10 @@ list; between two operands it is refused, since a range is `..` or `..=`
 These words are keywords. The lexer never produces an `IDENT` for them, so they
 cannot name anything:
 
-`as` `borrows` `break` `case` `catch` `continue` `else` `enum` `extension`
-`extern` `false` `for` `func` `guard` `if` `in` `init` `lend` `let` `match`
-`move` `None` `not` `public` `return` `self` `static` `struct` `trait` `true`
-`try` `unsafe` `var` `while`
+`as` `borrow` `borrows` `break` `case` `catch` `continue` `else` `enum`
+`extension` `extern` `false` `for` `func` `guard` `if` `in` `init` `lend` `let`
+`match` `move` `None` `not` `public` `return` `self` `static` `struct` `trait`
+`true` `try` `unsafe` `var` `while`
 
 These words have a meaning in one position and are ordinary identifiers
 everywhere else:
@@ -195,7 +195,6 @@ everywhere else:
 | `blocking` | before `func` in an extern block | syntax.decl.extern-func |
 | `copy` | a capture-list mode | syntax.expr.capture |
 | `lends` | followed by `self` or a name | syntax.expr.lends |
-| `borrow` | followed by `let` or `var` | syntax.borrow.place, syntax.borrow.block, syntax.borrow.unwrap, syntax.borrow.for, syntax.pat.borrow-binding |
 | `static_assert` | followed by `(` | syntax.decl.static-assert |
 | `sizeof` `alignof` | in a const-generic argument | syntax.const.layout-query |
 | `_` | a pattern or a discarded binding | syntax.pat.wildcard, syntax.stmt.refused-var-discard |
@@ -1044,7 +1043,7 @@ syntax.rule.flat-chains). Postfix chains stay nested, one node per hop.
 | tier | operators | associativity | production |
 |---|---|---|---|
 | 1 | call `(…)`, trailing closure, subscript `[…]`, member `.name`, tuple index `.0`, optional member `?.name`, force `!` | left, nested | syntax.expr.postfix |
-| 2 | prefix `-` `not` `~` `*` `&` `&var` `move` `try` `try?` `try!` `lends` `borrow let` `borrow var` | prefix | syntax.expr.prefix |
+| 2 | prefix `-` `not` `~` `*` `&` `&var` `move` `try` `try?` `try!` `lends` `borrow` `borrow var` | prefix | syntax.expr.prefix |
 | 3 | `as` | left, nested | syntax.expr.cast |
 | 4 | `*` `/` `%` `&*` | left, flat | syntax.expr.multiplicative |
 | 5 | `+` `-` `&+` `&-` | left, flat | syntax.expr.additive |
@@ -1591,12 +1590,14 @@ none-pattern ::= "None"
 
 ## 9. The borrow construct
 
-`borrow let` and `borrow var` mark every use of storage in place. The block form
-names the place and scopes it to a block; the place form borrows for one
-statement, or for a call when written as an argument. The forms are told apart
-by what follows `let` or `var` (§13, syntax.rule.borrow-form). The place form's
-operand is a postfix expression, so it binds tighter than every binary operator,
-`as` and `=` (§13, syntax.rule.borrow-extent).
+`borrow` marks every use of storage in place. The block form names the place
+and scopes it to a block; the place form borrows for one statement, or for a
+call when written as an argument. Where a name is bound, `let` or `var` follows
+`borrow` and gives the binding's mode. The place form binds no name: bare
+`borrow` is shared and `borrow var` is exclusive, as `&` and `&var` are. The
+forms are told apart by the tokens after `borrow` (§13, syntax.rule.borrow-form).
+The place form's operand is a postfix expression, so it binds tighter than every
+binary operator, `as` and `=` (§13, syntax.rule.borrow-extent).
 
 A borrow binding stands in four places: a `borrow` block, an `if` or `else if`
 head, a `for` head, and a variant's payload pattern. A `guard`, a `while`, the
@@ -1604,30 +1605,31 @@ top level of a `case` pattern and a tuple pattern take none.
 
 ```ebnf
 # syntax.borrow.block  status=lockdown  spec="Places (`borrows` and `lend`)"  node=BorrowBlock  ref="SL:borrowing §2.1"
-borrow-block ::= 'borrow' borrow-binding ( "," borrow-binding )* NEWLINE* block
+borrow-block ::= "borrow" borrow-binding ( "," borrow-binding )* NEWLINE* block
 
 # syntax.borrow.binding  status=lockdown  spec="Places (`borrows` and `lend`)"  node=BorrowBinding  ref="SL:borrowing §2.3"
 borrow-binding ::= "let" binding-target "=" head-expr  @syntax.borrow.binding.let
     | "var" binding-target "=" head-expr  @syntax.borrow.binding.var
 
 # syntax.borrow.place  status=lockdown  spec="Places (`borrows` and `lend`)"  node=BorrowPlace  ref="SL:borrowing §2.2"
-borrow-place ::= 'borrow' "let" postfix-expr  @syntax.borrow.place.let
-    | 'borrow' "var" postfix-expr  @syntax.borrow.place.var
+borrow-place ::= "borrow" postfix-expr  @syntax.borrow.place.shared
+    | "borrow" "var" postfix-expr  @syntax.borrow.place.var
+    | refused-borrow-let-unbound  @syntax.borrow.place.refused-let
 
 # syntax.borrow.optional-target  status=lockdown  spec="Optionals"  node=BorrowPlace  ref="SL:borrowing §9.1"
-borrow-optional-target ::= 'borrow' "var" optional-chain-target
+borrow-optional-target ::= "borrow" "var" optional-chain-target
 
 # syntax.borrow.unwrap  status=lockdown  spec="Conditional lends (`borrows -> &T?`)"  node=BorrowArm  ref="SL:borrowing §2.4"
-borrow-unwrap ::= 'borrow' "let" binding-name "=" head-expr  @syntax.borrow.unwrap.let
-    | 'borrow' "var" binding-name "=" head-expr  @syntax.borrow.unwrap.var
+borrow-unwrap ::= "borrow" "let" binding-name "=" head-expr  @syntax.borrow.unwrap.let
+    | "borrow" "var" binding-name "=" head-expr  @syntax.borrow.unwrap.var
 
 # syntax.borrow.for  status=lockdown  spec="Borrowing structs"  node=ForBorrow  ref="SL:borrowing §2.6"
-for-borrow ::= "for" 'borrow' "let" binding-name "in" head-expr NEWLINE* block  @syntax.borrow.for.let
-    | "for" 'borrow' "var" binding-name "in" head-expr NEWLINE* block  @syntax.borrow.for.var
+for-borrow ::= "for" "borrow" "let" binding-name "in" head-expr NEWLINE* block  @syntax.borrow.for.let
+    | "for" "borrow" "var" binding-name "in" head-expr NEWLINE* block  @syntax.borrow.for.var
 
 # syntax.pat.borrow-binding  status=lockdown  spec="Lending an enum payload"  node=BorrowBindPat  ref="SL:borrowing §2.4"
-borrow-binding-pattern ::= 'borrow' "let" IDENT  @syntax.pat.borrow-binding.let
-    | 'borrow' "var" IDENT  @syntax.pat.borrow-binding.var
+borrow-binding-pattern ::= "borrow" "let" IDENT  @syntax.pat.borrow-binding.let
+    | "borrow" "var" IDENT  @syntax.pat.borrow-binding.var
 ```
 
 ## 10. Refused forms
@@ -1705,6 +1707,9 @@ refused-generic-arg-comma ::= "<" generic-arg ( "," generic-arg )* "," ">"
 
 # syntax.expr.refused-unsafe  status=removed  spec="The accessor rule"  node=Error
 refused-unsafe-expr ::= "unsafe" prefix-expr
+
+# syntax.expr.refused-borrow-let-unbound  status=removed  spec="Places (`borrows` and `lend`)"  node=Error  ref="SL:borrowing §2.2"
+refused-borrow-let-unbound ::= "borrow" "let" postfix-expr
 
 # syntax.expr.refused-lend-var  status=removed  spec="`#lend_var`: a body that knows its flavor"  node=Error  ref="SL:borrowing §4"
 refused-lend-var ::= "#lend_var"
@@ -1785,6 +1790,7 @@ Each refused form, why it is refused, and what its diagnostic suggests:
 | syntax.generic.refused-param-comma | A trailing comma is allowed only in `(…)` and `[…]` lists. | drop the comma |
 | syntax.generic.refused-arg-comma | A trailing comma is allowed only in `(…)` and `[…]` lists. | drop the comma |
 | syntax.expr.refused-unsafe | Unsafety belongs to a declaration, not to a line. | mark the enclosing function `unsafe` |
+| syntax.expr.refused-borrow-let-unbound | `let` after `borrow` introduces a name. A place borrowed with no name bound is shared when written bare, as `&` is. | `borrow <place>`, or `borrow let x = <place> { … }` to bind it |
 | syntax.expr.refused-lend-var | A body never tests its lend mode. When the shared and exclusive bodies differ, both are written (SL:borrowing §4). | two accessors, or `@synthesize(shared)` |
 | syntax.expr.refused-try-route | `try!` panics and `try?` discards, so neither has an error to route, and a routed `try` leaves no error for a `catch`. | `try(as E.Case) f()` alone |
 | syntax.expr.refused-compare-chain | A comparison takes two operands. A chain would compare the first result, a `Bool`, with the next operand. | `a < b && b < c` |
@@ -1816,7 +1822,7 @@ a type fact.
 | `g[4].weight += 1`, a write through a `borrows` subscript or accessor | syntax.stmt.compound-assign | `borrow var g[4].weight += 1` |
 | `c.slot(i) = v`, an assignment to an accessor call | syntax.stmt.call-target | `borrow var c.slot(i) = v` |
 | `bump(&var g[4])`, a reference argument through an accessor | syntax.expr.ref | `bump(borrow var g[4])` |
-| `&buf[4..]`, a reference to a slice | syntax.expr.ref | `borrow let buf[4..]` |
+| `&buf[4..]`, a reference to a slice | syntax.expr.ref | `borrow buf[4..]` |
 | `m[k]?.field = v`, a chain write through a conditional accessor | syntax.stmt.optional-assign | `borrow var m.find(&k)?.field = v` |
 | `m[k]! = v`, a forced write through a map subscript | syntax.stmt.assign | `m[k] = v` to insert, or `borrow var e = m[k] { e = v }` to require the key |
 | `if var x = e` over an optional place | syntax.expr.optional-binding | `if borrow var x = e` |
@@ -1861,7 +1867,7 @@ of top-level items, and the `?` suffixes of a type.
 | syntax.expr.move | 1 for `move`, and 1 more for a `*` after it | the end of its place path |
 | syntax.expr.try | 1 for `try`, `try?` or `try!` | its operand's end |
 | syntax.expr.lends | 1 | its operand's end |
-| syntax.borrow.place | 1 for `borrow let` or `borrow var` | its operand's end |
+| syntax.borrow.place | 1 for `borrow` or `borrow var` | its operand's end |
 | syntax.expr.if | 1 per `if` chain, whatever its number of arms | the chain's end |
 | syntax.expr.match | 1 | its `}` |
 | syntax.expr.while | 1 | its body's end |
@@ -2059,8 +2065,8 @@ decides. The constructs column names the productions a rule governs.
 | syntax.rule.try-extent | syntax.expr.try, syntax.expr.cast | `try`, `try?` and `try!` sit at the prefix tier and apply to the prefix expression after them, so `try parse_id() as UserId` casts the unwrapped value and `try f() + 1` adds to it. | Error routing at `try`; SL-400 c6 | lockdown |
 | syntax.rule.postfix-per-hop | syntax.expr.postfix, syntax.expr.cast | A postfix chain stays nested, one node per hop, and every hop charges one nesting level until the chain ends (§11). | SL:architecture §3.2; SL-380 | current |
 | syntax.rule.depth-limit | syntax.expr.postfix, syntax.expr.prefix, syntax.expr.primary, syntax.type.type, syntax.pat.pattern | Nesting deeper than 256 levels is refused at the opener of the 257th, as §11 counts. | Layout; design 259 R4 | current |
-| syntax.rule.borrow-form | syntax.borrow.block, syntax.borrow.place, syntax.borrow.unwrap, syntax.borrow.for | `borrow` followed by `let` or `var` is the borrow construct; otherwise `borrow` is an identifier. After `let` or `var`, a name followed by `=`, or a parenthesized pattern followed by `=`, is a binding: a `borrow` block, or at an `if` head an optional-place unwrap. Anything else is the place form. After `for`, `borrow let` and `borrow var` bind the loop name. | Places (`borrows` and `lend`); SL:borrowing §2 | lockdown |
-| syntax.rule.borrow-extent | syntax.borrow.place, syntax.borrow.optional-target | The place form's operand is a postfix expression, whatever its hops, so it binds tighter than `as`, every binary operator and `=`. Where the `borrows` call falls inside the operand is decided by typing, not by the parser. `borrow let doc.section_at(x).get("k") ?? ""` coalesces the borrowed read, and `borrow var v[i].x = borrow let v[j].x` assigns between two place forms. | Places (`borrows` and `lend`); SL:borrowing §2.2 | lockdown |
+| syntax.rule.borrow-form | syntax.borrow.block, syntax.borrow.place, syntax.borrow.unwrap, syntax.borrow.for, syntax.expr.refused-borrow-let-unbound | `borrow` is a keyword, and the tokens after it decide the form. `let` or `var` followed by a binding target, a name or a parenthesized pattern, and then `=` is a binding: a `borrow` block, or at an `if` head an optional-place unwrap. `var` followed by anything else is the exclusive place form, and `let` followed by anything else is refused, since `let` introduces a name and there is none (syntax.expr.refused-borrow-let-unbound). Anything else after `borrow` is the shared place form, so `borrow (x)` borrows `(x)` and `borrow $0[0]` an element of a closure's parameter. After `for`, `borrow let` and `borrow var` bind the loop name. No significant line break (§2.4) stands between `borrow` and the token after it, or between `borrow var` and its operand: at a statement's level `borrow` at the end of a line is refused, and inside `(` or `[`, where line breaks are insignificant, the form continues on the next line. | Places (`borrows` and `lend`); SL:borrowing §2 | lockdown |
+| syntax.rule.borrow-extent | syntax.borrow.place, syntax.borrow.optional-target | The place form's operand is a postfix expression, whatever its hops, so it binds tighter than `as`, every binary operator and `=`. Where the `borrows` call falls inside the operand is decided by typing, not by the parser. `borrow doc.section_at(x).get("k") ?? ""` coalesces the borrowed read, and `borrow var v[i].x = borrow v[j].x` assigns between two place forms. | Places (`borrows` and `lend`); SL:borrowing §2.2 | lockdown |
 | syntax.rule.optional-chain-run | syntax.expr.optional-member, syntax.stmt.optional-assign, syntax.stmt.optional-chain-target | A `?.` hop opens a run that continues over member, optional, call and trailing-closure hops. A `!`, a subscript, a tuple index, or the end of the postfix expression closes it; one short-circuit skips the whole run, which the tree holds as one `OptionalChain` node (§1). An assignment whose target ends in an open run is an optional assignment of type `Void?`; `a?.b[0] = 1` closes the run first and is a plain assignment. | Optionals | current |
 | syntax.rule.label-or-tuple | syntax.expr.argument, syntax.expr.tuple, syntax.expr.tuple-field, syntax.type.tuple | At the start of a call argument, a name followed by `:` is a label. Inside grouping parentheses, a name followed by `:` begins a named tuple, which labels every element or none. | Composite Types | current |
 | syntax.rule.paren-type | syntax.type.func, syntax.type.tuple, syntax.type.single-tuple, syntax.type.paren | In a type, a parenthesized list followed by effect words and `->` is a function type. Otherwise `()` is the empty tuple, a list with a comma or labels is a tuple, `(T,)` is a one-element tuple, and `(T)` groups `T`, so `((Int) -> Int)?` is an optional function. | Composite Types; SL-400 c6 | lockdown |
@@ -2173,7 +2179,8 @@ the two disagree, a row below says which way and why. Where a grammar rule
 
 | construct | this grammar | today's parser | kind | source |
 |---|---|---|---|---|
-| syntax.borrow.block, syntax.borrow.place, syntax.borrow.unwrap, syntax.borrow.for, syntax.pat.borrow-binding | parses every `borrow let` and `borrow var` form | refuses them | ruled | SL:borrowing §2 |
+| syntax.borrow.block, syntax.borrow.place, syntax.borrow.unwrap, syntax.borrow.for, syntax.pat.borrow-binding | parses every `borrow` form | refuses them | ruled | SL:borrowing §2 |
+| syntax.borrow.place, syntax.rule.borrow-form | takes `borrow` as a keyword, so it names nothing, and `borrow(x)` and `borrow.f()` are shared borrows of `(x)` and `.f()` | `sawc/lexer.py` lexes `borrow` as an identifier and the parser reads it as a name, so `let borrow = 1` declares a local and `borrow(x)` calls a function | ruled | SL:borrowing §2.2; SL-423 |
 | syntax.type.slice, syntax.expr.range-from, syntax.rule.prefix-type-suffix | parses `&[T]`, `&var [T]`, the optional slice `&[T]?`, and `buf[4..]` | refuses them | ruled | SL:borrowing §6 |
 | syntax.expr.multi-subscript, syntax.rule.subscript-arguments | parses `m[r, c]` and `m[k, default: 0]` | refuses a second subscript argument | ruled | SL:borrowing §5.3 |
 | syntax.decl.setitem-name, syntax.rule.subscript-declaration | parses `func []=`, and `func []` without `borrows` as a getitem | refuses both | ruled | SL:borrowing §5.1 |

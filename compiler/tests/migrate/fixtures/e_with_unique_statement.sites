@@ -1,0 +1,2 @@
+status: rewritten
+5 E.with-unique rewritten => borrow var c = a.unique() { if borrow var c = c {\n} }

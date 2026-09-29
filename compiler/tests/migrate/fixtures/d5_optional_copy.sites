@@ -1,0 +1,2 @@
+status: rewritten
+21 D5.optional-copy rewritten => let c = borrow b.slot(0)

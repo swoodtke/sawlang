@@ -183,20 +183,6 @@
   (Declaration.trait
     (Trait T (Path m P) (Path Q))))
 
-// case: SL-400-c6-Q12/borrow-is-an-identifier-before-anything-but-let-or-var
-(File
-  (Declaration.func
-    (Func f
-      (Block
-        (Let.immutable (BindingName borrow) (IntLit 1))
-        (Let.immutable
-          (BindingName b)
-          (Binary (Name borrow) + (IntLit 1)))
-        (ExprStmt
-          (Call.paren
-            (Name borrow)
-            (Arg.positional (Name x))))))))
-
 // case: SL-400-c6-Q13/lone-name-pattern
 (File
   (Declaration.func

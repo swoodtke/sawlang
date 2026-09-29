@@ -1,2 +1,2 @@
 status: rewritten
-4 K14.get-to-place rewritten => let n = borrow let m["k"][1]
+4 K14.get-to-place rewritten => let n = borrow m["k"][1]

@@ -1,0 +1,9 @@
+struct Cell { n: Int }
+
+func main() {
+    var a = try! Arc<Cell>(value: Cell(n: 1))
+    a.with_unique({ c in
+        c.n += 1
+    })
+    print(a.strong_count())
+}

@@ -6,5 +6,5 @@ func show(c: &Cell) { print(c.n) }
 func main() {
     var v: Vector<Cell> = [Cell(n: 1)]
     bump(borrow var v[0].n)
-    show(borrow let v[0])
+    show(borrow v[0])
 }

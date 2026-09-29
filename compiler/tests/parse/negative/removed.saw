@@ -106,6 +106,9 @@ func a() { match b { case.c -> d } }
 // case: syntax.pat.tuple.refused-named
 func a() { while let (b: c) = d { } }
 
+// case: syntax.borrow.place.refused-let
+func a() { borrow let b }
+
 // case: syntax.decl.refused-effect-prefix.func
 unsafe func a()
 
@@ -198,6 +201,9 @@ type a = b < c, >
 
 // case: syntax.expr.refused-unsafe
 func a() { unsafe b }
+
+// case: syntax.expr.refused-borrow-let-unbound
+func a() { borrow let b }
 
 // case: syntax.expr.refused-lend-var
 func a() { #lend_var }

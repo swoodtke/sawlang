@@ -1,2 +1,2 @@
 status: flagged
-6 E flagged -- E.try-lock: the conditional lock accessor that replaces SpinLock.try_lock is not spelled
+6 E.try-lock flagged -- the call's value is read, and the conditional lend's block yields none (IfLetExpr.optional_expr)

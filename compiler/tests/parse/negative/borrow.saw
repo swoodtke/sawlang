@@ -27,3 +27,68 @@ func f() {
         case (borrow let x, y) -> g(x)
     }
 }
+
+// case: syntax.expr.refused-borrow-let-unbound/statement
+func f() {
+    borrow let v[i].touch()
+}
+
+// case: syntax.expr.refused-borrow-let-unbound/argument
+func f() {
+    g(borrow let v[i])
+}
+
+// case: syntax.expr.refused-borrow-let-unbound/expression
+func f() {
+    let n = borrow let v[i] + 1
+}
+
+// case: syntax.expr.refused-borrow-let-unbound/interpolation-segment
+func f() {
+    print("{borrow let v[i].name}")
+}
+
+// case: syntax.expr.refused-borrow-let-unbound/assignment-target
+func f() {
+    borrow let v[i] = x
+}
+
+// case: syntax.rule.borrow-form/line-break-after-borrow-at-statement-level
+func f() {
+    borrow
+    v[i].touch()
+}
+
+// case: syntax.rule.borrow-form/line-break-after-borrow-var-at-statement-level
+func f() {
+    borrow var
+    v[i] = x
+}
+
+// case: syntax.rule.borrow-form/borrow-without-an-operand
+func f() {
+    let b = borrow + 1
+}
+
+// case: syntax.stmt.binding-name/borrow-is-a-keyword
+func f() {
+    let borrow = 1
+}
+
+// case: syntax.decl.param/borrow-is-a-keyword
+func f(borrow: Int) {
+}
+
+// case: syntax.decl.func/borrow-is-a-keyword
+func borrow() {
+}
+
+// case: syntax.decl.field/borrow-is-a-keyword
+struct S {
+    borrow: Int
+}
+
+// case: syntax.expr.member/borrow-is-a-keyword
+func f() {
+    x.borrow()
+}

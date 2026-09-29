@@ -70,7 +70,7 @@ func show_map(label: String, m: &Map<String, Rec>) {
 
 func main() {
     let v = vector_try_copy()
-    print("vector try_copy: {borrow let v[0].text}")
+    print("vector try_copy: {borrow v[0].text}")
 
     let a = map_copy()
     show_map("map copy", &a)

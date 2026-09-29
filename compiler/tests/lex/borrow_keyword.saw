@@ -1,0 +1,11 @@
+// `borrow` is a keyword token wherever it stands; `borrows` and `borrowed`
+// are a keyword and an identifier of their own.
+func bump(v: &var Vector<Int>) borrows -> &var Int {
+    borrow var slot = v[0] {
+        slot += 1
+    }
+    borrow var v[1] += 1
+    print(borrow v[0], borrow var v[1])
+    let borrowed = 2
+    lend v[borrowed]
+}

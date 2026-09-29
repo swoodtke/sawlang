@@ -1,0 +1,3 @@
+status: rewritten
+6 E.try-lock rewritten => borrow var c = STATS.try_lock() { if borrow var c = c { c += 1 } }
+7 E.lock rewritten => print(borrow var c = STATS.lock() { c })

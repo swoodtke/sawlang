@@ -22,6 +22,6 @@ func main() {
     print(v.len())            // 2
     // A NoCopy element is READ IN PLACE through the element place (design
     // 141/146); taking it out as a value would alias storage the vector owns.
-    print(borrow let v[0].id)            // 7
-    print(borrow let v[1].id)            // 9
+    print(borrow v[0].id)            // 7
+    print(borrow v[1].id)            // 9
 }

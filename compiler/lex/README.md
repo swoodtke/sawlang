@@ -2,8 +2,9 @@
 
 The lexer stage of the self-hosted compiler (`compiler/README.md`). It produces
 the same token kinds, token boundaries, 1-based `line:col` positions and lex-error
-positions as the Python lexer in `sawc/lexer.py`. `LANGUAGE_SPEC.md`'s lexical
-section is authoritative where the two disagree. The golden fixtures in
+positions as the Python lexer in `sawc/lexer.py`, but for `borrow`, which is a
+keyword here and an identifier there (GRAMMAR.md §16). `LANGUAGE_SPEC.md`'s
+lexical section is authoritative where the two disagree. The golden fixtures in
 `compiler/tests/lex/` pin its output.
 
 ## Layout
@@ -122,39 +123,39 @@ comments.
 | `InterpString` | `INTERP_STRING` | `Not_` | `NOT` |
 | `Ident` | `IDENT` | `Move_` | `MOVE` |
 | `Func` | `FUNC` | `Unsafe_` | `UNSAFE` |
-| `Let` | `LET` | `Borrows` | `BORROWS` |
-| `Var` | `VAR` | `Lend` | `LEND` |
-| `If` | `IF` | `Assign` | `ASSIGN` |
-| `Else` | `ELSE` | `PlusAssign` | `PLUS_ASSIGN` |
-| `Guard` | `GUARD` | `MinusAssign` | `MINUS_ASSIGN` |
-| `Return` | `RETURN` | `StarAssign` | `STAR_ASSIGN` |
-| `True_` | `TRUE` | `SlashAssign` | `SLASH_ASSIGN` |
-| `False_` | `FALSE` | `PercentAssign` | `PERCENT_ASSIGN` |
-| `Struct` | `STRUCT` | `AmpAssign` | `AMP_ASSIGN` |
-| `Extension` | `EXTENSION` | `PipeAssign` | `PIPE_ASSIGN` |
-| `SelfKw` | `SELF` | `CaretAssign` | `CARET_ASSIGN` |
-| `Init` | `INIT` | `ShlAssign` | `SHL_ASSIGN` |
-| `NoneKw` | `NONE` | `ShrAssign` | `SHR_ASSIGN` |
-| `Enum` | `ENUM` | `Question` | `QUESTION` |
-| `Case` | `CASE` | `DoubleQuestion` | `DOUBLE_QUESTION` |
-| `Match` | `MATCH` | `Exclaim` | `EXCLAIM` |
-| `While` | `WHILE` | `QuestionDot` | `QUESTION_DOT` |
-| `Break` | `BREAK` | `DotDot` | `DOTDOT` |
-| `Continue` | `CONTINUE` | `DotDotEq` | `DOTDOT_EQ` |
-| `Trait` | `TRAIT` | `Ellipsis` | `ELLIPSIS` |
-| `For` | `FOR` | `LParen` | `LPAREN` |
-| `In` | `IN` | `RParen` | `RPAREN` |
-| `Extern` | `EXTERN` | `LBrace` | `LBRACE` |
-| `As` | `AS` | `RBrace` | `RBRACE` |
-| `Try` | `TRY` | `LBracket` | `LBRACKET` |
-| `Catch` | `CATCH` | `RBracket` | `RBRACKET` |
-| `Static` | `STATIC` | `Comma` | `COMMA` |
-| `Public` | `PUBLIC` | `Colon` | `COLON` |
-| `Plus` … `Tilde` | `PLUS` … `TILDE` | `Semicolon` | `SEMICOLON` |
-| `HashDirective` | `HASH_DIRECTIVE` | `Arrow` | `ARROW` |
-| `DollarParam` | `DOLLAR_PARAM` | `Dot` | `DOT` |
-| `Newline` | `NEWLINE` | `At` | `AT` |
-| `Eof` | `EOF` | | |
+| `Let` | `LET` | `Borrow` | `BORROW` |
+| `Var` | `VAR` | `Borrows` | `BORROWS` |
+| `If` | `IF` | `Lend` | `LEND` |
+| `Else` | `ELSE` | `Assign` | `ASSIGN` |
+| `Guard` | `GUARD` | `PlusAssign` | `PLUS_ASSIGN` |
+| `Return` | `RETURN` | `MinusAssign` | `MINUS_ASSIGN` |
+| `True_` | `TRUE` | `StarAssign` | `STAR_ASSIGN` |
+| `False_` | `FALSE` | `SlashAssign` | `SLASH_ASSIGN` |
+| `Struct` | `STRUCT` | `PercentAssign` | `PERCENT_ASSIGN` |
+| `Extension` | `EXTENSION` | `AmpAssign` | `AMP_ASSIGN` |
+| `SelfKw` | `SELF` | `PipeAssign` | `PIPE_ASSIGN` |
+| `Init` | `INIT` | `CaretAssign` | `CARET_ASSIGN` |
+| `NoneKw` | `NONE` | `ShlAssign` | `SHL_ASSIGN` |
+| `Enum` | `ENUM` | `ShrAssign` | `SHR_ASSIGN` |
+| `Case` | `CASE` | `Question` | `QUESTION` |
+| `Match` | `MATCH` | `DoubleQuestion` | `DOUBLE_QUESTION` |
+| `While` | `WHILE` | `Exclaim` | `EXCLAIM` |
+| `Break` | `BREAK` | `QuestionDot` | `QUESTION_DOT` |
+| `Continue` | `CONTINUE` | `DotDot` | `DOTDOT` |
+| `Trait` | `TRAIT` | `DotDotEq` | `DOTDOT_EQ` |
+| `For` | `FOR` | `Ellipsis` | `ELLIPSIS` |
+| `In` | `IN` | `LParen` | `LPAREN` |
+| `Extern` | `EXTERN` | `RParen` | `RPAREN` |
+| `As` | `AS` | `LBrace` | `LBRACE` |
+| `Try` | `TRY` | `RBrace` | `RBRACE` |
+| `Catch` | `CATCH` | `LBracket` | `LBRACKET` |
+| `Static` | `STATIC` | `RBracket` | `RBRACKET` |
+| `Public` | `PUBLIC` | `Comma` | `COMMA` |
+| `Plus` … `Tilde` | `PLUS` … `TILDE` | `Colon` | `COLON` |
+| `HashDirective` | `HASH_DIRECTIVE` | `Semicolon` | `SEMICOLON` |
+| `DollarParam` | `DOLLAR_PARAM` | `Arrow` | `ARROW` |
+| `Newline` | `NEWLINE` | `Dot` | `DOT` |
+| `Eof` | `EOF` | `At` | `AT` |
 
 The remaining single-character operators map by uppercasing:
 `Minus`→`MINUS`, `Star`→`STAR`, `Slash`→`SLASH`, `Percent`→`PERCENT`,

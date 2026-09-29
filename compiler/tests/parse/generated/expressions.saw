@@ -239,7 +239,7 @@ func a() { try b }
 func a() { lends b }
 
 // case: syntax.expr.prefix.borrow/alt
-func a() { borrow let b }
+func a() { borrow b }
 
 // case: syntax.expr.unary.negate/alt
 func a() { - b }

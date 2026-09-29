@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""The generated negative cases: removed forms, section-12 N cells, mutations.
+"""The generated negative cases: removed forms, section-12 N cells and P cells'
+bare forms, mutations.
 
     python compiler/tests/grammar/negative.py            write them to compiler/tests/parse/negative/
     python compiler/tests/grammar/negative.py --check    fail when regenerating differs
 
-Three case files of compiler/tests/parse/negative/ are generated, with their
+Four case files of compiler/tests/parse/negative/ are generated, with their
 expectations (cases.py): `removed`, a case per removed alternative, refused as
-its removed production; `cells`, a case per section-12 N cell; and
-`mutations`, one token dropped, duplicated or swapped, or a closing bracket
-dropped, in each generated `/alt` case, a mutation the recognizer accepts
-discarded. compiler/tests/parse/README.md describes each.
+its removed production; `cells`, a case per section-12 N cell; `bare`, a case
+per P cell, its generated program without the parentheses; and `mutations`,
+one token dropped, duplicated or swapped, or a closing bracket dropped, in
+each generated `/alt` case, a mutation the recognizer accepts discarded.
+compiler/tests/parse/README.md describes each.
 
 ENTRY POINTS
     generate
@@ -143,11 +145,36 @@ class Worker:
                 break
         return [result]
 
-    def mutate(self, area, index):
+    def generated(self, area):
+        """The generated cases of one area, as (name, text) in file order."""
         if area not in self.areas:
             path = os.path.join(generate.GENERATED, area + ".saw")
-            self.areas[area] = generate.read_cases(path)
-        source, text = self.areas[area][int(index)]
+            self.areas[area] = generate.read_cases(path) if os.path.exists(path) else []
+        return self.areas[area]
+
+    def bare(self, construct, ctx):
+        """A P cell's construct without its parentheses, in the program its
+        generated case stands in: refused, or read as another construct whose
+        tree does not place it in the context."""
+        name = "%s%s%s" % (construct, cases.BARE, ctx)
+        area = generate.area_of(self.exp.model, construct)
+        positive = dict(self.generated(area)).get("%s%s%s" % (construct, cases.CELL, ctx))
+        instance = generate.INSTANCES[construct][0]
+        if positive is None:
+            return [[name, None, None, "the P cell has no generated case", None, []]]
+        for template in generate.CONTEXTS[ctx]:
+            if generate.splice(template, "(%s)" % instance) == positive:
+                break
+        else:
+            return [[name, None, None, "no context program writes the generated case", None, []]]
+        text = generate.splice(template, instance)
+        result = self.expect(name, text)
+        if result[3] is not None and result[3].startswith("accepted; "):
+            result = self.expect(name, cases.PARSES_AS_NOTE + "\n" + text)
+        return [result]
+
+    def mutate(self, area, index):
+        source, text = self.generated(area)[int(index)]
         out = []
         for kind in MUTATIONS:
             name = "%s/%s" % (source, kind)
@@ -238,14 +265,16 @@ def mutation(text, kind, name):
 
 
 def jobs(g):
-    """The generation jobs in file order: removed forms, cells, mutations."""
+    """The generation jobs in file order: removed forms, N cells, P cells' bare
+    forms, mutations."""
     out = ["removed\t%s\t%d\t%s" % r for r in removed_alternatives(g)]
     table = g.model.tables_of(extract.MATRIX)[0]
     contexts = table.header[1:]
-    for _, row in table.rows:
-        for ctx, code in zip(contexts, row[1:]):
-            if code == "N":
-                out.append("cell\t%s\t%s" % (row[0], ctx))
+    for code, kind in (("N", "cell"), ("P", "bare")):
+        for _, row in table.rows:
+            for ctx, cell in zip(contexts, row[1:]):
+                if cell == code:
+                    out.append("%s\t%s\t%s" % (kind, row[0], ctx))
     for _, area in sorted(generate.AREAS.items()):
         path = os.path.join(generate.GENERATED, area + ".saw")
         if not os.path.exists(path):
@@ -270,8 +299,8 @@ def generate_all(jobs_count=None):
     todo = jobs(g)
     results = recognize.run_workers([os.path.abspath(__file__), "--worker"], todo,
                                     jobs_count or recognize.default_jobs())
-    out = {"removed": [], "cells": [], "mutations": []}
-    stems = {"removed": "removed", "cell": "cells", "mutate": "mutations"}
+    out = {"removed": [], "cells": [], "bare": [], "mutations": []}
+    stems = {"removed": "removed", "cell": "cells", "bare": "bare", "mutate": "mutations"}
     seen = set()
     for job, result in zip(todo, results):
         stem = stems[job.split("\t")[0]]
@@ -298,13 +327,13 @@ def files_of(generated):
 
 
 def problems(generated, waivers):
-    """Failure lines: a removed form or a cell with no case, unless waived."""
+    """Failure lines: a removed form, an N cell or a P cell with no case,
+    unless waived."""
     out = []
-    for stem in ("removed", "cells"):
-        kind = "removed" if stem == "removed" else "n-cell"
+    for stem, kind in (("removed", "removed"), ("cells", "n-cell"), ("bare", "p-cell")):
         for r in generated[stem]:
             if r[2] is None:
-                item = r[0] if kind == "removed" else r[0].replace(cases.CELL, " ")
+                item = r[0] if kind == "removed" else " ".join(cases.cell_of(r[0]))
                 if (kind, item) not in waivers:
                     out.append("negative case %s: %s" % (r[0], r[3]))
     return out
@@ -314,6 +343,7 @@ def counts_of(generated):
     mutations = generated["mutations"]
     return {"negative removed-form cases": sum(1 for r in generated["removed"] if r[2]),
             "negative cell cases": sum(1 for r in generated["cells"] if r[2]),
+            "negative bare-form cases": sum(1 for r in generated["bare"] if r[2]),
             "negative mutations": sum(1 for r in mutations if r[2]),
             "discarded mutations": sum(1 for r in mutations if r[2] is None)}
 

@@ -1,0 +1,8 @@
+import std.spinlock.*
+
+static STATS: SpinLock<Int>
+
+func main() {
+    STATS.try_lock({ c in c += 1 })
+    print(STATS.lock({ c in c }))
+}

@@ -1,9 +1,26 @@
-// case: syntax.rule.borrow-form/identifier-when-no-let-or-var-follows
+// case: syntax.rule.borrow-form/shared-before-anything-but-let-or-var
 func f() {
-    let borrow = 1
-    let b = borrow + 1
-    borrow(x)
-    borrow.run()
+    g(borrow(x))
+    let n = borrow (*p).slot(0)
+    h { borrow $0[0] }
+    let c = borrow [a, b][i]
+}
+
+// case: syntax.rule.borrow-form/exclusive-before-a-place
+func f() {
+    g(borrow var (x))
+    borrow var (*p).slot(0).n += 1
+    h { borrow var $0[0] = 1 }
+}
+
+// case: syntax.rule.borrow-form/line-break-inside-brackets
+func f() {
+    g(borrow
+        v[i])
+    g(borrow var
+        v[i])
+    let t = [borrow
+        v[i]]
 }
 
 // case: syntax.rule.borrow-form/block-binds-a-name
@@ -35,7 +52,7 @@ func f() {
 // case: syntax.rule.borrow-form/place-form
 func f() {
     borrow var v[i] = 1
-    g(borrow let v[i], borrow var w.x)
+    g(borrow v[i], borrow var w.x)
     borrow var c.slot(i).n += 1
 }
 
@@ -55,16 +72,66 @@ func f() {
 
 // case: syntax.rule.borrow-extent/coalesce-of-a-borrowed-read
 func f() {
-    let s = borrow let doc.section_at(x).get("k") ?? ""
+    let s = borrow doc.section_at(x).get("k") ?? ""
 }
 
 // case: syntax.rule.borrow-extent/assignment-between-place-forms
 func f() {
-    borrow var v[i].x = borrow let v[j].x
+    borrow var v[i].x = borrow v[j].x
 }
 
 // case: syntax.rule.borrow-extent/tighter-than-a-cast-and-operators
 func f() {
-    let n = borrow let v[i] as Int
-    let m = borrow let v[i] + 1
+    let n = borrow v[i] as Int
+    let m = borrow v[i] + 1
+}
+
+// case: syntax.borrow.place/statement
+func f() {
+    borrow v[i].touch()
+    borrow var v[i].push(x)
+}
+
+// case: syntax.borrow.place/expression
+func f() {
+    let a = borrow v[i]
+    let b = borrow var v[i]
+    let c = borrow v[i] + borrow var w[j]
+}
+
+// case: syntax.borrow.place/argument
+func f() {
+    g(borrow v[i], borrow var w[j])
+    g(a: borrow v[i], b: borrow var w[j])
+}
+
+// case: syntax.borrow.place/interpolation-segment
+func f() {
+    print("{borrow v[i].name} {borrow var w[j].name}")
+}
+
+// case: syntax.borrow.place/assignment-target
+func f() {
+    borrow var v[i] = x
+    borrow v[i] = x
+    borrow var v[i].n += 1
+    borrow v[i].n += 1
+}
+
+// case: syntax.borrow.place/right-side
+func f() {
+    x = borrow v[i]
+    x = borrow var v[i]
+    x += borrow v[i].n
+}
+
+// case: syntax.borrow.place/head
+func f() {
+    if borrow v[i].ready {
+    }
+    while borrow var q[k].pending() {
+    }
+    for e in borrow v[i].items {
+    }
+    return borrow v[i]
 }

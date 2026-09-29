@@ -219,7 +219,7 @@ func check_manifest() {
             let tag = back.tag ?? "none"
             print("manifest back: track={} port={} tag={} deps={} first={}/{} lo={} hi={}",
                   track_name(back.track), back.port, tag, back.deps.len(),
-                  borrow let back.deps[0].name, borrow let back.deps[0].version, back.lo, back.hi)
+                  borrow back.deps[0].name, borrow back.deps[0].version, back.lo, back.hi)
         },
         case Err(e) -> print("manifest decode failed: {}", e)
     }

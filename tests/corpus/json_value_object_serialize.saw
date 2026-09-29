@@ -67,7 +67,7 @@ func check_empty_object() {
         case Ok(t) -> {
             print("empty_object: text={}", t)
             match JsonValue.parse(text: t) {
-                case Ok(v2) -> print("empty_object: reparsed_len={}", borrow let v2.as_object()!.len()),
+                case Ok(v2) -> print("empty_object: reparsed_len={}", borrow v2.as_object()!.len()),
                 case Err(e) -> print("empty_object: reparse failed: {}", e)
             }
         },
@@ -84,7 +84,7 @@ func check_nested_object_in_object() {
                 case Err(e) -> { print("nested_obj: serialize failed: {}", e); return }
             }
             print("nested_obj: text={}", text)
-            let inner = borrow let v.as_object()!["outer"].as_object()!["inner"].as_int() ?? -1
+            let inner = borrow v.as_object()!["outer"].as_object()!["inner"].as_int() ?? -1
             print("nested_obj: inner={}", inner)
         },
         case Err(e) -> print("nested_obj: parse failed: {}", e)
@@ -102,8 +102,8 @@ func check_object_in_array_in_object() {
             print("obj_in_arr_in_obj: text={}", text)
             match JsonValue.parse(text: text) {
                 case Ok(v2) -> {
-                    let n0 = borrow let v2.as_object()!["list"].as_array()![0].as_object()!["n"].as_int() ?? -1
-                    let n1 = borrow let v2.as_object()!["list"].as_array()![1].as_object()!["n"].as_int() ?? -1
+                    let n0 = borrow v2.as_object()!["list"].as_array()![0].as_object()!["n"].as_int() ?? -1
+                    let n1 = borrow v2.as_object()!["list"].as_array()![1].as_object()!["n"].as_int() ?? -1
                     print("obj_in_arr_in_obj: n0={} n1={}", n0, n1)
                 },
                 case Err(e) -> print("obj_in_arr_in_obj: reparse failed: {}", e)
@@ -126,7 +126,7 @@ func check_escaped_keys_and_values() {
             print("escaped: text={}", t)
             match JsonValue.parse(text: t) {
                 case Ok(v2) -> {
-                    let back = borrow let v2.as_object()!["a\"b\\c"].as_text() ?? "?"
+                    let back = borrow v2.as_object()!["a\"b\\c"].as_text() ?? "?"
                     print("escaped: roundtrip={}", back.equals("line1\nline2\ttab"))
                 },
                 case Err(e) -> print("escaped: reparse failed: {}", e)
@@ -151,8 +151,8 @@ func check_duplicate_key_survives_roundtrip() {
             print("dup_key: text={}", text)
             match JsonValue.parse(text: text) {
                 case Ok(v2) -> {
-                    let a = borrow let v2.as_object()!["a"].as_int() ?? -1
-                    print("dup_key: reparsed_a={} len={}", a, borrow let v2.as_object()!.len())
+                    let a = borrow v2.as_object()!["a"].as_int() ?? -1
+                    print("dup_key: reparsed_a={} len={}", a, borrow v2.as_object()!.len())
                 },
                 case Err(e) -> print("dup_key: reparse failed: {}", e)
             }

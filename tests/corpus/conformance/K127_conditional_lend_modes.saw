@@ -54,17 +54,17 @@ extension View {
 
 func main() {
     var b = Bag(rows: [Cell(n: 5), Cell(n: 9)], closes: 0)
-    print("writable present, shared {borrow let b.slot(0)!.n}")
+    print("writable present, shared {borrow b.slot(0)!.n}")
 
     borrow var b.slot(0)!.n = 6
-    print("writable present, exclusive {borrow let b.slot(0)!.n}")
+    print("writable present, exclusive {borrow b.slot(0)!.n}")
 
     var absent = Bag(rows: [Cell(n: 5), Cell(n: 9)], closes: 0)
     let missing = if (borrow let e = absent.slot(7) { if let _ = e { true } else { false } }) { "some" } else { "none" }
     print("writable absent: {missing}, epilogues {absent.closes_seen()}")
 
     let v = View(rows: [Cell(n: 5), Cell(n: 9)])
-    print("readable present, shared {borrow let v.slot(0)!.n}")
+    print("readable present, shared {borrow v.slot(0)!.n}")
     let vmissing = if (borrow let e1 = v.slot(7) { if let _ = e1 { true } else { false } }) { "some" } else { "none" }
     print("readable absent: {vmissing}")
 

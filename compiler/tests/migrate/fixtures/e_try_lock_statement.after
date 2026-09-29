@@ -1,0 +1,8 @@
+import std.spinlock.*
+
+static STATS: SpinLock<Int>
+
+func main() {
+    borrow var c = STATS.try_lock() { if borrow var c = c { c += 1 } }
+    print(borrow var c = STATS.lock() { c })
+}

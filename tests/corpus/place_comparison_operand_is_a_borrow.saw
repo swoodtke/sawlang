@@ -60,17 +60,17 @@ func main() {
     var big = Vector<Tag>()
     try! big.push(Tag(id: 9))
 
-    print("left place: {borrow let v[0] == b}")
-    print("right place: {a == borrow let w[0]}")
-    print("both places: {borrow let v[0] == borrow let w[0]}")
-    print("not equal: {borrow let v[0] != borrow let big[0]}")
+    print("left place: {borrow v[0] == b}")
+    print("right place: {a == borrow w[0]}")
+    print("both places: {borrow v[0] == borrow w[0]}")
+    print("not equal: {borrow v[0] != borrow big[0]}")
 
     // The ordering operators go through `compare`, whose `other` is a `&Self`
     // for the same reason.
-    print("less: {borrow let v[0] < borrow let big[0]}")
-    print("less-equal: {borrow let v[0] <= borrow let w[0]}")
-    print("greater: {borrow let v[0] > borrow let big[0]}")
-    print("greater-equal: {borrow let v[0] >= borrow let big[0]}")
+    print("less: {borrow v[0] < borrow big[0]}")
+    print("less-equal: {borrow v[0] <= borrow w[0]}")
+    print("greater: {borrow v[0] > borrow big[0]}")
+    print("greater-equal: {borrow v[0] >= borrow big[0]}")
 
     var bags = Vector<Bag>()
     var items: Vector<Int> = [7]
@@ -78,7 +78,7 @@ func main() {
     var others = Vector<Bag>()
     var more: Vector<Int> = [7]
     try! others.push(Bag(items: move more))
-    print("explicit copy tier: {borrow let bags[0] == borrow let others[0]}")
+    print("explicit copy tier: {borrow bags[0] == borrow others[0]}")
 
     // The control: a Copy-tier element reads for free and keeps the ordinary
     // per-operand window.

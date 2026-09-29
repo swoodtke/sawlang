@@ -27,7 +27,7 @@ func probe(s: &Slot<Res?>, tag: Int) -> Int {
     }
     yield_now()
     // The desugared spelling, written out.
-    if borrow let s.value().is_some() {
+    if borrow s.value().is_some() {
         hits = hits + 1
     }
     yield_now()

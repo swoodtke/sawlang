@@ -46,7 +46,7 @@ func push_argument() {
 func set_argument() {
     var v: Vector<Res> = [mk_sync(1), mk_sync(2)]
     v.set(0, mk(3))
-    print("head={borrow let v[0].n}")
+    print("head={borrow v[0].n}")
 }
 
 func main() {

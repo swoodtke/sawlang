@@ -1,2 +1,2 @@
 status: rewritten
-11 G4.borrow-operand rewritten => print("{borrow let v[0] == t}")
+11 G4.borrow-operand rewritten => print("{borrow v[0] == t}")

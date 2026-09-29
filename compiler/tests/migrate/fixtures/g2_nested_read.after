@@ -2,5 +2,5 @@ struct Cell { n: Int }
 
 func main() {
     var g: Vector<Vector<Cell>> = [[Cell(n: 1)]]
-    print(borrow let g[0][0].n)
+    print(borrow g[0][0].n)
 }

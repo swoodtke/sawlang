@@ -12,16 +12,16 @@
 
 func main() {
     let b = try! Box<String>.make("hello")
-    let s = borrow let b.value()       // retain-copy of the payload String
+    let s = borrow b.value()       // retain-copy of the payload String
     print(s.len())          // 5
-    let t = borrow let b.value()       // second independent retain-copy
+    let t = borrow b.value()       // second independent retain-copy
     print(t.len())          // 5
 
     // Balance stress: make/read/drop a Box<String> many times.
     var i = 0
     while i < 2000 {
         let bb = try! Box<String>.make("xyz")
-        let c = borrow let bb.value()
+        let c = borrow bb.value()
         i = i + 1
         // bb and c both die each iteration; refcount returns to baseline.
     }

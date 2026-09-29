@@ -12,6 +12,6 @@ func main() {
     var row: Vector<Cell> = [Cell(n: 0), Cell(n: 5)]
     try! b.push(move row)
     borrow var b[0][1].n += 1
-    assert(borrow let b[0][1].n == 6, "want 6 got {}", borrow let b[0][1].n)
+    assert(borrow b[0][1].n == 6, "want 6 got {}", borrow b[0][1].n)
     print("ok")
 }

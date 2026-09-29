@@ -67,7 +67,7 @@ func main() {
     }
 
     print("-- borrow, no retain")
-    print(borrow let m["a"].n)
+    print(borrow m["a"].n)
 
     print("-- presence test, no retain")
     if m.contains_key("a") {

@@ -102,12 +102,12 @@ func check_text() {
 func check_array() {
     match JsonValue.parse(text: "[1,2,3]") {
         case Ok(v) -> {
-            let l = borrow let v.as_array()!.len()
+            let l = borrow v.as_array()!.len()
             let text = match v.to_json_string() {
                 case Ok(t) -> t,
                 case Err(e) -> { print("array: serialize failed: {}", e); return }
             }
-            let e1 = borrow let v.as_array()![1].as_int() ?? -1
+            let e1 = borrow v.as_array()![1].as_int() ?? -1
             print("array: len={} text={} elem1={}", l, text, e1)
         },
         case Err(e) -> print("array: parse failed: {}", e)
@@ -153,11 +153,11 @@ func check_array_of_mixed() {
 func check_object() {
     match JsonValue.parse(text: "\{\"a\":1,\"b\":true,\"c\":[10,20]}") {
         case Ok(v) -> {
-            let a = borrow let v.as_object()!["a"].as_int() ?? -1
-            let b = borrow let v.as_object()!["b"].as_bool() ?? false
-            let c_len = borrow let v.as_object()!["c"].as_array()!.len()
-            let c0 = borrow let v.as_object()!["c"].as_array()![0].as_int() ?? -1
-            let c1 = borrow let v.as_object()!["c"].as_array()![1].as_int() ?? -1
+            let a = borrow v.as_object()!["a"].as_int() ?? -1
+            let b = borrow v.as_object()!["b"].as_bool() ?? false
+            let c_len = borrow v.as_object()!["c"].as_array()!.len()
+            let c0 = borrow v.as_object()!["c"].as_array()![0].as_int() ?? -1
+            let c1 = borrow v.as_object()!["c"].as_array()![1].as_int() ?? -1
             print("object: a={} b={} c_len={} c0={} c1={}", a, b, c_len, c0, c1)
 
             match v.to_json_string() {
@@ -174,7 +174,7 @@ func check_deep_mixed() {
     let src = "\{\"x\":[\{\"y\":99}]}"
     match JsonValue.parse(text: src) {
         case Ok(v) -> {
-            let leaf = borrow let v.as_object()!["x"].as_array()![0].as_object()!["y"].as_int() ?? -1
+            let leaf = borrow v.as_object()!["x"].as_array()![0].as_object()!["y"].as_int() ?? -1
             print("deep_mixed: x_a0_y={}", leaf)
         },
         case Err(e) -> print("deep_mixed: parse failed: {}", e)

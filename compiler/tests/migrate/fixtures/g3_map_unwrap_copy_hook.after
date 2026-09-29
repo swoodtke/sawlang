@@ -12,5 +12,5 @@ func main() {
     let _ = m.insert("a", Tag(n: 1))
     let a = m.get("a")!
     print(a.n)
-    print(borrow let m["a"].n)
+    print(borrow m["a"].n)
 }

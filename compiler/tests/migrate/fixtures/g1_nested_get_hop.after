@@ -1,6 +1,6 @@
 func main() {
     var m = Map<String, Vector<Int>>()
     let _ = m.insert("k", [1, 2])
-    let n = borrow let m["k"][1]
+    let n = borrow m["k"][1]
     print(n)
 }

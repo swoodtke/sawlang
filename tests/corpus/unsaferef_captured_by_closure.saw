@@ -43,14 +43,14 @@ func mint(c: &var Counter) unsafe -> UnsafeRef<Counter> {
 // Reading the LIVE referent through a captured handle.
 func read_through(c: &var Counter) unsafe -> Int {
     let h = mint(&var c)
-    run_int({ [move h] in borrow let h.deref().n + 1 })
+    run_int({ [move h] in borrow h.deref().n + 1 })
 }
 
 // A `&var self` method call through a `var`-bound one: the window is exclusive
 // and the mutation lands where the caller can see it.
 func bump_through(c: &var Counter) unsafe -> Int {
     var h = mint(&var c)
-    run_int({ [move h] in borrow var h.deref().bump(); borrow let h.deref().n })
+    run_int({ [move h] in borrow var h.deref().bump(); borrow h.deref().n })
 }
 
 // A NESTED closure mints its own handle from the outer one, at a statement.
@@ -58,7 +58,7 @@ func nested_read(c: &var Counter) unsafe -> Int {
     let h = mint(&var c)
     run_int({ [move h] in
         let inner = h.copy()
-        run_int({ [move inner] in borrow let inner.deref().get() })
+        run_int({ [move inner] in borrow inner.deref().get() })
     })
 }
 

@@ -1063,10 +1063,11 @@ class Forest:
 
     def _borrow_form(self, d):
         """`borrow let` or `borrow var` and a name or a parenthesized pattern
-        followed by `=` is a binding, never the place form (syntax.rule.borrow-form)."""
-        if self._after(d) != "=":
-            return None
+        followed by `=` is a binding, never the place form; a bare `borrow`
+        binds nothing (syntax.rule.borrow-form)."""
         toks = self.c.tokens
+        if self._after(d) != "=" or toks[d.i + 1].kind not in ("LET", "VAR"):
+            return None
         first, last = d.i + 2, d.j - 1
         if first == last and toks[first].kind == "IDENT":
             return d.i

@@ -179,7 +179,7 @@ func a() { b! = c }
 func a() { * b = c }
 
 // case: syntax.stmt.assign-target.borrow/alt
-func a() { borrow let true = b }
+func a() { borrow b = c }
 
 // case: syntax.stmt.assign-target.call/alt
 func a() { b() = c }
@@ -194,7 +194,7 @@ func a() { b! += c }
 func a() { * b += c }
 
 // case: syntax.stmt.compound-target.borrow/alt
-func a() { borrow let b += c }
+func a() { borrow b += c }
 
 // case: syntax.stmt.compound-target.call/alt
 func a() { b() += c }

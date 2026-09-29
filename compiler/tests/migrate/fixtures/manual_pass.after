@@ -7,8 +7,7 @@ extension Slot: NoCopy {}
 func main() {
     var m = Map<String, Cell>()
     let _ = m.insert("k", Cell(n: 1))
-    let key = "k"
-    borrow var m.find(&key)?.n = 5
+    borrow var m.find(&"k")?.n = 5
     var v = Vector<Slot>()
     try! v.push(Slot.Full(res: Res(n: 3)))
     let n = borrow let lent = v[0] { match lent {

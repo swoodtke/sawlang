@@ -11,7 +11,7 @@ extension Res: Copy {
 func main() {
     var res = Vector<Res>()
     try! res.push(Res(name: "a"))
-    print("{borrow let res[0].name}")
+    print("{borrow res[0].name}")
     let held = res[0]
     print("have {held.name}")
 }

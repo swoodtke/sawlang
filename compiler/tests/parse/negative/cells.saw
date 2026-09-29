@@ -493,6 +493,12 @@ func f() {
     }
 }
 
+// case: syntax.expr.range-from/cell:bhead
+func f() {
+    borrow let x = a.. {
+    }
+}
+
 // case: syntax.expr.range-from/cell:atgt
 func f() {
     a.. = x
@@ -765,12 +771,12 @@ func f() {
 
 // case: syntax.borrow.place/cell:cgen
 func f() {
-    let v: A<borrow let a[0]> = w
+    let v: A<borrow a[0]> = w
 }
 
 // case: syntax.borrow.place/cell:cap
 func f() {
-    let c = { [borrow let a[0]] in x }
+    let c = { [borrow a[0]] in x }
 }
 
 // case: syntax.borrow.block/cell:atgt

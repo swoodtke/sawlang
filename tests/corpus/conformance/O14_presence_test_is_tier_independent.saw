@@ -62,19 +62,19 @@ func value_int(o: &Int?) -> Bool {
 // and the optional is the ELEMENT. This is the row DF-218a fixed.
 
 func uncond_nocopy(s: &Slot<Res?>) -> Bool {
-    if let _ = s.value() { true } else { false }
+    if (borrow let e = s.value() { if let _ = e { true } else { false } }) { true } else { false }
 }
 
 func uncond_vec(s: &Slot<Vector<Int>?>) -> Bool {
-    if let _ = s.value() { true } else { false }
+    if (borrow let e1 = s.value() { if let _ = e1 { true } else { false } }) { true } else { false }
 }
 
 func uncond_str(s: &Slot<String?>) -> Bool {
-    if let _ = s.value() { true } else { false }
+    if (borrow let e2 = s.value() { if let _ = e2 { true } else { false } }) { true } else { false }
 }
 
 func uncond_int(s: &Slot<Int?>) -> Bool {
-    if let _ = s.value() { true } else { false }
+    if (borrow let e3 = s.value() { if let _ = e3 { true } else { false } }) { true } else { false }
 }
 
 // --- spelling 3: a CONDITIONAL lend (`borrows -> T?`) ---------------------
@@ -83,15 +83,15 @@ func uncond_int(s: &Slot<Int?>) -> Bool {
 // keeps its own lowering rather than being desugared with the one above.
 
 func cond_nocopy(v: &Vector<Res>, i: Int) -> Bool {
-    if let _ = v.get(i) { true } else { false }
+    if (borrow let e4 = v.find(i) { if let _ = e4 { true } else { false } }) { true } else { false }
 }
 
 func cond_vec(v: &Vector<Vector<Int>>, i: Int) -> Bool {
-    if let _ = v.get(i) { true } else { false }
+    if (borrow let e5 = v.find(i) { if let _ = e5 { true } else { false } }) { true } else { false }
 }
 
 func cond_str(v: &Vector<String>, i: Int) -> Bool {
-    if let _ = v.get(i) { true } else { false }
+    if (borrow let e6 = v.find(i) { if let _ = e6 { true } else { false } }) { true } else { false }
 }
 
 func cond_int(v: &Vector<Int>, i: Int) -> Bool {

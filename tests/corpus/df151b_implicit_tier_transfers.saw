@@ -164,7 +164,7 @@ func site_vector(n: Int) {
     let a = P(name: "vec-{n}")
     try! v.push(a)
     try! v.push(a)
-    let got = borrow let v[0].name
+    let got = borrow v[0].name
     print("vector {got} {a.name} {v.len()}")
 }
 

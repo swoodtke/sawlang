@@ -446,7 +446,7 @@ conformance/N10_align_rejects_non_power_of_two.saw	flagged,expectation-pending	-
 conformance/N11_align_refuses_frame_resident_local.saw	copied,expectation-pending	-	-
 conformance/O12_iflet_move_binding_released_in_coroutine.saw	copied	-	-
 conformance/O13_wildcard_optional_binding_releases_moved_payload.saw	copied	-	-
-conformance/O14_presence_test_is_tier_independent.saw	flagged	-	D3: a presence test through Vector.get of an element whose copy is not free: no conditional Vector accessor is settled (K8) x3
+conformance/O14_presence_test_is_tier_independent.saw	rewritten	D3.borrow-block:4,K8.vector-find-block:3	-
 conformance/P08_borrows_body_suspends.saw	copied,expectation-pending	-	-
 conformance/R07_return_optional_ref.saw	copied,expectation-pending,grammar-flip	-	grammar-flip: GRAMMAR.md accepts what the frozen parser refuses (Parse error at 10:20: `func f` may not return a reference: the return type `&Int?` is a reference, and references in Saw are PARAMETERS ONLY — a reference borro)
 conformance/R08_return_vector_of_ref.saw	copied,expectation-pending,grammar-flip	-	grammar-flip: GRAMMAR.md accepts what the frozen parser refuses (Parse error at 9:20: a generic argument may not be a reference: `&Int` is a reference, and references in Saw are PARAMETERS ONLY — a reference borrows storage f)
@@ -2198,7 +2198,7 @@ optional_chain_assign.saw	copied	-	-
 optional_chain_assign_deinit.saw	copied	-	-
 optional_chain_assign_move.saw	copied	-	-
 optional_chain_compose.saw	copied	-	-
-optional_chain_compound_assign.saw	manual,rewritten	G2.map-get:1,manual.C:1	-
+optional_chain_compound_assign.saw	rewritten	C.find-chain-assign:1,G2.map-get:1	-
 optional_chain_deinit_once.saw	copied	-	-
 optional_chain_methods.saw	copied	-	-
 optional_chain_multihop.saw	copied	-	-
@@ -2210,7 +2210,7 @@ optional_explicit_copy_deep.saw	copied	-	-
 optional_explicit_read_hints_error.saw	copied,expectation-pending	-	-
 optional_field_store_retain.saw	copied	-	-
 optional_force_unwrap_field_store.saw	copied	-	-
-optional_generic_chain_assign_place_head.saw	manual,rewritten	G2.map-get:1,manual.C:2	-
+optional_generic_chain_assign_place_head.saw	rewritten	C.find-chain-assign:2,G2.map-get:1	-
 optional_generic_concurrency.saw	flagged	-	E: tests a retired closure API: the file's name or header names `with_unique` x4
 optional_generic_hashable_keys.saw	rewritten	D1.map-get:3	-
 optional_generic_infer_later_arg.saw	copied	-	-
@@ -2290,14 +2290,14 @@ parse_recovery_two_errors.saw	copied,expectation-pending	-	-
 path_simple.saw	copied	-	-
 payload_derived_binding_fills_default_type_args.saw	copied	-	-
 place_abstract_value_read.saw	flagged	-	G4: a `match` on a place that a copy cannot serve: the `borrow let` block needs each arm's payload bindings decided
-place_assignment_targets.saw	flagged	-	C: the key is not a binding or field path, so `find(&k)` would borrow a temporary, which SL:borrowing does not settle x2; Fwd: lend forwarding through another accessor (K2); get-place: pins a retired rule: the file describes a std `get` as a place (SL:borrowing §9.1, K14) x2; use-site-mode: pins a retired rule: a shared window through `Carrier.slot`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2
+place_assignment_targets.saw	flagged	-	Fwd: lend forwarding through another accessor (K2); get-place: pins a retired rule: the file describes a std `get` as a place (SL:borrowing §9.1, K14) x2; use-site-mode: pins a retired rule: a shared window through `Carrier.slot`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2
 place_comparison_operand_is_a_borrow.saw	rewritten	G4.borrow-operand:16	-
-place_conditional_lend_uses.saw	flagged	-	D5: an optional read of a conditional accessor: an inline conditional lend needs `!` or `?`; use-site-mode: pins a retired rule: a shared window through `Bag.get`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x5
+place_conditional_lend_uses.saw	flagged	-	use-site-mode: pins a retired rule: a shared window through `Bag.get`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x5
 place_cross_module_same_name_type.saw	flagged	-	use-site-mode: pins a retired rule: a shared window through `Bag.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x3; use-site-mode: pins a retired rule: a shared window through `Bag.maybe`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
-place_enum_payload_lend.saw	flagged	-	D5: an optional read of a conditional accessor: an inline conditional lend needs `!` or `?` x2; G4: a `match` on a place that a copy cannot serve: the `borrow let` block needs each arm's payload bindings decided x4; use-site-mode: pins a retired rule: a shared window through `Table.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x5
+place_enum_payload_lend.saw	flagged	-	G4: a `match` on a place that a copy cannot serve: the `borrow let` block needs each arm's payload bindings decided x4; use-site-mode: pins a retired rule: a shared window through `Table.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x5
 place_match_arm_move_in_literal.saw	copied,expectation-pending	-	-
 place_nocopy_arg_in_window.saw	rewritten	G3.borrow-let:2	-
-place_paired_literal_fields.saw	flagged	-	D5: an optional read of a conditional accessor: an inline conditional lend needs `!` or `?`; Fwd: lend forwarding through another accessor (K2) x2
+place_paired_literal_fields.saw	flagged	-	Fwd: lend forwarding through another accessor (K2) x2
 place_presence_test_borrows.saw	manual,rewritten	D3.borrow-block:3,manual.G4:2,manual.G4.companion:3,reviewed.Fwd:1	-
 place_read_retains_owning.saw	flagged	-	get-place: pins a retired rule: the file describes a std `get` as a place (SL:borrowing §9.1, K14)
 place_reentry_idempotent.saw	rewritten	A1.field-write:1	-
@@ -2305,7 +2305,7 @@ place_rendered_frame_local_migrates.saw	copied	-	-
 place_rendering_operand_is_a_borrow.saw	flagged	-	get-place: pins a retired rule: the file describes a std `get` as a place (SL:borrowing §9.1, K14)
 place_shared_accessor_flavors.saw	flagged	-	use-site-mode: pins a retired rule: a shared window through `Row.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x7
 place_shared_window_readonly.saw	flagged	-	use-site-mode: pins a retired rule: a shared window through `Row.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x2
-place_two_windows_one_nocopy_root.saw	flagged	-	A4: the right side is not a single token; C: the key is not a binding or field path, so `find(&k)` would borrow a temporary, which SL:borrowing does not settle; use-site-mode: pins a retired rule: a shared window through `Holder.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x3; use-site-mode: pins a retired rule: a shared window through `Plain.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x4
+place_two_windows_one_nocopy_root.saw	flagged	-	A4: the right side is not a single token; use-site-mode: pins a retired rule: a shared window through `Holder.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x3; use-site-mode: pins a retired rule: a shared window through `Plain.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x4
 place_use_sites.saw	flagged	-	use-site-mode: pins a retired rule: a shared window through `Row.[]`, which is declared `&var self` (use-site mode inference, SL:borrowing §3) x8
 place_value_read_retain_oracle.saw	rewritten	G3.borrow-let:1	-
 place_window_borrows_enclosing_locals.saw	rewritten	G3.borrow-let:6	-
@@ -2313,7 +2313,7 @@ place_window_exclusivity.saw	flagged,expectation-pending	-	unseen: no type evide
 place_window_exclusivity_boundary.saw	rewritten	A1.field-write:1,B.place-argument:4,G2.nested-read:1	-
 place_window_move_arg_consumes_local.saw	rewritten	A3.mutating-call:2,G3.borrow-let:2	-
 place_window_nested_writes_land.saw	rewritten	A1.field-write:2,B.place-argument:5	-
-place_window_root_read_in_assignment_rhs.saw	flagged	-	C: the key is not a binding or field path, so `find(&k)` would borrow a temporary, which SL:borrowing does not settle; use-site-mode: pins a retired rule: a shared window through `Holder.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
+place_window_root_read_in_assignment_rhs.saw	flagged	-	use-site-mode: pins a retired rule: a shared window through `Holder.at`, which is declared `&var self` (use-site mode inference, SL:borrowing §3)
 place_write_self_rhs.saw	copied	-	-
 plain_type_generic_method.saw	copied	-	-
 pointer_prefix_deref.saw	copied	-	-
@@ -2497,7 +2497,7 @@ spawn_ref_param_dual_role_and_cancel.saw	copied	-	-
 spawn_ref_param_referent_deinit_once.saw	rewritten	G3.borrow-let:3	-
 spawn_void_body.saw	copied	-	-
 spawned_task_runs_before_reactor_park.saw	copied	-	-
-spinlock_basic.saw	flagged	-	E: E.try-lock: the conditional lock accessor that replaces SpinLock.try_lock is not spelled x2; K10: the closure names its call's own root
+spinlock_basic.saw	flagged	-	E.try-lock: the call's value is read, and the conditional lend's block yields none (IfLetExpr.optional_expr) x2; K10: the closure names its call's own root
 spinlock_contention_mt.saw	rewritten	E.lock:3	-
 spinlock_import_gate.saw	flagged,expectation-pending	-	unseen: no type evidence: closure-borrow call `lock` in unlowered function body
 spinlock_no_hidden_alloc.saw	flagged	-	E: tests a retired closure API: the file's header is about the closure its `lock` call takes x3

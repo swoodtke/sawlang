@@ -6,9 +6,6 @@ doc_emit_borrows.saw	171	24	unseen	lend self.items[i]	lend self.items[i]	unchang
 doc_emit_borrows.saw	179	24	unseen	lend self.items[i]	lend self.items[i]	unchanged: the subscript is a lend operand, which needs no borrow keyword (SL:borrowing §2.7)
 modules/placecell.saw	24	24	Fwd	lend self.cells[index]	lend self.cells[index]	unchanged: a lend operand forwards another accessor's place with no borrow keyword (SL:borrowing §2.7)
 modules/placecell.saw	30	28	Fwd	lend self.cells[index]	lend self.cells[index]	unchanged: a lend operand forwards another accessor's place with no borrow keyword (SL:borrowing §2.7)
-optional_chain_compound_assign.saw	65	11	C	scores["a"]?.x += 20	let key_a = "a"\n    borrow var scores.find(&key_a)?.x += 20	the literal key becomes a binding so find(&k) borrows a place (SL:borrowing §9); a literal's evaluation is unobservable
-optional_generic_chain_assign_place_head.saw	31	6	C	m["x"]?.value = 42	let key_x = "x"\n    borrow var m.find(&key_x)?.value = 42	the literal key becomes a binding so find(&k) borrows a place (SL:borrowing §9); a literal's evaluation is unobservable
-optional_generic_chain_assign_place_head.saw	36	20	C	guard let _ = m["nope"]?.value = 7 else {	let key_nope = "nope"\n    guard let _ = borrow var m.find(&key_nope)?.value = 7 else {	the literal key becomes a binding so find(&k) borrows a place; the did-it-write test stays one line (SL:borrowing K9)
 place_presence_test_borrows.saw	51	24	Fwd	lend self.slots[i]	lend self.slots[i]	unchanged: a lend operand forwards another accessor's place with no borrow keyword (SL:borrowing §2.7)
 place_presence_test_borrows.saw	57	16	G4	match slots[i] {	borrow let lent = slots[i] { match lent {	a match on a move-only element is a borrow let block (SL:borrowing §2.1); no arm binds
 place_presence_test_borrows.saw	60	0	+	}	} }	closes the borrow block

@@ -47,7 +47,7 @@ extension Item {
 func feed_all(items: &Vector<Item>, into: &var Sink) {
     var i = 0
     while i < items.len() {
-        borrow let items[i].feed(into: &var into)
+        borrow items[i].feed(into: &var into)
         i = i + 1
     }
 }
@@ -57,14 +57,14 @@ func main() {
     try! items.push(Item(code: "a", weight: 3))
     var sink = Sink(n: 0)
 
-    borrow let items[0].feed(into: &var sink)
+    borrow items[0].feed(into: &var sink)
     print("var arg: {sink.read()}")
 
-    print("shared arg: {borrow let items[0].peek(at: &sink)}")
-    print("value arg: {borrow let items[0].plus(3)}")
+    print("shared arg: {borrow items[0].peek(at: &sink)}")
+    print("value arg: {borrow items[0].plus(3)}")
 
     // A `&var self` method call on an enclosing NoCopy local, inside a window.
-    let seen = borrow let items[0].plus(sink.read())
+    let seen = borrow items[0].plus(sink.read())
     sink.bump()
     print("mutating call: {sink.read()}")
 
@@ -85,7 +85,7 @@ func main() {
     var inner = Vector<Item>()
     try! inner.push(Item(code: "b", weight: 1))
     try! rows.push(move inner)
-    print("deep chain: {borrow let rows[0][0].plus(sink.read())}")
+    print("deep chain: {borrow rows[0][0].plus(sink.read())}")
 
     // A whole-element write whose RHS names an enclosing local.
     let fresh = 9

@@ -52,6 +52,7 @@ compiler/tests/lex/unicode_escape_malformed_error.saw	LEXERR	a-error: Lexer erro
 compiler/tests/lex/unicode_escape_oversized_error.saw	LEXERR	a-error: Lexer error at 8:22: Unicode escape is greater than the maximum scalar 0x10FFFF
 compiler/tests/lex/unicode_escape_surrogate_error.saw	LEXERR	a-error: Lexer error at 8:20: Unicode escape is a surrogate code point
 compiler/tests/lex/unsafe_expression_marker_removed.saw	FAIL	a-removed: syntax.expr.refused-unsafe
+compiler/tests/subset/borrow-syntax.saw	FAIL	c-conflict: 3:9 near BORROW 'borrow'
 compiler/tests/subset/cast-then-optional.interpolation.saw	SEGFAIL	c-conflict: 6:17 {n as Int ?? 9} 1:10 refused by syntax.rule.cast-target-question
 compiler/tests/subset/cast-then-optional.newline.saw	FAIL	c-conflict: 15:14 refused by syntax.rule.cast-target-question
 compiler/tests/subset/cast-then-optional.saw	FAIL	c-conflict: 3:23 refused by syntax.rule.cast-target-question

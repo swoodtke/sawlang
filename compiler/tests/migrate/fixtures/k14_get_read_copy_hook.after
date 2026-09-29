@@ -10,5 +10,5 @@ extension Tag: Copy {
 func main() {
     var v = Vector<Tag>()
     try! v.push(Tag(n: 4))
-    print(borrow let v[0].n)
+    print(borrow v[0].n)
 }

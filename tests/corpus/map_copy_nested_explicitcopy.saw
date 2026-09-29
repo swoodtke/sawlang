@@ -24,7 +24,7 @@ func main() {
     var clone = m.copy()
     try! borrow var clone["nums"].push(4)   // mutate the clone's inner vector only
 
-    print(borrow let m["nums"].len())       // 3 - original's inner vector unaffected
-    print(borrow let clone["nums"].len())   // 4 - clone's inner vector grew
-    print(borrow let m["nums"].len())       // 3 - re-read, still unaffected
+    print(borrow m["nums"].len())       // 3 - original's inner vector unaffected
+    print(borrow clone["nums"].len())   // 4 - clone's inner vector grew
+    print(borrow m["nums"].len())       // 3 - re-read, still unaffected
 }

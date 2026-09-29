@@ -9,7 +9,8 @@ A case is headed `// case: NAME`, or `// case from refusal-unit: NAME` for a
 refusal case's body, parsed from that start symbol. A golden case's
 expectation is its dump; a negative case's is the name of the removed
 production or rule that refuses it, `parse-error` when nothing named does, or,
-for an N cell whose tokens parse as another construct, that reading's dump.
+for an N cell or a P cell's bare form whose tokens parse as another construct,
+that reading's dump.
 Every expectation comes from the reference recognizer;
 compiler/tests/parse/README.md describes the files.
 
@@ -42,7 +43,7 @@ UNIT_HEADER = "// case from refusal-unit: "
 STARTS = {HEADER: "source-file", UNIT_HEADER: "refusal-unit"}
 # The files of negative/ that negative.py writes; every other case file there
 # is hand-written.
-GENERATED_NEGATIVES = ("cells", "mutations", "removed")
+GENERATED_NEGATIVES = ("bare", "cells", "mutations", "removed")
 # The expectation file beside a case file, by directory.
 SUFFIXES = {GOLDEN: ".dump", NEGATIVE: ".expect"}
 PARSE_ERROR = "parse-error"
@@ -55,6 +56,9 @@ PARSES_AS_NOTE = "// " + PARSES_AS
 # position as a defect, so its parse error records no position.
 UNCLOSED_NOTE = "// an unclosed bracket, refused at its opener"
 CELL = "/cell:"
+# A P cell's construct written bare in its context, which the cell allows only
+# parenthesized.
+BARE = "/bare:"
 # The brackets `continuation` balances when `Expectations.unsettled` drops the
 # tokens after a refusal point, and the name that stands in for a dropped run.
 OPENERS = ("LPAREN", "LBRACKET", "LBRACE")
@@ -307,8 +311,8 @@ class Expectations:
     def negative(self, case):
         """(expectation lines, refusal name or None, alternatives) of a negative
         case: `refuses NAME`, with the recognizer's position when it gives one,
-        or, for a cell case that says it parses as another construct, that
-        reading's dump."""
+        or, for a cell or bare-form case that says it parses as another
+        construct, that reading's dump."""
         got = self.refusal(case.text, case.start)
         if got is not None:
             name, at, alts = got
@@ -321,11 +325,12 @@ class Expectations:
         construct, ctx = cell_of(case.name)
         if construct is None or PARSES_AS_NOTE not in case.text.split("\n"):
             raise Problem("accepted; a negative case must be refused, unless it is a cell "
-                          "case that says `%s`" % PARSES_AS_NOTE)
+                          "or bare-form case that says `%s`" % PARSES_AS_NOTE)
         checked = self.checked(self.g, case.text, case.start)
         if (construct, ctx) in cells(checked):
             raise Problem("accepted, and its tree places %s in %s, which section 12 says "
-                          "it may not stand in" % (construct, ctx))
+                          "it may not stand in%s" % (construct, ctx, " bare" if BARE in case.name
+                                                     else ""))
         lines = self.dump(self.g, case.text, case.start, checked)
         return [PARSES_AS] + lines, None, alternatives(checked)
 
@@ -390,9 +395,12 @@ def unclosed(text):
 
 
 def cell_of(name):
-    """(construct, context) of a cell case's name, or (None, None)."""
-    base, sep, ctx = name.partition(CELL)
-    return (base, ctx) if sep else (None, None)
+    """(construct, context) of a cell or bare-form case's name, or (None, None)."""
+    for marker in (CELL, BARE):
+        base, sep, ctx = name.partition(marker)
+        if sep:
+            return base, ctx
+    return None, None
 
 
 def alternatives(checked):
@@ -518,7 +526,7 @@ REWRITE = "compiler/tests/grammar/cases.py"
 # records, the table in compiler/tests/parse/README.md.
 CENSUS = tuple("census-N%d" % n for n in range(1, 13))
 DESIGN_259 = tuple("design259-R%d" % n for n in range(1, 9))
-RULINGS = tuple("SL-400-c6-Q%d" % n for n in range(1, 24) if n != 15) + (
+RULINGS = tuple("SL-400-c6-Q%d" % n for n in range(1, 24) if n not in (12, 15)) + (
     "SL-400-c6-U2a", "SL-400-c7", "SL-400-c9",
     "SL-406-c11-1", "SL-406-c11-2", "SL-406-c11-3",
     "SL-406-c17", "SL-406-c22", "SL-406-c23", "SL-406-c25", "SL-408-c1", "SL-409-c1", "SL-414-c1")
@@ -536,7 +544,7 @@ def coverage(g, results, removed, waivers):
     alternative (`removed`, their names and the production each is refused
     as) needs a negative case refused as that production whose tree, with the
     production enabled, uses it; each section-12 N cell a negative case of its
-    own; each section-13 rule a golden case named for it; and each rule the
+    own, and each P cell one of its bare form; each section-13 rule a golden case named for it; and each rule the
     recognizer refuses by name a negative case refused by it. Each case's
     name must start with a source it may be named for, and each census item,
     design 259 ruling, listed tracker ruling and lexical rule needs a case of
@@ -549,6 +557,8 @@ def coverage(g, results, removed, waivers):
         "removed": {name for name, _ in removed},
         "n-cell": {"%s %s" % (row[0], ctx) for _, row in table.rows
                    for ctx, code in zip(contexts, row[1:]) if code == "N"},
+        "p-cell": {"%s %s" % (row[0], ctx) for _, row in table.rows
+                   for ctx, code in zip(contexts, row[1:]) if code == "P"},
         "rule": set(g.model.rule_ids()),
         "refusal": set(refusing_rules()),
         "source": set(CENSUS + DESIGN_259 + RULINGS) | set(g.model.lexical_rule_ids()),
@@ -571,7 +581,7 @@ def coverage(g, results, removed, waivers):
             continue
         construct, ctx = cell_of(name)
         if construct is not None:
-            used["n-cell"].add("%s %s" % (construct, ctx))
+            used["p-cell" if BARE in name else "n-cell"].add("%s %s" % (construct, ctx))
         if refusal is not None:
             used["refusal"].add(refusal)
             used["removed"].update(a for a in alts if production_of.get(a) == refusal)
@@ -592,10 +602,10 @@ def coverage(g, results, removed, waivers):
 
 
 COUNT_NAMES = {"removed": "covered removed alternatives", "n-cell": "covered N cells",
-               "rule": "rules with a golden case", "refusal": "named refusals with a negative case",
-               "source": "sources with a case"}
-WANTED = {"removed": "negative", "n-cell": "negative", "rule": "golden", "refusal": "negative",
-          "source": "golden or negative"}
+               "p-cell": "covered P cells", "rule": "rules with a golden case",
+               "refusal": "named refusals with a negative case", "source": "sources with a case"}
+WANTED = {"removed": "negative", "n-cell": "negative", "p-cell": "bare-form negative",
+          "rule": "golden", "refusal": "negative", "source": "golden or negative"}
 
 
 def orphans(root, suffixes):

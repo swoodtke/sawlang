@@ -26,8 +26,8 @@ func count_nodes(v: &JsonValue) -> Int {
     if (borrow let e = v.as_array() { if let _ = e { true } else { false } }) {
         var total = 1
         var i = 0
-        while i < borrow let v.as_array()!.len() {
-            total = total + count_nodes(borrow let v.as_array()![i])
+        while i < borrow v.as_array()!.len() {
+            total = total + count_nodes(borrow v.as_array()![i])
             i = i + 1
         }
         return total

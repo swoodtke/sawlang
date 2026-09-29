@@ -1,0 +1,2 @@
+status: flagged
+5 E.with-unique flagged -- the closure yields a value, which the conditional lend's block with no `else` drops

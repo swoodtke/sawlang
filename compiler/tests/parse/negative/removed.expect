@@ -106,6 +106,9 @@ refuses syntax.pat.refused-dot-variant
 // case: syntax.pat.tuple.refused-named
 refuses syntax.pat.refused-named-tuple
 
+// case: syntax.borrow.place.refused-let
+refuses syntax.expr.refused-borrow-let-unbound
+
 // case: syntax.decl.refused-effect-prefix.func
 refuses syntax.decl.refused-effect-prefix
 
@@ -198,6 +201,9 @@ refuses syntax.generic.refused-arg-comma
 
 // case: syntax.expr.refused-unsafe
 refuses syntax.expr.refused-unsafe
+
+// case: syntax.expr.refused-borrow-let-unbound
+refuses syntax.expr.refused-borrow-let-unbound
 
 // case: syntax.expr.refused-lend-var
 refuses syntax.expr.refused-lend-var

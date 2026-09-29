@@ -41,7 +41,7 @@ func main() {
     // owns it, and it dies with the vector.
     var shelf = Vector<Owned>()
     hand_away({ [&var shelf] o in try! shelf.push(move o) }, Owned(w: 4))
-    print("stored {}", borrow let shelf[0].w)
+    print("stored {}", borrow shelf[0].w)
 
     print("end of main")
 }

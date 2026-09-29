@@ -33,7 +33,7 @@ extension Item {
 func feed_all(items: &Vector<Item>, into: &var Sink) {
     var i = 0
     while i < items.len() {
-        borrow let items[i].feed(into: &var into)
+        borrow items[i].feed(into: &var into)
         i = i + 1
     }
 }
@@ -47,7 +47,7 @@ func main() {
     print("forwarded param: {}", s.n)
 
     // The receiver is a place and the argument names a NoCopy local.
-    borrow let items[0].feed(into: &var s)
+    borrow items[0].feed(into: &var s)
     print("place receiver: {}", s.n)
 
     // Reading the element out first is what compiles today.

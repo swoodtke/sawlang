@@ -67,7 +67,7 @@ func sum_nested(rows: Vector<Vector<Int>>) -> Int {
     var total = 0
     var i = 0
     while i < rows.len() {
-        total = total + borrow let rows[i].len()
+        total = total + borrow rows[i].len()
         i = i + 1
     }
     total

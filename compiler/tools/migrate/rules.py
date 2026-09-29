@@ -14,6 +14,7 @@ import os
 import re
 
 from edits import Edit, TokenType
+from edits import apply as edits_apply
 
 COPY_POLICIES = ("trivial", "retain")
 # The reason prefixes a person acts on differently from a rule that did not apply.
@@ -33,10 +34,16 @@ SETTLED_E = {
     ("Mutex", "lock"): ("var", "call"),
     ("SpinLock", "lock"): ("var", "call"),
 }
-UNSETTLED_E = {
-    ("Arc", "with_unique"): "E.with-unique: the borrows accessor that replaces Arc.with_unique is not named",
-    ("SpinLock", "try_lock"): "E.try-lock: the conditional lock accessor that replaces SpinLock.try_lock is not spelled",
+# The closure-borrow APIs whose replacement is a conditional lend, with the
+# accessor the block's head calls (SL:borrowing §8, §9). The closure ran only
+# when the place was there, so its body moves under `if borrow var`.
+CONDITIONAL_E = {
+    ("Arc", "with_unique"): "unique",
+    ("SpinLock", "try_lock"): "try_lock",
 }
+# Where a conditional block may stand for its call: a statement, whose value
+# nothing reads, since the block has no `else` and yields nothing.
+CONDITIONAL_POSITIONS = {("ExpressionStatement", "expression")}
 # Positions where a `borrow` block, a primary expression whose value is its
 # tail (SL:borrowing §2.1), may stand in place of the call. A condition or
 # subject head is not one: there a `borrow` binding is the head's own form.
@@ -45,6 +52,12 @@ BLOCK_POSITIONS = {("ExpressionStatement", "expression"), ("LetStatement", "valu
                    ("Block", "final_expr"), ("FunctionCall", "arguments"),
                    ("MethodCall", "arguments"), ("StructInit", "arguments"),
                    ("StringInterpolation", "expressions")}
+
+
+def place_prefix(mode):
+    """The prefix that borrows a place without binding a name: bare `borrow`
+    is shared and `borrow var` exclusive (SL:borrowing §2.2)."""
+    return "borrow var " if mode == "var" else "borrow "
 
 
 class Site:
@@ -260,9 +273,15 @@ def place_tokens(tk, r):
     return op, tk.src.match_close(op)
 
 
+# Single-token keys whose `&` borrows a temporary, which a shared `&`
+# argument allows (SL:borrowing §2.2).
+LITERAL_KEYS = (TokenType.STRING, TokenType.INT, TokenType.FLOAT, TokenType.TRUE,
+                TokenType.FALSE)
+
+
 def simple_key(tk, open_i, close_i, key_type):
     """Whether the tokens between a place's brackets name a key that `&k` can
-    borrow: a binding or a field path, of a non-reference type."""
+    borrow: a binding, a field path or a literal, of a non-reference type."""
     if key_type is None or key_type.startswith("&"):
         return False
     toks = []
@@ -270,6 +289,8 @@ def simple_key(tk, open_i, close_i, key_type):
     while j is not None and j != close_i:
         toks.append(tk.kind(j))
         j = tk.next(j)
+    if len(toks) == 1 and toks[0] in LITERAL_KEYS:
+        return True
     if not toks or toks[0] not in (TokenType.IDENT, TokenType.SELF):
         return False
     for k, kind in enumerate(toks[1:], 1):
@@ -407,12 +428,12 @@ class Planner:
         return handler(top, cls, nested, nested_forces)
 
     def prefix_edit(self, r, mode):
-        """The `borrow let|var ` insertion at the chain's first token."""
+        """The `borrow ` or `borrow var ` insertion at the chain's first token."""
         i = self.tk.at(r["recv_left"][:2])
         problem = root_problem(self.tk, i)
         if problem:
             return None, problem
-        return Edit(self.tk.off(i), self.tk.off(i), "borrow %s " % mode), None
+        return Edit(self.tk.off(i), self.tk.off(i), place_prefix(mode)), None
 
     def after_place(self, r):
         """The index of the token right after the place's closing bracket."""
@@ -422,7 +443,7 @@ class Planner:
         return pt, self.tk.next(pt[1])
 
     def borrow_chain(self, r, cls, mode, rule, nested=None):
-        """Prefix the chain with `borrow let|var`, and give each Map subscript
+        """Prefix the chain with `borrow` or `borrow var`, and give each Map subscript
         or std `get` hop in it the place spelling the new std lends through."""
         nested = self.nested if nested is None else nested
         edits = []
@@ -469,13 +490,10 @@ class Planner:
             inner = self.src.text[self.tk.end(open_i):self.tk.off(close_i)]
             return [Edit(self.tk.off(dot), self.tk.end(nxt), "[%s]" % inner)], "K14.get-to-place"
         if kind == TokenType.QUESTION_DOT:
-            if base(r.get("struct")) != "Map":
-                return ("an optional chain through Vector.get: no conditional Vector accessor "
-                        "is settled", None, "K14")
             found = self.find_edits(r, cls, pt)
             if isinstance(found, str):
                 return (found, None, "C")
-            return found, "+map-find"
+            return found, "+map-find" if base(r.get("struct")) == "Map" else "+vector-find"
         return ("a Map or `get` place used without `!` or `?`", None, "chain")
 
     def single_argument(self, r):
@@ -483,19 +501,25 @@ class Planner:
         return args is not None and len(args) == 1
 
     def find_edits(self, r, cls, pt):
-        """`m[k]` / `m.get(k)` to `m.find(&k)`, or the reason it cannot be."""
+        """`m[k]` / `m.get(k)` to `m.find(&k)`, and `v.get(i)` to `v.find(i)`,
+        or the reason it cannot be."""
         open_i, close_i = pt
         key_type = ((r.get("key") or {}).get("resolved") if cls == "map"
                     else ((r.get("args") or [{}])[0] or {}).get("resolved"))
         if cls == "getter" and not self.single_argument(r):
             return "`get` with other than one argument"
+        name = self.tk.next(self.tk.at((r["line"], r["col"]))) if cls == "getter" else None
+        if cls == "getter" and base(r.get("struct")) == "Vector":
+            # Vector.find takes its index by value (SL:borrowing §2.4).
+            return [Edit(self.tk.off(name), self.tk.end(name), "find")]
+        if key_type is None or key_type.startswith("&"):
+            return "the key's type is unknown or a reference, which `find(&k)` would borrow again"
         if not simple_key(self.tk, open_i, close_i, key_type):
-            return ("the key is not a binding or field path, so `find(&k)` would borrow a "
-                    "temporary, which SL:borrowing does not settle")
+            return ("the key is not a binding, a field path or a literal, the keys the "
+                    "rewriter spells as `find(&k)`")
         if cls == "map":
             return [Edit(self.tk.off(open_i), self.tk.end(open_i), ".find(&"),
                     Edit(self.tk.off(close_i), self.tk.end(close_i), ")")]
-        name = self.tk.next(self.tk.at((r["line"], r["col"])))
         return [Edit(self.tk.off(name), self.tk.end(name), "find"),
                 Edit(self.tk.end(open_i), self.tk.end(open_i), "&")]
 
@@ -584,7 +608,7 @@ class Planner:
         return self.borrow_chain(r, cls, "var", "A3.mutating-call")
 
     def cat_B(self, r, cls, nested, forces):
-        """`&var x[i]` / `&x[i]` to `borrow var x[i]` / `borrow let x[i]` (K6)."""
+        """`&var x[i]` / `&x[i]` to `borrow var x[i]` / `borrow x[i]` (K6)."""
         amp = self.tk.at(r["ref_pos"])
         if amp is None or self.tk.kind(amp) != TokenType.AMPERSAND:
             return self.flag(r, "B", "the reference sigil was not found")
@@ -597,14 +621,15 @@ class Planner:
         if root_i != self.tk.next(end):
             return self.flag(r, "B", "the reference does not start the chain")
         mode = "var" if r.get("ref_mutable") else "let"
-        sigil = Edit(self.tk.off(amp), self.tk.off(root_i), "borrow %s " % mode)
+        sigil = Edit(self.tk.off(amp), self.tk.off(root_i), place_prefix(mode))
         s = self.borrow_chain(r, cls, mode, "B.place-argument")
         if s.status == "rewritten":
             s.edits[0] = sigil
         return s
 
     def cat_C(self, r, cls, nested, forces):
-        """`m[k]?.f = v` to `borrow var m.find(&k)?.f = v`."""
+        """`m[k]?.f = v` to `borrow var m.find(&k)?.f = v`, and `v.get(i)?.f = x`
+        to `borrow var v.find(i)?.f = x`."""
         if nested:
             return self.flag(r, "C", "a chain assignment inside a longer chain")
         value = r.get("value") or {}
@@ -620,9 +645,6 @@ class Planner:
             return self.flag(r, "C", problem)
         if cls == "named":
             return self.site(r, "C.accessor-chain-assign", "rewritten", edits=[pre])
-        if cls == "getter" and base(r.get("struct")) != "Map":
-            return self.flag(r, "K14", "a chain write through Vector.get: no conditional Vector "
-                                       "accessor is settled")
         if cls not in ("map", "getter"):
             return self.flag(r, "C", "a chain assignment through a conditional subscript: an "
                                      "optional place is a named accessor (SL:borrowing §5.1)")
@@ -632,7 +654,9 @@ class Planner:
         edits = self.find_edits(r, cls, pt)
         if isinstance(edits, str):
             return self.flag(r, "C", edits)
-        return self.site(r, "C.find-chain-assign", "rewritten", edits=[pre] + edits)
+        rule = ("C.find-chain-assign" if base(r.get("struct")) == "Map"
+                else "K14.vector-find-chain-assign")
+        return self.site(r, rule, "rewritten", edits=[pre] + edits)
 
     # -- categories: reads
     def cat_D1(self, r, cls, nested, forces):
@@ -646,8 +670,12 @@ class Planner:
         return None
 
     def cat_D5(self, r, cls, nested, forces):
-        return self.flag(r, "D5", "an optional read of a conditional accessor: an inline "
-                                  "conditional lend needs `!` or `?`")
+        """A conditional lend read whole is an optional copy, `borrow b.slot(0)`,
+        of a copyable element (SL:borrowing §2.2)."""
+        if not value_copyable(r):
+            return self.flag(r, "D5", "an optional read of a conditional accessor whose element "
+                                      "a whole read cannot copy")
+        return self.borrow_chain(r, cls, "let", "D5.optional-copy")
 
     def cat_G1(self, r, cls, nested, forces):
         if cls == "map":
@@ -700,13 +728,11 @@ class Planner:
     def cat_D3(self, r, cls, nested, forces):
         if nested:
             return self.flag(r, "D3", "a presence test inside a longer chain")
-        struct = base(r.get("struct"))
         if cls == "getter" and copyable(r):
             return None
-        if not (cls in ("map", "named") or (cls == "getter" and struct == "Map")):
-            return self.flag(r, "D3", "a presence test through Vector.get of an element whose "
-                                      "copy is not free: no conditional Vector accessor is "
-                                      "settled (K8)")
+        if cls == "subscript":
+            return self.flag(r, "D3", "a presence test through a conditional subscript: an "
+                                      "optional place is a named accessor (SL:borrowing §5.1)")
         return self.presence(r, cls, holder=self.presence_holder(r, desugared=False))
 
     def presence_holder(self, r, desugared):
@@ -731,7 +757,8 @@ class Planner:
 
     def presence(self, r, cls, holder):
         """`if let _ = m[k]` to `if m.contains_key(k)`; through a conditional
-        accessor, to the `borrow let` block that yields the answer (K8)."""
+        accessor, or Vector.get of an element whose copy is not free, to the
+        `borrow let` block over the conditional lend that yields the answer (K8)."""
         if holder is None:
             return self.flag(r, "D3", "a presence test outside `if let _` / `guard let _`")
         let_i = self.tk.next(holder)
@@ -746,18 +773,27 @@ class Planner:
         if pt is None or pt[1] is None:
             return self.flag(r, "D3", "the place's brackets were not found")
         open_i, close_i = pt
-        if cls == "named":
+        vector = cls == "getter" and base(r.get("struct")) == "Vector"
+        if cls == "named" or vector:
             problem = root_problem(self.tk, root_i)
             if problem:
                 return self.flag(r, "D3", problem)
             name = self.fresh("e")
             head_text = self.src.text[self.tk.off(root_i):self.tk.end(close_i)]
+            if vector:
+                found = self.find_edits(r, cls, pt)
+                if isinstance(found, str):
+                    return self.flag(r, "D3", found)
+                start = self.tk.off(root_i)
+                local = [Edit(e.start - start, e.end - start, e.text) for e in found]
+                head_text = edits_apply(self.src.text[start:self.tk.end(close_i)], local)
             after = self.tk.next(close_i)
             if self.tk.kind(after) not in (TokenType.LBRACE, TokenType.ELSE):
                 return self.flag(r, "D3", "the presence test's subject continues past the accessor")
             block = "(borrow let %s = %s { if let _ = %s { true } else { false } })" % (
                 name, head_text, name)
-            return self.site(r, "D3.borrow-block", "rewritten", edits=[
+            return self.site(r, "K8.vector-find-block" if vector else "D3.borrow-block",
+                             "rewritten", edits=[
                 Edit(self.tk.off(let_i), self.tk.end(close_i), block)])
         edits = [Edit(self.tk.off(let_i), self.tk.off(root_i), "")]
         if cls == "map":
@@ -775,13 +811,11 @@ class Planner:
         if owner == "Arc" and c.get("callee") == "lock":
             key = ("Mutex", "lock")
         from_std = (c.get("callee_file") or "").startswith(STD_PREFIXES) or owner == "Arc"
-        if (key in UNSETTLED_E or key in SETTLED_E) and from_std:
+        if (key in CONDITIONAL_E or key in SETTLED_E) and from_std:
             subject = closure_api_subject(self.meta, c.get("callee"))
             if subject:
                 return self.flag(c, "E", RETIRED_API + subject, line=c["line"], col=c["col"])
-        if key in UNSETTLED_E:
-            return self.flag(c, "E", UNSETTLED_E[key], line=c["line"], col=c["col"])
-        if key not in SETTLED_E or not from_std:
+        if (key not in SETTLED_E and key not in CONDITIONAL_E) or not from_std:
             return None
         rule = "E.%s" % c["callee"].replace("_", "-")
         if c.get("captures_root"):
@@ -802,13 +836,23 @@ class Planner:
                              c["line"], c["col"])
         ctx = (c.get("ctx") or [{}])[0]
         where = (ctx.get("type"), (ctx.get("field") or "").split("[")[0])
+        if key in CONDITIONAL_E:
+            if where not in CONDITIONAL_POSITIONS:
+                return self.flag(c, rule, "the call's value is read, and the conditional lend's "
+                                          "block yields none (%s.%s)" % where, c["line"], c["col"])
+            if not (c.get("closure_type") or "").endswith("-> Void"):
+                return self.flag(c, rule, "the closure yields a value, which the conditional "
+                                          "lend's block with no `else` drops", c["line"], c["col"])
+            return self.closure_block(c, rule, "var", "call", accessor=CONDITIONAL_E[key])
         if where not in BLOCK_POSITIONS:
             return self.flag(c, rule, "the call stands where a `borrow` block would change the "
                                       "parse (%s.%s)" % where, c["line"], c["col"])
         mode, head_kind = SETTLED_E[key]
         return self.closure_block(c, rule, mode, head_kind)
 
-    def closure_block(self, c, rule, mode, head_kind):
+    def closure_block(self, c, rule, mode, head_kind, accessor=None):
+        """The closure-borrow call as a `borrow` block over its accessor; with
+        `accessor`, a conditional lend whose body runs under `if borrow var`."""
         tk = self.tk
         flag = lambda why: self.flag(c, rule, why, c["line"], c["col"])  # noqa: E731
         root_i = tk.at(c["recv_left"][:2])
@@ -884,10 +928,14 @@ class Planner:
         else:
             if c.get("n_args") != 1:
                 return flag("a lock call with more than the closure")
-            head = "%s.%s()" % (recv, c["callee"])
+            head = "%s.%s()" % (recv, accessor or c["callee"])
         # The body keeps its own text and line breaks; only the head changes.
         opening = "borrow %s %s = %s {" % (mode, param["name"], head)
+        if accessor:
+            opening += " if borrow var %s = %s {" % (param["name"], param["name"])
         edits = [Edit(tk.off(root_i), tk.end(in_i), opening)]
+        if accessor:
+            edits.append(Edit(tk.off(close_brace), tk.off(close_brace), "} "))
         if call_end != close_brace:
             edits.append(Edit(tk.end(close_brace), tk.end(call_end), ""))
         s = self.site(c, rule, "rewritten", edits=edits, line=c["line"], col=c["col"])

@@ -1,10 +1,12 @@
 struct Cell { n: Int }
 
+func key_of() -> String { "k" }
+
 func main() {
     var v: Vector<Cell> = [Cell(n: 1)]
     v[0].n = 5
     var m = Map<String, Cell>()
     let _ = m.insert("k", Cell(n: 1))
-    m["k"]?.n = 6
+    m[key_of()]?.n = 6
     print(v.len())
 }

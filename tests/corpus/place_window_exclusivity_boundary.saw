@@ -100,7 +100,7 @@ func main() {
     try! inner.push(Cell(n: 2))
     try! cells.push(move inner)
     borrow var cells[0][1].n += 1
-    print("nested={borrow let cells[0][1].n}")
+    print("nested={borrow cells[0][1].n}")
 
     var d = Data()
     try! d.push(1)

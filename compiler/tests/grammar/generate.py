@@ -768,7 +768,7 @@ INSTANCES = {
     "syntax.expr.for": ("for x in a { }", None),
     "syntax.borrow.for": ("for borrow let x in a { }", None),
     "syntax.expr.try-block": ("try { a } catch { b }", None),
-    "syntax.borrow.place": ("borrow let a[0]", None),
+    "syntax.borrow.place": ("borrow a[0]", None),
     "syntax.borrow.block": ("borrow let x = a { x }", None),
     "syntax.expr.optional-binding": ("let x = a", None),
     "syntax.borrow.unwrap": ("borrow let x = a", None),
@@ -1133,9 +1133,10 @@ WAIVER_HEADER = "kind\titem\treason"
 # An `alternative` or a `cell` is a coverage item of the generated corpus; a
 # `case` is one case, by name, that no program realizes. The rest are coverage
 # items of the golden and negative corpus (cases.coverage): a `removed`
-# alternative, an `n-cell`, a section-13 `rule` with no golden case, and a
-# `refusal`, a rule the recognizer refuses by name with no negative case.
-WAIVER_KINDS = ("alternative", "cell", "case", "removed", "n-cell", "rule", "refusal",
+# alternative, an `n-cell`, a `p-cell` with no bare-form case, a section-13
+# `rule` with no golden case, and a `refusal`, a rule the recognizer refuses by
+# name with no negative case.
+WAIVER_KINDS = ("alternative", "cell", "case", "removed", "n-cell", "p-cell", "rule", "refusal",
                 "source")
 
 

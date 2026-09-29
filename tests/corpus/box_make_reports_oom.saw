@@ -35,7 +35,7 @@ extension NullAlloc: Allocator {
 func main() {
     // Success (GlobalAllocator, Int payload): Ok, value() reads 7.
     match Box<Int>.make(7) {
-        case Ok(b) -> print(borrow let b.value()),   // 7
+        case Ok(b) -> print(borrow b.value()),   // 7
         case Err(e) -> print(e.size)
     }
 

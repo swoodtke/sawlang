@@ -33,7 +33,7 @@ func main() {
     // A COMPILER-EMITTED std type, the filing's second axis, with the generic
     // argument written on the qualified side and read on the bare one.
     let s: frame.Slot<Int> = Slot<Int>.of(7)
-    print("emitted {borrow let s.value()}")
+    print("emitted {borrow s.value()}")
 
     // And a user module, where the glob and the qualifier come from two lines
     // that name one module.

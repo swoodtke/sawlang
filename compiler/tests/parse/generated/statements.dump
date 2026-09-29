@@ -406,8 +406,8 @@
     (Func a
       (Block
         (Assign
-          (BorrowPlace.let (BoolLit.true))
-          (Name b))))))
+          (BorrowPlace.shared (Name b))
+          (Name c))))))
 
 // case: syntax.stmt.assign-target.call/alt
 (File
@@ -451,7 +451,7 @@
     (Func a
       (Block
         (CompoundAssign
-          (BorrowPlace.let (Name b))
+          (BorrowPlace.shared (Name b))
           +=
           (Name c))))))
 

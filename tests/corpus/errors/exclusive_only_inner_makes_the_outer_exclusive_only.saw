@@ -63,7 +63,7 @@ struct Outer { inner: Inner, n: Int }
 
 extension Outer {
     func ordinary(&var self) borrows -> &var Int {
-        let _ = borrow let self.inner.tally()
+        let _ = borrow self.inner.tally()
         lend self.n
     }
 
@@ -72,7 +72,7 @@ extension Outer {
     }
 
     func forced(&var self) borrows -> &var Int {
-        let _ = borrow let self.inner.opt(0)!.n
+        let _ = borrow self.inner.opt(0)!.n
         lend self.n
     }
 
@@ -85,8 +85,8 @@ extension Outer {
 func main() {
     let o = Outer(inner: Inner(cells: [Cell(n: 3), Cell(n: 4)], n: 1, hits: 0),
                   n: 2)
-    print("{borrow let o.ordinary()}")
-    print("{borrow let o.projected(0)}")
-    print("{borrow let o.forced()}")
-    print("{borrow let o.written()}")
+    print("{borrow o.ordinary()}")
+    print("{borrow o.projected(0)}")
+    print("{borrow o.forced()}")
+    print("{borrow o.written()}")
 }

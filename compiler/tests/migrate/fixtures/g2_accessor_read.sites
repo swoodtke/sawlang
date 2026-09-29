@@ -1,2 +1,2 @@
 status: rewritten
-21 G2.accessor-read rewritten => print(borrow let b.at(1).n)
+21 G2.accessor-read rewritten => print(borrow b.at(1).n)

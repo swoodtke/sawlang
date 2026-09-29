@@ -48,7 +48,7 @@ func check_depth() {
     // Exactly 3 levels of nesting under max_depth 3: legal.
     match JsonValue.parse(text: "[[[0]]]", max_depth: 3) {
         case Ok(v) -> {
-            let leaf = borrow let v.as_array()![0].as_array()![0].as_array()![0].as_int() ?? -1
+            let leaf = borrow v.as_array()![0].as_array()![0].as_array()![0].as_int() ?? -1
             print("depth_ok_at_limit: leaf={}", leaf)
         },
         case Err(e) -> print("depth_ok_at_limit: {}", e)
@@ -66,7 +66,7 @@ func check_depth() {
 func check_duplicate_key_last_wins() {
     match JsonValue.parse(text: "\{\"a\":1,\"a\":2}") {
         case Ok(v) -> {
-            let a = borrow let v.as_object()!["a"].as_int() ?? -1
+            let a = borrow v.as_object()!["a"].as_int() ?? -1
             print("duplicate_key_last_wins: a={}", a)
         },
         case Err(e) -> print("duplicate_key_last_wins: parse failed: {}", e)

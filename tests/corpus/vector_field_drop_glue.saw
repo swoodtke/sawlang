@@ -65,8 +65,8 @@ func main() {
 
     // Reaching a move-only element THROUGH the place: no copy, no alias.
     print("-- reading in place")
-    print(borrow let h.items[0].name)
-    print(borrow let h.items[0].payload[0])
+    print(borrow h.items[0].name)
+    print(borrow h.items[0].payload[0])
 
     print("-- holder goes")
     let _ = move h

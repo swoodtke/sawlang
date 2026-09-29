@@ -23,6 +23,6 @@ func mint(c: &var Counter) unsafe -> UnsafeRef<Counter> {
 func main() unsafe {
     var c = Counter(a: 1)
     let r = mint(&var c)
-    print(borrow let r.deref().a)
+    print(borrow r.deref().a)
     borrow var r.deref().a = 7
 }

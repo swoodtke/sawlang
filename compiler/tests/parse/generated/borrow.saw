@@ -35,8 +35,8 @@ func a() { borrow let b = c { } }
 // case: syntax.borrow.binding.var/alt
 func a() { borrow var b = c { } }
 
-// case: syntax.borrow.place.let/alt
-func a() { borrow let b }
+// case: syntax.borrow.place.shared/alt
+func a() { borrow b }
 
 // case: syntax.borrow.place.var/alt
 func a() { borrow var b }
@@ -271,19 +271,19 @@ static_assert(for borrow let x in a { }, "m")
 
 // case: syntax.borrow.place/cell:stmt
 func f() {
-    borrow let a[0]
+    borrow a[0]
     x
 }
 
 // case: syntax.borrow.place/cell:tail
 func f() {
-    borrow let a[0]
+    borrow a[0]
 }
 
 // case: syntax.borrow.place/cell:clos
 func f() {
     let c = {
-        borrow let a[0]
+        borrow a[0]
         x
     }
 }
@@ -293,7 +293,7 @@ func f() {
     try {
         x
     } catch {
-        borrow let a[0]
+        borrow a[0]
         x
     }
 }
@@ -301,65 +301,65 @@ func f() {
 // case: syntax.borrow.place/cell:arm
 func f() {
     match x {
-        case _ -> borrow let a[0]
+        case _ -> borrow a[0]
     }
 }
 
 // case: syntax.borrow.place/cell:opnd
 func f() {
-    let v = borrow let a[0] * x
+    let v = borrow a[0] * x
 }
 
 // case: syntax.borrow.place/cell:rhs
 func f() {
-    let v = x && borrow let a[0]
+    let v = x && borrow a[0]
 }
 
 // case: syntax.borrow.place/cell:arg
 func f() {
-    f(borrow let a[0])
+    f(borrow a[0])
 }
 
 // case: syntax.borrow.place/cell:larg
 func f() {
-    f(a: borrow let a[0])
+    f(a: borrow a[0])
 }
 
 // case: syntax.borrow.place/cell:elem
 func f() {
-    let v = [borrow let a[0]]
+    let v = [borrow a[0]]
 }
 
 // case: syntax.borrow.place/cell:recv
 func f() {
-    let v = (borrow let a[0]).b
+    let v = (borrow a[0]).b
 }
 
 // case: syntax.borrow.place/cell:idx
 func f() {
-    let v = a[borrow let a[0]]
+    let v = a[borrow a[0]]
 }
 
 // case: syntax.borrow.place/cell:interp
 func f() {
-    print("{borrow let a[0]}")
+    print("{borrow a[0]}")
 }
 
 // case: syntax.borrow.place/cell:cond
 func f() {
-    if borrow let a[0] {
+    if borrow a[0] {
     }
 }
 
 // case: syntax.borrow.place/cell:subj
 func f() {
-    if let x = borrow let a[0] {
+    if let x = borrow a[0] {
     }
 }
 
 // case: syntax.borrow.place/cell:scrut
 func f() {
-    match borrow let a[0] {
+    match borrow a[0] {
         case _ -> x
     }
 }
@@ -367,98 +367,98 @@ func f() {
 // case: syntax.borrow.place/cell:aguard
 func f() {
     match x {
-        case _ if borrow let a[0] -> x
+        case _ if borrow a[0] -> x
     }
 }
 
 // case: syntax.borrow.place/cell:iter
 func f() {
-    for i in borrow let a[0] {
+    for i in borrow a[0] {
     }
 }
 
 // case: syntax.borrow.place/cell:rend
 func f() {
-    for i in borrow let a[0]..x {
+    for i in borrow a[0]..x {
     }
 }
 
 // case: syntax.borrow.place/cell:bhead
 func f() {
-    borrow let x = borrow let a[0] {
+    borrow let x = borrow a[0] {
     }
 }
 
 // case: syntax.borrow.place/cell:init
 func f() {
-    let v = borrow let a[0]
+    let v = borrow a[0]
 }
 
 // case: syntax.borrow.place/cell:asgn
 func f() {
-    v = borrow let a[0]
+    v = borrow a[0]
 }
 
 // case: syntax.borrow.place/cell:crhs
 func f() {
-    v += borrow let a[0]
+    v += borrow a[0]
 }
 
 // case: syntax.borrow.place/cell:atgt
 func f() {
-    borrow let a[0] = x
+    borrow a[0] = x
 }
 
 // case: syntax.borrow.place/cell:ret
 func f() {
-    return borrow let a[0]
+    return borrow a[0]
 }
 
 // case: syntax.borrow.place/cell:brk
 func f() {
     while x {
-        break borrow let a[0]
+        break borrow a[0]
     }
 }
 
 // case: syntax.borrow.place/cell:lend
 func f() {
-    lend borrow let a[0]
+    lend borrow a[0]
 }
 
 // case: syntax.borrow.place/cell:try
 func f() {
-    let v = try borrow let a[0]
+    let v = try borrow a[0]
 }
 
 // case: syntax.borrow.place/cell:dflt
-func f(p: T = borrow let a[0]) {
+func f(p: T = borrow a[0]) {
 }
 
 // case: syntax.borrow.place/cell:sinit
-static S: T = borrow let a[0]
+static S: T = borrow a[0]
 
 // case: syntax.borrow.place/cell:alen
 func f() {
-    let v: [T; borrow let a[0]] = w
+    let v: [T; borrow a[0]] = w
 }
 
 // case: syntax.borrow.place/cell:rcnt
 func f() {
-    let v = [x; borrow let a[0]]
+    let v = [x; borrow a[0]]
 }
 
 // case: syntax.borrow.place/cell:raw
 enum E: T {
-    case A = borrow let a[0]
+    case A = borrow a[0]
 }
 
 // case: syntax.borrow.place/cell:aarg
-@align(borrow let a[0])
+@align(borrow a[0])
 static S: T = x
 
 // case: syntax.borrow.place/cell:sassert
-static_assert(borrow let a[0], "m")
+static_assert(borrow a[0], "m")
 
 // case: syntax.borrow.block/cell:stmt
 func f() {

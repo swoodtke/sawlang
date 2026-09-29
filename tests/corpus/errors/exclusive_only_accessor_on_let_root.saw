@@ -27,5 +27,5 @@ extension Bag {
 
 func main() {
     let frozen = Bag(cells: [10, 20, 30, 40], visits: 0)
-    print("{borrow let frozen.tally(0)}")
+    print("{borrow frozen.tally(0)}")
 }

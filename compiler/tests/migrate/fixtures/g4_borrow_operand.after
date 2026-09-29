@@ -8,5 +8,5 @@ func main() {
     var v = Vector<Tag>()
     try! v.push(Tag(id: 1))
     let t = Tag(id: 1)
-    print("{borrow let v[0] == t}")
+    print("{borrow v[0] == t}")
 }
