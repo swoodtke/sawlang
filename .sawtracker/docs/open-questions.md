@@ -61,6 +61,18 @@ A borrow block's value is a copy, and a `Bool` copy is a valid condition, so the
 
 ## Decided by the lead, for review (reversible)
 
+### D6. How a signed width suffix bounds a literal (Sep 29; the Air, SL:hazards t21; SL-435)
+GRAMMAR.md §2.7 `syntax.lex.int-range` says a literal must fit "in its suffix's width", but not how a signed width counts. Stage 0 and sawlex both check the unsigned range, so `255_i8` lexes, and Stage 0 wraps it to -1 (S7's signed-suffix face).
+
+**Decided:** state it in two layers.
+- **The lexer** checks the width's unsigned range, so `256_u8` and `256_i8` are lexical errors.
+- **A later stage** holds a signed suffix's literal to the signed range. It allows exactly 2^(w−1) as the operand of a unary minus (`-128_i8`), since the lexer cannot tell a negation from a subtraction.
+- §16 gains a `defect` row for Stage 0's silent wrap.
+
+**Why reversible:** it only refuses programs that silently wrap today. It changes no meaning a correct program has. The subset checker gets the matching rule (SL-435).
+
+**Reversal:** reword §2.7.
+
 ### D5. The depth limit decides no reading (Sep 29; U4c)
 A speculative generic list that the depth limit cuts short is refused with `syntax.rule.depth-limit`. It is not re-read as comparisons, because otherwise the depth budget could change what a program means. A speculation that fails for any other reason still gives its levels back, and a depth cell pins that.
 
