@@ -8,6 +8,27 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Waiting for the user (fundamental)
 
+### W2. The one-element tuple pattern: `(p)`, or `(p,)` like expressions and types? (Sep 29; the Air, SL-424 c44)
+The three places a tuple is spelled disagree about one element:
+
+| | one-element tuple | `(x)` |
+|---|---|---|
+| expressions | `(1,)` | grouping |
+| types | `(Int,)` | grouping |
+| patterns (§8) | `(x,)` is refused | a one-element tuple: `case (x) ->`, `let (x) = t` |
+
+**Today:** §8 as written is also the frozen sawc's behavior. It refuses `case (z)` on an `Int` with "tuple pattern requires a tuple scrutinee", so `(z)` there is a one-tuple, not grouping.
+
+**The options:**
+- **(a) Keep §8.** A pattern's `(p)` is a one-tuple, and the spelling stays inconsistent with expressions and types.
+- **(b) Spell the pattern `(p,)`, like the rest.** `(p)` in a pattern is then either (b1) grouping, as in expressions, or (b2) refused, with a hint naming `(p,)`.
+  - Either way it changes what `case (x)` means, so every existing `(p)` pattern needs checking.
+
+**Why it waits:** it decides what `case (x)` means.
+- **Meanwhile:** U4e implements §8 as written, keeps the decision in one place in the parser, and pins it with one golden, so a ruling flips one spot and one case.
+
+**The lead's lean:** (b2). It is consistent with the other two, and refusing `(p)` rather than grouping it means no text silently changes meaning. A one-element tuple pattern is rare, so the cost of the change is small. Counting the corpus's `(p)` patterns would size it before the ruling.
+
 ### W1. `borrow let x = e` in a `while` or `guard` head: an unwrap, or a borrow block condition? (Sep 29; found by the SL-426 batch)
 SL:borrowing §2.4 (ruled, t21) makes a binding at an **`if`** head the optional-place unwrap: `if borrow var entry = e { … }`. It says nothing about `while` or boolean `guard` heads. There, GRAMMAR.md's head-reset admits a bare borrow block, so today the following parse with the block's value as the condition:
 - `while borrow let e = m[k] { e.ok } { … }`
