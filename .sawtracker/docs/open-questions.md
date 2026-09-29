@@ -17,6 +17,10 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 - **(a) Always evaluate the right side.** It is uniform with every other assignment, and §2.2's order also lets `borrow var v[i].x = borrow v[j].x` work. A conditional write evaluates its value even when nothing is written.
 - **(b) Skip it when absent,** as Swift does and today's language does. Presence is decided first, so the order becomes: open the left conditional lend; if absent, stop; otherwise evaluate the right side. But then the right side runs while the left borrow is open, which breaks the §2.2 order that makes `v[i].x = v[j].x` work, unless the presence test is a separate step before the right side.
 
+**The Air's facts (t5):**
+- Stage 0 skips it today, measured: `absent.p?.x = loud(n: 1)` doesn't call `loud`.
+- No real program uses an optional-chained assignment: none in std, Blade, libs, devtools, sawtracker or sawos. The uses are all test programs: 260 lines in sawlang's corpora, 51 of them with a call on the right side, 17 of those in `tests/corpus/`. Under (a) the ones that pin the skip get re-aimed; under (b) none do.
+
 **The lead's lean:** (a). It is one evaluation order for every assignment, so what runs is predictable and no special case sits in the borrow checker. `if borrow var p = v.find(9) { p.value = loud(3) }` is the spelling when the value should be computed only when present. The corpus file is re-aimed to pin (a).
 
 ## Decided by the lead, for review (reversible)
