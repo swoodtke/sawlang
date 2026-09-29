@@ -700,6 +700,7 @@ Three more positions consume without binding and are missing from that list: a c
   - a literal;
   - a call or subscript that is only a receiver inside a trivial operand: `v[i].len() == 99`.
 - **In a coroutine** a named place is read out of a frame slot as a fresh value, so it leaks at these positions too, and binding to a `let` does not help (chat m249). The self-hosted compiler is sync-only, so this does not reach Stage 1.
+- **A `Printable` segment, whatever it is.** An interpolation segment of a user `Printable` type is rendered through a `to_string()` the compiler synthesizes, and that string is never released, even when the segment is a named local: `let t = Tok(…)` and then `"{t}!"` leaks once per evaluation (1,000 at N=1,000, 2,000 at N=2,000). Primitive segments (`Int`, `Float`, `Bool`) leak nothing, and neither does a `Printable` format argument, `print("{}", t)`, which renders through `format(into:)`. This reaches Stage 1, because a dump or diagnostic that interpolates a token or node is the natural spelling.
 - **A receiver in a control-flow head.** A temporary receiver the head does not bind is dropped late, and an early `return` skips the drop, with or without a `try`: `if make_res("x").size() > 0 { return 1 }` in the head of an `if`, `while`, `match` or `for`. Over 1000 calls, `leaks --atExit` counts 1001 leaks, against a by-value argument's baseline of 1.
 
 A temporary passed by value as an argument is dropped by its callee. An owned `match` or `if let` scrutinee that the pattern binds drops correctly. `StringBuilder.append` transfers its argument and does not leak.
@@ -714,7 +715,7 @@ A temporary passed by value as an argument is dropped by its callee. An owned `m
 - The census tool asks `_is_owned_temporary` at every comparison operand whose type needs cleanup. Excluding string literals, its answer matches every probe, leaking and not. Measurements and the tool are in chat f13 and f14.
 
 **Instead:**
-- **In sync code, and so in all of Stage 1:** at a comparison, an interpolation segment or a format argument, an operand that is not a named place or a literal is bound to a `let` first, always. For example, `let text = self.toks[self.pos].text`, then `text == word`.
+- **In sync code, and so in all of Stage 1:** at a comparison, an interpolation segment or a format argument, an operand that is not a named place or a literal is bound to a `let` first, always. For example, `let text = self.toks[self.pos].text`, then `text == word`. A user `Printable` value is never interpolated directly: render it through a `StringBuilder` with `format(into:)`, or pass it as a format argument. SL-422's measured fix names the exact spelling.
 - **In a coroutine,** where binding does not help: use the receiver form `a.equals(b)` or `not a.equals(b)`, a `match` on the value, or a synchronous helper that does the check or builds the string.
 - **In a control-flow head:** bind a temporary receiver to a `let` before the head.
 
