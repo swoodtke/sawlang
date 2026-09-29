@@ -252,9 +252,11 @@ consume a local, `match` on the `Result` instead of writing `move` in a
 the code would write `try?`, or where a coroutine would propagate with `try`,
 `match` on the `Result` too, so the error is released.
 
-**Checker:** no: **leak only**. SL-240 and SL-348 leak, and SL-74 is loud.
-Hoisting each `try` into its own `let` remains good style, but nothing
-enforces it.
+**Checker:** leak only, except `try?`. The rule `optional-try` refuses a `try?`
+expression in `compiler/` (SL-432; SL:open-questions D3), because a parser's
+speculative fallbacks would leak per attempt. SL-240 and SL-348 leak, SL-74 is
+loud, and SL-430 leaks only in a coroutine. Hoisting each `try` into its own
+`let` remains good style, but nothing enforces it.
 
 ### S4. Whole-call exclusivity (SL-284, SL-294, SL-111)
 
@@ -343,11 +345,19 @@ platform `Int`'s range compiles and wraps instead of being refused.
 func main() { print(18446744073709551615) }   // prints -1
 ```
 
-**Instead:** write large constants with a suffix, `14695981039346656037u64`,
-or bind them to a `UInt64`-typed `let` or `static`.
+**The signed-suffix face (SL-435; the Air, t21):** a signed suffix doesn't
+protect a literal. Stage 0 checks a suffixed literal only against its width's
+unsigned range, so `255_i8` prints -1, `128_i8` prints -128, and
+`18446744073709551615_i64` prints -1. `256_u8` is refused by the lexer, and
+`-129_i8` once negated. A literal typed by context, as in `let v: Int8 = 255`,
+is refused correctly.
 
-**Checker:** yes: refuse an unsuffixed integer literal whose magnitude exceeds
-`Int.max`.
+**Instead:** write large constants with an **unsigned** suffix,
+`14695981039346656037u64`, or bind them to a `UInt64`-typed `let` or `static`.
+
+**Checker:** yes, for an unsuffixed integer literal whose magnitude exceeds
+`Int.max`. The signed-suffix face is queued as SL-435: refuse a signed-suffixed
+literal above 2^(w−1) − 1, allowing 2^(w−1) as a unary minus's operand.
 
 ### S8. Enum `==` with a hand-written `equals` (SL-61)
 
@@ -1349,6 +1359,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-297 | S14 Argument labels | silent |
 | SL-298 | S6 Function exits | silent |
 | SL-299 | S7 Integer literal above `Int.max` | silent |
+| SL-435 | S7 Signed-suffix face (`255_i8` wraps) | silent |
 | SL-308 | L14 Nesting depth and chain length | loud |
 | SL-309 | S17 `?` or `??` after a cast target | silent |
 | SL-310 | L2 Closure literals and call syntax | loud |
