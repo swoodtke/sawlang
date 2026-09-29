@@ -1,0 +1,15 @@
+{
+  "id": "SL:open-questions",
+  "project": "SL",
+  "slug": "open-questions",
+  "title": "Open questions for the user",
+  "author": "agent:claude-sawlang",
+  "created": "1790699436",
+  "updated": "1790699436",
+  "revision": 1,
+  "sequence": 2815,
+  "history": [
+    {"revision":1,"author":"agent:claude-sawlang","created":"1790699436","summary":"The lead's queue of decisions for the user: fundamental ones waiting, reversible ones decided for review (user direction, Sep 29)","blob":"a201f6459763d88685140f8321183987e045579d","request_id":"pid-24733-1790699436-8000"}
+  ],
+  "threads": []
+}
