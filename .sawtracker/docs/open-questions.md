@@ -8,7 +8,18 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Waiting for the user (fundamental)
 
-(none yet)
+### W1. `borrow let x = e` in a `while` or `guard` head: an unwrap, or a borrow block condition? (Sep 29; found by the SL-426 batch)
+SL:borrowing §2.4 (ruled, t21) makes a binding at an **`if`** head the optional-place unwrap: `if borrow var entry = e { … }`. It says nothing about `while` or boolean `guard` heads. There, GRAMMAR.md's head-reset admits a bare borrow block, so today the following parse with the block's value as the condition:
+- `while borrow let e = m[k] { e.ok } { … }`
+- `guard borrow let e = m[k] { e.ok } else { … }`
+
+A borrow block's value is a copy, and a `Bool` copy is a valid condition, so these are real programs.
+
+**The options:**
+- **(a) Extend the unwrap to `while` and `guard` heads,** like `if`: `while borrow var e = it.find(&k) { … }` loops while the place is present, and `guard borrow let e = … else { … }` binds it for the rest of the scope. The bare block form there is then refused, as at `if` heads.
+- **(b) Keep them as borrow-block conditions.** The §12 `cond` cell's P code would then be wrong for `while` and `guard` hosts, and gets recoded, as D2 did for `bhead`.
+
+**Why it waits:** the choice decides what these programs mean. Nothing is blocked until U4h, which parses borrow forms. The `if` host is already fixed (SL-426).
 
 ## Decided by the lead, for review (reversible)
 
@@ -36,12 +47,13 @@ Suppose a list parses and the follow rule rejects it. If the token after its `>`
 
 It is queued as a small side-queue item.
 
-### D2. SL-426's `bhead` cell: recode §12 from P to B (Sep 29; the Air's t1)
+### D2. SL-426's `bhead` cell: recode §12 from P to S (Sep 29; the Air's t1)
+Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent used **S** ("parses; a later stage refuses the construct in this position"), whose legend matches this decision's reason word for word. Y is the alternative, since a borrow head "may be any expression" (SL:borrowing §2.1). Either is one character, and the generator treats them alike.
 **The finding:** §12 codes `syntax.borrow.block` × `bhead` as P (parenthesized only). But `syntax.rule.head-reset` admits a nested borrow construct's body in any head (SL-426 c1), so GRAMMAR.md's text says `borrow let x = borrow let x = a { x } {` parses. The recognizer agrees.
 
 **The options:**
 - (a) a new refusal rule, which would be a new language rule and so the user's call;
-- (b) recode the cell B, a §12 correction that matches the text.
+- (b) recode the cell S, a §12 correction that matches the text.
 
 **Decided: (b).** The type layer refuses the case either way, since a block's value is not a place, so no program changes meaning.
 - **Reversal:** a later ruling for (a) adds the rule and flips the cell back.
