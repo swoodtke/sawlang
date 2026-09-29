@@ -1,0 +1,10 @@
+// An owned temporary as an interpolation segment: a call result, a subscript
+// read, and a field reached through a subscript.
+struct InTok { text: String, line: Int }
+
+func in_word(n: Int) -> String { "w{n}" }
+
+func in_call(n: Int) -> String { "at {in_word(n)}" }   // refuses: owned-operand
+func in_method(s: String) -> String { "<{s.substring(0, 1)}>" }   // refuses: owned-operand
+func in_subscript(v: &Vector<String>) -> String { "{v[0]}-{v[1]}" }   // refuses: owned-operand owned-operand
+func in_field(t: &Vector<InTok>, i: Int) -> String { "{t[i].text}:{t[i].line}" }   // refuses: owned-operand

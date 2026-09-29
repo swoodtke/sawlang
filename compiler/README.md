@@ -107,7 +107,9 @@ Stage 0 mishandles taken out. `tools/subset_check.py` enforces it over every
 `compiler/**/*.saw` except `compiler/tests/**` (fixtures hold arbitrary Saw) and
 `*.test.saw` (sidecars, which only Stage 1 builds). It reads the source through
 the frozen compiler's own lexer and parser, so it checks exactly what Stage 0
-reads.
+reads. A build those rules accept is then compiled by the frozen compiler itself,
+in a child process and without emitting code, for the rules only its code
+generator can answer.
 
 ```sh
 ./.venv/bin/python compiler/tools/subset_check.py              # the tree
@@ -132,6 +134,7 @@ code, must report nothing. The runner fails for a rule with no fixture.
 | Rule | Refuses | Source |
 |---|---|---|
 | `lex`, `parse` | a file the frozen lexer or parser rejects | §4 |
+| `compile` | a build the frozen compiler rejects, when every other rule accepts it | §4 |
 | `file-end` | a file that does not end in a newline | C2 |
 | `sync-only` | tasks, threads, channels, `sleep`, a `blocking` extern | §4 |
 | `closure-capture` | a closure naming an enclosing binding or `self`, a capture list | §4 |
@@ -168,6 +171,7 @@ code, must report nothing. The runner fails for a rule with no fixture.
 | `float-literal` | any float literal | §4, S20 |
 | `interpolation-line-break` | a line break inside an interpolation's braces | S21 |
 | `inline-module` | every inline `module name { }` | S22 |
+| `owned-operand` | an operand Stage 0's `_is_owned_temporary` calls an owned temporary, as a comparison operand, an interpolation segment, or a format argument of `print`, `panic` or `assert`, a string literal exempt; any interpolation segment codegen renders through a synthesized `to_string()` (a type off its builtin fast path, such as a user `Printable`), a named place included | S23 |
 | `from-raw-literal` | `from(raw:)` with a bare literal | L1 |
 | `closure-syntax` | an unannotated closure parameter, `$0`, a trailing closure, a function type under `?` | L2 |
 | `default-value-literal` | a default parameter value that is not a literal | L3 |
@@ -180,6 +184,7 @@ code, must report nothing. The runner fails for a rule with no fixture.
 | `nesting-depth`, `chain-length` | brackets nested past 30; an operator, `??`, postfix, `else if` or `else if let` chain past 100 | L14 |
 | `generic-extension-params` | an extension head naming a generic type, the build's or std's, without its type parameters, as `extension Gen { }`, `extension Gen: NoCopy {}` or `extension Vector { }` | L18 |
 | `interpolation-content` | `//`, a brace or a quote inside an interpolation | C3 |
+| `workaround-marker` | a comment that reads as a Stage 0 workaround marker but is not in its one form, or names an S or L entry SL:hazards does not declare | SL:hazards |
 
 §4 is SL:architecture §4; the other codes are SL:hazards entries, and "leak
 tolerance" is its introduction's "Leaks are tolerated in Stage 1". A hazard that
@@ -189,7 +194,15 @@ effect, which is why the source declares no `deinit` and why
 `ALLOWED_STD_MODULES` is pinned in `tests/run.py`: adding a std module means
 checking that every `deinit` it reaches only frees memory or closes a
 descriptor. S13, a nested generic with defaulted parameters, only leaks, so it
-has no rule.
+has no rule. S23 only leaks too, and has one anyway: a parser comparing token
+text, or a diagnostic interpolating it, would leak once per token of every file
+Stage 1 compiles.
+
+`owned-operand` asks the compiler, not the source: its code generator's
+predicate judges each operand of the build Stage 0 is given, generic bodies at
+each instantiation, and every body is generated, reached or not. A build that
+another rule refuses is not compiled, so its `owned-operand` findings wait until
+the others are fixed.
 
 Several checks are syntactic, so they are partial. What they cannot see stays a
 trust obligation, as SL:hazards describes:
@@ -214,3 +227,28 @@ trust obligation, as SL:hazards describes:
 - `nested-optional` sees written types only, not the types a generic
   instantiation produces.
 - SL:hazards S16 and L15 have no check.
+
+## Stage 0 workarounds
+
+Some code in `compiler/` is shaped around a frozen-compiler bug rather than
+written the natural way: a value bound to a `let` only so Stage 0 releases it, or
+an index computed apart from a call that borrows its root. Each such site carries
+a marker, on its line or directly above it:
+
+```saw
+// Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: cannot open {path}: {e}")
+print("sawc2: cannot open {}: {}", path, e)
+```
+
+The id names the SL:hazards entry the code works around. `canonical:` gives the
+spelling the workaround replaced, so undoing it after self-hosting is mechanical.
+A short reason may follow after ` — `. A marked site is not an idiom to copy: it
+exists for Stage 0 only, and is reverted to its canonical spelling once the
+compiler builds itself.
+
+The `workaround-marker` rule refuses a marker in any other spelling, one with no
+`canonical:` part, and one whose id is not an S or L entry of the tracked copy of
+SL:hazards, `.sawtracker/docs/hazards.md`. `tools/subset_check.py` over the tree,
+and `tests/run.py`, print the inventory: the count per entry, then each marker's
+entry, `file:line` and canonical spelling. A rule whose fix is a workaround asks
+for the marker in its message.

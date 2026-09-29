@@ -1,0 +1,15 @@
+// An owned temporary as a format argument of `print`, `panic` or `assert`: a
+// call result, a subscript read, and a field reached through a subscript.
+struct FmtTok { text: String, line: Int }
+
+func fmt_word(n: Int) -> String { "w{n}" }
+
+func fmt_call(n: Int) { print("{}", fmt_word(n)) }   // refuses: owned-operand
+func fmt_subscript(v: &Vector<String>, i: Int) { print("{}", v[i]) }   // refuses: owned-operand
+func fmt_field(t: &Vector<FmtTok>) { print("{} at {}", t[0].text, t[0].line) }   // refuses: owned-operand
+func fmt_assert(v: &Vector<String>, n: Int) {
+    assert(n > 0, "{} {}", fmt_word(n), v[0])   // refuses: owned-operand owned-operand
+}
+func fmt_panic(t: &Vector<FmtTok>) {
+    panic("bad {}", t[0].text)   // refuses: owned-operand
+}

@@ -1,0 +1,18 @@
+// Workaround markers that cannot be found again: an entry SL:hazards does not
+// declare, a family other than S or L, no `canonical:` part, another spelling.
+func marked_word(n: Int) -> String { "w{n}" }
+
+func marked(n: Int) -> Bool {
+    // Stage 0 workaround (SL:hazards S999): canonical: marked_word(n) == "w1" // refuses: workaround-marker
+    let a = marked_word(n)
+    // Stage 0 workaround (SL:hazards C2): canonical: a == "w1" // refuses: workaround-marker
+    let b = a == "w1"
+    // Stage 0 workaround (SL:hazards S23): bind the word first // refuses: workaround-marker
+    let c = b
+    // stage 0 workaround (SL:hazards S23): canonical: c // refuses: workaround-marker
+    let d = c
+    // Stage-0 workaround (SL:hazards S23): canonical: d // refuses: workaround-marker
+    let e = d
+    // Stage 0 workaround (SL:hazard S23): canonical: e // refuses: workaround-marker
+    e
+}

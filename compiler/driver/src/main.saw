@@ -73,7 +73,8 @@ func driver_read_source(path: String) -> String? {
     var file = match opened {
         case Ok(handle) -> move handle,
         case Err(e) -> {
-            print("sawc2: cannot open {path}: {e}")
+            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: cannot open {path}: {e}")
+            print("sawc2: cannot open {}: {}", path, e)
             return None
         }
     }
@@ -81,7 +82,8 @@ func driver_read_source(path: String) -> String? {
     let data = match read {
         case Ok(bytes) -> move bytes,
         case Err(e) -> {
-            print("sawc2: cannot read {path}: {e}")
+            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: cannot read {path}: {e}")
+            print("sawc2: cannot read {}: {}", path, e)
             return None
         }
     }

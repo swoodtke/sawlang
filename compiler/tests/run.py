@@ -9,8 +9,9 @@ kinds and lex errors must cover the lexer's; runs the subset checker over the
 compiler source and its own fixtures in `subset/`; and runs the grammar lint,
 the reference recognizer's own tests in `grammar/`, and the parser corpus's
 checks over `parse/`; and runs the corpus rewriter's golden fixtures in
-`migrate/`. Each failure prints one line
-in a fixed order, the summary comes last, and any failure exits 1.
+`migrate/`. The inventory of Stage 0 workaround markers prints first, then each
+failure as one line in a fixed order; the summary comes last, and any failure
+exits 1.
 """
 import collections
 import concurrent.futures
@@ -56,6 +57,7 @@ class Run:
     def __init__(self):
         self.failures = []
         self.counts = {}
+        self.inventory = []
 
     def fail(self, text):
         self.failures.append(text)
@@ -242,6 +244,7 @@ def run_subset(run):
     for d in diags:
         run.fail("subset: " + d.render())
     run.count("checked source files", len(files))
+    run.inventory = subset_check.workaround_inventory(files)
     allowed, pinned = sorted(subset_check.ALLOWED_STD_MODULES), sorted(PINNED_STD_MODULES)
     if allowed != pinned:
         run.fail("subset: ALLOWED_STD_MODULES is %s, pinned as %s; check that every std "
@@ -252,8 +255,12 @@ def run_subset(run):
     for rule in sorted(subset_check.RULES):
         if rule not in names:
             run.fail("subset: rule %s has no fixture" % rule)
+    # One call checks each fixture as its own build and compiles them together.
+    reported = collections.defaultdict(list)
+    for d in subset_check.check_files(fixtures):
+        reported[d.path].append(d)
     for path in fixtures:
-        check_subset_fixture(run, path)
+        check_subset_fixture(run, path, reported[os.path.relpath(path, REPO)])
         run.count("checker fixtures")
 
 
@@ -262,10 +269,10 @@ def _fixture_rule(path):
     return os.path.basename(path).split(".")[0]
 
 
-def check_subset_fixture(run, path):
+def check_subset_fixture(run, path, diags):
     """A fixture's `// refuses: RULE...` markers name exactly the (line, rule)
-    pairs the checker must report, a rule named twice on a line meaning two
-    findings of it there; a `clean` fixture has none."""
+    pairs the checker reports in `diags`, a rule named twice on a line meaning
+    two findings of it there; a `clean` fixture has none."""
     rel = os.path.relpath(path, REPO)
     rule = _fixture_rule(path)
     if rule != "clean" and rule not in subset_check.RULES:
@@ -280,7 +287,7 @@ def check_subset_fixture(run, path):
                     expected[(lineno, name)] += 1
     if rule != "clean" and not any(name == rule for _, name in expected):
         run.fail("subset fixture %s: marks no line with its own rule" % rel)
-    got = collections.Counter((d.line, d.rule) for d in subset_check.check_files([path]))
+    got = collections.Counter((d.line, d.rule) for d in diags)
     for line, name in sorted(set(expected) | set(got)):
         want, have = expected[(line, name)], got[(line, name)]
         if not have:
@@ -325,6 +332,8 @@ def main():
     run_subset(run)
     run_grammar(run)
     run_migrate(run)
+    for line in run.inventory:
+        print(line)
     for failure in run.failures:
         print(failure)
     summary = ", ".join("%d %s" % (n, key) for key, n in sorted(run.counts.items()))

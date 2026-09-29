@@ -83,8 +83,8 @@ func clean_closures(n: Int) -> Int {
 }
 
 func clean_try(names: &Map<String, Int>) -> Result<Int, CleanError> {
-    let found = try clean_lookup(names, "a")
-    let fallback = try clean_lookup(names, "b") catch { 0 }
+    let found = try clean_lookup(&names, "a")
+    let fallback = try clean_lookup(&names, "b") catch { 0 }
     return found + fallback
 }
 

@@ -1,0 +1,21 @@
+// An interpolation segment of a user `Printable` type renders through a
+// `to_string()` Stage 0 synthesizes and never releases, whatever it names.
+struct RenTok { text: String, line: Int }
+
+extension RenTok: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let _ = into.append(self.text)
+    }
+}
+
+struct RenHolder { tok: RenTok, count: Int }
+
+func ren_make(n: Int) -> RenTok { RenTok(text: "t", line: n) }
+
+func ren_local(n: Int) -> String {
+    let t = ren_make(n)
+    "{t}!"   // refuses: owned-operand
+}
+func ren_param(t: &RenTok) -> String { "<{t}>" }   // refuses: owned-operand
+func ren_field(h: &RenHolder) -> String { "{h.tok} x{h.count}" }   // refuses: owned-operand
+func ren_call(n: Int) -> String { "{ren_make(n)}" }   // refuses: owned-operand

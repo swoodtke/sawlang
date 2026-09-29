@@ -1,0 +1,59 @@
+// The operands SL:hazards S23 lists as released, at each position its rule
+// covers: a named place, a local bound first, a literal, and a call or
+// subscript that is only a receiver inside an operand needing no release; and a
+// `Printable` value rendered into a `let` before it is interpolated, or passed
+// as a format argument.
+struct PassTok { text: String, line: Int }
+
+extension PassTok: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let _ = into.append(self.text)
+    }
+}
+
+struct PassHolder { tok: PassTok, count: Int }
+
+func pass_word(n: Int) -> String { "w{n}" }
+
+func pass_places(t: &PassTok, s: String, o: String?, p: (String, Int)) -> Bool {
+    t.text == s && o! != s && p.0 < s
+}
+
+func pass_bound(v: &Vector<PassTok>, n: Int) -> Bool {
+    let word = pass_word(n)
+    let text = v[0].text
+    text == word
+}
+
+func pass_literals(s: String) -> Bool { s == "x" || "y" != s }
+
+func pass_receivers(v: &Vector<String>, n: Int) -> Bool {
+    v[n].len() == 99 && pass_word(n).len() > 1
+}
+
+func pass_copy_elements(v: &Vector<Int>, i: Int) -> Bool { v[i] == 3 }
+
+func pass_segments(t: &PassTok, v: &Vector<String>, n: Int) -> String {
+    let word = pass_word(n)
+    "{t.text} {word} {n} {t.line} {v[n].len()} {pass_word(n).len()}"
+}
+
+func pass_primitive_segments(n: Int, ok: Bool, b: UInt8) -> String { "{n} {ok} {b}" }
+
+func pass_rendered(t: &PassTok) -> String {
+    let text = t.to_string()
+    "[{text}]"
+}
+
+func pass_printable_arguments(t: &PassTok, h: &PassHolder) {
+    print("[{}] {}", t, h.tok)
+}
+
+func pass_format(t: &PassTok, n: Int) {
+    let word = pass_word(n)
+    print("{} {} {}", t.text, word, n)
+    assert(n > 0, "{} at {}", word, t.line)
+    if n > 99 {
+        panic("{} {}", t.text, pass_word(n).len())
+    }
+}

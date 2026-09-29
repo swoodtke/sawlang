@@ -1,0 +1,10 @@
+// Workaround markers in the one accepted form, above the line they mark and
+// trailing it, with and without a reason after the canonical code.
+func kept_word(n: Int) -> String { "w{n}" }
+
+func kept(n: Int, v: &Vector<Int>) -> Bool {
+    // Stage 0 workaround (SL:hazards S23): canonical: kept_word(n) == "w1"
+    let word = kept_word(n)
+    let at = n + 1   // Stage 0 workaround (SL:hazards S4): canonical: v.len() > n + 1 — an argument may not read a borrowed root
+    word == "w1" && v.len() > at
+}

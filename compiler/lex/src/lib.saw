@@ -669,10 +669,9 @@ struct Lexer {
 }
 
 extension Lexer {
-    // The byte `offset` places past `pos`, or -1 past the end. The index is
-    // bound first because an argument may not read the root a `&` argument
-    // borrows (SL:hazards S4).
+    // The byte `offset` places past `pos`, or -1 past the end.
     func peek_at(&self, offset: Int) -> Int {
+        // Stage 0 workaround (SL:hazards S4): canonical: ubyte(&self.src, self.pos + offset) — an argument may not read the root a `&` argument borrows
         let at = self.pos + offset
         ubyte(&self.src, at)
     }

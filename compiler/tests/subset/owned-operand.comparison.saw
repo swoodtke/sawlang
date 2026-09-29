@@ -1,0 +1,22 @@
+// An owned temporary as a comparison operand: a call result, a subscript read,
+// a field reached through a subscript, and an interpolation.
+struct CmpTok { text: String, line: Int }
+
+func cmp_word(n: Int) -> String { "w{n}" }
+
+func cmp_call(n: Int) -> Bool { cmp_word(n) == "w1" }   // refuses: owned-operand
+func cmp_call_right(s: String, n: Int) -> Bool { s != cmp_word(n) }   // refuses: owned-operand
+func cmp_method(s: String) -> Bool { s.substring(0, 2) < "zz" }   // refuses: owned-operand
+func cmp_subscript(v: &Vector<String>, i: Int) -> Bool { v[i] == "x" }   // refuses: owned-operand
+func cmp_field(t: &Vector<CmpTok>, i: Int) -> Bool { t[i].text >= "x" }   // refuses: owned-operand
+func cmp_interpolation(given: String, token: String) -> Bool {
+    given != "Bearer {token}"   // refuses: owned-operand
+}
+func cmp_both(v: &Vector<String>, n: Int) -> Bool { v[0] <= cmp_word(n) }   // refuses: owned-operand owned-operand
+func cmp_in_head(v: &Vector<CmpTok>, n: Int) -> Int {
+    var i = 0
+    while i < v.len() && v[i].text > cmp_word(n) {   // refuses: owned-operand owned-operand
+        i += 1
+    }
+    i
+}

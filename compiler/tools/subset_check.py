@@ -3,15 +3,22 @@
 
 Each rule in `RULES` enforces one subset rule or one checkable hazard entry and
 names that source in its diagnostic. The frozen compiler's own lexer and parser
-read the source, so the checker sees exactly what Stage 0 reads.
+read the source, so the checker sees exactly what Stage 0 reads. A build the
+source rules accept is then compiled by Stage 0 itself, in a child process, for
+the rules only its code generator can answer.
 
     python compiler/tools/subset_check.py          # compiler/**/*.saw, no tests/ or sidecars
     python compiler/tools/subset_check.py FILE...  # each file as a unit program
 """
+import concurrent.futures
+import contextlib
 import dataclasses
 import glob
+import io
+import json
 import os
 import re
+import subprocess
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -21,13 +28,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ast_nodes as A  # noqa: E402
 from lexer import Lexer, TokenType as T  # noqa: E402
 from parser import Parser  # noqa: E402
-from build import STAGE_PACKAGES  # noqa: E402
+from build import DRIVER_ENTRY, STAGE_PACKAGES  # noqa: E402
 
 ARCH = "SL:architecture §4"
 
 RULES = {
     "lex": ARCH + ": the frozen lexer must accept the source",
     "parse": ARCH + ": the frozen parser must accept the source",
+    "compile": ARCH + ": the frozen compiler must accept the source",
     "file-end": "SL:hazards C2",
     "sync-only": ARCH,
     "closure-capture": ARCH,
@@ -64,6 +72,7 @@ RULES = {
     "float-literal": ARCH + "; SL:hazards S20",
     "interpolation-line-break": "SL:hazards S21",
     "inline-module": "SL:hazards S22",
+    "owned-operand": "SL:hazards S23",
     "from-raw-literal": "SL:hazards L1",
     "closure-syntax": "SL:hazards L2",
     "default-value-literal": "SL:hazards L3",
@@ -77,7 +86,20 @@ RULES = {
     "chain-length": "SL:hazards L14",
     "generic-extension-params": "SL:hazards L18",
     "interpolation-content": "SL:hazards C3",
+    "workaround-marker": "SL:hazards: a workaround names the entry it works around",
 }
+
+# The tracked copy of SL:hazards, whose headings name its entries. Its sibling
+# `hazards.json` holds the page's history and threads, not the entries.
+HAZARDS_DOC = os.path.join(REPO, ".sawtracker", "docs", "hazards.md")
+_HAZARD_HEADING_RE = re.compile(r"^### ([SL]\d+)\. ", re.M)
+# Anything that reads as a workaround marker, however it is spelled, and the one
+# spelling a marker may take: the entry, then the code the workaround replaces,
+# then optionally ` — ` and why.
+_MARKER_LIKE_RE = re.compile(r"//.*stage[\s_-]*0[\s_-]*work[\s_-]*around", re.I)
+_MARKER_RE = re.compile(
+    r"// Stage 0 workaround \(SL:hazards ([SL]\d+)\): canonical: (\S.*?)(?: — \S.*)?\s*$")
+MARKER_FORM = "// Stage 0 workaround (SL:hazards ID): canonical: <the code it replaces>"
 
 # The std modules the compiler may import. The bootstrap std unit must build
 # every module on this list, so each addition widens that unit's cone. Stage 1
@@ -264,6 +286,54 @@ class StdFacts:
                 if not m.is_init:
                     kind = "static" if m.is_static else "instance"
                     self.method_kinds.setdefault((ext.struct_name, m.name), set()).add(kind)
+
+
+_HAZARD_IDS = None
+
+
+def hazard_ids():
+    """The S and L entries SL:hazards declares, read from its tracked copy."""
+    global _HAZARD_IDS
+    if _HAZARD_IDS is None:
+        with open(HAZARDS_DOC, encoding="utf-8") as fh:
+            _HAZARD_IDS = frozenset(_HAZARD_HEADING_RE.findall(fh.read()))
+        if not _HAZARD_IDS:
+            raise RuntimeError("subset_check: %s names no S or L entry"
+                               % os.path.relpath(HAZARDS_DOC, REPO))
+    return _HAZARD_IDS
+
+
+def workaround_markers(text):
+    """Each line of `text` that reads as a Stage 0 workaround marker, as
+    (line, hazard id, canonical code), the last two None when the marker is not
+    in `MARKER_FORM`."""
+    out = []
+    for lineno, line in enumerate(text.split("\n"), 1):
+        like = _MARKER_LIKE_RE.search(line)
+        if like:
+            exact = _MARKER_RE.match(line, like.start())
+            out.append((lineno,) + (exact.groups() if exact else (None, None)))
+    return out
+
+
+def workaround_inventory(paths):
+    """The well-formed markers in `paths`, rendered: a count per hazard entry,
+    then each marker's entry, `file:line` and canonical code."""
+    found = []
+    for path in paths:
+        with open(path, encoding="utf-8") as fh:
+            for line, hazard, canonical in workaround_markers(fh.read()):
+                if hazard is not None:
+                    found.append((hazard, os.path.relpath(path, REPO), line, canonical))
+    counts = {}
+    for hazard, _, _, _ in found:
+        counts[hazard] = counts.get(hazard, 0) + 1
+    order = sorted(counts, key=lambda h: (h[0], int(h[1:])))
+    out = ["stage 0 workarounds: %d marker(s)%s" % (
+        len(found), "".join("; %s: %d" % (h, counts[h]) for h in order))]
+    for hazard, rel, line, canonical in sorted(found, key=lambda f: (f[1], f[2])):
+        out.append("  %s %s:%d: canonical: %s" % (hazard, rel, line, canonical))
+    return out
 
 
 _STD = None
@@ -654,6 +724,7 @@ class FileChecker:
         if not src.text.endswith("\n"):
             self.report(src.text.count("\n") + 1, "file-end",
                         "the file must end with a newline")
+        self.check_workaround_markers()
         if src.lex_error:
             self.report(src.lex_error[0], "lex", src.lex_error[1])
             return self.diags
@@ -666,6 +737,17 @@ class FileChecker:
         self.check_types()
         self.check_literals()
         return self.diags
+
+    def check_workaround_markers(self):
+        """A marker is how a Stage 0 workaround is found again once Stage 1
+        builds itself, so one that is misspelled or names no entry is lost."""
+        for line, hazard, _ in workaround_markers(self.src.text):
+            if hazard is None:
+                self.report(line, "workaround-marker",
+                            "write a workaround marker exactly as `%s`" % MARKER_FORM)
+            elif hazard not in hazard_ids():
+                self.report(line, "workaround-marker",
+                            "`%s` is not an entry of SL:hazards" % hazard)
 
     # -- token rules -------------------------------------------------------
 
@@ -2065,6 +2147,189 @@ def _has_narrow_integer(decl):
 
 
 # ---------------------------------------------------------------------------
+# Rules over what Stage 0 generates: each build is compiled by the frozen
+# compiler in a child process, whose code generator answers them.
+# ---------------------------------------------------------------------------
+
+COMPARISONS = ("==", "!=", "<", "<=", ">", ">=")
+FORMAT_CALLEES = (("_generate_print", "print"), ("_generate_panic", "panic"),
+                  ("_generate_assert", "assert"))
+GENERATED_FLAG = "--generated"
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+_LOCATION_RE = re.compile(r"-->\s*(.+?):(\d+)(?::\d+)?\s*$")
+
+
+def generated_sites(entry):
+    """Compile `entry` with Stage 0 and find the owned temporaries it never releases.
+
+    Codegen's own predicate, `_is_owned_temporary`, judges each operand at the
+    positions that consume a value unbound and are missing from that predicate's
+    own entry-point list (SL:hazards S23). A segment rendered through a
+    synthesized `to_string()` is a site whatever it names. The compile is
+    object-only, so every body is generated, reached or not, and nothing is
+    emitted. The patches last for the rest of the process, so this runs only in
+    the child `generated_build` starts. Returns (compiled, compiler output,
+    sites), a site being (file, line, position, kind), kind "owned" or "rendered".
+
+    Entry points (the codegen methods it wraps):
+      `_generate_binary_op` -- a comparison operand
+      `visit_StringInterpolation` -- an interpolation segment
+      `_format_pieces` -- a format argument of `print`, `panic` or `assert`
+    """
+    import sawc as driver
+    from codegen.core import CodeGenerator
+
+    sites = []
+    callees = []
+
+    def judge(gen, operand, position, fallback_line):
+        # A string literal is static: nothing owns it, and nothing leaks.
+        if operand is None or isinstance(operand, A.StringLiteral):
+            return
+        # With no stamped type the predicate decides alone, which can only
+        # over-refuse.
+        t = operand.resolved_type
+        if t is not None:
+            if gen.type_param_context:
+                t = t.substitute(gen.type_param_context)
+            if not gen._needs_cleanup(t):
+                return
+        if gen._is_owned_temporary(operand):
+            record(gen, operand, position, fallback_line, "owned")
+
+    def record(gen, operand, position, fallback_line, kind):
+        decl = getattr(gen, "_current_decl", None)
+        sites.append((getattr(decl, "source_file", None) or "",
+                      getattr(operand, "line", 0) or fallback_line, position, kind))
+
+    binary_op = CodeGenerator._generate_binary_op
+
+    def generate_binary_op(gen, expr):
+        if expr.op in COMPARISONS:
+            judge(gen, expr.left, "the left operand of `%s`" % expr.op, expr.line)
+            judge(gen, expr.right, "the right operand of `%s`" % expr.op, expr.line)
+        return binary_op(gen, expr)
+
+    interpolation = CodeGenerator.visit_StringInterpolation
+
+    def visit_interpolation(gen, expr):
+        for i, segment in enumerate(expr.expressions, 1):
+            position = "interpolation segment %d" % i
+            # Off the builtin fast path, codegen renders the segment through a
+            # `to_string()` call it synthesizes, and that String is never
+            # released, whatever the segment names.
+            if not gen._is_builtin_interp_type(gen._expr_type(segment)):
+                record(gen, segment, position, expr.line, "rendered")
+            else:
+                judge(gen, segment, position, expr.line)
+        return interpolation(gen, expr)
+
+    format_pieces = CodeGenerator._format_pieces
+
+    def pieces(gen, fmt_expr, value_args):
+        callee = "`%s`" % callees[-1] if callees else "a format call"
+        for i, arg in enumerate(value_args, 1):
+            judge(gen, arg.value, "format argument %d of %s" % (i, callee), fmt_expr.line)
+        return format_pieces(gen, fmt_expr, value_args)
+
+    def naming(name, generate):
+        def wrapper(gen, *args, **kwargs):
+            callees.append(name)
+            try:
+                return generate(gen, *args, **kwargs)
+            finally:
+                callees.pop()
+        return wrapper
+
+    CodeGenerator._generate_binary_op = generate_binary_op
+    CodeGenerator.visit_StringInterpolation = visit_interpolation
+    CodeGenerator._format_pieces = pieces
+    for attr, name in FORMAT_CALLEES:
+        setattr(CodeGenerator, attr, naming(name, getattr(CodeGenerator, attr)))
+    driver._emit_object = lambda *args, **kwargs: None
+
+    module_paths = {name: os.path.join(REPO, rel) for name, rel in STAGE_PACKAGES}
+    out = io.StringIO()
+    compiled = True
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+        try:
+            driver.compile_saw(entry, os.path.join(REPO, ".build", "subset-generated"),
+                               object_only=True, module_paths=module_paths)
+        except SystemExit as exc:
+            compiled = exc.code in (None, 0)
+    return compiled, _ANSI_RE.sub("", out.getvalue()), sites
+
+
+def generated_build(entry):
+    """`generated_sites` for `entry`, run in a child process."""
+    r = subprocess.run([sys.executable, os.path.abspath(__file__), GENERATED_FLAG, entry],
+                       cwd=REPO, capture_output=True, text=True)
+    try:
+        compiled, output, sites = json.loads(r.stdout)
+    except ValueError:
+        last = (r.stdout + r.stderr).strip().splitlines()[-1:] or ["exit %d" % r.returncode]
+        return False, "the checker's compile failed: " + last[0], []
+    return compiled, output, [tuple(s) for s in sites]
+
+
+def check_generated(builds, checked):
+    """Compile each `(entry, files)` build and report what its code generator finds.
+
+    `checked` maps each checked file's absolute path to the relative path its
+    diagnostics name; a site in any other file, std's say, is not reported.
+    """
+    diags = []
+    workers = min(8, os.cpu_count() or 1)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(lambda b: generated_build(b[0]), builds))
+    for (entry, files), (compiled, output, sites) in zip(builds, results):
+        if not compiled:
+            diags.append(_refused_build(entry, files, output))
+            continue
+        for path, line, position, kind in sites:
+            rel = checked.get(os.path.abspath(path)) if path else None
+            if rel is not None:
+                diags.append(Diagnostic(rel, line, "owned-operand",
+                                        GENERATED_MESSAGES[kind] % position))
+    return diags
+
+
+# The rendering fixes named here are the ones measured to leak nothing.
+GENERATED_MESSAGES = {
+    "owned": "%s is an owned temporary that Stage 0 never releases; bind it to a `let` "
+             "first, and mark it `// Stage 0 workaround (SL:hazards S23): canonical: "
+             "<the original line>`",
+    "rendered": "%s renders through a `to_string()` that Stage 0 never releases; bind "
+                "the rendering first, as `let text = t.to_string()` then `\"[{text}]\"`, "
+                "or pass it as a format argument, and mark it "
+                "`// Stage 0 workaround (SL:hazards S23): canonical: <the original line>`",
+}
+
+
+def _refused_build(entry, files, output):
+    """The first error of a build Stage 0 refuses, as a `compile` diagnostic.
+
+    It sits at the error's location when that is one of the build's files, and
+    at the entry otherwise.
+    """
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    first = next((i for i, line in enumerate(lines) if line.startswith("error")), 0)
+    message = lines[first] if lines else "the compiler failed with no output"
+    if message.startswith("error: "):
+        message = message[len("error: "):]
+    rel, line = os.path.relpath(entry, REPO), 1
+    by_path = {os.path.abspath(f.path): f.rel for f in files}
+    m = _LOCATION_RE.search(lines[first + 1]) if first + 1 < len(lines) else None
+    if m:
+        located = by_path.get(os.path.abspath(m.group(1)))
+        if located is not None:
+            rel, line = located, int(m.group(2))
+        else:
+            message += " (at %s:%s)" % (os.path.relpath(m.group(1), REPO), m.group(2))
+    return Diagnostic(rel, line, "compile", message)
+
+
+# ---------------------------------------------------------------------------
 # Entry points.
 # ---------------------------------------------------------------------------
 
@@ -2093,7 +2358,8 @@ def stage_files():
 def check_files(paths, compiler=(), stages=None):
     """Check `paths`. The `compiler` files are one build (the driver and every
     stage package); each other file is a build of its own, linked against the
-    stage packages, as a unit program is."""
+    stage packages, as a unit program is. Only a build the source rules accept
+    is compiled: a refused one is not the program Stage 0 will be given."""
     if stages is None:
         stages = stage_files()
     std = std_facts()
@@ -2112,6 +2378,13 @@ def check_files(paths, compiler=(), stages=None):
         diags.extend(check_build(compiler_files, [], std))
     for p in sorted(set(paths) - set(compiler)):
         diags.extend(check_build([loaded[p]], stage_sources, std))
+    builds = [(DRIVER_ENTRY, compiler_files)] if compiler else []
+    builds += [(p, [loaded[p]]) for p in sorted(set(paths) - set(compiler))]
+    refused = {d.path for d in diags}
+    builds = [(entry, files) for entry, files in builds
+              if not any(f.rel in refused for f in files)]
+    checked = {os.path.abspath(p): loaded[p].rel for p in paths}
+    diags.extend(check_generated(builds, checked))
     return sorted(set(diags))
 
 
@@ -2123,6 +2396,9 @@ def check_tree():
 
 
 def main(argv):
+    if argv[:1] == [GENERATED_FLAG] and len(argv) == 2:
+        print(json.dumps(generated_sites(os.path.abspath(argv[1]))))
+        return 0
     if argv:
         paths = [os.path.abspath(p) for p in argv]
         diags = check_files(paths)
@@ -2130,6 +2406,8 @@ def main(argv):
     else:
         files, diags = check_tree()
         count = len(files)
+        for line in workaround_inventory(files):
+            print(line)
     for d in diags:
         print(d.render())
     print("subset: %d file(s), %d diagnostic(s)" % (count, len(diags)))

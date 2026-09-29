@@ -1,0 +1,4 @@
+// Source the frozen lexer and parser accept and the frozen compiler refuses.
+func refused_sum(a: Int) -> Int {
+    a + true   // refuses: compile
+}

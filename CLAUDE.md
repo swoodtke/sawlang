@@ -345,7 +345,9 @@ got here. They apply to sawc/ Python, C and every `.saw` file.
    `designs/`, and the tracker.
 3. At most one design/DF/SL reference per comment, as a trailing pointer:
    `(design 261)`. The comment must make sense without opening it; never
-   paraphrase the brief.
+   paraphrase the brief. The Stage 0 workaround marker
+   (`// Stage 0 workaround (SL:hazards <id>): canonical: …`) is the one
+   sanctioned leading reference; see compiler/README.md.
 4. Docstrings: a one-line summary, then at most ~8 lines. Longer reasoning
    belongs in the design brief; point to it. An entry-point list (rule 5)
    does not count toward the limit.
