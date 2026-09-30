@@ -1,5 +1,5 @@
-// Design 81: `Vector.ref_at` was REMOVED — `with_ref`/`with_var_ref` (the
-// scoped, invalidation-proof borrow) are the projection API now.
+// `Vector.ref_at` does not exist: an element is reached in place through a
+// `borrow` of `v[i]` (SL:borrowing §9), never through a returned reference.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: type `Vector` has no method `ref_at`
 

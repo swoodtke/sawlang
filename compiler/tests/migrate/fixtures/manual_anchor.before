@@ -1,0 +1,9 @@
+// The header describes a rule the language has since retired.
+// A second line the new header no longer needs.
+// EXPECT: success
+// EXPECT-OUTPUT: 3
+
+func main() {
+    let v: Vector<Int> = [1, 2, 3]
+    print(v.len())
+}

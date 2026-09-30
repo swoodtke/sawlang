@@ -16,6 +16,10 @@ import verify
 
 # The rule of a manual row that only accompanies the row before it.
 COMPANION = "+"
+# A companion that removes its whole line, newline included: an edit's `new`
+# text cannot remove a line, and an emptied line is a stray blank.
+DROP = "+drop"
+COMPANIONS = (COMPANION, DROP)
 # The rule of a manual row that resolves no flag: a person's hold on a whole
 # file (a re-aim of an unflagged file), which its companions then edit.
 ANCHOR = "reaim"
@@ -68,19 +72,32 @@ def shifted(pos, later):
     return pos
 
 
+def changes(m):
+    """Whether a manual row edits its line, rather than leaving it as it is."""
+    return m["rule"] == DROP or m["old"] != m["new"]
+
+
 def manual_edits(path, text, rows):
     """{(line, col): Edit} for each manual row that changes its line: its `old`
     text, which must occur exactly once on that line of the mechanically
-    migrated text, becomes `new` (which may span lines). The mechanical edits
-    keep every line where it was, so the rows' line numbers hold."""
+    migrated text, becomes `new` (which may span lines); a drop row's `old` is
+    its whole line, which goes. The mechanical edits keep every line where it
+    was, so the rows' line numbers hold."""
     lines = text.split("\n")
     out, start = {}, [0]
     for line in lines:
         start.append(start[-1] + len(line) + 1)
     for m in rows:
-        if m["old"] == m["new"]:
+        if not changes(m):
             continue
         line = lines[m["line"] - 1]
+        if m["rule"] == DROP:
+            if m["old"] != line or m["new"]:
+                raise ValueError("%s:%d: a drop row's old text is its whole line, and its new "
+                                 "text is empty" % (path, m["line"]))
+            begin = start[m["line"] - 1]
+            out[(m["line"], m["col"])] = edits.Edit(begin, min(start[m["line"]], len(text)), "")
+            continue
         if line.count(m["old"]) != 1:
             raise ValueError("%s:%d: manual row's old text is not on its line exactly once: %r"
                              % (path, m["line"], m["old"]))
@@ -154,14 +171,14 @@ def process(job):
                                          "sawc AST unchanged, recognizer tree changed"), s.edits))
 
     # -- manual: each row resolves one flag at its (line, col), by editing it
-    # or by leaving it as it is; a row whose rule is `+` is a companion edit
-    # of the row before it, and an anchor row lets companions edit a file that
-    # has no flag of its own.
+    # or by leaving it as it is; a row whose rule is `+` or `+drop` is a
+    # companion edit of the row before it, and an anchor row lets companions
+    # edit a file that has no flag of its own.
     manual = job.get("manual") or []
     for m in manual:
         if m["rule"] == ANCHOR and ((m["line"], m["col"]) != (0, 0) or m["old"] != m["new"]):
             raise ValueError("%s: an anchor row sits at line 0, column 0, and edits nothing" % path)
-    resolving = {(m["line"], m["col"]): m for m in manual if m["rule"] not in (COMPANION, ANCHOR)}
+    resolving = {(m["line"], m["col"]): m for m in manual if m["rule"] not in COMPANIONS + (ANCHOR,)}
     flagged_at = {(f[1], f[2]): f for f in flags}
     for key, m in resolving.items():
         if key not in flagged_at or flagged_at[key][0] != m["rule"]:
@@ -190,8 +207,9 @@ def process(job):
     for f in flags:
         if f[0] in ("unseen", "tool", "removed-form") or f[0].startswith("SL-"):
             res.sites.append(flag_row(f[0], f[1], f[2], f[3], line_of(f[1])))
+    dropped = {(m["line"], m["col"]) for m in manual if m["rule"] == DROP}
     for m in manual:
-        if m["rule"] == COMPANION:
+        if m["rule"] in COMPANIONS:
             res.sites.append(site_row(path, m["line"], m["col"], m["parent"] + ".companion",
                                       "manual", line_of(m["line"]), "", "", m["rationale"]))
         elif m["rule"] == ANCHOR:
@@ -226,7 +244,7 @@ def process(job):
             for row in res.sites:
                 if row["status"] in ("manual", "reviewed"):
                     res.rules[row["status"] + "." + row["rule"]] += 1
-                if row["status"] == "manual":
+                if row["status"] == "manual" and (row["line"], row["col"]) not in dropped:
                     e = by_hand[(row["line"], row["col"])]
                     row["after"] = touched_lines(new, [landed[id(e)]])
             for row, site_edits in applied:
@@ -247,7 +265,7 @@ def process(job):
         reasons = collections.Counter(_reason_key(f) for f in unresolved)
         res.notes.extend("%s x%d" % kv if kv[1] > 1 else kv[0] for kv in sorted(reasons.items()))
     else:
-        changed_by_hand = any(m["old"] != m["new"] for m in manual)
+        changed_by_hand = any(changes(m) for m in manual)
         rewritten = any(not k.startswith(("manual.", "reviewed.")) for k in res.rules)
         if changed_by_hand:
             res.statuses.append("manual")
@@ -288,11 +306,11 @@ def document(res, text, manual):
     landed = {id(e): s for e, s in zip(hand, spans)}
     lines = text.split("\n")
     for m in manual:
-        status = "reviewed" if m["old"] == m["new"] else "manual"
-        rule = m["parent"] + ".companion" if m["rule"] == COMPANION else m["rule"]
+        status = "manual" if changes(m) else "reviewed"
+        rule = m["parent"] + ".companion" if m["rule"] in COMPANIONS else m["rule"]
         row = site_row(res.path, m["line"], m["col"], rule, status, lines[m["line"] - 1].strip(),
                        "", "", m["rationale"])
-        if status == "manual":
+        if status == "manual" and m["rule"] != DROP:
             row["after"] = touched_lines(new, [landed[id(by_hand[(m["line"], m["col"])])]])
         res.sites.append(row)
         res.rules[status + "." + rule] += 1

@@ -8,18 +8,18 @@
 // FIELD, and the same through a SHARED `&T` parameter are one rule at twelve
 // positions.
 //
-// They were not. Only the literal `ident[i]` container was protected: two
-// lvalue-root walks each stopped one hop short (`_assign_target_immutable_array`
-// wanted a bare Identifier container, `_assign_target_immutable_struct_root`
-// broke at the first ArrayIndex), so eight of the twelve cells below compiled
-// and mutated a `let` — including the two sharpest, where a callee writes the
-// CALLER's inline array through a shared `&Holder` parameter, the exact storage
-// class the `&self` spelling refuses (row M42).
+// The storage is inside the binding, so every cell below writes the `let`
+// itself, whatever path leads from the binding to the element: array
+// indexing, a field hop and a tuple hop all stay inside it. The two sharpest
+// cells write the CALLER's inline array through a shared `&Holder`
+// parameter, the storage class a `&self` method is refused for as well (row
+// M42). Each cell is its own refusal, so a shape that slips past the rule
+// leaves its EXPECT line unmatched.
 //
-// The design-200 indirection carve-out is NOT this rule and is untouched: a
-// heap-reaching hop (a `Vector`/`Map`/`Data` element, an `UnsafePointer`
-// pointee) stops the walk, because the storage is not inside the binding.
-// Rows M41 and M32 are that side.
+// Storage reached through a heap indirection (a `Vector`/`Map`/`Data`
+// element, an `UnsafePointer` pointee) is outside the binding and is not
+// this rule. Its `&self` side is rows M41 and M32, which are refusals too:
+// `&self` is read-only all the way down (SL:borrowing §9).
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot assign to element of immutable array `bare_p`
 // EXPECT-ERROR-CONTAINS: cannot use compound assignment on element of immutable array `bare_c`

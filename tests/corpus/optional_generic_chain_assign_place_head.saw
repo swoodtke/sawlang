@@ -1,21 +1,11 @@
-// Design 174 — DF-146o (DECIDED: make it legal). Optional-chain ASSIGNMENT
-// rejects a place-expression head:
+// The statement form of a conditional write,
+// `borrow var m.find(&k)?.value = v`, writes through the lent place when the
+// key is present, and `?` skips only the write when it is absent
+// (SL:borrowing §2.2). The right side is evaluated first either way, and the
+// statement types `Void?`, so `guard let _ =` tells the paths apart (K9).
 //
-//   error: the head of an optional-chain assignment must be a mutable variable
-//          or a `&var`-reachable path
-//
-// Design 111's chained assignment predates design 146's conditional lends and
-// never learned place heads, so the natural write-if-present idiom does not
-// exist; today's spelling is the double lookup
-// `if let _ = m[k] { m[k]!.f = v }`. The decision is to compose them: the head
-// lends, the absent path skips the write AND the RHS like any `?.`
-// short-circuit, and the whole thing types `Void?`.
-//
-// LANDED in design 176 unit 5. The write becomes the BODY of the head's window:
-// `m.[](k, { __p0 in __p0.field = v }, { })`. The `?` is consumed by the
-// lowering — it was the lend's own optionality, and inside the window the
-// payload is simply there — which is also why the head cannot be read out as a
-// value first: the field write would land in the copy.
+// The write lands in the map's own storage, never in a copy of the entry,
+// because the borrow lends the place itself.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // present 42
@@ -32,7 +22,7 @@ func main() {
     let present = m.get("x")!.value
     print("present {present}")
 
-    // The absent path writes nothing and evaluates no RHS.
+    // The absent path writes nothing.
     guard let _ = borrow var m.find(&"nope")?.value = 7 else {
         print("absent skipped")
         print("-- done")

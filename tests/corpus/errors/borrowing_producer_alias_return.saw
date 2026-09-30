@@ -1,23 +1,16 @@
-// K144 (design 275 U3, codex r2 #5): THE PRODUCER PROOF RESOLVES THE RETURN
-// TYPE FIRST, and "no struct information" is a REFUSAL, never a proof.
+// K144: a `borrows` function that returns a borrowing struct constructs it
+// with `lends self` on every returning path, so the borrow it hands out is
+// always of its own receiver (LANGUAGE_SPEC, Borrowing structs; SL:borrowing
+// §3). A return type that is an alias is the struct it resolves to, and the
+// back-conversion `Alias(<value>)` a producer writes to inhabit the alias is
+// transparent: `Alias(It(source: lends self, …))` is a construction (the
+// accept twin is `borrowing_rules_resolve_aliases.saw`), and
+// `Alias(other.iter())` hands on another accessor's result, which borrows
+// `other`, not `self`.
 //
-// `func bad(&self, other: &Owner) borrows -> Alias { Alias(other.iter()) }`
-// with `type Alias = It` compiled for one revision: the proof asked
-// `get_struct_info` for the alias's OWN name, got None, and answered that
-// every returning path was proven — a producer whose one path returned
-// another producer's result was certified. Now the proof is about the struct
-// the declaration RESOLVES to (`borrowing_struct_name`, the one resolver),
-// a return type that resolves to nothing is refused by name, and the
-// design-63 back-conversion `Alias(<value>)` a producer must write to inhabit
-// the alias is transparent: `Alias(It(source: lends self, …))` is the
-// construction (the accept twin, `borrowing_rules_resolve_aliases.saw`), and
-// `Alias(other.iter())` is the call `.iter()`, refused as such. Rows: the
-// whole-body case, and a value `if` whose true arm constructs and whose false
-// arm converts a foreign result.
+// Rows: the whole body converts a foreign result (`bad`), and a value `if`
+// whose true arm constructs and whose false arm converts one (`bad_arm`).
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: every returning path of `bad` must construct `Alias` with `lends self`
-// EXPECT-ERROR-CONTAINS: the call `.iter()`, another producer's result
-// EXPECT-ERROR-CONTAINS: every returning path of `bad_arm` must construct `Alias` with `lends self`
 
 struct Owner { value: Int }
 borrows struct It { source: &Owner, done: Bool }

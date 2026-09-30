@@ -1,0 +1,4 @@
+line	col	rule	old	new	rationale
+0	0	reaim	-	-	anchor: the file has no flag, so its header edits hang on a file-level anchor
+1	0	+	// The header describes a rule the language has since retired.	// The header describes the rule the file pins now.	the header states the live rule
+2	0	+drop	// A second line the new header no longer needs.	-	the shorter header drops the line

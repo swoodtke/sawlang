@@ -1,0 +1,4 @@
+status: manual
+0 reaim reviewed -- anchor: the file has no flag, so its header edits hang on a file-level anchor
+1 reaim.companion manual => // The header describes the rule the file pins now.
+2 reaim.companion manual => -

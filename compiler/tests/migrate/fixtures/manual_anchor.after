@@ -1,0 +1,8 @@
+// The header describes the rule the file pins now.
+// EXPECT: success
+// EXPECT-OUTPUT: 3
+
+func main() {
+    let v: Vector<Int> = [1, 2, 3]
+    print(v.len())
+}

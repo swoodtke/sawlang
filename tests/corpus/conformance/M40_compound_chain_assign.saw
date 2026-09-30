@@ -1,19 +1,18 @@
 // Conformance row M40 — `o?.n += v` is the compound spelling of design 111's
 // chain assignment (DF-225l)
 //
-// `o?.n = v` writes the payload field in place iff every hop is non-None, and
-// skips the RHS entirely on short-circuit. The compound form means the same
-// thing about the same storage and was a PARSE ERROR: the parser routed an
-// OptionalEvalExpr target to the chain-assignment node on the plain branch
-// only, so `o?.n += 5` died with "Invalid compound assignment target" — a
-// message about the shape of a target that is fine.
+// `o?.n = v` writes the payload field in place iff every hop is non-None.
+// The right side runs first on every path, and a short-circuit skips only
+// the write (SL:borrowing §2.2). The compound form means the same thing
+// about the same storage: on the Some path the field is read, the operator
+// applied and the result written back.
 //
 // Both halves of the contract are pinned here: the write lands on the Some
-// path, and on the None path neither the write NOR the right-hand side runs
-// (the call that would bump `calls` is skipped, exactly as it is for `=`).
+// path, and on the None path the right-hand side still runs (the call bumps
+// `calls` again) while the write does not, exactly as for `=`.
 // EXPECT: success
 // EXPECT-OUTPUT: some 6 calls 1
-// EXPECT-OUTPUT: empty calls 1
+// EXPECT-OUTPUT: empty calls 2
 
 struct Cell { n: Int }
 

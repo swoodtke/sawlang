@@ -173,6 +173,12 @@ PAIRING_CASES = {
     "frozen-only": ({"a.saw": "x\n"}, {}, [("a.saw", "frozen-only", "", "a sawos pin")], [], None),
     "frozen-only without a reason": ({"a.saw": "x\n"}, {}, [("a.saw", "frozen-only", "", "")], [],
                                      "names its reason"),
+    "retired": ({"a.saw": "x\n"}, {}, [("a.saw", "retired", "", "retired: the form is gone")], [], None),
+    "retired without a reason": ({"a.saw": "x\n"}, {}, [("a.saw", "retired", "", "")], [],
+                                 "a retired row names its reason"),
+    "retired with a twin": ({"a.saw": "x\n"}, {"a.saw": "x\n"},
+                            [("a.saw", "retired", "", "retired: the form is gone")], [],
+                            "is retired but has a twin"),
     "stray copy": ({}, {"b.saw": "x\n"}, [("b.saw", "copied", "", "")], [], "has no original"),
     "new copy": ({}, {"b.saw": "x\n"}, [("b.saw", "new", "", "")], [], None),
     "no row": ({"a.saw": "x\n"}, {"a.saw": "x\n"}, [], [], "has no manifest row"),
@@ -229,6 +235,68 @@ def check_pairing_cases():
     return failures
 
 
+def refusal(want, action):
+    """A failure line unless `action()` refuses with a message holding `want`."""
+    try:
+        action()
+    except (ValueError, SystemExit) as e:
+        return [] if want in str(e) else ["refusal %r: got %r" % (want, str(e))]
+    return ["refusal %r: nothing was refused" % want]
+
+
+def manual_job(text, rows):
+    """A manual-only job for one `examples/` file, from manual.tsv-shaped rows
+    (line, col, rule, old, new) without the path or rationale."""
+    path = "examples/case.saw"
+    full = [dict(zip(migrate.MANUAL_HEADER, (path, str(r[0]), str(r[1]), r[2], r[3], r[4], "why")))
+            for r in rows]
+    return {"path": path, "text": text, "passes": {"manual"},
+            "manual": migrate.group_manual(full, lambda p: p)[path]}
+
+
+MANUAL_TEXT = "// one\n// two\n// EXPECT: success\n\nfunc main() {}\n"
+MANUAL_REFUSALS = {
+    # message: manual rows (line, col, rule, old, new)
+    "an anchor row sits at line 0": [(1, 0, pipeline.ANCHOR, "", "")],
+    "and edits nothing": [(0, 0, pipeline.ANCHOR, "x", "y")],
+    "a drop row's old text is its whole line": [(0, 0, pipeline.ANCHOR, "", ""),
+                                                 (1, 0, pipeline.DROP, "one", "")],
+    "and its new text is empty": [(0, 0, pipeline.ANCHOR, "", ""),
+                                  (1, 0, pipeline.DROP, "// one", "// uno")],
+    "a companion row follows no row of its file": [(1, 0, pipeline.COMPANION, "// one", "// uno")],
+}
+
+
+def check_manual_refusals():
+    """The manual pass refuses a misplaced anchor, a drop row that is not a
+    whole line, and a companion with no row before it."""
+    failures = []
+    for want, rows in sorted(MANUAL_REFUSALS.items()):
+        failures += refusal(want, lambda rows=rows: pipeline.process(manual_job(MANUAL_TEXT, rows)))
+    return failures
+
+
+def check_decisions():
+    """decisions.tsv: a file that comes out with another primary status than
+    its decision fails `apply`, and a malformed table is refused whole."""
+    failures = []
+    row = {"path": "a.saw", "status": "reviewed,expectation-pending", "rules": "", "notes": "old"}
+    failures += refusal("a.saw is decided manual but came out reviewed,expectation-pending",
+                        lambda: migrate.decided_row(dict(row), "manual", "re-aimed"))
+    got = migrate.decided_row(dict(row), "reviewed", "left as it is")["notes"]
+    if got != "left as it is; old":
+        failures.append("decided_row: want the decision's note before the row's, got %r" % got)
+    os.makedirs(OUT, exist_ok=True)
+    table = os.path.join(OUT, "decisions.tsv")
+    for want, lines in (("unknown decision 'kept'", ["a.saw\tkept\twhy"]),
+                        ("a.saw: a decision names its reason", ["a.saw\tretired\t-"]),
+                        ("a.saw has two decisions", ["a.saw\tretired\twhy", "a.saw\treviewed\twhy"])):
+        with open(table, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(["\t".join(migrate.DECISIONS_HEADER)] + lines) + "\n")
+        failures += refusal(want, lambda: migrate.load_decisions(table))
+    return failures
+
+
 def run(write=False):
     failures, counts = [], {}
     accessors = sorted(scan.accessor_names())
@@ -248,6 +316,10 @@ def run(write=False):
     failures.extend(unrecorded_manual_rows())
     failures.extend(check_pairing_cases())
     counts["pairing check cases"] = len(PAIRING_CASES)
+    failures.extend(check_manual_refusals())
+    counts["manual refusal cases"] = len(MANUAL_REFUSALS)
+    failures.extend(check_decisions())
+    counts["decisions checks"] = 1
     failures.extend(manifest.pairing_failures())
     counts["corpus pairing checks"] = 1
     return failures, counts

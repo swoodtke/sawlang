@@ -1,14 +1,15 @@
 // Design 111: chained assignment `x?.y = v` — writes the payload field in place
-// iff every optional hop is non-None; the RHS is skipped entirely on
-// short-circuit; the result types as `Void?`, discardable in statement position
-// and consumable via `guard let _ =` / `if let _ =`.
+// iff every optional hop is non-None; the RHS is evaluated first on every
+// path, and a short-circuit skips only the write (SL:borrowing §2.2); the
+// result types as `Void?`, discardable in statement position and consumable
+// via `guard let _ =` / `if let _ =`.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 99
 // 77
-// 0
-// 42
 // 1
+// 42
+// 2
 // wrote
 // skipped
 // 55
@@ -41,15 +42,15 @@ func main() {
     oh?.p.x = 77
     print(oh!.p.x)               // 77
 
-    // None head: the write AND the RHS are both skipped.
+    // None head: the RHS runs, and only the write is skipped.
     var none_op: Point? = None
     none_op?.x = rhs(5)
-    print(RHS_CALLS.load())      // 0
+    print(RHS_CALLS.load())      // 1
 
-    // Present head: the RHS is evaluated exactly once.
+    // Present head: the RHS is evaluated once more.
     op?.x = rhs(42)
     print(op!.x)                 // 42
-    print(RHS_CALLS.load())      // 1
+    print(RHS_CALLS.load())      // 2
 
     // Consume `Void?` via `guard let _` (written vs skipped).
     if writeGuard(Point(x: 0, y: 0)) { print("wrote") }

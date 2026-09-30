@@ -1,15 +1,15 @@
-// Design 176 units 4, 5 and 15: assignment-target grammar catches up with
-// places. Four spellings, one meaning — write through storage the container
-// already holds, in place.
+// Assignment targets that write through storage the container already holds,
+// in place (SL:borrowing §2.2). Four spellings, each a `borrow` statement:
 //
-//   m[k]! = v            forced conditional lend, panics on absent (DF-146n)
-//   c.slot(i) = v        NAMED accessor, whole-value write     (DF-175d)
-//   m[k]?.field = v      chain assignment, absent skips it     (DF-146o)
-//   v.get(i)?.field = v  the same, through a named lend        (DF-175d)
+//   borrow var e = m[k] { e = v }      panics on an absent key (§9.1, K7)
+//   borrow var c.slot(i) = v           a NAMED accessor, whole-value write
+//   borrow var m.find(&k)?.field = v   a conditional write, skipped if absent
+//   borrow var v.find(i)?.field = v    the same, through Vector's find (§2.4)
 //
-// The last two consume the `?`: it was the LEND's optionality, so inside the
-// window the payload is simply there. An absent head runs no window, writes
-// nothing, and evaluates no RHS — the ordinary `?.` short-circuit.
+// A conditional write's `?` skips only the write: the right side is evaluated
+// first either way (§2.2), so the absent `v.find(9)` still calls `loud`. The
+// statement types `Void?`, which `guard let _ =` tests (§9.1, K9). Reads
+// through the `&var self` accessor are bare `borrow`s (§2.2, §3).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // forced 5
@@ -18,7 +18,8 @@
 // chain 42
 // chain absent skipped
 // named chain 8
-// rhs not evaluated
+// rhs evaluated
+// absent write skipped
 // -- done
 
 struct Cell { value: Int }
@@ -38,38 +39,38 @@ func loud(n: Int) -> Int {
 }
 
 func main() {
-    // 1. `m[k]! = v` — the whole-value write through a forced conditional lend.
+    // 1. The whole-value write through `m[k]`'s place, which panics if absent.
     var m = Map<String, Int>()
     let _ = m.insert("k", 1)
-    m["k"]! = 5
-    print("forced {m["k"] ?? -1}")
+    borrow var e = m["k"] { e = 5 }
+    print("forced {m.get("k") ?? -1}")
 
     // 2. A NAMED accessor as a target, whole value and then a field of it.
     var slots = Vector<Cell>()
     try! slots.push(Cell(value: 1))
     try! slots.push(Cell(value: 2))
     var c = Carrier(slots: move slots)
-    c.slot(1) = Cell(value: 99)
-    print("named {c.slot(1).value}")
-    c.slot(0).value = 7
-    print("named field {c.slot(0).value}")
+    borrow var c.slot(1) = Cell(value: 99)
+    print("named {borrow c.slot(1).value}")
+    borrow var c.slot(0).value = 7
+    print("named field {borrow c.slot(0).value}")
 
-    // 3. Chain assignment through a subscript head.
+    // 3. A conditional write through Map's `find`.
     var cells = Map<String, Cell>()
     let _ = cells.insert("x", Cell(value: 1))
-    cells["x"]?.value = 42
-    print("chain {cells["x"]!.value}")
+    borrow var cells.find(&"x")?.value = 42
+    print("chain {cells.get("x")!.value}")
 
-    guard let _ = cells["nope"]?.value = 7 else {
+    guard let _ = borrow var cells.find(&"nope")?.value = 7 else {
         print("chain absent skipped")
 
-        // 4. The same through a named lend, and the short-circuit skipping the RHS.
+        // 4. The same through Vector's `find`, and an absent write whose RHS runs.
         var v = Vector<Cell>()
         try! v.push(Cell(value: 1))
-        v.get(0)?.value = 8
+        borrow var v.find(0)?.value = 8
         print("named chain {v[0].value}")
-        v.get(9)?.value = loud(3)
-        print("rhs not evaluated")
+        borrow var v.find(9)?.value = loud(3)
+        print("absent write skipped")
         print("-- done")
         return
     }

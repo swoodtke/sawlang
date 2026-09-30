@@ -1,16 +1,14 @@
-// DF-176b in a BORROWS body, where it is not a lost write but a lost
-// guarantee: an accessor's receiver travels BY POINTER, so the `&var self`
-// call on the field LANDS. Two pure reads of a `let` root left its gate at 2.
+// A `&self` accessor's prologue is `&self` code, so it may not call a
+// `&var self` method on a field: `&self` is read-only all the way down
+// (SL:borrowing §9). A shared accessor serves a read through a `let` root
+// (§3), so the call here would mutate `frozen.gate`, which is declared
+// immutable, on every read.
 //
-// The prologue of a `borrows` accessor is ordinary `&self` code (design 146),
-// so the field form is the same hard error here as in a plain method. The hint
-// names `#lend_var` because in an accessor it is usually the answer.
-//
-// SL-333: the accessor lends READ-ONLY (`&self ... borrows -> &Int`), which is
-// the declaration this rule is about. Declaring it `&var self ... -> &var Int`
-// instead makes the call legal and the accessor EXCLUSIVE-ONLY (R4), which is a
-// different refusal at a different place — see
-// `lend_var_ungated_receiver_mutation.saw`.
+// The accessor lends read-only (`&self ... borrows -> &Int`), the declaration
+// this rule is about. Declaring it `&var self ... -> &var Int` instead makes
+// the call legal, and the reads through `let frozen` then meet a different
+// refusal, since a `&var self` accessor needs a mutable root (§3):
+// `errors/exclusive_only_accessor_on_let_root.saw` pins that one.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot call `&var self` method `run` on storage reached through a `&self` receiver
 

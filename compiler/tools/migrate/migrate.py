@@ -84,12 +84,12 @@ def load_manual(path=MANUAL):
 
 def group_manual(rows, key):
     """{key(path): [row]}, each row unescaped, and each companion row (rule
-    `+`) given its `parent`, the rule of the row before it."""
+    `+` or `+drop`) given its `parent`, the rule of the row before it."""
     out, parent = {}, None
     for r in rows:
         r = {k: unescape(v) for k, v in r.items()}
         r["line"], r["col"] = int(r["line"]), int(r["col"])
-        if r["rule"] == pipeline.COMPANION:
+        if r["rule"] in pipeline.COMPANIONS:
             if parent is None or parent["path"] != r["path"]:
                 raise SystemExit("%s:%d: a companion row follows no row of its file"
                                  % (r["path"], r["line"]))

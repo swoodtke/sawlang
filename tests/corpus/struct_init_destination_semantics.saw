@@ -92,8 +92,9 @@ func returned() -> Triple {
 }
 
 // A divergent later value must stop memory-destination lowering without
-// emitting instructions into the terminated all-present path.  `main` takes
-// the absent path, so the deliberate panic remains a compile-time CFG probe.
+// emitting instructions into the terminated all-present path.  Nothing calls
+// it: the right side runs even when `target` is absent (SL:borrowing §2.2),
+// so the panic would fire. It is a compile-time CFG probe.
 func skipped_divergent_assignment() {
     var target: TripleHolder? = None
     target?.value = Triple(
@@ -202,7 +203,6 @@ func main() {
             "wrappers {wrapped.maybe!.value} {value!.value} {nested_optional!!.value}"),
         case Err(_) -> print("unexpected wrapped error")
     }
-    skipped_divergent_assignment()
     let _ = compiled_divergent_tuple(false)
     let _ = compiled_divergent_repeat(false)
 }

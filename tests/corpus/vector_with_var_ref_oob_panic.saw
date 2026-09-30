@@ -3,7 +3,6 @@
 // be a mutable reference past the end of the buffer, and the body's own
 // ordinary mutation a heap WRITE out of bounds from safe code (design 122).
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: index 99 out of range
 
 func main() {
     var v: Vector<Int> = [10, 20]

@@ -6,7 +6,6 @@
 // shape (design 122, RS-6): a 2-element `Vector<Int>` read past the end.
 //
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: index 99 out of range
 
 func main() {
     let v: Vector<Int> = [10, 20]

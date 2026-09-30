@@ -1,20 +1,21 @@
 // Design 227 unit 4 (DF-225l): the COMPOUND spelling of design 111's chained
 // assignment, `x?.y += v`. It means the same thing about the same storage as
-// `x?.y = v` — read the field, apply, write back, on the non-None path only —
-// and it used to be a parse error, because the parser recognized an
-// OptionalEvalExpr target on the plain branch alone.
+// `x?.y = v` — the RHS first, then read the field, apply, write back, on the
+// non-None path only — and it used to be a parse error, because the parser
+// recognized an OptionalEvalExpr target on the plain branch alone.
 //
 // The positions here are the plain form's: a one-hop chain, a longer chain, a
 // PLACE head (the `Map` subscript's conditional lend, where the write is the
 // window's body), a fixed-width field a bare literal adopts, the other
-// operators, and the None head that evaluates neither the write nor the RHS.
+// operators, and the None head, which evaluates the RHS and skips only the
+// write (SL:borrowing §2.2).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 6
 // 77
-// 0
-// 12
 // 1
+// 12
+// 2
 // 30
 // 9
 // 2
@@ -49,15 +50,15 @@ func main() {
     oh?.p.x += 7
     print(oh!.p.x)               // 77
 
-    // None head: the write AND the RHS are both skipped.
+    // None head: the RHS runs, and only the write is skipped.
     var none_op: Point? = None
     none_op?.x += rhs(5)
-    print(RHS_CALLS.load())      // 0
+    print(RHS_CALLS.load())      // 1
 
-    // Present head: the RHS is evaluated exactly once.
+    // Present head: the RHS is evaluated once more.
     op?.x += rhs(6)
     print(op!.x)                 // 12
-    print(RHS_CALLS.load())      // 1
+    print(RHS_CALLS.load())      // 2
 
     // A PLACE head — the Map subscript's conditional lend. The compound write
     // is the window's body, exactly as the plain one is.

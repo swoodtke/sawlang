@@ -1,46 +1,19 @@
-// K143 (design 275 U3, codex r3 #2): the producer's exemption is the BARE
-// return and nothing wider.
+// K143: nothing erases a borrowing struct. A `borrows` function may return
+// the bare struct it lends (SL:borrowing §3), and only as that bare return:
+// a composite spelling (`It?`, `Optional<It>`, `Result<It, E>`, `(It, Int)`,
+// `Vector<It>`, `Box<It>`, a distinct alias of each) is a plain return type
+// that names the struct, refused as the same signature is without
+// `borrows` (LANGUAGE_SPEC, Borrowing structs: "Nothing erases it").
 //
-// `func iter(&self) borrows -> It` is the one declaration that may name a
-// borrowing struct in a return position, and it is exempt from the type walk
-// because `check_borrowing_producer` proves it instead (a reference receiver,
-// `lends self` on every path). A COMPOSITE spelling on a `borrows` method —
-// `It?`, `Optional<It>`, `Result<It, E>`, `(It, Int)`, `Vector<It>`,
-// `Box<It>`, and a distinct alias of each — is a plain return that happens to
-// sit beside the word, and it takes exactly the refusal the same signature
-// takes without `borrows`. For one revision the exemption keyed on
-// `is_borrows` alone while the proof keyed on the bare struct, so `borrows ->
-// It?` fell between the two and COMPILED, and `borrows -> Optional<It>`
-// reached codegen and died with `Unknown generic struct: Optional`.
+// A callable is a composite too: `borrows -> () -> It` returns a closure
+// that would hand the struct out of its scope, so it is refused bare and
+// through an alias.
 //
-// A CALLABLE is a composite too (codex r4 #1): `borrows -> () -> It` is a
-// closure's return wearing the word, and the walk descends a function type's
-// return and parameters exactly as it descends `Optional<It>` — for one
-// revision it answered "safe" for the whole function type, so this row
-// compiled beside the refused `It?`.
-//
-// `Result<It, E>` has no alias row: a type alias of an enum is refused on its
-// own terms (DF-194b). A generic `borrows -> T` instantiated at `It` never
-// reaches this walk and needs no row here: a `let` of the call is the value
-// fence's refusal, and a `for` head over it is refused by the origin proof on
-// the instantiation (`errors/borrowing_struct_origin.saw` is that family).
-// `borrowing_producer_every_path.saw` keeps the bare-return producer running.
+// `Result<It, E>` has no alias row: a type alias of an enum is refused on
+// its own terms (DF-194b). `iter` is the control, a bare producer that is
+// accepted, and `borrowing_producer_every_path.saw` keeps one running.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: the return type of `opt_sugar` may not name a borrowing struct: `It?` names a `borrows struct` (`It`)
-// EXPECT-ERROR-CONTAINS: the return type of `opt_named` may not name a borrowing struct: `Optional<It>` names a `borrows struct` (`It`)
-// EXPECT-ERROR-CONTAINS: the return type of `result` may not name a borrowing struct: `Result<It, Bad>` names a `borrows struct` (`It`)
-// EXPECT-ERROR-CONTAINS: the return type of `tuple` may not name a borrowing struct: `(It, Int)` names a `borrows struct` (`It`)
-// EXPECT-ERROR-CONTAINS: the return type of `vector` may not name a borrowing struct: `Vector<It>` names a `borrows struct` (`It`)
-// EXPECT-ERROR-CONTAINS: the return type of `box` may not name a borrowing struct: `Box<It>` names a `borrows struct` (`It`)
-// EXPECT-ERROR-CONTAINS: the return type of `alias_opt_sugar` may not name a borrowing struct: `OptIt` names a `borrows struct` (`It`)
-// EXPECT-ERROR-CONTAINS: the return type of `alias_opt_named` may not name a borrowing struct: `OptNamedIt` names a `borrows struct` (`It`)
-// EXPECT-ERROR-CONTAINS: the return type of `alias_tuple` may not name a borrowing struct: `TupIt` names a `borrows struct` (`It`)
-// EXPECT-ERROR-CONTAINS: the return type of `alias_vector` may not name a borrowing struct: `VecIt` names a `borrows struct` (`It`)
-// EXPECT-ERROR-CONTAINS: the return type of `alias_box` may not name a borrowing struct: `BoxIt` names a `borrows struct` (`It`)
-// EXPECT-ERROR-CONTAINS: the return type of `callable` may not name a borrowing struct: `() -> It` names a `borrows struct` (`It`)
-// EXPECT-ERROR-CONTAINS: the return type of `alias_callable` may not name a borrowing struct: `MkIt` names a `borrows struct` (`It`)
 // EXPECT-ERROR-ABSENT: internal compiler error
-// EXPECT-ERROR-ABSENT: the return type of `iter`
 
 struct Owner { value: Int }
 borrows struct It { source: &Owner, done: Bool }
