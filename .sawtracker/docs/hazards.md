@@ -1420,7 +1420,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-429 | S3 `try?` never releases the error it discards | silent, leak only (found in ST-69's review) |
 | SL-430 | S3 A coroutine's propagating `try` leaks the error | silent, leak only (found in ST-69's review) |
 | SL-431 | L20 A coroutine returning `Result<Void, E>` that falls off the end | loud (found in ST-69's review) |
-| SL-449 | L21 An `Int` static as a bare operand against another width | loud (found by SL-447's widening golden) |
+| SL-449 | L21 An `Int` static as a bare operand against another width | loud (found by the new typecheck's widening golden) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
