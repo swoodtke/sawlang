@@ -31,6 +31,19 @@ func first<T: Container>(c: T) -> ??? { c.get(i: 0)! }
 
 ## Decided by the lead, for review (reversible)
 
+### D16. `h.f(3)` on a function-typed field calls the field's value (Sep 30; the Air, SL-447.p2 review)
+A struct field of function type, `struct H { f: (Int) -> Int }`, called as `h.f(3)`: the spec never shows this spelling. Stage 0 accepts it. The grammar has no unapplied method reference, so `(h.f)(3)` already means `h.f(3)`, and there is no other way to call the field.
+
+**Decided:** accepted. When the type has no method `f`, `h.f(3)` calls the field's function value, and the call's role is `value`. A method of that name wins over the field.
+
+**Reversal:** refuse it, and require a local binding (`let g = h.f; g(3)`).
+
+**Two related readings keep the refusal, since the spec doesn't describe the form:**
+- `t[0]` on a tuple (the spec has only `.N`);
+- an else-less value `if` yielding an optional.
+
+The corpus programs that use them (`arrays.saw`, `named_tuple_basic.saw`, `nested_if_iflet_tail`) are re-aimed at the next corpus migration.
+
 ### D15. Auto-wrap and erasure where the spec is silent: the strictest stated reading (Sep 30; U6b2, SL-447)
 The spec states how deep an implicit `Optional` wrap goes, whether a `Result` wrap applies, and whether a concrete error erases to `Box<any Error>`, for some positions and not others:
 - **argument:** one optional level, the Result wrap, no erasure;
