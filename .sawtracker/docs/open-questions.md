@@ -31,6 +31,22 @@ func first<T: Container>(c: T) -> ??? { c.get(i: 0)! }
 
 ## Decided by the lead, for review (reversible)
 
+### D17. A bare module static carries its declared type (Sep 30; the Air, SL:hazards t22)
+`static SHIFT: Int = 3`, then `flag >= SHIFT` with `flag: UInt32`. The spec pulls two ways:
+- "a named value carries the type it was declared with" says no adoption;
+- a module `static` "may be a leaf" of a constant expression, which adopts, so `flag >= (1 << SHIFT)` works. It doesn't say whether a lone leaf counts.
+
+Stage 0 adopts only an `Int` static, only as an operand, and then crashes in codegen (SL:hazards L21).
+
+**Decided:** a bare static carries its declared type, as every named value does. It adopts only as a leaf inside a constant expression.
+- `flag >= SHIFT` is refused, with the hint `SHIFT as UInt32`.
+- `flag >= (1 << SHIFT)` builds.
+- `let y: Int = SHIFT + 1` is fine, since both are `Int`.
+
+The reader sees the conversion written, and no static silently changes width.
+
+**Reversal:** let a bare static adopt as an operator's peer, or in every slot a constant adopts in. That only admits programs refused today.
+
 ### D16. `h.f(3)` on a function-typed field calls the field's value (Sep 30; the Air, SL-447.p2 review)
 A struct field of function type, `struct H { f: (Int) -> Int }`, called as `h.f(3)`: the spec never shows this spelling. Stage 0 accepts it. The grammar has no unapplied method reference, so `(h.f)(3)` already means `h.f(3)`, and no other call spelling reaches the field.
 
