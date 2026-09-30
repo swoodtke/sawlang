@@ -132,7 +132,10 @@ Doc comments are **trivia**: `lex` skips them exactly as it skips `//` comments,
 so the token dump above is unaffected. `lex` returns one `LexResult` carrying
 the tokens, the doc records and the string-segment arena together. There is no
 tokens-only entry point, because a token's `seg_start`/`seg_count` index into
-that arena. Only a comment that starts its line is a doc comment; `////`
+that arena. `LexResult.offsets` holds each token's byte offset, index for index
+with the tokens, and an `E:` segment carries its `{`'s byte offset too, so a
+consumer never walks a line to turn a column into a byte. Neither is in any
+dump. Only a comment that starts its line is a doc comment; `////`
 (four or more slashes) and a `///` trailing code on the same line are ordinary
 comments.
 

@@ -240,11 +240,11 @@ public enum SegmentKind {
 //
 // - `Text`: `text` is the DECODED literal content of one run between
 //   interpolations (escapes applied, so an escaped brace is an ordinary `{`/`}`
-//   byte here). `line`/`col` are unused (0).
+//   byte here). `line`/`col`/`offset` are unused (0).
 // - `Expr`: `text` is the RAW source text between an interpolation's braces
 //   (never escape-decoded — a parser sub-lexes it), and `line`/`col` are the
-//   EXACT source position of its opening `{`. Blank `text` is a design-137
-//   format placeholder.
+//   EXACT source position of its opening `{`, which is byte `offset` of the
+//   lexed text. Blank `text` is a design-137 format placeholder.
 //
 // No content byte carries metadata: an in-band marker would collide with the
 // same bytes written as content (SL-238).
@@ -258,6 +258,7 @@ public struct StringSegment {
     public text: String
     public line: Int
     public col: Int
+    public offset: Int
 }
 
 // A lexed token. `value` holds the token's canonical text (decoded, for a plain
@@ -304,12 +305,19 @@ public struct DocComment {
     public col: Int
 }
 
-// The full output of a lex: the token stream, the doc-comment trivia (design
-// 121) and the string-segment arena (design 268). One entry point — `lex` —
-// returns all three, because a token's `seg_start`/`seg_count` mean nothing
-// without the arena they index into.
+// The full output of a lex: the token stream with each token's byte offset, the
+// doc-comment trivia (design 121) and the string-segment arena (design 268). One
+// entry point — `lex` — returns them together, because a token's
+// `seg_start`/`seg_count` mean nothing without the arena they index into.
+//
+// `offsets[i]` is the byte offset of `tokens[i]`'s first byte, the position its
+// `line`/`col` name, so a consumer never converts a column back into a byte:
+// that walk is linear in the column, and quadratic over a long line's tokens.
+// It sits beside the tokens rather than on `Token` because code outside the
+// lexer constructs tokens (prototypes/minivm).
 public struct LexResult {
     public tokens: Vector<Token>
+    public offsets: Vector<Int>
     public docs: Vector<DocComment>
     public segments: Vector<StringSegment>
 }
@@ -1074,9 +1082,11 @@ extension Lexer {
                 has_interp = true
                 let open_line = self.line
                 let open_col = self.col
+                let open_offset = self.pos
                 let run = out.build()
                 if run.len() > 0 {
-                    try! segments.push(StringSegment(kind: SegmentKind.Text, text: run, line: 0, col: 0))
+                    try! segments.push(StringSegment(kind: SegmentKind.Text, text: run, line: 0, col: 0,
+                                                     offset: 0))
                 }
                 out.clear()
                 let _ = self.advance()  // consume the opening '{'
@@ -1099,7 +1109,7 @@ extension Lexer {
                 // An interpolation that runs to the end of input ends the loop.
                 open_interp = depth > 0
                 try! segments.push(StringSegment(kind: SegmentKind.Expr, text: text,
-                                                 line: open_line, col: open_col))
+                                                 line: open_line, col: open_col, offset: open_offset))
             } else {
                 try! out.append(to_byte(self.advance()))
             }
@@ -1118,7 +1128,8 @@ extension Lexer {
         }
         let tail = out.build()
         if tail.len() > 0 {
-            try! segments.push(StringSegment(kind: SegmentKind.Text, text: tail, line: 0, col: 0))
+            try! segments.push(StringSegment(kind: SegmentKind.Text, text: tail, line: 0, col: 0,
+                                             offset: 0))
         }
         Token(kind: TokenKind.InterpString, value: self.src.substring(content_start, content_end),
               line: start_line, col: start_col, suffix: None,
@@ -1387,11 +1398,11 @@ extension Lexer {
               seg_start: 0, seg_count: 0)
     }
 
-    // Run the lexer to EOF. Doc-comment trivia is appended to `docs` (design 121)
-    // and every interpolated string's typed segments to `segments` (design 268);
-    // the returned token stream is exactly what it was before either existed.
-    func tokenize(&var self, docs: &var Vector<DocComment>,
-                  segments: &var Vector<StringSegment>) -> Result<Vector<Token>, LexError> {
+    // Run the lexer to EOF. Doc-comment trivia is appended to `docs` (design 121),
+    // every interpolated string's typed segments to `segments` (design 268), and
+    // each token's byte offset to `offsets`, index for index with the result.
+    func tokenize(&var self, docs: &var Vector<DocComment>, segments: &var Vector<StringSegment>,
+                  offsets: &var Vector<Int>) -> Result<Vector<Token>, LexError> {
         var tokens = Vector<Token>()
         while self.pos < self.slen {
             self.skip_whitespace()
@@ -1400,6 +1411,9 @@ extension Lexer {
                 break
             }
             let ch = self.peek()
+            // Each branch below emits at most one token, and it starts here;
+            // the lexer's unit program `offsets` holds every kind to that.
+            let at = self.pos
 
             if ch == B_NL {
                 try! tokens.push(self.tok(TokenKind.Newline, "\n"))
@@ -1614,8 +1628,12 @@ extension Lexer {
             } else {
                 return self.err("Unexpected character", "parse-error", "")
             }
+            if offsets.len() < tokens.len() {
+                try! offsets.push(at)
+            }
         }
         try! tokens.push(self.tok(TokenKind.Eof, ""))
+        try! offsets.push(self.pos)
         move tokens
     }
 
@@ -1654,6 +1672,7 @@ public func lex(source: String) -> Result<LexResult, LexError> {
     var lexer = Lexer(src: source, slen: source.len(), pos: 0, line: 1, col: 1)
     var docs = Vector<DocComment>()
     var segments = Vector<StringSegment>()
-    let toks = try lexer.tokenize(&var docs, &var segments)
-    LexResult(tokens: move toks, docs: move docs, segments: move segments)
+    var offsets = Vector<Int>()
+    let toks = try lexer.tokenize(&var docs, &var segments, &var offsets)
+    LexResult(tokens: move toks, offsets: move offsets, docs: move docs, segments: move segments)
 }

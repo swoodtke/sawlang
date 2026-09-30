@@ -51,7 +51,9 @@ extension SourceFile {
     public func line_count(&self) -> Int { self.line_starts.len() }
 
     // The byte offset of a 1-based line and scalar column, clamped to the
-    // buffer: the lexer places the end of input one line past the last.
+    // buffer: the lexer places the end of input one line past the last. Its
+    // cost is linear in `col`, so it serves one-off positions such as a lex
+    // error's; a token's offset comes from the lexer (`LexResult.offsets`).
     public func offset_of(&self, line: Int, col: Int) -> Int {
         let n = self.text.len()
         if line < 1 || line > self.line_starts.len() {

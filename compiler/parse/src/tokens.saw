@@ -108,28 +108,20 @@ func quiet_inside(kind: TokenKind) -> Bool {
 public func parser_tokens(source: &SourceFile, lexed: &LexResult, base: Int,
                           out: &var Vector<ParseToken>, pieces: &var Vector<InterpPiece>) {
     let n = lexed.tokens.len()
-    var starts = Vector<Int>()
+    var brackets = Vector<TokenKind>()
+    var open = 0
     var i = 0
     while i < n {
         let t = lexed.tokens[i]
-        try! starts.push(source.offset_of(t.line, t.col))
-        i = i + 1
-    }
-    var brackets = Vector<TokenKind>()
-    var open = 0
-    i = 0
-    while i < n {
-        let t = lexed.tokens[i]
-        let start = starts[i]
-        let bound = if i + 1 < n { starts[i + 1] } else { source.len() }
+        let start = lexed.offsets[i]
+        let bound = if i + 1 < n { lexed.offsets[i + 1] } else { source.len() }
         let end = token_end(&source, &t, start, bound)
         let first_piece = pieces.len()
         var k = 0
         while k < t.seg_count {
             let seg = lexed.segments[t.seg_start + k]
             if seg.kind == SegmentKind.Expr {
-                let at = base + source.offset_of(seg.line, seg.col)
-                try! pieces.push(InterpPiece(open: at, len: seg.text.len()))
+                try! pieces.push(InterpPiece(open: base + seg.offset, len: seg.text.len()))
             }
             k = k + 1
         }

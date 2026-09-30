@@ -12,9 +12,10 @@ the reference recognizer's own tests in `grammar/`, and the parser corpus's
 checks over `parse/`; runs the corpus rewriter's golden fixtures in
 `migrate/`; checks that the parser's grammar tables are current and that its
 speculation ledgers, the parser's and the tree builder's, name every field, runs the
-depth-funnel lane with its fixtures in `funnel/`, and runs the parse lane, which
+depth-funnel lane with its fixtures in `funnel/`, runs the parse lane, which
 holds `sawc2 parse` to the parser corpus as far as `compiler/parse/CLAIMS.tsv`
-claims. The inventory of Stage 0 workaround markers prints first, then each
+claims, and times the line-length cells, which hold a parse to linear time on
+one very long line. The inventory of Stage 0 workaround markers prints first, then each
 failure as one line in a fixed order; the summary comes last, and any failure
 exits 1.
 """
@@ -40,6 +41,7 @@ import speculation_ledger  # noqa: E402
 import std_cone  # noqa: E402
 import subset_check  # noqa: E402
 import ast_nodes as A  # noqa: E402  (on sys.path through subset_check)
+import line_length  # noqa: E402
 import parse_lane  # noqa: E402
 import test_lint  # noqa: E402
 import test_parse  # noqa: E402
@@ -356,12 +358,12 @@ def run_migrate(run):
 
 def run_parser(run):
     """The parser's grammar tables, its speculation ledger, its comma-list and
-    depth funnels and its parse lane; the last two run sawc2, so they wait for
-    it to build."""
+    depth funnels, its parse lane and its line-length cells; the last three run
+    sawc2, so they wait for it to build."""
     stale = grammar_tables.check()
     if stale:
         run.fail("grammar tables: " + stale)
-    for module in (speculation_ledger, comma_funnel, depth_funnel, parse_lane):
+    for module in (speculation_ledger, comma_funnel, depth_funnel, parse_lane, line_length):
         failures, counts = module.run()
         for failure in failures:
             run.fail(failure)

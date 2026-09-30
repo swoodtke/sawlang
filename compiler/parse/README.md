@@ -245,3 +245,16 @@ since the static check sees only recursion, and a speculation that fails at the
 limit, which must give its levels back to the reading that follows it. Its fixtures, in
 `compiler/tests/funnel/`, and a copy of the parser with the funnel cut out of
 `parse_paren` show that it fails on a recursion that bypasses the funnel.
+
+## Long lines
+
+A parse costs time linear in its input, however long its lines are. A token's
+byte span starts at the offset the lexer records beside it (`LexResult.offsets`),
+and an interpolation segment's at its own `offset`, so nothing converts a
+`line:col` back into a byte on the token path: that walk is linear in the
+column, which makes it quadratic over a long line's tokens. `SourceFile.offset_of`
+remains for one-off positions, a lex error's and a doc line's.
+`compiler/tests/line_length.py` holds the parser to it: 20,000 call arguments, a
+set literal of 20,000 elements and a tuple pattern of 20,000 names, each on one
+line, must parse within a small factor of the time the same call takes written
+one argument per line.

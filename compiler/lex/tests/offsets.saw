@@ -1,0 +1,74 @@
+// Every token's byte offset, and every interpolation segment's, is the byte its
+// line:col names: one per token, index for index, for every kind of token.
+import src.lib.{LexResult, SegmentKind, lex}
+
+func lexed(s: String) -> LexResult {
+    let result = lex(s)
+    match result {
+        case Ok(r) -> move r,
+        case Err(e) -> panic("unexpected lex error at {e.line}:{e.col}: {e.message}")
+    }
+}
+
+// The byte a 1-based line and scalar column name, counted from the start of
+// `s` one scalar at a time. Past the last byte, the position is the end of `s`.
+func reference_offset(s: String, line: Int, col: Int) -> Int {
+    var at = 0
+    var l = 1
+    var c = 1
+    while at < s.len() {
+        if l == line && c == col {
+            return at
+        }
+        if (s.byte_at(at) as Int) == 10 {
+            l = l + 1
+            c = 1
+        } else {
+            c = c + 1
+        }
+        at = at + 1
+        while at < s.len() && (s.byte_at(at) as Int) >= 128 && (s.byte_at(at) as Int) <= 191 {
+            at = at + 1
+        }
+    }
+    s.len()
+}
+
+func check(s: String) -> Int {
+    let r = lexed(s)
+    assert(r.offsets.len() == r.tokens.len(), "{} offsets for {} tokens", r.offsets.len(),
+           r.tokens.len())
+    var i = 0
+    while i < r.tokens.len() {
+        let t = r.tokens[i]
+        let want = reference_offset(s, t.line, t.col)
+        assert(r.offsets[i] == want, "token {} at {}:{}: offset {}, expected {}", i, t.line,
+               t.col, r.offsets[i], want)
+        i = i + 1
+    }
+    var k = 0
+    while k < r.segments.len() {
+        let seg = r.segments[k]
+        if seg.kind == SegmentKind.Expr {
+            let want = reference_offset(s, seg.line, seg.col)
+            assert(seg.offset == want, "segment {} at {}:{}: offset {}, expected {}", k, seg.line,
+                   seg.col, seg.offset, want)
+        }
+        k = k + 1
+    }
+    r.tokens.len()
+}
+
+func main() {
+    var n = 0
+    n = n + check("")
+    n = n + check("\n\n")
+    n = n + check("let e = \"ü\" + 1_000u16 + 255_u8 + 0x1F + 2.5 + t.0.1 // ç\n")
+    n = n + check("/// doc é\nfunc f(a: Int, $0) -> Int \{ #line; @x; a ?? b?.c \}\n")
+    n = n + check("x += 1; y -= 2; z *= 3; w /= 4; v %= 5; u &= 6; s |= 7; r ^= 8\n")
+    n = n + check("a <<= 1; b >>= 2; a &+ b &- c &* d; a && b || !c; ~a; a...b; a..=b; a..b\n")
+    n = n + check("a == b != c < d > e <= f >= g; a | b ^ c & d; a -> b; [a]; a, b: c; a / b % c\n")
+    n = n + check("  \"é\{x\}ü\{f(\"\{y\}\")\}\" \t\"plain \\u\{E9\}\" \"\\\{\"\r\nlet q = \"\{\}\"")
+    n = n + check("f(\"é\", \"é\", x)\n    g(\"ü\", y)\nh()")
+    assert(n > 0, "no tokens were checked")
+}
