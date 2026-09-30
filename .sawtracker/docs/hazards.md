@@ -1256,15 +1256,20 @@ expected, at a call argument or a memberwise field, ends in an internal
 compiler error. A `let` and a `return` of the same widening build:
 
 ```saw
+struct Holder { v: Int? }
 func take(x: Int?) -> Int { x ?? 0 }
-let small: UInt8 = 7
-let a = take(small)
-// internal compiler error (FunctionCall): Can only insert i64 at [1] in {i1, i64}: got i8
-// Box8(v: small) with `v: Int?`: "cannot store {i1, i8}"
+func main() {
+    let small: UInt8 = 7
+    let a = take(small)
+    // internal compiler error (FunctionCall): Can only insert i64 at [1] in {i1, i64}: got i8
+    let h = Holder(v: small)
+    // "cannot store {i1, i8}"
+}
 ```
 
-**Instead:** widen first, `take(Int(small))`, or pass a value already of the
-payload's type.
+**Instead:** widen with `as`, which is total and free for a widening:
+`take(small as Int)`, `Holder(v: small as Int)`. Or bind first, since a `let`
+widening builds: `let wide: Int = small`.
 
 **Checker:** not needed: the build fails loudly.
 
