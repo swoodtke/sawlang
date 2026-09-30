@@ -28,12 +28,19 @@ STAGE_PACKAGES = (
 )
 
 
+def sawc_arguments(entry, out):
+    """The frozen compiler's command-line arguments for building `entry` to
+    `out`: what `build_program` runs, and what `std_cone.py` runs in-process."""
+    args = [entry, "-o", out]
+    for name, rel in STAGE_PACKAGES:
+        args += ["--module-path", "%s=%s" % (name, os.path.join(REPO, rel))]
+    return args
+
+
 def build_program(entry, out):
     """Compile `entry` to the executable `out`. Returns (ok, compiler output)."""
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    argv = [sys.executable, FROZEN_SAWC, entry, "-o", out]
-    for name, rel in STAGE_PACKAGES:
-        argv += ["--module-path", "%s=%s" % (name, os.path.join(REPO, rel))]
+    argv = [sys.executable, FROZEN_SAWC] + sawc_arguments(entry, out)
     r = subprocess.run(argv, cwd=REPO, capture_output=True, text=True)
     return r.returncode == 0, (r.stdout + r.stderr).strip()
 

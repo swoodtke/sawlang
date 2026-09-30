@@ -33,6 +33,8 @@ compiler/
     depth_funnel.py   the parser's depth-funnel lane
     comma_funnel.py   the parser's comma-list-funnel lane
     frozen_compare.py the one-time comparison with the frozen parser, not a lane
+    std_cone.py       the std cone of sawc2's Stage 0 build, recorded in std_cone.txt
+                      and reviewed against SL:hazards in std_cone_review.md
   tests/
     run.py            the test runner
     parse_lane.py     the parse lane: sawc2 parse against the parser corpus
@@ -102,6 +104,13 @@ these things.
   `err`/`err_at` calls.
 - **The subset checker**, over the compiler's source and over its own fixtures
   (below).
+- **The std cone**: `tools/std_cone.py` recomputes, from a real Stage 0 build,
+  every std and runtime declaration sawc2 reaches, and fails when that differs
+  from `tools/std_cone.txt` in either direction. After a change that moves the
+  cone, review the difference (`--why TEXT` shows how the build reaches a
+  declaration), rerun it with `--write`, and commit the file. A declaration new
+  to the cone is also reviewed against SL:hazards, as `tools/std_cone_review.md`
+  records for the rest.
 - **The grammar tools** in `tests/grammar/`: the lint over `GRAMMAR.md`, with a
   fixture per check that injects one defect and names the line the check must
   report, and the reference recognizer's pinned trees, coverage records and

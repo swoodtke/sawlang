@@ -1,0 +1,386 @@
+# The std cone of sawc2: every std and runtime declaration whose body, type or
+# trait Stage 0's build of compiler/driver for arm64-apple-darwin compiles into it
+# (SL:architecture §4; the method and its blind spots: std_cone_review.md).
+# Written by compiler/tools/std_cone.py --write; compiler/tests/run.py fails when
+# the build's cone differs from this file. `via runtime` marks what only the
+# runtime objects reach; an `instance` line is one type-argument tuple, a type
+# the compiler source declares written as (owning) or (plain).
+# 250 declarations in 19 modules
+
+builtin: 13
+  struct Atomic
+  type Byte
+  trait Copy
+  trait Deinit
+  trait Error
+  trait NoCopy
+  trait NoMove
+  trait Printable
+  trait Send
+  trait Sync
+  struct UnsafeMutableInterior
+  trait UnsafeSend
+  trait UnsafeSync
+
+rt.common.mem: 6
+  static ALLOC_ALLOW  via runtime
+  static ALLOC_LIMIT_ACTIVE  via runtime
+  extern free  via runtime
+  extern malloc  via runtime
+  func rt_alloc  via runtime
+  func rt_dealloc  via runtime
+
+rt.common.os_ops: 8
+  extern __saw_open_flags  via runtime
+  extern __saw_rt_last_syserror  via runtime
+  extern lseek  via runtime
+  extern open  via runtime
+  extern read  via runtime
+  func rt_fs_lseek  via runtime
+  func rt_fs_open  via runtime
+  func rt_fs_read  via runtime
+
+rt.host_macos.net_os: 37
+  static EACCES  via runtime
+  static EADDRINUSE  via runtime
+  static EAGAIN  via runtime
+  static EALREADY  via runtime
+  static ECONNABORTED  via runtime
+  static ECONNREFUSED  via runtime
+  static ECONNRESET  via runtime
+  static EEXIST  via runtime
+  static EHOSTDOWN  via runtime
+  static EHOSTUNREACH  via runtime
+  static EINPROGRESS  via runtime
+  static EINTR  via runtime
+  static EINVAL  via runtime
+  static EISCONN  via runtime
+  static EMFILE  via runtime
+  static ENETDOWN  via runtime
+  static ENETUNREACH  via runtime
+  static ENFILE  via runtime
+  static ENOENT  via runtime
+  static ENOMEM  via runtime
+  static ENOSPC  via runtime
+  static ENOTCONN  via runtime
+  static EPERM  via runtime
+  static EPIPE  via runtime
+  static ETIMEDOUT  via runtime
+  static RAW_CODE_KEY  via runtime
+  enum SysError  via runtime
+  extern __error  via runtime
+  func errno_value  via runtime
+  extern pthread_getspecific  via runtime
+  extern pthread_key_create  via runtime
+  extern pthread_key_delete  via runtime
+  extern pthread_setspecific  via runtime
+  func raw_code_key  via runtime
+  func raw_code_store  via runtime
+  func rt_last_raw_code  via runtime
+  func rt_last_syserror  via runtime
+
+std.alloc: 8
+  struct AllocError
+  method AllocError.format
+  trait Allocator
+  struct GlobalAllocator
+  method GlobalAllocator.alloc
+  method GlobalAllocator.dealloc
+  extern __saw_rt_alloc
+  extern __saw_rt_dealloc
+
+std.arc: 9
+  struct Arc
+  method Arc.copy
+    instance T=DataBuf
+  method Arc.deinit
+    instance T=DataBuf
+  init Arc.init(value:)
+    instance T=DataBuf
+  method Arc.strong_count
+    instance T=DataBuf
+  method Arc.with_unique
+    instance T=DataBuf, R=Bool
+    instance T=DataBuf, R=Void
+  extern __saw_atomic_add_i64
+  extern __saw_atomic_fence_acquire
+  extern __saw_atomic_sub_i64_release
+
+std.box: 1
+  struct Box
+
+std.compiler.frame: 1
+  trait Resumable
+
+std.data: 27
+  struct Data
+  method Data._grow_target
+  method Data._grow_target_from
+  method Data._is_unique
+  method Data._make_ready
+  method Data._rebase
+  method Data._store_at
+  method Data.byte_ptr
+  method Data.capacity
+  synthesized Data.copy
+  synthesized Data.deinit
+  method Data.get
+  init Data.init()
+  init Data.init(capacity: Int)
+  method Data.len
+  method Data.push
+  method Data.to_string
+  struct DataBuf
+  method DataBuf.absorb
+  method DataBuf.at
+  method DataBuf.cap
+  method DataBuf.deinit
+  method DataBuf.grow
+  method DataBuf.head
+  static-method DataBuf.make
+  method DataBuf.store
+  extern memcpy
+
+std.env: 8
+  struct Env
+  static-method Env.arg
+  static-method Env.argc
+  static-method Env.args
+  extern __saw_rt_get_argc
+  extern __saw_rt_get_argv
+  extern __saw_string_from_bytes
+  extern strlen
+
+std.file: 13
+  struct File
+  static-method File._opened
+  method File.deinit
+  static-method File.open
+  method File.read
+  enum OpenMode
+  enum SeekWhence
+  extern __saw_rt_fs_lseek
+  extern __saw_rt_fs_open
+  extern __saw_rt_fs_read
+  extern close
+  extern free
+  extern malloc
+
+std.net: 9
+  struct IoError
+  method IoError.format
+  static-method IoError.of(syscall: String, kind: IoErrorKind)
+  static-method IoError.of(syscall: String, tag: Int)
+  enum IoErrorKind
+  method IoErrorKind.describe
+  static-method IoErrorKind.of
+  extern __saw_rt_last_raw_code
+  func raw_code_now
+
+std.path: 3
+  struct Path
+  method Path.as_str
+  init Path.init(s:)
+
+std.scalar: 8
+  enum InvalidScalar
+  method InvalidScalar.format
+  static MAX_SCALAR
+  static SURROGATE_MAX
+  static SURROGATE_MIN
+  struct Scalar
+  init Scalar.init(value:)
+  method Scalar.value
+
+std.string: 18
+  method String._decode_at
+  method String._digit_value
+  method String._parse_uint
+  method String._substring
+  method String._ubyte_at
+  method String._utf8_error_offset
+  method String.byte_at
+  method String.equals
+  static-method String.fromBytes
+  method String.is_empty
+  method String.len
+  method String.starts_with
+  method String.substring
+  method String.to_uint(radix: Int)
+  struct Utf8Error
+  extern __saw_string_alloc
+  extern __saw_string_len
+  func to_c_char
+
+std.stringbuilder: 26
+  static ASCII_ZERO
+  static MARKER_BYTE_0
+  static MARKER_BYTE_1
+  static MARKER_BYTE_2
+  static MARKER_LEN
+  static MINUS_SIGN
+  struct StringBuilder
+  method StringBuilder._c_char
+  method StringBuilder._grow_target
+  method StringBuilder._is_continuation
+  method StringBuilder._mark_truncated
+  method StringBuilder._overflow
+  method StringBuilder._place
+  method StringBuilder._place_char
+  method StringBuilder._reserve
+  method StringBuilder._scalar_byte
+  method StringBuilder.append(b: Byte)
+  method StringBuilder.append(s: String)
+  method StringBuilder.append(scalar: Scalar)
+  method StringBuilder.append(value: Int)
+  method StringBuilder.build
+  method StringBuilder.clear
+  method StringBuilder.deinit
+  init StringBuilder.init()
+  extern __saw_string_from_bytes
+  extern memcpy
+
+std.task: 1
+  struct VoidThread
+
+std.taskgroup: 44
+  static BT_DIGITS
+  static BT_FRAME_FILE
+  static BT_FRAME_FIRST
+  static BT_FRAME_NAME
+  static BT_FRAME_REC_SIZE
+  static BT_FRAME_STATES
+  static BT_FRAME_STATE_OFF
+  static BT_HDR_FRAMES
+  static BT_HDR_FRAME_COUNT
+  static BT_HDR_STATES
+  static BT_HDR_STRTAB
+  static BT_MAGIC
+  static BT_MAX_DEPTH
+  static BT_MAX_GROUPS
+  static BT_MAX_NAME
+  static BT_STATE_CHILD
+  static BT_STATE_CHILD_OFF
+  static BT_STATE_REC_SIZE
+  struct TaskGroup
+  static WAKE_IO
+  trait __TaskCell
+  func __bt_depth
+  func __bt_each_live_slot
+  func __bt_emit
+  func __bt_emit_frame
+  func __bt_emit_int
+  func __bt_emit_name
+  func __bt_emit_stack
+  func __bt_emit_status
+  func __bt_frame_rec
+  func __bt_known_frame
+  func __bt_slot_live
+  func __bt_state_of
+  func __bt_state_rec
+  func __bt_u32
+  func __park_is_flag
+  func __park_is_io
+  func __saw_bt_dump
+  static __saw_bt_dumping
+  static __saw_bt_head
+  func __saw_bt_live_count
+  func __saw_bt_panic
+  extern __saw_rt_panic
+  extern __saw_rt_write
+
+std.vector: 10
+  struct Vector
+  method Vector.[]
+    instance T=(owning), A=GlobalAllocator, __R=(owning)
+    instance T=(owning), A=GlobalAllocator, __R=(plain)
+    instance T=(owning), A=GlobalAllocator, __R=Int
+    instance T=(plain), A=GlobalAllocator, __R=(plain)
+    instance T=(plain), A=GlobalAllocator, __R=Int
+    instance T=(plain), A=GlobalAllocator, __R=Void
+    instance T=Bool, A=GlobalAllocator, __R=Bool
+    instance T=Bool, A=GlobalAllocator, __R=Void
+    instance T=Int, A=GlobalAllocator, __R=Int
+    instance T=Int, A=GlobalAllocator, __R=Void
+  method Vector._grow_target
+    instance T=(owning), A=GlobalAllocator
+    instance T=(plain), A=GlobalAllocator
+    instance T=Bool, A=GlobalAllocator
+    instance T=Int, A=GlobalAllocator
+    instance T=String, A=GlobalAllocator
+  method Vector._reserve
+    instance T=(owning), A=GlobalAllocator
+    instance T=(plain), A=GlobalAllocator
+    instance T=Bool, A=GlobalAllocator
+    instance T=Int, A=GlobalAllocator
+    instance T=String, A=GlobalAllocator
+  method Vector.deinit
+    instance T=(owning), A=GlobalAllocator
+    instance T=(plain), A=GlobalAllocator
+    instance T=Bool, A=GlobalAllocator
+    instance T=Int, A=GlobalAllocator
+    instance T=String, A=GlobalAllocator
+  method Vector.get
+    instance T=(owning), A=GlobalAllocator, __R=(owning)?
+    instance T=(plain), A=GlobalAllocator, __R=(plain)?
+    instance T=Bool, A=GlobalAllocator, __R=Bool
+    instance T=Int, A=GlobalAllocator, __R=Int
+    instance T=String, A=GlobalAllocator, __R=String?
+  init Vector.init()
+    instance T=(owning), A=GlobalAllocator
+    instance T=(plain), A=GlobalAllocator
+    instance T=Bool, A=GlobalAllocator
+    instance T=Int, A=GlobalAllocator
+    instance T=String, A=GlobalAllocator
+  method Vector.len
+    instance T=(owning), A=GlobalAllocator
+    instance T=(plain), A=GlobalAllocator
+    instance T=Bool, A=GlobalAllocator
+    instance T=Box<any Resumable>?, A=GlobalAllocator
+    instance T=Int, A=GlobalAllocator
+    instance T=String, A=GlobalAllocator
+  method Vector.push
+    instance T=(owning), A=GlobalAllocator
+    instance T=(plain), A=GlobalAllocator
+    instance T=Bool, A=GlobalAllocator
+    instance T=Int, A=GlobalAllocator
+    instance T=String, A=GlobalAllocator
+  extern memcpy
+
+(compiler-emitted IR helpers): 15
+  String_copy
+  String_deinit
+  __saw_atomic_add_i64
+  __saw_atomic_fence_acquire
+  __saw_atomic_sub_i64_release
+  __saw_fmt_int
+  __saw_panic$bt$*
+  __saw_panic$rt$*  via runtime
+  __saw_rt_get_argc
+  __saw_rt_get_argv
+  __saw_string_alloc
+  __saw_string_from_bytes
+  __saw_string_len
+  __saw_string_release
+  __saw_string_retain
+
+(external C symbols): 19
+  __error
+  __saw_open_flags  shim.c
+  __saw_rt_panic  shim.c
+  __saw_rt_write  shim.c
+  close
+  free
+  lseek
+  malloc
+  memcpy
+  open
+  pthread_getspecific
+  pthread_key_create
+  pthread_key_delete
+  pthread_setspecific
+  read
+  snprintf
+  strcat
+  strcpy
+  strlen
