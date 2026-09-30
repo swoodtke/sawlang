@@ -12,6 +12,13 @@ None right now.
 
 ## Decided by the lead, for review (reversible)
 
+### D10. A `{` right after `while` opens the infinite loop's body (Sep 29; U4i)
+GRAMMAR.md is ambiguous at `while {`. The recognizer accepts `while { a } { }` as `While.conditional` with a closure literal as its condition. It finds `while { a }`, then a line break, then `{ }` ambiguous, since the infinite loop followed by a closure statement is also a tree. sawc2 and the frozen compiler both read `while {` as the infinite loop, and 81 tracked files use that form.
+
+**Decided:** add a §13 rule that a `{` right after `while` begins the infinite loop's body, never a condition. The recognizer gets the matching filter. The closure-condition reading could never typecheck, since a closure is not a `Bool`, so no program changes meaning.
+
+**Reversal:** drop the rule and parenthesize, as in `while ({ a }) { }`.
+
 ### D9. Std accessors whose body only reads get a shared twin (Sep 29; SL-421)
 SL:borrowing rules twins for `Vector.[]`, `Vector.find` and `KeyedPlace.find` only. tests/corpus reads six more std accessors in a shared position: a `let` root, a `&` param or a capture of a `let`.
 - `JsonValue.as_array` and `as_object`;
