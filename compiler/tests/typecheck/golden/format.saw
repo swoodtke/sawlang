@@ -1,0 +1,25 @@
+// `print`, `panic` and `assert` with a message, or a format string whose
+// `{}` slots take one argument each, every argument borrowed and Printable or
+// a primitive (design 137); an interpolation's segments, borrowed the same
+// way.
+
+struct Money {
+    cents: Int
+}
+
+extension Money: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let _ = into.append(self.cents)
+    }
+}
+
+func report(name: String, count: Int, m: Money) {
+    print("done")
+    print("{} of {}: {}", count, name, m)
+    print("{name} has {count}")
+    assert(count >= 0)
+    assert(count < 100, "count {} is too large", count)
+    if count > 1000 {
+        panic("impossible count {}", count)
+    }
+}

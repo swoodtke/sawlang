@@ -1,0 +1,14 @@
+// refuses: call.field-method-ambiguous at 13:11
+// a field holding a function beside a method of that name an imported extension declares
+
+import adds.{}
+import handler.{Handler}
+
+func double(n: Int) -> Int {
+    n * 2
+}
+
+func main() {
+    let h = Handler(f: double)
+    print(h.f(3))
+}

@@ -1,0 +1,16 @@
+// `h.f(3)` on a field holding a function, where the type has no method of
+// that name this module sees, calls the field's value (SL:open-questions
+// D16).
+
+struct Handler {
+    f: (Int) -> Int
+}
+
+func double(n: Int) -> Int {
+    n * 2
+}
+
+func main() {
+    let h = Handler(f: double)
+    print(h.f(3))
+}

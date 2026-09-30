@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 10:26
+// a bare value two optional levels below its payload field: a payload wraps one level
+
+enum Cell {
+    case Full(v: Int??),
+    case Empty
+}
+
+func main() {
+    let _ = Cell.Full(v: 5)
+}

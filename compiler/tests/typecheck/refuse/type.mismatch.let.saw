@@ -1,0 +1,6 @@
+// refuses: type.mismatch at 5:22
+// an annotated binding's value of another type
+
+func main() {
+    let count: Int = "three"
+}

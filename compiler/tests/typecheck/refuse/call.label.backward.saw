@@ -1,0 +1,10 @@
+// refuses: call.label at 9:13
+// a label naming a parameter before one an earlier argument bound
+
+func area(width: Int, height: Int = 1) -> Int {
+    width * height
+}
+
+func main() {
+    let _ = area(3, width: 4)
+}

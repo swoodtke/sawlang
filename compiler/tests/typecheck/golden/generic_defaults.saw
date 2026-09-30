@@ -1,0 +1,20 @@
+// A default value whose parameter's type is a type parameter (design 108):
+// the declaration types the literal as written, and each call checks it
+// against its own `T`, where the literal's type drives inference when
+// nothing else does. A `None` default needs each call's `T` to be optional.
+
+func show<T: Printable>(a: Int, b: T = 0) -> String {
+    "{b}"
+}
+
+func describe<T>(a: T, b: T = None) -> String {
+    "ok"
+}
+
+func main() {
+    print(show(1))
+    print(show(1, 7))
+    print(show<Int8>(1))
+    let o: Int? = 3
+    print(describe(o))
+}

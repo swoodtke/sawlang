@@ -1,0 +1,26 @@
+// The split conformance, `E: Printable` with its `format` and an empty `E:
+// Error`: `Error` refines `Printable`, and the table brings `to_string` once,
+// so `e.to_string()` has one candidate. An erased `Box<any Error>` formats
+// through the existential.
+
+struct DbErr {
+    code: Int
+}
+
+extension DbErr: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("db#")
+        try! into.append(self.code)
+    }
+}
+
+extension DbErr: Error {}
+
+func show(b: Box<any Error>) -> String {
+    "{b}"
+}
+
+func main() {
+    let e = DbErr(code: 5)
+    print(e.to_string())
+}

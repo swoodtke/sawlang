@@ -1,0 +1,7 @@
+// refuses: format.slot-count at 6:11
+// a format string whose `{}` slots and arguments differ in number
+
+func main() {
+    let a = 1
+    print("a = {}, b = {}", a)
+}

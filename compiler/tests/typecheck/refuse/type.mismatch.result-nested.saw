@@ -1,0 +1,6 @@
+// refuses: type.mismatch at 5:12
+// one Result wrap only: a bare value is not the `Ok` of a Result that is itself a Result's payload
+
+func nested() -> Result<Result<Int, String>, Bool> {
+    return 3
+}

@@ -1,0 +1,25 @@
+// refuses: type.mismatch at 24:26
+// a concrete error passed to an erased Result payload field: a payload does not erase
+
+struct Fault {
+    code: Int
+}
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let _ = into.append("fault")
+    }
+}
+
+extension Fault: Error {}
+
+enum Cell {
+    case Done(r: Result<Int, Box<any Error>>),
+    case Empty
+}
+
+extension Cell: NoCopy {}
+
+func main() {
+    let _ = Cell.Done(r: Fault(code: 3))
+}

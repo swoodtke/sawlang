@@ -1,0 +1,13 @@
+// refuses: transfer.implicit-copy at 12:17
+// a NoCopy place read by value with no `move`
+
+struct Handle {
+    fd: Int
+}
+
+extension Handle: NoCopy {}
+
+func main() {
+    let h = Handle(fd: 3)
+    let other = h
+}

@@ -501,13 +501,7 @@ extension TcProgram {
             }
         }
         if target >= 0 {
-            self.ensure_generic_list(target)
-            let written = self.sigs[d]
-            let wanted = self.sigs[target]
-            if written.generic_count > 0 && written.generic_count != wanted.generic_count {
-                let leaf = self.res.last_leaf_of(head)
-                self.refuse_extension_arity(leaf, written.generic_count, wanted.generic_count)
-            }
+            self.check_extension_head(d, head, target)
         }
         let first = self.traits.len()
         let n = self.child_count(node)
@@ -530,6 +524,148 @@ extension TcProgram {
             s.flags = s.flags | TC_FLAG_SYNTHESIZE
         }
         self.sigs[d] = s
+    }
+
+    // An extension head's parameters rename its type's. A head naming a type
+    // among them is a specialized extension, outside the slice, whatever else
+    // it omits; a pure rename that leaves out a defaulted parameter is
+    // refused with the head written out, since filling the default would
+    // specialize it instead (SL:open-questions D14); any other count is an
+    // arity error.
+    func check_extension_head(&var self, d: Int, head: Int, target: Int) {
+        self.ensure_generics(target)
+        let written = self.sigs[d]
+        let wanted = self.sigs[target]
+        if written.generic_count == 0 {
+            return
+        }
+        let leaf = self.res.last_leaf_of(head)
+        var k = 0
+        while k < written.generic_count {
+            let g = self.generics[written.generic_first + k]
+            if self.names_a_type(g.name) {
+                let m = self.current
+                var msg = StringBuilder()
+                try! msg.append("`extension ")
+                try! msg.append(self.text(m, leaf))
+                try! msg.append("<...>` names the type `")
+                try! msg.append(self.name_text(g.name))
+                try! msg.append("` among its parameters: a specialized extension is not in the bootstrap slice yet")
+                self.refuse(g.leaf, "slice.not-yet", msg.build())
+                let node = self.res.decls[d].node
+                try! self.skipped.push(node)
+                return
+            }
+            k = k + 1
+        }
+        if written.generic_count > wanted.generic_count {
+            self.refuse_extension_arity(leaf, written.generic_count, wanted.generic_count)
+            return
+        }
+        if written.generic_count == wanted.generic_count {
+            return
+        }
+        k = written.generic_count
+        while k < wanted.generic_count {
+            let g = self.generics[wanted.generic_first + k]
+            if g.default_type < 0 {
+                self.refuse_extension_arity(leaf, written.generic_count, wanted.generic_count)
+                return
+            }
+            k = k + 1
+        }
+        self.refuse_default_omitted(d, leaf, target)
+    }
+
+    // Whether `name` names a type where an extension head is written: one
+    // the module declares, a selective import binds or the prelude holds.
+    func names_a_type(&self, name: Int) -> Bool {
+        let m = self.current
+        var at = self.res.top.first(m, name)
+        while at >= 0 {
+            let decl = self.res.top.value(at)
+            if self.is_nominal(decl) || self.is_alias_decl(decl) {
+                return true
+            }
+            at = self.res.top.following(at)
+        }
+        at = self.res.bare.first(m, name)
+        while at >= 0 {
+            let index = self.res.bare.value(at)
+            let symbol = self.res.symbols[index]
+            let b = symbol.binding
+            if b.kind == ResBindKind.Decl && b.decl >= 0 && self.is_nominal(b.decl) {
+                return true
+            }
+            at = self.res.bare.following(at)
+        }
+        at = self.res.prelude.first(0, name)
+        while at >= 0 {
+            let decl = self.res.prelude.value(at)
+            if self.is_nominal(decl) || self.is_alias_decl(decl) {
+                return true
+            }
+            at = self.res.prelude.following(at)
+        }
+        false
+    }
+
+    public func is_alias_decl(&self, d: Int) -> Bool {
+        let info = self.res.decls[d]
+        info.kind == ResDeclKind.Alias
+    }
+
+    // D14's refusal, with the head written out: the written names, then each
+    // omitted parameter with its bounds.
+    func refuse_default_omitted(&var self, d: Int, leaf: Int, target: Int) {
+        let m = self.current
+        let written = self.sigs[d]
+        let wanted = self.sigs[target]
+        var head = StringBuilder()
+        try! head.append("extension ")
+        try! head.append(self.text(m, leaf))
+        try! head.append("<")
+        var omitted = StringBuilder()
+        var k = 0
+        while k < wanted.generic_count {
+            if k > 0 {
+                try! head.append(", ")
+            }
+            if k < written.generic_count {
+                let g = self.generics[written.generic_first + k]
+                try! head.append(self.name_text(g.name))
+            } else {
+                let g = self.generics[wanted.generic_first + k]
+                if k > written.generic_count {
+                    try! omitted.append(", ")
+                }
+                try! omitted.append("`")
+                try! omitted.append(self.name_text(g.name))
+                try! omitted.append("`")
+                try! head.append(self.name_text(g.name))
+                var j = 0
+                while j < g.bound_count {
+                    if j == 0 {
+                        try! head.append(": ")
+                    } else {
+                        try! head.append(" + ")
+                    }
+                    let bound = self.traits[g.bound_first + j]
+                    let bound_name = self.res.decls[bound].name
+                    try! head.append(self.name_text(bound_name))
+                    j = j + 1
+                }
+            }
+            k = k + 1
+        }
+        try! head.append(">")
+        var msg = StringBuilder()
+        try! msg.append("this extension head leaves out ")
+        try! msg.append(omitted.build())
+        try! msg.append(", which has a default: filling it would specialize the extension, and leaving it would rename a parameter the head does not name; write it out, as `")
+        try! msg.append(head.build())
+        try! msg.append("`")
+        self.refuse(leaf, "extension.default-omitted", msg.build())
     }
 
     func refuse_extension_arity(&var self, leaf: Int, written: Int, wanted: Int) {

@@ -1,0 +1,6 @@
+// refuses: type.mismatch at 5:39
+// a closure's last expression of another type than the expected result
+
+func main() {
+    let f: (Int) -> Int = { x: Int in "x" }
+}

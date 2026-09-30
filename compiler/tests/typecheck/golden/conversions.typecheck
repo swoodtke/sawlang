@@ -1,0 +1,93 @@
+(Module conversions
+  (declarations
+    (trait Shape 6:7 private)
+    (requirement Shape.area 7:10 (signature (receiver shared) (params) -> Int))
+    (struct Square 10:8 private)
+    (field Square.side 11:5 private Int)
+    (extension 14:1 (target conversions.Square) (conforms conversions.Shape))
+    (method Square.area 15:10 private (signature (receiver shared) (params) -> Int))
+    (enum Fault 20:6 private)
+    (case Fault.Broken 21:10)
+    (func maybe 24:6 private (signature (params (n Int owned)) -> Int?))
+    (func outcome 28:6 private (signature (params (n Int owned) (fault conversions.Fault owned)) -> Result<Int, conversions.Fault>))
+    (func diverge 35:6 private (signature (params) -> Int))
+    (func total 39:6 private (signature (params (values &[Int] shared)) -> Int))
+    (func peek 43:6 private (signature (params (p &conversions.Square shared)) -> Int))
+    (func through 47:6 private (signature (params (p &Int shared)) -> Int))
+    (func conversions 51:6 private (signature (params (v &var std.vector.Vector<Int, std.alloc.GlobalAllocator> exclusive) (s &var conversions.Square exclusive)) -> Int))
+    (extension 58:1 (target conversions.Fault) (conforms Printable))
+    (method Fault.format 59:10 private (signature (receiver shared) (params (into &var std.stringbuilder.StringBuilder exclusive)) -> Void))
+    (extension 64:1 (target conversions.Fault) (conforms Error))
+    (func erased 66:6 private (signature (params (n Int owned)) -> Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>)))
+  (members
+    (conversions.Square
+      (field side Int private declared)
+      (method area private (extension conversions)))
+    (conversions.Fault
+      (case Broken private declared)
+      (method format private (extension conversions))
+      (method to_string public (default Printable))))
+  (views
+    (conversions.Square side area)
+    (conversions.Fault Broken format to_string))
+  (conformances
+    (conversions.Square conversions.Shape 14:19 (area written))
+    (conversions.Fault Printable 58:18 (format written) (to_string default))
+    (conversions.Fault Error 64:18 (format written) (to_string default)))
+  (copy-tier
+    (conversions.Square Copy)
+    (conversions.Fault Copy))
+  (bodies
+    (Square.area 15:10
+      (16:9-16:30 Binary Int value temp (op *))
+      (16:9-16:18 Member Int place copy)
+      (16:9-16:13 SelfExpr conversions.Square place project)
+      (16:21-16:30 Member Int place copy)
+      (16:21-16:25 SelfExpr conversions.Square place project))
+    (maybe 24:6
+      (25:5-25:6 Name Int (some Int?) place copy))
+    (outcome 28:6
+      (29:5-31:6 If Void value temp)
+      (29:8-29:13 Binary.pair Bool value temp (op >))
+      (29:8-29:9 Name Int place borrow)
+      (29:12-29:13 IntLit Int value borrow)
+      (30:16-30:17 Name Int (ok Result<Int, conversions.Fault>) place copy)
+      (32:5-32:10 Name conversions.Fault (err Result<Int, conversions.Fault>) place copy))
+    (diverge 35:6
+      (36:5-36:27 Call.paren Never (never Int) value temp (builtin panic))
+      (36:11-36:26 StringLit String value temp))
+    (total 39:6
+      (40:5-40:17 Call.paren Int value temp (builtin len))
+      (40:5-40:11 Name &[Int] place borrow))
+    (peek 43:6
+      (44:5-44:11 Member Int place copy)
+      (44:5-44:6 Name &conversions.Square (deref conversions.Square) place project))
+    (through 47:6
+      (48:5-48:6 Name &Int (deref Int) place copy))
+    (conversions 51:6
+      (52:9-52:10 BindingName Int place temp)
+      (52:13-52:22 Call.paren Int value temp (call conversions.total(values: &[Int])))
+      (52:19-52:21 Ref.shared &std.vector.Vector<Int, std.alloc.GlobalAllocator> (slice &[Int]) value temp)
+      (52:20-52:21 Name &var std.vector.Vector<Int, std.alloc.GlobalAllocator> (deref std.vector.Vector<Int, std.alloc.GlobalAllocator>) place borrow)
+      (53:9-53:10 BindingName Int place temp)
+      (53:13-53:20 Call.paren Int value temp (call conversions.peek(p: &conversions.Square)))
+      (53:18-53:19 Name &var conversions.Square (shared &conversions.Square) place copy)
+      (54:9-54:14 BindingName &any conversions.Shape place temp)
+      (54:29-54:45 Ref.shared &conversions.Square (erase &any conversions.Shape) value temp)
+      (54:30-54:45 Call.paren conversions.Square value borrow (memberwise conversions.Square (owner conversions.Square)))
+      (54:43-54:44 IntLit Int value temp)
+      (55:5-55:10 Binary Int value temp (op +))
+      (55:5-55:6 Name Int place copy)
+      (55:9-55:10 Name Int place copy))
+    (Fault.format 59:10
+      (60:13-60:14 BindingName Result<Void, std.alloc.AllocError> place temp)
+      (60:17-60:38 Call.paren Result<Void, std.alloc.AllocError> value temp (call std.stringbuilder.StringBuilder.append(s: String) (owner std.stringbuilder.StringBuilder)))
+      (60:17-60:21 Name &var std.stringbuilder.StringBuilder (deref std.stringbuilder.StringBuilder) (borrow-var &var std.stringbuilder.StringBuilder) place borrow-var)
+      (60:29-60:37 StringLit String value temp))
+    (erased 66:6
+      (67:9-67:10 BindingName Int place temp)
+      (67:13-67:41 Try.propagate Int value temp)
+      (67:17-67:41 Call.paren Result<Int, conversions.Fault> (erase Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>) value temp (call conversions.outcome(n: Int, fault: conversions.Fault)))
+      (67:25-67:26 Name Int place copy)
+      (67:28-67:40 Member conversions.Fault value temp (case conversions.Fault.Broken (owner conversions.Fault)))
+      (68:5-68:6 Name Int (ok Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>) place copy))))

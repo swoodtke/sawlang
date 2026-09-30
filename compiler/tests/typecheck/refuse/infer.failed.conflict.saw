@@ -1,0 +1,10 @@
+// refuses: infer.failed at 9:13
+// a type parameter two arguments require to be two different types
+
+func same<T>(a: T, b: T) -> Bool {
+    true
+}
+
+func main() {
+    let _ = same(true, "one")
+}

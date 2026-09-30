@@ -1,0 +1,10 @@
+// refuses: type.mismatch at 9:13
+// a literal default that does not fit the type this call gives its parameter
+
+func pick<T>(a: T, b: T = 0) -> T {
+    a
+}
+
+func main() {
+    let x = pick(1.5)
+}

@@ -44,4 +44,21 @@
     (generics.Pair (join Copy A B))
     (generics.Bag (join Copy T))
     (generics.Holder (join Copy T))
-    (generics.Either (join Copy L R))))
+    (generics.Either (join Copy L R)))
+  (bodies
+    (depth 28:6
+      (29:5-29:21 Call.paren Never (never generics.Holder<Bool>) value temp (builtin panic))
+      (29:11-29:20 StringLit String value temp))
+    (sized 32:6
+      (33:5-33:9 BoolLit.true Bool value temp))
+    (measure 36:6
+      (37:5-37:9 NoneLit generics.Either<T, U>? value temp))
+    (width 40:6
+      (41:5-41:21 Call.paren Never (never [Int; N]) value temp (builtin panic))
+      (41:11-41:20 StringLit String value temp))
+    (Pair.swap 45:10
+      (46:9-46:25 Call.paren Never (never generics.Pair<B, A>) value temp (builtin panic))
+      (46:15-46:24 StringLit String value temp))
+    (Pair.map 49:10
+      (50:9-50:25 Call.paren Never (never generics.Pair<T, B>) value temp (builtin panic))
+      (50:15-50:24 StringLit String value temp))))

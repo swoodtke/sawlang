@@ -1,0 +1,6 @@
+// refuses: type.mismatch at 5:5
+// a body's last expression of another type than the function's result
+
+func size() -> Int {
+    "big"
+}

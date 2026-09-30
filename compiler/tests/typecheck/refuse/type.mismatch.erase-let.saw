@@ -1,0 +1,18 @@
+// refuses: type.mismatch at 17:42
+// a concrete error bound where an erased Result is annotated: only a return target erases
+
+struct Fault {
+    code: Int
+}
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let _ = into.append("fault")
+    }
+}
+
+extension Fault: Error {}
+
+func main() {
+    let _: Result<Int, Box<any Error>> = Fault(code: 3)
+}

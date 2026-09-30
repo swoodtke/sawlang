@@ -59,6 +59,12 @@ extension TcProgram {
             }
             k = k + 1
         }
+        if owner.kind == ResDeclKind.Enum && owner.node >= 0 && self.sigs[d].result >= 0 {
+            let from_name = self.res.intern("from")
+            try! self.members.push(TcMember(type_decl: d, decl: d, source: TcSource.RawConversion,
+                                            module: owner.module, ext: -1, trait_decl: -1,
+                                            vis: ResVis.Public, name: from_name))
+        }
         let exts = self.extensions_in_order(d)
         k = 0
         while k < exts.len() {
@@ -85,7 +91,7 @@ extension TcProgram {
         while k < self.conformances.len() {
             let c = self.conformances[k]
             if c.type_decl == d {
-                self.add_conformance_members(d, &c)
+                self.add_conformance_members(d, &c, first)
             }
             k = k + 1
         }
@@ -95,12 +101,19 @@ extension TcProgram {
     }
 
     // The members a conformance brings: each requirement a trait's default
-    // body fills, and each one `@synthesize` derives.
-    func add_conformance_members(&var self, d: Int, c: &TcConformance) {
+    // body fills, and each one `@synthesize` derives. A requirement reaches
+    // the table once, however many conformances reach its trait: `E:
+    // Printable` and `E: Error`, which refines it, bring one `to_string`.
+    // The table of `d` starts at `first`.
+    func add_conformance_members(&var self, d: Int, c: &TcConformance, first: Int) {
         var k = 0
         while k < c.status_count {
             let s = self.statuses[c.status_first + k]
             let req = self.res.decls[s.requirement]
+            k = k + 1
+            if self.brought_already(first, s.requirement) {
+                continue
+            }
             if s.kind == TcStatusKind.Default {
                 try! self.members.push(TcMember(type_decl: d, decl: s.requirement,
                                                 source: TcSource.Default, module: c.module,
@@ -112,8 +125,22 @@ extension TcProgram {
                                                 ext: c.ext, trait_decl: req.parent,
                                                 vis: ResVis.Public, name: req.name))
             }
+        }
+    }
+
+    // Whether the table begun at `first` holds requirement `req` already,
+    // brought by another conformance.
+    func brought_already(&self, first: Int, req: Int) -> Bool {
+        var k = first
+        while k < self.members.len() {
+            let member = self.members[k]
+            let from_trait = member.source == TcSource.Default || member.source == TcSource.Synthesized
+            if from_trait && member.decl == req {
+                return true
+            }
             k = k + 1
         }
+        false
     }
 
     // Whether module `viewer` sees member `k` of the table. A member of an
@@ -133,7 +160,8 @@ extension TcProgram {
                 self.res.visible_to(member.vis, member.module, viewer)
             },
             case Default -> true,
-            case Synthesized -> true
+            case Synthesized -> true,
+            case RawConversion -> true
         }
     }
 }

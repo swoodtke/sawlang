@@ -1,0 +1,10 @@
+// A bracket literal is a Vector only where a Vector is expected; with no
+// expected type it is a fixed array, which copies when its element does.
+
+func main() {
+    let a = [1, 2, 3]
+    let b = a
+    let v: Vector<Int> = [1, 2]
+    let f: [Int8; 2] = [4, 5]
+    print(a.len() + b.len() + v.len() + f.len())
+}

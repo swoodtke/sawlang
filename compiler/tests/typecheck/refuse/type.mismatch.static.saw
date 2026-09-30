@@ -1,0 +1,4 @@
+// refuses: type.mismatch at 4:21
+// a static's initializer of another type than the static's
+
+static LIMIT: Int = true

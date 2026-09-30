@@ -1,0 +1,39 @@
+// What the builtin types and the generic parameters answer with no
+// declaration: a primitive's methods of the traits it conforms to builtin, a
+// const parameter as a value, an enum case named with its type's arguments
+// written, and the payload `move o!` takes out of an optional place.
+
+enum Maybe<T> {
+    case Just(value: T),
+    case Nothing
+}
+
+struct Res {
+    w: Int
+}
+
+extension Res: NoCopy {}
+
+func takes(r: Res) -> Int {
+    r.w
+}
+
+func count<const N: Int>(a: [Int; N]) -> Int {
+    let zeros = [0; N]
+    if N > 0 {
+        return N
+    }
+    zeros.len()
+}
+
+func main() {
+    let n = 5
+    print(n.to_string())
+    print(7.to_string())
+    let none = Maybe<Int>.Nothing
+    let just = Maybe<Int>.Just(value: 3)
+    var o: Res? = Res(w: 1)
+    let r = move o!
+    print(takes(move r))
+    print(count([1, 2, 3]))
+}

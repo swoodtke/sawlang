@@ -1,0 +1,42 @@
+(Module split_conformance
+  (declarations
+    (struct DbErr 6:8 private)
+    (field DbErr.code 7:5 private Int)
+    (extension 10:1 (target split_conformance.DbErr) (conforms Printable))
+    (method DbErr.format 11:10 private (signature (receiver shared) (params (into &var std.stringbuilder.StringBuilder exclusive)) -> Void))
+    (extension 17:1 (target split_conformance.DbErr) (conforms Error))
+    (func show 19:6 private (signature (params (b std.box.Box<any Error, std.alloc.GlobalAllocator> owned)) -> String))
+    (func main 23:6 private (signature (params) -> Void)))
+  (members
+    (split_conformance.DbErr
+      (field code Int private declared)
+      (method format private (extension split_conformance))
+      (method to_string public (default Printable))))
+  (views
+    (split_conformance.DbErr code format to_string))
+  (conformances
+    (split_conformance.DbErr Printable 10:18 (format written) (to_string default))
+    (split_conformance.DbErr Error 17:18 (format written) (to_string default)))
+  (copy-tier
+    (split_conformance.DbErr Copy))
+  (bodies
+    (DbErr.format 11:10
+      (12:9-12:32 Try.force Void value temp)
+      (12:14-12:32 Call.paren Result<Void, std.alloc.AllocError> value temp (call std.stringbuilder.StringBuilder.append(s: String) (owner std.stringbuilder.StringBuilder)))
+      (12:14-12:18 Name &var std.stringbuilder.StringBuilder (deref std.stringbuilder.StringBuilder) (borrow-var &var std.stringbuilder.StringBuilder) place borrow-var)
+      (12:26-12:31 StringLit String value temp)
+      (13:9-13:36 Try.force Void value temp)
+      (13:14-13:36 Call.paren Result<Void, std.alloc.AllocError> value temp (call std.stringbuilder.StringBuilder.append(value: Int) (owner std.stringbuilder.StringBuilder)))
+      (13:14-13:18 Name &var std.stringbuilder.StringBuilder (deref std.stringbuilder.StringBuilder) (borrow-var &var std.stringbuilder.StringBuilder) place borrow-var)
+      (13:26-13:35 Member Int place copy)
+      (13:26-13:30 SelfExpr split_conformance.DbErr place project))
+    (show 19:6
+      (20:5-20:10 Interp String value temp)
+      (20:7-20:8 Name std.box.Box<any Error, std.alloc.GlobalAllocator> place borrow))
+    (main 23:6
+      (24:9-24:10 BindingName split_conformance.DbErr place temp)
+      (24:13-24:27 Call.paren split_conformance.DbErr value temp (memberwise split_conformance.DbErr (owner split_conformance.DbErr)))
+      (24:25-24:26 IntLit Int value temp)
+      (25:5-25:25 Call.paren Void value temp (builtin print))
+      (25:11-25:24 Call.paren String value temp (call Printable.to_string() (owner split_conformance.DbErr)))
+      (25:11-25:12 Name split_conformance.DbErr (borrow &split_conformance.DbErr) place borrow))))

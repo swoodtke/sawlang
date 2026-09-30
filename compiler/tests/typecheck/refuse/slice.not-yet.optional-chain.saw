@@ -1,0 +1,7 @@
+// refuses: slice.not-yet at 6:13
+// an optional chain, a body construct outside the slice
+
+func main() {
+    let s: String? = "abc"
+    let n = s?.len()
+}

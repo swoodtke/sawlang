@@ -151,7 +151,10 @@ public enum TcSource {
     // A trait's default body, through a conformance.
     case Default,
     // Derived under `@synthesize`.
-    case Synthesized
+    case Synthesized,
+    // A raw-backed enum's `from(raw:)`, which every such enum has (design
+    // 145); its row's declaration is the enum's own.
+    case RawConversion
 }
 
 // One member of a nominal type's table, built once per type; a module's view
@@ -190,6 +193,135 @@ public struct TcObligation {
     // parameters' bounds are in scope there.
     public env_decl: Int
     public env_ext: Int
+}
+
+// How a body's expression is read where it stands (SL:architecture §3.4,
+// "Out"). The first three are a value use's transfer kind; the rest read a
+// place, or a temporary, without taking it.
+public enum TcUse {
+    // Not an expression, or one nothing has read yet.
+    case Unused,
+    // A spelled `move`: the moved place, and the value it yields.
+    case Move,
+    // An implicit copy of a place.
+    case Copy,
+    // The hand-off of an owned temporary.
+    case Temp,
+    // A shared borrow: a receiver, an `&`, a comparison operand, a format
+    // argument, an interpolated segment.
+    case Borrow,
+    // An exclusive borrow: a receiver, an `&var`.
+    case BorrowVar,
+    // The base of a member, tuple index, force or subscript, which reads on
+    // into a part of it.
+    case Project,
+    // An assignment's target.
+    case Write,
+    // A compound assignment's target, read then written.
+    case Update,
+    // What a pattern tests: a scrutinee or an optional binding's subject.
+    case Test
+}
+
+// An implicit conversion, one step of an expression's adjustment chain.
+public enum TcAdjustKind {
+    // A literal or constant takes the type its position expects (design 87).
+    case Adopt,
+    // `Never` becomes whatever the position expects.
+    case Never,
+    // Auto-wrap into an Optional, a Result's `Ok` or its `Err`.
+    case Some,
+    case Ok,
+    case Err,
+    // `&v`, `&var v` of a `Vector` or an array, to a slice.
+    case Slice,
+    // A reference read through to its referent.
+    case Deref,
+    // A receiver's implicit borrow, shared or exclusive.
+    case Borrow,
+    case BorrowVar,
+    // An exclusive reference passed where a shared one is expected.
+    case Shared,
+    // A concrete value becoming an existential: `any Trait`, `Box<any Error>`.
+    case Erase,
+    // An integer extended losslessly into a wider one, by its own signedness
+    // (spec, Integer Width Agreement).
+    case Widen
+}
+
+// What a funnel position lets a conversion build beyond the exact and
+// structural steps: the matrix of compiler/tests/typecheck/README.md, "The
+// wrap and erasure matrix".
+public struct TcAllowance {
+    // Optional wraps still allowed; TC_ANY_DEPTH for any number.
+    public optionals: Int
+    // Result wraps still allowed.
+    public results: Int
+    // Whether a concrete error erases into `Box<any Error>` under the `Err`
+    // wrap: only a return target supplies the box's allocator.
+    public erases: Bool
+    // Whether an integer widens losslessly: every transfer, and never an
+    // operator's peer, which must agree.
+    public widens: Bool
+}
+
+// An allowance's `optionals` when a slot may nest optionals to any depth.
+public static TC_ANY_DEPTH: Int = -1
+
+public struct TcAdjust {
+    public kind: TcAdjustKind
+    // The type after this step.
+    public to: Int
+    // The next step of the same expression's chain, or -1.
+    public next: Int
+}
+
+// What a call, operator, subscript or loop head calls.
+public enum TcRole {
+    // An ordinary call of a function, method, static method or init.
+    case Call,
+    // The memberwise construction of a struct, which no declaration writes.
+    case Memberwise,
+    // An enum case's construction.
+    case Case,
+    // A builtin function: `print`, `panic`, `assert`, `sizeof`, `alignof`.
+    case Builtin,
+    // A conversion no declaration writes: a raw-backed enum's `from(raw:)`
+    // (design 145), an integer's `from` and `from(truncating:)` (design
+    // 170), a distinct alias's construction.
+    case Conversion,
+    // An operator a builtin type answers, which no declaration writes.
+    case BuiltinOperator,
+    // An operator a declared method answers: `equals`, `compare`.
+    case Operator,
+    // The three subscript roles (SL:borrowing §5): a declared or derived
+    // getitem or setitem, and the place accessor itself.
+    case Getitem,
+    case Setitem,
+    case Place,
+    // A `for` loop's `next`.
+    case Iterator,
+    // A function value's call: its type is the target.
+    case Value
+}
+
+// One call's resolution: the declaration it calls, and at what. A member of a
+// generic type is instantiated at `owner`, the receiver's type, and a
+// generic declaration at its own type arguments.
+public struct TcCall {
+    public node: Int
+    public target: Int
+    public role: TcRole
+    // Whether a getitem or setitem is derived from the place accessor.
+    public derived: Bool
+    public owner: Int
+    public inst_first: Int
+    public inst_count: Int
+    // A builtin operator's or function's spelling, interned; -1 otherwise.
+    public spelling: Int
+    // The exclusive twin of a shared accessor the call chose, which a use
+    // that writes switches to (design 141); -1 for none.
+    public twin: Int
 }
 
 public struct TcDiag {

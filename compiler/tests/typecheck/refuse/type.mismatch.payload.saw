@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 10:32
+// an enum payload of another type than its field's
+
+enum Shape {
+    case Square(side: Int),
+    case Empty
+}
+
+func main() {
+    let _ = Shape.Square(side: "wide")
+}

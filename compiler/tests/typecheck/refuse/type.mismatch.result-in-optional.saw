@@ -1,0 +1,10 @@
+// refuses: type.mismatch at 9:21
+// a Result wrap goes outside an optional wrap, never inside one
+
+func take_or(r: Result<Int, String>?) -> Int {
+    0
+}
+
+func main() {
+    let _ = take_or(10)
+}

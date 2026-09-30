@@ -1,0 +1,6 @@
+// refuses: slice.not-yet at 5:5
+// calling a `FuncPointer`
+
+func apply(f: FuncPointer<(Int) sync -> Int>) -> Int {
+    f(3)
+}

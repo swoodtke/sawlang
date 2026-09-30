@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 10:28
+// a memberwise construction's field of another type
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+func main() {
+    let _ = Point(x: 1, y: false)
+}

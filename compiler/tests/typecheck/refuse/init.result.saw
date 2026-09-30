@@ -1,0 +1,12 @@
+// refuses: init.result at 9:5
+// an `init` returning neither its receiver nor a Result of it
+
+struct Meter {
+    value: Int
+}
+
+extension Meter {
+    init(raw: Int) -> Int {
+        raw
+    }
+}

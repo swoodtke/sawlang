@@ -1,0 +1,54 @@
+(Module format
+  (declarations
+    (struct Money 6:8 private)
+    (field Money.cents 7:5 private Int)
+    (extension 10:1 (target format.Money) (conforms Printable))
+    (method Money.format 11:10 private (signature (receiver shared) (params (into &var std.stringbuilder.StringBuilder exclusive)) -> Void))
+    (func report 16:6 private (signature (params (name String owned) (count Int owned) (m format.Money owned)) -> Void)))
+  (members
+    (format.Money
+      (field cents Int private declared)
+      (method format private (extension format))
+      (method to_string public (default Printable))))
+  (views
+    (format.Money cents format to_string))
+  (conformances
+    (format.Money Printable 10:18 (format written) (to_string default)))
+  (copy-tier
+    (format.Money Copy))
+  (bodies
+    (Money.format 11:10
+      (12:13-12:14 BindingName Result<Void, std.alloc.AllocError> place temp)
+      (12:17-12:40 Call.paren Result<Void, std.alloc.AllocError> value temp (call std.stringbuilder.StringBuilder.append(value: Int) (owner std.stringbuilder.StringBuilder)))
+      (12:17-12:21 Name &var std.stringbuilder.StringBuilder (deref std.stringbuilder.StringBuilder) (borrow-var &var std.stringbuilder.StringBuilder) place borrow-var)
+      (12:29-12:39 Member Int place copy)
+      (12:29-12:33 SelfExpr format.Money place project))
+    (report 16:6
+      (17:5-17:18 Call.paren Void value temp (builtin print))
+      (17:11-17:17 StringLit String value temp)
+      (18:5-18:42 Call.paren Void value temp (builtin print))
+      (18:11-18:25 Interp String value temp)
+      (18:27-18:32 Name Int place borrow)
+      (18:34-18:38 Name String place borrow)
+      (18:40-18:41 Name format.Money place borrow)
+      (19:5-19:32 Call.paren Void value temp (builtin print))
+      (19:11-19:31 Interp String value temp)
+      (19:13-19:17 Name String place borrow)
+      (19:24-19:29 Name Int place borrow)
+      (20:5-20:23 Call.paren Void value temp (builtin assert))
+      (20:12-20:22 Binary.pair Bool value temp (op >=))
+      (20:12-20:17 Name Int place borrow)
+      (20:21-20:22 IntLit Int value borrow)
+      (21:5-21:56 Call.paren Void value temp (builtin assert))
+      (21:12-21:23 Binary.pair Bool value temp (op <))
+      (21:12-21:17 Name Int place borrow)
+      (21:20-21:23 IntLit Int value borrow)
+      (21:25-21:48 Interp String value temp)
+      (21:50-21:55 Name Int place borrow)
+      (22:5-24:6 If Void value temp)
+      (22:8-22:20 Binary.pair Bool value temp (op >))
+      (22:8-22:13 Name Int place borrow)
+      (22:16-22:20 IntLit Int value borrow)
+      (23:9-23:44 Call.paren Never value temp (builtin panic))
+      (23:15-23:36 Interp String value temp)
+      (23:38-23:43 Name Int place borrow))))

@@ -1,0 +1,12 @@
+// refuses: format.argument at 11:21
+// a format argument that is neither Printable nor a primitive
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+func main() {
+    let p = Point(x: 1, y: 2)
+    print("p = {}", p)
+}

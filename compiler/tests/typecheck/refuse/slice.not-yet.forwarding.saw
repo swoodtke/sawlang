@@ -1,0 +1,16 @@
+// refuses: slice.not-yet at 15:5
+// a method `Box` forwards to its payload
+
+struct Point {
+    x: Int
+}
+
+extension Point {
+    func sum(&self) -> Int {
+        self.x
+    }
+}
+
+func total(b: &Box<Point>) -> Int {
+    b.sum()
+}

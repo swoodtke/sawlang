@@ -1,0 +1,10 @@
+// refuses: type.not-a-value at 9:13
+// a type named where a value is read
+
+struct Point {
+    x: Int
+}
+
+func main() {
+    let p = Point
+}

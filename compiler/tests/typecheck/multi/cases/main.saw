@@ -1,0 +1,20 @@
+// A lone name pattern resolve took for a case (SL:open-questions D13): over
+// the imported enum it types as that enum's case; over an `Int`, none of its
+// candidates is a case of the matched type, so it is refused, naming the case
+// it was taken for and suggesting the rename.
+
+import level.{Level}
+
+func rank(l: Level) -> Int {
+    match l {
+        case count -> 0,
+        case limit -> 1
+    }
+}
+
+func bucket(n: Int) -> Int {
+    match n {
+        case 0 -> 0,
+        case count -> 1
+    }
+}

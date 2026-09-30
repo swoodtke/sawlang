@@ -1,0 +1,10 @@
+// refuses: infer.failed at 9:13
+// a type parameter nothing in the call determines
+
+func make<T>() -> Int {
+    0
+}
+
+func main() {
+    let _ = make()
+}

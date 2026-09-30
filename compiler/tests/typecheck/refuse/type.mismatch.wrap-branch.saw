@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 10:32
+// a value branch's arm takes what its position allows: in an argument, one optional level
+
+func take_nested(value: Int??) -> Int {
+    0
+}
+
+func main() {
+    let c = true
+    let _ = take_nested(if c { 5 } else { None })
+}

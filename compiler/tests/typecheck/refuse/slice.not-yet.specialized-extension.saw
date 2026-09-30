@@ -1,0 +1,8 @@
+// refuses: slice.not-yet at 4:18
+// an extension head naming a type among its parameters, a specialized extension
+
+extension Vector<Int> {
+    func sum(&self) -> Int {
+        0
+    }
+}

@@ -1,0 +1,23 @@
+// An unannotated closure parameter takes its type from the function type its
+// position expects, and, as a generic call's argument, from the parameter
+// type inference has solved all but its result, which the closure's tail then
+// gives (SL:architecture §3.4). A trivially copyable struct answers its
+// automatic `Hashable`'s `hash`.
+
+struct Point {
+    x: Int
+}
+
+func apply(f: (Int) -> Int) -> Int {
+    f(2)
+}
+
+func digest(p: &Point, h: &var Hasher) {
+    p.hash(h: &var h)
+}
+
+func main() {
+    let v: Vector<Int> = [1, 2, 3]
+    let doubled = try! v.map({ x in x * 2 })
+    print(apply({ n in n + 1 }) + doubled.len())
+}

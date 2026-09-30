@@ -1,0 +1,54 @@
+// What the signature half left to bodies: a raw-backed enum's synthesized
+// `from(raw:)`, in its member table and called (design 145); an integer's
+// `from`, `from(truncating:)` and `max` (design 170); a distinct alias's
+// construction; an `init` that returns a `Result` of its receiver, and the
+// three `try`s over one; a raw pointer's pointee; source locations.
+
+enum Mode: UInt8 {
+    case Read = 1,
+    case Write = 2
+}
+
+enum Fault {
+    case Negative
+}
+
+struct Meter {
+    value: Int
+}
+
+extension Meter {
+    init(checked: Int) -> Result<Meter, Fault> {
+        if checked < 0 {
+            return Fault.Negative
+        }
+        Meter(value: checked)
+    }
+}
+
+func carried(raw: UInt8, big: Int) -> Int {
+    let mode = Mode.from(raw: raw)
+    let back = Mode.Write as UInt8
+    let narrow = UInt8.from(big)
+    let low = UInt8.from(truncating: big)
+    let b = Byte(low)
+    let m = Meter(checked: big)
+    let top = UInt8.max
+    big
+}
+
+func unwrapped(n: Int) -> Result<Int, Fault> {
+    let m = try Meter(checked: n)
+    let forced = try! Meter(checked: 1)
+    let maybe = try? Meter(checked: 2)
+    m.value + forced.value
+}
+
+func pointee(p: UnsafePointer<Int>) unsafe -> Int {
+    *p
+}
+
+func located() -> String {
+    let line = #line
+    #function
+}

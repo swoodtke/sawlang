@@ -1,0 +1,10 @@
+// refuses: type.mismatch at 9:19
+// an argument of another type than its parameter's
+
+func twice(n: Int) -> Int {
+    n + n
+}
+
+func main() {
+    let _ = twice("two")
+}

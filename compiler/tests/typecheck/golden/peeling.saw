@@ -1,0 +1,50 @@
+// Peeling, the same for every client of the funnel: a slot's own members
+// first, then an Optional's innermost payload, then a Result's unique payload
+// that takes the value, which picks `Ok` or `Err`; a generic enum's arguments
+// come from the slot. An implicit member reaches its enum the same way, and a
+// zero-argument construction takes the slot's type.
+
+enum Direction {
+    case North,
+    case South
+}
+
+enum Fault {
+    case Broken
+}
+
+func heading(d: Direction?) -> Direction {
+    d ?? .North
+}
+
+func nested() -> Int32?? {
+    11
+}
+
+func checked(ok: Bool) -> Result<Int32, Fault> {
+    if ok {
+        return 4
+    }
+    .Broken
+}
+
+func wrapped() -> Result<Int32?, Fault> {
+    5
+}
+
+func built() -> Result<Int, Fault> {
+    .Ok(value: 6)
+}
+
+func compare(d: Direction) -> Bool {
+    d == .South
+}
+
+func fresh() -> Vector<Int> {
+    let v: Vector<Int> = Vector()
+    move v
+}
+
+func argument(d: Direction) -> Direction {
+    heading(.South)
+}

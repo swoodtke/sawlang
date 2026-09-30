@@ -126,4 +126,9 @@
     (tiers.Tag Copy declared)
     (tiers.Carry Copy)
     (tiers.Pairing Copy)
-    (tiers.Counter Copy)))
+    (tiers.Counter Copy))
+  (bodies
+    (Tag.copy 70:10
+      (71:9-71:25 Call.paren tiers.Tag value temp (memberwise tiers.Tag (owner tiers.Tag)))
+      (71:17-71:24 Member Int place copy)
+      (71:17-71:21 SelfExpr tiers.Tag place project))))

@@ -1,0 +1,166 @@
+// Call-site generic inference (designs 93 and 105): local unification of a
+// candidate's parameter types against its arguments' types, solving one
+// declaration's type parameters. No type is interned for an unsolved
+// parameter; a solution is a table beside the call, and a type mentioning an
+// unsolved parameter is never recorded.
+
+import sawtypecheck.src.adjust.{TC_FIT_NONE}
+import sawtypecheck.src.conform.{TcSubst, tc_args_subst, tc_copy_ints}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// The solutions for the type parameters of `owner`: -1 where unsolved. The
+// first conflict found is kept for its message.
+public struct TcSolve {
+    public owner: Int
+    public sol: Vector<Int>
+    public conflict_index: Int
+    public conflict_a: Int
+    public conflict_b: Int
+}
+
+extension TcSolve: NoCopy {}
+
+// No parameter solved yet, for `count` parameters of `owner`.
+public func tc_solve(owner: Int, count: Int) -> TcSolve {
+    var sol = Vector<Int>()
+    var k = 0
+    while k < count {
+        try! sol.push(-1)
+        k = k + 1
+    }
+    TcSolve(owner: owner, sol: move sol, conflict_index: -1, conflict_a: -1, conflict_b: -1)
+}
+
+extension TcProgram {
+    // Unifies parameter type `p`, whose parameters of `s.owner` are the
+    // unknowns, with argument type `a`. False when the two cannot agree; a
+    // later conversion check reports why.
+    public func unify(&var self, p: Int, a: Int, s: &var TcSolve) -> Bool {
+        if p < 0 || a < 0 || self.has_error(a) {
+            return true
+        }
+        let pi = self.types.ty(p)
+        if pi.kind == TcKind.Param && pi.decl == s.owner && s.owner >= 0 && pi.a < s.sol.len() {
+            let current = s.sol[pi.a]
+            if current >= 0 && self.has_error(current) {
+                return true
+            }
+            if current < 0 || self.is_never(current) {
+                if not self.is_never(a) || current < 0 {
+                    s.sol[pi.a] = a
+                }
+                return true
+            }
+            if current == a || self.is_never(a) {
+                return true
+            }
+            if s.conflict_index < 0 {
+                s.conflict_index = pi.a
+                s.conflict_a = current
+                s.conflict_b = a
+            }
+            return false
+        }
+        if self.is_never(a) {
+            return true
+        }
+        let ai = self.types.ty(a)
+        if pi.kind == TcKind.Nominal && pi.decl == self.known.optional && not self.is_optional(a) {
+            let inner = self.types.arg(p, 0)
+            return self.unify(inner, a, &var s)
+        }
+        if pi.kind == TcKind.Slice && ai.kind == TcKind.Ref {
+            let element = self.element_of_sequence(ai.b)
+            if element >= 0 {
+                return self.unify(pi.b, element, &var s)
+            }
+        }
+        if pi.kind == TcKind.Ref && ai.kind == TcKind.Ref && pi.a == 0 {
+            return self.unify(pi.b, ai.b, &var s)
+        }
+        if pi.kind != ai.kind || pi.decl != ai.decl || pi.count != ai.count {
+            return false
+        }
+        if pi.kind == TcKind.Ref || pi.kind == TcKind.Slice {
+            if pi.a != ai.a {
+                return false
+            }
+        }
+        var agreed = true
+        var k = 0
+        while k < pi.count {
+            let pa = self.types.arg(p, k)
+            let aa = self.types.arg(a, k)
+            if not self.unify(pa, aa, &var s) {
+                agreed = false
+            }
+            k = k + 1
+        }
+        let has_inner = pi.kind == TcKind.Func || pi.kind == TcKind.Ref || pi.kind == TcKind.Slice || pi.kind == TcKind.Array
+        if has_inner && pi.b >= 0 && ai.b >= 0 {
+            if not self.unify(pi.b, ai.b, &var s) {
+                agreed = false
+            }
+        }
+        agreed
+    }
+
+    // Whether `t` mentions a parameter of `s.owner` that is not solved yet.
+    public func mentions_unsolved(&self, t: Int, s: &TcSolve) -> Bool {
+        if t < 0 || s.owner < 0 {
+            return false
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Param && info.decl == s.owner {
+            if info.a >= s.sol.len() {
+                return true
+            }
+            return s.sol[info.a] < 0
+        }
+        let has_inner = info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array
+        if has_inner && info.b >= 0 && self.mentions_unsolved(info.b, &s) {
+            return true
+        }
+        var k = 0
+        while k < info.count {
+            let a = self.types.arg(t, k)
+            if self.mentions_unsolved(a, &s) {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // Whether every parameter of `s.owner` is solved.
+    public func all_solved(&self, s: &TcSolve) -> Bool {
+        var k = 0
+        while k < s.sol.len() {
+            if s.sol[k] < 0 {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // The substitution the solutions so far make: an unsolved parameter
+    // stays itself.
+    public func solve_subst(&var self, s: &TcSolve) -> TcSubst {
+        var args = Vector<Int>()
+        var k = 0
+        while k < s.sol.len() {
+            if s.sol[k] >= 0 {
+                try! args.push(s.sol[k])
+            } else {
+                let owner = s.owner
+                try! args.push(self.mk_param(owner, k))
+            }
+            k = k + 1
+        }
+        tc_args_subst(s.owner, move args)
+    }
+}

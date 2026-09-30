@@ -1,0 +1,7 @@
+// refuses: call.not-callable at 6:13
+// a call of a local that holds no function
+
+func main() {
+    let n = 3
+    let _ = n(4)
+}

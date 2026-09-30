@@ -1,0 +1,233 @@
+// The dump's `bodies` section (compiler/tests/typecheck/README.md): per body,
+// one line per typed node in source order, with its type, its adjustments,
+// whether it is a place and how it is used, and what it calls.
+
+import sawparse.src.grammar.{Alt, alt_kind}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.model.{ResDecl, ResDeclKind, ResModule}
+import sawtypecheck.src.model.{TcAdjust, TcAdjustKind, TcCall, TcRole, TcUse}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.spell.{tc_effects_text}
+
+// Module `m`'s bodies section.
+public func tc_dump_bodies(p: &TcProgram, out: &var StringBuilder, m: Int) {
+    p.dump_bodies(&var out, m)
+}
+
+public func tc_use_text(u: TcUse) -> String {
+    match u {
+        case Unused -> "unused",
+        case Move -> "move",
+        case Copy -> "copy",
+        case Temp -> "temp",
+        case Borrow -> "borrow",
+        case BorrowVar -> "borrow-var",
+        case Project -> "project",
+        case Write -> "write",
+        case Update -> "update",
+        case Test -> "test"
+    }
+}
+
+public func tc_adjust_text(k: TcAdjustKind) -> String {
+    match k {
+        case Adopt -> "adopt",
+        case Never -> "never",
+        case Some -> "some",
+        case Ok -> "ok",
+        case Err -> "err",
+        case Slice -> "slice",
+        case Deref -> "deref",
+        case Borrow -> "borrow",
+        case BorrowVar -> "borrow-var",
+        case Shared -> "shared",
+        case Erase -> "erase",
+        case Widen -> "widen"
+    }
+}
+
+public func tc_role_text(r: TcRole) -> String {
+    match r {
+        case Call -> "call",
+        case Memberwise -> "memberwise",
+        case Case -> "case",
+        case Builtin -> "builtin",
+        case Conversion -> "conversion",
+        case BuiltinOperator -> "op",
+        case Operator -> "operator",
+        case Getitem -> "getitem",
+        case Setitem -> "setitem",
+        case Place -> "place",
+        case Iterator -> "iterator",
+        case Value -> "value"
+    }
+}
+
+extension TcProgram {
+    public func dump_bodies(&self, out: &var StringBuilder, m: Int) {
+        try! out.append("\n  (bodies")
+        let info = self.res.modules[m]
+        var k = 0
+        var open_decl = -2
+        while k < self.body_roots.len() {
+            let root = self.body_roots[k]
+            let d = self.body_decls[k]
+            k = k + 1
+            if root < info.node_base || root >= info.node_base + info.node_count {
+                continue
+            }
+            if d != open_decl || d < 0 {
+                if open_decl != -2 {
+                    try! out.append(")")
+                }
+                try! out.append("\n    (")
+                if d >= 0 {
+                    try! out.append(self.res.decl_path(d))
+                    try! out.append(" ")
+                    let site = self.decl_site(d)
+                    try! out.append(self.res.node_position(m, site))
+                } else {
+                    try! out.append("item ")
+                    try! out.append(self.res.node_position(m, root))
+                }
+                open_decl = d
+            }
+            self.dump_body_nodes(&var out, m, root)
+        }
+        if open_decl != -2 {
+            try! out.append(")")
+        }
+        try! out.append(")")
+    }
+
+    // Every typed node under `root`, `root` included, in source order:
+    // parents before children, siblings left to right.
+    func dump_body_nodes(&self, out: &var StringBuilder, m: Int, root: Int) {
+        var stack = Vector<Int>()
+        try! stack.push(root)
+        var top = 1
+        while top > 0 {
+            top = top - 1
+            let id = stack[top]
+            if self.expr_types[id] >= 0 {
+                self.dump_body_line(&var out, m, id)
+            }
+            var c = self.child_count(id) - 1
+            while c >= 0 {
+                let child = self.child(id, c)
+                if not self.is_leaf(child) {
+                    if top < stack.len() {
+                        stack[top] = child
+                    } else {
+                        try! stack.push(child)
+                    }
+                    top = top + 1
+                }
+                c = c - 1
+            }
+        }
+    }
+
+    func dump_body_line(&self, out: &var StringBuilder, m: Int, id: Int) {
+        let node = self.res.nodes[id]
+        try! out.append("\n      (")
+        try! out.append(self.res.position_text(m, node.start))
+        try! out.append("-")
+        try! out.append(self.res.position_text(m, node.end))
+        try! out.append(" ")
+        if let alt = self.node_alt(id) {
+            try! out.append(alt_kind(alt))
+        } else {
+            try! out.append("?")
+        }
+        try! out.append(" ")
+        let own = self.expr_types[id]
+        self.append_type(&var out, own)
+        var a = self.adj_head[id]
+        while a >= 0 {
+            let adj = self.adjusts[a]
+            try! out.append(" (")
+            try! out.append(tc_adjust_text(adj.kind))
+            try! out.append(" ")
+            self.append_type(&var out, adj.to)
+            try! out.append(")")
+            a = adj.next
+        }
+        if self.expr_place[id] {
+            try! out.append(" place ")
+        } else {
+            try! out.append(" value ")
+        }
+        try! out.append(tc_use_text(self.expr_use[id]))
+        let at = self.call_at[id]
+        if at >= 0 {
+            self.append_call(&var out, at)
+        }
+        try! out.append(")")
+    }
+
+    // A call record: `(ROLE TARGET [derived] [(owner T)] [(inst T...)])`.
+    func append_call(&self, out: &var StringBuilder, at: Int) {
+        let c = self.calls[at]
+        try! out.append(" (")
+        try! out.append(tc_role_text(c.role))
+        if c.target >= 0 {
+            try! out.append(" ")
+            try! out.append(self.target_text(c.target))
+        }
+        if c.spelling >= 0 && (c.target < 0 || c.role != TcRole.Builtin) {
+            try! out.append(" ")
+            try! out.append(self.name_text(c.spelling))
+        }
+        if c.derived {
+            try! out.append(" derived")
+        }
+        if c.owner >= 0 {
+            try! out.append(" (owner ")
+            self.append_type(&var out, c.owner)
+            try! out.append(")")
+        }
+        if c.inst_count > 0 {
+            try! out.append(" (inst")
+            var k = 0
+            while k < c.inst_count {
+                try! out.append(" ")
+                let arg = self.insts[c.inst_first + k]
+                self.append_type(&var out, arg)
+                k = k + 1
+            }
+            try! out.append(")")
+        }
+        try! out.append(")")
+    }
+
+    // A call's target: its declaration's identity, and a function's
+    // parameters, which tell an overload apart.
+    public func target_text(&self, d: Int) -> String {
+        var out = StringBuilder()
+        let info = self.res.decls[d]
+        if info.module == self.res.builtin {
+            try! out.append(self.res.decl_path(d))
+        } else {
+            try! out.append(self.res.decl_identity(d))
+        }
+        let callable = info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.Requirement || info.kind == ResDeclKind.Extern
+        if callable {
+            let s = self.sigs[d]
+            try! out.append("(")
+            var k = 0
+            while k < s.param_count {
+                if k > 0 {
+                    try! out.append(", ")
+                }
+                let param = self.params[s.param_first + k]
+                try! out.append(self.name_text(param.name))
+                try! out.append(": ")
+                self.append_type(&var out, param.ty)
+                k = k + 1
+            }
+            try! out.append(")")
+        }
+        out.build()
+    }
+}

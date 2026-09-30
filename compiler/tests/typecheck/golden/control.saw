@@ -1,0 +1,48 @@
+// Control flow and blocks: `if`/`else if`/`else` and `match` merging into
+// one type, or into none as statements; a branch that diverges; `while`,
+// a `while` with no condition and no `break`, which is `Never`; `break` and
+// `continue`; a closure's parameters, result and `return`.
+
+func classify(n: Int) -> String {
+    if n < 0 {
+        "negative"
+    } else if n == 0 {
+        "zero"
+    } else {
+        "positive"
+    }
+}
+
+func steps(limit: Int) -> Int {
+    var i = 0
+    while i < limit {
+        if i == 3 {
+            break
+        }
+        i = i + 1
+        continue
+    }
+    i
+}
+
+func forever() -> Never {
+    while {
+        print("again")
+    }
+}
+
+func guarded(n: Int) -> Int {
+    let v = if n > 0 { n } else { return 0 }
+    v
+}
+
+func closures() -> Int {
+    let double = { x: Int in x * 2 }
+    let checked: (Int) -> Int = { x: Int in
+        if x < 0 {
+            return 0
+        }
+        x
+    }
+    double(3) + checked(-1)
+}

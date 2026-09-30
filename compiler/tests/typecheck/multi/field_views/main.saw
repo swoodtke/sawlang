@@ -1,0 +1,16 @@
+// `h.f(3)` where `Handler.f` is a field holding a function and `adds`
+// declares a method `f` in an extension of `Handler` (SL:open-questions D16).
+// `main` does not import `adds`, so it sees no method `f`, and the call is the
+// field's; `other` imports `adds`, and there the call would be refused.
+
+import handler.{Handler}
+import other.{with_method}
+
+func double(n: Int) -> Int {
+    n * 2
+}
+
+func main() {
+    let h = Handler(f: double)
+    print(h.f(3) + with_method(&h))
+}

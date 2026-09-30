@@ -44,16 +44,70 @@
       (method raw public (extension declarations)))
     (declarations.Status
       (case Open public declared)
-      (case Closed public declared))
+      (case Closed public declared)
+      (static from public (synthesized raw)))
     (declarations.Cursor
       (field at &std.vector.Vector<Int, std.alloc.GlobalAllocator> private declared)))
   (views
     (declarations.Account id balance history init get deposit close zero entry find held cursor raw)
-    (declarations.Status Open Closed)
+    (declarations.Status Open Closed from)
     (declarations.Cursor at))
   (conformances
     (declarations.Account NoCopy 12:20 (deinit implicit)))
   (copy-tier
     (declarations.Account NoCopy declared)
     (declarations.Status Copy)
-    (declarations.Cursor Copy)))
+    (declarations.Cursor Copy))
+  (bodies
+    (Status.Open 15:10
+      (15:17-15:18 IntLit Int (adopt UInt8) value temp))
+    (Status.Closed 16:10
+      (16:19-16:20 IntLit Int (adopt UInt8) value temp))
+    (LIMIT 23:8
+      (23:21-23:22 IntLit Int value temp))
+    (COUNTER 24:19
+      (24:34-24:35 IntLit Int value temp))
+    (Account.init 27:12
+      (28:9-28:71 Call.paren Result<declarations.Account, std.alloc.AllocError> value temp (case Result.Ok (owner Result<declarations.Account, std.alloc.AllocError>)))
+      (28:19-28:70 Call.paren declarations.Account value temp (memberwise declarations.Account (owner declarations.Account)))
+      (28:31-28:33 Name Int place copy)
+      (28:44-28:45 IntLit Int value temp)
+      (28:56-28:69 Call.paren std.vector.Vector<Int, std.alloc.GlobalAllocator> value temp (call std.vector.Vector.init() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>))))
+    (Account.get 31:17
+      (32:9-32:16 Member Int place copy)
+      (32:9-32:13 SelfExpr declarations.Account place project))
+    (Account.deposit 35:17
+      (35:64-35:66 StringLit String value temp)
+      (36:9-36:21 Member Int place write)
+      (36:9-36:13 SelfExpr declarations.Account place project)
+      (36:24-36:45 Binary Int value temp (op +))
+      (36:24-36:36 Member Int place copy)
+      (36:24-36:28 SelfExpr declarations.Account place project)
+      (36:39-36:45 Name Int place copy))
+    (Account.close 39:17
+      (40:9-40:21 Member Int place copy)
+      (40:9-40:13 SelfExpr declarations.Account place project))
+    (Account.zero 43:24
+      (44:9-44:10 IntLit Int value temp))
+    (Account.entry 47:17
+      (48:14-48:33 Subscript.single Int place borrow-var (place std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
+      (48:14-48:26 Member std.vector.Vector<Int, std.alloc.GlobalAllocator> (borrow-var &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) place borrow-var)
+      (48:14-48:18 SelfExpr declarations.Account place project)
+      (48:27-48:32 Name Int place copy))
+    (Account.find 51:17
+      (52:14-52:37 Call.paren Int? place borrow (call std.vector.Vector.get(index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
+      (52:14-52:26 Member std.vector.Vector<Int, std.alloc.GlobalAllocator> (borrow &std.vector.Vector<Int, std.alloc.GlobalAllocator>) place borrow)
+      (52:14-52:18 SelfExpr declarations.Account place project)
+      (52:31-52:36 Name Int place copy))
+    (Account.held 55:17
+      (56:14-56:21 Member Int place borrow)
+      (56:14-56:18 SelfExpr declarations.Account place project))
+    (Account.cursor 59:17
+      (60:14-60:39 Call.paren declarations.Cursor value borrow (memberwise declarations.Cursor (owner declarations.Cursor)))
+      (60:25-60:38 Ref.shared &std.vector.Vector<Int, std.alloc.GlobalAllocator> value temp)
+      (60:26-60:38 Member std.vector.Vector<Int, std.alloc.GlobalAllocator> place borrow)
+      (60:26-60:30 SelfExpr declarations.Account place project))
+    (Account.raw 63:17
+      (64:9-64:13 NoneLit UnsafePointer<Int>? value temp))
+    (run 68:13
+      (69:5-69:6 IntLit Int value temp))))

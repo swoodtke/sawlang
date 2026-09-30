@@ -9,7 +9,7 @@ expects a refusal (an `EXPECT-ERROR` directive) is counted apart: checking it
 clean says nothing. The rest are sorted into the ones that check with no
 refusal and the ones refused, by the rule of their first refusal, resolve's or
 typecheck's. A program the parser refuses has no tree to check, and is counted
-apart too. Only signatures are checked so far (U6b1); bodies are not.
+apart too. Signatures and bodies are checked; the effect checks are not yet.
 """
 import collections
 import glob
@@ -91,7 +91,7 @@ def main():
     total = len(entries) - expected_refusals
     print("tests/corpus: %d programs, %d expecting a refusal left out" % (len(entries),
                                                                        expected_refusals))
-    print("signatures clean: %d of %d (%.1f%%)" % (clean, total, 100.0 * clean / max(total, 1)))
+    print("checks clean: %d of %d (%.1f%%)" % (clean, total, 100.0 * clean / max(total, 1)))
     print("the parser refuses: %d" % parse_refused)
     for rule, n in rules.most_common():
         print("refused first as %s: %d" % (rule, n))

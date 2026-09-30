@@ -1,0 +1,72 @@
+// Places and values, and how each use reads one: a copy of a Copy place, a
+// spelled `move`, a temporary's hand-off; a receiver's shared or exclusive
+// borrow, a `borrows` accessor's decided by its use (design 141); the three
+// subscript roles; a `match` that consumes an owned local, and one that
+// borrows a field; a `for` loop's iterator; the methods no declaration
+// writes, an Optional's `take`, `is_some` and `is_none` and a Copy value's
+// `copy`.
+
+struct Grid {
+    cells: Vector<Int>
+    name: String
+}
+
+extension Grid: NoCopy {}
+
+enum Slot {
+    case Full(g: Grid),
+    case Empty
+}
+
+extension Slot: NoCopy {}
+
+struct Holder {
+    slot: Slot
+}
+
+extension Holder: NoCopy {}
+
+func size(g: &Grid) -> Int {
+    g.cells.len()
+}
+
+func places(g: &var Grid) -> Int {
+    let first = g.cells[0]
+    g.cells[1] = first
+    g.cells[2] += 1
+    let len = size(g)
+    g.cells.push(3)
+    let maybe = g.cells.get(0) ?? 0
+    let label = g.name
+    first + len + maybe
+}
+
+func consume(s: Slot) -> Int {
+    let local = move s
+    match local {
+        case Full(g) -> size(&g),
+        case Empty -> 0
+    }
+}
+
+func inspect(h: &Holder) -> Int {
+    match h.slot {
+        case Full(g) -> size(&g),
+        case Empty -> 0
+    }
+}
+
+func walk(limit: Int) -> Int {
+    var total = 0
+    for i in 0..limit {
+        total = total + i
+    }
+    total
+}
+
+func builtins(slot: &var Int?) -> Bool {
+    let taken = slot.take()
+    let n = 5
+    let again = n.copy()
+    taken.is_some() && slot.is_none()
+}

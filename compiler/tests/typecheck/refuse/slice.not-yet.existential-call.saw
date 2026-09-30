@@ -1,0 +1,10 @@
+// refuses: slice.not-yet at 9:5
+// a method call on an existential, dispatched through its vtable
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+func total(s: &any Shape) -> Int {
+    s.area()
+}

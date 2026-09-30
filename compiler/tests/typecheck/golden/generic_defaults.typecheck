@@ -1,0 +1,33 @@
+(Module generic_defaults
+  (declarations
+    (func show 6:6 private (signature (generics (T (bounds Printable))) (params (a Int owned) (b T owned default)) -> String))
+    (func describe 10:6 private (signature (generics (T)) (params (a T owned) (b T owned default)) -> String))
+    (func main 14:6 private (signature (params) -> Void)))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (show 6:6
+      (6:40-6:41 IntLit Int value temp)
+      (7:5-7:10 Interp String value temp)
+      (7:7-7:8 Name T place borrow))
+    (describe 10:6
+      (10:31-10:35 NoneLit T value temp)
+      (11:5-11:9 StringLit String value temp))
+    (main 14:6
+      (15:5-15:19 Call.paren Void value temp (builtin print))
+      (15:11-15:18 Call.paren String value temp (call generic_defaults.show(a: Int, b: T) (inst Int)))
+      (15:16-15:17 IntLit Int value temp)
+      (16:5-16:22 Call.paren Void value temp (builtin print))
+      (16:11-16:21 Call.paren String value temp (call generic_defaults.show(a: Int, b: T) (inst Int)))
+      (16:16-16:17 IntLit Int value temp)
+      (16:19-16:20 IntLit Int value temp)
+      (17:5-17:25 Call.paren Void value temp (builtin print))
+      (17:11-17:24 Call.paren String value temp (call generic_defaults.show(a: Int, b: T) (inst Int8)))
+      (17:22-17:23 IntLit Int value temp)
+      (18:9-18:10 BindingName Int? place temp)
+      (18:19-18:20 IntLit Int (some Int?) value temp)
+      (19:5-19:23 Call.paren Void value temp (builtin print))
+      (19:11-19:22 Call.paren String value temp (call generic_defaults.describe(a: T, b: T) (inst Int?)))
+      (19:20-19:21 Name Int? place copy))))

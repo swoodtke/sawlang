@@ -1,0 +1,73 @@
+// Every call form and what it resolves to: a free function, a method with
+// its receiver's implicit borrow, a static method, an `init` and a memberwise
+// construction, an enum case, a function value; labels skipping a defaulted
+// parameter; and the overload filter's choice, by labels and by types, an
+// exact fit beating a literal's adoption.
+
+struct Counter {
+    count: Int
+}
+
+extension Counter {
+    init(start: Int, step: Int = 1) {
+        Counter(count: start * step)
+    }
+
+    func get(&self) -> Int {
+        self.count
+    }
+
+    func bump(&var self, by: Int = 1) {
+        self.count = self.count + by
+    }
+
+    static func zero() -> Counter {
+        Counter(count: 0)
+    }
+}
+
+enum Token {
+    case Word(text: String, at: Int),
+    case End
+}
+
+func connect(host: Int, port: Int = 80, retries: Int = 3) -> Int {
+    host + port + retries
+}
+
+func describe(n: Int) -> Int {
+    n
+}
+
+func describe(n: UInt8) -> Int {
+    2
+}
+
+func describe(s: String) -> Int {
+    s.len()
+}
+
+func pick(a: Int, b: Int) -> Int {
+    a
+}
+
+func pick(kind: Int, value: Int) -> Int {
+    value
+}
+
+func calls(apply: (Int) -> Int) -> Int {
+    var c = Counter(start: 2)
+    c.bump()
+    c.bump(by: 3)
+    let z = Counter.zero()
+    let w = Counter(count: 5)
+    let t = Token.Word(text: "hi", at: 0)
+    let skip = connect(1, retries: 5)
+    let a = describe(4)
+    let b = describe("four")
+    let byte: UInt8 = 4
+    let d = describe(byte)
+    let e = pick(0, value: 4)
+    let named = connect
+    apply(c.get()) + z.get() + w.get()
+}

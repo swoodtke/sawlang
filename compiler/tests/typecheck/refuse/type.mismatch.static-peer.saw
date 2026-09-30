@@ -1,0 +1,8 @@
+// refuses: type.mismatch at 7:13
+// a bare module static is no peer that adopts: it keeps its declared type, and `Int` is not `UInt32`
+
+static SHIFT: Int = 8
+
+func above(flag: UInt32) -> Bool {
+    flag >= SHIFT
+}

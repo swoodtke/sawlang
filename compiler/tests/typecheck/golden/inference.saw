@@ -1,0 +1,41 @@
+// Call-site generic inference (designs 93 and 105): a type argument solved
+// from an argument, by a later argument than the one it types, through an
+// Optional's auto-wrap, from a closure's result, written explicitly, or left
+// to its default; a construction's arguments from its fields.
+
+struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+func first_of<T>(items: Vector<T>, fallback: T) -> T {
+    fallback
+}
+
+func either<T>(a: T?, b: T) -> T {
+    b
+}
+
+func apply<T, U>(value: T, f: (T) -> U) -> U {
+    f(value)
+}
+
+func sized<T>() -> Int {
+    sizeof<T>()
+}
+
+func defaulted<T = Int>() -> Int {
+    0
+}
+
+func inference() -> Int {
+    let v: Vector<String> = Vector()
+    let s = first_of(move v, "none")
+    let n = first_of(Vector<Int>(), 3)
+    let e = either(None, 7)
+    let len = apply("text", { t: String in t.len() })
+    let size = sized<Int>()
+    let d = defaulted()
+    let p = Pair(first: 1, second: "one")
+    n + e + len + size + d + p.first
+}

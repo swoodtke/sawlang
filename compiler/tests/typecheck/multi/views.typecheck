@@ -5,7 +5,11 @@
   (views
     (shapes.Circle radius area))
   (conformances)
-  (copy-tier))
+  (copy-tier)
+  (bodies
+    (area_of 9:6
+      (10:5-10:15 Call.paren Int value temp (call ruler.measure(c: &shapes.Circle)))
+      (10:13-10:14 Name &shapes.Circle place copy))))
 
 (Module shapes
   (declarations
@@ -26,7 +30,18 @@
     (shapes.Circle radius secret area helper))
   (conformances)
   (copy-tier
-    (shapes.Circle Copy)))
+    (shapes.Circle Copy))
+  (bodies
+    (Circle.area 7:17
+      (8:9-8:38 Binary Int value temp (op * *))
+      (8:9-8:20 Member Int place copy)
+      (8:9-8:13 SelfExpr shapes.Circle place project)
+      (8:23-8:34 Member Int place copy)
+      (8:23-8:27 SelfExpr shapes.Circle place project)
+      (8:37-8:38 IntLit Int value temp))
+    (Circle.helper 11:10
+      (12:9-12:20 Member Int place copy)
+      (12:9-12:13 SelfExpr shapes.Circle place project))))
 
 (Module ruler
   (declarations
@@ -35,7 +50,11 @@
   (views
     (shapes.Circle radius area diameter))
   (conformances)
-  (copy-tier))
+  (copy-tier)
+  (bodies
+    (measure 4:13
+      (5:5-5:17 Call.paren Int value temp (call extra.Circle.diameter() (owner shapes.Circle)))
+      (5:5-5:6 Name &shapes.Circle (deref shapes.Circle) (borrow &shapes.Circle) place borrow))))
 
 (Module extra
   (declarations
@@ -45,4 +64,10 @@
   (views
     (shapes.Circle radius area diameter))
   (conformances)
-  (copy-tier))
+  (copy-tier)
+  (bodies
+    (Circle.diameter 4:17
+      (5:9-5:24 Binary Int value temp (op *))
+      (5:9-5:20 Member Int place copy)
+      (5:9-5:13 SelfExpr shapes.Circle place project)
+      (5:23-5:24 IntLit Int value temp))))

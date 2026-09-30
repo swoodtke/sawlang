@@ -1,0 +1,9 @@
+// refuses: type.mismatch at 8:10
+// a compound assignment's right side that is a bare module static keeps its declared type
+
+static SHIFT: Int = 8
+
+func main() {
+    var x: UInt32 = 1
+    x += SHIFT
+}

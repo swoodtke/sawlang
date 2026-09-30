@@ -1,0 +1,7 @@
+// refuses: type.mismatch at 5:20
+// a bare literal arm adopts the type the other arms merge into, and 300 does not fit `UInt8`
+
+func pick(c: Bool, x8: UInt8) -> Int {
+    let v = if c { 300 } else { x8 }
+    0
+}

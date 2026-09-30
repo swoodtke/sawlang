@@ -1,0 +1,11 @@
+// refuses: implicit-member.no-type at 10:13
+// an implicit member where nothing expects a type, refused with the `Enum.Case` fix-it
+
+enum Direction {
+    case North,
+    case South
+}
+
+func main() {
+    let d = .North
+}

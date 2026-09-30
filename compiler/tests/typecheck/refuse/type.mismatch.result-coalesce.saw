@@ -1,0 +1,6 @@
+// refuses: type.mismatch at 5:10
+// `??`'s fallback is no declared Result slot, so it takes no Result wrap
+
+func fallback(o: Result<Int, String>?) -> Result<Int, String> {
+    o ?? 5
+}

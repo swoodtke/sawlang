@@ -1,0 +1,10 @@
+// refuses: type.mismatch at 9:25
+// a bare value two optional levels below its parameter: an argument wraps one level
+
+func take_nested(value: Int??) -> Int {
+    0
+}
+
+func main() {
+    let _ = take_nested(5)
+}

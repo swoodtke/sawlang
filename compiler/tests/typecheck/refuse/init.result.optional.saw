@@ -1,0 +1,12 @@
+// refuses: init.result at 9:5
+// an `init` returning an optional, refused on its own terms
+
+struct Meter {
+    value: Int
+}
+
+extension Meter {
+    init(raw: Int) -> Meter? {
+        None
+    }
+}

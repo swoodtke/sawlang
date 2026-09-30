@@ -1,0 +1,13 @@
+// refuses: transfer.implicit-copy at 12:13
+// a NoCopy payload read by value out of an optional place (design 131)
+
+struct Handle {
+    fd: Int
+}
+
+extension Handle: NoCopy {}
+
+func main() {
+    let slot: Handle? = Handle(fd: 3)
+    let h = slot!
+}

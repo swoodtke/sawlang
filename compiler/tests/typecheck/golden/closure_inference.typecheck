@@ -1,0 +1,48 @@
+(Module closure_inference
+  (declarations
+    (struct Point 7:8 private)
+    (field Point.x 8:5 private Int)
+    (func apply 11:6 private (signature (params (f (Int) -> Int owned)) -> Int))
+    (func digest 15:6 private (signature (params (p &closure_inference.Point shared) (h &var Hasher exclusive)) -> Void))
+    (func main 19:6 private (signature (params) -> Void)))
+  (members
+    (closure_inference.Point
+      (field x Int private declared)))
+  (views
+    (closure_inference.Point x))
+  (conformances)
+  (copy-tier
+    (closure_inference.Point Copy))
+  (bodies
+    (apply 11:6
+      (12:5-12:9 Call.paren Int value temp (value (owner (Int) -> Int)))
+      (12:5-12:6 Name (Int) -> Int place borrow)
+      (12:7-12:8 IntLit Int value temp))
+    (digest 15:6
+      (16:5-16:22 Call.paren Void value temp (call Hashable.hash(h: &var Hasher) (owner closure_inference.Point)))
+      (16:5-16:6 Name &closure_inference.Point (deref closure_inference.Point) (borrow &closure_inference.Point) place borrow)
+      (16:15-16:21 Ref.exclusive &var Hasher value temp)
+      (16:20-16:21 Name &var Hasher (deref Hasher) place borrow-var))
+    (main 19:6
+      (20:9-20:10 BindingName std.vector.Vector<Int, std.alloc.GlobalAllocator> place temp)
+      (20:26-20:35 Array std.vector.Vector<Int, std.alloc.GlobalAllocator> value temp)
+      (20:27-20:28 IntLit Int value temp)
+      (20:30-20:31 IntLit Int value temp)
+      (20:33-20:34 IntLit Int value temp)
+      (21:9-21:16 BindingName std.vector.Vector<Int, std.alloc.GlobalAllocator> place temp)
+      (21:19-21:45 Try.force std.vector.Vector<Int, std.alloc.GlobalAllocator> value temp)
+      (21:24-21:45 Call.paren Result<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.AllocError> value temp (call std.vector.Vector.map(transform: (&T) -> U) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) (inst Int)))
+      (21:24-21:25 Name std.vector.Vector<Int, std.alloc.GlobalAllocator> (borrow &std.vector.Vector<Int, std.alloc.GlobalAllocator>) place borrow)
+      (21:30-21:44 Closure (&Int) -> Int value temp)
+      (21:37-21:42 Binary Int value temp (op *))
+      (21:37-21:38 Name &Int (deref Int) place copy)
+      (21:41-21:42 IntLit Int value temp)
+      (22:5-22:49 Call.paren Void value temp (builtin print))
+      (22:11-22:48 Binary Int value borrow (op +))
+      (22:11-22:32 Call.paren Int value temp (call closure_inference.apply(f: (Int) -> Int)))
+      (22:17-22:31 Closure (Int) -> Int value temp)
+      (22:24-22:29 Binary Int value temp (op +))
+      (22:24-22:25 Name Int place copy)
+      (22:28-22:29 IntLit Int value temp)
+      (22:35-22:48 Call.paren Int value temp (call std.vector.Vector.len() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
+      (22:35-22:42 Name std.vector.Vector<Int, std.alloc.GlobalAllocator> (borrow &std.vector.Vector<Int, std.alloc.GlobalAllocator>) place borrow))))

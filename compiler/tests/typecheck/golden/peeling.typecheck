@@ -1,0 +1,57 @@
+(Module peeling
+  (declarations
+    (enum Direction 7:6 private)
+    (case Direction.North 8:10)
+    (case Direction.South 9:10)
+    (enum Fault 12:6 private)
+    (case Fault.Broken 13:10)
+    (func heading 16:6 private (signature (params (d peeling.Direction? owned)) -> peeling.Direction))
+    (func nested 20:6 private (signature (params) -> Int32??))
+    (func checked 24:6 private (signature (params (ok Bool owned)) -> Result<Int32, peeling.Fault>))
+    (func wrapped 31:6 private (signature (params) -> Result<Int32?, peeling.Fault>))
+    (func built 35:6 private (signature (params) -> Result<Int, peeling.Fault>))
+    (func compare 39:6 private (signature (params (d peeling.Direction owned)) -> Bool))
+    (func fresh 43:6 private (signature (params) -> std.vector.Vector<Int, std.alloc.GlobalAllocator>))
+    (func argument 48:6 private (signature (params (d peeling.Direction owned)) -> peeling.Direction)))
+  (members
+    (peeling.Direction
+      (case North private declared)
+      (case South private declared))
+    (peeling.Fault
+      (case Broken private declared)))
+  (views
+    (peeling.Direction North South)
+    (peeling.Fault Broken))
+  (conformances)
+  (copy-tier
+    (peeling.Direction Copy)
+    (peeling.Fault Copy))
+  (bodies
+    (heading 16:6
+      (17:5-17:16 Coalesce peeling.Direction value temp (op ??))
+      (17:5-17:6 Name peeling.Direction? place copy)
+      (17:10-17:16 ImplicitMember peeling.Direction value temp (case peeling.Direction.North (owner peeling.Direction))))
+    (nested 20:6
+      (21:5-21:7 IntLit Int (adopt Int32) (some Int32?) (some Int32??) value temp))
+    (checked 24:6
+      (25:5-27:6 If Void value temp)
+      (25:8-25:10 Name Bool place copy)
+      (26:16-26:17 IntLit Int (adopt Int32) (ok Result<Int32, peeling.Fault>) value temp)
+      (28:5-28:12 ImplicitMember peeling.Fault (err Result<Int32, peeling.Fault>) value temp (case peeling.Fault.Broken (owner peeling.Fault))))
+    (wrapped 31:6
+      (32:5-32:6 IntLit Int (adopt Int32) (some Int32?) (ok Result<Int32?, peeling.Fault>) value temp))
+    (built 35:6
+      (36:5-36:18 Call.paren Result<Int, peeling.Fault> value temp (case Result.Ok (owner Result<Int, peeling.Fault>)))
+      (36:16-36:17 IntLit Int value temp))
+    (compare 39:6
+      (40:5-40:16 Binary.pair Bool value temp (op ==))
+      (40:5-40:6 Name peeling.Direction place borrow)
+      (40:10-40:16 ImplicitMember peeling.Direction value borrow (case peeling.Direction.South (owner peeling.Direction))))
+    (fresh 43:6
+      (44:9-44:10 BindingName std.vector.Vector<Int, std.alloc.GlobalAllocator> place temp)
+      (44:26-44:34 Call.paren std.vector.Vector<Int, std.alloc.GlobalAllocator> value temp (call std.vector.Vector.init() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
+      (45:5-45:11 Move std.vector.Vector<Int, std.alloc.GlobalAllocator> value move)
+      (45:10-45:11 Name std.vector.Vector<Int, std.alloc.GlobalAllocator> place move))
+    (argument 48:6
+      (49:5-49:20 Call.paren peeling.Direction value temp (call peeling.heading(d: peeling.Direction?)))
+      (49:13-49:19 ImplicitMember peeling.Direction (some peeling.Direction?) value temp (case peeling.Direction.South (owner peeling.Direction))))))

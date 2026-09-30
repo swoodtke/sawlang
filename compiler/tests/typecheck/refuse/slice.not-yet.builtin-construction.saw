@@ -1,0 +1,6 @@
+// refuses: slice.not-yet at 5:13
+// constructing a builtin type no declaration writes an init for
+
+func main() {
+    let a = Atomic(5)
+}

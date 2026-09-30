@@ -39,7 +39,9 @@ TYPECHECK_SOURCE = os.path.join(COMPILER, "typecheck", "src")
 TIMEOUT = 300
 
 _HEADER = re.compile(r"^// refuses: (\S+)(?: at ((?:[\w.-]+\.saw:)?\d+:\d+))?$")
-_RULE_ID = re.compile(r'"((?:type|conformance|synthesize|copy|unsafe|slice)\.[a-z-]+)"')
+_RULE_ID = re.compile(r'"((?:type|conformance|synthesize|copy|unsafe|slice|member|call|infer|'
+                      r'transfer|subscript|pattern|format|extension|implicit-member|operator|'
+                      r'init)\.[a-z-]+)"')
 
 
 def rel(path):

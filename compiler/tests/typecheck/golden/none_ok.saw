@@ -1,0 +1,29 @@
+// A bare `None` at a declared `Result<T?, E>` is `Ok(None)`, at all four
+// return targets and in a generic body.
+
+struct Stop {
+    code: Int
+}
+
+func poll(n: Int) -> Result<Int?, Stop> {
+    if n == 0 {
+        return None
+    }
+    None
+}
+
+func generic<T>(x: T) -> Result<T?, Stop> {
+    None
+}
+
+func consume(r: Result<Int?, Stop>) -> Bool {
+    true
+}
+
+func main() {
+    let r: Result<Int?, Stop> = None
+    let c: () -> Result<Int?, Stop> = { None }
+    let _ = poll(1)
+    let _ = generic(2)
+    print(consume(None))
+}

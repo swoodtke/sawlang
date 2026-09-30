@@ -66,4 +66,29 @@
     (traits.Square Copy)
     (traits.Version Copy)
     (traits.Handle NoCopy declared)
-    (traits.Stack ExplicitCopy declared)))
+    (traits.Stack ExplicitCopy declared))
+  (bodies
+    (Shape.twice 11:10
+      (12:9-12:24 Binary Int value temp (op *))
+      (12:9-12:20 Call.paren Int value temp (call traits.Shape.area() (owner Self)))
+      (12:9-12:13 SelfExpr Self (borrow &Self) place borrow)
+      (12:23-12:24 IntLit Int value temp))
+    (Square.origin 23:17
+      (24:9-24:24 Call.paren traits.Square value temp (memberwise traits.Square (owner traits.Square)))
+      (24:22-24:23 IntLit Int value temp))
+    (Square.area 27:10
+      (28:9-28:30 Binary Int value temp (op *))
+      (28:9-28:18 Member Int place copy)
+      (28:9-28:13 SelfExpr traits.Square place project)
+      (28:21-28:30 Member Int place copy)
+      (28:21-28:25 SelfExpr traits.Square place project))
+    (Square.unit_of 31:10
+      (32:9-32:18 Member Int place copy)
+      (32:9-32:13 SelfExpr traits.Square place project))
+    (Square.format 35:10
+      (36:9-36:35 Try.force Void value temp)
+      (36:14-36:35 Call.paren Result<Void, std.alloc.AllocError> value temp (call std.stringbuilder.StringBuilder.append(s: String) (owner std.stringbuilder.StringBuilder)))
+      (36:14-36:18 Name &var std.stringbuilder.StringBuilder (deref std.stringbuilder.StringBuilder) (borrow-var &var std.stringbuilder.StringBuilder) place borrow-var)
+      (36:26-36:34 StringLit String value temp))
+    (Stack.top 68:10
+      (69:9-69:13 NoneLit T? value temp))))

@@ -1,0 +1,7 @@
+// refuses: type.mismatch at 5:31
+// an `else` branch that does not merge into the `if` branch's type
+
+func pick(c: Bool, n: Int) -> Int {
+    let v = if c { n } else { "one" }
+    0
+}

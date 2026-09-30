@@ -1,0 +1,7 @@
+// refuses: type.mismatch at 5:31
+// value branches with no common type: neither widens into the other
+
+func pick(c: Bool, u: UInt64, n: Int) -> Int {
+    let v = if c { n } else { u }
+    0
+}

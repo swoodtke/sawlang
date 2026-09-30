@@ -1,0 +1,6 @@
+// refuses: type.mismatch at 5:11
+// a comparison's operand two optional levels below the other's type: an operand wraps one level
+
+func same(oo: Int??) -> Bool {
+    oo == 5
+}

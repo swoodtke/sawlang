@@ -1,0 +1,273 @@
+// Adjustments: the implicit conversions a position applies to an expression,
+// recorded as an ordered chain per expression (SL:architecture §3.4, "Out"),
+// and the peeling an expected type undergoes before a literal, an implicit
+// member or a construction takes it. The funnel in bodies.saw is their one
+// caller for a position's expectation, and hands each conversion what its
+// position allows; a receiver's borrow is recorded where a call is resolved.
+
+import sawresolve.src.model.{ResDeclKind}
+import sawtypecheck.src.model.{TcAdjust, TcAdjustKind, TcAllowance}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.tier.{tc_tier}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// How a conversion fits: not at all, through an adjustment, or exactly.
+public static TC_FIT_NONE: Int = 0
+public static TC_FIT_CONVERTED: Int = 1
+public static TC_FIT_EXACT: Int = 3
+// A Result both of whose payloads could take the value.
+public static TC_FIT_AMBIGUOUS: Int = -1
+// A peeled expectation nothing takes, or a Result both payloads take.
+public static TC_PEEL_NONE: Int = -1
+public static TC_PEEL_AMBIGUOUS: Int = -2
+
+extension TcProgram {
+    // Appends one step to expression `e`'s adjustment chain.
+    public func add_adjust(&var self, e: Int, kind: TcAdjustKind, to: Int) {
+        let at = self.adjusts.len()
+        try! self.adjusts.push(TcAdjust(kind: kind, to: to, next: -1))
+        let tail = self.adj_tail[e]
+        if tail < 0 {
+            self.adj_head[e] = at
+        } else {
+            var last = self.adjusts[tail]
+            last.next = at
+            self.adjusts[tail] = last
+        }
+        self.adj_tail[e] = at
+    }
+
+    // The type expression `e` has once its adjustments are applied.
+    public func final_type(&self, e: Int) -> Int {
+        let tail = self.adj_tail[e]
+        if tail >= 0 {
+            let a = self.adjusts[tail]
+            return a.to
+        }
+        self.expr_types[e]
+    }
+
+    // How well a value of type `from` fits a position of type `to` that
+    // allows `allow`, recording nothing.
+    public func fit(&var self, from: Int, to: Int, allow: TcAllowance) -> Int {
+        self.convert(-1, from, to, allow, false, false)
+    }
+
+    // Records on `e` the conversions that take `from` to `to` within
+    // `allow`, and says how it fits; nothing is recorded when it does not.
+    public func coerce(&var self, e: Int, from: Int, to: Int, allow: TcAllowance) -> Int {
+        let how = self.convert(e, from, to, allow, false, false)
+        if how == TC_FIT_CONVERTED {
+            let _ = self.convert(e, from, to, allow, false, true)
+        }
+        how
+    }
+
+    // The conversion rules: exact; `Never` to anything; auto-wrap into an
+    // Optional, then into a Result's unique payload, as far as `allow` lets;
+    // a lossless integer widening where `allow` lets; `&v` to a slice; an exclusive reference to a shared one; erasure; a
+    // reference read through. A Result wrap goes outside an optional wrap,
+    // never inside one, and `boxes` says the step stands directly under an
+    // `Err` wrap that may build the error box.
+    func convert(&var self, e: Int, from: Int, to: Int, allow: TcAllowance, boxes: Bool, record: Bool) -> Int {
+        if from == to {
+            return TC_FIT_EXACT
+        }
+        if self.has_error(from) || self.has_error(to) {
+            return TC_FIT_EXACT
+        }
+        if self.is_never(from) {
+            if record {
+                self.add_adjust(e, TcAdjustKind.Never, to)
+            }
+            return TC_FIT_CONVERTED
+        }
+        if self.is_optional(to) && allow.optionals != 0 {
+            let inner = self.arg_of(to, 0)
+            var left = allow.optionals
+            if left > 0 {
+                left = left - 1
+            }
+            let within = TcAllowance(optionals: left, results: 0, erases: false, widens: allow.widens)
+            let how = self.convert(e, from, inner, within, false, record)
+            if how > TC_FIT_NONE {
+                if record {
+                    self.add_adjust(e, TcAdjustKind.Some, to)
+                }
+                return TC_FIT_CONVERTED
+            }
+        }
+        if self.is_result(to) && allow.results > 0 {
+            let ok = self.arg_of(to, 0)
+            let err = self.arg_of(to, 1)
+            let within = TcAllowance(optionals: allow.optionals, results: allow.results - 1, erases: false,
+                                     widens: allow.widens)
+            let as_ok = self.convert(e, from, ok, within, false, false)
+            let as_err = self.convert(e, from, err, within, allow.erases, false)
+            if as_ok > TC_FIT_NONE && as_err > TC_FIT_NONE {
+                return TC_FIT_AMBIGUOUS
+            }
+            if as_ok > TC_FIT_NONE {
+                if record {
+                    let _ = self.convert(e, from, ok, within, false, true)
+                    self.add_adjust(e, TcAdjustKind.Ok, to)
+                }
+                return TC_FIT_CONVERTED
+            }
+            if as_err > TC_FIT_NONE {
+                if record {
+                    let _ = self.convert(e, from, err, within, allow.erases, true)
+                    self.add_adjust(e, TcAdjustKind.Err, to)
+                }
+                return TC_FIT_CONVERTED
+            }
+        }
+        if allow.widens && self.widens_losslessly(from, to) {
+            if record {
+                self.add_adjust(e, TcAdjustKind.Widen, to)
+            }
+            return TC_FIT_CONVERTED
+        }
+        let fi = self.types.ty(from)
+        let ti = self.types.ty(to)
+        if ti.kind == TcKind.Slice && fi.kind == TcKind.Ref && (fi.a == 1 || ti.a == 0) {
+            if self.element_of_sequence(fi.b) == ti.b && ti.b >= 0 {
+                if record {
+                    self.add_adjust(e, TcAdjustKind.Slice, to)
+                }
+                return TC_FIT_CONVERTED
+            }
+        }
+        if ti.kind == TcKind.Ref && fi.kind == TcKind.Ref && ti.a == 0 && fi.a == 1 && ti.b == fi.b {
+            if record {
+                self.add_adjust(e, TcAdjustKind.Shared, to)
+            }
+            return TC_FIT_CONVERTED
+        }
+        if self.erases_to(from, to) && (not self.is_box(to) || (boxes && self.is_error_box(to))) {
+            if record {
+                self.add_adjust(e, TcAdjustKind.Erase, to)
+            }
+            return TC_FIT_CONVERTED
+        }
+        if fi.kind == TcKind.Ref && fi.b == to {
+            if record {
+                self.add_adjust(e, TcAdjustKind.Deref, to)
+            }
+            return TC_FIT_CONVERTED
+        }
+        TC_FIT_NONE
+    }
+
+    // The element type of a `Vector` or an array, which `&v` passes as a
+    // slice of; -1 for any other type.
+    public func element_of_sequence(&self, t: Int) -> Int {
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Array {
+            return info.b
+        }
+        let d = self.known.vector
+        if self.is_nominal_of(t, d) && info.count > 0 {
+            return self.types.arg(t, 0)
+        }
+        return -1
+    }
+
+    // Whether a concrete `from` erases to existential `to`: `any Trait`, or
+    // `Box<any Trait>`, when `from` conforms.
+    public func erases_to(&var self, from: Int, to: Int) -> Bool {
+        let fi = self.types.ty(from)
+        if fi.kind == TcKind.Any {
+            return false
+        }
+        let ti = self.types.ty(to)
+        if fi.kind == TcKind.Ref && ti.kind == TcKind.Ref && (fi.a == 1 || ti.a == 0) {
+            let inner = self.types.ty(ti.b)
+            return inner.kind == TcKind.Any && self.erases_to(fi.b, ti.b)
+        }
+        var tr = -1
+        if ti.kind == TcKind.Any {
+            tr = ti.decl
+        } else if ti.kind == TcKind.Nominal && ti.decl == self.known.box && ti.count > 0 {
+            let inner = self.types.arg(to, 0)
+            let ii = self.types.ty(inner)
+            if ii.kind == TcKind.Any {
+                tr = ii.decl
+            }
+        }
+        if tr < 0 {
+            return false
+        }
+        let env = self.current_decl
+        let ext = self.current_ext
+        self.satisfies(from, tr, env, ext)
+    }
+
+    public func is_box(&self, t: Int) -> Bool {
+        let info = self.types.ty(t)
+        info.kind == TcKind.Nominal && info.decl == self.known.box && info.count > 0
+    }
+
+    // Whether `t` is `Box<any Error>`, the error box a return target builds.
+    public func is_error_box(&self, t: Int) -> Bool {
+        if not self.is_box(t) {
+            return false
+        }
+        let payload = self.types.arg(t, 0)
+        let inner = self.types.ty(payload)
+        inner.kind == TcKind.Any && inner.decl == self.known.error
+    }
+
+    // Whether type `t` takes a client of `kind` as it is, with no peeling:
+    // `name` is the implicit member's name, `d` the constructed declaration.
+    public func takes(&self, t: Int, kind: TcClient, name: Int, d: Int) -> Bool {
+        match kind {
+            case Integer -> self.is_integer(t),
+            case Floating -> self.is_float(t),
+            case Member -> {
+                let decl = self.nominal_decl(t)
+                self.case_named(decl, name) >= 0
+            },
+            case Construct -> self.is_nominal_of(t, d)
+        }
+    }
+
+    // The type a client meets in a slot of type `slot`, the same for every
+    // client (SL:architecture §3.4, "Peeling"): the slot's own members first,
+    // then an Optional's innermost payload, then a Result's unique payload
+    // that takes it. An abstract generic peels nothing. TC_PEEL_NONE when no
+    // layer takes it, TC_PEEL_AMBIGUOUS when both of a Result's do.
+    public func peel(&self, slot: Int, kind: TcClient, name: Int, d: Int) -> Int {
+        if slot < 0 || self.has_error(slot) {
+            return TC_PEEL_NONE
+        }
+        if self.takes(slot, kind, name, d) {
+            return slot
+        }
+        if self.is_optional(slot) {
+            let inner = self.arg_of(slot, 0)
+            return self.peel(inner, kind, name, d)
+        }
+        if self.is_result(slot) {
+            let ok = self.arg_of(slot, 0)
+            let err = self.arg_of(slot, 1)
+            let a = self.peel(ok, kind, name, d)
+            let b = self.peel(err, kind, name, d)
+            if a >= 0 && b >= 0 {
+                return TC_PEEL_AMBIGUOUS
+            }
+            if a >= 0 {
+                return a
+            }
+            if b >= 0 {
+                return b
+            }
+            if a == TC_PEEL_AMBIGUOUS || b == TC_PEEL_AMBIGUOUS {
+                return TC_PEEL_AMBIGUOUS
+            }
+        }
+        TC_PEEL_NONE
+    }
+}

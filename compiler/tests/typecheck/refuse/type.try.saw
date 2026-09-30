@@ -1,0 +1,15 @@
+// refuses: type.try at 13:13
+// a `try` propagating an error out of a body that returns no Result
+
+enum Fault {
+    case Bad
+}
+
+func parse() -> Result<Int, Fault> {
+    return 1
+}
+
+func run() -> Int {
+    let n = try parse()
+    n
+}

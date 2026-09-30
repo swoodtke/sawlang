@@ -1,0 +1,6 @@
+// refuses: type.mismatch at 5:10
+// a comparison's operand is no declared Result slot, so it takes no Result wrap
+
+func same(r: Result<Int, String>) -> Bool {
+    r == 5
+}

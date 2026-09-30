@@ -1,0 +1,7 @@
+// refuses: member.unknown at 6:7
+// an unannotated bracket literal is a fixed array, which has no `push`
+
+func main() {
+    var a = [1, 2, 3]
+    a.push(4)
+}

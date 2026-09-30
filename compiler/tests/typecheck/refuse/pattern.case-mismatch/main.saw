@@ -1,0 +1,11 @@
+// refuses: pattern.case-mismatch at 9:14
+// a lone name resolve took for a case, none of whose candidates is a case of the matched type
+
+import level.{Level}
+
+func bucket(n: Int) -> Int {
+    match n {
+        case 0 -> 0,
+        case count -> 1
+    }
+}

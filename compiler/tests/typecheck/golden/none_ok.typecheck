@@ -1,0 +1,43 @@
+(Module none_ok
+  (declarations
+    (struct Stop 4:8 private)
+    (field Stop.code 5:5 private Int)
+    (func poll 8:6 private (signature (params (n Int owned)) -> Result<Int?, none_ok.Stop>))
+    (func generic 15:6 private (signature (generics (T)) (params (x T owned)) -> Result<T?, none_ok.Stop>))
+    (func consume 19:6 private (signature (params (r Result<Int?, none_ok.Stop> owned)) -> Bool))
+    (func main 23:6 private (signature (params) -> Void)))
+  (members
+    (none_ok.Stop
+      (field code Int private declared)))
+  (views
+    (none_ok.Stop code))
+  (conformances)
+  (copy-tier
+    (none_ok.Stop Copy))
+  (bodies
+    (poll 8:6
+      (9:5-11:6 If Void value temp)
+      (9:8-9:14 Binary.pair Bool value temp (op ==))
+      (9:8-9:9 Name Int place borrow)
+      (9:13-9:14 IntLit Int value borrow)
+      (10:16-10:20 NoneLit Int? (ok Result<Int?, none_ok.Stop>) value temp)
+      (12:5-12:9 NoneLit Int? (ok Result<Int?, none_ok.Stop>) value temp))
+    (generic 15:6
+      (16:5-16:9 NoneLit T? (ok Result<T?, none_ok.Stop>) value temp))
+    (consume 19:6
+      (20:5-20:9 BoolLit.true Bool value temp))
+    (main 23:6
+      (24:9-24:10 BindingName Result<Int?, none_ok.Stop> place temp)
+      (24:33-24:37 NoneLit Int? (ok Result<Int?, none_ok.Stop>) value temp)
+      (25:9-25:10 BindingName () -> Result<Int?, none_ok.Stop> place temp)
+      (25:39-25:47 Closure () -> Result<Int?, none_ok.Stop> value temp)
+      (25:41-25:45 NoneLit Int? (ok Result<Int?, none_ok.Stop>) value temp)
+      (26:9-26:10 BindingName Result<Int?, none_ok.Stop> place temp)
+      (26:13-26:20 Call.paren Result<Int?, none_ok.Stop> value temp (call none_ok.poll(n: Int)))
+      (26:18-26:19 IntLit Int value temp)
+      (27:9-27:10 BindingName Result<Int?, none_ok.Stop> place temp)
+      (27:13-27:23 Call.paren Result<Int?, none_ok.Stop> value temp (call none_ok.generic(x: T) (inst Int)))
+      (27:21-27:22 IntLit Int value temp)
+      (28:5-28:25 Call.paren Void value temp (builtin print))
+      (28:11-28:24 Call.paren Bool value borrow (call none_ok.consume(r: Result<Int?, none_ok.Stop>)))
+      (28:19-28:23 NoneLit Int? (ok Result<Int?, none_ok.Stop>) value temp))))

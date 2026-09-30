@@ -1,0 +1,6 @@
+// refuses: type.mismatch at 5:5
+// two fixed widths never convert implicitly, even losslessly
+
+func widen(s: Int16) -> Int64 {
+    s
+}

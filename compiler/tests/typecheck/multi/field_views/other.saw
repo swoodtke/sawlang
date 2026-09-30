@@ -1,0 +1,6 @@
+import adds.{}
+import handler.{Handler}
+
+public func with_method(h: &Handler) -> Int {
+    0
+}

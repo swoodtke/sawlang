@@ -1,0 +1,570 @@
+// The body half's verifier (SL:architecture §3.0, "every boundary has a
+// verifier"), run on every module checked in full. It finds a body's
+// expressions, patterns and calls from the tree by its own rule, not by the
+// walk's dispatch, and checks:
+//   - every expression and pattern has exactly one type, and no type is left
+//     unresolved: an error type only where the module has a refusal;
+//   - every expression and pattern has a use, and a value use a transfer
+//     kind that fits it: a copy of a place, a temporary's hand-off, a move;
+//   - every call has a target and a complete instantiation;
+//   - every adjustment chain composes, each step's source the last's result;
+//   - every type written in a body was built exactly once, and resolved.
+// Nothing under a construct refused as outside the slice is asked about.
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.kinds.{res_is_type_alt}
+import sawresolve.src.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResDecl, ResDeclKind,
+                             ResModule}
+import sawtypecheck.src.adjust.{TC_FIT_NONE}
+import sawtypecheck.src.model.{TcAdjust, TcAdjustKind, TcCall, TcRole, TcUse}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// Every problem the body verifier finds in module `m`, one line each.
+public func tc_verify_bodies(p: &TcProgram, m: Int) -> Vector<String> {
+    p.verify_bodies(m)
+}
+
+extension TcProgram {
+    func verify_bodies(&self, m: Int) -> Vector<String> {
+        var problems = Vector<String>()
+        let info = self.res.modules[m]
+        if not info.available || info.interface_only {
+            return move problems
+        }
+        let refused = self.module_refused(m)
+        let skipped = self.skipped_marks(m)
+        var k = 0
+        while k < self.body_roots.len() {
+            let root = self.body_roots[k]
+            k = k + 1
+            if root < info.node_base || root >= info.node_base + info.node_count {
+                continue
+            }
+            let poisoned = self.is_poisoned(root)
+            self.verify_subtree(&var problems, m, root, refused || poisoned, &skipped)
+        }
+        move problems
+    }
+
+    // Whether body `root` was poisoned by a signature another module's
+    // refusal left unformed.
+    func is_poisoned(&self, root: Int) -> Bool {
+        var k = 0
+        while k < self.poisoned.len() {
+            if self.poisoned[k] == root {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // For each node of module `m`, whether it lies under a construct refused
+    // as outside the slice.
+    func skipped_marks(&self, m: Int) -> Vector<Bool> {
+        let info = self.res.modules[m]
+        var marks = Vector<Bool>()
+        var k = 0
+        while k < info.node_count {
+            try! marks.push(false)
+            k = k + 1
+        }
+        var stack = Vector<Int>()
+        k = 0
+        while k < self.skipped.len() {
+            try! stack.push(self.skipped[k])
+            k = k + 1
+        }
+        k = 0
+        while k < self.res.skipped.len() {
+            try! stack.push(self.res.skipped[k])
+            k = k + 1
+        }
+        var head = 0
+        while head < stack.len() {
+            let id = stack[head]
+            head = head + 1
+            if id >= info.node_base && id < info.node_base + info.node_count {
+                marks[id - info.node_base] = true
+                let n = self.child_count(id)
+                var c = 0
+                while c < n {
+                    try! stack.push(self.child(id, c))
+                    c = c + 1
+                }
+            }
+        }
+        move marks
+    }
+
+    func verify_subtree(&self, problems: &var Vector<String>, m: Int, root: Int, refused: Bool,
+                        skipped: &Vector<Bool>) {
+        let info = self.res.modules[m]
+        var stack = Vector<Int>()
+        try! stack.push(root)
+        var top = 1
+        while top > 0 {
+            top = top - 1
+            let id = stack[top]
+            if skipped[id - info.node_base] {
+                continue
+            }
+            let kind = self.node_kind(id)
+            if kind == TC_NODE_EXPRESSION || kind == TC_NODE_PATTERN {
+                self.verify_typed(&var problems, m, id, refused)
+            }
+            if self.is_call_node(id) {
+                self.verify_call(&var problems, m, id, refused)
+            }
+            let n = self.child_count(id)
+            var c = n - 1
+            while c >= 0 {
+                let child = self.child(id, c)
+                c = c - 1
+                if self.is_leaf(child) {
+                    continue
+                }
+                if skipped[child - info.node_base] {
+                    continue
+                }
+                if res_is_type_alt(self.node_alt(child)) {
+                    self.verify_body_types(&var problems, m, child, refused, &skipped)
+                    continue
+                }
+                var next = child
+                if self.is_method_head(id, child) {
+                    // The selector is no expression; its receiver is, and its
+                    // written type arguments are types of the body.
+                    next = self.res.first_node_child(child)
+                    self.verify_head_types(&var problems, m, child, next, refused, &skipped)
+                } else if self.is_denotation(id, child) {
+                    self.verify_head_types(&var problems, m, child, -1, refused, &skipped)
+                    continue
+                }
+                if top < stack.len() {
+                    stack[top] = next
+                } else {
+                    try! stack.push(next)
+                }
+                top = top + 1
+            }
+        }
+    }
+
+    // The types written in node `head`, a call's head or a type a member is
+    // read through, outside its receiver `skip` (-1 for none): `Vector<Int>()`,
+    // `x.f<T>(...)`, `Maybe<Int>.Nothing`.
+    func verify_head_types(&self, problems: &var Vector<String>, m: Int, head: Int, skip: Int, refused: Bool,
+                         skipped: &Vector<Bool>) {
+        let base = self.res.modules[m].node_base
+        var stack = Vector<Int>()
+        try! stack.push(head)
+        var top = 1
+        while top > 0 {
+            top = top - 1
+            let id = stack[top]
+            let n = self.child_count(id)
+            var c = 0
+            while c < n {
+                let child = self.child(id, c)
+                c = c + 1
+                if self.is_leaf(child) || child == skip || skipped[child - base] {
+                    continue
+                }
+                if res_is_type_alt(self.node_alt(child)) {
+                    self.verify_body_types(&var problems, m, child, refused, &skipped)
+                    continue
+                }
+                if top < stack.len() {
+                    stack[top] = child
+                } else {
+                    try! stack.push(child)
+                }
+                top = top + 1
+            }
+        }
+    }
+
+    // A type written in a body, `root` and every type position inside it:
+    // each built exactly once, to an interned type that is an error only
+    // where the module has a refusal, and a named type's last segment read
+    // through resolve's record, never its spelling.
+    func verify_body_types(&self, problems: &var Vector<String>, m: Int, root: Int, refused: Bool,
+                         skipped: &Vector<Bool>) {
+        let base = self.res.modules[m].node_base
+        var stack = Vector<Int>()
+        try! stack.push(root)
+        var top = 1
+        while top > 0 {
+            top = top - 1
+            let id = stack[top]
+            if res_is_type_alt(self.node_alt(id)) {
+                self.verify_body_type(&var problems, m, id, refused)
+            }
+            let n = self.child_count(id)
+            var c = 0
+            while c < n {
+                let child = self.child(id, c)
+                c = c + 1
+                if self.is_leaf(child) || skipped[child - base] {
+                    continue
+                }
+                if top < stack.len() {
+                    stack[top] = child
+                } else {
+                    try! stack.push(child)
+                }
+                top = top + 1
+            }
+        }
+    }
+
+    func verify_body_type(&self, problems: &var Vector<String>, m: Int, id: Int, refused: Bool) {
+        let t = self.node_types[id]
+        if t < 0 || t >= self.types.count() {
+            self.body_problem(&var problems, m, id, "a type written in a body has no type")
+            return
+        }
+        if self.type_builds[id] != 1 {
+            self.body_problem(&var problems, m, id, "a type written in a body was built more than once")
+        }
+        if not refused && self.type_has_error(t) {
+            self.body_problem(&var problems, m, id, "a type written in a body is unresolved, but the module has no refusal")
+        }
+        if self.has_alt(id, Alt.Type_Named) {
+            let path = self.child(id, 0)
+            let segments = self.child_count(path)
+            let leaf = self.child(path, segments - 1)
+            let b = self.binding_at(leaf)
+            if b.kind == ResBindKind.Unbound {
+                self.body_problem(&var problems, m, id, "a named type's last segment has no resolve record")
+            }
+        }
+    }
+
+    // Whether `child` is the selector `x.f` heading method call `parent`.
+    func is_method_head(&self, parent: Int, child: Int) -> Bool {
+        if not self.is_call_node(parent) || child != self.res.first_node_child(parent) {
+            return false
+        }
+        let at = self.res_call_at[parent]
+        if at < 0 {
+            return false
+        }
+        let rc = self.res.calls[at]
+        rc.classification == ResCallClass.Method && self.has_alt(child, Alt.Expr_Member)
+    }
+
+    // What node `id` is to the verifier: an expression, a pattern, or
+    // neither (a statement, a block, an argument's wrapper, a type).
+    func node_kind(&self, id: Int) -> Int {
+        guard let alt = self.node_alt(id) else {
+            return TC_NODE_OTHER
+        }
+        if tc_is_expression_alt(alt) {
+            return TC_NODE_EXPRESSION
+        }
+        if tc_is_pattern_alt(alt) {
+            return TC_NODE_PATTERN
+        }
+        TC_NODE_OTHER
+    }
+
+    // Whether child `child` of `parent` names something rather than being
+    // an expression: a call's head that selects a function, a type, a case
+    // or a method (the method's receiver is still an expression), a type or
+    // module a member is read through, or a type written in a body.
+    func is_denotation(&self, parent: Int, child: Int) -> Bool {
+        if self.is_call_node(parent) && child == self.res.first_node_child(parent) && not self.is_subscript_node(parent) {
+            let at = self.res_call_at[parent]
+            if at < 0 {
+                return false
+            }
+            let rc = self.res.calls[at]
+            return rc.classification != ResCallClass.Local && rc.classification != ResCallClass.Value
+        }
+        if self.has_alt(child, Alt.Expr_Name) || self.has_alt(child, Alt.Expr_Member) {
+            let leaf = self.res.first_leaf(child)
+            if leaf >= 0 {
+                let b = self.binding_at(leaf)
+                if b.kind == ResBindKind.Module || b.kind == ResBindKind.SelfType || b.kind == ResBindKind.TypeParam {
+                    return true
+                }
+                if b.kind == ResBindKind.Decl && b.decl >= 0 {
+                    let info = self.res.decls[b.decl]
+                    if info.kind != ResDeclKind.Static {
+                        return true
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    public func is_call_node(&self, id: Int) -> Bool {
+        self.has_alt(id, Alt.Expr_Call_Paren) || self.has_alt(id, Alt.Expr_Call_ParenTrailing) || self.has_alt(id, Alt.Expr_TrailingCall)
+    }
+
+    func is_subscript_node(&self, id: Int) -> Bool {
+        self.has_alt(id, Alt.Expr_Subscript_Single) || self.has_alt(id, Alt.Expr_Subscript_Multi)
+    }
+
+    func body_problem(&self, problems: &var Vector<String>, m: Int, id: Int, text: String) {
+        var out = StringBuilder()
+        try! out.append(self.res.node_position(m, id))
+        try! out.append(" ")
+        try! out.append(text)
+        try! problems.push(out.build())
+    }
+
+    // An expression's or pattern's type, use and adjustment chain.
+    func verify_typed(&self, problems: &var Vector<String>, m: Int, id: Int, refused: Bool) {
+        let t = self.expr_types[id]
+        if t < 0 || self.typed_count[id] == 0 {
+            self.body_problem(&var problems, m, id, "an expression has no type")
+            return
+        }
+        if self.typed_count[id] != 1 {
+            self.body_problem(&var problems, m, id, "an expression was typed more than once")
+        }
+        if not refused && self.type_has_error(t) {
+            self.body_problem(&var problems, m, id, "an expression's type is unresolved, but the module has no refusal")
+        }
+        let u = self.expr_use[id]
+        if u == TcUse.Unused {
+            self.body_problem(&var problems, m, id, "an expression has no use")
+        } else if u == TcUse.Copy && not self.expr_place[id] {
+            self.body_problem(&var problems, m, id, "a value is marked as a place's copy")
+        } else if u == TcUse.Temp && self.expr_place[id] && not self.is_binding_node(id) {
+            self.body_problem(&var problems, m, id, "a place is marked as a temporary's hand-off")
+        }
+        var from = t
+        var a = self.adj_head[id]
+        while a >= 0 {
+            let adj = self.adjusts[a]
+            if not refused && not self.step_composes(adj.kind, from, adj.to, id) {
+                self.body_problem(&var problems, m, id, "an adjustment chain does not compose")
+                return
+            }
+            from = adj.to
+            a = adj.next
+        }
+    }
+
+    func is_binding_node(&self, id: Int) -> Bool {
+        self.has_alt(id, Alt.Stmt_BindingName) || self.has_alt(id, Alt.Pat_Name)
+    }
+
+    // Whether `t` holds an error type anywhere.
+    func type_has_error(&self, t: Int) -> Bool {
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Error {
+            return true
+        }
+        let has_inner = info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array
+        if has_inner && info.b >= 0 && self.type_has_error(info.b) {
+            return true
+        }
+        var k = 0
+        while k < info.count {
+            let part = self.types.arg(t, k)
+            if self.type_has_error(part) {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // Whether one adjustment step takes `from` to `to` as its kind says.
+    func step_composes(&self, kind: TcAdjustKind, from: Int, to: Int, id: Int) -> Bool {
+        let fi = self.types.ty(from)
+        let ti = self.types.ty(to)
+        match kind {
+            case Adopt -> self.is_integer(from) && ti.kind == TcKind.Nominal,
+            case Never -> fi.kind == TcKind.Nominal && fi.decl == self.known.never,
+            case Some -> ti.kind == TcKind.Nominal && ti.decl == self.known.optional && self.types.arg(to, 0) == from,
+            case Ok -> ti.kind == TcKind.Nominal && ti.decl == self.known.result && self.types.arg(to, 0) == from,
+            case Err -> ti.kind == TcKind.Nominal && ti.decl == self.known.result && self.types.arg(to, 1) == from,
+            case Slice -> fi.kind == TcKind.Ref && ti.kind == TcKind.Slice,
+            case Deref -> (fi.kind == TcKind.Ref || fi.kind == TcKind.Slice) && fi.b == to,
+            case Borrow -> ti.kind == TcKind.Ref && ti.a == 0 && ti.b == from,
+            case BorrowVar -> ti.kind == TcKind.Ref && ti.a == 1 && ti.b == from,
+            case Shared -> fi.kind == TcKind.Ref && ti.kind == TcKind.Ref && fi.b == ti.b && ti.a == 0,
+            case Erase -> {
+                if ti.kind == TcKind.Ref {
+                    let inner = self.types.ty(ti.b)
+                    return fi.kind == TcKind.Ref && inner.kind == TcKind.Any
+                }
+                ti.kind == TcKind.Any || ti.kind == TcKind.Nominal
+            },
+            case Widen -> self.is_integer(from) && self.is_integer(to) && from != to
+        }
+    }
+
+    // A call's record: a target, or the builtin it names; a complete
+    // instantiation; an owner where the target is a generic type's member.
+    func verify_call(&self, problems: &var Vector<String>, m: Int, id: Int, refused: Bool) {
+        let at = self.call_at[id]
+        if at < 0 {
+            if not refused {
+                self.body_problem(&var problems, m, id, "a call has no target")
+            }
+            return
+        }
+        let c = self.calls[at]
+        if c.target < 0 && c.spelling < 0 && c.role != TcRole.Value {
+            self.body_problem(&var problems, m, id, "a call has no target")
+            return
+        }
+        if c.target < 0 {
+            return
+        }
+        let info = self.res.decls[c.target]
+        let function = info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.Requirement || info.kind == ResDeclKind.Extern
+        if function && c.role != TcRole.Operator {
+            let s = self.sigs[c.target]
+            if c.inst_count != s.generic_count {
+                self.body_problem(&var problems, m, id, "a call's instantiation is incomplete")
+            }
+        }
+        var k = 0
+        while k < c.inst_count {
+            let arg = self.insts[c.inst_first + k]
+            if not refused && self.type_has_error(arg) {
+                self.body_problem(&var problems, m, id, "a call's instantiation is unresolved")
+            }
+            if self.mentions_decl_param(arg, c.target) {
+                self.body_problem(&var problems, m, id, "a call's instantiation names its own target's parameter")
+            }
+            k = k + 1
+        }
+        if c.owner >= 0 && not refused && self.type_has_error(c.owner) {
+            self.body_problem(&var problems, m, id, "a call's owner is unresolved")
+        }
+    }
+
+    // Whether `t` names a type parameter of declaration `d`.
+    func mentions_decl_param(&self, t: Int, d: Int) -> Bool {
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Param && info.decl == d {
+            return true
+        }
+        let has_inner = info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array
+        if has_inner && info.b >= 0 && self.mentions_decl_param(info.b, d) {
+            return true
+        }
+        var k = 0
+        while k < info.count {
+            let part = self.types.arg(t, k)
+            if self.mentions_decl_param(part, d) {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+}
+
+static TC_NODE_OTHER: Int = 0
+static TC_NODE_EXPRESSION: Int = 1
+static TC_NODE_PATTERN: Int = 2
+
+// The alternatives that build an expression node, as the verifier reads the
+// grammar: its own list, apart from the walk's dispatch.
+public func tc_is_expression_alt(alt: Alt) -> Bool {
+    match alt {
+        case Expr_Int -> true,
+        case Expr_Float -> true,
+        case Expr_String -> true,
+        case Expr_Bool_True -> true,
+        case Expr_Bool_False -> true,
+        case Expr_None -> true,
+        case Expr_Interpolation -> true,
+        case Expr_SourceLocation_File -> true,
+        case Expr_SourceLocation_Line -> true,
+        case Expr_SourceLocation_Function -> true,
+        case Expr_Name -> true,
+        case Expr_NameRef -> true,
+        case Expr_Self -> true,
+        case Expr_ImplicitMember -> true,
+        case Expr_Member -> true,
+        case Expr_TupleIndex -> true,
+        case Expr_Call_Paren -> true,
+        case Expr_Call_ParenTrailing -> true,
+        case Expr_TrailingCall -> true,
+        case Expr_Subscript_Single -> true,
+        case Expr_Subscript_Multi -> true,
+        case Expr_Force -> true,
+        case Expr_Unary_Negate -> true,
+        case Expr_Unary_Not -> true,
+        case Expr_Unary_Complement -> true,
+        case Expr_Additive -> true,
+        case Expr_Multiplicative -> true,
+        case Expr_Shift -> true,
+        case Expr_Bitand -> true,
+        case Expr_Bitor -> true,
+        case Expr_Bitxor -> true,
+        case Expr_And -> true,
+        case Expr_Or -> true,
+        case Expr_Compare_Pair -> true,
+        case Expr_Coalesce -> true,
+        case Expr_Range_Closed -> true,
+        case Expr_Range_From -> true,
+        case Expr_Range_Upto -> true,
+        case Expr_Cast -> true,
+        case Expr_Ref_Shared -> true,
+        case Expr_Ref_Exclusive -> true,
+        case Expr_Move_Place -> true,
+        case Expr_Deref -> true,
+        case Expr_Try_Propagate -> true,
+        case Expr_Try_Force -> true,
+        case Expr_Try_Optional -> true,
+        case Expr_Tuple_Unit -> true,
+        case Expr_Tuple_Positional -> true,
+        case Expr_Tuple_Named -> true,
+        case Expr_Array -> true,
+        case Expr_Repeat -> true,
+        case Expr_Map_Empty -> true,
+        case Expr_Map_Entries -> true,
+        case Expr_Set -> true,
+        case Expr_Closure -> true,
+        case Expr_If -> true,
+        case Expr_Match -> true,
+        case Expr_While_Conditional -> true,
+        case Expr_While_Infinite -> true,
+        case Expr_WhileLet_Let -> true,
+        case Expr_WhileLet_Var -> true,
+        case Expr_For_Plain -> true,
+        case Borrow_Block -> true,
+        case Borrow_Place_Shared -> true,
+        case Borrow_Place_Var -> true,
+        case _ -> false
+    }
+}
+
+// The alternatives that build a pattern node, a binding among them.
+public func tc_is_pattern_alt(alt: Alt) -> Bool {
+    match alt {
+        case Pat_Wildcard -> true,
+        case Pat_Literal_Int -> true,
+        case Pat_Literal_NegativeInt -> true,
+        case Pat_Literal_String -> true,
+        case Pat_Literal_True -> true,
+        case Pat_Literal_False -> true,
+        case Pat_Range_Exclusive -> true,
+        case Pat_Range_Inclusive -> true,
+        case Pat_Tuple_Positional -> true,
+        case Pat_Variant -> true,
+        case Pat_Name -> true,
+        case Pat_None -> true,
+        case Pat_BorrowBinding_Let -> true,
+        case Pat_BorrowBinding_Var -> true,
+        case Stmt_BindingName -> true,
+        case _ -> false
+    }
+}

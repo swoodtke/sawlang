@@ -1,0 +1,17 @@
+// refuses: subscript.role at 16:5
+// a setitem use of a type whose only `[]` lends read-only, so none is derived
+
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func [](&self, i: Int) borrows -> &Int {
+        lend self.cells[i]
+    }
+}
+
+func main() {
+    var r = Row(cells: [0; 4])
+    r[1] = 5
+}

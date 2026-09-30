@@ -1,0 +1,35 @@
+// The `borrow` forms (SL:borrowing §2): a block's bindings, each a place
+// borrowed as its word says, and the block's tail its value; the statement
+// form; unwrapping a conditional lend; a payload's borrow binding. And a
+// `borrows` accessor's own body, whose `lend` names the place it lends.
+
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+
+    func find(&var self, i: Int) borrows -> &var Int? {
+        if i < 0 || i >= 4 {
+            return None
+        }
+        lend self.cells[i]
+    }
+}
+
+func forms(r: &var Row, o: Int?) -> Int {
+    let before = borrow let cell = r[0] {
+        cell + 1
+    }
+    borrow var r[1] += before
+    if borrow var found = r.find(2) {
+        found += 1
+    }
+    match o {
+        case Some(borrow let v) -> v,
+        case None -> before
+    }
+}

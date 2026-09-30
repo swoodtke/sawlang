@@ -1,0 +1,14 @@
+// refuses: call.no-match at 13:13
+// no overload takes the argument's type
+
+func describe(n: Int) -> Int {
+    n
+}
+
+func describe(s: String) -> Int {
+    s.len()
+}
+
+func main() {
+    let _ = describe(true)
+}

@@ -1,0 +1,12 @@
+// refuses: member.unknown at 11:7
+// a method the receiver's type does not have
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+func main() {
+    let p = Point(x: 1, y: 2)
+    p.rotate()
+}

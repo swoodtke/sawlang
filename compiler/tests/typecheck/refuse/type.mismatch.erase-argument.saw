@@ -1,0 +1,22 @@
+// refuses: type.mismatch at 21:25
+// a concrete error passed where an erased Result is declared: an argument does not erase
+
+struct Fault {
+    code: Int
+}
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let _ = into.append("fault")
+    }
+}
+
+extension Fault: Error {}
+
+func take_erased(r: Result<Int, Box<any Error>>) -> Int {
+    0
+}
+
+func main() {
+    let _ = take_erased(Fault(code: 3))
+}

@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 10:15
+// an assignment's value of another type than its target's
+
+struct Box2 {
+    width: Int
+}
+
+func main() {
+    var b = Box2(width: 1)
+    b.width = "wide"
+}

@@ -5,7 +5,9 @@ import sawresolve.src.api.{append_res_diag, resolve_program}
 import sawresolve.src.model.{ResDiag, ResModule}
 import sawresolve.src.program.{ResProgram}
 import sawresolve.src.verify.{res_verify_module}
-import sawtypecheck.src.checks.{tc_check_finite_size, tc_check_unsafe}
+import sawtypecheck.src.bodies.{tc_check_bodies}
+import sawtypecheck.src.bodyverify.{tc_verify_bodies}
+import sawtypecheck.src.checks.{tc_check_finite_size, tc_check_inits, tc_check_unsafe}
 import sawtypecheck.src.conform.{tc_collect_conformances, tc_extension_sets,
                                  tc_settle_conformances}
 import sawtypecheck.src.declarations.{tc_build_signatures}
@@ -50,6 +52,8 @@ public func typecheck_program(path: String, std_root: String, names: &Vector<Str
     tc_check_containment(&var p)
     tc_check_finite_size(&var p)
     tc_check_unsafe(&var p)
+    tc_check_inits(&var p)
+    tc_check_bodies(&var p)
     move p
 }
 
@@ -58,6 +62,12 @@ extension TcProgram {
     func find_known(&var self) {
         let b = self.res.builtin
         let serde = self.module_named("std.serde")
+        let std_box = self.module_named("std.box")
+        let std_vector = self.module_named("std.vector")
+        let std_map = self.module_named("std.map")
+        let std_set = self.module_named("std.set")
+        let std_arc = self.module_named("std.arc")
+        let std_task_group = self.module_named("std.taskgroup")
         let k = TcKnown(optional: self.top_decl(b, "Optional"), result: self.top_decl(b, "Result"),
                         string: self.top_decl(b, "String"), void_type: self.top_decl(b, "Void"),
                         never: self.top_decl(b, "Never"),
@@ -76,7 +86,22 @@ extension TcProgram {
                         unsafe_sync: self.top_decl(b, "UnsafeSync"),
                         interior: self.top_decl(b, "UnsafeMutableInterior"),
                         serialize: self.top_decl(serde, "Serialize"),
-                        deserialize: self.top_decl(serde, "Deserialize"))
+                        deserialize: self.top_decl(serde, "Deserialize"),
+                        int: self.top_decl(b, "Int"), uint: self.top_decl(b, "UInt"),
+                        int8: self.top_decl(b, "Int8"), int16: self.top_decl(b, "Int16"),
+                        int32: self.top_decl(b, "Int32"), int64: self.top_decl(b, "Int64"),
+                        uint8: self.top_decl(b, "UInt8"), uint16: self.top_decl(b, "UInt16"),
+                        uint32: self.top_decl(b, "UInt32"), uint64: self.top_decl(b, "UInt64"),
+                        float: self.top_decl(b, "Float"), bool_type: self.top_decl(b, "Bool"),
+                        range: self.top_decl(b, "Range"),
+                        range_inclusive: self.top_decl(b, "RangeInclusive"),
+                        iterator: self.top_decl(b, "Iterator"),
+                        box: self.top_decl(std_box, "Box"),
+                        vector: self.top_decl(std_vector, "Vector"),
+                        map: self.top_decl(std_map, "Map"), set: self.top_decl(std_set, "Set"),
+                        arc: self.top_decl(std_arc, "Arc"),
+                        task_group: self.top_decl(std_task_group, "TaskGroup"),
+                        func_pointer: self.top_decl(b, "FuncPointer"))
         self.known = k
     }
 }
@@ -111,6 +136,8 @@ public func typecheck_record(out: &var StringBuilder, path: String, options: &Ty
         append_invariants(out: &var out, p: &p, m: m, problems: &found)
         let own = tc_verify_module(&p, m)
         append_invariants(out: &var out, p: &p, m: m, problems: &own)
+        let bodies = tc_verify_bodies(&p, m)
+        append_invariants(out: &var out, p: &p, m: m, problems: &bodies)
         m = m + 1
     }
     if options.dump {

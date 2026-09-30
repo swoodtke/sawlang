@@ -1,0 +1,11 @@
+// refuses: operator.undefined at 10:13
+// an arithmetic operator over a type that is not a number
+
+struct Point {
+    x: Int
+}
+
+func main() {
+    let p = Point(x: 1)
+    let q = p + p
+}

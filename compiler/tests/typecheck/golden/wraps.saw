@@ -1,0 +1,106 @@
+// The wrap and erasure matrix, one row per permitted cell: an annotated
+// binding, an assignment and every return target nest optionals to the slot's
+// depth; a parameter, a field, a default, a payload, an element, an operand
+// and `??`'s fallback wrap one level, and an already-optional value passes
+// through; a Result wrap goes outside the optional one; only a return target
+// erases a concrete error into `Box<any Error>`, and an argument takes an
+// explicit `.Err`. A value branch's arms take what its position allows.
+
+struct Fault {
+    code: Int
+}
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let _ = into.append("fault")
+    }
+}
+
+extension Fault: Error {}
+
+static STARTED: Result<Int, Fault> = 1
+
+struct Holder {
+    slot: Int?
+    outcome: Result<Int, Fault>
+}
+
+enum Cell {
+    case Full(v: Int?),
+    case Done(r: Result<Int, Fault>)
+}
+
+func take_optional(value: Int?) -> Int {
+    0
+}
+
+func take_nested(value: Int??) -> Int {
+    0
+}
+
+func record_opt(entry: Result<Int?, String>) -> Int {
+    0
+}
+
+func take_erased(r: Result<Int, Box<any Error>>) -> Int {
+    0
+}
+
+func padded(x: Int? = 2, r: Result<Int, Fault> = 3) -> Int {
+    0
+}
+
+func run(f: () -> Result<Int, Box<any Error>>) -> Int {
+    0
+}
+
+func deep_return() -> Int?? {
+    return 4
+}
+
+func deep_tail() -> Int?? {
+    5
+}
+
+func erased_return(ok: Bool) -> Result<Int, Box<any Error>> {
+    if ok {
+        return 6
+    }
+    return Fault(code: 7)
+}
+
+func erased_tail() -> Result<Int, Box<any Error>> {
+    Fault(code: 8)
+}
+
+func erased_branch(ok: Bool) -> Result<Int, Box<any Error>> {
+    if ok { 9 } else { Fault(code: 10) }
+}
+
+func positions(n: Int, o: Int?, oo: Int??, failure: Box<any Error>) {
+    let two: Int?? = 11
+    let lifted: Int?? = n
+    let wrapped: Result<Int, Fault> = 12
+    var cell: Int?? = 13
+    cell = n
+    var outcome: Result<Int, Fault> = 14
+    outcome = Fault(code: 15)
+    let _ = take_optional(16)
+    let _ = take_optional(o)
+    let _ = take_nested(o)
+    let _ = record_opt(17)
+    let _ = take_erased(.Err(error: move failure))
+    let _ = Holder(slot: 18, outcome: 19)
+    let _ = Cell.Full(v: 20)
+    let _ = Cell.Done(r: 21)
+    let items: Vector<Int?> = [22, n]
+    let rows: Vector<Result<Int, String>> = [23, "bad row"]
+    let pair: (Int?, Int) = (24, 0)
+    let _ = run({ Fault(code: 25) })
+    let _ = run({ 26 })
+    let nested: () -> Int?? = { 27 }
+    let same = o == 28
+    let fallback = oo ?? 29
+    let chosen: Int?? = if n > 0 { 30 } else { n }
+    let _ = take_optional(if n > 0 { 31 } else { o })
+}

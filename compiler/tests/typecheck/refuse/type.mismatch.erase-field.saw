@@ -1,0 +1,24 @@
+// refuses: type.mismatch at 23:29
+// a concrete error passed to an erased Result field: a memberwise argument does not erase
+
+struct Fault {
+    code: Int
+}
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let _ = into.append("fault")
+    }
+}
+
+extension Fault: Error {}
+
+struct Holder {
+    outcome: Result<Int, Box<any Error>>
+}
+
+extension Holder: NoCopy {}
+
+func main() {
+    let _ = Holder(outcome: Fault(code: 3))
+}

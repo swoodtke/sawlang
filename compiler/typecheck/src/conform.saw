@@ -5,7 +5,8 @@
 
 import sawparse.src.grammar.{Alt}
 import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.model.{ResBindKind, ResConformance, ResDecl, ResDeclKind, ResModule}
+import sawresolve.src.model.{ResBindKind, ResConformance, ResDecl, ResDeclKind, ResModule,
+                             ResModuleKind}
 import sawtypecheck.src.declarations.{tc_build_signatures}
 import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSUMES,
                                TC_EFFECT_UNSAFE, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC,
@@ -210,11 +211,22 @@ extension TcProgram {
     // in module `owner` (design 142): its own, its direct imports' and those
     // they re-export, and the type's defining module's.
     public func sees_extensions_of(&self, m: Int, e: Int, owner: Int, visible: &Vector<Bool>) -> Bool {
-        if e == m || e == owner {
+        if e == m || e == owner || self.std_extends_builtin(e, owner) {
             return true
         }
         let n = self.res.modules.len()
         visible[m * n + e]
+    }
+
+    // Whether module `e` is a std module extending a type the synthetic
+    // builtin module holds (SL:open-questions D12): std is where such a type's
+    // methods are written, so its extensions count as the defining module's.
+    public func std_extends_builtin(&self, e: Int, owner: Int) -> Bool {
+        if owner != self.res.builtin || e < 0 {
+            return false
+        }
+        let info = self.res.modules[e]
+        info.kind == ResModuleKind.Std
     }
 
     // Every module's extension set, as a row of flags per module.

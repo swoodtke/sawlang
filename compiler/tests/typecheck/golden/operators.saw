@@ -1,0 +1,32 @@
+// Operators and what answers each: the builtin arithmetic, bit, shift,
+// comparison and logic operators, a user type's `==` through its `equals`,
+// a payload-free enum's builtin `==`, `??`, a cast, a range, the prefix
+// operators; a constant chain adopting its slot, and a literal operand
+// adopting the other operand's type.
+
+struct Money {
+    cents: Int
+}
+
+@synthesize extension Money: Equatable {}
+
+enum Light {
+    case Red,
+    case Green
+}
+
+func operators(a: Int, b: UInt8, m: Money, n: Money, l: Light, o: Int?) -> Bool {
+    let sum = a + 2 * a - 1
+    let masked = b & 0x0F | 0x10
+    let shifted = a << 2
+    let small: UInt16 = 1 << 10
+    let neg = -a
+    let flip = ~b
+    let same = m == n
+    let red = l == Light.Red
+    let fallback = o ?? 0
+    let wide = b as Int
+    let span = 0..a
+    let logic = a > 0 && not same || red
+    logic
+}

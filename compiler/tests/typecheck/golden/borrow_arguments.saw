@@ -1,0 +1,17 @@
+// A `borrow` place in argument position passes the place by reference:
+// `borrow var PLACE` as `&var`, and `borrow PLACE` as `&` (SL:borrowing
+// §2.2).
+
+func bump(n: &var Int) {
+    n = n + 1
+}
+
+func peek(n: &Int) -> Int {
+    n
+}
+
+func main() {
+    var v: Vector<Int> = [1, 2]
+    bump(borrow var v[0])
+    print(peek(borrow v[1]))
+}

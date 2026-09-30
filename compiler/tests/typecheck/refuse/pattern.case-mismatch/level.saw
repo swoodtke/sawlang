@@ -1,0 +1,4 @@
+public enum Level {
+    case count,
+    case limit
+}

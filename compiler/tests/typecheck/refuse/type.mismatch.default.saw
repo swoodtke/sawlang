@@ -1,0 +1,6 @@
+// refuses: type.mismatch at 4:23
+// a parameter's default value of another type than the parameter's
+
+func pad(width: Int = "eight") -> Int {
+    width
+}

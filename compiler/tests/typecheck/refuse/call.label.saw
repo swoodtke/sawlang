@@ -1,0 +1,10 @@
+// refuses: call.label at 9:13
+// a label no parameter of the function has
+
+func twice(n: Int) -> Int {
+    n + n
+}
+
+func main() {
+    let _ = twice(count: 1)
+}

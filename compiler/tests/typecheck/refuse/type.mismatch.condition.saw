@@ -1,0 +1,9 @@
+// refuses: type.mismatch at 6:8
+// a condition that is not a `Bool`
+
+func main() {
+    let n = 3
+    if n {
+        print("yes")
+    }
+}

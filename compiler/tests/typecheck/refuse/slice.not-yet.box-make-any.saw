@@ -1,0 +1,18 @@
+// refuses: slice.not-yet at 17:13
+// the erasing `Box<any Trait>.make`, which std does not declare
+
+struct Oops {
+    code: Int
+}
+
+extension Oops: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("oops")
+    }
+}
+
+extension Oops: Error {}
+
+func main() {
+    let b = Box<any Error>.make(Oops(code: 1))
+}

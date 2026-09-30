@@ -1,0 +1,19 @@
+// The types a body writes, each of which the body verifier holds to one
+// build: a `let` annotation, a cast's target, a closure parameter's type, a
+// call head's type arguments, `sizeof`'s, and the arguments a refused call's
+// head writes, which are built though the call is not resolved.
+
+func pick<T>(x: T) -> T {
+    x
+}
+
+func main() {
+    let n: Int16 = 3
+    let wide = n as Int
+    let f = { x: Int in x + 1 }
+    let v = Vector<Int>()
+    let p = pick<Int>(wide)
+    let size = sizeof<Int32>()
+    let missing = n.nothing<Int>()
+    print(f(p) + v.len() + size)
+}

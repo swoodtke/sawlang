@@ -1,0 +1,3 @@
+public struct Handler {
+    public f: (Int) -> Int
+}

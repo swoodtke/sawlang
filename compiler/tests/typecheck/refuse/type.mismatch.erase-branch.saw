@@ -1,0 +1,23 @@
+// refuses: type.mismatch at 22:43
+// a value branch's arm takes what its position allows: in an argument, no erasure
+
+struct Fault {
+    code: Int
+}
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let _ = into.append("fault")
+    }
+}
+
+extension Fault: Error {}
+
+func take_erased(r: Result<Int, Box<any Error>>) -> Int {
+    0
+}
+
+func main() {
+    let c = true
+    let _ = take_erased(if c { 1 } else { Fault(code: 3) })
+}

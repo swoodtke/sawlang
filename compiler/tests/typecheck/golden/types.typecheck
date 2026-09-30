@@ -31,4 +31,21 @@
   (conformances)
   (copy-tier
     (types.Point Copy)
-    (types.Shape Copy)))
+    (types.Shape Copy))
+  (bodies
+    (named 22:6
+      (23:5-23:12 StringLit String value temp))
+    (optionals 26:6
+      (27:5-27:9 NoneLit types.Shape? value temp))
+    (references 30:6
+      (31:5-31:6 IntLit Int value temp))
+    (tuples 34:6
+      (35:5-35:21 Call.paren Never (never (types.Point, types.Shape)) value temp (builtin panic))
+      (35:11-35:20 StringLit String value temp))
+    (functions 38:6
+      (39:5-39:9 NoneLit ((Int) -> Int)? value temp))
+    (existentials 42:6
+      (43:5-43:9 BoolLit.true Bool value temp))
+    (no_result 46:6
+      (47:5-47:18 Call.paren Void value temp (builtin print))
+      (47:11-47:17 StringLit String value temp))))

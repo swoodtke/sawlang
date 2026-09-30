@@ -1,0 +1,29 @@
+// The new std's named low-level features in bodies: a raw pointer read
+// through, indexed and cast from a reference; an extern seam, a C variadic
+// one included; an `unsafe static var`; an allocator parameter constructed
+// and called; `sizeof` and `alignof`.
+
+extern "C" {
+    func printf(format: UnsafePointer<UInt8>, ...) -> Int32
+}
+
+unsafe static var COUNTER: Int = 0
+
+struct Buffer<A: Allocator = GlobalAllocator> {
+    size: Int
+}
+
+extension Buffer<A: Allocator> {
+    func grab(&self) unsafe -> UnsafePointer<Int8>? {
+        A().alloc(self.size, alignof<Int>())
+    }
+}
+
+func raw(p: UnsafePointer<Int>, n: &var Int) unsafe -> Int {
+    let first = *p
+    let third = p[2]
+    let address = (&var n) as UnsafePointer<Int>
+    COUNTER = COUNTER + 1
+    let _ = printf(address as UnsafePointer<UInt8>, first, third)
+    first + third + sizeof<Int>()
+}

@@ -1,0 +1,41 @@
+ERROR	pattern.case-mismatch	compiler/tests/typecheck/multi/cases/main.saw:18:14	`count` names no case of the matched `Int`: it is taken for `level.Level.count`, a case in scope, so it does not bind; rename the binding, as `count_value`
+(Module main
+  (declarations
+    (func rank 8:6 private (signature (params (l level.Level owned)) -> Int))
+    (func bucket 15:6 private (signature (params (n Int owned)) -> Int)))
+  (members)
+  (views
+    (level.Level count limit))
+  (conformances)
+  (copy-tier)
+  (bodies
+    (rank 8:6
+      (9:5-12:6 Match Int value temp)
+      (9:11-9:12 Name level.Level place test)
+      (10:14-10:19 NamePat level.Level value test (case level.Level.count (owner level.Level)))
+      (10:23-10:24 IntLit Int value temp)
+      (11:14-11:19 NamePat level.Level value test (case level.Level.limit (owner level.Level)))
+      (11:23-11:24 IntLit Int value temp))
+    (bucket 15:6
+      (16:5-19:6 Match Int value temp)
+      (16:11-16:12 Name Int place test)
+      (17:14-17:15 LiteralPat.int Int value test)
+      (17:19-17:20 IntLit Int value temp)
+      (18:14-18:19 NamePat Int value test)
+      (18:23-18:24 IntLit Int value temp))))
+
+(Module level
+  (declarations
+    (enum Level 1:13 public)
+    (case Level.count 2:10)
+    (case Level.limit 3:10))
+  (members
+    (level.Level
+      (case count public declared)
+      (case limit public declared)))
+  (views
+    (level.Level count limit))
+  (conformances)
+  (copy-tier
+    (level.Level Copy))
+  (bodies))

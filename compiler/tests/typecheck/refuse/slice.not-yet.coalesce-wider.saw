@@ -1,0 +1,8 @@
+// refuses: slice.not-yet at 7:13
+// a `??` fallback wider than the payload, whose widening no adjustment records
+
+func main() {
+    let o: Int16? = None
+    let n = 4
+    let v = o ?? n
+}

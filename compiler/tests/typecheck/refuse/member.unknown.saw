@@ -1,0 +1,11 @@
+// refuses: member.unknown at 10:7
+// a field the value's type does not have
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+func depth(p: Point) -> Int {
+    p.z
+}

@@ -1,0 +1,9 @@
+// refuses: type.mismatch at 6:16
+// a `return` of another type than the function's result
+
+func size(n: Int) -> Int {
+    if n > 0 {
+        return "big"
+    }
+    0
+}

@@ -1,0 +1,10 @@
+// refuses: call.arity at 9:13
+// more arguments than the function has parameters
+
+func twice(n: Int) -> Int {
+    n + n
+}
+
+func main() {
+    let _ = twice(1, 2)
+}

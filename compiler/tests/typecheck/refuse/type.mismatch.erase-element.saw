@@ -1,0 +1,18 @@
+// refuses: type.mismatch at 17:51
+// a concrete error as an erased Result element: an element does not erase
+
+struct Fault {
+    code: Int
+}
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let _ = into.append("fault")
+    }
+}
+
+extension Fault: Error {}
+
+func main() {
+    let _: Vector<Result<Int, Box<any Error>>> = [Fault(code: 3)]
+}

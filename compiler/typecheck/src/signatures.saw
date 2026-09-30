@@ -521,6 +521,7 @@ extension TcProgram {
     public func build_type(&var self, t: Int) -> Int {
         let ty = self.build_type_as(t)
         self.node_types[t] = ty
+        self.type_builds[t] += 1
         ty
     }
 
@@ -787,6 +788,7 @@ extension TcProgram {
         }
         let ty = self.const_named_as_type(node)
         self.node_types[node] = ty
+        self.type_builds[node] += 1
         ty
     }
 

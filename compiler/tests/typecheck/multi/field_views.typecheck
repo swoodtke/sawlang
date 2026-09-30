@@ -1,0 +1,69 @@
+(Module main
+  (declarations
+    (func double 9:6 private (signature (params (n Int owned)) -> Int))
+    (func main 13:6 private (signature (params) -> Void)))
+  (members)
+  (views
+    (handler.Handler f))
+  (conformances)
+  (copy-tier)
+  (bodies
+    (double 9:6
+      (10:5-10:10 Binary Int value temp (op *))
+      (10:5-10:6 Name Int place copy)
+      (10:9-10:10 IntLit Int value temp))
+    (main 13:6
+      (14:9-14:10 BindingName handler.Handler place temp)
+      (14:13-14:31 Call.paren handler.Handler value temp (memberwise handler.Handler (owner handler.Handler)))
+      (14:24-14:30 Name (Int) -> Int value temp (value main.double(n: Int)))
+      (15:5-15:36 Call.paren Void value temp (builtin print))
+      (15:11-15:35 Binary Int value borrow (op +))
+      (15:11-15:17 Call.paren Int value temp (value (owner (Int) -> Int)))
+      (15:11-15:14 Member (Int) -> Int place borrow)
+      (15:11-15:12 Name handler.Handler place project)
+      (15:15-15:16 IntLit Int value temp)
+      (15:20-15:35 Call.paren Int value temp (call other.with_method(h: &handler.Handler)))
+      (15:32-15:34 Ref.shared &handler.Handler value temp)
+      (15:33-15:34 Name handler.Handler place borrow))))
+
+(Module handler
+  (declarations
+    (struct Handler 1:15 public)
+    (field Handler.f 2:12 public (Int) -> Int))
+  (members
+    (handler.Handler
+      (field f (Int) -> Int public declared)
+      (method f public (extension adds))))
+  (views
+    (handler.Handler f))
+  (conformances)
+  (copy-tier
+    (handler.Handler Copy))
+  (bodies))
+
+(Module other
+  (declarations
+    (func with_method 4:13 public (signature (params (h &handler.Handler shared)) -> Int)))
+  (members)
+  (views
+    (handler.Handler f f))
+  (conformances)
+  (copy-tier)
+  (bodies
+    (with_method 4:13
+      (5:5-5:6 IntLit Int value temp))))
+
+(Module adds
+  (declarations
+    (extension 3:1 (target handler.Handler))
+    (method Handler.f 4:17 public (signature (receiver shared) (params (n Int owned)) -> Int)))
+  (members)
+  (views
+    (handler.Handler f f))
+  (conformances)
+  (copy-tier)
+  (bodies
+    (Handler.f 4:17
+      (5:9-5:14 Binary Int value temp (op +))
+      (5:9-5:10 Name Int place copy)
+      (5:13-5:14 IntLit Int value temp))))

@@ -1,0 +1,225 @@
+// The candidates a body's name or selector can mean: a free function's
+// overload set as resolve bound it, a type's members as a module sees them
+// (members.saw's two filters), and the requirements a type parameter's
+// bounds grant. Each list is in declaration order, so every diagnostic that
+// names candidates names them in one order.
+
+import sawresolve.src.imports.{res_decl_binding}
+import sawresolve.src.model.{ResBinding, ResBindKind, ResDecl, ResDeclKind}
+import sawtypecheck.src.conform.{TcSubst, tc_args_subst, tc_copy_ints}
+import sawtypecheck.src.members.{tc_build_members}
+import sawtypecheck.src.model.{TC_FLAG_STATIC, TcMember, TcSig, TcSource}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.tier.{tc_tier}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+extension TcProgram {
+    // Whether module `viewer` sees member `k` of the member tables, through
+    // the extension sets the body half keeps (members.saw, `member_visible`).
+    public func member_seen(&self, k: Int, viewer: Int) -> Bool {
+        let member = self.members[k]
+        let owner = self.res.decls[member.type_decl]
+        match member.source {
+            case Declared -> self.res.visible_to(member.vis, member.module, viewer),
+            case Extension -> {
+                let e = member.module
+                if e != viewer && e != owner.module && not self.std_extends_builtin(e, owner.module) {
+                    let n = self.res.modules.len()
+                    if not self.ext_visible[viewer * n + e] {
+                        return false
+                    }
+                }
+                self.res.visible_to(member.vis, member.module, viewer)
+            },
+            case Default -> true,
+            case Synthesized -> true,
+            case RawConversion -> true
+        }
+    }
+
+    // The member-table entries of nominal `d` named `name` that module
+    // `viewer` sees.
+    public func members_named(&self, d: Int, name: Int, viewer: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        if d < 0 || d >= self.member_first.len() {
+            return move out
+        }
+        let first = self.member_first[d]
+        if first < 0 {
+            return move out
+        }
+        let count = self.member_count[d]
+        var k = first
+        while k < first + count {
+            let member = self.members[k]
+            if member.name == name && self.member_seen(k, viewer) {
+                try! out.push(k)
+            }
+            k = k + 1
+        }
+        move out
+    }
+
+    // Whether a member-table entry is a method: static or not as `statics`
+    // asks. A default body or a derived member is a requirement's.
+    public func is_method_member(&self, k: Int, statics: Bool) -> Bool {
+        let member = self.members[k]
+        let info = self.res.decls[member.decl]
+        if info.kind != ResDeclKind.Method && info.kind != ResDeclKind.Requirement {
+            return false
+        }
+        let s = self.sigs[member.decl]
+        let is_static = (s.flags & TC_FLAG_STATIC) != 0
+        is_static == statics
+    }
+
+    // Every `init` of nominal `d` that module `viewer` sees.
+    public func inits_of(&self, d: Int, viewer: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        if d < 0 || d >= self.member_first.len() {
+            return move out
+        }
+        let first = self.member_first[d]
+        if first < 0 {
+            return move out
+        }
+        let count = self.member_count[d]
+        var k = first
+        while k < first + count {
+            let member = self.members[k]
+            let info = self.res.decls[member.decl]
+            if info.kind == ResDeclKind.Init && self.member_seen(k, viewer) {
+                try! out.push(k)
+            }
+            k = k + 1
+        }
+        move out
+    }
+
+    // The functions a free name's binding stands for: its module's overload
+    // set, or a merged set's (design 249), externs and builtin functions
+    // included.
+    public func free_candidates(&self, b: ResBinding) -> Vector<Int> {
+        var out = Vector<Int>()
+        if b.kind == ResBindKind.Overload {
+            self.push_functions(&var out, b.module, b.name)
+        } else if b.kind == ResBindKind.Overloads && b.decl >= 0 {
+            let count = self.res.merges[b.decl]
+            var k = 0
+            while k < count {
+                let m = self.res.merges[b.decl + 1 + k]
+                self.push_functions(&var out, m, b.name)
+                k = k + 1
+            }
+        }
+        move out
+    }
+
+    func push_functions(&self, out: &var Vector<Int>, m: Int, name: Int) {
+        var newest = Vector<Int>()
+        var at = self.res.top.first(m, name)
+        while at >= 0 {
+            let d = self.res.top.value(at)
+            let info = self.res.decls[d]
+            if info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Extern || info.kind == ResDeclKind.BuiltinFunc {
+                try! newest.push(d)
+            }
+            at = self.res.top.following(at)
+        }
+        // The index hands entries back newest first.
+        var k = newest.len() - 1
+        while k >= 0 {
+            try! out.push(newest[k])
+            k = k - 1
+        }
+    }
+
+    // The requirements named `name` that the bounds of type parameter
+    // `index` of `owner` grant, and the conditions of extension `ext` add.
+    public func bound_requirements(&var self, owner: Int, index: Int, name: Int, ext: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        self.push_bound_requirements(&var out, owner, index, name)
+        if ext >= 0 && self.ext_target(ext) == owner {
+            self.push_bound_requirements(&var out, ext, index, name)
+        }
+        move out
+    }
+
+    func push_bound_requirements(&var self, out: &var Vector<Int>, d: Int, index: Int, name: Int) {
+        self.ensure_generics(d)
+        let s = self.sigs[d]
+        if index >= s.generic_count {
+            return
+        }
+        let g = self.generics[s.generic_first + index]
+        var k = 0
+        while k < g.bound_count {
+            let bound = self.traits[g.bound_first + k]
+            let all = self.trait_and_ancestors(bound)
+            var j = 0
+            while j < all.len() {
+                let reqs = self.members_of(all[j])
+                var r = 0
+                while r < reqs.len() {
+                    let req = reqs[r]
+                    let info = self.res.decls[req]
+                    if info.kind == ResDeclKind.Requirement && info.name == name && not tc_contains(&out, req) {
+                        try! out.push(req)
+                    }
+                    r = r + 1
+                }
+                j = j + 1
+            }
+            k = k + 1
+        }
+    }
+
+    // The substitution that instantiates a member of nominal type `owner`:
+    // the type's parameters to `owner`'s arguments, and, for a requirement a
+    // trait's default body or a derivation fills, `Self` to `owner` and the
+    // trait's associated types to what the type assigns.
+    public func owner_subst(&var self, owner: Int) -> TcSubst {
+        let info = self.types.ty(owner)
+        if info.kind != TcKind.Nominal {
+            return TcSubst(self_type: owner, from_owner: -1, to_owner: -1, args_owner: -1,
+                           args: Vector<Int>(), assoc_decls: Vector<Int>(),
+                           assoc_types: Vector<Int>())
+        }
+        let args = self.nominal_args(owner)
+        let by_args = tc_args_subst(info.decl, tc_copy_ints(&args))
+        var decls = Vector<Int>()
+        var types = Vector<Int>()
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if c.type_decl != info.decl {
+                continue
+            }
+            let one = self.conformance_subst(k - 1)
+            var j = 0
+            while j < one.assoc_decls.len() {
+                try! decls.push(one.assoc_decls[j])
+                try! types.push(self.subst(one.assoc_types[j], &by_args))
+                j = j + 1
+            }
+        }
+        var s = TcSubst(self_type: owner, from_owner: -1, to_owner: -1, args_owner: info.decl,
+                        args: move args, assoc_decls: move decls, assoc_types: move types)
+        move s
+    }
+}
+
+// Whether `v` holds `x`.
+public func tc_contains(v: &Vector<Int>, x: Int) -> Bool {
+    var k = 0
+    while k < v.len() {
+        if v[k] == x {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}

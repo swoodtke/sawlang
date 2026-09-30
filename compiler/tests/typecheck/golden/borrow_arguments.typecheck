@@ -1,0 +1,33 @@
+(Module borrow_arguments
+  (declarations
+    (func bump 5:6 private (signature (params (n &var Int exclusive)) -> Void))
+    (func peek 9:6 private (signature (params (n &Int shared)) -> Int))
+    (func main 13:6 private (signature (params) -> Void)))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (bump 5:6
+      (6:5-6:6 Name &var Int (deref Int) place write)
+      (6:9-6:14 Binary Int value temp (op +))
+      (6:9-6:10 Name &var Int (deref Int) place copy)
+      (6:13-6:14 IntLit Int value temp))
+    (peek 9:6
+      (10:5-10:6 Name &Int (deref Int) place copy))
+    (main 13:6
+      (14:9-14:10 BindingName std.vector.Vector<Int, std.alloc.GlobalAllocator> place temp)
+      (14:26-14:32 Array std.vector.Vector<Int, std.alloc.GlobalAllocator> value temp)
+      (14:27-14:28 IntLit Int value temp)
+      (14:30-14:31 IntLit Int value temp)
+      (15:5-15:26 Call.paren Void value temp (call borrow_arguments.bump(n: &var Int)))
+      (15:10-15:25 BorrowPlace.var &var Int value temp)
+      (15:21-15:25 Subscript.single Int place borrow-var (place std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
+      (15:21-15:22 Name std.vector.Vector<Int, std.alloc.GlobalAllocator> (borrow-var &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) place borrow-var)
+      (15:23-15:24 IntLit Int value temp)
+      (16:5-16:29 Call.paren Void value temp (builtin print))
+      (16:11-16:28 Call.paren Int value borrow (call borrow_arguments.peek(n: &Int)))
+      (16:16-16:27 BorrowPlace.shared &Int value temp)
+      (16:23-16:27 Subscript.single Int place borrow (place std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
+      (16:23-16:24 Name std.vector.Vector<Int, std.alloc.GlobalAllocator> (borrow &std.vector.Vector<Int, std.alloc.GlobalAllocator>) place borrow)
+      (16:25-16:26 IntLit Int value temp))))

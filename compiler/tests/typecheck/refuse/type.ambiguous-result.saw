@@ -1,0 +1,6 @@
+// refuses: type.ambiguous-result at 5:12
+// a literal returned where both of a Result's payloads could take it
+
+func parse() -> Result<Int32, Int8> {
+    return 4
+}

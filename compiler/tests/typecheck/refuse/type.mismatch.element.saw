@@ -1,0 +1,6 @@
+// refuses: type.mismatch at 5:30
+// a collection literal's element of another type than the element's
+
+func main() {
+    let v: Vector<Int> = [1, "two"]
+}

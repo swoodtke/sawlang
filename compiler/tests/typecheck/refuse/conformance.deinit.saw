@@ -1,0 +1,12 @@
+// refuses: conformance.deinit at 8:19
+// a conformance to `Deinit` itself, which takes none (design 131)
+
+struct Handle {
+    fd: Int
+}
+
+extension Handle: Deinit {
+    func deinit(&var self) {
+        self.fd = 0
+    }
+}

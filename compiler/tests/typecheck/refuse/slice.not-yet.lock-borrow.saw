@@ -1,0 +1,8 @@
+// refuses: slice.not-yet at 7:20
+// a `borrow` block over a method that lends through a closure parameter
+
+import std.mutex.{Mutex}
+
+func peek(m: &Mutex<Int>) -> Bool {
+    borrow var c = m.lock() { c > 0 }
+}

@@ -1,8 +1,54 @@
 # The one-time check against the frozen compiler
 
-The record of `frozen_check.py`, run once for SL-447's U6b1. The frozen
-compiler's answers are checked and recorded here; they are never the
-definition of what typecheck must answer.
+The record of `frozen_check.py`, run once for SL-447's U6b1 and again for its
+U6b2. The frozen compiler's answers are checked and recorded here; they are
+never the definition of what typecheck must answer.
+
+## Bodies: call targets, instantiations and binding types (U6b2)
+
+Over the sawc2 build as it stood when U6b2's literal arms and static peers
+were fixed (D17), the driver and the lex, parse, resolve and typecheck
+packages, the typecheck package's body half included:
+
+- **5070 `let` and `var` binding types agree**, by file, line and name, and
+  none differs.
+- **10230 receiver types agree**, each method call's receiver as the frozen
+  compiler annotates it against the type sawc2 instantiates the method at,
+  and none differs.
+- **1259 overload choices agree**: each call of an overloaded method, which
+  in this build is `StringBuilder.append` for `String`, `Int` and `Byte`, by
+  the parameter type the chosen overload takes first. None differs.
+- **583 free-function modules agree**: for each call the frozen compiler
+  records with a module-qualified symbol, the module sawc2's chosen target is
+  declared in. None differs.
+- **215 instantiations agree**: each generic call's type arguments, which in
+  this build are `Vector`'s constructions and the generic helpers `put_at`
+  and `trim_to`, and none differs.
+
+The field types, signatures and Copy tiers of the section below were checked
+again on the same run, and still agree (548, 1402 and 110, the counts grown
+with the typecheck package).
+
+A call is compared by file, line and callee name, as a multiset of what each
+compiler records there, since the frozen compiler places a method call at its
+`.` and sawc2 at its receiver. Translations, each applied by the script:
+
+- a receiver's reference is read through, as sawc2's owner is the type a
+  method is instantiated at;
+- the frozen overload symbol `StringBuilder_append$OL$String` names the
+  overload by its first parameter's type, which is compared with the first
+  parameter of sawc2's target;
+- the frozen module symbol `f$m$sawresolve_src_kinds` is compared with sawc2's
+  target module, `sawresolve.src.kinds`; the entry module is unnamed in the
+  frozen symbol and named `main` by sawc2;
+- a construction's frozen type arguments, `Vector` with `Int,
+  GlobalAllocator`, are compared with the arguments of the type sawc2
+  instantiates the `init` at;
+- the frozen compiler lowers a subscript into `[]` and `__lend_var_[]` calls
+  and annotates `Vector.get` with its window's result type; neither is an
+  instantiation, so both are left out;
+- only a `let` or `var` statement's binding is compared, since the frozen
+  compiler keeps an optional binding's type elsewhere.
 
 ## Signatures and Copy tiers (`frozen_check.py`)
 

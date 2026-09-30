@@ -1,0 +1,18 @@
+// refuses: type.mismatch at 16:46
+// a concrete error as an erased Result parameter's default: a default does not erase
+
+struct Fault {
+    code: Int
+}
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let _ = into.append("fault")
+    }
+}
+
+extension Fault: Error {}
+
+func padded(r: Result<Int, Box<any Error>> = Fault(code: 3)) -> Int {
+    0
+}

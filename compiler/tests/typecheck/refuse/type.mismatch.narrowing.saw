@@ -1,0 +1,7 @@
+// refuses: type.mismatch at 6:19
+// a narrowing transfer, which only a written conversion makes
+
+func main() {
+    let n: Int = 300
+    let b: Int8 = n
+}

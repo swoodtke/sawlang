@@ -1,0 +1,7 @@
+// refuses: type.mismatch at 6:21
+// a literal operand that cannot take the other operand's type
+
+func main() {
+    let s = "four"
+    let same = s == 4
+}

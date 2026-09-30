@@ -1,0 +1,80 @@
+// A lossless integer widening is free at every transfer position, value
+// branch arms and `??`'s fallback included, and never between an operator's
+// peers; a bare literal arm adopts the type the other arms merge into, and
+// arms that are all literals are `Int`; a suffixed literal is exact-typed; a
+// module static may be a leaf of a constant and keeps its declared type
+// anywhere else, and a shift's count is no peer.
+
+static SHIFT: Int = 8
+
+struct Wide {
+    n: Int
+}
+
+enum Held {
+    case Value(n: Int)
+}
+
+func spec_arms(a: Int) -> Int {
+    if a > 0 { 11 } else { 7i16 }
+}
+
+func take(n: Int) -> Int {
+    n
+}
+
+func defaulted(n: Int = 3u8) -> Int {
+    n
+}
+
+func returned(u: UInt32) -> Int {
+    return u
+}
+
+func positions(u: UInt32, s: Int16, b: UInt8, o: Int?) -> Int {
+    let x: Int = u
+    var y: Int = 0
+    y = s
+    let p: Int? = b
+    let w = Wide(n: b)
+    let h = Held.Value(n: s)
+    let v: Vector<Int> = [u, s]
+    let f = o ?? s
+    let q: UInt = b
+    x + y + take(u) + w.n + f + v.len() + defaulted()
+}
+
+func merged(flag: Bool, s: Int16, n: Int) -> Int {
+    let first = if flag { s } else { n }
+    let second = match flag {
+        case true -> n,
+        case false -> s
+    }
+    first + second
+}
+
+func literal_arms(flag: Bool, x16: Int16, b: UInt8) -> Bool {
+    let first = if flag { 1 } else { x16 }
+    let second = if flag { x16 } else { 1 }
+    let third = match b {
+        case 0 -> 4,
+        case 1 -> b,
+        case _ -> 5
+    }
+    let fourth = if flag { 1 } else { 2 }
+    first + second > 0 && third > 0 && fourth > 0
+}
+
+func constants(flag: UInt32, count: Int) -> Bool {
+    let exact = 100u8 + 100u8
+    let shifted = flag << count
+    let folded: Int = SHIFT + 1
+    exact == 200 && flag >= (1 << SHIFT) && flag >= SHIFT as UInt32 && shifted > 0 && folded > 0
+}
+
+func main() {
+    print(spec_arms(3) + positions(1, 2, 3, None) + merged(true, 4, 5))
+    print(literal_arms(true, 6, 7))
+    print(returned(6))
+    print(constants(512, 1))
+}

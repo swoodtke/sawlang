@@ -1,0 +1,11 @@
+// refuses: slice.not-yet at 10:13
+// `TaskGroup.spawn`, which the compiler lowers
+
+func work(n: Int) -> Int {
+    n
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(work(1))
+}

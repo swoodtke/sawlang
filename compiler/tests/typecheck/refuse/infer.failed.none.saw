@@ -1,0 +1,6 @@
+// refuses: infer.failed at 5:19
+// `None` where nothing says what it is a `None` of
+
+func main() {
+    let nothing = None
+}

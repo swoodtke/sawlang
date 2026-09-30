@@ -1,0 +1,10 @@
+// refuses: slice.not-yet at 8:27
+// a default of a type parameter's type that is no literal, which would need a typing per instantiation
+
+func zero() -> Int {
+    0
+}
+
+func pick<T>(a: T, b: T = zero()) -> T {
+    a
+}

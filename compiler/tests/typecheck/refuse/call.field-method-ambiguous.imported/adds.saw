@@ -1,0 +1,7 @@
+import handler.{Handler}
+
+extension Handler {
+    public func f(&self, n: Int) -> Int {
+        n + 1
+    }
+}

@@ -1,0 +1,71 @@
+(Module inference
+  (declarations
+    (struct Pair 6:8 private (generics (A) (B)))
+    (field Pair.first 7:5 private A)
+    (field Pair.second 8:5 private B)
+    (func first_of 11:6 private (signature (generics (T)) (params (items std.vector.Vector<T, std.alloc.GlobalAllocator> owned) (fallback T owned)) -> T))
+    (func either 15:6 private (signature (generics (T)) (params (a T? owned) (b T owned)) -> T))
+    (func apply 19:6 private (signature (generics (T) (U)) (params (value T owned) (f (T) -> U owned)) -> U))
+    (func sized 23:6 private (signature (generics (T)) (params) -> Int))
+    (func defaulted 27:6 private (signature (generics (T (default Int))) (params) -> Int))
+    (func inference 31:6 private (signature (params) -> Int)))
+  (members
+    (inference.Pair
+      (field first A private declared)
+      (field second B private declared)))
+  (views
+    (inference.Pair first second))
+  (conformances)
+  (copy-tier
+    (inference.Pair (join Copy A B)))
+  (bodies
+    (first_of 11:6
+      (12:5-12:13 Name T place copy))
+    (either 15:6
+      (16:5-16:6 Name T place copy))
+    (apply 19:6
+      (20:5-20:13 Call.paren U value temp (value (owner (T) -> U)))
+      (20:5-20:6 Name (T) -> U place borrow)
+      (20:7-20:12 Name T place copy))
+    (sized 23:6
+      (24:5-24:16 Call.paren Int value temp (builtin sizeof)))
+    (defaulted 27:6
+      (28:5-28:6 IntLit Int value temp))
+    (inference 31:6
+      (32:9-32:10 BindingName std.vector.Vector<String, std.alloc.GlobalAllocator> place temp)
+      (32:29-32:37 Call.paren std.vector.Vector<String, std.alloc.GlobalAllocator> value temp (call std.vector.Vector.init() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>)))
+      (33:9-33:10 BindingName String place temp)
+      (33:13-33:37 Call.paren String value temp (call inference.first_of(items: std.vector.Vector<T, std.alloc.GlobalAllocator>, fallback: T) (inst String)))
+      (33:22-33:28 Move std.vector.Vector<String, std.alloc.GlobalAllocator> value move)
+      (33:27-33:28 Name std.vector.Vector<String, std.alloc.GlobalAllocator> place move)
+      (33:30-33:36 StringLit String value temp)
+      (34:9-34:10 BindingName Int place temp)
+      (34:13-34:39 Call.paren Int value temp (call inference.first_of(items: std.vector.Vector<T, std.alloc.GlobalAllocator>, fallback: T) (inst Int)))
+      (34:22-34:35 Call.paren std.vector.Vector<Int, std.alloc.GlobalAllocator> value temp (call std.vector.Vector.init() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
+      (34:37-34:38 IntLit Int value temp)
+      (35:9-35:10 BindingName Int place temp)
+      (35:13-35:28 Call.paren Int value temp (call inference.either(a: T?, b: T) (inst Int)))
+      (35:20-35:24 NoneLit Int? value temp)
+      (35:26-35:27 IntLit Int value temp)
+      (36:9-36:12 BindingName Int place temp)
+      (36:15-36:54 Call.paren Int value temp (call inference.apply(value: T, f: (T) -> U) (inst String Int)))
+      (36:21-36:27 StringLit String value temp)
+      (36:29-36:53 Closure (String) -> Int value temp)
+      (36:44-36:51 Call.paren Int value temp (call std.string.String.len() (owner String)))
+      (36:44-36:45 Name String (borrow &String) place borrow)
+      (37:9-37:13 BindingName Int place temp)
+      (37:16-37:28 Call.paren Int value temp (call inference.sized() (inst Int)))
+      (38:9-38:10 BindingName Int place temp)
+      (38:13-38:24 Call.paren Int value temp (call inference.defaulted() (inst Int)))
+      (39:9-39:10 BindingName inference.Pair<Int, String> place temp)
+      (39:13-39:42 Call.paren inference.Pair<Int, String> value temp (memberwise inference.Pair (owner inference.Pair<Int, String>)))
+      (39:25-39:26 IntLit Int value temp)
+      (39:36-39:41 StringLit String value temp)
+      (40:5-40:37 Binary Int value temp (op + + + + +))
+      (40:5-40:6 Name Int place copy)
+      (40:9-40:10 Name Int place copy)
+      (40:13-40:16 Name Int place copy)
+      (40:19-40:23 Name Int place copy)
+      (40:26-40:27 Name Int place copy)
+      (40:30-40:37 Member Int place copy)
+      (40:30-40:31 Name inference.Pair<Int, String> place project))))

@@ -1,0 +1,10 @@
+// refuses: type.mismatch at 9:26
+// a bare value two optional levels below its field: a memberwise argument wraps one level
+
+struct Holder {
+    slot: Int??
+}
+
+func main() {
+    let _ = Holder(slot: 5)
+}

@@ -1,0 +1,27 @@
+// `==` and `<` through a bound's requirement, the structural comparison of a
+// trivially copyable struct's automatic `Equatable`, and a tuple's, which is
+// Equatable when every element is (spec, Equality).
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+func same<T: Equatable>(a: T, b: T) -> Bool {
+    a == b
+}
+
+func less<T: Comparable>(a: T, b: T) -> Bool {
+    a < b
+}
+
+func main() {
+    let p = Point(x: 1, y: 2)
+    let q = Point(x: 1, y: 2)
+    let t = (1, "a")
+    let u = (1, "a")
+    print(p == q)
+    print(t != u)
+    print(same(1, 2))
+    print(less(1, 2))
+}

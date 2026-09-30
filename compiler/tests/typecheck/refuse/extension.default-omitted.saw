@@ -1,0 +1,8 @@
+// refuses: extension.default-omitted at 4:11
+// an extension head renaming only the undefaulted parameters, refused with the head written out (D14)
+
+extension Vector<T> {
+    func count_all(&self) -> Int {
+        self.len()
+    }
+}

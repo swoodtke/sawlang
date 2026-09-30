@@ -1,0 +1,364 @@
+// The type questions the body half asks of interned types: what a type is,
+// what it holds, and the builtin types a literal, a condition or a range has
+// with no name occurrence to read.
+
+import sawresolve.src.model.{ResDecl, ResDeclKind}
+import sawtypecheck.src.declarations.{tc_build_signatures}
+import sawtypecheck.src.model.{TC_TIER_COPY, TcTier}
+import sawtypecheck.src.program.{TcKnown, TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.tier.{tc_tier}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// What asks an expected type to be peeled: each takes some types as they are
+// and looks through the rest (SL:architecture §3.4, "Peeling").
+public enum TcClient {
+    // A bare integer literal, or a constant expression over them.
+    case Integer,
+    // A float literal.
+    case Floating,
+    // An implicit member, `.Case`: an enum declaring that case.
+    case Member,
+    // A zero-argument or memberwise construction of one declaration.
+    case Construct
+}
+
+extension TcProgram {
+    // Builtin type `d`, which takes no arguments.
+    public func prim(&var self, d: Int) -> Int {
+        let none = Vector<Int>()
+        self.mk_nominal(d, &none)
+    }
+
+    public func int_type(&var self) -> Int {
+        let d = self.known.int
+        self.prim(d)
+    }
+
+    public func bool_type(&var self) -> Int {
+        let d = self.known.bool_type
+        self.prim(d)
+    }
+
+    public func string_type(&var self) -> Int {
+        let d = self.known.string
+        self.prim(d)
+    }
+
+    public func float_type(&var self) -> Int {
+        let d = self.known.float
+        self.prim(d)
+    }
+
+    public func never_type(&var self) -> Int {
+        let d = self.known.never
+        self.prim(d)
+    }
+
+    public func mk_result(&var self, ok: Int, err: Int) -> Int {
+        var args = Vector<Int>()
+        try! args.push(ok)
+        try! args.push(err)
+        let d = self.known.result
+        self.mk_nominal(d, &args)
+    }
+
+    // Whether `t` is nominal declaration `d` applied to any arguments.
+    public func is_nominal_of(&self, t: Int, d: Int) -> Bool {
+        if t < 0 || d < 0 {
+            return false
+        }
+        let info = self.types.ty(t)
+        info.kind == TcKind.Nominal && info.decl == d
+    }
+
+    // The declaration of nominal type `t`, or -1.
+    public func nominal_decl(&self, t: Int) -> Int {
+        if t < 0 {
+            return -1
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Nominal {
+            return info.decl
+        }
+        return -1
+    }
+
+    public func is_integer(&self, t: Int) -> Bool {
+        let d = self.nominal_decl(t)
+        if d < 0 {
+            return false
+        }
+        let k = self.known
+        d == k.int || d == k.uint || d == k.int8 || d == k.int16 || d == k.int32 || d == k.int64 || d == k.uint8 || d == k.uint16 || d == k.uint32 || d == k.uint64
+    }
+
+    public func is_unsigned(&self, t: Int) -> Bool {
+        let d = self.nominal_decl(t)
+        let k = self.known
+        d >= 0 && (d == k.uint || d == k.uint8 || d == k.uint16 || d == k.uint32 || d == k.uint64)
+    }
+
+    // Whether integer type `t` is the platform pair, `Int` or `UInt`.
+    public func is_platform_int(&self, t: Int) -> Bool {
+        let d = self.nominal_decl(t)
+        d >= 0 && (d == self.known.int || d == self.known.uint)
+    }
+
+    // The bit width of integer type `t`. The platform pair is pointer-width
+    // (design 47), read as the 64-bit hosted target's until sawc2 takes a
+    // target.
+    public func int_width(&self, t: Int) -> Int {
+        let d = self.nominal_decl(t)
+        let k = self.known
+        if d == k.int8 || d == k.uint8 {
+            return 8
+        }
+        if d == k.int16 || d == k.uint16 {
+            return 16
+        }
+        if d == k.int32 || d == k.uint32 {
+            return 32
+        }
+        64
+    }
+
+    // Whether a transfer of integer type `from` into `to` is the implicit
+    // lossless widening (spec, Integer Width Agreement): the identity,
+    // same-sign widening, or unsigned into strictly wider signed, with the
+    // platform pair on at least one side, since two fixed widths never
+    // convert implicitly.
+    public func widens_losslessly(&self, from: Int, to: Int) -> Bool {
+        if from == to || not self.is_integer(from) || not self.is_integer(to) {
+            return false
+        }
+        if not self.is_platform_int(from) && not self.is_platform_int(to) {
+            return false
+        }
+        let fw = self.int_width(from)
+        let tw = self.int_width(to)
+        let fu = self.is_unsigned(from)
+        let tu = self.is_unsigned(to)
+        if fu == tu {
+            return fw <= tw
+        }
+        fu && fw < tw
+    }
+
+    public func is_float(&self, t: Int) -> Bool {
+        let d = self.known.float
+        self.is_nominal_of(t, d)
+    }
+
+    public func is_numeric(&self, t: Int) -> Bool {
+        self.is_integer(t) || self.is_float(t)
+    }
+
+    public func is_bool(&self, t: Int) -> Bool {
+        let d = self.known.bool_type
+        self.is_nominal_of(t, d)
+    }
+
+    public func is_string(&self, t: Int) -> Bool {
+        let d = self.known.string
+        self.is_nominal_of(t, d)
+    }
+
+    public func is_void(&self, t: Int) -> Bool {
+        let d = self.known.void_type
+        self.is_nominal_of(t, d)
+    }
+
+    public func is_never(&self, t: Int) -> Bool {
+        let d = self.known.never
+        self.is_nominal_of(t, d)
+    }
+
+    public func is_optional(&self, t: Int) -> Bool {
+        let d = self.known.optional
+        self.is_nominal_of(t, d)
+    }
+
+    public func is_result(&self, t: Int) -> Bool {
+        let d = self.known.result
+        self.is_nominal_of(t, d)
+    }
+
+    // Argument `k` of nominal or tuple type `t`.
+    public func arg_of(&self, t: Int, k: Int) -> Int {
+        self.types.arg(t, k)
+    }
+
+    public func is_error_type(&self, t: Int) -> Bool {
+        if t < 0 {
+            return true
+        }
+        let info = self.types.ty(t)
+        info.kind == TcKind.Error
+    }
+
+    // Whether `t` holds a type that could not be formed anywhere in it.
+    public func has_error(&self, t: Int) -> Bool {
+        if t < 0 {
+            return true
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Error {
+            return true
+        }
+        let has_inner = info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array
+        if has_inner && info.b >= 0 && self.has_error(info.b) {
+            return true
+        }
+        var k = 0
+        while k < info.count {
+            let a = self.types.arg(t, k)
+            if self.has_error(a) {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // What reference `t` refers to, or -1 when `t` is no reference.
+    public func referent(&self, t: Int) -> Int {
+        if t < 0 {
+            return -1
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Ref {
+            return info.b
+        }
+        return -1
+    }
+
+    public func is_exclusive_ref(&self, t: Int) -> Bool {
+        let info = self.types.ty(t)
+        (info.kind == TcKind.Ref || info.kind == TcKind.Slice) && info.a == 1
+    }
+
+    public func kind_of(&self, t: Int) -> TcKind {
+        let info = self.types.ty(t)
+        info.kind
+    }
+
+    // Whether values of type `t` copy silently: the Copy tier, with a rule's
+    // arguments evaluated. A type parameter answers yes here, since whether
+    // a generic body duplicates one is the inferred requirement a later
+    // phase checks at each call (design 219).
+    public func copies_silently(&var self, t: Int) -> Bool {
+        let info = self.types.ty(t)
+        match info.kind {
+            case Param -> true,
+            case SelfType -> true,
+            case Assoc -> true,
+            case Error -> true,
+            case Nominal -> {
+                let rule = self.tier_of_decl(info.decl)
+                if rule.base != TC_TIER_COPY {
+                    return false
+                }
+                var k = 0
+                while k < info.count {
+                    let bit = 1 << k
+                    if (rule.mask & bit) != 0 {
+                        let a = self.types.arg(t, k)
+                        if not self.copies_silently(a) {
+                            return false
+                        }
+                    }
+                    k = k + 1
+                }
+                true
+            },
+            case Tuple -> {
+                var k = 0
+                while k < info.count {
+                    let a = self.types.arg(t, k)
+                    if not self.copies_silently(a) {
+                        return false
+                    }
+                    k = k + 1
+                }
+                true
+            },
+            case Array -> self.copies_silently(info.b),
+            case Any -> false,
+            case _ -> true
+        }
+    }
+
+    // The tier name of `t` for a message: `ExplicitCopy` or `NoCopy`.
+    public func tier_word(&var self, t: Int) -> String {
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Nominal {
+            let rule = self.tier_of_decl(info.decl)
+            if rule.base == 1 {
+                return "ExplicitCopy"
+            }
+        }
+        "NoCopy"
+    }
+
+    // Whether declaration `d` is a type nothing declares, one the synthetic
+    // builtin module holds.
+    public func is_primitive_decl(&self, d: Int) -> Bool {
+        if d < 0 {
+            return false
+        }
+        let info = self.res.decls[d]
+        info.kind == ResDeclKind.Primitive
+    }
+
+    // Whether declaration `d` is an enum.
+    public func is_enum_decl(&self, d: Int) -> Bool {
+        if d < 0 {
+            return false
+        }
+        let info = self.res.decls[d]
+        info.kind == ResDeclKind.Enum
+    }
+
+    public func is_struct_decl(&self, d: Int) -> Bool {
+        if d < 0 {
+            return false
+        }
+        let info = self.res.decls[d]
+        info.kind == ResDeclKind.Struct
+    }
+
+    // The case of enum `d` named `name`, or -1.
+    public func case_named(&self, d: Int, name: Int) -> Int {
+        if not self.is_enum_decl(d) {
+            return -1
+        }
+        let at = self.res.members.first(d, name)
+        if at < 0 {
+            return -1
+        }
+        let c = self.res.members.value(at)
+        let info = self.res.decls[c]
+        if info.kind == ResDeclKind.Case {
+            return c
+        }
+        return -1
+    }
+
+    // The field of struct `d` named `name`, or -1.
+    public func field_named(&self, d: Int, name: Int) -> Int {
+        if not self.is_struct_decl(d) {
+            return -1
+        }
+        let at = self.res.members.first(d, name)
+        if at < 0 {
+            return -1
+        }
+        let f = self.res.members.value(at)
+        let info = self.res.decls[f]
+        if info.kind == ResDeclKind.Field {
+            return f
+        }
+        return -1
+    }
+}

@@ -1,0 +1,8 @@
+// refuses: type.mismatch at 7:14
+// a compound assignment's right side is a peer, which never widens
+
+func main() {
+    var total = 0
+    let small: Int16 = 3
+    total += small
+}

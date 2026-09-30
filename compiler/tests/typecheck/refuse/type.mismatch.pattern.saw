@@ -1,0 +1,9 @@
+// refuses: type.mismatch at 6:14
+// a literal pattern of another type than the matched value
+
+func name(n: Int) -> Int {
+    match n {
+        case "one" -> 1,
+        case _ -> 0
+    }
+}

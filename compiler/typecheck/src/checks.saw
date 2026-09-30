@@ -6,7 +6,8 @@ import sawresolve.src.dump.{res_sort_strings}
 import sawresolve.src.model.{ResDecl, ResDeclKind}
 import sawtypecheck.src.conform.{TcSubst, tc_args_subst}
 import sawtypecheck.src.declarations.{tc_build_signatures}
-import sawtypecheck.src.model.{TC_EFFECT_UNSAFE, TC_FLAG_UNSAFE_STRUCT, TcParam, TcReceiver, TcSig}
+import sawtypecheck.src.model.{TC_EFFECT_UNSAFE, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_WRITTEN_RETURN, TcParam,
+                               TcReceiver, TcSig}
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.signatures.{TcContext}
 import sawtypecheck.src.spell.{tc_effects_text}
@@ -21,6 +22,12 @@ public func tc_check_finite_size(p: &var TcProgram) {
 // The signature half of `unsafe`.
 public func tc_check_unsafe(p: &var TcProgram) {
     p.check_unsafe()
+}
+
+// What an `init` returns, and the conformances `Deinit` refuses.
+public func tc_check_inits(p: &var TcProgram) {
+    p.check_inits()
+    p.check_deinit_conformances()
 }
 
 // How many distinct instantiations one containment path may cross. A path
@@ -198,6 +205,91 @@ extension TcProgram {
         try! msg.append("; hold the recursive member behind a heap indirection, such as `Box` or `Vector`")
         let site = self.decl_site(d)
         self.refuse_in(info.module, site, "type.infinite-size", msg.build())
+    }
+}
+
+// What an `init` returns, and `Deinit`'s conformances.
+extension TcProgram {
+    // An `init` returns its receiver, or `Result<Receiver, E>`; an optional
+    // is refused on its own terms, since a `None` names no cause (spec,
+    // "What an init may return").
+    public func check_inits(&var self) {
+        var d = 0
+        while d < self.res.decls.len() {
+            let info = self.res.decls[d]
+            d = d + 1
+            if info.kind != ResDeclKind.Init || info.node < 0 {
+                continue
+            }
+            let s = self.sigs[d - 1]
+            if (s.flags & TC_FLAG_WRITTEN_RETURN) == 0 || self.has_error_type(s.result) {
+                continue
+            }
+            let receiver = self.init_receiver(d - 1)
+            if receiver < 0 || s.result == receiver {
+                continue
+            }
+            let r = self.types.ty(s.result)
+            if r.kind == TcKind.Nominal && r.decl == self.known.result && self.types.arg(s.result, 0) == receiver {
+                continue
+            }
+            var msg = StringBuilder()
+            if r.kind == TcKind.Nominal && r.decl == self.known.optional {
+                try! msg.append("an `init` may not return an optional: an optional creation is `Result<")
+                try! msg.append(self.type_text(receiver))
+                try! msg.append(", E>`, because a `None` names no cause")
+            } else {
+                try! msg.append("an `init` returns its receiver, `")
+                try! msg.append(self.type_text(receiver))
+                try! msg.append("`, or `Result<")
+                try! msg.append(self.type_text(receiver))
+                try! msg.append(", E>`, and this one returns `")
+                try! msg.append(self.type_text(s.result))
+                try! msg.append("`")
+            }
+            let site = self.decl_site(d - 1)
+            self.refuse_in(info.module, site, "init.result", msg.build())
+        }
+    }
+
+    // The receiver an `init` builds: its extension's type, applied to the
+    // extension's parameters.
+    func init_receiver(&var self, d: Int) -> Int {
+        let info = self.res.decls[d]
+        if info.parent < 0 {
+            return -1
+        }
+        let target = self.ext_target(info.parent)
+        if target < 0 {
+            return -1
+        }
+        self.self_type_of(target)
+    }
+
+    func has_error_type(&self, t: Int) -> Bool {
+        if t < 0 {
+            return true
+        }
+        let info = self.types.ty(t)
+        info.kind == TcKind.Error
+    }
+
+    // `Deinit` is never conformed to directly: a hand-written body goes in
+    // the type's copy policy (design 131).
+    public func check_deinit_conformances(&var self) {
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if c.trait_decl != self.known.deinit {
+                continue
+            }
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(self.res.decl_path(c.type_decl))
+            try! msg.append("` conforms to `Deinit` directly, and `Deinit` takes no conformance: a hand-written `deinit` goes in the type's copy policy, `NoCopy`, `ExplicitCopy` or `Copy`")
+            self.refuse_in(c.module, c.node, "conformance.deinit", msg.build())
+        }
     }
 }
 

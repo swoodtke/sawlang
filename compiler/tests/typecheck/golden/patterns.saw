@@ -1,0 +1,74 @@
+// Pattern typing: wildcards, literals, ranges, tuples, variants with their
+// payloads, a guard, `None`; `if let`, `guard let` and `while let`; borrow
+// bindings. A lone name resolve took for a case, whose candidates include
+// the matched enum's, types as that case (SL:open-questions D13), while a
+// lone name no enum declares binds.
+
+enum Compass {
+    case North,
+    case South
+}
+
+enum Pole {
+    case North,
+    case Equator
+}
+
+enum Shape {
+    case Circle(radius: Int),
+    case Rect(w: Int, h: Int),
+    case Dot
+}
+
+func area(s: Shape) -> Int {
+    match s {
+        case Circle(r) -> r * r * 3,
+        case Rect(w, h) if w > 0 -> w * h,
+        case Rect(_, _) -> 0,
+        case Dot -> 1
+    }
+}
+
+func band(n: Int) -> Int {
+    match n {
+        case 0 -> 0,
+        case 1..=9 -> 1,
+        case -1 -> 2,
+        case other -> other
+    }
+}
+
+func pole(c: Compass) -> Bool {
+    match c {
+        case North -> true,
+        case South -> false
+    }
+}
+
+func pair(p: (Int, String)) -> Int {
+    match p {
+        case (0, "zero") -> 0,
+        case (n, _) -> n
+    }
+}
+
+func optional(o: Int?) -> Int {
+    match o {
+        case Some(v) -> v,
+        case None -> 0
+    }
+}
+
+func bindings(o: Int?, list: Vector<Int>) -> Int {
+    guard let first = o else {
+        return 0
+    }
+    if let again = o {
+        return again
+    }
+    var i = 0
+    while let item = list.get(i) {
+        i = i + item
+    }
+    first
+}

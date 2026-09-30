@@ -1,0 +1,6 @@
+// refuses: type.mismatch at 5:9
+// an operator's peers agree: a suffixed literal is exact-typed and never widens
+
+func doubling(n: Int) -> Int {
+    n * 2i16
+}

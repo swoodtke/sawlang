@@ -552,7 +552,7 @@ extension TcProgram {
     // The builtin conformances of the types no source declares (design 109):
     // the numbers, `Bool` and `String` meet the value traits, and the raw
     // pointers only Copy and Equatable.
-    func primitive_grants(&self, d: Int, tr: Int) -> Bool {
+    public func primitive_grants(&self, d: Int, tr: Int) -> Bool {
         let info = self.res.decls[d]
         if info.kind != ResDeclKind.Primitive {
             return false
@@ -570,7 +570,7 @@ extension TcProgram {
     // Whether `t` is trivially copyable: a number, `Bool`, a pointer, or a
     // type declaring no policy whose members all are. Such a struct, and a
     // payload-free enum, meets Equatable and Hashable with no declaration.
-    func is_trivial(&var self, t: Int, depth: Int) -> Bool {
+    public func is_trivial(&var self, t: Int, depth: Int) -> Bool {
         if depth > 32 {
             return false
         }

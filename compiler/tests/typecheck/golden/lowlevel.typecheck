@@ -1,0 +1,53 @@
+(Module lowlevel
+  (declarations
+    (extern printf 7:10 private (signature (params (format UnsafePointer<UInt8> owned)) -> Int32 variadic))
+    (static COUNTER 10:19 private Int unsafe-var)
+    (struct Buffer 12:8 private (generics (A (bounds std.alloc.Allocator) (default std.alloc.GlobalAllocator))))
+    (field Buffer.size 13:5 private Int)
+    (extension 16:1 (target lowlevel.Buffer<A>) (where (A std.alloc.Allocator)))
+    (method Buffer.grab 17:10 private (signature (receiver shared) (params) (effects unsafe) -> UnsafePointer<Int8>?))
+    (func raw 22:6 private (signature (params (p UnsafePointer<Int> owned) (n &var Int exclusive)) (effects unsafe) -> Int)))
+  (members
+    (lowlevel.Buffer
+      (field size Int private declared)
+      (method grab private (extension lowlevel))))
+  (views
+    (lowlevel.Buffer size grab))
+  (conformances)
+  (copy-tier
+    (lowlevel.Buffer Copy))
+  (bodies
+    (COUNTER 10:19
+      (10:34-10:35 IntLit Int value temp))
+    (Buffer.grab 17:10
+      (18:9-18:45 Call.paren UnsafePointer<Int8>? value temp (call std.alloc.Allocator.alloc(size: Int, align: Int) (owner A)))
+      (18:9-18:12 Call.paren A (borrow &A) value borrow (builtin init (owner A)))
+      (18:19-18:28 Member Int place copy)
+      (18:19-18:23 SelfExpr lowlevel.Buffer<A> place project)
+      (18:30-18:44 Call.paren Int value temp (builtin alignof)))
+    (raw 22:6
+      (23:9-23:14 BindingName Int place temp)
+      (23:17-23:19 Deref Int place copy)
+      (23:18-23:19 Name UnsafePointer<Int> place copy)
+      (24:9-24:14 BindingName Int place temp)
+      (24:17-24:21 Subscript.single Int place copy (op []))
+      (24:17-24:18 Name UnsafePointer<Int> place copy)
+      (24:19-24:20 IntLit Int value temp)
+      (25:9-25:16 BindingName UnsafePointer<Int> place temp)
+      (25:19-25:49 Cast UnsafePointer<Int> value temp)
+      (25:20-25:26 Ref.exclusive &var Int value temp)
+      (25:25-25:26 Name &var Int (deref Int) place borrow-var)
+      (26:5-26:12 Name Int place write)
+      (26:15-26:26 Binary Int value temp (op +))
+      (26:15-26:22 Name Int place copy)
+      (26:25-26:26 IntLit Int value temp)
+      (27:9-27:10 BindingName Int32 place temp)
+      (27:13-27:66 Call.paren Int32 value temp (call lowlevel.printf(format: UnsafePointer<UInt8>)))
+      (27:20-27:51 Cast UnsafePointer<UInt8> value temp)
+      (27:20-27:27 Name UnsafePointer<Int> place copy)
+      (27:53-27:58 Name Int place copy)
+      (27:60-27:65 Name Int place copy)
+      (28:5-28:34 Binary Int value temp (op + +))
+      (28:5-28:10 Name Int place copy)
+      (28:13-28:18 Name Int place copy)
+      (28:21-28:34 Call.paren Int value temp (builtin sizeof)))))

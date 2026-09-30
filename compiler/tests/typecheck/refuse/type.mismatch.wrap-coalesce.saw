@@ -1,0 +1,6 @@
+// refuses: type.mismatch at 5:12
+// `??`'s fallback two optional levels below the payload: the fallback wraps one level
+
+func fallback(ooo: Int???) -> Int?? {
+    ooo ?? 5
+}

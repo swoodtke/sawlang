@@ -49,7 +49,7 @@ extension Account {
     }
 
     public func find(&self, index: Int) borrows -> &Int? {
-        lend self.history.find(index)
+        lend self.history.get(index)
     }
 
     public func held(&self) sync borrows(sync) -> &Int {

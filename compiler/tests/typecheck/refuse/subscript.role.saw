@@ -1,0 +1,11 @@
+// refuses: subscript.role at 10:13
+// a subscript of a type that declares no `[]`
+
+struct Row {
+    first: Int
+}
+
+func main() {
+    let r = Row(first: 1)
+    let x = r[0]
+}

@@ -1,0 +1,69 @@
+// The conversions a position applies, each an adjustment step: auto-wrap
+// into an Optional and into a Result's `Ok` or `Err`, `Never` to anything,
+// `&v` to a slice, an exclusive reference where a shared one is expected, a
+// reference read through, and erasure into an existential.
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+struct Square {
+    side: Int
+}
+
+extension Square: Shape {
+    func area(&self) -> Int {
+        self.side * self.side
+    }
+}
+
+enum Fault {
+    case Broken
+}
+
+func maybe(n: Int) -> Int? {
+    n
+}
+
+func outcome(n: Int, fault: Fault) -> Result<Int, Fault> {
+    if n > 0 {
+        return n
+    }
+    fault
+}
+
+func diverge() -> Int {
+    panic("never returns")
+}
+
+func total(values: &[Int]) -> Int {
+    values.len()
+}
+
+func peek(p: &Square) -> Int {
+    p.side
+}
+
+func through(p: &Int) -> Int {
+    p
+}
+
+func conversions(v: &var Vector<Int>, s: &var Square) -> Int {
+    let n = total(&v)
+    let m = peek(s)
+    let shape: &any Shape = &Square(side: 2)
+    n + m
+}
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let _ = into.append("broken")
+    }
+}
+
+extension Fault: Error {}
+
+func erased(n: Int) -> Result<Int, Box<any Error>> {
+    let v = try outcome(n, Fault.Broken)
+    v
+}

@@ -151,7 +151,7 @@ these things.
 - **Type checking** (`typecheck/README.md`): the typecheck lane
   (`tests/typecheck/typecheck_lane.py`) holds `sawc2 typecheck` to its golden
   dumps and refusal fixtures, requires a fixture for every rule it refuses by,
-  and checks the signatures of the compiler's own source whole, the sawc2
+  and checks the compiler's own source whole, signatures and bodies, the sawc2
   build and each unit program, with no refusal and no verifier problem.
 
 ## The subset

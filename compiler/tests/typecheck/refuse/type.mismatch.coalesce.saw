@@ -1,0 +1,7 @@
+// refuses: type.mismatch at 6:22
+// a `??` fallback of another type than the optional's payload
+
+func main() {
+    let maybe: Int? = None
+    let n = maybe ?? "zero"
+}

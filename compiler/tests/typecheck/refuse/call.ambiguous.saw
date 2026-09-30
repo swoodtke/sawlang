@@ -1,0 +1,14 @@
+// refuses: call.ambiguous at 13:13
+// two overloads the arguments fit equally, which only labels tell apart
+
+func f(a: Int, b: Int) -> Int {
+    a
+}
+
+func f(kind: Int, value: Int) -> Int {
+    value
+}
+
+func main() {
+    let _ = f(1, 2)
+}

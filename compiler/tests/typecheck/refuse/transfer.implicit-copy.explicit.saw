@@ -1,0 +1,11 @@
+// refuses: transfer.implicit-copy at 10:19
+// an ExplicitCopy place passed by value with no `move` or `.copy()`
+
+func total(v: Vector<Int>) -> Int {
+    v.len()
+}
+
+func main() {
+    let v = Vector<Int>()
+    let _ = total(v)
+}

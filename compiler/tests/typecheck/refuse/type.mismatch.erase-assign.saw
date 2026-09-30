@@ -1,0 +1,19 @@
+// refuses: type.mismatch at 18:9
+// a concrete error assigned to an erased Result: only a return target erases
+
+struct Fault {
+    code: Int
+}
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let _ = into.append("fault")
+    }
+}
+
+extension Fault: Error {}
+
+func main() {
+    var r: Result<Int, Box<any Error>> = 1
+    r = Fault(code: 3)
+}

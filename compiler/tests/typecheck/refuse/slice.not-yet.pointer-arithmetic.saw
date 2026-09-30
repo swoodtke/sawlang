@@ -1,0 +1,6 @@
+// refuses: slice.not-yet at 5:5
+// pointer arithmetic on a raw pointer
+
+func next(p: UnsafePointer<Int8>) unsafe -> UnsafePointer<Int8> {
+    p + 1
+}

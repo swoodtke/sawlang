@@ -4,6 +4,7 @@
 
 import sawresolve.src.dump.{res_sort_strings}
 import sawresolve.src.model.{ResDecl, ResDeclKind, ResModule, ResVis}
+import sawtypecheck.src.bodydump.{tc_dump_bodies}
 import sawtypecheck.src.conform.{TcSubst}
 import sawtypecheck.src.members.{tc_build_members}
 import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
@@ -113,7 +114,9 @@ extension TcProgram {
             }
             d = d + 1
         }
-        try! out.append("))\n")
+        try! out.append(")")
+        tc_dump_bodies(&self, &var out, m)
+        try! out.append(")\n")
     }
 
     func decl_kind_text(&self, d: Int) -> String {
@@ -385,6 +388,9 @@ extension TcProgram {
     }
 
     func member_kind_text(&self, member: &TcMember) -> String {
+        if member.source == TcSource.RawConversion {
+            return "static"
+        }
         let info = self.res.decls[member.decl]
         match info.kind {
             case Field -> "field",
@@ -436,7 +442,8 @@ extension TcProgram {
                     try! out.append(" (synthesized ")
                     try! out.append(self.nominal_name(member.trait_decl))
                     try! out.append(")")
-                }
+                },
+                case RawConversion -> try! out.append(" (synthesized raw)")
             }
             try! out.append(")")
             k = k + 1

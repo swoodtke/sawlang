@@ -1,0 +1,14 @@
+// refuses: type.bound at 13:13
+// an inferred type argument that does not satisfy its parameter's bound
+
+trait Named {
+    func name(&self) -> String
+}
+
+func label<T: Named>(t: T) -> Int {
+    0
+}
+
+func main() {
+    let _ = label(5)
+}

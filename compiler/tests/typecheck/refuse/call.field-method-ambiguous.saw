@@ -1,0 +1,21 @@
+// refuses: call.field-method-ambiguous at 20:11
+// a field holding a function beside a method of the same name, neither chosen silently
+
+struct Handler {
+    f: (Int) -> Int
+}
+
+extension Handler {
+    func f(&self, n: Int) -> Int {
+        n + 1
+    }
+}
+
+func double(n: Int) -> Int {
+    n * 2
+}
+
+func main() {
+    let h = Handler(f: double)
+    print(h.f(3))
+}

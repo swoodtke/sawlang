@@ -1,0 +1,10 @@
+// refuses: call.arity at 9:13
+// a parameter with no default and no argument
+
+func area(width: Int, height: Int) -> Int {
+    width * height
+}
+
+func main() {
+    let _ = area(3)
+}
