@@ -12,6 +12,20 @@ None right now.
 
 ## Decided by the lead, for review (reversible)
 
+### D9. Std accessors whose body only reads get a shared twin (Sep 29; SL-421)
+SL:borrowing rules twins for `Vector.[]`, `Vector.find` and `KeyedPlace.find` only. tests/corpus reads six more std accessors in a shared position: a `let` root, a `&` param or a capture of a `let`.
+- `JsonValue.as_array` and `as_object`;
+- `Map.[]` (the place accessor);
+- `Box.value`;
+- `std.compiler.frame` `Slot.value`;
+- `UnsafeRef.deref`.
+
+Each is declared `(&var self)` in the frozen std, and each body only reads: it matches or guards, then lends.
+
+**Decided:** in the new std, a std accessor whose body only reads gets a `@synthesize(shared)` twin (§4), so these six serve `borrow let` on shared roots. SL-421's corpus decisions assume it.
+
+**Reversal:** give one of them no twin, and re-aim its corpus files as refusals, or respell them through a mutable root.
+
 ### D8. Getitem and setitem derivation with an accessor pair (Sep 29; SL-420 finding 4)
 §5.2 states the derivation for a type that declares "only the place accessor". **Decided:** a type that declares a pair derives getitem from the `&self` accessor and setitem from the `&var self` one. That is the reading SL-420's re-aims use. **Reversal:** restrict derivation to single-accessor types.
 
