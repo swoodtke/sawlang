@@ -1,0 +1,16 @@
+// refuses: conformance.signature at 13:10
+// a `borrows(sync)` implementation of a plain `borrows` requirement (SL:borrowing 2.5)
+
+trait Lender {
+    func item(&self) borrows -> &Int
+}
+
+struct Cell {
+    n: Int
+}
+
+extension Cell: Lender {
+    func item(&self) borrows(sync) -> &Int {
+        lend self.n
+    }
+}

@@ -1,0 +1,10 @@
+// refuses: type.argument-kind at 8:19
+// a type where a const parameter takes a value
+
+struct Ring<const N: Int> {
+    head: Int
+}
+
+func size(r: Ring<Int>) -> Int {
+    0
+}

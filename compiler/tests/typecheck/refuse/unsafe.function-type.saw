@@ -1,0 +1,6 @@
+// refuses: unsafe.function-type at 4:15
+// a function type declaring `unsafe` whose signature names no unsafe type
+
+func apply(f: (Int) unsafe -> Int) -> Int {
+    0
+}

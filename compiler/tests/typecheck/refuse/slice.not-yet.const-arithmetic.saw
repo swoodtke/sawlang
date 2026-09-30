@@ -1,0 +1,10 @@
+// refuses: slice.not-yet at 8:45
+// arithmetic over a const parameter, which folds only per instantiation
+
+struct Ring<const N: Int> {
+    head: Int
+}
+
+func grow<const N: Int>(r: Ring<N>) -> Ring<N + 1> {
+    panic("unbuilt")
+}

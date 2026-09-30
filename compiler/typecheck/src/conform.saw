@@ -1,0 +1,574 @@
+// The conformance table: (type, trait) to how each requirement is met, a
+// trait's default bodies filling the gaps. Also the checks it makes:
+// completeness, signature agreement, and the rule that a declared derivation
+// is asked for with `@synthesize` (SL:architecture §3.4, "Traits").
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.model.{ResBindKind, ResConformance, ResDecl, ResDeclKind, ResModule}
+import sawtypecheck.src.declarations.{tc_build_signatures}
+import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSUMES,
+                               TC_EFFECT_UNSAFE, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC,
+                               TC_FLAG_SYNTHESIZE, TcConformance, TcParam, TcReceiver, TcSig,
+                               TcStatus, TcStatusKind}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// The conformance table's entries.
+public func tc_collect_conformances(p: &var TcProgram) {
+    p.collect_conformances()
+}
+
+// How each conformance's requirements are met, with `visible` each module's
+// extension set.
+public func tc_settle_conformances(p: &var TcProgram, visible: &Vector<Bool>) {
+    p.settle_conformances(&visible)
+}
+
+// Every module's extension set, a row of flags per module.
+public func tc_extension_sets(p: &TcProgram) -> Vector<Bool> {
+    p.extension_sets()
+}
+
+// A substitution: `Self` to a type, a trait's associated types to the types a
+// conformance assigns, one declaration's parameters to another's (a
+// requirement's to its implementation's), and a type's parameters to
+// arguments.
+public struct TcSubst {
+    public self_type: Int
+    public from_owner: Int
+    public to_owner: Int
+    public args_owner: Int
+    public args: Vector<Int>
+    public assoc_decls: Vector<Int>
+    public assoc_types: Vector<Int>
+}
+
+extension TcSubst: NoCopy {}
+
+// A copy of `v`, element by element.
+public func tc_copy_ints(v: &Vector<Int>) -> Vector<Int> {
+    var out = Vector<Int>()
+    var k = 0
+    while k < v.len() {
+        try! out.push(v[k])
+        k = k + 1
+    }
+    move out
+}
+
+public func tc_args_subst(owner: Int, args: Vector<Int>) -> TcSubst {
+    TcSubst(self_type: -1, from_owner: -1, to_owner: -1, args_owner: owner, args: move args,
+            assoc_decls: Vector<Int>(), assoc_types: Vector<Int>())
+}
+
+extension TcProgram {
+    // Type `t` with substitution `s` applied.
+    public func subst(&var self, t: Int, s: &TcSubst) -> Int {
+        let info = self.types.ty(t)
+        match info.kind {
+            case SelfType -> {
+                if s.self_type >= 0 {
+                    return s.self_type
+                }
+                t
+            },
+            case Assoc -> {
+                var k = 0
+                while k < s.assoc_decls.len() {
+                    if s.assoc_decls[k] == info.decl {
+                        return s.assoc_types[k]
+                    }
+                    k = k + 1
+                }
+                t
+            },
+            case Param -> {
+                if info.decl == s.from_owner && s.from_owner >= 0 {
+                    return self.mk_param(s.to_owner, info.a)
+                }
+                if info.decl == s.args_owner && info.a < s.args.len() {
+                    return s.args[info.a]
+                }
+                t
+            },
+            case Ref -> {
+                let inner = self.subst(info.b, &s)
+                self.mk_ref(info.a == 1, inner)
+            },
+            case Slice -> {
+                let inner = self.subst(info.b, &s)
+                self.mk_slice(info.a == 1, inner)
+            },
+            case Nominal -> {
+                var args = self.subst_args(t, &s)
+                self.mk_nominal(info.decl, &args)
+            },
+            case Tuple -> {
+                var args = self.subst_args(t, &s)
+                var labels = Vector<Int>()
+                if info.labeled {
+                    var k = 0
+                    while k < info.count {
+                        try! labels.push(self.types.label(t, k))
+                        k = k + 1
+                    }
+                }
+                self.mk_tuple(&args, &labels)
+            },
+            case Func -> {
+                var args = self.subst_args(t, &s)
+                let result = self.subst(info.b, &s)
+                self.mk_func(&args, result, info.a)
+            },
+            case Array -> {
+                let element = self.subst(info.b, &s)
+                let written = self.types.arg(t, 0)
+                let length = self.subst(written, &s)
+                self.mk_array(element, length)
+            },
+            case _ -> t
+        }
+    }
+
+    func subst_args(&var self, t: Int, s: &TcSubst) -> Vector<Int> {
+        let info = self.types.ty(t)
+        var out = Vector<Int>()
+        var k = 0
+        while k < info.count {
+            let a = self.types.arg(t, k)
+            try! out.push(self.subst(a, &s))
+            k = k + 1
+        }
+        move out
+    }
+
+    // The declarations whose parent is `d`, in source order: a struct's
+    // fields, an enum's cases, a trait's or an extension's members. Collection
+    // enters them right after their parent, so they are one run.
+    public func members_of(&self, d: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        var k = d + 1
+        while k < self.res.decls.len() {
+            let info = self.res.decls[k]
+            if info.parent != d {
+                break
+            }
+            try! out.push(k)
+            k = k + 1
+        }
+        move out
+    }
+
+    // Trait `t` and every trait it refines, transitively, each once.
+    public func trait_and_ancestors(&self, t: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        try! out.push(t)
+        var head = 0
+        while head < out.len() {
+            let at = out[head]
+            head = head + 1
+            let s = self.sigs[at]
+            var k = 0
+            while k < s.trait_count {
+                let parent = self.traits[s.trait_first + k]
+                var seen = false
+                var j = 0
+                while j < out.len() {
+                    if out[j] == parent {
+                        seen = true
+                    }
+                    j = j + 1
+                }
+                if not seen {
+                    try! out.push(parent)
+                }
+                k = k + 1
+            }
+        }
+        move out
+    }
+
+    // Whether trait `a` is trait `b` or refines it.
+    public func trait_refines(&self, a: Int, b: Int) -> Bool {
+        if a == b {
+            return true
+        }
+        let all = self.trait_and_ancestors(a)
+        var k = 0
+        while k < all.len() {
+            if all[k] == b {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // Whether module `m` sees the extensions of module `e` on a type defined
+    // in module `owner` (design 142): its own, its direct imports' and those
+    // they re-export, and the type's defining module's.
+    public func sees_extensions_of(&self, m: Int, e: Int, owner: Int, visible: &Vector<Bool>) -> Bool {
+        if e == m || e == owner {
+            return true
+        }
+        let n = self.res.modules.len()
+        visible[m * n + e]
+    }
+
+    // Every module's extension set, as a row of flags per module.
+    public func extension_sets(&self) -> Vector<Bool> {
+        var out = Vector<Bool>()
+        let n = self.res.modules.len()
+        var m = 0
+        while m < n {
+            let row = self.res.extension_modules(m)
+            var k = 0
+            while k < n {
+                try! out.push(row[k])
+                k = k + 1
+            }
+            m = m + 1
+        }
+        move out
+    }
+
+    // The conformance table's entries, one per conformance a program's
+    // extensions declare whose type and trait resolved; how each requirement
+    // is met is found once the members are known.
+    public func collect_conformances(&var self) {
+        var k = 0
+        while k < self.res.conformances.len() {
+            let c = self.res.conformances[k]
+            k = k + 1
+            let target = self.ext_target(c.ext)
+            let tb = c.trait_binding
+            if target < 0 || tb.kind != ResBindKind.Decl || not self.is_trait(tb.decl) {
+                continue
+            }
+            try! self.conformances.push(TcConformance(module: c.module, ext: c.ext, node: c.path,
+                                                      type_decl: target, trait_decl: tb.decl,
+                                                      status_first: 0, status_count: 0))
+        }
+    }
+
+    // Whether a trait's requirement is derived under `@synthesize` (design 128):
+    // the copy policies, Equatable, Comparable and Hashable, and serde's pair.
+    public func is_derivable(&self, requirement: Int) -> Bool {
+        let info = self.res.decls[requirement]
+        let t = info.parent
+        t == self.known.copy || t == self.known.explicit_copy || t == self.known.equatable || t == self.known.comparable || t == self.known.hashable || t == self.known.serialize || t == self.known.deserialize
+    }
+
+    // Whether a requirement is `Deinit`'s `deinit`, which is synthesized for
+    // every type that owns something, with no marker.
+    public func is_implicit(&self, requirement: Int) -> Bool {
+        let info = self.res.decls[requirement]
+        info.parent == self.known.deinit
+    }
+
+    // How each requirement of each conformance is met, and the refusals for
+    // the ones that are not: missing, disagreeing, or derivable but unasked.
+    public func settle_conformances(&var self, visible: &Vector<Bool>) {
+        var k = 0
+        while k < self.conformances.len() {
+            self.settle_conformance(k, &visible)
+            k = k + 1
+        }
+    }
+
+    func settle_conformance(&var self, at: Int, visible: &Vector<Bool>) {
+        let c = self.conformances[at]
+        let ext_sig = self.sigs[c.ext]
+        let synthesize = (ext_sig.flags & TC_FLAG_SYNTHESIZE) != 0
+        let saved = self.save_context()
+        self.enter_decl(c.ext)
+        let first = self.statuses.len()
+        var derived = false
+        var refused = false
+        let traits = self.trait_and_ancestors(c.trait_decl)
+        var s = self.conformance_subst(at)
+        var t = 0
+        while t < traits.len() {
+            let tr = traits[t]
+            let requirements = self.members_of(tr)
+            var r = 0
+            while r < requirements.len() {
+                let req = requirements[r]
+                let info = self.res.decls[req]
+                if info.kind == ResDeclKind.AssocType {
+                    let assigned = self.assigned_type(c.ext, info.name)
+                    if assigned >= 0 {
+                        try! self.statuses.push(TcStatus(requirement: req, kind: TcStatusKind.Written,
+                                                         member: assigned))
+                    } else {
+                        try! self.statuses.push(TcStatus(requirement: req, kind: TcStatusKind.Missing,
+                                                         member: -1))
+                        self.refuse_missing(at, req)
+                        refused = true
+                    }
+                } else if info.kind == ResDeclKind.Requirement {
+                    let found = self.written_member(at, req, &s, &visible)
+                    if found >= 0 {
+                        try! self.statuses.push(TcStatus(requirement: req, kind: TcStatusKind.Written,
+                                                         member: found))
+                    } else if found == -2 {
+                        try! self.statuses.push(TcStatus(requirement: req, kind: TcStatusKind.Missing,
+                                                         member: -1))
+                        refused = true
+                    } else if (self.sigs[req].flags & TC_FLAG_DEFAULT_BODY) != 0 {
+                        try! self.statuses.push(TcStatus(requirement: req, kind: TcStatusKind.Default,
+                                                         member: -1))
+                    } else if self.is_implicit(req) {
+                        try! self.statuses.push(TcStatus(requirement: req, kind: TcStatusKind.Implicit,
+                                                         member: -1))
+                    } else if self.is_derivable(req) && synthesize {
+                        try! self.statuses.push(TcStatus(requirement: req,
+                                                         kind: TcStatusKind.Synthesized, member: -1))
+                        derived = true
+                    } else if self.is_derivable(req) {
+                        try! self.statuses.push(TcStatus(requirement: req, kind: TcStatusKind.Missing,
+                                                         member: -1))
+                        self.refuse_unsynthesized(at, req)
+                        refused = true
+                    } else {
+                        try! self.statuses.push(TcStatus(requirement: req, kind: TcStatusKind.Missing,
+                                                         member: -1))
+                        self.refuse_missing(at, req)
+                        refused = true
+                    }
+                }
+                r = r + 1
+            }
+            t = t + 1
+        }
+        if synthesize && not derived && not refused {
+            self.refuse_inert(at)
+        }
+        var done = self.conformances[at]
+        done.status_first = first
+        done.status_count = self.statuses.len() - first
+        self.conformances[at] = done
+        self.restore_context(saved)
+    }
+
+    // The substitution from a trait's view to conformance `at`'s: `Self` the
+    // conforming type, each associated type the extension assigns.
+    public func conformance_subst(&var self, at: Int) -> TcSubst {
+        let c = self.conformances[at]
+        let self_type = self.self_type_of(c.type_decl)
+        var decls = Vector<Int>()
+        var types = Vector<Int>()
+        let traits = self.trait_and_ancestors(c.trait_decl)
+        var t = 0
+        while t < traits.len() {
+            let requirements = self.members_of(traits[t])
+            var r = 0
+            while r < requirements.len() {
+                let req = requirements[r]
+                let info = self.res.decls[req]
+                if info.kind == ResDeclKind.AssocType {
+                    let assigned = self.assigned_type(c.ext, info.name)
+                    if assigned >= 0 {
+                        self.build_decl(assigned)
+                        let s = self.sigs[assigned]
+                        try! decls.push(req)
+                        try! types.push(s.result)
+                    }
+                }
+                r = r + 1
+            }
+            t = t + 1
+        }
+        TcSubst(self_type: self_type, from_owner: -1, to_owner: -1, args_owner: -1,
+                args: Vector<Int>(), assoc_decls: move decls, assoc_types: move types)
+    }
+
+    // The type assignment of `name` extension `ext` writes, or -1.
+    func assigned_type(&self, ext: Int, name: Int) -> Int {
+        let members = self.members_of(ext)
+        var k = 0
+        while k < members.len() {
+            let d = members[k]
+            let info = self.res.decls[d]
+            if info.kind == ResDeclKind.TypeAssign && info.name == name {
+                return d
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // The member of the conforming type, written in an extension the
+    // conformance's module sees, that meets requirement `req`: its
+    // declaration, -1 when none is written, or -2 when every candidate of
+    // that name disagrees with the requirement, which is refused here.
+    func written_member(&var self, at: Int, req: Int, s: &TcSubst, visible: &Vector<Bool>) -> Int {
+        let c = self.conformances[at]
+        let name = self.res.decls[req].name
+        let owner_module = self.res.decls[c.type_decl].module
+        var first_candidate = -1
+        var chain = self.extensions_of.first(c.type_decl, 0)
+        var exts = Vector<Int>()
+        while chain >= 0 {
+            try! exts.push(self.extensions_of.value(chain))
+            chain = self.extensions_of.following(chain)
+        }
+        var e = exts.len() - 1
+        while e >= 0 {
+            let ext = exts[e]
+            e = e - 1
+            let ext_module = self.res.decls[ext].module
+            if not self.sees_extensions_of(c.module, ext_module, owner_module, &visible) {
+                continue
+            }
+            let members = self.members_of(ext)
+            var k = 0
+            while k < members.len() {
+                let d = members[k]
+                let info = self.res.decls[d]
+                let callable = info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init
+                if callable && info.name == name {
+                    self.build_decl(d)
+                    if self.agrees(req, d, &s) {
+                        return d
+                    }
+                    if first_candidate < 0 {
+                        first_candidate = d
+                    }
+                }
+                k = k + 1
+            }
+        }
+        if first_candidate >= 0 {
+            self.refuse_disagreement(at, req, first_candidate, &s)
+            return -2
+        }
+        return -1
+    }
+
+    // Whether member `d` agrees with requirement `req`: the same receiver,
+    // staticness, parameters and result once `Self` and the associated types
+    // are the conformance's, and effects the requirement's callers can rely
+    // on (SL:borrowing §2.5 for `borrows`).
+    public func agrees(&var self, req: Int, d: Int, s: &TcSubst) -> Bool {
+        let why = self.disagreement(req, d, &s)
+        why.len() == 0
+    }
+
+    // What makes member `d` disagree with requirement `req`, or "" when it
+    // agrees.
+    func disagreement(&var self, req: Int, d: Int, s: &TcSubst) -> String {
+        let r = self.sigs[req]
+        let m = self.sigs[d]
+        if (r.flags & TC_FLAG_STATIC) != (m.flags & TC_FLAG_STATIC) {
+            return "one is static and the other is not"
+        }
+        if r.receiver != m.receiver {
+            return "its receiver differs"
+        }
+        if r.generic_count != m.generic_count {
+            return "its type parameters differ in number"
+        }
+        if r.param_count != m.param_count {
+            return "its parameters differ in number"
+        }
+        let renamed = TcSubst(self_type: s.self_type, from_owner: req, to_owner: d,
+                              args_owner: -1, args: Vector<Int>(),
+                              assoc_decls: tc_copy_ints(&s.assoc_decls),
+                              assoc_types: tc_copy_ints(&s.assoc_types))
+        var k = 0
+        while k < r.param_count {
+            let rp = self.params[r.param_first + k]
+            let mp = self.params[m.param_first + k]
+            if rp.name != mp.name {
+                return "a parameter's name differs"
+            }
+            let want = self.subst(rp.ty, &renamed)
+            if want != mp.ty {
+                return "a parameter's type differs"
+            }
+            k = k + 1
+        }
+        let want_result = self.subst(r.result, &renamed)
+        if want_result != m.result {
+            return "its result type differs"
+        }
+        if (r.effects & TC_EFFECT_UNSAFE) != 0 && (m.effects & TC_EFFECT_UNSAFE) == 0 {
+            return "the requirement declares `unsafe`, so the implementation must too"
+        }
+        if (m.effects & TC_EFFECT_CONSUMES) != 0 {
+            return "a requirement is never met by a `consumes` method"
+        }
+        let r_borrows = (r.effects & TC_EFFECT_BORROWS) != 0
+        let m_borrows = (m.effects & TC_EFFECT_BORROWS) != 0
+        if r_borrows != m_borrows {
+            return "one lends with `borrows` and the other does not"
+        }
+        if (m.effects & TC_EFFECT_BORROWS_SYNC) != 0 && (r.effects & TC_EFFECT_BORROWS_SYNC) == 0 {
+            return "a `borrows(sync)` implementation cannot meet a plain `borrows` requirement"
+        }
+        ""
+    }
+}
+
+// The conformance refusals.
+extension TcProgram {
+    func conformance_head(&self, at: Int) -> String {
+        let c = self.conformances[at]
+        var out = StringBuilder()
+        try! out.append("`")
+        try! out.append(self.res.decl_path(c.type_decl))
+        try! out.append("` conforms to `")
+        try! out.append(self.res.decl_path(c.trait_decl))
+        try! out.append("`")
+        out.build()
+    }
+
+    func refuse_missing(&var self, at: Int, req: Int) {
+        let c = self.conformances[at]
+        var msg = StringBuilder()
+        try! msg.append(self.conformance_head(at))
+        try! msg.append(", but nothing meets its requirement `")
+        try! msg.append(self.res.decl_path(req))
+        try! msg.append("`: no member of that name is written, and the trait gives no default")
+        self.refuse_in(c.module, c.node, "conformance.incomplete", msg.build())
+    }
+
+    func refuse_unsynthesized(&var self, at: Int, req: Int) {
+        let c = self.conformances[at]
+        var msg = StringBuilder()
+        try! msg.append(self.conformance_head(at))
+        try! msg.append(" with no `")
+        try! msg.append(self.res.decl_path(req))
+        try! msg.append("` written: write it, or mark the extension `@synthesize` to derive it")
+        self.refuse_in(c.module, c.node, "synthesize.required", msg.build())
+    }
+
+    func refuse_inert(&var self, at: Int) {
+        let c = self.conformances[at]
+        var msg = StringBuilder()
+        try! msg.append("`@synthesize` derives nothing here: ")
+        try! msg.append(self.conformance_head(at))
+        try! msg.append(", whose requirements are all written or have defaults, or which derives none")
+        self.refuse_in(c.module, c.node, "synthesize.inert", msg.build())
+    }
+
+    func refuse_disagreement(&var self, at: Int, req: Int, d: Int, s: &TcSubst) {
+        let c = self.conformances[at]
+        let why = self.disagreement(req, d, &s)
+        let site = self.decl_site(d)
+        let m = self.res.decls[d].module
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` does not meet `")
+        try! msg.append(self.res.decl_path(req))
+        try! msg.append("`, as ")
+        try! msg.append(self.conformance_head(at))
+        try! msg.append(" needs: ")
+        try! msg.append(why)
+        self.refuse_in(m, site, "conformance.signature", msg.build())
+    }
+}

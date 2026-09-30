@@ -1,0 +1,87 @@
+// The Copy tier (design 219): the automatic tier from members, a declared
+// policy that wins over them, wrappers that carry their parts' tier, and a
+// generic type's tier as a rule over its arguments.
+
+struct Plain {
+    n: Int
+    flag: Bool
+}
+
+struct Named {
+    name: String
+    tag: Int?
+}
+
+struct Owner {
+    items: Vector<Int>
+}
+
+extension Owner: NoCopy {}
+
+struct Deep {
+    rows: Vector<Vector<Int>>
+}
+
+@synthesize
+extension Deep: ExplicitCopy {}
+
+enum Mode {
+    case On,
+    case Off
+}
+
+enum Message {
+    case Text(body: String),
+    case Code(value: Int)
+}
+
+enum Holder {
+    case Full(owner: Owner),
+    case Empty
+}
+
+extension Holder: NoCopy {}
+
+struct Wrap<T> {
+    held: T
+    count: Int
+}
+
+struct Twin<A, B> {
+    pair: (A, B)
+    maybe: A?
+}
+
+struct Mixed<T> {
+    fixed: Wrap<Int>
+    open: Wrap<T>
+}
+
+struct Tuples {
+    both: (Int, String)
+    call: (Int) -> Int
+}
+
+struct Tag {
+    id: Int
+}
+
+extension Tag: Copy {
+    func copy(&self) -> Tag {
+        Tag(id: self.id)
+    }
+}
+
+enum Carry {
+    case One(tag: Tag),
+    case Nothing
+}
+
+struct Pairing {
+    both: (Tag, Int)
+    maybe: Tag?
+}
+
+struct Counter {
+    slot: UnsafeMutableInterior<Int>
+}

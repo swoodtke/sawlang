@@ -1,0 +1,203 @@
+// The records the signature half of type checking produces (SL:architecture
+// §3.4, "Order"): every declaration's signature, the trait conformance table,
+// the member tables and the Copy tiers. Every record is plain data keyed by
+// resolve's ids: a declaration by its index in resolve's table, a node by its
+// arena id, a type by its interner id.
+
+import sawresolve.src.model.{ResVis}
+
+// The effect slot's words, as bits (syntax.rule.effect-slot).
+public static TC_EFFECT_UNSAFE: Int = 1
+public static TC_EFFECT_SYNC: Int = 2
+public static TC_EFFECT_CONSUMES: Int = 4
+public static TC_EFFECT_BORROWS: Int = 8
+public static TC_EFFECT_BORROWS_SYNC: Int = 16
+public static TC_EFFECT_ESCAPING: Int = 32
+public static TC_EFFECT_CONSTEXPR: Int = 64
+
+// What else a declaration's head says, as bits.
+public static TC_FLAG_STATIC: Int = 1
+public static TC_FLAG_DEFAULT_BODY: Int = 2
+public static TC_FLAG_VARIADIC: Int = 4
+public static TC_FLAG_BLOCKING: Int = 8
+public static TC_FLAG_UNSAFE_STRUCT: Int = 16
+public static TC_FLAG_BORROWS_STRUCT: Int = 32
+public static TC_FLAG_SYNTHESIZE: Int = 64
+public static TC_FLAG_SYNTHESIZE_SHARED: Int = 128
+public static TC_FLAG_UNSAFE_VAR: Int = 256
+public static TC_FLAG_WRITTEN_RETURN: Int = 512
+// Set while an alias or type assignment is being resolved, to find a cycle.
+public static TC_FLAG_ALIAS_BUILDING: Int = 1024
+
+// The three Copy tiers (design 219), strongest last: a composite takes the
+// strongest of its parts.
+public static TC_TIER_COPY: Int = 0
+public static TC_TIER_EXPLICIT: Int = 1
+public static TC_TIER_NOCOPY: Int = 2
+
+public enum TcReceiver {
+    // A free function, a static method, an init: no receiver.
+    case Absent,
+    case Shared,
+    case Exclusive
+}
+
+// What a `borrows` accessor lends, as the accessor-signature reader classifies
+// its return type (SL:architecture §3.4).
+public enum TcLend {
+    case NotBorrows,
+    // `&T`, `&var T`: a place.
+    case Place,
+    // `&T?`, `&var T?`: a place that may be absent.
+    case ConditionalPlace,
+    // `&[T]`, `&var [T]`.
+    case Slice,
+    // `&[T]?`.
+    case ConditionalSlice,
+    // A borrowing struct, lent by value.
+    case BorrowingStruct,
+    // Anything else, which the checks on `borrows` bodies refuse.
+    case Other
+}
+
+// A declaration's signature. Which fields mean something depends on the kind:
+// a function's generics, parameters, effects and result; a field's, static's
+// or alias's result; a case's payload as parameters; an enum's raw backing as
+// its result; a trait's parents and an extension's conformances as traits; an
+// extension's target as its result and its generic parameters' bounds as the
+// conditions its members hold under.
+public struct TcSig {
+    // 0 unbuilt, 1 generics under construction, 2 generics built, 3 built.
+    public state: Int
+    public generic_first: Int
+    public generic_count: Int
+    public param_first: Int
+    public param_count: Int
+    public trait_first: Int
+    public trait_count: Int
+    public receiver: TcReceiver
+    public result: Int
+    public effects: Int
+    public flags: Int
+    public lending: TcLend
+    public lending_exclusive: Bool
+}
+
+public func tc_blank_sig() -> TcSig {
+    TcSig(state: 0, generic_first: 0, generic_count: 0, param_first: 0, param_count: 0,
+          trait_first: 0, trait_count: 0, receiver: TcReceiver.Absent, result: -1, effects: 0,
+          flags: 0, lending: TcLend.NotBorrows, lending_exclusive: false)
+}
+
+// One generic parameter: its bounds are traits, its default a type (or a
+// constant for a const parameter), and a const parameter's type.
+public struct TcGeneric {
+    public name: Int
+    public leaf: Int
+    public node: Int
+    public is_const: Bool
+    public bound_first: Int
+    public bound_count: Int
+    public default_type: Int
+    public const_type: Int
+}
+
+// A parameter, a payload field, or a named-tuple element: its name and type.
+public struct TcParam {
+    public name: Int
+    public leaf: Int
+    public ty: Int
+    public has_default: Bool
+}
+
+public enum TcStatusKind {
+    // Written by the type: in the conformance, or another of its extensions.
+    case Written,
+    // Filled by the trait's default body.
+    case Default,
+    // Derived under `@synthesize` (design 128).
+    case Synthesized,
+    // Synthesized with no marker: a `deinit`, and an associated type's
+    // absence never is.
+    case Implicit,
+    case Missing
+}
+
+// How one requirement of a conformance is met.
+public struct TcStatus {
+    public requirement: Int
+    public kind: TcStatusKind
+    // The member that meets it, when one is written.
+    public member: Int
+}
+
+// One entry of the conformance table: (type, trait), where it is declared,
+// and how each requirement is met.
+public struct TcConformance {
+    public module: Int
+    public ext: Int
+    public node: Int
+    public type_decl: Int
+    public trait_decl: Int
+    public status_first: Int
+    public status_count: Int
+}
+
+public enum TcSource {
+    // A field or case the type's own declaration holds.
+    case Declared,
+    // A method, static, init or type assignment of an extension.
+    case Extension,
+    // A trait's default body, through a conformance.
+    case Default,
+    // Derived under `@synthesize`.
+    case Synthesized
+}
+
+// One member of a nominal type's table, built once per type; a module's view
+// of it is a filter (`member_visible`), not a copy.
+public struct TcMember {
+    public type_decl: Int
+    public decl: Int
+    public source: TcSource
+    public module: Int
+    public ext: Int
+    public trait_decl: Int
+    public vis: ResVis
+    public name: Int
+}
+
+// A nominal type's Copy tier: `base` joined with the tiers of the arguments
+// whose parameter indices `mask` holds. A declared policy is uniform over the
+// arguments, so its mask is empty.
+public struct TcTier {
+    public state: Int
+    public base: Int
+    public mask: Int
+    public declared: Bool
+}
+
+// A type argument whose bound is checked once the conformance table exists.
+public struct TcObligation {
+    public module: Int
+    public node: Int
+    public arg: Int
+    public trait_decl: Int
+    // The generic parameter it is bound for: its declaration and index.
+    public owner: Int
+    public index: Int
+    // Where the argument is written: the declaration and the extension whose
+    // parameters' bounds are in scope there.
+    public env_decl: Int
+    public env_ext: Int
+}
+
+public struct TcDiag {
+    public module: Int
+    public start: Int
+    public end: Int
+    public id: String
+    public message: String
+    // A diagnostic in an interface module, which refuses nothing.
+    public note: Bool
+}

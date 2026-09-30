@@ -1,0 +1,12 @@
+// refuses: unsafe.undeclared at 9:10
+// a method receiving an unsafe type as `self` without declaring `unsafe`
+
+unsafe struct UnsafeRegister {
+    address: Int
+}
+
+extension UnsafeRegister {
+    func read(&self) -> Int {
+        self.address
+    }
+}

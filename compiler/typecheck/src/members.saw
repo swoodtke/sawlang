@@ -1,0 +1,139 @@
+// The member tables: one per nominal type, built once, holding its fields or
+// cases, the members every extension of it declares, and the defaults and
+// derivations its conformances bring. A module sees a type's members through
+// two filters, `member_visible`: an extension is seen where it is imported,
+// and a member where its visibility reaches.
+
+import sawresolve.src.imports.{res_decl_binding}
+import sawresolve.src.model.{ResDecl, ResDeclKind, ResVis}
+import sawtypecheck.src.conform.{TcSubst}
+import sawtypecheck.src.model.{TcConformance, TcMember, TcSource, TcStatus, TcStatusKind}
+import sawtypecheck.src.program.{TcProgram}
+
+// Every nominal type's member table.
+public func tc_build_members(p: &var TcProgram) {
+    p.build_members()
+}
+
+extension TcProgram {
+    // Every nominal type's member table, in declaration order.
+    public func build_members(&var self) {
+        var d = 0
+        while d < self.res.decls.len() {
+            if self.is_nominal(d) {
+                self.build_member_table(d)
+            }
+            d = d + 1
+        }
+    }
+
+    // The extensions of type `d`, in declaration order.
+    public func extensions_in_order(&self, d: Int) -> Vector<Int> {
+        var newest = Vector<Int>()
+        var at = self.extensions_of.first(d, 0)
+        while at >= 0 {
+            try! newest.push(self.extensions_of.value(at))
+            at = self.extensions_of.following(at)
+        }
+        var out = Vector<Int>()
+        var k = newest.len() - 1
+        while k >= 0 {
+            try! out.push(newest[k])
+            k = k - 1
+        }
+        move out
+    }
+
+    func build_member_table(&var self, d: Int) {
+        let first = self.members.len()
+        let owner = self.res.decls[d]
+        let own = self.members_of(d)
+        var k = 0
+        while k < own.len() {
+            let m = own[k]
+            let info = self.res.decls[m]
+            if info.kind == ResDeclKind.Field || info.kind == ResDeclKind.Case {
+                try! self.members.push(TcMember(type_decl: d, decl: m, source: TcSource.Declared,
+                                                module: owner.module, ext: -1, trait_decl: -1,
+                                                vis: info.vis, name: info.name))
+            }
+            k = k + 1
+        }
+        let exts = self.extensions_in_order(d)
+        k = 0
+        while k < exts.len() {
+            let ext = exts[k]
+            let ext_info = self.res.decls[ext]
+            let listed = self.members_of(ext)
+            var j = 0
+            while j < listed.len() {
+                let m = listed[j]
+                let info = self.res.decls[m]
+                let kind = info.kind
+                if kind == ResDeclKind.Method || kind == ResDeclKind.Init || kind == ResDeclKind.TypeAssign {
+                    try! self.members.push(TcMember(type_decl: d, decl: m,
+                                                    source: TcSource.Extension,
+                                                    module: ext_info.module, ext: ext,
+                                                    trait_decl: -1, vis: info.vis,
+                                                    name: info.name))
+                }
+                j = j + 1
+            }
+            k = k + 1
+        }
+        k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            if c.type_decl == d {
+                self.add_conformance_members(d, &c)
+            }
+            k = k + 1
+        }
+        self.member_first[d] = first
+        let count = self.members.len() - first
+        self.member_count[d] = count
+    }
+
+    // The members a conformance brings: each requirement a trait's default
+    // body fills, and each one `@synthesize` derives.
+    func add_conformance_members(&var self, d: Int, c: &TcConformance) {
+        var k = 0
+        while k < c.status_count {
+            let s = self.statuses[c.status_first + k]
+            let req = self.res.decls[s.requirement]
+            if s.kind == TcStatusKind.Default {
+                try! self.members.push(TcMember(type_decl: d, decl: s.requirement,
+                                                source: TcSource.Default, module: c.module,
+                                                ext: c.ext, trait_decl: req.parent,
+                                                vis: ResVis.Public, name: req.name))
+            } else if s.kind == TcStatusKind.Synthesized {
+                try! self.members.push(TcMember(type_decl: d, decl: s.requirement,
+                                                source: TcSource.Synthesized, module: c.module,
+                                                ext: c.ext, trait_decl: req.parent,
+                                                vis: ResVis.Public, name: req.name))
+            }
+            k = k + 1
+        }
+    }
+
+    // Whether module `viewer` sees member `k` of the table. A member of an
+    // extension needs the extension's module in the viewer's extension set,
+    // or the type's own module; every member needs its visibility tier to
+    // reach the viewer. What a conformance brings is as visible as the
+    // conformance, which the orphan rule makes global.
+    public func member_visible(&self, k: Int, viewer: Int, visible: &Vector<Bool>) -> Bool {
+        let member = self.members[k]
+        let owner = self.res.decls[member.type_decl]
+        match member.source {
+            case Declared -> self.res.visible_to(member.vis, member.module, viewer),
+            case Extension -> {
+                if not self.sees_extensions_of(viewer, member.module, owner.module, &visible) {
+                    return false
+                }
+                self.res.visible_to(member.vis, member.module, viewer)
+            },
+            case Default -> true,
+            case Synthesized -> true
+        }
+    }
+}

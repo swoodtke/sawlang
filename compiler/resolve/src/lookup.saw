@@ -104,7 +104,8 @@ extension ResProgram {
 
     // THE LOOKUP: what bare `name`, written at `leaf`, denotes. Locals, then
     // the module's declarations, then imported bare names, then the prelude,
-    // then the gated std tier (refused with a precise hint), then qualifiers.
+    // then the gated std tier (refused with a precise hint, except in a std
+    // module, which sees it bare), then qualifiers.
     // A name nothing binds is refused. Never returns Unbound.
     public func lookup(&var self, name: Int, leaf: Int, space: ResSpace) -> ResBinding {
         if name == self.name_self_type {
@@ -156,6 +157,13 @@ extension ResProgram {
         let gated = self.prelude.first(1, name)
         if gated >= 0 {
             let d = self.prelude.value(gated)
+            let info = self.modules[m]
+            if info.kind == ResModuleKind.Std {
+                // `sawc/std` is written for the frozen compiler's one std
+                // namespace, where each std module sees every other bare.
+                let decl = self.decls[d]
+                return res_decl_binding(d, &decl)
+            }
             self.refuse_gated(leaf, name, d)
             return self.error_binding()
         }
@@ -192,10 +200,7 @@ extension ResProgram {
         if self.bound_declares_assoc_type(name) {
             // How to name a bound's associated type is not settled, so the
             // bare spelling is refused as unbuilt rather than as undefined.
-            try! msg.append("`")
-            try! msg.append(text)
-            try! msg.append("` is an associated type named through a type parameter's bound, which is not in the bootstrap slice yet")
-            self.refuse(leaf, "slice.not-yet", msg.build())
+            self.refuse_assoc_type(leaf, text)
             return self.error_binding()
         }
         try! msg.append("cannot find `")
@@ -246,6 +251,28 @@ extension ResProgram {
             k = k - 1
         }
         false
+    }
+
+    // Refuses `text` at `leaf` as an associated type named through a type
+    // parameter's bound, bare or as `T.Item`: its spelling is not settled, so
+    // it is unbuilt rather than undefined.
+    public func refuse_assoc_type(&var self, leaf: Int, text: String) {
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(text)
+        try! msg.append("` is an associated type named through a type parameter's bound, which is not in the bootstrap slice yet")
+        self.refuse(leaf, "slice.not-yet", msg.build())
+    }
+
+    // Whether a bound of the type parameter declared at `leaf` is a trait that
+    // declares an associated type named `name`.
+    public func param_declares_assoc_type(&self, leaf: Int, name: Int) -> Bool {
+        let at = self.param_nodes.first(0, leaf)
+        if at < 0 {
+            return false
+        }
+        let g = self.param_nodes.value(at)
+        self.bounds_declare_assoc_type(g, name)
     }
 
     // Whether a bound of generic parameter `g` is a trait that declares an

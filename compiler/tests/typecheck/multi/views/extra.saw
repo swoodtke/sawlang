@@ -1,0 +1,7 @@
+import shapes.{Circle}
+
+extension Circle {
+    public func diameter(&self) -> Int {
+        self.radius * 2
+    }
+}

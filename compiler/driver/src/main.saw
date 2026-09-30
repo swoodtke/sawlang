@@ -8,17 +8,21 @@
 //   sawc2 parse --redump FILE...    each dump file read back and rendered again
 //   sawc2 resolve --dump FILE...    each entry file's program resolved, and its dump
 //   sawc2 resolve --check FILE...   each entry file's program resolved, refusals only
+//   sawc2 typecheck --dump FILE...  each entry file's signatures checked, and its dump
+//   sawc2 typecheck --check FILE... each entry file's signatures checked, refusals only
 //
 // The lexer's records are its canonical dump (compiler/lex/README.md), the
-// parser's are described in compiler/parse/README.md, and the resolver's in
-// compiler/tests/resolve/README.md. A lex error prints one ERROR record and
-// exits 1, and so does a file the parser or the resolver refuses; a usage or
-// I/O failure prints a message and exits 2.
+// parser's are described in compiler/parse/README.md, the resolver's in
+// compiler/tests/resolve/README.md, and the type checker's in
+// compiler/tests/typecheck/README.md. A lex error prints one ERROR record and
+// exits 1, and so does a file a later stage refuses; a usage or I/O failure
+// prints a message and exits 2.
 
 import sawlex.src.lib.{LexResult, format_doc, format_error, format_token, kind_name, lex, token_kinds}
 import sawparse.src.api.{ParseOptions, parse_record}
 import sawparse.src.reader.{redump}
 import sawresolve.src.api.{ResolveOptions, resolve_record}
+import sawtypecheck.src.api.{TypecheckOptions, typecheck_record}
 import std.env.{Env}
 import std.file.{File}
 import std.path.{Path}
@@ -36,6 +40,8 @@ func driver_usage() -> Int {
     print("       sawc2 parse --redump [FILE | @LIST]...")
     print("       sawc2 resolve (--dump | --check) [--notes] [--std-root DIR]")
     print("                     [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc2 typecheck (--dump | --check) [--notes] [--interfaces]")
+    print("                       [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...")
     DRIVER_EXIT_USAGE
 }
 
@@ -49,17 +55,21 @@ func main() -> Int {
         return driver_parse(&args)
     }
     if command.equals("resolve") {
-        return driver_resolve(&args)
+        return driver_resolve(&args, false)
+    }
+    if command.equals("typecheck") {
+        return driver_resolve(&args, true)
     }
     driver_usage()
 }
 
-// `sawc2 resolve`: one record per entry file, in order, each file resolved as
-// the entry of its own program.
-func driver_resolve(args: &Vector<String>) -> Int {
+// `sawc2 resolve` and `sawc2 typecheck`, which take the same flags: one
+// record per entry file, in order, each file the entry of its own program.
+func driver_resolve(args: &Vector<String>, typecheck: Bool) -> Int {
     var dump = false
     var check = false
     var notes = false
+    var interfaces = false
     var std_root = "sawc"
     var names = Vector<String>()
     var dirs = Vector<String>()
@@ -73,6 +83,8 @@ func driver_resolve(args: &Vector<String>) -> Int {
             check = true
         } else if arg.equals("--notes") {
             notes = true
+        } else if arg.equals("--interfaces") && typecheck {
+            interfaces = true
         } else if arg.equals("--std-root") || arg.equals("--module-path") {
             let value = args.get(i + 1) ?? ""
             if value.len() == 0 {
@@ -102,6 +114,8 @@ func driver_resolve(args: &Vector<String>) -> Int {
         return driver_usage()
     }
     let options = ResolveOptions(std_root: std_root, dump: dump, notes: notes)
+    let checking = TypecheckOptions(std_root: std_root, dump: dump, notes: notes,
+                                    interfaces: interfaces)
     var status = 0
     var k = 0
     while k < inputs.len() {
@@ -110,8 +124,14 @@ func driver_resolve(args: &Vector<String>) -> Int {
             try! out.append("FILE\t")
             try! out.append(input.path)
             try! out.append("\n")
-            let result = resolve_record(out: &var out, path: input.path, options: &options,
+            var result = 0
+            if typecheck {
+                result = typecheck_record(out: &var out, path: input.path, options: &checking,
+                                          names: &names, dirs: &dirs)
+            } else {
+                result = resolve_record(out: &var out, path: input.path, options: &options,
                                         names: &names, dirs: &dirs)
+            }
             print(out.build())
             if result > status {
                 status = result

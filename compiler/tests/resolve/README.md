@@ -145,6 +145,7 @@ GRAMMAR.md alternative; the last table lists them.
 |---|---|---|
 | top-level function, struct, enum, trait, alias, static, extern | a declaration of the module | declarations |
 | enum case, struct field, trait and extension member | a member of its parent | declarations |
+| a declaration's name: effect words after an empty parameter list, `[]`, `[]=`, an extern's | its name token as written, which the verifier checks | names |
 | parameter and return types | a type | declarations, types |
 | parameter default | an expression, before the parameters are bound | expressions |
 | field, payload, static and alias types | a type | declarations, types |
@@ -193,6 +194,7 @@ GRAMMAR.md alternative; the last table lists them.
 | the `Thread.spawn` and `Task.spawn` forms | `slice.not-yet` |
 | a frozen-compiler test intrinsic, a name that starts `__saw_` and nothing declares | `slice.not-yet` |
 | an associated type named bare through a type parameter's bound, `-> Item` under `<T: Container>`, when nothing else binds the name | `slice.not-yet` |
+| the same associated type named through its parameter, `-> T.Item`; a member of `T` its bounds do not declare stays `name.undefined` | `slice.not-yet` |
 
 The slice is sync-only (SL:architecture §4), so the concurrency forms and the
 intrinsics that drive coroutines are outside it; nothing under a refused
@@ -263,9 +265,12 @@ declaration its module does not have. `prelude_check.py` covers the tables.
 - each refusal fixture is refused first by its rule, at its position;
   `--fill` writes the header of a new fixture whose first line is
   `// refuses: TODO`, for review;
-- every rule the resolver's source refuses by has a fixture, but the two its
+- every rule the resolver's source refuses by has a fixture, but the ones its
   `WAIVED` table names, and a missing entry file is refused as
   `import.unreadable`;
+- a std signature outside the slice is a `NOTE` with its rule, never an
+  `ERROR` or an `INVARIANT`: the lane copies the std root under `.build`, adds
+  `-> T.Item?` to `std/path.saw`, and resolves a golden program against it;
 - the compiler's own source resolves with no refusal: the sawc2 build, with
   the stage packages mapped, and each unit program; a unit program the parser
   refuses is counted apart;

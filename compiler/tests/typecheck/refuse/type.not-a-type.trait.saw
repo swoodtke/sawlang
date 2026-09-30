@@ -1,0 +1,10 @@
+// refuses: type.not-a-type at 8:17
+// a trait named where a type is written, whose type is `any Trait`
+
+trait Named {
+    func name(&self) -> String
+}
+
+func greet(who: Named) -> String {
+    "hello"
+}

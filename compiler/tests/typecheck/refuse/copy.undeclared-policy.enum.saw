@@ -1,0 +1,13 @@
+// refuses: copy.undeclared-policy at 10:6
+// an enum with a NoCopy payload and no policy
+
+struct Handle {
+    fd: Int
+}
+
+extension Handle: NoCopy {}
+
+enum Slot {
+    case Full(handle: Handle),
+    case Empty
+}

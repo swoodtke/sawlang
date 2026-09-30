@@ -25,7 +25,7 @@ public func res_resolve_bodies(p: &var ResProgram) {
 
 extension ResProgram {
     // Resolves every module's signatures and bodies; an interface module's
-    // extension heads and conformances only, which the conformance rules need.
+    // signatures only, which typecheck and the conformance rules need.
     func resolve_bodies(&var self) {
         var m = 0
         while m < self.modules.len() {
@@ -105,7 +105,9 @@ extension ResProgram {
         return -1
     }
 
-    // A Declaration node: its attributes' arguments, then its declaration.
+    // A Declaration node: its attributes' arguments, then its declaration. In
+    // an interface module only the signature is walked: never a body, a static
+    // initializer, a parameter default or an attribute's argument.
     func walk_declaration(&var self, outer: Int, interface: Bool) {
         let inner = self.last_node_child(outer)
         guard let alt = self.alt_of(inner) else {
@@ -115,18 +117,17 @@ extension ResProgram {
             self.walk_extension(inner, interface)
             return
         }
-        if interface {
-            return
+        if not interface {
+            self.walk_attributes(outer)
         }
-        self.walk_attributes(outer)
         let d = self.decl_of_node(inner)
         self.current_decl = d
         if alt == Alt.Decl_Func {
-            self.walk_function(inner)
+            self.walk_function(inner, interface)
         } else if alt == Alt.Decl_Static_Immutable || alt == Alt.Decl_Static_UnsafeVar {
-            self.walk_node_children_as(inner, true)
+            self.walk_node_children_as(inner, interface)
         } else if alt == Alt.Decl_TypeAlias {
-            self.walk_node_children_as(inner, true)
+            self.walk_node_children_as(inner, interface)
         } else if alt == Alt.Decl_Struct {
             self.self_type = ResBinding(kind: ResBindKind.SelfType, module: self.current, decl: d,
                                         name: -1, node: -1)
@@ -152,7 +153,7 @@ extension ResProgram {
             while k < n {
                 let c = self.child(inner, k)
                 if self.is_alt(c, Alt.Decl_Case) {
-                    self.walk_case(c)
+                    self.walk_case(c, interface)
                 } else if not self.is_leaf(c) && not self.is_alt(c, Alt.Generic_Param_Type) && not self.is_alt(c, Alt.Generic_Param_Const) {
                     self.walk_type(c)
                 }
@@ -160,7 +161,7 @@ extension ResProgram {
             }
             self.pop_scope()
         } else if alt == Alt.Decl_Trait {
-            self.walk_trait(inner, d)
+            self.walk_trait(inner, d, interface)
         } else if alt == Alt.Decl_ExternBlock {
             let n = self.child_count(inner)
             var k = 0
@@ -177,8 +178,8 @@ extension ResProgram {
         self.current_decl = -1
     }
 
-    // A case's payload types and raw value.
-    func walk_case(&var self, c: Int) {
+    // A case's payload types, and its raw value outside an interface.
+    func walk_case(&var self, c: Int, interface: Bool) {
         let n = self.child_count(c)
         var k = 0
         while k < n {
@@ -186,23 +187,25 @@ extension ResProgram {
             if self.is_alt(x, Alt.Decl_PayloadField) {
                 self.walk_last_type(x)
             } else if let a = self.alt_of(x) {
-                let _ = self.walk_expr(x)
+                if not interface {
+                    let _ = self.walk_expr(x)
+                }
             }
             k = k + 1
         }
     }
 
-    // Each child of `id` that is a node, as a type when `types` is set; a
-    // static's or an alias's type and initializer tell themselves apart.
-    func walk_node_children_as(&var self, id: Int, types: Bool) {
+    // A static's or an alias's children: its type, and its initializer outside
+    // an interface. The two tell themselves apart by alternative.
+    func walk_node_children_as(&var self, id: Int, interface: Bool) {
         let n = self.child_count(id)
         var k = 0
         while k < n {
             let c = self.child(id, k)
             if not self.is_leaf(c) {
-                if types && res_is_type_alt(self.alt_of(c)) {
+                if res_is_type_alt(self.alt_of(c)) {
                     self.walk_type(c)
-                } else {
+                } else if not interface {
                     let _ = self.walk_expr(c)
                 }
             }
@@ -299,14 +302,14 @@ extension ResProgram {
     }
 
     // A function, method, init or requirement: generics, parameters, return
-    // type, then the body with the parameters in scope.
-    func walk_function(&var self, f: Int) {
+    // type, then, outside an interface, the body with the parameters in scope.
+    func walk_function(&var self, f: Int, interface: Bool) {
         self.push_scope()
         self.bind_generics(f)
-        self.bind_params(f)
+        self.bind_params(f, interface)
         let n = self.child_count(f)
         var k = 0
-        while k < n {
+        while k < n && not interface {
             let c = self.child(f, k)
             if self.is_alt(c, Alt.Stmt_Block) {
                 self.walk_block(c)
@@ -317,9 +320,10 @@ extension ResProgram {
         self.receiver = self.unbound()
     }
 
-    // Resolves each parameter's type and default, then declares the
-    // parameters. A receiver makes `self` the enclosing type's receiver.
-    func bind_params(&var self, f: Int) {
+    // Resolves each parameter's type, and its default outside an interface,
+    // then declares the parameters. A receiver makes `self` the enclosing
+    // type's receiver.
+    func bind_params(&var self, f: Int, interface: Bool) {
         let n = self.child_count(f)
         var k = 0
         let before = self.records.len()
@@ -333,7 +337,7 @@ extension ResProgram {
                     if not self.is_leaf(x) {
                         if j == 1 {
                             self.walk_type(x)
-                        } else {
+                        } else if not interface {
                             let _ = self.walk_expr(x)
                         }
                     }
@@ -381,8 +385,9 @@ extension ResProgram {
     }
 
     // A trait: its generics and associated types in scope, `Self` its own,
-    // its parents, then each requirement's signature and default body.
-    func walk_trait(&var self, t: Int, d: Int) {
+    // its parents, then each requirement's signature, and its default body
+    // outside an interface.
+    func walk_trait(&var self, t: Int, d: Int, interface: Bool) {
         self.self_type = ResBinding(kind: ResBindKind.SelfType, module: self.current, decl: d,
                                     name: -1, node: -1)
         self.push_scope()
@@ -408,7 +413,7 @@ extension ResProgram {
             if self.is_alt(c, Alt.Type_Path) {
                 let _ = self.walk_path(c, ResSpace.Type)
             } else if self.is_alt(c, Alt.Decl_Requirement) {
-                self.walk_function(c)
+                self.walk_function(c, interface)
             }
             k = k + 1
         }
@@ -416,7 +421,8 @@ extension ResProgram {
     }
 
     // An extension: its head names the type, its generics rename the type's
-    // parameters, its conformances name traits; `Self` is the type.
+    // parameters, its conformances name traits; `Self` is the type. Its
+    // members' signatures are walked, and their bodies outside an interface.
     func walk_extension(&var self, x: Int, interface: Bool) {
         let ext = self.decl_of_node(x)
         let head = self.first_node_child(x)
@@ -438,34 +444,34 @@ extension ResProgram {
             }
             k = k + 1
         }
-        if not interface {
-            k = 0
-            while k < n {
-                let c = self.child(x, k)
-                if self.is_alt(c, Alt.Decl_ExtensionMember_TypeAssign) {
-                    let inner = self.last_node_child(c)
-                    let leaf = self.first_leaf(inner)
-                    let name = self.leaf_name(leaf)
-                    self.walk_last_type(inner)
-                    let m = self.current
-                    let assigned = self.decl_of_node(inner)
-                    self.bind_type_level(name, ResBinding(kind: ResBindKind.Decl, module: m,
-                                                          decl: assigned, name: -1, node: -1))
-                }
-                k = k + 1
+        k = 0
+        while k < n {
+            let c = self.child(x, k)
+            if self.is_alt(c, Alt.Decl_ExtensionMember_TypeAssign) {
+                let inner = self.last_node_child(c)
+                let leaf = self.first_leaf(inner)
+                let name = self.leaf_name(leaf)
+                self.walk_last_type(inner)
+                let m = self.current
+                let assigned = self.decl_of_node(inner)
+                self.bind_type_level(name, ResBinding(kind: ResBindKind.Decl, module: m,
+                                                      decl: assigned, name: -1, node: -1))
             }
-            k = 0
-            while k < n {
-                let c = self.child(x, k)
-                if self.is_alt(c, Alt.Decl_ExtensionMember_Method) || self.is_alt(c, Alt.Decl_ExtensionMember_SynthesizedMethod) || self.is_alt(c, Alt.Decl_ExtensionMember_Init) {
+            k = k + 1
+        }
+        k = 0
+        while k < n {
+            let c = self.child(x, k)
+            if self.is_alt(c, Alt.Decl_ExtensionMember_Method) || self.is_alt(c, Alt.Decl_ExtensionMember_SynthesizedMethod) || self.is_alt(c, Alt.Decl_ExtensionMember_Init) {
+                if not interface {
                     self.walk_attributes(c)
-                    let inner = self.last_node_child(c)
-                    self.current_decl = self.decl_of_node(inner)
-                    self.walk_function(inner)
-                    self.current_decl = -1
                 }
-                k = k + 1
+                let inner = self.last_node_child(c)
+                self.current_decl = self.decl_of_node(inner)
+                self.walk_function(inner, interface)
+                self.current_decl = -1
             }
+            k = k + 1
         }
         self.pop_scope()
         self.self_type = self.unbound()
@@ -1375,6 +1381,13 @@ extension ResProgram {
         }
     }
 
+    // Whether segment `leaf`, after a type parameter declared at `param`, names
+    // an associated type of the parameter's bounds.
+    func names_assoc_type(&var self, param: Int, leaf: Int) -> Bool {
+        let name = self.leaf_name(leaf)
+        self.param_declares_assoc_type(param, name)
+    }
+
     // A path: its first segment looked up in `space`, each later segment a
     // member of the one before. Every segment is recorded; the last one's
     // binding is the path's.
@@ -1392,6 +1405,12 @@ extension ResProgram {
             let leaf = self.child(path, k)
             if b.kind == ResBindKind.Error {
                 self.record_error(leaf)
+            } else if b.kind == ResBindKind.TypeParam && self.names_assoc_type(b.node, leaf) {
+                let m = self.current
+                let text = self.text_of(m, leaf)
+                self.refuse_assoc_type(leaf, text)
+                b = self.error_binding()
+                self.record(leaf, b)
             } else {
                 b = self.member_of(b, leaf)
                 if b.kind == ResBindKind.Member {

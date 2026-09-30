@@ -1,0 +1,6 @@
+// refuses: type.arity at 4:13
+// more type arguments than the type has parameters
+
+func sum(v: Vector<Int, GlobalAllocator, Int>) -> Int {
+    0
+}

@@ -1,0 +1,48 @@
+// Every kind of type position a signature writes, each in its canonical
+// spelling: named types, optionals, references, slices, tuples, function
+// types with their effects, `any`, and an alias, which is transparent.
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+enum Shape {
+    case Dot(at: Point),
+    case Line(from: Point, to: Point),
+    case Nothing
+}
+
+trait Named {
+    func name(&self) -> String
+}
+
+type Coordinate = Int
+
+func named(p: Point, s: Shape, c: Coordinate) -> String {
+    "point"
+}
+
+func optionals(a: Int?, b: Point??, c: &Int?, d: &var Point?) -> Shape? {
+    None
+}
+
+func references(a: &Point, b: &var Point, c: &[UInt8], d: &var [UInt8]) -> Int {
+    0
+}
+
+func tuples(a: (), b: (Int, String), c: (Int,), d: (x: Int, y: Int)) -> (Point, Shape) {
+    panic("unbuilt")
+}
+
+func functions(f: (Int, Int) sync -> Bool, g: () -> Void, h: (&var Point) escaping -> Int) -> ((Int) -> Int)? {
+    None
+}
+
+func existentials(a: &any Named, b: &var any Named) -> Bool {
+    true
+}
+
+func no_result(p: Point) {
+    print("done")
+}

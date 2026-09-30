@@ -1,0 +1,7 @@
+// refuses: type.infinite-size at 4:6
+// an enum whose case holds the enum itself inline
+
+enum Tree {
+    case Leaf(value: Int),
+    case Node(child: Tree)
+}

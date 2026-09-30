@@ -1,0 +1,305 @@
+// The program under type checking: resolve's program, unchanged, and every
+// table the signature half fills. One value holds it all, so each phase is a
+// set of methods on it, as in resolve.
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
+import sawresolve.src.names.{ResIndex, res_index}
+import sawresolve.src.program.{ResProgram}
+import sawtypecheck.src.model.{TcConformance, TcDiag, TcGeneric, TcMember, TcObligation, TcParam,
+                               TcSig, TcStatus, TcTier, tc_blank_sig}
+import sawtypecheck.src.types.{TcKind, TcType, TcTypes, tc_types}
+
+// The builtin declarations typecheck knows by identity, (module, name), found
+// once: `T?` names `Optional` with no name occurrence, and the Copy family,
+// the derivable traits and the unsafe pointers have rules of their own.
+public struct TcKnown {
+    public optional: Int
+    public result: Int
+    public string: Int
+    public void_type: Int
+    public never: Int
+    public unsafe_pointer: Int
+    public unsafe_const_pointer: Int
+    public copy: Int
+    public explicit_copy: Int
+    public no_copy: Int
+    public deinit: Int
+    public no_move: Int
+    public equatable: Int
+    public comparable: Int
+    public hashable: Int
+    public printable: Int
+    public error: Int
+    public send: Int
+    public sync: Int
+    public unsafe_send: Int
+    public unsafe_sync: Int
+    public interior: Int
+    public serialize: Int
+    public deserialize: Int
+}
+
+public struct TcProgram {
+    public res: ResProgram
+    public types: TcTypes
+    // Each declaration's signature, by resolve's declaration index.
+    public sigs: Vector<TcSig>
+    public generics: Vector<TcGeneric>
+    // Trait declarations: generic bounds, trait parents, conformance lists.
+    public traits: Vector<Int>
+    public params: Vector<TcParam>
+    // The type each type-position node of a signature denotes, or -1.
+    public node_types: Vector<Int>
+    // (leaf, 0) -> the declaration a generic parameter declared at `leaf`
+    // belongs to, (leaf, 1) -> its index there. An extension's parameters
+    // belong to the type it extends.
+    public param_owners: ResIndex
+    // (declaration, 0) -> each extension of that type.
+    public extensions_of: ResIndex
+    public conformances: Vector<TcConformance>
+    public statuses: Vector<TcStatus>
+    // The member table: each nominal type's members are `member_first[d] ..
+    // member_first[d] + member_count[d]`.
+    public members: Vector<TcMember>
+    public member_first: Vector<Int>
+    public member_count: Vector<Int>
+    public tiers: Vector<TcTier>
+    public obligations: Vector<TcObligation>
+    // Every function-type node of a signature, for the unsafe check.
+    public func_nodes: Vector<Int>
+    public diags: Vector<TcDiag>
+    public known: TcKnown
+    // The module and declaration being built, and what `Self` and the
+    // enclosing extension are there.
+    public current: Int
+    public current_decl: Int
+    public current_trait: Int
+    public current_ext: Int
+    public current_self: Int
+    public error_type: Int
+    // How deeply `satisfies` is nested, which bounds its recursion.
+    public satisfy_depth: Int
+    // The nodes refused as outside the bootstrap slice; the verifier asks
+    // nothing of what lies under one.
+    public skipped: Vector<Int>
+}
+
+extension TcProgram: NoCopy {}
+
+public func tc_program(res: ResProgram) -> TcProgram {
+    let decl_total = res.decls.len()
+    let node_total = res.nodes.len()
+    var sigs = Vector<TcSig>()
+    var firsts = Vector<Int>()
+    var counts = Vector<Int>()
+    var k = 0
+    while k < decl_total {
+        try! sigs.push(tc_blank_sig())
+        try! firsts.push(-1)
+        try! counts.push(0)
+        k = k + 1
+    }
+    var node_types = Vector<Int>()
+    k = 0
+    while k < node_total {
+        try! node_types.push(-1)
+        k = k + 1
+    }
+    let known = TcKnown(optional: -1, result: -1, string: -1, void_type: -1, never: -1,
+                        unsafe_pointer: -1, unsafe_const_pointer: -1, copy: -1, explicit_copy: -1,
+                        no_copy: -1, deinit: -1, no_move: -1, equatable: -1, comparable: -1,
+                        hashable: -1, printable: -1, error: -1, send: -1, sync: -1,
+                        unsafe_send: -1, unsafe_sync: -1, interior: -1, serialize: -1,
+                        deserialize: -1)
+    var p = TcProgram(res: move res, types: tc_types(), sigs: move sigs,
+                      generics: Vector<TcGeneric>(), traits: Vector<Int>(),
+                      params: Vector<TcParam>(), node_types: move node_types,
+                      param_owners: res_index(), extensions_of: res_index(),
+                      conformances: Vector<TcConformance>(), statuses: Vector<TcStatus>(),
+                      members: Vector<TcMember>(), member_first: move firsts,
+                      member_count: move counts, tiers: Vector<TcTier>(),
+                      obligations: Vector<TcObligation>(), func_nodes: Vector<Int>(),
+                      diags: Vector<TcDiag>(), known: known, current: -1, current_decl: -1,
+                      current_trait: -1, current_ext: -1, current_self: -1, error_type: -1,
+                      satisfy_depth: 0, skipped: Vector<Int>())
+    let empty = Vector<Int>()
+    let unlabeled = Vector<Int>()
+    p.error_type = p.types.intern(TcKind.Error, -1, 0, 0, &empty, &unlabeled)
+    move p
+}
+
+extension TcProgram {
+    public func decl(&self, d: Int) -> ResDecl { self.res.decls[d] }
+
+    public func sig(&self, d: Int) -> TcSig { self.sigs[d] }
+
+    public func ty(&self, t: Int) -> TcType { self.types.ty(t) }
+
+    public func node_alt(&self, id: Int) -> Alt? { self.res.alt_of(id) }
+
+    public func has_alt(&self, id: Int, alt: Alt) -> Bool { self.res.is_alt(id, alt) }
+
+    public func child(&self, id: Int, k: Int) -> Int { self.res.child(id, k) }
+
+    public func child_count(&self, id: Int) -> Int { self.res.child_count(id) }
+
+    public func is_leaf(&self, id: Int) -> Bool { self.res.is_leaf(id) }
+
+    // The source text of node `id` in module `m`.
+    public func text(&self, m: Int, id: Int) -> String { self.res.text_of(m, id) }
+
+    public func name_text(&self, id: Int) -> String { self.res.name_text(id) }
+
+    // The binding resolve recorded on leaf `leaf`, or an unbound one.
+    public func binding_at(&self, leaf: Int) -> ResBinding {
+        let r = self.res.record_of[leaf]
+        if r < 0 {
+            return ResBinding(kind: ResBindKind.Unbound, module: -1, decl: -1, name: -1, node: -1)
+        }
+        self.res.records[r].binding
+    }
+
+    // The node a declaration is reported at: its name, else its own node.
+    public func decl_site(&self, d: Int) -> Int {
+        let info = self.res.decls[d]
+        if info.leaf >= 0 {
+            return info.leaf
+        }
+        info.node
+    }
+
+    // Whether module `m` is read as an interface, whose refusals are notes.
+    public func is_interface(&self, m: Int) -> Bool {
+        let info = self.res.modules[m]
+        info.interface_only
+    }
+
+    // Records a refusal at node `id` of module `m`.
+    public func refuse_in(&var self, m: Int, id: Int, rule: String, message: String) {
+        let n = self.res.nodes[id]
+        let note = self.is_interface(m)
+        try! self.diags.push(TcDiag(module: m, start: n.start, end: n.end, id: rule,
+                                    message: message, note: note))
+    }
+
+    // A refusal at node `id` of the module being built.
+    public func refuse(&var self, id: Int, rule: String, message: String) {
+        let m = self.current
+        self.refuse_in(m, id, rule, message)
+    }
+
+    // Whether module `m` has a refusal of its own, from resolve or from here.
+    public func module_refused(&self, m: Int) -> Bool {
+        var k = 0
+        while k < self.diags.len() {
+            let d = self.diags[k]
+            if d.module == m {
+                return true
+            }
+            k = k + 1
+        }
+        k = 0
+        while k < self.res.diags.len() {
+            let d = self.res.diags[k]
+            if d.module == m {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    public func error_count(&self) -> Int {
+        var n = self.res.error_count()
+        var k = 0
+        while k < self.diags.len() {
+            let d = self.diags[k]
+            if not d.note {
+                n = n + 1
+            }
+            k = k + 1
+        }
+        n
+    }
+
+    // The module whose identity is `identity`, or -1 when none is loaded.
+    public func module_named(&self, identity: String) -> Int {
+        let id = self.res.names.find(identity)
+        if id < 0 {
+            return -1
+        }
+        let at = self.res.by_name.first(0, id)
+        if at < 0 {
+            return -1
+        }
+        self.res.by_name.value(at)
+    }
+
+    // The declaration named `name` at the top of module `module`, or -1.
+    public func top_decl(&self, module: Int, name: String) -> Int {
+        if module < 0 {
+            return -1
+        }
+        let id = self.res.names.find(name)
+        if id < 0 {
+            return -1
+        }
+        let at = self.res.top.first(module, id)
+        if at < 0 {
+            return -1
+        }
+        self.res.top.value(at)
+    }
+
+    // The owner and index of the generic parameter declared at `leaf`.
+    public func param_owner(&self, leaf: Int) -> Int {
+        let at = self.param_owners.first(leaf, 0)
+        if at < 0 {
+            return -1
+        }
+        self.param_owners.value(at)
+    }
+
+    public func param_index(&self, leaf: Int) -> Int {
+        let at = self.param_owners.first(leaf, 1)
+        if at < 0 {
+            return -1
+        }
+        self.param_owners.value(at)
+    }
+
+    // Whether declaration `d` is a nominal type: a struct, an enum, or a
+    // builtin type.
+    public func is_nominal(&self, d: Int) -> Bool {
+        if d < 0 {
+            return false
+        }
+        let info = self.res.decls[d]
+        info.kind == ResDeclKind.Struct || info.kind == ResDeclKind.Enum || info.kind == ResDeclKind.Primitive
+    }
+
+    public func is_trait(&self, d: Int) -> Bool {
+        if d < 0 {
+            return false
+        }
+        let info = self.res.decls[d]
+        info.kind == ResDeclKind.Trait
+    }
+
+    // The generic parameter `k` of declaration `d`.
+    public func generic(&self, d: Int, k: Int) -> TcGeneric {
+        let s = self.sigs[d]
+        self.generics[s.generic_first + k]
+    }
+
+    public func param(&self, d: Int, k: Int) -> TcParam {
+        let s = self.sigs[d]
+        self.params[s.param_first + k]
+    }
+
+    public func trait_of(&self, d: Int, k: Int) -> Int {
+        let s = self.sigs[d]
+        self.traits[s.trait_first + k]
+    }
+}

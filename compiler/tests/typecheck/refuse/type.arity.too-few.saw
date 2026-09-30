@@ -1,0 +1,11 @@
+// refuses: type.arity at 9:15
+// fewer type arguments than the parameters without a default
+
+struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+func first(p: Pair<Int>) -> Int {
+    0
+}

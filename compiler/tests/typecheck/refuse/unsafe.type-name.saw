@@ -1,0 +1,6 @@
+// refuses: unsafe.type-name at 4:15
+// an unsafe struct not named `Unsafe*`
+
+unsafe struct Register {
+    address: Int
+}

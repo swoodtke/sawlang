@@ -1,0 +1,184 @@
+// The type interner (SL:architecture §3.0): one table per compilation, keyed by
+// canonical form, so two spellings of one type are one id. A key is symbolic:
+// a nominal type is its declaration and its canonical arguments, defaults
+// filled, and every other form is its kind and its parts. Ids are handed out
+// in the order the signatures are built, which is source order; nothing prints
+// an id, so no output depends on that order.
+
+static TC_TYPE_BUCKETS: Int = 16384
+static TC_TYPE_BASIS: Int = 2166136261
+static TC_TYPE_PRIME: Int = 16777619
+static TC_TYPE_MASK: Int = 0xFFFF_FFFF
+
+public enum TcKind {
+    // A struct, enum or builtin type applied to arguments: `decl`, the args.
+    case Nominal,
+    // A type or const parameter: `decl` its declaring declaration, `a` its
+    // index there, so two declarations' `T`s never meet.
+    case Param,
+    // `Self` in a trait: `decl` the trait, substituted by each conformance.
+    case SelfType,
+    // A trait's own associated type on `Self`: `decl` the AssocType declaration.
+    case Assoc,
+    // Elements as args, and a label per element when named.
+    case Tuple,
+    // Parameter types as args, `b` the return type, `a` the effect bits.
+    case Func,
+    // `b` the referent; `a` 1 for `&var`.
+    case Ref,
+    // `b` the element; `a` 1 for `&var [T]`.
+    case Slice,
+    // `b` the element, the one arg its length.
+    case Array,
+    // `any Trait`: `decl` the trait.
+    case Any,
+    // A constant argument: `a` its value.
+    case ConstInt,
+    // A type that could not be formed; a refusal says why.
+    case Error
+}
+
+public struct TcType {
+    public kind: TcKind
+    public decl: Int
+    public a: Int
+    public b: Int
+    // The type's arguments are `first .. first + count` of the args pool, and
+    // its labels, when it has any, the same run of the labels pool.
+    public first: Int
+    public count: Int
+    public labeled: Bool
+    public hash: Int
+}
+
+public struct TcTypes {
+    types: Vector<TcType>
+    args: Vector<Int>
+    labels: Vector<Int>
+    heads: Vector<Int>
+    next: Vector<Int>
+}
+
+extension TcTypes: NoCopy {}
+
+public func tc_types() -> TcTypes {
+    var heads = Vector<Int>()
+    var k = 0
+    while k < TC_TYPE_BUCKETS {
+        try! heads.push(-1)
+        k = k + 1
+    }
+    TcTypes(types: Vector<TcType>(), args: Vector<Int>(), labels: Vector<Int>(), heads: move heads,
+            next: Vector<Int>())
+}
+
+// Mixes `x` into hash `h`. Masking first keeps every product inside an `Int`.
+func tc_mix(h: Int, x: Int) -> Int {
+    ((h ^ (x & TC_TYPE_MASK)) * TC_TYPE_PRIME) & TC_TYPE_MASK
+}
+
+public func tc_kind_code(kind: TcKind) -> Int {
+    match kind {
+        case Nominal -> 1,
+        case Param -> 2,
+        case SelfType -> 3,
+        case Assoc -> 4,
+        case Tuple -> 5,
+        case Func -> 6,
+        case Ref -> 7,
+        case Slice -> 8,
+        case Array -> 9,
+        case Any -> 10,
+        case ConstInt -> 11,
+        case Error -> 12
+    }
+}
+
+extension TcTypes {
+    public func count(&self) -> Int { self.types.len() }
+
+    public func ty(&self, t: Int) -> TcType { self.types[t] }
+
+    // Argument `k` of type `t`.
+    public func arg(&self, t: Int, k: Int) -> Int {
+        let info = self.types[t]
+        self.args[info.first + k]
+    }
+
+    // The label of element `k` of tuple `t`, a name id, or -1 when unlabeled.
+    public func label(&self, t: Int, k: Int) -> Int {
+        let info = self.types[t]
+        if not info.labeled {
+            return -1
+        }
+        self.labels[info.first + k]
+    }
+
+    // The id of the type with this key, added when it is new. `labels` is
+    // empty, or holds one name id per argument.
+    public func intern(&var self, kind: TcKind, decl: Int, a: Int, b: Int, args: &Vector<Int>,
+                       labels: &Vector<Int>) -> Int {
+        var h = tc_mix(TC_TYPE_BASIS, tc_kind_code(kind))
+        h = tc_mix(h, decl)
+        h = tc_mix(h, a)
+        h = tc_mix(h, b)
+        var k = 0
+        while k < args.len() {
+            h = tc_mix(h, args[k])
+            k = k + 1
+        }
+        k = 0
+        while k < labels.len() {
+            h = tc_mix(h, labels[k] + 7)
+            k = k + 1
+        }
+        let bucket = h % TC_TYPE_BUCKETS
+        var at = self.heads[bucket]
+        while at >= 0 {
+            if self.same_key(at, h, kind, decl, a, b, &args, &labels) {
+                return at
+            }
+            at = self.next[at]
+        }
+        let id = self.types.len()
+        let first = self.args.len()
+        k = 0
+        while k < args.len() {
+            try! self.args.push(args[k])
+            if labels.len() > 0 {
+                try! self.labels.push(labels[k])
+            } else {
+                try! self.labels.push(-1)
+            }
+            k = k + 1
+        }
+        try! self.types.push(TcType(kind: kind, decl: decl, a: a, b: b, first: first,
+                                    count: args.len(), labeled: labels.len() > 0, hash: h))
+        let head = self.heads[bucket]
+        try! self.next.push(head)
+        self.heads[bucket] = id
+        id
+    }
+
+    func same_key(&self, at: Int, h: Int, kind: TcKind, decl: Int, a: Int, b: Int,
+                  args: &Vector<Int>, labels: &Vector<Int>) -> Bool {
+        let t = self.types[at]
+        if t.hash != h || t.kind != kind || t.decl != decl || t.a != a || t.b != b {
+            return false
+        }
+        if t.count != args.len() || t.labeled != (labels.len() > 0) {
+            return false
+        }
+        var k = 0
+        while k < t.count {
+            if self.args[t.first + k] != args[k] {
+                return false
+            }
+            if t.labeled && self.labels[t.first + k] != labels[k] {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+}

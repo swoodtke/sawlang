@@ -1,0 +1,13 @@
+// refuses: synthesize.inert at 9:18
+// `@synthesize` on a conformance that derives nothing
+
+struct Point {
+    x: Int
+}
+
+@synthesize
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("point")
+    }
+}

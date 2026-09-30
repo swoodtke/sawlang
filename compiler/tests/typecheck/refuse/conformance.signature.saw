@@ -1,0 +1,16 @@
+// refuses: conformance.signature at 13:10
+// a member whose parameter type disagrees with the requirement
+
+trait Shape {
+    func scale(&self, by: Int) -> Int
+}
+
+struct Square {
+    side: Int
+}
+
+extension Square: Shape {
+    func scale(&self, by: String) -> Int {
+        self.side
+    }
+}

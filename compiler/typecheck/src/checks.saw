@@ -1,0 +1,356 @@
+// The signature-only checks that need every signature first: finite struct
+// size, which is a cycle in the by-value containment graph (spec, Recursive
+// types), and the signature half of `unsafe` (designs 130 and 136).
+
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.model.{ResDecl, ResDeclKind}
+import sawtypecheck.src.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.src.declarations.{tc_build_signatures}
+import sawtypecheck.src.model.{TC_EFFECT_UNSAFE, TC_FLAG_UNSAFE_STRUCT, TcParam, TcReceiver, TcSig}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.tier.{tc_tier}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// Finite struct size.
+public func tc_check_finite_size(p: &var TcProgram) {
+    p.check_finite_size()
+}
+
+// The signature half of `unsafe`.
+public func tc_check_unsafe(p: &var TcProgram) {
+    p.check_unsafe()
+}
+
+// How many distinct instantiations one containment path may cross. A path
+// that keeps growing its arguments through inline positions has no finite
+// layout either.
+static TC_CONTAINMENT_DEPTH: Int = 64
+static TC_WALK_FINITE: Int = 0
+static TC_WALK_CYCLE: Int = 1
+static TC_WALK_UNBOUNDED: Int = 2
+
+extension TcProgram {
+    // Every struct and enum whose storage contains its own storage inline:
+    // through a field, a payload, a tuple element, an Optional's payload, an
+    // array's element, and the same positions of the generic declarations a
+    // member instantiates. A pointer, a reference, a function value and an
+    // `any` embed nothing. One refusal per cycle, at its first declaration.
+    public func check_finite_size(&var self) {
+        var reported = Vector<Bool>()
+        var k = 0
+        while k < self.res.decls.len() {
+            try! reported.push(false)
+            k = k + 1
+        }
+        var d = 0
+        while d < self.res.decls.len() {
+            let info = self.res.decls[d]
+            let own = info.kind == ResDeclKind.Struct || info.kind == ResDeclKind.Enum
+            if own && info.node >= 0 && not reported[d] {
+                let start = self.self_type_of(d)
+                var path = Vector<Int>()
+                var visited = Vector<Int>()
+                let outcome = self.walk_inline(start, start, 0, &var path, &var visited)
+                if outcome != TC_WALK_FINITE {
+                    self.refuse_infinite(d, &path, outcome)
+                    var j = 0
+                    while j < path.len() {
+                        let parent = self.res.decls[path[j]].parent
+                        if parent >= 0 {
+                            reported[parent] = true
+                        }
+                        j = j + 1
+                    }
+                    reported[d] = true
+                }
+            }
+            d = d + 1
+        }
+    }
+
+    // Walks what type `t` holds inline, looking for `start` again. `path`
+    // holds the members crossed on the way to a cycle.
+    func walk_inline(&var self, t: Int, start: Int, depth: Int, path: &var Vector<Int>,
+                     visited: &var Vector<Int>) -> Int {
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Tuple {
+            var k = 0
+            while k < info.count {
+                let arg = self.types.arg(t, k)
+                let outcome = self.walk_inline(arg, start, depth, &var path, &var visited)
+                if outcome != TC_WALK_FINITE {
+                    return outcome
+                }
+                k = k + 1
+            }
+            return TC_WALK_FINITE
+        }
+        if info.kind == TcKind.Array {
+            return self.walk_inline(info.b, start, depth, &var path, &var visited)
+        }
+        if info.kind != TcKind.Nominal {
+            return TC_WALK_FINITE
+        }
+        if t == start && depth > 0 {
+            return TC_WALK_CYCLE
+        }
+        if depth > TC_CONTAINMENT_DEPTH {
+            return TC_WALK_UNBOUNDED
+        }
+        var k = 0
+        while k < visited.len() {
+            if visited[k] == t {
+                return TC_WALK_FINITE
+            }
+            k = k + 1
+        }
+        try! visited.push(t)
+        let d = info.decl
+        let decl = self.res.decls[d]
+        if decl.node < 0 {
+            if d == self.known.optional || d == self.known.result {
+                k = 0
+                while k < info.count {
+                    let arg = self.types.arg(t, k)
+                    let outcome = self.walk_inline(arg, start, depth + 1, &var path, &var visited)
+                    if outcome != TC_WALK_FINITE {
+                        return outcome
+                    }
+                    k = k + 1
+                }
+            }
+            return TC_WALK_FINITE
+        }
+        let arguments = self.nominal_args(t)
+        let subst = tc_args_subst(d, move arguments)
+        let members = self.members_of(d)
+        k = 0
+        while k < members.len() {
+            let m = members[k]
+            let parts = self.inline_parts(m)
+            var j = 0
+            while j < parts.len() {
+                let part = self.subst(parts[j], &subst)
+                try! path.push(m)
+                let outcome = self.walk_inline(part, start, depth + 1, &var path, &var visited)
+                if outcome != TC_WALK_FINITE {
+                    return outcome
+                }
+                self.drop_last(&var path)
+                j = j + 1
+            }
+            k = k + 1
+        }
+        TC_WALK_FINITE
+    }
+
+    // The types member `m` holds inline: a field's type, a case's payloads.
+    func inline_parts(&self, m: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        let info = self.res.decls[m]
+        let s = self.sigs[m]
+        if info.kind == ResDeclKind.Field && s.result >= 0 {
+            try! out.push(s.result)
+        } else if info.kind == ResDeclKind.Case {
+            var k = 0
+            while k < s.param_count {
+                let p = self.params[s.param_first + k]
+                try! out.push(p.ty)
+                k = k + 1
+            }
+        }
+        move out
+    }
+
+    // `v` without its last element.
+    func drop_last(&self, v: &var Vector<Int>) {
+        var kept = Vector<Int>()
+        var k = 0
+        while k + 1 < v.len() {
+            try! kept.push(v[k])
+            k = k + 1
+        }
+        v = move kept
+    }
+
+    func refuse_infinite(&var self, d: Int, path: &Vector<Int>, outcome: Int) {
+        let info = self.res.decls[d]
+        var msg = StringBuilder()
+        try! msg.append("recursive type `")
+        try! msg.append(self.res.decl_path(d))
+        if outcome == TC_WALK_CYCLE {
+            try! msg.append("` has infinite size: its storage contains its own storage inline, through ")
+            var k = 0
+            while k < path.len() {
+                if k > 0 {
+                    try! msg.append(" -> ")
+                }
+                try! msg.append(self.res.decl_path(path[k]))
+                k = k + 1
+            }
+            try! msg.append(" -> ")
+            try! msg.append(self.res.decl_path(d))
+        } else {
+            try! msg.append("` has infinite size: its inline storage instantiates it with ever larger arguments")
+        }
+        try! msg.append("; hold the recursive member behind a heap indirection, such as `Box` or `Vector`")
+        let site = self.decl_site(d)
+        self.refuse_in(info.module, site, "type.infinite-size", msg.build())
+    }
+}
+
+// The signature half of `unsafe`.
+extension TcProgram {
+    public func check_unsafe(&var self) {
+        var d = 0
+        while d < self.res.decls.len() {
+            let info = self.res.decls[d]
+            let callable = info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.Requirement
+            if callable && info.node >= 0 {
+                self.check_declared_unsafe(d)
+            } else if info.kind == ResDeclKind.Struct && info.node >= 0 {
+                self.check_unsafe_name(d)
+            }
+            d = d + 1
+        }
+        var k = 0
+        while k < self.func_nodes.len() {
+            let node = self.func_nodes[k]
+            self.check_function_type(node)
+            k = k + 1
+        }
+    }
+
+    // The unsafe type `t` names: itself, or one among its arguments, elements,
+    // referent, parameters or result; -1 for none. A type is never unsafe for
+    // what its own fields hold.
+    public func unsafe_named(&self, t: Int) -> Int {
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Nominal && self.is_unsafe_decl(info.decl) {
+            return t
+        }
+        if info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array || info.kind == TcKind.Func {
+            let inner = self.unsafe_named(info.b)
+            if inner >= 0 {
+                return inner
+            }
+        }
+        if info.kind == TcKind.Nominal || info.kind == TcKind.Tuple || info.kind == TcKind.Func {
+            var k = 0
+            while k < info.count {
+                let arg = self.types.arg(t, k)
+                let found = self.unsafe_named(arg)
+                if found >= 0 {
+                    return found
+                }
+                k = k + 1
+            }
+        }
+        return -1
+    }
+
+    // A function whose signature names an unsafe type, through a parameter,
+    // its result or its receiver, declares `unsafe` in its effect slot.
+    func check_declared_unsafe(&var self, d: Int) {
+        let s = self.sigs[d]
+        if (s.effects & TC_EFFECT_UNSAFE) != 0 {
+            return
+        }
+        var found = -1
+        var k = 0
+        while k < s.param_count && found < 0 {
+            let p = self.params[s.param_first + k]
+            found = self.unsafe_named(p.ty)
+            k = k + 1
+        }
+        if found < 0 && s.result >= 0 {
+            found = self.unsafe_named(s.result)
+        }
+        let info = self.res.decls[d]
+        if found < 0 && s.receiver != TcReceiver.Absent && info.parent >= 0 {
+            let target = self.ext_target(info.parent)
+            if target >= 0 && self.is_unsafe_decl(target) {
+                found = self.self_type_of(target)
+            }
+        }
+        if found < 0 {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` is not declared `unsafe`, but its signature names a value of unsafe type (`")
+        try! msg.append(self.type_text(found))
+        try! msg.append("`): write `unsafe` after its parameter list, where every caller can see it")
+        let site = self.decl_site(d)
+        self.refuse_in(info.module, site, "unsafe.undeclared", msg.build())
+    }
+
+    // A function type says `unsafe` exactly when a parameter or its result
+    // names an unsafe type, judged on the type as written.
+    func check_function_type(&var self, node: Int) {
+        let t = self.node_types[node]
+        if t < 0 {
+            return
+        }
+        let info = self.types.ty(t)
+        if info.kind != TcKind.Func {
+            return
+        }
+        let declared = (info.a & TC_EFFECT_UNSAFE) != 0
+        let named = self.unsafe_named(t)
+        let m = self.node_module(node)
+        if named >= 0 && not declared {
+            var msg = StringBuilder()
+            try! msg.append("the function type `")
+            try! msg.append(self.type_text(t))
+            try! msg.append("` names an unsafe type (`")
+            try! msg.append(self.type_text(named))
+            try! msg.append("`) but its effect slot does not say `unsafe`")
+            self.refuse_in(m, node, "unsafe.function-type", msg.build())
+        } else if named < 0 && declared {
+            var msg = StringBuilder()
+            try! msg.append("the function type `")
+            try! msg.append(self.type_text(t))
+            try! msg.append("` declares `unsafe` but its signature names no unsafe type: a function taking only safe types must be sound for every input")
+            self.refuse_in(m, node, "unsafe.function-type", msg.build())
+        }
+    }
+
+    // An `unsafe struct` is named `Unsafe*`, so its unsafety shows wherever it
+    // is named.
+    func check_unsafe_name(&var self, d: Int) {
+        let s = self.sigs[d]
+        if (s.flags & TC_FLAG_UNSAFE_STRUCT) == 0 {
+            return
+        }
+        let info = self.res.decls[d]
+        let name = self.name_text(info.name)
+        if name.starts_with("Unsafe") {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("an unsafe type must be named `Unsafe*`, but this one is named `")
+        try! msg.append(name)
+        try! msg.append("`: rename it to `Unsafe")
+        try! msg.append(name)
+        try! msg.append("`, or drop `unsafe` if the type is safe to name, hold and pass")
+        let site = self.decl_site(d)
+        self.refuse_in(info.module, site, "unsafe.type-name", msg.build())
+    }
+
+    // The module whose arena range holds node `id`.
+    public func node_module(&self, id: Int) -> Int {
+        var m = 0
+        while m < self.res.modules.len() {
+            let info = self.res.modules[m]
+            if info.available && id >= info.node_base && id < info.node_base + info.node_count {
+                return m
+            }
+            m = m + 1
+        }
+        return -1
+    }
+}

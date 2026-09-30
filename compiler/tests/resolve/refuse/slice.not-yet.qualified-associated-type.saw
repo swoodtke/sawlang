@@ -1,0 +1,11 @@
+// refuses: slice.not-yet at 9:39
+// an associated type named through a type parameter as `T.Item`, whose spelling is not settled
+
+trait Container {
+    type Item
+    func get(&self) -> Item
+}
+
+func first<T: Container>(box: T) -> T.Item {
+    box.get()
+}

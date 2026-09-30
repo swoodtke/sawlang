@@ -1,0 +1,521 @@
+// The dump (compiler/tests/typecheck/README.md): one S-expression per module,
+// every type written in its canonical spelling, so no output depends on the
+// order types were interned in.
+
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.model.{ResDecl, ResDeclKind, ResModule, ResVis}
+import sawtypecheck.src.conform.{TcSubst}
+import sawtypecheck.src.members.{tc_build_members}
+import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
+                               TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SYNC,
+                               TC_EFFECT_UNSAFE, TC_FLAG_BLOCKING, TC_FLAG_BORROWS_STRUCT,
+                               TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE,
+                               TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_UNSAFE_VAR,
+                               TC_FLAG_VARIADIC, TC_TIER_COPY, TC_TIER_EXPLICIT, TcConformance,
+                               TcGeneric, TcLend, TcMember, TcParam, TcReceiver, TcSig, TcSource,
+                               TcStatus, TcStatusKind, TcTier}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.tier.{tc_bit}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// Module `m`'s dump, with `visible` each module's extension set.
+public func tc_dump_module(p: &TcProgram, out: &var StringBuilder, m: Int, visible: &Vector<Bool>) {
+    p.dump_module(&var out, m, &visible)
+}
+
+public func tc_vis_text(v: ResVis) -> String {
+    match v {
+        case Private -> "private",
+        case Public -> "public",
+        case Package -> "package",
+        case Parent -> "parent"
+    }
+}
+
+public func tc_tier_text(base: Int) -> String {
+    if base == TC_TIER_COPY {
+        return "Copy"
+    }
+    if base == TC_TIER_EXPLICIT {
+        return "ExplicitCopy"
+    }
+    "NoCopy"
+}
+
+public func tc_lend_text(kind: TcLend) -> String {
+    match kind {
+        case NotBorrows -> "none",
+        case Place -> "place",
+        case ConditionalPlace -> "conditional-place",
+        case Slice -> "slice",
+        case ConditionalSlice -> "conditional-slice",
+        case BorrowingStruct -> "borrowing-struct",
+        case Other -> "other"
+    }
+}
+
+public func tc_status_text(kind: TcStatusKind) -> String {
+    match kind {
+        case Written -> "written",
+        case Default -> "default",
+        case Synthesized -> "synthesized",
+        case Implicit -> "implicit",
+        case Missing -> "missing"
+    }
+}
+
+extension TcProgram {
+    // `L:C` of node `id` of module `m`.
+    func position(&self, m: Int, id: Int) -> String {
+        if id < 0 {
+            return "0:0"
+        }
+        self.res.node_position(m, id)
+    }
+
+    public func dump_module(&self, out: &var StringBuilder, m: Int, visible: &Vector<Bool>) {
+        try! out.append("(Module ")
+        try! out.append(self.res.module_name(m))
+        try! out.append("\n  (declarations")
+        let info = self.res.modules[m]
+        var d = info.decl_first
+        while d < info.decl_first + info.decl_count {
+            self.dump_declaration(&var out, d)
+            d = d + 1
+        }
+        try! out.append(")\n  (members")
+        d = info.decl_first
+        while d < info.decl_first + info.decl_count {
+            let decl = self.res.decls[d]
+            if decl.kind == ResDeclKind.Struct || decl.kind == ResDeclKind.Enum {
+                self.dump_member_table(&var out, d)
+            }
+            d = d + 1
+        }
+        try! out.append(")\n  (views")
+        self.dump_views(&var out, m, &visible)
+        try! out.append(")\n  (conformances")
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            if c.module == m {
+                self.dump_conformance(&var out, &c)
+            }
+            k = k + 1
+        }
+        try! out.append(")\n  (copy-tier")
+        d = info.decl_first
+        while d < info.decl_first + info.decl_count {
+            let decl = self.res.decls[d]
+            if decl.kind == ResDeclKind.Struct || decl.kind == ResDeclKind.Enum {
+                self.dump_tier(&var out, d)
+            }
+            d = d + 1
+        }
+        try! out.append("))\n")
+    }
+
+    func decl_kind_text(&self, d: Int) -> String {
+        let info = self.res.decls[d]
+        match info.kind {
+            case Struct -> "struct",
+            case Enum -> "enum",
+            case Case -> "case",
+            case Trait -> "trait",
+            case Alias -> "alias",
+            case Static -> "static",
+            case Func -> "func",
+            case Extern -> "extern",
+            case Extension -> "extension",
+            case Method -> "method",
+            case Init -> "init",
+            case TypeAssign -> "type-assign",
+            case AssocType -> "assoc-type",
+            case Requirement -> "requirement",
+            case Field -> "field",
+            case Primitive -> "type",
+            case BuiltinFunc -> "builtin-func"
+        }
+    }
+
+    func dump_declaration(&self, out: &var StringBuilder, d: Int) {
+        let info = self.res.decls[d]
+        let s = self.sigs[d]
+        try! out.append("\n    (")
+        try! out.append(self.decl_kind_text(d))
+        if info.kind != ResDeclKind.Extension {
+            try! out.append(" ")
+            try! out.append(self.res.decl_path(d))
+        }
+        try! out.append(" ")
+        let site = self.decl_site(d)
+        try! out.append(self.position(info.module, site))
+        let has_vis = info.kind != ResDeclKind.Extension && info.kind != ResDeclKind.Case && info.kind != ResDeclKind.AssocType && info.kind != ResDeclKind.TypeAssign && info.kind != ResDeclKind.Requirement
+        if has_vis {
+            try! out.append(" ")
+            try! out.append(tc_vis_text(info.vis))
+        }
+        match info.kind {
+            case Struct -> {
+                self.append_generics(&var out, d)
+                if (s.flags & TC_FLAG_UNSAFE_STRUCT) != 0 {
+                    try! out.append(" unsafe")
+                }
+                if (s.flags & TC_FLAG_BORROWS_STRUCT) != 0 {
+                    try! out.append(" borrows")
+                }
+            },
+            case Enum -> {
+                self.append_generics(&var out, d)
+                if s.result >= 0 {
+                    try! out.append(" (raw ")
+                    self.append_type(&var out, s.result)
+                    try! out.append(")")
+                }
+            },
+            case Case -> {
+                if s.param_count > 0 {
+                    try! out.append(" (payload")
+                    self.append_params(&var out, d, false)
+                    try! out.append(")")
+                }
+            },
+            case Field -> {
+                try! out.append(" ")
+                self.append_type(&var out, s.result)
+            },
+            case Trait -> self.append_traits(&var out, " (parents", d),
+            case Alias -> {
+                try! out.append(" ")
+                self.append_type(&var out, s.result)
+            },
+            case TypeAssign -> {
+                try! out.append(" ")
+                self.append_type(&var out, s.result)
+            },
+            case Static -> {
+                try! out.append(" ")
+                self.append_type(&var out, s.result)
+                if (s.flags & TC_FLAG_UNSAFE_VAR) != 0 {
+                    try! out.append(" unsafe-var")
+                }
+            },
+            case Extension -> {
+                try! out.append(" (target ")
+                self.append_type(&var out, s.result)
+                try! out.append(")")
+                self.append_where(&var out, d)
+                self.append_traits(&var out, " (conforms", d)
+                if (s.flags & TC_FLAG_SYNTHESIZE) != 0 {
+                    try! out.append(" synthesize")
+                }
+            },
+            case Func -> self.append_signature(&var out, d),
+            case Method -> self.append_signature(&var out, d),
+            case Init -> self.append_signature(&var out, d),
+            case Requirement -> self.append_signature(&var out, d),
+            case Extern -> self.append_signature(&var out, d),
+            case _ -> {}
+        }
+        try! out.append(")")
+    }
+
+    // ` (generics G...)` when `d` has generic parameters.
+    func append_generics(&self, out: &var StringBuilder, d: Int) {
+        let s = self.sigs[d]
+        if s.generic_count == 0 {
+            return
+        }
+        try! out.append(" (generics")
+        var k = 0
+        while k < s.generic_count {
+            let g = self.generics[s.generic_first + k]
+            try! out.append(" (")
+            if g.is_const {
+                try! out.append("const ")
+            }
+            try! out.append(self.name_text(g.name))
+            if g.const_type >= 0 {
+                try! out.append(" ")
+                self.append_type(&var out, g.const_type)
+            }
+            if g.bound_count > 0 {
+                try! out.append(" (bounds")
+                var j = 0
+                while j < g.bound_count {
+                    try! out.append(" ")
+                    let bound = self.traits[g.bound_first + j]
+                    try! out.append(self.nominal_name(bound))
+                    j = j + 1
+                }
+                try! out.append(")")
+            }
+            if g.default_type >= 0 {
+                try! out.append(" (default ")
+                self.append_type(&var out, g.default_type)
+                try! out.append(")")
+            }
+            try! out.append(")")
+            k = k + 1
+        }
+        try! out.append(")")
+    }
+
+    // An extension's conditions: ` (where (T B...)...)` for each of its
+    // parameters with bounds.
+    func append_where(&self, out: &var StringBuilder, d: Int) {
+        let s = self.sigs[d]
+        var any = false
+        var k = 0
+        while k < s.generic_count {
+            let g = self.generics[s.generic_first + k]
+            if g.bound_count > 0 {
+                if not any {
+                    try! out.append(" (where")
+                    any = true
+                }
+                try! out.append(" (")
+                try! out.append(self.name_text(g.name))
+                var j = 0
+                while j < g.bound_count {
+                    try! out.append(" ")
+                    let bound = self.traits[g.bound_first + j]
+                    try! out.append(self.nominal_name(bound))
+                    j = j + 1
+                }
+                try! out.append(")")
+            }
+            k = k + 1
+        }
+        if any {
+            try! out.append(")")
+        }
+    }
+
+    func append_traits(&self, out: &var StringBuilder, head: String, d: Int) {
+        let s = self.sigs[d]
+        if s.trait_count == 0 {
+            return
+        }
+        try! out.append(head)
+        var k = 0
+        while k < s.trait_count {
+            try! out.append(" ")
+            let bound = self.traits[s.trait_first + k]
+            try! out.append(self.nominal_name(bound))
+            k = k + 1
+        }
+        try! out.append(")")
+    }
+
+    // Each parameter as ` (name TYPE)`, with its passing when `passing` is set.
+    func append_params(&self, out: &var StringBuilder, d: Int, passing: Bool) {
+        let s = self.sigs[d]
+        var k = 0
+        while k < s.param_count {
+            let p = self.params[s.param_first + k]
+            try! out.append(" (")
+            try! out.append(self.name_text(p.name))
+            try! out.append(" ")
+            self.append_type(&var out, p.ty)
+            if passing {
+                let info = self.types.ty(p.ty)
+                if (info.kind == TcKind.Ref || info.kind == TcKind.Slice) && info.a == 1 {
+                    try! out.append(" exclusive")
+                } else if info.kind == TcKind.Ref || info.kind == TcKind.Slice {
+                    try! out.append(" shared")
+                } else {
+                    try! out.append(" owned")
+                }
+            }
+            if p.has_default {
+                try! out.append(" default")
+            }
+            try! out.append(")")
+            k = k + 1
+        }
+    }
+
+    func append_signature(&self, out: &var StringBuilder, d: Int) {
+        let s = self.sigs[d]
+        try! out.append(" (signature")
+        self.append_generics(&var out, d)
+        match s.receiver {
+            case Shared -> try! out.append(" (receiver shared)"),
+            case Exclusive -> try! out.append(" (receiver exclusive)"),
+            case Absent -> {}
+        }
+        try! out.append(" (params")
+        self.append_params(&var out, d, true)
+        try! out.append(")")
+        if s.effects != 0 {
+            try! out.append(" (effects")
+            try! out.append(tc_effects_text(s.effects))
+            try! out.append(")")
+        }
+        if s.lending != TcLend.NotBorrows {
+            try! out.append(" (lend ")
+            try! out.append(tc_lend_text(s.lending))
+            if s.lending_exclusive {
+                try! out.append(" exclusive")
+            } else {
+                try! out.append(" shared")
+            }
+            try! out.append(")")
+        }
+        try! out.append(" -> ")
+        self.append_type(&var out, s.result)
+        if (s.flags & TC_FLAG_STATIC) != 0 {
+            try! out.append(" static")
+        }
+        if (s.flags & TC_FLAG_DEFAULT_BODY) != 0 {
+            try! out.append(" default-body")
+        }
+        if (s.flags & TC_FLAG_VARIADIC) != 0 {
+            try! out.append(" variadic")
+        }
+        if (s.flags & TC_FLAG_BLOCKING) != 0 {
+            try! out.append(" blocking")
+        }
+        if (s.flags & TC_FLAG_SYNTHESIZE_SHARED) != 0 {
+            try! out.append(" synthesize-shared")
+        }
+        try! out.append(")")
+    }
+
+    func member_kind_text(&self, member: &TcMember) -> String {
+        let info = self.res.decls[member.decl]
+        match info.kind {
+            case Field -> "field",
+            case Case -> "case",
+            case Init -> "init",
+            case TypeAssign -> "type-assign",
+            case _ -> {
+                let s = self.sigs[member.decl]
+                if (s.flags & TC_FLAG_STATIC) != 0 {
+                    return "static"
+                }
+                "method"
+            }
+        }
+    }
+
+    func dump_member_table(&self, out: &var StringBuilder, d: Int) {
+        try! out.append("\n    (")
+        try! out.append(self.nominal_name(d))
+        let first = self.member_first[d]
+        var k = 0
+        while k < self.member_count[d] {
+            let member = self.members[first + k]
+            try! out.append("\n      (")
+            try! out.append(self.member_kind_text(&member))
+            try! out.append(" ")
+            try! out.append(self.name_text(member.name))
+            let info = self.res.decls[member.decl]
+            if info.kind == ResDeclKind.Field {
+                try! out.append(" ")
+                let s = self.sigs[member.decl]
+                self.append_type(&var out, s.result)
+            }
+            try! out.append(" ")
+            try! out.append(tc_vis_text(member.vis))
+            match member.source {
+                case Declared -> try! out.append(" declared"),
+                case Extension -> {
+                    try! out.append(" (extension ")
+                    try! out.append(self.res.module_name(member.module))
+                    try! out.append(")")
+                },
+                case Default -> {
+                    try! out.append(" (default ")
+                    try! out.append(self.nominal_name(member.trait_decl))
+                    try! out.append(")")
+                },
+                case Synthesized -> {
+                    try! out.append(" (synthesized ")
+                    try! out.append(self.nominal_name(member.trait_decl))
+                    try! out.append(")")
+                }
+            }
+            try! out.append(")")
+            k = k + 1
+        }
+        try! out.append(")")
+    }
+
+    // For each struct and enum a program's entry or package modules declare,
+    // the names of its members module `m` sees.
+    func dump_views(&self, out: &var StringBuilder, m: Int, visible: &Vector<Bool>) {
+        var d = 0
+        while d < self.res.decls.len() {
+            let info = self.res.decls[d]
+            let own = info.kind == ResDeclKind.Struct || info.kind == ResDeclKind.Enum
+            if own && not self.is_interface(info.module) {
+                try! out.append("\n    (")
+                try! out.append(self.nominal_name(d))
+                let first = self.member_first[d]
+                var k = 0
+                while k < self.member_count[d] {
+                    if self.member_visible(first + k, m, &visible) {
+                        let member = self.members[first + k]
+                        try! out.append(" ")
+                        try! out.append(self.name_text(member.name))
+                    }
+                    k = k + 1
+                }
+                try! out.append(")")
+            }
+            d = d + 1
+        }
+    }
+
+    func dump_conformance(&self, out: &var StringBuilder, c: &TcConformance) {
+        try! out.append("\n    (")
+        try! out.append(self.nominal_name(c.type_decl))
+        try! out.append(" ")
+        try! out.append(self.nominal_name(c.trait_decl))
+        try! out.append(" ")
+        try! out.append(self.position(c.module, c.node))
+        var k = 0
+        while k < c.status_count {
+            let s = self.statuses[c.status_first + k]
+            try! out.append(" (")
+            let req = self.res.decls[s.requirement]
+            try! out.append(self.name_text(req.name))
+            try! out.append(" ")
+            try! out.append(tc_status_text(s.kind))
+            try! out.append(")")
+            k = k + 1
+        }
+        try! out.append(")")
+    }
+
+    func dump_tier(&self, out: &var StringBuilder, d: Int) {
+        let tier = self.tiers[d]
+        try! out.append("\n    (")
+        try! out.append(self.nominal_name(d))
+        try! out.append(" ")
+        if tier.mask == 0 {
+            try! out.append(tc_tier_text(tier.base))
+        } else {
+            try! out.append("(join ")
+            try! out.append(tc_tier_text(tier.base))
+            let s = self.sigs[d]
+            var k = 0
+            while k < s.generic_count {
+                if (tier.mask & tc_bit(k)) != 0 {
+                    let g = self.generics[s.generic_first + k]
+                    try! out.append(" ")
+                    try! out.append(self.name_text(g.name))
+                }
+                k = k + 1
+            }
+            try! out.append(")")
+        }
+        if tier.declared {
+            try! out.append(" declared")
+        }
+        try! out.append(")")
+    }
+}

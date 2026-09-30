@@ -1,0 +1,161 @@
+// The typecheck stage's entry points: a program resolved and its signatures
+// checked, and the record `sawc2 typecheck` prints for it.
+
+import sawresolve.src.api.{append_res_diag, resolve_program}
+import sawresolve.src.model.{ResDiag, ResModule}
+import sawresolve.src.program.{ResProgram}
+import sawresolve.src.verify.{res_verify_module}
+import sawtypecheck.src.checks.{tc_check_finite_size, tc_check_unsafe}
+import sawtypecheck.src.conform.{tc_collect_conformances, tc_extension_sets,
+                                 tc_settle_conformances}
+import sawtypecheck.src.declarations.{tc_build_signatures}
+import sawtypecheck.src.dump.{tc_dump_module}
+import sawtypecheck.src.members.{tc_build_members}
+import sawtypecheck.src.model.{TcDiag}
+import sawtypecheck.src.program.{TcKnown, TcProgram, tc_program}
+import sawtypecheck.src.signatures.{tc_index_generics}
+import sawtypecheck.src.tier.{tc_check_containment, tc_check_obligations, tc_compute_tiers}
+import sawtypecheck.src.verify.{tc_verify_module}
+
+// How `sawc2 typecheck` treats one entry file.
+public struct TypecheckOptions {
+    // The directory holding `std/` and `builtin.saw`.
+    public std_root: String
+    // Print each checked module's dump.
+    public dump: Bool
+    // Print the notes about interface modules as well as the refusals.
+    public notes: Bool
+    // Dump the std and builtin modules too, whose signatures are checked as
+    // interfaces.
+    public interfaces: Bool
+}
+
+// Resolves the program whose entry file is `path`, then builds every
+// declaration's signature, the conformance table, the member tables and the
+// Copy tiers, and runs the checks that need only those (SL:architecture §3.4,
+// "Order").
+public func typecheck_program(path: String, std_root: String, names: &Vector<String>,
+                              dirs: &Vector<String>) -> TcProgram {
+    let res = resolve_program(path, std_root, &names, &dirs)
+    var p = tc_program(move res)
+    p.find_known()
+    tc_index_generics(&var p)
+    tc_build_signatures(&var p)
+    tc_collect_conformances(&var p)
+    let visible = tc_extension_sets(&p)
+    tc_settle_conformances(&var p, &visible)
+    tc_build_members(&var p)
+    tc_compute_tiers(&var p)
+    tc_check_obligations(&var p)
+    tc_check_containment(&var p)
+    tc_check_finite_size(&var p)
+    tc_check_unsafe(&var p)
+    move p
+}
+
+extension TcProgram {
+    // The builtin declarations typecheck knows by identity.
+    func find_known(&var self) {
+        let b = self.res.builtin
+        let serde = self.module_named("std.serde")
+        let k = TcKnown(optional: self.top_decl(b, "Optional"), result: self.top_decl(b, "Result"),
+                        string: self.top_decl(b, "String"), void_type: self.top_decl(b, "Void"),
+                        never: self.top_decl(b, "Never"),
+                        unsafe_pointer: self.top_decl(b, "UnsafePointer"),
+                        unsafe_const_pointer: self.top_decl(b, "UnsafeConstPointer"),
+                        copy: self.top_decl(b, "Copy"),
+                        explicit_copy: self.top_decl(b, "ExplicitCopy"),
+                        no_copy: self.top_decl(b, "NoCopy"), deinit: self.top_decl(b, "Deinit"),
+                        no_move: self.top_decl(b, "NoMove"),
+                        equatable: self.top_decl(b, "Equatable"),
+                        comparable: self.top_decl(b, "Comparable"),
+                        hashable: self.top_decl(b, "Hashable"),
+                        printable: self.top_decl(b, "Printable"), error: self.top_decl(b, "Error"),
+                        send: self.top_decl(b, "Send"), sync: self.top_decl(b, "Sync"),
+                        unsafe_send: self.top_decl(b, "UnsafeSend"),
+                        unsafe_sync: self.top_decl(b, "UnsafeSync"),
+                        interior: self.top_decl(b, "UnsafeMutableInterior"),
+                        serialize: self.top_decl(serde, "Serialize"),
+                        deserialize: self.top_decl(serde, "Deserialize"))
+        self.known = k
+    }
+}
+
+// The record of one checked program, after its `FILE` line: resolve's
+// refusals, then typecheck's, each an `ERROR` line, `NOTE` lines when asked
+// for, an `INVARIANT` line per problem either verifier finds, and each checked
+// module's dump when asked for. Returns 0 when nothing was refused and 1
+// otherwise.
+public func typecheck_record(out: &var StringBuilder, path: String, options: &TypecheckOptions,
+                             names: &Vector<String>, dirs: &Vector<String>) -> Int {
+    let p = typecheck_program(path, options.std_root, &names, &dirs)
+    var k = 0
+    while k < p.res.diags.len() {
+        let d = p.res.diags[k]
+        if not d.note || options.notes {
+            append_res_diag(out: &var out, p: &p.res, d: &d)
+        }
+        k = k + 1
+    }
+    k = 0
+    while k < p.diags.len() {
+        let d = p.diags[k]
+        if not d.note || options.notes {
+            append_tc_diag(out: &var out, p: &p, d: &d)
+        }
+        k = k + 1
+    }
+    var m = 0
+    while m < p.res.module_count() {
+        let found = res_verify_module(&p.res, m)
+        append_invariants(out: &var out, p: &p, m: m, problems: &found)
+        let own = tc_verify_module(&p, m)
+        append_invariants(out: &var out, p: &p, m: m, problems: &own)
+        m = m + 1
+    }
+    if options.dump {
+        let visible = tc_extension_sets(&p)
+        m = 0
+        while m < p.res.module_count() {
+            let info = p.res.module(m)
+            if info.available && (options.interfaces || not info.interface_only) {
+                tc_dump_module(&p, &var out, m, &visible)
+                try! out.append("\n")
+            }
+            m = m + 1
+        }
+    }
+    if p.error_count() > 0 {
+        return 1
+    }
+    0
+}
+
+func append_invariants(out: &var StringBuilder, p: &TcProgram, m: Int, problems: &Vector<String>) {
+    var j = 0
+    while j < problems.len() {
+        try! out.append("INVARIANT\t")
+        try! out.append(p.res.module_name(m))
+        try! out.append("\t")
+        try! out.append(problems.get(j) ?? "")
+        try! out.append("\n")
+        j = j + 1
+    }
+}
+
+// `ERROR<TAB>id<TAB>file:line:col<TAB>message`, or `NOTE` for a note.
+public func append_tc_diag(out: &var StringBuilder, p: &TcProgram, d: &TcDiag) {
+    if d.note {
+        try! out.append("NOTE\t")
+    } else {
+        try! out.append("ERROR\t")
+    }
+    try! out.append(d.id)
+    try! out.append("\t")
+    try! out.append(p.res.module_file(d.module))
+    try! out.append(":")
+    try! out.append(p.res.position_text(d.module, d.start))
+    try! out.append("\t")
+    try! out.append(d.message)
+    try! out.append("\n")
+}

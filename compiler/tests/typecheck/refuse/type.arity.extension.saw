@@ -1,0 +1,13 @@
+// refuses: type.arity at 9:11
+// an extension renaming a different number of parameters than its type has
+
+struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+extension Pair<A> {
+    func count(&self) -> Int {
+        2
+    }
+}

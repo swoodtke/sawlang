@@ -1,0 +1,11 @@
+// refuses: type.argument-kind at 9:20
+// a value where a type parameter takes a type
+
+struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+func first(p: Pair<3, Int>) -> Int {
+    0
+}

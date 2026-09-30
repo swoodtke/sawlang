@@ -1,0 +1,7 @@
+// refuses: type.default at 4:16
+// a default that names another type parameter
+
+struct Pair<A, B = A> {
+    first: A
+    second: B
+}

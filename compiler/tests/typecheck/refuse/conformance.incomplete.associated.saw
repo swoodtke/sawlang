@@ -1,0 +1,17 @@
+// refuses: conformance.incomplete at 13:18
+// a conformance that assigns no type to an associated type
+
+trait Container {
+    type Item
+    func first(&self) -> Item
+}
+
+struct Crate {
+    value: Int
+}
+
+extension Crate: Container {
+    func first(&self) -> Int {
+        self.value
+    }
+}

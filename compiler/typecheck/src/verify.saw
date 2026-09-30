@@ -1,0 +1,220 @@
+// The signature half's verifier (SL:architecture §3.0, "every boundary has a
+// verifier"), run on every module. It finds the type positions from the tree
+// by its own rule, not by the builders' dispatch, and checks:
+//   - every type-position node of a signature has a type, and a named type's
+//     last segment has resolve's record, so nothing was looked up by spelling;
+//   - no type is left unresolved: an error type only where a refusal is;
+//   - every nominal type has a member table and a Copy tier;
+//   - every conformance accounts for each requirement of its trait and the
+//     traits it refines, and leaves none missing without a refusal.
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.kinds.{res_is_type_alt}
+import sawresolve.src.model.{ResBindKind, ResDecl, ResDeclKind, ResModule}
+import sawtypecheck.src.conform.{TcSubst}
+import sawtypecheck.src.model.{TcConformance, TcSig, TcStatus, TcStatusKind, TcTier}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+static TC_VERIFY_TIER_DONE: Int = 2
+static TC_VERIFY_BUILT: Int = 4
+
+// Every problem the verifier finds in module `m`, one line each.
+public func tc_verify_module(p: &TcProgram, m: Int) -> Vector<String> {
+    p.verify_module(m)
+}
+
+extension TcProgram {
+    func verify_module(&self, m: Int) -> Vector<String> {
+        var problems = Vector<String>()
+        let info = self.res.modules[m]
+        if not info.available {
+            return move problems
+        }
+        let refused = self.module_refused(m)
+        let outside = self.unsigned_nodes(m)
+        var k = 0
+        while k < info.node_count {
+            let id = info.node_base + k
+            if not outside[k] && res_is_type_alt(self.node_alt(id)) {
+                self.verify_type_node(&var problems, m, id, refused)
+            }
+            k = k + 1
+        }
+        var d = info.decl_first
+        while d < info.decl_first + info.decl_count {
+            self.verify_decl(&var problems, m, d)
+            d = d + 1
+        }
+        k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            if c.module == m {
+                self.verify_conformance(&var problems, m, &c, refused)
+            }
+            k = k + 1
+        }
+        move problems
+    }
+
+    func problem(&self, problems: &var Vector<String>, m: Int, id: Int, text: String) {
+        var out = StringBuilder()
+        if id >= 0 {
+            try! out.append(self.res.node_position(m, id))
+            try! out.append(" ")
+        }
+        try! out.append(text)
+        try! problems.push(out.build())
+    }
+
+    func verify_type_node(&self, problems: &var Vector<String>, m: Int, id: Int, refused: Bool) {
+        let t = self.node_types[id]
+        if t < 0 || t >= self.types.count() {
+            self.problem(&var problems, m, id, "a type position has no type")
+            return
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Error && not refused {
+            self.problem(&var problems, m, id, "a type position is an error type, but the module has no refusal")
+        }
+        if self.has_alt(id, Alt.Type_Named) {
+            let path = self.child(id, 0)
+            let segments = self.child_count(path)
+            let leaf = self.child(path, segments - 1)
+            let b = self.binding_at(leaf)
+            if b.kind == ResBindKind.Unbound {
+                self.problem(&var problems, m, id, "a named type's last segment has no resolve record")
+            }
+        }
+    }
+
+    func verify_decl(&self, problems: &var Vector<String>, m: Int, d: Int) {
+        let s = self.sigs[d]
+        let site = self.decl_site(d)
+        if s.state != TC_VERIFY_BUILT {
+            self.problem(&var problems, m, site, "a declaration has no signature")
+        }
+        if self.is_nominal(d) {
+            let tier = self.tiers[d]
+            if tier.state != TC_VERIFY_TIER_DONE {
+                self.problem(&var problems, m, site, "a nominal type has no Copy tier")
+            }
+            if self.member_first[d] < 0 {
+                self.problem(&var problems, m, site, "a nominal type has no member table")
+            }
+        }
+    }
+
+    func verify_conformance(&self, problems: &var Vector<String>, m: Int, c: &TcConformance,
+                            refused: Bool) {
+        var wanted = 0
+        let traits = self.trait_and_ancestors(c.trait_decl)
+        var t = 0
+        while t < traits.len() {
+            let requirements = self.members_of(traits[t])
+            var r = 0
+            while r < requirements.len() {
+                let info = self.res.decls[requirements[r]]
+                if info.kind == ResDeclKind.Requirement || info.kind == ResDeclKind.AssocType {
+                    wanted = wanted + 1
+                }
+                r = r + 1
+            }
+            t = t + 1
+        }
+        if wanted != c.status_count {
+            self.problem(&var problems, m, c.node, "a conformance does not account for each requirement")
+        }
+        var k = 0
+        while k < c.status_count {
+            let s = self.statuses[c.status_first + k]
+            if s.kind == TcStatusKind.Missing && not refused {
+                self.problem(&var problems, m, c.node, "a conformance leaves a requirement missing without a refusal")
+            }
+            k = k + 1
+        }
+    }
+
+    // For each node of module `m`, whether it lies outside every signature:
+    // in a body, a parameter's default, a static's initializer, a case's raw
+    // value, an attribute's argument, a `static_assert` or a test case; or
+    // under a construct refused as outside the bootstrap slice.
+    func unsigned_nodes(&self, m: Int) -> Vector<Bool> {
+        let info = self.res.modules[m]
+        var marks = Vector<Bool>()
+        var k = 0
+        while k < info.node_count {
+            try! marks.push(false)
+            k = k + 1
+        }
+        var stack = Vector<Int>()
+        k = 0
+        while k < info.node_count {
+            self.push_unsigned_parts(&var stack, info.node_base + k)
+            k = k + 1
+        }
+        k = 0
+        while k < self.res.skipped.len() {
+            try! stack.push(self.res.skipped[k])
+            k = k + 1
+        }
+        k = 0
+        while k < self.skipped.len() {
+            try! stack.push(self.skipped[k])
+            k = k + 1
+        }
+        var head = 0
+        while head < stack.len() {
+            let id = stack[head]
+            head = head + 1
+            if id >= info.node_base && id < info.node_base + info.node_count {
+                marks[id - info.node_base] = true
+                let n = self.child_count(id)
+                var c = 0
+                while c < n {
+                    try! stack.push(self.child(id, c))
+                    c = c + 1
+                }
+            }
+        }
+        move marks
+    }
+
+    func push_unsigned_parts(&self, stack: &var Vector<Int>, id: Int) {
+        guard let alt = self.node_alt(id) else {
+            return
+        }
+        let whole = alt == Alt.Stmt_Block || alt == Alt.Decl_StaticAssert || alt == Alt.Attr_Attribute_Align || alt == Alt.Test_Case_Run || alt == Alt.Test_Case_Panics || alt == Alt.Test_Case_Warns
+        if whole {
+            try! stack.push(id)
+            return
+        }
+        let is_static = alt == Alt.Decl_Static_Immutable || alt == Alt.Decl_Static_UnsafeVar
+        let is_case = alt == Alt.Decl_Case
+        let is_default = alt == Alt.Decl_Param_Default
+        if not (is_static || is_case || is_default) {
+            return
+        }
+        let n = self.child_count(id)
+        var seen_type = false
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            if not self.is_leaf(c) {
+                var unsigned = false
+                if is_static {
+                    unsigned = not res_is_type_alt(self.node_alt(c))
+                } else if is_case {
+                    unsigned = not self.has_alt(c, Alt.Decl_PayloadField)
+                } else {
+                    unsigned = seen_type
+                    seen_type = true
+                }
+                if unsigned {
+                    try! stack.push(c)
+                }
+            }
+            k = k + 1
+        }
+    }
+}

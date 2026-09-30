@@ -1,0 +1,14 @@
+// refuses: type.bound at 12:14
+// a default that does not satisfy its parameter's bound
+
+trait Measure {
+    func size(&self) -> Int
+}
+
+struct Line {
+    length: Int
+}
+
+struct Ruler<T: Measure = Line> {
+    item: T
+}

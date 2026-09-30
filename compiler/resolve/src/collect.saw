@@ -5,6 +5,7 @@
 // depends on its imports, so the order modules are collected in cannot matter.
 
 import sawparse.src.grammar.{Alt, alt_name}
+import sawparse.src.tree.{NodeShape}
 import sawresolve.src.kinds.{res_is_decl_item}
 import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResImport,
                              ResImportForm, ResModule, ResModuleKind, ResSymbol, ResVis}
@@ -397,13 +398,25 @@ extension ResProgram {
         }
     }
 
-    // Whether the leaves that open `id`'s children include `word`.
+    // Whether node `id` is a declaration's `///` doc comment, which a
+    // requirement's node holds before its name.
+    public func is_doc(&self, id: Int) -> Bool {
+        let n = self.nodes[id]
+        n.shape == NodeShape.Doc
+    }
+
+    // Whether the leaves that open `id`'s children, after any doc comment,
+    // include `word`.
     public func has_leading_word(&var self, id: Int, word: String) -> Bool {
         let m = self.current
         let n = self.child_count(id)
         var k = 0
         while k < n {
             let c = self.child(id, k)
+            if self.is_doc(c) {
+                k = k + 1
+                continue
+            }
             if not self.is_leaf(c) {
                 return false
             }
@@ -417,13 +430,17 @@ extension ResProgram {
     }
 
     // A method's or requirement's name leaf: the first leading leaf that is
-    // not `static`.
+    // not `static`, past a requirement's doc comment.
     public func method_name_leaf(&var self, id: Int) -> Int {
         let m = self.current
         let n = self.child_count(id)
         var k = 0
         while k < n {
             let c = self.child(id, k)
+            if self.is_doc(c) {
+                k = k + 1
+                continue
+            }
             if not self.is_leaf(c) {
                 return -1
             }
@@ -436,22 +453,40 @@ extension ResProgram {
         return -1
     }
 
-    // A method's name: an identifier, or `[]` or `[]=` for a subscript role.
+    // A method's or requirement's name, read as syntax.decl.method-name
+    // spells it: an identifier, `[]`, or the setitem's `[]=`. The effect words
+    // of a method with no parameters are leaves after the name, so the name is
+    // exactly these tokens, never every leaf before the first child node.
     public func method_name(&var self, id: Int) -> Int {
         let m = self.current
+        let leaf = self.method_name_leaf(id)
+        if leaf < 0 {
+            return self.intern("")
+        }
+        let first = self.text_of(m, leaf)
+        if not first.equals("[") {
+            return self.intern(first)
+        }
         var out = StringBuilder()
+        try! out.append("[")
         let n = self.child_count(id)
         var k = 0
-        while k < n {
-            let c = self.child(id, k)
+        while k < n && self.child(id, k) != leaf {
+            k = k + 1
+        }
+        var j = k + 1
+        while j < n && j <= k + 2 {
+            let c = self.child(id, j)
             if not self.is_leaf(c) {
                 break
             }
             let text = self.text_of(m, c)
-            if not text.equals("static") {
+            if text.equals("]") || (text.equals("=") && j == k + 2) {
                 try! out.append(text)
+            } else {
+                break
             }
-            k = k + 1
+            j = j + 1
         }
         self.intern(out.build())
     }

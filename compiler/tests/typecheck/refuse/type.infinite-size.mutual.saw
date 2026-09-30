@@ -1,0 +1,10 @@
+// refuses: type.infinite-size at 4:8
+// two structs that hold each other inline
+
+struct Left {
+    right: Right
+}
+
+struct Right {
+    left: Left?
+}

@@ -1,0 +1,10 @@
+// refuses: type.infinite-size at 8:8
+// a struct that holds itself through a generic declaration's inline field
+
+struct Wrap<T> {
+    held: T
+}
+
+struct Chain {
+    next: Wrap<Chain>
+}

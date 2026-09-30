@@ -1,0 +1,9 @@
+// refuses: synthesize.required at 9:18
+// a declared empty derivation without `@synthesize` (design 128)
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+extension Point: Equatable {}

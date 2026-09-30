@@ -1,0 +1,688 @@
+// The Copy-tier classifier and bound satisfaction. One function,
+// `tier_of_decl`, classifies a nominal type as Copy, ExplicitCopy or NoCopy
+// from its declared policy, else from its members; for a generic type the
+// answer is a rule over its arguments, which monomorphization evaluates
+// (design 219).
+//
+// `satisfies` answers whether a type meets a bound, for every kind of type an
+// argument can be, primitives included (design 109).
+
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.model.{ResDecl, ResDeclKind}
+import sawtypecheck.src.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.src.model.{TC_TIER_COPY, TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcConformance,
+                               TcGeneric, TcObligation, TcSig, TcTier}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// Every nominal type's Copy tier.
+public func tc_compute_tiers(p: &var TcProgram) {
+    p.compute_tiers()
+}
+
+// Every type argument against its bound.
+public func tc_check_obligations(p: &var TcProgram) {
+    p.check_obligations()
+}
+
+// The Copy-policy containment rule.
+public func tc_check_containment(p: &var TcProgram) {
+    p.check_containment()
+}
+
+static TC_TIER_UNSEEN: Int = 0
+static TC_TIER_COMPUTING: Int = 1
+static TC_TIER_DONE: Int = 2
+// A tier rule's mask holds one bit per parameter index below this.
+static TC_MASK_BITS: Int = 62
+// How deep one bound question may nest through conditional conformances.
+static TC_SATISFY_DEPTH: Int = 64
+
+public func tc_tier(base: Int, mask: Int, declared: Bool) -> TcTier {
+    TcTier(state: TC_TIER_DONE, base: base, mask: mask, declared: declared)
+}
+
+public func tc_max(a: Int, b: Int) -> Int {
+    if a > b {
+        return a
+    }
+    b
+}
+
+// The mask bit of parameter index `k`, or 0 past the mask's width.
+public func tc_bit(k: Int) -> Int {
+    if k < 0 || k >= TC_MASK_BITS {
+        return 0
+    }
+    1 << k
+}
+
+extension TcProgram {
+    // Every nominal type's tier, in declaration order.
+    public func compute_tiers(&var self) {
+        var k = 0
+        while k < self.res.decls.len() {
+            try! self.tiers.push(TcTier(state: TC_TIER_UNSEEN, base: TC_TIER_COPY, mask: 0,
+                                        declared: false))
+            k = k + 1
+        }
+        k = 0
+        while k < self.res.decls.len() {
+            if self.is_nominal(k) {
+                let _ = self.tier_of_decl(k)
+            }
+            k = k + 1
+        }
+    }
+
+    // The policy nominal `d` declares by conformance: NoCopy, which is the
+    // deliberate opt-out, over Copy, over ExplicitCopy; -1 for none.
+    public func declared_policy(&self, d: Int) -> Int {
+        var found = -1
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            if c.type_decl == d {
+                if c.trait_decl == self.known.no_copy {
+                    return TC_TIER_NOCOPY
+                }
+                if c.trait_decl == self.known.copy {
+                    found = TC_TIER_COPY
+                } else if c.trait_decl == self.known.explicit_copy && found < 0 {
+                    found = TC_TIER_EXPLICIT
+                }
+            }
+            k = k + 1
+        }
+        found
+    }
+
+    // Nominal `d`'s tier. A declared policy is uniform over the arguments;
+    // an undeclared type joins its members, and a member reaching back to a
+    // type being classified adds nothing of its own, since a pointer closes
+    // any cycle a finite type has.
+    public func tier_of_decl(&var self, d: Int) -> TcTier {
+        let known = self.tiers[d]
+        if known.state == TC_TIER_DONE {
+            return known
+        }
+        if known.state == TC_TIER_COMPUTING {
+            return tc_tier(TC_TIER_COPY, 0, false)
+        }
+        var marking = known
+        marking.state = TC_TIER_COMPUTING
+        self.tiers[d] = marking
+        let result = self.classify(d)
+        self.tiers[d] = result
+        result
+    }
+
+    func classify(&var self, d: Int) -> TcTier {
+        let declared = self.declared_policy(d)
+        if declared >= 0 {
+            return tc_tier(declared, 0, true)
+        }
+        let info = self.res.decls[d]
+        if d == self.known.optional {
+            return tc_tier(TC_TIER_COPY, tc_bit(0), false)
+        }
+        if d == self.known.result {
+            return tc_tier(TC_TIER_COPY, tc_bit(0) | tc_bit(1), false)
+        }
+        if info.kind == ResDeclKind.Primitive || info.node < 0 {
+            return tc_tier(TC_TIER_COPY, 0, false)
+        }
+        var base = TC_TIER_COPY
+        var mask = 0
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            let mi = self.res.decls[m]
+            if mi.kind == ResDeclKind.Field {
+                let s = self.sigs[m]
+                if s.result >= 0 {
+                    let part = self.member_tier(s.result, d)
+                    base = tc_max(base, part.base)
+                    mask = mask | part.mask
+                }
+            } else if mi.kind == ResDeclKind.Case {
+                let s = self.sigs[m]
+                var j = 0
+                while j < s.param_count {
+                    let p = self.params[s.param_first + j]
+                    let part = self.member_tier(p.ty, d)
+                    base = tc_max(base, part.base)
+                    mask = mask | part.mask
+                    j = j + 1
+                }
+            }
+            k = k + 1
+        }
+        tc_tier(base, mask, false)
+    }
+
+    // The tier type `t` contributes to type `cls`, whose parameters it may
+    // name: a rule over `cls`'s parameters, joined with every part's.
+    public func type_tier(&var self, t: Int, cls: Int) -> TcTier {
+        let info = self.types.ty(t)
+        match info.kind {
+            case Nominal -> {
+                let rule = self.tier_of_decl(info.decl)
+                var base = rule.base
+                var mask = 0
+                var k = 0
+                while k < info.count {
+                    if (rule.mask & tc_bit(k)) != 0 {
+                        let arg = self.types.arg(t, k)
+                        let part = self.type_tier(arg, cls)
+                        base = tc_max(base, part.base)
+                        mask = mask | part.mask
+                    }
+                    k = k + 1
+                }
+                tc_tier(base, mask, false)
+            },
+            case Param -> {
+                if info.decl == cls {
+                    return tc_tier(TC_TIER_COPY, tc_bit(info.a), false)
+                }
+                tc_tier(TC_TIER_NOCOPY, 0, false)
+            },
+            case Tuple -> {
+                var base = TC_TIER_COPY
+                var mask = 0
+                var k = 0
+                while k < info.count {
+                    let arg = self.types.arg(t, k)
+                    let part = self.type_tier(arg, cls)
+                    base = tc_max(base, part.base)
+                    mask = mask | part.mask
+                    k = k + 1
+                }
+                tc_tier(base, mask, false)
+            },
+            case Array -> self.type_tier(info.b, cls),
+            case Any -> tc_tier(TC_TIER_NOCOPY, 0, false),
+            case SelfType -> tc_tier(TC_TIER_NOCOPY, 0, false),
+            case Assoc -> tc_tier(TC_TIER_NOCOPY, 0, false),
+            case _ -> tc_tier(TC_TIER_COPY, 0, false)
+        }
+    }
+
+    // The type a member of type `t` contributes: an interior-mutability cell
+    // field contributes its payload's tier, since the cell's own NoCopy is
+    // for the cell as a value, and the holder states its own policy.
+    public func member_type(&self, t: Int) -> Int {
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Nominal && info.decl == self.known.interior && info.count > 0 {
+            return self.types.arg(t, 0)
+        }
+        t
+    }
+
+    // `type_tier` of what a member of type `t` contributes to `cls`.
+    public func member_tier(&var self, t: Int, cls: Int) -> TcTier {
+        let contributed = self.member_type(t)
+        self.type_tier(contributed, cls)
+    }
+
+    // Whether a struct field of type `t` is of a declared Copy type, directly
+    // or as a fixed array's element: a retain hook, which an undeclared struct
+    // may not absorb silently. A tuple, an optional and an enum's payload
+    // carry one without a declaration.
+    func holds_declared_copy(&var self, t: Int) -> Bool {
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Nominal {
+            let rule = self.tier_of_decl(info.decl)
+            return rule.declared && rule.base == TC_TIER_COPY
+        }
+        if info.kind == TcKind.Array {
+            return self.holds_declared_copy(info.b)
+        }
+        false
+    }
+
+    // A struct or enum holding an ExplicitCopy or NoCopy member, or a struct
+    // with a field of a declared Copy type, declares its own policy (spec, The
+    // Copy Trait Family, "Containment").
+    public func check_containment(&var self) {
+        var d = 0
+        while d < self.res.decls.len() {
+            let info = self.res.decls[d]
+            let own = info.kind == ResDeclKind.Struct || info.kind == ResDeclKind.Enum
+            if own && info.node >= 0 && self.declared_policy(d) < 0 {
+                self.check_members_policy(d)
+            }
+            d = d + 1
+        }
+    }
+
+    func check_members_policy(&var self, d: Int) {
+        let is_struct = self.res.decls[d].kind == ResDeclKind.Struct
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            let mi = self.res.decls[m]
+            var types = Vector<Int>()
+            let s = self.sigs[m]
+            if mi.kind == ResDeclKind.Field && s.result >= 0 {
+                try! types.push(s.result)
+            } else if mi.kind == ResDeclKind.Case {
+                var j = 0
+                while j < s.param_count {
+                    let p = self.params[s.param_first + j]
+                    try! types.push(p.ty)
+                    j = j + 1
+                }
+            }
+            var j = 0
+            while j < types.len() {
+                let t = types[j]
+                let part = self.member_tier(t, d)
+                let contributed = self.member_type(t)
+                if part.base > TC_TIER_COPY || (is_struct && self.holds_declared_copy(contributed)) {
+                    self.refuse_undeclared_policy(d, m, t, part.base)
+                    return
+                }
+                j = j + 1
+            }
+            k = k + 1
+        }
+    }
+
+    func refuse_undeclared_policy(&var self, d: Int, member: Int, t: Int, base: Int) {
+        let info = self.res.decls[d]
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` holds `")
+        try! msg.append(self.res.decl_path(member))
+        try! msg.append("` of type `")
+        try! msg.append(self.type_text(t))
+        if base == TC_TIER_NOCOPY {
+            try! msg.append("`, which is NoCopy")
+        } else if base == TC_TIER_EXPLICIT {
+            try! msg.append("`, which is ExplicitCopy")
+        } else {
+            try! msg.append("`, which declares Copy")
+        }
+        try! msg.append(", so it declares its own policy: `extension ")
+        try! msg.append(self.name_text(info.name))
+        try! msg.append(": NoCopy \{\}`, or `@synthesize` an ExplicitCopy")
+        let site = self.decl_site(d)
+        self.refuse_in(info.module, site, "copy.undeclared-policy", msg.build())
+    }
+}
+
+// Bound satisfaction.
+extension TcProgram {
+    // Every recorded type argument against its parameter's bound.
+    public func check_obligations(&var self) {
+        var k = 0
+        while k < self.obligations.len() {
+            let o = self.obligations[k]
+            if not self.satisfies(o.arg, o.trait_decl, o.env_decl, o.env_ext) {
+                self.refuse_bound(&o)
+            }
+            k = k + 1
+        }
+    }
+
+    func refuse_bound(&var self, o: &TcObligation) {
+        let g = self.generic(o.owner, o.index)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.type_text(o.arg))
+        try! msg.append("` does not satisfy `")
+        try! msg.append(self.res.decl_path(o.trait_decl))
+        try! msg.append("`, the bound on `")
+        try! msg.append(self.name_text(g.name))
+        try! msg.append("` of `")
+        try! msg.append(self.res.decl_path(o.owner))
+        try! msg.append("`")
+        self.refuse_in(o.module, o.node, "type.bound", msg.build())
+    }
+
+    // Whether type `t` satisfies trait `tr`, where the parameters of
+    // `env_decl` and the conditions of extension `env_ext` are in scope.
+    public func satisfies(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int) -> Bool {
+        if self.satisfy_depth > TC_SATISFY_DEPTH {
+            // A conditional conformance over a recursive type asks its own
+            // question again; the deepest answer assumes the bound holds.
+            return true
+        }
+        self.satisfy_depth = self.satisfy_depth + 1
+        let answer = self.satisfies_at(t, tr, env_decl, env_ext)
+        self.satisfy_depth = self.satisfy_depth - 1
+        answer
+    }
+
+    func satisfies_at(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int) -> Bool {
+        let info = self.types.ty(t)
+        match info.kind {
+            case Error -> true,
+            case ConstInt -> true,
+            case Assoc -> true,
+            case Param -> self.param_satisfies(info.decl, info.a, tr, env_decl, env_ext),
+            case SelfType -> self.trait_refines(info.decl, tr),
+            case Any -> self.trait_refines(info.decl, tr),
+            case Nominal -> self.nominal_satisfies(t, tr, env_decl, env_ext),
+            case Tuple -> {
+                if not self.structural_trait(tr) {
+                    return false
+                }
+                var k = 0
+                while k < info.count {
+                    let arg = self.types.arg(t, k)
+                    if not self.satisfies(arg, tr, env_decl, env_ext) {
+                        return false
+                    }
+                    k = k + 1
+                }
+                true
+            },
+            case Array -> {
+                if not self.structural_trait(tr) {
+                    return false
+                }
+                self.satisfies(info.b, tr, env_decl, env_ext)
+            },
+            case Func -> tr == self.known.copy || tr == self.known.explicit_copy,
+            case Ref -> {
+                if tr == self.known.copy || tr == self.known.explicit_copy {
+                    return true
+                }
+                if tr == self.known.send || tr == self.known.sync {
+                    let s = self.known.sync
+                    return self.satisfies(info.b, s, env_decl, env_ext)
+                }
+                false
+            },
+            case Slice -> {
+                if tr == self.known.copy || tr == self.known.explicit_copy {
+                    return true
+                }
+                false
+            }
+        }
+    }
+
+    // The traits a composite meets when each of its parts does.
+    func structural_trait(&self, tr: Int) -> Bool {
+        tr == self.known.copy || tr == self.known.explicit_copy || tr == self.known.equatable || tr == self.known.hashable || tr == self.known.comparable || tr == self.known.send || tr == self.known.sync
+    }
+
+    // A type parameter meets what its bounds grant: its declaration's, and
+    // the conditions of the extension around the position.
+    func param_satisfies(&var self, owner: Int, index: Int, tr: Int, env_decl: Int, env_ext: Int) -> Bool {
+        if self.generic_grants(owner, index, tr) {
+            return true
+        }
+        if env_ext >= 0 && self.ext_target(env_ext) == owner {
+            if self.generic_grants(env_ext, index, tr) {
+                return true
+            }
+        }
+        if tr == self.known.explicit_copy {
+            let c = self.known.copy
+            return self.param_satisfies(owner, index, c, env_decl, env_ext)
+        }
+        false
+    }
+
+    // Whether parameter `index` of `d` has a bound that is `tr` or refines it.
+    func generic_grants(&var self, d: Int, index: Int, tr: Int) -> Bool {
+        self.ensure_generics(d)
+        let s = self.sigs[d]
+        if index >= s.generic_count {
+            return false
+        }
+        let g = self.generics[s.generic_first + index]
+        var k = 0
+        while k < g.bound_count {
+            let bound = self.traits[g.bound_first + k]
+            if self.trait_refines(bound, tr) {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    func nominal_satisfies(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int) -> Bool {
+        let info = self.types.ty(t)
+        let d = info.decl
+        if d == self.known.never {
+            return true
+        }
+        if tr == self.known.copy {
+            return self.tier_is_copy(t, env_decl, env_ext)
+        }
+        if tr == self.known.explicit_copy {
+            if self.tier_is_copy(t, env_decl, env_ext) {
+                return true
+            }
+        }
+        if self.declares_conformance(t, tr, env_decl, env_ext) {
+            return true
+        }
+        if self.primitive_grants(d, tr) {
+            return true
+        }
+        if d == self.known.optional && self.structural_trait(tr) {
+            let inner = self.types.arg(t, 0)
+            return self.satisfies(inner, tr, env_decl, env_ext)
+        }
+        if tr == self.known.equatable || tr == self.known.hashable {
+            return self.is_trivial(t, 0)
+        }
+        if tr == self.known.send || tr == self.known.sync {
+            return self.members_satisfy(t, tr, env_decl, env_ext)
+        }
+        false
+    }
+
+    // Whether `t`'s tier is Copy, its rule's parameters evaluated with its
+    // arguments.
+    func tier_is_copy(&var self, t: Int, env_decl: Int, env_ext: Int) -> Bool {
+        let info = self.types.ty(t)
+        let rule = self.tier_of_decl(info.decl)
+        if rule.base != TC_TIER_COPY {
+            return false
+        }
+        var k = 0
+        while k < info.count {
+            if (rule.mask & tc_bit(k)) != 0 {
+                let arg = self.types.arg(t, k)
+                let c = self.known.copy
+                if not self.satisfies(arg, c, env_decl, env_ext) {
+                    return false
+                }
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // Whether a conformance of `t`'s declaration to `tr`, or to a trait that
+    // refines it, holds for `t`'s arguments.
+    func declares_conformance(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int) -> Bool {
+        let info = self.types.ty(t)
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if c.type_decl != info.decl || not self.trait_refines(c.trait_decl, tr) {
+                continue
+            }
+            if self.conditions_hold(c.ext, t, env_decl, env_ext) {
+                return true
+            }
+        }
+        false
+    }
+
+    // Whether `t`'s arguments meet the bounds extension `ext` puts on the
+    // parameters they fill.
+    func conditions_hold(&var self, ext: Int, t: Int, env_decl: Int, env_ext: Int) -> Bool {
+        self.ensure_generics(ext)
+        let s = self.sigs[ext]
+        let info = self.types.ty(t)
+        var k = 0
+        while k < s.generic_count && k < info.count {
+            let g = self.generics[s.generic_first + k]
+            let arg = self.types.arg(t, k)
+            var j = 0
+            while j < g.bound_count {
+                let bound = self.traits[g.bound_first + j]
+                if not self.satisfies(arg, bound, env_decl, env_ext) {
+                    return false
+                }
+                j = j + 1
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // The builtin conformances of the types no source declares (design 109):
+    // the numbers, `Bool` and `String` meet the value traits, and the raw
+    // pointers only Copy and Equatable.
+    func primitive_grants(&self, d: Int, tr: Int) -> Bool {
+        let info = self.res.decls[d]
+        if info.kind != ResDeclKind.Primitive {
+            return false
+        }
+        if d == self.known.void_type {
+            return tr == self.known.explicit_copy
+        }
+        let pointer = d == self.known.unsafe_pointer || d == self.known.unsafe_const_pointer
+        if pointer {
+            return tr == self.known.explicit_copy || tr == self.known.equatable
+        }
+        tr == self.known.explicit_copy || tr == self.known.equatable || tr == self.known.comparable || tr == self.known.hashable || tr == self.known.printable || tr == self.known.send || tr == self.known.sync
+    }
+
+    // Whether `t` is trivially copyable: a number, `Bool`, a pointer, or a
+    // type declaring no policy whose members all are. Such a struct, and a
+    // payload-free enum, meets Equatable and Hashable with no declaration.
+    func is_trivial(&var self, t: Int, depth: Int) -> Bool {
+        if depth > 32 {
+            return false
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Tuple {
+            var k = 0
+            while k < info.count {
+                let arg = self.types.arg(t, k)
+                if not self.is_trivial(arg, depth + 1) {
+                    return false
+                }
+                k = k + 1
+            }
+            return true
+        }
+        if info.kind == TcKind.Array {
+            return self.is_trivial(info.b, depth + 1)
+        }
+        if info.kind != TcKind.Nominal {
+            return false
+        }
+        let d = info.decl
+        if d == self.known.string {
+            return false
+        }
+        let decl = self.res.decls[d]
+        if decl.kind == ResDeclKind.Primitive {
+            return true
+        }
+        if d == self.known.optional {
+            let inner = self.types.arg(t, 0)
+            return self.is_trivial(inner, depth + 1)
+        }
+        if self.declared_policy(d) >= 0 || decl.node < 0 {
+            return false
+        }
+        let arguments = self.nominal_args(t)
+        let subst = tc_args_subst(d, move arguments)
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            let mi = self.res.decls[m]
+            let s = self.sigs[m]
+            if mi.kind == ResDeclKind.Field && s.result >= 0 {
+                let written = self.member_type(s.result)
+                let ft = self.subst(written, &subst)
+                if not self.is_trivial(ft, depth + 1) {
+                    return false
+                }
+            } else if mi.kind == ResDeclKind.Case && s.param_count > 0 {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // Send and Sync, derived from the members, with each argument in place.
+    func members_satisfy(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int) -> Bool {
+        let info = self.types.ty(t)
+        let d = info.decl
+        let decl = self.res.decls[d]
+        if decl.node < 0 {
+            var k = 0
+            while k < info.count {
+                let arg = self.types.arg(t, k)
+                if not self.satisfies(arg, tr, env_decl, env_ext) {
+                    return false
+                }
+                k = k + 1
+            }
+            return decl.kind != ResDeclKind.Primitive
+        }
+        let arguments = self.nominal_args(t)
+        let subst = tc_args_subst(d, move arguments)
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            let mi = self.res.decls[m]
+            let s = self.sigs[m]
+            if mi.kind == ResDeclKind.Field && s.result >= 0 {
+                let ft = self.subst(s.result, &subst)
+                if ft == t || not self.satisfies(ft, tr, env_decl, env_ext) {
+                    return false
+                }
+            } else if mi.kind == ResDeclKind.Case {
+                var j = 0
+                while j < s.param_count {
+                    let p = self.params[s.param_first + j]
+                    let pt = self.subst(p.ty, &subst)
+                    if pt == t || not self.satisfies(pt, tr, env_decl, env_ext) {
+                        return false
+                    }
+                    j = j + 1
+                }
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // A nominal type's arguments.
+    public func nominal_args(&self, t: Int) -> Vector<Int> {
+        let info = self.types.ty(t)
+        var out = Vector<Int>()
+        var k = 0
+        while k < info.count {
+            try! out.push(self.types.arg(t, k))
+            k = k + 1
+        }
+        move out
+    }
+}

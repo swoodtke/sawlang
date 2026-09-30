@@ -1,0 +1,17 @@
+// refuses: conformance.incomplete at 13:19
+// a conformance with a requirement nothing meets
+
+trait Shape {
+    func area(&self) -> Int
+    func sides(&self) -> Int
+}
+
+struct Square {
+    side: Int
+}
+
+extension Square: Shape {
+    func area(&self) -> Int {
+        self.side * self.side
+    }
+}

@@ -1,0 +1,9 @@
+// refuses: type.alias-cycle at 5:14
+// two type aliases that stand for each other
+
+type Left = Right
+type Right = Left
+
+func side(l: Left) -> Int {
+    0
+}

@@ -1,0 +1,71 @@
+// Traits and the conformance table: requirements with `Self` and an
+// associated type, default bodies filling gaps, parents' requirements met in
+// a child's conformance, `@synthesize` derivations, the implicit `deinit`,
+// and an extension's conditions.
+
+trait Shape: Printable {
+    type Unit
+    static func origin() -> Self
+    func area(&self) -> Int
+    func unit_of(&self) -> Unit
+    func twice(&self) -> Int {
+        self.area() * 2
+    }
+}
+
+struct Square {
+    side: Int
+}
+
+extension Square: Shape {
+    type Unit = Int
+
+    static func origin() -> Square {
+        Square(side: 0)
+    }
+
+    func area(&self) -> Int {
+        self.side * self.side
+    }
+
+    func unit_of(&self) -> Int {
+        self.side
+    }
+
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("square")
+    }
+}
+
+@synthesize
+extension Square: Equatable {}
+
+struct Version {
+    major: Int
+    minor: Int
+}
+
+@synthesize
+extension Version: Comparable {}
+
+@synthesize
+extension Version: Equatable {}
+
+struct Handle {
+    fd: Int
+}
+
+extension Handle: NoCopy {}
+
+struct Stack<T> {
+    items: Vector<T>
+}
+
+@synthesize
+extension Stack<T: ExplicitCopy>: ExplicitCopy {}
+
+extension Stack<T: ExplicitCopy> {
+    func top(&self) -> T? {
+        None
+    }
+}

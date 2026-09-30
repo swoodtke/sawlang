@@ -1,0 +1,16 @@
+// refuses: conformance.signature at 13:10
+// an implementation of an `unsafe` requirement that is not declared `unsafe`
+
+trait Raw {
+    func peek(&self) unsafe -> Int
+}
+
+struct Plain {
+    n: Int
+}
+
+extension Plain: Raw {
+    func peek(&self) -> Int {
+        self.n
+    }
+}

@@ -1,0 +1,12 @@
+// refuses: slice.not-yet at 10:19
+// a constant argument named by a static
+
+static SIZE: Int = 4
+
+struct Ring<const N: Int> {
+    head: Int
+}
+
+func size(r: Ring<SIZE>) -> Int {
+    0
+}

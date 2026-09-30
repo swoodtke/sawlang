@@ -1,0 +1,1127 @@
+// Every declaration's signature, program-wide (SL:architecture §3.4, "Order"),
+// and the funnel that turns a type-position node into an interned type. This
+// file is the position matrix of compiler/tests/typecheck/README.md: one method
+// per kind of declaration, and `build_type` for every kind of type position,
+// each dispatching on the alternatives GRAMMAR.md builds there. A construct
+// outside the bootstrap slice is refused by name (`not_in_slice`).
+//
+// Names come from resolve's records only: a type position reads the binding
+// resolve recorded on its path's last leaf, never its spelling.
+//
+// ENTRY POINTS (build_type):
+//     build_generic
+//     build_default
+//     build_type_arg
+//     build_named
+//     alias_type
+//     build_enum
+//     build_case
+//     build_field
+//     build_static
+//     build_function
+//     build_extern
+
+import sawparse.src.grammar.{Alt, alt_name}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.kinds.{res_is_type_alt}
+import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
+import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
+                               TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SYNC,
+                               TC_EFFECT_UNSAFE, TC_FLAG_ALIAS_BUILDING, TC_FLAG_BLOCKING,
+                               TC_FLAG_BORROWS_STRUCT, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE,
+                               TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_UNSAFE_VAR,
+                               TC_FLAG_VARIADIC, TC_FLAG_WRITTEN_RETURN, TcGeneric, TcLend,
+                               TcObligation, TcParam, TcReceiver, TcSig}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// The generic parameters of every declaration, keyed by where each is declared.
+public func tc_index_generics(p: &var TcProgram) {
+    p.index_generics()
+}
+
+// The largest constant argument folded; a product stays inside an `Int`.
+static TC_CONST_LIMIT: Int = 2147483647
+static TC_SIG_UNBUILT: Int = 0
+static TC_SIG_GENERICS: Int = 1
+static TC_SIG_GENERICS_BUILT: Int = 2
+static TC_SIG_BUILDING: Int = 3
+static TC_SIG_BUILT: Int = 4
+
+// Where a signature is being built: its module and declaration, the trait or
+// extension around it, and what `Self` is there.
+public struct TcContext {
+    public module: Int
+    public decl: Int
+    public trait_decl: Int
+    public ext: Int
+    public self_type: Int
+}
+
+extension TcProgram {
+    // The generic parameters of every declaration, each keyed by the leaf it
+    // is declared at, and each type's extensions. An extension's parameters
+    // rename the parameters of the type it extends, so they belong to that
+    // type.
+    public func index_generics(&var self) {
+        var m = 0
+        while m < self.res.modules.len() {
+            let info = self.res.modules[m]
+            if info.available {
+                var d = info.decl_first
+                while d < info.decl_first + info.decl_count {
+                    self.index_decl_generics(d)
+                    d = d + 1
+                }
+            }
+            m = m + 1
+        }
+    }
+
+    func index_decl_generics(&var self, d: Int) {
+        let info = self.res.decls[d]
+        if info.node < 0 || info.kind == ResDeclKind.Field || info.kind == ResDeclKind.Case {
+            return
+        }
+        var owner = d
+        if info.kind == ResDeclKind.Extension {
+            let target = self.ext_target(d)
+            if target >= 0 {
+                owner = target
+                self.extensions_of.add(target, 0, d)
+            }
+        }
+        let n = self.child_count(info.node)
+        var index = 0
+        var k = 0
+        while k < n {
+            let g = self.child(info.node, k)
+            if self.has_alt(g, Alt.Generic_Param_Type) || self.has_alt(g, Alt.Generic_Param_Const) {
+                let leaf = self.res.first_leaf(g)
+                self.param_owners.add(leaf, 0, owner)
+                self.param_owners.add(leaf, 1, index)
+                index = index + 1
+            }
+            k = k + 1
+        }
+    }
+
+    // The type an extension extends: the declaration its head's last segment
+    // is bound to, or -1 when that is not a nominal type.
+    public func ext_target(&self, ext: Int) -> Int {
+        let info = self.res.decls[ext]
+        let head = self.res.first_node_child(info.node)
+        if head < 0 {
+            return -1
+        }
+        let leaf = self.res.last_leaf_of(head)
+        let b = self.binding_at(leaf)
+        if b.kind == ResBindKind.Decl && self.is_nominal(b.decl) {
+            return b.decl
+        }
+        return -1
+    }
+
+    public func save_context(&self) -> TcContext {
+        TcContext(module: self.current, decl: self.current_decl, trait_decl: self.current_trait,
+                  ext: self.current_ext, self_type: self.current_self)
+    }
+
+    public func restore_context(&var self, c: TcContext) {
+        self.current = c.module
+        self.current_decl = c.decl
+        self.current_trait = c.trait_decl
+        self.current_ext = c.ext
+        self.current_self = c.self_type
+    }
+
+    // Enters declaration `d`: its module, and the type, trait or extension
+    // whose `Self` its signature sees.
+    public func enter_decl(&var self, d: Int) {
+        let info = self.res.decls[d]
+        self.current = info.module
+        self.current_decl = d
+        self.current_trait = -1
+        self.current_ext = -1
+        self.current_self = -1
+        var type_decl = -1
+        if info.kind == ResDeclKind.Struct || info.kind == ResDeclKind.Enum {
+            type_decl = d
+        } else if info.kind == ResDeclKind.Field || info.kind == ResDeclKind.Case {
+            type_decl = info.parent
+        } else if info.kind == ResDeclKind.Trait {
+            self.current_trait = d
+        } else if info.kind == ResDeclKind.Requirement || info.kind == ResDeclKind.AssocType {
+            self.current_trait = info.parent
+        } else if info.kind == ResDeclKind.Extension {
+            self.current_ext = d
+        } else if info.parent >= 0 {
+            let parent = self.res.decls[info.parent]
+            if parent.kind == ResDeclKind.Extension {
+                self.current_ext = info.parent
+            }
+        }
+        if self.current_trait >= 0 {
+            let t = self.current_trait
+            self.current_self = self.mk_self(t)
+        } else if self.current_ext >= 0 {
+            let e = self.current_ext
+            let target = self.ext_target(e)
+            if target >= 0 {
+                self.current_self = self.self_type_of(target)
+            } else {
+                self.current_self = self.error_type
+            }
+        } else if type_decl >= 0 {
+            self.current_self = self.self_type_of(type_decl)
+        }
+    }
+
+    // A nominal type applied to its own parameters: what `Self` is inside it.
+    public func self_type_of(&var self, d: Int) -> Int {
+        self.ensure_generic_list(d)
+        let s = self.sigs[d]
+        var args = Vector<Int>()
+        var k = 0
+        while k < s.generic_count {
+            try! args.push(self.mk_param(d, k))
+            k = k + 1
+        }
+        self.mk_nominal(d, &args)
+    }
+}
+
+// Type constructors: each interns its key.
+extension TcProgram {
+    public func mk_nominal(&var self, d: Int, args: &Vector<Int>) -> Int {
+        let none = Vector<Int>()
+        self.types.intern(TcKind.Nominal, d, 0, 0, &args, &none)
+    }
+
+    public func mk_param(&var self, owner: Int, index: Int) -> Int {
+        let none = Vector<Int>()
+        let unlabeled = Vector<Int>()
+        self.types.intern(TcKind.Param, owner, index, 0, &none, &unlabeled)
+    }
+
+    public func mk_self(&var self, trait_decl: Int) -> Int {
+        let none = Vector<Int>()
+        let unlabeled = Vector<Int>()
+        self.types.intern(TcKind.SelfType, trait_decl, 0, 0, &none, &unlabeled)
+    }
+
+    public func mk_assoc(&var self, d: Int) -> Int {
+        let none = Vector<Int>()
+        let unlabeled = Vector<Int>()
+        self.types.intern(TcKind.Assoc, d, 0, 0, &none, &unlabeled)
+    }
+
+    public func mk_optional(&var self, inner: Int) -> Int {
+        var args = Vector<Int>()
+        try! args.push(inner)
+        let d = self.known.optional
+        self.mk_nominal(d, &args)
+    }
+
+    public func mk_tuple(&var self, elements: &Vector<Int>, labels: &Vector<Int>) -> Int {
+        self.types.intern(TcKind.Tuple, -1, 0, 0, &elements, &labels)
+    }
+
+    public func mk_func(&var self, params: &Vector<Int>, result: Int, effects: Int) -> Int {
+        let none = Vector<Int>()
+        self.types.intern(TcKind.Func, -1, effects, result, &params, &none)
+    }
+
+    public func mk_ref(&var self, exclusive: Bool, inner: Int) -> Int {
+        let none = Vector<Int>()
+        let unlabeled = Vector<Int>()
+        let a = if exclusive { 1 } else { 0 }
+        self.types.intern(TcKind.Ref, -1, a, inner, &none, &unlabeled)
+    }
+
+    public func mk_slice(&var self, exclusive: Bool, element: Int) -> Int {
+        let none = Vector<Int>()
+        let unlabeled = Vector<Int>()
+        let a = if exclusive { 1 } else { 0 }
+        self.types.intern(TcKind.Slice, -1, a, element, &none, &unlabeled)
+    }
+
+    public func mk_array(&var self, element: Int, length: Int) -> Int {
+        var args = Vector<Int>()
+        try! args.push(length)
+        let none = Vector<Int>()
+        self.types.intern(TcKind.Array, -1, 0, element, &args, &none)
+    }
+
+    public func mk_any(&var self, trait_decl: Int) -> Int {
+        let none = Vector<Int>()
+        let unlabeled = Vector<Int>()
+        self.types.intern(TcKind.Any, trait_decl, 0, 0, &none, &unlabeled)
+    }
+
+    public func mk_const(&var self, value: Int) -> Int {
+        let none = Vector<Int>()
+        let unlabeled = Vector<Int>()
+        self.types.intern(TcKind.ConstInt, -1, value, 0, &none, &unlabeled)
+    }
+}
+
+// Generic parameter lists, built once per declaration, lazily, since a
+// signature may name a type declared later.
+extension TcProgram {
+    // The names of the parameters of a builtin generic type, which no source
+    // declares.
+    func builtin_generic_names(&self, d: Int) -> Vector<String> {
+        var out = Vector<String>()
+        if d == self.known.optional || d == self.known.unsafe_pointer || d == self.known.unsafe_const_pointer {
+            try! out.push("T")
+        } else if d == self.known.result {
+            try! out.push("T")
+            try! out.push("E")
+        }
+        move out
+    }
+
+    // Enters declaration `d`'s parameters, without their bounds and defaults,
+    // so that `Self` and a parameter's key are known while those are built.
+    public func ensure_generic_list(&var self, d: Int) {
+        let s = self.sigs[d]
+        if s.state >= TC_SIG_GENERICS {
+            return
+        }
+        let info = self.res.decls[d]
+        var sig = s
+        sig.state = TC_SIG_GENERICS
+        sig.generic_first = self.generics.len()
+        if info.node < 0 {
+            let names = self.builtin_generic_names(d)
+            var k = 0
+            while k < names.len() {
+                let text = names.get(k) ?? ""
+                let name = self.res.intern(text)
+                try! self.generics.push(TcGeneric(name: name, leaf: -1, node: -1, is_const: false,
+                                                  bound_first: 0, bound_count: 0, default_type: -1,
+                                                  const_type: -1))
+                k = k + 1
+            }
+            sig.generic_count = names.len()
+            self.sigs[d] = sig
+            return
+        }
+        if info.kind == ResDeclKind.Field || info.kind == ResDeclKind.Case {
+            self.sigs[d] = sig
+            return
+        }
+        let target = if info.kind == ResDeclKind.Extension { self.ext_target(d) } else { -1 }
+        let n = self.child_count(info.node)
+        var count = 0
+        var k = 0
+        while k < n {
+            let g = self.child(info.node, k)
+            let is_type = self.has_alt(g, Alt.Generic_Param_Type)
+            let is_const = self.has_alt(g, Alt.Generic_Param_Const)
+            if is_type || is_const {
+                let leaf = self.res.first_leaf(g)
+                let m = info.module
+                let text = self.text(m, leaf)
+                let name = self.res.intern(text)
+                var constness = is_const
+                if target >= 0 {
+                    constness = self.target_param_is_const(target, count)
+                }
+                try! self.generics.push(TcGeneric(name: name, leaf: leaf, node: g,
+                                                  is_const: constness, bound_first: 0,
+                                                  bound_count: 0, default_type: -1,
+                                                  const_type: -1))
+                count = count + 1
+            }
+            k = k + 1
+        }
+        sig.generic_count = count
+        self.sigs[d] = sig
+    }
+
+    // Whether parameter `k` of type `target` is a const parameter.
+    func target_param_is_const(&var self, target: Int, k: Int) -> Bool {
+        self.ensure_generic_list(target)
+        let s = self.sigs[target]
+        if k >= s.generic_count {
+            return false
+        }
+        let g = self.generics[s.generic_first + k]
+        g.is_const
+    }
+
+    // Builds declaration `d`'s generic parameters in full: their bounds,
+    // defaults and const types.
+    public func ensure_generics(&var self, d: Int) {
+        self.ensure_generic_list(d)
+        let s = self.sigs[d]
+        if s.state >= TC_SIG_GENERICS_BUILT {
+            return
+        }
+        var marked = s
+        marked.state = TC_SIG_GENERICS_BUILT
+        self.sigs[d] = marked
+        let saved = self.save_context()
+        self.enter_decl(d)
+        var seen_default = false
+        var k = 0
+        while k < s.generic_count {
+            let at = s.generic_first + k
+            let g = self.generics[at]
+            if g.node >= 0 {
+                var built = g
+                self.build_generic(&var built, d, k, seen_default)
+                if built.default_type >= 0 {
+                    seen_default = true
+                }
+                self.generics[at] = built
+            }
+            k = k + 1
+        }
+        self.restore_context(saved)
+    }
+
+    // One parameter's bounds, default and const type. A parameter after a
+    // defaulted one needs a default too, and a default names no parameter.
+    func build_generic(&var self, g: &var TcGeneric, d: Int, index: Int, seen_default: Bool) {
+        let node = g.node
+        let n = self.child_count(node)
+        var after_equals = false
+        let bound_first = self.traits.len()
+        var k = 0
+        while k < n {
+            let c = self.child(node, k)
+            if self.is_leaf(c) {
+                let m = self.current
+                let word = self.text(m, c)
+                if word.equals("=") {
+                    after_equals = true
+                }
+            } else if self.has_alt(c, Alt.Type_Path) {
+                let t = self.trait_of_path(c)
+                if t >= 0 {
+                    try! self.traits.push(t)
+                }
+            } else if after_equals {
+                if g.is_const {
+                    g.default_type = self.build_const(c)
+                } else {
+                    g.default_type = self.build_default(c)
+                }
+            } else if g.is_const && res_is_type_alt(self.node_alt(c)) {
+                g.const_type = self.build_type(c)
+            } else if res_is_type_alt(self.node_alt(c)) {
+                let _ = self.build_type(c)
+            }
+            k = k + 1
+        }
+        g.bound_first = bound_first
+        g.bound_count = self.traits.len() - bound_first
+        if g.default_type < 0 && seen_default && not self.is_extension(d) {
+            let m = self.current
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(self.text(m, g.leaf))
+            try! msg.append("` has no default, but a parameter before it does: defaults are trailing")
+            self.refuse(g.leaf, "type.default", msg.build())
+        }
+        if g.default_type >= 0 && not self.is_extension(d) {
+            let dt = g.default_type
+            if self.mentions_param(dt) {
+                let m = self.current
+                var msg = StringBuilder()
+                try! msg.append("the default of `")
+                try! msg.append(self.text(m, g.leaf))
+                try! msg.append("` names a type parameter; a default is a ground type")
+                self.refuse(g.leaf, "type.default", msg.build())
+            } else {
+                var j = 0
+                while j < g.bound_count {
+                    let bound = self.traits[g.bound_first + j]
+                    self.oblige(node, dt, bound, d, index)
+                    j = j + 1
+                }
+            }
+        }
+    }
+
+    public func is_extension(&self, d: Int) -> Bool {
+        let info = self.res.decls[d]
+        info.kind == ResDeclKind.Extension
+    }
+
+    // A default's type. Its node is recorded like any other type position.
+    func build_default(&var self, c: Int) -> Int {
+        if res_is_type_alt(self.node_alt(c)) {
+            return self.build_type(c)
+        }
+        self.kind_mismatch(c, "a type")
+        self.error_type
+    }
+
+    // The trait a bound, parent or conformance path names, or -1 once refused.
+    public func trait_of_path(&var self, path: Int) -> Int {
+        let n = self.child_count(path)
+        let leaf = self.child(path, n - 1)
+        let b = self.binding_at(leaf)
+        if b.kind == ResBindKind.Error || b.kind == ResBindKind.Unbound {
+            return -1
+        }
+        if b.kind == ResBindKind.Decl && self.is_trait(b.decl) {
+            return b.decl
+        }
+        let m = self.current
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.text(m, leaf))
+        try! msg.append("` is not a trait, so it cannot be a bound, a parent or a conformance")
+        self.refuse(leaf, "type.not-a-trait", msg.build())
+        return -1
+    }
+
+    // Records that `arg` must satisfy `trait_decl`, the bound of parameter
+    // `index` of `owner`, checked once the conformance table exists.
+    public func oblige(&var self, node: Int, arg: Int, trait_decl: Int, owner: Int, index: Int) {
+        let m = self.current
+        let env_decl = self.current_decl
+        let env_ext = self.current_ext
+        try! self.obligations.push(TcObligation(module: m, node: node, arg: arg,
+                                                trait_decl: trait_decl, owner: owner, index: index,
+                                                env_decl: env_decl, env_ext: env_ext))
+    }
+
+    // Whether type `t` mentions a type parameter anywhere.
+    public func mentions_param(&self, t: Int) -> Bool {
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Param || info.kind == TcKind.SelfType || info.kind == TcKind.Assoc {
+            return true
+        }
+        if info.b >= 0 && (info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array) {
+            if self.mentions_param(info.b) {
+                return true
+            }
+        }
+        var k = 0
+        while k < info.count {
+            let a = self.types.arg(t, k)
+            if self.mentions_param(a) {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+}
+
+// The type funnel.
+extension TcProgram {
+    // The type type-position node `t` denotes, recorded against the node.
+    public func build_type(&var self, t: Int) -> Int {
+        let ty = self.build_type_as(t)
+        self.node_types[t] = ty
+        ty
+    }
+
+    func build_type_as(&var self, t: Int) -> Int {
+        if let alt = self.node_alt(t) {
+            return self.build_type_of(t, alt)
+        }
+        self.error_type
+    }
+
+    func build_type_of(&var self, t: Int, alt: Alt) -> Int {
+        match alt {
+            case Type_Named -> self.build_named(t),
+            case Type_Suffix_Optional -> {
+                let inner = self.res.first_node_child(t)
+                let ty = self.build_type(inner)
+                self.mk_optional(ty)
+            },
+            case Type_Suffix_DoubleOptional -> {
+                // The parser builds `T??` as two nested nodes, one per layer.
+                let inner = self.res.first_node_child(t)
+                let ty = self.build_type(inner)
+                self.mk_optional(ty)
+            },
+            case Type_Ref_Shared -> {
+                let inner = self.res.first_node_child(t)
+                let ty = self.build_type(inner)
+                self.mk_ref(false, ty)
+            },
+            case Type_Ref_Exclusive -> {
+                let inner = self.res.first_node_child(t)
+                let ty = self.build_type(inner)
+                self.mk_ref(true, ty)
+            },
+            case Type_Slice_Shared -> {
+                let inner = self.res.first_node_child(t)
+                let ty = self.build_type(inner)
+                self.mk_slice(false, ty)
+            },
+            case Type_Slice_Exclusive -> {
+                let inner = self.res.first_node_child(t)
+                let ty = self.build_type(inner)
+                self.mk_slice(true, ty)
+            },
+            case Type_Array -> {
+                let inner = self.res.first_node_child(t)
+                let element = self.build_type(inner)
+                let length_node = self.res.last_node_child(t)
+                let length = self.build_const(length_node)
+                self.mk_array(element, length)
+            },
+            case Type_Tuple_Unit -> self.build_tuple(t, false),
+            case Type_Tuple_Positional -> self.build_tuple(t, false),
+            case Type_SingleTuple -> self.build_tuple(t, false),
+            case Type_Tuple_Named -> self.build_tuple(t, true),
+            case Type_Func -> self.build_func_type(t),
+            case Type_Any -> {
+                let path = self.res.first_node_child(t)
+                let tr = self.trait_of_path(path)
+                if tr < 0 {
+                    return self.error_type
+                }
+                self.mk_any(tr)
+            },
+            case _ -> {
+                self.not_in_slice(t, alt)
+                self.error_type
+            }
+        }
+    }
+
+    // A named type: its path's binding, applied to its arguments.
+    func build_named(&var self, t: Int) -> Int {
+        let path = self.child(t, 0)
+        let segments = self.child_count(path)
+        let leaf = self.child(path, segments - 1)
+        var arg_nodes = Vector<Int>()
+        let n = self.child_count(t)
+        var k = 1
+        while k < n {
+            let c = self.child(t, k)
+            if not self.is_leaf(c) {
+                try! arg_nodes.push(c)
+            }
+            k = k + 1
+        }
+        let ty = self.named_type(t, leaf, &arg_nodes)
+        // An application refused before its arguments were read still types
+        // each argument, so every type position has a type.
+        k = 0
+        while k < arg_nodes.len() {
+            let c = arg_nodes[k]
+            if self.node_types[c] < 0 && res_is_type_alt(self.node_alt(c)) {
+                let _ = self.build_type(c)
+            }
+            k = k + 1
+        }
+        ty
+    }
+
+    func named_type(&var self, t: Int, leaf: Int, arg_nodes: &Vector<Int>) -> Int {
+        let b = self.binding_at(leaf)
+        match b.kind {
+            case Decl -> self.build_decl_type(t, leaf, b.decl, &arg_nodes),
+            case TypeParam -> {
+                if arg_nodes.len() > 0 {
+                    self.refuse_arguments_on(leaf)
+                    return self.error_type
+                }
+                let owner = self.param_owner(b.node)
+                let index = self.param_index(b.node)
+                if owner < 0 {
+                    return self.error_type
+                }
+                self.mk_param(owner, index)
+            },
+            case SelfType -> {
+                if arg_nodes.len() > 0 {
+                    self.refuse_arguments_on(leaf)
+                    return self.error_type
+                }
+                if self.current_self >= 0 {
+                    return self.current_self
+                }
+                if self.is_nominal(b.decl) {
+                    let d = b.decl
+                    return self.self_type_of(d)
+                }
+                self.error_type
+            },
+            case Error -> self.error_type,
+            case Unbound -> self.error_type,
+            case _ -> {
+                self.refuse_not_a_type(leaf)
+                self.error_type
+            }
+        }
+    }
+
+    func build_decl_type(&var self, t: Int, leaf: Int, d: Int, arg_nodes: &Vector<Int>) -> Int {
+        if d < 0 {
+            return self.error_type
+        }
+        let info = self.res.decls[d]
+        if self.is_nominal(d) {
+            return self.apply_nominal(t, leaf, d, &arg_nodes)
+        }
+        if info.kind == ResDeclKind.Alias || info.kind == ResDeclKind.TypeAssign {
+            if arg_nodes.len() > 0 {
+                self.refuse_arguments_on(leaf)
+                return self.error_type
+            }
+            return self.aliased_type(d, leaf)
+        }
+        if info.kind == ResDeclKind.AssocType {
+            if arg_nodes.len() > 0 {
+                self.refuse_arguments_on(leaf)
+                return self.error_type
+            }
+            return self.mk_assoc(d)
+        }
+        self.refuse_not_a_type(leaf)
+        self.error_type
+    }
+
+    // The type an alias or a type assignment stands for. An alias is
+    // transparent: its canonical form is the type it names.
+    func aliased_type(&var self, d: Int, leaf: Int) -> Int {
+        self.alias_type(d, leaf)
+    }
+
+    // The type alias or type assignment `d` stands for, built once, in `d`'s
+    // own context, and kept as its result. `leaf` is where a cycle through
+    // it is reported, or -1 when the declaration itself is being built.
+    public func alias_type(&var self, d: Int, leaf: Int) -> Int {
+        let s = self.sigs[d]
+        if s.result >= 0 {
+            return s.result
+        }
+        if (s.flags & TC_FLAG_ALIAS_BUILDING) != 0 {
+            if leaf >= 0 {
+                let m = self.current
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(self.text(m, leaf))
+                try! msg.append("` stands for itself through a cycle of type aliases")
+                self.refuse(leaf, "type.alias-cycle", msg.build())
+            }
+            return self.error_type
+        }
+        var marked = s
+        marked.flags = marked.flags | TC_FLAG_ALIAS_BUILDING
+        self.sigs[d] = marked
+        self.ensure_generic_list(d)
+        let saved = self.save_context()
+        self.enter_decl(d)
+        let info = self.res.decls[d]
+        let inner = self.res.last_node_child(info.node)
+        var t = self.error_type
+        let generic = self.sigs[d].generic_count > 0
+        if generic {
+            self.not_in_slice(info.node, Alt.Decl_TypeAlias)
+        } else if inner >= 0 && res_is_type_alt(self.node_alt(inner)) {
+            t = self.build_type(inner)
+        }
+        self.restore_context(saved)
+        var done = self.sigs[d]
+        done.flags = done.flags & (0 - 1 - TC_FLAG_ALIAS_BUILDING)
+        done.result = t
+        self.sigs[d] = done
+        t
+    }
+
+    // A nominal type applied to the written arguments, each defaulted
+    // parameter filled, so `Vector<Int>` and `Vector<Int, GlobalAllocator>`
+    // are one key.
+    func apply_nominal(&var self, t: Int, leaf: Int, d: Int, arg_nodes: &Vector<Int>) -> Int {
+        self.ensure_generics(d)
+        let s = self.sigs[d]
+        let written = arg_nodes.len()
+        if written > s.generic_count {
+            self.refuse_arity(leaf, d, written)
+            return self.error_type
+        }
+        var args = Vector<Int>()
+        var k = 0
+        while k < s.generic_count {
+            let g = self.generics[s.generic_first + k]
+            if k < written {
+                let node = arg_nodes[k]
+                let arg = if g.is_const { self.build_const_arg(node) } else { self.build_type_arg(node) }
+                try! args.push(arg)
+                var j = 0
+                while j < g.bound_count {
+                    let bound = self.traits[g.bound_first + j]
+                    self.oblige(node, arg, bound, d, k)
+                    j = j + 1
+                }
+            } else if g.default_type >= 0 {
+                try! args.push(g.default_type)
+            } else {
+                self.refuse_arity(leaf, d, written)
+                return self.error_type
+            }
+            k = k + 1
+        }
+        self.mk_nominal(d, &args)
+    }
+
+    // A type argument for a type parameter.
+    public func build_type_arg(&var self, node: Int) -> Int {
+        if res_is_type_alt(self.node_alt(node)) {
+            return self.build_type(node)
+        }
+        self.kind_mismatch(node, "a type")
+        self.error_type
+    }
+
+    // A constant argument for a const parameter: a const parameter named as a
+    // type, or a constant expression.
+    func build_const_arg(&var self, node: Int) -> Int {
+        if not res_is_type_alt(self.node_alt(node)) {
+            return self.build_const(node)
+        }
+        let ty = self.const_named_as_type(node)
+        self.node_types[node] = ty
+        ty
+    }
+
+    // A constant argument written in a type's spelling: a const parameter's
+    // name. A static there is outside the slice; any other type is the wrong
+    // kind of argument.
+    func const_named_as_type(&var self, node: Int) -> Int {
+        if self.has_alt(node, Alt.Type_Named) {
+            let path = self.child(node, 0)
+            let segments = self.child_count(path)
+            let leaf = self.child(path, segments - 1)
+            let b = self.binding_at(leaf)
+            if b.kind == ResBindKind.TypeParam && self.child_count(node) == 1 {
+                let owner = self.param_owner(b.node)
+                let index = self.param_index(b.node)
+                if owner >= 0 && self.target_param_is_const(owner, index) {
+                    return self.mk_param(owner, index)
+                }
+            }
+            if b.kind == ResBindKind.Decl && b.decl >= 0 {
+                let info = self.res.decls[b.decl]
+                if info.kind == ResDeclKind.Static {
+                    self.refuse_static_constant(leaf)
+                    return self.error_type
+                }
+            }
+        }
+        self.kind_mismatch(node, "a value")
+        self.error_type
+    }
+
+    // A constant expression, folded: an integer literal, a const parameter,
+    // and `+`, `-`, `*` and negation over them.
+    public func build_const(&var self, node: Int) -> Int {
+        guard let alt = self.node_alt(node) else {
+            return self.error_type
+        }
+        if alt == Alt.Expr_Int || alt == Alt.Const_Atom_Int {
+            return self.const_literal(node)
+        }
+        if alt == Alt.Expr_Name || alt == Alt.Const_Atom_Name || alt == Alt.Type_Path {
+            // A constant expression's name atom is a path; its last segment
+            // carries resolve's binding.
+            let leaf = if alt == Alt.Type_Path { self.res.last_leaf_of(node) } else { self.res.first_leaf(node) }
+            let b = self.binding_at(leaf)
+            if b.kind == ResBindKind.TypeParam {
+                let owner = self.param_owner(b.node)
+                let index = self.param_index(b.node)
+                if owner >= 0 {
+                    return self.mk_param(owner, index)
+                }
+            }
+            if b.kind == ResBindKind.Error || b.kind == ResBindKind.Unbound {
+                return self.error_type
+            }
+            self.refuse_static_constant(leaf)
+            return self.error_type
+        }
+        if alt == Alt.Const_Negate || alt == Alt.Expr_Unary_Negate || alt == Alt.Const_Unary_Negate {
+            let inner = self.res.first_node_child(node)
+            let v = self.build_const(inner)
+            let info = self.types.ty(v)
+            if info.kind == TcKind.ConstInt {
+                return self.mk_const(0 - info.a)
+            }
+            return self.const_unfolded(node, alt, v)
+        }
+        if alt == Alt.Const_Expr || alt == Alt.Const_Term || alt == Alt.Expr_Additive || alt == Alt.Expr_Multiplicative {
+            return self.fold_chain(node, alt)
+        }
+        self.not_in_slice(node, alt)
+        self.error_type
+    }
+
+    // An operator chain `a op b op c`, folded left to right.
+    func fold_chain(&var self, node: Int, alt: Alt) -> Int {
+        let n = self.child_count(node)
+        var value = 0
+        var have = false
+        var op = "+"
+        var k = 0
+        while k < n {
+            let c = self.child(node, k)
+            let m = self.current
+            if self.is_leaf(c) {
+                op = self.text(m, c)
+            } else {
+                let v = self.build_const(c)
+                let info = self.types.ty(v)
+                if info.kind != TcKind.ConstInt {
+                    return self.const_unfolded(node, alt, v)
+                }
+                let x = info.a
+                if x > TC_CONST_LIMIT || x < 0 - TC_CONST_LIMIT || value > TC_CONST_LIMIT || value < 0 - TC_CONST_LIMIT {
+                    self.not_in_slice(node, alt)
+                    return self.error_type
+                }
+                if not have {
+                    value = x
+                    have = true
+                } else if op.equals("+") {
+                    value = value + x
+                } else if op.equals("-") {
+                    value = value - x
+                } else if op.equals("*") {
+                    value = value * x
+                } else {
+                    self.not_in_slice(node, alt)
+                    return self.error_type
+                }
+            }
+            k = k + 1
+        }
+        self.mk_const(value)
+    }
+
+    // An operator over a constant that is not an integer: a const parameter's
+    // arithmetic is folded only per instantiation, which is not this stage's.
+    func const_unfolded(&var self, node: Int, alt: Alt, v: Int) -> Int {
+        let info = self.types.ty(v)
+        if info.kind == TcKind.Error {
+            return self.error_type
+        }
+        self.refuse(node, "slice.not-yet",
+                    "arithmetic over a const parameter, which folds only per instantiation, is not in the bootstrap slice yet")
+        try! self.skipped.push(node)
+        self.error_type
+    }
+
+    // An integer literal's value: decimal, `0x`, `0o` or `0b`, with `_`.
+    func const_literal(&var self, node: Int) -> Int {
+        let m = self.current
+        let leaf = self.res.first_leaf(node)
+        let at = if leaf >= 0 { leaf } else { node }
+        let text = self.text(m, at)
+        var radix = 10
+        var i = 0
+        let n = text.len()
+        if n > 2 && (text.byte_at(0) as Int) == 48 {
+            let letter = text.byte_at(1) as Int
+            if letter == 120 {
+                radix = 16
+                i = 2
+            } else if letter == 111 {
+                radix = 8
+                i = 2
+            } else if letter == 98 {
+                radix = 2
+                i = 2
+            }
+        }
+        var value = 0
+        while i < n {
+            let b = text.byte_at(i) as Int
+            var digit = -1
+            if b >= 48 && b <= 57 {
+                digit = b - 48
+            } else if b >= 97 && b <= 102 {
+                digit = b - 87
+            } else if b >= 65 && b <= 70 {
+                digit = b - 55
+            }
+            if b != 95 {
+                if digit < 0 || digit >= radix || value > TC_CONST_LIMIT {
+                    self.not_in_slice(node, Alt.Expr_Int)
+                    return self.error_type
+                }
+                value = value * radix + digit
+            }
+            i = i + 1
+        }
+        self.mk_const(value)
+    }
+
+    func build_tuple(&var self, t: Int, named: Bool) -> Int {
+        var elements = Vector<Int>()
+        var labels = Vector<Int>()
+        let n = self.child_count(t)
+        var k = 0
+        while k < n {
+            let c = self.child(t, k)
+            if not self.is_leaf(c) {
+                if named && self.has_alt(c, Alt.Type_TupleField) {
+                    let leaf = self.res.first_leaf(c)
+                    let m = self.current
+                    let text = self.text(m, leaf)
+                    try! labels.push(self.res.intern(text))
+                    let inner = self.res.last_node_child(c)
+                    try! elements.push(self.build_type(inner))
+                } else {
+                    try! elements.push(self.build_type(c))
+                }
+            }
+            k = k + 1
+        }
+        self.mk_tuple(&elements, &labels)
+    }
+
+    // A function type: its parameter types, its effect words and its return
+    // type, which is its last child node.
+    func build_func_type(&var self, t: Int) -> Int {
+        let last = self.res.last_node_child(t)
+        var params = Vector<Int>()
+        var effects = 0
+        let n = self.child_count(t)
+        var k = 0
+        while k < n {
+            let c = self.child(t, k)
+            if self.is_leaf(c) {
+                let m = self.current
+                let word = self.text(m, c)
+                effects = tc_effect_bit(effects, &word)
+            } else if c != last {
+                try! params.push(self.build_type(c))
+            }
+            k = k + 1
+        }
+        let result = if last >= 0 { self.build_type(last) } else { self.error_type }
+        try! self.func_nodes.push(t)
+        self.mk_func(&params, result, effects)
+    }
+}
+
+// The effect set after one more effect word: `sync` after `borrows` is
+// `borrows(sync)`, whose parentheses the tree does not keep.
+public func tc_effect_bit(effects: Int, word: &String) -> Int {
+    if word.equals("unsafe") {
+        return effects | TC_EFFECT_UNSAFE
+    }
+    if word.equals("consumes") {
+        return effects | TC_EFFECT_CONSUMES
+    }
+    if word.equals("constexpr") {
+        return effects | TC_EFFECT_CONSTEXPR
+    }
+    if word.equals("escaping") {
+        return effects | TC_EFFECT_ESCAPING
+    }
+    if word.equals("borrows") {
+        return effects | TC_EFFECT_BORROWS
+    }
+    if word.equals("sync") {
+        if (effects & TC_EFFECT_BORROWS) != 0 {
+            return effects | TC_EFFECT_BORROWS_SYNC
+        }
+        return effects | TC_EFFECT_SYNC
+    }
+    effects
+}
+
+// Refusals the type funnel makes.
+extension TcProgram {
+    func refuse_not_a_type(&var self, leaf: Int) {
+        let m = self.current
+        let b = self.binding_at(leaf)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.text(m, leaf))
+        if b.kind == ResBindKind.Decl && self.is_trait(b.decl) {
+            try! msg.append("` is a trait; a type position names it as `any ")
+            try! msg.append(self.text(m, leaf))
+            try! msg.append("`")
+        } else {
+            try! msg.append("` does not name a type")
+        }
+        self.refuse(leaf, "type.not-a-type", msg.build())
+    }
+
+    func refuse_arguments_on(&var self, leaf: Int) {
+        let m = self.current
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.text(m, leaf))
+        try! msg.append("` takes no type arguments")
+        self.refuse(leaf, "type.arity", msg.build())
+    }
+
+    func refuse_arity(&var self, leaf: Int, d: Int, written: Int) {
+        let s = self.sigs[d]
+        var required = 0
+        var k = 0
+        while k < s.generic_count {
+            let g = self.generics[s.generic_first + k]
+            if g.default_type < 0 {
+                required = k + 1
+            }
+            k = k + 1
+        }
+        let m = self.current
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.text(m, leaf))
+        try! msg.append("` takes ")
+        if required == s.generic_count {
+            try! msg.append(s.generic_count)
+        } else {
+            try! msg.append(required)
+            try! msg.append(" to ")
+            try! msg.append(s.generic_count)
+        }
+        try! msg.append(" type arguments, and ")
+        try! msg.append(written)
+        try! msg.append(" are written")
+        self.refuse(leaf, "type.arity", msg.build())
+    }
+
+    func kind_mismatch(&var self, node: Int, wanted: String) {
+        var msg = StringBuilder()
+        try! msg.append("this argument's parameter takes ")
+        try! msg.append(wanted)
+        if wanted.equals("a type") {
+            try! msg.append(", and a value is written")
+        } else {
+            try! msg.append(", and a type is written")
+        }
+        self.refuse(node, "type.argument-kind", msg.build())
+    }
+
+    func refuse_static_constant(&var self, leaf: Int) {
+        let m = self.current
+        var msg = StringBuilder()
+        try! msg.append("a constant argument named by a static, `")
+        try! msg.append(self.text(m, leaf))
+        try! msg.append("`, is not in the bootstrap slice yet")
+        self.refuse(leaf, "slice.not-yet", msg.build())
+    }
+
+    // A construct the bootstrap slice does not type yet: refused by name,
+    // never mis-typed.
+    public func not_in_slice(&var self, id: Int, alt: Alt) {
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(alt_name(alt))
+        try! msg.append("` is not in the bootstrap slice yet")
+        self.refuse(id, "slice.not-yet", msg.build())
+        try! self.skipped.push(id)
+    }
+}

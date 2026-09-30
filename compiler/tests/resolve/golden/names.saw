@@ -1,0 +1,46 @@
+// Declaration names are their name tokens as syntax.decl.method-name spells
+// them: a function, method or requirement with no parameters keeps its effect
+// words out of its name, a requirement's doc comment stays out of it, and a
+// subscript role is `[]` or `[]=`.
+
+struct Clock {
+    t: Int
+}
+
+trait Origin {
+    static func origin() sync -> Self
+    static func fresh() unsafe sync -> Self
+    static func folded() constexpr -> Int
+    func tick(&self) -> Int
+    /// A documented requirement keeps its name.
+    func documented(&self) -> Int
+    /// And a documented static one stays static.
+    static func documented_static() sync -> Self
+}
+
+extension Clock {
+    public static func now() unsafe -> Int { 0 }
+    public static func later() sync -> Int { 1 }
+    public static func both() unsafe sync -> Int { 2 }
+    public static func constant() constexpr -> Int { 3 }
+    public static func lent() borrows -> &Int { lend CLOCK_ZERO }
+    public static func held() sync borrows(sync) -> &Int { lend CLOCK_ZERO }
+    public func [](&self, i: Int) -> Int { i }
+    public func []=(&var self, i: Int, v: Int) { self.t = v }
+    public func take(&var self) consumes -> Int { self.t }
+    public static func control(x: Int) sync -> Int { x }
+}
+
+static CLOCK_ZERO: Int = 0
+
+func first() unsafe -> Int { 0 }
+func second() sync -> Int { 0 }
+func third() unsafe sync -> Int { 0 }
+func fourth() constexpr -> Int { 0 }
+func fifth(x: Int) sync -> Int { x }
+
+extern "C" {
+    func tick_count() -> Int
+    blocking func wait_tick() -> Int
+    func tick_at(n: Int) -> Int
+}

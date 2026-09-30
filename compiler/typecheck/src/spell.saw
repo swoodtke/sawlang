@@ -1,0 +1,187 @@
+// Canonical spelling: every type written so it reads back as the same type,
+// every nominal type by its identity (design 144). The dump and every
+// diagnostic that names a type spell it here.
+
+import sawresolve.src.dump.{res_sort_strings}
+import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
+                               TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SYNC,
+                               TC_EFFECT_UNSAFE}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// The effect words of `effects`, in the slot's order, each after a space.
+public func tc_effects_text(effects: Int) -> String {
+    var out = StringBuilder()
+    if (effects & TC_EFFECT_CONSUMES) != 0 {
+        try! out.append(" consumes")
+    }
+    if (effects & TC_EFFECT_UNSAFE) != 0 {
+        try! out.append(" unsafe")
+    }
+    if (effects & TC_EFFECT_CONSTEXPR) != 0 {
+        try! out.append(" constexpr")
+    }
+    if (effects & TC_EFFECT_SYNC) != 0 {
+        try! out.append(" sync")
+    }
+    if (effects & TC_EFFECT_ESCAPING) != 0 {
+        try! out.append(" escaping")
+    }
+    if (effects & TC_EFFECT_BORROWS_SYNC) != 0 {
+        try! out.append(" borrows(sync)")
+    } else if (effects & TC_EFFECT_BORROWS) != 0 {
+        try! out.append(" borrows")
+    }
+    out.build()
+}
+
+extension TcProgram {
+    // A nominal declaration's canonical name: bare for a builtin, else its
+    // module's identity and its path (design 144).
+    public func nominal_name(&self, d: Int) -> String {
+        let info = self.res.decls[d]
+        if info.module == self.res.builtin {
+            return self.res.decl_path(d)
+        }
+        self.res.decl_identity(d)
+    }
+
+    // Type `t`'s canonical spelling.
+    public func type_text(&self, t: Int) -> String {
+        var out = StringBuilder()
+        self.append_type(&var out, t)
+        out.build()
+    }
+
+    public func append_type(&self, out: &var StringBuilder, t: Int) {
+        if t < 0 {
+            try! out.append("?")
+            return
+        }
+        let info = self.types.ty(t)
+        match info.kind {
+            case Nominal -> self.append_nominal(&var out, t),
+            case Param -> {
+                let s = self.sigs[info.decl]
+                if info.a < s.generic_count {
+                    let g = self.generics[s.generic_first + info.a]
+                    try! out.append(self.name_text(g.name))
+                } else {
+                    try! out.append("?")
+                }
+            },
+            case SelfType -> try! out.append("Self"),
+            case Assoc -> {
+                try! out.append("Self.")
+                let d = self.res.decls[info.decl]
+                try! out.append(self.name_text(d.name))
+            },
+            case Tuple -> self.append_tuple(&var out, t),
+            case Func -> {
+                try! out.append("(")
+                var k = 0
+                while k < info.count {
+                    if k > 0 {
+                        try! out.append(", ")
+                    }
+                    let part = self.types.arg(t, k)
+                    self.append_type(&var out, part)
+                    k = k + 1
+                }
+                try! out.append(")")
+                try! out.append(tc_effects_text(info.a))
+                try! out.append(" -> ")
+                self.append_type(&var out, info.b)
+            },
+            case Ref -> {
+                if info.a == 1 {
+                    try! out.append("&var ")
+                } else {
+                    try! out.append("&")
+                }
+                self.append_type(&var out, info.b)
+            },
+            case Slice -> {
+                if info.a == 1 {
+                    try! out.append("&var [")
+                } else {
+                    try! out.append("&[")
+                }
+                self.append_type(&var out, info.b)
+                try! out.append("]")
+            },
+            case Array -> {
+                try! out.append("[")
+                self.append_type(&var out, info.b)
+                try! out.append("; ")
+                let part = self.types.arg(t, 0)
+                self.append_type(&var out, part)
+                try! out.append("]")
+            },
+            case Any -> {
+                try! out.append("any ")
+                try! out.append(self.nominal_name(info.decl))
+            },
+            case ConstInt -> try! out.append(info.a),
+            case Error -> try! out.append("(error)")
+        }
+    }
+
+    // A nominal type: `T?` for Optional, else its name and its arguments.
+    // A reference or function type under `?` is parenthesized, so the
+    // spelling reads back as the same type.
+    func append_nominal(&self, out: &var StringBuilder, t: Int) {
+        let info = self.types.ty(t)
+        if info.decl == self.known.optional && info.count == 1 {
+            let inner = self.types.arg(t, 0)
+            let inner_info = self.types.ty(inner)
+            let wrap = inner_info.kind == TcKind.Ref || inner_info.kind == TcKind.Func
+            if wrap {
+                try! out.append("(")
+            }
+            self.append_type(&var out, inner)
+            if wrap {
+                try! out.append(")")
+            }
+            try! out.append("?")
+            return
+        }
+        try! out.append(self.nominal_name(info.decl))
+        if info.count == 0 {
+            return
+        }
+        try! out.append("<")
+        var k = 0
+        while k < info.count {
+            if k > 0 {
+                try! out.append(", ")
+            }
+            let part = self.types.arg(t, k)
+            self.append_type(&var out, part)
+            k = k + 1
+        }
+        try! out.append(">")
+    }
+
+    func append_tuple(&self, out: &var StringBuilder, t: Int) {
+        let info = self.types.ty(t)
+        try! out.append("(")
+        var k = 0
+        while k < info.count {
+            if k > 0 {
+                try! out.append(", ")
+            }
+            let label = self.types.label(t, k)
+            if label >= 0 {
+                try! out.append(self.name_text(label))
+                try! out.append(": ")
+            }
+            let part = self.types.arg(t, k)
+            self.append_type(&var out, part)
+            k = k + 1
+        }
+        if info.count == 1 && not info.labeled {
+            try! out.append(",")
+        }
+        try! out.append(")")
+    }}

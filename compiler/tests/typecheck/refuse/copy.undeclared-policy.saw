@@ -1,0 +1,6 @@
+// refuses: copy.undeclared-policy at 4:8
+// a struct holding an ExplicitCopy field without declaring its own policy
+
+struct Inventory {
+    items: Vector<Int>
+}

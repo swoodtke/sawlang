@@ -1,0 +1,6 @@
+// refuses: unsafe.undeclared at 4:6
+// a function whose signature names an unsafe type without declaring `unsafe`
+
+func peek(p: UnsafePointer<Int>) -> Int {
+    0
+}

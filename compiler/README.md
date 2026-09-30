@@ -27,6 +27,9 @@ compiler/
   resolve/            name resolution, package `sawresolve` (resolve/README.md has
                       its phases and side tables)
     src/*.saw
+  typecheck/          type checking, package `sawtypecheck` (typecheck/README.md
+                      has its phases and readings)
+    src/*.saw
   driver/             the `sawc2` binary, package `sawc2`
     src/main.saw
   tools/
@@ -54,6 +57,11 @@ compiler/
     resolve/          the resolve lane (resolve_lane.py): the dump's specification
                       (README.md), golden dumps, refusal fixtures, and the one-time
                       frozen-compiler check (frozen_check.py, FROZEN_CHECK.md)
+    typecheck/        the typecheck lane (typecheck_lane.py): the dump's
+                      specification (README.md), golden dumps, refusal fixtures,
+                      the one-time frozen-compiler check (frozen_check.py,
+                      FROZEN_CHECK.md) and the std cone's coverage
+                      (cone_coverage.py)
 ```
 
 Each stage has its own directory and is a package, with its source under
@@ -139,6 +147,11 @@ these things.
   and refusal fixtures, requires a fixture for every rule it refuses by, and
   resolves the compiler's own source whole: the sawc2 build and each unit
   program.
+- **Type checking** (`typecheck/README.md`): the typecheck lane
+  (`tests/typecheck/typecheck_lane.py`) holds `sawc2 typecheck` to its golden
+  dumps and refusal fixtures, requires a fixture for every rule it refuses by,
+  and checks the signatures of the compiler's own source whole, the sawc2
+  build and each unit program, with no refusal and no verifier problem.
 
 ## The subset
 

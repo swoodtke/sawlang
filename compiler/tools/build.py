@@ -26,6 +26,7 @@ STAGE_PACKAGES = (
     ("sawlex", "compiler/lex"),
     ("sawparse", "compiler/parse"),
     ("sawresolve", "compiler/resolve"),
+    ("sawtypecheck", "compiler/typecheck"),
 )
 
 

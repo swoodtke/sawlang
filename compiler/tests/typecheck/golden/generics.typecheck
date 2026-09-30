@@ -1,0 +1,47 @@
+(Module generics
+  (declarations
+    (trait Measure 5:7 private)
+    (requirement Measure.size 6:10 (signature (receiver shared) (params) -> Int))
+    (struct Pair 9:8 private (generics (A) (B (default Int))))
+    (field Pair.first 10:5 private A)
+    (field Pair.second 11:5 private B)
+    (struct Bag 14:8 private (generics (T (bounds Equatable Hashable)) (const N Int (default 4))))
+    (field Bag.items 15:5 private [T; N])
+    (field Bag.count 16:5 private Int)
+    (struct Holder 19:8 private (generics (T)))
+    (field Holder.inner 20:5 private generics.Pair<generics.Pair<T, Int>, Int>)
+    (enum Either 23:6 private (generics (L) (R)))
+    (case Either.Left 24:10 (payload (value L)))
+    (case Either.Right 25:10 (payload (value R)))
+    (func depth 28:6 private (signature (params (a generics.Pair<Int, Int> owned) (b generics.Pair<generics.Pair<Int, Int>, Int> owned) (c std.vector.Vector<generics.Pair<String, Int>, std.alloc.GlobalAllocator> owned) (d generics.Pair<Int, Int> owned)) -> generics.Holder<Bool>))
+    (func sized 32:6 private (signature (params (a generics.Bag<Int, 4> owned) (b generics.Bag<Int, 8> owned) (c generics.Bag<Int, 8> owned) (d generics.Bag<String, 8> owned)) -> Bool))
+    (func measure 36:6 private (signature (generics (T (bounds generics.Measure)) (U)) (params (t &T shared) (u U owned)) -> generics.Either<T, U>?))
+    (func width 40:6 private (signature (generics (const N Int)) (params (bag generics.Bag<Int, N> owned)) -> [Int; N]))
+    (extension 44:1 (target generics.Pair<A, B>))
+    (method Pair.swap 45:10 private (signature (receiver shared) (params) -> generics.Pair<B, A>))
+    (method Pair.map 49:10 private (signature (generics (T)) (receiver shared) (params (value T owned)) -> generics.Pair<T, B>)))
+  (members
+    (generics.Pair
+      (field first A private declared)
+      (field second B private declared)
+      (method swap private (extension generics))
+      (method map private (extension generics)))
+    (generics.Bag
+      (field items [T; N] private declared)
+      (field count Int private declared))
+    (generics.Holder
+      (field inner generics.Pair<generics.Pair<T, Int>, Int> private declared))
+    (generics.Either
+      (case Left private declared)
+      (case Right private declared)))
+  (views
+    (generics.Pair first second swap map)
+    (generics.Bag items count)
+    (generics.Holder inner)
+    (generics.Either Left Right))
+  (conformances)
+  (copy-tier
+    (generics.Pair (join Copy A B))
+    (generics.Bag (join Copy T))
+    (generics.Holder (join Copy T))
+    (generics.Either (join Copy L R))))

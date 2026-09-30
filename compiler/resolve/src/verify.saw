@@ -6,10 +6,12 @@
 //   - every binding is in range: its declaration, module, local or type
 //     parameter exists, and is of the kind the binding says;
 //   - no lookup by spelling is left over: no record is unbound or a member
-//     selector, and a record refused as an error comes with a refusal.
+//     selector, and a record refused as an error comes with a refusal;
+//   - every declaration is collected under its name token as written.
 
 import sawparse.src.grammar.{Alt}
 import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.kinds.{res_is_type_alt}
 import sawresolve.src.model.{ResBindKind, ResBinding, ResCall, ResDecl, ResDeclKind, ResDiag,
                              ResModule, ResName}
 import sawresolve.src.program.{ResProgram}
@@ -29,6 +31,29 @@ func res_count(counts: &var Vector<Int>, at: Int) {
     counts[at] = now
 }
 
+// Whether `text` is spelled as a declared name: an ASCII identifier, `[]` or
+// `[]=`.
+public func res_is_declared_name(text: &String) -> Bool {
+    if text.equals("[]") || text.equals("[]=") {
+        return true
+    }
+    let n = text.len()
+    if n == 0 {
+        return false
+    }
+    var i = 0
+    while i < n {
+        let b = text.byte_at(i) as Int
+        let letter = (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || b == 95
+        let digit = b >= 48 && b <= 57
+        if not letter && not (digit && i > 0) {
+            return false
+        }
+        i = i + 1
+    }
+    true
+}
+
 // Every problem the verifier finds in module `m`, one line each.
 public func res_verify_module(p: &ResProgram, m: Int) -> Vector<String> {
     p.verify_module(m)
@@ -38,7 +63,7 @@ extension ResProgram {
     func verify_module(&self, m: Int) -> Vector<String> {
         var problems = Vector<String>()
         let info = self.modules[m]
-        if not info.available || info.interface_only {
+        if not info.available {
             return move problems
         }
         let occurrence = self.occurrences(m)
@@ -85,8 +110,42 @@ extension ResProgram {
         if errors > 0 && not self.module_has_error(m) {
             self.problem(&var problems, m, -1, "a record is an error, but the module has no refusal")
         }
+        self.verify_names(&var problems, m)
         self.verify_calls(&var problems, m)
         move problems
+    }
+
+    // Every name a declaration of module `m` was collected under is its name
+    // token as written, spelled as GRAMMAR's names are: an identifier, or a
+    // subscript role's `[]` or `[]=` (syntax.decl.method-name). A name that
+    // joined other tokens would miss every lookup of the declaration.
+    func verify_names(&self, problems: &var Vector<String>, m: Int) {
+        let info = self.modules[m]
+        var d = info.decl_first
+        while d < info.decl_first + info.decl_count {
+            let decl = self.decls[d]
+            if decl.name >= 0 && decl.node >= 0 && decl.leaf < 0 && decl.kind != ResDeclKind.Init {
+                self.problem(&var problems, m, decl.node, "a declaration is collected with no name token")
+            }
+            if decl.name >= 0 && decl.leaf >= 0 && decl.kind != ResDeclKind.Init {
+                let text = self.name_text(decl.name)
+                let written = self.text_of(m, decl.leaf)
+                var agrees = text.equals(written)
+                if written.equals("[") {
+                    agrees = text.equals("[]") || text.equals("[]=")
+                }
+                if not agrees || not res_is_declared_name(&text) {
+                    var msg = StringBuilder()
+                    try! msg.append("a declaration is collected under `")
+                    try! msg.append(text)
+                    try! msg.append("`, where its name is written `")
+                    try! msg.append(written)
+                    try! msg.append("`: a name is an identifier, `[]` or `[]=`")
+                    self.problem(&var problems, m, decl.leaf, msg.build())
+                }
+            }
+            d = d + 1
+        }
     }
 
     func problem(&self, problems: &var Vector<String>, m: Int, id: Int, text: String) {
@@ -99,11 +158,14 @@ extension ResProgram {
         try! problems.push(out.build())
     }
 
+    // Whether module `m` has a refusal; an interface module's are notes.
     func module_has_error(&self, m: Int) -> Bool {
+        let info = self.modules[m]
+        let interface = info.interface_only
         var k = 0
         while k < self.diags.len() {
             let d = self.diags[k]
-            if d.module == m && not d.note {
+            if d.module == m && (interface || not d.note) {
                 return true
             }
             k = k + 1
@@ -143,8 +205,9 @@ extension ResProgram {
         move marks
     }
 
-    // For each node of module `m`, whether it lies under a construct refused
-    // as outside the bootstrap slice, which resolution does not enter.
+    // For each node of module `m`, whether resolution does not enter it: it
+    // lies under a construct refused as outside the bootstrap slice, or, in an
+    // interface module, outside the signatures.
     func outside_slice(&self, m: Int) -> Vector<Bool> {
         let info = self.modules[m]
         var marks = Vector<Bool>()
@@ -162,6 +225,13 @@ extension ResProgram {
             }
             s = s + 1
         }
+        if info.interface_only {
+            k = 0
+            while k < info.node_count {
+                self.push_unwalked_parts(&var stack, info.node_base + k)
+                k = k + 1
+            }
+        }
         var head = 0
         while head < stack.len() {
             let id = stack[head]
@@ -175,6 +245,49 @@ extension ResProgram {
             }
         }
         move marks
+    }
+
+    // Pushes the parts of node `id` that an interface module leaves unwalked:
+    // a body, a parameter's default, a static's initializer, a case's raw
+    // value, an attribute's argument, a `static_assert` and a test case. The
+    // rest of a declaration is its signature, which is resolved.
+    func push_unwalked_parts(&self, stack: &var Vector<Int>, id: Int) {
+        guard let alt = self.alt_of(id) else {
+            return
+        }
+        let whole = alt == Alt.Stmt_Block || alt == Alt.Decl_StaticAssert || alt == Alt.Attr_Attribute_Align || alt == Alt.Test_Case_Run || alt == Alt.Test_Case_Panics || alt == Alt.Test_Case_Warns
+        if whole {
+            try! stack.push(id)
+            return
+        }
+        let is_static = alt == Alt.Decl_Static_Immutable || alt == Alt.Decl_Static_UnsafeVar
+        let is_case = alt == Alt.Decl_Case
+        let is_default = alt == Alt.Decl_Param_Default
+        if not (is_static || is_case || is_default) {
+            return
+        }
+        let n = self.child_count(id)
+        var seen_type = false
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            if not self.is_leaf(c) {
+                let c_alt = self.alt_of(c)
+                var unwalked = false
+                if is_static {
+                    unwalked = not res_is_type_alt(c_alt)
+                } else if is_case {
+                    unwalked = not self.is_alt(c, Alt.Decl_PayloadField)
+                } else {
+                    unwalked = seen_type
+                    seen_type = true
+                }
+                if unwalked {
+                    try! stack.push(c)
+                }
+            }
+            k = k + 1
+        }
     }
 
     func mark_occurrences(&self, marks: &var Vector<Int>, base: Int, id: Int, alt: Alt) {

@@ -1,0 +1,14 @@
+public struct Circle {
+    public radius: Int
+    private secret: Int
+}
+
+extension Circle {
+    public func area(&self) -> Int {
+        self.radius * self.radius * 3
+    }
+
+    func helper(&self) -> Int {
+        self.secret
+    }
+}

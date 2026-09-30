@@ -1,0 +1,34 @@
+(Module types
+  (declarations
+    (struct Point 5:8 private)
+    (field Point.x 6:5 private Int)
+    (field Point.y 7:5 private Int)
+    (enum Shape 10:6 private)
+    (case Shape.Dot 11:10 (payload (at types.Point)))
+    (case Shape.Line 12:10 (payload (from types.Point) (to types.Point)))
+    (case Shape.Nothing 13:10)
+    (trait Named 16:7 private)
+    (requirement Named.name 17:10 (signature (receiver shared) (params) -> String))
+    (alias Coordinate 20:6 private Int)
+    (func named 22:6 private (signature (params (p types.Point owned) (s types.Shape owned) (c Int owned)) -> String))
+    (func optionals 26:6 private (signature (params (a Int? owned) (b types.Point?? owned) (c &Int? shared) (d &var types.Point? exclusive)) -> types.Shape?))
+    (func references 30:6 private (signature (params (a &types.Point shared) (b &var types.Point exclusive) (c &[UInt8] shared) (d &var [UInt8] exclusive)) -> Int))
+    (func tuples 34:6 private (signature (params (a () owned) (b (Int, String) owned) (c (Int,) owned) (d (x: Int, y: Int) owned)) -> (types.Point, types.Shape)))
+    (func functions 38:6 private (signature (params (f (Int, Int) sync -> Bool owned) (g () -> Void owned) (h (&var types.Point) escaping -> Int owned)) -> ((Int) -> Int)?))
+    (func existentials 42:6 private (signature (params (a &any types.Named shared) (b &var any types.Named exclusive)) -> Bool))
+    (func no_result 46:6 private (signature (params (p types.Point owned)) -> Void)))
+  (members
+    (types.Point
+      (field x Int private declared)
+      (field y Int private declared))
+    (types.Shape
+      (case Dot private declared)
+      (case Line private declared)
+      (case Nothing private declared)))
+  (views
+    (types.Point x y)
+    (types.Shape Dot Line Nothing))
+  (conformances)
+  (copy-tier
+    (types.Point Copy)
+    (types.Shape Copy)))

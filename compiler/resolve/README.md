@@ -35,10 +35,14 @@ file's is its name without `.saw`. The synthetic `builtin` module holds what
 nothing declares and `builtin.saw`'s declarations (SL:open-questions D12).
 
 - `std.X` is `<std root>/std/X.saw`. Every std module in `load_std_modules`'
-  table is loaded, as an interface only: its declarations and imports, its
-  extension heads and conformances, never its bodies. A std file the parser
-  refuses (`data.saw`, over `#lend_var`) is unavailable; a note says so, and an
-  import of it is refused as `import.unavailable`.
+  table is loaded, as an interface only: its declarations, imports and
+  signatures (generics with their bounds and defaults, field, payload, static
+  and alias types, parameter and return types, extension heads, conformances
+  and member signatures), never a body, a static initializer, a parameter
+  default or an attribute's argument. A refusal in an interface is a note, and
+  the verifier checks the signatures it walks. A std file the parser refuses
+  (`data.saw`, over `#lend_var`) is unavailable; a note says so, and an import
+  of it is refused as `import.unavailable`.
 - For a package mapped with `--module-path NAME=DIR`, `NAME` is `DIR/lib.saw`
   and `NAME.rest` is `DIR/rest.saw`, as the frozen compiler maps them.
 - Any other path is looked for beside the importing file, then beside the
@@ -82,7 +86,8 @@ type's module or its trait's, and each (type, trait) pair is declared once.
 `lookup` in `lookup.saw` is the one lookup of a bare name, in design 150's
 order: locals and type parameters, then the module's declarations, then
 imported bare names, then the prelude, then the gated std tier, which refuses
-with the import that supplies the name, then qualifiers. Functions of one name
+with the import that supplies the name (a std module sees it bare, below),
+then qualifiers. Functions of one name
 merge across the module and its bare imports into one overload set (design
 249); any other two imports of one name that bind two declarations are refused
 at the use (design 255).
@@ -111,6 +116,10 @@ These are the reversible readings the unit made; SL-445's report lists them.
   `slice.not-yet`: how a bound's associated type is spelled is an open
   language question. A bare name a glob import misses only because the
   declaration is private in its module is refused as `visibility.private`.
+- A std module sees the gated std tier bare, where any other module is refused
+  with the import that supplies the name: `sawc/std` is written for the frozen
+  compiler's one std namespace, in which `std/file.saw` names `Path` and
+  `IoError` with no import.
 - A function beside a type of its name is a duplicate declaration, since
   types and values share one namespace.
 - The concurrency forms `Thread.spawn` and `Task.spawn`, and the frozen

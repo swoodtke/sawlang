@@ -1,0 +1,11 @@
+// refuses: name.undefined at 9:39
+// a member of a type parameter that no bound declares as an associated type names nothing
+
+trait Container {
+    type Item
+    func get(&self) -> Item
+}
+
+func first<T: Container>(box: T) -> T.Missing {
+    box.get()
+}

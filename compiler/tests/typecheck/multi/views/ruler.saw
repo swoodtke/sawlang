@@ -1,0 +1,6 @@
+import extra.{}
+import shapes.{Circle}
+
+public func measure(c: &Circle) -> Int {
+    c.diameter()
+}

@@ -1,0 +1,11 @@
+// A module's view of a type's members (designs 80 and 142): `main` sees the
+// public members `shapes` declares and the extensions of `shapes` itself, but
+// not `extra`'s extension, since only `ruler` imports `extra`, and not the
+// private field or method. A qualified type names the member of a module.
+
+import shapes
+import ruler.{measure}
+
+func area_of(c: &shapes.Circle) -> Int {
+    measure(c)
+}

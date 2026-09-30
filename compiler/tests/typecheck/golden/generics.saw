@@ -1,0 +1,52 @@
+// Generic declarations and applications: bounds, defaults filled at every
+// depth, const parameters with folded arguments, and type parameters keyed
+// by their declaration, so two `T`s never meet.
+
+trait Measure {
+    func size(&self) -> Int
+}
+
+struct Pair<A, B = Int> {
+    first: A
+    second: B
+}
+
+struct Bag<T: Equatable + Hashable, const N: Int = 4> {
+    items: [T; N]
+    count: Int
+}
+
+struct Holder<T> {
+    inner: Pair<Pair<T>>
+}
+
+enum Either<L, R> {
+    case Left(value: L),
+    case Right(value: R)
+}
+
+func depth(a: Pair<Int>, b: Pair<Pair<Int>>, c: Vector<Pair<String>>, d: Pair<Int, Int>) -> Holder<Bool> {
+    panic("unbuilt")
+}
+
+func sized(a: Bag<Int>, b: Bag<Int, 8>, c: Bag<Int, 2 * 4>, d: Bag<String, 4 + 4>) -> Bool {
+    true
+}
+
+func measure<T: Measure, U>(t: &T, u: U) -> Either<T, U>? {
+    None
+}
+
+func width<const N: Int>(bag: Bag<Int, N>) -> [Int; N] {
+    panic("unbuilt")
+}
+
+extension Pair<A, B> {
+    func swap(&self) -> Pair<B, A> {
+        panic("unbuilt")
+    }
+
+    func map<T>(&self, value: T) -> Pair<T, B> {
+        panic("unbuilt")
+    }
+}

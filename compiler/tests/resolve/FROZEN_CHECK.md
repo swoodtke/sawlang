@@ -33,3 +33,11 @@ call's final reading is what is compared.
 - The prelude table's names the frozen prelude does not list are the ones its
   typechecker knows without a declaration: the primitive types, `Void`,
   `Never`, `Optional`, the pointer types and the builtin functions.
+
+## Rerun for SL-447
+
+Resolve now walks the signatures of std and builtin modules. Both checks were
+run again over the sawc2 build with that change, and both are unchanged: 6346
+call heads agree with no line differing, 249 import bindings agree, and the
+prelude check finds no unexplained difference. The counts grew with the
+source, not with a disagreement.

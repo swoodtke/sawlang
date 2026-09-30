@@ -1,0 +1,545 @@
+// One signature per declaration kind. Each builder reads its declaration's
+// node and records the types its positions denote through `build_type`, so
+// the node table is complete for every signature once the pass is done.
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.kinds.{res_is_type_alt}
+import sawresolve.src.model.{ResBindKind, ResDecl, ResDeclKind, ResModule}
+import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_FLAG_BLOCKING, TC_FLAG_BORROWS_STRUCT,
+                               TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE,
+                               TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_UNSAFE_VAR,
+                               TC_FLAG_VARIADIC, TC_FLAG_WRITTEN_RETURN, TcLend, TcParam,
+                               TcReceiver, TcSig}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{tc_effect_bit}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// Every declaration's signature, program-wide.
+public func tc_build_signatures(p: &var TcProgram) {
+    p.build_signatures()
+}
+
+static TC_STATE_BUILDING: Int = 3
+static TC_STATE_BUILT: Int = 4
+
+extension TcProgram {
+    // Every declaration's signature, modules in load order and declarations
+    // in source order, which is the order types are interned in.
+    public func build_signatures(&var self) {
+        var m = 0
+        while m < self.res.modules.len() {
+            let info = self.res.modules[m]
+            if info.available {
+                var d = info.decl_first
+                while d < info.decl_first + info.decl_count {
+                    self.build_decl(d)
+                    d = d + 1
+                }
+            }
+            m = m + 1
+        }
+    }
+
+    // Declaration `d`'s signature, built once.
+    public func build_decl(&var self, d: Int) {
+        let s = self.sigs[d]
+        if s.state >= TC_STATE_BUILDING {
+            return
+        }
+        self.ensure_generics(d)
+        var marked = self.sigs[d]
+        marked.state = TC_STATE_BUILDING
+        self.sigs[d] = marked
+        let saved = self.save_context()
+        self.enter_decl(d)
+        let info = self.res.decls[d]
+        // A synthetic builtin has no node: its parameters are all it has.
+        let kind = if info.node < 0 { ResDeclKind.Primitive } else { info.kind }
+        match kind {
+            case Struct -> self.build_struct(d),
+            case Enum -> self.build_enum(d),
+            case Case -> self.build_case(d),
+            case Field -> self.build_field(d),
+            case Trait -> self.build_trait(d),
+            case Alias -> self.build_alias(d),
+            case Static -> self.build_static(d),
+            case Func -> self.build_function(d),
+            case Method -> self.build_function(d),
+            case Init -> self.build_function(d),
+            case Requirement -> self.build_function(d),
+            case Extern -> self.build_extern(d),
+            case Extension -> self.build_extension(d),
+            case TypeAssign -> self.build_type_assign(d),
+            case _ -> {}
+        }
+        var done = self.sigs[d]
+        done.state = TC_STATE_BUILT
+        self.sigs[d] = done
+        self.restore_context(saved)
+    }
+
+    func set_result(&var self, d: Int, t: Int) {
+        var s = self.sigs[d]
+        s.result = t
+        self.sigs[d] = s
+    }
+
+    func add_flags(&var self, d: Int, flags: Int) {
+        var s = self.sigs[d]
+        s.flags = s.flags | flags
+        self.sigs[d] = s
+    }
+
+    // The type `Void`, a function's result when it writes none.
+    public func void_type(&var self) -> Int {
+        let none = Vector<Int>()
+        let d = self.known.void_type
+        self.mk_nominal(d, &none)
+    }
+
+    // The words that open node `id`'s children before its first child node.
+    func leading_words(&self, m: Int, id: Int) -> Vector<String> {
+        var out = Vector<String>()
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            if not self.is_leaf(c) {
+                break
+            }
+            try! out.push(self.text(m, c))
+            k = k + 1
+        }
+        move out
+    }
+
+    // Whether the Declaration node `outer` carries attribute `alt`.
+    public func has_attribute(&self, outer: Int, alt: Alt) -> Bool {
+        if outer < 0 {
+            return false
+        }
+        let n = self.child_count(outer)
+        var k = 0
+        while k < n {
+            let c = self.child(outer, k)
+            if self.has_alt(c, alt) {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    func build_struct(&var self, d: Int) {
+        let info = self.res.decls[d]
+        let words = self.leading_words(info.module, info.node)
+        var flags = 0
+        var k = 0
+        while k < words.len() {
+            let word = words.get(k) ?? ""
+            if word.equals("unsafe") {
+                flags = flags | TC_FLAG_UNSAFE_STRUCT
+            } else if word.equals("borrows") {
+                flags = flags | TC_FLAG_BORROWS_STRUCT
+            }
+            k = k + 1
+        }
+        self.add_flags(d, flags)
+    }
+
+    // An enum's raw backing type, as its result.
+    func build_enum(&var self, d: Int) {
+        let info = self.res.decls[d]
+        let n = self.child_count(info.node)
+        var k = 0
+        while k < n {
+            let c = self.child(info.node, k)
+            if not self.is_leaf(c) && res_is_type_alt(self.node_alt(c)) {
+                let t = self.build_type(c)
+                self.set_result(d, t)
+            }
+            k = k + 1
+        }
+    }
+
+    // A case's payload fields, as parameters.
+    func build_case(&var self, d: Int) {
+        let info = self.res.decls[d]
+        let first = self.params.len()
+        let n = self.child_count(info.node)
+        var k = 0
+        while k < n {
+            let c = self.child(info.node, k)
+            if self.has_alt(c, Alt.Decl_PayloadField) {
+                let leaf = self.res.first_leaf(c)
+                let text = self.text(info.module, leaf)
+                let name = self.res.intern(text)
+                let inner = self.res.last_node_child(c)
+                let t = self.build_type(inner)
+                try! self.params.push(TcParam(name: name, leaf: leaf, ty: t, has_default: false))
+            }
+            k = k + 1
+        }
+        var s = self.sigs[d]
+        s.param_first = first
+        s.param_count = self.params.len() - first
+        self.sigs[d] = s
+    }
+
+    func build_field(&var self, d: Int) {
+        let info = self.res.decls[d]
+        let inner = self.res.last_node_child(info.node)
+        let t = self.build_type(inner)
+        self.set_result(d, t)
+    }
+
+    // A trait's parents.
+    func build_trait(&var self, d: Int) {
+        let info = self.res.decls[d]
+        let first = self.traits.len()
+        let n = self.child_count(info.node)
+        var k = 0
+        while k < n {
+            let c = self.child(info.node, k)
+            if self.has_alt(c, Alt.Type_Path) {
+                let t = self.trait_of_path(c)
+                if t >= 0 {
+                    try! self.traits.push(t)
+                }
+            }
+            k = k + 1
+        }
+        var s = self.sigs[d]
+        s.trait_first = first
+        s.trait_count = self.traits.len() - first
+        self.sigs[d] = s
+    }
+
+    // An alias's type, which the type funnel resolves once, whichever reaches
+    // it first: a use, or the declaration.
+    func build_alias(&var self, d: Int) {
+        let _ = self.alias_type(d, -1)
+    }
+
+    func build_static(&var self, d: Int) {
+        let info = self.res.decls[d]
+        if self.has_alt(info.node, Alt.Decl_Static_UnsafeVar) {
+            self.add_flags(d, TC_FLAG_UNSAFE_VAR)
+        }
+        let n = self.child_count(info.node)
+        var k = 0
+        while k < n {
+            let c = self.child(info.node, k)
+            if not self.is_leaf(c) && res_is_type_alt(self.node_alt(c)) {
+                let t = self.build_type(c)
+                self.set_result(d, t)
+                return
+            }
+            k = k + 1
+        }
+    }
+
+    func build_type_assign(&var self, d: Int) {
+        let _ = self.alias_type(d, -1)
+    }
+
+    // A function, method, init or requirement: its receiver, parameters,
+    // effects and result, and what a `borrows` result lends.
+    func build_function(&var self, d: Int) {
+        let info = self.res.decls[d]
+        let node = info.node
+        let m = info.module
+        let first = self.params.len()
+        var effects = 0
+        var flags = 0
+        var result = -1
+        var receiver = TcReceiver.Absent
+        if info.flag && info.kind != ResDeclKind.Init {
+            flags = flags | TC_FLAG_STATIC
+        }
+        let name_end = self.name_end(d)
+        let n = self.child_count(node)
+        var k = 0
+        while k < n {
+            let c = self.child(node, k)
+            if self.is_leaf(c) {
+                if k > name_end {
+                    let word = self.text(m, c)
+                    effects = tc_effect_bit(effects, &word)
+                }
+            } else if self.has_alt(c, Alt.Decl_Param_Receiver) {
+                let r = self.res.first_node_child(c)
+                receiver = if self.has_alt(r, Alt.Decl_Receiver_Exclusive) { TcReceiver.Exclusive } else { TcReceiver.Shared }
+            } else if self.has_alt(c, Alt.Decl_Param_Plain) || self.has_alt(c, Alt.Decl_Param_Default) {
+                let leaf = self.res.first_leaf(c)
+                let text = self.text(m, leaf)
+                let name = self.res.intern(text)
+                let type_node = self.res.first_node_child(c)
+                let t = self.build_type(type_node)
+                let has_default = self.has_alt(c, Alt.Decl_Param_Default)
+                try! self.params.push(TcParam(name: name, leaf: leaf, ty: t, has_default: has_default))
+            } else if self.has_alt(c, Alt.Stmt_Block) {
+                if info.kind == ResDeclKind.Requirement {
+                    flags = flags | TC_FLAG_DEFAULT_BODY
+                }
+            } else if res_is_type_alt(self.node_alt(c)) {
+                result = self.build_type(c)
+                flags = flags | TC_FLAG_WRITTEN_RETURN
+            }
+            k = k + 1
+        }
+        if result < 0 {
+            if info.kind == ResDeclKind.Init {
+                result = self.current_self
+            } else {
+                result = self.void_type()
+            }
+        }
+        if self.has_alt(info.outer, Alt.Decl_ExtensionMember_SynthesizedMethod) {
+            flags = flags | TC_FLAG_SYNTHESIZE_SHARED
+        }
+        var s = self.sigs[d]
+        s.param_first = first
+        s.param_count = self.params.len() - first
+        s.receiver = receiver
+        s.effects = effects
+        s.flags = s.flags | flags
+        s.result = result
+        if (effects & TC_EFFECT_BORROWS) != 0 {
+            s.lending = self.lend_kind(result)
+            s.lending_exclusive = self.lend_is_exclusive(result)
+        }
+        self.sigs[d] = s
+    }
+
+    // The index among `d`'s node's children of the last token of its name,
+    // which syntax.decl.method-name spells as an identifier, `[]` or `[]=`;
+    // -1 for an `init`, which has none. Effect words are leaves after it.
+    func name_end(&self, d: Int) -> Int {
+        let info = self.res.decls[d]
+        if info.leaf < 0 || info.kind == ResDeclKind.Init {
+            return -1
+        }
+        let n = self.child_count(info.node)
+        var k = 0
+        while k < n {
+            if self.child(info.node, k) == info.leaf {
+                let written = self.text(info.module, info.leaf)
+                if not written.equals("[") {
+                    return k
+                }
+                var end = k
+                var j = k + 1
+                while j < n && j <= k + 2 {
+                    let c = self.child(info.node, j)
+                    if not self.is_leaf(c) {
+                        return end
+                    }
+                    let text = self.text(info.module, c)
+                    if text.equals("]") || (text.equals("=") && j == k + 2) {
+                        end = j
+                    } else {
+                        return end
+                    }
+                    j = j + 1
+                }
+                return end
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // The accessor-signature reader (SL:architecture §3.4): what a `borrows`
+    // result lends. `&T?` is `Ref(Optional(T))` and `&[T]?` is
+    // `Optional(Slice(T))`; both are a conditional lend here, and only here,
+    // so a parameter's `&var T?` stays a reference to an optional.
+    public func lend_kind(&self, result: Int) -> TcLend {
+        let info = self.types.ty(result)
+        if info.kind == TcKind.Ref {
+            let inner = self.types.ty(info.b)
+            if inner.kind == TcKind.Nominal && inner.decl == self.known.optional {
+                return TcLend.ConditionalPlace
+            }
+            return TcLend.Place
+        }
+        if info.kind == TcKind.Slice {
+            return TcLend.Slice
+        }
+        if info.kind == TcKind.Nominal && info.decl == self.known.optional {
+            let payload = self.types.arg(result, 0)
+            let inner = self.types.ty(payload)
+            if inner.kind == TcKind.Slice {
+                return TcLend.ConditionalSlice
+            }
+        }
+        if info.kind == TcKind.Nominal && self.is_borrows_struct(info.decl) {
+            return TcLend.BorrowingStruct
+        }
+        TcLend.Other
+    }
+
+    // Whether what a `borrows` result lends is writable: `&var T`, `&var T?`
+    // or `&var [T]`.
+    public func lend_is_exclusive(&self, result: Int) -> Bool {
+        let info = self.types.ty(result)
+        if info.kind == TcKind.Ref || info.kind == TcKind.Slice {
+            return info.a == 1
+        }
+        if info.kind == TcKind.Nominal && info.decl == self.known.optional {
+            let payload = self.types.arg(result, 0)
+            let inner = self.types.ty(payload)
+            if inner.kind == TcKind.Slice {
+                return inner.a == 1
+            }
+        }
+        false
+    }
+
+    // Whether struct `d` is declared `borrows struct`, read off its head so
+    // the answer does not wait on the order signatures are built in.
+    public func is_borrows_struct(&self, d: Int) -> Bool {
+        let info = self.res.decls[d]
+        if info.kind != ResDeclKind.Struct || info.node < 0 {
+            return false
+        }
+        let words = self.leading_words(info.module, info.node)
+        var k = 0
+        while k < words.len() {
+            let word = words.get(k) ?? ""
+            if word.equals("borrows") {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // Whether nominal `d` is an unsafe type: `unsafe struct`, or a raw pointer.
+    public func is_unsafe_decl(&self, d: Int) -> Bool {
+        if d < 0 {
+            return false
+        }
+        if d == self.known.unsafe_pointer || d == self.known.unsafe_const_pointer {
+            return true
+        }
+        let info = self.res.decls[d]
+        if info.kind != ResDeclKind.Struct || info.node < 0 {
+            return false
+        }
+        let words = self.leading_words(info.module, info.node)
+        var k = 0
+        while k < words.len() {
+            let word = words.get(k) ?? ""
+            if word.equals("unsafe") {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    func build_extern(&var self, d: Int) {
+        let info = self.res.decls[d]
+        let node = info.node
+        let m = info.module
+        let first = self.params.len()
+        var flags = 0
+        if self.has_alt(node, Alt.Decl_ExternFunc_Blocking) {
+            flags = flags | TC_FLAG_BLOCKING
+        }
+        var result = -1
+        let n = self.child_count(node)
+        var k = 0
+        while k < n {
+            let c = self.child(node, k)
+            if self.is_leaf(c) {
+                let word = self.text(m, c)
+                if word.equals("...") {
+                    flags = flags | TC_FLAG_VARIADIC
+                }
+            } else if self.has_alt(c, Alt.Decl_ExternParam) || self.has_alt(c, Alt.Decl_Param_Plain) {
+                let leaf = self.res.first_leaf(c)
+                let text = self.text(m, leaf)
+                let name = self.res.intern(text)
+                let type_node = self.res.last_node_child(c)
+                let t = self.build_type(type_node)
+                try! self.params.push(TcParam(name: name, leaf: leaf, ty: t, has_default: false))
+            } else if res_is_type_alt(self.node_alt(c)) {
+                result = self.build_type(c)
+                flags = flags | TC_FLAG_WRITTEN_RETURN
+            }
+            k = k + 1
+        }
+        if result < 0 {
+            result = self.void_type()
+        }
+        var s = self.sigs[d]
+        s.param_first = first
+        s.param_count = self.params.len() - first
+        s.flags = s.flags | flags
+        s.result = result
+        self.sigs[d] = s
+    }
+
+    // An extension: the type it extends applied to its parameters, as its
+    // result, and its conformances. Its parameters' bounds are the conditions
+    // its members and conformances hold under.
+    func build_extension(&var self, d: Int) {
+        let info = self.res.decls[d]
+        let node = info.node
+        let head = self.res.first_node_child(node)
+        let target = self.ext_target(d)
+        if target < 0 && head >= 0 {
+            let leaf = self.res.last_leaf_of(head)
+            let b = self.binding_at(leaf)
+            if b.kind == ResBindKind.Decl && b.decl >= 0 {
+                self.not_in_slice(head, Alt.Decl_Extension)
+            }
+        }
+        if target >= 0 {
+            self.ensure_generic_list(target)
+            let written = self.sigs[d]
+            let wanted = self.sigs[target]
+            if written.generic_count > 0 && written.generic_count != wanted.generic_count {
+                let leaf = self.res.last_leaf_of(head)
+                self.refuse_extension_arity(leaf, written.generic_count, wanted.generic_count)
+            }
+        }
+        let first = self.traits.len()
+        let n = self.child_count(node)
+        var k = 0
+        while k < n {
+            let c = self.child(node, k)
+            if c != head && self.has_alt(c, Alt.Type_Path) {
+                let t = self.trait_of_path(c)
+                if t >= 0 {
+                    try! self.traits.push(t)
+                }
+            }
+            k = k + 1
+        }
+        var s = self.sigs[d]
+        s.trait_first = first
+        s.trait_count = self.traits.len() - first
+        s.result = if target >= 0 { self.current_self } else { self.error_type }
+        if self.has_attribute(info.outer, Alt.Attr_Attribute_Synthesize) {
+            s.flags = s.flags | TC_FLAG_SYNTHESIZE
+        }
+        self.sigs[d] = s
+    }
+
+    func refuse_extension_arity(&var self, leaf: Int, written: Int, wanted: Int) {
+        let m = self.current
+        var msg = StringBuilder()
+        try! msg.append("an extension of `")
+        try! msg.append(self.text(m, leaf))
+        try! msg.append("` renames its ")
+        try! msg.append(wanted)
+        try! msg.append(" type parameters, and ")
+        try! msg.append(written)
+        try! msg.append(" are written")
+        self.refuse(leaf, "type.arity", msg.build())
+    }
+}

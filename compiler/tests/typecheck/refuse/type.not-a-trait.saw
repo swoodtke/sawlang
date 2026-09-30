@@ -1,0 +1,10 @@
+// refuses: type.not-a-trait at 8:15
+// a struct named where a bound needs a trait
+
+struct Point {
+    x: Int
+}
+
+func first<T: Point>(t: T) -> Int {
+    0
+}

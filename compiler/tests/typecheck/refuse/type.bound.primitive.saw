@@ -1,0 +1,14 @@
+// refuses: type.bound at 12:20
+// a primitive type argument checked against a bound it does not meet (design 109)
+
+trait Measure {
+    func size(&self) -> Int
+}
+
+struct Ruler<T: Measure> {
+    item: T
+}
+
+func span(r: Ruler<Int>) -> Int {
+    0
+}

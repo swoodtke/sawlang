@@ -1,0 +1,6 @@
+// refuses: type.arity at 4:17
+// type arguments on a type parameter
+
+func keep<T>(t: T<Int>) -> Int {
+    0
+}

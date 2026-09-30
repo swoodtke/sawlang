@@ -1,0 +1,16 @@
+// refuses: copy.undeclared-policy at 14:8
+// a struct with a field of a declared Copy type, a retain hook, and no policy of its own
+
+struct Tag {
+    id: Int
+}
+
+extension Tag: Copy {
+    func copy(&self) -> Tag {
+        Tag(id: self.id)
+    }
+}
+
+struct Badge {
+    tag: Tag
+}

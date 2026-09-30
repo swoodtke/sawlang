@@ -1,0 +1,18 @@
+// refuses: type.bound at 16:20
+// a type argument that does not satisfy its parameter's bound
+
+trait Measure {
+    func size(&self) -> Int
+}
+
+struct Ruler<T: Measure> {
+    item: T
+}
+
+struct Line {
+    length: Int
+}
+
+func span(r: Ruler<Line>) -> Int {
+    0
+}

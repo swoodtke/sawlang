@@ -21,6 +21,7 @@ directory specifies:
 import glob
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -58,6 +59,13 @@ BUILT_DIR = os.path.join(REPO, ".build", "resolve-lane")
 PARSE_REFUSED_ENTRY = "import broken.{thing}\n\nfunc f() -> Int {\n    thing()\n}\n"
 PARSE_REFUSED_MODULE = "public func thing() -> Int {\n    let = 1\n}\n"
 PARSE_REFUSED_AT = "broken.saw:2:9"
+# The interface case: a copy of the std root whose `std/path.saw` gains a
+# signature spelling resolve does not build yet. An interface module's
+# refusal is a note, and the verifier checks the signatures it walked.
+INTERFACE_ROOT = os.path.join(BUILT_DIR, "interface-root")
+INTERFACE_DECLARATION = ("\npublic func first_item<T: Iterator>(items: &var T) -> T.Item? {\n"
+                         "    items.next()\n}\n")
+INTERFACE_RULE = "slice.not-yet"
 
 
 def rel(path):
@@ -230,8 +238,9 @@ def check_catalog(failures, counts, named):
 
 
 def check_built_cases(failures, counts):
-    """The refusals no tracked fixture holds: a missing entry file, and an
-    imported module the parser refuses, written under .build."""
+    """The refusals no tracked fixture holds, written under .build: a missing
+    entry file, an imported module the parser refuses, and a std signature
+    outside the slice."""
     missing = rel(os.path.join(HERE, "no-such-entry.saw"))
     code, out = sawc2(["--check", missing])
     found = first_error(records(out).get(missing, ""))
@@ -249,7 +258,33 @@ def check_built_cases(failures, counts):
     if found != ("resolve.parse-refused", PARSE_REFUSED_AT):
         failures.append("resolve: an imported module the parser refuses gives %r, expected "
                         "resolve.parse-refused at %s" % (found, PARSE_REFUSED_AT))
-    counts["resolve built cases"] = 2
+    check_interface_note(failures)
+    counts["resolve built cases"] = 3
+
+
+def check_interface_note(failures):
+    """A std signature outside the slice is a NOTE with its rule, never an
+    ERROR or an INVARIANT."""
+    std_dir = os.path.join(INTERFACE_ROOT, "std")
+    shutil.rmtree(INTERFACE_ROOT, ignore_errors=True)
+    shutil.copytree(os.path.join(REPO, "sawc", "std"), std_dir)
+    shutil.copy(os.path.join(REPO, "sawc", "builtin.saw"), INTERFACE_ROOT)
+    path = os.path.join(std_dir, "path.saw")
+    with open(path) as fh:
+        text = fh.read()
+    line = text.count("\n") + 2
+    with open(path, "w") as fh:
+        fh.write(text + INTERFACE_DECLARATION)
+    code, out = sawc2(["--check", "--notes", "--std-root", rel(INTERFACE_ROOT),
+                       rel(os.path.join(HERE, "golden", "types.saw"))])
+    lines = out.split("\n")
+    want = "NOTE\t%s\t%s:%d:" % (INTERFACE_RULE, rel(path), line)
+    if not any(l.startswith(want) for l in lines):
+        failures.append("resolve: a std signature outside the slice gives no %s note at %s:%d"
+                        % (INTERFACE_RULE, rel(path), line))
+    for l in lines:
+        if l.startswith(("ERROR\t", "INVARIANT\t")):
+            failures.append("resolve interface case: %s" % l)
 
 
 def unit_programs():

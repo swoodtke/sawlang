@@ -1,0 +1,6 @@
+// refuses: unsafe.function-type at 4:15
+// a function type naming an unsafe type without saying `unsafe`
+
+func apply(f: (UnsafePointer<Int>) -> Int) unsafe -> Int {
+    0
+}

@@ -1,0 +1,11 @@
+// refuses: type.not-a-type at 9:21
+// an enum case named where a type is written
+
+enum Color {
+    case Red,
+    case Blue
+}
+
+func paint(c: Color.Red) -> Int {
+    0
+}

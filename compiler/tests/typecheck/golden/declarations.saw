@@ -1,0 +1,76 @@
+// Each declaration kind's signature: visibility, receivers and parameter
+// passing, the effect slot, what a `borrows` accessor lends as the
+// accessor-signature reader classifies it, inits, statics, externs, raw
+// backings and field visibility.
+
+public struct Account {
+    public id: Int
+    private balance: Int
+    history: Vector<Int>
+}
+
+extension Account: NoCopy {}
+
+public enum Status: UInt8 {
+    case Open = 1,
+    case Closed = 2
+}
+
+borrows struct Cursor {
+    at: &Vector<Int>
+}
+
+static LIMIT: Int = 8
+unsafe static var COUNTER: Int = 0
+
+extension Account {
+    public init(id: Int) -> Result<Account, AllocError> {
+        Result.Ok(Account(id: id, balance: 0, history: Vector<Int>()))
+    }
+
+    public func get(&self) -> Int {
+        self.id
+    }
+
+    public func deposit(&var self, amount: Int, note: String = "") sync {
+        self.balance = self.balance + amount
+    }
+
+    public func close(&var self) consumes -> Int {
+        self.balance
+    }
+
+    public static func zero() -> Int {
+        0
+    }
+
+    public func entry(&var self, index: Int) borrows -> &var Int {
+        lend self.history[index]
+    }
+
+    public func find(&self, index: Int) borrows -> &Int? {
+        lend self.history.find(index)
+    }
+
+    public func held(&self) sync borrows(sync) -> &Int {
+        lend self.id
+    }
+
+    public func cursor(&self) borrows -> Cursor {
+        lend Cursor(at: &self.history)
+    }
+
+    public func raw(&self) unsafe -> UnsafePointer<Int>? {
+        None
+    }
+}
+
+public func run(a: Account, b: &Account, c: &var Account) unsafe sync -> Int {
+    0
+}
+
+extern "C" {
+    func strlen(s: UnsafePointer<UInt8>) -> Int
+    func printf(format: UnsafePointer<UInt8>, ...) -> Int32
+    blocking func usleep(n: UInt32) -> Int32
+}
