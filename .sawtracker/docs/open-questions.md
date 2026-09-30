@@ -12,6 +12,16 @@ None right now.
 
 ## Decided by the lead, for review (reversible)
 
+### D12. Resolve binds builtins to a synthetic `builtin` module, and the prelude is an inclusion table (Sep 30; the Air, SL-445 c1)
+§3.3's binding kinds have no slot for the declarations nothing declares: the primitive types, `String`, the Stage-0-synthesized `Optional`/`Result`, `print`/`panic`/`assert`/`sizeof`/`alignof`, and `Void`/`Never`. Stage 0 also defines the prelude by exclusion (`IMPORT_REQUIRED_STD_*`).
+
+**Decided:**
+- Builtins are declarations of a synthetic `builtin` module, one table, and bind like any other: `String` is (builtin, String).
+- The prelude is one inclusion table in resolve (design 82's curated core), checked once against Stage 0's computed set over today's std. The design-255 gated tier derives from it.
+- An inclusion list fails safe: a new std module is gated by default.
+
+**Reversal:** a different home for builtins (for example, the new std declaring them), or an exclusion list.
+
 ### D11. `syntax.lex.ascii-identifier` covers every non-ASCII character outside strings and comments (Sep 30; the Air, SL-410 c4)
 §2.7 words the rule as "a letter outside ASCII cannot start or continue [an identifier]". sawc2's lexer refuses every non-ASCII character outside a string literal or a comment alike, as "Unexpected character": `é`, `ï` and `→` all get that. Naming the rule only for letters needs a Unicode letter table in the subset.
 
