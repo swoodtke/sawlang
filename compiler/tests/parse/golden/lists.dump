@@ -303,3 +303,59 @@
     (Extension (Path S) (Path A) (Path m B)))
   (Declaration.extension
     (Extension (Path V) (Path A))))
+
+// case: syntax.expr.multi-subscript/each-first-element-and-a-trailing-comma
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Subscript.multi
+            (Name m)
+            (Name r)
+            (Arg.positional (Name c))))
+        (Let.immutable
+          (BindingName b)
+          (Subscript.multi
+            (Name m)
+            (Name k)
+            (Arg.labelled default (IntLit 0))))
+        (Let.immutable
+          (BindingName c)
+          (Subscript.multi
+            (Name m)
+            k
+            (IntLit 1)
+            (Arg.positional (IntLit 2))))
+        (Let.immutable
+          (BindingName d)
+          (Subscript.multi (Name m) (Name a)))
+        (Let.immutable
+          (BindingName e)
+          (Subscript.multi
+            (Name m)
+            (Name r)
+            (Arg.positional (Name c))))))))
+
+// case: syntax.borrow.block/several-bindings-and-the-body-on-the-next-line
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (BorrowBlock
+            (BorrowBinding.var
+              (BindingName row)
+              (Subscript.single (Name grid) (Name r)))
+            (BorrowBinding.var
+              (BindingName cell)
+              (Subscript.single (Name row) (Name c)))
+            (BorrowBinding.let
+              (BindingName n)
+              (Subscript.single (Name w) (IntLit 0)))
+            (Block
+              (CompoundAssign
+                (Member (Name cell) weight)
+                +=
+                (Name n)))))))))

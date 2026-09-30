@@ -63,3 +63,6 @@ refuses parse-error at 2:5
 
 // case: syntax.expr.member/borrow-is-a-keyword
 refuses parse-error at 2:7
+
+// case: syntax.rule.head-restriction/trailing-closure-in-a-borrow-binding-head-before-a-comma
+refuses syntax.rule.head-restriction at 2:22

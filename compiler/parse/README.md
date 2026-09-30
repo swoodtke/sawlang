@@ -93,10 +93,11 @@ noted (`HeadState.Shadow`) and refused if the brace turns out to be one.
 Every list whose elements a `,` separates goes through one funnel,
 `Parser.parse_comma_list`: import symbols, parameters, function-type
 parameters, tuple types, generic parameters and arguments, call arguments,
-tuple expressions, array, map and set elements, tuple and payload patterns,
-closure parameters and capture lists, struct fields, enum cases and their
-payload fields, extern parameters, a trait's parents and an extension's
-conformances. `list_shape` is the position matrix, one
+a multi-argument subscript's arguments, tuple expressions, array, map and set
+elements, tuple and payload patterns, closure parameters and capture lists,
+struct fields, enum cases and their payload fields, extern parameters, a
+trait's parents, an extension's conformances and a `borrow` block's bindings.
+`list_shape` is the position matrix, one
 row per list: the element parser (`CommaList`, which `parse_list_element`
 dispatches on), the closer the funnel tests for and the caller consumes (a
 bracket, a generic list's `>`, which a `>=` or `>>=` may hold, `in`, or the
@@ -105,9 +106,10 @@ trailing-comma policy and the rule that names its refusal, where the list's
 line breaks are decided, and whether it may be empty. Between fields and
 between cases a line break separates as a comma does, and the funnel records
 which `list-sep` stood there (`LineBreaks.Separate`, syntax.decl.list-sep).
-An attribute takes one argument, never a list. A caller that must parse
-the first element to tell the list apart, as `(e)` from a tuple or a brace's
-first element from a map's, hands the funnel the rest. A refused trailing comma
+An attribute takes one argument, and a test case one clause, never a list.
+A caller that must parse the first element to tell the list apart, as `(e)`
+from a tuple, a brace's first element from a map's, or a subscript's one
+argument from several, hands the funnel the rest. A refused trailing comma
 inside a speculation is noted and refused only if the list is kept, so that
 `f<Int,>(1)` is refused as syntax.generic.refused-arg-comma and not re-read as
 comparisons. `golden/lists.saw` and `negative/lists.saw` in
@@ -133,6 +135,31 @@ as a top-level item is. The receiver rule and the effect slot's rules are
 checked once a declaration's parameters and effects are parsed
 (`parse_signature`). A test case's or group's head refuses a doc run before it
 at once, since nothing it holds can make the run document anything.
+
+## Borrow forms
+
+The tokens after `borrow` decide its form (syntax.rule.borrow-form):
+`Parser.borrow_binding_end` finds `let` or `var`, a name or a parenthesized
+pattern, and `=`, which make a binding. A binding is a `borrow` block, a
+primary; at an `if`, `else if` or `while` head it is the unwrap, which binds
+one name; and at a `guard` head it is refused. Anything else is the place
+form, whose operand is one postfix chain, or with `let` the refused unbound
+form. A borrow binding's head is a head, which the next binding's `,` or the
+body's `{` follows, so the head restriction's re-read accepts either there.
+The place form at a statement's start is kept open, as a leading chain is
+(Assignment targets, below): an assignment makes it a target, and an
+exclusive one whose optional run is open at the end writes through the chain.
+
+## Tests
+
+After `@test`, a string or `(` makes a case, `{` a group and anything else
+makes the declaration after it test-only (syntax.rule.test-form). A case's
+clause is one of `panics:`, `warns:` and `refuses:`, with an optional
+`text:` and `at:` in that order. A `refuses:` case's body is matched by its
+braces only, each token between them a leaf, line breaks included; a test
+build parses it apart, from `refusal-unit` (`--unit`). A group holds items,
+as an inline module does, and takes its level at its `{`. A `///` run before
+the `@test` of a test-only declaration documents the declaration.
 
 ## Assignment targets
 

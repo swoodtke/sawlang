@@ -120,3 +120,9 @@ struct S {
 func f() {
     x.borrow()
 }
+
+// case: syntax.rule.head-restriction/trailing-closure-in-a-borrow-binding-head-before-a-comma
+func f() {
+    borrow let x = f { a }, var y = z {
+    }
+}

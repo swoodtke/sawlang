@@ -158,3 +158,23 @@ extension S: A, m.B {
 extension V: A
 {
 }
+
+// case: syntax.expr.multi-subscript/each-first-element-and-a-trailing-comma
+func f() {
+    let a = m[r, c]
+    let b = m[k, default: 0,]
+    let c = m[k: 1, 2]
+    let d = m[a,]
+    let e = m[
+        r,
+        c
+    ]
+}
+
+// case: syntax.borrow.block/several-bindings-and-the-body-on-the-next-line
+func f() {
+    borrow var row = grid[r], var cell = row[c], let n = w[0]
+    {
+        cell.weight += n
+    }
+}

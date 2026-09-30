@@ -501,6 +501,30 @@ def nested_sets(k):
     return in_function("{1, " * k + "1" + "}" * k)
 
 
+def nested_borrow_blocks(k):
+    return in_function("borrow let e = a { " * k + "1" + " }" * k)
+
+
+def nested_borrow_fors(k):
+    """A `for borrow` loop is one construct, and takes one level."""
+    return in_function("for borrow let e in a { " * k + "1" + " }" * k)
+
+
+def lends_run(k):
+    """`lends` followed by a name is recognized, so `lends lends x` nests."""
+    return in_function("lends " * k + "x")
+
+
+def slice_types(k):
+    """A slice type is an atom of its own, not a reference: one level each."""
+    return in_type("&[" * k + "Int" + "]" * k)
+
+
+def nested_test_groups(k):
+    """A group's level is taken at its `{`, as an inline module's is."""
+    return "@test {\n" * k + "}\n" * k
+
+
 def trailing_closures(k):
     """Trailing closures each holding the next: the hop and its closure take
     a level each, so an odd k ends in a plain closure."""
@@ -554,7 +578,13 @@ def cells():
             ("nested map literals", nested_maps, lambda t: nth(t, "{", LIMIT + 2)),
             ("nested set literals", nested_sets, lambda t: nth(t, "{", LIMIT + 2)),
             ("closures nested in trailing closures", trailing_closures,
-             lambda t: t.rindex("{ 1 }"))):
+             lambda t: t.rindex("{ 1 }")),
+            ("nested `borrow` blocks", nested_borrow_blocks,
+             lambda t: nth(t, "borrow", LIMIT + 1)),
+            ("nested `for borrow` loops", nested_borrow_fors, lambda t: nth(t, "for", LIMIT + 1)),
+            ("a `lends` run", lends_run, lambda t: nth(t, "lends", LIMIT + 1)),
+            ("nested slice types", slice_types, lambda t: nth(t, "&[", LIMIT + 1)),
+            ("nested test groups", nested_test_groups, lambda t: nth(t, "{", LIMIT + 1))):
         out.append(("%s at %d" % (name, LIMIT), build_text(LIMIT), None, None))
         text = build_text(LIMIT + 1)
         at = find(text) if find else None

@@ -114,3 +114,26 @@ trait T: A, {
 extension S: A,
     B {
 }
+
+// case: syntax.expr.multi-subscript/a-trailing-comma-after-a-labelled-first-argument
+func f() {
+    let a = m[k: 1,]
+}
+
+// case: syntax.expr.multi-subscript/two-arguments-without-a-comma
+func f() {
+    let a = m[r c]
+}
+
+// case: syntax.borrow.block/a-trailing-comma-after-the-last-binding
+func f() {
+    borrow var a = x, {
+    }
+}
+
+// case: syntax.borrow.block/a-line-break-after-a-comma
+func f() {
+    borrow var a = x,
+        var b = y {
+    }
+}

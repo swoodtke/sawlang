@@ -56,6 +56,21 @@ func f() {
     { nested { } }
 }
 
+// case: syntax.rule.refusal-body/shifts-and-brackets-as-written
+@test(refuses: "syntax.lex.shift-adjacent", at: 2) "shifts" {
+    a << b < < c >> d > > e <<= f
+    g(a,
+      b)
+}
+
+// case: syntax.rule.test-form/groups-nest
+@test {
+    @test {
+        @test "inner" {
+        }
+    }
+}
+
 // case from refusal-unit: syntax.rule.refusal-body/statements-parse-in-a-test-build
 let a: Int = "text"
 a.push(1)

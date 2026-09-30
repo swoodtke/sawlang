@@ -73,6 +73,16 @@
 (File
   (TestCase.refuses refuses "syntax.rule.statement-separator" "a stray semicolon" (RefusalBody \x0a let x = 1 ; \x0a { nested { } } \x0a)))
 
+// case: syntax.rule.refusal-body/shifts-and-brackets-as-written
+(File
+  (TestCase.refuses refuses "syntax.lex.shift-adjacent" at 2 "shifts" (RefusalBody \x0a a << b < < c >> d > > e <<= f \x0a g \( a , b \) \x0a)))
+
+// case: syntax.rule.test-form/groups-nest
+(File
+  (TestGroup
+    (TestGroup
+      (TestCase.run "inner" (Block)))))
+
 // case from refusal-unit: syntax.rule.refusal-body/statements-parse-in-a-test-build
 (RefusalUnit
   (Let.immutable

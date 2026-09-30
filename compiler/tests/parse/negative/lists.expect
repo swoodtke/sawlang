@@ -69,3 +69,15 @@ refuses parse-error at 1:13
 
 // case: syntax.decl.conformances/a-line-break-after-a-comma
 refuses parse-error at 1:16
+
+// case: syntax.expr.multi-subscript/a-trailing-comma-after-a-labelled-first-argument
+refuses parse-error at 2:20
+
+// case: syntax.expr.multi-subscript/two-arguments-without-a-comma
+refuses parse-error at 2:17
+
+// case: syntax.borrow.block/a-trailing-comma-after-the-last-binding
+refuses parse-error at 2:23
+
+// case: syntax.borrow.block/a-line-break-after-a-comma
+refuses parse-error at 2:22
