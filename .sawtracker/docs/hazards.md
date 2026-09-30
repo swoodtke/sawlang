@@ -1220,24 +1220,34 @@ refusal: `yield_now()` as the last statement of such a function is refused as
 **Checker:** not needed: the build fails loudly, and the self-hosted compiler
 is sync-only.
 
-### L21. An integer static compared with a different-width integer (SL-449)
+### L21. An `Int` static as a bare operand against another width (SL-449)
 
-**Shape:** a module `static` of one integer width, used as the operand of an
-operator whose other operand has another width, fails with an LLVM verifier
-error. Stage 0's typechecker adopts the static to its peer's width, and codegen
-still emits it at its declared width:
+**Shape:** a module `static` declared `Int`, used bare on either side of a
+binary operator or as a compound assignment's right side, against an integer
+of another width, crashes Stage 0 in codegen. Its typechecker adopts the static
+to the peer's width, and codegen still emits it at `i64`:
 
 ```saw
 static SHIFT: Int = 3
 func check(flag: UInt32) -> Bool { flag >= SHIFT }
 // error: '%SHIFT' defined with type 'i64' but expected 'i32'
+// `flag + SHIFT`, `x += SHIFT`: "Type of #2 arg mismatch: i32 != i64"
 ```
 
-**Instead:** declare the static at the width it is compared with
-(`static SHIFT: UInt32 = 3`), or convert explicitly (`UInt32(truncating:
-SHIFT)`).
+The failure is narrower than any static:
+- a static of another declared width (`UInt`, `Int8`) gets a clean refusal;
+- a bare `Int` static in a slot (a `let`, an argument, a return, a field, an
+  element, a static initializer) is refused cleanly;
+- a constant expression over it, `flag >= (1 << SHIFT)`, builds.
 
-**Checker:** not needed: the build fails loudly.
+(The Air's probes on t22.)
+
+**Instead:** write `SHIFT as UInt32`. It is checked, free for a constant, and
+builds. `UInt32.from(truncating: SHIFT)` also builds, but it drops high bits
+silently. Or declare the static at the compared width.
+
+**Checker:** not needed: the build fails loudly. The new compiler refuses the
+bare form (SL:open-questions D17).
 
 ## Cases with no issue
 
@@ -1410,7 +1420,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-429 | S3 `try?` never releases the error it discards | silent, leak only (found in ST-69's review) |
 | SL-430 | S3 A coroutine's propagating `try` leaks the error | silent, leak only (found in ST-69's review) |
 | SL-431 | L20 A coroutine returning `Result<Void, E>` that falls off the end | loud (found in ST-69's review) |
-| SL-449 | L21 An integer static compared with a different-width integer | loud (found by SL-447's widening golden) |
+| SL-449 | L21 An `Int` static as a bare operand against another width | loud (found by SL-447's widening golden) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
