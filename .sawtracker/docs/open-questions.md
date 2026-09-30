@@ -12,12 +12,14 @@ None right now.
 
 ## Decided by the lead, for review (reversible)
 
-### D13. Resolve reads a lone name pattern as a case when any enum declares that name (Sep 30; U6a, SL-445)
+### D13. Resolve reads a lone name pattern as a case when an enum in the module's import closure declares that name (Sep 30; U6a, SL-445)
 GRAMMAR's `syntax.rule.name-pattern` leaves it to resolution whether a lone name in a pattern, `case North` or `case x`, names a payload-free variant or binds. The scrutinee's type decides which enum it could be (`syntax.pat.refused-qualified-variant`), but resolve runs before types exist. Stage 0 decides by capitalization.
 
-**Decided:** resolve reads a lone name as a case when any enum in the program declares a payload-free case of that name, recording the candidates. Otherwise the name binds. Typecheck then picks the candidate from the scrutinee's type, and refuses a candidate set with none in that enum ("`x` names no case of `T`"), rather than falling back to a binding.
+**Decided:** resolve reads a lone name as a case when an enum in the module's import closure declares a payload-free case of that name, recording the candidates. Otherwise the name binds. The closure is the module's own enums, those of the interfaces it imports (transitively), and `builtin` with the prelude. A scrutinee's type is reachable only through that closure, so no case it could name is lost, and the decision stays local to what §3.3 takes as input (the Air, t8). Typecheck then picks the candidate from the scrutinee's type, and refuses a candidate set with none in that enum ("`x` names no case of `T`"), rather than falling back to a binding.
 - It is never silently wrong. A case of the scrutinee's own enum always resolves as that case. The only cost is a spurious refusal when an unrelated enum's case shares a binding's name, and the fix is a rename.
 - It agrees with Stage 0 on all of `compiler/`.
+- **Pins:** `case n if n < 0` over an `Int` stays a binding when no enum in the closure declares `n`. An unrelated module's case of the same name, outside the closure, changes nothing. The spurious-refusal message names the case the pattern was taken for and suggests the rename.
+- U6a's first cut scoped it program-wide. SL-445.p1's revision narrows it.
 
 **Reversal:** capitalization (Stage 0's rule), or deciding in typecheck with bindings scoped after it.
 
