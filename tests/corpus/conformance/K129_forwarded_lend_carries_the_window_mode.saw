@@ -8,11 +8,13 @@
 // the inner `&self` accessor can serve it — no gate, no separation; inside a
 // `&var self` accessor the lend is `&var`, so it needs the inner exclusive one.
 //
-// A shared read of a nested copy-on-write buffer therefore copies nothing. The
-// forwarding accessors are written in pairs where the bodies differ (§4), and
-// `Blob` derives its shared twin with `@synthesize(shared)`, since its body is
-// valid under both signatures: typechecked again under `&self`, its operand
-// reaches `Data`'s shared accessor, which does not separate (§4).
+// A shared read of a nested copy-on-write buffer therefore copies nothing.
+// `Inner`'s pair has different bodies: only the exclusive one runs the gate
+// (§4). `Outer`'s bodies are identical, and the pair is written out so both
+// forwarding paths show; `@synthesize(shared)` would derive the same twin.
+// `Blob` derives its shared twin that way, since its body is valid under both
+// signatures: typechecked again under `&self`, its operand reaches `Data`'s
+// shared accessor, which does not separate (§4).
 //
 // The refusal cell is
 //   `errors/forwarded_lend_cannot_upgrade_an_inner_shared_lend.saw` — an outer

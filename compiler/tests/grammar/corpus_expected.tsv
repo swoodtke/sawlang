@@ -208,7 +208,6 @@ tests/corpus/errors/consumes_function_type.saw	FAIL	a-removed: syntax.type.refus
 tests/corpus/errors/consumes_needs_a_receiver.saw	FAIL	a-error: 15:32 refused by syntax.rule.effect-slot
 tests/corpus/errors/consumes_needs_var_self.saw	FAIL	a-error: 13:24 refused by syntax.rule.effect-slot
 tests/corpus/errors/consumes_trait_requirement.saw	FAIL	a-error: 13:28 refused by syntax.rule.requirement-borrows
-tests/corpus/errors/lend_var_ungated_receiver_mutation.saw	FAIL	a-removed: syntax.expr.refused-lend-var
 tests/corpus/errors/semicolon_at_end_of_file.saw	FAIL	a-error: 12:22 near SEMICOLON ';'
 tests/corpus/errors/semicolon_at_line_start.saw	FAIL	a-error: 13:5 near SEMICOLON ';'
 tests/corpus/errors/semicolon_before_closing_brace.saw	FAIL	a-error: 12:21 near RBRACE '}'

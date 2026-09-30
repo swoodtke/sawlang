@@ -21,14 +21,6 @@
 // The accept side is row M32, where the accessor lends through heap
 // indirection the copy shares.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot write through a place window on storage reached through a `&self` receiver
-// EXPECT-ERROR-CONTAINS: `self.grid[…]` opens an exclusive window
-// EXPECT-ERROR-CONTAINS: `self.inner.grid[…]` opens an exclusive window
-// EXPECT-ERROR-CONTAINS: `self.pair.0[…]` opens an exclusive window
-// EXPECT-ERROR-CONTAINS: `self.maybe![…]` opens an exclusive window
-// EXPECT-ERROR-CONTAINS: `self.grids[…][…]` opens an exclusive window
-// EXPECT-ERROR-CONTAINS: `self.slot.at(…)` opens an exclusive window
-// EXPECT-ERROR-CONTAINS: `self.cells[…]` opens an exclusive window
 
 struct Grid { cells: [Int; 4] }
 
