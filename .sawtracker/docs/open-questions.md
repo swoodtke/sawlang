@@ -17,11 +17,11 @@ func first<T: Container>(c: T) -> ??? { c.get(i: 0)! }
 
 **Today:**
 - Stage 0 accepts bare `Item` there, resolved through `T`'s bound.
-- The new compiler has no spelling: bare `Item` is not in scope, and GRAMMAR refuses `T.Item` ("`T` is not a module qualifier").
+- The new compiler has no spelling yet. Bare `Item` is not in scope. `T.Item` parses as an ordinary qualified type path, but resolve refuses it: "`Item` cannot be named through a path here". Stage 0 refuses it too, as "`T` is not a module qualifier here" (the Air, t9).
 - Usage: three corpus test programs, and nothing in std, Blade, libs or `compiler/`. So no real code depends on either answer, and the bootstrap doesn't wait on this.
 
 **The options:**
-- **(a) `T.Item`,** as in Swift (Rust writes `T::Item`). The reader sees which parameter the type belongs to, and it stays unambiguous with two parameters, or with two bounds that both declare `Item`. It costs one GRAMMAR row: a type path whose head is a type parameter.
+- **(a) `T.Item`,** as in Swift (Rust writes `T::Item`). The reader sees which parameter the type belongs to, and it stays unambiguous with two parameters, or with two bounds that both declare `Item`. It needs no GRAMMAR change. It needs a resolve rule: a type path headed by a type parameter names the associated type its bounds declare, and an ambiguous or absent one is refused. Typecheck then needs a projection key.
 - **(b) Bare `Item`,** found through the bounds of the type parameters in scope, as Stage 0 does. An ambiguous name is refused. It is shorter, but a reader can't tell where `Item` comes from, and adding a bound elsewhere can make it ambiguous.
 - **(c) Both,** bare as a shorthand when it is unambiguous.
 
