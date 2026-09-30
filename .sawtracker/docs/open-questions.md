@@ -12,6 +12,15 @@ None right now.
 
 ## Decided by the lead, for review (reversible)
 
+### D13. Resolve reads a lone name pattern as a case when any enum declares that name (Sep 30; U6a, SL-445)
+GRAMMAR's `syntax.rule.name-pattern` leaves it to resolution whether a lone name in a pattern, `case North` or `case x`, names a payload-free variant or binds. The scrutinee's type decides which enum it could be (`syntax.pat.refused-qualified-variant`), but resolve runs before types exist. Stage 0 decides by capitalization.
+
+**Decided:** resolve reads a lone name as a case when any enum in the program declares a payload-free case of that name, recording the candidates. Otherwise the name binds. Typecheck then picks the candidate from the scrutinee's type, and refuses a candidate set with none in that enum ("`x` names no case of `T`"), rather than falling back to a binding.
+- It is never silently wrong. A case of the scrutinee's own enum always resolves as that case. The only cost is a spurious refusal when an unrelated enum's case shares a binding's name, and the fix is a rename.
+- It agrees with Stage 0 on all of `compiler/`.
+
+**Reversal:** capitalization (Stage 0's rule), or deciding in typecheck with bindings scoped after it.
+
 ### D12. Resolve binds builtins to a synthetic `builtin` module, and the prelude is an inclusion table (Sep 30; the Air, SL-445 c1)
 §3.3's binding kinds have no slot for the declarations nothing declares: the primitive types, `String`, the Stage-0-synthesized `Optional`/`Result`, `print`/`panic`/`assert`/`sizeof`/`alignof`, and `Void`/`Never`. Stage 0 also defines the prelude by exclusion (`IMPORT_REQUIRED_STD_*`).
 
