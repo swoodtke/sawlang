@@ -31,6 +31,13 @@ func first<T: Container>(c: T) -> ??? { c.get(i: 0)! }
 
 ## Decided by the lead, for review (reversible)
 
+### D18. An undeclared generic POD struct auto-conforms per instantiation (Sep 30; the Air, SL-447.p2 approval)
+`struct Pair<T> { a: T, b: T }`, with no conformance written, then `Pair<Int>(…) == Pair<Int>(…)`. The spec's auto-conformance covers "trivial (POD) structs" and doesn't say whether a generic declaration qualifies. Stage 0 refuses it ("does not conform to `Equatable`"). sawc2 accepts it.
+
+**Decided:** accepted. A generic struct's automatic Equatable and Hashable are judged per instantiation, like its Copy tier, which is already a rule over its arguments (U6b1's reading). So `Pair<Int>` qualifies and `Pair<String>` doesn't. One rule then answers "what does this type get for free", for every automatic trait.
+
+**Reversal:** automatic conformance only for non-generic structs. That refuses programs sawc2 now accepts, and none of them is in `compiler/`.
+
 ### D17. A bare module static carries its declared type (Sep 30; the Air, SL:hazards t22)
 `static SHIFT: Int = 3`, then `flag >= SHIFT` with `flag: UInt32`. The spec pulls two ways:
 - "a named value carries the type it was declared with" says no adoption;
