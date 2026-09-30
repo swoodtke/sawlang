@@ -1,6 +1,6 @@
 // Lex-error cases, one per kind of error the lexer reports, each checked at
 // its exact line:col and by the rule it names.
-import src.lib.{lex}
+import src.lib.{lex, lex_segment}
 
 // Assert that lexing `s` fails at exactly line:col, naming `rule`.
 func expect_err(s: String, line: Int, col: Int, rule: String, why: String) {
@@ -125,6 +125,21 @@ func main() {
     expect_err("let x = .25", 1, 9, "syntax.lex.float-point", "leading point after `=`")
     expect_err("f(1,\n.5)", 2, 1, "syntax.lex.float-point", "leading point after a line break")
     expect_hint("let x = .25", "write `0.25`", "leading point hint")
+
+    // A character outside ASCII is named in the hint; only in an
+    // interpolation's expression does the hint say why the string around it
+    // does not make it text (syntax.lex.ascii-identifier).
+    expect_err("let a = b → c", 1, 11, "syntax.lex.ascii-identifier", "non-ASCII symbol")
+    expect_hint("let a = b → c", "`→` is not ASCII, and source outside strings and comments is",
+                "non-ASCII hint in a file")
+    match lex_segment("é + 1") {
+        case Ok(_) -> panic("expected a lex error (non-ASCII in a segment)"),
+        case Err(e) -> {
+            assert(e.rule.equals("syntax.lex.ascii-identifier"), "segment rule {e.rule}")
+            assert(e.hint.equals("`é` is not ASCII, and source outside strings and comments is; an interpolation's expression is source"),
+                   "segment hint {e.hint}")
+        }
+    }
 
     print("errors: ok")
 }

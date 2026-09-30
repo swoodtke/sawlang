@@ -45,6 +45,20 @@ func f() {
     } { }
 }
 
+// case: syntax.rule.trailing-closure/on-a-literal-with-juxtaposed-statements-in-it
+func f() {
+    1 {
+        a b
+    }
+}
+
+// case: syntax.rule.trailing-closure/on-a-parenthesized-name-with-an-assignment-in-it
+func f() {
+    (x) {
+        1 = 2
+    }
+}
+
 // case: syntax.rule.head-restriction/closure-after-a-match-with-no-arms
 func f() {
     match x { } { }

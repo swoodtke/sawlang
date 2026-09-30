@@ -1,1 +1,1 @@
-ERROR	2:15	a character outside ASCII stands only in the text of a string or a comment	syntax.lex.ascii-identifier	`→` is not ASCII, and source outside strings and comments is; an interpolation's expression is source
+ERROR	2:15	a character outside ASCII stands only in the text of a string or a comment	syntax.lex.ascii-identifier	`→` is not ASCII, and source outside strings and comments is

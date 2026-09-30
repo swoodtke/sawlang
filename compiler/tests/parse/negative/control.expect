@@ -7,6 +7,60 @@ refuses syntax.rule.arm-body at 3:19
 // case: syntax.rule.arm-body/body-on-the-next-line
 refuses syntax.rule.arm-body at 3:18
 
+// case: syntax.expr.match-arm/arm-written-with-an-arrow-and-no-case
+refuses parse-error at 3:11
+
+// case: syntax.expr.match-arm/assignment-where-an-arm-begins
+refuses parse-error at 3:11
+
+// case: syntax.expr.match-arm/juxtaposed-names-where-an-arm-begins
+refuses parse-error at 3:11
+
+// case: syntax.expr.match-arm/open-range-where-an-arm-begins
+refuses parse-error at 5:1
+
+// case: syntax.expr.match-arm/borrow-binding-where-an-arm-begins
+refuses parse-error at 3:23
+
+// case: syntax.expr.match-arm/semicolon-where-an-arm-begins
+refuses parse-error at 3:9
+
+// case: syntax.expr.match-arm/expression-and-semicolon-where-an-arm-begins
+refuses parse-error at 3:11
+
+// case: syntax.expr.match-arm/call-after-a-move-where-an-arm-begins
+refuses parse-error at 3:17
+
+// case: syntax.expr.match-arm/float-with-no-digit-after-its-point-where-an-arm-begins
+refuses parse-error at 3:11
+
+// case: syntax.expr.match-arm/shift-with-a-space-where-an-arm-begins
+refuses parse-error at 3:13
+
+// case: syntax.expr.match-arm/arrow-arm-after-a-literal-scrutinee
+refuses parse-error at 3:11
+
+// case: syntax.expr.match-arm/arrow-arm-after-a-parenthesized-scrutinee
+refuses parse-error at 3:11
+
+// case: syntax.expr.match-arm/arrow-arm-after-a-call-scrutinee
+refuses parse-error at 3:11
+
+// case: syntax.expr.match-arm/arrow-arm-after-a-member-scrutinee
+refuses parse-error at 3:11
+
+// case: syntax.expr.match-arm/arrow-arm-after-a-generic-scrutinee
+refuses parse-error at 3:11
+
+// case: syntax.expr.match-arm/arrow-arm-after-a-comparison-scrutinee
+refuses parse-error at 3:11
+
+// case: syntax.expr.match-arm/arrow-arm-in-a-match-value
+refuses parse-error at 3:11
+
+// case: syntax.expr.match-arm/arrow-arm-in-a-match-in-a-trailing-closure
+refuses parse-error at 4:15
+
 // case: syntax.rule.try-block/try-before-a-brace-without-catch
 refuses syntax.rule.try-block at 2:17
 

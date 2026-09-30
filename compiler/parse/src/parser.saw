@@ -12,7 +12,7 @@
 // which skips to the next boundary at the same bracket depth and goes on, so
 // one run reports every independent error.
 
-import sawlex.src.lib.{DocComment, TokenKind, lex}
+import sawlex.src.lib.{DocComment, TokenKind, lex_segment}
 import sawparse.src.source.{source_file}
 import sawparse.src.diag.{Diagnostic}
 import sawparse.src.grammar.{ALT_COUNT, Alt, Rule, begins_expression, begins_extension_member,
@@ -7632,7 +7632,7 @@ extension Parser {
         let text = self.builder.tree.source.slice(start, start + piece.len)
         var toks = Vector<ParseToken>()
         var found = Vector<InterpPiece>()
-        let lexed = lex(text)
+        let lexed = lex_segment(text)
         match lexed {
             case Ok(result) -> {
                 let segment_source = source_file("", text)

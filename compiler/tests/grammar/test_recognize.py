@@ -15,7 +15,8 @@ RULE switched off the refusal no longer names it. Every rule the recognizer
 applies needs a fixture of one kind or the other, so each is seen deciding
 something, and each stop's rule a `// stops:` fixture.
 VERDICTS pins more verdicts, REMOVED_FORMS the removed form a refusal is
-classified as, CORPUS_CASES the corpus lane's comparison; each token of
+classified as, CORPUS_CASES the corpus lane's comparison, PARTIAL_READINGS
+the filters a stop's reading must survive (`Stops._survives`); each token of
 OPEN_END_FOLLOW must decide a tree of OPEN_END_FIXTURE, the cast-list FOLLOW
 set and each of CAST_WITNESSES a tree of CAST_FIXTURE, the parser's generated
 closer-scan table must pass exactly the tokens a generic list holds at its own
@@ -401,6 +402,37 @@ def check_open_end(failures, g):
     return len(full)
 
 
+# (source, a filter of PREFIX_FILTERS): the only reading that holds a statement
+# where the arms or the next statement stand is one the filter refuses in part,
+# so no stop names the refusal, and without the filter assignment-target does.
+PARTIAL_READINGS = [
+    ("func f() {\n    match x {\n        1 = 2\n    }\n}\n", "_head_restriction"),
+    ("func f() {\n    1 {\n        1 = 2\n    }\n}\n", "_trailing_closure"),
+]
+PARTIAL_READINGS_RULE = "syntax.rule.assignment-target"
+
+
+def check_partial_readings(failures, g):
+    """Each of PARTIAL_READINGS is refused with no rule named, and names
+    PARTIAL_READINGS_RULE once its filter no longer refuses a partial reading."""
+    full = recognize.PREFIX_FILTERS
+    for source, method in PARTIAL_READINGS:
+        got = recognize.check_source(g, source)
+        if got[0] != "FAIL" or "refused by" in got[1]:
+            failures.append("recognizer partial reading: %r is %s %s, expected a refusal "
+                            "no rule names" % ((source,) + got))
+        recognize.PREFIX_FILTERS = tuple(m for m in full if m != method)
+        try:
+            without = recognize.check_source(g, source)
+        finally:
+            recognize.PREFIX_FILTERS = full
+        if PARTIAL_READINGS_RULE not in without[1]:
+            failures.append("recognizer partial reading: %r without %s is %s %s, expected "
+                            "%s: the filter decides nothing here"
+                            % ((source, method) + without + (PARTIAL_READINGS_RULE,)))
+    return len(PARTIAL_READINGS)
+
+
 def check_cast_follow(failures, g):
     """The computed FOLLOW set of a cast target's list decides the cast fixture:
     emptied, or without any one of CAST_WITNESSES, its report changes."""
@@ -773,6 +805,7 @@ def run():
     counts["recognizer verdicts"] = len(VERDICTS)
     counts["removed forms"] = check_removed_forms(failures, model, g)
     counts["open-end follow tokens"] = check_open_end(failures, g)
+    counts["partial readings and injections"] = check_partial_readings(failures, g)
     counts["cast follow trials"] = check_cast_follow(failures, g)
     counts["list scan witnesses and injections"] = check_list_scan(failures, g_removed)
     counts["head scan witnesses and injections"] = check_head_scan(failures, g_removed)

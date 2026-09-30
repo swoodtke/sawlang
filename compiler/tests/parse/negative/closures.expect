@@ -25,6 +25,12 @@ refuses syntax.rule.trailing-closure at 2:37
 // case: syntax.rule.trailing-closure/after-a-match-with-arms-on-several-lines
 refuses syntax.rule.trailing-closure at 4:7
 
+// case: syntax.rule.trailing-closure/on-a-literal-with-juxtaposed-statements-in-it
+refuses parse-error at 3:11
+
+// case: syntax.rule.trailing-closure/on-a-parenthesized-name-with-an-assignment-in-it
+refuses parse-error at 3:11
+
 // case: syntax.rule.head-restriction/closure-after-a-match-with-no-arms
 refuses syntax.rule.head-restriction at 2:13
 

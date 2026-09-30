@@ -22,6 +22,134 @@ func f() {
     }
 }
 
+// case: syntax.expr.match-arm/arm-written-with-an-arrow-and-no-case
+func f() {
+    match x {
+        1 => 2
+    }
+}
+
+// case: syntax.expr.match-arm/assignment-where-an-arm-begins
+func f() {
+    match x {
+        1 = 2
+    }
+}
+
+// case: syntax.expr.match-arm/juxtaposed-names-where-an-arm-begins
+func f() {
+    match x {
+        a b
+    }
+}
+
+// case: syntax.expr.match-arm/open-range-where-an-arm-begins
+func f() {
+    match x {
+        a.. == c
+    }
+}
+
+// case: syntax.expr.match-arm/borrow-binding-where-an-arm-begins
+func f() {
+    match x {
+        borrow var e =
+    }
+}
+
+// case: syntax.expr.match-arm/semicolon-where-an-arm-begins
+func f() {
+    match x {
+        ;
+    }
+}
+
+// case: syntax.expr.match-arm/expression-and-semicolon-where-an-arm-begins
+func f() {
+    match x {
+        a;
+    }
+}
+
+// case: syntax.expr.match-arm/call-after-a-move-where-an-arm-begins
+func f() {
+    match x {
+        move x.f()
+    }
+}
+
+// case: syntax.expr.match-arm/float-with-no-digit-after-its-point-where-an-arm-begins
+func f() {
+    match x {
+        7.
+    }
+}
+
+// case: syntax.expr.match-arm/shift-with-a-space-where-an-arm-begins
+func f() {
+    match x {
+        a < < b
+    }
+}
+
+// case: syntax.expr.match-arm/arrow-arm-after-a-literal-scrutinee
+func f() {
+    match 1 {
+        1 => 2
+    }
+}
+
+// case: syntax.expr.match-arm/arrow-arm-after-a-parenthesized-scrutinee
+func f() {
+    match (x) {
+        1 => 2
+    }
+}
+
+// case: syntax.expr.match-arm/arrow-arm-after-a-call-scrutinee
+func f() {
+    match g() {
+        1 => 2
+    }
+}
+
+// case: syntax.expr.match-arm/arrow-arm-after-a-member-scrutinee
+func f() {
+    match a.b {
+        1 => 2
+    }
+}
+
+// case: syntax.expr.match-arm/arrow-arm-after-a-generic-scrutinee
+func f() {
+    match Foo<T> {
+        1 => 2
+    }
+}
+
+// case: syntax.expr.match-arm/arrow-arm-after-a-comparison-scrutinee
+func f() {
+    match a < b {
+        1 => 2
+    }
+}
+
+// case: syntax.expr.match-arm/arrow-arm-in-a-match-value
+func f() {
+    let v = match x {
+        1 => 2
+    }
+}
+
+// case: syntax.expr.match-arm/arrow-arm-in-a-match-in-a-trailing-closure
+func f() {
+    g {
+        match x {
+            1 => 2
+        }
+    }
+}
+
 // case: syntax.rule.try-block/try-before-a-brace-without-catch
 func f() {
     let c = try { 1 }

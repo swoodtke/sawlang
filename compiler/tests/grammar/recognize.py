@@ -23,6 +23,7 @@ parse of its own.
 import argparse
 import collections
 import concurrent.futures
+import itertools
 import json
 import os
 import re
@@ -1101,8 +1102,11 @@ class Forest:
         return kind, hop
 
     def _closure_start(self, hop):
-        """The `{` of the trailing closure a trailing or call-trailing hop holds."""
-        return self._kids_named(hop, "closure-literal")[-1].i
+        """The `{` of the trailing closure a trailing or call-trailing hop holds,
+        or None in a partial hop (`Stops._survives`) whose closure is not yet
+        read: a closure not begun refuses nothing."""
+        closures = self._kids_named(hop, "closure-literal")
+        return closures[-1].i if closures else None
 
     def _has_generic_args(self, d):
         return bool(self._kids_named(d, "generic-args"))
@@ -1157,7 +1161,9 @@ class Forest:
         for hop in kids[1:]:
             kind, leaf = self._hop(hop)
             if kind in ("trailing", "call-trailing") and not callee:
-                return self._closure_start(leaf)
+                at = self._closure_start(leaf)
+                if at is not None:
+                    return at
             callee = kind == "member"
         return None
 
@@ -1174,8 +1180,9 @@ class Forest:
                     continue
                 if k.nt in LEAF_HOPS:
                     kind, _ = self._hop(k)
-                    if kind in ("trailing", "call-trailing"):
-                        return self._closure_start(k)
+                    at = self._closure_start(k) if kind in ("trailing", "call-trailing") else None
+                    if at is not None:
+                        return at
                 if k.nt in GENERIC_HOSTS and self._has_generic_args(k) \
                         and self._after(k) == "{":
                     return k.j
@@ -1753,25 +1760,40 @@ BORROW_BINDINGS = ("borrow-binding", "borrow-unwrap")
 # refused guard binding and never a `borrow` block (`Forest._head_binding`).
 CONDITION_HEADS = ("if", "while", "guard")
 DECIMAL_DIGITS = re.compile(r"^[0-9_]+$")
+# The filters that refuse a construct the chart holds only in part. Both decide
+# a trailing closure at its `{`, by its callee or by the head it stands in, and
+# no later token changes that. So the reading of `match x {` as a trailing
+# closure on `x` holds no stop.
+PREFIX_FILTERS = ("_trailing_closure", "_head_restriction")
+# The end of a partial derivation, which is not yet read.
+UNREAD = sys.maxsize
 
 
 class Stops:
     """The rules that decide a refusal at the token where a restricted chart
     stops (STOPS). `refusals` gives (token index, rule) for each rule whose
-    reading of the chart there says that it refuses the token."""
+    reading of the chart there says that it refuses the token.
+
+    A stop reads only the readings the rules leave (`_survives`): where every
+    reading that reaches the token is one the rules refuse, as the trailing
+    closure `match x {` offers an arm list, no stop decides there."""
 
     def __init__(self, g, start, tokens):
         self.g = g
         self.start = start
         self.toks = tokens
         self.chart = Chart(g, start, tokens, keep=True, restrict=True)
-        self._forest = None
+        self._forest_built = None
+        self._live = {}
+        self._survived = {}
+        self._walking = set()
+        self._prefix_filters = None
 
     def refusals(self):
         if self.chart.accepted:
             return []
         k = self.chart.furthest
-        if k >= len(self.toks):
+        if k >= len(self.toks) or not self._live_items(k):
             return []
         out = []
         for method, rule in STOPS:
@@ -1783,10 +1805,76 @@ class Stops:
 
     # Helpers over the chart at one position ------------------------------------
 
+    def _forest(self):
+        if self._forest_built is None:
+            self._forest_built = Forest(self.chart)
+            self._prefix_filters = collections.defaultdict(list)
+            for nt, method, rule in FILTERS:
+                if method in PREFIX_FILTERS and applies(rule):
+                    self._prefix_filters[nt].append(getattr(self._forest_built, method))
+        return self._forest_built
+
+    def _live_items(self, k):
+        """The items at k that lie in a reading the rules leave."""
+        if k not in self._live:
+            self._live[k] = [item for item in sorted(self.chart.items[k])
+                             if self._survives(item, k)]
+        return self._live[k]
+
     def _items(self, k):
-        for item in self.chart.items[k]:
+        for item in self._live_items(k):
             nt, ai, dot, origin = item
             yield nt, self.g.prods[nt][ai], dot, origin
+
+    def _survives(self, item, h, child=None):
+        """Whether `item`, an Earley item at h holding `child` (a derivation
+        from h, whole or partial) or nothing yet, lies in a reading of the text
+        before h that the rules leave: each construct of it that is complete
+        has a tree, and no PREFIX_FILTERS rule refuses one read in part."""
+        nt, ai, dot, origin = item
+        key = (item, h)
+        # Above a head reset no filter looks into what the reset holds, so the
+        # answer is the same for every child that is one.
+        resets = applies("syntax.rule.head-reset")
+        memo = None
+        if child is None or (resets and child.nt in HEAD_RESETS):
+            memo = key + (None if child is None else child.ai,)
+            if memo in self._survived:
+                return self._survived[memo]
+        # A left-recursive list waits for itself where it starts; going round
+        # that loop again reads nothing new.
+        if key in self._walking:
+            return False
+        self._walking.add(key)
+        try:
+            found = self._walk(item, h, child)
+        finally:
+            self._walking.discard(key)
+        if memo is not None:
+            self._survived[memo] = found
+        return found
+
+    def _walk(self, item, h, child):
+        nt, ai, dot, origin = item
+        forest = self._forest()
+        prefix = self.g.prods[nt][ai][:dot]
+        forest.building.append(("__partial", origin, h))
+        try:
+            sequences = list(itertools.islice(forest._seq(prefix, 0, origin, h), TREE_CAP))
+        finally:
+            forest.building.pop()
+        for kids in sequences:
+            held = tuple(k[1] for k in kids) + (() if child is None else (child,))
+            partial = Derivation(nt, ai, origin, UNREAD, held, None)
+            if held and any(refuses(partial) is not None
+                            for refuses in self._prefix_filters.get(nt, ())):
+                continue
+            if nt == self.start and origin == 0:
+                return True
+            if any(self._survives(up, origin, partial)
+                   for up in self.chart.waiting[origin].get(nt, ())):
+                return True
+        return False
 
     def _awaits(self, k, sym, owners=None):
         """Whether an item at k takes `sym` next, in a rule of one of `owners`
@@ -1801,22 +1889,21 @@ class Stops:
     def _begins(self, k, nt):
         return not self._terms(k).isdisjoint(self.g.first[nt])
 
-    def _held(self, origin, nt, owners):
-        """Whether an `nt` starting at origin is one that a rule of `owners`
-        waits for there."""
-        return any(self.g.real(p[0]) in owners
+    def _held(self, origin, nt, owners=None, child=None):
+        """Whether an `nt` starting at origin, as `child` when given, is one
+        that a rule of `owners` (any rule when None) waits for there, in a
+        reading the rules leave."""
+        return any((owners is None or self.g.real(p[0]) in owners)
+                   and self._survives(p, origin, child)
                    for p in self.chart.waiting[origin].get(nt, ()))
 
-    def _tree(self, nt, i, j):
-        """Whether the rules leave some tree of nt over [i, j)."""
-        if self._forest is None:
-            self._forest = Forest(self.chart)
-        return bool(self._forest.derivations(nt, i, j))
-
-    def _ended(self, k, nt, owners):
-        """Whether an `nt` held by one of `owners` ends at k with a tree."""
-        return any(self._held(o, nt, owners) and self._tree(nt, o, k)
-                   for o in sorted(self.chart.done[k].get(nt, ())))
+    def _ended(self, k, nt, owners=None):
+        """Whether an `nt` held by one of `owners` (any holder when None) ends
+        at k with a tree, in a reading the rules leave."""
+        forest = self._forest()
+        return any(self._held(o, nt, owners, d)
+                   for o in sorted(self.chart.done[k].get(nt, ()))
+                   for d in forest.derivations(nt, o, k))
 
     def _prev(self, k, back=1):
         return self.toks[k - back] if k >= back else None
@@ -1830,7 +1917,7 @@ class Stops:
         owners = [holder for _, holder in STATEMENT_LISTS]
         if t.value == ";" and any(self._awaits(k, nt, owners) for nt, _ in STATEMENT_LISTS):
             return k
-        if prev is not None and prev.value == ";" and k - 1 in self.chart.done[k].get("stmt-sep", ()) \
+        if prev is not None and prev.value == ";" and self._ended(k, "stmt-sep", owners) \
                 and (t.kind in ("NEWLINE", "EOF") or t.value == "}"):
             return k
         return None
@@ -1882,7 +1969,7 @@ class Stops:
         hop but a field, a tuple index or a subscript (syntax.rule.move-place)."""
         if self.toks[k].value not in POSTFIX_OPENERS:
             return None
-        if any(self._tree("move-expr", o, k) for o in sorted(self.chart.done[k].get("move-expr", ()))):
+        if self._ended(k, "move-expr"):
             return k
         return None
 

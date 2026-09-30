@@ -874,6 +874,9 @@ struct Lexer {
     pos: Int
     line: Int
     col: Int
+    // Whether `src` is an interpolation's expression, lexed on its own
+    // (`lex_segment`), which only the non-ASCII hint tells apart.
+    segment: Bool
 }
 
 extension Lexer {
@@ -1643,7 +1646,9 @@ extension Lexer {
     }
 
     // The hint for a character outside ASCII at `pos`, naming it: its UTF-8
-    // lead byte says how many bytes it spans (syntax.lex.ascii-identifier).
+    // lead byte says how many bytes it spans. In a segment it adds why the
+    // string around the character does not make it text
+    // (syntax.lex.ascii-identifier).
     func non_ascii_hint(&self) -> String {
         let lead = self.peek()
         var width = 1
@@ -1664,7 +1669,10 @@ extension Lexer {
         var out = StringBuilder()
         try! out.append("`")
         try! out.append(spelled)
-        try! out.append("` is not ASCII, and source outside strings and comments is; an interpolation's expression is source")
+        try! out.append("` is not ASCII, and source outside strings and comments is")
+        if self.segment {
+            try! out.append("; an interpolation's expression is source")
+        }
         out.build()
     }
 
@@ -1697,10 +1705,20 @@ extension Lexer {
 // Tokenize `source`, or return the first lex error. Mirrors sawc/lexer.py's
 // observable output: the token stream (terminated by an EOF token), the
 // doc-comment trivia (design 121) and the string-segment arena (design 268),
-// which is why there is ONE entry point rather than a tokens-only twin — a
-// token's `seg_start`/`seg_count` index into that arena.
+// which is why no entry point has a tokens-only twin: a token's
+// `seg_start`/`seg_count` index into that arena.
 public func lex(source: String) -> Result<LexResult, LexError> {
-    var lexer = Lexer(src: source, slen: source.len(), pos: 0, line: 1, col: 1)
+    lex_as(source, false)
+}
+
+// Tokenize an interpolation's expression, lexed on its own, as `lex` does a
+// file. Its positions are the segment's own.
+public func lex_segment(source: String) -> Result<LexResult, LexError> {
+    lex_as(source, true)
+}
+
+func lex_as(source: String, segment: Bool) -> Result<LexResult, LexError> {
+    var lexer = Lexer(src: source, slen: source.len(), pos: 0, line: 1, col: 1, segment: segment)
     var docs = Vector<DocComment>()
     var segments = Vector<StringSegment>()
     var offsets = Vector<Int>()

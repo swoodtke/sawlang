@@ -249,6 +249,14 @@ reports a rule in one of two ways:
   `borrow var e =` both record borrow-form. A borrow binding outside an `if`
   or `while` head is a `borrow` block, so bindings with no value, or with no
   brace after them at all, record borrow-form where the chart stops.
+  A stop reads only the readings the rules leave of the text before its
+  token: each complete construct in one has a tree, and no trailing closure in
+  one is refused by syntax.rule.trailing-closure or head-restriction, which
+  decide at its `{` (`PREFIX_FILTERS`). The arms of `match x {` are read as a
+  trailing closure on `x` too, but head-restriction refuses that reading, so
+  `1 => 2` where an arm begins names no stop and records `parse-error`: an
+  arm begins with `case`. The same goes for `1 {` then a line that a stop would
+  name, since a literal takes no trailing closure.
 - **By a filter.** A rule that refuses a tree the chart holds names the
   refusal of the reading that got furthest. Such a name must be settled: a
   rule that decides by the token after the construct it refuses keeps its
