@@ -8,7 +8,26 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Waiting for the user (fundamental)
 
-None right now.
+### W4. How a generic body names its type parameter's associated type (Sep 30; the Air, SL-445.p1 review)
+A trait declares an associated type: `trait Container { type Item; func get(&self, i: Int) -> Item? }`. Inside the trait and its conformances, bare `Item` names it. The spec shows nothing for a generic function over the trait, which has to say "the `Item` of `T`":
+
+```saw
+func first<T: Container>(c: T) -> ??? { c.get(i: 0)! }
+```
+
+**Today:**
+- Stage 0 accepts bare `Item` there, resolved through `T`'s bound.
+- The new compiler has no spelling: bare `Item` is not in scope, and GRAMMAR refuses `T.Item` ("`T` is not a module qualifier").
+- Usage: three corpus test programs, and nothing in std, Blade, libs or `compiler/`. So no real code depends on either answer, and the bootstrap doesn't wait on this.
+
+**The options:**
+- **(a) `T.Item`,** as in Swift (Rust writes `T::Item`). The reader sees which parameter the type belongs to, and it stays unambiguous with two parameters, or with two bounds that both declare `Item`. It costs one GRAMMAR row: a type path whose head is a type parameter.
+- **(b) Bare `Item`,** found through the bounds of the type parameters in scope, as Stage 0 does. An ambiguous name is refused. It is shorter, but a reader can't tell where `Item` comes from, and adding a bound elsewhere can make it ambiguous.
+- **(c) Both,** bare as a shorthand when it is unambiguous.
+
+**Recommendation: (a).** Reader-visibility trumps inference (the design doctrine), and `T.Item` matches the `Enum.Case` qualification the language already uses. The three corpus programs would be re-aimed.
+
+**Meanwhile:** resolve refuses the bare form as `slice.not-yet`, "an associated type named through a type parameter's bound", which no program in the bootstrap slice meets.
 
 ## Decided by the lead, for review (reversible)
 
