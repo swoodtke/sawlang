@@ -1220,6 +1220,25 @@ refusal: `yield_now()` as the last statement of such a function is refused as
 **Checker:** not needed: the build fails loudly, and the self-hosted compiler
 is sync-only.
 
+### L21. An integer static compared with a different-width integer (SL-449)
+
+**Shape:** a module `static` of one integer width, used as the operand of an
+operator whose other operand has another width, fails with an LLVM verifier
+error. Stage 0's typechecker adopts the static to its peer's width, and codegen
+still emits it at its declared width:
+
+```saw
+static SHIFT: Int = 3
+func check(flag: UInt32) -> Bool { flag >= SHIFT }
+// error: '%SHIFT' defined with type 'i64' but expected 'i32'
+```
+
+**Instead:** declare the static at the width it is compared with
+(`static SHIFT: UInt32 = 3`), or convert explicitly (`UInt32(truncating:
+SHIFT)`).
+
+**Checker:** not needed: the build fails loudly.
+
 ## Cases with no issue
 
 These four come from codex's review of the parked SL-2.p2 r3 (SL-2 c29, with
@@ -1290,7 +1309,7 @@ well. Loud.
 
 ## Inventory
 
-Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and five found since, mapped to its entry. "Call" is this
+Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and six found since, mapped to its entry. "Call" is this
 ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 
 | Issue | Entry | Call |
@@ -1391,6 +1410,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-429 | S3 `try?` never releases the error it discards | silent, leak only (found in ST-69's review) |
 | SL-430 | S3 A coroutine's propagating `try` leaks the error | silent, leak only (found in ST-69's review) |
 | SL-431 | L20 A coroutine returning `Result<Void, E>` that falls off the end | loud (found in ST-69's review) |
+| SL-449 | L21 An integer static compared with a different-width integer | loud (found by SL-447's widening golden) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
