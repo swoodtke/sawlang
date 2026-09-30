@@ -238,6 +238,16 @@ the `==`, so it records `parse-error`, as `a.. + b` does. A rule that decides
 by the construct's own tokens decides at them, whatever follows. Making the
 recognizer name range-open-end at its token is SL-410.
 
+syntax.rule.depth-limit is decided at the opener that would take the 257th
+level, so its cases record that opener, the position sawc2 reports. The
+recognizer counts a tree's levels as §11 charges them: a postfix hop, a cast
+and a `move`'s `*` keep theirs to the end of their chain, and an interpolation
+segment goes on at its string's depth. A `<` the tree reads as a comparison
+also counts the levels of the generic list the parser speculates there,
+whenever the parser's pre-scan finds a closer for it: a list that parses by its
+tree, one that fails by the deepest reading of the tokens it holds before it
+fails. The limit decides no reading, so it never chooses between trees.
+
 A rule the productions encode, such as syntax.rule.statement-separator, refuses
 without the recognizer naming it, so its cases record `parse-error`. A lexical
 rule the lexer applies, such as syntax.lex.unterminated-string, is named by the
@@ -441,6 +451,15 @@ are hand-written:
   one whose refusal has two names, and one that repeats another's program are
   discarded, never recorded.
 
+The hand-written `depth` files hold the nesting cases of §11, each built as
+`compiler/tools/depth_funnel.py` builds sawc2's depth cells: the limit+1
+negatives, one or more for every row of §11's table, and the accepting pins of
+the pre-scan and speculation. Every funnel cell short enough to copy, apart from
+the limit's own accepted twins, must have a case with exactly its text, and a
+refused cell a case that records depth-limit at the cell's opener
+(`check_depth_cells` in `test_parse.py`), so sawc2 and the recognizer are held
+to one position on every shape they share.
+
 ## Coverage
 
 The `parsecoverage` check, which `compiler/tests/run.py` runs with the
@@ -451,9 +470,10 @@ case, when a §12 cell whose code is Y, S, K, T, P, H or C is recorded by no
 generated case, when a removed alternative has no negative case refused as its
 production whose tree, with that production enabled, uses it, when an N cell
 has no negative case, when a P cell has no bare-form negative case, when a §13 rule has no golden case named for it, when
-a rule the recognizer names in a refusal has no negative case refused by it, or
-when a case's name has no source (The golden corpus, above) or a source is owed
-a case and has none.
+a rule the recognizer names in a refusal has no negative case refused by it,
+when a §11 row has no negative case refused by syntax.rule.depth-limit at an
+opener of that row's construct, or when a case's name has no source (The
+golden corpus, above) or a source is owed a case and has none.
 `waivers.tsv` lists the items that have none, one per line: the kind
 (`alternative`, `cell`, `removed`, `n-cell`, `p-cell`, `rule`, `refusal` or
 `source`),

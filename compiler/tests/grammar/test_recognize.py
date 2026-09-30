@@ -244,9 +244,52 @@ def applied_rules(failures, model, g):
     for name in sorted(named - alts):
         failures.append("recognizer: %s is not an alternative" % name)
     for nt in (set(recognize.LEAF_HOPS) | set(recognize.HEAD_RESETS)
-               | set(recognize.GENERIC_HOSTS)) - nts:
+               | set(recognize.GENERIC_HOSTS)
+               | {recognize.LIST_START, recognize.COMPARE_OP}) - nts:
         failures.append("recognizer: %s is not a nonterminal" % nt)
     return applied
+
+
+# Edits to section 11 that `depth_charge_problems` must see: a row the
+# recognizer does not charge, and a release it does not know.
+DEPTH_ROW = "| syntax.expr.paren | 1 for the `(` | its `)` |"
+DEPTH_EDITS = [
+    ("a row with no charge",
+     DEPTH_ROW + "\n| syntax.expr.name | 1 | its end |"),
+    ("an unknown release",
+     "| syntax.expr.paren | 1 for the `(` | the end of the file |"),
+]
+
+
+def check_depth_charges(failures, model):
+    """DEPTH_CHARGES charges exactly section 11's rows, as the table says, and
+    the check fails with a row gone from either side, a release it does not
+    know, or a chain gone from CHAIN_HOLDERS."""
+    failures.extend(recognize.depth_charge_problems(model))
+    trials = []
+    for label, edited in DEPTH_EDITS:
+        text = model.text.replace(DEPTH_ROW, edited)
+        trials.append((label, text != model.text
+                       and recognize.depth_charge_problems(extract.extract_text(text))))
+    saved_charges, saved_holders = recognize.DEPTH_CHARGES, recognize.CHAIN_HOLDERS
+    injections = [
+        ("a charge section 11 does not list", dict(saved_charges, **{"syntax.expr.name": ()}),
+         saved_holders),
+        ("a row dropped", {r: c for r, c in saved_charges.items() if r != "syntax.expr.call"},
+         saved_holders),
+        ("a chain dropped", saved_charges,
+         tuple(nt for nt in saved_holders if nt != "postfix-expr")),
+    ]
+    for label, charges, holders in injections:
+        recognize.DEPTH_CHARGES, recognize.CHAIN_HOLDERS = charges, holders
+        try:
+            trials.append((label, recognize.depth_charge_problems(model)))
+        finally:
+            recognize.DEPTH_CHARGES, recognize.CHAIN_HOLDERS = saved_charges, saved_holders
+    for label, problems in trials:
+        if not problems:
+            failures.append("depth charges: with %s the check still passes" % label)
+    return len(model.rows_of("depth")) + len(trials)
 
 
 def check_rules(failures, model, g):
@@ -717,6 +760,7 @@ def run():
     counts["head scan witnesses and injections"] = check_head_scan(failures, g_removed)
     counts["statement scan witnesses and injections"] = check_statement_scan(failures, g_removed)
     counts["corpus lane cases"] = check_corpus(failures, model)
+    counts["depth rows and injections"] = check_depth_charges(failures, model)
     failures.extend(contexts.problems(model))
     return failures, counts
 

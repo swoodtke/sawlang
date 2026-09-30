@@ -170,9 +170,9 @@ class Expectations:
 
     def refusal(self, text, start, settle=True):
         """(name, "L:C" or None, the alternatives of the tree that enabling a
-        removed production gives) for a text the recognizer refuses, or None
-        when it accepts the text; Problem when a refusal has more than one
-        name."""
+        removed production gives, or for a depth refusal the section-11 rows
+        charged at its token) for a text the recognizer refuses, or None when
+        it accepts the text; Problem when a refusal has more than one name."""
         checked = self.checked(self.g, text, start)
         if checked.verdict == "OK":
             return None
@@ -202,9 +202,12 @@ class Expectations:
                 # say which refusal a parser reports.
                 raise Problem("refused by %s and by %s, each refusing another reading"
                               % (m.group(2), ", ".join(others)))
-            if settle and self.unsettled(text, start, m.group(2)):
+            # A rule `check` names outside the filters, the depth limit, decides
+            # at an opener's own token, whatever follows it.
+            if settle and m.group(2) not in recognize.NAMED_RULES \
+                    and self.unsettled(text, start, m.group(2)):
                 return PARSE_ERROR, m.group(1), []
-            return m.group(2), m.group(1), []
+            return m.group(2), m.group(1), list(checked.charged)
         if checked.verdict == "FAIL":
             m = NEAR.match(checked.detail)
         elif checked.verdict == "LEXERR":
@@ -606,7 +609,8 @@ NAMED_LEXICAL = ("syntax.lex.ascii-identifier", "syntax.lex.doc-attach", "syntax
 
 def refusing_rules():
     """The rules the recognizer refuses a text by, naming them."""
-    return sorted({rule for _, _, rule in recognize.FILTERS} | set(NAMED_LEXICAL))
+    return sorted({rule for _, _, rule in recognize.FILTERS} | set(recognize.NAMED_RULES)
+                  | set(NAMED_LEXICAL))
 
 
 def coverage(g, results, removed, waivers):
@@ -614,8 +618,10 @@ def coverage(g, results, removed, waivers):
     alternative (`removed`, their names and the production each is refused
     as) needs a negative case refused as that production whose tree, with the
     production enabled, uses it; each section-12 N cell a negative case of its
-    own, and each P cell one of its bare form; each section-13 rule a golden case named for it; and each rule the
-    recognizer refuses by name a negative case refused by it. Each case's
+    own, and each P cell one of its bare form; each section-13 rule a golden case named for it; each rule the
+    recognizer refuses by name a negative case refused by it; and each
+    section-11 row a negative case whose depth refusal it is charged at, the
+    opener of the 257th level being that row's construct. Each case's
     name must start with a source it may be named for, and each census item,
     design 259 ruling, listed tracker ruling and lexical rule needs a case of
     either kind. `results` are evaluate's lists, the generated negatives'
@@ -632,6 +638,7 @@ def coverage(g, results, removed, waivers):
         "rule": set(g.model.rule_ids()),
         "refusal": set(refusing_rules()),
         "source": set(CENSUS + DESIGN_259 + RULINGS) | set(g.model.lexical_rule_ids()),
+        "depth-row": {cells[0] for _, cells in g.model.rows_of("depth")},
     }
     known = {name for name, _, _ in g.model.definitions()} | items["source"]
     production_of = dict(removed)
@@ -655,6 +662,8 @@ def coverage(g, results, removed, waivers):
         if refusal is not None:
             used["refusal"].add(refusal)
             used["removed"].update(a for a in alts if production_of.get(a) == refusal)
+        if refusal == recognize.DEPTH_RULE:
+            used["depth-row"].update(alts)
     counts = {}
     for kind in sorted(items):
         for item in sorted(items[kind]):
@@ -673,9 +682,11 @@ def coverage(g, results, removed, waivers):
 
 COUNT_NAMES = {"removed": "covered removed alternatives", "n-cell": "covered N cells",
                "p-cell": "covered P cells", "rule": "rules with a golden case",
-               "refusal": "named refusals with a negative case", "source": "sources with a case"}
+               "refusal": "named refusals with a negative case", "source": "sources with a case",
+               "depth-row": "section-11 rows with a limit+1 case"}
 WANTED = {"removed": "negative", "n-cell": "negative", "p-cell": "bare-form negative",
-          "rule": "golden", "refusal": "negative", "source": "golden or negative"}
+          "rule": "golden", "refusal": "negative", "source": "golden or negative",
+          "depth-row": "limit+1 negative"}
 
 
 def orphans(root, suffixes):

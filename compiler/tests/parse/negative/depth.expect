@@ -1,0 +1,206 @@
+// case: design259-R4/nested-parentheses-past-the-limit
+refuses syntax.rule.depth-limit at 2:269
+
+// case: syntax.rule.depth-limit/nested-inline-modules-at-257
+refuses syntax.rule.depth-limit at 257:10
+
+// case: syntax.rule.depth-limit/a-prefix-run-at-257
+refuses syntax.rule.depth-limit at 2:525
+
+// case: syntax.rule.depth-limit/an-as-chain-at-257
+refuses syntax.rule.depth-limit at 2:1807
+
+// case: syntax.rule.depth-limit/nested-array-literals-at-257
+refuses syntax.rule.depth-limit at 2:269
+
+// case: syntax.rule.depth-limit/a-postfix-chain-at-257
+refuses syntax.rule.depth-limit at 2:526
+
+// case: syntax.rule.depth-limit/a-try-run-at-257
+refuses syntax.rule.depth-limit at 2:1037
+
+// case: syntax.rule.depth-limit/nested-interpolations-at-257
+refuses syntax.rule.depth-limit at 2:525
+
+// case: syntax.rule.depth-limit/nested-generic-arguments-at-257
+refuses syntax.rule.depth-limit at 2:525
+
+// case: syntax.rule.depth-limit/nested-function-types-at-257
+refuses syntax.rule.depth-limit at 2:1548
+
+// case: syntax.rule.depth-limit/nested-tuple-types-at-257
+refuses syntax.rule.depth-limit at 2:268
+
+// case: syntax.rule.depth-limit/a-failed-speculation-s-levels-at-257
+refuses syntax.rule.depth-limit at 2:282
+
+// case: syntax.rule.depth-limit/a-speculation-the-limit-cuts-short-at-257
+refuses syntax.rule.depth-limit at 2:270
+
+// case: syntax.rule.depth-limit/balanced-speculated-lists-at-257
+refuses syntax.rule.depth-limit at 2:3225
+
+// case: census-N1/nested-ifs-past-the-limit
+refuses syntax.rule.depth-limit at 2:1805
+
+// case: syntax.rule.depth-limit/if-chains-in-else-if-arms-at-257
+refuses syntax.rule.depth-limit at 2:5901
+
+// case: syntax.rule.depth-limit/nested-match-expressions-at-257
+refuses syntax.rule.depth-limit at 2:5133
+
+// case: syntax.rule.depth-limit/nested-while-loops-at-257
+refuses syntax.rule.depth-limit at 2:2573
+
+// case: syntax.rule.depth-limit/nested-while-let-loops-at-257
+refuses syntax.rule.depth-limit at 2:4621
+
+// case: syntax.rule.depth-limit/nested-for-loops-at-257
+refuses syntax.rule.depth-limit at 2:3341
+
+// case: syntax.rule.depth-limit/nested-try-blocks-at-257
+refuses syntax.rule.depth-limit at 2:1549
+
+// case: syntax.rule.depth-limit/nested-guard-statements-at-257
+refuses syntax.rule.depth-limit at 2:3845
+
+// case: syntax.rule.depth-limit/nested-tuple-patterns-at-257
+refuses syntax.rule.depth-limit at 2:265
+
+// case: syntax.rule.depth-limit/nested-variant-payloads-at-257
+refuses syntax.rule.depth-limit at 2:531
+
+// case: syntax.rule.depth-limit/mixed-tuple-and-variant-patterns-at-257
+refuses syntax.rule.depth-limit at 2:393
+
+// case: census-N1/nested-closures-past-the-limit
+refuses syntax.rule.depth-limit at 2:525
+
+// case: syntax.rule.depth-limit/nested-map-literals-at-257
+refuses syntax.rule.depth-limit at 2:1037
+
+// case: syntax.rule.depth-limit/nested-set-literals-at-257
+refuses syntax.rule.depth-limit at 2:1037
+
+// case: syntax.rule.depth-limit/closures-nested-in-trailing-closures-at-257
+refuses syntax.rule.depth-limit at 2:525
+
+// case: syntax.rule.depth-limit/nested-borrow-blocks-at-257
+refuses syntax.rule.depth-limit at 2:4877
+
+// case: syntax.rule.depth-limit/nested-for-borrow-loops-at-257
+refuses syntax.rule.depth-limit at 2:6157
+
+// case: syntax.rule.depth-limit/a-lends-run-at-257
+refuses syntax.rule.depth-limit at 2:1549
+
+// case: syntax.rule.depth-limit/nested-slice-types-at-257
+refuses syntax.rule.depth-limit at 2:524
+
+// case: syntax.rule.depth-limit/nested-test-groups-at-257
+refuses syntax.rule.depth-limit at 257:7
+
+// case: syntax.rule.depth-limit/a-refused-statement-gives-its-depth-back
+refuses syntax.rule.depth-limit at 2:269
+
+// case: syntax.rule.depth-limit/nested-tuple-literals-at-257
+refuses syntax.rule.depth-limit at 2:269
+
+// case: syntax.rule.depth-limit/nested-repeat-literals-at-257
+refuses syntax.rule.depth-limit at 2:269
+
+// case: SL-400-c6-Q21/nested-calls-past-the-limit
+refuses syntax.rule.depth-limit at 2:526
+
+// case: syntax.rule.depth-limit/a-call-chain-at-257
+refuses syntax.rule.depth-limit at 2:526
+
+// case: syntax.rule.depth-limit/a-tuple-index-chain-at-257
+refuses syntax.rule.depth-limit at 2:526
+
+// case: syntax.rule.depth-limit/an-optional-member-chain-at-257
+refuses syntax.rule.depth-limit at 2:782
+
+// case: syntax.rule.depth-limit/a-subscript-chain-at-257
+refuses syntax.rule.depth-limit at 2:782
+
+// case: syntax.rule.depth-limit/nested-subscripts-at-257
+refuses syntax.rule.depth-limit at 2:526
+
+// case: syntax.rule.depth-limit/a-force-chain-at-257
+refuses syntax.rule.depth-limit at 2:270
+
+// case: syntax.rule.depth-limit/a-not-run-at-257
+refuses syntax.rule.depth-limit at 2:1037
+
+// case: syntax.rule.depth-limit/a-complement-run-at-257
+refuses syntax.rule.depth-limit at 2:525
+
+// case: syntax.rule.depth-limit/a-deref-run-at-257
+refuses syntax.rule.depth-limit at 2:525
+
+// case: syntax.rule.depth-limit/a-ref-run-at-257
+refuses syntax.rule.depth-limit at 2:525
+
+// case: syntax.rule.depth-limit/an-exclusive-ref-run-at-257
+refuses syntax.rule.depth-limit at 2:1293
+
+// case: syntax.rule.depth-limit/a-move-through-a-pointer-and-hops-at-257
+refuses syntax.rule.depth-limit at 2:528
+
+// case: syntax.rule.depth-limit/a-borrow-place-with-hops-at-257
+refuses syntax.rule.depth-limit at 2:531
+
+// case: syntax.rule.depth-limit/nested-borrow-places-at-257
+refuses syntax.rule.depth-limit at 2:1037
+
+// case: syntax.rule.depth-limit/nested-payload-types-at-257
+refuses syntax.rule.depth-limit at 2:270
+
+// case: syntax.rule.depth-limit/a-reference-type-run-at-257
+refuses syntax.rule.depth-limit at 2:524
+
+// case: syntax.rule.depth-limit/an-exclusive-reference-type-run-at-257
+refuses syntax.rule.depth-limit at 2:1292
+
+// case: syntax.rule.depth-limit/nested-array-types-at-257
+refuses syntax.rule.depth-limit at 2:268
+
+// case: syntax.rule.depth-limit/nested-one-element-tuple-types-at-257
+refuses syntax.rule.depth-limit at 2:268
+
+// case: syntax.rule.depth-limit/nested-parenthesized-types-at-257
+refuses syntax.rule.depth-limit at 2:268
+
+// case: syntax.rule.depth-limit/generic-arguments-in-a-parameter-default-at-257
+refuses syntax.rule.depth-limit at 1:523
+
+// case: syntax.rule.depth-limit/a-constant-negation-run-at-257
+refuses syntax.rule.depth-limit at 2:524
+
+// case: syntax.rule.depth-limit/nested-constant-groups-at-257
+refuses syntax.rule.depth-limit at 2:269
+
+// case: syntax.rule.depth-limit/a-segment-continues-its-string-s-depth-at-257
+refuses syntax.rule.depth-limit at 2:270
+
+// case: syntax.rule.depth-limit/a-speculated-list-the-limit-cuts-short-not-kept-at-257
+refuses syntax.rule.depth-limit at 2:273
+
+// case: syntax.rule.depth-limit/a-failing-speculated-list-the-limit-cuts-short-at-257
+refuses syntax.rule.depth-limit at 2:273
+
+// case: syntax.rule.depth-limit/a-trailing-call-as-the-257th-level
+refuses syntax.rule.depth-limit at 2:527
+
+// case: syntax.rule.depth-limit/a-payload-as-the-257th-level
+refuses syntax.rule.depth-limit at 258:11
+
+// case: syntax.rule.depth-limit/generic-parameters-as-the-257th-level
+refuses syntax.rule.depth-limit at 257:7
+
+// case: syntax.rule.depth-limit/a-move-as-the-257th-level
+refuses syntax.rule.depth-limit at 2:269
+
+// case: syntax.rule.depth-limit/a-move-s-pointer-as-the-257th-level
+refuses syntax.rule.depth-limit at 2:273

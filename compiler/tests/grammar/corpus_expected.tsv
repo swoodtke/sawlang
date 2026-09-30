@@ -16,6 +16,7 @@ compiler/tests/grammar/fixtures/refusals/import_binds_a_name_twice.saw	FAIL	a-er
 compiler/tests/grammar/fixtures/refusals/loop_continuing_as_an_operand.saw	FAIL	a-error: 4:17 refused by syntax.rule.block-tail
 compiler/tests/grammar/fixtures/refusals/method_without_a_receiver.saw	FAIL	a-error: 4:5 refused by syntax.rule.receiver-and-static
 compiler/tests/grammar/fixtures/refusals/module_doc_after_a_token.saw	LEXERR	a-error: 5:1 refused by syntax.lex.module-doc
+compiler/tests/grammar/fixtures/refusals/nesting_past_the_depth_limit.saw	FAIL	c-conflict: 4:270 refused by syntax.rule.depth-limit
 compiler/tests/grammar/fixtures/refusals/open_range_before_an_operator.saw	FAIL	a-error: 4:17 refused by syntax.rule.range-open-end
 compiler/tests/grammar/fixtures/refusals/shift_with_a_space.saw	FAIL	a-error: 4:17 near LT '<'
 compiler/tests/grammar/fixtures/refusals/static_assert_assigned_to.saw	FAIL	a-error: 4:5 refused by syntax.rule.contextual-words

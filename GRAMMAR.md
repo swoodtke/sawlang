@@ -1880,7 +1880,10 @@ a type fact.
 ## 11. Nesting depth
 
 A parser may hold at most 256 levels of nesting. Each construct below charges
-one level at its opener and keeps it while its contents are parsed. The 257th
+one level at its opener and keeps it while its contents are parsed. A
+construct's opener is its first token, except where a bracket decides what the
+construct is: the `{` of an inline module or a test group, and the `(` of a
+variant pattern's payload. The 257th
 level is refused at the opener that would take it, with the diagnostic
 `nesting exceeds the parser depth limit (256)`. The limit is one named
 constant.

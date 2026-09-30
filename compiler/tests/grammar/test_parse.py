@@ -12,7 +12,8 @@ updates the specification too. The hand-written golden and negative cases must
 have the expectations the recognizer gives (cases.check), regenerating must
 reproduce `generated/` and negative/'s generated files (generate.check,
 negative.check), and the `parsecoverage` checks must hold (generate.coverage,
-cases.coverage).
+cases.coverage). Each cell of the parser's depth funnel must have a case with
+its text and its refusal (check_depth_cells).
 """
 import glob
 import os
@@ -21,8 +22,10 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "tools"))
 
 import cases  # noqa: E402
+import depth_funnel  # noqa: E402
 import dump  # noqa: E402
 import extract  # noqa: E402
 import generate  # noqa: E402
@@ -185,6 +188,49 @@ def check_refusal_names(failures, g):
     return len(REFUSAL_NAMES)
 
 
+# The longest depth-funnel cell a case must copy: the funnel's flat chains, far
+# longer, show only that a parser's stack survives them.
+DEPTH_CELL_SIZE = 50000
+
+
+def check_depth_cells(failures):
+    """The parser's depth cells (compiler/tools/depth_funnel.py) and the
+    corpus hold the same texts: each cell refused at the limit has a negative
+    case with its text that records depth-limit at the cell's opener, and each
+    other cell but the limit's own accepted twins a golden case. So sawc2 and
+    the recognizer are held to one refusal position on every shape they share."""
+    have = {}
+    for path in cases.case_files(cases.GOLDEN) + cases.case_files(cases.NEGATIVE):
+        expected = cases.expectation_path(path)
+        want = ({c.name: c.text for c in cases.read_cases(expected)}
+                if os.path.exists(expected) else {})
+        for c in cases.read_cases(path):
+            have.setdefault(c.text, (os.path.dirname(path) == cases.NEGATIVE, c.name,
+                                     want.get(c.name, "")))
+    count = 0
+    for name, text, rule, at in depth_funnel.cells():
+        if len(text) > DEPTH_CELL_SIZE or (rule is None
+                                           and name.endswith(" at %d" % depth_funnel.LIMIT)):
+            continue
+        count += 1
+        if text not in have:
+            failures.append("depth cell %r: no golden or negative case has its text" % name)
+            continue
+        refused, case, expectation = have[text]
+        line = "refuses %s" % rule
+        if rule is not None and at is not None:
+            line += " at " + depth_funnel.position(text, at)
+        if rule is None and refused:
+            failures.append("depth cell %r: sawc2 accepts it, but %s is a negative case"
+                            % (name, case))
+        elif rule is not None and not (refused and expectation.split("\n")[0].startswith(line)
+                                       and (at is None or expectation.split("\n")[0] == line)):
+            failures.append("depth cell %r: sawc2 %s, but the case %s records %r"
+                            % (name, line.replace("refuses", "refuses it by"), case,
+                               expectation.split("\n")[0] if refused else "an acceptance"))
+    return count
+
+
 def run():
     """(failure lines, counts) for run.py."""
     sys.setrecursionlimit(recognize.RECURSION_LIMIT)
@@ -195,7 +241,8 @@ def run():
               "line-breaking characters": check_escapes(failures),
               "punctuation-leaf productions": check_flagged(failures, g),
               "unknown case sources": check_unknown_sources(failures, g),
-              "refusal names": check_refusal_names(failures, g)}
+              "refusal names": check_refusal_names(failures, g),
+              "depth cells": check_depth_cells(failures)}
     hand, hand_counts, results = cases.check()
     failures += hand
     counts.update(hand_counts)

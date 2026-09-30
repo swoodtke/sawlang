@@ -8,8 +8,10 @@ The chart reads the self-hosted lexer's tokens (`lexdump`) after `prepare`
 applies section 2.4's newline rules and the generic-close split. Its
 derivations become trees, shaped by `node=`, after the section-13 rules in
 PREFERENCES and FILTERS; a text is accepted only when a tree survives them, and
-more than one tree is a finding. `--trees` prints each tree as the canonical
-dump of compiler/tests/parse/README.md (dump.py).
+more than one tree is a finding. A text whose tree nests deeper than section 11
+allows is refused at the opener of the level past the limit (`depth_refusal`).
+`--trees` prints each tree as the canonical dump of
+compiler/tests/parse/README.md (dump.py).
 A `Record` is one tree's coverage data: `alternatives` counts each alternative
 name the derivation used, and `cells` lists each context-matrix construct as
 (construct, section-12 context, parenthesized, "line:col"), the contexts coming
@@ -21,6 +23,7 @@ import collections
 import concurrent.futures
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -114,9 +117,13 @@ LOOKAHEAD_FILTERS = ("_generic_or_less", "_cast_list", "_generic_kept", "_borrow
 # same text (GRAMMAR.md section 13, syntax.rule.head-restriction).
 PRECEDENCE = ("syntax.rule.head-restriction",)
 # Rules applied outside the two tables: in `prepare`, in the chart's terminals,
-# in the head walk, and against the doc comments.
+# in the head walk, against the doc comments, and over each tree's nesting.
+DEPTH_RULE = "syntax.rule.depth-limit"
 OTHER_RULES = ("syntax.rule.generic-close-split", "syntax.rule.head-reset",
-               "syntax.lex.shift-adjacent", "syntax.lex.module-doc", "syntax.lex.doc-attach")
+               "syntax.lex.shift-adjacent", "syntax.lex.module-doc", "syntax.lex.doc-attach",
+               DEPTH_RULE)
+# The rules outside FILTERS that `check` names in a refusal.
+NAMED_RULES = (DEPTH_RULE,)
 # Rules the tests switch off, one at a time, to see each one decide something.
 DISABLED = set()
 
@@ -145,6 +152,10 @@ HEAD_RESETS = ("paren-expr", "tuple-expr", "array-literal", "repeat-literal",
 # is speculative until it closes (syntax.rule.generic-or-less).
 GENERIC_HOSTS = ("name-expr", "member-hop", "optional-hop")
 GENERIC_FOLLOW = ("(", ".", "{")
+# A generic argument list, which a `<` after a name, member or cast target is
+# speculated as.
+LIST_START = "generic-args"
+COMPARE_OP = "compare-op"
 # A type whose `<` is speculative, as an expression name's is.
 CAST_TARGET = "cast-target"
 # The brackets whose contents `Grammar.depth_terms` counts one level deeper.
@@ -225,6 +236,16 @@ class Grammar:
         self.run_closes = {by_name[n].node for n in RUN_CLOSES}
         self.cast_list_follow = self._local_follow(CAST_TARGET, "generic-args",
                                                    self._follow(STARTS)[CAST_TARGET])
+        self.depth_limit, self.charges = depth_charges(model)
+        self._list_scan = None
+
+    def list_scan(self):
+        """The terminals the pre-scan before a speculated generic list passes:
+        those a list holds at its own depth, removed productions included, as
+        the parser's generated table has them (syntax.rule.generic-or-less)."""
+        if self._list_scan is None:
+            self._list_scan = frozenset(Grammar(self.model, "all").depth_terms(LIST_START))
+        return self._list_scan
 
     def _fresh(self, base, owner):
         self.counter += 1
@@ -814,11 +835,14 @@ class Chart:
     `frontier`, the items at the end of the input, which say what a prefix's
     readings take next."""
 
-    def __init__(self, g, start, tokens):
+    def __init__(self, g, start, tokens, keep=False):
         self.g = g
         self.start = start
         self.tokens = tokens
         self.terms = chart_terms(tokens)
+        # With `keep`, the items, the waiting items and the completions of every
+        # position stay, for `prefix_depths`.
+        self.keep = keep
         self.accepted, self.furthest, self.ends, self.frontier = self._run()
 
     def _run(self):
@@ -868,6 +892,8 @@ class Chart:
                 for o in origins:
                     ends.setdefault((nt, o), set()).add(j)
         accepted = n in ends.get((self.start, 0), ())
+        if self.keep:
+            self.items, self.waiting, self.done = items, waiting, done
         return accepted, furthest, ends, items[n]
 
 
@@ -1632,6 +1658,437 @@ def walk_real(g, d):
         stack.extend(k for k in reversed(cur.kids) if isinstance(k, Derivation))
 
 
+# Nesting depth ----------------------------------------------------------------
+
+# How each row of section 11's table is charged: the constructs that take its
+# level, each a production by name, the alternatives of it that charge where
+# only some do, and the token the level is taken at where that is not the
+# construct's first token but the bracket that decides the construct. An empty
+# entry is the row's own production, every alternative, at its first token.
+# When the level is given back is the row's "held until" cell (CHAIN_RELEASES).
+DEPTH_CHARGES = {
+    "syntax.expr.paren": (),
+    "syntax.expr.tuple": (),
+    "syntax.expr.array": (),
+    "syntax.expr.repeat": (),
+    "syntax.expr.map": (),
+    "syntax.expr.set": (),
+    "syntax.expr.closure": (),
+    "syntax.expr.interpolation": (),
+    "syntax.expr.call": (),
+    "syntax.expr.trailing-call": (),
+    "syntax.expr.member": (),
+    "syntax.expr.tuple-index": (),
+    "syntax.expr.optional-member": (),
+    "syntax.expr.subscript": (),
+    "syntax.expr.force": (),
+    "syntax.expr.cast": (("syntax.expr.cast-suffix", None, None),),
+    "syntax.expr.unary": (),
+    "syntax.expr.deref": (),
+    "syntax.expr.ref": (),
+    "syntax.expr.move": (("syntax.expr.move", None, None),
+                         ("syntax.expr.move-deref", None, None)),
+    "syntax.expr.try": (),
+    "syntax.expr.lends": (),
+    "syntax.borrow.place": (),
+    "syntax.expr.if": (),
+    "syntax.expr.match": (),
+    "syntax.expr.while": (),
+    "syntax.expr.while-let": (),
+    # A `for borrow` loop is its own row, so the `for` alternative that holds
+    # it takes nothing more.
+    "syntax.expr.for": (("syntax.expr.for", ("syntax.expr.for.plain",
+                                             "syntax.expr.for.refused-tuple"), None),),
+    "syntax.borrow.for": (),
+    "syntax.expr.try-block": (),
+    "syntax.borrow.block": (),
+    "syntax.stmt.guard": (),
+    "syntax.decl.module": (("syntax.decl.module", ("syntax.decl.module.inline",), "{"),),
+    "syntax.decl.payload": (),
+    "syntax.test.group": (("syntax.test.group", None, "{"),),
+    "syntax.type.ref": (),
+    "syntax.type.slice": (),
+    "syntax.type.array": (),
+    "syntax.type.tuple": (),
+    "syntax.type.single-tuple": (),
+    "syntax.type.paren": (),
+    "syntax.type.func": (),
+    "syntax.generic.args": (),
+    "syntax.generic.params": (),
+    "syntax.pat.tuple": (),
+    "syntax.pat.variant": (("syntax.pat.variant", None, "("),),
+    "syntax.const.negate": (),
+    "syntax.const.atom": (("syntax.const.atom", ("syntax.const.atom.group",), None),),
+}
+# The "held until" cells that keep a level past its construct's end, to the end
+# of the chain the construct is a link of; every other cell names the
+# construct's own end (OWN_END).
+CHAIN_RELEASES = ("the end of the postfix chain", "the end of the cast chain",
+                  "the end of its place path")
+OWN_END = re.compile(r"^(its .+|the [a-z]+'s end)$")
+# The chains: a level kept to a chain's end is given back at the end of the
+# innermost of these at or around the construct that took it.
+CHAIN_HOLDERS = ("postfix-expr", "projection-target", "call-target", "optional-chain-target",
+                 "move-expr", "cast-expr")
+DEPTH_LIMIT = re.compile(r"A parser may hold at most (\d+) levels of nesting")
+
+
+def depth_charges(model):
+    """(the depth limit, {(nonterminal, rule index): (the spelling of its opener,
+    or None for its first token; whether the level is kept to its chain's end;
+    the section-11 row)}) from section 11 (DEPTH_CHARGES). A row the table lacks, or a limit the prose
+    does not state, is `depth_charge_problems`' to report."""
+    m = DEPTH_LIMIT.search(model.text)
+    by_name = model.by_name()
+    out = {}
+    for _, cells in model.rows_of("depth"):
+        chained = cells[2] in CHAIN_RELEASES
+        for prod, alts, opener in DEPTH_CHARGES.get(cells[0]) or ((cells[0], None, None),):
+            p = by_name.get(prod)
+            if p is None or p.nonterminal is None:
+                continue
+            for ai, a in enumerate(p.alternatives):
+                if alts is None or a.effective_name in alts:
+                    out[(p.nonterminal, ai)] = (opener, chained, cells[0])
+    return (int(m.group(1)) if m else None), out
+
+
+def depth_charge_problems(model):
+    """How DEPTH_CHARGES and CHAIN_HOLDERS disagree with section 11: a row with
+    no charge or a charge for no row, a construct or alternative the grammar
+    lacks, an opener its alternative does not write, a release the recognizer
+    does not know, and a link that stands in no chain."""
+    out = []
+    if DEPTH_LIMIT.search(model.text) is None:
+        out.append("depth: section 11 states no limit the recognizer can read")
+    rows = {cells[0]: cells[2] for _, cells in model.rows_of("depth")}
+    by_name = model.by_name()
+    by_nt = model.by_nonterminal()
+    out += ["depth: the section-11 row %s has no charge in DEPTH_CHARGES" % r
+            for r in sorted(set(rows) - set(DEPTH_CHARGES))]
+    out += ["depth: DEPTH_CHARGES charges %s, which section 11 does not list" % r
+            for r in sorted(set(DEPTH_CHARGES) - set(rows))]
+    links = set()
+    for row, units in sorted(DEPTH_CHARGES.items()):
+        held = rows.get(row)
+        if held is not None and held not in CHAIN_RELEASES and not OWN_END.match(held):
+            out.append("depth: %s is held until %r, which the recognizer does not know"
+                       % (row, held))
+        for prod, alts, opener in units or ((row, None, None),):
+            p = by_name.get(prod)
+            if p is None or p.nonterminal is None:
+                out.append("depth: %s charges %s, which is no production" % (row, prod))
+                continue
+            names = [a.effective_name for a in p.alternatives]
+            for a in sorted(set(alts or ()) - set(names)):
+                out.append("depth: %s charges %s, which is no alternative of %s" % (row, a, prod))
+            for a in p.alternatives:
+                if opener is not None and (alts is None or a.effective_name in alts) \
+                        and '"%s"' % opener not in a.items:
+                    out.append("depth: %s takes its level at `%s`, which %s does not write"
+                               % (row, opener, a.effective_name))
+            if held in CHAIN_RELEASES and p.nonterminal not in CHAIN_HOLDERS:
+                links.add(p.nonterminal)
+    out += ["depth: CHAIN_HOLDERS names %s, which is no nonterminal" % nt
+            for nt in CHAIN_HOLDERS if nt not in by_nt]
+    users = collections.defaultdict(set)
+    for p in model.productions:
+        for a in p.alternatives:
+            for nt in a.nonterminals():
+                users[nt].add(p.nonterminal)
+    # A link's level lasts to its chain's end, so every production it stands in
+    # must be a chain, or pass it on (`node=-`) to productions that are.
+    pending, seen = sorted(links), set(links)
+    while pending:
+        nt = pending.pop()
+        for user in sorted(users[nt]):
+            if user in CHAIN_HOLDERS or user in seen:
+                continue
+            if by_nt[user].node == "-" and by_nt[user].name not in rows:
+                seen.add(user)
+                pending.append(user)
+            else:
+                out.append("depth: %s keeps its level to its chain's end, but stands in %s, "
+                           "which is no chain" % (nt, user))
+    return out
+
+
+def charge_spans(g, tokens, root):
+    """([(the token a level is taken at, the token before which it is given
+    back, the section-11 row)], the `<` tokens the tree reads as comparisons)
+    for one tree."""
+    spans, compares = [], []
+    pending = [(root, None)]
+    while pending:
+        d, chain_end = pending.pop()
+        if d.nt in CHAIN_HOLDERS:
+            chain_end = d.j
+        if d.nt == COMPARE_OP and tokens[d.i].kind == "LT":
+            compares.append(d.i)
+        charge = g.charges.get((d.nt, d.ai))
+        if charge is not None:
+            opener, chained, row = charge
+            at = d.i if opener is None else next(
+                k for k in d.kids if isinstance(k, int) and tokens[k].value == opener)
+            spans.append((at, chain_end if chained and chain_end is not None else d.j, row))
+        pending.extend((k, chain_end) for k in d.kids if isinstance(k, Derivation))
+    return spans, sorted(compares)
+
+
+def depth_profile(n, spans):
+    """The number of levels held at each of n tokens."""
+    step = [0] * (n + 1)
+    for at, end, _ in spans:
+        step[at] += 1
+        step[end] -= 1
+    out = []
+    held = 0
+    for k in range(n):
+        held += step[k]
+        out.append(held)
+    return out
+
+
+def depth_refusal(g, tokens, trees, base=0):
+    """((the index of the first token whose level passes the limit, the
+    section-11 rows charged there) or None, the levels held at each token in
+    the first tree) for trees of `tokens`, which start `base` levels deep
+    (syntax.rule.depth-limit).
+
+    A tree charges each section-11 construct it holds from its opener to the
+    token it is given back before. A `<` the tree reads as a comparison is
+    also a generic list the parser speculates, and the levels that speculation
+    takes count as well (`list_refusal`): the limit decides no reading.
+    """
+    found, first = None, None
+    for tree in trees:
+        spans, compares = charge_spans(g, tokens, tree)
+        depth = depth_profile(len(tokens), spans)
+        if first is None:
+            first = depth
+        over = [at for at, _, _ in spans if base + depth[at] > g.depth_limit]
+        cands = [speculation_refusal(g, tokens, compares, depth, base)]
+        if over:
+            at = min(over)
+            cands.append((at, frozenset(row for k, _, row in spans if k == at)))
+        found = earliest([found] + cands)
+    return found, first
+
+
+def earliest(refusals):
+    """The refusal at the earliest token among (token, rows) pairs and Nones."""
+    return min((r for r in refusals if r is not None), key=lambda r: r[0], default=None)
+
+
+def speculation_refusal(g, tokens, compares, depth, base):
+    """(the first token past the limit, its rows) in a generic list the parser
+    speculates at a comparison's `<` after a name, member or cast target, one
+    the pre-scan finds a closer for (`closer_ahead`), or None."""
+    found = None
+    scan = None
+    for i in compares:
+        if i == 0 or tokens[i - 1].kind != "IDENT":
+            continue
+        scan = scan or g.list_scan()
+        if closer_ahead(tokens, i, scan):
+            found = earliest([found, list_refusal(g, tokens, i, base + depth[i - 1], scan)])
+    return found
+
+
+def scan_passes(tok, scan):
+    return tok.kind == "NEWLINE" or not token_terms(tok).isdisjoint(scan)
+
+
+def closer_ahead(tokens, i, scan):
+    """Whether a `>`, `>=` or `>>=` stands at the bracket depth of the `<` at i
+    before that depth ends or a token no list holds there: the parser's
+    pre-scan, without which no list is speculated. It passes `( )` and `[ ]`
+    groups whole."""
+    nested = 0
+    for k in range(i + 1, len(tokens)):
+        kind = tokens[k].kind
+        if kind in ("LPAREN", "LBRACKET"):
+            nested += 1
+        elif kind in ("RPAREN", "RBRACKET"):
+            if nested == 0:
+                return False
+            nested -= 1
+        elif nested == 0:
+            if kind in ("GT", "GTE", "SHR_ASSIGN"):
+                return True
+            if not scan_passes(tokens[k], scan):
+                return False
+    return False
+
+
+def list_extent(tokens, i, scan):
+    """(the index after the last token a list speculated at i can hold, how
+    many `>` the token there closes lists with: 1 for `>=`, 2 for `>>=`)."""
+    nested = 0
+    for k in range(i + 1, len(tokens)):
+        kind = tokens[k].kind
+        if kind in ("LPAREN", "LBRACKET"):
+            nested += 1
+        elif kind in ("RPAREN", "RBRACKET"):
+            if nested == 0:
+                return k, 0
+            nested -= 1
+        elif nested == 0:
+            if kind in ("GTE", "SHR_ASSIGN"):
+                return k, 1 if kind == "GTE" else 2
+            if not scan_passes(tokens[k], scan):
+                return k, 0
+    return len(tokens), 0
+
+
+def list_refusal(g, tokens, i, base, scan):
+    """(the first token past the limit while the parser speculates a generic
+    list at the `<` at i, `base` levels deep, its rows) or None. A list that
+    parses is counted by its tree, the lists it speculates in turn included;
+    one that does not, over the tokens the chart reads before it fails
+    (`prefix_depths`), which names no rows, since it weighs readings that may
+    not be the parser's. A list ignores line breaks."""
+    end, closes = list_extent(tokens, i, scan)
+    where = [k for k in range(i, end) if tokens[k].kind != "NEWLINE"]
+    span = [tokens[k] for k in where]
+    if closes:
+        tc = tokens[end]
+        span += [Token("GT", ">", tc.line, tc.column + c) for c in range(closes)]
+        where += [end] * closes
+    chart = Chart(g, LIST_START, span, keep=True)
+    ends = sorted(chart.ends.get((LIST_START, 0), ()))
+    if ends:
+        trees = Forest(chart).derivations(LIST_START, 0, ends[0])
+        if trees:
+            found, _ = depth_refusal(g, span[:ends[0]], trees[:1], base)
+            return None if found is None else (where[found[0]], found[1])
+    depths = prefix_depths(g, chart, ends[0] if ends else chart.furthest)
+    over = [t for t, d in sorted(depths.items()) if base + d > g.depth_limit]
+    return (where[over[0]], frozenset()) if over else None
+
+
+def prefix_depths(g, chart, stop):
+    """{token index: the most levels held when it is read} over the first
+    `stop` tokens of a chart kept with `keep`, taking each token's deepest
+    reading. A reading's levels at a token are those of the constructs its
+    Earley items have open there, each item's own and those carried from the
+    links of a chain it holds, plus those of the items waiting on it
+    (syntax.rule.depth-limit).
+
+    It serves a speculated list that fails. The parser reads one prefix, so
+    where the prefix's readings nest differently this is an upper bound.
+    """
+    prods, items, waiting, done = g.prods, chart.items, chart.waiting, chart.done
+    last = min(stop, chart.furthest)
+    carried = [dict() for _ in range(last + 1)]
+    above = [dict() for _ in range(last + 1)]
+    opener_at = {}
+
+    def held(item):
+        charge = g.charges.get(item[:2])
+        if charge is None:
+            return 0
+        if charge[0] is None:
+            return 1
+        if item[:2] not in opener_at:
+            opener_at[item[:2]] = prods[item[0]][item[1]].index('"%s"' % charge[0])
+        return 1 if item[2] > opener_at[item[:2]] else 0
+
+    def up(item):
+        return max((above[item[3]].get(z, 0) for z in waiting[item[3]].get(item[0], ())),
+                   default=0)
+
+    out = {}
+    for p in range(last + 1):
+        here = list(items[p])
+        complete = collections.defaultdict(list)
+        for x in here:
+            if x[2] == len(prods[x[0]][x[1]]):
+                complete[(x[0], x[3])].append(x)
+        car = carried[p]
+
+        def carry(c):
+            if c[0] in CHAIN_HOLDERS:
+                return 0
+            charge = g.charges.get(c[:2])
+            return (1 if charge is not None and charge[1] else 0) + car.get(c, 0)
+
+        changed = True
+        while changed:
+            changed = False
+            for x in here:
+                nt, ai, dot, origin = x
+                if dot == 0:
+                    continue
+                sym = prods[nt][ai][dot - 1]
+                prev = (nt, ai, dot - 1, origin)
+                if not is_nonterminal(sym):
+                    v = carried[p - 1].get(prev, 0)
+                else:
+                    v = 0
+                    for m in done[p].get(sym, ()):
+                        if m >= origin and prev in items[m]:
+                            for c in complete.get((sym, m), ()):
+                                v = max(v, carried[m].get(prev, 0) + carry(c))
+                if v > car.get(x, 0):
+                    car[x] = v
+                    changed = True
+        changed = True
+        while changed:
+            changed = False
+            for y in here:
+                rule = prods[y[0]][y[1]]
+                if y[2] < len(rule) and is_nonterminal(rule[y[2]]):
+                    v = held(y) + car.get(y, 0) + up(y)
+                    if v > above[p].get(y, 0):
+                        above[p][y] = v
+                        changed = True
+        if p == 0:
+            continue
+        for x in here:
+            rule = prods[x[0]][x[1]]
+            if x[2] > 0 and not is_nonterminal(rule[x[2] - 1]):
+                v = held(x) + car.get(x, 0) + up(x)
+                out[p - 1] = max(out.get(p - 1, 0), v)
+    return out
+
+
+def interp_segments(tokens, prefix, depth, base, origin):
+    """[(origin label, segment, the levels it starts at, where its text starts)]
+    for each expression segment of the interpolated strings in `tokens`, in
+    order, labelled as `expression_segments` labels them. A segment goes on at
+    its string's depth, the string's own level included, and `origin` places
+    the tokens, None when their positions are the file's."""
+    out = []
+    for k, tok in enumerate(tokens):
+        if tok.kind != "INTERP_STRING" or not tok.segments:
+            continue
+        for seg in tok.segments:
+            if seg.kind == "expr":
+                out.append(("%s%d:%d" % (prefix, seg.line, seg.column), seg,
+                            base + (depth[k] if depth else 0),
+                            absolute(seg.line, seg.column, origin)))
+    return out
+
+
+def absolute(line, column, origin):
+    """The file position of a segment's token at (line, column): a segment's
+    origin is the file position of its string's `{`, and its first line's
+    columns count from there."""
+    if origin is None:
+        return line, column
+    return (origin[0], origin[1] + column) if line == 1 else (origin[0] + line - 1, column)
+
+
+def depth_refused(tokens, found, origin):
+    """The Checked result of a depth refusal, `found` from `depth_refusal`, at
+    its file position; `charged` holds the section-11 rows charged there."""
+    tok = tokens[found[0]]
+    line, column = absolute(tok.line, tok.column, origin)
+    return Checked("FAIL", "%d:%d refused by %s" % (line, column, DEPTH_RULE), rules=[DEPTH_RULE],
+                   charged=sorted(found[1]))
+
+
 # Files ----------------------------------------------------------------------
 
 def lex(text):
@@ -1714,8 +2171,10 @@ def check_source(g, src, trees=False, path=None, start="source-file"):
     parsed from `start`.
 
     OK; LEXERR, a lex error, a non-ASCII identifier or a misplaced `//!`; FAIL,
-    the chart refuses the tokens (detail: the furthest token reached), or the
-    rules leave no tree (detail: the rule and where it refused); SEGLEX or
+    the chart refuses the tokens (detail: the furthest token reached), the
+    rules leave no tree (detail: the rule and where it refused), or the text,
+    or a segment of it, nests deeper than section 11 allows (detail: the file
+    position of the opener that would take the level past it); SEGLEX or
     SEGFAIL, an interpolation segment fails to lex or to parse. NOTREE is a
     finding: no tree, and no rule refused anything. With `trees`, a text whose
     tree, or a segment's, is not unique after the rules is AMBIGUOUS.
@@ -1728,15 +2187,17 @@ class Checked:
     """One text's verdict and detail (check_source), its doc comments, the
     parses behind an OK verdict: (origin, Parse) for the file, origin "", and
     each interpolation segment, origin its "line:col" as expression_segments
-    gives it; and, for a text the rules leave no tree, every rule that refused
-    one of its readings (Parse.refusal_rules)."""
+    gives it; for a text the rules leave no tree, every rule that refused one
+    of its readings (Parse.refusal_rules); and, for a depth refusal, the
+    section-11 rows charged at its token."""
 
-    def __init__(self, verdict, detail, parses=(), docs=(), rules=()):
+    def __init__(self, verdict, detail, parses=(), docs=(), rules=(), charged=()):
         self.verdict = verdict
         self.detail = detail
         self.parses = list(parses)
         self.docs = list(docs)
         self.rules = list(rules)
+        self.charged = list(charged)
 
 
 def check(g, src, trees=False, path=None, start="source-file"):
@@ -1763,10 +2224,16 @@ def check(g, src, trees=False, path=None, start="source-file"):
         if refused is None:
             return Checked("NOTREE", "no tree, and no rule refused one")
         return Checked("FAIL", refused, rules=file_parse.refusal_rules())
+    depth = None
+    measured = applies(DEPTH_RULE) and g.depth_limit is not None
+    if measured:
+        found, depth = depth_refusal(g, toks, ds)
+        if found is not None:
+            return depth_refused(toks, found, None)
     parses = [("", file_parse)]
-    pending = expression_segments(toks, "")
+    pending = interp_segments(toks, "", depth, 0, None)
     while pending:
-        where, seg = pending.pop(0)
+        where, seg, base, origin = pending.pop(0)
         stoks, err = lex(seg.text)
         if err is not None:
             return Checked("SEGLEX", "%s %s" % (where, lex_error_detail(err)))
@@ -1784,7 +2251,12 @@ def check(g, src, trees=False, path=None, start="source-file"):
             return Checked("SEGFAIL", "%s {%s} %s" % (where, seg.text, refused),
                            rules=segment.refusal_rules())
         parses.append((where, segment))
-        pending[0:0] = expression_segments(stoks, where + "/")
+        depth = None
+        if measured:
+            found, depth = depth_refusal(g, segment.tokens, segment.derivations(), base)
+            if found is not None:
+                return depth_refused(segment.tokens, found, origin)
+        pending[0:0] = interp_segments(segment.tokens, where + "/", depth, base, origin)
     if trees:
         for where, parse in parses:
             ds = parse.derivations()
