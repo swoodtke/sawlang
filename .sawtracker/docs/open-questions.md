@@ -40,6 +40,8 @@ Stage 0 accepts it. std always writes the defaulted parameter out (`extension Ve
 
 **Decided:** refuse it, with a fix-it that writes the parameter out. That gives the rename, generic over every allocator. To specialize on purpose, write the argument: `extension Vector<T, GlobalAllocator>`, which is a specialized extension, `slice.not-yet` for now. The reader then sees which one is meant, and no program changes meaning silently.
 
+**Which rule names a head that both specializes and omits the default** (`extension Vector<String>`, `extension Vector<Int>`, the only form tracked code writes; the Air, t10): the specialization, as `slice.not-yet`. That is the primary fact, and writing `A` out still leaves a specialization. D14 applies only to a head whose written arguments are all the extended type's own parameters, a pure rename that omits one.
+
 **Reversal:** accept the short head as one of the two readings. That only admits programs refused today.
 
 ### D13. Resolve reads a lone name pattern as a case when an enum in the module's import closure declares that name (Sep 30; U6a, SL-445)
