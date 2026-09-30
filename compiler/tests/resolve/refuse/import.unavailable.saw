@@ -1,8 +1,0 @@
-// refuses: import.unavailable at 4:8
-// an import of a std module the parser refuses, whose interface is not taken
-
-import std.data.{Data}
-
-func f() -> Int {
-    0
-}

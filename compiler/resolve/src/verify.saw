@@ -7,9 +7,11 @@
 //     parameter exists, and is of the kind the binding says;
 //   - no lookup by spelling is left over: no record is unbound or a member
 //     selector, and a record refused as an error comes with a refusal;
-//   - every declaration is collected under its name token as written.
+//   - every declaration is collected under its name token as written;
+//   - no module but an interface holds a skipped node.
 
 import sawparse.src.grammar.{Alt}
+import sawparse.src.tree.{is_skipped_shape}
 import sawresolve.src.collect.{res_is_top_level}
 import sawresolve.src.kinds.{res_is_type_alt}
 import sawresolve.src.model.{ResBindKind, ResBinding, ResCall, ResDecl, ResDeclKind, ResDiag,
@@ -112,7 +114,25 @@ extension ResProgram {
         }
         self.verify_names(&var problems, m)
         self.verify_calls(&var problems, m)
+        self.verify_unskipped(&var problems, m)
         move problems
+    }
+
+    // Only an interface module holds a skipped node: anywhere else it would
+    // stand for source that no stage reads.
+    func verify_unskipped(&self, problems: &var Vector<String>, m: Int) {
+        let info = self.modules[m]
+        if info.interface_only {
+            return
+        }
+        var k = 0
+        while k < info.node_count {
+            let id = info.node_base + k
+            if is_skipped_shape(self.nodes[id].shape) {
+                self.problem(&var problems, m, id, "a skipped node stands in a module that is not an interface")
+            }
+            k = k + 1
+        }
     }
 
     // Every name a declaration of module `m` was collected under is its name

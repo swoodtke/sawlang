@@ -21,7 +21,8 @@ func sound() -> AstTree {
     var children = Vector<Int>()
     try! children.push(0)
     try! children.push(1)
-    AstTree(source: source_file("t", "abc"), nodes: move nodes, children: move children, root: 2)
+    AstTree(source: source_file("t", "abc"), nodes: move nodes, children: move children, root: 2,
+            interface: false)
 }
 
 func expect_problem(tree: &AstTree, what: String) {

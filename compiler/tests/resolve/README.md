@@ -247,7 +247,7 @@ what the fixture shows.
 | `import.prelude-name` | a selective import binding a prelude name to another declaration |
 | `import.unavailable` | an import of a module that could not be read or parsed |
 | `import.unreadable` | an entry file or std module that cannot be read |
-| `resolve.parse-refused` | an imported module the parser refuses |
+| `resolve.parse-refused` | an imported module the parser refuses; in an interface module, a note for each declaration the interface parse dropped, or for the whole file |
 | `test.only-reference` | ordinary code naming a test-only declaration or a test-only import's name |
 | `conformance.orphan` | a conformance in neither its type's module nor its trait's (design 142) |
 | `conformance.duplicate` | a second conformance of one type to one trait (design 142) |
@@ -274,7 +274,16 @@ declaration its module does not have. `prelude_check.py` covers the tables.
 - the compiler's own source resolves with no refusal: the sawc2 build, with
   the stage packages mapped, and each unit program; a unit program the parser
   refuses is counted apart;
-- no record carries an `INVARIANT` line.
+- no record carries an `INVARIANT` line;
+- the interface parse's checks, `interface_pin.py`: every `sawc/std` file and
+  `builtin.saw` parsed both ways by `interface_pin.saw`, the two trees agreeing
+  but for the skipped nodes, or, for a file the full parse refuses
+  (`FULL_REFUSED`), the interface parse taking it whole; and three cases on
+  copies of the std root: a declaration whose signature the parser refuses is
+  dropped with a `resolve.parse-refused` note while its neighbours resolve, an
+  import of a std module the parser refuses whole is `import.unavailable`, and
+  a std requirement's default body completes a user conformance that
+  typechecks.
 
 ## The one-time checks
 

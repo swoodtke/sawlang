@@ -9,7 +9,8 @@ specifies. `GRAMMAR.md` is its authority for spelling.
 parse/
   CLAIMS.tsv        the alternatives and rules the parser implements so far
   src/
-    api.saw         parse_source and the record `sawc2 parse` prints for a file
+    api.saw         parse_source, parse_interface, and the record `sawc2 parse`
+                    prints for a file
     parser.saw      recursive descent, the depth funnel, recovery, doc comments
     tokens.saw      the lexer's tokens with byte spans, line breaks settled, and
                     the expression segments of interpolated strings
@@ -202,6 +203,46 @@ production derives them (a place hop, a call target, an optional-chain target,
 a bare name or `self`); otherwise it records them as an expression's and goes on
 parsing the expression with the chain already on the scratch stack as its first
 operand (`primed`). No statement is parsed twice.
+
+## Interfaces
+
+`parse_interface` reads a std or builtin module as resolve and typecheck use
+it, through the same parser (`Parser.parse_interface_file`). Every declaration
+head, signature, generic list, field, case, raw value, extension head,
+conformance and attribute is parsed as the full parse parses it. In place of
+each function, method, `init` and requirement body, static initializer and
+parameter default stands a skipped leaf over its tokens: `SkippedBody`,
+`SkippedInitializer` or `SkippedDefault`, never a block or an expression, so no
+later stage can take it for an empty one. `is_body_node` in `tree.saw` is the
+one test of body presence, and counts a skipped body.
+
+- A body runs from its `{` to the `}` that closes it. The lexer holds each
+  string, interpolations and all, as one token, so no brace inside one counts.
+  A closer that closes another opener than the innermost is refused as an
+  unclosed bracket, one that closes nothing as a plain error.
+- A default ends before the `,` or `)` at its own bracket depth.
+- A static's initializer ends before the line break, `;` or unmatched closer at
+  its own depth, which is what follows a static. A line break ends it only when
+  the token before it can end an operand and the token after the line breaks
+  is not `{`, `else` or `catch`.
+- Where the tokens alone cannot say where a default or an initializer ends, it
+  is parsed: a `<` or `>` at its own depth, which may belong to a generic list;
+  in an initializer, `if`, `else`, `try`, `catch`, `while`, `for`, `match` or
+  `borrow` at its own depth, which take line breaks before a block; a default
+  of a signature with its own generic list, whose value may drive their
+  inference (design 108); and a first token that begins no expression, whose
+  refusal the parse reports.
+
+A declaration that fails, or that holds a diagnostic no member dropped inside
+it accounts for, is dropped from the tree, the nodes it built with it, and
+recorded in `Parser.dropped_declarations` with its diagnostics. The tree is
+still the result. A diagnostic no dropped declaration accounts for, a lex
+error, an unclosed bracket or a misplaced `//!`, is about the file as a whole.
+A `///` run inside skipped tokens is never refused as documenting nothing.
+`tree_problem` refuses a skipped node in a tree that is not an interface's
+(`AstTree.interface`), and `interface_difference` compares an interface with
+the same file's full parse: `compiler/tests/resolve/interface_pin.py` holds
+every std file to it.
 
 ## `sawc2 parse`
 

@@ -21,9 +21,29 @@ public struct ParseOptions {
     public alternatives: Bool
 }
 
+// Where a parse starts, and how it reads what it meets.
+enum ParseStart {
+    case File,
+    case Unit,
+    case Interface
+}
+
 // Parses `text`, the file `path`, from `source-file`, or from `refusal-unit`
 // when `unit` is set. A lex error is the parse's one diagnostic.
 public func parse_source(path: String, text: String, unit: Bool) -> Parser {
+    let start = if unit { ParseStart.Unit } else { ParseStart.File }
+    parse_from(path, text, start)
+}
+
+// Parses `text`, the file `path`, as an interface: declarations and
+// signatures as `parse_source` reads them, a skipped node in place of each
+// body, static initializer and parameter default, and a declaration that fails
+// dropped, with the rest still the result (`Parser.parse_interface_file`).
+public func parse_interface(path: String, text: String) -> Parser {
+    parse_from(path, text, ParseStart.Interface)
+}
+
+func parse_from(path: String, text: String, start: ParseStart) -> Parser {
     let source = source_file(path, text)
     let lexed = lex(text)
     match lexed {
@@ -33,10 +53,10 @@ public func parse_source(path: String, text: String, unit: Bool) -> Parser {
             parser_tokens(&source, &result, 0, &var tokens, &var pieces)
             var parser = new_parser(tree_builder(move source), move tokens, move pieces,
                                     &result.docs)
-            if unit {
-                parser.parse_refusal_unit()
-            } else {
-                parser.parse_file()
+            match start {
+                case File -> parser.parse_file(),
+                case Unit -> parser.parse_refusal_unit(),
+                case Interface -> parser.parse_interface_file()
             }
             move parser
         },

@@ -1,0 +1,76 @@
+// The interface parse's equivalence pin, over the files named on the command
+// line (interface_pin.py names every sawc/std file and builtin.saw). One line
+// per file:
+//   SAME<TAB>path<TAB>bodies<TAB>defaults<TAB>initializers
+//       the full parse accepts it, the interface parse takes it with no
+//       diagnostic, and the two trees agree but for that many skipped nodes;
+//   WHOLE<TAB>path<TAB>bodies
+//       the full parse refuses it, and the interface parse takes it whole;
+//   FAIL<TAB>path<TAB>why
+//       anything else.
+// Exits 1 when any file fails.
+
+import sawparse.src.api.{parse_interface, parse_source}
+import sawparse.src.diag.{diagnostic_id}
+import sawparse.src.tree.{AstTree, NodeShape, interface_difference, tree_problem}
+import sawresolve.src.loader.{res_read_file}
+import std.env.{Env}
+
+func pin_count(tree: &AstTree, shape: NodeShape) -> Int {
+    var n = 0
+    var k = 0
+    while k < tree.nodes.len() {
+        if tree.nodes[k].shape == shape {
+            n = n + 1
+        }
+        k = k + 1
+    }
+    n
+}
+
+// The line for `path`, and whether it passes.
+func pin_file(path: String) -> Bool {
+    let source = res_read_file(path)
+    guard let text = source else {
+        print("FAIL\t{}\tcannot read the file", path)
+        return false
+    }
+    let full = parse_source(path, text, false)
+    let interface = parse_interface(path, text)
+    if interface.diagnostics.len() > 0 {
+        let d = interface.diagnostics[0]
+        print("FAIL\t{}\tthe interface parse refuses it: {}", path, diagnostic_id(&d))
+        return false
+    }
+    if let problem = tree_problem(&interface.builder.tree) {
+        print("FAIL\t{}\tthe interface breaks the arena's invariants: {}", path, problem)
+        return false
+    }
+    let bodies = pin_count(&interface.builder.tree, NodeShape.SkippedBody)
+    if full.diagnostics.len() > 0 {
+        print("WHOLE\t{}\t{}", path, bodies)
+        return true
+    }
+    if let difference = interface_difference(&full.builder.tree, &interface.builder.tree) {
+        print("FAIL\t{}\t{}", path, difference)
+        return false
+    }
+    let defaults = pin_count(&interface.builder.tree, NodeShape.SkippedDefault)
+    let initializers = pin_count(&interface.builder.tree, NodeShape.SkippedInitializer)
+    print("SAME\t{}\t{}\t{}\t{}", path, bodies, defaults, initializers)
+    true
+}
+
+func main() -> Int {
+    let args = try! Env.args()
+    var failed = 0
+    var k = 1
+    while k < args.len() {
+        let path = args.get(k) ?? ""
+        if not pin_file(path) {
+            failed = failed + 1
+        }
+        k = k + 1
+    }
+    if failed > 0 { 1 } else { 0 }
+}

@@ -2,8 +2,10 @@
 // the arena into the program. Each module is collected (phase 1) as soon as it
 // is loaded, since its own table depends on nothing else.
 
-import sawparse.src.api.{parse_source}
+import sawparse.src.api.{parse_interface, parse_source}
 import sawparse.src.diag.{diagnostic_id}
+import sawparse.src.parser.{Parser}
+import sawparse.src.tree.{tree_problem}
 import sawresolve.src.collect.{res_is_top_level}
 import sawresolve.src.model.{ResModule, ResModuleKind, ResVis}
 import sawresolve.src.prelude.{res_declare_synthetic_builtins}
@@ -13,6 +15,8 @@ import std.path.{Path}
 
 static RES_SLASH: Int = 47
 static RES_DOT: Int = 46
+static RES_NEWLINE_BYTE: Int = 10
+static RES_SPACE: Int = 32
 
 // The text of the file at `path`, or None when it cannot be read as UTF-8.
 public func res_read_file(path: String) -> String? {
@@ -167,10 +171,12 @@ extension ResProgram {
     }
 
     // Reads and parses module `m`, the module added last, into the arena, then
-    // collects it. A file that cannot be read or that the parser refuses leaves
-    // the module unavailable, with a refusal saying why: a note for an
-    // interface module. Pushes the module's text, empty when there is none,
-    // so `texts` stays indexed by module.
+    // collects it. An interface module is parsed as one, its bodies skipped. A
+    // file that cannot be read or that the parser refuses leaves the module
+    // unavailable, with a refusal saying why: a note for an interface module,
+    // which the parser refuses only as a whole file, since it drops a failing
+    // declaration and keeps the rest. Pushes the module's text, empty when
+    // there is none, so `texts` stays indexed by module.
     func read_module(&var self, m: Int, path: String) {
         let saved = self.current
         self.current = m
@@ -192,19 +198,28 @@ extension ResProgram {
         indexed.line_base = line_base
         indexed.line_count = self.line_starts.len() - line_base
         self.modules[m] = indexed
-        let parser = parse_source(path, text, false)
-        if parser.diagnostics.len() > 0 {
-            let first = parser.diagnostics[0]
+        let parser = if info.interface_only { parse_interface(path, text) } else { parse_source(path, text, false) }
+        let refused = if info.interface_only { not res_interface_intact(&parser) } else { parser.diagnostics.len() > 0 }
+        if refused {
             var msg = StringBuilder()
             try! msg.append("the parser refuses `")
             try! msg.append(path)
-            try! msg.append("` (")
-            try! msg.append(diagnostic_id(&first))
-            try! msg.append("), so its declarations are not available")
-            self.refuse_at(m, first.start, "resolve.parse-refused", msg.build(),
-                           info.interface_only)
+            var at = 0
+            if parser.diagnostics.len() > 0 {
+                let first = parser.diagnostics[0]
+                at = first.start
+                try! msg.append("` (")
+                try! msg.append(diagnostic_id(&first))
+                try! msg.append("), so its declarations are not available")
+            } else {
+                try! msg.append("`: its interface breaks the arena's invariants")
+            }
+            self.refuse_at(m, at, "resolve.parse-refused", msg.build(), info.interface_only)
             self.current = saved
             return
+        }
+        if info.interface_only {
+            self.note_dropped(m, &parser, &text)
         }
         let node_base = self.nodes.len()
         let root = self.adopt_tree(&parser.builder.tree)
@@ -216,6 +231,30 @@ extension ResProgram {
         self.modules[m] = updated
         self.collect_module(m)
         self.current = saved
+    }
+
+    // A note for each declaration the interface parse of module `m` dropped,
+    // at the declaration, naming it and the refusal that dropped it.
+    func note_dropped(&var self, m: Int, parser: &Parser, text: &String) {
+        var k = 0
+        while k < parser.dropped_declarations.len() {
+            let d = parser.dropped_declarations[k]
+            var msg = StringBuilder()
+            try! msg.append("the parser refuses the declaration `")
+            try! msg.append(res_first_line(&text, d.start, d.end))
+            try! msg.append("`")
+            if d.count > 0 {
+                let first = parser.diagnostics[d.first]
+                try! msg.append(" (")
+                try! msg.append(diagnostic_id(&first))
+                try! msg.append(" at ")
+                try! msg.append(self.position_text(m, first.start))
+                try! msg.append(")")
+            }
+            try! msg.append(", so it is not available")
+            self.refuse_at(m, d.start, "resolve.parse-refused", msg.build(), true)
+            k = k + 1
+        }
     }
 
     // The builtin module: its synthetic declarations, then `builtin.saw`'s.
@@ -312,6 +351,39 @@ extension ResProgram {
         self.entry = m
         m
     }
+}
+
+// Whether an interface parse's tree holds the module: every diagnostic is the
+// reason a declaration was dropped, so none is about the file as a whole (a
+// lex error, an unclosed bracket, a misplaced `//!`), and the tree keeps the
+// arena's invariants.
+func res_interface_intact(parser: &Parser) -> Bool {
+    var covered = 0
+    var k = 0
+    while k < parser.dropped_declarations.len() {
+        covered = covered + parser.dropped_declarations[k].count
+        k = k + 1
+    }
+    if covered != parser.diagnostics.len() || parser.builder.tree.root < 0 {
+        return false
+    }
+    if let _ = tree_problem(&parser.builder.tree) {
+        return false
+    }
+    true
+}
+
+// The text of [start, end) up to its first line break, without the spaces
+// around it.
+func res_first_line(text: &String, start: Int, end: Int) -> String {
+    var stop = start
+    while stop < end && (text.byte_at(stop) as Int) != RES_NEWLINE_BYTE {
+        stop = stop + 1
+    }
+    while stop > start && (text.byte_at(stop - 1) as Int) == RES_SPACE {
+        stop = stop - 1
+    }
+    text.substring(start, stop)
 }
 
 // A path's last component without its `.saw` suffix.

@@ -22,7 +22,14 @@ public enum NodeShape {
     // A blank interpolation segment, the format placeholder `{}`.
     case Placeholder,
     // One doc comment line's text, printed quoted.
-    case DocLine
+    case DocLine,
+    // A function's, method's, `init`'s or requirement's body that an interface
+    // parse passed over unread, from its `{` to its `}`.
+    case SkippedBody,
+    // A parameter's default value that an interface parse passed over unread.
+    case SkippedDefault,
+    // A static's initializer that an interface parse passed over unread.
+    case SkippedInitializer
 }
 
 public struct AstNode {
@@ -40,6 +47,8 @@ public struct AstTree {
     public nodes: Vector<AstNode>
     public children: Vector<Int>
     public root: Int
+    // Built by an interface parse, the only tree a skipped node may stand in.
+    public interface: Bool
 }
 
 extension AstTree: NoCopy {}
@@ -50,8 +59,34 @@ public func is_leaf_shape(shape: NodeShape) -> Bool {
         case Segment -> true,
         case Placeholder -> true,
         case DocLine -> true,
+        case _ -> is_skipped_shape(shape)
+    }
+}
+
+// Whether a node stands for source an interface parse passed over unread. It
+// is a leaf, and a stage that walks what it stands for would find nothing.
+public func is_skipped_shape(shape: NodeShape) -> Bool {
+    match shape {
+        case SkippedBody -> true,
+        case SkippedDefault -> true,
+        case SkippedInitializer -> true,
         case _ -> false
     }
+}
+
+// Whether a declaration's child is its body, parsed or skipped. The one test of
+// body presence, so that a skipped body still counts as a body.
+// ENTRY POINTS:
+//     TcProgram.build_function
+//     interface_difference
+public func is_body_node(node: &AstNode) -> Bool {
+    if node.shape == NodeShape.SkippedBody {
+        return true
+    }
+    if let alt = node.alt {
+        return node.shape == NodeShape.Built && alt == Alt.Stmt_Block
+    }
+    false
 }
 
 // Writes `value` at `used`, the logical end of `v`: over a slot a restore
@@ -114,7 +149,7 @@ extension TreeBuilder: NoCopy {}
 
 public func tree_builder(source: SourceFile) -> TreeBuilder {
     let tree = AstTree(source: move source, nodes: Vector<AstNode>(), children: Vector<Int>(),
-                       root: -1)
+                       root: -1, interface: false)
     TreeBuilder(tree: move tree, scratch: Vector<Int>(), top: 0, node_count: 0, child_count: 0,
                 low: 0)
 }
@@ -125,6 +160,21 @@ extension TreeBuilder {
 
     // How many nodes the arena holds.
     public func node_total(&self) -> Int { self.node_count }
+
+    // How many child slots the arena holds.
+    public func child_total(&self) -> Int { self.child_count }
+
+    // Drops the nodes and child slots built since the arena held `nodes` and
+    // `children`, as a failed construct's are when its tree is still a result.
+    // The scratch must already be below every slot that names one of them.
+    public func drop_built(&var self, nodes: Int, children: Int) {
+        if nodes < self.node_count {
+            self.node_count = nodes
+        }
+        if children < self.child_count {
+            self.child_count = children
+        }
+    }
 
     // The id of the node at scratch slot `slot`.
     public func at(&self, slot: Int) -> Int { self.scratch[slot] }
@@ -203,6 +253,7 @@ extension TreeBuilder {
     //     tree.nodes: restored by node_count
     //     tree.children: restored by child_count
     //     tree.root: restored
+    //     tree.interface: unchanged, because only the parser's interface entry point writes it, before the parse begins
     //     scratch: restored by top
     //     top: restored
     //     node_count: restored
@@ -260,11 +311,82 @@ extension AstTree {
     public func child(&self, parent: &AstNode, k: Int) -> Int { self.children[parent.first + k] }
 }
 
+// The first place where `interface`, a file's interface parse, differs from
+// `full`, the same file's full parse, or None. The two trees must agree node
+// for node, in shape, alternative, span and children, except where the
+// interface holds a skipped node: there the full tree holds a node over the
+// same span, a block for a SkippedBody and an expression for the others, whose
+// contents the interface does not have.
+public func interface_difference(full: &AstTree, interface: &AstTree) -> String? {
+    if full.root < 0 || interface.root < 0 {
+        return "a tree has no root"
+    }
+    var pairs = Vector<Int>()
+    try! pairs.push(full.root)
+    try! pairs.push(interface.root)
+    var at = 0
+    while at < pairs.len() {
+        let f = full.nodes[pairs[at]]
+        let i = interface.nodes[pairs[at + 1]]
+        at = at + 2
+        if f.start != i.start || f.end != i.end {
+            return tree_difference_at(&interface, &i, "the spans differ")
+        }
+        if is_skipped_shape(i.shape) {
+            let block = f.shape == NodeShape.Built && is_body_node(&f)
+            let expression = f.shape == NodeShape.Built && not block
+            let wanted = if i.shape == NodeShape.SkippedBody { block } else { expression }
+            if not wanted {
+                return tree_difference_at(&interface, &i, "a skipped node stands where the full parse built no such node")
+            }
+        } else {
+            if f.shape != i.shape || not same_alt(&f, &i) {
+                return tree_difference_at(&interface, &i, "the nodes differ in shape or alternative")
+            }
+            if f.count != i.count {
+                return tree_difference_at(&interface, &i, "the nodes have different numbers of children")
+            }
+            var k = 0
+            while k < f.count {
+                try! pairs.push(full.children[f.first + k])
+                try! pairs.push(interface.children[i.first + k])
+                k = k + 1
+            }
+        }
+    }
+    None
+}
+
+func tree_difference_at(tree: &AstTree, node: &AstNode, what: String) -> String {
+    let at = tree.source.position(node.start)
+    var out = StringBuilder()
+    try! out.append(at.line)
+    try! out.append(":")
+    try! out.append(at.col)
+    try! out.append(": ")
+    try! out.append(what)
+    out.build()
+}
+
+// Whether two nodes record the same alternative, or none.
+func same_alt(a: &AstNode, b: &AstNode) -> Bool {
+    if let x = a.alt {
+        if let y = b.alt {
+            return x == y
+        }
+        return false
+    }
+    if let _ = b.alt {
+        return false
+    }
+    true
+}
+
 // The first way the tree breaks the arena's invariants, or None: every edge
 // backward, each child range contiguous, ordered and inside `children`, each
 // node but the root in exactly one range and reachable from the root, each
 // span inside the buffer and inside its parent's, siblings in source order,
-// and leaves without children.
+// leaves without children, and no skipped node outside an interface.
 public func tree_problem(tree: &AstTree) -> String? {
     let n = tree.nodes.len()
     if n == 0 {
@@ -291,6 +413,9 @@ public func tree_problem(tree: &AstTree) -> String? {
         }
         if is_leaf_shape(node.shape) && node.count != 0 {
             return "a leaf has children"
+        }
+        if is_skipped_shape(node.shape) && not tree.interface {
+            return "a skipped node stands in a tree the full parse built"
         }
         var previous_end = node.start
         var k = 0

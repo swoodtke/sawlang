@@ -39,10 +39,15 @@ nothing declares and `builtin.saw`'s declarations (SL:open-questions D12).
   signatures (generics with their bounds and defaults, field, payload, static
   and alias types, parameter and return types, extension heads, conformances
   and member signatures), never a body, a static initializer, a parameter
-  default or an attribute's argument. A refusal in an interface is a note, and
-  the verifier checks the signatures it walks. A std file the parser refuses
-  (`data.saw`, over `#lend_var`) is unavailable; a note says so, and an import
-  of it is refused as `import.unavailable`.
+  default or an attribute's argument. The parser reads it so too
+  (`parse_interface`): each body, static initializer and parameter default is
+  a skipped node, so a refusal inside one costs nothing, and a declaration
+  whose own text the parser refuses is dropped, with a note naming it, while
+  the rest of the module loads. A refusal in an interface is a note, and the
+  verifier checks the signatures it walks, and that no other module holds a
+  skipped node. A std file the parser refuses as a whole, over a lex error or
+  an unclosed bracket, is unavailable; a note says so, and an import of it is
+  refused as `import.unavailable`.
 - For a package mapped with `--module-path NAME=DIR`, `NAME` is `DIR/lib.saw`
   and `NAME.rest` is `DIR/rest.saw`, as the frozen compiler maps them.
 - Any other path is looked for beside the importing file, then beside the

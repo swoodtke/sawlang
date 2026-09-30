@@ -3,6 +3,7 @@
 // the node table is complete for every signature once the pass is done.
 
 import sawparse.src.grammar.{Alt}
+import sawparse.src.tree.{is_body_node}
 import sawresolve.src.collect.{res_is_top_level}
 import sawresolve.src.kinds.{res_is_type_alt}
 import sawresolve.src.model.{ResBindKind, ResDecl, ResDeclKind, ResModule}
@@ -263,7 +264,12 @@ extension TcProgram {
         var k = 0
         while k < n {
             let c = self.child(node, k)
-            if self.is_leaf(c) {
+            let child_node = self.res.node(c)
+            if is_body_node(&child_node) {
+                if info.kind == ResDeclKind.Requirement {
+                    flags = flags | TC_FLAG_DEFAULT_BODY
+                }
+            } else if self.is_leaf(c) {
                 if k > name_end {
                     let word = self.text(m, c)
                     effects = tc_effect_bit(effects, &word)
@@ -279,10 +285,6 @@ extension TcProgram {
                 let t = self.build_type(type_node)
                 let has_default = self.has_alt(c, Alt.Decl_Param_Default)
                 try! self.params.push(TcParam(name: name, leaf: leaf, ty: t, has_default: has_default))
-            } else if self.has_alt(c, Alt.Stmt_Block) {
-                if info.kind == ResDeclKind.Requirement {
-                    flags = flags | TC_FLAG_DEFAULT_BODY
-                }
             } else if res_is_type_alt(self.node_alt(c)) {
                 result = self.build_type(c)
                 flags = flags | TC_FLAG_WRITTEN_RETURN

@@ -41,3 +41,10 @@ run again over the sawc2 build with that change, and both are unchanged: 6346
 call heads agree with no line differing, 249 import bindings agree, and the
 prelude check finds no unexplained difference. The counts grew with the
 source, not with a disagreement.
+
+## Rerun for SL-448
+
+Std and builtin modules are now parsed as interfaces, so `std/data.saw`
+loads. Both checks were run again over the sawc2 build: 8067 call heads agree
+with no line differing, 504 import bindings agree, and the prelude check finds
+no unexplained difference.

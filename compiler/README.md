@@ -55,8 +55,9 @@ compiler/
     parse/            the parser corpus: the dump's specification (README.md),
                       hand-checked dumps, the generated cases, their waivers
     resolve/          the resolve lane (resolve_lane.py): the dump's specification
-                      (README.md), golden dumps, refusal fixtures, and the one-time
-                      frozen-compiler check (frozen_check.py, FROZEN_CHECK.md)
+                      (README.md), golden dumps, refusal fixtures, the interface
+                      parse's equivalence pin over std (interface_pin.py), and the
+                      one-time frozen-compiler check (frozen_check.py, FROZEN_CHECK.md)
     typecheck/        the typecheck lane (typecheck_lane.py): the dump's
                       specification (README.md), golden dumps, refusal fixtures,
                       the one-time frozen-compiler check (frozen_check.py,

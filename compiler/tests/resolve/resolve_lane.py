@@ -16,7 +16,8 @@ directory specifies:
 - every rule resolve refuses by has a fixture, unless `WAIVED` says why not;
 - the compiler's own source, the sawc2 build and each unit program, resolves
   with no refusal;
-- no record anywhere carries an `INVARIANT` line from the verifier.
+- no record anywhere carries an `INVARIANT` line from the verifier;
+- the interface parse's checks in `interface_pin.py` pass.
 """
 import glob
 import os
@@ -32,6 +33,9 @@ REPO = os.path.dirname(COMPILER)
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
 
 import build  # noqa: E402
+
+sys.path.insert(0, HERE)
+import interface_pin  # noqa: E402
 
 GOLDEN = os.path.join(HERE, "golden")
 MULTI = os.path.join(HERE, "multi")
@@ -52,6 +56,9 @@ WAIVED = {
     "resolve.parse-refused": "an imported module the parser refuses; a tracked .saw file the "
                              "grammar refuses would need a grammar-corpus row, so the lane "
                              "writes the case under .build and checks it there",
+    "import.unavailable": "an import of a std module the parser refuses as a whole file; no "
+                          "tracked std file is, so interface_pin.py checks it on a copy of the "
+                          "std root",
 }
 BUILT_DIR = os.path.join(REPO, ".build", "resolve-lane")
 # The case check_built_cases writes: an entry importing a module that does not
@@ -331,6 +338,9 @@ def run(write=False, fill=False):
     check_catalog(failures, counts, named)
     check_built_cases(failures, counts)
     check_acceptance(failures, counts)
+    pin_failures, pin_counts = interface_pin.run()
+    failures += pin_failures
+    counts.update(pin_counts)
     return failures, counts
 
 

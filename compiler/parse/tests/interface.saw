@@ -1,0 +1,137 @@
+// The interface parse: signatures exactly as the full parse reads them, a
+// skipped node in place of each body, static initializer and parameter
+// default, and a declaration that fails dropped while the rest stays.
+import sawparse.src.api.{parse_interface, parse_source}
+import sawparse.src.diag.{diagnostic_id}
+import sawparse.src.parser.{Parser}
+import sawparse.src.tree.{AstTree, NodeShape, interface_difference, tree_problem}
+
+// How many nodes of `shape` the tree holds.
+func count_shape(tree: &AstTree, shape: NodeShape) -> Int {
+    var n = 0
+    var k = 0
+    while k < tree.nodes.len() {
+        if tree.nodes[k].shape == shape {
+            n = n + 1
+        }
+        k = k + 1
+    }
+    n
+}
+
+func first_id(parser: &Parser) -> String {
+    if parser.diagnostics.len() == 0 {
+        return ""
+    }
+    let d = parser.diagnostics[0]
+    diagnostic_id(&d)
+}
+
+// `text` parses both ways with no diagnostic, the two trees agree but for the
+// skipped nodes, and the interface holds `bodies` skipped bodies, `defaults`
+// skipped defaults and `initializers` skipped initializers.
+func expect_equivalent(text: String, bodies: Int, defaults: Int, initializers: Int) {
+    let full = parse_source("t.saw", text, false)
+    // Stage 0 workaround (SL:hazards S23): canonical: assert(full.diagnostics.len() == 0, "the full parse refuses ({}): {}", first_id(&full), text)
+    let full_id = first_id(&full)
+    assert(full.diagnostics.len() == 0, "the full parse refuses ({}): {}", full_id, text)
+    let interface = parse_interface("t.saw", text)
+    // Stage 0 workaround (SL:hazards S23): canonical: assert(interface.diagnostics.len() == 0, "the interface parse refuses ({}): {}", first_id(&interface), text)
+    let interface_id = first_id(&interface)
+    assert(interface.diagnostics.len() == 0, "the interface parse refuses ({}): {}", interface_id,
+           text)
+    if let problem = tree_problem(&interface.builder.tree) {
+        panic("the interface breaks the arena's invariants: {}", problem)
+    }
+    if let difference = interface_difference(&full.builder.tree, &interface.builder.tree) {
+        panic("the interface differs from the full parse: {}", difference)
+    }
+    let got_bodies = count_shape(&interface.builder.tree, NodeShape.SkippedBody)
+    let got_defaults = count_shape(&interface.builder.tree, NodeShape.SkippedDefault)
+    let got_initializers = count_shape(&interface.builder.tree, NodeShape.SkippedInitializer)
+    assert(got_bodies == bodies, "skipped bodies: {}", got_bodies)
+    assert(got_defaults == defaults, "skipped defaults: {}", got_defaults)
+    assert(got_initializers == initializers, "skipped initializers: {}", got_initializers)
+}
+
+// The full parse refuses `text` and the interface parse takes it whole.
+func expect_interface_only(text: String, bodies: Int) {
+    let full = parse_source("t.saw", text, false)
+    assert(full.diagnostics.len() > 0, "the full parse accepts a refused body")
+    let interface = parse_interface("t.saw", text)
+    // Stage 0 workaround (SL:hazards S23): canonical: assert(interface.diagnostics.len() == 0, "the interface parse refuses: {}", first_id(&interface))
+    let interface_id = first_id(&interface)
+    assert(interface.diagnostics.len() == 0, "the interface parse refuses: {}", interface_id)
+    assert(interface.dropped_declarations.len() == 0, "the interface drops a declaration")
+    let got_bodies = count_shape(&interface.builder.tree, NodeShape.SkippedBody)
+    assert(got_bodies == bodies, "skipped bodies: {}", got_bodies)
+}
+
+// The interface parse of `text` drops `dropped` declarations, the first of
+// them for a diagnostic named `id`, and its tree holds the rest.
+func expect_dropped(text: String, dropped: Int, id: String) {
+    let interface = parse_interface("t.saw", text)
+    assert(interface.dropped_declarations.len() == dropped, "dropped declarations")
+    // Stage 0 workaround (SL:hazards S23): canonical: assert(first_id(&interface).equals(id), "the drop's reason: {}", first_id(&interface))
+    let reason = first_id(&interface)
+    assert(reason.equals(id), "the drop's reason: {}", reason)
+    if let problem = tree_problem(&interface.builder.tree) {
+        panic("a dropped declaration breaks the arena's invariants: {}", problem)
+    }
+}
+
+func main() {
+    // Every kind of body, with the signature around each exactly as written.
+    expect_equivalent("public func f<T: Equatable>(x: &T, y: Int) unsafe -> Int? \{\n    if y > 0 \{ return 1 \}\n    None\n\}\n",
+                      1, 0, 0)
+    expect_equivalent("struct S \{\n    a: Int\n\}\n\nextension S: Equatable \{\n    init(a: Int) -> S \{\n        S(a: a)\n    \}\n\n    public func equals(&self, other: &S) -> Bool \{ self.a == other.a \}\n\n    func [](&self, i: Int) borrows -> Int \{\n        lend self.a\n    \}\n\}\n",
+                      3, 0, 0)
+    expect_equivalent("trait P \{\n    func need(&self) -> Int\n\n    func given(&self) -> Int \{\n        self.need() + 1\n    \}\n\}\n",
+                      1, 0, 0)
+    // A closure's braces, a string's escaped braces and an interpolation's are
+    // all inside the one skipped body.
+    expect_equivalent("func f(v: Vector<Int>) -> String \{\n    let g = \{ x: Int in \{ x \} \}\n    let s = \"\\\}\\\}\\\{\"\n    let t = \"a \{k(\{ g(1) \})\} b\"\n    t\n\}\n\nfunc h() \{\n\}\n",
+                      2, 0, 0)
+    // Defaults and initializers end where the grammar's next token stands:
+    // a `,` or `)`, and the line break after a static.
+    expect_equivalent("func f(a: Int = 1, b: String = \"x, y\", c: Int = (2, 3).0) \{\n\}\n",
+                      1, 3, 0)
+    expect_equivalent("static A: Int = 4\nstatic T: [Int; 3] = [1,\n    2, 3]\nunsafe static var B: Int = -1\n",
+                      0, 0, 3)
+    // Where only the parser can find the end, it reads the initializer or the
+    // default: a line ending in an operator, a `<` that may open a generic
+    // list, an `if`, and a default in a signature with generic parameters,
+    // whose value may drive their inference (design 108).
+    expect_equivalent("static A: Int = 1 +\n    2\nstatic B: Bool = 1 < 2\nstatic C: Int = if true \{ 1 \}\n    else \{ 2 \}\n",
+                      0, 0, 0)
+    expect_equivalent("func f(a: Bool = 1 < 2, b: Int = 3) \{\n\}\n\nfunc g<T>(x: Int = 0) \{\n\}\n",
+                      2, 1, 0)
+    // A body the full parse refuses, and a doc comment inside one, which
+    // documents nothing the interface reads.
+    expect_interface_only("func f() -> Int \{\n    if #lend_var \{ 1 \} else \{ 2 \}\n\}\n\nfunc g() \{\n\}\n", 2)
+    expect_interface_only("func f() \{\n    /// stray\n    let a = 1\n\}\n", 1)
+    // An unbalanced body is refused: an unclosed bracket as the whole file's
+    // refusal, and a stray closer as its declaration's.
+    let unclosed = parse_interface("t.saw", "func f() \{\n    let a = (1\n\}\n")
+    assert(first_id(&unclosed).equals("syntax.lex.unclosed-bracket"), "an unclosed bracket")
+    expect_dropped("func f() \{\n    )\n\}\n\nfunc g() \{\n\}\n", 1, "parse-error")
+    // A declaration whose signature fails is dropped, a member of an extension
+    // by itself, and the rest of the file stays.
+    expect_dropped("func good() -> Int \{ 1 \}\nfunc bad(x: ) -> Int \{ 1 \}\nextension S \{\n    func m(&self, : Int) \{\}\n    func n(&self) \{\}\n\}\nstruct T \{\n    a: Int\n\}\n",
+                   2, "parse-error")
+    // The comparison sees a signature that differs.
+    let int_param = parse_source("t.saw", "func f(a: Int) \{\n\}\n", false)
+    let bool_param = parse_interface("t.saw", "func f(a: Bool) \{\n\}\n")
+    if let _ = interface_difference(&int_param.builder.tree, &bool_param.builder.tree) {
+    } else {
+        panic("two different signatures compare as the same")
+    }
+    // A skipped node belongs to an interface's tree only.
+    var skipped = parse_interface("t.saw", "func f() \{\n\}\n")
+    skipped.builder.tree.interface = false
+    if let problem = tree_problem(&skipped.builder.tree) {
+        assert(problem.equals("a skipped node stands in a tree the full parse built"), "{}", problem)
+    } else {
+        panic("a skipped node passes the invariant check outside an interface")
+    }
+}
