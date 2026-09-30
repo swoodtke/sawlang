@@ -34,7 +34,7 @@ func first<T: Container>(c: T) -> ??? { c.get(i: 0)! }
 ### D18. An undeclared generic POD struct auto-conforms per instantiation (Sep 30; the Air, SL-447.p2 approval)
 `struct Pair<T> { a: T, b: T }`, with no conformance written, then `Pair<Int>(…) == Pair<Int>(…)`. The spec's auto-conformance covers "trivial (POD) structs" and doesn't say whether a generic declaration qualifies. Stage 0 refuses it ("does not conform to `Equatable`"). sawc2 accepts it.
 
-**Decided:** accepted. A generic struct's automatic Equatable and Hashable are judged per instantiation, like its Copy tier, which is already a rule over its arguments (U6b1's reading). So `Pair<Int>` qualifies and `Pair<String>` doesn't. One rule then answers "what does this type get for free", for every automatic trait.
+**Decided:** accepted. A generic struct's automatic Equatable and Hashable are judged per instantiation, like its Copy tier, which is already a rule over its arguments (U6b1's reading). So `Pair<Int>` qualifies and `Pair<String>` doesn't. One rule then answers "what does this type get for free", for every automatic trait. In a generic body, `Pair<T>` is not Equatable, since whether it is POD depends on `T`. Code generic over it writes the conformance, `@synthesize extension Pair<T>: Equatable` (the Air, t13).
 
 **Reversal:** automatic conformance only for non-generic structs. That refuses programs sawc2 now accepts, and none of them is in `compiler/`.
 
