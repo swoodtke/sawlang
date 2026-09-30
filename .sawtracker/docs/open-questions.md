@@ -31,6 +31,29 @@ func first<T: Container>(c: T) -> ??? { c.get(i: 0)! }
 
 ## Decided by the lead, for review (reversible)
 
+### D15. Auto-wrap and erasure where the spec is silent: the strictest stated reading (Sep 30; U6b2, SL-447)
+The spec states how deep an implicit `Optional` wrap goes, whether a `Result` wrap applies, and whether a concrete error erases to `Box<any Error>`, for some positions and not others:
+- **argument:** one optional level, the Result wrap, no erasure;
+- **`let` and the return positions:** any depth;
+- **return:** erases.
+
+sawc2's typecheck now enforces a per-position matrix through one conversion path. The full table, with a spec quote per cell, is in `compiler/tests/typecheck/README.md`, "The wrap and erasure matrix". Where the spec is silent:
+
+**Decided:**
+1. **No erasure at `let`, assignment or `static`.** The spec states erasure only at the return boundary, since it needs the allocator that position supplies.
+2. **One optional level** at a `static`, a parameter default, a compound-assignment right side, an operand or comparison, and a `??` fallback.
+3. **No Result wrap** at an operand, a comparison or a `??` fallback, since none of them is a declared Result slot.
+4. **Structural limits:**
+   - a Result wrap inside an optional wrap (`Result<Int, String>?` fed `10`) is refused, since only "`Result<T?, E>`… innermost first" is stated;
+   - a second nested Result wrap is refused.
+5. **Implicit `Box<any Trait>` erasure** is refused for any trait but `Error`. Owned boxes are built with `.make`.
+
+Every refusal is `type.mismatch`, and its message says which limit applied. Nothing in `compiler/` relied on the looser reading, and the frozen compiler agrees where it has a rule.
+
+**Reversal:** loosen any cell. That only admits programs refused today.
+
+**Also found:** the spec's "a static is never optional" isn't enforced yet. It is queued for U6b3.
+
 ### D14. An extension head that omits a defaulted type parameter is refused (Sep 30; the Air, SL-447.p1 review)
 `Vector` is `Vector<T, A: Allocator = GlobalAllocator>`. `extension Vector<T> { … }` has two readings:
 - **a specialization,** with the default filled, so `A = GlobalAllocator`, and the methods exist only for the global allocator;
