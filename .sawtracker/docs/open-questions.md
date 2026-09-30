@@ -31,6 +31,15 @@ func first<T: Container>(c: T) -> ??? { c.get(i: 0)! }
 
 ## Decided by the lead, for review (reversible)
 
+### D19. A `sync` body inside a generic is checked per instantiation (Sep 30; U6b3, SL-447)
+SL:architecture §3.4 says a call through a generic bound is conservatively may-suspend inside a generic body, unless the requirement is `sync`. Read literally, a `sync` function, `deinit` or sync-typed closure inside a generic, calling a non-`sync` requirement through a bound, would be refused at the definition. That refuses `closure_captures_self.saw`, which Stage 0 accepts. The spec says suspension "inference runs per instantiation".
+
+**Decided:** judged per instantiation. The generic's summary records the condition, `(refuses-when (sync T.Trait.req))`. Each call site evaluates it with its concrete type arguments and refuses there when the instantiated requirement isn't sync-callable. It is sound, because every concrete use is checked, and it accepts exactly the instantiations that are sync-safe. §3.4's "conservative inside a generic body" still holds for may-suspend (framing and the borrow check), which this doesn't change.
+
+**Reversal:** refuse at the definition, and require the bound's requirement to be declared `sync`. That refuses programs sawc2 now accepts.
+
+**Also recorded (U6b3):** the parking-module cross-check leaves out the executor intrinsics (`__saw_exec_*`), which serve the sync drive loop. So the derived set is channel, net, process, signal and task, and Stage 0 finds no suspending function in `std.taskgroup`.
+
 ### D18. An undeclared generic POD struct auto-conforms per instantiation (Sep 30; the Air, SL-447.p2 approval)
 `struct Pair<T> { a: T, b: T }`, with no conformance written, then `Pair<Int>(…) == Pair<Int>(…)`. The spec's auto-conformance covers "trivial (POD) structs" and doesn't say whether a generic declaration qualifies. Stage 0 refuses it ("does not conform to `Equatable`"). sawc2 accepts it.
 
