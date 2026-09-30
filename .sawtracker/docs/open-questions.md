@@ -34,7 +34,7 @@ func first<T: Container>(c: T) -> ??? { c.get(i: 0)! }
 ### D16. `h.f(3)` on a function-typed field calls the field's value (Sep 30; the Air, SL-447.p2 review)
 A struct field of function type, `struct H { f: (Int) -> Int }`, called as `h.f(3)`: the spec never shows this spelling. Stage 0 accepts it. The grammar has no unapplied method reference, so `(h.f)(3)` already means `h.f(3)`, and there is no other way to call the field.
 
-**Decided:** accepted. When the type has no method `f`, `h.f(3)` calls the field's function value, and the call's role is `value`. A method of that name wins over the field.
+**Decided:** accepted. When the type has no visible method `f`, `h.f(3)` calls the field's function value, and the call's role is `value`. When a method `f` is visible too, the call is refused, naming both, with the fix-it `let g = h.f; g(3)` for the field. Extensions are import-scoped (design 142), so "the method wins" would let an added import silently retarget the call. Refusing keeps the meaning local, at little cost, since a field and a method sharing a name is rare (the Air, t12). Stage 0 lets the method win.
 
 **Reversal:** refuse it, and require a local binding (`let g = h.f; g(3)`).
 
