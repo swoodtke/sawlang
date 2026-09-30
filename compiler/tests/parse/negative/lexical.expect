@@ -111,3 +111,21 @@ refuses parse-error at 2:14
 
 // case: syntax.expr.int/uppercase-octal-prefix
 refuses parse-error at 2:14
+
+// case: syntax.expr.int/decimal-digit-in-a-binary-literal
+refuses parse-error at 2:17
+
+// case: syntax.expr.int/decimal-digit-in-an-octal-literal
+refuses parse-error at 2:16
+
+// case: syntax.expr.int/word-spelled-like-a-width-suffix
+refuses parse-error at 2:14
+
+// case: syntax.expr.int/separator-before-a-word-spelled-like-a-width-suffix
+refuses parse-error at 2:15
+
+// case: syntax.expr.float/width-suffix-on-a-float
+refuses parse-error at 2:16
+
+// case: syntax.expr.shorthand-param/suffix-like-word-after-a-shorthand-parameter
+refuses parse-error at 4:17

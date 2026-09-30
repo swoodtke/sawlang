@@ -30,15 +30,21 @@ compiler/tests/grammar/fixtures/trees/t6_local_const.saw	FAIL	a-removed: syntax.
 compiler/tests/lex/comments.saw	FAIL	a-error: 2:1 near IDENT 'x'
 compiler/tests/lex/directives.saw	FAIL	a-error: 2:1 near HASH_DIRECTIVE 'file'
 compiler/tests/lex/doc_comments.saw	LEXERR	a-error: 4:1 refused by syntax.lex.module-doc
+compiler/tests/lex/dollar_param_before_a_suffix.saw	FAIL	a-error: 2:1 near DOLLAR_PARAM '$0'
 compiler/tests/lex/error_base_without_digits.saw	LEXERR	a-error: Lexer error at 2:3: integer literal has no digits after the base prefix
+compiler/tests/lex/error_binary_digit.saw	LEXERR	a-error: Lexer error at 2:5: not a binary digit: a binary number's digits are `0` and `1`
 compiler/tests/lex/error_decimal_range.saw	LEXERR	a-error: 2:1 refused by syntax.lex.int-range: integer literal out of range for a 64-bit integer
 compiler/tests/lex/error_dollar_without_digits.saw	LEXERR	a-error: Lexer error at 2:2: Expected number after `$` for shorthand closure parameter
 compiler/tests/lex/error_doubled_separator.saw	LEXERR	a-error: Lexer error at 2:3: a `_` in a number separates two digits, and this one doubles another
 compiler/tests/lex/error_empty_directive.saw	LEXERR	a-error: 2:1 refused by syntax.lex.directive: expected a directive name after `#`
+compiler/tests/lex/error_float_suffix.saw	LEXERR	a-error: Lexer error at 2:4: a float takes no suffix
 compiler/tests/lex/error_hex_range.saw	LEXERR	a-error: 2:1 refused by syntax.lex.int-range: integer literal out of range for a 64-bit integer
 compiler/tests/lex/error_leading_point.saw	LEXERR	a-error: 2:9 refused by syntax.lex.float-point: a float needs a digit before its point
+compiler/tests/lex/error_not_a_width_suffix.saw	LEXERR	a-error: Lexer error at 2:2: not a width suffix
+compiler/tests/lex/error_octal_digit.saw	LEXERR	a-error: Lexer error at 2:4: not an octal digit: an octal number's digits are `0` to `7`
 compiler/tests/lex/error_quote_in_interpolation_comment.saw	LEXERR	a-error: 2:23 refused by syntax.lex.unterminated-string: unterminated string: this quote opens a literal that is never closed
 compiler/tests/lex/error_separator_after_prefix.saw	LEXERR	a-error: Lexer error at 2:3: a `_` in a number separates two digits, so it cannot follow the base prefix
+compiler/tests/lex/error_separator_before_a_non_suffix.saw	LEXERR	a-error: Lexer error at 2:3: not a width suffix
 compiler/tests/lex/error_suffix_range.saw	LEXERR	a-error: 2:1 refused by syntax.lex.int-range: integer literal out of range for its suffix
 compiler/tests/lex/error_swallowed_closing_quote.saw	LEXERR	a-error: 2:4 refused by syntax.lex.unterminated-string: unterminated string: this interpolation holds an odd number of quotes, so it took the literal's closing quote
 compiler/tests/lex/error_trailing_separator.saw	LEXERR	a-error: Lexer error at 2:6: a `_` in a number separates two digits, so it cannot end a run of digits

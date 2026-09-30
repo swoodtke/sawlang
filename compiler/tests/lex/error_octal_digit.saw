@@ -1,0 +1,2 @@
+// Fixture: a decimal digit in an octal number. Taken from the inputs of compiler/lex/tests/errors.saw.
+0o78

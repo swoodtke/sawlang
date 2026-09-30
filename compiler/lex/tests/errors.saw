@@ -99,6 +99,26 @@ func main() {
     expect_hint("0XFF", "write `0xFF`", "uppercase hint")
     expect_hint("0x_", "", "no digits, no hint")
 
+    // A number whose next character continues it wrongly is refused at that
+    // character, rather than lexed as two tokens: a decimal digit outside a
+    // binary or octal base, and a word spelled like a width suffix that is not
+    // one of the eight, or that follows a float.
+    expect_err("0b102", 1, 5, "syntax.expr.int", "a decimal digit in a binary number")
+    expect_err("0o78", 1, 4, "syntax.expr.int", "a decimal digit in an octal number")
+    expect_err("0b1_2", 1, 5, "syntax.expr.int", "a decimal digit after a separator")
+    expect_err("0o8", 1, 3, "syntax.expr.int", "a decimal digit right after the prefix")
+    expect_err("2u9", 1, 2, "syntax.expr.int", "not a width suffix")
+    expect_err("2_u9", 1, 3, "syntax.expr.int", "not a width suffix after its `_`")
+    expect_err("0xFFu9", 1, 5, "syntax.expr.int", "not a width suffix after hex digits")
+    expect_err("1.5u8", 1, 4, "syntax.expr.float", "a float takes no suffix")
+    expect_err("1.5_u8", 1, 4, "syntax.expr.float", "a float takes no suffix, nor its `_`")
+    expect_hint("2u9", "a width suffix is one of `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32` and `u64`",
+                "suffix hint")
+    expect_hint("2_u9", "a width suffix is one of `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32` and `u64`",
+                "suffix hint after its `_`")
+    expect_hint("0b102", "", "no hint for a digit outside the base")
+    expect_hint("1.5u8", "", "no hint for a float's suffix")
+
     // A float needs a digit before its point (syntax.lex.float-point), reported
     // at the point, wherever the `.` cannot be a tuple index's.
     expect_err(".5", 1, 1, "syntax.lex.float-point", "leading point")

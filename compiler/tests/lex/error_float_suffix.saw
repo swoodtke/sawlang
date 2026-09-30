@@ -1,0 +1,2 @@
+// Fixture: a width suffix on a float. Taken from the inputs of compiler/lex/tests/errors.saw.
+1.5u8

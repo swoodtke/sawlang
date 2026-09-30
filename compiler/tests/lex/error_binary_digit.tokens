@@ -1,0 +1,1 @@
+ERROR	2:5	not a binary digit: a binary number's digits are `0` and `1`	syntax.expr.int

@@ -199,3 +199,35 @@ func f() {
 func f() {
     let a = 0O7
 }
+
+// case: syntax.expr.int/decimal-digit-in-a-binary-literal
+func f() {
+    let a = 0b102
+}
+
+// case: syntax.expr.int/decimal-digit-in-an-octal-literal
+func f() {
+    let a = 0o78
+}
+
+// case: syntax.expr.int/word-spelled-like-a-width-suffix
+func f() {
+    let a = 2u9
+}
+
+// case: syntax.expr.int/separator-before-a-word-spelled-like-a-width-suffix
+func f() {
+    let a = 2_u9
+}
+
+// case: syntax.expr.float/width-suffix-on-a-float
+func f() {
+    let a = 1.5u8
+}
+
+// case: syntax.expr.shorthand-param/suffix-like-word-after-a-shorthand-parameter
+// A shorthand parameter's digits are no number, so the lexer leaves the word
+// to the parser.
+func f() {
+    let g = { $0u8 }
+}

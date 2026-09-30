@@ -1,0 +1,1 @@
+ERROR	2:2	not a width suffix	syntax.expr.int	a width suffix is one of `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32` and `u64`

@@ -1,0 +1,2 @@
+// Fixture: a shorthand parameter's digits take no suffix, so a suffix-like word after them is a token of its own. Taken from the inputs of compiler/lex/tests/literals.saw.
+$0u8

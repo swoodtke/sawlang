@@ -715,6 +715,27 @@ func suffix_length_at(src: &String, at: Int) -> Int {
     k - at
 }
 
+// The length of the identifier at byte `at` of `src` when it is spelled like a
+// width suffix, `i` or `u` and digits only, whether or not it is one of the
+// eight; 0 otherwise. Directly after a number's digits no valid token can
+// start with such a word, so the lexer names the mistake there rather than
+// leaving two tokens for the parser.
+func suffix_like_length_at(src: &String, at: Int) -> Int {
+    let first = ubyte(&src, at)
+    if first != B_LO_I && first != B_LO_U {
+        return 0
+    }
+    var k = at + 1
+    while is_digit(ubyte(&src, k)) {
+        k = k + 1
+    }
+    let next = ubyte(&src, k)
+    if k == at + 1 || is_alnum(next) || next == B_UNDERSCORE {
+        return 0
+    }
+    k - at
+}
+
 // What a refused number literal reports: the id of the token production whose
 // spelling it breaks, and a hint spelling the literal as it was meant.
 struct NumberFix {
@@ -1124,11 +1145,41 @@ extension Lexer {
         spelled
     }
 
+    // A decimal digit outside `base` (2 or 8), met `ahead` bytes past `pos`
+    // where a digit of the base could stand.
+    func base_digit_error(&self, base: Int, ahead: Int) -> LexError {
+        let l = self.line
+        let c = self.col + ahead
+        if base == 2 {
+            return self.err_at("not a binary digit: a binary number's digits are `0` and `1`",
+                               "syntax.expr.int", "", l, c)
+        }
+        self.err_at("not an octal digit: an octal number's digits are `0` to `7`", "syntax.expr.int", "", l, c)
+    }
+
+    // A word spelled like a width suffix that is not one of the eight, `ahead`
+    // bytes past `pos`, directly after an integer's digits or its one `_`.
+    func suffix_error(&self, ahead: Int) -> LexError {
+        let l = self.line
+        let c = self.col + ahead
+        self.err_at("not a width suffix", "syntax.expr.int",
+                    "a width suffix is one of `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32` and `u64`", l, c)
+    }
+
+    // A suffix, or a word spelled like one, directly after a float's digits.
+    func float_suffix_error(&self) -> LexError {
+        let l = self.line
+        let c = self.col
+        self.err_at("a float takes no suffix", "syntax.expr.float", "", l, c)
+    }
+
     // Read `DIGIT ( "_"? DIGIT )*` in `base` (GRAMMAR.md §2.1), appending the
     // digits to `digits` without their separators; the first digit is at `pos`.
     // A `_` stands between two digits, or, when `suffix_ok`, is the one `_` a
     // width suffix may follow, which is left for `try_read_int_suffix`. Any
     // other `_` is refused where it stands; `start` is the number's first byte.
+    // `suffix_ok` is false only in a float's fraction, so a suffix there is a
+    // float's.
     func read_digit_run(&var self, base: Int, suffix_ok: Bool, digits: &var StringBuilder,
                         start: Int) -> Result<Void, LexError> {
         var going = true
@@ -1136,13 +1187,22 @@ extension Lexer {
             let c = self.peek()
             if is_base_digit(c, base) {
                 try! digits.append(to_byte(self.advance()))
+            } else if is_digit(c) {
+                return self.base_digit_error(base, 0)
             } else if c == B_UNDERSCORE {
                 let next = self.peek1()
                 let after = self.pos + 1
                 if is_base_digit(next, base) {
                     let _ = self.advance()
+                } else if is_digit(next) {
+                    return self.base_digit_error(base, 1)
                 } else if suffix_ok && suffix_length_at(&self.src, after) > 0 {
                     going = false
+                } else if suffix_like_length_at(&self.src, after) > 0 {
+                    if suffix_ok {
+                        return self.suffix_error(1)
+                    }
+                    return self.float_suffix_error()
                 } else {
                     let fix = number_fix(&self.src, start)
                     let l = self.line
@@ -1203,7 +1263,11 @@ extension Lexer {
                 return self.err("a `_` in a number separates two digits, so it cannot follow the base prefix",
                                 fix.rule, fix.hint)
             }
-            if not is_base_digit(self.peek(), base) {
+            let first = self.peek()
+            if is_digit(first) && not is_base_digit(first, base) {
+                return self.base_digit_error(base, 0)
+            }
+            if not is_base_digit(first, base) {
                 return self.err("integer literal has no digits after the base prefix", "syntax.expr.int", "")
             }
             var digits = StringBuilder()
@@ -1216,6 +1280,10 @@ extension Lexer {
                                        start_line, start_col)
                 }
             } else {
+                let at = self.pos
+                if suffix_like_length_at(&self.src, at) > 0 {
+                    return self.suffix_error(0)
+                }
                 if not literal_fits(digit_str, base, 64) {
                     return self.err_at("integer literal out of range for a 64-bit integer", "syntax.lex.int-range",
                                        "", start_line, start_col)
@@ -1240,6 +1308,10 @@ extension Lexer {
         if self.peek() == B_DOT && is_digit(self.peek1()) {
             try! val.append(to_byte(self.advance()))
             try self.read_digit_run(10, false, &var val, start)
+            let at = self.pos
+            if suffix_like_length_at(&self.src, at) > 0 {
+                return self.float_suffix_error()
+            }
             return Token(kind: TokenKind.FloatLit, value: val.build(), line: start_line, col: start_col,
                          suffix: None, seg_start: 0, seg_count: 0)
         }
@@ -1251,6 +1323,10 @@ extension Lexer {
                                    start_line, start_col)
             }
         } else {
+            let at = self.pos
+            if suffix_like_length_at(&self.src, at) > 0 {
+                return self.suffix_error(0)
+            }
             if not literal_fits(value, 10, 64) {
                 return self.err_at("integer literal out of range for a 64-bit integer", "syntax.lex.int-range", "",
                                    start_line, start_col)

@@ -52,6 +52,18 @@ func main() {
     assert(at(&c, 1).equals("IDENT\t1:2\tabc"), "5abc: IDENT")
     assert(at(&c, 2).equals("INT\t1:6\t0xFace"), "0xFace hex")
 
+    // Only `i` or `u` and digits alone is spelled like a width suffix, so each
+    // of these stays a number and a word, as a shorthand parameter's digits
+    // and a spaced cast do (errors.saw has the refused spellings).
+    let k = lexed("2u 2u8x 2u8_ 1.5f32 $0u8 x as u8")
+    assert(at(&k, 1).equals("IDENT\t1:2\tu"), "2u: a word")
+    assert(at(&k, 3).equals("IDENT\t1:5\tu8x"), "2u8x: a word")
+    assert(at(&k, 5).equals("IDENT\t1:10\tu8_"), "2u8_: a word")
+    assert(at(&k, 7).equals("IDENT\t1:17\tf32"), "1.5f32: a word")
+    assert(at(&k, 8).equals("DOLLAR_PARAM\t1:21\t$0"), "$0u8: the parameter")
+    assert(at(&k, 9).equals("IDENT\t1:23\tu8"), "$0u8: a word")
+    assert(at(&k, 12).equals("IDENT\t1:31\tu8"), "a spaced cast")
+
     // Design 161 LOOKBACK: digits right after a member-access `.` are a TUPLE
     // INDEX — a bare integer that stops at a second `.` and takes no suffix.
     let e = lexed("t.0.name")

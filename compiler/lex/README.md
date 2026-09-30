@@ -9,6 +9,11 @@ decides otherwise, and GRAMMAR.md §16 records each such difference:
 - a number's `_` stands between two digits, or is the one `_` before a width
   suffix, and a base prefix is lowercase (§2.1); the Python lexer accepts
   `1__000`, `1_`, `0x_FF`, `0XFF` and the like;
+- a number directly followed by a decimal digit outside its base (`0b102`), or
+  by a word spelled like a width suffix, `i` or `u` and digits, that is not one
+  of the eight (`2u9`, `2_u9`) or that follows a float (`1.5u8`), is one error
+  at that character; the Python lexer makes two tokens of it, which the parser
+  refuses;
 - `.5` is refused, with a hint naming `0.5` (syntax.lex.float-point);
 - an unterminated string is reported at its opening quote, or at the `{` of an
   interpolation that took its closing quote (syntax.lex.unterminated-string),
