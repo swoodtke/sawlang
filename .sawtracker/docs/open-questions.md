@@ -31,6 +31,17 @@ func first<T: Container>(c: T) -> ??? { c.get(i: 0)! }
 
 ## Decided by the lead, for review (reversible)
 
+### D14. An extension head that omits a defaulted type parameter is refused (Sep 30; the Air, SL-447.p1 review)
+`Vector` is `Vector<T, A: Allocator = GlobalAllocator>`. `extension Vector<T> { … }` has two readings:
+- **a specialization,** with the default filled, so `A = GlobalAllocator`, and the methods exist only for the global allocator;
+- **a rename,** generic over `A` too, with the methods existing for every allocator.
+
+Stage 0 accepts it. std always writes the defaulted parameter out (`extension Vector<T, A: Allocator>`). The spec doesn't say.
+
+**Decided:** refuse it, with a fix-it that writes the parameter out. That gives the rename, generic over every allocator. To specialize on purpose, write the argument: `extension Vector<T, GlobalAllocator>`, which is a specialized extension, `slice.not-yet` for now. The reader then sees which one is meant, and no program changes meaning silently.
+
+**Reversal:** accept the short head as one of the two readings. That only admits programs refused today.
+
 ### D13. Resolve reads a lone name pattern as a case when an enum in the module's import closure declares that name (Sep 30; U6a, SL-445)
 GRAMMAR's `syntax.rule.name-pattern` leaves it to resolution whether a lone name in a pattern, `case North` or `case x`, names a payload-free variant or binds. The scrutinee's type decides which enum it could be (`syntax.pat.refused-qualified-variant`), but resolve runs before types exist. Stage 0 decides by capitalization.
 
