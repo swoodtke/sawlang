@@ -31,6 +31,12 @@ func first<T: Container>(c: T) -> ??? { c.get(i: 0)! }
 
 ## Decided by the lead, for review (reversible)
 
+### D21. Two typecheck readings from SL-447.p3's review (Sep 30; the Air)
+1. **A suspending implementation is refused where it is coerced to `any Trait`,** not where it is dispatched. Stage 0 refuses at the dispatch, so a coercion that is never dispatched is accepted by Stage 0 and refused by sawc2. Refusing at the coercion is sound, and it is the site a modular checker can see: the dispatch may be in another module. Decision 3 of U6b3 rests on it.
+2. **Exhaustiveness reasons over closed types at any depth.** `(Bool, Bool)` covered by `(true, true)`, `(true, false)` and `(false, _)` is exhaustive, and so is `A(X)`, `A(Y)`, `C` over nested payload cases. The spec's "never prove it on an **open** type" supports this, since `Bool` and enum constructors are closed. Stage 0 refuses both ("literal, range, and guarded arms do not prove exhaustiveness"). `compiler/` meets Stage 0's stricter rule regardless.
+
+**Reversal:** (1) move the refusal to the dispatch; (2) require a wildcard wherever a tuple or nested payload is matched. Each refuses programs sawc2 now accepts, or the reverse, and neither touches `compiler/`.
+
 ### D20. In a generic body, a borrow after a by-value read makes that read a copy (Sep 30; U6b3, SL-447)
 Design 219's inferred Copy requirement is per path (spec: "The rule is per PATH, not per mention"). A `T` local read by value once on a path is moved, and a second by-value read on the same path duplicates it. The spec doesn't say what a *borrow* after the by-value read means: `let a = sink(x); look(&x)`.
 
@@ -41,7 +47,7 @@ Design 219's inferred Copy requirement is per path (spec: "The rule is per PATH,
 ### D19. A `sync` body inside a generic is checked per instantiation (Sep 30; U6b3, SL-447)
 SL:architecture §3.4 says a call through a generic bound is conservatively may-suspend inside a generic body, unless the requirement is `sync`. Read literally, a `sync` function, `deinit` or sync-typed closure inside a generic, calling a non-`sync` requirement through a bound, would be refused at the definition. That refuses `closure_captures_self.saw`, which Stage 0 accepts. The spec says suspension "inference runs per instantiation".
 
-**Decided:** judged per instantiation. The generic's summary records the condition, `(refuses-when (sync T.Trait.req))`. Each call site evaluates it with its concrete type arguments and refuses there when the instantiated requirement isn't sync-callable. It is sound, because every concrete use is checked, and it accepts exactly the instantiations that are sync-safe. §3.4's "conservative inside a generic body" still holds for may-suspend (framing and the borrow check), which this doesn't change.
+**Decided:** judged per instantiation. The generic's summary records the condition, `(refuses-when (sync T.Trait.req))`. A call site with concrete type arguments evaluates it, and refuses there when the instantiated requirement isn't sync-callable. The message names the generic's `sync` body and the requirement. A call site whose type arguments are themselves type parameters (`func outer<U: Trait>(u: U) { inner(u) }`) doesn't evaluate it. It composes it into its own summary, as `(refuses-when (sync U.Trait.req))`, so it is evaluated only at a concrete call further out (the Air, t14, verified on SL-447.p3). Naming a generic function as a value at an instantiation isn't in the language before self-hosting (SL-415), so no other use needs the evaluation. It is sound, because every concrete use is checked, and it accepts exactly the instantiations that are sync-safe. §3.4's "conservative inside a generic body" still holds for may-suspend (framing and the borrow check), which this doesn't change.
 
 **Reversal:** refuse at the definition, and require the bound's requirement to be declared `sync`. That refuses programs sawc2 now accepts.
 
