@@ -1,0 +1,4 @@
+status: manual
+4 getitem.companion manual => @synthesize(shared)\nfunc [](&var self, i: Int) borrows -> &var Int {
+17 getitem reviewed -- (a) `Bag.[]` only reads, so it gains a shared twin and the compound write derives its getitem from it
+19 getitem manual => borrow var g[0] += 1

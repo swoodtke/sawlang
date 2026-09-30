@@ -9,11 +9,13 @@ is flagged with its reason; a flagged file is copied unchanged (SL-418).
 
 ENTRY POINTS
     plan_file
+    getitem_decision_problem
+    declares_shared_subscript
 """
 import os
 import re
 
-from edits import Edit, TokenType
+from edits import Edit, Source, TokenType
 from edits import apply as edits_apply
 
 COPY_POLICIES = ("trivial", "retain")
@@ -52,6 +54,66 @@ BLOCK_POSITIONS = {("ExpressionStatement", "expression"), ("LetStatement", "valu
                    ("Block", "final_expr"), ("FunctionCall", "arguments"),
                    ("MethodCall", "arguments"), ("StructInit", "arguments"),
                    ("StringInterpolation", "expressions")}
+
+
+# A plain subscript that needs a getitem its type does not derive. A person
+# resolves each one with a row whose rationale opens with the accessor's
+# decision: (a) the type gains a shared form, so the getitem derives; (b) the
+# accessor stays exclusive-only, so the site is spelled as a borrow or pinned
+# as a refusal (SL-421).
+GETITEM = "getitem"
+GETITEM_REASON = ("a plain subscript %s of `%s`, whose `[]` is declared `&var self` only: "
+                  "getitem derives only from a `&self` place accessor (SL:borrowing §5.2)")
+GETITEM_DECISIONS = ("(a)", "(b)")
+
+
+def declares_shared_subscript(text, struct):
+    """Whether `text` gives `struct` a shared `[]`: a `func [](&self` in one of
+    its extensions, or a `@synthesize(shared)` on its `func [](&var self`."""
+    toks = [t for t in Source(text).tokens if t.depth == 0 and t.kind != TokenType.NEWLINE]
+    depth, owner, owner_depth = 0, None, None
+    for i, t in enumerate(toks):
+        if t.kind == TokenType.LBRACE:
+            depth += 1
+        elif t.kind == TokenType.RBRACE:
+            depth -= 1
+            if owner is not None and depth < owner_depth:
+                owner = None
+        elif t.kind == TokenType.EXTENSION and i + 1 < len(toks):
+            owner, owner_depth = toks[i + 1].value, depth + 1
+        elif t.kind == TokenType.FUNC and owner == struct and i + 5 < len(toks):
+            if [x.kind for x in toks[i + 1:i + 5]] != [TokenType.LBRACKET, TokenType.RBRACKET,
+                                                      TokenType.LPAREN, TokenType.AMPERSAND]:
+                continue
+            if toks[i + 5].kind != TokenType.VAR:
+                return True
+            k = i - 1
+            while k >= 0 and toks[k].kind == TokenType.PUBLIC:
+                k -= 1
+            attr = toks[k - 4:k + 1] if k >= 4 else []
+            if ([x.kind for x in attr] == [TokenType.AT, TokenType.IDENT, TokenType.LPAREN,
+                                           TokenType.IDENT, TokenType.RPAREN]
+                    and (attr[1].value, attr[3].value) == ("synthesize", "shared")):
+                return True
+    return False
+
+
+def getitem_decision_problem(struct, rationale, kept, text, directive):
+    """Why a row resolving a getitem flag disagrees with the migrated text, or
+    None. `kept` is whether the row leaves the site as it is; `directive` is
+    the migrated file's `// EXPECT:` kind."""
+    decision = rationale[:3]
+    if decision not in GETITEM_DECISIONS:
+        return "a getitem row's rationale opens with its decision, (a) or (b)"
+    shared = declares_shared_subscript(text, struct)
+    if decision == "(a)" and not shared:
+        return "decided (a), but the migrated text gives `%s` no shared `[]`" % struct
+    if decision == "(b)" and shared:
+        return "decided (b), but the migrated text gives `%s` a shared `[]`" % struct
+    if decision == "(b)" and kept and directive != "error":
+        return ("decided (b) and left as it is, a refusal, in a file that does not expect "
+                "an error")
+    return None
 
 
 def place_prefix(mode):
@@ -425,7 +487,23 @@ class Planner:
         if handler is None:
             return self.flag(top, cat, "no rule covers this shape")
         self.nested = nested
-        return handler(top, cls, nested, nested_forces)
+        planned = handler(top, cls, nested, nested_forces)
+        if planned is None:
+            return self.derived_getitem(top, nested, cat)
+        return planned
+
+    def derived_getitem(self, top, nested, cat):
+        """A flag when a chain left as a plain value subscript needs a getitem
+        its type cannot derive: a user `[]` declared `&var self` only (SL:borrowing
+        §5.2). A whole store needs only setitem, which the exclusive lend serves."""
+        hops = list(nested) if cat == "A0" else [top] + list(nested)
+        for r in hops:
+            if (accessor_class(r) == "subscript" and not is_std(r)
+                    and r.get("accessor_self") == "var"):
+                use = "compound assignment" if r is top and cat == "A2" else "read"
+                return self.flag(r, GETITEM, GETITEM_REASON % (use, base(r.get("struct"))),
+                                 line=top["line"], col=top["col"])
+        return None
 
     def prefix_edit(self, r, mode):
         """The `borrow ` or `borrow var ` insertion at the chain's first token."""

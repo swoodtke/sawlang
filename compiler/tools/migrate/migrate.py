@@ -103,8 +103,9 @@ def group_manual(rows, key):
 DECISIONS = os.path.join(HERE, "decisions.tsv")
 DECISIONS_HEADER = ("path", "decision", "note")
 # A decision names the primary status the file must come out with; `retired`
-# files are not written at all.
-DECISION_KINDS = {"retired", "manual", "reviewed", "flagged"}
+# files are not written at all, and a `flagged` decision holds a file flagged
+# when no site of its own is.
+DECISION_KINDS = {"retired", "manual", "reviewed", "rewritten", "flagged"}
 
 
 def load_decisions(path=DECISIONS):
@@ -131,7 +132,12 @@ def load_decisions(path=DECISIONS):
 def decided_row(row, decision, note):
     """The manifest row with the decision's note, or a SystemExit when the
     file did not come out with the decided status."""
-    primary = [s for s in row["status"].split(",") if s in manifest.PRIMARY]
+    statuses = row["status"].split(",")
+    primary = [s for s in statuses if s in manifest.PRIMARY]
+    if decision == "reviewed" and primary == ["copied"]:
+        # A person read the whole file and left it as it is.
+        row["status"] = ",".join("reviewed" if s == "copied" else s for s in statuses)
+        primary = ["reviewed"]
     if decision not in primary:
         raise SystemExit("decisions.tsv: %s is decided %s but came out %s"
                          % (row["path"], decision, row["status"]))
@@ -218,7 +224,8 @@ def cmd_apply(args):
         jobs.append({"path": path, "text": text, "passes": passes,
                      "windows": obs.windows.get(path, []), "closures": obs.closures.get(path, []),
                      "walked": sorted(obs.walked.get(path, set())), "accessors": accessors,
-                     "expected": expected.get(path), "manual": manual.get(path)})
+                     "expected": expected.get(path), "manual": manual.get(path),
+                     "hold": decision == "flagged"})
     target = os.path.join(layout.REPO, layout.TARGET)
     written = set()
     for path, text, _, row, sites in run_pool(jobs, args.jobs):

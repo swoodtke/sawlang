@@ -4,7 +4,8 @@ Each fixture in fixtures/ is NAME.before, NAME.after (the migration; absent
 when the file must come out unchanged), NAME.sites (the file's statuses, then
 one `LINE RULE STATUS` line per site, followed by ` => AFTER` for an applied
 site and ` -- REASON` for any other) and, for the manual pass, NAME.manual
-(manual.tsv's rows without the path column). A before text is a program the
+(manual.tsv's rows without the path column); a NAME.hold file stands for a
+`flagged` decisions.tsv row. A before text is a program the
 frozen compiler checks, except where the fixture is about what happens when
 it does not (a removed form, a blind spot). A `// expected: REASON` line
 stands in for the file's corpus_expected.tsv row. The instrument runs on each
@@ -31,6 +32,7 @@ import layout  # noqa: E402
 import manifest  # noqa: E402
 import migrate  # noqa: E402
 import pipeline  # noqa: E402
+import rules  # noqa: E402
 import scan  # noqa: E402
 
 INSTRUMENT = os.path.join(TOOL, "instrument.py")
@@ -81,7 +83,8 @@ def job_for(name, records, accessors):
     return {"path": path, "text": text, "passes": passes,
             "windows": [r for r in mine if r["kind"] == "window"],
             "closures": [r for r in mine if r["kind"] == "closure"],
-            "walked": walked, "accessors": accessors, "expected": expected, "manual": manual}
+            "walked": walked, "accessors": accessors, "expected": expected, "manual": manual,
+            "hold": os.path.exists(os.path.join(FIXTURES, name + ".hold"))}
 
 
 def site_lines(res):
@@ -294,6 +297,61 @@ def check_decisions():
         with open(table, "w", encoding="utf-8") as fh:
             fh.write("\n".join(["\t".join(migrate.DECISIONS_HEADER)] + lines) + "\n")
         failures += refusal(want, lambda: migrate.load_decisions(table))
+    copied = {"path": "a.saw", "status": "copied,expectation-pending", "rules": "", "notes": "-"}
+    got = migrate.decided_row(dict(copied), "reviewed", "read whole")["status"]
+    if got != "reviewed,expectation-pending":
+        failures.append("decided_row: a reviewed decision on a copied file makes it reviewed, "
+                        "got %r" % got)
+    failures += refusal("a.saw is decided rewritten but came out copied",
+                        lambda: migrate.decided_row(dict(copied, status="copied"), "rewritten", "x"))
+    return failures
+
+
+SUBSCRIPT_TEXTS = {
+    # name: (text, struct, whether it declares a shared `[]` for the struct)
+    "explicit shared": ("extension Bag {\n    func [](&self, i: Int) borrows -> &Int { lend self.c }\n}\n",
+                        "Bag", True),
+    "synthesized": ("extension Bag {\n    @synthesize(shared)\n    public func [](&var self, i: Int) "
+                    "borrows -> &var Int { lend self.c }\n}\n", "Bag", True),
+    "generic": ("extension Holder<T> {\n    func [](&self, i: Int) borrows -> &T { lend self.c }\n}\n",
+                "Holder", True),
+    "exclusive only": ("extension Bag {\n    func [](&var self, i: Int) borrows -> &var Int "
+                       "{ lend self.c }\n}\n", "Bag", False),
+    "another type's twin": ("extension Row {\n    func [](&self, i: Int) borrows -> &Int { lend self.c }\n}\n"
+                            "extension Bag {\n    func [](&var self, i: Int) borrows -> &var Int "
+                            "{ lend self.c }\n}\n", "Bag", False),
+    "a named accessor": ("extension Bag {\n    func at(&self, i: Int) borrows -> &Int { lend self.c }\n}\n",
+                         "Bag", False),
+}
+
+
+def check_getitem_decisions():
+    """A getitem row's decision must agree with the migrated text: (a) needs a
+    shared `[]` for the struct, (b) none, and a (b) row that leaves the plain
+    subscript in place needs an error test."""
+    failures = []
+    for name, (text, struct, want) in sorted(SUBSCRIPT_TEXTS.items()):
+        if rules.declares_shared_subscript(text, struct) != want:
+            failures.append("declares_shared_subscript %r: want %s" % (name, want))
+    shared, exclusive = SUBSCRIPT_TEXTS["synthesized"][0], SUBSCRIPT_TEXTS["exclusive only"][0]
+    for want, args in (("opens with its decision", ("Bag", "kept", True, shared, "success")),
+                       ("decided (a), but", ("Bag", "(a) twin", True, exclusive, "success")),
+                       ("decided (b), but", ("Bag", "(b) none", False, shared, "success")),
+                       ("in a file that does not expect an error",
+                        ("Bag", "(b) none", True, exclusive, "success"))):
+        got = rules.getitem_decision_problem(*args)
+        if got is None or want not in got:
+            failures.append("getitem_decision_problem: want %r, got %r" % (want, got))
+    for args in (("Bag", "(a) twin", True, shared, "success"),
+                 ("Bag", "(b) none", True, exclusive, "error"),
+                 ("Bag", "(b) none", False, exclusive, "success")):
+        got = rules.getitem_decision_problem(*args)
+        if got is not None:
+            failures.append("getitem_decision_problem %r: unexpected %r" % (args[1:3], got))
+    row = pipeline.site_row("examples/case.saw", 3, 6, rules.GETITEM, "reviewed",
+                            evidence="Bag.[] elem=Int", reason="(a) twin")
+    failures += refusal("examples/case.saw:3:6: decided (a)",
+                        lambda: pipeline.check_getitem_rows("examples/case.saw", [row], exclusive))
     return failures
 
 
@@ -320,6 +378,8 @@ def run(write=False):
     counts["manual refusal cases"] = len(MANUAL_REFUSALS)
     failures.extend(check_decisions())
     counts["decisions checks"] = 1
+    failures.extend(check_getitem_decisions())
+    counts["getitem decision cases"] = len(SUBSCRIPT_TEXTS)
     failures.extend(manifest.pairing_failures())
     counts["corpus pairing checks"] = 1
     return failures, counts

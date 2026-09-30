@@ -1,0 +1,2 @@
+status: flagged
+15 getitem flagged -- a plain subscript compound assignment of `Bag`, whose `[]` is declared `&var self` only: getitem derives only from a `&self` place accessor (SL:borrowing §5.2)

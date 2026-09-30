@@ -1,0 +1,21 @@
+// EXPECT: success
+struct Bag { cells: [Int; 2] }
+extension Bag {
+    @synthesize(shared)
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+struct Grid { cells: [Int; 2], visits: Int }
+extension Grid {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+        self.visits = self.visits + 1
+    }
+}
+func main() {
+    var b = Bag(cells: [1, 2])
+    b[0] += 1
+    var g = Grid(cells: [1, 2], visits: 0)
+    borrow var g[0] += 1
+}

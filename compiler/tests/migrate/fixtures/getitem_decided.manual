@@ -1,0 +1,4 @@
+line	col	rule	old	new	rationale
+17	6	getitem	b[0] += 1	b[0] += 1	(a) `Bag.[]` only reads, so it gains a shared twin and the compound write derives its getitem from it
+4	0	+	func [](&var self	@synthesize(shared)\n    func [](&var self	the shared twin
+19	6	getitem	g[0] += 1	borrow var g[0] += 1	(b) `Grid.[]` writes `self` after its lend, so it stays exclusive-only and the write is a borrow

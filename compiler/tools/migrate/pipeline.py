@@ -11,6 +11,7 @@ import grammar_pass
 import layout
 import manifest
 import mechanical
+import rules
 import scan
 import verify
 
@@ -23,6 +24,11 @@ COMPANIONS = (COMPANION, DROP)
 # The rule of a manual row that resolves no flag: a person's hold on a whole
 # file (a re-aim of an unflagged file), which its companions then edit.
 ANCHOR = "reaim"
+# The flag of a file a person holds flagged with no flagged site of its own:
+# its meaning under the new language is open, and its decisions.tsv note names
+# the question.
+HELD = "held"
+HELD_REASON = "held by decisions.tsv: its note names the open question"
 
 
 class Result:
@@ -186,6 +192,9 @@ def process(job):
                              % (path, key[0], key[1], m["rule"]))
     unresolved = sorted((f for f in flags if (f[1], f[2]) not in resolving),
                         key=lambda f: (f[1], f[2], f[0]))
+    if job.get("hold") and not unresolved:
+        unresolved.append((HELD, 0, 0, HELD_REASON))
+        res.sites.append(site_row(path, 0, 0, HELD, "flagged", reason=HELD_REASON))
 
     def manual_status(m):
         return "reviewed" if m["old"] == m["new"] else "manual"
@@ -250,6 +259,7 @@ def process(job):
             for row, site_edits in applied:
                 row["before"] = touched_lines(text, [(e.start, e.end) for e in site_edits])
                 row["after"] = touched_lines(new, [landed[id(e)] for e in site_edits])
+            check_getitem_rows(path, res.sites, new)
     for row, _ in applied:
         res.sites.append(row)
     res.text = new
@@ -291,6 +301,19 @@ def process(job):
     for x in manifest.xfail_lines(text):
         res.notes.append("xfail twin: %s" % x)
     return res
+
+
+def check_getitem_rows(path, sites, new):
+    """Refuse a row resolving a getitem flag whose decision the migrated text
+    contradicts; the flag's evidence names the struct whose `[]` it needs."""
+    for row in sites:
+        if row["rule"] != rules.GETITEM or row["status"] not in ("manual", "reviewed"):
+            continue
+        struct = row["evidence"].split(".", 1)[0]
+        problem = rules.getitem_decision_problem(struct, row["reason"], row["status"] == "reviewed",
+                                                 new, layout.directive(new))
+        if problem:
+            raise ValueError("%s:%s:%s: %s" % (path, row["line"], row["col"], problem))
 
 
 def document(res, text, manual):
