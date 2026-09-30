@@ -14,7 +14,7 @@ refuses syntax.decl.refused-export
 refuses syntax.lex.doc-attach at 1:1
 
 // case: SL-400-c6-Q18/borrow-binding-in-a-guard
-refuses parse-error at 2:31
+refuses syntax.stmt.refused-guard-borrow
 
 // case: SL-400-c6-Q20/non-ascii-identifier
 refuses parse-error at 2:12

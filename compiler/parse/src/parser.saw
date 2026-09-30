@@ -15,8 +15,8 @@
 import sawlex.src.lib.{DocComment, TokenKind, lex}
 import sawparse.src.source.{source_file}
 import sawparse.src.diag.{Diagnostic}
-import sawparse.src.grammar.{ALT_COUNT, Alt, Rule, follows_cast_list, holds_closure_head, rule_named,
-                             stops_list_scan}
+import sawparse.src.grammar.{ALT_COUNT, Alt, Rule, begins_statement_only, follows_cast_list,
+                             holds_closure_head, rule_named, stops_list_scan}
 import sawparse.src.tokens.{InterpPiece, ParseToken, closes_bracket, opens_bracket, parser_tokens}
 import sawparse.src.tree.{BuilderCheckpoint, NodeShape, TreeBuilder, put_at, trim_to}
 
@@ -126,6 +126,172 @@ enum BraceForm {
     case Closure,
     case Map,
     case Set
+}
+
+// A comma-separated list the funnel parses, which names the parser of its
+// elements (`Parser.parse_list_element`); `list_shape` gives the rest of it.
+enum CommaList {
+    case ImportSymbols,
+    case Params,
+    case FuncTypeParams,
+    case TupleType,
+    case GenericParams,
+    case GenericArgs,
+    case CallArgs,
+    case TupleExpr,
+    case ArrayElements,
+    case MapEntries,
+    case SetElements,
+    case TuplePattern,
+    case PayloadPatterns,
+    case ClosureParams,
+    case Captures
+}
+
+// What ends a list. A generic list's `>` may be the first half of a `>=` or
+// `>>=` (syntax.rule.generic-close-split), and a closure head ends at `in`.
+// The funnel only tests for the closer; the caller consumes it.
+enum ListCloser {
+    case RParen,
+    case RBracket,
+    case RBrace,
+    case GenericClose,
+    case In
+}
+
+// What a comma after a list's last element does: nothing (`Allowed`), is a
+// plain parse error (`Plain`), is refused by the list's rule (`Refused`), or is
+// what makes one element a list (`RequiredForOne`), its absence refused.
+enum TrailingComma {
+    case Allowed,
+    case Plain,
+    case Refused,
+    case RequiredForOne
+}
+
+// Where a list's line breaks are decided. Inside `( )`, `[ ]` and a generic
+// list they are gone before the funnel sees them (GRAMMAR.md section 2.4,
+// `Settled`); a closure head and an import list take them after a comma
+// (`AfterComma`), and a map or set literal around each entry and before a
+// comma (`AroundEntries`).
+enum LineBreaks {
+    case Settled,
+    case AfterComma,
+    case AroundEntries
+}
+
+// One row of the comma-list position matrix: a list, its closer, its
+// trailing-comma policy with the rule that names a refusal of it, its line
+// breaks, and whether it may hold no element.
+struct ListShape {
+    list: CommaList
+    closer: ListCloser
+    trailing: TrailingComma
+    refusal: Rule?
+    breaks: LineBreaks
+    empty: Bool
+}
+
+// What a list the funnel parsed holds: its elements, and whether a comma
+// followed the last.
+struct ListCount {
+    elements: Int
+    trailing: Bool
+}
+
+// The count a caller hands the funnel to fill.
+func no_elements() -> ListCount { ListCount(elements: 0, trailing: false) }
+
+// THE COMMA-LIST POSITION MATRIX, one row per list. Each row is pinned by a
+// case of compiler/tests/parse/golden/lists.saw and negative/lists.saw.
+func list_shape(list: CommaList) -> ListShape {
+    match list {
+        case ImportSymbols -> ListShape(list: list, closer: ListCloser.RBrace,
+                                        trailing: TrailingComma.Allowed, refusal: None,
+                                        breaks: LineBreaks.AfterComma, empty: true),
+        case Params -> ListShape(list: list, closer: ListCloser.RParen,
+                                 trailing: TrailingComma.Allowed, refusal: None,
+                                 breaks: LineBreaks.Settled, empty: true),
+        case FuncTypeParams -> ListShape(list: list, closer: ListCloser.RParen,
+                                         trailing: TrailingComma.Allowed, refusal: None,
+                                         breaks: LineBreaks.Settled, empty: true),
+        case TupleType -> ListShape(list: list, closer: ListCloser.RParen,
+                                    trailing: TrailingComma.Allowed, refusal: None,
+                                    breaks: LineBreaks.Settled, empty: false),
+        case GenericParams -> ListShape(list: list, closer: ListCloser.GenericClose,
+                                        trailing: TrailingComma.Refused,
+                                        refusal: Rule.Generic_RefusedParamComma,
+                                        breaks: LineBreaks.Settled, empty: false),
+        case GenericArgs -> ListShape(list: list, closer: ListCloser.GenericClose,
+                                      trailing: TrailingComma.Refused,
+                                      refusal: Rule.Generic_RefusedArgComma,
+                                      breaks: LineBreaks.Settled, empty: false),
+        case CallArgs -> ListShape(list: list, closer: ListCloser.RParen,
+                                   trailing: TrailingComma.Allowed, refusal: None,
+                                   breaks: LineBreaks.Settled, empty: true),
+        case TupleExpr -> ListShape(list: list, closer: ListCloser.RParen,
+                                    trailing: TrailingComma.Allowed, refusal: None,
+                                    breaks: LineBreaks.Settled, empty: false),
+        case ArrayElements -> ListShape(list: list, closer: ListCloser.RBracket,
+                                        trailing: TrailingComma.Allowed, refusal: None,
+                                        breaks: LineBreaks.Settled, empty: true),
+        case MapEntries -> ListShape(list: list, closer: ListCloser.RBrace,
+                                     trailing: TrailingComma.Allowed, refusal: None,
+                                     breaks: LineBreaks.AroundEntries, empty: false),
+        case SetElements -> ListShape(list: list, closer: ListCloser.RBrace,
+                                      trailing: TrailingComma.Allowed, refusal: None,
+                                      breaks: LineBreaks.AroundEntries, empty: false),
+        case TuplePattern -> ListShape(list: list, closer: ListCloser.RParen,
+                                       trailing: TrailingComma.RequiredForOne,
+                                       refusal: Rule.Pat_RefusedParen,
+                                       breaks: LineBreaks.Settled, empty: true),
+        case PayloadPatterns -> ListShape(list: list, closer: ListCloser.RParen,
+                                          trailing: TrailingComma.Allowed, refusal: None,
+                                          breaks: LineBreaks.Settled, empty: true),
+        case ClosureParams -> ListShape(list: list, closer: ListCloser.In,
+                                        trailing: TrailingComma.Plain, refusal: None,
+                                        breaks: LineBreaks.AfterComma, empty: false),
+        case Captures -> ListShape(list: list, closer: ListCloser.RBracket,
+                                   trailing: TrailingComma.Allowed, refusal: None,
+                                   breaks: LineBreaks.Settled, empty: false)
+    }
+}
+
+// Whether a list's closer is a bracket, whose absence at the end of input is
+// that bracket left unclosed (syntax.lex.unclosed-bracket).
+func is_bracket_closer(closer: ListCloser) -> Bool {
+    closer == ListCloser.RParen || closer == ListCloser.RBracket || closer == ListCloser.RBrace
+}
+
+// The diagnostic for a list whose trailing comma its policy refuses, or, for a
+// comma it requires, whose one element stands without it.
+func list_refusal_message(list: CommaList) -> String {
+    match list {
+        case GenericParams -> "a generic parameter list takes no trailing comma",
+        case GenericArgs -> "a generic argument list takes no trailing comma",
+        case TuplePattern -> "a pattern has no grouping parentheses",
+        case ClosureParams -> "a closure's parameters take no comma after the last",
+        case _ -> "this list takes no comma after its last element"
+    }
+}
+
+func list_refusal_hint(list: CommaList) -> String {
+    match list {
+        case TuplePattern -> "write `(p,)` for a one-element tuple pattern",
+        case _ -> "drop the comma"
+    }
+}
+
+// The plain error for a token that neither separates a list's elements nor
+// closes it.
+func list_gap_message(closer: ListCloser) -> String {
+    match closer {
+        case RParen -> "expected `,` or `)` in the list",
+        case RBracket -> "expected `,` or `]` in the list",
+        case RBrace -> "expected `,` or `\}` in the list",
+        case GenericClose -> "expected `,` or `>` in the generic list",
+        case In -> "expected `,` or `in` in the closure's parameters"
+    }
 }
 
 // Where the parser stood when a speculation began: what `restore` returns it
@@ -432,6 +598,21 @@ func is_const_operator(kind: TokenKind) -> Bool {
 func continues_postfix(kind: TokenKind) -> Bool {
     (follows_cast_list(kind) || kind == TokenKind.LBracket || kind == TokenKind.Exclaim
      || kind == TokenKind.QuestionDot)
+}
+
+// Whether an alternative builds a loop: a `while` of any form, or a `for`.
+func is_loop_alt(alt: Alt) -> Bool {
+    match alt {
+        case Expr_While_Conditional -> true,
+        case Expr_While_Borrow -> true,
+        case Expr_While_Infinite -> true,
+        case Expr_WhileLet_Let -> true,
+        case Expr_WhileLet_Var -> true,
+        case Expr_For_Plain -> true,
+        case Borrow_For_Let -> true,
+        case Borrow_For_Var -> true,
+        case _ -> false
+    }
 }
 
 // Whether a token of this kind makes the statement before it an assignment.
@@ -1319,30 +1500,23 @@ extension Parser {
         let open = self.pos
         self.take_leaf()
         self.skip_newlines()
-        var count = 0
-        while self.kind() != TokenKind.RBrace {
-            if self.kind() != TokenKind.Ident {
-                if self.kind() == TokenKind.Eof {
-                    return self.refuse_unclosed(open)
-                }
-                return self.error("expected a name to import")
-            }
-            if count == 0 {
-                self.see(Alt.Decl_ImportSymbols)
-            }
-            if not self.parse_import_symbol() {
-                return false
-            }
-            count = count + 1
-            if self.kind() == TokenKind.Comma {
-                self.advance()
-                self.skip_newlines()
-            } else if self.kind() != TokenKind.RBrace {
-                return self.error("expected `,` or `\}` in the import list")
-            }
+        if self.kind() != TokenKind.RBrace {
+            self.see(Alt.Decl_ImportSymbols)
+        }
+        var count = no_elements()
+        if not self.parse_comma_list(list_shape(CommaList.ImportSymbols), open, false, &var count) {
+            return false
         }
         self.take_leaf()
-        self.check_import_names(first, count)
+        self.check_import_names(first, count.elements)
+    }
+
+    // An `import-symbol` of the list opened at `open`.
+    func parse_import_symbol_element(&var self, open: Int) -> Bool {
+        if self.kind() != TokenKind.Ident {
+            return self.list_error(open, "expected a name to import")
+        }
+        self.parse_import_symbol()
     }
 
     // `import-symbol ::= IDENT NEWLINE* | IDENT "as" IDENT NEWLINE*`
@@ -1541,18 +1715,9 @@ extension Parser {
         if self.kind() != TokenKind.RParen {
             self.see(Alt.Decl_Params)
         }
-        while self.kind() != TokenKind.RParen {
-            if self.kind() == TokenKind.Eof {
-                return self.refuse_unclosed(open)
-            }
-            if not self.parse_param() {
-                return false
-            }
-            if self.kind() == TokenKind.Comma {
-                self.advance()
-            } else if self.kind() != TokenKind.RParen {
-                return self.error("expected `,` or `)` after a parameter")
-            }
+        var count = no_elements()
+        if not self.parse_comma_list(list_shape(CommaList.Params), open, false, &var count) {
+            return false
         }
         self.advance()
         true
@@ -1830,8 +1995,14 @@ extension Parser {
                                "a type alias is declared at module level",
                                "declare the alias at module level, or as an associated type")
         }
-        if kind == TokenKind.While || kind == TokenKind.For {
+        if (kind == TokenKind.While || kind == TokenKind.For) && place != StatementPlace.BraceFirst {
             return self.parse_loop_statement(place)
+        }
+        if kind == TokenKind.While || kind == TokenKind.For {
+            // A brace's first element may be a map key or a set element that
+            // a loop begins, which only the token after the element tells; a
+            // closure refuses the loop's continuation then (`loop_continuation`).
+            return self.parse_expr()
         }
         let start = self.here()
         let mark = self.builder.mark()
@@ -2966,9 +3137,10 @@ extension Parser {
         true
     }
 
-    // `tuple-pattern ::= "(" ( pattern ( "," pattern )* )? ")"`, one level
-    // held for its `(`. A name and `:` first make it the refused named tuple
-    // pattern (syntax.pat.refused-named-tuple).
+    // `tuple-pattern ::= "(" ( pattern "," ( pattern ( "," pattern )* ","? )? )? ")"`,
+    // one level held for its `(`. A name and `:` first make it the refused
+    // named tuple pattern (syntax.pat.refused-named-tuple), and one element
+    // with no comma the refused parenthesized pattern (syntax.pat.refused-paren).
     func parse_tuple_pattern(&var self) -> Bool {
         let open = self.pos
         if not self.enter_level(open) {
@@ -2990,24 +3162,9 @@ extension Parser {
                                "patterns destructure tuples by position only",
                                "drop the labels, as in `(a, b)`")
         }
-        if self.kind() != TokenKind.RParen {
-            if not self.parse_pattern() {
-                return false
-            }
-            // The one place a lone element is decided: `(p)` is a tuple
-            // pattern of one element, never a parenthesized pattern, and so
-            // no `,` may follow a last element, `(p,)` included, as GRAMMAR.md
-            // section 8 is written. Pinned by the one-element cases of
-            // golden/patterns.saw and negative/patterns.saw (SL:open-questions W2).
-            while self.kind() == TokenKind.Comma {
-                self.advance()
-                if not self.parse_pattern() {
-                    return false
-                }
-            }
-            if self.kind() != TokenKind.RParen {
-                return self.list_error(open, "expected `,` or `)` in the tuple pattern")
-            }
+        var count = no_elements()
+        if not self.parse_comma_list(list_shape(CommaList.TuplePattern), open, false, &var count) {
+            return false
         }
         self.advance()
         self.see(Alt.Pat_Tuple_Positional)
@@ -3015,7 +3172,7 @@ extension Parser {
         true
     }
 
-    // `variant-pattern ::= IDENT "(" ( payload-pattern ( "," payload-pattern )* )? ")"`,
+    // `variant-pattern ::= IDENT "(" ( payload-pattern ( "," payload-pattern )* ","? )? ")"`,
     // one level held for the payload's `(`.
     func parse_variant_pattern(&var self) -> Bool {
         let open = self.pos + 1
@@ -3035,19 +3192,9 @@ extension Parser {
         let mark = self.builder.mark()
         self.take_leaf()
         self.advance()
-        if self.kind() != TokenKind.RParen {
-            if not self.payload_pattern() {
-                return false
-            }
-            while self.kind() == TokenKind.Comma {
-                self.advance()
-                if not self.payload_pattern() {
-                    return false
-                }
-            }
-            if self.kind() != TokenKind.RParen {
-                return self.list_error(open, "expected `,` or `)` in the payload pattern")
-            }
+        var count = no_elements()
+        if not self.parse_comma_list(list_shape(CommaList.PayloadPatterns), open, false, &var count) {
+            return false
         }
         self.advance()
         self.close(mark, Alt.Pat_Variant, start)
@@ -3316,15 +3463,9 @@ extension Parser {
         if self.kind() != TokenKind.RParen {
             self.see(Alt.Type_FuncParams)
         }
-        while self.kind() != TokenKind.RParen {
-            if not self.parse_type(false) {
-                return false
-            }
-            if self.kind() == TokenKind.Comma {
-                self.advance()
-            } else if self.kind() != TokenKind.RParen {
-                return self.list_error(open, "expected `,` or `)` after a parameter type")
-            }
+        var count = no_elements()
+        if not self.parse_comma_list(list_shape(CommaList.FuncTypeParams), open, false, &var count) {
+            return false
         }
         self.advance()
         self.see(Alt.Type_FuncEffects)
@@ -3395,36 +3536,14 @@ extension Parser {
             return true
         }
         let named = self.kind() == TokenKind.Ident && self.kind_at(1) == TokenKind.Colon
-        var elements = 0
-        var mixed = -1
-        var trailing = false
-        while true {
-            if elements > 0 {
-                if self.kind() == TokenKind.Comma {
-                    self.advance()
-                    if self.kind() == TokenKind.RParen {
-                        trailing = true
-                        break
-                    }
-                } else if self.kind() == TokenKind.RParen {
-                    break
-                } else {
-                    return self.list_error(open, "expected `,` or `)` in the tuple type")
-                }
-            }
-            let labelled = self.kind() == TokenKind.Ident && self.kind_at(1) == TokenKind.Colon
-            if labelled != named && mixed < 0 {
-                mixed = self.pos
-            }
-            if labelled {
-                if not self.parse_tuple_type_field() {
-                    return false
-                }
-            } else if not self.parse_type(false) {
-                return false
-            }
-            elements = elements + 1
+        let first = self.builder.mark()
+        var count = no_elements()
+        if not self.parse_comma_list(list_shape(CommaList.TupleType), open, false, &var count) {
+            return false
         }
+        let elements = count.elements
+        let trailing = count.trailing
+        let mixed = self.first_mixed_element(first, elements, Alt.Type_TupleField)
         self.advance()
         if mixed >= 0 {
             return self.refuse(Rule.Type_RefusedPartialNamedTuple, mixed,
@@ -3448,6 +3567,15 @@ extension Parser {
             self.close(mark, Alt.Type_Tuple_Positional, start)
         }
         true
+    }
+
+    // An element of a parenthesized type list: a name and `:` label it
+    // (syntax.rule.label-or-tuple).
+    func parse_tuple_type_element(&var self) -> Bool {
+        if self.kind() == TokenKind.Ident && self.kind_at(1) == TokenKind.Colon {
+            return self.parse_tuple_type_field()
+        }
+        self.parse_type(false)
     }
 
     // `tuple-type-field ::= IDENT ":" type`
@@ -3484,24 +3612,11 @@ extension Parser {
     func parse_generic_params_body(&var self) -> Bool {
         self.see(Alt.Generic_Params_List)
         self.lists = self.lists + 1
+        let open = self.pos
         self.advance()
-        while true {
-            if not self.parse_generic_param() {
-                return false
-            }
-            if self.kind() == TokenKind.Comma {
-                let comma = self.pos
-                self.advance()
-                if self.closes_list() {
-                    return self.refuse(Rule.Generic_RefusedParamComma, comma,
-                                       "a generic parameter list takes no trailing comma",
-                                       "drop the comma")
-                }
-            } else if self.closes_list() {
-                break
-            } else {
-                return self.error("expected `,` or `>` in the generic parameters")
-            }
+        var count = no_elements()
+        if not self.parse_comma_list(list_shape(CommaList.GenericParams), open, false, &var count) {
+            return false
         }
         self.close_list()
         true
@@ -3579,30 +3694,11 @@ extension Parser {
     func parse_generic_args_body(&var self) -> Bool {
         self.see(Alt.Generic_Args_List)
         self.lists = self.lists + 1
+        let open = self.pos
         self.advance()
-        while true {
-            if not self.parse_generic_arg() {
-                return false
-            }
-            if self.kind() == TokenKind.Comma {
-                let comma = self.pos
-                self.advance()
-                if self.closes_list() {
-                    if self.speculating == 0 {
-                        return self.refuse(Rule.Generic_RefusedArgComma, comma,
-                                           "a generic argument list takes no trailing comma",
-                                           "drop the comma")
-                    }
-                    if self.trailing_comma < 0 {
-                        self.trailing_comma = comma
-                    }
-                    break
-                }
-            } else if self.closes_list() {
-                break
-            } else {
-                return self.error("expected `,` or `>` in the generic arguments")
-            }
+        var count = no_elements()
+        if not self.parse_comma_list(list_shape(CommaList.GenericArgs), open, false, &var count) {
+            return false
         }
         self.close_list()
         true
@@ -4822,18 +4918,9 @@ extension Parser {
         if self.kind() != TokenKind.RParen {
             self.see(Alt.Expr_Args)
         }
-        while self.kind() != TokenKind.RParen {
-            if self.kind() == TokenKind.Eof {
-                return self.refuse_unclosed(open)
-            }
-            if not self.parse_argument() {
-                return false
-            }
-            if self.kind() == TokenKind.Comma {
-                self.advance()
-            } else if self.kind() != TokenKind.RParen {
-                return self.list_error(open, "expected `,` or `)` after an argument")
-            }
+        var count = no_elements()
+        if not self.parse_comma_list(list_shape(CommaList.CallArgs), open, false, &var count) {
+            return false
         }
         self.advance()
         self.head = head
@@ -5243,7 +5330,7 @@ extension Parser {
             return true
         }
         let named = self.kind() == TokenKind.Ident && self.kind_at(1) == TokenKind.Colon
-        var elements = 0
+        let first = self.builder.mark()
         if not named {
             if not self.parse_expr() {
                 return false
@@ -5254,33 +5341,12 @@ extension Parser {
                 self.see(Alt.Expr_Paren)
                 return true
             }
-            elements = 1
         }
-        var mixed = -1
-        while true {
-            if elements > 0 {
-                if self.kind() == TokenKind.Comma {
-                    self.advance()
-                } else if self.kind() != TokenKind.RParen {
-                    return self.list_error(open, "expected `,` or `)`")
-                }
-                if self.kind() == TokenKind.RParen {
-                    break
-                }
-            }
-            let labelled = self.kind() == TokenKind.Ident && self.kind_at(1) == TokenKind.Colon
-            if labelled != named && mixed < 0 {
-                mixed = self.pos
-            }
-            if labelled {
-                if not self.parse_tuple_field() {
-                    return false
-                }
-            } else if not self.parse_expr() {
-                return false
-            }
-            elements = elements + 1
+        var count = no_elements()
+        if not self.parse_comma_list(list_shape(CommaList.TupleExpr), open, not named, &var count) {
+            return false
         }
+        let mixed = self.first_mixed_element(first, count.elements, Alt.Expr_TupleField)
         self.advance()
         if mixed >= 0 {
             return self.refuse(Rule.Expr_RefusedPartialNamedTuple, mixed,
@@ -5292,6 +5358,15 @@ extension Parser {
         self.see(alt)
         self.close(mark, alt, start)
         true
+    }
+
+    // An element of a tuple expression: a name and `:` label it
+    // (syntax.rule.label-or-tuple).
+    func parse_tuple_element(&var self) -> Bool {
+        if self.kind() == TokenKind.Ident && self.kind_at(1) == TokenKind.Colon {
+            return self.parse_tuple_field()
+        }
+        self.parse_expr()
     }
 
     // `tuple-field ::= IDENT ":" expr`
@@ -5318,6 +5393,205 @@ extension Parser {
         self.error(message)
     }
 
+    // ---- comma lists -----------------------------------------------------------------
+
+    // The one comma-list funnel: `element ( "," element )* ","?` up to the
+    // closer `shape` names, which it tests for and leaves to the caller, who
+    // consumed the opener at `open` too. With `first_done` the caller has
+    // parsed the first element already, to tell the list from a construct
+    // that shares its opener. A trailing comma follows `shape.trailing`; a
+    // refused one inside a speculation is noted and refused only if the list
+    // is kept (`speculate_list`), so the speculation does not fail on it.
+    // Writes what the list holds to `count`, and returns false once it has
+    // reported an error. compiler/tools/comma_funnel.py
+    // fails on a loop that takes a `,` anywhere else, but those the COMMA
+    // LEDGER below exempts.
+    // ENTRY POINTS:
+    //     parse_import_symbols
+    //     parse_params
+    //     parse_tuple_pattern_body
+    //     parse_variant_pattern_body
+    //     parse_func_type
+    //     parse_paren_type_body
+    //     parse_generic_params_body
+    //     parse_generic_args_body
+    //     parse_call
+    //     parse_paren_body
+    //     parse_bracket
+    //     parse_map_rest
+    //     parse_set_rest
+    //     parse_closure_head
+    //     parse_capture_list
+    // COMMA LEDGER:
+    //     parse_match: an arm separator is a comma, a line break or nothing (syntax.expr.arm-sep), and separates arms, which no bracket closes
+    func parse_comma_list(&var self, shape: ListShape, open: Int, first_done: Bool,
+                          count: &var ListCount) -> Bool {
+        var elements = 0
+        var trailing = false
+        if first_done {
+            elements = 1
+        } else if not (shape.empty && self.at_closer(shape.closer)) {
+            if not self.parse_list_item(shape, open) {
+                return false
+            }
+            elements = 1
+        }
+        while elements > 0 {
+            if shape.breaks == LineBreaks.AroundEntries && self.separator_after_breaks(shape.closer) {
+                self.skip_newlines()
+            }
+            if self.at_closer(shape.closer) {
+                break
+            }
+            if self.kind() != TokenKind.Comma {
+                return self.list_stop(shape.closer, open, list_gap_message(shape.closer))
+            }
+            let comma = self.pos
+            self.advance()
+            if shape.breaks != LineBreaks.Settled {
+                self.skip_newlines()
+            }
+            if self.at_closer(shape.closer) {
+                trailing = true
+                if not self.trailing_comma_allowed(shape, comma) {
+                    return false
+                }
+                break
+            }
+            if not self.parse_list_item(shape, open) {
+                return false
+            }
+            elements = elements + 1
+        }
+        if shape.trailing == TrailingComma.RequiredForOne && elements == 1 && not trailing {
+            return self.refuse_list(shape, open)
+        }
+        count = ListCount(elements: elements, trailing: trailing)
+        true
+    }
+
+    // The refusal of a list's trailing comma, or of its missing one, at `at`:
+    // by the list's rule, or a plain error where it has none.
+    func refuse_list(&var self, shape: ListShape, at: Int) -> Bool {
+        if let rule = shape.refusal {
+            return self.refuse(rule, at, list_refusal_message(shape.list),
+                               list_refusal_hint(shape.list))
+        }
+        self.report(None, at, list_refusal_message(shape.list), "")
+        false
+    }
+
+    // One element of the list, at the end of input the list's unclosed
+    // bracket instead.
+    func parse_list_item(&var self, shape: ListShape, open: Int) -> Bool {
+        if self.kind() == TokenKind.Eof && is_bracket_closer(shape.closer) {
+            return self.refuse_unclosed(open)
+        }
+        self.parse_list_element(shape.list, open)
+    }
+
+    // Whether the comma at `comma`, which the list's closer follows, may
+    // stand there; reports it when not.
+    func trailing_comma_allowed(&var self, shape: ListShape, comma: Int) -> Bool {
+        if shape.trailing == TrailingComma.Allowed || shape.trailing == TrailingComma.RequiredForOne {
+            return true
+        }
+        if shape.trailing == TrailingComma.Plain {
+            return self.error(list_refusal_message(shape.list))
+        }
+        if self.speculating > 0 {
+            if self.trailing_comma < 0 {
+                self.trailing_comma = comma
+            }
+            return true
+        }
+        self.refuse_list(shape, comma)
+    }
+
+    // Whether the current token is the list's closer.
+    func at_closer(&self, closer: ListCloser) -> Bool {
+        match closer {
+            case RParen -> self.kind() == TokenKind.RParen,
+            case RBracket -> self.kind() == TokenKind.RBracket,
+            case RBrace -> self.kind() == TokenKind.RBrace,
+            case GenericClose -> self.closes_list(),
+            case In -> self.kind() == TokenKind.In
+        }
+    }
+
+    // Whether line breaks here lead to a `,` or to the list's closer, which
+    // they may stand before in a brace-delimited list.
+    func separator_after_breaks(&self, closer: ListCloser) -> Bool {
+        var ahead = 0
+        while self.kind_at(ahead) == TokenKind.Newline {
+            ahead = ahead + 1
+        }
+        let kind = self.kind_at(ahead)
+        kind == TokenKind.Comma || (closer == ListCloser.RBrace && kind == TokenKind.RBrace)
+    }
+
+    // A list that goes on neither with a comma nor with its closer: an
+    // unclosed bracket at the end of input, else a plain error here.
+    func list_stop(&var self, closer: ListCloser, open: Int, message: String) -> Bool {
+        if is_bracket_closer(closer) {
+            return self.list_error(open, message)
+        }
+        self.error(message)
+    }
+
+    // The parser of one element of `list`.
+    func parse_list_element(&var self, list: CommaList, open: Int) -> Bool {
+        match list {
+            case ImportSymbols -> self.parse_import_symbol_element(open),
+            case Params -> self.parse_param(),
+            case FuncTypeParams -> self.parse_type(false),
+            case TupleType -> self.parse_tuple_type_element(),
+            case GenericParams -> self.parse_generic_param(),
+            case GenericArgs -> self.parse_generic_arg(),
+            case CallArgs -> self.parse_argument(),
+            case TupleExpr -> self.parse_tuple_element(),
+            case ArrayElements -> self.parse_expr(),
+            case MapEntries -> self.parse_map_entry(open),
+            case SetElements -> self.parse_expr(),
+            case TuplePattern -> self.parse_pattern(),
+            case PayloadPatterns -> self.payload_pattern(),
+            case ClosureParams -> self.parse_closure_param(),
+            case Captures -> self.parse_capture()
+        }
+    }
+
+    // The node of each of the `count` elements from scratch slot `first` is
+    // a labelled field (`field`) or not; the token the first element that
+    // differs from the first one starts at, or -1 when none does
+    // (syntax.rule.label-or-tuple).
+    func first_mixed_element(&self, first: Int, count: Int, field: Alt) -> Int {
+        var named = false
+        var k = 0
+        while k < count {
+            let node = self.builder.node_at(first + k)
+            var labelled = false
+            if let alt = node.alt {
+                labelled = alt == field
+            }
+            if k == 0 {
+                named = labelled
+            } else if labelled != named {
+                return self.token_starting_at(node.start)
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // The token before the current one that starts at byte `at`.
+    func token_starting_at(&self, at: Int) -> Int {
+        var k = self.pos
+        while k > 0 && self.tokens[k].start > at {
+            k = k - 1
+        }
+        k
+    }
+
     // `array-literal ::= "[" ( expr ( "," expr )* ","? )? "]"` or
     // `repeat-literal ::= "[" expr ";" expr "]"`, charging one level for the `[`.
     func parse_bracket(&var self) -> Bool {
@@ -5341,19 +5615,14 @@ extension Parser {
                 if not self.parse_expr() {
                     return false
                 }
-            } else {
-                while self.kind() == TokenKind.Comma {
-                    self.advance()
-                    if self.kind() == TokenKind.RBracket {
-                        break
-                    }
-                    if not self.parse_expr() {
-                        return false
-                    }
+                if self.kind() != TokenKind.RBracket {
+                    return self.list_error(open, "expected `]` after the repeat count")
                 }
-            }
-            if self.kind() != TokenKind.RBracket {
-                return self.list_error(open, "expected `,` or `]`")
+            } else {
+                var count = no_elements()
+                if not self.parse_comma_list(list_shape(CommaList.ArrayElements), open, true, &var count) {
+                    return false
+                }
             }
         }
         self.advance()
@@ -5446,6 +5715,12 @@ extension Parser {
             }
             self.shadow_brace = saved_shadow
             if ok && bare {
+                let continued = self.loop_continuation(element, first)
+                if continued >= 0 {
+                    return self.refuse(Rule.Rule_BlockTail, continued,
+                                       "a loop that starts a statement is a statement, not an operand",
+                                       "parenthesize the loop to use its value")
+                }
                 self.see(Alt.Stmt_Statement_Expr)
                 self.see(Alt.Stmt_Expr)
                 self.close(element, Alt.Stmt_Expr, first_start)
@@ -5540,29 +5815,15 @@ extension Parser {
     }
 
     // Whether the token `ahead` tokens on begins a statement no expression
-    // begins, which makes the brace around it a closure. `static_assert` and
-    // its `(` begin the assertion, unless the token after its `)` makes it a
-    // map key or a set element, where it is an ordinary call.
+    // begins, which makes the brace around it a closure: a token of
+    // `begins_statement_only`, generated from the grammar, or `static_assert`
+    // and its `(`, which begin the assertion unless the token after its `)`
+    // makes it a map key or a set element, where it is an ordinary call.
     func starts_statement_only(&self, ahead: Int) -> Bool {
         if self.word_at(ahead, "static_assert") && self.kind_at(ahead + 1) == TokenKind.LParen {
             return not self.assertion_is_element(ahead)
         }
-        let named = self.word_at(ahead, "const") || self.word_at(ahead, "type")
-        if named && self.kind_at(ahead + 1) == TokenKind.Ident {
-            return true
-        }
-        match self.kind_at(ahead) {
-            case Let -> true,
-            case Var -> true,
-            case Return -> true,
-            case Break -> true,
-            case Continue -> true,
-            case Guard -> true,
-            case Lend -> true,
-            case At -> true,
-            case Semicolon -> true,
-            case _ -> false
-        }
+        begins_statement_only(self.kind_at(ahead))
     }
 
     // Whether the `static_assert (…)` `ahead` tokens on is followed by what
@@ -5594,6 +5855,40 @@ extension Parser {
             k = k + 1
         }
         self.kind_at(k) == TokenKind.Comma
+    }
+
+    // A closure's first statement, at scratch slot `slot` and begun at token
+    // `first`, that a loop begins: the token after the loop when it would
+    // continue the loop as an operand, which a loop starting a statement never
+    // is (syntax.rule.block-tail), or -1. The loop is the element's leftmost
+    // operand, so first children lead to it.
+    func loop_continuation(&self, slot: Int, first: Int) -> Int {
+        let lead = self.tokens[first].kind
+        if lead != TokenKind.While && lead != TokenKind.For {
+            return -1
+        }
+        var node = self.builder.node_at(slot)
+        var found = false
+        while not found {
+            if let alt = node.alt {
+                found = is_loop_alt(alt)
+            }
+            if not found {
+                if node.count == 0 {
+                    return -1
+                }
+                let child = self.builder.tree.child(&node, 0)
+                node = self.builder.tree.node(child)
+            }
+        }
+        var k = first
+        while k < self.limit && self.tokens[k].start < node.end {
+            k = k + 1
+        }
+        if continues_operand(self.tokens[k].kind) {
+            return k
+        }
+        return -1
     }
 
     // Whether the node at scratch slot `slot` is a statement that no
@@ -5628,71 +5923,45 @@ extension Parser {
     // stack at `key` and stands before the current `:`, up to its `}`.
     func parse_map_rest(&var self, open: Int, key: Int, key_start: Int) -> Bool {
         self.see(Alt.Expr_Map_Entries)
-        var entry = key
-        var entry_start = key_start
-        while true {
-            self.advance()
-            if not self.parse_expr() {
-                return false
-            }
-            self.see(Alt.Expr_MapEntry)
-            self.close(entry, Alt.Expr_MapEntry, entry_start)
-            var ahead = 0
-            while self.kind_at(ahead) == TokenKind.Newline {
-                ahead = ahead + 1
-            }
-            if self.kind_at(ahead) == TokenKind.RBrace {
-                self.skip_newlines()
-                return true
-            }
-            if self.kind_at(ahead) != TokenKind.Comma {
-                return self.list_error(open, "expected `,` or `\}` after a map entry")
-            }
-            self.skip_newlines()
-            self.advance()
-            self.skip_newlines()
-            if self.kind() == TokenKind.RBrace {
-                return true
-            }
-            entry = self.builder.mark()
-            entry_start = self.here()
-            if not self.parse_expr() {
-                return false
-            }
-            if self.kind() != TokenKind.Colon {
-                return self.list_error(open, "expected `:` and the entry's value")
-            }
+        if not self.parse_map_value(key, key_start) {
+            return false
         }
-        false
+        var count = no_elements()
+        self.parse_comma_list(list_shape(CommaList.MapEntries), open, true, &var count)
+    }
+
+    // A `map-entry` of the map opened at `open`, whose `:` stands on its
+    // key's line.
+    func parse_map_entry(&var self, open: Int) -> Bool {
+        let entry = self.builder.mark()
+        let entry_start = self.here()
+        if not self.parse_expr() {
+            return false
+        }
+        if self.kind() != TokenKind.Colon {
+            return self.list_error(open, "expected `:` and the entry's value")
+        }
+        self.parse_map_value(entry, entry_start)
+    }
+
+    // The `:` and value of the entry whose key is on the scratch stack at
+    // `entry`, closed into its MapEntry node.
+    func parse_map_value(&var self, entry: Int, entry_start: Int) -> Bool {
+        self.advance()
+        if not self.parse_expr() {
+            return false
+        }
+        self.see(Alt.Expr_MapEntry)
+        self.close(entry, Alt.Expr_MapEntry, entry_start)
+        true
     }
 
     // `set-literal`'s elements after its first, which is on the scratch stack
     // and stands before the `,` that line breaks may precede, up to its `}`.
     func parse_set_rest(&var self, open: Int) -> Bool {
         self.see(Alt.Expr_Set)
-        while true {
-            self.skip_newlines()
-            self.advance()
-            self.skip_newlines()
-            if self.kind() == TokenKind.RBrace {
-                return true
-            }
-            if not self.parse_expr() {
-                return false
-            }
-            var ahead = 0
-            while self.kind_at(ahead) == TokenKind.Newline {
-                ahead = ahead + 1
-            }
-            if self.kind_at(ahead) == TokenKind.RBrace {
-                self.skip_newlines()
-                return true
-            }
-            if self.kind_at(ahead) != TokenKind.Comma {
-                return self.list_error(open, "expected `,` or `\}` after a set element")
-            }
-        }
-        false
+        var count = no_elements()
+        self.parse_comma_list(list_shape(CommaList.SetElements), open, true, &var count)
     }
 
     // `closure-literal` as a call's trailing closure, where no map or set can
@@ -5772,18 +6041,10 @@ extension Parser {
             self.see(Alt.Expr_ClosureHead_Params)
         }
         self.see(Alt.Expr_ClosureParams)
-        while true {
-            if not self.parse_closure_param() {
-                return false
-            }
-            if self.kind() != TokenKind.Comma {
-                break
-            }
-            self.advance()
-            self.skip_newlines()
-        }
-        if self.kind() != TokenKind.In {
-            return self.error("expected `in` to end the closure's head")
+        let first = self.pos
+        var count = no_elements()
+        if not self.parse_comma_list(list_shape(CommaList.ClosureParams), first, false, &var count) {
+            return false
         }
         self.take_leaf()
         true
@@ -5794,20 +6055,9 @@ extension Parser {
         self.see(Alt.Expr_CaptureList)
         let open = self.pos
         self.advance()
-        while true {
-            if not self.parse_capture() {
-                return false
-            }
-            if self.kind() == TokenKind.Comma {
-                self.advance()
-                if self.kind() == TokenKind.RBracket {
-                    break
-                }
-            } else if self.kind() == TokenKind.RBracket {
-                break
-            } else {
-                return self.list_error(open, "expected `,` or `]` in the capture list")
-            }
+        var count = no_elements()
+        if not self.parse_comma_list(list_shape(CommaList.Captures), open, false, &var count) {
+            return false
         }
         self.advance()
         true

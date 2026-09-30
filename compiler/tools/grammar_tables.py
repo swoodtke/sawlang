@@ -9,11 +9,13 @@ alternative as an `Alt` case with its stable name and the node Kind it builds,
 and every refusal a parser names as a `Rule` case. They come from the same model
 of GRAMMAR.md the recognizer reads (`compiler/tests/grammar/extract.py`), so a
 grammar change is a regeneration, and `compiler/tests/run.py` fails while the
-committed file differs from what this writes. Two tables are computed rather
+committed file differs from what this writes. Four tables are computed rather
 than listed, each by the recognizer's model of the productions: the tokens that
-may follow a cast target's generic list, its FOLLOW set, and the tokens a
-generic list can hold at its own bracket depth, which the parser's closer scan
-passes and stops at every other.
+may follow a cast target's generic list, its FOLLOW set; the tokens a generic
+list can hold at its own bracket depth, which the parser's closer scan passes
+and stops at every other; the tokens a closure head holds at its brace's depth;
+and the tokens that begin a statement and no expression, which make a brace a
+closure.
 """
 import argparse
 import os
@@ -40,13 +42,19 @@ TOKEN_KINDS = {
     '"{"': "LBrace", '"|"': "Pipe", '"||"': "Or", '"}"': "RBrace", "EOF": "Eof",
     "NEWLINE": "Newline", '"="': "Assign", '"("': "LParen", '"["': "LBracket", '"."': "Dot",
     "IDENT": "Ident", "INT": "IntLit", '"var"': "Var", '"unsafe"': "Unsafe_",
-    '"borrows"': "Borrows", '"in"': "In",
+    '"borrows"': "Borrows", '"in"': "In", '"let"': "Let", '"return"': "Return",
+    '"break"': "Break", '"continue"': "Continue", '"guard"': "Guard", '"lend"': "Lend",
+    '"@"': "At",
 }
 # The nonterminal whose own-depth terminals a generic list's closer scan passes.
 LIST_SCAN_START = "generic-args"
 # The nonterminal whose own-depth terminals the brace scan for a closure head
 # passes, on its way to the `in` that ends the head (syntax.rule.brace).
 HEAD_SCAN_START = "closure-head"
+# The nonterminals whose FIRST sets tell a statement-only first token apart:
+# one that begins a non-expression statement and no expression (syntax.rule.brace).
+STATEMENT_START = "non-expr-statement"
+EXPRESSION_START = "expr"
 # The production whose layers the dump spells as one Kind whatever token wrote
 # them (compiler/tests/parse/README.md, Optional types).
 OPTIONAL_TYPE_PRODUCTION = "syntax.type.suffix"
@@ -129,6 +137,16 @@ def head_scan_holds(model):
     return sorted({token_kind(t) for t in held})
 
 
+def statement_only_starts(model):
+    """The TokenKind cases that begin a statement and no expression, sorted:
+    FIRST(non-expr-statement) less FIRST(expr), refused forms included, less
+    any word the lexer reads as an identifier, which begins an expression too.
+    A brace whose first element starts with one is a closure (syntax.rule.brace)."""
+    g = recognize.Grammar(model, "all")
+    terms = g.first[STATEMENT_START] - g.first[EXPRESSION_START]
+    return sorted({token_kind(t) for t in terms} - {"Ident"})
+
+
 def render(model):
     alts = alternatives(model)
     refusals = rules(model)
@@ -204,6 +222,13 @@ def render(model):
     for kind in head_scan_holds(model):
         lines.append("        case %s -> true," % kind)
     lines += ["        case _ -> false", "    }", "}", ""]
+    lines += ["// Whether a token of this kind begins a statement and no expression, so",
+              "// that a brace whose first element starts with it is a closure",
+              "// (syntax.rule.brace).",
+              "public func begins_statement_only(kind: TokenKind) -> Bool {", "    match kind {"]
+    for kind in statement_only_starts(model):
+        lines.append("        case %s -> true," % kind)
+    lines += ["        case _ -> false", "    }", "}", ""]
     return "\n".join(lines)
 
 
@@ -229,8 +254,9 @@ def main(argv=None):
         problem = check()
         print(problem or "grammar tables: current")
         return 1 if problem else 0
+    text = render(extract.extract())
     with open(OUT, "w", encoding="utf-8") as fh:
-        fh.write(render(extract.extract()))
+        fh.write(text)
     print("grammar tables: wrote %s" % os.path.relpath(OUT, REPO))
     return 0
 

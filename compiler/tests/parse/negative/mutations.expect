@@ -4111,6 +4111,18 @@ refuses parse-error at 1:20
 // case: syntax.expr.while.conditional/alt/swap:2
 refuses parse-error at 1:7
 
+// case: syntax.expr.while.borrow/alt/drop:10
+refuses parse-error at 1:33
+
+// case: syntax.expr.while.borrow/alt/dup:9
+refuses parse-error at 1:31
+
+// case: syntax.expr.while.borrow/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.expr.while.borrow/alt/close:4
+refuses parse-error at 1:10
+
 // case: syntax.expr.while.infinite/alt/drop:3
 refuses parse-error at 1:8
 
@@ -4463,16 +4475,16 @@ refuses parse-error at 1:10
 refuses parse-error at 1:12
 
 // case: syntax.borrow.unwrap.let/alt/dup:10
-refuses parse-error at 1:30
+refuses parse-error at 1:33
 
 // case: syntax.borrow.unwrap.let/alt/swap:12
-refuses parse-error at 1:33
+refuses parse-error at 1:36
 
 // case: syntax.borrow.unwrap.let/alt/close:14
 refuses parse-error at 2:1
 
 // case: syntax.borrow.unwrap.var/alt/drop:9
-refuses parse-error at 1:28
+refuses parse-error at 1:31
 
 // case: syntax.borrow.unwrap.var/alt/dup:5
 refuses parse-error at 2:1

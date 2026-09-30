@@ -293,6 +293,15 @@ func f() {
     let m = { while c { }: 1 }
 }
 
+// case: syntax.rule.brace/a-loop-continued-as-an-operand-is-a-key-or-an-element
+// A loop that begins a brace's first element may go on as an operand when the
+// brace is a map or a set; only in a closure is it a statement.
+func f() {
+    let m = { for x in a { } + 1: 2 }
+    let s = { while b { }.c, 2 }
+    let t = { while let x = a { } as Int: 3 }
+}
+
 // case: syntax.rule.brace/an-assignment-first-is-a-closure
 func f() {
     let c = { n = 1 }

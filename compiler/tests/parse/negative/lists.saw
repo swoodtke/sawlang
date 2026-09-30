@@ -1,0 +1,86 @@
+// case: syntax.decl.import-symbols/two-names-without-a-comma
+import m.{a b}
+
+// case: syntax.decl.params/two-parameters-without-a-comma
+func f(a: Int b: Int) {
+}
+
+// case: syntax.type.func-params/two-types-without-a-comma
+func f() {
+    let g: (Int Int) -> Int = h
+}
+
+// case: syntax.type.tuple/two-types-without-a-comma
+func f() {
+    let t: (Int Int) = u
+}
+
+// case: syntax.generic.refused-param-comma/trailing-comma-after-a-bound
+func f<T: P,>() {
+}
+
+// case: syntax.generic.refused-arg-comma/trailing-comma-in-a-committed-list
+func f() {
+    let v: Vector<Int,> = w
+}
+
+// case: syntax.generic.refused-arg-comma/trailing-comma-in-a-speculated-list
+func f() {
+    g<Int,>(1)
+}
+
+// case: syntax.generic.args/an-empty-list
+func f() {
+    let v: Vector<> = w
+}
+
+// case: syntax.expr.args/two-arguments-without-a-comma
+func f() {
+    g(a b)
+}
+
+// case: syntax.expr.tuple/two-elements-without-a-comma
+func f() {
+    let a = (b, c d)
+}
+
+// case: syntax.expr.array/two-elements-without-a-comma
+func f() {
+    let a = [b c]
+}
+
+// case: syntax.expr.map/an-entry-after-a-line-break-with-no-comma
+func f() {
+    let m = {"a": 1
+        "b": 2}
+}
+
+// case: syntax.expr.set/an-element-after-a-line-break-with-no-comma
+func f() {
+    let s = {a, b
+        c}
+}
+
+// case: syntax.pat.refused-paren/one-element-without-its-comma
+func f() {
+    match t {
+        case (a) -> 1
+    }
+}
+
+// case: syntax.pat.variant/two-payloads-without-a-comma
+func f() {
+    match t {
+        case A(x y) -> 1
+    }
+}
+
+// case: syntax.expr.closure-params/trailing-comma
+func f() {
+    let g = { a, in a }
+}
+
+// case: syntax.expr.capture-list/an-empty-list
+func f() {
+    let g = { [] in 1 }
+}

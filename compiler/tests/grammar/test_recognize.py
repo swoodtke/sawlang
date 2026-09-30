@@ -149,6 +149,7 @@ LIST_SCAN_LAYOUT = {"Newline"}
 # The function the brace scan for a closure head passes by, and the head.
 HEAD_SCAN_FUNC = "holds_closure_head"
 HEAD_SCAN_START = grammar_tables.HEAD_SCAN_START
+STATEMENT_FUNC = "begins_statement_only"
 
 
 def _first_difference(want, got):
@@ -419,6 +420,8 @@ def witness_tokens(terms):
             tok = recognize.Token("IDENT", t[1:-1], 1, 2 * k + 1)
         elif t == "NEWLINE":
             tok = recognize.Token("NEWLINE", "\n", 1, 2 * k + 1)
+        elif t in recognize.KIND_TERMINALS:
+            tok = recognize.Token(t, "x", 1, 2 * k + 1)
         else:
             tok = recognize.Token("WITNESS", t[1:-1], 1, 2 * k + 1)
         out.append(tok)
@@ -541,6 +544,90 @@ def check_head_scan(failures, g):
     return len(witnesses) + len(injections)
 
 
+def first_witnesses(g, top):
+    """terminal -> a sentence of `top` that begins with it.
+
+    Found by expanding the rules into sentences rather than from
+    `Grammar.first`, so the witnesses check the FIRST sets by other means."""
+    yields = shortest_yields(g)
+    witnesses = {}
+    seen = {top}
+    pending = [(top, [])]
+    while pending:
+        nt, suffix = pending.pop(0)
+        for alt in g._live(nt):
+            for k, sym in enumerate(alt):
+                if _expand(alt[:k], yields):
+                    break
+                after = _expand(alt[k + 1:], yields) + suffix
+                if not recognize.is_nonterminal(sym):
+                    if sym not in witnesses:
+                        witnesses[sym] = [sym] + after
+                elif sym not in seen:
+                    seen.add(sym)
+                    pending.append((sym, after))
+    return witnesses
+
+
+def statement_table(text):
+    """The TokenKinds the committed `begins_statement_only` holds, or None."""
+    m = re.search(r"func %s\(kind: TokenKind\) -> Bool \{\n    match kind \{\n(.*?)\n"
+                  r"        case _ -> false" % STATEMENT_FUNC, text, re.S)
+    if m is None:
+        return None
+    return set(re.findall(r"^        case (\w+) -> true,$", m.group(1), re.M))
+
+
+def statement_problems(only, table, rel):
+    """How the committed statement-only table disagrees with the grammar's
+    witnesses: a missing token lets a statement read as a map key or a set
+    element, and an extra one makes a closure of a brace an expression begins."""
+    if table is None:
+        return ["%s: no %s table" % (rel, STATEMENT_FUNC)]
+    out = ["%s: %s begins %s, a statement no expression begins, but is not in %s"
+           % (rel, kind, sentence, STATEMENT_FUNC) for kind, sentence in sorted(only.items())
+           if kind not in table]
+    out += ["%s: %s holds %s, which begins an expression or no statement"
+            % (rel, STATEMENT_FUNC, kind) for kind in sorted(table - set(only))]
+    return out
+
+
+def check_statement_scan(failures, g):
+    """The parser's statement-only tokens are exactly those that begin a
+    non-expression statement and no expression: its committed table agrees
+    with witness sentences the recognizer accepts, and with the FIRST sets the
+    generator reads, and fails with `let` dropped or `*` added."""
+    statements = first_witnesses(g, grammar_tables.STATEMENT_START)
+    expressions = first_witnesses(g, grammar_tables.EXPRESSION_START)
+    for top, witnesses in ((grammar_tables.STATEMENT_START, statements),
+                           (grammar_tables.EXPRESSION_START, expressions)):
+        for term, sentence in sorted(witnesses.items()):
+            if not recognize.Chart(g, top, witness_tokens(sentence)).accepted:
+                failures.append("statement witness for %s: %s is not a %s"
+                                % (term, " ".join(sentence), top))
+        if set(witnesses) != g.first[top]:
+            failures.append("statement scan: FIRST(%s) is %s and the witnesses begin with %s"
+                            % (top, sorted(g.first[top] - set(witnesses)),
+                               sorted(set(witnesses) - g.first[top])))
+    # A word the lexer reads as an identifier begins an expression, as IDENT does.
+    only = {}
+    for term, sentence in sorted(statements.items()):
+        if term in expressions or term.startswith("'"):
+            continue
+        only.setdefault(grammar_tables.token_kind(term), " ".join(sentence))
+    rel = os.path.relpath(GRAMMAR_TABLES, extract.REPO)
+    text = _read(GRAMMAR_TABLES)
+    failures.extend(statement_problems(only, statement_table(text), rel))
+    injections = [("`let` dropped", text.replace("        case Let -> true,\n", "")),
+                  ("`*` added", text.replace("        case Lend -> true,\n",
+                                             "        case Lend -> true,\n"
+                                             "        case Star -> true,\n"))]
+    for label, injected in injections:
+        if injected == text or not statement_problems(only, statement_table(injected), rel):
+            failures.append("statement scan: with %s the check still passes" % label)
+    return len(statements) + len(injections)
+
+
 def _without(rule, run):
     """run() with one rule switched off, restored however run() ends."""
     recognize.DISABLED.add(rule)
@@ -616,6 +703,7 @@ def run():
     counts["cast follow trials"] = check_cast_follow(failures, g)
     counts["list scan witnesses and injections"] = check_list_scan(failures, g_removed)
     counts["head scan witnesses and injections"] = check_head_scan(failures, g_removed)
+    counts["statement scan witnesses and injections"] = check_statement_scan(failures, g_removed)
     counts["corpus lane cases"] = check_corpus(failures, model)
     failures.extend(contexts.problems(model))
     return failures, counts

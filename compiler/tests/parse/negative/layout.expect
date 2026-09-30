@@ -70,6 +70,12 @@ refuses syntax.rule.block-tail at 2:20
 // case: syntax.rule.block-tail/loop-continuing-at-a-closure-tail
 refuses syntax.rule.block-tail at 2:27
 
+// case: syntax.rule.block-tail/loop-continuing-by-a-member-at-a-closure-tail
+refuses syntax.rule.block-tail at 2:29
+
+// case: syntax.rule.block-tail/loop-then-an-assignment-at-a-closure-start
+refuses parse-error at 2:27
+
 // case: syntax.rule.block-tail/loop-continuing-in-an-arm-body
 refuses syntax.rule.block-tail at 4:33
 

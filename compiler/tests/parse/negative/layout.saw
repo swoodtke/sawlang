@@ -117,6 +117,16 @@ func f() {
     let g = { while a { } + 1 }
 }
 
+// case: syntax.rule.block-tail/loop-continuing-by-a-member-at-a-closure-tail
+func f() {
+    let g = { for x in a { }.b }
+}
+
+// case: syntax.rule.block-tail/loop-then-an-assignment-at-a-closure-start
+func f() {
+    let g = { while a { } = 1 }
+}
+
 // case: syntax.rule.block-tail/loop-continuing-in-an-arm-body
 // A statement arm means what the same statement in braces means.
 func f() {

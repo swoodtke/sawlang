@@ -4128,6 +4128,18 @@ func a() { while b b { } }
 // case: syntax.expr.while.conditional/alt/swap:2
 func  (  a ) { while b { } }
 
+// case: syntax.expr.while.borrow/alt/drop:10
+func a() { while borrow let b   c { } }
+
+// case: syntax.expr.while.borrow/alt/dup:9
+func a() { while borrow let b b = c { } }
+
+// case: syntax.expr.while.borrow/alt/swap:1
+ a   func () { while borrow let b = c { } }
+
+// case: syntax.expr.while.borrow/alt/close:4
+func a(  { while borrow let b = c { } }
+
 // case: syntax.expr.while.infinite/alt/drop:3
 func a ) { while { } }
 
@@ -4477,28 +4489,28 @@ func a( {   )  borrow var b?.c = d }
 func a(  { borrow var b?.c = d }
 
 // case: syntax.borrow.unwrap.let/alt/drop:5
-func a()   if borrow let b = c { } }
+func a()   while borrow let b = c { } }
 
 // case: syntax.borrow.unwrap.let/alt/dup:10
-func a() { if borrow let b = = c { } }
+func a() { while borrow let b = = c { } }
 
 // case: syntax.borrow.unwrap.let/alt/swap:12
-func a() { if borrow let b = c  }   {  }
+func a() { while borrow let b = c  }   {  }
 
 // case: syntax.borrow.unwrap.let/alt/close:14
-func a() { if borrow let b = c { }
+func a() { while borrow let b = c { }
 
 // case: syntax.borrow.unwrap.var/alt/drop:9
-func a() { if borrow var   = c { } }
+func a() { while borrow var   = c { } }
 
 // case: syntax.borrow.unwrap.var/alt/dup:5
-func a() { { if borrow var b = c { } }
+func a() { { while borrow var b = c { } }
 
 // case: syntax.borrow.unwrap.var/alt/swap:4
-func a( {   )  if borrow var b = c { } }
+func a( {   )  while borrow var b = c { } }
 
 // case: syntax.borrow.unwrap.var/alt/close:14
-func a() { if borrow var b = c { }
+func a() { while borrow var b = c { }
 
 // case: syntax.borrow.for.let/alt/drop:10
 func a() { for borrow let b   c { } }

@@ -762,6 +762,37 @@
               (While.conditional (Name c) (Block))
               (IntLit 1))))))))
 
+// case: syntax.rule.brace/a-loop-continued-as-an-operand-is-a-key-or-an-element
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName m)
+          (Map.entries
+            (MapEntry
+              (Binary
+                (For.plain (BindingName x) (Name a) (Block))
+                +
+                (IntLit 1))
+              (IntLit 2))))
+        (Let.immutable
+          (BindingName s)
+          (Set
+            (Member
+              (While.conditional (Name b) (Block))
+              c)
+            (IntLit 2)))
+        (Let.immutable
+          (BindingName t)
+          (Map.entries
+            (MapEntry
+              (Cast
+                (WhileLet.let (BindingName x) (Name a) (Block))
+                as
+                (NamedType (Path Int)))
+              (IntLit 3))))))))
+
 // case: syntax.rule.brace/an-assignment-first-is-a-closure
 (File
   (Declaration.func

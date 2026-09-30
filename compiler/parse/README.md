@@ -28,8 +28,9 @@ builds, a `Rule` case per name a refusal can carry, and `rule_named`, which
 maps a lexer's rule name onto its case, the tokens that may follow a cast
 target's generic list, the FOLLOW set the recognizer computes, the tokens a
 generic list can hold at its own bracket depth, which the recognizer computes
-too (Speculation, below), and the tokens a closure head can hold at its
-brace's own depth (Braces, below). Regenerate it when GRAMMAR.md changes;
+too (Speculation, below), the tokens a closure head can hold at its
+brace's own depth, and the tokens that begin a statement and no expression
+(Braces, below). Regenerate it when GRAMMAR.md changes;
 `compiler/tests/run.py` fails while it is stale.
 
 ## Speculation
@@ -66,8 +67,11 @@ the brace's own depth, and finds its `in`: `holds_closure_head` in
 `grammar.saw`, generated, and checked by the recognizer tests against a
 sentence of `closure-head` holding each token, failing with `:` made a stop or
 `{` made a pass. Only a `for` puts an `in` in a statement, and `for` is no head
-token, so a body never reads as a head. Otherwise a statement-only keyword
-first makes a closure, and any other first element is parsed once, as a
+token, so a body never reads as a head. Otherwise a statement-only token first
+makes a closure: one that begins a statement and no expression,
+`begins_statement_only` in `grammar.saw`, generated as FIRST(non-expr-statement)
+less FIRST(expr) and checked by the recognizer tests against witness sentences,
+failing with `let` dropped or `*` added. Any other first element is parsed once, as a
 closure's first statement would be (`StatementPlace.BraceFirst`, which leaves
 an expression without its statement node), and the token after it decides: a
 `:` on its line makes a map whose first key it is, a `,` after any line breaks
@@ -83,6 +87,31 @@ its construct takes next. Map and set literals start no fresh level, so their
 elements stand in any head around them; a brace's first element is parsed
 before the brace is known to be a literal, so a closure attaching there is
 noted (`HeadState.Shadow`) and refused if the brace turns out to be one.
+
+## Comma lists
+
+Every list whose elements a `,` separates goes through one funnel,
+`Parser.parse_comma_list`: import symbols, parameters, function-type
+parameters, tuple types, generic parameters and arguments, call arguments,
+tuple expressions, array, map and set elements, tuple and payload patterns,
+closure parameters and capture lists. `list_shape` is the position matrix, one
+row per list: the element parser (`CommaList`, which `parse_list_element`
+dispatches on), the closer the funnel tests for and the caller consumes (a
+bracket, a generic list's `>`, which a `>=` or `>>=` may hold, or `in`), the
+trailing-comma policy and the rule that names its refusal, where the list's
+line breaks are decided, and whether it may be empty. A caller that must parse
+the first element to tell the list apart, as `(e)` from a tuple or a brace's
+first element from a map's, hands the funnel the rest. A refused trailing comma
+inside a speculation is noted and refused only if the list is kept, so that
+`f<Int,>(1)` is refused as syntax.generic.refused-arg-comma and not re-read as
+comparisons. `golden/lists.saw` and `negative/lists.saw` in
+`compiler/tests/parse/` hold a case for each row.
+
+`compiler/tools/comma_funnel.py` fails on a loop that takes a `,` outside the
+funnel, unless the COMMA LEDGER above the funnel exempts it with a reason (a
+`match` arm's separator is one), and on an ENTRY POINTS list that is not
+exactly the funnel's callers. It proves itself on copies of the parser with an
+ad hoc list loop added, a stale exemption and a missing entry point.
 
 ## Assignment targets
 

@@ -1,0 +1,220 @@
+// case: syntax.decl.import-symbols/trailing-comma-and-line-breaks
+(File
+  (Import.private (Path m) . { (ImportSymbol.name a) (ImportSymbol.alias b c) })
+  (Import.private (Path n) . { }))
+
+// case: syntax.decl.params/trailing-comma-and-empty
+(File
+  (Declaration.func
+    (Func f
+      (Param.plain a
+        (NamedType (Path Int)))
+      (Param.default b
+        (NamedType (Path Int))
+        (IntLit 1))
+      (Block)))
+  (Declaration.func
+    (Func g (Block))))
+
+// case: syntax.type.func-params/trailing-comma-and-empty
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName g)
+          (FuncType
+            (NamedType (Path Int))
+            (NamedType (Path Int))
+            (NamedType (Path Int)))
+          (Name h))
+        (Let.immutable
+          (BindingName k)
+          (FuncType
+            (NamedType (Path Int)))
+          (Name h))))))
+
+// case: syntax.type.tuple/trailing-comma-grouping-and-labels
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName t)
+          (TupleType.positional
+            (NamedType (Path Int))
+            (TupleType
+              (NamedType (Path Int)))
+            (NamedType (Path Int))
+            (TupleType.named
+              (TupleField a
+                (NamedType (Path Int)))
+              (TupleField b
+                (NamedType (Path Int)))))
+          (Name u))))))
+
+// case: syntax.generic.params/several-parameters
+(File
+  (Declaration.func
+    (Func f
+      (GenericParam.type T)
+      (GenericParam.type U (Path P))
+      (GenericParam.const N
+        (NamedType (Path Int))
+        =
+        (IntLit 4))
+      (Block))))
+
+// case: syntax.generic.args/line-breaks-and-split-closers
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName m)
+          (NamedType
+            (Path Map)
+            (NamedType (Path Int))
+            (NamedType
+              (Path Vector)
+              (NamedType (Path Int))))
+          (Name w))
+        (Let.immutable
+          (BindingName v)
+          (NamedType
+            (Path Vector)
+            (NamedType
+              (Path Vector)
+              (NamedType (Path Int))))
+          (Name w))
+        (Let.immutable
+          (BindingName n)
+          (NamedType
+            (Path Map)
+            (NamedType (Path K))
+            (NamedType
+              (Path Vector)
+              (NamedType (Path V))))
+          (Name w))
+        (Let.immutable
+          (BindingName c)
+          (Call.paren
+            (Name g
+              (NamedType (Path A))
+              (NamedType (Path B)))
+            (Arg.positional (Name x))))))))
+
+// case: syntax.expr.args/trailing-comma-labels-and-empty
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Call.paren
+            (Name g)
+            (Arg.positional (Name a))
+            (Arg.labelled b (IntLit 1))))
+        (ExprStmt
+          (Call.paren (Name g)))))))
+
+// case: syntax.expr.tuple/trailing-comma-and-labels
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Tuple.positional (Name b)))
+        (Let.immutable
+          (BindingName c)
+          (Tuple.positional (Name d) (Name e)))
+        (Let.immutable
+          (BindingName g)
+          (Tuple.named
+            (TupleField x (IntLit 1))
+            (TupleField y (IntLit 2))))))))
+
+// case: syntax.expr.array/trailing-comma-and-empty
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName a)
+          (Array (Name b) (Name c)))
+        (Let.immutable (BindingName d) (Array))))))
+
+// case: syntax.expr.map/line-breaks-around-entries
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName m)
+          (Map.entries
+            (MapEntry (StringLit "a") (IntLit 1))
+            (MapEntry (StringLit "b") (IntLit 2))))))))
+
+// case: syntax.expr.set/line-breaks-before-a-comma
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName s)
+          (Set (Name a) (Name b)))))))
+
+// case: syntax.pat.tuple/each-length
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name t)
+            (MatchArm (TuplePat.positional) (IntLit 0))
+            (MatchArm
+              (TuplePat.positional (NamePat a))
+              (IntLit 1))
+            (MatchArm
+              (TuplePat.positional (NamePat a) (NamePat b))
+              (IntLit 2))))))))
+
+// case: syntax.pat.variant/empty-and-trailing-comma
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name t)
+            (MatchArm (VariantPat A) (IntLit 0))
+            (MatchArm
+              (VariantPat B (NamePat x))
+              (IntLit 1))))))))
+
+// case: syntax.expr.closure-params/line-break-after-a-comma
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName g)
+          (Closure
+            (ClosureParam.value a)
+            (ClosureParam.value b)
+            in
+            (ExprStmt (Name a))))))))
+
+// case: syntax.expr.capture-list/trailing-comma
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName g)
+          (Closure
+            (Capture.value a)
+            (Capture.value b)
+            in
+            (ExprStmt (Name a))))))))

@@ -49,6 +49,32 @@ func f() {
     }
 }
 
+// case: syntax.rule.borrow-form/unwrap-at-a-while-head
+func f() {
+    while borrow var e = it.find(&k) {
+        e.count += 1
+    }
+}
+
+// case: syntax.rule.borrow-form/borrow-binding-in-a-while-let
+func f() {
+    while borrow let x = m[k] {
+    }
+}
+
+// case: syntax.rule.borrow-form/parenthesized-block-at-a-while-head
+func f() {
+    while (borrow let e = m[k] { e.ok }) {
+    }
+}
+
+// case: syntax.rule.borrow-form/parenthesized-block-at-a-guard-head
+func f() {
+    guard (borrow let e = m[k] { e.ok }) else {
+        return
+    }
+}
+
 // case: syntax.rule.borrow-form/place-form
 func f() {
     borrow var v[i] = 1

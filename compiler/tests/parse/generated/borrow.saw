@@ -45,10 +45,10 @@ func a() { borrow var b }
 func a() { borrow var b?.c = d }
 
 // case: syntax.borrow.unwrap.let/alt
-func a() { if borrow let b = c { } }
+func a() { while borrow let b = c { } }
 
 // case: syntax.borrow.unwrap.var/alt
-func a() { if borrow var b = c { } }
+func a() { while borrow var b = c { } }
 
 // case: syntax.borrow.for.let/alt
 func a() { for borrow let b in c { } }

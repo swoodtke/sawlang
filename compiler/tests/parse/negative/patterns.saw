@@ -1,26 +1,66 @@
-// case: syntax.pat.tuple.positional/one-element-trailing-comma
+// case: syntax.pat.refused-paren/at-a-case
 func f() {
     match t {
-        case (a,) -> 1
+        case (a) -> 1
     }
 }
 
-// case: syntax.pat.tuple.positional/trailing-comma
+// case: syntax.pat.refused-paren/in-a-let
 func f() {
-    match t {
-        case (a, b,) -> 1
+    let (a) = t
+}
+
+// case: syntax.pat.refused-paren/in-an-if-let
+func f() {
+    if let (a) = t {
     }
 }
 
-// case: syntax.pat.tuple.positional/one-element-trailing-comma-in-a-let
+// case: syntax.pat.refused-paren/in-a-guard-let
 func f() {
-    let (a,) = t
+    guard let (a) = t else {
+        return
+    }
 }
 
-// case: syntax.pat.variant/trailing-comma
+// case: syntax.pat.refused-paren/in-a-while-let
 func f() {
-    match o {
-        case Some(x,) -> 1
+    while let (a) = t {
+    }
+}
+
+// case: syntax.pat.refused-paren/nested-in-a-tuple
+func f() {
+    match t {
+        case (b, (a)) -> 1
+    }
+}
+
+// case: syntax.pat.refused-paren/nested-in-a-payload
+func f() {
+    match t {
+        case Some((a)) -> 1
+    }
+}
+
+// case: syntax.pat.refused-paren/doubled
+func f() {
+    match t {
+        case ((a,)) -> 1
+    }
+}
+
+// case: syntax.pat.tuple.positional/two-trailing-commas
+func f() {
+    match t {
+        case (a,,) -> 1
+    }
+}
+
+// case: syntax.pat.variant/a-comma-with-no-payload
+func f() {
+    match t {
+        case A(,) -> 1
     }
 }
 

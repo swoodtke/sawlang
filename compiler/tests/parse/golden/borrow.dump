@@ -161,6 +161,69 @@
                     (Name g)
                     (Arg.positional (Name y))))))))))))
 
+// case: syntax.rule.borrow-form/unwrap-at-a-while-head
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (While.borrow
+            (BorrowArm.var
+              (BindingName e)
+              (Call.paren
+                (Member (Name it) find)
+                (Arg.positional
+                  (Ref.shared (Name k)))))
+            (Block
+              (CompoundAssign
+                (Member (Name e) count)
+                +=
+                (IntLit 1)))))))))
+
+// case: syntax.rule.borrow-form/borrow-binding-in-a-while-let
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (While.borrow
+            (BorrowArm.let
+              (BindingName x)
+              (Subscript.single (Name m) (Name k)))
+            (Block)))))))
+
+// case: syntax.rule.borrow-form/parenthesized-block-at-a-while-head
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (While.conditional
+            (BorrowBlock
+              (BorrowBinding.let
+                (BindingName e)
+                (Subscript.single (Name m) (Name k)))
+              (Block
+                (ExprStmt
+                  (Member (Name e) ok))))
+            (Block)))))))
+
+// case: syntax.rule.borrow-form/parenthesized-block-at-a-guard-head
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Guard.condition guard
+          (BorrowBlock
+            (BorrowBinding.let
+              (BindingName e)
+              (Subscript.single (Name m) (Name k)))
+            (Block
+              (ExprStmt
+                (Member (Name e) ok))))
+          else
+          (Block (Return)))))))
+
 // case: syntax.rule.borrow-form/place-form
 (File
   (Declaration.func

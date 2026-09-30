@@ -388,9 +388,11 @@ syntax.pat.int.positive	U4e
 syntax.pat.int.negative	U4e
 syntax.pat.tuple.positional	U4e
 syntax.pat.tuple.refused-named	U4e
+syntax.pat.tuple.refused-paren	SL-437
 syntax.pat.variant	U4e
 syntax.pat.payload.pattern	U4e
 syntax.pat.refused-named-tuple	U4e
+syntax.pat.refused-paren	SL-437
 syntax.pat.refused-qualified-variant	U4e
 syntax.pat.refused-dot-variant	U4e
 syntax.stmt.destructure.immutable	U4e

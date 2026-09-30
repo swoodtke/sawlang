@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.join(COMPILER, "tools"))
 sys.path.insert(0, os.path.join(HERE, "grammar"))
 
 import build  # noqa: E402
+import comma_funnel  # noqa: E402
 import depth_funnel  # noqa: E402
 import grammar_tables  # noqa: E402
 import speculation_ledger  # noqa: E402
@@ -341,12 +342,13 @@ def run_migrate(run):
 
 
 def run_parser(run):
-    """The parser's grammar tables, its speculation ledger, its depth funnel
-    and its parse lane; the last two run sawc2, so they wait for it to build."""
+    """The parser's grammar tables, its speculation ledger, its comma-list and
+    depth funnels and its parse lane; the last two run sawc2, so they wait for
+    it to build."""
     stale = grammar_tables.check()
     if stale:
         run.fail("grammar tables: " + stale)
-    for module in (speculation_ledger, depth_funnel, parse_lane):
+    for module in (speculation_ledger, comma_funnel, depth_funnel, parse_lane):
         failures, counts = module.run()
         for failure in failures:
             run.fail(failure)

@@ -176,7 +176,7 @@
         (ExprStmt
           (WhileLet.let (TuplePat.positional) (Name b) (Block)))))))
 
-// case: syntax.pat.tuple.positional/opt:1:(pattern ("," pattern)*)?=absent
+// case: syntax.pat.tuple.positional/opt:1:(pattern "," (pattern ("," pattern)* ","?)?)?=absent
 (File
   (Declaration.func
     (Func a
@@ -184,7 +184,7 @@
         (ExprStmt
           (WhileLet.let (TuplePat.positional) (Name b) (Block)))))))
 
-// case: syntax.pat.tuple.positional/opt:1:(pattern ("," pattern)*)?=present
+// case: syntax.pat.tuple.positional/opt:1:(pattern "," (pattern ("," pattern)* ","?)?)?=present
 (File
   (Declaration.func
     (Func a
@@ -205,7 +205,7 @@
             (Name b)
             (MatchArm (VariantPat c) (Name d))))))))
 
-// case: syntax.pat.variant/opt:2:(payload-pattern ("," payload-pattern)*)?=absent
+// case: syntax.pat.variant/opt:2:(payload-pattern ("," payload-pattern)* ","?)?=absent
 (File
   (Declaration.func
     (Func a
@@ -215,7 +215,7 @@
             (Name b)
             (MatchArm (VariantPat c) (Name d))))))))
 
-// case: syntax.pat.variant/opt:2:(payload-pattern ("," payload-pattern)*)?=present
+// case: syntax.pat.variant/opt:2:(payload-pattern ("," payload-pattern)* ","?)?=present
 (File
   (Declaration.func
     (Func a

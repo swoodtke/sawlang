@@ -1,4 +1,37 @@
-// case: syntax.pat.tuple.positional/one-element-is-a-tuple
+// case: syntax.pat.tuple.positional/one-element-trailing-comma
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name t)
+            (MatchArm
+              (TuplePat.positional (NamePat a))
+              (IntLit 1))))))))
+
+// case: syntax.pat.tuple.positional/trailing-comma
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name t)
+            (MatchArm
+              (TuplePat.positional (NamePat a) (NamePat b))
+              (IntLit 1))))))))
+
+// case: syntax.pat.tuple.positional/one-element-trailing-comma-in-a-let
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (DestructureLet.immutable
+          (TuplePat.positional (NamePat a))
+          (Name t))))))
+
+// case: syntax.pat.tuple.positional/one-element-at-every-position
 (File
   (Declaration.func
     (Func f
@@ -12,16 +45,73 @@
             (MatchArm
               (TuplePat.positional
                 (TuplePat.positional (NamePat b)))
-              (IntLit 2))))
+              (IntLit 2))
+            (MatchArm
+              (VariantPat Some
+                (TuplePat.positional (NamePat c)))
+              (IntLit 3))))
         (DestructureLet.immutable
-          (TuplePat.positional (NamePat c))
+          (TuplePat.positional (NamePat d))
           (Name t))
         (ExprStmt
           (If
             (LetArm.let
-              (TuplePat.positional (NamePat d))
+              (TuplePat.positional (NamePat e))
               (Name t))
+            (Block)))
+        (Guard.let
+          (TuplePat.positional (NamePat g))
+          (Name t)
+          (Block (Return)))
+        (ExprStmt
+          (WhileLet.let
+            (TuplePat.positional (NamePat h))
+            (Name t)
             (Block)))))))
+
+// case: syntax.pat.tuple.positional/trailing-comma-across-lines
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name t)
+            (MatchArm
+              (TuplePat.positional (NamePat a) (NamePat b))
+              (IntLit 1))))
+        (DestructureLet.mutable
+          (TuplePat.positional (NamePat c) (NamePat d))
+          (Name t))))))
+
+// case: syntax.pat.variant/trailing-comma
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name o)
+            (MatchArm
+              (VariantPat Some (NamePat x))
+              (IntLit 1))))))))
+
+// case: syntax.pat.variant/trailing-comma-after-several-payloads
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (Match
+            (Name o)
+            (MatchArm
+              (VariantPat A (NamePat x) (NamePat y))
+              (IntLit 1))
+            (MatchArm
+              (VariantPat B
+                (TuplePat.positional (NamePat a) (NamePat b))
+                (VariantPat C (NamePat c)))
+              (IntLit 2))))))))
 
 // case: syntax.pat.tuple.positional/nested
 (File

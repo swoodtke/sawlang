@@ -3540,6 +3540,46 @@
         (ExprStmt
           (While.conditional (Name b) (Block)))))))
 
+// case: syntax.expr.while.borrow/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (While.borrow
+            (BorrowArm.let (BindingName b) (Name c))
+            (Block)))))))
+
+// case: syntax.expr.while.borrow/rep:2:NEWLINE*=0
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (While.borrow
+            (BorrowArm.let (BindingName b) (Name c))
+            (Block)))))))
+
+// case: syntax.expr.while.borrow/rep:2:NEWLINE*=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (While.borrow
+            (BorrowArm.let (BindingName b) (Name c))
+            (Block)))))))
+
+// case: syntax.expr.while.borrow/rep:2:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (While.borrow
+            (BorrowArm.let (BindingName b) (Name c))
+            (Block)))))))
+
 // case: syntax.expr.while.infinite/alt
 (File
   (Declaration.func

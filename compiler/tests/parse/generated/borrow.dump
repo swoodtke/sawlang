@@ -138,7 +138,7 @@
     (Func a
       (Block
         (ExprStmt
-          (If
+          (While.borrow
             (BorrowArm.let (BindingName b) (Name c))
             (Block)))))))
 
@@ -148,7 +148,7 @@
     (Func a
       (Block
         (ExprStmt
-          (If
+          (While.borrow
             (BorrowArm.var (BindingName b) (Name c))
             (Block)))))))
 

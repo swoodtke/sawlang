@@ -75,7 +75,9 @@ FILTERS = [
     ("head-expr", "_head_restriction", "syntax.rule.head-restriction"),
     ("binding-subject", "_head_restriction", "syntax.rule.head-restriction"),
     ("borrow-place", "_borrow_form", "syntax.rule.borrow-form"),
-    ("if-head", "_if_head_binding", "syntax.rule.borrow-form"),
+    ("if-head", "_head_binding", "syntax.rule.borrow-form"),
+    ("while-expr", "_head_binding", "syntax.rule.borrow-form"),
+    ("guard-condition", "_head_binding", "syntax.rule.borrow-form"),
     ("try-expr", "_try_block", "syntax.rule.try-block"),
     ("lends-expr", "_lends_word", "syntax.rule.contextual-words"),
     ("statement", "_static_assert_word", "syntax.rule.contextual-words"),
@@ -1130,18 +1132,33 @@ class Forest:
             return None
         return d.i if binding_target_end(toks, d.i + 2) == d.j else None
 
-    def _if_head_binding(self, d):
-        """At an `if` head, `borrow let` or `borrow var`, a binding target and
-        `=` is the optional-place unwrap, so the condition that reads them as
-        a `borrow` block is refused (syntax.rule.borrow-form)."""
-        if self._alt(d) != "syntax.expr.if-head.condition":
+    def _head_binding(self, d):
+        """At an `if` or `while` head, `borrow let` or `borrow var`, a binding
+        target and `=` is the optional-place unwrap, and at a `guard` head the
+        refused binding, so the condition that reads them as a `borrow` block
+        is refused (syntax.rule.borrow-form)."""
+        head = self._condition_head(d)
+        if head is None:
             return None
         toks = self.c.tokens
-        if toks[d.i].kind != "BORROW" or toks[d.i + 1].kind not in ("LET", "VAR"):
+        if toks[head.i].kind != "BORROW" or toks[head.i + 1].kind not in ("LET", "VAR"):
             return None
-        end = binding_target_end(toks, d.i + 2)
-        if end is not None and end < d.j and toks[end].value == "=":
-            return d.i
+        end = binding_target_end(toks, head.i + 2)
+        if end is not None and end < head.j and toks[end].value == "=":
+            return head.i
+        return None
+
+    def _condition_head(self, d):
+        """The condition an `if` head, a conditional `while` or a boolean
+        `guard` holds, or None for another alternative of theirs."""
+        alt = self._alt(d)
+        if alt == "syntax.expr.if-head.condition":
+            return d
+        if alt not in ("syntax.expr.while.conditional", "syntax.stmt.guard-condition"):
+            return None
+        for k in d.kids:
+            if not isinstance(k, int) and k.nt == "head-expr":
+                return k
         return None
 
     def _try_block(self, d):

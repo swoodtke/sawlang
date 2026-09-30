@@ -471,7 +471,8 @@ def nested_guards(k):
 
 
 def nested_tuple_patterns(k):
-    return "func f() {\n    let " + "(" * k + "a" + ")" * k + " = w\n}\n"
+    """One-element tuple patterns, each written with its comma."""
+    return "func f() {\n    let " + "(" * k + "a" + ",)" * k + " = w\n}\n"
 
 
 def nested_variant_payloads(k):
@@ -483,7 +484,8 @@ def nested_variant_payloads(k):
 def mixed_patterns(k):
     """Tuple and variant patterns alternating, from a destructuring `let`."""
     openers = "".join("(" if i % 2 == 0 else "A(" for i in range(k))
-    return "func f() {\n    let " + openers + "a" + ")" * k + " = w\n}\n"
+    closers = "".join(",)" if i % 2 == 0 else ")" for i in reversed(range(k)))
+    return "func f() {\n    let " + openers + "a" + closers + " = w\n}\n"
 
 
 def nested_closures(k):

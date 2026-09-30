@@ -7,8 +7,17 @@ refuses parse-error at 3:1
 // case: syntax.rule.borrow-form/tuple-binding-at-an-if-head
 refuses syntax.rule.borrow-form at 2:8
 
-// case: syntax.rule.borrow-form/borrow-binding-in-a-while-let
-refuses parse-error at 4:1
+// case: syntax.rule.borrow-form/bare-block-at-a-while-head
+refuses syntax.rule.head-restriction at 2:28
+
+// case: syntax.rule.borrow-form/bare-block-at-a-guard-head
+refuses syntax.rule.borrow-form at 2:11
+
+// case: syntax.stmt.refused-guard-borrow/shared-binding
+refuses syntax.stmt.refused-guard-borrow
+
+// case: syntax.stmt.refused-guard-borrow/exclusive-binding
+refuses syntax.stmt.refused-guard-borrow
 
 // case: syntax.pat.borrow-binding/at-a-case-top-level
 refuses parse-error at 3:14

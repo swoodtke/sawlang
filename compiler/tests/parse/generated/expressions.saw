@@ -1492,6 +1492,22 @@ func a() { while b
 
     { } }
 
+// case: syntax.expr.while.borrow/alt
+func a() { while borrow let b = c { } }
+
+// case: syntax.expr.while.borrow/rep:2:NEWLINE*=0
+func a() { while borrow let b = c { } }
+
+// case: syntax.expr.while.borrow/rep:2:NEWLINE*=1
+func a() { while borrow let b = c
+    { } }
+
+// case: syntax.expr.while.borrow/rep:2:NEWLINE*=many
+func a() { while borrow let b = c
+
+
+    { } }
+
 // case: syntax.expr.while.infinite/alt
 func a() { while { } }
 

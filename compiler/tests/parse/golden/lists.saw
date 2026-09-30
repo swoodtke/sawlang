@@ -1,0 +1,100 @@
+// case: syntax.decl.import-symbols/trailing-comma-and-line-breaks
+import m.{
+    a,
+    b as c,
+}
+import n.{}
+
+// case: syntax.decl.params/trailing-comma-and-empty
+func f(a: Int, b: Int = 1,) {
+}
+
+func g() {
+}
+
+// case: syntax.type.func-params/trailing-comma-and-empty
+func f() {
+    let g: (Int, Int,) -> Int = h
+    let k: () -> Int = h
+}
+
+// case: syntax.type.tuple/trailing-comma-grouping-and-labels
+func f() {
+    let t: (Int, (Int,), (Int), (a: Int, b: Int,)) = u
+}
+
+// case: syntax.generic.params/several-parameters
+func f<T, U: P, const N: Int = 4>() {
+}
+
+// case: syntax.generic.args/line-breaks-and-split-closers
+func f() {
+    let m: Map<Int,
+               Vector<Int>> = w
+    let v: Vector<Vector<Int>>= w
+    let n: Map<K, Vector<V>>= w
+    let c = g<A, B>(x)
+}
+
+// case: syntax.expr.args/trailing-comma-labels-and-empty
+func f() {
+    g(a, b: 1,)
+    g()
+}
+
+// case: syntax.expr.tuple/trailing-comma-and-labels
+func f() {
+    let a = (b,)
+    let c = (d, e,)
+    let g = (x: 1, y: 2,)
+}
+
+// case: syntax.expr.array/trailing-comma-and-empty
+func f() {
+    let a = [b, c,]
+    let d = []
+}
+
+// case: syntax.expr.map/line-breaks-around-entries
+func f() {
+    let m = {
+        "a": 1
+        ,
+        "b": 2,
+    }
+}
+
+// case: syntax.expr.set/line-breaks-before-a-comma
+func f() {
+    let s = {a
+        , b,
+    }
+}
+
+// case: syntax.pat.tuple/each-length
+func f() {
+    match t {
+        case () -> 0
+        case (a,) -> 1
+        case (a, b,) -> 2
+    }
+}
+
+// case: syntax.pat.variant/empty-and-trailing-comma
+func f() {
+    match t {
+        case A() -> 0
+        case B(x,) -> 1
+    }
+}
+
+// case: syntax.expr.closure-params/line-break-after-a-comma
+func f() {
+    let g = { a,
+        b in a }
+}
+
+// case: syntax.expr.capture-list/trailing-comma
+func f() {
+    let g = { [a, b,] in a }
+}

@@ -14,10 +14,32 @@ func f() {
     }
 }
 
-// case: syntax.rule.borrow-form/borrow-binding-in-a-while-let
+// case: syntax.rule.borrow-form/bare-block-at-a-while-head
 func f() {
-    while borrow let x = m[k] {
+    while borrow let x = a { x } {
     }
+}
+
+// case: syntax.rule.borrow-form/bare-block-at-a-guard-head
+func f() {
+    guard borrow let e = m[k] { e.ok } else {
+        return
+    }
+}
+
+// case: syntax.stmt.refused-guard-borrow/shared-binding
+func f() {
+    guard borrow let e = m.find(&k) else {
+        return
+    }
+}
+
+// case: syntax.stmt.refused-guard-borrow/exclusive-binding
+func f() {
+    guard borrow var e = m.find(&k) else {
+        return
+    }
+    e.count += 1
 }
 
 // case: syntax.pat.borrow-binding/at-a-case-top-level

@@ -81,7 +81,7 @@ SLOTS = {
     "else-if-arm": {"if-head": "cond"},
     "optional-binding": {"binding-subject": "subj"},
     "borrow-unwrap": {"head-expr": "subj"},
-    "while-expr": {"head-expr": "cond"},
+    "while-expr": {"head-expr": "cond", "borrow-unwrap": "cond"},
     "while-let-expr": {"head-expr": "subj"},
     "for-expr": {"head-expr": "iter"},
     "for-borrow": {"head-expr": "iter"},

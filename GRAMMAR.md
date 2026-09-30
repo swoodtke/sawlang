@@ -1016,13 +1016,18 @@ lend-stmt ::= "lend" expr
 
 A `guard` takes an optional binding or a boolean condition. Its `else` block
 must leave the enclosing scope, which a later stage checks. A `guard` takes no
-borrow binding.
+borrow binding: its braces run on the absent path, so no window could hold the
+binding on the present one. `guard borrow let e = … else { … }` is refused
+(syntax.stmt.refused-guard-borrow), and so is a bare `borrow` block there,
+which reads as that binding (§13, syntax.rule.borrow-form); a parenthesized
+`borrow` block is a boolean condition.
 
 ```ebnf
 # syntax.stmt.guard  status=current  spec="Control Flow"  node=Guard
 guard-stmt ::= "guard" "let" binding-target "=" binding-subject NEWLINE* "else" NEWLINE* block  @syntax.stmt.guard.let
     | "guard" "var" binding-target "=" binding-subject NEWLINE* "else" NEWLINE* block  @syntax.stmt.guard.var
     | guard-condition  @syntax.stmt.guard.condition
+    | refused-guard-borrow  @syntax.stmt.guard.refused-borrow
 
 # syntax.stmt.guard-condition  status=lockdown  spec="Control Flow"  node=-  ref="SL-400 c6"
 guard-condition ::= "guard" head-expr NEWLINE* "else" NEWLINE* block
@@ -1515,12 +1520,15 @@ arm-body ::= block  @syntax.expr.arm-body.block
 ```
 
 `while` with no condition loops until a `break`; there is no `loop` keyword.
-`while let` repeats while its subject is present and has no `else`. `for` binds
-one name per element.
+`while let` repeats while its subject is present and has no `else`. A `while`
+head, like an `if` head, may unwrap an optional place: `while borrow var e =
+it.find(&k) { … }` loops while the place is present, borrowing it afresh for
+each iteration (SL:borrowing §2.4). `for` binds one name per element.
 
 ```ebnf
 # syntax.expr.while  status=current  spec="Control Flow"  node=While
 while-expr ::= "while" head-expr NEWLINE* block  @syntax.expr.while.conditional
+    | "while" borrow-unwrap NEWLINE* block  @syntax.expr.while.borrow
     | "while" block  @syntax.expr.while.infinite
 
 # syntax.expr.while-let  status=current  spec="Optional binding in a loop header (`while let`)"  node=WhileLet
@@ -1541,6 +1549,13 @@ Patterns appear after `case`, and as the target of a destructuring `let`,
 binding or a payload-free variant; which one is decided by name resolution, not
 by the parser (§13, syntax.rule.name-pattern). `None` is the pattern for an
 absent optional.
+
+A tuple pattern is spelled as a tuple expression is: `()`, a one-element tuple
+with its comma, `(p,)`, or two or more elements, `(a, b)`, each with an
+optional trailing comma, `(a, b,)`. A pattern has no grouping parentheses, so a
+bare `(p)` is refused (syntax.pat.refused-paren). A variant's payload list takes
+an optional trailing comma too, so `Some(x)` and `Some(x,)` are one pattern, as
+the calls that build them are.
 
 ```ebnf
 # syntax.pat.pattern  status=current  spec="Control Flow"  node=-
@@ -1573,11 +1588,12 @@ pattern-int ::= INT  @syntax.pat.int.positive
     | "-" INT  @syntax.pat.int.negative
 
 # syntax.pat.tuple  status=current  spec="Composite Types"  node=TuplePat
-tuple-pattern ::= "(" ( pattern ( "," pattern )* )? ")"  @syntax.pat.tuple.positional
+tuple-pattern ::= "(" ( pattern "," ( pattern ( "," pattern )* ","? )? )? ")"  @syntax.pat.tuple.positional
     | refused-named-tuple-pattern  @syntax.pat.tuple.refused-named
+    | refused-paren-pattern  @syntax.pat.tuple.refused-paren
 
 # syntax.pat.variant  status=current  spec="Enums (Algebraic Data Types)"  node=VariantPat
-variant-pattern ::= IDENT "(" ( payload-pattern ( "," payload-pattern )* )? ")"
+variant-pattern ::= IDENT "(" ( payload-pattern ( "," payload-pattern )* ","? )? ")"
 
 # syntax.pat.payload  status=current  spec="Enums (Algebraic Data Types)"  node=-
 payload-pattern ::= pattern  @syntax.pat.payload.pattern
@@ -1601,9 +1617,10 @@ forms are told apart by the tokens after `borrow` (§13, syntax.rule.borrow-form
 The place form's operand is a postfix expression, so it binds tighter than every
 binary operator, `as` and `=` (§13, syntax.rule.borrow-extent).
 
-A borrow binding stands in four places: a `borrow` block, an `if` or `else if`
-head, a `for` head, and a variant's payload pattern. A `guard`, a `while`, the
-top level of a `case` pattern and a tuple pattern take none.
+A borrow binding stands in four places: a `borrow` block, an `if`, `else if` or
+`while` head, a `for` head, and a variant's payload pattern. A `guard`, the top
+level of a `case` pattern and a tuple pattern take none; at a `guard` head one
+is refused by name (syntax.stmt.refused-guard-borrow).
 
 ```ebnf
 # syntax.borrow.block  status=lockdown  spec="Places (`borrows` and `lend`)"  node=BorrowBlock  ref="SL:borrowing §2.1"
@@ -1760,14 +1777,21 @@ refused-compound-self ::= self-expr compound-op expr
 # syntax.stmt.refused-bare-lend  status=removed  spec="`lend` suspends the accessor; it does not return"  node=Error
 refused-bare-lend ::= "lend"
 
+# syntax.stmt.refused-guard-borrow  status=removed  spec="Conditional lends (`borrows -> &T?`)"  node=Error  ref="SL:borrowing §2.4"
+refused-guard-borrow ::= "guard" "borrow" "let" binding-name "=" head-expr NEWLINE* "else" NEWLINE* block  @syntax.stmt.refused-guard-borrow.let
+    | "guard" "borrow" "var" binding-name "=" head-expr NEWLINE* "else" NEWLINE* block  @syntax.stmt.refused-guard-borrow.var
+
 # syntax.pat.refused-named-tuple  status=removed  spec="Composite Types"  node=Error
-refused-named-tuple-pattern ::= "(" IDENT ":" pattern ( "," IDENT ":" pattern )* ")"
+refused-named-tuple-pattern ::= "(" IDENT ":" pattern ( "," IDENT ":" pattern )* ","? ")"
+
+# syntax.pat.refused-paren  status=removed  spec="Composite Types"  node=Error  ref="SL-437"
+refused-paren-pattern ::= "(" pattern ")"
 
 # syntax.pat.refused-qualified-variant  status=removed  spec="Enums (Algebraic Data Types)"  node=Error
-refused-qualified-variant-pattern ::= IDENT ( "." IDENT )+ ( "(" ( payload-pattern ( "," payload-pattern )* )? ")" )?
+refused-qualified-variant-pattern ::= IDENT ( "." IDENT )+ ( "(" ( payload-pattern ( "," payload-pattern )* ","? )? ")" )?
 
 # syntax.pat.refused-dot-variant  status=removed  spec="Enums (Algebraic Data Types)"  node=Error  ref="SL-400 c8"
-refused-dot-variant-pattern ::= "." IDENT ( "(" ( payload-pattern ( "," payload-pattern )* )? ")" )?
+refused-dot-variant-pattern ::= "." IDENT ( "(" ( payload-pattern ( "," payload-pattern )* ","? )? ")" )?
 ```
 
 Each refused form, why it is refused, and what its diagnostic suggests:
@@ -1807,7 +1831,9 @@ Each refused form, why it is refused, and what its diagnostic suggests:
 | syntax.stmt.refused-local-const | A local that never changes is a `let`. | `let x = 5` |
 | syntax.stmt.refused-compound-self | `self` is not a compound-assignment target; a receiver is replaced whole. | `self = …` |
 | syntax.stmt.refused-bare-lend | `lend` hands out a place, so it needs one. | `lend place` |
+| syntax.stmt.refused-guard-borrow | A guard's braces run on the absent path, so on the present path the binding would stay live to the end of the enclosing block, a window no rule defines (SL:borrowing §2.4). | `if borrow let e = … { … } else { … }` |
 | syntax.pat.refused-named-tuple | Patterns destructure tuples by position only. | `(a, b)` |
+| syntax.pat.refused-paren | A pattern has no grouping parentheses, and a one-element tuple pattern is written with its comma, as in expressions and types. | write `(p,)` |
 | syntax.pat.refused-qualified-variant | A variant pattern names the case alone, and the scrutinee's type supplies the enum. | `case Red` |
 | syntax.pat.refused-dot-variant | A variant pattern names the case bare; the `.` of an implicit member belongs to expressions. | `case North` |
 
@@ -1922,7 +1948,7 @@ generator covers every construct in every context the table allows.
 | idx | a subscript argument | none |
 | interp | an interpolation segment | parsed on its own; head restrictions do not carry in |
 | cond | the condition of `if`, `else if`, `while`, or a boolean `guard` | head |
-| subj | the subject of `if let`, `guard let`, `while let` or `if borrow` | head |
+| subj | the subject of `if let`, `guard let`, `while let`, `if borrow` or `while borrow` | head |
 | scrut | the scrutinee of `match` | head |
 | aguard | a match-arm guard, `case p if g` | head |
 | iter | the iterable of `for` | head |
@@ -2036,6 +2062,14 @@ column:
 | syntax.stmt.optional-assign | Y | N | Y | Y | Y | N | N | N | N | N | N | N | N | N | Y | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N |
 | syntax.expr.capture | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | Y |
 
+The `cond` column covers four hosts, and two of its rows hold at some of them
+only. A `borrow` block (P) is a condition at every host when parenthesized; bare
+at an `if` or `while` head it reads as the unwrap, and at a `guard` head as the
+refused binding (syntax.rule.borrow-form). The unwrap, syntax.borrow.unwrap (Y),
+stands at an `if`, `else if` or `while` head, and at a `guard` head is refused
+(syntax.stmt.refused-guard-borrow). syntax.expr.optional-binding (Y) is the
+`if` host's; `guard let` and `while let` are productions of their own.
+
 ## 13. Disambiguation
 
 Where the productions allow more than one reading of the same tokens, or where
@@ -2051,7 +2085,7 @@ decides. The constructs column names the productions a rule governs.
 | syntax.rule.head-reset | syntax.expr.head, syntax.expr.paren, syntax.expr.tuple, syntax.expr.array, syntax.expr.closure, syntax.expr.args, syntax.expr.subscript, syntax.expr.interpolation, syntax.stmt.block, syntax.expr.match-arms | Inside a head, any bracket, an interpolation segment and any brace-delimited block nested in the head start a fresh level where trailing closures attach again. The nested blocks are a closure body, a `match` expression's arms, and the body of an `if`, `else`, `while`, `for`, `try`, `catch` or `borrow` construct. So `if f(v.map { $0 }) { }`, `if (v.any { $0 > 1 }) { }` and `while match mode { case Draining -> queue.any { $0.urgent }, case _ -> false } { step() }` parse. | Control Flow; SL-400 c6; SL-406 c11 | lockdown |
 | syntax.rule.interpolation-segment | syntax.expr.interpolation, syntax.expr.interp-segment | Each expression segment of an interpolated string is parsed on its own as `interp-segment`. A blank segment is a format placeholder. Positions are source positions, and the nesting depth continues from the string's. | String; SL:architecture §3.1 | current |
 | syntax.rule.static-head | syntax.decl.static, syntax.decl.method, syntax.decl.requirement, syntax.decl.refused-effect-prefix | At a top-level item, `static` followed by a name declares a static, so `static sync: Int = 0` names a static `sync`. In an extension or trait body, `static` must be followed by `func`, and marks a static method. In either place, an effect word after `static` that is followed by `func`, `init`, a visibility, `static` or another effect word begins a refused head (syntax.rule.contextual-words). | Static methods | current |
-| syntax.rule.brace | syntax.expr.map, syntax.expr.set, syntax.expr.closure, syntax.stmt.block, syntax.expr.arm-body | Where a block is required, `{` opens a block: every construct body, and an arm body that starts with `{`. Elsewhere a `{` in expression position is decided by what follows it: `{:}` is an empty map; a closure head followed by `in` is a closure, the head being a capture list, closure parameters, or a capture list and then parameters, where each parameter is a name, `&` and a name, or `&var` and a name, with an optional type annotation, as in `{ n: Int in n + 1 }`; otherwise the first element decides. A first element that begins with a statement-only keyword (`let`, `var`, `return`, `break`, `continue`, `guard`, `lend` or an attribute) makes a closure, so `{ let x: Int = 1` and a line break and `x }` is one. A first element that is an expression makes a map when a `:` follows it on its line, and a set when a `,` follows it, on its line or after line breaks; anything else after it makes a closure. So `{}`, `{expr}` and a statement body are closures, `{ if a { 1 } else { 2 }: "x" }` is a map, and a map key whose `:` begins the next line is refused, since the brace is then a closure. There is no bare block statement, and an interpolation's braces belong to its string. | Composite Types | current |
+| syntax.rule.brace | syntax.expr.map, syntax.expr.set, syntax.expr.closure, syntax.stmt.block, syntax.expr.arm-body | Where a block is required, `{` opens a block: every construct body, and an arm body that starts with `{`. Elsewhere a `{` in expression position is decided by what follows it: `{:}` is an empty map; a closure head followed by `in` is a closure, the head being a capture list, closure parameters, or a capture list and then parameters, where each parameter is a name, `&` and a name, or `&var` and a name, with an optional type annotation, as in `{ n: Int in n + 1 }`; otherwise the first element decides. A first element that begins with a statement-only token, one that begins a statement and no expression (`let`, `var`, `return`, `break`, `continue`, `guard`, `lend` or an attribute's `@`), makes a closure, so `{ let x: Int = 1` and a line break and `x }` is one. A first element that is an expression makes a map when a `:` follows it on its line, and a set when a `,` follows it, on its line or after line breaks; anything else after it makes a closure. So `{}`, `{expr}` and a statement body are closures, `{ if a { 1 } else { 2 }: "x" }` is a map, and a map key whose `:` begins the next line is refused, since the brace is then a closure. There is no bare block statement, and an interpolation's braces belong to its string. | Composite Types | current |
 | syntax.rule.statement-separator | syntax.stmt.body, syntax.stmt.sep | A statement ends at a line break, a `;`, the enclosing `}` or the end of input. `;` separates two statements on one line and never ends one, so a `;` before a line break, before `}`, at the end of input, doubled, or at the start of a line is refused. | Statement Boundaries; SL-347 | current |
 | syntax.rule.juxtaposition | syntax.stmt.body, syntax.expr.closure, syntax.file.list | Two statements on one line with nothing between them are refused at the second statement's first token, so `x = 1 y` is an error. A space is not a separator: `let a = b (c)` is the call `b(c)`. A line break before the `(` ends the statement, so `(c)` on the next line is a statement of its own. | Statement Boundaries; SL-347; SL-406 c11 | current |
 | syntax.rule.declaration-separator | syntax.file.list, syntax.decl.trait-members, syntax.decl.extension-members, syntax.decl.extern-funcs | Declarations take a line each. A `;` between two declarations, or two on one line, is refused. | Statement Boundaries; SL-347 | current |
@@ -2072,7 +2106,7 @@ decides. The constructs column names the productions a rule governs.
 | syntax.rule.try-extent | syntax.expr.try, syntax.expr.cast | `try`, `try?` and `try!` sit at the prefix tier and apply to the prefix expression after them, so `try parse_id() as UserId` casts the unwrapped value and `try f() + 1` adds to it. | Error routing at `try`; SL-400 c6 | lockdown |
 | syntax.rule.postfix-per-hop | syntax.expr.postfix, syntax.expr.cast | A postfix chain stays nested, one node per hop, and every hop charges one nesting level until the chain ends (§11). | SL:architecture §3.2; SL-380 | current |
 | syntax.rule.depth-limit | syntax.expr.postfix, syntax.expr.prefix, syntax.expr.primary, syntax.type.type, syntax.pat.pattern | Nesting deeper than 256 levels is refused at the opener of the 257th, as §11 counts. | Layout; design 259 R4 | current |
-| syntax.rule.borrow-form | syntax.borrow.block, syntax.borrow.place, syntax.borrow.unwrap, syntax.borrow.for, syntax.expr.refused-borrow-let-unbound | `borrow` is a keyword, and the tokens after it decide the form. `let` or `var` followed by a binding target, a name or a parenthesized pattern, and then `=` is a binding: a `borrow` block, or at an `if` head an optional-place unwrap. `var` followed by anything else is the exclusive place form, and `let` followed by anything else is refused, since `let` introduces a name and there is none (syntax.expr.refused-borrow-let-unbound). Anything else after `borrow` is the shared place form, so `borrow (x)` borrows `(x)` and `borrow $0[0]` an element of a closure's parameter. After `for`, `borrow let` and `borrow var` bind the loop name. No significant line break (§2.4) stands between `borrow` and the token after it, or between `borrow var` and its operand: at a statement's level `borrow` at the end of a line is refused, and inside `(` or `[`, where line breaks are insignificant, the form continues on the next line. | Places (`borrows` and `lend`); SL:borrowing §2 | lockdown |
+| syntax.rule.borrow-form | syntax.borrow.block, syntax.borrow.place, syntax.borrow.unwrap, syntax.borrow.for, syntax.expr.refused-borrow-let-unbound, syntax.stmt.refused-guard-borrow | `borrow` is a keyword, and the tokens after it decide the form. `let` or `var` followed by a binding target, a name or a parenthesized pattern, and then `=` is a binding: a `borrow` block, or at an `if` or `while` head an optional-place unwrap. At a `guard` head such a binding is refused, never read as a `borrow` block condition (syntax.stmt.refused-guard-borrow). `var` followed by anything else is the exclusive place form, and `let` followed by anything else is refused, since `let` introduces a name and there is none (syntax.expr.refused-borrow-let-unbound). Anything else after `borrow` is the shared place form, so `borrow (x)` borrows `(x)` and `borrow $0[0]` an element of a closure's parameter. After `for`, `borrow let` and `borrow var` bind the loop name. No significant line break (§2.4) stands between `borrow` and the token after it, or between `borrow var` and its operand: at a statement's level `borrow` at the end of a line is refused, and inside `(` or `[`, where line breaks are insignificant, the form continues on the next line. | Places (`borrows` and `lend`); SL:borrowing §2 | lockdown |
 | syntax.rule.borrow-extent | syntax.borrow.place, syntax.borrow.optional-target | The place form's operand is a postfix expression, whatever its hops, so it binds tighter than `as`, every binary operator and `=`. Where the `borrows` call falls inside the operand is decided by typing, not by the parser. `borrow doc.section_at(x).get("k") ?? ""` coalesces the borrowed read, and `borrow var v[i].x = borrow v[j].x` assigns between two place forms. | Places (`borrows` and `lend`); SL:borrowing §2.2 | lockdown |
 | syntax.rule.optional-chain-run | syntax.expr.optional-member, syntax.stmt.optional-assign, syntax.stmt.optional-chain-target | A `?.` hop opens a run that continues over member, optional, call and trailing-closure hops. A `!`, a subscript, a tuple index, or the end of the postfix expression closes it; one short-circuit skips the whole run, which the tree holds as one `OptionalChain` node (§1). An assignment whose target ends in an open run is an optional assignment of type `Void?`; `a?.b[0] = 1` closes the run first and is a plain assignment. | Optionals | current |
 | syntax.rule.label-or-tuple | syntax.expr.argument, syntax.expr.tuple, syntax.expr.tuple-field, syntax.type.tuple | At the start of a call argument, a name followed by `:` is a label. Inside grouping parentheses, a name followed by `:` begins a named tuple, which labels every element or none. | Composite Types | current |
@@ -2147,6 +2181,9 @@ spelling holds. The spec still:
   struct holds shared references only (SL:borrowing changes all four);
 - describes a consuming `self` "declared without `&`", where the receiver is
   `&var self`;
+- says, under "Optionals", that a chained assignment that short-circuits skips
+  its right side, where SL:borrowing §2.2 evaluates the right side first and
+  skips only the write;
 - shows the planned `const func`, and gives the slot order as
   `consumes unsafe sync` without `constexpr` in `sync`'s place
   (syntax.rule.effect-slot);
@@ -2166,6 +2203,8 @@ spelling holds. The spec still:
   syntax.expr.range-upto);
 - does not give the one-element tuple type's spelling, `(T,)`, or say that `(T)`
   in a type groups (syntax.rule.paren-type);
+- does not give the one-element tuple pattern's spelling, `(p,)`, or say that
+  `(p)` in a pattern is refused (syntax.pat.tuple, syntax.pat.refused-paren);
 - does not show the `case None` pattern or the boolean
   `guard cond else { … }`, and does not say that identifiers are ASCII only
   (syntax.pat.none, syntax.stmt.guard-condition, syntax.lex.ascii-identifier).
@@ -2211,6 +2250,7 @@ the two disagree, a row below says which way and why. Where a grammar rule
 | syntax.rule.coalesce-grouping | groups `a ?? b ?? 0` right to left, `a ?? (b ?? 0)` | folds left, `(a ?? b) ?? 0` | ruled | Optionals; SL-400 c6 |
 | syntax.rule.compare-chain, syntax.expr.refused-compare-chain | refuses `a < b < c` and `a == b == c`, with the fixit `a < b && b < c` | parses a chain, nested left: `(a < b) < c` | ruled | Ordering (`Comparable`); SL-400 c6 |
 | syntax.type.paren, syntax.type.single-tuple | reads `(T)` as grouping and `(T,)` as a one-element tuple, so `((Int) -> Int)?` is an optional function | reads `(T)` and `(T,)` alike as a one-element tuple, so `((Int) -> Int)?` is an optional tuple | ruled | Composite Types; SL-400 c6 |
+| syntax.pat.tuple, syntax.pat.refused-paren, syntax.pat.variant | reads `(p,)` as a one-element tuple pattern and refuses `(p)`, with the fixit `(p,)`; takes a trailing comma in a tuple pattern, `(a, b,)`, and in a payload, `Some(x,)` | reads `(p)` as a one-element tuple pattern, so `case (x)` over an `Int` fails in a later stage ("tuple pattern requires a tuple scrutinee"), and `let (a) = t` over a `(Int,)` binds its element; refuses `case (x,)`, `case (a, b,)`, `case Some(x,)` and `let (a, b,) = t` ("Expected a pattern after 'case'", in a `let` too) | ruled | Composite Types; SL-437 |
 | syntax.decl.list-sep | refuses two fields or cases on one line with nothing between them, as in `struct P { x: Int y: Int }` | accepts them | ruled | Structs; SL-400 c6 |
 | syntax.decl.refused-export | refuses `export m.f`, `export m.f as g` and `export m.*`, with the fixit `public import` | parses them, and a later stage refuses them outside a package's `init.saw` | ruled | Re-export; SL-400 c6 |
 | syntax.expr.implicit-member | parses `.Case` and `.Case(…)` as an implicit member, including at the start of a line | refuses a leading `.` ("Unexpected token: DOT") | ruled | Enums (Algebraic Data Types); SL-400 c7 |

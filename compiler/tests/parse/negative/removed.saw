@@ -70,6 +70,9 @@ func a() { self += b }
 // case: syntax.stmt.non-expr.refused-bare-lend
 func a() { lend }
 
+// case: syntax.stmt.guard.refused-borrow
+func a() { guard borrow let b = c else { } }
+
 // case: syntax.expr.compare.refused-chain
 func a() { b == c == d }
 
@@ -105,6 +108,9 @@ func a() { match b { case.c -> d } }
 
 // case: syntax.pat.tuple.refused-named
 func a() { while let (b: c) = d { } }
+
+// case: syntax.pat.tuple.refused-paren
+func a() { while let (b) = c { } }
 
 // case: syntax.borrow.place.refused-let
 func a() { borrow let b }
@@ -262,8 +268,17 @@ func a() { self += b }
 // case: syntax.stmt.refused-bare-lend
 func a() { lend }
 
+// case: syntax.stmt.refused-guard-borrow.let
+func a() { guard borrow let b = c else { } }
+
+// case: syntax.stmt.refused-guard-borrow.var
+func a() { guard borrow var b = c else { } }
+
 // case: syntax.pat.refused-named-tuple
 func a() { while let (b: c) = d { } }
+
+// case: syntax.pat.refused-paren
+func a() { while let (b) = c { } }
 
 // case: syntax.pat.refused-qualified-variant
 func a() { match b { case c.d -> e } }

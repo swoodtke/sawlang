@@ -31,6 +31,7 @@ compiler/
     subset_check.py   the subset checker
     grammar_tables.py writes parse/src/grammar.saw from GRAMMAR.md
     depth_funnel.py   the parser's depth-funnel lane
+    comma_funnel.py   the parser's comma-list-funnel lane
   tests/
     run.py            the test runner
     parse_lane.py     the parse lane: sawc2 parse against the parser corpus
@@ -111,7 +112,8 @@ these things.
   generated cases, which regenerating must reproduce byte for byte, with the
   `parsecoverage` check over them (`tests/parse/README.md`).
 - **The parser** (`parse/README.md`): its grammar tables are current, its depth
-  funnel holds (`tools/depth_funnel.py`, with fixtures in `tests/funnel/`), and
+  funnel holds (`tools/depth_funnel.py`, with fixtures in `tests/funnel/`), its
+  comma lists all pass through one funnel (`tools/comma_funnel.py`), and
   the parse lane (`tests/parse_lane.py`) runs one `sawc2 parse` process over
   the parser corpus and `tests/corpus/`, requiring what `parse/CLAIMS.tsv`
   claims, and re-renders every expected dump through `sawc2 parse --redump`.

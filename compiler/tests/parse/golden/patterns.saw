@@ -1,11 +1,59 @@
-// case: syntax.pat.tuple.positional/one-element-is-a-tuple
+// case: syntax.pat.tuple.positional/one-element-trailing-comma
 func f() {
     match t {
-        case (a) -> 1
-        case ((b)) -> 2
+        case (a,) -> 1
     }
-    let (c) = t
-    if let (d) = t { }
+}
+
+// case: syntax.pat.tuple.positional/trailing-comma
+func f() {
+    match t {
+        case (a, b,) -> 1
+    }
+}
+
+// case: syntax.pat.tuple.positional/one-element-trailing-comma-in-a-let
+func f() {
+    let (a,) = t
+}
+
+// case: syntax.pat.tuple.positional/one-element-at-every-position
+func f() {
+    match t {
+        case (a,) -> 1
+        case ((b,),) -> 2
+        case Some((c,)) -> 3
+    }
+    let (d,) = t
+    if let (e,) = t { }
+    guard let (g,) = t else { return }
+    while let (h,) = t { }
+}
+
+// case: syntax.pat.tuple.positional/trailing-comma-across-lines
+func f() {
+    match t {
+        case (
+            a,
+            b,
+        ) -> 1
+    }
+    var (c, d,) = t
+}
+
+// case: syntax.pat.variant/trailing-comma
+func f() {
+    match o {
+        case Some(x,) -> 1
+    }
+}
+
+// case: syntax.pat.variant/trailing-comma-after-several-payloads
+func f() {
+    match o {
+        case A(x, y,) -> 1
+        case B((a, b,), C(c,),) -> 2
+    }
 }
 
 // case: syntax.pat.tuple.positional/nested
@@ -86,7 +134,7 @@ func f() {
 func f() {
     if let (A(x), 1) = w { } else if var (y, z) = w { }
     guard let (p, q) = w else { return }
-    guard var (r) = w else { return }
+    guard var (r,) = w else { return }
     while let (s, -3..4) = w { }
     while var (m, "k") = n.next() { }
 }

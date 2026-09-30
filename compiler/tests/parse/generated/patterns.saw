@@ -52,19 +52,19 @@ func a() { match b { case - 1 .. 1 -> c } }
 // case: syntax.pat.tuple.positional/alt
 func a() { while let () = b { } }
 
-// case: syntax.pat.tuple.positional/opt:1:(pattern ("," pattern)*)?=absent
+// case: syntax.pat.tuple.positional/opt:1:(pattern "," (pattern ("," pattern)* ","?)?)?=absent
 func a() { while let () = b { } }
 
-// case: syntax.pat.tuple.positional/opt:1:(pattern ("," pattern)*)?=present
-func a() { while let (b) = c { } }
+// case: syntax.pat.tuple.positional/opt:1:(pattern "," (pattern ("," pattern)* ","?)?)?=present
+func a() { while let (b,) = c { } }
 
 // case: syntax.pat.variant/alt
 func a() { match b { case c() -> d } }
 
-// case: syntax.pat.variant/opt:2:(payload-pattern ("," payload-pattern)*)?=absent
+// case: syntax.pat.variant/opt:2:(payload-pattern ("," payload-pattern)* ","?)?=absent
 func a() { match b { case c() -> d } }
 
-// case: syntax.pat.variant/opt:2:(payload-pattern ("," payload-pattern)*)?=present
+// case: syntax.pat.variant/opt:2:(payload-pattern ("," payload-pattern)* ","?)?=present
 func a() { match b { case c(d) -> e } }
 
 // case: syntax.pat.payload.pattern/alt
