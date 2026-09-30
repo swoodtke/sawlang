@@ -44,6 +44,16 @@ func main() {
     expect_ids("func f() consumes \{\n\}\n", false, "syntax.rule.effect-slot")
     expect_ids("func f() \{\n\}\n/// orphaned\n", false, "syntax.lex.doc-attach")
     expect_ids("func f() \{\n\}\n//! late\n", false, "syntax.lex.module-doc")
+    // A `{` after a complete `if` or loop on its line is refused alike, as a
+    // trailing closure, and as the head restriction where a head could take it.
+    expect_ids("func f() \{\n    if borrow let e = m[k] \{ e.ok \} \{ \}\n\}\n", false,
+               "syntax.rule.trailing-closure")
+    expect_ids("func f() \{\n    while borrow let e = m[k] \{ e.ok \} \{ \}\n\}\n", false,
+               "syntax.rule.trailing-closure")
+    expect_ids("func f() \{\n    for borrow let e in m \{ e.ok \} \{ \}\n\}\n", false,
+               "syntax.rule.head-restriction")
+    expect_ids("func f() \{\n    while c \{ e.ok \} \{ \}\n\}\n", false,
+               "syntax.rule.head-restriction")
     // A lex error is the whole parse's one diagnostic, named by its lexical
     // rule when one names it.
     expect_ids("func f() \{\n    let s = \"open\n\}\n", false, "syntax.lex.unterminated-string")

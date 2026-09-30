@@ -3885,7 +3885,9 @@ extension Parser {
 
     // A `while` or `for` loop that starts a statement: a statement, never an
     // operand, so a token after it that would continue an expression is
-    // refused (syntax.rule.block-tail).
+    // refused (syntax.rule.block-tail). A `{` on its line is refused as the
+    // trailing closure it would be after an `if`, which no loop takes either
+    // (syntax.rule.trailing-closure).
     func parse_loop_statement(&var self, place: StatementPlace) -> Bool {
         self.see_expression(place)
         self.see_operand_tiers()
@@ -3893,6 +3895,12 @@ extension Parser {
         let mark = self.builder.mark()
         if not self.parse_primary() {
             return false
+        }
+        if self.kind() == TokenKind.LBrace {
+            let at = self.pos
+            return self.refuse(Rule.Rule_TrailingClosure, at,
+                               "only a name or a member takes a trailing closure, and only one",
+                               "pass the closure in parentheses: `f(…)(\{ … \})`")
         }
         if continues_operand(self.kind()) {
             let at = self.pos

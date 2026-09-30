@@ -32,6 +32,7 @@ compiler/
     grammar_tables.py writes parse/src/grammar.saw from GRAMMAR.md
     depth_funnel.py   the parser's depth-funnel lane
     comma_funnel.py   the parser's comma-list-funnel lane
+    frozen_compare.py the one-time comparison with the frozen parser, not a lane
   tests/
     run.py            the test runner
     parse_lane.py     the parse lane: sawc2 parse against the parser corpus

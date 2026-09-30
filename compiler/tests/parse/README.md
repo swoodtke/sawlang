@@ -14,6 +14,7 @@ parse/
   golden/            hand-written cases: ASPECT.saw and their dumps, ASPECT.dump
   negative/          refused cases: ASPECT.saw and their refusals, ASPECT.expect
   waivers.tsv        coverage items and cases with no program, each with its reason
+  FROZEN_COMPARISON.md  the one-time comparison with the frozen parser (SL-424)
 ```
 
 `compiler/tests/grammar/dump.py FILE...` prints a file's dump,

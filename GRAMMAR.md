@@ -296,6 +296,19 @@ token. A doc comment that documents nothing is an error. `////` and a
 | syntax.lex.doc-attach | A doc comment attaches to the next documentable declaration, and one that documents nothing is an error (§2.6). | Doc comments |
 | syntax.lex.module-doc | `//!` is legal only before the first token. | Doc comments |
 
+Three mistyped numbers are refused, not left to the longest match, which would
+read each as two tokens. Each is directly followed, with no space, by:
+
+- a decimal digit outside the base of a prefixed integer (`0b102`, `0o78`);
+- a word spelled like a width suffix that is not one, `i` or `u` and digits
+  (`2u9`, `2_u9`);
+- after a float, a word spelled like a width suffix (`1.5u8`), since a float
+  takes none.
+
+Each is one lexical error at the offending character, under syntax.expr.int or
+syntax.expr.float. The rule reads only the digits of `INT` and `FLOAT`, so
+`$0u8` is `$0` followed by a name.
+
 ## 3. Files and declarations
 
 A file is a list of top-level items, one per line. Items are never joined by
@@ -1906,6 +1919,7 @@ of top-level items, and the `?` suffixes of a type.
 | syntax.borrow.block | 1 | its body's end |
 | syntax.stmt.guard | 1 | its `else` block's end |
 | syntax.decl.module | 1 for an inline module | its `}` |
+| syntax.decl.payload | 1 for the payload's `(` | its `)` |
 | syntax.test.group | 1 | its `}` |
 | syntax.type.ref | 1 per `&` or `&var` | its inner type's end |
 | syntax.type.slice | 1 | its `]` |
@@ -2278,6 +2292,7 @@ the two disagree, a row below says which way and why. Where a grammar rule
 | syntax.lex.float-point | refuses `.5` with a hint naming `0.5`, as it refuses `7.` with one naming `7.0` | refuses `.5` as an unexpected `.`, with no hint | defect | Primitive Types |
 | syntax.rule.interpolation-whole | refuses a segment that is not one expression, such as `"{1F600}"` | keeps the first token and drops the rest, which `compiler/lex/tests/escapes.saw` relies on | defect | String |
 | syntax.stmt.guard, syntax.expr.closure | parses `guard` as a closure-body statement | refuses it | defect | Closures |
+| syntax.expr.try, syntax.rule.trailing-closure | attaches a trailing closure inside the operand of `try`, `try?` or `try!`, as it does outside one, so `try! jobs.map { j in j.label() }` calls `map` with the closure | takes no trailing closure anywhere in the operand, so the `{` begins a second statement and the line is refused ("two statements on one line need a `;` between them") | defect | Try Variants; DF-259c |
 | syntax.expr.try-block, syntax.rule.try-block | refuses `try? { … } catch { … }` | parses it as a plain `try` block and drops the `?` | defect | Block Try-Catch |
 | syntax.type.func-effects | refuses effect words out of order in a function type | accepts any order | defect | Spelling |
 | syntax.decl.extern-params.variadic | wants `, ...` | also accepts `T ...` with no comma | defect | C FFI |
