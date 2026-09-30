@@ -1279,7 +1279,11 @@ widening builds: `let wide: Int = small`.
 **Shape:** two extensions of one type, in different modules, each declaring a
 method of the same name, which is legal, since extensions are import-scoped and
 their methods are private by default. Stage 0's method mangling drops the
-extension's module, so the build fails:
+extension's module. The build fails when one of the methods is called from
+inside its own extension's module. It fails whatever their signatures or
+visibility, and even if only one of them is ever called. Two same-named methods
+called only from other modules build and run correctly, and no silent variant
+was found (the Air's five probes on t24):
 
 ```saw
 // area.saw:      extension Shape { func fold(&self) -> Int {...}  public func area(&self) -> Int { self.fold() } }
