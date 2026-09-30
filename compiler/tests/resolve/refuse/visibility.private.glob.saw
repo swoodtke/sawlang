@@ -1,0 +1,8 @@
+// refuses: visibility.private at 7:5
+// a bare name a glob import misses only because the declaration is private in its module
+
+import std.slab.*
+
+func f() {
+    slab_alloc()
+}

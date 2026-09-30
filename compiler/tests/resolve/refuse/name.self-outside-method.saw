@@ -1,0 +1,6 @@
+// refuses: name.self-outside-method at 5:5
+// `self` in a function with no receiver
+
+func f() -> Int {
+    self.n
+}

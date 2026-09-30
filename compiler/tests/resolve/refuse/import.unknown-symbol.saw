@@ -1,0 +1,8 @@
+// refuses: import.unknown-symbol at 4:18
+// a selective import of a name its module does not declare
+
+import std.path.{Nowhere}
+
+func f() -> Int {
+    0
+}

@@ -1,0 +1,6 @@
+// refuses: name.duplicate-binding at 4:16
+// two parameters of one name
+
+func f(a: Int, a: Int) -> Int {
+    a
+}

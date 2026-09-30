@@ -1,0 +1,6 @@
+// refuses: name.duplicate-binding at 4:11
+// two generic parameters of one name
+
+func f<T, T>(a: T) -> T {
+    a
+}

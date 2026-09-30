@@ -1,0 +1,11 @@
+// refuses: test.only-reference at 10:5
+// ordinary code naming a test-only declaration
+
+@test
+func sample() -> Int {
+    5
+}
+
+func f() -> Int {
+    sample()
+}

@@ -1,0 +1,10 @@
+// refuses: name.shadowing at 6:13
+// a `let` that shadows an enclosing binding without deriving from it
+
+func f(n: Int) -> Int {
+    if n > 0 {
+        let n = 7
+        return n
+    }
+    n
+}

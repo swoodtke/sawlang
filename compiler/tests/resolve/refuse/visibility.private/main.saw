@@ -1,0 +1,8 @@
+// refuses: visibility.private at 7:12
+// a qualified reach into another module's private declaration (design 80)
+
+import secret
+
+func f() -> Int {
+    secret.hidden()
+}

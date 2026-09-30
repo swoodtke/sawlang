@@ -1,0 +1,8 @@
+// refuses: visibility.private at 4:18
+// a selective import of a std file's private declaration
+
+import std.file.{OpenMode}
+
+func f() -> Int {
+    0
+}

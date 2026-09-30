@@ -1,0 +1,37 @@
+// Test-only declarations (SL:testing §4): what `@test` declares is named by
+// test code, the cases, the groups and other test-only declarations. A refusal
+// case's body is only brace-matched in a normal build, so nothing in it is
+// resolved.
+
+struct Clock {
+    now: Int
+}
+
+func elapsed(c: &Clock) -> Int {
+    c.now
+}
+
+@test
+func sample() -> Clock {
+    Clock(now: 5)
+}
+
+@test {
+    struct FakeClock {
+        now: Int
+    }
+
+    func fake() -> FakeClock {
+        FakeClock(now: 1)
+    }
+}
+
+@test "elapsed reads the clock" {
+    let c = sample()
+    let f = fake()
+    assert(elapsed(&c) == 5, "five")
+}
+
+@test(refuses: "name.undefined") "an unknown name" {
+    let x = nowhere
+}

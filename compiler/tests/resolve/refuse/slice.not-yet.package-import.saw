@@ -1,0 +1,8 @@
+// refuses: slice.not-yet at 4:8
+// a `package` import path, not in the bootstrap slice yet
+
+import package.helpers.{thing}
+
+func f() -> Int {
+    0
+}

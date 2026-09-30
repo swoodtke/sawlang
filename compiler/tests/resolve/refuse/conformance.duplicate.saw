@@ -1,0 +1,15 @@
+// refuses: conformance.duplicate at 14:18
+// a type conforming to one trait twice
+
+struct Point {
+    x: Int
+}
+
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("p")
+    }
+}
+
+extension Point: Printable {
+}

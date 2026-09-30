@@ -1,0 +1,108 @@
+// The resolve stage's entry points: a program resolved from its entry file,
+// and the record `sawc2 resolve` prints for it.
+
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.imports.{res_same_binding}
+import sawresolve.src.loader.{res_read_file}
+import sawresolve.src.model.{ResDiag, ResModule, ResModuleKind}
+import sawresolve.src.prelude.{res_declare_prelude}
+import sawresolve.src.program.{ResProgram, res_program}
+import sawresolve.src.rules.{res_conformance_decl}
+import sawresolve.src.verify.{res_verify_module}
+import sawresolve.src.walk.{res_resolve_bodies}
+
+// How `sawc2 resolve` treats one entry file.
+public struct ResolveOptions {
+    // The directory holding `std/` and `builtin.saw`.
+    public std_root: String
+    // Print each resolved module's dump.
+    public dump: Bool
+    // Print the notes about interface modules as well as the refusals.
+    public notes: Bool
+}
+
+// Resolves the program whose entry file is `path`, with each of `names`
+// mapped to the package directory beside it in `dirs`. Collection happens as
+// each module loads, then imports, bodies and the rules that need every
+// module.
+public func resolve_program(path: String, std_root: String, names: &Vector<String>,
+                            dirs: &Vector<String>) -> ResProgram {
+    var p = res_program(std_root)
+    var k = 0
+    while k < names.len() {
+        p.add_package(names.get(k) ?? "", dirs.get(k) ?? "")
+        k = k + 1
+    }
+    p.load_builtin()
+    p.load_std_modules()
+    res_declare_prelude(&var p)
+    p.index_gated_std()
+    let _ = p.load_entry(path)
+    p.process_imports()
+    res_resolve_bodies(&var p)
+    p.check_conformances()
+    move p
+}
+
+// The record of one resolved program, after its `FILE` line: an `ERROR` line
+// per refusal, in the order they were made, `NOTE` lines when asked for, an
+// `INVARIANT` line per problem the verifier finds, and each resolved module's
+// dump when asked for. Returns 0 when nothing was refused and 1 otherwise.
+public func resolve_record(out: &var StringBuilder, path: String, options: &ResolveOptions,
+                           names: &Vector<String>, dirs: &Vector<String>) -> Int {
+    let p = resolve_program(path, options.std_root, &names, &dirs)
+    var k = 0
+    while k < p.diags.len() {
+        let d = p.diags[k]
+        if not d.note || options.notes {
+            append_res_diag(out: &var out, p: &p, d: &d)
+        }
+        k = k + 1
+    }
+    var m = 0
+    while m < p.module_count() {
+        let problems = res_verify_module(&p, m)
+        var j = 0
+        while j < problems.len() {
+            try! out.append("INVARIANT\t")
+            try! out.append(p.module_name(m))
+            try! out.append("\t")
+            try! out.append(problems.get(j) ?? "")
+            try! out.append("\n")
+            j = j + 1
+        }
+        m = m + 1
+    }
+    if options.dump {
+        m = 0
+        while m < p.module_count() {
+            let info = p.module(m)
+            if info.available && not info.interface_only {
+                p.dump_module(&var out, m)
+                try! out.append("\n")
+            }
+            m = m + 1
+        }
+    }
+    if p.error_count() > 0 {
+        return 1
+    }
+    0
+}
+
+// `ERROR<TAB>id<TAB>file:line:col<TAB>message`, or `NOTE` for a note.
+public func append_res_diag(out: &var StringBuilder, p: &ResProgram, d: &ResDiag) {
+    if d.note {
+        try! out.append("NOTE\t")
+    } else {
+        try! out.append("ERROR\t")
+    }
+    try! out.append(d.id)
+    try! out.append("\t")
+    try! out.append(p.module_file(d.module))
+    try! out.append(":")
+    try! out.append(p.position_text(d.module, d.start))
+    try! out.append("\t")
+    try! out.append(d.message)
+    try! out.append("\n")
+}

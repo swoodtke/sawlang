@@ -1,0 +1,791 @@
+// The resolution dump of compiler/tests/resolve/README.md: one S-expression
+// per resolved module, its name occurrences, its call heads, then its symbol,
+// surface and import tables and its visible extension set. Every list is in a
+// defined order, so the dump is byte-stable.
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.imports.{res_vis_text}
+import sawresolve.src.kinds.{res_is_type_alt}
+import sawresolve.src.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResDecl,
+                             ResDeclKind, ResExport, ResImport, ResImportForm, ResModule,
+                             ResName, ResSymbol, ResVis}
+import sawresolve.src.program.{ResProgram}
+
+public func res_call_class_text(c: ResCallClass) -> String {
+    match c {
+        case Init -> "init",
+        case Overload -> "overload",
+        case Local -> "local",
+        case TypeParam -> "type-param",
+        case Case -> "case",
+        case ImplicitCase -> "implicit-case",
+        case Method -> "method",
+        case StaticMethod -> "static-method",
+        case Value -> "value"
+    }
+}
+
+public func res_decl_kind_text(k: ResDeclKind) -> String {
+    match k {
+        case Struct -> "struct",
+        case Enum -> "enum",
+        case Case -> "case",
+        case Trait -> "trait",
+        case Alias -> "alias",
+        case Static -> "static",
+        case Func -> "func",
+        case Extern -> "extern",
+        case Extension -> "extension",
+        case Method -> "method",
+        case Init -> "init",
+        case TypeAssign -> "type-assign",
+        case AssocType -> "assoc-type",
+        case Requirement -> "requirement",
+        case Field -> "field",
+        case Primitive -> "type",
+        case BuiltinFunc -> "func"
+    }
+}
+
+// Sorts `order`, indices into some table, by `keys[order[i]]`, stably. The
+// tables are nearly in order already, which an insertion sort takes in linear
+// time.
+public func res_sort_by(order: &var Vector<Int>, keys: &Vector<Int>) {
+    var i = 1
+    while i < order.len() {
+        let item = order[i]
+        let key = keys[item]
+        var j = i - 1
+        while j >= 0 && keys[order[j]] > key {
+            let moved = order[j]
+            order[j + 1] = moved
+            j = j - 1
+        }
+        order[j + 1] = item
+        i = i + 1
+    }
+}
+
+extension ResProgram {
+    // A declaration's path: its name, after its enclosing type's for a member.
+    public func decl_path(&self, d: Int) -> String {
+        let decl = self.decls[d]
+        var out = StringBuilder()
+        if decl.parent >= 0 {
+            let parent = self.decls[decl.parent]
+            if parent.name >= 0 {
+                try! out.append(self.name_text(parent.name))
+                try! out.append(".")
+            } else if parent.kind == ResDeclKind.Extension {
+                try! out.append(self.extension_type_name(decl.parent))
+                try! out.append(".")
+            }
+        }
+        try! out.append(self.name_text(decl.name))
+        out.build()
+    }
+
+    // The type an extension extends, as its head spells the last segment.
+    func extension_type_name(&self, ext: Int) -> String {
+        let decl = self.decls[ext]
+        let head = self.first_node_child(decl.node)
+        let leaf = self.last_leaf_of(head)
+        if leaf < 0 {
+            return "?"
+        }
+        self.text_of(decl.module, leaf)
+    }
+
+    // A declaration's identity: its module, then its path.
+    public func decl_identity(&self, d: Int) -> String {
+        let decl = self.decls[d]
+        var out = StringBuilder()
+        try! out.append(self.module_name(decl.module))
+        try! out.append(".")
+        try! out.append(self.decl_path(d))
+        out.build()
+    }
+
+    // How a binding prints (compiler/tests/resolve/README.md, Bindings).
+    public func binding_text(&self, m: Int, b: &ResBinding) -> String {
+        var out = StringBuilder()
+        match b.kind {
+            case Unbound -> try! out.append("(unbound)"),
+            case Error -> try! out.append("(error)"),
+            case Local -> {
+                try! out.append("(local ")
+                try! out.append(self.local_name_text(m, b.node))
+                try! out.append(" ")
+                try! out.append(self.node_position(m, b.node))
+                try! out.append(")")
+            },
+            case TypeParam -> {
+                try! out.append("(type-param ")
+                try! out.append(self.name_text(b.name))
+                try! out.append(" ")
+                try! out.append(self.node_position(b.module, b.node))
+                try! out.append(")")
+            },
+            case Decl -> {
+                if b.decl < 0 {
+                    try! out.append("(error)")
+                } else {
+                    let decl = self.decls[b.decl]
+                    try! out.append("(")
+                    try! out.append(res_decl_kind_text(decl.kind))
+                    try! out.append(" ")
+                    try! out.append(self.module_name(decl.module))
+                    try! out.append(" ")
+                    try! out.append(self.decl_path(b.decl))
+                    try! out.append(")")
+                }
+            },
+            case Case -> {
+                let decl = self.decls[b.decl]
+                try! out.append("(case ")
+                try! out.append(self.module_name(decl.module))
+                try! out.append(" ")
+                try! out.append(self.decl_path(b.decl))
+                try! out.append(")")
+            },
+            case Overload -> {
+                try! out.append("(overload ")
+                try! out.append(self.module_name(b.module))
+                try! out.append(" ")
+                try! out.append(self.name_text(b.name))
+                try! out.append(")")
+            },
+            case Overloads -> {
+                try! out.append("(overloads ")
+                try! out.append(self.name_text(b.name))
+                try! out.append(self.merged_modules(b.decl))
+                try! out.append(")")
+            },
+            case Cases -> {
+                try! out.append("(cases ")
+                try! out.append(self.name_text(b.name))
+                try! out.append(self.case_candidates(m, b.name))
+                try! out.append(")")
+            },
+            case Module -> {
+                try! out.append("(module ")
+                try! out.append(self.module_name(b.module))
+                try! out.append(")")
+            },
+            case SelfType -> {
+                try! out.append("(self-type")
+                if b.decl >= 0 {
+                    try! out.append(" ")
+                    try! out.append(self.decl_identity(b.decl))
+                }
+                try! out.append(")")
+            },
+            case Member -> {
+                try! out.append("(member")
+                if b.decl >= 0 {
+                    try! out.append(" ")
+                    try! out.append(self.decl_identity(b.decl))
+                }
+                try! out.append(")")
+            }
+        }
+        out.build()
+    }
+
+    // ` M` for each module of the merged overload set at `at`, by identity.
+    func merged_modules(&self, at: Int) -> String {
+        var texts = Vector<String>()
+        let count = self.merges[at]
+        var k = 0
+        while k < count {
+            let owner = self.merges[at + 1 + k]
+            try! texts.push(self.module_name(owner))
+            k = k + 1
+        }
+        res_sort_strings(&var texts)
+        var out = StringBuilder()
+        k = 0
+        while k < texts.len() {
+            try! out.append(" ")
+            try! out.append(texts.get(k) ?? "")
+            k = k + 1
+        }
+        out.build()
+    }
+
+    // ` (case M E.C)` for each enum case named `name` in module `m`'s import
+    // closure, by identity.
+    func case_candidates(&self, m: Int, name: Int) -> String {
+        var texts = Vector<String>()
+        var at = self.cases.first(0, name)
+        while at >= 0 {
+            let d = self.cases.value(at)
+            let decl = self.decls[d]
+            if self.in_closure(m, decl.module) {
+                try! texts.push(self.decl_identity(d))
+            }
+            at = self.cases.following(at)
+        }
+        res_sort_strings(&var texts)
+        var out = StringBuilder()
+        var k = 0
+        while k < texts.len() {
+            try! out.append(" ")
+            try! out.append(texts.get(k) ?? "")
+            k = k + 1
+        }
+        out.build()
+    }
+
+    // The name a Local binding's declaring node shows: its leaf's text, or
+    // `self` for a receiver and `error` for a catch block.
+    func local_name_text(&self, m: Int, node: Int) -> String {
+        if self.is_leaf(node) {
+            return self.text_of(m, node)
+        }
+        if self.is_alt(node, Alt.Decl_Param_Receiver) {
+            return "self"
+        }
+        if self.is_alt(node, Alt.Expr_Capture_Self) || self.is_alt(node, Alt.Expr_Capture_SelfExclusive) {
+            return "self"
+        }
+        "error"
+    }
+
+    // Module `m`'s dump.
+    public func dump_module(&self, out: &var StringBuilder, m: Int) {
+        try! out.append("(Module ")
+        try! out.append(self.module_name(m))
+        self.dump_names(&var out, m)
+        self.dump_calls(&var out, m)
+        self.dump_declarations(&var out, m)
+        self.dump_surface(&var out, m)
+        self.dump_imports(&var out, m)
+        self.dump_extension_set(&var out, m)
+        try! out.append(")")
+    }
+
+    func dump_names(&self, out: &var StringBuilder, m: Int) {
+        var order = Vector<Int>()
+        var keys = Vector<Int>()
+        var k = 0
+        while k < self.records.len() {
+            let r = self.records[k]
+            let n = self.nodes[r.leaf]
+            try! keys.push(n.start)
+            if r.module == m {
+                try! order.push(k)
+            }
+            k = k + 1
+        }
+        res_sort_by(&var order, &keys)
+        try! out.append("\n  (names")
+        k = 0
+        while k < order.len() {
+            let r = self.records[order[k]]
+            try! out.append("\n    (")
+            try! out.append(self.node_position(m, r.leaf))
+            try! out.append(" ")
+            try! out.append(self.occurrence_text(m, r.leaf))
+            try! out.append(" ")
+            try! out.append(self.binding_text(m, &r.binding))
+            try! out.append(")")
+            k = k + 1
+        }
+        try! out.append(")")
+    }
+
+    // An occurrence's spelling: its leaf's text, or `self` for a SelfExpr.
+    func occurrence_text(&self, m: Int, id: Int) -> String {
+        if self.is_leaf(id) {
+            return self.text_of(m, id)
+        }
+        "self"
+    }
+
+    func dump_calls(&self, out: &var StringBuilder, m: Int) {
+        var order = Vector<Int>()
+        var keys = Vector<Int>()
+        var k = 0
+        while k < self.calls.len() {
+            let c = self.calls[k]
+            let n = self.nodes[c.node]
+            try! keys.push(n.start)
+            if c.module == m {
+                try! order.push(k)
+            }
+            k = k + 1
+        }
+        res_sort_by(&var order, &keys)
+        try! out.append("\n  (calls")
+        k = 0
+        while k < order.len() {
+            let c = self.calls[order[k]]
+            try! out.append("\n    (")
+            try! out.append(self.node_position(m, c.node))
+            try! out.append(" ")
+            try! out.append(res_call_class_text(c.classification))
+            // A method's or a function value's callee is typecheck's to find,
+            // so the call carries no binding.
+            let named = c.classification != ResCallClass.Method && c.classification != ResCallClass.Value
+            if named {
+                try! out.append(" ")
+                try! out.append(self.binding_text(m, &c.binding))
+            }
+            try! out.append(")")
+            k = k + 1
+        }
+        try! out.append(")")
+    }
+
+    func dump_declarations(&self, out: &var StringBuilder, m: Int) {
+        let info = self.modules[m]
+        try! out.append("\n  (declarations")
+        var d = info.decl_first
+        while d < info.decl_first + info.decl_count {
+            let decl = self.decls[d]
+            try! out.append("\n    (")
+            try! out.append(res_decl_kind_text(decl.kind))
+            if decl.name >= 0 {
+                try! out.append(" ")
+                try! out.append(self.decl_path(d))
+            }
+            if decl.leaf >= 0 {
+                try! out.append(" ")
+                try! out.append(self.node_position(m, decl.leaf))
+            }
+            if decl.vis != ResVis.Private {
+                try! out.append(" ")
+                try! out.append(res_vis_text(decl.vis))
+            }
+            if decl.test_only {
+                try! out.append(" test-only")
+            }
+            if decl.flag && (decl.kind == ResDeclKind.Method || decl.kind == ResDeclKind.Requirement) {
+                try! out.append(" static")
+            }
+            if decl.flag && decl.kind == ResDeclKind.Case {
+                try! out.append(" payload")
+            }
+            if decl.kind == ResDeclKind.Func || decl.kind == ResDeclKind.Extern || decl.kind == ResDeclKind.Method || decl.kind == ResDeclKind.Init {
+                try! out.append(" (signature ")
+                try! out.append(self.signature_text(m, decl.node))
+                try! out.append(")")
+            }
+            if decl.kind == ResDeclKind.Extension {
+                self.dump_extension_head(&var out, m, d)
+            }
+            try! out.append(")")
+            d = d + 1
+        }
+        try! out.append(")")
+    }
+
+    // An extension's type and traits, as resolved.
+    func dump_extension_head(&self, out: &var StringBuilder, m: Int, ext: Int) {
+        var first = true
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            if c.ext == ext {
+                if first {
+                    try! out.append(" ")
+                    try! out.append(self.binding_text(m, &c.target))
+                    try! out.append(" (conforms")
+                    first = false
+                }
+                try! out.append(" ")
+                try! out.append(self.binding_text(m, &c.trait_binding))
+            }
+            k = k + 1
+        }
+        if not first {
+            try! out.append(")")
+            return
+        }
+        let decl = self.decls[ext]
+        let head = self.first_node_child(decl.node)
+        let leaf = self.last_leaf_of(head)
+        let r = self.record_of[leaf]
+        if r >= 0 {
+            let rec = self.records[r]
+            try! out.append(" ")
+            try! out.append(self.binding_text(m, &rec.binding))
+        }
+    }
+
+    // A function's parameters and return type, each type by the identities
+    // its names resolved to: the stable path of one overload.
+    public func signature_text(&self, m: Int, f: Int) -> String {
+        var out = StringBuilder()
+        try! out.append("(")
+        var first = true
+        let n = self.child_count(f)
+        var k = 0
+        var ret = -1
+        while k < n {
+            let c = self.child(f, k)
+            if self.is_alt(c, Alt.Decl_Param_Plain) || self.is_alt(c, Alt.Decl_Param_Default) || self.is_alt(c, Alt.Decl_ExternParam) {
+                if not first {
+                    try! out.append(", ")
+                }
+                first = false
+                let label = self.first_leaf(c)
+                let declared = self.child(c, 1)
+                try! out.append(self.text_of(m, label))
+                try! out.append(": ")
+                try! out.append(self.type_text(m, declared))
+            } else if self.is_alt(c, Alt.Decl_Param_Receiver) {
+                if not first {
+                    try! out.append(", ")
+                }
+                first = false
+                let r = self.first_node_child(c)
+                if self.is_alt(r, Alt.Decl_Receiver_Exclusive) {
+                    try! out.append("&var self")
+                } else {
+                    try! out.append("&self")
+                }
+            } else if not self.is_leaf(c) && res_is_type_alt(self.alt_of(c)) {
+                ret = c
+            }
+            k = k + 1
+        }
+        try! out.append(")")
+        if ret >= 0 {
+            try! out.append(" -> ")
+            try! out.append(self.type_text(m, ret))
+        }
+        out.build()
+    }
+
+    // A written type with each name replaced by its identity.
+    public func type_text(&self, m: Int, t: Int) -> String {
+        guard let alt = self.alt_of(t) else {
+            return self.text_of(m, t)
+        }
+        var out = StringBuilder()
+        let inner = self.first_node_child(t)
+        if alt == Alt.Type_Named || alt == Alt.Type_Any {
+            let leaf = self.last_leaf_of(inner)
+            if alt == Alt.Type_Any {
+                try! out.append("any ")
+            }
+            try! out.append(self.name_identity(m, leaf))
+            let n = self.child_count(t)
+            if n > 1 {
+                try! out.append("<")
+                var k = 1
+                while k < n {
+                    if k > 1 {
+                        try! out.append(", ")
+                    }
+                    let arg = self.child(t, k)
+                    try! out.append(self.type_text(m, arg))
+                    k = k + 1
+                }
+                try! out.append(">")
+            }
+        } else if alt == Alt.Type_Ref_Shared {
+            try! out.append("&")
+            try! out.append(self.type_text(m, inner))
+        } else if alt == Alt.Type_Ref_Exclusive {
+            try! out.append("&var ")
+            try! out.append(self.type_text(m, inner))
+        } else if alt == Alt.Type_Suffix_Optional || alt == Alt.Type_Suffix_DoubleOptional {
+            // Each OptionalType node is one layer, a `??` token's two included.
+            try! out.append(self.type_text(m, inner))
+            try! out.append("?")
+        } else if alt == Alt.Type_Slice_Shared {
+            try! out.append("&[")
+            try! out.append(self.type_text(m, inner))
+            try! out.append("]")
+        } else if alt == Alt.Type_Slice_Exclusive {
+            try! out.append("&var [")
+            try! out.append(self.type_text(m, inner))
+            try! out.append("]")
+        } else if alt == Alt.Type_Array {
+            let length = self.last_node_child(t)
+            try! out.append("[")
+            try! out.append(self.type_text(m, inner))
+            try! out.append("; ")
+            try! out.append(self.text_of(m, length))
+            try! out.append("]")
+        } else if alt == Alt.Type_Func {
+            try! out.append(self.func_type_text(m, t))
+        } else if res_is_type_alt(self.alt_of(t)) {
+            try! out.append(self.tuple_type_text(m, t))
+        } else {
+            try! out.append(self.text_of(m, t))
+        }
+        out.build()
+    }
+
+    // A tuple type: its elements, each rendered, or its labelled fields.
+    func tuple_type_text(&self, m: Int, t: Int) -> String {
+        var out = StringBuilder()
+        try! out.append("(")
+        let n = self.child_count(t)
+        var k = 0
+        while k < n {
+            let c = self.child(t, k)
+            if k > 0 {
+                try! out.append(", ")
+            }
+            if self.is_alt(c, Alt.Type_TupleField) {
+                let label = self.first_leaf(c)
+                let field_type = self.last_node_child(c)
+                try! out.append(self.text_of(m, label))
+                try! out.append(": ")
+                try! out.append(self.type_text(m, field_type))
+            } else {
+                try! out.append(self.type_text(m, c))
+            }
+            k = k + 1
+        }
+        if n == 1 {
+            try! out.append(",")
+        }
+        try! out.append(")")
+        out.build()
+    }
+
+    // A function type: its parameters, its effect words, its return type.
+    func func_type_text(&self, m: Int, t: Int) -> String {
+        var out = StringBuilder()
+        try! out.append("(")
+        let ret = self.last_node_child(t)
+        let n = self.child_count(t)
+        var params = 0
+        var k = 0
+        while k < n {
+            let c = self.child(t, k)
+            if c != ret && not self.is_leaf(c) {
+                if params > 0 {
+                    try! out.append(", ")
+                }
+                try! out.append(self.type_text(m, c))
+                params = params + 1
+            }
+            k = k + 1
+        }
+        try! out.append(")")
+        k = 0
+        while k < n {
+            let c = self.child(t, k)
+            if self.is_leaf(c) {
+                try! out.append(" ")
+                try! out.append(self.text_of(m, c))
+            }
+            k = k + 1
+        }
+        try! out.append(" -> ")
+        try! out.append(self.type_text(m, ret))
+        out.build()
+    }
+
+    // The identity a type name's leaf resolved to: `module.Name`, a type
+    // parameter's name, `Self`, or `?` when it did not resolve.
+    func name_identity(&self, m: Int, leaf: Int) -> String {
+        if leaf < 0 {
+            return "?"
+        }
+        let r = self.record_of[leaf]
+        if r < 0 {
+            return "?"
+        }
+        let rec = self.records[r]
+        match rec.binding.kind {
+            case Decl -> self.decl_identity(rec.binding.decl),
+            case TypeParam -> self.name_text(rec.binding.name),
+            case SelfType -> "Self",
+            case _ -> "?"
+        }
+    }
+
+    func dump_surface(&self, out: &var StringBuilder, m: Int) {
+        var texts = Vector<String>()
+        var k = 0
+        while k < self.exports.len() {
+            let e = self.exports[k]
+            if e.module == m {
+                var line = StringBuilder()
+                try! line.append(self.name_text(e.name))
+                try! line.append(" ")
+                try! line.append(self.binding_text(m, &e.binding))
+                try! texts.push(line.build())
+            }
+            k = k + 1
+        }
+        res_sort_strings(&var texts)
+        try! out.append("\n  (surface")
+        k = 0
+        while k < texts.len() {
+            try! out.append("\n    (")
+            try! out.append(texts.get(k) ?? "")
+            try! out.append(")")
+            k = k + 1
+        }
+        try! out.append(")")
+    }
+
+    func dump_imports(&self, out: &var StringBuilder, m: Int) {
+        try! out.append("\n  (imports")
+        var i = 0
+        while i < self.imports.len() {
+            let imp = self.imports[i]
+            if imp.module == m {
+                try! out.append("\n    (")
+                try! out.append(self.node_position(m, imp.node))
+                try! out.append(" ")
+                if imp.target >= 0 {
+                    try! out.append(self.module_name(imp.target))
+                } else {
+                    try! out.append("(error)")
+                }
+                if imp.reexport {
+                    try! out.append(" public")
+                }
+                if imp.test_only {
+                    try! out.append(" test-only")
+                }
+                if imp.form == ResImportForm.Qualifier {
+                    try! out.append(" (qualifier ")
+                    try! out.append(self.name_text(imp.qualifier))
+                    try! out.append(")")
+                } else if imp.form == ResImportForm.Glob {
+                    try! out.append(" (glob)")
+                } else {
+                    try! out.append(" (select")
+                    var s = 0
+                    while s < self.symbols.len() {
+                        let sym = self.symbols[s]
+                        if sym.import_at == i {
+                            try! out.append(" (")
+                            try! out.append(self.name_text(sym.bound))
+                            try! out.append(" ")
+                            try! out.append(self.binding_text(m, &sym.binding))
+                            try! out.append(")")
+                        }
+                        s = s + 1
+                    }
+                    try! out.append(")")
+                }
+                try! out.append(")")
+            }
+            i = i + 1
+        }
+        try! out.append(")")
+    }
+
+    // The modules whose extensions module `m` sees: its own, its direct
+    // imports', and those their `public import`s reach, transitively (designs
+    // 142 and 254). A receiver's defining module is typecheck's to add.
+    public func extension_modules(&self, m: Int) -> Vector<Bool> {
+        var seen = Vector<Bool>()
+        var k = 0
+        while k < self.modules.len() {
+            try! seen.push(false)
+            k = k + 1
+        }
+        seen[m] = true
+        var work = Vector<Int>()
+        var i = 0
+        while i < self.imports.len() {
+            let imp = self.imports[i]
+            if imp.module == m && imp.target >= 0 && not seen[imp.target] {
+                seen[imp.target] = true
+                try! work.push(imp.target)
+            }
+            i = i + 1
+        }
+        var head = 0
+        while head < work.len() {
+            let at = work[head]
+            head = head + 1
+            i = 0
+            while i < self.imports.len() {
+                let imp = self.imports[i]
+                if imp.module == at && imp.reexport && imp.target >= 0 && not seen[imp.target] {
+                    seen[imp.target] = true
+                    try! work.push(imp.target)
+                }
+                i = i + 1
+            }
+        }
+        move seen
+    }
+
+    func dump_extension_set(&self, out: &var StringBuilder, m: Int) {
+        let seen = self.extension_modules(m)
+        var texts = Vector<String>()
+        var k = 0
+        while k < seen.len() {
+            if seen[k] {
+                try! texts.push(self.module_name(k))
+            }
+            k = k + 1
+        }
+        res_sort_strings(&var texts)
+        try! out.append("\n  (extensions")
+        k = 0
+        while k < texts.len() {
+            try! out.append(" ")
+            try! out.append(texts.get(k) ?? "")
+            k = k + 1
+        }
+        try! out.append(")")
+    }
+}
+
+// Whether `a` sorts before `b`, byte by byte.
+public func res_string_less(a: &String, b: &String) -> Bool {
+    let n = if a.len() < b.len() { a.len() } else { b.len() }
+    var i = 0
+    while i < n {
+        let x = a.byte_at(i) as Int
+        let y = b.byte_at(i) as Int
+        if x != y {
+            return x < y
+        }
+        i = i + 1
+    }
+    a.len() < b.len()
+}
+
+// Sorts `texts` bytewise.
+public func res_sort_strings(texts: &var Vector<String>) {
+    var kept = Vector<String>()
+    var order = Vector<Int>()
+    var k = 0
+    while k < texts.len() {
+        try! order.push(k)
+        k = k + 1
+    }
+    var i = 1
+    while i < order.len() {
+        let item = order[i]
+        let item_text = texts.get(item) ?? ""
+        var j = i - 1
+        var placing = true
+        while j >= 0 && placing {
+            let other = texts.get(order[j]) ?? ""
+            if res_string_less(&item_text, &other) {
+                let moved = order[j]
+                order[j + 1] = moved
+                j = j - 1
+            } else {
+                placing = false
+            }
+        }
+        order[j + 1] = item
+        i = i + 1
+    }
+    k = 0
+    while k < order.len() {
+        try! kept.push(texts.get(order[k]) ?? "")
+        k = k + 1
+    }
+    texts = move kept
+}

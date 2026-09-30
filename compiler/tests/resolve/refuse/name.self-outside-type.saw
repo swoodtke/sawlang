@@ -1,0 +1,6 @@
+// refuses: name.self-outside-type at 4:13
+// `Self` outside a type's declaration or extension
+
+func f() -> Self {
+    panic("never")
+}

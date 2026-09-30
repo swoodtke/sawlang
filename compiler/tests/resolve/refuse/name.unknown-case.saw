@@ -1,0 +1,7 @@
+// refuses: name.unknown-case at 5:19
+// an implicit member no enum declares as a case
+
+func f() -> Int {
+    let n: Int = .Nothing
+    n
+}

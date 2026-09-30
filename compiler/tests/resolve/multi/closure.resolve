@@ -1,0 +1,115 @@
+(Module main
+  (names
+    (5:8 level (module level))
+    (6:8 plain (module plain))
+    (7:8 reached (module reached))
+    (8:8 own (module own))
+    (11:13 plain (module plain))
+    (11:19 count_of (overload plain count_of))
+    (12:13 plain (module plain))
+    (12:19 sign (overload plain sign))
+    (13:13 reached (module reached))
+    (13:21 weigh (overload reached weigh))
+    (14:13 level (module level))
+    (14:19 Level (enum level Level))
+    (14:25 count (case level Level.count))
+    (15:13 own (module own))
+    (15:17 tally_of (overload own tally_of))
+    (15:26 own (module own))
+    (15:30 Tally (enum own Tally))
+    (15:36 count (case own Tally.count)))
+  (calls
+    (11:13 overload (overload plain count_of))
+    (12:13 overload (overload plain sign))
+    (13:13 overload (overload reached weigh))
+    (15:13 overload (overload own tally_of)))
+  (declarations
+    (func main 10:6 (signature ())))
+  (surface)
+  (imports
+    (5:1 level (qualifier level))
+    (6:1 plain (qualifier plain))
+    (7:1 reached (qualifier reached))
+    (8:1 own (qualifier own)))
+  (extensions level main own plain reached))
+(Module level
+  (names)
+  (calls)
+  (declarations
+    (enum Level 1:13 public)
+    (case Level.count 2:10 public)
+    (case Level.peak 3:10 public))
+  (surface
+    (Level (enum level Level)))
+  (imports)
+  (extensions level))
+(Module plain
+  (names
+    (4:29 Int (type builtin Int))
+    (4:37 Int (type builtin Int))
+    (5:11 total (local total 4:22))
+    (6:23 count (local count 6:14))
+    (6:36 count (local count 6:14))
+    (11:25 Int (type builtin Int))
+    (11:33 Int (type builtin Int))
+    (12:11 value (local value 11:18))
+    (13:19 n (local n 13:14)))
+  (calls)
+  (declarations
+    (func count_of 4:13 public (signature (total: builtin.Int) -> builtin.Int))
+    (func sign 11:13 public (signature (value: builtin.Int) -> builtin.Int)))
+  (surface
+    (count_of (overload plain count_of))
+    (sign (overload plain sign)))
+  (imports)
+  (extensions plain))
+(Module reached
+  (names
+    (4:8 relay (module relay))
+    (6:24 Int (type builtin Int))
+    (7:11 relay (module relay))
+    (7:17 peak (overload relay peak))
+    (8:14 count (cases count level.Level.count)))
+  (calls
+    (7:11 overload (overload relay peak)))
+  (declarations
+    (func weigh 6:13 public (signature () -> builtin.Int)))
+  (surface
+    (weigh (overload reached weigh)))
+  (imports
+    (4:1 relay (qualifier relay)))
+  (extensions reached relay))
+(Module own
+  (names
+    (8:25 Tally (enum own Tally))
+    (8:35 Int (type builtin Int))
+    (9:11 t (local t 8:22))
+    (10:14 count (cases count own.Tally.count))
+    (11:14 many (cases many own.Tally.many)))
+  (calls)
+  (declarations
+    (enum Tally 3:13 public)
+    (case Tally.count 4:10 public)
+    (case Tally.many 5:10 public)
+    (func tally_of 8:13 public (signature (t: own.Tally) -> builtin.Int)))
+  (surface
+    (Tally (enum own Tally))
+    (tally_of (overload own tally_of)))
+  (imports)
+  (extensions own))
+(Module relay
+  (names
+    (1:8 level (module level))
+    (3:23 level (module level))
+    (3:29 Level (enum level Level))
+    (4:5 level (module level))
+    (4:11 Level (enum level Level))
+    (4:17 peak (case level Level.peak)))
+  (calls)
+  (declarations
+    (func peak 3:13 public (signature () -> level.Level)))
+  (surface
+    (peak (overload relay peak)))
+  (imports
+    (1:1 level (qualifier level)))
+  (extensions level relay))

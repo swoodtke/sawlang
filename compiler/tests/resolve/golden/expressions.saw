@@ -1,0 +1,77 @@
+// The expressions and statements whose parts are resolved in place: operators,
+// literals, interpolation, collection literals, casts, `move`, `*`, the `try`
+// forms and routing, subscripts, assignments of every kind, `guard`,
+// `static_assert`, an aligned local, a parameter default, and an extension's
+// associated-type assignment.
+
+static SCALE: Int = 3
+
+enum Fault {
+    case Parse(code: Int),
+    case Empty
+}
+
+struct Cell {
+    value: Int?
+    items: Vector<Int>
+}
+
+struct Walk {
+    at: Int
+}
+
+extension Walk: Iterator {
+    type Item = Int
+
+    func next(&var self) -> Item? {
+        None
+    }
+}
+
+func read(n: Int) -> Result<Int, Int> {
+    n
+}
+
+func routed(n: Int) -> Result<Int, Fault> {
+    let a = try(as Fault.Parse) read(n)
+    let b = try? read(n)
+    let c = try! read(n)
+    a + (b ?? c)
+}
+
+func operators(x: Int, y: Int = SCALE, flag: Bool = true) -> Int {
+    let sum = (x + y) * SCALE - -x % 2
+    let bits = (x << 2) | (y & 0xFF) ^ ~x
+    let test = x == y && not flag || x < y
+    let range = 0..x
+    let wide = x as Int64
+    let text = "sum {sum} and {}"
+    let many = [x, y, sum]
+    let filled = [0; 4]
+    let table = {"a": x, "b": y}
+    let group = {x, y}
+    let pair = (first: x, second: y)
+    let (p, q) = (pair.first, pair.second)
+    static_assert(SCALE > 0, "a positive scale")
+    @align(8)
+    var buffer: [UInt8; 8] = [0; 8]
+    buffer[0] = 1
+    p + q + many[0] + filled.len()
+}
+
+func places(cell: &var Cell, source: Vector<Int>) -> Int {
+    var n = 0
+    n += SCALE
+    cell.value = 4
+    cell.items[0] = n
+    cell.value! += 1
+    let taken = move source
+    guard n > 0 else {
+        return 0
+    }
+    taken.len() + n
+}
+
+func pointers(p: UnsafePointer<Int>) unsafe -> Int {
+    *p + p[1]
+}

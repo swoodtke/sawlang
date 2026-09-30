@@ -1,0 +1,75 @@
+// Call heads, each classified once (SL:architecture §3.3): a type's init set,
+// an overload set, a local closure, a type parameter, an enum case, an implicit
+// case, a method on a value, a static method on a type, and a function value.
+
+struct Counter {
+    n: Int
+}
+
+enum Signal {
+    case Stop,
+    case Go(speed: Int)
+}
+
+extension Counter {
+    func bump(&var self) -> Int {
+        self.n = self.n + 1
+        self.n
+    }
+
+    static func zero() -> Counter {
+        Counter(n: 0)
+    }
+
+    static func one() -> Counter {
+        let z = Self.zero()
+        Self(n: z.n + 1)
+    }
+}
+
+func twice(n: Int) -> Int {
+    n * 2
+}
+
+func twice(text: String) -> String {
+    text
+}
+
+func make<T: Copy>(seed: T) -> T {
+    seed
+}
+
+func handler() -> (Int) -> Int {
+    { n: Int in n + 1 }
+}
+
+// Mutual recursion: each function names the other, declared before or after.
+func is_even(n: Int) -> Bool {
+    if n == 0 {
+        return true
+    }
+    is_odd(n - 1)
+}
+
+func is_odd(n: Int) -> Bool {
+    if n == 0 {
+        return false
+    }
+    is_even(n - 1)
+}
+
+func run() -> Int {
+    var c = Counter(n: 1)
+    let z = Counter.zero()
+    let s = Signal.Go(speed: 3)
+    let t: Signal = .Go(speed: 4)
+    let doubled = twice(c.bump())
+    let label = twice(text: "x")
+    let local = { n: Int in n * 3 }
+    let tripled = local(doubled)
+    let h = handler()(5)
+    let v = Vector<Int>()
+    let m = make(seed: 7)
+    print("{}", tripled)
+    tripled + h + m
+}

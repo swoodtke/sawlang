@@ -1,0 +1,9 @@
+// refuses: import.duplicate-qualifier at 5:20
+// two whole-module imports that bind one qualifier to two modules
+
+import std.path
+import std.file as path
+
+func f() -> Int {
+    0
+}

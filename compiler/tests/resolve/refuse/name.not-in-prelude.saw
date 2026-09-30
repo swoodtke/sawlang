@@ -1,0 +1,6 @@
+// refuses: name.not-in-prelude at 4:11
+// a std name the prelude leaves out, used with no import
+
+func f(p: Path) -> Int {
+    0
+}

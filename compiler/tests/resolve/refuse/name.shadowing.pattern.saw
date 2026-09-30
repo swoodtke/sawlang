@@ -1,0 +1,14 @@
+// refuses: name.shadowing at 11:19
+// a pattern binding that shadows an enclosing binding
+
+enum Holder {
+    case Full(v: Int),
+    case Empty
+}
+
+func f(b: Holder, v: Int) -> Int {
+    match b {
+        case Full(v) -> v,
+        case Empty -> 0
+    }
+}

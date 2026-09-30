@@ -1,0 +1,157 @@
+// Resolution's two lookup structures. `ResNames` gives each distinct spelling
+// one id, so every later comparison is of integers; `ResIndex` maps a pair of
+// ids to a chain of entries. Both are chained hash tables over flat vectors,
+// since the bootstrap subset has no `Map` (SL:architecture §4).
+
+static RES_NAME_BUCKETS: Int = 8192
+static RES_INDEX_BUCKETS: Int = 16384
+static RES_HASH_BASIS: Int = 2166136261
+static RES_HASH_PRIME: Int = 16777619
+static RES_HASH_MASK: Int = 0xFFFF_FFFF
+
+// Every spelling a resolution met, each once. An id is an index into `texts`.
+public struct ResNames {
+    texts: Vector<String>
+    hashes: Vector<Int>
+    next: Vector<Int>
+    heads: Vector<Int>
+}
+
+extension ResNames: NoCopy {}
+
+func res_buckets(count: Int) -> Vector<Int> {
+    var heads = Vector<Int>()
+    var k = 0
+    while k < count {
+        try! heads.push(-1)
+        k = k + 1
+    }
+    move heads
+}
+
+public func res_names() -> ResNames {
+    ResNames(texts: Vector<String>(), hashes: Vector<Int>(), next: Vector<Int>(),
+             heads: res_buckets(RES_NAME_BUCKETS))
+}
+
+// FNV-1a over the bytes, kept to 32 bits so no product overflows an `Int`.
+public func res_hash_text(text: &String) -> Int {
+    var h = RES_HASH_BASIS
+    var i = 0
+    let n = text.len()
+    while i < n {
+        let b = text.byte_at(i) as Int
+        h = ((h ^ b) * RES_HASH_PRIME) & RES_HASH_MASK
+        i = i + 1
+    }
+    h
+}
+
+extension ResNames {
+    // The id of `text`, added when it is new.
+    public func intern(&var self, text: String) -> Int {
+        let found = self.find(text)
+        if found >= 0 {
+            return found
+        }
+        let h = res_hash_text(&text)
+        let bucket = h % RES_NAME_BUCKETS
+        let id = self.texts.len()
+        try! self.texts.push(text)
+        try! self.hashes.push(h)
+        let head = self.heads[bucket]
+        try! self.next.push(head)
+        self.heads[bucket] = id
+        id
+    }
+
+    // The id of `text`, or -1 when it was never interned.
+    public func find(&self, text: String) -> Int {
+        let h = res_hash_text(&text)
+        var at = self.heads[h % RES_NAME_BUCKETS]
+        while at >= 0 {
+            if self.hashes[at] == h {
+                if let known = self.texts.get(at) {
+                    if known.equals(text) {
+                        return at
+                    }
+                }
+            }
+            at = self.next[at]
+        }
+        return -1
+    }
+
+    public func text(&self, id: Int) -> String {
+        if id < 0 {
+            return ""
+        }
+        self.texts.get(id) ?? ""
+    }
+
+    public func count(&self) -> Int { self.texts.len() }
+}
+
+// A multimap from a pair of integers to entries, each entry holding one value.
+// An entry added later comes first on its chain; `first` and `following` walk
+// the entries of one key.
+public struct ResIndex {
+    heads: Vector<Int>
+    key_a: Vector<Int>
+    key_b: Vector<Int>
+    values: Vector<Int>
+    next: Vector<Int>
+}
+
+extension ResIndex: NoCopy {}
+
+public func res_index() -> ResIndex {
+    ResIndex(heads: res_buckets(RES_INDEX_BUCKETS), key_a: Vector<Int>(), key_b: Vector<Int>(),
+             values: Vector<Int>(), next: Vector<Int>())
+}
+
+func res_pair_bucket(a: Int, b: Int) -> Int {
+    let h = ((((a + 1) * RES_HASH_PRIME) & RES_HASH_MASK) ^ (b + 7)) * 31
+    (h & RES_HASH_MASK) % RES_INDEX_BUCKETS
+}
+
+extension ResIndex {
+    public func add(&var self, a: Int, b: Int, value: Int) {
+        let bucket = res_pair_bucket(a, b)
+        let entry = self.values.len()
+        try! self.key_a.push(a)
+        try! self.key_b.push(b)
+        try! self.values.push(value)
+        let head = self.heads[bucket]
+        try! self.next.push(head)
+        self.heads[bucket] = entry
+    }
+
+    // The newest entry for (a, b), or -1.
+    public func first(&self, a: Int, b: Int) -> Int {
+        var at = self.heads[res_pair_bucket(a, b)]
+        while at >= 0 {
+            if self.key_a[at] == a && self.key_b[at] == b {
+                return at
+            }
+            at = self.next[at]
+        }
+        return -1
+    }
+
+    // The entry after `entry` with the same key, or -1.
+    public func following(&self, entry: Int) -> Int {
+        let a = self.key_a[entry]
+        let b = self.key_b[entry]
+        var at = self.next[entry]
+        while at >= 0 {
+            if self.key_a[at] == a && self.key_b[at] == b {
+                return at
+            }
+            at = self.next[at]
+        }
+        return -1
+    }
+
+    public func value(&self, entry: Int) -> Int { self.values[entry] }
+}

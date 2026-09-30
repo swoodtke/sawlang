@@ -1,0 +1,9 @@
+// refuses: import.unknown-symbol at 7:18
+// a qualified name its module does not declare
+
+import std.path
+
+func f() -> Int {
+    let p = path.Nowhere(s: "x")
+    0
+}

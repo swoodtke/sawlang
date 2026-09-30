@@ -1,0 +1,7 @@
+// refuses: slice.not-yet at 5:15
+// a `$0` parameter, not in the bootstrap slice yet
+
+func f(v: Vector<Int>) -> Int {
+    let g = { $0 + 1 }
+    0
+}

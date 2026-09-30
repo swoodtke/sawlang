@@ -1,0 +1,5 @@
+import wire.{Header}
+
+public func parse(n: Int) -> Header {
+    Header(kind: n)
+}

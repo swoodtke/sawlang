@@ -1,0 +1,21 @@
+(Module optionals
+  (names
+    (4:16 Int (type builtin Int))
+    (4:25 Int (type builtin Int))
+    (5:11 o (local o 4:13))
+    (6:14 Some (cases Some builtin.Optional.Some))
+    (6:25 n (local n 6:19))
+    (11:18 Int (type builtin Int))
+    (11:24 Int (type builtin Int))
+    (11:33 Bool (type builtin Bool))
+    (12:11 pair (local pair 11:11))
+    (13:15 Some (cases Some builtin.Optional.Some))
+    (13:30 v (local v 13:20))
+    (13:35 n (local n 13:24)))
+  (calls)
+  (declarations
+    (func unwrap 4:6 (signature (o: builtin.Int?) -> builtin.Int))
+    (func same 11:6 (signature (pair: (builtin.Int?, builtin.Int)) -> builtin.Bool)))
+  (surface)
+  (imports)
+  (extensions optionals))

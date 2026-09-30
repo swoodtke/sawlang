@@ -1,0 +1,1413 @@
+// Phase 3, signatures and bodies (SL:architecture §3.3): with every table
+// complete, each name is resolved in its lexical scope. This file is the
+// position matrix of compiler/tests/resolve/README.md: one method per kind of
+// position, each dispatching on the alternatives GRAMMAR.md builds there. An
+// alternative outside the bootstrap slice is refused by name (`not_in_slice`).
+//
+// The walk recurses only into a node's children, so its depth is the tree's
+// height, which the parser's depth funnel bounds (principle 6).
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.imports.{res_decl_binding}
+import sawresolve.src.kinds.{res_is_capture, res_is_closure_param, res_is_decl_item,
+                             res_is_head_binding, res_is_plain_expr, res_is_plain_statement,
+                             res_is_statement_alt, res_is_type_alt, res_names_type}
+import sawresolve.src.lookup.{ResShadow, ResSpace}
+import sawresolve.src.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResConformance,
+                             ResDecl, ResDeclKind, ResModule}
+import sawresolve.src.program.{ResProgram}
+
+// Phase 3 over the whole program.
+public func res_resolve_bodies(p: &var ResProgram) {
+    p.resolve_bodies()
+}
+
+extension ResProgram {
+    // Resolves every module's signatures and bodies; an interface module's
+    // extension heads and conformances only, which the conformance rules need.
+    func resolve_bodies(&var self) {
+        var m = 0
+        while m < self.modules.len() {
+            let info = self.modules[m]
+            if info.available {
+                self.current = m
+                self.walk_module(m, info.interface_only)
+            }
+            m = m + 1
+        }
+    }
+
+    func walk_module(&var self, m: Int, interface: Bool) {
+        let info = self.modules[m]
+        let root = info.root
+        let n = self.child_count(root)
+        var k = 0
+        while k < n {
+            let item = self.child(root, k)
+            self.in_test = false
+            self.walk_item(item, interface)
+            k = k + 1
+        }
+        self.in_test = false
+    }
+
+    func walk_item(&var self, item: Int, interface: Bool) {
+        guard let alt = self.alt_of(item) else {
+            return
+        }
+        self.reset_scopes()
+        self.receiver = self.unbound()
+        self.self_type = self.unbound()
+        if res_is_decl_item(alt) {
+            self.walk_declaration(item, interface)
+        } else if alt == Alt.Decl_StaticAssert {
+            if not interface {
+                self.walk_first_expr(item)
+            }
+        } else if alt == Alt.Test_Declaration_Item {
+            self.in_test = true
+            let inner = self.last_node_child(item)
+            self.walk_declaration(inner, interface)
+        } else if alt == Alt.Test_Group {
+            self.in_test = true
+            let n = self.child_count(item)
+            var k = 0
+            while k < n {
+                let sub = self.child(item, k)
+                self.walk_item(sub, interface)
+                self.in_test = true
+                k = k + 1
+            }
+        } else if alt == Alt.Test_Case_Run || alt == Alt.Test_Case_Panics || alt == Alt.Test_Case_Warns {
+            if not interface {
+                self.in_test = true
+                let body = self.last_node_child(item)
+                self.walk_block(body)
+            }
+        }
+    }
+
+    func unbound(&self) -> ResBinding {
+        ResBinding(kind: ResBindKind.Unbound, module: -1, decl: -1, name: -1, node: -1)
+    }
+
+    // The declaration a node is the own node of, or -1.
+    func decl_of_node(&self, node: Int) -> Int {
+        let info = self.modules[self.current]
+        var d = info.decl_first
+        while d < info.decl_first + info.decl_count {
+            if self.decls[d].node == node {
+                return d
+            }
+            d = d + 1
+        }
+        return -1
+    }
+
+    // A Declaration node: its attributes' arguments, then its declaration.
+    func walk_declaration(&var self, outer: Int, interface: Bool) {
+        let inner = self.last_node_child(outer)
+        guard let alt = self.alt_of(inner) else {
+            return
+        }
+        if alt == Alt.Decl_Extension {
+            self.walk_extension(inner, interface)
+            return
+        }
+        if interface {
+            return
+        }
+        self.walk_attributes(outer)
+        let d = self.decl_of_node(inner)
+        self.current_decl = d
+        if alt == Alt.Decl_Func {
+            self.walk_function(inner)
+        } else if alt == Alt.Decl_Static_Immutable || alt == Alt.Decl_Static_UnsafeVar {
+            self.walk_node_children_as(inner, true)
+        } else if alt == Alt.Decl_TypeAlias {
+            self.walk_node_children_as(inner, true)
+        } else if alt == Alt.Decl_Struct {
+            self.self_type = ResBinding(kind: ResBindKind.SelfType, module: self.current, decl: d,
+                                        name: -1, node: -1)
+            self.push_scope()
+            self.bind_generics(inner)
+            let n = self.child_count(inner)
+            var k = 0
+            while k < n {
+                let f = self.child(inner, k)
+                if self.is_alt(f, Alt.Decl_Field) {
+                    self.walk_last_type(f)
+                }
+                k = k + 1
+            }
+            self.pop_scope()
+        } else if alt == Alt.Decl_Enum {
+            self.self_type = ResBinding(kind: ResBindKind.SelfType, module: self.current, decl: d,
+                                        name: -1, node: -1)
+            self.push_scope()
+            self.bind_generics(inner)
+            let n = self.child_count(inner)
+            var k = 0
+            while k < n {
+                let c = self.child(inner, k)
+                if self.is_alt(c, Alt.Decl_Case) {
+                    self.walk_case(c)
+                } else if not self.is_leaf(c) && not self.is_alt(c, Alt.Generic_Param_Type) && not self.is_alt(c, Alt.Generic_Param_Const) {
+                    self.walk_type(c)
+                }
+                k = k + 1
+            }
+            self.pop_scope()
+        } else if alt == Alt.Decl_Trait {
+            self.walk_trait(inner, d)
+        } else if alt == Alt.Decl_ExternBlock {
+            let n = self.child_count(inner)
+            var k = 0
+            while k < n {
+                let f = self.child(inner, k)
+                if not self.is_leaf(f) {
+                    self.walk_signature_types(f)
+                }
+                k = k + 1
+            }
+        } else {
+            self.not_in_slice(inner, alt)
+        }
+        self.current_decl = -1
+    }
+
+    // A case's payload types and raw value.
+    func walk_case(&var self, c: Int) {
+        let n = self.child_count(c)
+        var k = 0
+        while k < n {
+            let x = self.child(c, k)
+            if self.is_alt(x, Alt.Decl_PayloadField) {
+                self.walk_last_type(x)
+            } else if let a = self.alt_of(x) {
+                let _ = self.walk_expr(x)
+            }
+            k = k + 1
+        }
+    }
+
+    // Each child of `id` that is a node, as a type when `types` is set; a
+    // static's or an alias's type and initializer tell themselves apart.
+    func walk_node_children_as(&var self, id: Int, types: Bool) {
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            if not self.is_leaf(c) {
+                if types && res_is_type_alt(self.alt_of(c)) {
+                    self.walk_type(c)
+                } else {
+                    let _ = self.walk_expr(c)
+                }
+            }
+            k = k + 1
+        }
+    }
+
+    // An extern function's parameter and return types.
+    func walk_signature_types(&var self, f: Int) {
+        let n = self.child_count(f)
+        var k = 0
+        while k < n {
+            let c = self.child(f, k)
+            if self.is_alt(c, Alt.Decl_ExternParam) || self.is_alt(c, Alt.Decl_Param_Plain) {
+                self.walk_last_type(c)
+            } else if not self.is_leaf(c) {
+                self.walk_type(c)
+            }
+            k = k + 1
+        }
+    }
+
+    // Declares a node's generic parameters, then resolves their bounds and
+    // defaults, which may name one another.
+    func bind_generics(&var self, owner: Int) {
+        let n = self.child_count(owner)
+        var k = 0
+        while k < n {
+            let g = self.child(owner, k)
+            if self.is_alt(g, Alt.Generic_Param_Type) || self.is_alt(g, Alt.Generic_Param_Const) {
+                let leaf = self.first_leaf(g)
+                let name = self.leaf_name(leaf)
+                if self.find_type_level_here(name) >= 0 {
+                    self.refuse_duplicate_binding(leaf, name)
+                }
+                let m = self.current
+                self.bind_type_level(name, ResBinding(kind: ResBindKind.TypeParam, module: m,
+                                                      decl: -1, name: name, node: leaf))
+                self.param_nodes.add(0, leaf, g)
+            }
+            k = k + 1
+        }
+        k = 0
+        while k < n {
+            let g = self.child(owner, k)
+            if self.is_alt(g, Alt.Generic_Param_Type) {
+                let m = self.child_count(g)
+                var j = 0
+                while j < m {
+                    let c = self.child(g, j)
+                    if self.is_alt(c, Alt.Type_Path) {
+                        let _ = self.walk_path(c, ResSpace.Type)
+                    } else if not self.is_leaf(c) {
+                        self.walk_type(c)
+                    }
+                    j = j + 1
+                }
+            } else if self.is_alt(g, Alt.Generic_Param_Const) {
+                let m = self.child_count(g)
+                var j = 0
+                while j < m {
+                    let c = self.child(g, j)
+                    if not self.is_leaf(c) {
+                        self.walk_type_or_const(c)
+                    }
+                    j = j + 1
+                }
+            }
+            k = k + 1
+        }
+    }
+
+    // A type-level binding of `name` declared in the innermost scope, or -1.
+    func find_type_level_here(&self, name: Int) -> Int {
+        var k = self.local_top - 1
+        let floor = if self.scope_top > 0 { self.scope_marks[self.scope_top - 1] } else { 0 }
+        while k >= floor {
+            let local = self.locals[k]
+            if local.name == name && local.type_level {
+                return k
+            }
+            k = k - 1
+        }
+        return -1
+    }
+
+    func refuse_duplicate_binding(&var self, leaf: Int, name: Int) {
+        let text = self.name_text(name)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(text)
+        try! msg.append("` is bound twice here")
+        self.refuse(leaf, "name.duplicate-binding", msg.build())
+    }
+
+    // A function, method, init or requirement: generics, parameters, return
+    // type, then the body with the parameters in scope.
+    func walk_function(&var self, f: Int) {
+        self.push_scope()
+        self.bind_generics(f)
+        self.bind_params(f)
+        let n = self.child_count(f)
+        var k = 0
+        while k < n {
+            let c = self.child(f, k)
+            if self.is_alt(c, Alt.Stmt_Block) {
+                self.walk_block(c)
+            }
+            k = k + 1
+        }
+        self.pop_scope()
+        self.receiver = self.unbound()
+    }
+
+    // Resolves each parameter's type and default, then declares the
+    // parameters. A receiver makes `self` the enclosing type's receiver.
+    func bind_params(&var self, f: Int) {
+        let n = self.child_count(f)
+        var k = 0
+        let before = self.records.len()
+        while k < n {
+            let c = self.child(f, k)
+            if self.is_alt(c, Alt.Decl_Param_Plain) || self.is_alt(c, Alt.Decl_Param_Default) {
+                let pn = self.child_count(c)
+                var j = 0
+                while j < pn {
+                    let x = self.child(c, j)
+                    if not self.is_leaf(x) {
+                        if j == 1 {
+                            self.walk_type(x)
+                        } else {
+                            let _ = self.walk_expr(x)
+                        }
+                    }
+                    j = j + 1
+                }
+            } else if self.is_alt(c, Alt.Decl_Param_Receiver) {
+                self.receiver = ResBinding(kind: ResBindKind.Local, module: self.current, decl: -1,
+                                           name: -1, node: c)
+            } else if not self.is_leaf(c) && res_is_type_alt(self.alt_of(c)) {
+                self.walk_type(c)
+            }
+            k = k + 1
+        }
+        k = 0
+        while k < n {
+            let c = self.child(f, k)
+            if self.is_alt(c, Alt.Decl_Param_Plain) || self.is_alt(c, Alt.Decl_Param_Default) {
+                let leaf = self.first_leaf(c)
+                let name = self.leaf_name(leaf)
+                if self.find_value_here(name) >= 0 {
+                    self.refuse_duplicate_binding(leaf, name)
+                }
+                self.bind_value(name, leaf, ResShadow.Flat, before)
+            }
+            k = k + 1
+        }
+    }
+
+    // A value binding of `name` declared in the innermost scope, or -1.
+    func find_value_here(&self, name: Int) -> Int {
+        var k = self.local_top - 1
+        let floor = if self.scope_top > 0 { self.scope_marks[self.scope_top - 1] } else { 0 }
+        while k >= floor {
+            let local = self.locals[k]
+            if local.name == name && not local.type_level {
+                return k
+            }
+            k = k - 1
+        }
+        return -1
+    }
+
+    public func local_binding(&self, leaf: Int) -> ResBinding {
+        ResBinding(kind: ResBindKind.Local, module: self.current, decl: -1, name: -1, node: leaf)
+    }
+
+    // A trait: its generics and associated types in scope, `Self` its own,
+    // its parents, then each requirement's signature and default body.
+    func walk_trait(&var self, t: Int, d: Int) {
+        self.self_type = ResBinding(kind: ResBindKind.SelfType, module: self.current, decl: d,
+                                    name: -1, node: -1)
+        self.push_scope()
+        self.bind_generics(t)
+        let n = self.child_count(t)
+        var k = 0
+        while k < n {
+            let c = self.child(t, k)
+            if self.is_alt(c, Alt.Decl_AssocType) {
+                let leaf = self.first_leaf(c)
+                let name = self.leaf_name(leaf)
+                let member = self.members.first(d, name)
+                let decl = if member >= 0 { self.members.value(member) } else { -1 }
+                let m = self.current
+                self.bind_type_level(name, ResBinding(kind: ResBindKind.Decl, module: m,
+                                                      decl: decl, name: -1, node: -1))
+            }
+            k = k + 1
+        }
+        k = 0
+        while k < n {
+            let c = self.child(t, k)
+            if self.is_alt(c, Alt.Type_Path) {
+                let _ = self.walk_path(c, ResSpace.Type)
+            } else if self.is_alt(c, Alt.Decl_Requirement) {
+                self.walk_function(c)
+            }
+            k = k + 1
+        }
+        self.pop_scope()
+    }
+
+    // An extension: its head names the type, its generics rename the type's
+    // parameters, its conformances name traits; `Self` is the type.
+    func walk_extension(&var self, x: Int, interface: Bool) {
+        let ext = self.decl_of_node(x)
+        let head = self.first_node_child(x)
+        self.push_scope()
+        self.bind_generics(x)
+        let target = self.walk_path(head, ResSpace.Type)
+        self.self_type = ResBinding(kind: ResBindKind.SelfType, module: self.current,
+                                    decl: target.decl, name: -1, node: -1)
+        let n = self.child_count(x)
+        var k = 0
+        while k < n {
+            let c = self.child(x, k)
+            if c != head && self.is_alt(c, Alt.Type_Path) {
+                let trait_binding = self.walk_path(c, ResSpace.Type)
+                let m = self.current
+                try! self.conformances.push(ResConformance(module: m, ext: ext, path: c,
+                                                           target: target,
+                                                           trait_binding: trait_binding))
+            }
+            k = k + 1
+        }
+        if not interface {
+            k = 0
+            while k < n {
+                let c = self.child(x, k)
+                if self.is_alt(c, Alt.Decl_ExtensionMember_TypeAssign) {
+                    let inner = self.last_node_child(c)
+                    let leaf = self.first_leaf(inner)
+                    let name = self.leaf_name(leaf)
+                    self.walk_last_type(inner)
+                    let m = self.current
+                    let assigned = self.decl_of_node(inner)
+                    self.bind_type_level(name, ResBinding(kind: ResBindKind.Decl, module: m,
+                                                          decl: assigned, name: -1, node: -1))
+                }
+                k = k + 1
+            }
+            k = 0
+            while k < n {
+                let c = self.child(x, k)
+                if self.is_alt(c, Alt.Decl_ExtensionMember_Method) || self.is_alt(c, Alt.Decl_ExtensionMember_SynthesizedMethod) || self.is_alt(c, Alt.Decl_ExtensionMember_Init) {
+                    self.walk_attributes(c)
+                    let inner = self.last_node_child(c)
+                    self.current_decl = self.decl_of_node(inner)
+                    self.walk_function(inner)
+                    self.current_decl = -1
+                }
+                k = k + 1
+            }
+        }
+        self.pop_scope()
+        self.self_type = self.unbound()
+    }
+}
+
+extension ResProgram {
+    // The expressions a node's attributes take: `@align(N)`.
+    public func walk_attributes(&var self, outer: Int) {
+        let n = self.child_count(outer)
+        var k = 0
+        while k < n {
+            let c = self.child(outer, k)
+            if self.is_alt(c, Alt.Attr_Attribute_Align) {
+                self.walk_first_expr(c)
+            }
+            k = k + 1
+        }
+    }
+
+    public func walk_block(&var self, b: Int) {
+        if b < 0 {
+            return
+        }
+        self.push_scope()
+        self.walk_statements(b, 0)
+        self.pop_scope()
+    }
+
+    // The statements among `id`'s children from child `from` on, in the
+    // current scope.
+    func walk_statements(&var self, id: Int, from: Int) {
+        let n = self.child_count(id)
+        var k = from
+        while k < n {
+            let s = self.child(id, k)
+            if not self.is_leaf(s) {
+                self.walk_statement(s)
+            }
+            k = k + 1
+        }
+    }
+
+    public func walk_statement(&var self, s: Int) {
+        if let alt = self.alt_of(s) {
+            self.walk_statement_as(s, alt)
+        }
+    }
+
+    func walk_statement_as(&var self, s: Int, alt: Alt) {
+        match alt {
+            case Stmt_Expr -> self.walk_first_expr(s),
+            case Stmt_Let_Immutable -> self.walk_let(s),
+            case Stmt_Let_Mutable -> self.walk_let(s),
+            case Stmt_Destructure_Immutable -> self.walk_destructure(s),
+            case Stmt_Destructure_Mutable -> self.walk_destructure(s),
+            case Stmt_AttributedLocal -> {
+                self.walk_attributes(s)
+                let local = self.last_node_child(s)
+                self.walk_statement(local)
+            },
+            case Stmt_Guard_Let -> self.walk_guard_binding(s),
+            case Stmt_Guard_Var -> self.walk_guard_binding(s),
+            case _ -> {
+                if res_is_plain_statement(alt) {
+                    self.walk_expr_children(s)
+                } else {
+                    self.not_in_slice(s, alt)
+                }
+            }
+        }
+    }
+
+    // Each node child of `id`, as an expression, a block, a type or a
+    // pattern-free statement part.
+    func walk_expr_children(&var self, id: Int) {
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            if not self.is_leaf(c) {
+                if self.is_alt(c, Alt.Stmt_Block) {
+                    self.walk_block(c)
+                } else if res_is_type_alt(self.alt_of(c)) {
+                    self.walk_type(c)
+                } else {
+                    let _ = self.walk_expr(c)
+                }
+            }
+            k = k + 1
+        }
+    }
+
+    // `let x: T = e`: the type and the initializer, then the binding, which
+    // may derive from a binding it shadows.
+    func walk_let(&var self, s: Int) {
+        let target = self.first_node_child(s)
+        let before = self.records.len()
+        let n = self.child_count(s)
+        var k = 0
+        while k < n {
+            let c = self.child(s, k)
+            if c != target && not self.is_leaf(c) {
+                if res_is_type_alt(self.alt_of(c)) {
+                    self.walk_type(c)
+                } else {
+                    let _ = self.walk_expr(c)
+                }
+            }
+            k = k + 1
+        }
+        self.bind_target(target, ResShadow.Derivable, before)
+    }
+
+    func walk_destructure(&var self, s: Int) {
+        let target = self.first_node_child(s)
+        let before = self.records.len()
+        self.walk_last_expr(s)
+        self.bind_target(target, ResShadow.Derivable, before)
+    }
+
+    // `id`'s first node child, as an expression.
+    func walk_first_expr(&var self, id: Int) {
+        let c = self.first_node_child(id)
+        let _ = self.walk_expr(c)
+    }
+
+    // `id`'s last node child, as an expression.
+    func walk_last_expr(&var self, id: Int) {
+        let c = self.last_node_child(id)
+        let _ = self.walk_expr(c)
+    }
+
+    // `id`'s last node child, as a type.
+    func walk_last_type(&var self, id: Int) {
+        let c = self.last_node_child(id)
+        self.walk_type(c)
+    }
+
+    // Binds `name`, declared at `leaf`, as a local.
+    func bind_value(&var self, name: Int, leaf: Int, shadow: ResShadow, before: Int) {
+        let binding = self.local_binding(leaf)
+        self.bind_local(name, leaf, binding, shadow, before)
+    }
+
+    // Records `leaf` as refused.
+    func record_error(&var self, leaf: Int) {
+        let refused = self.error_binding()
+        self.record(leaf, refused)
+    }
+
+    // `guard let p = e else { ... }`: the subject, the else block without the
+    // binding, then the binding for the rest of the enclosing scope.
+    func walk_guard_binding(&var self, s: Int) {
+        let target = self.first_node_child(s)
+        let before = self.records.len()
+        let n = self.child_count(s)
+        var k = 0
+        while k < n {
+            let c = self.child(s, k)
+            if c != target && not self.is_leaf(c) {
+                if self.is_alt(c, Alt.Stmt_Block) {
+                    self.walk_block(c)
+                } else {
+                    let _ = self.walk_expr(c)
+                }
+            }
+            k = k + 1
+        }
+        self.bind_target(target, ResShadow.Derivable, before)
+    }
+
+    // A binding target: a BindingName or a tuple pattern.
+    func bind_target(&var self, target: Int, shadow: ResShadow, before: Int) {
+        if self.is_alt(target, Alt.Stmt_BindingName) {
+            self.bind_binding_name(target, shadow, before)
+        } else {
+            self.bind_pattern(target, shadow, before)
+        }
+    }
+
+    // A BindingName's leaf, bound unless it is `_`.
+    public func bind_binding_name(&var self, id: Int, shadow: ResShadow, before: Int) {
+        let leaf = self.first_leaf(id)
+        let name = self.leaf_name(leaf)
+        let text = self.name_text(name)
+        if text.equals("_") {
+            return
+        }
+        self.bind_value(name, leaf, shadow, before)
+    }
+
+    // Binds what a pattern binds. A lone name is a payload-free case when some
+    // enum in the module's import closure declares one of that name, else a
+    // binding; a variant's head is chosen among the cases of its name by
+    // typecheck.
+    public func bind_pattern(&var self, p: Int, shadow: ResShadow, before: Int) {
+        if let alt = self.alt_of(p) {
+            self.bind_pattern_as(p, alt, shadow, before)
+        }
+    }
+
+    func bind_pattern_as(&var self, p: Int, alt: Alt, shadow: ResShadow, before: Int) {
+        match alt {
+            case Pat_Name -> {
+                let leaf = self.first_leaf(p)
+                let name = self.leaf_name(leaf)
+                if self.sees_case(name, true) {
+                    self.record(leaf, ResBinding(kind: ResBindKind.Cases, module: -1, decl: -1,
+                                                 name: name, node: -1))
+                } else {
+                    self.bind_value(name, leaf, shadow, before)
+                }
+            },
+            case Pat_Variant -> {
+                let leaf = self.first_leaf(p)
+                let name = self.leaf_name(leaf)
+                if not self.sees_case(name, false) {
+                    // An arm of a `try` block's error union names an error
+                    // type, not a case.
+                    let found = self.lookup(name, leaf, ResSpace.Type)
+                    self.record(leaf, found)
+                } else {
+                    self.record_cases(leaf, name)
+                }
+                self.bind_pattern_children(p, shadow, before)
+            },
+            case Pat_Tuple_Positional -> self.bind_pattern_children(p, shadow, before),
+            case Pat_BorrowBinding_Let -> self.bind_borrow_pattern(p, shadow, before),
+            case Pat_BorrowBinding_Var -> self.bind_borrow_pattern(p, shadow, before),
+            case Stmt_BindingName -> self.bind_binding_name(p, shadow, before),
+            case _ -> {}
+        }
+    }
+
+    func bind_borrow_pattern(&var self, p: Int, shadow: ResShadow, before: Int) {
+        let leaf = self.first_leaf(p)
+        let name = self.leaf_name(leaf)
+        self.bind_value(name, leaf, shadow, before)
+    }
+
+    func bind_pattern_children(&var self, p: Int, shadow: ResShadow, before: Int) {
+        let n = self.child_count(p)
+        var k = 0
+        while k < n {
+            let c = self.child(p, k)
+            if not self.is_leaf(c) {
+                self.bind_pattern(c, shadow, before)
+            }
+            k = k + 1
+        }
+    }
+
+    // Records a case selector: the cases named `name` in the current module's
+    // import closure, among which typecheck chooses. A name no enum there
+    // declares as a case is refused.
+    func record_cases(&var self, leaf: Int, name: Int) {
+        if not self.sees_case(name, false) {
+            let text = self.name_text(name)
+            var msg = StringBuilder()
+            try! msg.append("no enum declares a case named `")
+            try! msg.append(text)
+            try! msg.append("`")
+            self.refuse(leaf, "name.unknown-case", msg.build())
+            self.record_error(leaf)
+            return
+        }
+        self.record(leaf, ResBinding(kind: ResBindKind.Cases, module: -1, decl: -1, name: name,
+                                     node: -1))
+    }
+
+    // An expression. Returns what it denotes when it is a name, a path or a
+    // case, so a call can classify its head and a member its base; a member
+    // selected on a value comes back as a Member binding with no type, and a
+    // static member of a named type as one with that type.
+    public func walk_expr(&var self, e: Int) -> ResBinding {
+        if e < 0 {
+            return self.unbound()
+        }
+        if self.is_leaf(e) {
+            return self.unbound()
+        }
+        if let alt = self.alt_of(e) {
+            return self.walk_expr_as(e, alt)
+        }
+        // An optional chain's run.
+        self.walk_expr_children(e)
+        self.unbound()
+    }
+
+    func walk_expr_as(&var self, e: Int, alt: Alt) -> ResBinding {
+        match alt {
+            case Expr_Name -> self.walk_name(e),
+            case Expr_NameRef -> self.walk_name(e),
+            case Expr_Self -> self.walk_self(e),
+            case Expr_Member -> self.walk_member(e),
+            case Expr_OptionalMember -> self.walk_selector(e),
+            case Expr_Call_Paren -> self.walk_call(e),
+            case Expr_Call_ParenTrailing -> self.walk_call(e),
+            case Expr_TrailingCall -> self.walk_call(e),
+            case Expr_ImplicitMember -> {
+                let leaf = self.first_leaf(e)
+                let name = self.leaf_name(leaf)
+                self.record_cases(leaf, name)
+                ResBinding(kind: ResBindKind.Cases, module: -1, decl: -1, name: name, node: -1)
+            },
+            case Expr_Cast -> {
+                self.walk_first_expr(e)
+                let n = self.child_count(e)
+                var k = 1
+                while k < n {
+                    let c = self.child(e, k)
+                    if not self.is_leaf(c) {
+                        self.walk_type(c)
+                    }
+                    k = k + 1
+                }
+                self.unbound()
+            },
+            case Expr_Try_Route -> {
+                let n = self.child_count(e)
+                var k = 0
+                while k < n {
+                    let c = self.child(e, k)
+                    if self.is_alt(c, Alt.Type_Path) {
+                        let _ = self.walk_path(c, ResSpace.Value)
+                    } else if not self.is_leaf(c) {
+                        let _ = self.walk_expr(c)
+                    }
+                    k = k + 1
+                }
+                self.unbound()
+            },
+            case Expr_Catch -> {
+                let block = self.first_node_child(e)
+                self.walk_catch_block(block)
+                self.unbound()
+            },
+            case Expr_TryBlock -> {
+                let body = self.first_node_child(e)
+                let handler = self.last_node_child(e)
+                self.walk_block(body)
+                self.walk_catch_block(handler)
+                self.unbound()
+            },
+            case Expr_Closure -> {
+                self.walk_closure(e)
+                self.unbound()
+            },
+            case Expr_If -> {
+                self.walk_if(e)
+                self.unbound()
+            },
+            case Expr_ElseIf -> {
+                self.walk_arm(e)
+                self.unbound()
+            },
+            case Expr_Match -> {
+                self.walk_match(e)
+                self.unbound()
+            },
+            case Expr_While_Conditional -> {
+                self.walk_expr_children(e)
+                self.unbound()
+            },
+            case Expr_While_Infinite -> {
+                self.walk_expr_children(e)
+                self.unbound()
+            },
+            case Expr_While_Borrow -> {
+                self.walk_arm(e)
+                self.unbound()
+            },
+            case Expr_WhileLet_Let -> {
+                self.walk_arm(e)
+                self.unbound()
+            },
+            case Expr_WhileLet_Var -> {
+                self.walk_arm(e)
+                self.unbound()
+            },
+            case Expr_For_Plain -> {
+                self.walk_for(e)
+                self.unbound()
+            },
+            case Expr_For_Borrow -> {
+                self.walk_first_expr(e)
+                self.unbound()
+            },
+            case Borrow_For_Let -> {
+                self.walk_for(e)
+                self.unbound()
+            },
+            case Borrow_For_Var -> {
+                self.walk_for(e)
+                self.unbound()
+            },
+            case Borrow_Block -> {
+                self.walk_borrow_block(e)
+                self.unbound()
+            },
+            case Expr_Argument_Labelled -> {
+                self.walk_last_expr(e)
+                self.unbound()
+            },
+            case Type_Path -> self.walk_path(e, ResSpace.Value),
+            case Expr_ShorthandParam -> {
+                self.not_in_slice(e, alt)
+                self.unbound()
+            },
+            case _ -> {
+                if res_is_plain_expr(alt) {
+                    self.walk_expr_children(e)
+                } else {
+                    self.not_in_slice(e, alt)
+                }
+                self.unbound()
+            }
+        }
+    }
+
+    // A bare name in a value position, with its generic arguments.
+    public func walk_name(&var self, e: Int) -> ResBinding {
+        let leaf = self.first_leaf(e)
+        let name = self.leaf_name(leaf)
+        let b = self.lookup(name, leaf, ResSpace.Value)
+        self.record(leaf, b)
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            if not self.is_leaf(c) {
+                self.walk_type_or_const(c)
+            }
+            k = k + 1
+        }
+        b
+    }
+
+    // `self`: the enclosing method's receiver. The node itself is the
+    // occurrence, since `self` is a keyword the tree keeps no leaf for.
+    func walk_self(&var self, e: Int) -> ResBinding {
+        if self.receiver.kind == ResBindKind.Unbound {
+            self.refuse(e, "name.self-outside-method",
+                        "`self` names a method's receiver, and there is none here")
+            self.record_error(e)
+            return self.error_binding()
+        }
+        let receiver = self.receiver
+        self.record(e, receiver)
+        receiver
+    }
+
+    // `base.name`: a member of a module or an enum's case is resolved here; a
+    // member of any other named type, or of a value, is a selector typecheck
+    // looks up in that type's members.
+    func walk_member(&var self, e: Int) -> ResBinding {
+        let base = self.first_node_child(e)
+        let leaf = self.first_leaf(e)
+        if self.is_spawn_form(base, leaf) {
+            self.refuse(e, "slice.not-yet",
+                        "the `Thread.spawn` and `Task.spawn` forms are not in the bootstrap slice yet")
+            try! self.skipped.push(e)
+            return self.error_binding()
+        }
+        let b = self.walk_expr(base)
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            if c != base && not self.is_leaf(c) {
+                self.walk_type_or_const(c)
+            }
+            k = k + 1
+        }
+        self.member_of(b, leaf)
+    }
+
+    // Whether `base.leaf` is `Thread.spawn` or `Task.spawn`: a form, whose
+    // namespace names an engine rather than a declaration (design 242).
+    func is_spawn_form(&self, base: Int, leaf: Int) -> Bool {
+        if not self.is_alt(base, Alt.Expr_Name) || leaf < 0 || self.child_count(base) != 1 {
+            return false
+        }
+        let m = self.current
+        let member = self.text_of(m, leaf)
+        let head_leaf = self.first_leaf(base)
+        let head = self.text_of(m, head_leaf)
+        member.equals("spawn") && (head.equals("Thread") || head.equals("Task"))
+    }
+
+    // What member `leaf` of something bound as `b` denotes, recorded when it
+    // is a module's member or an enum's case.
+    func member_of(&var self, b: ResBinding, leaf: Int) -> ResBinding {
+        let name = self.leaf_name(leaf)
+        if b.kind == ResBindKind.Module {
+            let found = self.surface_lookup(b.module, name, leaf, true)
+            self.record(leaf, found)
+            return found
+        }
+        let is_type = b.kind == ResBindKind.Decl || b.kind == ResBindKind.SelfType
+        if is_type && b.decl >= 0 {
+            let decl = self.decls[b.decl]
+            if decl.kind == ResDeclKind.Enum {
+                let at = self.members.first(b.decl, name)
+                if at >= 0 {
+                    let case_decl = self.members.value(at)
+                    let found = ResBinding(kind: ResBindKind.Case, module: decl.module,
+                                           decl: case_decl, name: -1, node: -1)
+                    self.record(leaf, found)
+                    return found
+                }
+            }
+            if res_names_type(decl.kind) {
+                return ResBinding(kind: ResBindKind.Member, module: -1, decl: b.decl, name: name,
+                                  node: -1)
+            }
+        }
+        if b.kind == ResBindKind.TypeParam {
+            return ResBinding(kind: ResBindKind.Member, module: -1, decl: -1, name: name,
+                              node: b.node)
+        }
+        ResBinding(kind: ResBindKind.Member, module: -1, decl: -1, name: name, node: -1)
+    }
+
+    // A selector on a value: its base and generic arguments are resolved, its
+    // member name is typecheck's.
+    func walk_selector(&var self, e: Int) -> ResBinding {
+        let base = self.first_node_child(e)
+        let _ = self.walk_expr(base)
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            if c != base && not self.is_leaf(c) {
+                self.walk_type_or_const(c)
+            }
+            k = k + 1
+        }
+        ResBinding(kind: ResBindKind.Member, module: -1, decl: -1, name: -1, node: -1)
+    }
+
+    // A call: its head, classified once (SL:architecture §3.3), then its
+    // arguments and trailing closure.
+    func walk_call(&var self, e: Int) -> ResBinding {
+        let callee = self.first_node_child(e)
+        let b = self.walk_expr(callee)
+        let head_class = self.classify_head(callee, b)
+        let m = self.current
+        try! self.calls.push(ResCall(module: m, node: e, classification: head_class, binding: b))
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            if c != callee && not self.is_leaf(c) {
+                if self.is_alt(c, Alt.Expr_Argument_Positional) || self.is_alt(c, Alt.Expr_Argument_Labelled) {
+                    self.walk_last_expr(c)
+                } else {
+                    let _ = self.walk_expr(c)
+                }
+            }
+            k = k + 1
+        }
+        self.unbound()
+    }
+
+    func classify_head(&self, callee: Int, b: ResBinding) -> ResCallClass {
+        match b.kind {
+            case Decl -> {
+                let decl = self.decls[b.decl]
+                if res_names_type(decl.kind) {
+                    return ResCallClass.Init
+                }
+                ResCallClass.Value
+            },
+            case Overload -> ResCallClass.Overload,
+            case Overloads -> ResCallClass.Overload,
+            case Local -> ResCallClass.Local,
+            case TypeParam -> ResCallClass.TypeParam,
+            case Case -> ResCallClass.Case,
+            case Cases -> ResCallClass.ImplicitCase,
+            case SelfType -> ResCallClass.Init,
+            case Member -> {
+                if b.decl >= 0 || b.node >= 0 {
+                    return ResCallClass.StaticMethod
+                }
+                ResCallClass.Method
+            },
+            case _ -> ResCallClass.Value
+        }
+    }
+
+    // A catch block: `error` is bound in it, to the error caught.
+    public func walk_catch_block(&var self, b: Int) {
+        if b < 0 {
+            return
+        }
+        self.push_scope()
+        let binding = self.local_binding(b)
+        let name = self.name_error
+        let now = self.records.len()
+        self.bind_local(name, b, binding, ResShadow.Capture, now)
+        self.walk_statements(b, 0)
+        self.pop_scope()
+    }
+
+    // A closure: its captures name enclosing bindings, its parameters are
+    // bound in its own scope, then its statements.
+    public func walk_closure(&var self, e: Int) {
+        self.push_scope()
+        let n = self.child_count(e)
+        var k = 0
+        let before = self.records.len()
+        while k < n {
+            let c = self.child(e, k)
+            if self.is_leaf(c) {
+                k = k + 1
+                continue
+            }
+            if res_is_capture(self.alt_of(c)) {
+                self.walk_capture(c)
+            } else if res_is_closure_param(self.alt_of(c)) {
+                let t = self.last_node_child(c)
+                if t >= 0 {
+                    self.walk_type(t)
+                }
+                let leaf = self.first_leaf(c)
+                let name = self.leaf_name(leaf)
+                self.bind_value(name, leaf, ResShadow.Flat, before)
+            } else {
+                self.walk_statement(c)
+            }
+            k = k + 1
+        }
+        self.pop_scope()
+    }
+
+    // A capture names an enclosing binding and binds the same name to it.
+    public func walk_capture(&var self, c: Int) {
+        let leaf = self.first_leaf(c)
+        if leaf < 0 {
+            // `[&self]`, `[&var self]`: the receiver.
+            let _ = self.walk_self(c)
+            return
+        }
+        let name = self.leaf_name(leaf)
+        let b = self.lookup(name, leaf, ResSpace.Value)
+        self.record(leaf, b)
+        let now = self.records.len()
+        self.bind_local(name, leaf, b, ResShadow.Capture, now)
+    }
+
+    // `if`: each arm opens a scope for its head's bindings and its block.
+    func walk_if(&var self, e: Int) {
+        let n = self.child_count(e)
+        var k = 0
+        var head = -1
+        while k < n {
+            let c = self.child(e, k)
+            if self.is_leaf(c) {
+                k = k + 1
+                continue
+            }
+            if self.is_alt(c, Alt.Expr_ElseIf) {
+                self.walk_arm(c)
+            } else if self.is_alt(c, Alt.Stmt_Block) {
+                if head >= 0 {
+                    self.push_scope()
+                    let before = self.records.len()
+                    self.walk_head(head)
+                    self.bind_head(head, before)
+                    self.walk_block(c)
+                    self.pop_scope()
+                    head = -1
+                } else {
+                    self.walk_block(c)
+                }
+            } else {
+                head = c
+            }
+            k = k + 1
+        }
+    }
+
+    // A construct of a head and a block: an `else if` arm, a `while` with a
+    // borrow head, a `while let`. The head's bindings are in scope in the
+    // block only.
+    func walk_arm(&var self, e: Int) {
+        self.push_scope()
+        let n = self.child_count(e)
+        var k = 0
+        var target = -1
+        let before = self.records.len()
+        while k < n {
+            let c = self.child(e, k)
+            if self.is_leaf(c) {
+                k = k + 1
+                continue
+            }
+            if self.is_alt(c, Alt.Stmt_Block) {
+                if target >= 0 {
+                    self.bind_target(target, ResShadow.Derivable, before)
+                    target = -1
+                }
+                self.walk_block(c)
+            } else if self.is_binding_target(c) && target < 0 {
+                target = c
+            } else if res_is_head_binding(self.alt_of(c)) {
+                self.walk_head(c)
+                self.bind_head(c, before)
+            } else {
+                let _ = self.walk_expr(c)
+            }
+            k = k + 1
+        }
+        self.pop_scope()
+    }
+
+    // Whether `c` is a binding target: a BindingName or a tuple pattern.
+    func is_binding_target(&self, c: Int) -> Bool {
+        self.is_alt(c, Alt.Stmt_BindingName) || self.is_alt(c, Alt.Pat_Tuple_Positional)
+    }
+
+    // A head's subject: a condition, or an optional or borrow binding's value.
+    func walk_head(&var self, head: Int) {
+        if res_is_head_binding(self.alt_of(head)) {
+            let target = self.first_node_child(head)
+            let n = self.child_count(head)
+            var k = 0
+            while k < n {
+                let c = self.child(head, k)
+                if c != target && not self.is_leaf(c) {
+                    let _ = self.walk_expr(c)
+                }
+                k = k + 1
+            }
+            return
+        }
+        let _ = self.walk_expr(head)
+    }
+
+    // A head's bindings, once its subject is resolved.
+    func bind_head(&var self, head: Int, before: Int) {
+        if res_is_head_binding(self.alt_of(head)) {
+            let target = self.first_node_child(head)
+            self.bind_target(target, ResShadow.Derivable, before)
+        }
+    }
+
+    // `match`: the scrutinee, then each arm in its own scope: the pattern's
+    // bindings, the guard, the body.
+    func walk_match(&var self, e: Int) {
+        let scrutinee = self.first_node_child(e)
+        let _ = self.walk_expr(scrutinee)
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let arm = self.child(e, k)
+            if self.is_alt(arm, Alt.Expr_MatchArm) {
+                self.walk_match_arm(arm)
+            }
+            k = k + 1
+        }
+    }
+
+    func walk_match_arm(&var self, arm: Int) {
+        self.push_scope()
+        let pattern = self.first_node_child(arm)
+        let body = self.last_node_child(arm)
+        let now = self.records.len()
+        self.bind_pattern(pattern, ResShadow.Flat, now)
+        let n = self.child_count(arm)
+        var k = 0
+        while k < n {
+            let c = self.child(arm, k)
+            if c != pattern && not self.is_leaf(c) {
+                if c == body && self.is_alt(c, Alt.Stmt_Block) {
+                    self.walk_block(c)
+                } else if c == body && res_is_statement_alt(self.alt_of(c)) {
+                    self.walk_statement(c)
+                } else {
+                    let _ = self.walk_expr(c)
+                }
+            }
+            k = k + 1
+        }
+        self.pop_scope()
+    }
+
+    // `for x in seq { }`: the sequence outside the loop's scope, the binding,
+    // which may derive from it, then the body.
+    func walk_for(&var self, e: Int) {
+        let target = self.first_node_child(e)
+        let body = self.last_node_child(e)
+        let before = self.records.len()
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            if c != target && c != body && not self.is_leaf(c) {
+                let _ = self.walk_expr(c)
+            }
+            k = k + 1
+        }
+        self.push_scope()
+        self.bind_target(target, ResShadow.Derivable, before)
+        self.walk_block(body)
+        self.pop_scope()
+    }
+
+    // `borrow let a = p, var b = q { }`: each binding's place, then its name,
+    // all in the block's scope.
+    func walk_borrow_block(&var self, e: Int) {
+        self.push_scope()
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            if self.is_alt(c, Alt.Borrow_Binding_Let) || self.is_alt(c, Alt.Borrow_Binding_Var) {
+                let before = self.records.len()
+                self.walk_head(c)
+                self.bind_head(c, before)
+            } else if self.is_alt(c, Alt.Stmt_Block) {
+                self.walk_block(c)
+            }
+            k = k + 1
+        }
+        self.pop_scope()
+    }
+
+    // A type.
+    public func walk_type(&var self, t: Int) {
+        if t < 0 || self.is_leaf(t) {
+            return
+        }
+        if let alt = self.alt_of(t) {
+            self.walk_type_as(t, alt)
+        }
+    }
+
+    func walk_type_as(&var self, t: Int, alt: Alt) {
+        match alt {
+            case Type_Named -> {
+                let n = self.child_count(t)
+                var k = 0
+                while k < n {
+                    let c = self.child(t, k)
+                    if self.is_alt(c, Alt.Type_Path) && k == 0 {
+                        let _ = self.walk_path(c, ResSpace.Type)
+                    } else if not self.is_leaf(c) {
+                        self.walk_type_or_const(c)
+                    }
+                    k = k + 1
+                }
+            },
+            case Type_Any -> {
+                let path = self.first_node_child(t)
+                let _ = self.walk_path(path, ResSpace.Type)
+            },
+            case Type_Array -> {
+                let element = self.first_node_child(t)
+                self.walk_type(element)
+                self.walk_last_expr(t)
+            },
+            case Type_TupleField -> self.walk_last_type(t),
+            case _ -> {
+                if res_is_type_alt(self.alt_of(t)) {
+                    let n = self.child_count(t)
+                    var k = 0
+                    while k < n {
+                        let c = self.child(t, k)
+                        if not self.is_leaf(c) {
+                            self.walk_type(c)
+                        }
+                        k = k + 1
+                    }
+                } else {
+                    self.not_in_slice(t, alt)
+                }
+            }
+        }
+    }
+
+    // A generic argument: a type, or a constant expression.
+    public func walk_type_or_const(&var self, c: Int) {
+        if res_is_type_alt(self.alt_of(c)) {
+            self.walk_type(c)
+            return
+        }
+        guard let alt = self.alt_of(c) else {
+            return
+        }
+        if alt == Alt.Type_Path {
+            let _ = self.walk_path(c, ResSpace.Value)
+        } else if alt == Alt.Const_LayoutQuery_Size || alt == Alt.Const_LayoutQuery_Align {
+            let n = self.child_count(c)
+            var k = 0
+            while k < n {
+                let x = self.child(c, k)
+                if not self.is_leaf(x) {
+                    self.walk_type_or_const(x)
+                }
+                k = k + 1
+            }
+        } else {
+            let _ = self.walk_expr(c)
+        }
+    }
+
+    // A path: its first segment looked up in `space`, each later segment a
+    // member of the one before. Every segment is recorded; the last one's
+    // binding is the path's.
+    public func walk_path(&var self, path: Int, space: ResSpace) -> ResBinding {
+        if path < 0 {
+            return self.unbound()
+        }
+        let n = self.child_count(path)
+        let first = self.child(path, 0)
+        let name = self.leaf_name(first)
+        var b = self.lookup(name, first, space)
+        self.record(first, b)
+        var k = 1
+        while k < n {
+            let leaf = self.child(path, k)
+            if b.kind == ResBindKind.Error {
+                self.record_error(leaf)
+            } else {
+                b = self.member_of(b, leaf)
+                if b.kind == ResBindKind.Member {
+                    let m = self.current
+                    let text = self.text_of(m, leaf)
+                    var msg = StringBuilder()
+                    try! msg.append("`")
+                    try! msg.append(text)
+                    try! msg.append("` cannot be named through a path here")
+                    self.refuse(leaf, "name.undefined", msg.build())
+                    b = self.error_binding()
+                    self.record(leaf, b)
+                }
+            }
+            k = k + 1
+        }
+        b
+    }
+}

@@ -1,0 +1,6 @@
+// refuses: name.undefined at 5:5
+// a bare name nothing binds, in a value position
+
+func f() -> Int {
+    missing + 1
+}

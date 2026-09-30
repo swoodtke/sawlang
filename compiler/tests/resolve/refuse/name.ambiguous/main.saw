@@ -1,0 +1,9 @@
+// refuses: name.ambiguous at 7:11
+// two explicit imports that bind one name to two declarations, refused at the use
+
+import wire.{Header}
+import disk.{Header}
+
+func f(h: Header) -> Int {
+    0
+}

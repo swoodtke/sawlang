@@ -1,0 +1,11 @@
+import panel.{Panel}
+
+public struct Knob {
+    id: Int
+}
+
+extension Panel {
+    public func turn(&self, knob: &Knob) -> Int {
+        self.raw + knob.id
+    }
+}

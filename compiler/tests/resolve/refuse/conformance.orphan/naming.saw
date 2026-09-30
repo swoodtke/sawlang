@@ -1,0 +1,3 @@
+public trait Named {
+    func label(&self) -> String
+}

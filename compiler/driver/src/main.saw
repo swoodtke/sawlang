@@ -6,15 +6,19 @@
 //   sawc2 parse --dump FILE...      each file's canonical AST dump
 //   sawc2 parse --check FILE...     each file's diagnostics only
 //   sawc2 parse --redump FILE...    each dump file read back and rendered again
+//   sawc2 resolve --dump FILE...    each entry file's program resolved, and its dump
+//   sawc2 resolve --check FILE...   each entry file's program resolved, refusals only
 //
-// The lexer's records are its canonical dump (compiler/lex/README.md), and the
-// parser's are described in compiler/parse/README.md. A lex error prints one
-// ERROR record and exits 1, and so does a file the parser refuses; a usage or
+// The lexer's records are its canonical dump (compiler/lex/README.md), the
+// parser's are described in compiler/parse/README.md, and the resolver's in
+// compiler/tests/resolve/README.md. A lex error prints one ERROR record and
+// exits 1, and so does a file the parser or the resolver refuses; a usage or
 // I/O failure prints a message and exits 2.
 
 import sawlex.src.lib.{LexResult, format_doc, format_error, format_token, kind_name, lex, token_kinds}
 import sawparse.src.api.{ParseOptions, parse_record}
 import sawparse.src.reader.{redump}
+import sawresolve.src.api.{ResolveOptions, resolve_record}
 import std.env.{Env}
 import std.file.{File}
 import std.path.{Path}
@@ -23,12 +27,15 @@ static DRIVER_EXIT_LEX_ERROR: Int = 1
 static DRIVER_EXIT_USAGE: Int = 2
 static DRIVER_NEWLINE: Int = 10
 static DRIVER_AT: Int = 64
+static DRIVER_EQUALS: Int = 61
 
 func driver_usage() -> Int {
     print("usage: sawc2 lex [--docs] <file.saw>")
     print("       sawc2 lex --kinds")
     print("       sawc2 parse (--dump | --check) [--alternatives] [[--unit] FILE | @LIST]...")
     print("       sawc2 parse --redump [FILE | @LIST]...")
+    print("       sawc2 resolve (--dump | --check) [--notes] [--std-root DIR]")
+    print("                     [--module-path NAME=DIR]... [FILE | @LIST]...")
     DRIVER_EXIT_USAGE
 }
 
@@ -41,7 +48,93 @@ func main() -> Int {
     if command.equals("parse") {
         return driver_parse(&args)
     }
+    if command.equals("resolve") {
+        return driver_resolve(&args)
+    }
     driver_usage()
+}
+
+// `sawc2 resolve`: one record per entry file, in order, each file resolved as
+// the entry of its own program.
+func driver_resolve(args: &Vector<String>) -> Int {
+    var dump = false
+    var check = false
+    var notes = false
+    var std_root = "sawc"
+    var names = Vector<String>()
+    var dirs = Vector<String>()
+    var inputs = Vector<DriverInput>()
+    var i = 2
+    while i < args.len() {
+        let arg = args.get(i) ?? ""
+        if arg.equals("--dump") {
+            dump = true
+        } else if arg.equals("--check") {
+            check = true
+        } else if arg.equals("--notes") {
+            notes = true
+        } else if arg.equals("--std-root") || arg.equals("--module-path") {
+            let value = args.get(i + 1) ?? ""
+            if value.len() == 0 {
+                return driver_usage()
+            }
+            if arg.equals("--std-root") {
+                std_root = value
+            } else if not driver_add_mapping(&var names, &var dirs, value) {
+                return driver_usage()
+            }
+            i = i + 1
+        } else if arg.starts_with("--") {
+            return driver_usage()
+        } else if arg.len() > 1 && (arg.byte_at(0) as Int) == DRIVER_AT {
+            // Stage 0 workaround (SL:hazards S4): canonical: let list = arg.substring(1, arg.len())
+            let size = arg.len()
+            let list = arg.substring(1, size)
+            if not driver_add_list(&var inputs, list) {
+                return DRIVER_EXIT_USAGE
+            }
+        } else {
+            try! inputs.push(DriverInput(path: arg, unit: false))
+        }
+        i = i + 1
+    }
+    if dump == check {
+        return driver_usage()
+    }
+    let options = ResolveOptions(std_root: std_root, dump: dump, notes: notes)
+    var status = 0
+    var k = 0
+    while k < inputs.len() {
+        if let input = inputs.get(k) {
+            var out = StringBuilder()
+            try! out.append("FILE\t")
+            try! out.append(input.path)
+            try! out.append("\n")
+            let result = resolve_record(out: &var out, path: input.path, options: &options,
+                                        names: &names, dirs: &dirs)
+            print(out.build())
+            if result > status {
+                status = result
+            }
+        }
+        k = k + 1
+    }
+    status
+}
+
+// Adds a `NAME=DIR` package mapping; false when the text has no `=`.
+func driver_add_mapping(names: &var Vector<String>, dirs: &var Vector<String>, text: String) -> Bool {
+    var i = 0
+    let n = text.len()
+    while i < n {
+        if (text.byte_at(i) as Int) == DRIVER_EQUALS {
+            try! names.push(text.substring(0, i))
+            try! dirs.push(text.substring(i + 1, n))
+            return true
+        }
+        i = i + 1
+    }
+    false
 }
 
 // One input of `sawc2 parse`: a path, and whether it is parsed from

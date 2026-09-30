@@ -1,0 +1,5 @@
+public func helper(n: Int) -> Int {
+    n + 1
+}
+
+public static STEP: Int = 2

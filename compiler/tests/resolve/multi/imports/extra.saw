@@ -1,0 +1,6 @@
+// A second `helper`: imported bare beside util's, the two merge into one
+// overload set (design 249).
+
+public func helper(text: String) -> String {
+    text
+}

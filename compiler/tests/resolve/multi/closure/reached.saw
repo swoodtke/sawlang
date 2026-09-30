@@ -1,0 +1,11 @@
+// Reaches `level` only through `relay`, which is enough: `count` is a case
+// candidate here.
+
+import relay
+
+public func weigh() -> Int {
+    match relay.peak() {
+        case count -> 1,
+        case _ -> 0
+    }
+}

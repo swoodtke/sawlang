@@ -1,0 +1,16 @@
+public struct Circle {
+    r: Int
+}
+
+public enum Kind {
+    case Round,
+    case Square
+}
+
+public func area(c: &Circle) -> Int {
+    c.r * c.r * 3
+}
+
+func private_helper() -> Int {
+    0
+}

@@ -1,0 +1,27 @@
+// Every import form (design 150), re-exports through a facade (design 229),
+// qualified paths in types and expressions, std imports, and functions of one
+// name from two modules merged into one overload set (design 249).
+
+import shapes
+import shapes.{Circle, area as circle_area}
+import facade.{Panel}
+import facade
+import util.*
+import extra.{helper}
+import std.path.{Path}
+import std.file
+
+func measure(c: &shapes.Circle, p: Path) -> Int {
+    circle_area(&c) + shapes.area(&c)
+}
+
+func main() {
+    let c = Circle(r: 2)
+    let d = shapes.Circle(r: 3)
+    let kind = shapes.Kind.Round
+    let panel = Panel(raw: 1)
+    let knob = facade.knobs.Knob(id: 2)
+    let n = helper(measure(&d, Path(s: "x")))
+    let label = helper("merged")
+    let f: file.File? = None
+}

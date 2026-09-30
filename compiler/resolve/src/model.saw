@@ -1,0 +1,261 @@
+// The records name resolution produces (SL:architecture §3.3). Every record is
+// plain data keyed by ids: a module by its index in the program, a node by its
+// id in the program's copy of the parsed arenas, a declaration by its index in
+// the program's declaration table. A binding into another module names it by
+// module and declaration, and the dump prints that as the module's identity and
+// the declaration's path, never as an index.
+
+// Where a module's source comes from, which decides how much of it is resolved.
+public enum ResModuleKind {
+    // A file named on the command line, or a module found beside one.
+    case Entry,
+    // A module of a package mapped with `--module-path`.
+    case Package,
+    // A module of `std`, read for its interface only.
+    case Std,
+    // The synthetic `builtin` module, with `builtin.saw`, also an interface.
+    case Builtin
+}
+
+public struct ResModule {
+    // The module's identity, interned: `main`, `sawparse.src.api`, `std.vector`.
+    public name: Int
+    // The file it was read from, interned; -1 for none.
+    public file: Int
+    public kind: ResModuleKind
+    // The first segment of the identity, interned: std's is `std`, and a module
+    // beside the entry file belongs to the empty package.
+    public package: Int
+    // The directory of the file, interned, where a sibling import looks.
+    public dir: Int
+    // Whether the file was read and parsed; a module that was not has no
+    // declarations and every lookup into it is refused.
+    public available: Bool
+    // Only an interface: declarations and imports, no bodies.
+    public interface_only: Bool
+    // The module's nodes are `node_base .. node_base + node_count` of the
+    // program's arena, and `root` is its File node; -1 when unavailable.
+    public node_base: Int
+    public node_count: Int
+    public root: Int
+    // The byte offset of each line start, in the program's `line_starts`.
+    public line_base: Int
+    public line_count: Int
+    // The module's declarations are `decl_first .. decl_first + decl_count`.
+    public decl_first: Int
+    public decl_count: Int
+}
+
+public enum ResVis {
+    case Private,
+    case Public,
+    case Package,
+    case Parent
+}
+
+public enum ResDeclKind {
+    case Struct,
+    case Enum,
+    case Case,
+    case Trait,
+    case Alias,
+    case Static,
+    case Func,
+    case Extern,
+    case Extension,
+    case Method,
+    case Init,
+    case TypeAssign,
+    case AssocType,
+    case Requirement,
+    case Field,
+    // A type nothing declares: the primitives, `String`, `Void`, `Never`, the
+    // pointer types (SL:open-questions D12).
+    case Primitive,
+    // A function nothing declares: `print`, `panic`, `assert`, `sizeof`, `alignof`.
+    case BuiltinFunc
+}
+
+public struct ResDecl {
+    public module: Int
+    public kind: ResDeclKind
+    // The declared name, interned; -1 for an extension.
+    public name: Int
+    // The declaration's own node (Func, Struct, Case, ...); -1 when synthetic.
+    public node: Int
+    // The node that holds its modifiers: a Declaration, ExtensionMember or
+    // TestOnly node, else the declaration's own node.
+    public outer: Int
+    // The leaf of its name, where it is reported; -1 when synthetic.
+    public leaf: Int
+    public vis: ResVis
+    // The enclosing declaration: an enum for a case, a struct for a field, a
+    // trait or an extension for a member; -1 at the top level.
+    public parent: Int
+    // Declared under `@test`, so ordinary code may not name it.
+    public test_only: Bool
+    // A static method, or a case with a payload.
+    public flag: Bool
+}
+
+public enum ResBindKind {
+    case Unbound,
+    // A local, a parameter, a pattern or loop binding, a capture, a receiver.
+    case Local,
+    // A declaration: a type, a static, an extern, a trait, an alias.
+    case Decl,
+    // A function name: the module's whole overload set for that name.
+    case Overload,
+    // A bare function name several modules supply, the module's own
+    // declarations and its bare imports merged into one overload set (design
+    // 249): `decl` indexes the program's `merges` table.
+    case Overloads,
+    // One enum case.
+    case Case,
+    // A variant pattern's or implicit member's case, chosen among `name`'s
+    // candidates by typecheck from the scrutinee's or expected type.
+    case Cases,
+    case TypeParam,
+    // A module, reached through a qualifier or an import path.
+    case Module,
+    // `Self`: the enclosing type, or a trait's own.
+    case SelfType,
+    // A member selected on a value, or a static member on a type: found in the
+    // type's member tables by typecheck, which needs the type.
+    case Member,
+    // Refused; a diagnostic says why.
+    case Error
+}
+
+public struct ResBinding {
+    public kind: ResBindKind
+    // The module of a Module or Overload binding.
+    public module: Int
+    // The declaration of a Decl or Case binding, or the type of a SelfType or
+    // Member one; -1 otherwise.
+    public decl: Int
+    // The name of an Overload or Cases binding.
+    public name: Int
+    // The leaf that declares a Local or TypeParam binding, or the node that
+    // introduces an implicit one (a catch block's `error`).
+    public node: Int
+}
+
+public func res_unbound() -> ResBinding {
+    ResBinding(kind: ResBindKind.Unbound, module: -1, decl: -1, name: -1, node: -1)
+}
+
+public func res_error_binding() -> ResBinding {
+    ResBinding(kind: ResBindKind.Error, module: -1, decl: -1, name: -1, node: -1)
+}
+
+// One name occurrence and what it denotes.
+public struct ResName {
+    public module: Int
+    public leaf: Int
+    public binding: ResBinding
+}
+
+// How a call's head is classified, once (SL:architecture §3.3).
+public enum ResCallClass {
+    // `Foo(...)`: the type's `init` set.
+    case Init,
+    // `f(...)`: an overload set.
+    case Overload,
+    // `x(...)`: a local holding a function value.
+    case Local,
+    // `T(...)`: a type parameter.
+    case TypeParam,
+    // `E.Case(...)`: an enum case.
+    case Case,
+    // `.Case(...)`: an enum case chosen by the expected type.
+    case ImplicitCase,
+    // `x.f(...)`: a method, found from the receiver's type.
+    case Method,
+    // `T.f(...)`: a static method of a named type.
+    case StaticMethod,
+    // Any other callee: a function value, decided from its type (SL-73).
+    case Value
+}
+
+public struct ResCall {
+    public module: Int
+    public node: Int
+    public classification: ResCallClass
+    public binding: ResBinding
+}
+
+public enum ResImportForm {
+    case Qualifier,
+    case Glob,
+    case Select
+}
+
+public struct ResImport {
+    public module: Int
+    public node: Int
+    // The Path node, and the leaf its last segment is.
+    public path: Int
+    public leaf: Int
+    // The imported module, or -1 when it could not be found.
+    public target: Int
+    public form: ResImportForm
+    public reexport: Bool
+    public test_only: Bool
+    // The qualifier a whole-module import binds, interned; -1 otherwise.
+    public qualifier: Int
+    public qualifier_leaf: Int
+}
+
+// One name a selective import takes.
+public struct ResSymbol {
+    public import_at: Int
+    public module: Int
+    // The name asked for, and the name it is bound to (its `as` rename).
+    public name: Int
+    public bound: Int
+    public leaf: Int
+    public bound_leaf: Int
+    public binding: ResBinding
+}
+
+// One name on a module's surface: its own public declarations and what it
+// re-exports (design 229).
+public struct ResExport {
+    public module: Int
+    public name: Int
+    public binding: ResBinding
+    public vis: ResVis
+    // The module whose declaration grants the visibility.
+    public owner: Int
+}
+
+// A binding in scope in a body or a signature.
+public struct ResLocal {
+    public name: Int
+    public binding: ResBinding
+    // The scope depth it was declared at.
+    public depth: Int
+    // Whether this is a type-level binding (a type parameter, `Self`, an
+    // associated type), which a type position sees and a value position does not.
+    public type_level: Bool
+}
+
+public struct ResDiag {
+    public module: Int
+    public start: Int
+    public end: Int
+    public id: String
+    public message: String
+    // A note about an interface module, which refuses nothing.
+    public note: Bool
+}
+
+// A conformance an extension declares: which type, which trait, where.
+public struct ResConformance {
+    public module: Int
+    public ext: Int
+    public path: Int
+    public target: ResBinding
+    public trait_binding: ResBinding
+}

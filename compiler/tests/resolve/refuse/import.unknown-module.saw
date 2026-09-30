@@ -1,0 +1,8 @@
+// refuses: import.unknown-module at 4:8
+// an import of a module that does not exist
+
+import nowhere.{Thing}
+
+func f() -> Int {
+    0
+}

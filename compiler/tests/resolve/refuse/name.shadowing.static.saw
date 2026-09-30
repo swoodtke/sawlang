@@ -1,0 +1,9 @@
+// refuses: name.shadowing at 7:9
+// a local that shadows a module static without deriving from it
+
+static LIMIT: Int = 3
+
+func f() -> Int {
+    let LIMIT = 4
+    LIMIT
+}

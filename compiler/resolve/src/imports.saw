@@ -1,0 +1,749 @@
+// Phase 2, imports (SL:architecture §3.3, design 150): each import finds its
+// module, loading and collecting it when it is new, and binds what its form
+// names: a qualifier, `.*`, or `.{A, B as C}`. What each module hands on to its
+// importers (design 229) is computed by a worklist to a fixpoint, import
+// cycles are found with an explicit stack (principle 6), and each module's
+// import closure bounds the cases its patterns consult.
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResExport,
+                             ResImport, ResImportForm, ResModule, ResModuleKind, ResName,
+                             ResSymbol, ResVis}
+import sawresolve.src.loader.{res_after_first_segment, res_dir_of, res_dots_to_slashes,
+                              res_first_segment, res_join, res_read_file}
+import sawresolve.src.names.{res_index}
+import sawresolve.src.program.{ResProgram}
+
+// Where a bare import path's file is: in the importing file's directory, else
+// in the entry file's, else under the importing file's package root, the
+// nearest directory at or above it that holds a `Saw.toml`. Returns the first
+// place looked when none has the file.
+public func res_find_beside(dir: String, root: String, rel: String) -> String {
+    let near = res_join(dir, rel)
+    if let found = res_read_file(near) {
+        return near
+    }
+    let from_root = res_join(root, rel)
+    if let found = res_read_file(from_root) {
+        return from_root
+    }
+    var at = dir
+    var searching = true
+    while searching {
+        let manifest = res_join(at, "Saw.toml")
+        if let text = res_read_file(manifest) {
+            return res_join(at, rel)
+        }
+        searching = at.len() > 0
+        let parent = res_dir_of(&at)
+        at = parent
+    }
+    near
+}
+
+// Whether two bindings denote the same thing.
+public func res_same_binding(a: &ResBinding, b: &ResBinding) -> Bool {
+    if a.kind != b.kind {
+        return false
+    }
+    a.module == b.module && a.decl == b.decl && a.name == b.name && a.node == b.node
+}
+
+// What a declaration is bound as where it is named: its overload set for a
+// function, an extern included, else the declaration itself.
+public func res_decl_binding(d: Int, decl: &ResDecl) -> ResBinding {
+    let function = decl.kind == ResDeclKind.Func || decl.kind == ResDeclKind.Extern
+    if function || decl.kind == ResDeclKind.BuiltinFunc {
+        return ResBinding(kind: ResBindKind.Overload, module: decl.module, decl: -1,
+                          name: decl.name, node: -1)
+    }
+    if decl.kind == ResDeclKind.Case {
+        return ResBinding(kind: ResBindKind.Case, module: decl.module, decl: d, name: -1,
+                          node: -1)
+    }
+    ResBinding(kind: ResBindKind.Decl, module: decl.module, decl: d, name: -1, node: -1)
+}
+
+extension ResProgram {
+    // Records what leaf `leaf` of the current module denotes.
+    public func record(&var self, leaf: Int, binding: ResBinding) {
+        let m = self.current
+        let at = self.records.len()
+        try! self.records.push(ResName(module: m, leaf: leaf, binding: binding))
+        self.record_of[leaf] = at
+    }
+
+    // The text of a Path node's segments, joined by `.`.
+    public func path_text(&var self, path: Int) -> String {
+        let m = self.current
+        var out = StringBuilder()
+        let n = self.child_count(path)
+        var k = 0
+        while k < n {
+            let c = self.child(path, k)
+            if k > 0 {
+                try! out.append(".")
+            }
+            try! out.append(self.text_of(m, c))
+            k = k + 1
+        }
+        out.build()
+    }
+
+    // Finds every import's module, loading new ones as it goes: the import
+    // list grows as a loaded module's own imports are collected, so one pass
+    // over it reaches every module the program needs.
+    public func process_imports(&var self) {
+        var i = 0
+        while i < self.imports.len() {
+            let imp = self.imports[i]
+            self.current = imp.module
+            let text = self.path_text(imp.path)
+            let target = self.import_target(imp.module, text, imp.path)
+            var updated = self.imports[i]
+            updated.target = target
+            self.imports[i] = updated
+            i = i + 1
+        }
+        self.bind_qualifiers()
+        self.find_cycles()
+        self.compute_closures()
+        self.compute_surfaces()
+        self.resolve_symbols()
+    }
+
+    // Each module's import closure: the module, `builtin` and the modules the
+    // prelude draws from, and every module any of them imports, whatever the
+    // form, transitively. A scrutinee's type is reachable only through it, so
+    // it bounds the cases a pattern can name. A module is marked before it is
+    // pushed, so the walk terminates over a refused cycle.
+    func compute_closures(&var self) {
+        let n = self.modules.len()
+        var edges = res_index()
+        var i = 0
+        while i < self.imports.len() {
+            let imp = self.imports[i]
+            if imp.target >= 0 {
+                edges.add(imp.module, 0, imp.target)
+            }
+            i = i + 1
+        }
+        var seeds = Vector<Int>()
+        if self.builtin >= 0 {
+            try! seeds.push(self.builtin)
+        }
+        var k = 0
+        while k < n {
+            if k != self.builtin && self.supplies_prelude(k) {
+                try! seeds.push(k)
+            }
+            k = k + 1
+        }
+        self.closure_stride = n
+        self.closure = Vector<Bool>()
+        var stack = Vector<Int>()
+        k = 0
+        while k < n * n {
+            try! self.closure.push(false)
+            k = k + 1
+        }
+        k = 0
+        while k < n {
+            try! stack.push(-1)
+            k = k + 1
+        }
+        var m = 0
+        while m < n {
+            let row = m * n
+            self.closure[row + m] = true
+            stack[0] = m
+            var top = 1
+            k = 0
+            while k < seeds.len() {
+                let s = seeds[k]
+                if not self.closure[row + s] {
+                    self.closure[row + s] = true
+                    stack[top] = s
+                    top = top + 1
+                }
+                k = k + 1
+            }
+            while top > 0 {
+                top = top - 1
+                let from = stack[top]
+                var at = edges.first(from, 0)
+                while at >= 0 {
+                    let t = edges.value(at)
+                    if not self.closure[row + t] {
+                        self.closure[row + t] = true
+                        stack[top] = t
+                        top = top + 1
+                    }
+                    at = edges.following(at)
+                }
+            }
+            m = m + 1
+        }
+    }
+
+    // Whether the prelude names a declaration of module `m`.
+    func supplies_prelude(&self, m: Int) -> Bool {
+        let info = self.modules[m]
+        var d = info.decl_first
+        while d < info.decl_first + info.decl_count {
+            let decl = self.decls[d]
+            if decl.parent < 0 && decl.name >= 0 {
+                var at = self.prelude.first(0, decl.name)
+                while at >= 0 {
+                    if self.prelude.value(at) == d {
+                        return true
+                    }
+                    at = self.prelude.following(at)
+                }
+            }
+            d = d + 1
+        }
+        false
+    }
+
+    // The module an import path names, or -1 after refusing it.
+    func import_target(&var self, importer: Int, text: String, path: Int) -> Int {
+        let first = res_first_segment(&text)
+        let own = self.modules[importer]
+        if text.equals(self.name_text(own.name)) {
+            return importer
+        }
+        if first.equals("std") {
+            let key = self.intern(text)
+            let found = self.find_module(key)
+            if found >= 0 {
+                let info = self.modules[found]
+                if not info.available {
+                    self.refuse_unavailable(path, text)
+                }
+                return found
+            }
+            self.refuse_unknown_module(path, text, "")
+            return -1
+        }
+        if first.equals("package") || first.equals("parent") {
+            self.refuse(path, "slice.not-yet",
+                        "a `package` or `parent` import path is not in the bootstrap slice yet")
+            return -1
+        }
+        let first_id = self.intern(first)
+        if let dir = self.package_dir(first_id) {
+            // `import NAME` is the package's `lib.saw`; `import NAME.sub` its `sub.saw`.
+            let after = res_after_first_segment(&text)
+            let rest = if after.len() == 0 { "lib" } else { after }
+            var rel = StringBuilder()
+            try! rel.append(res_dots_to_slashes(&rest))
+            try! rel.append(".saw")
+            let rel_text = rel.build()
+            let file = res_join(dir, rel_text)
+            return self.load_import(path, text, file, ResModuleKind.Package, first)
+        }
+        let dir = self.name_text(own.dir)
+        var rel = StringBuilder()
+        try! rel.append(res_dots_to_slashes(&text))
+        try! rel.append(".saw")
+        let rel_text = rel.build()
+        let entry = self.modules[self.entry]
+        let root = self.name_text(entry.dir)
+        let file = res_find_beside(dir, root, rel_text)
+        let package = self.name_text(own.package)
+        self.load_import(path, text, file, own.kind, package)
+    }
+
+    func load_import(&var self, path: Int, text: String, file: String, kind: ResModuleKind,
+                     package: String) -> Int {
+        let key = self.intern(text)
+        let known = self.find_module(key)
+        if known >= 0 {
+            return known
+        }
+        guard let readable = res_read_file(file) else {
+            self.refuse_unknown_module(path, text, file)
+            return -1
+        }
+        let saved = self.current
+        let m = self.load_module(text, file, kind, package)
+        self.current = saved
+        let info = self.modules[m]
+        if not info.available {
+            self.refuse_unavailable(path, text)
+        }
+        m
+    }
+
+    func refuse_unknown_module(&var self, path: Int, text: String, file: String) {
+        var msg = StringBuilder()
+        try! msg.append("no module `")
+        try! msg.append(text)
+        try! msg.append("`")
+        if file.len() > 0 {
+            try! msg.append(" (looked for `")
+            try! msg.append(file)
+            try! msg.append("`)")
+        }
+        self.refuse(path, "import.unknown-module", msg.build())
+    }
+
+    func refuse_unavailable(&var self, path: Int, text: String) {
+        var msg = StringBuilder()
+        try! msg.append("module `")
+        try! msg.append(text)
+        try! msg.append("` could not be read or parsed, so nothing can be imported from it")
+        self.refuse(path, "import.unavailable", msg.build())
+    }
+
+    // Binds each whole-module import's qualifier, refusing a second import
+    // that binds one qualifier to another module.
+    func bind_qualifiers(&var self) {
+        var i = 0
+        while i < self.imports.len() {
+            let imp = self.imports[i]
+            if imp.form == ResImportForm.Qualifier && imp.target >= 0 {
+                self.current = imp.module
+                var at = self.qualifiers.first(imp.module, imp.qualifier)
+                var clash = false
+                while at >= 0 {
+                    let other = self.imports[self.qualifiers.value(at)]
+                    if other.target != imp.target {
+                        clash = true
+                        let q = self.name_text(imp.qualifier)
+                        let a = self.module_name(other.target)
+                        let b = self.module_name(imp.target)
+                        var msg = StringBuilder()
+                        try! msg.append("two imports bind the qualifier `")
+                        try! msg.append(q)
+                        try! msg.append("`: `")
+                        try! msg.append(a)
+                        try! msg.append("` and `")
+                        try! msg.append(b)
+                        try! msg.append("`")
+                        self.refuse(imp.qualifier_leaf, "import.duplicate-qualifier", msg.build())
+                    }
+                    at = self.qualifiers.following(at)
+                }
+                if not clash {
+                    self.qualifiers.add(imp.module, imp.qualifier, i)
+                }
+            } else if imp.form == ResImportForm.Glob && imp.target >= 0 {
+                // A glob is filed under the qualifier -2, which no name interns to.
+                self.qualifiers.add(imp.module, -2, i)
+            }
+            i = i + 1
+        }
+    }
+
+    // Finds the import cycles among the modules resolution resolves in full:
+    // a depth-first walk with an explicit stack, where an edge back to a
+    // module still on the stack closes a cycle.
+    func find_cycles(&var self) {
+        var state = Vector<Int>()
+        var k = 0
+        while k < self.modules.len() {
+            try! state.push(0)
+            k = k + 1
+        }
+        var stack = Vector<Int>()
+        var edge = Vector<Int>()
+        var start = 0
+        while start < self.modules.len() {
+            let root_info = self.modules[start]
+            if state[start] != 0 || root_info.interface_only {
+                start = start + 1
+                continue
+            }
+            state[start] = 1
+            try! stack.push(start)
+            try! edge.push(0)
+            var top = 1
+            while top > 0 {
+                let m = stack[top - 1]
+                let next = self.next_import_of(m, edge[top - 1])
+                if next < 0 {
+                    state[m] = 2
+                    top = top - 1
+                    continue
+                }
+                edge[top - 1] = next + 1
+                let imp = self.imports[next]
+                let t = imp.target
+                if state[t] == 1 {
+                    self.report_cycle(&stack, &edge, top, t, next)
+                } else if state[t] == 0 {
+                    state[t] = 1
+                    if top < stack.len() {
+                        stack[top] = t
+                        edge[top] = 0
+                    } else {
+                        try! stack.push(t)
+                        try! edge.push(0)
+                    }
+                    top = top + 1
+                }
+            }
+            start = start + 1
+        }
+    }
+
+    // The index of the first import at or after `from` whose importer is `m`
+    // and whose target is another fully resolved module, or -1.
+    func next_import_of(&self, m: Int, from: Int) -> Int {
+        var i = from
+        while i < self.imports.len() {
+            let imp = self.imports[i]
+            if imp.module == m && imp.target >= 0 && imp.target != m {
+                let info = self.modules[imp.target]
+                if not info.interface_only {
+                    return i
+                }
+            }
+            i = i + 1
+        }
+        return -1
+    }
+
+    // Reports the cycle an edge back to `target` closes, at the import its
+    // first module takes into the cycle. `edge[k]` is one past the import the
+    // walk last took from `stack[k]`.
+    func report_cycle(&var self, stack: &Vector<Int>, edge: &Vector<Int>, top: Int, target: Int,
+                      closing: Int) {
+        var from = top - 1
+        while from > 0 && stack[from] != target {
+            from = from - 1
+        }
+        let first_edge = if from < top - 1 { edge[from] - 1 } else { closing }
+        var msg = StringBuilder()
+        try! msg.append("import cycle: ")
+        var k = from
+        while k < top {
+            try! msg.append(self.module_name(stack[k]))
+            try! msg.append(" -> ")
+            k = k + 1
+        }
+        try! msg.append(self.module_name(target))
+        let imp = self.imports[first_edge]
+        self.current = imp.module
+        self.refuse(imp.node, "import.cycle", msg.build())
+    }
+
+    // Each module's surface: its own visible declarations, then what its
+    // `public import`s hand on, grown by a worklist until nothing changes.
+    func compute_surfaces(&var self) {
+        var m = 0
+        while m < self.modules.len() {
+            self.add_own_surface(m)
+            m = m + 1
+        }
+        var queued = Vector<Bool>()
+        var queue = Vector<Int>()
+        m = 0
+        while m < self.modules.len() {
+            try! queued.push(true)
+            try! queue.push(m)
+            m = m + 1
+        }
+        var head = 0
+        while head < queue.len() {
+            let at = queue[head]
+            head = head + 1
+            queued[at] = false
+            if self.grow_surface(at) {
+                // Every module that re-exports from `at` may grow in turn.
+                var i = 0
+                while i < self.imports.len() {
+                    let imp = self.imports[i]
+                    if imp.reexport && imp.target == at && not queued[imp.module] {
+                        queued[imp.module] = true
+                        try! queue.push(imp.module)
+                    }
+                    i = i + 1
+                }
+            }
+        }
+    }
+
+    func add_own_surface(&var self, m: Int) {
+        let info = self.modules[m]
+        var d = info.decl_first
+        while d < info.decl_first + info.decl_count {
+            let decl = self.decls[d]
+            if res_is_top_level(&decl) && decl.vis != ResVis.Private && not decl.test_only {
+                let b = res_decl_binding(d, &decl)
+                self.add_export(m, decl.name, b, decl.vis, m)
+            }
+            d = d + 1
+        }
+    }
+
+    // Adds a surface entry unless one with that name and binding is there.
+    // Returns whether it was new.
+    func add_export(&var self, m: Int, name: Int, binding: ResBinding, vis: ResVis,
+                    owner: Int) -> Bool {
+        var at = self.surface.first(m, name)
+        while at >= 0 {
+            let e = self.exports[self.surface.value(at)]
+            if res_same_binding(&e.binding, &binding) {
+                return false
+            }
+            at = self.surface.following(at)
+        }
+        let index = self.exports.len()
+        try! self.exports.push(ResExport(module: m, name: name, binding: binding, vis: vis,
+                                         owner: owner))
+        self.surface.add(m, name, index)
+        true
+    }
+
+    // Adds to `m`'s surface what its `public import`s hand on. Returns whether
+    // anything was added.
+    func grow_surface(&var self, m: Int) -> Bool {
+        var grew = false
+        var i = 0
+        while i < self.imports.len() {
+            let imp = self.imports[i]
+            if imp.module == m && imp.reexport && imp.target >= 0 {
+                if imp.form == ResImportForm.Qualifier {
+                    let b = ResBinding(kind: ResBindKind.Module, module: imp.target, decl: -1,
+                                       name: -1, node: -1)
+                    if self.add_export(m, imp.qualifier, b, ResVis.Public, m) {
+                        grew = true
+                    }
+                } else if imp.form == ResImportForm.Glob {
+                    if self.copy_surface(imp.target, m) {
+                        grew = true
+                    }
+                } else if self.copy_selected(i, m) {
+                    grew = true
+                }
+            }
+            i = i + 1
+        }
+        grew
+    }
+
+    // Copies every entry of `from`'s surface that `to` can see onto `to`'s.
+    func copy_surface(&var self, from: Int, to: Int) -> Bool {
+        var grew = false
+        var e = 0
+        let count = self.exports.len()
+        while e < count {
+            let entry = self.exports[e]
+            if entry.module == from && self.visible_to(entry.vis, entry.owner, to) {
+                if self.add_export(to, entry.name, entry.binding, entry.vis, entry.owner) {
+                    grew = true
+                }
+            }
+            e = e + 1
+        }
+        grew
+    }
+
+    // Copies the entries a selective re-export names onto `to`'s surface.
+    func copy_selected(&var self, import_at: Int, to: Int) -> Bool {
+        let imp = self.imports[import_at]
+        var grew = false
+        var s = 0
+        while s < self.symbols.len() {
+            let sym = self.symbols[s]
+            if sym.import_at == import_at {
+                var at = self.surface.first(imp.target, sym.name)
+                while at >= 0 {
+                    let entry = self.exports[self.surface.value(at)]
+                    if self.visible_to(entry.vis, entry.owner, to) {
+                        if self.add_export(to, sym.bound, entry.binding, entry.vis, entry.owner) {
+                            grew = true
+                        }
+                    }
+                    at = self.surface.following(at)
+                }
+            }
+            s = s + 1
+        }
+        grew
+    }
+
+    // Whether a declaration of tier `vis` in module `owner` is visible from
+    // module `viewer` (design 80).
+    public func visible_to(&self, vis: ResVis, owner: Int, viewer: Int) -> Bool {
+        if owner == viewer {
+            return true
+        }
+        match vis {
+            case Public -> true,
+            case Private -> false,
+            case Package -> {
+                let a = self.modules[owner]
+                let b = self.modules[viewer]
+                a.package == b.package
+            },
+            case Parent -> self.shares_parent(owner, viewer)
+        }
+    }
+
+    // Whether `viewer` lies under `owner`'s parent module: its identity starts
+    // with the parent's path.
+    func shares_parent(&self, owner: Int, viewer: Int) -> Bool {
+        let a = self.module_name(owner)
+        let b = self.module_name(viewer)
+        var cut = a.len() - 1
+        while cut > 0 && (a.byte_at(cut) as Int) != 46 {
+            cut = cut - 1
+        }
+        if cut <= 0 {
+            return false
+        }
+        let parent = a.substring(0, cut)
+        b.starts_with(parent)
+    }
+
+    // Resolves each selective import's names against its module's surface.
+    func resolve_symbols(&var self) {
+        var s = 0
+        while s < self.symbols.len() {
+            let sym = self.symbols[s]
+            self.bare.add(sym.module, sym.bound, s)
+            s = s + 1
+        }
+        s = 0
+        while s < self.symbols.len() {
+            let sym = self.symbols[s]
+            let imp = self.imports[sym.import_at]
+            self.current = sym.module
+            var b = ResBinding(kind: ResBindKind.Error, module: -1, decl: -1, name: -1, node: -1)
+            if imp.target >= 0 {
+                b = self.surface_lookup(imp.target, sym.name, sym.leaf, true)
+            }
+            if b.kind != ResBindKind.Error && self.prelude.first(0, sym.bound) >= 0 {
+                let reserved = self.prelude_binding(sym.bound)
+                if not res_same_binding(&reserved, &b) {
+                    let text = self.name_text(sym.bound)
+                    var msg = StringBuilder()
+                    try! msg.append("`")
+                    try! msg.append(text)
+                    try! msg.append("` is a prelude name, so an import cannot bind it to another declaration")
+                    self.refuse(sym.bound_leaf, "import.prelude-name", msg.build())
+                    b = ResBinding(kind: ResBindKind.Error, module: -1, decl: -1, name: -1,
+                                   node: -1)
+                }
+            }
+            var updated = self.symbols[s]
+            updated.binding = b
+            self.symbols[s] = updated
+            self.record(sym.leaf, b)
+            s = s + 1
+        }
+        var i = 0
+        while i < self.imports.len() {
+            let imp = self.imports[i]
+            self.current = imp.module
+            if imp.target >= 0 {
+                self.record(imp.leaf, ResBinding(kind: ResBindKind.Module, module: imp.target,
+                                                 decl: -1, name: -1, node: -1))
+            } else {
+                self.record(imp.leaf, ResBinding(kind: ResBindKind.Error, module: -1, decl: -1,
+                                                 name: -1, node: -1))
+            }
+            i = i + 1
+        }
+    }
+
+    // The prelude declaration of `name`, as a binding.
+    public func prelude_binding(&self, name: Int) -> ResBinding {
+        let at = self.prelude.first(0, name)
+        let d = self.prelude.value(at)
+        let decl = self.decls[d]
+        res_decl_binding(d, &decl)
+    }
+
+    // What `name` is on module `m`'s surface as the current module sees it.
+    // A name that is not there is refused at `leaf` when `report` is set,
+    // saying whether it is private there, imported but not re-exported, or
+    // absent; the binding is then an Error.
+    public func surface_lookup(&var self, m: Int, name: Int, leaf: Int, report: Bool) -> ResBinding {
+        let viewer = self.current
+        var found = ResBinding(kind: ResBindKind.Unbound, module: -1, decl: -1, name: -1,
+                               node: -1)
+        var ambiguous = false
+        var at = self.surface.first(m, name)
+        while at >= 0 {
+            let entry = self.exports[self.surface.value(at)]
+            if self.visible_to(entry.vis, entry.owner, viewer) {
+                if found.kind == ResBindKind.Unbound {
+                    found = entry.binding
+                } else if not res_same_binding(&found, &entry.binding) {
+                    ambiguous = true
+                }
+            }
+            at = self.surface.following(at)
+        }
+        if ambiguous && report {
+            let text = self.name_text(name)
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(text)
+            try! msg.append("` names two declarations on the surface of `")
+            try! msg.append(self.module_name(m))
+            try! msg.append("`")
+            self.refuse(leaf, "name.ambiguous", msg.build())
+            return ResBinding(kind: ResBindKind.Error, module: -1, decl: -1, name: -1, node: -1)
+        }
+        if found.kind != ResBindKind.Unbound {
+            return found
+        }
+        if report {
+            self.refuse_missing_member(m, name, leaf)
+        }
+        ResBinding(kind: ResBindKind.Error, module: -1, decl: -1, name: -1, node: -1)
+    }
+
+    // Why `name` is not on `m`'s surface for the current module.
+    func refuse_missing_member(&var self, m: Int, name: Int, leaf: Int) {
+        let text = self.name_text(name)
+        let module = self.module_name(m)
+        let own = self.top.first(m, name)
+        if own >= 0 {
+            let d = self.decls[self.top.value(own)]
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(text)
+            try! msg.append("` is ")
+            try! msg.append(res_vis_text(d.vis))
+            try! msg.append(" in `")
+            try! msg.append(module)
+            try! msg.append("`")
+            self.refuse(leaf, "visibility.private", msg.build())
+            return
+        }
+        if self.bare.first(m, name) >= 0 || self.qualifiers.first(m, name) >= 0 {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(text)
+            try! msg.append("` is imported by `")
+            try! msg.append(module)
+            try! msg.append("` but not re-exported: add `public import` there, or import it directly")
+            self.refuse(leaf, "import.not-reexported", msg.build())
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(text)
+        try! msg.append("` is not defined in `")
+        try! msg.append(module)
+        try! msg.append("`")
+        self.refuse(leaf, "import.unknown-symbol", msg.build())
+    }
+}
+
+public func res_vis_text(vis: ResVis) -> String {
+    match vis {
+        case Private -> "private",
+        case Public -> "public",
+        case Package -> "public(package)",
+        case Parent -> "public(parent)"
+    }
+}

@@ -1,0 +1,15 @@
+// refuses: slice.not-yet at 13:37
+// an associated type named bare through a type parameter's bound, whose spelling is not settled
+
+trait Container {
+    type Item
+    func get(&self) -> Item
+}
+
+struct IntBox {
+    value: Int
+}
+
+func first<T: Container>(box: T) -> Item {
+    box.get()
+}

@@ -1,0 +1,345 @@
+// The resolution table's verifier (SL:architecture §3.0, "every boundary has
+// a verifier"), run on every resolved module. It finds the name occurrences
+// from the tree by its own rule, not by the walk's dispatch, and checks:
+//   - every occurrence has exactly one record, and every record is on one;
+//   - every call has exactly one classification;
+//   - every binding is in range: its declaration, module, local or type
+//     parameter exists, and is of the kind the binding says;
+//   - no lookup by spelling is left over: no record is unbound or a member
+//     selector, and a record refused as an error comes with a refusal.
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.model.{ResBindKind, ResBinding, ResCall, ResDecl, ResDeclKind, ResDiag,
+                             ResModule, ResName}
+import sawresolve.src.program.{ResProgram}
+
+// What the tree says of a node: 0 is no occurrence, 1 one that must be
+// recorded, 2 one that may be (a member, which is recorded only when its base
+// is a module or an enum; a lone name pattern, which is recorded only when it
+// names a case rather than binding).
+static RES_NOT_OCCURRENCE: Int = 0
+static RES_MUST_RECORD: Int = 1
+static RES_MAY_RECORD: Int = 2
+
+// Adds one to `counts[at]`.
+func res_count(counts: &var Vector<Int>, at: Int) {
+    // Stage 0 workaround (SL:hazards S4): canonical: counts[at] = counts[at] + 1
+    let now = counts[at] + 1
+    counts[at] = now
+}
+
+// Every problem the verifier finds in module `m`, one line each.
+public func res_verify_module(p: &ResProgram, m: Int) -> Vector<String> {
+    p.verify_module(m)
+}
+
+extension ResProgram {
+    func verify_module(&self, m: Int) -> Vector<String> {
+        var problems = Vector<String>()
+        let info = self.modules[m]
+        if not info.available || info.interface_only {
+            return move problems
+        }
+        let occurrence = self.occurrences(m)
+        var counts = Vector<Int>()
+        var k = 0
+        while k < info.node_count {
+            try! counts.push(0)
+            k = k + 1
+        }
+        var errors = 0
+        k = 0
+        while k < self.records.len() {
+            let r = self.records[k]
+            if r.module == m {
+                let local = r.leaf - info.node_base
+                if local < 0 || local >= info.node_count {
+                    self.problem(&var problems, m, -1, "a record's node lies outside its module")
+                } else {
+                    res_count(&var counts, local)
+                    let leaf = r.leaf
+                    if counts[local] == 2 {
+                        self.problem(&var problems, m, leaf, "an occurrence is recorded twice")
+                    }
+                    if occurrence[local] == RES_NOT_OCCURRENCE {
+                        self.problem(&var problems, m, leaf,
+                                     "a record stands on a node that is not a name occurrence")
+                    }
+                    let binding = r.binding
+                    self.check_binding(&var problems, m, leaf, &binding)
+                    if r.binding.kind == ResBindKind.Error {
+                        errors = errors + 1
+                    }
+                }
+            }
+            k = k + 1
+        }
+        k = 0
+        while k < info.node_count {
+            if counts[k] == 0 && occurrence[k] == RES_MUST_RECORD {
+                self.problem(&var problems, m, info.node_base + k, "a name occurrence has no record")
+            }
+            k = k + 1
+        }
+        if errors > 0 && not self.module_has_error(m) {
+            self.problem(&var problems, m, -1, "a record is an error, but the module has no refusal")
+        }
+        self.verify_calls(&var problems, m)
+        move problems
+    }
+
+    func problem(&self, problems: &var Vector<String>, m: Int, id: Int, text: String) {
+        var out = StringBuilder()
+        if id >= 0 {
+            try! out.append(self.node_position(m, id))
+            try! out.append(" ")
+        }
+        try! out.append(text)
+        try! problems.push(out.build())
+    }
+
+    func module_has_error(&self, m: Int) -> Bool {
+        var k = 0
+        while k < self.diags.len() {
+            let d = self.diags[k]
+            if d.module == m && not d.note {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // For each node of module `m`, whether the tree makes it a name
+    // occurrence: a name expression's leaf, each path segment (only the last
+    // of an import's path), `self`, a variant pattern's head, an implicit
+    // member, a capture's name, an import symbol's name; and, as occurrences
+    // that may be recorded, a member's name and a lone name pattern.
+    func occurrences(&self, m: Int) -> Vector<Int> {
+        let info = self.modules[m]
+        var marks = Vector<Int>()
+        var k = 0
+        while k < info.node_count {
+            try! marks.push(RES_NOT_OCCURRENCE)
+            k = k + 1
+        }
+        k = 0
+        while k < info.node_count {
+            let id = info.node_base + k
+            if let alt = self.alt_of(id) {
+                self.mark_occurrences(&var marks, info.node_base, id, alt)
+            }
+            k = k + 1
+        }
+        let outside = self.outside_slice(m)
+        k = 0
+        while k < info.node_count {
+            if outside[k] {
+                marks[k] = RES_NOT_OCCURRENCE
+            }
+            k = k + 1
+        }
+        move marks
+    }
+
+    // For each node of module `m`, whether it lies under a construct refused
+    // as outside the bootstrap slice, which resolution does not enter.
+    func outside_slice(&self, m: Int) -> Vector<Bool> {
+        let info = self.modules[m]
+        var marks = Vector<Bool>()
+        var k = 0
+        while k < info.node_count {
+            try! marks.push(false)
+            k = k + 1
+        }
+        var stack = Vector<Int>()
+        var s = 0
+        while s < self.skipped.len() {
+            let top_id = self.skipped[s]
+            if top_id >= info.node_base && top_id < info.node_base + info.node_count {
+                try! stack.push(top_id)
+            }
+            s = s + 1
+        }
+        var head = 0
+        while head < stack.len() {
+            let id = stack[head]
+            head = head + 1
+            marks[id - info.node_base] = true
+            let n = self.child_count(id)
+            var c = 0
+            while c < n {
+                try! stack.push(self.child(id, c))
+                c = c + 1
+            }
+        }
+        move marks
+    }
+
+    func mark_occurrences(&self, marks: &var Vector<Int>, base: Int, id: Int, alt: Alt) {
+        match alt {
+            case Expr_Self -> {
+                marks[id - base] = RES_MUST_RECORD
+            },
+            case Expr_Capture_Self -> {
+                marks[id - base] = RES_MUST_RECORD
+            },
+            case Expr_Capture_SelfExclusive -> {
+                marks[id - base] = RES_MUST_RECORD
+            },
+            case Type_Path -> {
+                let n = self.child_count(id)
+                var k = 0
+                while k < n {
+                    marks[self.child(id, k) - base] = RES_MUST_RECORD
+                    k = k + 1
+                }
+            },
+            case Decl_Import_Private -> self.mark_import(&var marks, base, id),
+            case Decl_Import_Reexport -> self.mark_import(&var marks, base, id),
+            case Expr_Member -> self.mark_first_leaf(&var marks, base, id, RES_MAY_RECORD),
+            case Pat_Name -> self.mark_first_leaf(&var marks, base, id, RES_MAY_RECORD),
+            case Expr_Name -> self.mark_first_leaf(&var marks, base, id, RES_MUST_RECORD),
+            case Expr_NameRef -> self.mark_first_leaf(&var marks, base, id, RES_MUST_RECORD),
+            case Pat_Variant -> self.mark_first_leaf(&var marks, base, id, RES_MUST_RECORD),
+            case Expr_ImplicitMember -> self.mark_first_leaf(&var marks, base, id, RES_MUST_RECORD),
+            case Decl_ImportSymbol_Name -> self.mark_first_leaf(&var marks, base, id, RES_MUST_RECORD),
+            case Decl_ImportSymbol_Alias -> self.mark_first_leaf(&var marks, base, id, RES_MUST_RECORD),
+            case Expr_Capture_Value -> self.mark_first_leaf(&var marks, base, id, RES_MUST_RECORD),
+            case Expr_Capture_Move -> self.mark_first_leaf(&var marks, base, id, RES_MUST_RECORD),
+            case Expr_Capture_Copy -> self.mark_first_leaf(&var marks, base, id, RES_MUST_RECORD),
+            case Expr_Capture_Borrow -> self.mark_first_leaf(&var marks, base, id, RES_MUST_RECORD),
+            case Expr_Capture_BorrowExclusive -> self.mark_first_leaf(&var marks, base, id, RES_MUST_RECORD),
+            case _ -> {}
+        }
+    }
+
+    func mark_first_leaf(&self, marks: &var Vector<Int>, base: Int, id: Int, mark: Int) {
+        let leaf = self.first_leaf(id)
+        if leaf >= 0 {
+            marks[leaf - base] = mark
+        }
+    }
+
+    // An import's path is one occurrence, at its last segment; its other
+    // segments are not names of their own.
+    func mark_import(&self, marks: &var Vector<Int>, base: Int, id: Int) {
+        let path = self.first_node_child(id)
+        if path < 0 {
+            return
+        }
+        let n = self.child_count(path)
+        var k = 0
+        while k < n {
+            let leaf = self.child(path, k)
+            if k == n - 1 {
+                marks[leaf - base] = RES_MUST_RECORD
+            } else {
+                marks[leaf - base] = RES_NOT_OCCURRENCE
+            }
+            k = k + 1
+        }
+    }
+
+    // Whether a binding refers to something that exists, of its own kind.
+    func check_binding(&self, problems: &var Vector<String>, m: Int, leaf: Int, b: &ResBinding) {
+        let info = self.modules[m]
+        match b.kind {
+            case Unbound -> self.problem(&var problems, m, leaf, "an occurrence is left unbound"),
+            case Member -> self.problem(&var problems, m, leaf,
+                                        "an occurrence is left to be looked up by its spelling"),
+            case Local -> {
+                if b.node < info.node_base || b.node >= info.node_base + info.node_count {
+                    self.problem(&var problems, m, leaf, "a local's declaration lies outside the module")
+                }
+            },
+            case TypeParam -> {
+                if b.module < 0 || b.module >= self.modules.len() {
+                    self.problem(&var problems, m, leaf, "a type parameter's module is out of range")
+                }
+            },
+            case Decl -> {
+                if b.decl < 0 || b.decl >= self.decls.len() {
+                    self.problem(&var problems, m, leaf, "a declaration is out of range")
+                }
+            },
+            case Case -> {
+                if b.decl < 0 || b.decl >= self.decls.len() {
+                    self.problem(&var problems, m, leaf, "a case is out of range")
+                } else {
+                    let d = self.decls[b.decl]
+                    if d.kind != ResDeclKind.Case {
+                        self.problem(&var problems, m, leaf,
+                                     "a case binding names a declaration that is not a case")
+                    }
+                }
+            },
+            case Overload -> {
+                if b.module < 0 || b.module >= self.modules.len() || self.top.first(b.module, b.name) < 0 {
+                    self.problem(&var problems, m, leaf, "an overload set names no function")
+                }
+            },
+            case Overloads -> {
+                if b.decl < 0 || b.decl >= self.merges.len() {
+                    self.problem(&var problems, m, leaf, "a merged overload set is out of range")
+                } else {
+                    let count = self.merges[b.decl]
+                    var k = 0
+                    while k < count {
+                        let owner = self.merges[b.decl + 1 + k]
+                        if self.top.first(owner, b.name) < 0 {
+                            self.problem(&var problems, m, leaf,
+                                         "a merged overload set names a module with no such function")
+                        }
+                        k = k + 1
+                    }
+                }
+            },
+            case Cases -> {
+                if not self.has_case_in_closure(m, b.name, false) {
+                    self.problem(&var problems, m, leaf,
+                                 "a case selector has no candidate in the module's import closure")
+                }
+            },
+            case Module -> {
+                if b.module < 0 || b.module >= self.modules.len() {
+                    self.problem(&var problems, m, leaf, "a module is out of range")
+                }
+            },
+            case _ -> {}
+        }
+    }
+
+    // Every call node of the module has exactly one classification.
+    func verify_calls(&self, problems: &var Vector<String>, m: Int) {
+        let info = self.modules[m]
+        var counts = Vector<Int>()
+        var k = 0
+        while k < info.node_count {
+            try! counts.push(0)
+            k = k + 1
+        }
+        k = 0
+        while k < self.calls.len() {
+            let c = self.calls[k]
+            if c.module == m {
+                let local = c.node - info.node_base
+                res_count(&var counts, local)
+            }
+            k = k + 1
+        }
+        let outside = self.outside_slice(m)
+        k = 0
+        while k < info.node_count {
+            let id = info.node_base + k
+            let is_call = self.is_alt(id, Alt.Expr_Call_Paren) || self.is_alt(id, Alt.Expr_Call_ParenTrailing) || self.is_alt(id, Alt.Expr_TrailingCall)
+            if is_call && counts[k] != 1 && not outside[k] {
+                self.problem(&var problems, m, id, "a call is not classified exactly once")
+            } else if not is_call && counts[k] != 0 {
+                self.problem(&var problems, m, id, "a classification stands on a node that is not a call")
+            }
+            k = k + 1
+        }
+    }
+}

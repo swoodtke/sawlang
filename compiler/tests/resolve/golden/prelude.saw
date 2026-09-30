@@ -1,0 +1,27 @@
+// The prelude (design 82): builtin types and functions from the synthetic
+// builtin module, the trait vocabulary of builtin.saw, and std's curated core,
+// each bound to the module that declares it with no import written.
+
+struct Tally {
+    counts: Vector<Int>
+    names: Map<String, Int>
+    seen: Set<UInt64>
+}
+
+extension Tally: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("tally")
+    }
+}
+
+func tally(bytes: Byte, flag: Bool, ratio: Float) -> Result<Int, AllocError> {
+    let order = Ordering.Less
+    let pause = Duration.ms(5)
+    let b: Box<Int>? = None
+    let r: Arc<String>? = None
+    assert(flag, "flag")
+    if not flag {
+        panic("unreachable")
+    }
+    0
+}

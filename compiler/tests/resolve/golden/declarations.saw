@@ -1,0 +1,68 @@
+// Collection (phase 1): every kind of top-level declaration and member, each
+// declaration's visibility, and the signatures that give an overload its path.
+
+public struct Pair<T> {
+    first: T
+    private second: T
+}
+
+public(package) enum Level: UInt8 {
+    case Low = 1,
+    case High = 2
+}
+
+enum Event {
+    case Tick,
+    case Key(code: Int),
+    case Empty()
+}
+
+trait Named: Printable {
+    type Label
+    func name(&self) -> String
+    static func kind() -> Int
+    func describe(&self) -> String {
+        self.name()
+    }
+}
+
+type Count = Int
+
+static ORIGIN: Int = 0
+
+unsafe static var SCRATCH: Int = 0
+
+extern "C" {
+    func write(fd: Int32, buf: UnsafePointer<UInt8>, n: Int) -> Int
+    blocking func sleep_ms(ms: Int) -> Int
+}
+
+public func area(w: Int, h: Int) -> Int {
+    w * h
+}
+
+func area(side: Int) -> Int {
+    side * side
+}
+
+extension Pair<T> {
+    public func swap(&var self) {
+        let held = self.first
+        self.first = self.second
+        self.second = held
+    }
+
+    static func of(value: T) -> Pair<T> {
+        Pair<T>(first: value, second: value)
+    }
+
+    init(both: T) -> Pair<T> {
+        Pair<T>(first: both, second: both)
+    }
+}
+
+extension Event: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("event")
+    }
+}

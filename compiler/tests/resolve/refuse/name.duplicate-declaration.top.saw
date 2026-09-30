@@ -1,0 +1,10 @@
+// refuses: name.duplicate-declaration at 8:6
+// two top-level declarations of one name that are not both functions
+
+struct Point {
+    x: Int
+}
+
+func Point() -> Int {
+    0
+}

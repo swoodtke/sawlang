@@ -1,0 +1,9 @@
+// refuses: name.shadowing at 5:9
+// a loop variable that shadows an enclosing binding and not its sequence
+
+func f(x: Int, ys: Int) -> Int {
+    for x in 0..ys {
+        print("{}", x)
+    }
+    x
+}

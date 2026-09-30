@@ -15,7 +15,9 @@ speculation ledgers, the parser's and the tree builder's, name every field, runs
 depth-funnel lane with its fixtures in `funnel/`, runs the parse lane, which
 holds `sawc2 parse` to the parser corpus as far as `compiler/parse/CLAIMS.tsv`
 claims, and times the line-length cells, which hold a parse to linear time on
-one very long line. The inventory of Stage 0 workaround markers prints first, then each
+one very long line; and runs the resolve lane over `resolve/`, whose golden dumps,
+refusal fixtures and the compiler's own source hold `sawc2 resolve` to its
+specification. The inventory of Stage 0 workaround markers prints first, then each
 failure as one line in a fixed order; the summary comes last, and any failure
 exits 1.
 """
@@ -50,12 +52,16 @@ import test_recognize  # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "migrate"))
 import test_migrate  # noqa: E402
 
+sys.path.insert(0, os.path.join(HERE, "resolve"))
+import resolve_lane  # noqa: E402
+
 UNIT_OUT = os.path.join(REPO, ".build", "compiler-tests")
 LEX_FIXTURES = os.path.join(HERE, "lex")
 SUBSET_FIXTURES = os.path.join(HERE, "subset")
 SUBSET_GENERATED = os.path.join(SUBSET_FIXTURES, "generated")
 GRAMMAR_FIXTURES = os.path.join(HERE, "grammar", "fixtures")
 PARSE_CORPUS = os.path.join(HERE, "parse")
+RESOLVE_CORPUS = os.path.join(HERE, "resolve")
 FUNNEL_FIXTURES = os.path.join(HERE, "funnel")
 LEXER_SOURCE = os.path.join(COMPILER, "lex", "src", "lib.saw")
 RUN_TIMEOUT = 60
@@ -143,6 +149,8 @@ def check_fixture_whitespace(run):
     paths += glob.glob(os.path.join(GRAMMAR_FIXTURES, "**", "*.*"), recursive=True)
     paths += glob.glob(os.path.join(PARSE_CORPUS, "**", "*.*"), recursive=True)
     paths += glob.glob(os.path.join(test_migrate.FIXTURES, "*"))
+    for suffix in ("*.saw", "*.resolve"):
+        paths += glob.glob(os.path.join(RESOLVE_CORPUS, "**", suffix), recursive=True)
     for path in sorted(paths):
         rel = os.path.relpath(path, REPO)
         with open(path, "rb") as fh:
@@ -371,6 +379,17 @@ def run_parser(run):
             run.count(key, n)
 
 
+def run_resolver(run):
+    """The resolve lane (compiler/tests/resolve/resolve_lane.py): the golden dumps, the
+    refusal fixtures and their rule coverage, and the compiler's own source
+    resolving with no refusal."""
+    failures, counts = resolve_lane.run()
+    for failure in failures:
+        run.fail(failure)
+    for key, n in counts.items():
+        run.count(key, n)
+
+
 def main():
     run = Run()
     ok, output = build.build_sawc2()
@@ -387,6 +406,7 @@ def main():
     run_migrate(run)
     if ok:
         run_parser(run)
+        run_resolver(run)
     for line in run.inventory:
         print(line)
     for failure in run.failures:

@@ -1,0 +1,68 @@
+// The new std's named low-level features and the lockdown forms: allocator
+// parameters, raw pointers, `unsafe static var`, extern seams, `borrows`
+// accessors with `lend`, a borrowing struct built with `lends`, and every
+// `borrow` form (SL:borrowing §2).
+
+unsafe static var COUNTER: Int = 0
+
+extern "C" {
+    func memset(dst: UnsafePointer<UInt8>, value: Int32, n: Int) -> UnsafePointer<UInt8>
+}
+
+struct Pool<T, A: Allocator = GlobalAllocator> {
+    items: Vector<T, A>
+    base: UnsafePointer<T>
+}
+
+public borrows struct Walker<T> {
+    pool: &Pool<T>
+    at: Int
+}
+
+extension Pool<T, A: Allocator = GlobalAllocator> {
+    public func [](&var self, i: Int) borrows -> &var T {
+        lend self.items[i]
+    }
+
+    func first(&self) borrows -> &T? {
+        if self.items.len() == 0 {
+            return None
+        }
+        lend self.items[0]
+    }
+
+    func walk(&self) borrows -> Walker<T> {
+        Walker<T>(pool: lends self, at: 0)
+    }
+
+    func head(&self) unsafe -> T {
+        *self.base
+    }
+}
+
+func tick() unsafe -> Int {
+    COUNTER = COUNTER + 1
+    let p = memset(UnsafePointer<UInt8>(0), 0, 0)
+    COUNTER
+}
+
+func places(pool: &var Pool<Int>, grid: &var Vector<Vector<Int>>) -> Int {
+    borrow var slot = pool[0] {
+        slot = slot + 1
+    }
+    borrow let a = grid[0], var b = grid[1] {
+        b[0] = a[0]
+    }
+    if borrow let first = pool.first() {
+        print("{}", first)
+    }
+    for borrow let row in grid.iter() {
+        print("{}", row.len())
+    }
+    bump(borrow var pool[1])
+    0
+}
+
+func bump(n: &var Int) {
+    n = n + 1
+}

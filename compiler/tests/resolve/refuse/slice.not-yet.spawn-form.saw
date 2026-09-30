@@ -1,0 +1,7 @@
+// refuses: slice.not-yet at 5:13
+// a `Thread.spawn` form, not in the bootstrap slice yet: its namespace names an engine
+
+func f() -> Int {
+    var t = Thread.spawn { 7 }
+    t.join()
+}

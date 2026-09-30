@@ -1,0 +1,191 @@
+// Two of the tables resolution starts from (SL:open-questions D12): the
+// declarations nothing declares, which the synthetic `builtin` module holds,
+// and the prelude, the names in scope with no import. The prelude is an
+// inclusion list, so a new std module is gated until it is listed here. The
+// third table, the std modules, is `load_std_modules` in loader.saw.
+// compiler/tests/resolve/prelude_check.py compares all three with the frozen
+// compiler's view of today's std.
+
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.model.{ResDeclKind, ResVis}
+import sawresolve.src.program.{ResProgram}
+
+// Declares the builtin module's synthetic declarations into the current
+// module, which is the builtin module.
+public func res_declare_synthetic_builtins(p: &var ResProgram) {
+    p.builtin_type("Int")
+    p.builtin_type("UInt")
+    p.builtin_type("Int8")
+    p.builtin_type("Int16")
+    p.builtin_type("Int32")
+    p.builtin_type("Int64")
+    p.builtin_type("UInt8")
+    p.builtin_type("UInt16")
+    p.builtin_type("UInt32")
+    p.builtin_type("UInt64")
+    p.builtin_type("Float")
+    p.builtin_type("Bool")
+    p.builtin_type("String")
+    p.builtin_type("Void")
+    p.builtin_type("Never")
+    p.builtin_type("UnsafePointer")
+    p.builtin_type("UnsafeConstPointer")
+    // A pattern names Optional's cases, `Some(v)` and `None`, though no
+    // expression constructs a `Some`.
+    let optional = p.builtin_decl("Optional", ResDeclKind.Enum, -1, false)
+    let _ = p.builtin_decl("Some", ResDeclKind.Case, optional, true)
+    let _ = p.builtin_decl("None", ResDeclKind.Case, optional, false)
+    let result = p.builtin_decl("Result", ResDeclKind.Enum, -1, false)
+    let _ = p.builtin_decl("Ok", ResDeclKind.Case, result, true)
+    let _ = p.builtin_decl("Err", ResDeclKind.Case, result, true)
+    p.builtin_function("print")
+    p.builtin_function("panic")
+    p.builtin_function("assert")
+    p.builtin_function("sizeof")
+    p.builtin_function("alignof")
+    p.builtin_function("sleep")
+    p.builtin_function("cancelled")
+}
+
+// Enters the prelude: each name visible bare with no import, and the module
+// that declares it (design 82's curated core).
+public func res_declare_prelude(p: &var ResProgram) {
+    p.prelude_name("Int", "builtin")
+    p.prelude_name("UInt", "builtin")
+    p.prelude_name("Int8", "builtin")
+    p.prelude_name("Int16", "builtin")
+    p.prelude_name("Int32", "builtin")
+    p.prelude_name("Int64", "builtin")
+    p.prelude_name("UInt8", "builtin")
+    p.prelude_name("UInt16", "builtin")
+    p.prelude_name("UInt32", "builtin")
+    p.prelude_name("UInt64", "builtin")
+    p.prelude_name("Float", "builtin")
+    p.prelude_name("Bool", "builtin")
+    p.prelude_name("String", "builtin")
+    p.prelude_name("Void", "builtin")
+    p.prelude_name("Never", "builtin")
+    p.prelude_name("UnsafePointer", "builtin")
+    p.prelude_name("UnsafeConstPointer", "builtin")
+    p.prelude_name("Optional", "builtin")
+    p.prelude_name("Result", "builtin")
+    p.prelude_name("print", "builtin")
+    p.prelude_name("panic", "builtin")
+    p.prelude_name("assert", "builtin")
+    p.prelude_name("sizeof", "builtin")
+    p.prelude_name("alignof", "builtin")
+    p.prelude_name("sleep", "builtin")
+    p.prelude_name("cancelled", "builtin")
+    p.prelude_name("Byte", "builtin")
+    p.prelude_name("Deinit", "builtin")
+    p.prelude_name("Copy", "builtin")
+    p.prelude_name("ExplicitCopy", "builtin")
+    p.prelude_name("NoCopy", "builtin")
+    p.prelude_name("NoMove", "builtin")
+    p.prelude_name("Equatable", "builtin")
+    p.prelude_name("Ordering", "builtin")
+    p.prelude_name("Comparable", "builtin")
+    p.prelude_name("Hasher", "builtin")
+    p.prelude_name("Hashable", "builtin")
+    p.prelude_name("Printable", "builtin")
+    p.prelude_name("Error", "builtin")
+    p.prelude_name("Send", "builtin")
+    p.prelude_name("Sync", "builtin")
+    p.prelude_name("UnsafeSync", "builtin")
+    p.prelude_name("UnsafeSend", "builtin")
+    p.prelude_name("UnsafeMutableInterior", "builtin")
+    p.prelude_name("Atomic", "builtin")
+    p.prelude_name("UnsafeMemory", "builtin")
+    p.prelude_name("Device", "builtin")
+    p.prelude_name("Normal", "builtin")
+    p.prelude_name("ReadOnly", "builtin")
+    p.prelude_name("WriteOnly", "builtin")
+    p.prelude_name("FuncPointer", "builtin")
+    p.prelude_name("Iterator", "builtin")
+    p.prelude_name("Range", "builtin")
+    p.prelude_name("RangeInclusive", "builtin")
+    p.prelude_name("Allocator", "std.alloc")
+    p.prelude_name("GlobalAllocator", "std.alloc")
+    p.prelude_name("AllocError", "std.alloc")
+    p.prelude_name("Arc", "std.arc")
+    p.prelude_name("Box", "std.box")
+    p.prelude_name("Duration", "std.duration")
+    p.prelude_name("Map", "std.map")
+    p.prelude_name("Set", "std.set")
+    p.prelude_name("Vector", "std.vector")
+    p.prelude_name("VectorIterator", "std.vector")
+    p.prelude_name("EnumeratedIterator", "std.vector")
+    p.prelude_name("EncodeFault", "std.serde")
+    p.prelude_name("EncodeError", "std.serde")
+    p.prelude_name("DecodeFault", "std.serde")
+    p.prelude_name("DecodeError", "std.serde")
+    p.prelude_name("Encoder", "std.serde")
+    p.prelude_name("Decoder", "std.serde")
+    p.prelude_name("Serialize", "std.serde")
+    p.prelude_name("Deserialize", "std.serde")
+    p.prelude_name("InvalidScalar", "std.scalar")
+    p.prelude_name("Scalar", "std.scalar")
+    p.prelude_name("StringBytes", "std.string")
+    p.prelude_name("StringScalars", "std.string")
+    p.prelude_name("StringBuilder", "std.stringbuilder")
+    p.prelude_name("TaskGroup", "std.taskgroup")
+    p.prelude_name("Task", "std.taskgroup")
+    p.prelude_name("VoidTask", "std.taskgroup")
+}
+
+extension ResProgram {
+    func builtin_type(&var self, name: String) {
+        let _ = self.builtin_decl(name, ResDeclKind.Primitive, -1, false)
+    }
+
+    func builtin_function(&var self, name: String) {
+        let _ = self.builtin_decl(name, ResDeclKind.BuiltinFunc, -1, false)
+    }
+
+    func builtin_decl(&var self, text: String, kind: ResDeclKind, parent: Int, flag: Bool) -> Int {
+        let name = self.intern(text)
+        let m = self.current
+        let d = self.add_decl(kind, name, -1, -1, -1, ResVis.Public, parent, false, flag)
+        if parent < 0 {
+            self.top.add(m, name, d)
+        } else {
+            self.members.add(parent, name, d)
+            if kind == ResDeclKind.Case {
+                self.cases.add(0, name, d)
+            }
+        }
+        d
+    }
+
+    // Enters `text` from module `module` in the prelude. A name its module does
+    // not declare is a note on the builtin module, which a check of the tables
+    // reports.
+    func prelude_name(&var self, text: String, module: String) {
+        let name = self.intern(text)
+        let key = self.intern(module)
+        let at = self.by_name.first(0, key)
+        if at < 0 {
+            self.prelude_missing(text, module)
+            return
+        }
+        let m = self.by_name.value(at)
+        let entry = self.top.first(m, name)
+        if entry < 0 {
+            self.prelude_missing(text, module)
+            return
+        }
+        let d = self.top.value(entry)
+        self.prelude.add(0, name, d)
+    }
+
+    func prelude_missing(&var self, text: String, module: String) {
+        var msg = StringBuilder()
+        try! msg.append("the prelude lists `")
+        try! msg.append(text)
+        try! msg.append("` from `")
+        try! msg.append(module)
+        try! msg.append("`, which does not declare it")
+        let b = self.builtin
+        self.refuse_at(b, 0, "resolve.prelude-table", msg.build(), true)
+    }
+}

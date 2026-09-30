@@ -1,0 +1,16 @@
+// A lone name pattern consults the enums of its module's import closure
+// (SL:open-questions D13): the entry loads every module below, but a module
+// sees a case only when it declares or imports, transitively, its enum.
+
+import level
+import plain
+import reached
+import own
+
+func main() {
+    let a = plain.count_of(3)
+    let b = plain.sign(-1)
+    let c = reached.weigh()
+    let e = level.Level.count
+    let d = own.tally_of(own.Tally.count)
+}

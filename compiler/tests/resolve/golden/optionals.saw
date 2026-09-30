@@ -1,0 +1,16 @@
+// Optional's cases in patterns: `Some(v)` is a case selector like any
+// variant's head, nested in a tuple too, and `None` is its keyword pattern.
+
+func unwrap(o: Int?) -> Int {
+    match o {
+        case Some(n) -> n,
+        case None -> 0
+    }
+}
+
+func same(pair: (Int?, Int)) -> Bool {
+    match pair {
+        case (Some(v), n) if v == n -> true,
+        case _ -> false
+    }
+}

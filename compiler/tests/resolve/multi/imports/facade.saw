@@ -1,0 +1,4 @@
+// A facade: it hands on one name of `panel`, and the qualifier `knobs`.
+
+public import panel.{Panel}
+public import knobs

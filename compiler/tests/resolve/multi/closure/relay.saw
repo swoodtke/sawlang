@@ -1,0 +1,5 @@
+import level
+
+public func peak() -> level.Level {
+    level.Level.peak
+}

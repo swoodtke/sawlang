@@ -1,0 +1,8 @@
+// refuses: import.cycle at left.saw:1:1
+// two modules that import each other
+
+import left.{go}
+
+func f() -> Int {
+    go()
+}

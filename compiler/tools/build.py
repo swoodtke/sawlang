@@ -25,6 +25,7 @@ DRIVER_ENTRY = os.path.join(REPO, "compiler", "driver", "src", "main.saw")
 STAGE_PACKAGES = (
     ("sawlex", "compiler/lex"),
     ("sawparse", "compiler/parse"),
+    ("sawresolve", "compiler/resolve"),
 )
 
 

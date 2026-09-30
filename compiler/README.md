@@ -24,6 +24,9 @@ compiler/
     CLAIMS.tsv        the alternatives and rules the parser implements so far
     src/*.saw
     tests/*.saw       unit programs
+  resolve/            name resolution, package `sawresolve` (resolve/README.md has
+                      its phases and side tables)
+    src/*.saw
   driver/             the `sawc2` binary, package `sawc2`
     src/main.saw
   tools/
@@ -48,6 +51,9 @@ compiler/
                       dump (dump.py) and the corpus generator (generate.py)
     parse/            the parser corpus: the dump's specification (README.md),
                       hand-checked dumps, the generated cases, their waivers
+    resolve/          the resolve lane (resolve_lane.py): the dump's specification
+                      (README.md), golden dumps, refusal fixtures, and the one-time
+                      frozen-compiler check (frozen_check.py, FROZEN_CHECK.md)
 ```
 
 Each stage has its own directory and is a package, with its source under
@@ -128,6 +134,11 @@ these things.
   the parser corpus and `tests/corpus/`, requiring what `parse/CLAIMS.tsv`
   claims, and re-renders every expected dump through `sawc2 parse --redump`.
   The lane caches the recognizer's records under `.build/parse-lane/`.
+- **Name resolution** (`resolve/README.md`): the resolve lane
+  (`tests/resolve/resolve_lane.py`) holds `sawc2 resolve` to its golden dumps
+  and refusal fixtures, requires a fixture for every rule it refuses by, and
+  resolves the compiler's own source whole: the sawc2 build and each unit
+  program.
 
 ## The subset
 

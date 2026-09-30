@@ -1,0 +1,7 @@
+// refuses: name.duplicate-declaration at 6:5
+// a struct field declared twice
+
+struct Pair {
+    a: Int
+    a: Int
+}

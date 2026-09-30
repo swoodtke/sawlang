@@ -1,0 +1,13 @@
+// Its own enum declares `count`, so `count` is a case here.
+
+public enum Tally {
+    case count,
+    case many
+}
+
+public func tally_of(t: Tally) -> Int {
+    match t {
+        case count -> 1,
+        case many -> 2
+    }
+}

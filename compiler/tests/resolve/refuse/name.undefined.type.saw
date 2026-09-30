@@ -1,0 +1,6 @@
+// refuses: name.undefined at 4:11
+// a type name nothing binds
+
+func f(x: Missing) -> Int {
+    0
+}

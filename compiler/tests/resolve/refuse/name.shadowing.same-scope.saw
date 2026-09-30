@@ -1,0 +1,8 @@
+// refuses: name.shadowing at 6:9
+// a same-scope redefinition that does not derive from the old binding
+
+func f() -> Int {
+    let data = 1
+    let data = 2
+    data
+}

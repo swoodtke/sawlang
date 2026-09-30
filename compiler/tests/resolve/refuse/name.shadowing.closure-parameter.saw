@@ -1,0 +1,7 @@
+// refuses: name.shadowing at 5:15
+// a closure parameter that shadows an enclosing binding
+
+func f(n: Int) -> Int {
+    let g = { n: Int in n + 1 }
+    g(n)
+}

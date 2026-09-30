@@ -1,0 +1,33 @@
+// Patterns: a lone name is a payload-free case when an enum of the import
+// closure declares one of that name, else a binding; a variant's head and
+// an implicit member are chosen among the cases of their name by typecheck.
+
+enum Token {
+    case Eof,
+    case Word(text: String),
+    case Pair(left: Int, right: Int)
+}
+
+func classify(t: Token, n: Int, o: Int?) -> Int {
+    let counted = match t {
+        case Eof -> 0,
+        case Word(text) -> text.len(),
+        case Pair(left, _) -> left,
+        case other -> 1
+    }
+    let ranged = match n {
+        case 0 -> 0,
+        case 1..=9 -> 1,
+        case -1 -> 2,
+        case value -> value
+    }
+    let absent = match o {
+        case None -> 0,
+        case _ -> 1
+    }
+    let (first, second) = (counted, ranged)
+    match Result<Int, String>.Ok(value: 1) {
+        case Ok(v) -> v + first + second + absent,
+        case Err(e) -> 0
+    }
+}

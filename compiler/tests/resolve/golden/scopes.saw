@@ -1,0 +1,71 @@
+// Scopes: parameters, blocks, the bindings each construct introduces, and
+// the shadows that derive from the binding they shadow (designs 100 and 107).
+
+static LIMIT: Int = 10
+
+enum Shape {
+    case Dot,
+    case Square(side: Int)
+}
+
+func count(items: Int, start: Int) -> Int {
+    var total = start
+    let items = items + 1
+    var k = 0
+    while k < items {
+        total = total + k
+        k = k + 1
+    }
+    for step in 0..items {
+        total = total + step
+    }
+    total
+}
+
+func optional_heads(maybe: Int?, pair: (Int, Int)?) -> Int {
+    if let value = maybe {
+        return value
+    } else if let (a, b) = pair {
+        return a + b
+    }
+    guard let found = maybe else {
+        return 0
+    }
+    var drained = 0
+    while let next = maybe {
+        drained = next + found
+        break
+    }
+    drained
+}
+
+func arms(s: Shape) -> Int {
+    match s {
+        case Dot -> 0,
+        case Square(side) if side > LIMIT -> LIMIT,
+        case Square(side) -> side
+    }
+}
+
+func derived(text: String) -> Int {
+    let text = text.len()
+    let text = text + 1
+    text
+}
+
+func closures(base: Int) -> Int {
+    let add = { [base] n: Int in n + base }
+    add(2)
+}
+
+func caught(n: Int) -> Int {
+    let r = try parse(n) catch {
+        print("{}", error)
+        return 0
+    }
+    r
+}
+
+func parse(n: Int) -> Result<Int, String> {
+    n
+}

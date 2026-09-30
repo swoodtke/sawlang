@@ -1,0 +1,209 @@
+// Which alternatives build which kinds of position: the tables the walk
+// dispatches on, kept apart from it so every phase can read them.
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.model.{ResDeclKind}
+
+// Whether `alt` builds a Declaration node.
+public func res_is_decl_item(alt: Alt) -> Bool {
+    match alt {
+        case Decl_Item_Func -> true,
+        case Decl_Item_Static -> true,
+        case Decl_Item_Extension -> true,
+        case Decl_Item_Struct -> true,
+        case Decl_Item_Enum -> true,
+        case Decl_Item_Trait -> true,
+        case Decl_Item_TypeAlias -> true,
+        case Decl_Item_Extern -> true,
+        case _ -> false
+    }
+}
+
+// Whether a node recording `alt` is a type.
+public func res_is_type_alt(alt: Alt?) -> Bool {
+    guard let a = alt else {
+        return false
+    }
+    match a {
+        case Type_Named -> true,
+        case Type_Ref_Shared -> true,
+        case Type_Ref_Exclusive -> true,
+        case Type_Slice_Shared -> true,
+        case Type_Slice_Exclusive -> true,
+        case Type_Array -> true,
+        case Type_Tuple_Unit -> true,
+        case Type_Tuple_Positional -> true,
+        case Type_Tuple_Named -> true,
+        case Type_SingleTuple -> true,
+        case Type_Func -> true,
+        case Type_Any -> true,
+        case Type_Suffix_Optional -> true,
+        case Type_Suffix_DoubleOptional -> true,
+        case _ -> false
+    }
+}
+
+// Whether a declaration of `kind` names a type.
+public func res_names_type(kind: ResDeclKind) -> Bool {
+    match kind {
+        case Struct -> true,
+        case Enum -> true,
+        case Alias -> true,
+        case Primitive -> true,
+        case Trait -> true,
+        case AssocType -> true,
+        case TypeAssign -> true,
+        case _ -> false
+    }
+}
+
+// The statements whose parts are expressions, blocks and types only.
+public func res_is_plain_statement(alt: Alt) -> Bool {
+    match alt {
+        case Stmt_Assign -> true,
+        case Stmt_CompoundAssign -> true,
+        case Stmt_OptionalAssign_Plain -> true,
+        case Stmt_OptionalAssign_Compound -> true,
+        case Stmt_OptionalAssign_BorrowPlain -> true,
+        case Stmt_OptionalAssign_BorrowCompound -> true,
+        case Stmt_Return -> true,
+        case Stmt_Break -> true,
+        case Stmt_Continue -> true,
+        case Stmt_Lend -> true,
+        case Stmt_Guard_Condition -> true,
+        case Decl_StaticAssert -> true,
+        case _ -> false
+    }
+}
+
+// Whether a node recording `alt` is a statement.
+public func res_is_statement_alt(alt: Alt?) -> Bool {
+    guard let a = alt else {
+        return false
+    }
+    if res_is_plain_statement(a) {
+        return true
+    }
+    match a {
+        case Stmt_Expr -> true,
+        case Stmt_Let_Immutable -> true,
+        case Stmt_Let_Mutable -> true,
+        case Stmt_Destructure_Immutable -> true,
+        case Stmt_Destructure_Mutable -> true,
+        case Stmt_AttributedLocal -> true,
+        case Stmt_Guard_Let -> true,
+        case Stmt_Guard_Var -> true,
+        case _ -> false
+    }
+}
+
+// The expressions whose parts are expressions, blocks and types only, and
+// which bind nothing.
+public func res_is_plain_expr(alt: Alt) -> Bool {
+    match alt {
+        case Expr_Coalesce -> true,
+        case Expr_Or -> true,
+        case Expr_And -> true,
+        case Expr_Bitor -> true,
+        case Expr_Bitxor -> true,
+        case Expr_Bitand -> true,
+        case Expr_Compare_Pair -> true,
+        case Expr_Range_Closed -> true,
+        case Expr_Range_From -> true,
+        case Expr_Range_Upto -> true,
+        case Expr_Shift -> true,
+        case Expr_Additive -> true,
+        case Expr_Multiplicative -> true,
+        case Expr_Unary_Negate -> true,
+        case Expr_Unary_Not -> true,
+        case Expr_Unary_Complement -> true,
+        case Expr_Deref -> true,
+        case Expr_Ref_Shared -> true,
+        case Expr_Ref_Exclusive -> true,
+        case Expr_Lends -> true,
+        case Expr_Move_Place -> true,
+        case Expr_MoveDeref_Name -> true,
+        case Expr_MoveDeref_Self -> true,
+        case Expr_Try_Propagate -> true,
+        case Expr_Try_Catch -> true,
+        case Expr_Try_Optional -> true,
+        case Expr_Try_Force -> true,
+        case Expr_TupleIndex -> true,
+        case Expr_Subscript_Single -> true,
+        case Expr_Subscript_Multi -> true,
+        case Expr_Argument_Positional -> true,
+        case Expr_Force -> true,
+        case Expr_Int -> true,
+        case Expr_Float -> true,
+        case Expr_String -> true,
+        case Expr_Bool_True -> true,
+        case Expr_Bool_False -> true,
+        case Expr_None -> true,
+        case Expr_Interpolation -> true,
+        case Expr_SourceLocation_File -> true,
+        case Expr_SourceLocation_Line -> true,
+        case Expr_SourceLocation_Function -> true,
+        case Expr_Tuple_Unit -> true,
+        case Expr_Tuple_Positional -> true,
+        case Expr_Tuple_Named -> true,
+        case Expr_TupleField -> true,
+        case Expr_Array -> true,
+        case Expr_Repeat -> true,
+        case Expr_Map_Empty -> true,
+        case Expr_Map_Entries -> true,
+        case Expr_MapEntry -> true,
+        case Expr_Set -> true,
+        case Borrow_Place_Shared -> true,
+        case Borrow_Place_Var -> true,
+        case Borrow_OptionalTarget -> true,
+        case Const_Expr -> true,
+        case Const_Term -> true,
+        case Const_Negate -> true,
+        case _ -> false
+    }
+}
+
+public func res_is_capture(alt: Alt?) -> Bool {
+    guard let a = alt else {
+        return false
+    }
+    match a {
+        case Expr_Capture_Value -> true,
+        case Expr_Capture_Move -> true,
+        case Expr_Capture_Copy -> true,
+        case Expr_Capture_Borrow -> true,
+        case Expr_Capture_BorrowExclusive -> true,
+        case Expr_Capture_Self -> true,
+        case Expr_Capture_SelfExclusive -> true,
+        case _ -> false
+    }
+}
+
+public func res_is_closure_param(alt: Alt?) -> Bool {
+    guard let a = alt else {
+        return false
+    }
+    match a {
+        case Expr_ClosureParam_Value -> true,
+        case Expr_ClosureParam_Ref -> true,
+        case Expr_ClosureParam_RefExclusive -> true,
+        case _ -> false
+    }
+}
+
+// Whether a node recording `alt` is a head that binds: an optional binding or
+// a borrow binding.
+public func res_is_head_binding(alt: Alt?) -> Bool {
+    guard let a = alt else {
+        return false
+    }
+    match a {
+        case Expr_OptionalBinding_Let -> true,
+        case Expr_OptionalBinding_Var -> true,
+        case Borrow_Unwrap_Let -> true,
+        case Borrow_Unwrap_Var -> true,
+        case Borrow_Binding_Let -> true,
+        case Borrow_Binding_Var -> true,
+        case _ -> false
+    }
+}

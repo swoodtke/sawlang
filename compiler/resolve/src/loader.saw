@@ -1,0 +1,333 @@
+// Loading modules: a module identity to a file, the file to a parsed arena,
+// the arena into the program. Each module is collected (phase 1) as soon as it
+// is loaded, since its own table depends on nothing else.
+
+import sawparse.src.api.{parse_source}
+import sawparse.src.diag.{diagnostic_id}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.model.{ResModule, ResModuleKind, ResVis}
+import sawresolve.src.prelude.{res_declare_synthetic_builtins}
+import sawresolve.src.program.{ResPackage, ResProgram}
+import std.file.{File}
+import std.path.{Path}
+
+static RES_SLASH: Int = 47
+static RES_DOT: Int = 46
+
+// The text of the file at `path`, or None when it cannot be read as UTF-8.
+public func res_read_file(path: String) -> String? {
+    let opened = File.open(Path(s: path))
+    var file = match opened {
+        case Ok(handle) -> move handle,
+        case Err(e) -> {
+            return None
+        }
+    }
+    let read = file.read()
+    let data = match read {
+        case Ok(bytes) -> move bytes,
+        case Err(e) -> {
+            return None
+        }
+    }
+    let decoded = data.to_string()
+    match decoded {
+        case Ok(text) -> text,
+        case Err(e) -> None
+    }
+}
+
+// `text` with each `.` made a `/`: a module path's segments as directories.
+public func res_dots_to_slashes(text: &String) -> String {
+    var out = StringBuilder()
+    var run = 0
+    var i = 0
+    let n = text.len()
+    while i < n {
+        if (text.byte_at(i) as Int) == RES_DOT {
+            try! out.append(text.substring(run, i))
+            try! out.append("/")
+            run = i + 1
+        }
+        i = i + 1
+    }
+    try! out.append(text.substring(run, n))
+    out.build()
+}
+
+// The directory part of `path`, without its last `/`; empty for a bare name.
+public func res_dir_of(path: &String) -> String {
+    var i = path.len() - 1
+    while i >= 0 {
+        if (path.byte_at(i) as Int) == RES_SLASH {
+            return path.substring(0, i)
+        }
+        i = i - 1
+    }
+    ""
+}
+
+// `dir/rel`, or `rel` when `dir` is empty.
+public func res_join(dir: String, rel: String) -> String {
+    if dir.len() == 0 {
+        return rel
+    }
+    var out = StringBuilder()
+    try! out.append(dir)
+    try! out.append("/")
+    try! out.append(rel)
+    out.build()
+}
+
+// The first `.`-separated segment of `text`.
+public func res_first_segment(text: &String) -> String {
+    var i = 0
+    let n = text.len()
+    while i < n {
+        if (text.byte_at(i) as Int) == RES_DOT {
+            return text.substring(0, i)
+        }
+        i = i + 1
+    }
+    text.substring(0, n)
+}
+
+// `text` past its first `.`-separated segment, or empty.
+public func res_after_first_segment(text: &String) -> String {
+    var i = 0
+    let n = text.len()
+    while i < n {
+        if (text.byte_at(i) as Int) == RES_DOT {
+            return text.substring(i + 1, n)
+        }
+        i = i + 1
+    }
+    ""
+}
+
+extension ResProgram {
+    public func add_package(&var self, name: String, dir: String) {
+        let n = self.intern(name)
+        let d = self.intern(dir)
+        try! self.packages.push(ResPackage(name: n, dir: d))
+    }
+
+    // The directory a package name is mapped to, or None.
+    public func package_dir(&self, name: Int) -> String? {
+        var k = 0
+        while k < self.packages.len() {
+            let p = self.packages[k]
+            if p.name == name {
+                return self.name_text(p.dir)
+            }
+            k = k + 1
+        }
+        None
+    }
+
+    // The module whose identity is `identity`, or -1 when none is loaded.
+    public func find_module(&self, identity: Int) -> Int {
+        let at = self.by_name.first(0, identity)
+        if at < 0 {
+            return -1
+        }
+        self.by_name.value(at)
+    }
+
+    // Loads module `identity` from `path` unless it is loaded already, and
+    // collects it. Returns its index, available or not.
+    public func load_module(&var self, identity: String, path: String, kind: ResModuleKind,
+                            package: String) -> Int {
+        let key = self.intern(identity)
+        let known = self.find_module(key)
+        if known >= 0 {
+            return known
+        }
+        let m = self.new_module(key, path, kind, package)
+        self.read_module(m, path)
+        m
+    }
+
+    // Adds module `key`, read from `path`, with nothing in it yet.
+    func new_module(&var self, key: Int, path: String, kind: ResModuleKind,
+                    package: String) -> Int {
+        let m = self.modules.len()
+        let interface = kind == ResModuleKind.Std || kind == ResModuleKind.Builtin
+        let dir_text = res_dir_of(&path)
+        let dir = self.intern(dir_text)
+        let file = self.intern(path)
+        let pkg = self.intern(package)
+        let first = self.decls.len()
+        try! self.modules.push(ResModule(name: key, file: file, kind: kind, package: pkg, dir: dir,
+                                         available: false, interface_only: interface,
+                                         node_base: 0, node_count: 0, root: -1, line_base: 0,
+                                         line_count: 0, decl_first: first, decl_count: 0))
+        self.by_name.add(0, key, m)
+        m
+    }
+
+    // Reads and parses module `m`, the module added last, into the arena, then
+    // collects it. A file that cannot be read or that the parser refuses leaves
+    // the module unavailable, with a refusal saying why: a note for an
+    // interface module. Pushes the module's text, empty when there is none,
+    // so `texts` stays indexed by module.
+    func read_module(&var self, m: Int, path: String) {
+        let saved = self.current
+        self.current = m
+        let info = self.modules[m]
+        let source = res_read_file(path)
+        guard let text = source else {
+            try! self.texts.push("")
+            var msg = StringBuilder()
+            try! msg.append("cannot read `")
+            try! msg.append(path)
+            try! msg.append("`")
+            self.refuse_at(m, 0, "import.unreadable", msg.build(), info.interface_only)
+            self.current = saved
+            return
+        }
+        try! self.texts.push(text)
+        let line_base = self.index_lines(&text)
+        var indexed = self.modules[m]
+        indexed.line_base = line_base
+        indexed.line_count = self.line_starts.len() - line_base
+        self.modules[m] = indexed
+        let parser = parse_source(path, text, false)
+        if parser.diagnostics.len() > 0 {
+            let first = parser.diagnostics[0]
+            var msg = StringBuilder()
+            try! msg.append("the parser refuses `")
+            try! msg.append(path)
+            try! msg.append("` (")
+            try! msg.append(diagnostic_id(&first))
+            try! msg.append("), so its declarations are not available")
+            self.refuse_at(m, first.start, "resolve.parse-refused", msg.build(),
+                           info.interface_only)
+            self.current = saved
+            return
+        }
+        let node_base = self.nodes.len()
+        let root = self.adopt_tree(&parser.builder.tree)
+        var updated = self.modules[m]
+        updated.available = true
+        updated.node_base = node_base
+        updated.node_count = self.nodes.len() - node_base
+        updated.root = root
+        self.modules[m] = updated
+        self.collect_module(m)
+        self.current = saved
+    }
+
+    // The builtin module: its synthetic declarations, then `builtin.saw`'s.
+    public func load_builtin(&var self) {
+        let path = self.std_file("builtin.saw")
+        let key = self.intern("builtin")
+        let m = self.new_module(key, path, ResModuleKind.Builtin, "std")
+        self.builtin = m
+        let saved = self.current
+        self.current = m
+        res_declare_synthetic_builtins(&var self)
+        self.current = saved
+        self.read_module(m, path)
+    }
+
+    // Every std module, by its path under `std`: the third of the tables
+    // prelude.saw describes.
+    public func load_std_modules(&var self) {
+        self.std_module("alloc")
+        self.std_module("arc")
+        self.std_module("box")
+        self.std_module("cbor")
+        self.std_module("channel")
+        self.std_module("data")
+        self.std_module("directory")
+        self.std_module("duration")
+        self.std_module("env")
+        self.std_module("file")
+        self.std_module("fixedbuf")
+        self.std_module("float")
+        self.std_module("json")
+        self.std_module("map")
+        self.std_module("mutex")
+        self.std_module("net")
+        self.std_module("numeric")
+        self.std_module("once")
+        self.std_module("path")
+        self.std_module("process")
+        self.std_module("scalar")
+        self.std_module("serde")
+        self.std_module("set")
+        self.std_module("signal")
+        self.std_module("slab")
+        self.std_module("spinlock")
+        self.std_module("string")
+        self.std_module("stringbuilder")
+        self.std_module("task")
+        self.std_module("taskgroup")
+        self.std_module("time")
+        self.std_module("vector")
+        self.std_module("compiler.frame")
+    }
+
+    // `rel` under the std root.
+    public func std_file(&self, rel: String) -> String {
+        let root = self.std_root
+        res_join(root, rel)
+    }
+
+    // Loads `std.<path>` from `<std root>/std/<path>.saw`.
+    public func std_module(&var self, path: String) {
+        var identity = StringBuilder()
+        try! identity.append("std.")
+        try! identity.append(path)
+        var rel = StringBuilder()
+        try! rel.append("std/")
+        try! rel.append(res_dots_to_slashes(&path))
+        try! rel.append(".saw")
+        let file = self.std_file(rel.build())
+        let _ = self.load_module(identity.build(), file, ResModuleKind.Std, "std")
+    }
+
+    // The gated tier (design 255): every public std declaration the prelude
+    // leaves out, so a bare use can be told to import it.
+    public func index_gated_std(&var self) {
+        var d = 0
+        while d < self.decls.len() {
+            let decl = self.decls[d]
+            let info = self.modules[decl.module]
+            if res_is_top_level(&decl) && info.kind == ResModuleKind.Std && decl.vis == ResVis.Public {
+                if self.prelude.first(0, decl.name) < 0 {
+                    self.prelude.add(1, decl.name, d)
+                }
+            }
+            d = d + 1
+        }
+    }
+
+    // Loads the entry file named on the command line: a module whose identity
+    // is its file name without `.saw`, in the empty package.
+    public func load_entry(&var self, path: String) -> Int {
+        let base = res_base_name(&path)
+        let m = self.load_module(base, path, ResModuleKind.Entry, "")
+        self.entry = m
+        m
+    }
+}
+
+// A path's last component without its `.saw` suffix.
+public func res_base_name(path: &String) -> String {
+    var start = 0
+    var i = 0
+    let n = path.len()
+    while i < n {
+        if (path.byte_at(i) as Int) == RES_SLASH {
+            start = i + 1
+        }
+        i = i + 1
+    }
+    var end = n
+    if n - start > 4 && path.substring(n - 4, n).equals(".saw") {
+        end = n - 4
+    }
+    path.substring(start, end)
+}

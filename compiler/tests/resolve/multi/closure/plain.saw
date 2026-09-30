@@ -1,0 +1,16 @@
+// Imports neither `level` nor `own`, directly or through another module, so
+// `count` and `n` are bindings here though the program declares a case `count`.
+
+public func count_of(total: Int) -> Int {
+    match total {
+        case count if count > 0 -> count,
+        case _ -> 0
+    }
+}
+
+public func sign(value: Int) -> Int {
+    match value {
+        case n if n < 0 -> -1,
+        case _ -> 1
+    }
+}

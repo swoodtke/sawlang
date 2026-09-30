@@ -1,0 +1,566 @@
+// Phase 1, collect (SL:architecture §3.3): each module's top-level
+// declarations go into its tables before any name is looked up. Types,
+// functions as overload sets, enum cases, traits, statics, externs, extensions
+// and their members; a duplicate is refused here. A module's own table never
+// depends on its imports, so the order modules are collected in cannot matter.
+
+import sawparse.src.grammar.{Alt, alt_name}
+import sawresolve.src.kinds.{res_is_decl_item}
+import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResImport,
+                             ResImportForm, ResModule, ResModuleKind, ResSymbol, ResVis}
+import sawresolve.src.program.{ResProgram}
+
+extension ResProgram {
+    // Collects module `m`, whose tree is in the arena.
+    public func collect_module(&var self, m: Int) {
+        let info = self.modules[m]
+        if not info.available {
+            return
+        }
+        let saved = self.current
+        self.current = m
+        let root = info.root
+        let n = self.child_count(root)
+        var k = 0
+        while k < n {
+            let item = self.child(root, k)
+            self.collect_item(item, false)
+            k = k + 1
+        }
+        self.current = saved
+    }
+
+    // One top-level item, or an item of a test group.
+    func collect_item(&var self, item: Int, test_only: Bool) {
+        if self.is_leaf(item) {
+            return
+        }
+        guard let alt = self.alt_of(item) else {
+            return
+        }
+        if alt == Alt.Decl_Import_Private || alt == Alt.Decl_Import_Reexport {
+            self.collect_import(item, test_only)
+        } else if res_is_decl_item(alt) {
+            self.collect_declaration(item, item, test_only)
+        } else if alt == Alt.Test_Declaration_Item {
+            let inner = self.last_node_child(item)
+            if inner >= 0 {
+                self.collect_declaration(inner, item, true)
+            }
+        } else if alt == Alt.Test_Declaration_Import {
+            let inner = self.last_node_child(item)
+            if inner >= 0 {
+                self.collect_import(inner, true)
+            }
+        } else if alt == Alt.Test_Group {
+            let n = self.child_count(item)
+            var k = 0
+            while k < n {
+                let sub = self.child(item, k)
+                self.collect_item(sub, true)
+                k = k + 1
+            }
+        } else if alt == Alt.Decl_Module_File || alt == Alt.Decl_Module_Inline {
+            self.not_in_slice(item, alt)
+        }
+    }
+
+    // The last child of `id` that is a node, or -1.
+    public func last_node_child(&self, id: Int) -> Int {
+        var k = self.child_count(id) - 1
+        while k >= 0 {
+            let c = self.child(id, k)
+            if not self.is_leaf(c) {
+                return c
+            }
+            k = k - 1
+        }
+        return -1
+    }
+
+    // The first child of `id` that is a leaf, or -1.
+    public func first_leaf(&self, id: Int) -> Int {
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            if self.is_leaf(c) {
+                return c
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // The last leaf of the run of leaves that opens `id`'s children, past any
+    // leading Doc or Visibility node: a struct's name after its modifier.
+    public func leading_name_leaf(&self, id: Int) -> Int {
+        let n = self.child_count(id)
+        var found = -1
+        var k = 0
+        var started = false
+        while k < n {
+            let c = self.child(id, k)
+            if self.is_leaf(c) {
+                found = c
+                started = true
+            } else if started {
+                return found
+            }
+            k = k + 1
+        }
+        found
+    }
+
+    // The visibility a Declaration, ExtensionMember or Field node carries.
+    public func visibility_of(&self, outer: Int) -> ResVis {
+        let n = self.child_count(outer)
+        var k = 0
+        while k < n {
+            let c = self.child(outer, k)
+            if let a = self.alt_of(c) {
+                if a == Alt.Decl_Visibility_Public {
+                    return ResVis.Public
+                }
+                if a == Alt.Decl_Visibility_Package {
+                    return ResVis.Package
+                }
+                if a == Alt.Decl_Visibility_Parent {
+                    return ResVis.Parent
+                }
+            }
+            k = k + 1
+        }
+        ResVis.Private
+    }
+
+    public func add_decl(&var self, kind: ResDeclKind, name: Int, node: Int, outer: Int,
+                         leaf: Int, vis: ResVis, parent: Int, test_only: Bool,
+                         flag: Bool) -> Int {
+        let m = self.current
+        let d = self.decls.len()
+        try! self.decls.push(ResDecl(module: m, kind: kind, name: name, node: node, outer: outer,
+                                     leaf: leaf, vis: vis, parent: parent, test_only: test_only,
+                                     flag: flag))
+        var info = self.modules[m]
+        if info.decl_count == 0 {
+            info.decl_first = d
+        }
+        info.decl_count = d - info.decl_first + 1
+        self.modules[m] = info
+        d
+    }
+
+    // A top-level declaration, refused when its name is taken in the module by
+    // another declaration that is not a function beside a function.
+    func add_top(&var self, kind: ResDeclKind, leaf: Int, node: Int, outer: Int, vis: ResVis,
+                 test_only: Bool) -> Int {
+        let name = self.leaf_name(leaf)
+        let m = self.current
+        var at = self.top.first(m, name)
+        while at >= 0 {
+            let other = self.decls[self.top.value(at)]
+            let overload = kind == ResDeclKind.Func && other.kind == ResDeclKind.Func
+            if not overload {
+                let text = self.name_text(name)
+                let at_text = self.node_position(m, other.leaf)
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(text)
+                try! msg.append("` is already declared in this module, at ")
+                try! msg.append(at_text)
+                self.refuse(leaf, "name.duplicate-declaration", msg.build())
+                break
+            }
+            at = self.top.following(at)
+        }
+        let info = self.modules[m]
+        let user = info.kind == ResModuleKind.Entry || info.kind == ResModuleKind.Package
+        if user && self.prelude.first(0, name) >= 0 {
+            let text = self.name_text(name)
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(text)
+            try! msg.append("` is a prelude name, so it is reserved and cannot be declared again")
+            self.refuse(leaf, "name.reserved", msg.build())
+        }
+        let d = self.add_decl(kind, name, node, outer, leaf, vis, -1, test_only, false)
+        self.top.add(m, name, d)
+        d
+    }
+
+    // A member of `parent`: a case, a field, a trait or extension member. A
+    // second member of one name is refused for cases and fields, where the
+    // name alone selects it.
+    func add_member(&var self, kind: ResDeclKind, leaf: Int, node: Int, outer: Int, vis: ResVis,
+                    parent: Int, test_only: Bool, flag: Bool, name: Int) -> Int {
+        let unique = kind == ResDeclKind.Case || kind == ResDeclKind.Field
+        if unique && self.members.first(parent, name) >= 0 {
+            let text = self.name_text(name)
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(text)
+            try! msg.append("` is declared twice here")
+            self.refuse(leaf, "name.duplicate-declaration", msg.build())
+        }
+        let d = self.add_decl(kind, name, node, outer, leaf, vis, parent, test_only, flag)
+        self.members.add(parent, name, d)
+        if kind == ResDeclKind.Case {
+            self.cases.add(0, name, d)
+        }
+        d
+    }
+
+    // A Declaration node (or a test-only one), whose own declaration is its
+    // last child.
+    func collect_declaration(&var self, outer: Int, holder: Int, test_only: Bool) {
+        let inner = self.last_node_child(outer)
+        if inner < 0 {
+            return
+        }
+        guard let alt = self.alt_of(inner) else {
+            return
+        }
+        let vis = self.visibility_of(outer)
+        // A struct's name follows its modifier; every other name is its
+        // declaration's first leaf.
+        let name_leaf = if alt == Alt.Decl_Struct { self.leading_name_leaf(inner) } else { self.first_leaf(inner) }
+        if alt == Alt.Decl_Func {
+            let _ = self.add_top(ResDeclKind.Func, name_leaf, inner, holder, vis, test_only)
+        } else if alt == Alt.Decl_Static_Immutable || alt == Alt.Decl_Static_UnsafeVar {
+            let _ = self.add_top(ResDeclKind.Static, name_leaf, inner, holder, vis, test_only)
+        } else if alt == Alt.Decl_TypeAlias {
+            let _ = self.add_top(ResDeclKind.Alias, name_leaf, inner, holder, vis, test_only)
+        } else if alt == Alt.Decl_Struct {
+            let d = self.add_top(ResDeclKind.Struct, name_leaf, inner, holder, vis, test_only)
+            self.collect_fields(inner, d, vis, test_only)
+        } else if alt == Alt.Decl_Enum {
+            let d = self.add_top(ResDeclKind.Enum, name_leaf, inner, holder, vis, test_only)
+            self.collect_cases(inner, d, vis, test_only)
+        } else if alt == Alt.Decl_Trait {
+            let d = self.add_top(ResDeclKind.Trait, name_leaf, inner, holder, vis, test_only)
+            self.collect_trait_members(inner, d, vis, test_only)
+        } else if alt == Alt.Decl_Extension {
+            let d = self.add_decl(ResDeclKind.Extension, -1, inner, holder, inner, ResVis.Private,
+                                  -1, test_only, false)
+            self.collect_extension_members(inner, d, test_only)
+        } else if alt == Alt.Decl_ExternBlock {
+            let n = self.child_count(inner)
+            var k = 0
+            while k < n {
+                let f = self.child(inner, k)
+                if self.is_alt(f, Alt.Decl_ExternFunc_Prompt) || self.is_alt(f, Alt.Decl_ExternFunc_Blocking) {
+                    let leaf = self.first_leaf(f)
+                    let _ = self.add_top(ResDeclKind.Extern, leaf, f, f, vis, test_only)
+                }
+                k = k + 1
+            }
+        } else {
+            self.not_in_slice(inner, alt)
+        }
+    }
+
+    func collect_fields(&var self, s: Int, parent: Int, vis: ResVis, test_only: Bool) {
+        let n = self.child_count(s)
+        var k = 0
+        while k < n {
+            let f = self.child(s, k)
+            if self.is_alt(f, Alt.Decl_Field) {
+                let leaf = self.field_name_leaf(f)
+                let name = self.leaf_name(leaf)
+                let own = self.field_visibility(f, vis)
+                let _ = self.add_member(ResDeclKind.Field, leaf, f, f, own, parent, test_only,
+                                        false, name)
+            }
+            k = k + 1
+        }
+    }
+
+    // A field's name: the leaf right before its type, the field's last child.
+    public func field_name_leaf(&self, f: Int) -> Int {
+        let n = self.child_count(f)
+        var k = n - 2
+        while k >= 0 {
+            let c = self.child(f, k)
+            if self.is_leaf(c) {
+                return c
+            }
+            k = k - 1
+        }
+        return -1
+    }
+
+    // A field's own tier: its type's, narrowed by `private` or given by a
+    // written visibility (design 258).
+    func field_visibility(&var self, f: Int, inherited: ResVis) -> ResVis {
+        let written = self.visibility_of(f)
+        if written != ResVis.Private {
+            return written
+        }
+        let n = self.child_count(f)
+        if n >= 3 {
+            let first = self.child(f, 0)
+            if self.is_leaf(first) {
+                let m = self.current
+                let word = self.text_of(m, first)
+                if word.equals("private") {
+                    return ResVis.Private
+                }
+            }
+        }
+        inherited
+    }
+
+    func collect_cases(&var self, e: Int, parent: Int, vis: ResVis, test_only: Bool) {
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            if self.is_alt(c, Alt.Decl_Case) {
+                let leaf = self.first_leaf(c)
+                let name = self.leaf_name(leaf)
+                let payload = self.case_has_payload(c)
+                let _ = self.add_member(ResDeclKind.Case, leaf, c, c, vis, parent, test_only,
+                                        payload, name)
+            }
+            k = k + 1
+        }
+    }
+
+    // Whether a case declares a payload list, empty or not: its `(` leaf.
+    func case_has_payload(&var self, c: Int) -> Bool {
+        let m = self.current
+        let n = self.child_count(c)
+        var k = 0
+        while k < n {
+            let x = self.child(c, k)
+            if self.is_leaf(x) {
+                let word = self.text_of(m, x)
+                if word.equals("(") {
+                    return true
+                }
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // A trait's associated types and requirements, each of the trait's tier.
+    func collect_trait_members(&var self, t: Int, parent: Int, vis: ResVis, test_only: Bool) {
+        let n = self.child_count(t)
+        var k = 0
+        while k < n {
+            let c = self.child(t, k)
+            if self.is_alt(c, Alt.Decl_AssocType) {
+                let leaf = self.first_leaf(c)
+                let name = self.leaf_name(leaf)
+                let _ = self.add_member(ResDeclKind.AssocType, leaf, c, c, vis, parent, test_only,
+                                        false, name)
+            } else if self.is_alt(c, Alt.Decl_Requirement) {
+                let leaf = self.method_name_leaf(c)
+                let name = self.method_name(c)
+                let is_static = self.has_leading_word(c, "static")
+                let _ = self.add_member(ResDeclKind.Requirement, leaf, c, c, vis, parent,
+                                        test_only, is_static, name)
+            }
+            k = k + 1
+        }
+    }
+
+    func collect_extension_members(&var self, x: Int, parent: Int, test_only: Bool) {
+        let n = self.child_count(x)
+        var k = 0
+        while k < n {
+            let member = self.child(x, k)
+            if self.is_alt(member, Alt.Decl_ExtensionMember_Method) || self.is_alt(member, Alt.Decl_ExtensionMember_SynthesizedMethod) {
+                let inner = self.last_node_child(member)
+                let vis = self.visibility_of(member)
+                let leaf = self.method_name_leaf(inner)
+                let name = self.method_name(inner)
+                let is_static = self.has_leading_word(inner, "static")
+                let _ = self.add_member(ResDeclKind.Method, leaf, inner, member, vis, parent,
+                                        test_only, is_static, name)
+            } else if self.is_alt(member, Alt.Decl_ExtensionMember_Init) {
+                let inner = self.last_node_child(member)
+                let vis = self.visibility_of(member)
+                let name = self.intern("init")
+                let _ = self.add_member(ResDeclKind.Init, inner, inner, member, vis, parent,
+                                        test_only, true, name)
+            } else if self.is_alt(member, Alt.Decl_ExtensionMember_TypeAssign) {
+                let inner = self.last_node_child(member)
+                let leaf = self.first_leaf(inner)
+                let name = self.leaf_name(leaf)
+                let _ = self.add_member(ResDeclKind.TypeAssign, leaf, inner, member, ResVis.Public,
+                                        parent, test_only, false, name)
+            }
+            k = k + 1
+        }
+    }
+
+    // Whether the leaves that open `id`'s children include `word`.
+    public func has_leading_word(&var self, id: Int, word: String) -> Bool {
+        let m = self.current
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            if not self.is_leaf(c) {
+                return false
+            }
+            let text = self.text_of(m, c)
+            if text.equals(word) {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // A method's or requirement's name leaf: the first leading leaf that is
+    // not `static`.
+    public func method_name_leaf(&var self, id: Int) -> Int {
+        let m = self.current
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            if not self.is_leaf(c) {
+                return -1
+            }
+            let text = self.text_of(m, c)
+            if not text.equals("static") {
+                return c
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // A method's name: an identifier, or `[]` or `[]=` for a subscript role.
+    public func method_name(&var self, id: Int) -> Int {
+        let m = self.current
+        var out = StringBuilder()
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            if not self.is_leaf(c) {
+                break
+            }
+            let text = self.text_of(m, c)
+            if not text.equals("static") {
+                try! out.append(text)
+            }
+            k = k + 1
+        }
+        self.intern(out.build())
+    }
+
+    // An import, recorded for phase 2 with its form; its target is found there.
+    func collect_import(&var self, item: Int, test_only: Bool) {
+        let m = self.current
+        let path = self.first_node_child(item)
+        if path < 0 {
+            return
+        }
+        let leaf = self.last_leaf_of(path)
+        var form = ResImportForm.Qualifier
+        var qualifier = self.leaf_name(leaf)
+        var qualifier_leaf = leaf
+        var select = false
+        let n = self.child_count(item)
+        var k = 0
+        var after_as = false
+        while k < n {
+            let c = self.child(item, k)
+            if self.is_leaf(c) {
+                let text = self.text_of(m, c)
+                if text.equals("*") {
+                    form = ResImportForm.Glob
+                } else if text.equals("\{") {
+                    form = ResImportForm.Select
+                    select = true
+                } else if text.equals("as") {
+                    after_as = true
+                } else if after_as {
+                    qualifier = self.leaf_name(c)
+                    qualifier_leaf = c
+                    after_as = false
+                }
+            }
+            k = k + 1
+        }
+        if form != ResImportForm.Qualifier {
+            qualifier = -1
+            qualifier_leaf = -1
+        }
+        let reexport = self.is_alt(item, Alt.Decl_Import_Reexport)
+        let at = self.imports.len()
+        try! self.imports.push(ResImport(module: m, node: item, path: path, leaf: leaf, target: -1,
+                                         form: form, reexport: reexport, test_only: test_only,
+                                         qualifier: qualifier, qualifier_leaf: qualifier_leaf))
+        if not select {
+            return
+        }
+        k = 0
+        while k < n {
+            let c = self.child(item, k)
+            if self.is_alt(c, Alt.Decl_ImportSymbol_Name) || self.is_alt(c, Alt.Decl_ImportSymbol_Alias) {
+                let first = self.first_leaf(c)
+                let last = self.last_leaf_of(c)
+                let name = self.leaf_name(first)
+                let bound = self.leaf_name(last)
+                try! self.symbols.push(ResSymbol(import_at: at, module: m, name: name, bound: bound,
+                                                 leaf: first, bound_leaf: last,
+                                                 binding: ResBinding(kind: ResBindKind.Unbound,
+                                                                     module: -1, decl: -1,
+                                                                     name: -1, node: -1)))
+            }
+            k = k + 1
+        }
+    }
+
+    // The first child of `id` that is a node, or -1.
+    public func first_node_child(&self, id: Int) -> Int {
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            if not self.is_leaf(c) {
+                return c
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // The last child of `id` that is a leaf, or -1.
+    public func last_leaf_of(&self, id: Int) -> Int {
+        var k = self.child_count(id) - 1
+        while k >= 0 {
+            let c = self.child(id, k)
+            if self.is_leaf(c) {
+                return c
+            }
+            k = k - 1
+        }
+        return -1
+    }
+
+    // A construct the bootstrap slice does not resolve yet: refused by name,
+    // never mis-resolved.
+    public func not_in_slice(&var self, id: Int, alt: Alt) {
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(alt_name(alt))
+        try! msg.append("` is not in the bootstrap slice yet")
+        self.refuse(id, "slice.not-yet", msg.build())
+        try! self.skipped.push(id)
+    }
+}
+
+// Whether a declaration stands at its module's top level: a named one with
+// no enclosing declaration.
+public func res_is_top_level(decl: &ResDecl) -> Bool {
+    decl.parent < 0 && decl.name >= 0
+}

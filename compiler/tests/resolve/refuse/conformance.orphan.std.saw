@@ -1,0 +1,8 @@
+// refuses: conformance.orphan at 4:21
+// a conformance of a std type to a builtin trait, in neither's module
+
+extension Duration: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("d")
+    }
+}

@@ -1,0 +1,59 @@
+// The name rules that need every module resolved: a conformance lives in its
+// type's module or its trait's (the orphan rule), and a type conforms to a
+// trait at most once in the program (design 142).
+
+import sawresolve.src.model.{ResBindKind, ResBinding, ResConformance, ResDecl, ResDeclKind}
+import sawresolve.src.program.{ResProgram}
+
+extension ResProgram {
+    public func check_conformances(&var self) {
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            let type_decl = res_conformance_decl(&c.target)
+            let trait_decl = res_conformance_decl(&c.trait_binding)
+            if type_decl >= 0 && trait_decl >= 0 {
+                self.current = c.module
+                let t = self.decls[type_decl]
+                let r = self.decls[trait_decl]
+                if t.module != c.module && r.module != c.module {
+                    self.refuse_orphan(&c, t.module, r.module)
+                }
+                var j = 0
+                while j < k {
+                    let other = self.conformances[j]
+                    if res_conformance_decl(&other.target) == type_decl && res_conformance_decl(&other.trait_binding) == trait_decl {
+                        let at = self.node_position(other.module, other.path)
+                        var msg = StringBuilder()
+                        try! msg.append("this conformance is already declared, in `")
+                        try! msg.append(self.module_name(other.module))
+                        try! msg.append("` at ")
+                        try! msg.append(at)
+                        self.refuse(c.path, "conformance.duplicate", msg.build())
+                        break
+                    }
+                    j = j + 1
+                }
+            }
+            k = k + 1
+        }
+    }
+
+    func refuse_orphan(&var self, c: &ResConformance, type_module: Int, trait_module: Int) {
+        var msg = StringBuilder()
+        try! msg.append("a conformance lives in its type's module (`")
+        try! msg.append(self.module_name(type_module))
+        try! msg.append("`) or its trait's (`")
+        try! msg.append(self.module_name(trait_module))
+        try! msg.append("`); wrap the type in one this module owns")
+        self.refuse(c.path, "conformance.orphan", msg.build())
+    }
+}
+
+// The declaration a conformance's type or trait resolved to, or -1.
+public func res_conformance_decl(b: &ResBinding) -> Int {
+    if b.kind == ResBindKind.Decl || b.kind == ResBindKind.SelfType {
+        return b.decl
+    }
+    return -1
+}

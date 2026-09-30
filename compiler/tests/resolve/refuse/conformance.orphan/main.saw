@@ -1,0 +1,11 @@
+// refuses: conformance.orphan at 7:19
+// a conformance of another module's type to another module's trait (design 142)
+
+import shapes.{Circle}
+import naming.{Named}
+
+extension Circle: Named {
+    func label(&self) -> String {
+        "circle"
+    }
+}

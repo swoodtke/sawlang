@@ -1,0 +1,7 @@
+public struct Panel {
+    raw: Int
+}
+
+public struct Hidden {
+    raw: Int
+}

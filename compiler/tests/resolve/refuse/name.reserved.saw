@@ -1,0 +1,6 @@
+// refuses: name.reserved at 4:8
+// a declaration named like a prelude name
+
+struct Vector {
+    n: Int
+}

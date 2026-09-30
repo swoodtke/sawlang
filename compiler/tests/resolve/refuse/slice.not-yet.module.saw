@@ -1,0 +1,8 @@
+// refuses: slice.not-yet at 4:1
+// a `module` declaration, not in the bootstrap slice yet
+
+module helpers
+
+func f() -> Int {
+    0
+}

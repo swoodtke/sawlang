@@ -1,0 +1,347 @@
+// The program under resolution: every module it loads, their parsed arenas
+// copied into one, and every table the three phases fill. One value holds it
+// all, so each phase is a set of methods on it.
+
+import sawparse.src.grammar.{Alt}
+import sawparse.src.tree.{AstNode, AstTree, NodeShape, is_leaf_shape}
+import sawresolve.src.model.{ResBinding, ResBindKind, ResCall, ResConformance, ResDecl,
+                             ResDeclKind, ResDiag, ResExport, ResImport, ResLocal, ResModule,
+                             ResModuleKind, ResName, ResSymbol, ResVis}
+import sawresolve.src.names.{ResIndex, ResNames, res_index, res_names}
+
+static RES_NEWLINE: Int = 10
+static RES_CONTINUATION_LOW: Int = 128
+static RES_CONTINUATION_HIGH: Int = 191
+
+// A package mapped to a directory with `--module-path NAME=DIR`.
+public struct ResPackage {
+    public name: Int
+    public dir: Int
+}
+
+public struct ResProgram {
+    names: ResNames
+    // The directory holding `std/` and `builtin.saw`.
+    std_root: String
+    packages: Vector<ResPackage>
+    modules: Vector<ResModule>
+    // Each module's source text, by module index.
+    texts: Vector<String>
+    // The parsed arenas, one after another; node ids are indices here.
+    nodes: Vector<AstNode>
+    children: Vector<Int>
+    line_starts: Vector<Int>
+    decls: Vector<ResDecl>
+    imports: Vector<ResImport>
+    symbols: Vector<ResSymbol>
+    exports: Vector<ResExport>
+    records: Vector<ResName>
+    calls: Vector<ResCall>
+    conformances: Vector<ResConformance>
+    diags: Vector<ResDiag>
+    // The nodes refused as outside the bootstrap slice; nothing under one is
+    // resolved, so the verifier asks nothing of it.
+    skipped: Vector<Int>
+    // Merged overload sets: at an Overloads binding's index, the number of
+    // modules, then each module.
+    merges: Vector<Int>
+    // (module, name) -> each top-level declaration of that name.
+    top: ResIndex
+    // (enum declaration, name) -> its case; (struct, name) -> its field.
+    members: ResIndex
+    // (0, name) -> every enum case of that name in the program. A module
+    // consults only the cases its import closure declares.
+    cases: ResIndex
+    // Each module's import closure, a row of `modules.len()` flags per module:
+    // row m, column k is set when module k is in m's closure.
+    closure: Vector<Bool>
+    closure_stride: Int
+    // (exporting module, name) -> its surface entries.
+    surface: ResIndex
+    // (module, name) -> the selective import symbols binding that name.
+    bare: ResIndex
+    // (module, name) -> the whole-module imports binding that qualifier.
+    qualifiers: ResIndex
+    // (0, name) -> the prelude declaration; (1, name) -> a gated std one.
+    prelude: ResIndex
+    // (0, module identity) -> the module's index.
+    by_name: ResIndex
+    // (0, a type parameter's leaf) -> its generic parameter node, whose bounds
+    // an undefined name is checked against.
+    param_nodes: ResIndex
+    // For each node of the arena, the index of its name record, or -1.
+    record_of: Vector<Int>
+    // Bindings in scope while a body or signature is resolved: a stack whose
+    // first `local_top` entries are live, and the height each open scope began at.
+    locals: Vector<ResLocal>
+    local_top: Int
+    scope_marks: Vector<Int>
+    scope_top: Int
+    // The module and declaration being resolved, and what `self` and `Self`
+    // mean there.
+    current: Int
+    current_decl: Int
+    receiver: ResBinding
+    self_type: ResBinding
+    // Inside a test case, group or test-only declaration.
+    in_test: Bool
+    // The builtin module, the entry module, and the ids of names the phases
+    // test for.
+    builtin: Int
+    entry: Int
+    name_self_type: Int
+    name_error: Int
+    name_std: Int
+}
+
+extension ResProgram: NoCopy {}
+
+public func res_program(std_root: String) -> ResProgram {
+    var p = ResProgram(names: res_names(), std_root: std_root, packages: Vector<ResPackage>(),
+                       modules: Vector<ResModule>(), texts: Vector<String>(),
+                       nodes: Vector<AstNode>(), children: Vector<Int>(),
+                       line_starts: Vector<Int>(), decls: Vector<ResDecl>(),
+                       imports: Vector<ResImport>(), symbols: Vector<ResSymbol>(),
+                       exports: Vector<ResExport>(), records: Vector<ResName>(),
+                       calls: Vector<ResCall>(), conformances: Vector<ResConformance>(),
+                       diags: Vector<ResDiag>(), skipped: Vector<Int>(), merges: Vector<Int>(),
+                       top: res_index(),
+                       members: res_index(),
+                       cases: res_index(), closure: Vector<Bool>(), closure_stride: 0,
+                       surface: res_index(), bare: res_index(),
+                       qualifiers: res_index(), prelude: res_index(), by_name: res_index(),
+                       param_nodes: res_index(),
+                       record_of: Vector<Int>(), locals: Vector<ResLocal>(), local_top: 0,
+                       scope_marks: Vector<Int>(), scope_top: 0, current: -1,
+                       current_decl: -1, receiver: res_blank(), self_type: res_blank(),
+                       in_test: false, builtin: -1, entry: -1, name_self_type: -1, name_error: -1,
+                       name_std: -1)
+    p.name_self_type = p.names.intern("Self")
+    p.name_error = p.names.intern("error")
+    p.name_std = p.names.intern("std")
+    move p
+}
+
+func res_blank() -> ResBinding {
+    ResBinding(kind: ResBindKind.Unbound, module: -1, decl: -1, name: -1, node: -1)
+}
+
+// Whether byte `b` continues a UTF-8 sequence rather than starting a scalar.
+func res_is_continuation(b: Int) -> Bool {
+    b >= RES_CONTINUATION_LOW && b <= RES_CONTINUATION_HIGH
+}
+
+extension ResProgram {
+    public func intern(&var self, text: String) -> Int { self.names.intern(text) }
+
+    public func name_text(&self, id: Int) -> String { self.names.text(id) }
+
+    public func module_count(&self) -> Int { self.modules.len() }
+
+    public func module(&self, m: Int) -> ResModule { self.modules[m] }
+
+    public func module_name(&self, m: Int) -> String {
+        if m < 0 {
+            return "?"
+        }
+        let info = self.modules[m]
+        self.names.text(info.name)
+    }
+
+    public func module_file(&self, m: Int) -> String {
+        let info = self.modules[m]
+        self.names.text(info.file)
+    }
+
+    public func module_text(&self, m: Int) -> String { self.texts.get(m) ?? "" }
+
+    public func node(&self, id: Int) -> AstNode { self.nodes[id] }
+
+    public func child_count(&self, id: Int) -> Int { self.nodes[id].count }
+
+    // The id of child `k` of node `id`.
+    public func child(&self, id: Int, k: Int) -> Int {
+        let n = self.nodes[id]
+        self.children[n.first + k]
+    }
+
+    public func is_leaf(&self, id: Int) -> Bool {
+        let n = self.nodes[id]
+        is_leaf_shape(n.shape)
+    }
+
+    // The alternative a built node records, or None for any other shape.
+    public func alt_of(&self, id: Int) -> Alt? {
+        let n = self.nodes[id]
+        match n.shape {
+            case Built -> n.alt,
+            case _ -> None
+        }
+    }
+
+    public func is_alt(&self, id: Int, alt: Alt) -> Bool {
+        if let a = self.alt_of(id) {
+            return a == alt
+        }
+        false
+    }
+
+    // The source text of node `id` in module `m`.
+    public func text_of(&self, m: Int, id: Int) -> String {
+        let n = self.nodes[id]
+        let text = self.module_text(m)
+        text.substring(n.start, n.end)
+    }
+
+    // The interned text of leaf `id` of the current module.
+    public func leaf_name(&var self, id: Int) -> Int {
+        let m = self.current
+        let text = self.text_of(m, id)
+        self.names.intern(text)
+    }
+
+    // The 1-based line and scalar column of byte `offset` in module `m`, as
+    // `L:C`.
+    public func position_text(&self, m: Int, offset: Int) -> String {
+        let info = self.modules[m]
+        if info.line_count == 0 {
+            return "1:1"
+        }
+        var lo = 0
+        var hi = info.line_count - 1
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if self.line_starts[info.line_base + mid] <= offset {
+                lo = mid
+            } else {
+                hi = mid - 1
+            }
+        }
+        let start = self.line_starts[info.line_base + lo]
+        let text = self.module_text(m)
+        var col = 1
+        var i = start
+        while i < offset && i < text.len() {
+            if not res_is_continuation(text.byte_at(i) as Int) {
+                col = col + 1
+            }
+            i = i + 1
+        }
+        var out = StringBuilder()
+        try! out.append(lo + 1)
+        try! out.append(":")
+        try! out.append(col)
+        out.build()
+    }
+
+    // `L:C` of where node `id` of module `m` starts.
+    public func node_position(&self, m: Int, id: Int) -> String {
+        let n = self.nodes[id]
+        self.position_text(m, n.start)
+    }
+
+    // Whether module `k` is in module `m`'s import closure.
+    public func in_closure(&self, m: Int, k: Int) -> Bool {
+        let n = self.closure_stride
+        if m < 0 || k < 0 || m >= n || k >= n {
+            return false
+        }
+        self.closure[m * n + k]
+    }
+
+    // Whether an enum in module `m`'s import closure declares a case named
+    // `name`; with `payload_free`, one without a payload. A module's case
+    // selectors see no other case, so its resolution does not depend on enums
+    // in modules it never imports (SL:open-questions D13).
+    public func has_case_in_closure(&self, m: Int, name: Int, payload_free: Bool) -> Bool {
+        var at = self.cases.first(0, name)
+        while at >= 0 {
+            let d = self.decls[self.cases.value(at)]
+            if self.in_closure(m, d.module) && not (payload_free && d.flag) {
+                return true
+            }
+            at = self.cases.following(at)
+        }
+        false
+    }
+
+    // `has_case_in_closure` for the module being resolved.
+    public func sees_case(&self, name: Int, payload_free: Bool) -> Bool {
+        let m = self.current
+        self.has_case_in_closure(m, name, payload_free)
+    }
+
+    public func decl(&self, d: Int) -> ResDecl { self.decls[d] }
+
+    public func decl_count(&self) -> Int { self.decls.len() }
+
+    // Records a refusal at node `id` of the current module.
+    public func refuse(&var self, id: Int, rule: String, message: String) {
+        let m = self.current
+        self.refuse_in(m, id, rule, message)
+    }
+
+    public func refuse_in(&var self, m: Int, id: Int, rule: String, message: String) {
+        let n = self.nodes[id]
+        let info = self.modules[m]
+        try! self.diags.push(ResDiag(module: m, start: n.start, end: n.end, id: rule,
+                                     message: message, note: info.interface_only))
+    }
+
+    // A refusal with no node: an unreadable file, a missing module.
+    public func refuse_at(&var self, m: Int, offset: Int, rule: String, message: String,
+                          note: Bool) {
+        try! self.diags.push(ResDiag(module: m, start: offset, end: offset, id: rule,
+                                     message: message, note: note))
+    }
+
+    public func error_count(&self) -> Int {
+        var n = 0
+        var k = 0
+        while k < self.diags.len() {
+            let d = self.diags[k]
+            if not d.note {
+                n = n + 1
+            }
+            k = k + 1
+        }
+        n
+    }
+
+    // Copies a parsed file's arena into the program's, returning the id its
+    // root takes there. Every child edge and child range moves by the same
+    // offsets, so the copy is the same tree.
+    public func adopt_tree(&var self, tree: &AstTree) -> Int {
+        let node_base = self.nodes.len()
+        let child_base = self.children.len()
+        var k = 0
+        while k < tree.nodes.len() {
+            let n = tree.nodes[k]
+            try! self.nodes.push(AstNode(shape: n.shape, alt: n.alt, start: n.start, end: n.end,
+                                         first: n.first + child_base, count: n.count))
+            try! self.record_of.push(-1)
+            k = k + 1
+        }
+        k = 0
+        while k < tree.children.len() {
+            try! self.children.push(tree.children[k] + node_base)
+            k = k + 1
+        }
+        tree.root + node_base
+    }
+
+    // Records the line starts of `text` as module `m`'s.
+    public func index_lines(&var self, text: &String) -> Int {
+        let base = self.line_starts.len()
+        try! self.line_starts.push(0)
+        let n = text.len()
+        var i = 0
+        while i < n {
+            if (text.byte_at(i) as Int) == RES_NEWLINE {
+                try! self.line_starts.push(i + 1)
+            }
+            i = i + 1
+        }
+        base
+    }
+}

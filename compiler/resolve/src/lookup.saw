@@ -1,0 +1,483 @@
+// The one lookup of a bare name, and the scopes it reads (design 150's order,
+// with design 255's tier). Every position that resolves a bare name passes
+// through `lookup`; every position that binds one passes through `bind_local`,
+// which applies the shadowing rule (designs 100 and 107).
+//
+// ENTRY POINTS (lookup):
+//     walk_name
+//     walk_path
+//     walk_capture
+//     bind_pattern_as
+// ENTRY POINTS (bind_local):
+//     bind_value
+//     walk_capture
+//     walk_catch_block
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.imports.{res_decl_binding, res_same_binding, res_vis_text}
+import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResImport,
+                             ResImportForm, ResLocal, ResModuleKind, ResName, ResSymbol}
+import sawresolve.src.program.{ResProgram}
+
+// Adds `b` to `out` unless a binding denoting the same thing is there.
+func res_add_distinct(out: &var Vector<ResBinding>, b: ResBinding) {
+    var k = 0
+    while k < out.len() {
+        let known = out[k]
+        if res_same_binding(&known, &b) {
+            return
+        }
+        k = k + 1
+    }
+    try! out.push(b)
+}
+
+// Where a name is looked up: a value position sees locals, a type position
+// sees only type-level bindings (type parameters, `Self`, associated types).
+public enum ResSpace {
+    case Value,
+    case Type
+}
+
+// How a new binding may relate to one it shadows.
+public enum ResShadow {
+    // A `let`, `var`, loop or optional binding: legal when its initializer
+    // mentions the shadowed binding.
+    case Derivable,
+    // A pattern, parameter or closure parameter: a shadow is always refused.
+    case Flat,
+    // A capture, which is the enclosing binding itself.
+    case Capture
+}
+
+extension ResProgram {
+    public func push_scope(&var self) {
+        let height = self.local_top
+        if self.scope_top < self.scope_marks.len() {
+            self.scope_marks[self.scope_top] = height
+        } else {
+            try! self.scope_marks.push(height)
+        }
+        self.scope_top = self.scope_top + 1
+    }
+
+    public func pop_scope(&var self) {
+        self.scope_top = self.scope_top - 1
+        self.local_top = self.scope_marks[self.scope_top]
+    }
+
+    // Drops every local and scope: a declaration starts with none.
+    public func reset_scopes(&var self) {
+        self.local_top = 0
+        self.scope_top = 0
+    }
+
+    func push_local(&var self, local: ResLocal) {
+        if self.local_top < self.locals.len() {
+            self.locals[self.local_top] = local
+        } else {
+            try! self.locals.push(local)
+        }
+        self.local_top = self.local_top + 1
+    }
+
+    // Declares a type-level binding: a type parameter, an associated type.
+    public func bind_type_level(&var self, name: Int, binding: ResBinding) {
+        let depth = self.scope_top
+        self.push_local(ResLocal(name: name, binding: binding, depth: depth, type_level: true))
+    }
+
+    // The innermost local of `name` in `space`, or -1.
+    public func find_local(&self, name: Int, space: ResSpace) -> Int {
+        var k = self.local_top - 1
+        while k >= 0 {
+            let local = self.locals[k]
+            if local.name == name {
+                if local.type_level || space == ResSpace.Value {
+                    return k
+                }
+            }
+            k = k - 1
+        }
+        return -1
+    }
+
+    // THE LOOKUP: what bare `name`, written at `leaf`, denotes. Locals, then
+    // the module's declarations, then imported bare names, then the prelude,
+    // then the gated std tier (refused with a precise hint), then qualifiers.
+    // A name nothing binds is refused. Never returns Unbound.
+    public func lookup(&var self, name: Int, leaf: Int, space: ResSpace) -> ResBinding {
+        if name == self.name_self_type {
+            if self.self_type.kind == ResBindKind.Unbound {
+                self.refuse(leaf, "name.self-outside-type",
+                            "`Self` names the enclosing type, and there is none here")
+                return self.error_binding()
+            }
+            return self.self_type
+        }
+        let local = self.find_local(name, space)
+        if local >= 0 {
+            let found = self.locals[local]
+            return found.binding
+        }
+        let m = self.current
+        let own = self.top.first(m, name)
+        if own >= 0 {
+            let d = self.top.value(own)
+            let decl = self.decls[d]
+            if decl.test_only && not self.in_test {
+                self.refuse_test_only(leaf, name)
+                return self.error_binding()
+            }
+            let found = res_decl_binding(d, &decl)
+            if found.kind != ResBindKind.Overload {
+                return found
+            }
+            // A function merges with the functions imported bare under its
+            // name into one overload set (design 249).
+            var candidates = Vector<ResBinding>()
+            try! candidates.push(found)
+            let _ = self.imported_candidates(name, leaf, &var candidates)
+            return self.merge_overloads(name, &candidates)
+        }
+        var imported = Vector<ResBinding>()
+        let hidden = self.imported_candidates(name, leaf, &var imported)
+        if imported.len() > 0 {
+            return self.pick_imported(name, leaf, &imported)
+        }
+        if hidden {
+            self.refuse_test_only(leaf, name)
+            return self.error_binding()
+        }
+        let prelude = self.prelude.first(0, name)
+        if prelude >= 0 {
+            return self.prelude_binding(name)
+        }
+        let gated = self.prelude.first(1, name)
+        if gated >= 0 {
+            let d = self.prelude.value(gated)
+            self.refuse_gated(leaf, name, d)
+            return self.error_binding()
+        }
+        let qualifier = self.qualifiers.first(m, name)
+        if qualifier >= 0 {
+            let imp = self.imports[self.qualifiers.value(qualifier)]
+            return ResBinding(kind: ResBindKind.Module, module: imp.target, decl: -1, name: -1,
+                              node: -1)
+        }
+        let text = self.name_text(name)
+        var msg = StringBuilder()
+        if text.starts_with("__saw_") {
+            // The frozen compiler's test intrinsics (`__saw_drive` and its
+            // kin) drive coroutines, which the slice leaves out.
+            try! msg.append("the compiler intrinsic `")
+            try! msg.append(text)
+            try! msg.append("` is not in the bootstrap slice yet")
+            self.refuse(leaf, "slice.not-yet", msg.build())
+            return self.error_binding()
+        }
+        let hidden_in = self.glob_hiding(name)
+        if hidden_in >= 0 {
+            let d = self.decls[hidden_in]
+            try! msg.append("`")
+            try! msg.append(text)
+            try! msg.append("` is ")
+            try! msg.append(res_vis_text(d.vis))
+            try! msg.append(" in `")
+            try! msg.append(self.module_name(d.module))
+            try! msg.append("`")
+            self.refuse(leaf, "visibility.private", msg.build())
+            return self.error_binding()
+        }
+        if self.bound_declares_assoc_type(name) {
+            // How to name a bound's associated type is not settled, so the
+            // bare spelling is refused as unbuilt rather than as undefined.
+            try! msg.append("`")
+            try! msg.append(text)
+            try! msg.append("` is an associated type named through a type parameter's bound, which is not in the bootstrap slice yet")
+            self.refuse(leaf, "slice.not-yet", msg.build())
+            return self.error_binding()
+        }
+        try! msg.append("cannot find `")
+        try! msg.append(text)
+        try! msg.append("` in scope")
+        self.refuse(leaf, "name.undefined", msg.build())
+        self.error_binding()
+    }
+
+    // A top-level declaration named `name` in a module the current module
+    // glob-imports, which its visibility keeps out of the current module, or
+    // -1. A name a lookup misses for that reason is refused as private rather
+    // than undefined.
+    func glob_hiding(&self, name: Int) -> Int {
+        let m = self.current
+        var g = self.qualifiers.first(m, -2)
+        while g >= 0 {
+            let imp = self.imports[self.qualifiers.value(g)]
+            var at = self.top.first(imp.target, name)
+            while at >= 0 {
+                let d = self.top.value(at)
+                let decl = self.decls[d]
+                if not self.visible_to(decl.vis, decl.module, m) {
+                    return d
+                }
+                at = self.top.following(at)
+            }
+            g = self.qualifiers.following(g)
+        }
+        return -1
+    }
+
+    // Whether a bound of a type parameter in scope is a trait that declares an
+    // associated type named `name`.
+    func bound_declares_assoc_type(&self, name: Int) -> Bool {
+        var k = self.local_top - 1
+        while k >= 0 {
+            let local = self.locals[k]
+            if local.type_level && local.binding.kind == ResBindKind.TypeParam {
+                let at = self.param_nodes.first(0, local.binding.node)
+                if at >= 0 {
+                    let g = self.param_nodes.value(at)
+                    if self.bounds_declare_assoc_type(g, name) {
+                        return true
+                    }
+                }
+            }
+            k = k - 1
+        }
+        false
+    }
+
+    // Whether a bound of generic parameter `g` is a trait that declares an
+    // associated type named `name`.
+    func bounds_declare_assoc_type(&self, g: Int, name: Int) -> Bool {
+        let n = self.child_count(g)
+        var j = 0
+        while j < n {
+            let c = self.child(g, j)
+            if self.is_alt(c, Alt.Type_Path) {
+                let segments = self.child_count(c)
+                let last = self.child(c, segments - 1)
+                let r = self.record_of[last]
+                if r >= 0 {
+                    let b = self.records[r].binding
+                    if b.kind == ResBindKind.Decl && self.is_assoc_type_of(b.decl, name) {
+                        return true
+                    }
+                }
+            }
+            j = j + 1
+        }
+        false
+    }
+
+    // Whether trait `t` declares an associated type named `name`.
+    func is_assoc_type_of(&self, t: Int, name: Int) -> Bool {
+        if self.decls[t].kind != ResDeclKind.Trait {
+            return false
+        }
+        var at = self.members.first(t, name)
+        while at >= 0 {
+            if self.decls[self.members.value(at)].kind == ResDeclKind.AssocType {
+                return true
+            }
+            at = self.members.following(at)
+        }
+        false
+    }
+
+    public func error_binding(&self) -> ResBinding {
+        ResBinding(kind: ResBindKind.Error, module: -1, decl: -1, name: -1, node: -1)
+    }
+
+    // Adds to `out` each distinct binding the current module's selective and
+    // glob imports give `name`. Returns whether a test-only import, which
+    // ordinary code may not use, would have given it one.
+    func imported_candidates(&var self, name: Int, leaf: Int, out: &var Vector<ResBinding>) -> Bool {
+        let m = self.current
+        var hidden = false
+        var at = self.bare.first(m, name)
+        while at >= 0 {
+            let sym = self.symbols[self.bare.value(at)]
+            let imp = self.imports[sym.import_at]
+            if imp.test_only && not self.in_test {
+                hidden = true
+            } else if sym.binding.kind != ResBindKind.Error {
+                res_add_distinct(&var out, sym.binding)
+            }
+            at = self.bare.following(at)
+        }
+        var g = self.qualifiers.first(m, -2)
+        while g >= 0 {
+            let imp = self.imports[self.qualifiers.value(g)]
+            if imp.test_only && not self.in_test {
+                hidden = true
+            } else {
+                let b = self.surface_lookup(imp.target, name, leaf, false)
+                if b.kind != ResBindKind.Error && b.kind != ResBindKind.Unbound {
+                    res_add_distinct(&var out, b)
+                }
+            }
+            g = self.qualifiers.following(g)
+        }
+        hidden
+    }
+
+    // The binding the imports give `name`: one binding as it is, overload sets
+    // of several modules merged, and any other pair refused as ambiguous at
+    // the use (design 255).
+    func pick_imported(&var self, name: Int, leaf: Int, candidates: &Vector<ResBinding>) -> ResBinding {
+        if candidates.len() == 1 {
+            return candidates[0]
+        }
+        var k = 0
+        while k < candidates.len() {
+            if candidates[k].kind != ResBindKind.Overload {
+                let text = self.name_text(name)
+                var msg = StringBuilder()
+                try! msg.append("ambiguous `")
+                try! msg.append(text)
+                try! msg.append("`: two imports bind it to different declarations; qualify the use, or import it from a single module")
+                self.refuse(leaf, "name.ambiguous", msg.build())
+                return self.error_binding()
+            }
+            k = k + 1
+        }
+        self.merge_overloads(name, &candidates)
+    }
+
+    // One overload set over the modules of `candidates`, the first the
+    // module's own when it declares the name. Only Overload candidates count:
+    // a module's own function shadows an imported type of its name.
+    func merge_overloads(&var self, name: Int, candidates: &Vector<ResBinding>) -> ResBinding {
+        let first = candidates[0]
+        var count = 0
+        var k = 0
+        while k < candidates.len() {
+            if candidates[k].kind == ResBindKind.Overload {
+                count = count + 1
+            }
+            k = k + 1
+        }
+        if count <= 1 {
+            return first
+        }
+        let at = self.merges.len()
+        try! self.merges.push(count)
+        k = 0
+        while k < candidates.len() {
+            let c = candidates[k]
+            if c.kind == ResBindKind.Overload {
+                try! self.merges.push(c.module)
+            }
+            k = k + 1
+        }
+        ResBinding(kind: ResBindKind.Overloads, module: -1, decl: at, name: name, node: -1)
+    }
+
+    func refuse_test_only(&var self, leaf: Int, name: Int) {
+        let text = self.name_text(name)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(text)
+        try! msg.append("` exists only in test builds")
+        self.refuse(leaf, "test.only-reference", msg.build())
+    }
+
+    // A std name the prelude leaves out: say which import supplies it.
+    func refuse_gated(&var self, leaf: Int, name: Int, d: Int) {
+        let text = self.name_text(name)
+        let decl = self.decls[d]
+        let module = self.module_name(decl.module)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(text)
+        try! msg.append("` is not in the prelude and must be imported: `import ")
+        try! msg.append(module)
+        try! msg.append(".\{")
+        try! msg.append(text)
+        try! msg.append("\}` selects it")
+        self.refuse(leaf, "name.not-in-prelude", msg.build())
+    }
+
+    // Declares a value binding named `name` at `leaf` in the innermost scope,
+    // with binding `binding`. A binding that shadows a local, or a module
+    // static, is refused unless it is Derivable and a name record since
+    // `mentions_from` refers to the binding it shadows.
+    public func bind_local(&var self, name: Int, leaf: Int, binding: ResBinding, shadow: ResShadow,
+                           mentions_from: Int) {
+        let depth = self.scope_top
+        if shadow != ResShadow.Capture {
+            self.check_shadow(name, leaf, shadow, mentions_from, depth)
+        }
+        self.push_local(ResLocal(name: name, binding: binding, depth: depth, type_level: false))
+    }
+
+    func check_shadow(&var self, name: Int, leaf: Int, shadow: ResShadow, mentions_from: Int,
+                      depth: Int) {
+        var shadowed = ResBinding(kind: ResBindKind.Unbound, module: -1, decl: -1, name: -1,
+                                  node: -1)
+        var same_scope = false
+        let local = self.find_local(name, ResSpace.Value)
+        if local >= 0 {
+            let found = self.locals[local]
+            if not found.type_level {
+                shadowed = found.binding
+                same_scope = found.depth == depth
+            }
+        }
+        if shadowed.kind == ResBindKind.Unbound {
+            let m = self.current
+            var at = self.top.first(m, name)
+            while at >= 0 {
+                let d = self.top.value(at)
+                let decl = self.decls[d]
+                if decl.kind == ResDeclKind.Static {
+                    shadowed = res_decl_binding(d, &decl)
+                }
+                at = self.top.following(at)
+            }
+        }
+        if shadowed.kind == ResBindKind.Unbound {
+            return
+        }
+        if shadow == ResShadow.Derivable && self.mentioned_since(mentions_from, &shadowed) {
+            return
+        }
+        let text = self.name_text(name)
+        var msg = StringBuilder()
+        if same_scope {
+            try! msg.append("`")
+            try! msg.append(text)
+            try! msg.append("` is already defined in this scope; a redefinition must derive from it, as `let ")
+            try! msg.append(text)
+            try! msg.append(" = f(")
+            try! msg.append(text)
+            try! msg.append(")` does")
+        } else if shadow == ResShadow.Flat {
+            try! msg.append("`")
+            try! msg.append(text)
+            try! msg.append("` shadows an enclosing binding, which a pattern, a parameter or a closure parameter may not do; pick another name")
+        } else {
+            try! msg.append("`")
+            try! msg.append(text)
+            try! msg.append("` shadows an enclosing binding without deriving from it; pick another name, or mention `")
+            try! msg.append(text)
+            try! msg.append("` in the initializer")
+        }
+        self.refuse(leaf, "name.shadowing", msg.build())
+    }
+
+    // Whether a name record from `from` on refers to `binding`.
+    func mentioned_since(&self, from: Int, binding: &ResBinding) -> Bool {
+        var k = from
+        while k < self.records.len() {
+            let r = self.records[k]
+            if res_same_binding(&r.binding, &binding) {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+}

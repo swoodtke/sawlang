@@ -1,0 +1,10 @@
+// refuses: slice.not-yet at 9:13
+// a frozen-compiler test intrinsic, which drives a coroutine: not in the bootstrap slice yet
+
+func work() -> Int {
+    7
+}
+
+func main() {
+    let n = __saw_drive(work())
+}

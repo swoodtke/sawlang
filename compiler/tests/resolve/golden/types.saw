@@ -1,0 +1,53 @@
+// Types in every position a signature or a body writes one: named types with
+// generic arguments, references, optionals, tuples, arrays, slices, function
+// types, `any`, `Self`, type parameters and their bounds, const parameters.
+
+static WIDTH: Int = 4
+
+struct Grid<T: Equatable + Hashable, const N: Int> {
+    cells: [T; N]
+    rows: Vector<T>
+}
+
+struct Node {
+    next: Vector<Node>
+    parent: Int?
+}
+
+trait Shape {
+    func area(&self) -> Int
+    func same(&self, other: &Self) -> Bool
+}
+
+func shapes(a: &any Shape, b: &var Vector<Int>, c: (Int, String), d: (x: Int, y: Int)) -> Int?? {
+    None
+}
+
+func callbacks(f: (Int, Int) sync -> Bool, g: () -> Void) -> Bool {
+    f(1, 2)
+}
+
+func views(bytes: &[UInt8], out: &var [UInt8]) -> [Int; WIDTH] {
+    [0; WIDTH]
+}
+
+func pick<T, U = Int>(t: T, u: U) -> T {
+    let kept: T = t
+    kept
+}
+
+func sized() -> Int {
+    let g: Grid<Int, 2 * WIDTH> = make_grid()
+    sizeof<Int>() + alignof<Int>()
+}
+
+func make_grid() -> Grid<Int, 8> {
+    panic("unbuilt")
+}
+
+extension Node: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        let copy: Self? = None
+        self.parent == other.parent
+    }
+}

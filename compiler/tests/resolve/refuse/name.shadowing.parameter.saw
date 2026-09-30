@@ -1,0 +1,8 @@
+// refuses: name.shadowing at 6:8
+// a parameter that shadows a module static
+
+static LIMIT: Int = 3
+
+func f(LIMIT: Int) -> Int {
+    LIMIT
+}

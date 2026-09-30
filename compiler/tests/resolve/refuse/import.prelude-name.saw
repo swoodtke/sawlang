@@ -1,0 +1,8 @@
+// refuses: import.prelude-name at 4:26
+// a selective import that binds a prelude name to another declaration
+
+import std.path.{Path as Vector}
+
+func f() -> Int {
+    0
+}
