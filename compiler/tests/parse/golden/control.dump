@@ -219,6 +219,43 @@
                 (ExprStmt
                   (Call.paren (Name g)))))))))))
 
+// case: syntax.rule.infinite-loop/brace-after-while-begins-the-body
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (While.infinite
+            (Block
+              (ExprStmt (Name a)))))
+        (ExprStmt (Closure))))))
+
+// case: syntax.rule.infinite-loop/parenthesized-brace-condition
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (ExprStmt
+          (While.conditional
+            (Call.paren
+              (Closure
+                (ExprStmt (Name c))))
+            (Block)))))))
+
+// case: syntax.rule.infinite-loop/loop-the-refused-form-cannot-continue
+(File
+  (Declaration.func
+    (Func f
+      (Block
+        (Let.immutable
+          (BindingName n)
+          (Binary
+            (While.infinite
+              (Block
+                (Break (IntLit 1))))
+            +
+            (IntLit 2)))))))
+
 // case: syntax.rule.try-route-case/enum-and-case
 (File
   (Declaration.func

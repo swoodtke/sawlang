@@ -118,11 +118,22 @@ VERDICTS = [
     # brace: typed closure parameters, beside a capture list or without one
     ("func f() {\n    let g = { n: Int in n + 1 }\n}\n", "OK"),
     ("func f() {\n    let g = { [base] n: Int, &var acc in n + base }\n}\n", "OK"),
+    # infinite-loop: a `{` right after `while` begins the body, wherever the
+    # loop stands, and a token on its line that a condition would take is refused.
+    ("func f() {\n    while { a } { }\n}\n", "FAIL"),
+    ("func f() {\n    while { c }() { }\n}\n", "FAIL"),
+    ("func f() {\n    let n = while { a } + b { }\n}\n", "FAIL"),
+    ("func f() {\n    while ({ c }()) { }\n}\n", "OK"),
+    ("func f() {\n    let n = while { break 1 } + 2\n}\n", "OK"),
     # doc-attach: what a `///` run may document
     ("enum E {\n    /// A case.\n    case A\n}\n/// An alias.\ntype T = Int\n", "OK"),
     ("/// A test-only helper.\n@test\nfunc helper() {\n}\n", "OK"),
     ("/// A test case.\n@test \"adds\" {\n}\n", "FAIL"),
     ("/// Documents nothing.\n", "FAIL"),
+    # A declaration takes one run, however `@test` or a blank line splits two.
+    ("/// one\n@test\n/// two\nfunc f() {\n}\n", "FAIL"),
+    ("/// one\n\n/// two\nfunc f() {\n}\n", "FAIL"),
+    ("@test\n/// two\nfunc f() {\n}\n", "OK"),
 ]
 
 

@@ -18,6 +18,38 @@ func f() {
     v[0] { 1 }
 }
 
+// case: syntax.rule.trailing-closure/after-a-match-with-arms
+func f() {
+    match x { case _ -> 1 } { }
+}
+
+// case: syntax.rule.trailing-closure/after-a-match-on-a-member-with-arms
+func f() {
+    match a.b { case _ -> 1 } { }
+}
+
+// case: syntax.rule.trailing-closure/after-a-match-on-a-call-with-arms
+func f() {
+    match a.b() { case _ -> 1 } { }
+}
+
+// case: syntax.rule.trailing-closure/after-a-match-value-with-arms
+func f() {
+    let v = match x { case _ -> 1 } { }
+}
+
+// case: syntax.rule.trailing-closure/after-a-match-with-arms-on-several-lines
+func f() {
+    match x {
+        case _ -> 1
+    } { }
+}
+
+// case: syntax.rule.head-restriction/closure-after-a-match-with-no-arms
+func f() {
+    match x { } { }
+}
+
 // case: syntax.rule.head-restriction/trailing-closure-in-a-guard-condition
 func f() {
     guard v.any { $0 } else {

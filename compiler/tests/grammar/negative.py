@@ -42,6 +42,14 @@ MORE_CONTEXTS = {
     "cond": [generate.in_function("guard " + generate.HOLE + " else {\n    return\n}")],
     "subj": [generate.in_function("guard let x = " + generate.HOLE + " else {\n    return\n}")],
 }
+# Programs for removed alternatives whose production is refused as itself only
+# where a choice lies deeper than a repair reaches: a `while` condition that
+# starts with a brace, whose infinite loop's body does not parse. A seed must
+# pass the test a generated program does.
+SEEDS = {
+    "syntax.expr.while.refused-brace-condition": "func a() {\n    while {:}.b { }\n}\n",
+    "syntax.expr.refused-brace-condition": "func a() {\n    while {:}.b { }\n}\n",
+}
 MUTATIONS = ("drop", "dup", "swap", "close")
 CLOSERS = (")", "]", "}")
 # The generated positives the mutations start from: one per alternative.
@@ -124,7 +132,14 @@ class Worker:
         # A waived alternative gets only its cheapest program: enough to show
         # that its waiver is no longer needed, without searching repairs that
         # the waiver says cannot succeed.
-        text = self.generator(enabled).alternative_program(nt, int(ai), name not in self.waived)
+        gen = self.generator(enabled)
+        if name in SEEDS:
+            text = SEEDS[name]
+            if not (gen.valid(text) and gen.realizes(text, (nt, int(ai), ()))):
+                return [[name, None, None, "its seed is not refused as %s alone"
+                         % self.exp.g.info[enabled].name, None, []]]
+        else:
+            text = gen.alternative_program(nt, int(ai), name not in self.waived)
         if text is None:
             return [[name, None, None, "no program is refused as %s alone"
                      % self.exp.g.info[enabled].name, None, []]]

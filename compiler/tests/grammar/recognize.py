@@ -79,6 +79,8 @@ FILTERS = [
     ("while-expr", "_head_binding", "syntax.rule.borrow-form"),
     ("guard-condition", "_head_binding", "syntax.rule.borrow-form"),
     ("try-expr", "_try_block", "syntax.rule.try-block"),
+    ("while-expr", "_infinite_loop", "syntax.rule.infinite-loop"),
+    ("refused-brace-condition", "_brace_condition", "syntax.rule.infinite-loop"),
     ("lends-expr", "_lends_word", "syntax.rule.contextual-words"),
     ("statement", "_static_assert_word", "syntax.rule.contextual-words"),
     ("arm-body", "_static_assert_word", "syntax.rule.contextual-words"),
@@ -1168,6 +1170,31 @@ class Forest:
             k += 1
         return k if self.c.tokens[k].value == "{" else None
 
+    def _infinite_loop(self, d):
+        """A `{` right after `while` begins the infinite loop's body, never a
+        condition; and a token on the line after that body that a conditional
+        reading from the same `while` takes is refused there, whatever else
+        could read it (syntax.rule.infinite-loop)."""
+        toks = self.c.tokens
+        alt = self._alt(d)
+        if alt == "syntax.expr.while.conditional":
+            head = self._kids_named(d, "head-expr")[0]
+            return head.i if toks[head.i].value == "{" else None
+        if alt != "syntax.expr.while.infinite":
+            return None
+        t = self._token(d.j)
+        if t is None or t.kind in ("NEWLINE", "EOF"):
+            return None
+        if any(e > d.j for e in self.c.ends.get(("while-expr", d.i), ())):
+            return d.j
+        return None
+
+    def _brace_condition(self, d):
+        """The refused form's condition starts with a brace, so the form reads
+        only what the conditional loop may not (syntax.rule.infinite-loop)."""
+        head = self._kids_named(d, "head-expr")[0]
+        return head.i if self.c.tokens[head.i].value != "{" else None
+
     def _lends_word(self, d):
         """`lends` is the operator only before `self` or a name
         (syntax.rule.contextual-words)."""
@@ -1565,20 +1592,23 @@ class Parse:
         return self._precedence
 
     def documented(self, derivation):
-        """The token indices where a declaration a `///` run may document starts.
-        `@test` before a declaration stands where its attributes do, so the run
-        may come before it (syntax.rule.test-form)."""
-        out = set()
+        """{token index: the declaration a `///` run before it documents} for
+        each token where a documentable declaration may be reached, the
+        declaration named by the index it starts at. `@test` before a
+        declaration stands where its attributes do, so a run may come before
+        it or after it, and both reach the one declaration
+        (syntax.rule.test-form)."""
+        out = {}
         for d in walk_real(self.g, derivation):
             name = self.g.alternative(d.nt, d.ai).effective_name
             if name in DOCUMENTED:
-                out.add(d.i)
+                out[d.i] = d.i
             elif name == TEST_ONLY_DECLARATION:
                 item = [k for k in d.kids if isinstance(k, Derivation)
                         and k.nt == "declaration-item"]
                 if item and self.g.alternative(item[0].nt, item[0].ai).effective_name \
                         in DOCUMENTED:
-                    out.add(d.i)
+                    out[d.i] = item[0].i
         return out
 
     def trees(self):
@@ -1657,17 +1687,21 @@ def module_doc_error(tokens, docs):
 
 
 def doc_attach_error(parse, derivation, docs):
-    """"L:C ..." for a `///` run that documents nothing (syntax.lex.doc-attach)."""
+    """"L:C ..." for a `///` run that documents nothing (syntax.lex.doc-attach).
+    A declaration takes one run, so a run that reaches a declaration an
+    earlier run already documents is refused, and neither is dropped."""
     if not applies("syntax.lex.doc-attach"):
         return None
     starts = None
+    claimed = set()
     for line, column, last in doc_runs(docs):
         after = next((k for k, t in enumerate(parse.tokens)
                       if t.line > last and t.kind != "NEWLINE"), None)
         if starts is None:
             starts = parse.documented(derivation)
-        if after is None or after not in starts:
+        if after is None or after not in starts or starts[after] in claimed:
             return "%d:%d refused by syntax.lex.doc-attach" % (line, column)
+        claimed.add(starts[after])
     return None
 
 

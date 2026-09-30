@@ -10,6 +10,24 @@ refuses syntax.rule.trailing-closure at 2:21
 // case: syntax.rule.trailing-closure/on-a-subscript
 refuses syntax.rule.trailing-closure at 2:10
 
+// case: syntax.rule.trailing-closure/after-a-match-with-arms
+refuses syntax.rule.trailing-closure at 2:29
+
+// case: syntax.rule.trailing-closure/after-a-match-on-a-member-with-arms
+refuses syntax.rule.trailing-closure at 2:31
+
+// case: syntax.rule.trailing-closure/after-a-match-on-a-call-with-arms
+refuses syntax.rule.trailing-closure at 2:33
+
+// case: syntax.rule.trailing-closure/after-a-match-value-with-arms
+refuses syntax.rule.trailing-closure at 2:37
+
+// case: syntax.rule.trailing-closure/after-a-match-with-arms-on-several-lines
+refuses syntax.rule.trailing-closure at 4:7
+
+// case: syntax.rule.head-restriction/closure-after-a-match-with-no-arms
+refuses syntax.rule.head-restriction at 2:13
+
 // case: syntax.rule.head-restriction/trailing-closure-in-a-guard-condition
 refuses syntax.rule.head-restriction at 2:17
 

@@ -1,0 +1,10 @@
+infinite_loop.saw: 1 tree(s)
+  (File
+    (Declaration.func
+      (Func f
+        (Block
+          (ExprStmt
+            (While.infinite
+              (Block
+                (ExprStmt (Name a)))))
+          (ExprStmt (Closure))))))

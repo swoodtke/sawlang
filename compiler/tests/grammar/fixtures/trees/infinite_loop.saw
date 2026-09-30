@@ -1,0 +1,5 @@
+// rule: syntax.rule.infinite-loop
+func f() {
+    while { a }
+    { }
+}

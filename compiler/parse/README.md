@@ -88,6 +88,16 @@ elements stand in any head around them; a brace's first element is parsed
 before the brace is known to be a literal, so a closure attaching there is
 noted (`HeadState.Shadow`) and refused if the brace turns out to be one.
 
+## Infinite loops
+
+A `{` right after `while` begins the infinite loop's body
+(syntax.rule.infinite-loop). The text is the refused form instead where a
+condition read again from that `{`, inside a speculation, goes on with no
+error to a body's `{` (`brace_condition_ahead`): a body that met an error is
+refused as syntax.expr.refused-brace-condition at the `{`, and a sound one by
+the rule, at the token after it on its line, when that token would continue
+the condition.
+
 ## Comma lists
 
 Every list whose elements a `,` separates goes through one funnel,

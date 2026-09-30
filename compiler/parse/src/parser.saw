@@ -427,6 +427,7 @@ public struct Checkpoint {
     public head_follow: TokenKind
     public shadow_brace: Int
     public lifted_brace: Int
+    public dropped: Int
 }
 
 public struct Parser {
@@ -460,6 +461,10 @@ public struct Parser {
     private lists: Int
     // How many speculations are open; none reports a diagnostic.
     private speculating: Int
+    // How many diagnostics the open speculations have dropped. A speculation
+    // judged by where its reading stops compares it too, since a reading that
+    // recovered from an error can still stop where a sound one would.
+    private dropped: Int
     // The first trailing comma a speculative list met, or -1: refused only if
     // the list is kept.
     private trailing_comma: Int
@@ -539,7 +544,7 @@ public func new_parser(builder: TreeBuilder, tokens: Vector<ParseToken>,
                         runs: Vector<DocRun>(), pos: 0, limit: token_count - 1, prev_end: 0,
                         depth: 0, diagnostics: Vector<Diagnostic>(), seen: move seen,
                         taken: Vector<Alt>(), taken_count: 0, edits: Vector<TokenEdit>(),
-                        edit_count: 0, lists: 0, speculating: 0, trailing_comma: -1,
+                        edit_count: 0, lists: 0, speculating: 0, dropped: 0, trailing_comma: -1,
                         rejected_list: -1, failed_lists: Vector<Bool>(),
                         closer_scans: Vector<CloserScan>(), head: HeadState.Off,
                         head_at: -1, head_until: TokenKind.LBrace,
@@ -834,6 +839,7 @@ extension Parser {
     //     edit_count: restored
     //     lists: restored
     //     speculating: restored
+    //     dropped: restored
     //     trailing_comma: restored
     //     rejected_list: restored
     //     failed_lists: kept, because a list that failed to parse fails in every context, a depth refusal being refused rather than recorded, and parse_segment clears a slot it reuses
@@ -865,7 +871,8 @@ extension Parser {
                                primed: self.primed, spine: self.spine_count,
                                literal_arm: self.literal_arm, head_brace: self.head_brace,
                                head_start: self.head_start, head_follow: self.head_follow,
-                               shadow_brace: self.shadow_brace, lifted_brace: self.lifted_brace)
+                               shadow_brace: self.shadow_brace, lifted_brace: self.lifted_brace,
+                               dropped: self.dropped)
         self.speculating = self.speculating + 1
         saved
     }
@@ -896,6 +903,7 @@ extension Parser {
         self.depth = saved.depth
         self.lists = saved.lists
         self.speculating = saved.speculating
+        self.dropped = saved.dropped
         self.trailing_comma = saved.trailing_comma
         self.rejected_list = saved.rejected_list
         self.head = saved.head
@@ -952,10 +960,13 @@ extension Parser {
     // ---- diagnostics --------------------------------------------------------
 
     // The one place a diagnostic is kept. Inside a speculation nothing is: a
-    // speculation that fails is undone and its errors with it.
+    // speculation that fails is undone and its errors with it, and only
+    // counted meanwhile (`dropped`).
     func record(&var self, d: Diagnostic) {
         if self.speculating == 0 {
             try! self.diagnostics.push(d)
+        } else {
+            self.dropped = self.dropped + 1
         }
     }
 
@@ -1022,8 +1033,10 @@ extension Parser {
     // Whether the statement's noted head, read with a trailing closure at the
     // `{` it stopped at, goes on to the token its construct takes next: then
     // the head restriction refuses what failed since, and outranks every
-    // other rule that refuses it. Tried only on the way to a refusal, and
-    // undone whatever it finds.
+    // other rule that refuses it. The reading goes on only when it met no
+    // error: a `match`'s arms read as the closure fail and recover to their
+    // `}`, which is where a sound reading stops too. Tried only on the way to
+    // a refusal, and undone whatever it finds.
     func head_restricted(&var self) -> Bool {
         let at = self.head_start
         if self.speculating > 0 || self.head_brace < 0 || at < 0 || at > self.limit {
@@ -1031,6 +1044,7 @@ extension Parser {
         }
         let follow = self.head_follow
         let saved = self.checkpoint()
+        let clean = self.dropped
         self.lifted_brace = self.head_brace
         self.pos = at
         self.head = HeadState.Lifted
@@ -1049,7 +1063,7 @@ extension Parser {
             self.skip_newlines()
         }
         let next = if follow == TokenKind.Comma && not listed { TokenKind.LBrace } else { follow }
-        goes = goes && self.kind() == next
+        goes = goes && self.kind() == next && self.dropped == clean
         self.restore(&saved)
         goes
     }
@@ -4526,6 +4540,7 @@ extension Parser {
             alt = Alt.Expr_While_Infinite
             self.see(alt)
             self.advance()
+            return self.parse_infinite_while(mark, start)
         } else if self.borrow_binding_end(1) > 0 {
             // A binding after `borrow` is the unwrap, never a `borrow` block
             // read as the condition (syntax.rule.borrow-form).
@@ -4571,6 +4586,58 @@ extension Parser {
         self.close(mark, alt, start)
         self.leave_level()
         true
+    }
+
+    // The body of `while {`, which a `{` right after `while` always begins
+    // (syntax.rule.infinite-loop). Where a condition read from that `{` would
+    // reach a body, the text is the refused form instead: a body with an
+    // error is syntax.expr.refused-brace-condition, and a sound body the
+    // rule's refusal at the token after it on its line.
+    func parse_infinite_while(&var self, mark: Int, start: Int) -> Bool {
+        let brace = self.pos
+        let reported = self.diagnostics.len()
+        let errors = reported + self.dropped
+        let bodied = self.parse_body()
+        let clean = self.diagnostics.len() + self.dropped == errors
+        if not clean && self.brace_condition_ahead(brace) {
+            if self.speculating == 0 {
+                trim_to(&var self.diagnostics, reported)
+            }
+            return self.refuse(Rule.Expr_RefusedBraceCondition, brace,
+                               "a `\{` right after `while` begins an infinite loop's body, never a condition",
+                               "parenthesize a condition that starts with a brace: `while (\{ check() \}()) \{ step() \}`")
+        }
+        if not bodied {
+            return false
+        }
+        let kind = self.kind()
+        let continues = kind == TokenKind.LBrace || continues_operand(kind)
+        if clean && continues && self.brace_condition_ahead(brace) {
+            let at = self.pos
+            return self.refuse(Rule.Rule_InfiniteLoop, at,
+                               "a `\{` right after `while` begins an infinite loop's body, so the loop ends before this",
+                               "parenthesize a condition that starts with a brace: `while (\{ check() \}()) \{ step() \}`")
+        }
+        self.close(mark, Alt.Expr_While_Infinite, start)
+        self.leave_level()
+        true
+    }
+
+    // Whether a condition read from the `{` at `brace`, with no error, goes
+    // on to a body's `{`: the refused form's reading. Undone whatever it
+    // finds.
+    func brace_condition_ahead(&var self, brace: Int) -> Bool {
+        let saved = self.checkpoint()
+        let clean = self.dropped
+        self.pos = brace
+        self.primed = false
+        var goes = self.parse_head_expr(TokenKind.LBrace)
+        if goes {
+            self.skip_newlines()
+        }
+        goes = goes && self.kind() == TokenKind.LBrace && self.dropped == clean
+        self.restore(&saved)
+        goes
     }
 
     // `for-expr ::= "for" binding-name "in" head-expr NEWLINE* block`, one

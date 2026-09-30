@@ -408,7 +408,9 @@ are hand-written:
   be absent. Its program is the cheapest the generator builds with that
   production enabled, and it must be refused as that production alone. A
   waived alternative gets only its cheapest program, which still shows when
-  its waiver is no longer needed.
+  its waiver is no longer needed. An alternative whose refusal needs a choice
+  deeper than a repair reaches takes its program from `SEEDS` in
+  `negative.py`, which must pass the same test.
 - `cells`: one case per N cell, `CONSTRUCT/cell:CONTEXT`, the construct's
   spelling placed in its context's first program as the generated cells are,
   or, where that one's refusal has two names, in the next (`MORE_CONTEXTS` in

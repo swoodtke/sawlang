@@ -19,6 +19,18 @@ refuses syntax.lex.doc-attach at 2:5
 // case: syntax.lex.doc-attach/doc-between-an-attribute-and-its-declaration
 refuses syntax.lex.doc-attach at 2:1
 
+// case: syntax.lex.doc-attach/second-run-around-test
+refuses syntax.lex.doc-attach at 3:1
+
+// case: syntax.lex.doc-attach/second-run-after-a-blank-line
+refuses syntax.lex.doc-attach at 3:1
+
+// case: syntax.lex.doc-attach/second-run-after-a-plain-comment
+refuses syntax.lex.doc-attach at 3:1
+
+// case: syntax.lex.doc-attach/second-run-before-a-field
+refuses syntax.lex.doc-attach at 4:5
+
 // case: syntax.lex.shift-adjacent/spaced-shift
 refuses parse-error at 2:17
 

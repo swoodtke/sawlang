@@ -668,3 +668,6 @@ syntax.lex.longest-match	U4i
 syntax.lex.ascii-identifier	U4i
 syntax.lex.double-question	U4i
 syntax.type.refused-cast-question	U4i
+syntax.expr.while.refused-brace-condition	SL-440
+syntax.expr.refused-brace-condition	SL-440
+syntax.rule.infinite-loop	SL-440

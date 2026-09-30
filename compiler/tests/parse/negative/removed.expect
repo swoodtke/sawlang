@@ -94,6 +94,9 @@ refuses syntax.expr.refused-partial-named-tuple
 // case: syntax.expr.capture.refused-self
 refuses syntax.expr.refused-capture-self
 
+// case: syntax.expr.while.refused-brace-condition
+refuses syntax.expr.refused-brace-condition
+
 // case: syntax.expr.while-let.refused-else
 refuses syntax.expr.refused-while-let-else
 
@@ -243,6 +246,9 @@ refuses syntax.expr.refused-partial-named-tuple
 
 // case: syntax.expr.refused-while-let-else
 refuses syntax.expr.refused-while-let-else
+
+// case: syntax.expr.refused-brace-condition
+refuses syntax.expr.refused-brace-condition
 
 // case: syntax.expr.refused-for-tuple
 refuses syntax.expr.refused-for-tuple

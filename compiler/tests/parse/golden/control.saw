@@ -103,6 +103,22 @@ func f() {
     let v = try ({ g() })()
 }
 
+// case: syntax.rule.infinite-loop/brace-after-while-begins-the-body
+func f() {
+    while { a }
+    { }
+}
+
+// case: syntax.rule.infinite-loop/parenthesized-brace-condition
+func f() {
+    while ({ c }()) { }
+}
+
+// case: syntax.rule.infinite-loop/loop-the-refused-form-cannot-continue
+func f() {
+    let n = while { break 1 } + 2
+}
+
 // case: syntax.rule.try-route-case/enum-and-case
 func f() {
     let n = try(as ConfigError.Alloc) parse()

@@ -94,6 +94,11 @@ func a() { (b: c, d) }
 // case: syntax.expr.capture.refused-self
 func a() { { [self] in } }
 
+// case: syntax.expr.while.refused-brace-condition
+func a() {
+    while {:}.b { }
+}
+
 // case: syntax.expr.while-let.refused-else
 func a() { while let b = c { } else { } }
 
@@ -243,6 +248,11 @@ func a() { (b, c: d) }
 
 // case: syntax.expr.refused-while-let-else
 func a() { while let b = c { } else { } }
+
+// case: syntax.expr.refused-brace-condition
+func a() {
+    while {:}.b { }
+}
 
 // case: syntax.expr.refused-for-tuple
 func a() { for () in b { } }

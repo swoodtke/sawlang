@@ -35,6 +35,32 @@ extern "C" {
 public func f() {
 }
 
+// case: syntax.lex.doc-attach/second-run-around-test
+/// one
+@test
+/// two
+func f() {}
+
+// case: syntax.lex.doc-attach/second-run-after-a-blank-line
+/// one
+
+/// two
+func f() {}
+
+// case: syntax.lex.doc-attach/second-run-after-a-plain-comment
+/// one
+// plain
+/// two
+func f() {}
+
+// case: syntax.lex.doc-attach/second-run-before-a-field
+struct S {
+    /// one
+
+    /// two
+    x: Int
+}
+
 // case: syntax.lex.shift-adjacent/spaced-shift
 func f() {
     let s = a < < 2

@@ -275,7 +275,9 @@ lines documents the next declaration: a `func`, `struct`, `enum`, `trait`,
 `init`, or a trait requirement. Attributes and `public` between the comment and
 the declaration do not matter. A test case is not documentable, so a `///` run
 before one is an error. `//!` lines are legal only before the file's first
-token. A doc comment that documents nothing is an error. `////` and a
+token. A doc comment that documents nothing is an error, and so is a second
+run before a declaration an earlier run already documents, as in `/// one`,
+`@test`, `/// two` and `func f() {}` on four lines. `////` and a
 `///` after code on the same line are ordinary comments.
 
 ### 2.7 Lexical rules
@@ -306,8 +308,8 @@ read each as two tokens. Each is directly followed, with no space, by:
   takes none.
 
 Each is one lexical error at the offending character, under syntax.expr.int or
-syntax.expr.float. The rule reads only the digits of `INT` and `FLOAT`, so
-`$0u8` is `$0` followed by a name.
+syntax.expr.float. The rule reads only the digits of a number literal, so
+`$0u8` and `t.0u9` each end before a name.
 
 ## 3. Files and declarations
 
@@ -1533,16 +1535,19 @@ arm-body ::= block  @syntax.expr.arm-body.block
 ```
 
 `while` with no condition loops until a `break`; there is no `loop` keyword.
-`while let` repeats while its subject is present and has no `else`. A `while`
-head, like an `if` head, may unwrap an optional place: `while borrow var e =
-it.find(&k) { … }` loops while the place is present, borrowing it afresh for
-each iteration (SL:borrowing §2.4). `for` binds one name per element.
+A `{` right after `while` begins that loop's body, so a condition never starts
+with a brace (§13, syntax.rule.infinite-loop). `while let` repeats while its
+subject is present and has no `else`. A `while` head, like an `if` head, may
+unwrap an optional place: `while borrow var e = it.find(&k) { … }` loops while
+the place is present, borrowing it afresh for each iteration (SL:borrowing
+§2.4). `for` binds one name per element.
 
 ```ebnf
 # syntax.expr.while  status=current  spec="Control Flow"  node=While
 while-expr ::= "while" head-expr NEWLINE* block  @syntax.expr.while.conditional
     | "while" borrow-unwrap NEWLINE* block  @syntax.expr.while.borrow
     | "while" block  @syntax.expr.while.infinite
+    | refused-brace-condition  @syntax.expr.while.refused-brace-condition
 
 # syntax.expr.while-let  status=current  spec="Optional binding in a loop header (`while let`)"  node=WhileLet
 while-let-expr ::= "while" "let" binding-target "=" head-expr NEWLINE* block  @syntax.expr.while-let.let
@@ -1768,6 +1773,9 @@ refused-partial-named-tuple ::= "(" tuple-field "," expr ( "," ( expr | tuple-fi
 # syntax.expr.refused-while-let-else  status=removed  spec="Optional binding in a loop header (`while let`)"  node=Error
 refused-while-let-else ::= "while" "let" binding-target "=" head-expr NEWLINE* block NEWLINE* "else" NEWLINE* block
 
+# syntax.expr.refused-brace-condition  status=removed  spec="Control Flow"  node=Error  ref="SL-440"
+refused-brace-condition ::= "while" head-expr NEWLINE* block
+
 # syntax.expr.refused-for-tuple  status=removed  spec="Variables and Mutability"  node=Error
 refused-for-tuple ::= "for" tuple-pattern "in" head-expr NEWLINE* block
 
@@ -1837,6 +1845,7 @@ Each refused form, why it is refused, and what its diagnostic suggests:
 | syntax.expr.refused-capture-self | `self` may be captured only as a borrow. | `[&self]` or `[&var self]` |
 | syntax.expr.refused-partial-named-tuple | A named tuple labels every element or none. | label every element, or none |
 | syntax.expr.refused-while-let-else | The loop ends when the binding fails, so an `else` has nothing to mean. | `if let … else` |
+| syntax.expr.refused-brace-condition | A `{` right after `while` begins the infinite loop's body (syntax.rule.infinite-loop), so the condition never starts with a closure, map or set literal. | `while ({ check() }()) { step() }` |
 | syntax.expr.refused-for-tuple | A `for` head binds one name. | `for p in v { let (a, b) = p }` |
 | syntax.stmt.refused-var-discard | `_` binds nothing, so there is nothing to mutate. | `let _ = e` |
 | syntax.stmt.refused-uninitialized | Every binding is initialized where it is declared. | `var x: T = …` |
@@ -2142,6 +2151,7 @@ decides. The constructs column names the productions a rule governs.
 | syntax.rule.extern-abi | syntax.decl.extern-block | The ABI string is `"C"`. | C FFI | current |
 | syntax.rule.module-inline | syntax.decl.module | `module name` followed by `{`, on its line or the next, is an inline module. | Module Declaration | current |
 | syntax.rule.try-block | syntax.expr.try-block, syntax.expr.try | `try` directly followed by `{` is a try block, never a `try` applied to a closure. | Block Try-Catch | current |
+| syntax.rule.infinite-loop | syntax.expr.while, syntax.expr.refused-brace-condition | A `{` right after `while` begins the infinite loop's body, never a condition, so a condition that starts with a closure, map or set literal is the refused form syntax.expr.refused-brace-condition. A token on the line after the loop's `}` that the refused form would take is refused at that token, wherever the loop stands: `while { check() }() { step() }` is refused at its `(`, `while { a } { }` at its second `{`, and `while { a }.x { }`, `while { a }[0] { }` and `while { a } + b { }` at the `.`, the `[` and the `+`. Write `while ({ check() }()) { step() }`. A loop the refused form cannot continue is an operand as before, as in `let n = while { break 1 } + 2`. A line break after the `}` ends the loop, so `while { a }` followed by a line break and `{ }` is the loop and then a closure statement. | Control Flow; SL-440 | current |
 | syntax.rule.test-form | syntax.test.item, syntax.test.case, syntax.test.group, syntax.test.declaration | After `@test`, a string makes a case, `{` makes a group, and anything else makes the declaration that follows test-only. `refuses:`, `panics:` and `warns:` go only on a case. A group holds declarations and cases, never statements. `@test` items stand at top level or in a group, never in an ordinary extension. On a declaration, `@test` comes before its other attributes, and a later stage refuses a combination that means nothing. | Attributes (design 58); SL:testing §2 | lockdown |
 | syntax.rule.refusal-body | syntax.test.refusal-body, syntax.test.refusal-unit | In a normal build a refusal case's body is matched by braces only. In a test build its tokens are parsed as a unit of their own, and its errors belong to the case. | Attributes (design 58); SL:testing §5 | lockdown |
 | syntax.rule.requirement-borrows | syntax.decl.requirement, syntax.decl.borrows-effect | A trait requirement may be `borrows` or `borrows(sync)`. It may not be `consumes`. | Traits; SL:borrowing §5.4 | lockdown |

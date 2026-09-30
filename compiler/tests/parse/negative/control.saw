@@ -35,6 +35,47 @@ func f() {
     }
 }
 
+// case: syntax.rule.infinite-loop/called-closure-condition
+func f() {
+    while { c }() { }
+}
+
+// case: syntax.rule.infinite-loop/closure-condition
+func f() {
+    while { a } { }
+}
+
+// case: syntax.rule.infinite-loop/member-on-a-closure-condition
+func f() {
+    while { a }.x { }
+}
+
+// case: syntax.rule.infinite-loop/subscript-on-a-closure-condition
+func f() {
+    while { a }[0] { }
+}
+
+// case: syntax.rule.infinite-loop/operator-after-a-closure-condition
+func f() {
+    while { a } + b { }
+}
+
+// case: syntax.rule.infinite-loop/loop-as-an-operand
+func f() {
+    let n = while { a } + b { }
+}
+
+// case: syntax.expr.refused-brace-condition/map-condition
+func f() {
+    while {1: 2}.is_empty() { }
+}
+
+// case: syntax.expr.refused-brace-condition/set-condition-before-a-line-break
+func f() {
+    while {1, 2}
+    { }
+}
+
 // case: syntax.rule.try-route-case/one-segment
 func f() {
     let n = try(as E) f()
