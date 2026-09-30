@@ -218,3 +218,88 @@
             (Capture.value b)
             in
             (ExprStmt (Name a))))))))
+
+// case: syntax.decl.fields/each-separator-and-a-trailing-one
+(File
+  (Declaration.struct
+    (Struct P
+      (Field x
+        (NamedType (Path Int)))
+      (Field y
+        (NamedType (Path Int)))))
+  (Declaration.struct
+    (Struct Q
+      (Field a
+        (NamedType (Path Int)))
+      (Field b
+        (NamedType (Path Int)))
+      (Field c
+        (NamedType (Path Int)))
+      (Field d
+        (NamedType (Path Int)))))
+  (Declaration.struct (Struct R)))
+
+// case: syntax.decl.cases/each-separator-and-a-trailing-one
+(File
+  (Declaration.enum
+    (Enum E (Case A) (Case B)))
+  (Declaration.enum
+    (Enum F (Case A) (Case B) (Case C) (Case D))))
+
+// case: syntax.decl.payload/trailing-comma-line-breaks-and-empty
+(File
+  (Declaration.enum
+    (Enum E
+      (Case A \(
+        (PayloadField x
+          (NamedType (Path Int)))
+        (PayloadField y
+          (NamedType (Path Int)))
+        \))
+      (Case B \(
+        (PayloadField x
+          (NamedType (Path Int)))
+        (PayloadField y
+          (NamedType (Path Int)))
+        \))
+      (Case C \( \)))))
+
+// case: syntax.decl.extern-params.fixed/trailing-comma-and-empty
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt f
+        (Param a
+          (NamedType (Path Int)))
+        (Param b
+          (NamedType (Path Int)))
+        (NamedType (Path Int)))
+      (ExternFunc.prompt g))))
+
+// case: syntax.decl.extern-params.variadic/ellipsis-after-a-comma
+(File
+  (Declaration.extern
+    (ExternBlock "C"
+      (ExternFunc.prompt f
+        (Param a
+          (NamedType (Path Int)))
+        ...
+        (NamedType (Path Int)))
+      (ExternFunc.prompt g
+        (Param a
+          (NamedType (Path Int)))
+        ...))))
+
+// case: syntax.decl.trait-parents/several-paths
+(File
+  (Declaration.trait
+    (Trait T (Path A) (Path m B) (Path C)))
+  (Declaration.trait
+    (Trait U (Path A))))
+
+// case: syntax.decl.conformances/several-paths
+(File
+  (Declaration.extension
+    (Extension (Path S) (Path A) (Path m B)))
+  (Declaration.extension
+    (Extension (Path V) (Path A))))

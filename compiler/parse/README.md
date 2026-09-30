@@ -94,12 +94,18 @@ Every list whose elements a `,` separates goes through one funnel,
 `Parser.parse_comma_list`: import symbols, parameters, function-type
 parameters, tuple types, generic parameters and arguments, call arguments,
 tuple expressions, array, map and set elements, tuple and payload patterns,
-closure parameters and capture lists. `list_shape` is the position matrix, one
+closure parameters and capture lists, struct fields, enum cases and their
+payload fields, extern parameters, a trait's parents and an extension's
+conformances. `list_shape` is the position matrix, one
 row per list: the element parser (`CommaList`, which `parse_list_element`
 dispatches on), the closer the funnel tests for and the caller consumes (a
-bracket, a generic list's `>`, which a `>=` or `>>=` may hold, or `in`), the
+bracket, a generic list's `>`, which a `>=` or `>>=` may hold, `in`, or the
+`{` of a declaration's body), the
 trailing-comma policy and the rule that names its refusal, where the list's
-line breaks are decided, and whether it may be empty. A caller that must parse
+line breaks are decided, and whether it may be empty. Between fields and
+between cases a line break separates as a comma does, and the funnel records
+which `list-sep` stood there (`LineBreaks.Separate`, syntax.decl.list-sep).
+An attribute takes one argument, never a list. A caller that must parse
 the first element to tell the list apart, as `(e)` from a tuple or a brace's
 first element from a map's, hands the funnel the rest. A refused trailing comma
 inside a speculation is noted and refused only if the list is kept, so that
@@ -112,6 +118,21 @@ funnel, unless the COMMA LEDGER above the funnel exempts it with a reason (a
 `match` arm's separator is one), and on an ENTRY POINTS list that is not
 exactly the funnel's callers. It proves itself on copies of the parser with an
 ad hoc list loop added, a stale exemption and a missing entry point.
+
+## Declarations
+
+A declaration's head is read ahead past its attributes and visibility before
+anything is built, since what it declares decides which of them it may carry
+(syntax.rule.attribute-position) and whether a `///` run before it documents
+it (syntax.lex.doc-attach). The same scan finds the heads GRAMMAR.md section 10
+refuses: an effect word before `func` or `init`, `const`, `private`, a
+visibility on an extension, `unsafe` on an enum, a trait or an extension, and
+the malformed statics. A trait's, an extension's and an extern block's members
+stand one per line, and a member that fails is skipped to the end of its line,
+as a top-level item is. The receiver rule and the effect slot's rules are
+checked once a declaration's parameters and effects are parsed
+(`parse_signature`). A test case's or group's head refuses a doc run before it
+at once, since nothing it holds can make the run document anything.
 
 ## Assignment targets
 

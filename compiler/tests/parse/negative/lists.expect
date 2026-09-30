@@ -48,3 +48,24 @@ refuses parse-error at 2:18
 
 // case: syntax.expr.capture-list/an-empty-list
 refuses parse-error at 2:18
+
+// case: syntax.decl.fields/two-fields-on-a-line-without-a-comma
+refuses parse-error at 1:19
+
+// case: syntax.decl.cases/two-cases-on-a-line-without-a-comma
+refuses parse-error at 1:17
+
+// case: syntax.decl.payload/two-fields-without-a-comma
+refuses parse-error at 2:19
+
+// case: syntax.decl.extern-params.variadic/an-ellipsis-alone
+refuses parse-error at 2:12
+
+// case: syntax.decl.extern-params.variadic/a-comma-after-the-ellipsis
+refuses parse-error at 2:23
+
+// case: syntax.decl.trait-parents/a-trailing-comma
+refuses parse-error at 1:13
+
+// case: syntax.decl.conformances/a-line-break-after-a-comma
+refuses parse-error at 1:16

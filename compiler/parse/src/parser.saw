@@ -26,7 +26,20 @@ static PARSE_UNDERSCORE: Int = 95
 static PARSE_DIGIT_0: Int = 48
 static PARSE_DIGIT_9: Int = 57
 
+static PARSE_LETTER_C: Int = 67
+
 func is_decimal_byte(b: Int) -> Bool { b >= PARSE_DIGIT_0 && b <= PARSE_DIGIT_9 }
+
+// The value of a hexadecimal digit the lexer has already checked.
+func escape_digit_value(b: Int) -> Int {
+    if is_decimal_byte(b) {
+        return b - PARSE_DIGIT_0
+    }
+    if b >= 97 {
+        return b - 87
+    }
+    b - 55
+}
 
 // A run of `///` lines and the token it documents: the first token after its
 // last line that is not a line break.
@@ -128,6 +141,56 @@ enum BraceForm {
     case Set
 }
 
+// A body of declarations one per line: a trait's, an extension's or an
+// extern block's.
+enum MemberBody {
+    case Trait,
+    case Extension,
+    case Extern
+}
+
+// The member-list alternative a body records once it holds a member.
+func member_list_alt(body: MemberBody) -> Alt {
+    match body {
+        case Trait -> Alt.Decl_TraitMembers,
+        case Extension -> Alt.Decl_ExtensionMembers,
+        case Extern -> Alt.Decl_ExternFuncs
+    }
+}
+
+// What declares an effect slot, which decides the effects it may hold
+// (syntax.rule.effect-slot, syntax.rule.requirement-borrows).
+enum EffectHost {
+    case Function,
+    case Method,
+    case Initializer,
+    case Requirement
+}
+
+// An attribute's name as one bit of a set, `@export` with or without its
+// symbol one name (syntax.rule.attribute-position).
+func attribute_bit(alt: Alt) -> Int {
+    match alt {
+        case Attr_Attribute_Section -> 2,
+        case Attr_Attribute_Synthesize -> 4,
+        case Attr_Attribute_Align -> 8,
+        case Attr_Attribute_SynthesizeShared -> 16,
+        case _ -> 1
+    }
+}
+
+// The attributes a declaration may carry, as a set of `attribute_bit`s; none
+// for one that takes no attribute list (syntax.rule.attribute-position).
+func attribute_hosts(host: Alt) -> Int {
+    match host {
+        case Decl_Item_Func -> 3,
+        case Decl_Item_Static -> 11,
+        case Decl_Item_Extension -> 4,
+        case Stmt_AttributedLocal -> 8,
+        case _ -> 0
+    }
+}
+
 // A comma-separated list the funnel parses, which names the parser of its
 // elements (`Parser.parse_list_element`); `list_shape` gives the rest of it.
 enum CommaList {
@@ -145,18 +208,27 @@ enum CommaList {
     case TuplePattern,
     case PayloadPatterns,
     case ClosureParams,
-    case Captures
+    case Captures,
+    case Fields,
+    case Cases,
+    case PayloadFields,
+    case ExternParams,
+    case TraitParents,
+    case Conformances
 }
 
 // What ends a list. A generic list's `>` may be the first half of a `>=` or
-// `>>=` (syntax.rule.generic-close-split), and a closure head ends at `in`.
-// The funnel only tests for the closer; the caller consumes it.
+// `>>=` (syntax.rule.generic-close-split), a closure head ends at `in`, and a
+// trait's parents and an extension's conformances at the `{` of its body, on
+// their line or the next (`Body`). The funnel only tests for the closer; the
+// caller consumes it.
 enum ListCloser {
     case RParen,
     case RBracket,
     case RBrace,
     case GenericClose,
-    case In
+    case In,
+    case Body
 }
 
 // What a comma after a list's last element does: nothing (`Allowed`), is a
@@ -173,11 +245,14 @@ enum TrailingComma {
 // list they are gone before the funnel sees them (GRAMMAR.md section 2.4,
 // `Settled`); a closure head and an import list take them after a comma
 // (`AfterComma`), and a map or set literal around each entry and before a
-// comma (`AroundEntries`).
+// comma (`AroundEntries`). Between a struct's fields or an enum's cases a
+// line break separates as a comma does, and the funnel records which
+// separator stood there (`Separate`, syntax.decl.list-sep).
 enum LineBreaks {
     case Settled,
     case AfterComma,
-    case AroundEntries
+    case AroundEntries,
+    case Separate
 }
 
 // One row of the comma-list position matrix: a list, its closer, its
@@ -253,7 +328,25 @@ func list_shape(list: CommaList) -> ListShape {
                                         breaks: LineBreaks.AfterComma, empty: false),
         case Captures -> ListShape(list: list, closer: ListCloser.RBracket,
                                    trailing: TrailingComma.Allowed, refusal: None,
-                                   breaks: LineBreaks.Settled, empty: false)
+                                   breaks: LineBreaks.Settled, empty: false),
+        case Fields -> ListShape(list: list, closer: ListCloser.RBrace,
+                                 trailing: TrailingComma.Allowed, refusal: None,
+                                 breaks: LineBreaks.Separate, empty: true),
+        case Cases -> ListShape(list: list, closer: ListCloser.RBrace,
+                                trailing: TrailingComma.Allowed, refusal: None,
+                                breaks: LineBreaks.Separate, empty: true),
+        case PayloadFields -> ListShape(list: list, closer: ListCloser.RParen,
+                                        trailing: TrailingComma.Allowed, refusal: None,
+                                        breaks: LineBreaks.Settled, empty: true),
+        case ExternParams -> ListShape(list: list, closer: ListCloser.RParen,
+                                       trailing: TrailingComma.Allowed, refusal: None,
+                                       breaks: LineBreaks.Settled, empty: true),
+        case TraitParents -> ListShape(list: list, closer: ListCloser.Body,
+                                       trailing: TrailingComma.Plain, refusal: None,
+                                       breaks: LineBreaks.Settled, empty: false),
+        case Conformances -> ListShape(list: list, closer: ListCloser.Body,
+                                       trailing: TrailingComma.Plain, refusal: None,
+                                       breaks: LineBreaks.Settled, empty: false)
     }
 }
 
@@ -284,13 +377,17 @@ func list_refusal_hint(list: CommaList) -> String {
 
 // The plain error for a token that neither separates a list's elements nor
 // closes it.
-func list_gap_message(closer: ListCloser) -> String {
-    match closer {
+func list_gap_message(shape: ListShape) -> String {
+    if shape.breaks == LineBreaks.Separate {
+        return "expected `,` or a line break before the next one, or `\}`"
+    }
+    match shape.closer {
         case RParen -> "expected `,` or `)` in the list",
         case RBracket -> "expected `,` or `]` in the list",
         case RBrace -> "expected `,` or `\}` in the list",
         case GenericClose -> "expected `,` or `>` in the generic list",
-        case In -> "expected `,` or `in` in the closure's parameters"
+        case In -> "expected `,` or `in` in the closure's parameters",
+        case Body -> "expected `,` or the body's `\{`"
     }
 }
 
@@ -575,6 +672,7 @@ func is_declaration_keyword(kind: TokenKind) -> Bool {
         case Extern -> true,
         case Static -> true,
         case Unsafe_ -> true,
+        case Borrows -> true,
         case _ -> false
     }
 }
@@ -714,7 +812,7 @@ extension Parser {
     //     pieces: restored by piece_count
     //     piece_count: restored
     //     docs: unchanged, because nothing writes it after the parser is built
-    //     runs: unchanged, because only a declaration attaches a doc run, and attach_docs refuses to run inside a speculation
+    //     runs: unchanged, because only a declaration or a test item's head marks a doc run, attach_docs refuses to run inside a speculation, and a test head is never parsed inside one
     //     pos: restored
     //     limit: restored
     //     prev_end: restored
@@ -1018,6 +1116,7 @@ extension Parser {
     //     parse_brace
     //     parse_closure_literal
     //     head_restricted
+    //     parse_payload_decl
     func enter_level(&var self, opener: Int) -> Bool {
         if self.depth >= PARSE_MAX_DEPTH {
             self.depth_refusals = self.depth_refusals + 1
@@ -1186,11 +1285,38 @@ extension Parser {
         while r < self.runs.len() {
             let run = self.runs[r]
             if not run.attached {
-                let d = self.docs[run.first]
-                let at = self.builder.tree.source.offset_of(d.line, d.col)
-                self.record(Diagnostic(rule: Rule.Lex_DocAttach, start: at, end: at + 3,
-                                       message: "this doc comment documents no declaration",
-                                       hint: "make it a `//` comment, or move it before a declaration"))
+                self.report_doc_run(&run)
+            }
+            r = r + 1
+        }
+    }
+
+    func report_doc_run(&var self, run: &DocRun) {
+        let d = self.docs[run.first]
+        let at = self.builder.tree.source.offset_of(d.line, d.col)
+        self.record(Diagnostic(rule: Rule.Lex_DocAttach, start: at, end: at + 3,
+                               message: "this doc comment documents no declaration",
+                               hint: "make it a `//` comment, or move it before a declaration"))
+    }
+
+    // A test case or group is never documented (GRAMMAR.md section 2.6), which
+    // its head decides, so a run before one is refused there, ahead of
+    // anything the rest of the file holds (syntax.lex.doc-attach).
+    func refuse_documented_test(&var self) {
+        let breaks = self.breaks_ahead(2)
+        let group = self.kind_at(2 + breaks) == TokenKind.LBrace
+        let case_head = self.kind_at(2) == TokenKind.StringLit || self.kind_at(2) == TokenKind.LParen
+        if not (group || case_head) {
+            return
+        }
+        var r = 0
+        while r < self.runs.len() {
+            let run = self.runs[r]
+            if run.target == self.pos && not run.attached {
+                self.runs[r] = DocRun(first: run.first, last: run.last, target: run.target,
+                                      attached: true)
+                self.report_doc_run(&run)
+                return
             }
             r = r + 1
         }
@@ -1281,6 +1407,11 @@ extension Parser {
     // statement, which is how a refusal unit tells its two kinds of item apart.
     func starts_item(&self) -> Bool {
         let kind = self.kind()
+        if kind == TokenKind.At {
+            let attrs = self.after_attributes(0)
+            let after = self.kind_at(attrs)
+            return after != TokenKind.Let && after != TokenKind.Var
+        }
         if is_declaration_keyword(kind) {
             return true
         }
@@ -1293,6 +1424,9 @@ extension Parser {
 
     // `top-level-item`: an import, a module, or a declaration.
     func parse_item(&var self) -> Bool {
+        if self.kind() == TokenKind.At && self.word_at(1, "test") {
+            self.refuse_documented_test()
+        }
         // Nothing else starts with `import` or `module` at an item's head, so
         // without a name after it what is missing is that name.
         if self.kind_at(1) != TokenKind.Ident && self.word_at(0, "import") {
@@ -1343,41 +1477,1119 @@ extension Parser {
         self.parse_declaration()
     }
 
-    // `declaration-item`, with its doc comment and visibility inside it.
+    // `declaration-item`, with its doc comment, attributes and visibility
+    // inside it, or a head GRAMMAR.md section 10 refuses. The head is read
+    // ahead first, past its attributes and visibility, since which of them it
+    // may carry, and whether a doc comment documents it, depend on what it
+    // declares.
     func parse_declaration(&var self) -> Bool {
+        let first = self.pos
+        let attrs = self.after_attributes(0)
+        let k = self.after_visibility(attrs)
+        let attributed = attrs > 0
+        let visible = k > attrs
+        let prefix = self.effect_prefix_at(attrs)
+        if prefix >= 0 {
+            return self.refuse_effect_prefix(prefix)
+        }
+        let head = first + k
+        let kind = self.kind_at(k)
+        if self.word_at(k, "const") && self.kind_at(k + 1) == TokenKind.Ident {
+            return self.refuse(Rule.Decl_RefusedConst, head,
+                               "a module constant is a `static`",
+                               "write `static NAME: T = value` for `const`")
+        }
+        if self.word_at(0, "private") {
+            return self.refuse(Rule.Decl_RefusedVisibilityPrefix, first,
+                               "a declaration with no modifier is already module-private",
+                               "delete `private`")
+        }
+        if kind == TokenKind.Extension && visible {
+            return self.refuse(Rule.Decl_RefusedVisibilityPrefix, first + attrs,
+                               "an extension has no name to be visible",
+                               "put the visibility on each member instead")
+        }
+        let after = self.kind_at(k + 1)
+        if kind == TokenKind.Unsafe_ && (after == TokenKind.Enum || after == TokenKind.Trait
+                                          || after == TokenKind.Extension) {
+            return self.refuse(Rule.Decl_RefusedUnsafePrefix, head,
+                               "an enum, a trait or an extension is not unsafe as a whole",
+                               "mark `unsafe` in the effect slot of each function that needs it")
+        }
+        let static_var = kind == TokenKind.Static && after == TokenKind.Var
+        let unsafe_static = kind == TokenKind.Unsafe_ && after == TokenKind.Static
+        if static_var || (unsafe_static && self.kind_at(k + 2) != TokenKind.Var) {
+            return self.refuse(Rule.Decl_RefusedStatic, head,
+                               "a mutable static is `unsafe static var`, and `unsafe` marks a mutable one",
+                               "write `unsafe static var X: T = …`, or `static X: T = …`")
+        }
+        if kind == TokenKind.Extension && after == TokenKind.LBracket {
+            return self.refuse(Rule.Decl_RefusedArrayExtension, head,
+                               "a fixed array takes no extension",
+                               "write a free function instead")
+        }
+        let alt = self.declaration_alt(k)
+        if alt == Alt.File_Item_Declaration {
+            return self.error("expected a declaration")
+        }
+        let mark = self.builder.mark()
+        let start = if alt == Alt.Decl_Item_Extern { self.here() } else { self.attach_docs(first) }
+        self.see(Alt.File_Item_Declaration)
+        self.see(alt)
+        if attributed && not self.parse_attributes(alt) {
+            return false
+        }
+        if visible {
+            if alt == Alt.Decl_Item_Extern {
+                return self.error("an extern block takes no visibility")
+            }
+            if not self.parse_visibility() {
+                return false
+            }
+        }
+        if not self.parse_declared(alt) {
+            return false
+        }
+        self.close(mark, alt, start)
+        true
+    }
+
+    // The `declaration-item` alternative whose declaration begins `ahead`
+    // tokens on, past its attributes and visibility, or `File_Item_Declaration`
+    // when none does. At a top-level item `static` and a name declare a
+    // static (syntax.rule.static-head).
+    func declaration_alt(&self, ahead: Int) -> Alt {
+        let kind = self.kind_at(ahead)
+        let after = self.kind_at(ahead + 1)
+        if kind == TokenKind.Func {
+            return Alt.Decl_Item_Func
+        }
+        if kind == TokenKind.Static && after == TokenKind.Ident {
+            return Alt.Decl_Item_Static
+        }
+        if kind == TokenKind.Unsafe_ && after == TokenKind.Static {
+            return Alt.Decl_Item_Static
+        }
+        if kind == TokenKind.Struct || ((kind == TokenKind.Unsafe_ || kind == TokenKind.Borrows)
+                                        && after == TokenKind.Struct) {
+            return Alt.Decl_Item_Struct
+        }
+        if kind == TokenKind.Enum {
+            return Alt.Decl_Item_Enum
+        }
+        if kind == TokenKind.Trait {
+            return Alt.Decl_Item_Trait
+        }
+        if kind == TokenKind.Extension {
+            return Alt.Decl_Item_Extension
+        }
+        if kind == TokenKind.Extern {
+            return Alt.Decl_Item_Extern
+        }
+        if self.word_at(ahead, "type") && after == TokenKind.Ident {
+            return Alt.Decl_Item_TypeAlias
+        }
+        Alt.File_Item_Declaration
+    }
+
+    // The declaration a `declaration-item` alternative names, its attributes
+    // and visibility already parsed.
+    func parse_declared(&var self, alt: Alt) -> Bool {
+        match alt {
+            case Decl_Item_Func -> self.parse_func(),
+            case Decl_Item_Static -> self.parse_static(),
+            case Decl_Item_Struct -> self.parse_struct(),
+            case Decl_Item_Enum -> self.parse_enum(),
+            case Decl_Item_Trait -> self.parse_trait(),
+            case Decl_Item_Extension -> self.parse_extension(),
+            case Decl_Item_Extern -> self.parse_extern_block(),
+            case _ -> self.parse_type_alias()
+        }
+    }
+
+    // ---- declaration heads --------------------------------------------------
+
+    // How many tokens on the attribute list that begins `ahead` tokens on
+    // ends, counted as `ahead` is: each attribute an `@`, its name, a
+    // parenthesized argument, and the line breaks after it.
+    func after_attributes(&self, ahead: Int) -> Int {
+        var k = ahead
+        while self.kind_at(k) == TokenKind.At {
+            k = k + 1
+            if self.kind_at(k) == TokenKind.Ident {
+                k = k + 1
+            }
+            if self.kind_at(k) == TokenKind.LParen {
+                var depth = 0
+                while self.kind_at(k) != TokenKind.Eof {
+                    let kind = self.kind_at(k)
+                    k = k + 1
+                    if kind == TokenKind.LParen {
+                        depth = depth + 1
+                    } else if kind == TokenKind.RParen {
+                        depth = depth - 1
+                        if depth == 0 {
+                            break
+                        }
+                    }
+                }
+            }
+            k = k + self.breaks_ahead(k)
+        }
+        k
+    }
+
+    // How many tokens on the visibility that begins `ahead` tokens on ends,
+    // or `ahead` when none stands there.
+    func after_visibility(&self, ahead: Int) -> Int {
+        if self.kind_at(ahead) != TokenKind.Public {
+            return ahead
+        }
+        let scoped = self.word_at(ahead + 2, "package") || self.word_at(ahead + 2, "parent")
+        let closed = self.kind_at(ahead + 3) == TokenKind.RParen
+        if self.kind_at(ahead + 1) == TokenKind.LParen && scoped && closed {
+            return ahead + 4
+        }
+        ahead + 1
+    }
+
+    // Whether the token `ahead` on is a word a declaration head holds only to
+    // refuse it, before `func` or `init` (syntax.decl.refused-effect-prefix).
+    func is_prefix_effect(&self, ahead: Int) -> Bool {
+        let kind = self.kind_at(ahead)
+        if kind == TokenKind.Unsafe_ || kind == TokenKind.Borrows {
+            return true
+        }
+        let word = self.word_at(ahead, "sync") || self.word_at(ahead, "constexpr")
+        word || self.word_at(ahead, "consumes") || self.word_at(ahead, "const")
+    }
+
+    // The token of the first effect word of a head, from `ahead` tokens on,
+    // that writes its effects before `func` or `init`, or -1: visibilities
+    // and `static`, an effect word, then any of the three, up to `func` or
+    // `init`. A contextual word counts only before one of those tokens
+    // (syntax.rule.contextual-words), which the run up to `func` or `init`
+    // guarantees.
+    func effect_prefix_at(&self, ahead: Int) -> Int {
+        var k = ahead
+        var found = -1
+        while true {
+            let kind = self.kind_at(k)
+            if kind == TokenKind.Public {
+                k = self.after_visibility(k)
+            } else if kind == TokenKind.Static {
+                k = k + 1
+            } else if self.is_prefix_effect(k) {
+                if found < 0 {
+                    found = k
+                }
+                k = k + 1
+            } else {
+                break
+            }
+        }
+        let end = self.kind_at(k)
+        if found >= 0 && (end == TokenKind.Func || end == TokenKind.Init) {
+            return self.pos + found
+        }
+        return -1
+    }
+
+    func refuse_effect_prefix(&var self, at: Int) -> Bool {
+        self.refuse(Rule.Decl_RefusedEffectPrefix, at,
+                    "a function's effects are written after its parameters",
+                    "move the word into the effect slot: `func f(…) unsafe -> T`, or `constexpr` for `const`")
+    }
+
+    // ---- attributes -----------------------------------------------------------
+
+    // `attribute-list ::= attribute+` on the declaration `host` names: each
+    // attribute on a declaration it may stand on, and once
+    // (syntax.rule.attribute-position).
+    func parse_attributes(&var self, host: Alt) -> Bool {
+        self.see(Alt.Attr_List)
+        var seen = 0
+        while self.kind() == TokenKind.At {
+            let at = self.pos
+            if not self.parse_attribute() {
+                return false
+            }
+            let slot = self.builder.mark() - 1
+            var bit = 1
+            if let alt = self.builder.node_at(slot).alt {
+                bit = attribute_bit(alt)
+            }
+            let allowed = attribute_hosts(host)
+            if allowed == 0 {
+                return self.report_plain(at, "this declaration takes no attribute")
+            }
+            if (allowed / bit) % 2 == 0 || (seen / bit) % 2 == 1 {
+                return self.refuse(Rule.Rule_AttributePosition, at,
+                                   "this attribute does not stand here, or stands here twice",
+                                   "`@export` and `@section` go on a function or a static, `@align` on a static or a local, `@synthesize` on an extension")
+            }
+            seen = seen + bit
+        }
+        true
+    }
+
+    // A plain parse error at token `at`, rather than the current token.
+    func report_plain(&var self, at: Int, message: String) -> Bool {
+        self.report(None, at, message, "")
+        false
+    }
+
+    // `attribute ::= "@" 'export' | "@" 'export' "(" STRING ")" | "@" 'section' "(" STRING ")"
+    //     | "@" 'synthesize' | "@" 'align' "(" expr ")" | synthesize-shared-attr`,
+    // each followed by any line breaks.
+    func parse_attribute(&var self) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        var alt = Alt.Attr_Attribute_Export
+        if self.synthesize_shared_ahead() {
+            alt = Alt.Attr_Attribute_SynthesizeShared
+            self.see(alt)
+            self.take_synthesize_shared()
+            self.close(mark, alt, start)
+            self.skip_newlines()
+            return true
+        }
+        self.advance()
+        let argument = self.kind_at(1) == TokenKind.LParen
+        if self.word_at(0, "export") {
+            alt = if argument { Alt.Attr_Attribute_ExportSymbol } else { Alt.Attr_Attribute_Export }
+        } else if self.word_at(0, "section") && argument {
+            alt = Alt.Attr_Attribute_Section
+        } else if self.word_at(0, "synthesize") && not argument {
+            alt = Alt.Attr_Attribute_Synthesize
+        } else if self.word_at(0, "align") && argument {
+            alt = Alt.Attr_Attribute_Align
+        } else {
+            return self.error("expected `export`, `section`, `synthesize` or `align` after `@`")
+        }
+        self.advance()
+        if argument {
+            let open = self.pos
+            self.advance()
+            if alt == Alt.Attr_Attribute_Align {
+                if not self.parse_expr() {
+                    return false
+                }
+            } else if self.kind() == TokenKind.StringLit {
+                self.take_leaf()
+            } else {
+                return self.list_error(open, "expected the attribute's string")
+            }
+            if self.kind() != TokenKind.RParen {
+                return self.list_error(open, "expected `)` after the attribute's argument")
+            }
+            self.advance()
+        }
+        self.see(alt)
+        self.close(mark, alt, start)
+        self.skip_newlines()
+        true
+    }
+
+    // Whether `@synthesize(shared)` stands here.
+    func synthesize_shared_ahead(&self) -> Bool {
+        let named = self.kind() == TokenKind.At && self.word_at(1, "synthesize")
+        let opened = named && self.kind_at(2) == TokenKind.LParen
+        opened && self.word_at(3, "shared") && self.kind_at(4) == TokenKind.RParen
+    }
+
+    // `synthesize-shared-attr ::= "@" 'synthesize' "(" 'shared' ")" NEWLINE*`,
+    // whose two words are leaves of the node around it; the line breaks after
+    // it are its caller's.
+    func take_synthesize_shared(&var self) {
+        self.see(Alt.Attr_SynthesizeShared)
+        self.advance()
+        self.take_leaf()
+        self.advance()
+        self.take_leaf()
+        self.advance()
+    }
+
+    // ---- statics, structs and enums ---------------------------------------------
+
+    // `static-decl ::= "static" IDENT ":" type static-init?
+    //     | "unsafe" "static" "var" IDENT ":" type static-init?`
+    func parse_static(&var self) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        var alt = Alt.Decl_Static_Immutable
+        if self.kind() == TokenKind.Unsafe_ {
+            alt = Alt.Decl_Static_UnsafeVar
+            self.advance()
+            self.advance()
+        }
+        self.advance()
+        self.see(alt)
+        if self.kind() != TokenKind.Ident {
+            return self.error("expected the static's name")
+        }
+        self.take_leaf()
+        if self.kind() != TokenKind.Colon {
+            return self.error("expected `:` and the static's type")
+        }
+        self.advance()
+        if not self.parse_type(false) {
+            return false
+        }
+        if self.kind() == TokenKind.Assign {
+            self.see(Alt.Decl_StaticInit)
+            self.take_leaf()
+            if not self.parse_expr() {
+                return false
+            }
+        }
+        self.close(mark, alt, start)
+        true
+    }
+
+    // The `{` that opens a declaration's body, on its head's line or after
+    // line breaks, which it consumes with the line breaks after it; returns
+    // the `{` or -1 once it has reported its absence.
+    func open_body(&var self, message: String) -> Int {
+        self.skip_newlines()
+        if self.kind() != TokenKind.LBrace {
+            let _ = self.error(message)
+            return -1
+        }
+        let open = self.pos
+        self.advance()
+        self.skip_newlines()
+        open
+    }
+
+    // `struct-decl ::= struct-modifier? "struct" IDENT generic-params? NEWLINE* "{" NEWLINE* field-list? "}"`
+    func parse_struct(&var self) -> Bool {
+        self.see(Alt.Decl_Struct)
+        let start = self.here()
+        let mark = self.builder.mark()
+        if self.kind() == TokenKind.Unsafe_ {
+            self.see(Alt.Decl_StructModifier_Unsafe)
+            self.take_leaf()
+        } else if self.kind() == TokenKind.Borrows {
+            self.see(Alt.Decl_StructModifier_Borrows)
+            self.take_leaf()
+        }
+        self.advance()
+        if self.kind() != TokenKind.Ident {
+            return self.error("expected the struct's name")
+        }
+        self.take_leaf()
+        if self.kind() == TokenKind.Lt {
+            if not self.parse_generic_params() {
+                return false
+            }
+        }
+        let open = self.open_body("expected `\{` to open the struct's fields")
+        if open < 0 {
+            return false
+        }
+        if self.kind() != TokenKind.RBrace {
+            self.see(Alt.Decl_Fields)
+        }
+        var count = no_elements()
+        if not self.parse_comma_list(list_shape(CommaList.Fields), open, false, &var count) {
+            return false
+        }
+        self.advance()
+        self.close(mark, Alt.Decl_Struct, start)
+        true
+    }
+
+    // `field ::= field-visibility? IDENT ":" type`, with its doc comment;
+    // `private` is the field's visibility only before a name
+    // (syntax.rule.contextual-words).
+    func parse_field(&var self) -> Bool {
         let first = self.pos
         let mark = self.builder.mark()
         let start = self.attach_docs(first)
-        if self.kind() == TokenKind.At {
-            return self.error("an attribute is not parsed yet")
+        if self.kind() == TokenKind.Public {
+            self.see(Alt.Decl_FieldVisibility_Public)
+            if not self.parse_visibility() {
+                return false
+            }
+        } else if self.word_at(0, "private") && self.kind_at(1) == TokenKind.Ident {
+            self.see(Alt.Decl_FieldVisibility_Private)
+            self.take_leaf()
+        }
+        if self.kind() != TokenKind.Ident {
+            return self.error("expected a field's name")
+        }
+        self.see(Alt.Decl_Field)
+        self.take_leaf()
+        if self.kind() != TokenKind.Colon {
+            return self.error("expected `:` and the field's type")
+        }
+        self.advance()
+        if not self.parse_type(false) {
+            return false
+        }
+        self.close(mark, Alt.Decl_Field, start)
+        true
+    }
+
+    // `enum-decl ::= "enum" IDENT generic-params? raw-backing? NEWLINE* "{" NEWLINE* case-list? "}"`
+    func parse_enum(&var self) -> Bool {
+        self.see(Alt.Decl_Enum)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        if self.kind() != TokenKind.Ident {
+            return self.error("expected the enum's name")
+        }
+        self.take_leaf()
+        if self.kind() == TokenKind.Lt {
+            if not self.parse_generic_params() {
+                return false
+            }
+        }
+        if self.kind() == TokenKind.Colon {
+            self.see(Alt.Decl_RawBacking)
+            self.advance()
+            if not self.parse_type(false) {
+                return false
+            }
+        }
+        let open = self.open_body("expected `\{` to open the enum's cases")
+        if open < 0 {
+            return false
+        }
+        if self.kind() != TokenKind.RBrace {
+            self.see(Alt.Decl_Cases)
+        }
+        var count = no_elements()
+        if not self.parse_comma_list(list_shape(CommaList.Cases), open, false, &var count) {
+            return false
+        }
+        self.advance()
+        self.close(mark, Alt.Decl_Enum, start)
+        true
+    }
+
+    // `enum-case ::= "case" IDENT payload-decl? raw-value?`, with its doc
+    // comment; `raw-value ::= "=" expr`, whose `=` prints.
+    func parse_enum_case(&var self) -> Bool {
+        if self.kind() != TokenKind.Case {
+            return self.error("expected `case` and the case's name")
+        }
+        let first = self.pos
+        let mark = self.builder.mark()
+        let start = self.attach_docs(first)
+        self.see(Alt.Decl_Case)
+        self.advance()
+        if self.kind() != TokenKind.Ident {
+            return self.error("expected the case's name")
+        }
+        self.take_leaf()
+        if self.kind() == TokenKind.LParen {
+            if not self.parse_payload_decl() {
+                return false
+            }
+        }
+        if self.kind() == TokenKind.Assign {
+            self.see(Alt.Decl_RawValue)
+            self.take_leaf()
+            if not self.parse_expr() {
+                return false
+            }
+        }
+        self.close(mark, Alt.Decl_Case, start)
+        true
+    }
+
+    // `payload-decl ::= "(" ( payload-field ( "," payload-field )* ","? )? ")"`,
+    // whose parentheses print, so that `case A()` differs from `case A`. It
+    // charges a level for its `(`, as a variant pattern's payload does, which
+    // GRAMMAR.md section 11 does not list: the case list and the payload list
+    // share the one comma funnel, so the call graph holds a cycle through it
+    // that only a charge breaks (SL-424).
+    func parse_payload_decl(&var self) -> Bool {
+        self.see(Alt.Decl_Payload)
+        let open = self.pos
+        if not self.enter_level(open) {
+            return false
+        }
+        self.take_leaf()
+        var count = no_elements()
+        if not self.parse_comma_list(list_shape(CommaList.PayloadFields), open, false, &var count) {
+            return false
+        }
+        self.take_leaf()
+        self.leave_level()
+        true
+    }
+
+    // `payload-field ::= IDENT ":" type`
+    func parse_payload_field(&var self, open: Int) -> Bool {
+        if self.kind() != TokenKind.Ident {
+            return self.list_error(open, "expected a payload field's name")
+        }
+        self.see(Alt.Decl_PayloadField)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.take_leaf()
+        if self.kind() != TokenKind.Colon {
+            return self.error("expected `:` and the payload field's type")
+        }
+        self.advance()
+        if not self.parse_type(false) {
+            return false
+        }
+        self.close(mark, Alt.Decl_PayloadField, start)
+        true
+    }
+
+    // ---- traits and extensions ---------------------------------------------------
+
+    // `trait-decl ::= "trait" IDENT generic-params? trait-parents? NEWLINE* "{" NEWLINE* trait-member-list? "}"`,
+    // with `trait-parents ::= ":" path ( "," path )*`.
+    func parse_trait(&var self) -> Bool {
+        self.see(Alt.Decl_Trait)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        if self.kind() != TokenKind.Ident {
+            return self.error("expected the trait's name")
+        }
+        self.take_leaf()
+        if self.kind() == TokenKind.Lt {
+            if not self.parse_generic_params() {
+                return false
+            }
+        }
+        if self.kind() == TokenKind.Colon {
+            self.see(Alt.Decl_TraitParents)
+            let colon = self.pos
+            self.advance()
+            var count = no_elements()
+            if not self.parse_comma_list(list_shape(CommaList.TraitParents), colon, false, &var count) {
+                return false
+            }
+        }
+        let open = self.open_body("expected `\{` to open the trait's members")
+        if open < 0 {
+            return false
+        }
+        if not self.parse_members(MemberBody.Trait, open) {
+            return false
+        }
+        self.close(mark, Alt.Decl_Trait, start)
+        true
+    }
+
+    // `extension-decl ::= "extension" path generic-params? conformance-list? NEWLINE* "{" NEWLINE* extension-member-list? "}"`,
+    // with `conformance-list ::= ":" path ( "," path )*`.
+    func parse_extension(&var self) -> Bool {
+        self.see(Alt.Decl_Extension)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        if not self.parse_path() {
+            return false
+        }
+        if self.kind() == TokenKind.Lt {
+            if not self.parse_generic_params() {
+                return false
+            }
+        }
+        if self.kind() == TokenKind.Colon {
+            self.see(Alt.Decl_Conformances)
+            let colon = self.pos
+            self.advance()
+            var count = no_elements()
+            if not self.parse_comma_list(list_shape(CommaList.Conformances), colon, false, &var count) {
+                return false
+            }
+        }
+        let open = self.open_body("expected `\{` to open the extension's members")
+        if open < 0 {
+            return false
+        }
+        if not self.parse_members(MemberBody.Extension, open) {
+            return false
+        }
+        self.close(mark, Alt.Decl_Extension, start)
+        true
+    }
+
+    // A trait's, an extension's or an extern block's members after its `{`
+    // and the line breaks after that, up to and with its `}`: one per line,
+    // never joined by `;` (syntax.rule.declaration-separator). A member that
+    // fails is skipped to the end of its line, as a top-level item is.
+    func parse_members(&var self, body: MemberBody, open: Int) -> Bool {
+        var any = false
+        while self.kind() != TokenKind.RBrace {
+            if self.kind() == TokenKind.Eof {
+                return self.refuse_unclosed(open)
+            }
+            if not any {
+                self.see(member_list_alt(body))
+                any = true
+            }
+            let from = self.pos
+            let point = self.resume_point()
+            self.begin_statement()
+            if not self.parse_member(body) {
+                self.resume(&point)
+                self.recover(from)
+            }
+            let after = self.kind()
+            if after == TokenKind.Newline {
+                self.skip_newlines()
+            } else if after != TokenKind.RBrace && after != TokenKind.Eof {
+                let from_here = self.pos
+                if after == TokenKind.Semicolon {
+                    let _ = self.error("members are not joined by `;`; put each on its own line")
+                } else {
+                    let _ = self.error("two members on one line need a line break between them")
+                }
+                self.recover(from_here)
+                if self.kind() == TokenKind.Semicolon {
+                    self.advance()
+                }
+                self.skip_newlines()
+            }
+        }
+        self.advance()
+        true
+    }
+
+    func parse_member(&var self, body: MemberBody) -> Bool {
+        match body {
+            case Trait -> self.parse_trait_member(),
+            case Extension -> self.parse_extension_member(),
+            case Extern -> self.parse_extern_func()
+        }
+    }
+
+    // `trait-member ::= assoc-type-decl | requirement`, or a head section 10
+    // refuses.
+    func parse_trait_member(&var self) -> Bool {
+        let attrs = self.after_attributes(0)
+        let prefix = self.effect_prefix_at(attrs)
+        if prefix >= 0 {
+            return self.refuse_effect_prefix(prefix)
+        }
+        let next = self.kind_at(1)
+        if self.word_at(0, "private") && (next == TokenKind.Static || next == TokenKind.Func) {
+            return self.refuse_member_private()
+        }
+        if self.word_at(0, "type") && next == TokenKind.Ident {
+            self.see(Alt.Decl_TraitMember_AssocType)
+            self.see(Alt.Decl_AssocType)
+            let start = self.here()
+            let mark = self.builder.mark()
+            self.advance()
+            self.take_leaf()
+            self.close(mark, Alt.Decl_AssocType, start)
+            return true
+        }
+        if self.kind() == TokenKind.Func || (self.kind() == TokenKind.Static && next == TokenKind.Func) {
+            self.see(Alt.Decl_TraitMember_Requirement)
+            return self.parse_requirement()
+        }
+        self.error("expected a requirement or an associated type")
+    }
+
+    func refuse_member_private(&var self) -> Bool {
+        let at = self.pos
+        self.refuse(Rule.Decl_RefusedMemberPrivate, at,
+                    "a member with no modifier is already module-private",
+                    "delete `private`; it narrows only a field")
+    }
+
+    // `requirement ::= "static"? "func" IDENT generic-params? "(" param-list? ")" effect-slot return-clause? default-body?`,
+    // with its doc comment; `default-body ::= NEWLINE* block`.
+    func parse_requirement(&var self) -> Bool {
+        self.see(Alt.Decl_Requirement)
+        let head = self.pos
+        let mark = self.builder.mark()
+        let start = self.attach_docs(head)
+        let is_static = self.kind() == TokenKind.Static
+        if is_static {
+            self.take_leaf()
+        }
+        self.advance()
+        if self.kind() != TokenKind.Ident {
+            return self.error("expected the requirement's name")
+        }
+        self.take_leaf()
+        if not self.parse_signature(not is_static, head, EffectHost.Requirement) {
+            return false
+        }
+        if self.body_ahead() {
+            self.see(Alt.Decl_DefaultBody)
+            self.skip_newlines()
+            if not self.parse_block() {
+                return false
+            }
+        }
+        self.close(mark, Alt.Decl_Requirement, start)
+        true
+    }
+
+    // `extension-member ::= type-assign-decl | visibility? method-decl
+    //     | synthesize-shared-attr visibility? method-decl | visibility? init-decl`,
+    // or a head section 10 refuses, with the member's doc comment.
+    func parse_extension_member(&var self) -> Bool {
+        let attrs = self.after_attributes(0)
+        let prefix = self.effect_prefix_at(attrs)
+        if prefix >= 0 {
+            return self.refuse_effect_prefix(prefix)
+        }
+        let next = self.kind_at(1)
+        if self.word_at(0, "private") && (next == TokenKind.Static || next == TokenKind.Func) {
+            return self.refuse_member_private()
+        }
+        if self.kind() == TokenKind.Static && (next == TokenKind.Init || next == TokenKind.Public) {
+            let at = self.pos
+            return self.refuse(Rule.Decl_RefusedMemberStatic, at,
+                               "an initializer takes no receiver by construction, and `static` follows the visibility",
+                               "write `init(…)`, or `public static func`")
+        }
+        let first = self.pos
+        let mark = self.builder.mark()
+        if self.word_at(0, "type") && next == TokenKind.Ident {
+            self.see(Alt.Decl_ExtensionMember_TypeAssign)
+            let start = self.here()
+            if not self.parse_type_assign() {
+                return false
+            }
+            self.close(mark, Alt.Decl_ExtensionMember_TypeAssign, start)
+            return true
+        }
+        let synthesized = self.kind() == TokenKind.At
+        if synthesized && not self.synthesize_shared_ahead() {
+            return self.error("a member takes no attribute but `@synthesize(shared)`")
+        }
+        let named = self.after_visibility(attrs)
+        let head = self.kind_at(named)
+        var alt = Alt.Decl_ExtensionMember_Method
+        if head == TokenKind.Init && not synthesized {
+            alt = Alt.Decl_ExtensionMember_Init
+        } else if head != TokenKind.Func && head != TokenKind.Static {
+            return self.error("expected a method, an `init` or a type assignment")
+        }
+        if synthesized {
+            alt = Alt.Decl_ExtensionMember_SynthesizedMethod
+        }
+        let start = self.attach_docs(first)
+        self.see(alt)
+        if synthesized {
+            self.take_synthesize_shared()
+            self.skip_newlines()
+            if self.kind() == TokenKind.At {
+                return self.error("a member takes no attribute but `@synthesize(shared)`, once")
+            }
         }
         if self.kind() == TokenKind.Public {
             if not self.parse_visibility() {
                 return false
             }
         }
-        if self.kind() == TokenKind.Func {
-            self.see(Alt.File_Item_Declaration)
-            self.see(Alt.Decl_Item_Func)
-            if not self.parse_func() {
+        let parsed = if alt == Alt.Decl_ExtensionMember_Init { self.parse_init() } else { self.parse_method() }
+        if not parsed {
+            return false
+        }
+        self.close(mark, alt, start)
+        true
+    }
+
+    // `type-assign-decl ::= 'type' IDENT "=" type`
+    func parse_type_assign(&var self) -> Bool {
+        self.see(Alt.Decl_TypeAssign)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        self.take_leaf()
+        if self.kind() != TokenKind.Assign {
+            return self.error("expected `=` and the type assigned")
+        }
+        self.advance()
+        if not self.parse_type(false) {
+            return false
+        }
+        self.close(mark, Alt.Decl_TypeAssign, start)
+        true
+    }
+
+    // `method-decl ::= "static"? "func" method-name generic-params? "(" param-list? ")" effect-slot return-clause? NEWLINE* block`,
+    // with `method-name ::= IDENT | "[" "]" | "[" "]" "="`, whose brackets
+    // print (syntax.rule.subscript-declaration).
+    func parse_method(&var self) -> Bool {
+        self.see(Alt.Decl_Method)
+        let start = self.here()
+        let mark = self.builder.mark()
+        let head = self.pos
+        let is_static = self.kind() == TokenKind.Static
+        if is_static {
+            self.take_leaf()
+            if self.kind() != TokenKind.Func {
+                return self.error("expected `func` after `static`")
+            }
+        }
+        self.advance()
+        if self.kind() == TokenKind.Ident {
+            self.see(Alt.Decl_MethodName_Ident)
+            self.take_leaf()
+        } else if self.kind() == TokenKind.LBracket && self.kind_at(1) == TokenKind.RBracket {
+            let setitem = self.kind_at(2) == TokenKind.Assign
+            self.take_leaf()
+            self.take_leaf()
+            if setitem {
+                self.see(Alt.Decl_MethodName_Setitem)
+                self.see(Alt.Decl_SetitemName)
+                self.take_leaf()
+            } else {
+                self.see(Alt.Decl_MethodName_Subscript)
+            }
+        } else {
+            return self.error("expected the method's name, `[]` or `[]=`")
+        }
+        if not self.parse_signature(not is_static, head, EffectHost.Method) {
+            return false
+        }
+        if not self.parse_body_block("expected `\{` to open the method's body") {
+            return false
+        }
+        self.close(mark, Alt.Decl_Method, start)
+        true
+    }
+
+    // `init-decl ::= "init" "(" param-list? ")" effect-slot return-clause? NEWLINE* block`
+    func parse_init(&var self) -> Bool {
+        self.see(Alt.Decl_Init)
+        let start = self.here()
+        let mark = self.builder.mark()
+        let head = self.pos
+        self.advance()
+        if self.kind() != TokenKind.LParen {
+            return self.error("expected `(` to open the parameters")
+        }
+        if not self.parse_signature(false, head, EffectHost.Initializer) {
+            return false
+        }
+        if not self.parse_body_block("expected `\{` to open the initializer's body") {
+            return false
+        }
+        self.close(mark, Alt.Decl_Init, start)
+        true
+    }
+
+    // A body's `{`, on its head's line or after line breaks, and its block.
+    func parse_body_block(&var self, message: String) -> Bool {
+        self.skip_newlines()
+        if self.kind() != TokenKind.LBrace {
+            return self.error(message)
+        }
+        self.parse_block()
+    }
+
+    // What follows a function's name: `generic-params? "(" param-list? ")" effect-slot return-clause?`
+    // (the generic list absent from an `init`), with the receiver rule: a
+    // declaration that `takes` one has it first, and any other has none
+    // (syntax.rule.receiver-and-static). `head` is the token the declaration
+    // starts at, where a missing receiver is refused.
+    func parse_signature(&var self, takes: Bool, head: Int, host: EffectHost) -> Bool {
+        if self.kind() == TokenKind.Lt && host != EffectHost.Initializer {
+            if not self.parse_generic_params() {
                 return false
             }
-            self.close(mark, Alt.Decl_Item_Func, start)
-            return true
         }
-        if self.word_at(0, "type") && self.kind_at(1) == TokenKind.Ident {
-            self.see(Alt.File_Item_Declaration)
-            self.see(Alt.Decl_Item_TypeAlias)
-            if not self.parse_type_alias() {
+        if self.kind() != TokenKind.LParen {
+            return self.error("expected `(` to open the parameters")
+        }
+        let first = self.builder.mark()
+        if not self.parse_params() {
+            return false
+        }
+        let receiver = self.misplaced_receiver(first, takes)
+        if receiver >= 0 {
+            return self.refuse(Rule.Rule_ReceiverAndStatic, receiver,
+                               "a receiver is a method's first parameter, and only a method that is not `static` takes one",
+                               "declare `&self` or `&var self` first, or declare the method `static`")
+        }
+        if takes && not self.first_is_receiver(first) {
+            return self.refuse(Rule.Rule_ReceiverAndStatic, head,
+                               "a method that is not `static` takes a receiver",
+                               "declare `&self` or `&var self` first, or declare the method `static`")
+        }
+        let exclusive = self.first_is_exclusive(first)
+        if not self.parse_effects(host, exclusive) {
+            return false
+        }
+        if self.kind() == TokenKind.Arrow {
+            self.see(Alt.Decl_Return)
+            self.advance()
+            if not self.parse_type(false) {
                 return false
             }
-            self.close(mark, Alt.Decl_Item_TypeAlias, start)
+        }
+        true
+    }
+
+    // Whether the parameter at scratch slot `slot` is a receiver.
+    func is_receiver_slot(&self, slot: Int) -> Bool {
+        if let alt = self.builder.node_at(slot).alt {
+            return alt == Alt.Decl_Param_Receiver
+        }
+        false
+    }
+
+    // The token of the first receiver among the parameters from scratch slot
+    // `first` on that stands where none may, or -1.
+    func misplaced_receiver(&self, first: Int, takes: Bool) -> Int {
+        var slot = first
+        while slot < self.builder.mark() {
+            if self.is_receiver_slot(slot) && (not takes || slot > first) {
+                let at = self.builder.node_at(slot).start
+                return self.token_starting_at(at)
+            }
+            slot = slot + 1
+        }
+        return -1
+    }
+
+    func first_is_receiver(&self, first: Int) -> Bool {
+        first < self.builder.mark() && self.is_receiver_slot(first)
+    }
+
+    // Whether the first parameter is `&var self`.
+    func first_is_exclusive(&self, first: Int) -> Bool {
+        if not self.first_is_receiver(first) {
+            return false
+        }
+        let start = self.builder.node_at(first).start
+        let at = self.token_starting_at(start)
+        self.tokens[at + 1].kind == TokenKind.Var
+    }
+
+    // ---- externs -------------------------------------------------------------------
+
+    // `extern-block ::= "extern" STRING NEWLINE* "{" NEWLINE* extern-func-list? "}"`,
+    // whose ABI string is `"C"` (syntax.rule.extern-abi).
+    func parse_extern_block(&var self) -> Bool {
+        self.see(Alt.Decl_ExternBlock)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        if self.kind() != TokenKind.StringLit {
+            return self.error("expected the ABI string, `\"C\"`")
+        }
+        let abi = self.current()
+        if not self.abi_is_c(&abi) {
+            let at = self.pos
+            return self.refuse(Rule.Rule_ExternAbi, at, "the ABI string is `\"C\"`", "write `extern \"C\"`")
+        }
+        self.take_leaf()
+        let open = self.open_body("expected `\{` to open the extern block")
+        if open < 0 {
+            return false
+        }
+        if not self.parse_members(MemberBody.Extern, open) {
+            return false
+        }
+        self.close(mark, Alt.Decl_ExternBlock, start)
+        true
+    }
+
+    // Whether the string token `t` holds `C`, as the letter or as the one
+    // escape that decodes to it, `\u{43}` with any leading zeros.
+    func abi_is_c(&self, t: &ParseToken) -> Bool {
+        if self.builder.tree.source.span_is(t.start, t.end, "\"C\"") {
             return true
         }
-        if self.kind() == TokenKind.Enum && self.kind_at(1) == TokenKind.Ident {
-            return self.parse_enum_head()
+        let open = t.start + 4
+        let close = t.end - 2
+        if close <= open || not self.builder.tree.source.span_is(t.start, open, "\"\\u\{") {
+            return false
         }
-        self.error("expected a declaration")
+        if not self.builder.tree.source.span_is(close, t.end, "\}\"") {
+            return false
+        }
+        var value = 0
+        var k = open
+        while k < close {
+            value = value * 16 + escape_digit_value(self.builder.tree.source.byte(k))
+            k = k + 1
+        }
+        value == PARSE_LETTER_C
+    }
+
+    // `extern-func ::= 'blocking'? "func" IDENT "(" extern-param-list? ")" return-clause?`
+    func parse_extern_func(&var self) -> Bool {
+        let start = self.here()
+        let mark = self.builder.mark()
+        var alt = Alt.Decl_ExternFunc_Prompt
+        if self.word_at(0, "blocking") && self.kind_at(1) == TokenKind.Func {
+            alt = Alt.Decl_ExternFunc_Blocking
+            self.advance()
+        }
+        if self.kind() != TokenKind.Func {
+            return self.error("expected an extern function")
+        }
+        self.see(alt)
+        self.advance()
+        if self.kind() != TokenKind.Ident {
+            return self.error("expected the function's name")
+        }
+        self.take_leaf()
+        if self.kind() != TokenKind.LParen {
+            return self.error("expected `(` to open the parameters")
+        }
+        let open = self.pos
+        self.advance()
+        let fixed = self.kind() != TokenKind.RParen
+        var count = no_elements()
+        if not self.parse_comma_list(list_shape(CommaList.ExternParams), open, false, &var count) {
+            return false
+        }
+        if fixed {
+            let variadic = self.tokens[self.pos - 1].kind == TokenKind.Ellipsis
+            self.see(if variadic { Alt.Decl_ExternParams_Variadic } else { Alt.Decl_ExternParams_Fixed })
+        }
+        self.advance()
+        if self.kind() == TokenKind.Arrow {
+            self.see(Alt.Decl_Return)
+            self.advance()
+            if not self.parse_type(false) {
+                return false
+            }
+        }
+        self.close(mark, alt, start)
+        true
+    }
+
+    // `extern-param ::= IDENT ":" type`, or the `...` that ends a variadic
+    // list, after one parameter or more and right before its `)`.
+    func parse_extern_param(&var self, open: Int) -> Bool {
+        if self.kind() == TokenKind.Ellipsis {
+            if self.pos == open + 1 || self.kind_at(1) != TokenKind.RParen {
+                return self.error("`...` ends a list of one parameter or more")
+            }
+            self.take_leaf()
+            return true
+        }
+        if self.kind() != TokenKind.Ident {
+            return self.list_error(open, "expected a parameter name")
+        }
+        self.see(Alt.Decl_ExternParam)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.take_leaf()
+        if self.kind() != TokenKind.Colon {
+            return self.error("expected `:` and the parameter's type")
+        }
+        self.advance()
+        if not self.parse_type(false) {
+            return false
+        }
+        self.close(mark, Alt.Decl_ExternParam, start)
+        true
     }
 
     // `type-alias-decl ::= 'type' IDENT "=" type`
@@ -1396,19 +2608,6 @@ extension Parser {
         }
         self.close(mark, Alt.Decl_TypeAlias, start)
         true
-    }
-
-    // An enum's head, as far as its generic parameters, so that a refusal
-    // there is reported by name; the rest of an enum is not parsed yet.
-    func parse_enum_head(&var self) -> Bool {
-        self.advance()
-        self.take_leaf()
-        if self.kind() == TokenKind.Lt {
-            if not self.parse_generic_params() {
-                return false
-            }
-        }
-        self.error("an enum is not parsed yet")
     }
 
     // `visibility ::= "public" | "public" "(" 'package' ")" | "public" "(" 'parent' ")"`
@@ -1671,37 +2870,16 @@ extension Parser {
         self.see(Alt.Decl_Func)
         let start = self.here()
         let mark = self.builder.mark()
+        let head = self.pos
         self.advance()
         if self.kind() != TokenKind.Ident {
             return self.error("expected the function's name")
         }
         self.take_leaf()
-        if self.kind() == TokenKind.Lt {
-            if not self.parse_generic_params() {
-                return false
-            }
-        }
-        if self.kind() != TokenKind.LParen {
-            return self.error("expected `(` to open the parameters")
-        }
-        if not self.parse_params() {
+        if not self.parse_signature(false, head, EffectHost.Function) {
             return false
         }
-        if not self.parse_effects() {
-            return false
-        }
-        if self.kind() == TokenKind.Arrow {
-            self.see(Alt.Decl_Return)
-            self.advance()
-            if not self.parse_type(false) {
-                return false
-            }
-        }
-        self.skip_newlines()
-        if self.kind() != TokenKind.LBrace {
-            return self.error("expected `\{` to open the function's body")
-        }
-        if not self.parse_block() {
+        if not self.parse_body_block("expected `\{` to open the function's body") {
             return false
         }
         self.close(mark, Alt.Decl_Func, start)
@@ -1723,9 +2901,40 @@ extension Parser {
         true
     }
 
-    // `param ::= IDENT ":" type | IDENT ":" type "=" expr`
+    // `param ::= IDENT ":" type | IDENT ":" type "=" expr | receiver`, where
+    // `receiver ::= "&" "self" | "&" "var" "self"`, or a receiver section 10
+    // refuses: `var self`, `self`, or a reference written on the name.
     func parse_param(&var self) -> Bool {
-        if self.kind() != TokenKind.Ident {
+        let kind = self.kind()
+        let next = self.kind_at(1)
+        if kind == TokenKind.Ampersand {
+            let exclusive = next == TokenKind.Var
+            let target = if exclusive { self.kind_at(2) } else { next }
+            if target == TokenKind.SelfKw {
+                let alt = if exclusive { Alt.Decl_Receiver_Exclusive } else { Alt.Decl_Receiver_Shared }
+                self.see(Alt.Decl_Param_Receiver)
+                self.see(alt)
+                let start = self.here()
+                let mark = self.builder.mark()
+                let inner = self.builder.mark()
+                self.advance()
+                if exclusive {
+                    self.advance()
+                }
+                self.advance()
+                self.close(inner, alt, start)
+                self.close(mark, Alt.Decl_Param_Receiver, start)
+                return true
+            }
+            if target == TokenKind.Ident {
+                return self.refuse_receiver("a reference parameter carries `&` on its type",
+                                            "write `x: &T` or `x: &var T`")
+            }
+        }
+        if kind == TokenKind.SelfKw || (kind == TokenKind.Var && next == TokenKind.SelfKw) {
+            return self.refuse_receiver("a receiver is a reference", "write `&self` or `&var self`")
+        }
+        if kind != TokenKind.Ident {
             return self.error("expected a parameter name")
         }
         let start = self.here()
@@ -1751,12 +2960,20 @@ extension Parser {
         true
     }
 
+    func refuse_receiver(&var self, message: String, hint: String) -> Bool {
+        let at = self.pos
+        self.refuse(Rule.Decl_RefusedReceiver, at, message, hint)
+    }
+
     // `effect-slot ::= 'consumes'? "unsafe"? constexpr-effect? 'sync'? borrows-effect? refused-escaping?`,
-    // each word a leaf of the function. A free function takes no `consumes`,
-    // which needs a `&var self` receiver (syntax.rule.effect-slot).
-    func parse_effects(&var self) -> Bool {
+    // each word a leaf of the declaration. `consumes` stands only on a method
+    // whose first parameter is `&var self` (`exclusive`), and `borrows` on
+    // anything but an `init` (syntax.rule.effect-slot); a requirement is
+    // never `consumes` (syntax.rule.requirement-borrows).
+    func parse_effects(&var self, host: EffectHost, exclusive: Bool) -> Bool {
         self.see(Alt.Decl_Effects)
         var consumes = -1
+        var lend_word = -1
         if self.word_at(0, "consumes") {
             consumes = self.pos
             self.take_leaf()
@@ -1764,13 +2981,47 @@ extension Parser {
         if self.kind() == TokenKind.Unsafe_ {
             self.take_leaf()
         }
+        if self.word_at(0, "constexpr") {
+            self.see(Alt.Decl_Constexpr)
+            self.take_leaf()
+        }
         if self.word_at(0, "sync") {
             self.take_leaf()
         }
-        if consumes >= 0 {
+        if self.kind() == TokenKind.Borrows {
+            lend_word = self.pos
+            let paired = self.kind_at(1) == TokenKind.LParen && self.word_at(2, "sync")
+            if paired && self.kind_at(3) == TokenKind.RParen {
+                self.see(Alt.Decl_BorrowsEffect_Sync)
+                self.see(Alt.Decl_BorrowsSync)
+                self.take_leaf()
+                self.advance()
+                self.take_leaf()
+                self.advance()
+            } else {
+                self.see(Alt.Decl_BorrowsEffect_Plain)
+                self.take_leaf()
+            }
+        }
+        if self.word_at(0, "escaping") {
+            let at = self.pos
+            return self.refuse(Rule.Decl_RefusedEscaping, at,
+                               "`escaping` describes a closure's environment, and a named function has none",
+                               "write `escaping` on the function type instead")
+        }
+        if consumes >= 0 && host == EffectHost.Requirement {
+            return self.refuse(Rule.Rule_RequirementBorrows, consumes,
+                               "a trait requirement is never `consumes`",
+                               "declare the consuming method in an extension")
+        }
+        if consumes >= 0 && not (host == EffectHost.Method && exclusive) {
             return self.refuse(Rule.Rule_EffectSlot, consumes,
-                               "`consumes` ends a method's receiver, and a function has none",
+                               "`consumes` stands only on a method whose receiver is `&var self`",
                                "declare the function as a method whose receiver is `&var self`")
+        }
+        if lend_word >= 0 && host == EffectHost.Initializer {
+            return self.refuse(Rule.Rule_EffectSlot, lend_word, "an `init` is never `borrows`",
+                               "lend the storage from a method instead")
         }
         true
     }
@@ -1945,6 +3196,10 @@ extension Parser {
     func parse_statement(&var self, place: StatementPlace) -> Bool {
         let arm = place == StatementPlace.Arm
         let kind = self.kind()
+        if kind == TokenKind.At {
+            self.see_other(Alt.Stmt_NonExpr_AttributedLocal, arm)
+            return self.parse_attributed_local()
+        }
         if kind == TokenKind.Let || kind == TokenKind.Var {
             if self.kind_at(1) == TokenKind.LParen {
                 self.see_other(Alt.Stmt_NonExpr_Destructure, arm)
@@ -2406,6 +3661,27 @@ extension Parser {
             return false
         }
         self.close(mark, alt, start)
+        true
+    }
+
+    // `attributed-local ::= attribute-list let-stmt`: a `let` or `var` that
+    // binds one name, whose one attribute is `@align`
+    // (syntax.rule.attribute-position).
+    func parse_attributed_local(&var self) -> Bool {
+        self.see(Alt.Stmt_AttributedLocal)
+        let start = self.here()
+        let mark = self.builder.mark()
+        if not self.parse_attributes(Alt.Stmt_AttributedLocal) {
+            return false
+        }
+        let kind = self.kind()
+        if (kind != TokenKind.Let && kind != TokenKind.Var) || self.kind_at(1) == TokenKind.LParen {
+            return self.error("an attribute stands on a `let` or `var` that binds one name")
+        }
+        if not self.parse_let() {
+            return false
+        }
+        self.close(mark, Alt.Stmt_AttributedLocal, start)
         true
     }
 
@@ -5422,6 +6698,12 @@ extension Parser {
     //     parse_set_rest
     //     parse_closure_head
     //     parse_capture_list
+    //     parse_struct
+    //     parse_enum
+    //     parse_payload_decl
+    //     parse_extern_func
+    //     parse_trait
+    //     parse_extension
     // COMMA LEDGER:
     //     parse_match: an arm separator is a comma, a line break or nothing (syntax.expr.arm-sep), and separates arms, which no bracket closes
     func parse_comma_list(&var self, shape: ListShape, open: Int, first_done: Bool,
@@ -5443,20 +6725,31 @@ extension Parser {
             if self.at_closer(shape.closer) {
                 break
             }
-            if self.kind() != TokenKind.Comma {
-                return self.list_stop(shape.closer, open, list_gap_message(shape.closer))
-            }
-            let comma = self.pos
-            self.advance()
-            if shape.breaks != LineBreaks.Settled {
-                self.skip_newlines()
-            }
-            if self.at_closer(shape.closer) {
-                trailing = true
-                if not self.trailing_comma_allowed(shape, comma) {
-                    return false
+            if shape.breaks == LineBreaks.Separate {
+                let taken = self.take_list_sep()
+                if taken == 0 {
+                    return self.list_stop(shape.closer, open, list_gap_message(shape))
                 }
-                break
+                if self.at_closer(shape.closer) {
+                    trailing = taken == 2
+                    break
+                }
+            } else {
+                if self.kind() != TokenKind.Comma {
+                    return self.list_stop(shape.closer, open, list_gap_message(shape))
+                }
+                let comma = self.pos
+                self.advance()
+                if shape.breaks != LineBreaks.Settled {
+                    self.skip_newlines()
+                }
+                if self.at_closer(shape.closer) {
+                    trailing = true
+                    if not self.trailing_comma_allowed(shape, comma) {
+                        return false
+                    }
+                    break
+                }
             }
             if not self.parse_list_item(shape, open) {
                 return false
@@ -5515,8 +6808,46 @@ extension Parser {
             case RBracket -> self.kind() == TokenKind.RBracket,
             case RBrace -> self.kind() == TokenKind.RBrace,
             case GenericClose -> self.closes_list(),
-            case In -> self.kind() == TokenKind.In
+            case In -> self.kind() == TokenKind.In,
+            case Body -> self.body_ahead()
         }
+    }
+
+    // Whether a `{` follows, on this line or after line breaks.
+    func body_ahead(&self) -> Bool {
+        let breaks = self.breaks_ahead(0)
+        self.kind_at(breaks) == TokenKind.LBrace
+    }
+
+    // How many line breaks stand from `ahead` tokens on.
+    func breaks_ahead(&self, ahead: Int) -> Int {
+        var k = ahead
+        while self.kind_at(k) == TokenKind.Newline {
+            k = k + 1
+        }
+        k - ahead
+    }
+
+    // The separator between two fields or cases, recorded as the list-sep
+    // alternative it is: 2 for one that holds a comma, 1 for line breaks
+    // alone, 0 when there is none (syntax.decl.list-sep).
+    func take_list_sep(&var self) -> Int {
+        var taken = 0
+        if self.kind() == TokenKind.Newline {
+            self.skip_newlines()
+            taken = 1
+        }
+        if self.kind() == TokenKind.Comma {
+            let alt = if taken == 1 { Alt.Decl_ListSep_NewlineComma } else { Alt.Decl_ListSep_Comma }
+            self.see(alt)
+            self.advance()
+            self.skip_newlines()
+            return 2
+        }
+        if taken == 1 {
+            self.see(Alt.Decl_ListSep_Newline)
+        }
+        taken
     }
 
     // Whether line breaks here lead to a `,` or to the list's closer, which
@@ -5556,7 +6887,13 @@ extension Parser {
             case TuplePattern -> self.parse_pattern(),
             case PayloadPatterns -> self.payload_pattern(),
             case ClosureParams -> self.parse_closure_param(),
-            case Captures -> self.parse_capture()
+            case Captures -> self.parse_capture(),
+            case Fields -> self.parse_field(),
+            case Cases -> self.parse_enum_case(),
+            case PayloadFields -> self.parse_payload_field(open),
+            case ExternParams -> self.parse_extern_param(open),
+            case TraitParents -> self.parse_path(),
+            case Conformances -> self.parse_path()
         }
     }
 

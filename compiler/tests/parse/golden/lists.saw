@@ -98,3 +98,63 @@ func f() {
 func f() {
     let g = { [a, b,] in a }
 }
+
+// case: syntax.decl.fields/each-separator-and-a-trailing-one
+struct P { x: Int, y: Int }
+struct Q {
+    a: Int
+    b: Int,
+    c: Int
+    , d: Int
+    ,
+}
+struct R {
+}
+
+// case: syntax.decl.cases/each-separator-and-a-trailing-one
+enum E { case A, case B }
+enum F {
+    case A
+    case B,
+    case C
+    , case D,
+}
+
+// case: syntax.decl.payload/trailing-comma-line-breaks-and-empty
+enum E {
+    case A(x: Int, y: Int,)
+    case B(
+        x: Int,
+        y: Int
+    )
+    case C()
+}
+
+// case: syntax.decl.extern-params.fixed/trailing-comma-and-empty
+extern "C" {
+    func f(a: Int, b: Int,) -> Int
+    func g()
+}
+
+// case: syntax.decl.extern-params.variadic/ellipsis-after-a-comma
+extern "C" {
+    func f(a: Int, ...) -> Int
+    func g(
+        a: Int,
+        ...
+    )
+}
+
+// case: syntax.decl.trait-parents/several-paths
+trait T: A, m.B, C {
+}
+trait U: A
+{
+}
+
+// case: syntax.decl.conformances/several-paths
+extension S: A, m.B {
+}
+extension V: A
+{
+}
