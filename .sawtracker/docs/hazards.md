@@ -1267,9 +1267,28 @@ func main() {
 }
 ```
 
+
 **Instead:** widen with `as`, which is total and free for a widening:
 `take(small as Int)`, `Holder(v: small as Int)`. Or bind first, since a `let`
 widening builds: `let wide: Int = small`.
+
+**Checker:** not needed: the build fails loudly.
+
+### L23. Same-named methods in two extensions of one type (SL-451)
+
+**Shape:** two extensions of one type, in different modules, each declaring a
+method of the same name, which is legal, since extensions are import-scoped and
+their methods are private by default. Stage 0's method mangling drops the
+extension's module, so the build fails:
+
+```saw
+// area.saw:      extension Shape { func fold(&self) -> Int {...}  public func area(&self) -> Int { self.fold() } }
+// perimeter.saw: extension Shape { func fold(&self) -> Int {...}  public func perimeter(&self) -> Int { self.fold() } }
+// internal compiler error (MethodCall): Undefined method: Shape$m$shape.fold
+```
+
+**Instead:** give extension methods of one type distinct names across the
+program.
 
 **Checker:** not needed: the build fails loudly.
 
@@ -1343,7 +1362,7 @@ well. Loud.
 
 ## Inventory
 
-Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and seven found since, mapped to its entry. "Call" is this
+Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and eight found since, mapped to its entry. "Call" is this
 ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 
 | Issue | Entry | Call |
@@ -1446,6 +1465,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-431 | L20 A coroutine returning `Result<Void, E>` that falls off the end | loud (found in ST-69's review) |
 | SL-449 | L21 An `Int` static as a bare operand against another width | loud (found by the new typecheck's widening golden) |
 | SL-450 | L22 An integer widened into an Optional argument or field | loud (found in the Air's typecheck probes) |
+| SL-451 | L23 Same-named methods in two extensions of one type | loud (found by the new typecheck's own source) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
