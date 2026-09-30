@@ -258,6 +258,18 @@ other rule's refusal lies (`PRECEDENCE` in `recognize.py`). Between two other
 rules the grammar does not say which a parser reports, so no case records such
 a text.
 
+Nor does any case record a text refused twice, once inside a removed form's
+reading. That is a text with a tree, every removed production enabled, in which
+a removed production's reading holds another removed production's reading and,
+for a name from step 1, the token that name is decided at. A parser that reads
+the refused form by the rules meets the inner refusal first, so the grammar does
+not say which refusal it reports. `while { a } + (x as Int??) { }` needs
+syntax.type.refused-cast-question inside the condition of
+syntax.expr.refused-brace-condition, and `while { a } + (while { b } { }) { }`
+holds one refused condition inside another; `cases.py` raises `Problem` for
+both. A refusal after the reading is not inside it, so `n as Int?? 9` records
+syntax.rule.cast-target-question at the `??`.
+
 ## The generated corpus
 
 `compiler/tests/grammar/generate.py` derives the cases from the grammar.

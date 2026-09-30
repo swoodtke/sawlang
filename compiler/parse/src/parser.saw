@@ -1325,9 +1325,40 @@ extension Parser {
     func report_doc_run(&var self, run: &DocRun) {
         let d = self.docs[run.first]
         let at = self.builder.tree.source.offset_of(d.line, d.col)
+        let earlier = self.documenting_run(run.target, run.first)
+        if earlier >= 0 {
+            let e = self.docs[earlier]
+            var message = StringBuilder()
+            try! message.append("this declaration already has a doc comment, at ")
+            try! message.append(e.line)
+            try! message.append(":")
+            try! message.append(e.col)
+            try! message.append("; a declaration takes one")
+            self.record(Diagnostic(rule: Rule.Lex_DocAttach, start: at, end: at + 3,
+                                   message: message.build(),
+                                   hint: "join the two runs, or make one a `//` comment"))
+            return
+        }
         self.record(Diagnostic(rule: Rule.Lex_DocAttach, start: at, end: at + 3,
                                message: "this doc comment documents no declaration",
                                hint: "make it a `//` comment, or move it before a declaration"))
+    }
+
+    // The first doc line of another run attached to the declaration at token
+    // `target` than the one starting at doc line `own`, or -1 when none is. A
+    // declaration takes one run, so a later run reaching it is refused as a
+    // second one (syntax.lex.doc-attach). A run refused before a test head is
+    // marked attached too, which `own` keeps from answering for itself.
+    func documenting_run(&self, target: Int, own: Int) -> Int {
+        var r = 0
+        while r < self.runs.len() {
+            let run = self.runs[r]
+            if run.attached && run.target == target && run.first != own {
+                return run.first
+            }
+            r = r + 1
+        }
+        return -1
     }
 
     // A test case or group is never documented (GRAMMAR.md section 2.6), which

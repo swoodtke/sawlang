@@ -50,6 +50,12 @@ REFUSED = [
      "FAIL: 2:5 refused by syntax.lex.doc-attach"),
     ("@export\n/// d\npublic func f() {\n}\n",
      "FAIL: 2:1 refused by syntax.lex.doc-attach"),
+    ("/// one\n@test\n/// two\nfunc f() {\n}\n",
+     "FAIL: 3:1 refused by syntax.lex.doc-attach: this declaration already has a doc comment, "
+     "at 1:1; a declaration takes one"),
+    ("/// one\n\n/// two\nfunc f() {\n}\n",
+     "FAIL: 3:1 refused by syntax.lex.doc-attach: this declaration already has a doc comment, "
+     "at 1:1; a declaration takes one"),
     ("func f() {\n}\n//! late\n",
      "LEXERR: 3:1 refused by syntax.lex.module-doc"),
     ('func f() {\n    let s = "{é}"\n}\n',
@@ -148,6 +154,37 @@ def check_unknown_sources(failures, g):
     return len(UNKNOWN_SOURCES)
 
 
+# Statements and the refusal each records: a name and its position, or None
+# for a text refused twice, once inside a removed form's reading, which no
+# case may record (compiler/tests/parse/README.md, Refusals).
+REFUSAL_NAMES = [
+    ("while { a } + (while { b } { }) { }", None),
+    ("while { a } + (x as Int??) { }", None),
+    ("let n = n as Int?? 9", ("syntax.rule.cast-target-question", "2:21")),
+    ("while { a } + b { }", ("syntax.rule.infinite-loop", "2:17")),
+]
+
+
+def check_refusal_names(failures, g):
+    exp = cases.Expectations(g.model)
+    for statement, want in REFUSAL_NAMES:
+        text = "func main() {\n    %s\n}\n" % statement
+        try:
+            got = exp.refusal(text, "source-file")
+        except cases.Problem as e:
+            if want is not None:
+                failures.append("refusal %r: expected %s at %s, got: %s" % (statement, want[0],
+                                                                           want[1], e))
+            continue
+        if want is None:
+            failures.append("refusal %r: recorded %s, but it is refused twice, once inside a "
+                            "removed form's reading" % (statement, got and got[0]))
+        elif got is None or got[:2] != want:
+            failures.append("refusal %r: expected %s at %s, got %s"
+                            % (statement, want[0], want[1], got and got[:2]))
+    return len(REFUSAL_NAMES)
+
+
 def run():
     """(failure lines, counts) for run.py."""
     sys.setrecursionlimit(recognize.RECURSION_LIMIT)
@@ -157,7 +194,8 @@ def run():
               "dump refusals": check_refusals(failures, g),
               "line-breaking characters": check_escapes(failures),
               "punctuation-leaf productions": check_flagged(failures, g),
-              "unknown case sources": check_unknown_sources(failures, g)}
+              "unknown case sources": check_unknown_sources(failures, g),
+              "refusal names": check_refusal_names(failures, g)}
     hand, hand_counts, results = cases.check()
     failures += hand
     counts.update(hand_counts)

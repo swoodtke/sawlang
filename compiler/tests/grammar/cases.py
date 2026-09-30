@@ -180,6 +180,7 @@ class Expectations:
             raise Problem("%s %s" % (checked.verdict, checked.detail))
         decided = self.rule_at(text, start)
         if decided is not None:
+            self.refused_once(text, start, decided[1])
             return decided[0], decided[1], []
         if self.checked(self.all_removed, text, start).verdict == "OK":
             hits = []
@@ -190,6 +191,7 @@ class Expectations:
             if len(hits) != 1:
                 raise Problem("refused, and explained by %s removed productions%s"
                               % (len(hits), "".join(" " + n for n, _ in hits)))
+            self.refused_once(text, start, None)
             name, enabled = hits[0]
             return name, None, alternatives(enabled)
         m = REFUSED_BY.search(checked.detail)
@@ -303,6 +305,34 @@ class Expectations:
             return None
         line, column, rule = min(found)
         return rule, "%d:%d" % (line, column)
+
+    def refused_once(self, text, start, at):
+        """Problem when, in a tree of the text with every removed production
+        enabled, a removed production's reading around the refusal at `at`
+        ("L:C", or None for anywhere) holds a second removed reading: the text
+        is refused twice, once inside the refused form, and a parser reading
+        the refused form by the rules meets the inner refusal first.
+        `while { a } + (x as Int??) { }` needs refused-cast-question inside
+        refused-brace-condition's head. A refusal after the reading, as the
+        juxtaposed `9` of `n as Int?? 9`, is not inside it."""
+        toks, _, err = recognize.lex_with_docs(text)
+        if err is not None:
+            return
+        g = self.all_removed
+        parse = recognize.Parse(g, start, recognize.prepare(g, toks, start))
+        if not parse.accepted:
+            return
+        removed = {p.nonterminal: p.name for p in self.removed}
+        for tree in parse.derivations():
+            for d in recognize.walk_real(g, tree):
+                if d.nt not in removed or (at is not None and not any(
+                        "%d:%d" % (t.line, t.column) == at for t in parse.tokens[d.i:d.j])):
+                    continue
+                inner = next((k for k in recognize.walk_real(g, d)
+                              if k is not d and k.nt in removed), None)
+                if inner is not None:
+                    raise Problem("refused twice: the reading of %s holds a reading of %s"
+                                  % (removed[d.nt], removed[inner.nt]))
 
     def taken(self, removed, toks, start):
         """The (line, column) of each token some reading of the removed

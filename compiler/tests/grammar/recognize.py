@@ -1172,9 +1172,9 @@ class Forest:
 
     def _infinite_loop(self, d):
         """A `{` right after `while` begins the infinite loop's body, never a
-        condition; and a token on the line after that body that a conditional
-        reading from the same `while` takes is refused there, whatever else
-        could read it (syntax.rule.infinite-loop)."""
+        condition; and a token on the line after that body is refused there
+        when a conditional reading from the same `while` goes on through it to
+        a body, whatever else could read it (syntax.rule.infinite-loop)."""
         toks = self.c.tokens
         alt = self._alt(d)
         if alt == "syntax.expr.while.conditional":
@@ -1693,15 +1693,19 @@ def doc_attach_error(parse, derivation, docs):
     if not applies("syntax.lex.doc-attach"):
         return None
     starts = None
-    claimed = set()
+    claimed = {}
     for line, column, last in doc_runs(docs):
         after = next((k for k, t in enumerate(parse.tokens)
                       if t.line > last and t.kind != "NEWLINE"), None)
         if starts is None:
             starts = parse.documented(derivation)
-        if after is None or after not in starts or starts[after] in claimed:
+        if after is None or after not in starts:
             return "%d:%d refused by syntax.lex.doc-attach" % (line, column)
-        claimed.add(starts[after])
+        if starts[after] in claimed:
+            return ("%d:%d refused by syntax.lex.doc-attach: this declaration already has a doc "
+                    "comment, at %d:%d; a declaration takes one"
+                    % ((line, column) + claimed[starts[after]]))
+        claimed[starts[after]] = (line, column)
     return None
 
 

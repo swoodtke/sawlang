@@ -119,7 +119,8 @@ VERDICTS = [
     ("func f() {\n    let g = { n: Int in n + 1 }\n}\n", "OK"),
     ("func f() {\n    let g = { [base] n: Int, &var acc in n + base }\n}\n", "OK"),
     # infinite-loop: a `{` right after `while` begins the body, wherever the
-    # loop stands, and a token on its line that a condition would take is refused.
+    # loop stands, and a token on its line is refused when a condition reading on
+    # through it reaches a body.
     ("func f() {\n    while { a } { }\n}\n", "FAIL"),
     ("func f() {\n    while { c }() { }\n}\n", "FAIL"),
     ("func f() {\n    let n = while { a } + b { }\n}\n", "FAIL"),

@@ -1,6 +1,6 @@
 // Diagnostics and recovery: one run reports every independent error, a named
 // rule reports its name, and a refusal unit parses statements and items alike.
-import sawparse.src.api.{parse_source}
+import sawparse.src.api.{ParseOptions, parse_record, parse_source}
 import sawparse.src.diag.{diagnostic_id}
 import sawparse.src.parser.{Parser}
 
@@ -24,6 +24,16 @@ func expect_ids(text: String, unit: Bool, want: String) {
     assert(got.equals(want), "diagnostics: {}", got)
 }
 
+// The `ERROR` records `sawc2 parse` prints for `text`: rule, position,
+// message and hint.
+func expect_record(text: String, want: String) {
+    var out = StringBuilder()
+    let options = ParseOptions(unit: false, dump: false, alternatives: false)
+    let _ = parse_record(out: &var out, path: "t.saw", text: text, options: &options)
+    let got = out.build()
+    assert(got.equals(want), "diagnostic records: {}", got)
+}
+
 func main() {
     expect_ids("func f() \{\n    let a = 1\n\}\n", false, "")
     // Two statements that fail on their own lines are two diagnostics, and the
@@ -44,6 +54,17 @@ func main() {
     expect_ids("func f() consumes \{\n\}\n", false, "syntax.rule.effect-slot")
     expect_ids("func f() \{\n\}\n/// orphaned\n", false, "syntax.lex.doc-attach")
     expect_ids("func f() \{\n\}\n//! late\n", false, "syntax.lex.module-doc")
+    // A second run before a declaration an earlier run documents says so, and
+    // names that run; a run that documents nothing, a test case's included,
+    // says that instead.
+    let second = "ERROR\tsyntax.lex.doc-attach\t3:1\tthis declaration already has a doc comment, at 1:1; a declaration takes one\tjoin the two runs, or make one a `//` comment\n"
+    expect_record("/// one\n@test\n/// two\nfunc f() \{\n\}\n", second)
+    expect_record("/// one\n\n/// two\nfunc f() \{\n\}\n", second)
+    expect_record("/// one\n// plain\n/// two\nfunc f() \{\n\}\n", second)
+    expect_record("func f() \{\n\}\n/// orphaned\n",
+                  "ERROR\tsyntax.lex.doc-attach\t3:1\tthis doc comment documents no declaration\tmake it a `//` comment, or move it before a declaration\n")
+    expect_record("/// a case\n@test \"adds\" \{\n\}\n",
+                  "ERROR\tsyntax.lex.doc-attach\t1:1\tthis doc comment documents no declaration\tmake it a `//` comment, or move it before a declaration\n")
     // A `{` after a complete `if` or loop on its line is refused alike, as a
     // trailing closure, and as the head restriction where a head could take it.
     expect_ids("func f() \{\n    if borrow let e = m[k] \{ e.ok \} \{ \}\n\}\n", false,
