@@ -1249,6 +1249,25 @@ silently. Or declare the static at the compared width.
 **Checker:** not needed: the build fails loudly. The new compiler refuses the
 bare form (SL:open-questions D17).
 
+### L22. An integer widened into an Optional argument or field (SL-450)
+
+**Shape:** a narrower integer passed where an optional of a wider one is
+expected, at a call argument or a memberwise field, ends in an internal
+compiler error. A `let` and a `return` of the same widening build:
+
+```saw
+func take(x: Int?) -> Int { x ?? 0 }
+let small: UInt8 = 7
+let a = take(small)
+// internal compiler error (FunctionCall): Can only insert i64 at [1] in {i1, i64}: got i8
+// Box8(v: small) with `v: Int?`: "cannot store {i1, i8}"
+```
+
+**Instead:** widen first, `take(Int(small))`, or pass a value already of the
+payload's type.
+
+**Checker:** not needed: the build fails loudly.
+
 ## Cases with no issue
 
 These four come from codex's review of the parked SL-2.p2 r3 (SL-2 c29, with
@@ -1319,7 +1338,7 @@ well. Loud.
 
 ## Inventory
 
-Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and six found since, mapped to its entry. "Call" is this
+Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and seven found since, mapped to its entry. "Call" is this
 ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 
 | Issue | Entry | Call |
@@ -1421,6 +1440,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-430 | S3 A coroutine's propagating `try` leaks the error | silent, leak only (found in ST-69's review) |
 | SL-431 | L20 A coroutine returning `Result<Void, E>` that falls off the end | loud (found in ST-69's review) |
 | SL-449 | L21 An `Int` static as a bare operand against another width | loud (found by the new typecheck's widening golden) |
+| SL-450 | L22 An integer widened into an Optional argument or field | loud (found in the Air's typecheck probes) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
