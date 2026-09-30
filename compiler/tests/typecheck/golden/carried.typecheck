@@ -8,11 +8,11 @@
     (struct Meter 16:8 private)
     (field Meter.value 17:5 private Int)
     (extension 20:1 (target carried.Meter))
-    (init Meter.init 21:5 private (signature (params (checked Int owned)) -> Result<carried.Meter, carried.Fault>))
-    (func carried 29:6 private (signature (params (raw UInt8 owned) (big Int owned)) -> Int))
-    (func unwrapped 40:6 private (signature (params (n Int owned)) -> Result<Int, carried.Fault>))
-    (func pointee 47:6 private (signature (params (p UnsafePointer<Int> owned)) (effects unsafe) -> Int))
-    (func located 51:6 private (signature (params) -> String)))
+    (init Meter.init 21:5 private (signature (params (checked Int owned)) -> Result<carried.Meter, carried.Fault>) (summary body (suspends no) (sync-callable yes)))
+    (func carried 29:6 private (signature (params (raw UInt8 owned) (big Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func unwrapped 40:6 private (signature (params (n Int owned)) -> Result<Int, carried.Fault>) (summary body (suspends no) (sync-callable yes)))
+    (func pointee 47:6 private (signature (params (p UnsafePointer<Int> owned)) (effects unsafe) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func located 51:6 private (signature (params) -> String) (summary body (suspends no) (sync-callable yes))))
   (members
     (carried.Mode
       (case Read private declared)

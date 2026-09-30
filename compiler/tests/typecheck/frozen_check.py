@@ -337,6 +337,9 @@ def sawc2_answers(entry_rel):
                 body_facts(current, row, calls, lets, sources)
             continue
         body = balanced(line.strip())
+        # A function's phase-2 summary follows its signature, and the frozen
+        # compiler has no counterpart to compare it with here.
+        body = re.sub(r" \(summary .*\)\)$", ")", body)
         if section == "declarations":
             m = re.match(r"^\(field (\w+)\.(\w+) \d+:\d+ \w+ (.*)\)$", body)
             if m:

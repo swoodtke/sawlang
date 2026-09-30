@@ -1,0 +1,12 @@
+// refuses: effect.closure-suspends at 8:9
+// a suspending call inside a closure body
+
+import std.task.{yield_now}
+
+func main() {
+    let f = { x: Int in
+        yield_now()
+        x + 1
+    }
+    print(f(1))
+}

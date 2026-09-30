@@ -1,0 +1,20 @@
+// refuses: consumes.move at 19:11
+// a bare call of a `consumes` method on a place of the Copy tier: the
+// transfer is spelled at every tier
+
+struct Ticket {
+    n: Int
+}
+
+extension Ticket {
+    func redeem(&var self) consumes -> Int {
+        self.n
+    }
+}
+
+func main() {
+    var t = Ticket(n: 1)
+    let fine = Ticket(n: 2)
+    print((move fine).redeem())
+    print(t.redeem())
+}

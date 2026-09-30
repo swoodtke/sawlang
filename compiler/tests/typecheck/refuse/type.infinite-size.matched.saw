@@ -1,0 +1,16 @@
+// refuses: type.infinite-size at 6:6
+// an inline-recursive enum, refused for its size, matched with wildcards: the
+// exhaustiveness check drops a column it cannot split, so a wildcard over the
+// recursive payload expands no further
+
+enum Tree {
+    case Node(child: Tree),
+    case Leaf
+}
+
+func depth(t: Tree) -> Int {
+    match t {
+        case Node(_) -> 1,
+        case Leaf -> 0
+    }
+}

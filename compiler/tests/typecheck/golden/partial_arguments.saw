@@ -1,0 +1,20 @@
+// A partial explicit prefix pins a generic type's leading parameters and the
+// rest are inferred (spec, Generics). An undeclared generic POD struct is
+// Equatable per instantiation (SL:open-questions D18).
+
+struct Two<A, B> {
+    a: A,
+    b: B
+}
+
+struct Pair<T> {
+    a: T,
+    b: T
+}
+
+func main() {
+    let t = Two<Int>(a: 1, b: true)
+    let same = Pair<Int>(a: 1, b: 2) == Pair<Int>(a: 1, b: 2)
+    print(t.a)
+    print(same)
+}

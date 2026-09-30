@@ -1,0 +1,14 @@
+// refuses: result.discarded at 12:9
+// a loop body's tail, which nothing reads
+
+func fails() -> Result<Int, String> {
+    return .Ok(value: 1)
+}
+
+func run(n: Int) {
+    var k = 0
+    while k < n {
+        k = k + 1
+        fails()
+    }
+}

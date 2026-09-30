@@ -1,0 +1,11 @@
+// refuses: result.discarded at 10:5
+// a `Result` computed as a bare statement, which nothing reads (design 151)
+
+func fails() -> Result<Int, String> {
+    return .Ok(value: 1)
+}
+
+func run() {
+    let _ = fails()
+    fails()
+}

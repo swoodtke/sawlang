@@ -29,6 +29,7 @@ import sawtypecheck.src.candidates.{tc_contains}
 import sawtypecheck.src.checks.{tc_check_unsafe}
 import sawtypecheck.src.conform.{TcSubst, tc_args_subst, tc_copy_ints, tc_extension_sets}
 import sawtypecheck.src.declarations.{tc_build_signatures}
+import sawtypecheck.src.fold.{TcFold, tc_fold_step}
 import sawtypecheck.src.infer.{TcSolve, tc_solve}
 import sawtypecheck.src.members.{tc_build_members}
 import sawtypecheck.src.model.{TC_ANY_DEPTH, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_FLAG_STATIC, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
@@ -508,6 +509,7 @@ extension TcProgram {
                 let e = self.res.first_node_child(s)
                 let t = self.expr(e, TC_WANT_STMT)
                 self.consume(e)
+                self.check_discarded(e)
                 self.is_never(t)
             },
             case Stmt_Let_Immutable -> {
@@ -971,6 +973,15 @@ extension TcProgram {
     func expect(&var self, e: Int, slot: Int, pos: TcPosition, borrowed: Bool) -> Int {
         let known = slot >= 0 && not self.has_error(slot)
         let allow = self.allowance(pos)
+        if known && not self.is_typed(e) && self.raw_case_named(e) >= 0 && self.adopts_lone_case(pos) {
+            // A lone raw-backed case is a constant of its backing, so an
+            // integer slot takes its value (spec, Flag enums).
+            let peeled = self.peel(slot, TcClient.Integer, -1, -1)
+            if peeled >= 0 && self.is_integer(peeled) {
+                let _ = self.expr(e, TC_WANT_NONE)
+                self.add_adjust(e, TcAdjustKind.Adopt, peeled)
+            }
+        }
         if not self.is_typed(e) {
             if not known {
                 let _ = self.expr(e, TC_WANT_NONE)
@@ -1015,8 +1026,9 @@ extension TcProgram {
 
     // A bare integer literal, or its negation, must fit the integer type it
     // adopts (spec, Primitive Types: "range-checked at the literal"). A
-    // literal inside a larger constant expression is not checked alone, since
-    // only the folded value has to fit.
+    // literal inside a larger constant expression is not checked alone: the
+    // folded value is, with a static or a raw-backed case as a leaf, and so is
+    // a lone case adopted by an integer slot (spec, Flag enums).
     func check_literal_range(&var self, e: Int) {
         var lit = e
         var negated = false
@@ -1024,7 +1036,11 @@ extension TcProgram {
             lit = self.res.first_node_child(e)
             negated = true
         }
-        if not self.has_alt(lit, Alt.Expr_Int) || self.is_suffixed_literal(lit) {
+        if not self.has_alt(lit, Alt.Expr_Int) {
+            self.check_constant_range(e)
+            return
+        }
+        if self.is_suffixed_literal(lit) {
             return
         }
         let t = self.adopted_type(lit)
@@ -1064,6 +1080,66 @@ extension TcProgram {
         try! msg.append("` (range ")
         try! msg.append(self.int_range_text(t))
         try! msg.append(")")
+        self.refuse(e, "type.mismatch", msg.build())
+    }
+
+    // A constant expression, or a lone raw-backed case, must fit the
+    // integer type it is typed or adopted as, by its folded value.
+    func check_constant_range(&var self, e: Int) {
+        if not self.is_constant_expr(e) && self.raw_case_named(e) < 0 {
+            return
+        }
+        let t = self.adopted_type(e)
+        if t < 0 || not self.is_integer(t) {
+            return
+        }
+        let v = self.fold_constant(e)
+        if not v.ok || self.value_fits(v.value, t) {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("constant expression ")
+        try! msg.append(v.value.to_string())
+        try! msg.append(" does not fit in `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` (range ")
+        try! msg.append(self.int_range_text(t))
+        try! msg.append(")")
+        self.refuse(e, "type.mismatch", msg.build())
+    }
+
+    // A literal with a signed width suffix fits the width's signed range
+    // (SL:open-questions D6); the magnitude of its minimum is allowed only
+    // under a unary minus, as `-128_i8`.
+    func check_signed_suffix(&var self, e: Int, t: Int) {
+        if self.is_unsigned(t) {
+            return
+        }
+        let w = self.int_width(t)
+        let v = self.fold_constant(e)
+        let negated = self.negated_literal == e
+        let m = self.current
+        let leaf = self.res.first_leaf(e)
+        let at = if leaf >= 0 { leaf } else { e }
+        let text = self.text(m, at)
+        var fits = true
+        if w < 64 {
+            let top = (1 << (w - 1)) - 1
+            fits = v.ok && (v.value <= top || (negated && v.value == top + 1))
+        } else if not v.ok {
+            fits = negated && text.starts_with("9223372036854775808")
+        }
+        if fits {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("integer literal ")
+        try! msg.append(text)
+        try! msg.append(" does not fit in `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` (range ")
+        try! msg.append(self.int_range_text(t))
+        try! msg.append("): a signed suffix holds its literal to the signed range, and only a unary minus reaches its minimum")
         self.refuse(e, "type.mismatch", msg.build())
     }
 
@@ -1242,7 +1318,7 @@ extension TcProgram {
     // type (spec, Integer Width Agreement). A bare static anywhere else,
     // an operator's peer included, keeps its declared type.
     public func is_constant_part(&self, e: Int) -> Bool {
-        self.is_constant_expr(e) || self.names_constant_static(e)
+        self.is_constant_expr(e) || self.names_constant_static(e) || self.raw_case_named(e) >= 0
     }
 
     public func names_constant_static(&self, e: Int) -> Bool {
@@ -1263,12 +1339,50 @@ extension TcProgram {
     }
 
     // Constant part `c` typed where a constant takes integer type `want`:
-    // a literal or constant expression adopts it, and a static leaf's folded
-    // value does.
+    // a literal or constant expression adopts it, and so does the folded
+    // value of a static leaf or a raw-backed case (spec, Flag enums).
     func constant_part(&var self, c: Int, want: Int) {
         let _ = self.expr(c, want)
-        if self.names_constant_static(c) && self.final_type(c) != want && self.is_integer(want) {
+        let leaf = self.names_constant_static(c) || self.raw_case_named(c) >= 0
+        if leaf && self.final_type(c) != want && self.is_integer(want) {
             self.add_adjust(c, TcAdjustKind.Adopt, want)
+        }
+    }
+
+    // The backing integer of the first raw-backed case constant expression
+    // `e` holds, which a chain of flags with no integer slot is typed as
+    // (spec, Flag enums: "The result is the backing integer, never the
+    // enum"); -1 when it holds none.
+    func constant_backing(&self, e: Int) -> Int {
+        let c = self.raw_case_named(e)
+        if c >= 0 {
+            let parent = self.res.decls[c].parent
+            return self.sigs[parent].result
+        }
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let child = self.child(e, k)
+            k = k + 1
+            if not self.is_leaf(child) {
+                let found = self.constant_backing(child)
+                if found >= 0 {
+                    return found
+                }
+            }
+        }
+        return -1
+    }
+
+    // Whether funnel position `pos` is an integer slot a lone raw-backed case
+    // folds into (spec, Flag enums): a declared type in force, not an
+    // operator's peer.
+    func adopts_lone_case(&self, pos: TcPosition) -> Bool {
+        match pos {
+            case Operand -> false,
+            case Compound -> false,
+            case Coalesce -> false,
+            case _ -> true
         }
     }
 
@@ -1618,6 +1732,7 @@ extension TcProgram {
         let text = self.text(m, at)
         let suffixed = self.suffix_type(&text)
         if suffixed >= 0 {
+            self.check_signed_suffix(e, suffixed)
             return self.set_type(e, suffixed, false)
         }
         let t = self.int_type()
@@ -2181,11 +2296,16 @@ extension TcProgram {
     // `-x`, `not b`, `~x`: `which` is 0, 1 or 2.
     func unary_expr(&var self, e: Int, want: Int, which: Int) -> Int {
         let operand = self.res.first_node_child(e)
+        let outer = self.negated_literal
+        if which == 0 {
+            self.negated_literal = operand
+        }
         if which != 1 && self.is_constant_expr(e) && want >= 0 && self.is_integer(want) {
             self.constant_part(operand, want)
         } else {
             let _ = self.expr(operand, TC_WANT_NONE)
         }
+        self.negated_literal = outer
         self.consume(operand)
         let t = self.through_refs(operand)
         if self.has_error(t) {
@@ -2223,7 +2343,15 @@ extension TcProgram {
         // value's width and gives the result nothing (spec, Integer Width
         // Agreement), so only its first operand agrees with anything.
         let shift = self.has_alt(e, Alt.Expr_Shift)
-        if self.is_constant_expr(e) && want >= 0 && self.is_integer(want) {
+        let constant = self.is_constant_expr(e)
+        var cwant = want
+        if constant && not (want >= 0 && self.is_integer(want)) {
+            let backing = self.constant_backing(e)
+            if backing >= 0 {
+                cwant = backing
+            }
+        }
+        if constant && cwant >= 0 && self.is_integer(cwant) {
             var operand = 0
             var k = 0
             while k < n {
@@ -2235,13 +2363,13 @@ extension TcProgram {
                 if shift && operand > 0 {
                     self.shift_count(c)
                 } else {
-                    self.constant_part(c, want)
+                    self.constant_part(c, cwant)
                     self.consume(c)
                 }
                 operand = operand + 1
             }
             self.record_builtin(e, -1, TcRole.BuiltinOperator, spelling)
-            return self.set_type(e, want, false)
+            return self.set_type(e, cwant, false)
         }
         var t = -1
         var poisoned = false
@@ -2718,6 +2846,11 @@ extension TcProgram {
         let operand = self.res.first_node_child(e)
         let t = self.expr(operand, TC_WANT_NONE)
         self.set_use(operand, TcUse.Move)
+        if self.rooted_in_self(operand) && not self.in_consuming_body() {
+            var msg = StringBuilder()
+            try! msg.append("`move` out of `self` is legal only in a `consumes` method, whose receiver ends with the call: declare the method `consumes`, or take the value with `take()` or `swap_out`")
+            self.refuse(e, "consumes.move-self", msg.build())
+        }
         if not self.has_error(t) && not self.expr_place[operand] {
             self.refuse_not_a_place(operand)
         }
@@ -2738,6 +2871,29 @@ extension TcProgram {
             return self.set_type(e, payload, false)
         }
         self.set_type(e, ft, false)
+    }
+
+    // Whether place `e` is `self` or a part of it: a field, a tuple element
+    // or a payload of `self`.
+    func rooted_in_self(&self, e: Int) -> Bool {
+        var at = e
+        while at >= 0 {
+            if self.has_alt(at, Alt.Expr_Self) {
+                return true
+            }
+            let projected = self.has_alt(at, Alt.Expr_Member) || self.has_alt(at, Alt.Expr_TupleIndex) || self.has_alt(at, Alt.Expr_Force)
+            if not projected {
+                return false
+            }
+            at = self.res.first_node_child(at)
+        }
+        false
+    }
+
+    // Whether the body being checked is a `consumes` method's (SL-414).
+    func in_consuming_body(&self) -> Bool {
+        let d = self.current_decl
+        d >= 0 && (self.sigs[d].effects & TC_EFFECT_CONSUMES) != 0
     }
 
     // `*p`: a raw pointer's pointee, a place.
@@ -3656,6 +3812,7 @@ extension TcProgram {
         if stmt {
             let t = self.expr(body, TC_WANT_STMT)
             self.consume(body)
+            self.check_discarded(body)
             return t
         }
         if slot >= 0 {
@@ -4145,6 +4302,9 @@ extension TcProgram {
             }
             if d >= 0 && d == self.known.task_group && text.equals("spawn") {
                 return "`TaskGroup.spawn`"
+            }
+            if d >= 0 && d == self.known.interior {
+                return "a method of the interior cell `UnsafeMutableInterior`"
             }
             let forwarding = d >= 0 && (d == self.known.box || d == self.known.arc)
             if forwarding && self.nominal_args(t).len() > 0 {
@@ -4679,8 +4839,17 @@ extension TcProgram {
             return self.set_type(e, poisoned, false)
         }
         let written = self.explicit_type_args(callee)
-        var owner = self.named_owner(d, &written, leaf)
-        if owner < 0 && want >= 0 && self.is_nominal_of(want, d) {
+        let m = self.current
+        // A partial prefix pins the type's leading parameters and inference
+        // solves the rest (spec, Generics).
+        var pinned = Vector<Int>()
+        var owner = -1
+        if self.partial_prefix(d, &written, m) {
+            pinned = tc_copy_ints(&written)
+        } else {
+            owner = self.named_owner(d, &written, leaf)
+        }
+        if owner < 0 && pinned.len() == 0 && want >= 0 && self.is_nominal_of(want, d) {
             owner = want
         }
         if owner >= 0 && self.has_error(owner) {
@@ -4688,7 +4857,6 @@ extension TcProgram {
             return self.set_type(e, owner, false)
         }
         var cands = Vector<TcCand>()
-        let m = self.current
         let inits = self.inits_of(d, m)
         var k = 0
         while k < inits.len() {
@@ -4724,8 +4892,43 @@ extension TcProgram {
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
         }
-        let none = Vector<Int>()
-        self.resolve_call(e, &cands, &args, &none, -1, want)
+        self.resolve_call(e, &cands, &args, &pinned, -1, want)
+    }
+
+    // Whether the type arguments `written` on generic type `d`'s head are a
+    // partial prefix inference completes: fewer than its parameters, a
+    // parameter after them with no default, and no `init` module `viewer`
+    // sees with type parameters of its own, which the prefix would mistake
+    // for the type's.
+    func partial_prefix(&var self, d: Int, written: &Vector<Int>, viewer: Int) -> Bool {
+        self.ensure_generics(d)
+        let s = self.sigs[d]
+        if written.len() == 0 || written.len() >= s.generic_count {
+            return false
+        }
+        var undefaulted = false
+        var k = written.len()
+        while k < s.generic_count {
+            let g = self.generics[s.generic_first + k]
+            if g.default_type < 0 {
+                undefaulted = true
+            }
+            k = k + 1
+        }
+        if not undefaulted {
+            return false
+        }
+        let inits = self.inits_of(d, viewer)
+        k = 0
+        while k < inits.len() {
+            let member = self.members[inits[k]]
+            self.build_decl(member.decl)
+            if self.sigs[member.decl].generic_count > 0 {
+                return false
+            }
+            k = k + 1
+        }
+        true
     }
 
     // Whether module `viewer` sees every field of struct `d`.
@@ -5193,6 +5396,15 @@ extension TcProgram {
             return self.set_type(e, poisoned, false)
         }
         let c = cands[chosen]
+        if c.kind == TcCandKind.Function && self.reaches_assoc_through_bound(c) {
+            self.not_yet(e, "an associated type reached through a type parameter's bound")
+            if receiver >= 0 {
+                self.set_use(receiver, TcUse.Borrow)
+            }
+            self.type_args_alone(&args)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
         if c.kind == TcCandKind.Function && self.names_unreadable_type(c.decl) {
             self.refuse_unreadable(e, c.decl)
             if receiver >= 0 {
@@ -5212,6 +5424,56 @@ extension TcProgram {
             self.calls[at] = record
         }
         t
+    }
+
+    // Whether candidate `c` is a requirement called through a type parameter
+    // whose signature names the trait's associated type, which no
+    // conformance is there to give (SL:open-questions W4).
+    func reaches_assoc_through_bound(&self, c: TcCand) -> Bool {
+        let info = self.res.decls[c.decl]
+        if info.kind != ResDeclKind.Requirement || c.owner < 0 {
+            return false
+        }
+        var recv = c.owner
+        while self.kind_of(recv) == TcKind.Ref {
+            recv = self.types.ty(recv).b
+        }
+        if self.kind_of(recv) != TcKind.Param {
+            return false
+        }
+        let s = self.sigs[c.decl]
+        var k = 0
+        while k < s.param_count {
+            let p = self.params[s.param_first + k]
+            if self.mentions_assoc(p.ty) {
+                return true
+            }
+            k = k + 1
+        }
+        s.result >= 0 && self.mentions_assoc(s.result)
+    }
+
+    func mentions_assoc(&self, t: Int) -> Bool {
+        if t < 0 {
+            return false
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Assoc {
+            return true
+        }
+        let has_inner = info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array
+        if has_inner && self.mentions_assoc(info.b) {
+            return true
+        }
+        var k = 0
+        while k < info.count {
+            let a = self.types.arg(t, k)
+            if self.mentions_assoc(a) {
+                return true
+            }
+            k = k + 1
+        }
+        false
     }
 
     // Whether interface function `d`'s signature names a type it could not
@@ -5600,7 +5862,9 @@ extension TcProgram {
         }
         var solve = tc_solve(owner, count)
         if explicit.len() > 0 {
-            if owner < 0 || explicit.len() > count || owner != c.decl {
+            // A construction's head pins its type's leading parameters.
+            let pins_type = c.owner < 0 && owner >= 0 && owner == self.cand_type_decl(c)
+            if owner < 0 || explicit.len() > count || (owner != c.decl && not pins_type) {
                 self.refuse(e, "type.arity",
                             "this call writes type arguments, and what it calls takes fewer")
             } else {
@@ -6122,6 +6386,14 @@ extension TcProgram {
     // borrow waits for its use site (`settle_places`).
     func receive(&var self, receiver: Int, c: TcCand, sig: TcSig) {
         if (sig.effects & TC_EFFECT_CONSUMES) != 0 {
+            let spelled = self.has_alt(receiver, Alt.Expr_Move_Place)
+            if self.expr_place[receiver] && not spelled && self.expr_use[receiver] == TcUse.Unused {
+                // Both ends of a consuming call are marked: at every Copy
+                // tier the transfer is spelled at the call.
+                self.set_use(receiver, TcUse.Copy)
+                self.refuse_bare_consume(receiver, c.decl)
+                return
+            }
             self.consume(receiver)
             return
         }
@@ -6781,6 +7053,40 @@ extension TcProgram {
 
 // The body half's refusals.
 extension TcProgram {
+    // A `Result` computed where nothing reads it is refused (design 151): a
+    // statement, a `Void` body's or a loop body's tail, a statement-position
+    // arm. A statement-position `if` or `match` forwards its arms' values,
+    // which are statements of their own, so the refusal lands on the call
+    // that produced the `Result`. `let _ =` is the explicit out.
+    func check_discarded(&var self, e: Int) {
+        if e < 0 || not self.is_typed(e) {
+            return
+        }
+        if self.has_alt(e, Alt.Expr_If) || self.has_alt(e, Alt.Expr_Match) || self.has_alt(e, Alt.Borrow_Block) {
+            return
+        }
+        let t = self.final_type(e)
+        if t < 0 || self.has_error(t) || not self.is_result(t) {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("the result of ")
+        let at = self.call_at[e]
+        if at >= 0 && self.calls[at].target >= 0 {
+            let target = self.calls[at].target
+            let name = self.res.decls[target].name
+            try! msg.append("`")
+            try! msg.append(self.name_text(name))
+            try! msg.append("`")
+        } else {
+            try! msg.append("this expression")
+        }
+        try! msg.append(" is `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it explicitly")
+        self.refuse(e, "result.discarded", msg.build())
+    }
+
     // A body construct outside the bootstrap slice, named by what it is
     // rather than by one grammar alternative; nothing under it is verified.
     func not_yet(&var self, e: Int, what: String) {
@@ -6844,6 +7150,24 @@ extension TcProgram {
         try! msg.append(self.tier_word(t))
         try! msg.append(", by value: only a Copy type copies silently; write `move` to take it, `.copy()` for a copy, or borrow it")
         self.refuse(e, "transfer.implicit-copy", msg.build())
+    }
+
+    // A bare call of a `consumes` method on a place (spec, `consumes`: "Both
+    // ends are marked").
+    func refuse_bare_consume(&var self, receiver: Int, d: Int) {
+        let m = self.current
+        let name_id = self.res.decls[d].name
+        let name = self.name_text(name_id)
+        let written = self.text(m, receiver)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(name)
+        try! msg.append("` consumes its receiver, so the transfer is spelled at the call: write `(move ")
+        try! msg.append(written)
+        try! msg.append(").")
+        try! msg.append(name)
+        try! msg.append("(...)`; a temporary receiver needs no `move`")
+        self.refuse(receiver, "consumes.move", msg.build())
     }
 
     func refuse_implicit_without_type(&var self, e: Int, name: Int) {

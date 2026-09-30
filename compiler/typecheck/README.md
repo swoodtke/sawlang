@@ -7,7 +7,8 @@ side tables, and produces side tables keyed by resolve's ids (SL:architecture
 program-wide, trait requirements, the conformance table, the member tables and
 the Copy tiers, and the checks that need only those. U6b2 builds the body half:
 every body typed against those signatures alone, with its conversions, calls,
-places and transfers recorded. The effect fixpoints come in U6b3.
+places and transfers recorded. U6b3 builds the summaries bodies derive, solved
+to a fixpoint over the call graph, and the checks that read them and the types.
 `compiler/tests/typecheck/README.md` specifies the dump, the interner's key and
 the position matrices.
 
@@ -38,6 +39,17 @@ typecheck/
                       the expected-type funnel and the overload filter
     bodydump.saw      the dump's `bodies` section
     bodyverify.saw    the body verifier
+    paths.saw         the per-path use count: whether a by-value read of a
+                      generic body's local moves it or duplicates it
+    summaries.saw     phase 2: bodies' units and items, the summaries, their
+                      fixpoint, their dump text and their verifier
+    stdsuspension.saw the std suspension table, written by
+                      compiler/tools/std_suspension.py
+    effects.saw       phase 3: the checks that read the summaries
+    exhaust.saw       match exhaustiveness
+    fold.saw          constant folding, for literal ranges
+    bodychecks.saw    borrowing-struct containment, the body half of `unsafe`,
+                      the `borrows(sync)` window
     dump.saw          the dump
     verify.saw        the verifier
 ```
@@ -74,6 +86,65 @@ typecheck/
 8. **Places** (`settle_places`): once every body is checked, each subscript's
    role and each `borrows` accessor's receiver borrow is read off the use its
    position recorded (SL:borrowing §5, design 141).
+9. **Exhaustiveness** (`exhaust.saw`): every `match`'s unguarded arms
+   against its scrutinee's type, as the usefulness of a wildcard row over the
+   pattern matrix, which names each missing value. A discarded `Result` is
+   refused as the body is walked (design 151).
+10. **Path uses** (`paths.saw`, design 219): each by-value read of a local
+    whose type names one of the function's own type parameters, which the
+    walk recorded as a copy, is settled over the body's paths (below): a move
+    when no path uses the local again, a copy otherwise.
+11. **Summaries** (`summaries.saw`, SL:architecture §3.4 "Order" phase 2):
+   every function's may-suspend, sync-callable and inferred Copy requirement,
+   one worklist over the call graph to the least fixpoint (below).
+12. **Effect checks** (`effects.saw`, phase 3): a `sync` body calls only
+    sync-callable targets, each call site meets its callee's Copy requirement,
+    no closure body suspends, and no coercion to `any Trait` dispatches to a
+    suspending implementation.
+13. **Body rules** (`bodychecks.saw`): borrowing-struct containment, the body
+    half of `unsafe`, and the `borrows(sync)` window, which reads the
+    summaries. A `consumes` call's `move` and `move self`'s `consumes` body
+    are checked as the body is walked.
+
+## The summaries
+
+A body is split into units, the function's own and one per closure in it,
+and each unit's items are its calls, its copies of a place and its coercions
+to an existential. A function's summary (the dump's `(summary ...)`) is:
+
+- **may-suspend**: `yes`, `no`, or a condition, the requirements called
+  through its own type parameters (or, in a trait's default body, `Self`)
+  that are not declared `sync`: `run<T: Worker>` may suspend when `T`'s
+  `Worker.step` does. A call site substitutes its type arguments and
+  evaluates it: a concrete type's implementation answers, a caller's own
+  parameter composes into the caller's condition.
+- **sync-callable**, carried apart: a call through a function value, or to a
+  requirement through `any`, never suspends and is sync-callable only when its
+  type or requirement says `sync`.
+- **the Copy requirement** (design 219): the type parameters the body copies
+  with nothing written, directly or through a callee that requires it. A copy
+  is a read out of storage the body does not own (a field, an element, a
+  payload), or a read of a local some path uses again (below).
+- **refuses-when**: the conditions under which an instantiation would put a
+  suspending call in a closure body, dispatch through `any` to a suspending
+  implementation, or call what is not sync-callable in a `sync` body; the
+  call site that makes one true is refused.
+
+A closure's calls are not its function's: they add nothing to its suspension,
+and what would make one suspend becomes a `refuses-when` condition. Every
+summary starts at the bottom and only grows, so the worklist, in declaration
+order, reaches the least fixpoint however recursion cycles.
+
+**Std's summaries come from a table.** Std is read as interfaces and no std
+body is checked, so an interface function's summary is its row of
+`compiler/tools/std_suspension.txt`: the frozen compiler's own std check,
+observed once by `compiler/tools/std_suspension.py`, and the one suspension
+analysis it runs over std's effect graph. A function declared `sync`, and an
+extern (by its `blocking`), are summarized by their declaration. A std function
+with no row is taken as suspending, with a `summary.untabled` NOTE naming it.
+The table is replaced by real inference when the new std's bodies are
+checked; `run.py` fails when it no longer matches a fresh observation, and
+the verifier when a row names no std function.
 
 ## The body half
 
@@ -108,7 +179,40 @@ is instantiated at, and its own type arguments.
 - **Places and transfers.** A local, `self`, a field or element of a place, a
   payload `o!` of a place, a subscript and a `borrows` accessor's lend are
   places. A position that takes a value copies a place, which only a type of
-  the Copy tier does silently (design 131), or hands off a temporary.
+  the Copy tier does silently (design 131), or hands off a temporary. A
+  generic body's read of a local of its own type parameter's type is settled
+  per path by phase 10, and recorded as `move` when no path uses the local
+  after it.
+
+## The per-path use count
+
+The rule is per path, not per mention (spec, design 219): a local read by
+value at most once on every path is moved by that read, and so owes no Copy
+requirement. `settle_path_uses` is the one place that decides it. It tracks
+each local, a parameter, a `let` or `var`, a pattern's binding, whose type
+names a type parameter of the function not bounded by Copy, and walks the
+body's control structure with one state per path:
+
+- a branch takes the most any one alternative uses: the arms of an `if` and
+  a `match`, and the right side of `&&`, `||` and `??`, which a path may
+  skip; a `match` guard that fails passes its path on to the later arms;
+- a loop's body and a closure's body are walked twice, since each may run
+  again, so a by-value read of an outer local there is a duplicate;
+- a `return` ends its path, a `break` carries its path past the loop and a
+  `continue` to its head, and a closure's `return` or `?` carries its path
+  out of the closure; an expression of type `Never` ends its path;
+- a spelled `move x` ends `x` on its path, and an assignment `x = v` gives it
+  a new value;
+- a borrow (`&x`, a receiver, a format argument, a comparison operand) is no
+  by-value use, but any use after a by-value read duplicates the value, since
+  the read had to leave it in place.
+
+A local no path uses again has each by-value read recorded as `move`. One
+that some path does keeps its reads as `copy`, one of which carries the
+requirement, and the refusal at a call quotes both uses (`copy_partner`); a
+loop's or a closure's single read is quoted alone. A binding that aliases a
+borrowed place, and a read through a reference, copy out of storage the body
+does not own and are not tracked.
 
 ## Body readings
 
@@ -155,6 +259,71 @@ These are the reversible readings U6b2 made; SL-447's report lists them.
   left unformed poisons the body (SL:architecture §3.0): its error types are
   that refusal's, and the verifier asks nothing of them.
 
+## Summary readings
+
+These are the reversible readings U6b3 made; SL-447's report lists them.
+
+- The inferred Copy requirement is counted per path ("The per-path use
+  count"): a by-value read of a local whose type names one of the function's
+  type parameters is a move when no path uses the local after it, and a copy
+  otherwise; a read out of a field, an element or a payload is always a copy
+  (SL:borrowing, "if it looks like a copy, then just copy"). A parameter whose
+  bounds declare `Copy` owes nothing further.
+- A use of any kind after a by-value read on one path, a borrow included,
+  makes the read a copy, as the spec's second bind does: the read left the
+  value in place for it.
+- A loop's body counts twice whatever `break` it holds, and a closure's body
+  twice, since nothing says a closure runs once.
+- An `if let` or `match` binding taken out of a place is a payload read, and
+  so a copy; a `match` on a local of a type parameter's type binds by copy,
+  as a type that copies silently does.
+- An assignment `x = v` gives a `var` a new value, so a read before it and one
+  after it are each the only read of their value.
+- A `sync` body inside a generic function (a `sync` function, a `deinit`, a
+  closure of a `sync` type) that calls a requirement through a bound not
+  declared `sync` is judged per instantiation, as a closure that would suspend
+  through a bound is: the condition joins the function's `refuses-when`, and
+  the call whose type arguments make it false is refused, naming the
+  instantiation. A call that is not sync-callable for every type argument is
+  refused at the definition.
+- A `deinit` body is a `sync` context (spec: suspension, "`deinit` may not
+  suspend").
+- A `borrows(sync)` window, the block of a `borrow` or a `for` whose head calls
+  such an accessor, refuses a call that may suspend for some type argument at
+  its definition, as a `sync` body does; the statement form of `borrow` is not
+  checked yet.
+- Borrowing-struct containment follows SL:borrowing's lifted refusals: a
+  `borrow` head may bind one, a reference parameter (`&It`, `&var It`) passes
+  a bound one onward, and `&var` fields are allowed. The signature positions
+  are checked in modules checked in full; std declares its iterators and
+  their `borrows` accessors.
+- A member written to meet a requirement is visible wherever its trait's
+  visibility reaches, beside its own visibility, which it only widens.
+- A struct or enum owns something when a field or payload holds a `String`, a
+  type parameter, a function value, an existential, or an owning struct or
+  enum, a raw pointer owning nothing; one that owns something and writes no
+  `deinit` gets a synthesized one in its member table, the requirement of
+  `Deinit` as its declaration.
+- A construction's partial prefix of type arguments is completed by inference
+  only when no `init` the module sees has type parameters of its own, which
+  the prefix could be mistaken for; with one, a short prefix stays
+  `type.arity`.
+- The body half of `unsafe` looks at every typed node of a function's bodies,
+  its parameter defaults and closures included, each node's type and every
+  step of its adjustment chain, and names the first.
+- An interface generic function gets no condition over its type parameters,
+  since its body is not read: its table row holds for every instantiation.
+  That is weaker than a bound call's condition, and it retires with the table.
+- The std table's rows come from the frozen compiler's std check, keyed as
+  sawc2 names each declaration the source writes; the methods that check
+  synthesizes (a policy's `deinit`, a default copied into a conformer, a place
+  accessor's twin) have no row, and a place accessor's lowered window
+  parameters are left out of its key.
+- The table's module cross-check derives the parking modules from the
+  cooperative intrinsics a body spells, not from the executor's own
+  `__saw_exec_*` helpers: those serve the `sync` drive loop, and
+  `std.taskgroup`, which declares them, holds no suspending function.
+
 The builtin declarations typecheck knows by identity, (builtin, name), are
 found once: `Optional` (for `T?`, which no name occurrence spells), `Result`,
 the Copy family, the derivable traits, the unsafe pointers and the interior
@@ -192,8 +361,8 @@ These are the reversible readings this unit made; SL-447's report lists them.
   parameters, parameter names and types, and the result, after `Self` and
   the associated types become the conformance's; an `unsafe` requirement
   needs an `unsafe` member (design 188), and `borrows` follows SL:borrowing
-  §2.5. A `sync` requirement met by a member not declared `sync` is left to
-  the effect checks of U6b3, where inference answers it.
+  §2.5. A `sync` requirement met by a member not declared `sync` holds when
+  the member's summary makes it sync-callable, which phase 3 checks.
 - An extern has no effect slot, so the signature half of `unsafe` asks
   nothing of it. A default parameter value is an expression, which U6b3's
   body half checks.

@@ -3,9 +3,9 @@
     (struct Point 5:8 private)
     (field Point.x 6:5 private Int)
     (field Point.y 7:5 private Int)
-    (func same 10:6 private (signature (generics (T (bounds Equatable))) (params (a T owned) (b T owned)) -> Bool))
-    (func less 14:6 private (signature (generics (T (bounds Comparable))) (params (a T owned) (b T owned)) -> Bool))
-    (func main 18:6 private (signature (params) -> Void)))
+    (func same 10:6 private (signature (generics (T (bounds Equatable))) (params (a T owned) (b T owned)) -> Bool) (summary body (suspends when T.Equatable.equals) (sync-callable unless T.Equatable.equals)))
+    (func less 14:6 private (signature (generics (T (bounds Comparable))) (params (a T owned) (b T owned)) -> Bool) (summary body (suspends when T.Comparable.compare) (sync-callable unless T.Comparable.compare)))
+    (func main 18:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (comparisons.Point
       (field x Int private declared)

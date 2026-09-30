@@ -1,0 +1,40 @@
+// refuses: effect.sync at 39:11
+// a `sync` generic body calling a requirement through a bound that is not
+// declared `sync`: judged at each instantiation, and refused at the call
+// whose type argument implements it with a body that is not sync-callable
+
+import std.task.{yield_now}
+
+trait Worker {
+    func step(&self) -> Int
+}
+
+struct Slow {
+    n: Int
+}
+
+struct Fast {
+    n: Int
+}
+
+extension Slow: Worker {
+    func step(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+extension Fast: Worker {
+    func step(&self) -> Int { self.n }
+}
+
+func run<T: Worker>(w: &T) sync -> Int {
+    w.step()
+}
+
+func main() {
+    let f = Fast(n: 1)
+    let s = Slow(n: 2)
+    print(run(&f))
+    print(run(&s))
+}

@@ -1,0 +1,19 @@
+// refuses: consumes.move-self at 17:9
+// `move` out of `self` in a method that does not consume its receiver
+// (SL-414)
+
+struct Builder {
+    items: Vector<Int>
+}
+
+extension Builder: NoCopy {}
+
+extension Builder {
+    func finish(&var self) consumes -> Vector<Int> {
+        move self.items
+    }
+
+    func steal(&var self) -> Vector<Int> {
+        move self.items
+    }
+}

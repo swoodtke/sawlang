@@ -1,0 +1,19 @@
+// refuses: effect.sync at 17:9
+// a `deinit` body, where nothing may suspend, calling a function that may
+// (spec: suspension, "`deinit` may not suspend")
+
+import std.task.{yield_now}
+
+struct Handle {
+    fd: Int
+}
+
+func settle() {
+    yield_now()
+}
+
+extension Handle: NoCopy {
+    func deinit(&var self) {
+        settle()
+    }
+}

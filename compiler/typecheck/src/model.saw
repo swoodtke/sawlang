@@ -201,7 +201,8 @@ public struct TcObligation {
 public enum TcUse {
     // Not an expression, or one nothing has read yet.
     case Unused,
-    // A spelled `move`: the moved place, and the value it yields.
+    // A move: a spelled `move`'s place and the value it yields, or a local's
+    // by-value read that no later use follows on any path (design 219).
     case Move,
     // An implicit copy of a place.
     case Copy,
@@ -322,6 +323,88 @@ public struct TcCall {
     // The exclusive twin of a shared accessor the call chose, which a use
     // that writes switches to (design 141); -1 for none.
     public twin: Int
+}
+
+// Where a function's summary comes from (phase 2).
+public static TC_SUMMARY_NONE: Int = 0
+// The function's own checked body.
+public static TC_SUMMARY_BODY: Int = 1
+// Its declaration alone: an extern, a `sync` function whose body is not
+// checked.
+public static TC_SUMMARY_DECLARED: Int = 2
+// A std function's row of compiler/tools/std_suspension.txt.
+public static TC_SUMMARY_TABLE: Int = 3
+// A std function no row names, taken as suspending.
+public static TC_SUMMARY_UNTABLED: Int = 4
+
+// What a unit's item is: a call, a copy of a place, a coercion to an
+// existential.
+public static TC_ITEM_CALL: Int = 1
+public static TC_ITEM_COPY: Int = 2
+public static TC_ITEM_ERASE: Int = 3
+
+// `copy_partner`'s mark on a copy whose Copy requirement another read of the
+// same local carries, so it adds no item of its own.
+public static TC_COPY_COVERED: Int = -2
+
+// What a forbidden condition makes illegal: a closure body that suspends, a
+// dispatch through `any` to a suspending implementation, a `sync` body that
+// calls what is not sync-callable.
+public static TC_FORBID_CLOSURE: Int = 1
+public static TC_FORBID_ERASE: Int = 2
+public static TC_FORBID_SYNC: Int = 3
+
+// One condition of a summary: requirement `req` called through `ty`, a type
+// parameter or a trait's `Self`. `site` is the node in the summarized body
+// that brings it, and `origin` the construct it comes from, a closure's call
+// or a coercion, possibly in another body. A Copy requirement's `req` is -1.
+public struct TcAtom {
+    public ty: Int
+    public req: Int
+    public site: Int
+    public origin: Int
+    public kind: Int
+}
+
+// A function's three summaries: may-suspend and sync-callable, each a word
+// and a condition list, the Copy requirement, and the conditions under which
+// an instantiation of it is refused. Each list is a run of the atom pool.
+public struct TcSummary {
+    public state: Int
+    public suspends: Bool
+    public suspend_first: Int
+    public suspend_count: Int
+    public nonsync: Bool
+    public nonsync_first: Int
+    public nonsync_count: Int
+    public copy_first: Int
+    public copy_count: Int
+    public forbid_first: Int
+    public forbid_count: Int
+}
+
+public func tc_blank_summary() -> TcSummary {
+    TcSummary(state: TC_SUMMARY_NONE, suspends: false, suspend_first: 0, suspend_count: 0, nonsync: false,
+              nonsync_first: 0, nonsync_count: 0, copy_first: 0, copy_count: 0, forbid_first: 0,
+              forbid_count: 0)
+}
+
+// A body's unit: a declaration's body, or a closure in it. `top` is the unit
+// whose summary a closure's conditions join; a top unit's run of items covers
+// its closures' too.
+public struct TcUnit {
+    public decl: Int
+    public node: Int
+    public top: Int
+    public sync: Bool
+    public item_first: Int
+    public item_end: Int
+}
+
+public struct TcItem {
+    public kind: Int
+    public node: Int
+    public unit: Int
 }
 
 public struct TcDiag {

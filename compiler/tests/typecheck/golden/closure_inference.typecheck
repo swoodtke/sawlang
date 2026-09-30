@@ -2,9 +2,9 @@
   (declarations
     (struct Point 7:8 private)
     (field Point.x 8:5 private Int)
-    (func apply 11:6 private (signature (params (f (Int) -> Int owned)) -> Int))
-    (func digest 15:6 private (signature (params (p &closure_inference.Point shared) (h &var Hasher exclusive)) -> Void))
-    (func main 19:6 private (signature (params) -> Void)))
+    (func apply 11:6 private (signature (params (f (Int) -> Int owned)) -> Int) (summary body (suspends no) (sync-callable no)))
+    (func digest 15:6 private (signature (params (p &closure_inference.Point shared) (h &var Hasher exclusive)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func main 19:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable no))))
   (members
     (closure_inference.Point
       (field x Int private declared)))

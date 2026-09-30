@@ -1,0 +1,8 @@
+// refuses: borrowing.containment at 6:15
+// a borrowing struct carried by a function type
+
+import std.vector.{VectorIterator}
+
+func drive(f: (&Vector<Int>) -> VectorIterator<Int>?) -> Int {
+    0
+}

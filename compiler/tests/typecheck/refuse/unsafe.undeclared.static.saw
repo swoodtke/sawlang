@@ -1,0 +1,9 @@
+// refuses: unsafe.undeclared at 7:6
+// a function whose body names an `unsafe static var` is declared `unsafe`
+// (design 149)
+
+unsafe static var COUNTER: Int = 0
+
+func peek() -> Int {
+    COUNTER
+}

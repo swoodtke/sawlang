@@ -1,0 +1,44 @@
+(Module partial_arguments
+  (declarations
+    (struct Two 5:8 private (generics (A) (B)))
+    (field Two.a 6:5 private A)
+    (field Two.b 7:5 private B)
+    (struct Pair 10:8 private (generics (T)))
+    (field Pair.a 11:5 private T)
+    (field Pair.b 12:5 private T)
+    (func main 15:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (partial_arguments.Two
+      (field a A private declared)
+      (field b B private declared)
+      (method deinit public (synthesized Deinit)))
+    (partial_arguments.Pair
+      (field a T private declared)
+      (field b T private declared)
+      (method deinit public (synthesized Deinit))))
+  (views
+    (partial_arguments.Two a b deinit)
+    (partial_arguments.Pair a b deinit))
+  (conformances)
+  (copy-tier
+    (partial_arguments.Two (join Copy A B))
+    (partial_arguments.Pair (join Copy T)))
+  (bodies
+    (main 15:6
+      (16:9-16:10 BindingName partial_arguments.Two<Int, Bool> place temp)
+      (16:13-16:36 Call.paren partial_arguments.Two<Int, Bool> value temp (memberwise partial_arguments.Two (owner partial_arguments.Two<Int, Bool>)))
+      (16:25-16:26 IntLit Int value temp)
+      (16:31-16:35 BoolLit.true Bool value temp)
+      (17:9-17:13 BindingName Bool place temp)
+      (17:16-17:62 Binary.pair Bool value temp (op ==))
+      (17:16-17:37 Call.paren partial_arguments.Pair<Int> value borrow (memberwise partial_arguments.Pair (owner partial_arguments.Pair<Int>)))
+      (17:29-17:30 IntLit Int value temp)
+      (17:35-17:36 IntLit Int value temp)
+      (17:41-17:62 Call.paren partial_arguments.Pair<Int> value borrow (memberwise partial_arguments.Pair (owner partial_arguments.Pair<Int>)))
+      (17:54-17:55 IntLit Int value temp)
+      (17:60-17:61 IntLit Int value temp)
+      (18:5-18:15 Call.paren Void value temp (builtin print))
+      (18:11-18:14 Member Int place borrow)
+      (18:11-18:12 Name partial_arguments.Two<Int, Bool> place project)
+      (19:5-19:16 Call.paren Void value temp (builtin print))
+      (19:11-19:15 Name Bool place borrow))))

@@ -1,0 +1,132 @@
+// The Copy requirement is inferred per path, not per mention (design 219): a
+// local read by value at most once on every path is moved by that read, and a
+// second use on one path, a read in a loop or a closure, or a read out of a
+// field duplicates it. Each refused call quotes what duplicates.
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+struct Pair<T> {
+    item: T
+}
+
+struct Wrap<T> {
+    value: T
+}
+
+extension Wrap<T> {
+    init(from: T) -> Wrap<T> { Wrap<T>(value: from) }
+}
+
+func sink<T>(x: T) -> Int { 1 }
+
+func look<T>(x: &T) -> Int { 1 }
+
+// Each parameter is named twice and neither is duplicated.
+func larger<T: Comparable>(a: T, b: T) -> T {
+    if a < b { b } else { a }
+}
+
+func twice<T>(x: T) -> Int {
+    let a = sink(x)
+    let b = sink(x)
+    a + b
+}
+
+func repeated<T>(x: T, n: Int) -> Int {
+    var k = 0
+    while k < n {
+        let _ = sink(x)
+        k = k + 1
+    }
+    k
+}
+
+func moved<T>(x: T) -> Int {
+    sink(move x)
+}
+
+func field<T>(p: Pair<T>) -> Int {
+    sink(p.item)
+}
+
+func arms<T>(x: T, o: Int?) -> Int {
+    match o {
+        case Some(v) -> sink(x) + v,
+        case None -> sink(x)
+    }
+}
+
+// A use of any kind after a read needs the value the read left in place.
+func peeked<T>(x: T) -> Int {
+    let a = sink(x)
+    a + look(&x)
+}
+
+// A path that leaves the function takes nothing on to the rest.
+func early<T>(x: T, c: Bool) -> Int {
+    if c {
+        return sink(x)
+    }
+    sink(x)
+}
+
+func guarded<T>(x: T, o: Int?) -> Int {
+    guard let v = o else {
+        return sink(x)
+    }
+    sink(x) + v
+}
+
+// A `break` carries what its path took past the loop.
+func broken<T>(x: T, n: Int) -> Int {
+    var k = 0
+    while k < n {
+        if k == 3 {
+            let _ = sink(x)
+            break
+        }
+        k = k + 1
+    }
+    sink(x)
+}
+
+func captured<T>(x: T) -> Int {
+    let f: (Int) -> Int = { n in sink(x) + n }
+    f(1)
+}
+
+// An assignment gives a moved local a new value.
+func refilled<T>(x: T, y: T) -> Int {
+    var v = x
+    let a = sink(v)
+    v = y
+    a + sink(v)
+}
+
+// `??` may skip its right side.
+func either<T>(o: T?, fallback: T) -> T {
+    o ?? fallback
+}
+
+func main() {
+    let w = Wrap<Res>(from: Res(id: 1))
+    print(w.value.id)
+    print(larger(1, 2))
+    print(moved(Res(id: 2)))
+    print(arms(Res(id: 3), None))
+    print(early(Res(id: 4), true))
+    print(guarded(Res(id: 5), None))
+    print(refilled(Res(id: 6), Res(id: 7)))
+    let e = either(None, Res(id: 8))
+    print(e.id)
+    print(twice(Res(id: 9)))
+    print(repeated(Res(id: 10), 2))
+    print(field(Pair<Res>(item: Res(id: 11))))
+    print(peeked(Res(id: 12)))
+    print(broken(Res(id: 13), 4))
+    print(captured(Res(id: 14)))
+}

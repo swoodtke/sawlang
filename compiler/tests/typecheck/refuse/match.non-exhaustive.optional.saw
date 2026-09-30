@@ -1,0 +1,9 @@
+// refuses: match.non-exhaustive at 5:5
+// a nested optional whose inner absence is unmatched: `Some(None)`
+
+func depth(o: Int??) -> Int {
+    match o {
+        case Some(Some(v)) -> v,
+        case None -> 0
+    }
+}

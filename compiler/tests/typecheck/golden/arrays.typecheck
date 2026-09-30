@@ -1,6 +1,6 @@
 (Module arrays
   (declarations
-    (func main 4:6 private (signature (params) -> Void)))
+    (func main 4:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members)
   (views)
   (conformances)

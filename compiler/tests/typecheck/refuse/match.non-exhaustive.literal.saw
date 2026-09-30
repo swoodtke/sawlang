@@ -1,0 +1,10 @@
+// refuses: match.non-exhaustive at 6:5
+// literal and range arms never cover an integer: a wildcard or a binding is
+// needed
+
+func digit(n: Int) -> Int {
+    match n {
+        case 0 -> 0,
+        case 1..=9 -> 1
+    }
+}

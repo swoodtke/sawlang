@@ -1,0 +1,69 @@
+// Matches that cover every value, each split by its constructors: an enum's
+// cases, `Bool`'s two values, an optional's presence, a tuple's elements, and
+// a binding or wildcard after literal and range arms. A discarded `Result` is
+// written `let _ =` (design 151).
+
+enum Dir {
+    case North,
+    case South
+}
+
+enum Shape {
+    case Circle(radius: Int),
+    case Rect(w: Int, h: Int)
+}
+
+func dir(d: Dir) -> Int {
+    match d {
+        case North -> 1,
+        case South -> 2
+    }
+}
+
+func shape(s: Shape) -> Int {
+    match s {
+        case Circle(r) -> r,
+        case Rect(w, h) if w > 0 -> w * h,
+        case Rect(_, _) -> 0
+    }
+}
+
+func pair(t: (Bool, Bool)) -> Int {
+    match t {
+        case (true, true) -> 1,
+        case (true, false) -> 2,
+        case (false, _) -> 3
+    }
+}
+
+func nested(o: Int??) -> Int {
+    match o {
+        case Some(Some(v)) -> v,
+        case Some(None) -> 1,
+        case None -> 0
+    }
+}
+
+func digits(n: Int) -> Int {
+    match n {
+        case 0 -> 0,
+        case 1..=9 -> 1,
+        case other -> other
+    }
+}
+
+func outcome(r: Result<Int, String>) -> Int {
+    match r {
+        case Ok(v) -> v,
+        case Err(_) -> 0
+    }
+}
+
+func fails() -> Result<Int, String> {
+    return .Ok(value: 1)
+}
+
+func main() {
+    let _ = fails()
+    print(dir(.North) + shape(.Circle(radius: 2)) + pair((true, false)) + nested(None) + digits(4) + outcome(fails()))
+}

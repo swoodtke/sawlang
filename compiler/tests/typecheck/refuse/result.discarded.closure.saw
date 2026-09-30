@@ -1,0 +1,14 @@
+// refuses: result.discarded at 13:12
+// the tail of a closure whose type returns `Void`, which nothing reads
+
+func fails() -> Result<Int, String> {
+    return .Ok(value: 1)
+}
+
+func each(body: () -> Void) {
+    body()
+}
+
+func run() {
+    each({ fails() })
+}

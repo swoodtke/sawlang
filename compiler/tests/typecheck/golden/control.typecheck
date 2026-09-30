@@ -1,10 +1,10 @@
 (Module control
   (declarations
-    (func classify 6:6 private (signature (params (n Int owned)) -> String))
-    (func steps 16:6 private (signature (params (limit Int owned)) -> Int))
-    (func forever 28:6 private (signature (params) -> Never))
-    (func guarded 34:6 private (signature (params (n Int owned)) -> Int))
-    (func closures 39:6 private (signature (params) -> Int)))
+    (func classify 6:6 private (signature (params (n Int owned)) -> String) (summary body (suspends no) (sync-callable yes)))
+    (func steps 16:6 private (signature (params (limit Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func forever 28:6 private (signature (params) -> Never) (summary body (suspends no) (sync-callable yes)))
+    (func guarded 34:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func closures 39:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable no))))
   (members)
   (views)
   (conformances)

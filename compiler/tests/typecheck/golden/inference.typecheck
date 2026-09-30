@@ -3,30 +3,31 @@
     (struct Pair 6:8 private (generics (A) (B)))
     (field Pair.first 7:5 private A)
     (field Pair.second 8:5 private B)
-    (func first_of 11:6 private (signature (generics (T)) (params (items std.vector.Vector<T, std.alloc.GlobalAllocator> owned) (fallback T owned)) -> T))
-    (func either 15:6 private (signature (generics (T)) (params (a T? owned) (b T owned)) -> T))
-    (func apply 19:6 private (signature (generics (T) (U)) (params (value T owned) (f (T) -> U owned)) -> U))
-    (func sized 23:6 private (signature (generics (T)) (params) -> Int))
-    (func defaulted 27:6 private (signature (generics (T (default Int))) (params) -> Int))
-    (func inference 31:6 private (signature (params) -> Int)))
+    (func first_of 11:6 private (signature (generics (T)) (params (items std.vector.Vector<T, std.alloc.GlobalAllocator> owned) (fallback T owned)) -> T) (summary body (suspends no) (sync-callable yes)))
+    (func either 15:6 private (signature (generics (T)) (params (a T? owned) (b T owned)) -> T) (summary body (suspends no) (sync-callable yes)))
+    (func apply 19:6 private (signature (generics (T) (U)) (params (value T owned) (f (T) -> U owned)) -> U) (summary body (suspends no) (sync-callable no)))
+    (func sized 23:6 private (signature (generics (T)) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func defaulted 27:6 private (signature (generics (T (default Int))) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func inference 31:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable no))))
   (members
     (inference.Pair
       (field first A private declared)
-      (field second B private declared)))
+      (field second B private declared)
+      (method deinit public (synthesized Deinit))))
   (views
-    (inference.Pair first second))
+    (inference.Pair first second deinit))
   (conformances)
   (copy-tier
     (inference.Pair (join Copy A B)))
   (bodies
     (first_of 11:6
-      (12:5-12:13 Name T place copy))
+      (12:5-12:13 Name T place move))
     (either 15:6
-      (16:5-16:6 Name T place copy))
+      (16:5-16:6 Name T place move))
     (apply 19:6
       (20:5-20:13 Call.paren U value temp (value (owner (T) -> U)))
       (20:5-20:6 Name (T) -> U place borrow)
-      (20:7-20:12 Name T place copy))
+      (20:7-20:12 Name T place move))
     (sized 23:6
       (24:5-24:16 Call.paren Int value temp (builtin sizeof)))
     (defaulted 27:6

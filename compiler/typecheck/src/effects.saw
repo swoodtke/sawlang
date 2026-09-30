@@ -1,0 +1,426 @@
+// Phase 3 of type checking (SL:architecture §3.4, "Order", "Effects"): the
+// checks that consume phase 2's summaries. A `sync` body calls only
+// sync-callable targets; each call site meets its callee's inferred Copy
+// requirement at its own type arguments; a closure body never suspends; and a
+// coercion to `any Trait` is refused when an implementation it dispatches to
+// may suspend. The last two are what make a call through a function value or
+// an existential sound to treat as never suspending.
+
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.model.{ResDecl, ResDeclKind, ResModule}
+import sawtypecheck.src.checks.{tc_check_unsafe}
+import sawtypecheck.src.conform.{TcSubst}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.model.{TC_EFFECT_SYNC, TC_FLAG_DEFAULT_BODY, TC_FORBID_CLOSURE, TC_FORBID_ERASE,
+                               TC_FORBID_SYNC,
+                               TC_ITEM_CALL, TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_UNTABLED,
+                               TcAtom, TcCall, TcConformance, TcItem, TcRole, TcStatus, TcStatusKind,
+                               TcSummary, TcUnit, TcUse}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.summaries.{TcAcc, tc_acc}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// Runs every check that reads the summaries (phase 3).
+public func tc_check_effects(p: &var TcProgram) {
+    p.check_effects()
+}
+
+extension TcProgram {
+    public func check_effects(&var self) {
+        var u = 0
+        while u < self.units.len() {
+            let unit = self.units[u]
+            if unit.top == u {
+                self.check_unit_items(u)
+            }
+            u = u + 1
+        }
+        self.check_sync_requirements()
+    }
+
+    // Every item of top unit `u` and its closures.
+    func check_unit_items(&var self, u: Int) {
+        let top = self.units[u]
+        let owner = top.decl
+        var k = top.item_first
+        while k < top.item_end {
+            let item = self.items[k]
+            k = k + 1
+            let unit = self.units[item.unit]
+            if item.kind == TC_ITEM_CALL {
+                self.note_untabled(item.node)
+                if unit.sync {
+                    self.check_sync_call(item.node, unit, owner)
+                }
+                if unit.node >= 0 {
+                    self.check_closure_call(item.node, owner)
+                }
+                self.check_call_site(item.node, owner)
+            } else if item.kind == TC_ITEM_ERASE {
+                self.check_erasure(item.node, owner)
+            }
+        }
+    }
+
+    // A call inside a `sync` body must be sync-callable. Inside a generic
+    // body a call whose answer depends on a type argument is judged at each
+    // instantiation, through the body's `refuses-when` conditions.
+    func check_sync_call(&var self, e: Int, unit: TcUnit, owner: Int) {
+        var acc = tc_acc(owner, -1)
+        self.eval_call(e, &var acc)
+        if not acc.nonsync && not acc.suspends {
+            return
+        }
+        var msg = StringBuilder()
+        if unit.node >= 0 {
+            try! msg.append("this closure's type is `sync`, and it calls ")
+        } else {
+            let info = self.res.decls[owner]
+            let name = self.name_text(info.name)
+            try! msg.append("`")
+            try! msg.append(self.res.decl_path(owner))
+            if name.equals("deinit") && not self.declares_sync(owner) {
+                try! msg.append("` is a `deinit`, which runs where nothing may suspend, and it calls ")
+            } else {
+                try! msg.append("` is declared `sync`, and it calls ")
+            }
+        }
+        try! msg.append(self.callee_text(e))
+        if acc.suspends {
+            try! msg.append(", which may suspend")
+        } else {
+            try! msg.append(", which is not sync-callable")
+        }
+        self.refuse_at(e, "effect.sync", msg.build())
+    }
+
+    // A call inside a closure body must not suspend (spec: suspension, "a
+    // closure body cannot suspend"); one that suspends only at some
+    // instantiation is refused at the call that makes it.
+    func check_closure_call(&var self, e: Int, owner: Int) {
+        var acc = tc_acc(owner, -1)
+        self.eval_call(e, &var acc)
+        if not acc.suspends {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("a closure body cannot suspend, and this calls ")
+        try! msg.append(self.callee_text(e))
+        try! msg.append(", which may: call it outside the closure")
+        self.refuse_at(e, "effect.closure-suspends", msg.build())
+    }
+
+    // The call at `e`, where its callee's Copy requirement and forbidden
+    // conditions meet the call's type arguments.
+    func check_call_site(&var self, e: Int, owner: Int) {
+        let at = self.call_at[e]
+        if at < 0 {
+            return
+        }
+        let c = self.calls[at]
+        if c.target < 0 || not self.is_function_decl(c.target) {
+            return
+        }
+        let d = c.target
+        let s = self.summaries[d]
+        var k = 0
+        while k < s.copy_count {
+            let a = self.atoms[s.copy_first + k]
+            k = k + 1
+            let t = self.call_subst(a.ty, d, &c)
+            var acc = tc_acc(owner, -1)
+            if not self.copy_needs(t, e, a.origin, &var acc) {
+                self.refuse_copy_requirement(e, d, &a, t)
+            }
+        }
+        k = 0
+        while k < s.forbid_count {
+            let a = self.atoms[s.forbid_first + k]
+            k = k + 1
+            let t = self.call_subst(a.ty, d, &c)
+            let recv = self.strip_refs(t)
+            if self.is_own_condition(recv, owner) {
+                continue
+            }
+            var acc = tc_acc(owner, -1)
+            let sync_kind = a.kind == TC_FORBID_SYNC
+            self.eval_condition(recv, a.req, e, not sync_kind, &var acc, 0)
+            if (sync_kind && acc.nonsync) || (not sync_kind && acc.suspends) {
+                self.refuse_forbidden(e, d, &a, recv)
+            }
+        }
+    }
+
+    // A coercion of a concrete value into `any Trait` at `id`: refused when
+    // the implementation of a requirement the dispatch reaches, not declared
+    // `sync`, may suspend (spec: suspension, "a dispatch to a suspending
+    // implementation is refused").
+    func check_erasure(&var self, id: Int, owner: Int) {
+        let tr = self.erased_trait(id)
+        let before = self.erased_from(id)
+        let from = self.strip_refs(before)
+        if tr < 0 || self.is_own_condition(from, owner) || self.kind_of(from) == TcKind.Error {
+            return
+        }
+        let reqs = self.dispatched_requirements(tr)
+        var k = 0
+        while k < reqs.len() {
+            let req = reqs[k]
+            k = k + 1
+            var acc = tc_acc(owner, -1)
+            self.eval_condition(from, req, id, true, &var acc, 0)
+            if acc.suspends {
+                self.refuse_suspending_dispatch(id, from, tr, req)
+                return
+            }
+        }
+    }
+
+    // A `sync` requirement met by a member not declared `sync` holds when
+    // the member is sync-callable, which its summary answers.
+    func check_sync_requirements(&var self) {
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            var j = 0
+            while j < c.status_count {
+                let st = self.statuses[c.status_first + j]
+                j = j + 1
+                if st.kind != TcStatusKind.Written || st.member < 0 || not self.declares_sync(st.requirement) {
+                    continue
+                }
+                if self.declares_sync(st.member) || not self.is_function_decl(st.member) {
+                    continue
+                }
+                let s = self.summaries[st.member]
+                if not s.nonsync && s.nonsync_count == 0 {
+                    continue
+                }
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(self.res.decl_path(st.member))
+                try! msg.append("` meets `")
+                try! msg.append(self.res.decl_path(st.requirement))
+                try! msg.append("`, which is declared `sync`, but it is not sync-callable: declare it `sync`, and call only sync-callable targets in it")
+                let info = self.res.decls[st.member]
+                let site = self.decl_site(st.member)
+                self.refuse_in(info.module, site, "effect.sync", msg.build())
+            }
+        }
+    }
+
+    // A NOTE, once per function, for a std function the suspension table has
+    // no row for, which phase 2 takes as suspending.
+    func note_untabled(&var self, e: Int) {
+        let at = self.call_at[e]
+        if at < 0 {
+            return
+        }
+        let c = self.calls[at]
+        if c.target < 0 || c.target >= self.summaries.len() {
+            return
+        }
+        let s = self.summaries[c.target]
+        if s.state != TC_SUMMARY_UNTABLED {
+            return
+        }
+        var k = 0
+        while k < self.untabled.len() {
+            if self.untabled[k] == c.target {
+                return
+            }
+            k = k + 1
+        }
+        try! self.untabled.push(c.target)
+        let d = c.target
+        var msg = StringBuilder()
+        try! msg.append("compiler/tools/std_suspension.txt has no row for `")
+        try! msg.append(self.std_key(d))
+        try! msg.append("`, so its callers take it as suspending: rerun compiler/tools/std_suspension.py --write")
+        let info = self.res.decls[d]
+        let site = self.decl_site(d)
+        self.refuse_in(info.module, site, "summary.untabled", msg.build())
+    }
+}
+
+// The texts and refusals.
+extension TcProgram {
+    // A refusal at node `id`, in the module that holds it.
+    func refuse_at(&var self, id: Int, rule: String, message: String) {
+        let m = self.node_module(id)
+        self.refuse_in(m, id, rule, message)
+    }
+
+    // What the call at `e` calls, as a refusal names it.
+    public func callee_text(&self, e: Int) -> String {
+        let at = self.call_at[e]
+        if at < 0 {
+            return "this"
+        }
+        let c = self.calls[at]
+        if c.role == TcRole.Value {
+            return "a function value whose type is not `sync`"
+        }
+        if c.target < 0 {
+            return "this"
+        }
+        var out = StringBuilder()
+        let info = self.res.decls[c.target]
+        if info.kind == ResDeclKind.Requirement && c.owner >= 0 {
+            let recv = self.strip_refs(c.owner)
+            let rk = self.kind_of(recv)
+            if rk == TcKind.Param || rk == TcKind.SelfType {
+                try! out.append("`")
+                try! out.append(self.res.decl_path(c.target))
+                try! out.append("` through `")
+                try! out.append(self.type_text(recv))
+                try! out.append("`")
+                return out.build()
+            }
+            if rk == TcKind.Any {
+                try! out.append("`")
+                try! out.append(self.res.decl_path(c.target))
+                try! out.append("` through `")
+                try! out.append(self.type_text(recv))
+                try! out.append("`, a requirement not declared `sync`")
+                return out.build()
+            }
+        }
+        try! out.append("`")
+        try! out.append(self.res.decl_path(c.target))
+        try! out.append("`")
+        out.build()
+    }
+
+    // A condition as the dump and a refusal write it: `T.Worker.step`.
+    public func atom_text(&self, a: &TcAtom) -> String {
+        var out = StringBuilder()
+        try! out.append(self.type_text(a.ty))
+        if a.req >= 0 {
+            try! out.append(".")
+            try! out.append(self.res.decl_path(a.req))
+        }
+        out.build()
+    }
+
+    func refuse_copy_requirement(&var self, e: Int, d: Int, a: &TcAtom, t: Int) {
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` requires `")
+        try! msg.append(self.type_text(a.ty))
+        try! msg.append("` to be Copy, as its body ")
+        try! msg.append(self.copy_origin_text(a.origin))
+        try! msg.append(" with nothing written, and `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` is ")
+        try! msg.append(self.tier_word(t))
+        try! msg.append(": pass a Copy type, or declare the parameter `ExplicitCopy` and write `.copy()` in the body")
+        self.refuse_at(e, "copy.requirement", msg.build())
+    }
+
+    // How the copy at `origin` duplicates a value: a read out of storage the
+    // body does not own, or a local used again on one path, both uses quoted
+    // (spec, "The rule is per PATH, not per mention").
+    func copy_origin_text(&self, origin: Int) -> String {
+        let m = self.node_module(origin)
+        var out = StringBuilder()
+        let other = self.copy_partner[origin]
+        if other < 0 {
+            try! out.append("copies one at ")
+            try! out.append(self.res.module_file(m))
+            try! out.append(":")
+            try! out.append(self.res.node_position(m, origin))
+            return out.build()
+        }
+        let leaf = self.res.first_leaf(origin)
+        try! out.append("binds `")
+        try! out.append(self.text(m, leaf))
+        if other == origin {
+            try! out.append("` at ")
+            try! out.append(self.res.module_file(m))
+            try! out.append(":")
+            try! out.append(self.res.node_position(m, origin))
+            try! out.append(" in a loop or closure, which runs it again,")
+            return out.build()
+        }
+        let first = if other < origin { other } else { origin }
+        let second = if other < origin { origin } else { other }
+        let again = self.expr_use[second]
+        if again == TcUse.Copy || again == TcUse.Move {
+            try! out.append("` twice on one path, at ")
+        } else {
+            try! out.append("` at ")
+        }
+        try! out.append(self.res.module_file(m))
+        try! out.append(":")
+        try! out.append(self.res.node_position(m, first))
+        if again == TcUse.Copy || again == TcUse.Move {
+            try! out.append(" and ")
+        } else {
+            try! out.append(" and uses it again at ")
+        }
+        try! out.append(self.res.node_position(m, second))
+        try! out.append(",")
+        out.build()
+    }
+
+    func refuse_forbidden(&var self, e: Int, d: Int, a: &TcAtom, t: Int) {
+        let m = self.node_module(a.origin)
+        var msg = StringBuilder()
+        try! msg.append("this calls `")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` with `")
+        try! msg.append(self.type_text(a.ty))
+        try! msg.append("` as `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("`, whose `")
+        try! msg.append(self.res.decl_path(a.req))
+        if a.kind == TC_FORBID_SYNC {
+            try! msg.append("` is not sync-callable, and its body calls it in a `sync` context at ")
+            try! msg.append(self.res.module_file(m))
+            try! msg.append(":")
+            try! msg.append(self.res.node_position(m, a.origin))
+            self.refuse_at(e, "effect.sync", msg.build())
+            return
+        }
+        try! msg.append("` may suspend, and ")
+        if a.kind == TC_FORBID_ERASE {
+            try! msg.append("its body makes it `any` at ")
+            try! msg.append(self.res.module_file(m))
+            try! msg.append(":")
+            try! msg.append(self.res.node_position(m, a.origin))
+            try! msg.append(": a dispatch through `any` to a suspending implementation is refused")
+            self.refuse_at(e, "effect.any-suspends", msg.build())
+            return
+        }
+        try! msg.append("its closure calls it at ")
+        try! msg.append(self.res.module_file(m))
+        try! msg.append(":")
+        try! msg.append(self.res.node_position(m, a.origin))
+        try! msg.append(": a closure body cannot suspend")
+        self.refuse_at(e, "effect.closure-suspends", msg.build())
+    }
+
+    func refuse_suspending_dispatch(&var self, id: Int, from: Int, tr: Int, req: Int) {
+        let impl = self.impl_of(from, req)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.type_text(from))
+        try! msg.append("` becomes `any ")
+        try! msg.append(self.nominal_name(tr))
+        try! msg.append("` here, and its implementation of `")
+        try! msg.append(self.res.decl_path(req))
+        try! msg.append("`")
+        if impl >= 0 {
+            try! msg.append(", `")
+            try! msg.append(self.res.decl_path(impl))
+            try! msg.append("`,")
+        }
+        try! msg.append(" may suspend: a dispatch through `any` to a suspending implementation is refused, so call it on the concrete type, or take it as a generic parameter bounded by the trait")
+        self.refuse_at(id, "effect.any-suspends", msg.build())
+    }
+}

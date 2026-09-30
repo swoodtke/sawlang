@@ -1,0 +1,15 @@
+// refuses: match.non-exhaustive at 11:5
+// a `match` over an enum that leaves a case unmatched, named
+
+enum Dir {
+    case North,
+    case South,
+    case East
+}
+
+func rank(d: Dir) -> Int {
+    match d {
+        case North -> 1,
+        case South -> 2
+    }
+}

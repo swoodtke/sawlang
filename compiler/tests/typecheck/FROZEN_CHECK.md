@@ -1,8 +1,44 @@
 # The one-time check against the frozen compiler
 
 The record of `frozen_check.py`, run once for SL-447's U6b1 and again for its
-U6b2. The frozen compiler's answers are checked and recorded here; they are
-never the definition of what typecheck must answer.
+U6b2 and U6b3, and of `frozen_effects.py`, run once for U6b3. The frozen
+compiler's answers are checked and recorded here; they are never the
+definition of what typecheck must answer.
+
+## Exhaustiveness, discarded Results and suspension (U6b3, `frozen_effects.py`)
+
+- **The sawc2 build.** The frozen compiler builds it, so by its rules every
+  `match` in it is exhaustive and no `Result` in it is discarded. sawc2 checks
+  196 `match` expressions over the build's own modules and refuses none, and
+  refuses no discarded `Result`.
+- **The corpus's refusal programs for the two rules**, whose expected error
+  names a non-exhaustive match or a discarded `Result`: 9 programs, 8 refused
+  by sawc2's matching rule (2 `match.non-exhaustive`, 6 `result.discarded`,
+  the statement, match-arm, positions, erased, suspending and `try!`-payload
+  cases). The ninth, `try_catch_union_nonexhaustive_error.saw`, is a
+  `try ... catch` block, which sawc2 refuses first as `slice.not-yet`.
+- **The suspension sample**: the 34 corpus programs that park through
+  `yield_now` and use nothing outside the sync-only slice, none of them
+  expecting a refusal. sawc2 checks 26 with no refusal (5 are `slice.not-yet`
+  first, 2 `import.unknown-module`, 1 `visibility.private`), and the frozen
+  compiler rejects one of those 26. Over the other 25, **93 functions the
+  frozen coroutine transform frames are may-suspend in sawc2**, and none it
+  frames is never-suspends there; no function sawc2 finds may-suspend is left
+  unframed by the frozen ledger.
+
+The frozen side is the frame ledger (`--emit-frame-ledger`): a function counts
+as framed when its FRAME row says `boundary=yes`, or, for a generic method
+template, which owns no frame, when an instance of it is framed. Free
+functions are compared by name (`name$m$module` loses its module), methods as
+`Type.method` (`Type_method` in the ledger), and rows homed in std are left
+out, as sawc2 summarizes std from its table.
+
+`frozen_check.py` was run again over the build as it stands after U6b3, its
+per-path use count included, with the summary each function's dump now
+carries left out of the comparison: 611 field types, 1564 signatures and 118
+Copy tiers agree, and 5846 binding types, 11485 receivers, 266
+instantiations, 1493 overloads and 1369 modules, with no difference.
+`frozen_effects.py`, run again on the same build, gives the answers above.
 
 ## Bodies: call targets, instantiations and binding types (U6b2)
 

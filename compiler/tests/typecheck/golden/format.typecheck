@@ -3,8 +3,8 @@
     (struct Money 6:8 private)
     (field Money.cents 7:5 private Int)
     (extension 10:1 (target format.Money) (conforms Printable))
-    (method Money.format 11:10 private (signature (receiver shared) (params (into &var std.stringbuilder.StringBuilder exclusive)) -> Void))
-    (func report 16:6 private (signature (params (name String owned) (count Int owned) (m format.Money owned)) -> Void)))
+    (method Money.format 11:10 private (signature (receiver shared) (params (into &var std.stringbuilder.StringBuilder exclusive)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func report 16:6 private (signature (params (name String owned) (count Int owned) (m format.Money owned)) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (format.Money
       (field cents Int private declared)

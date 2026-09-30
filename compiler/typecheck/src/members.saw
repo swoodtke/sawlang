@@ -18,12 +18,37 @@ public func tc_build_members(p: &var TcProgram) {
 extension TcProgram {
     // Every nominal type's member table, in declaration order.
     public func build_members(&var self) {
+        self.index_conformance_members()
         var d = 0
         while d < self.res.decls.len() {
             if self.is_nominal(d) {
                 self.build_member_table(d)
             }
             d = d + 1
+        }
+    }
+
+    // Each written member that meets a requirement, to the requirement's
+    // trait: such a member follows the trait's visibility, not its own.
+    func index_conformance_members(&var self) {
+        var d = 0
+        while d < self.res.decls.len() {
+            try! self.meets_trait.push(-1)
+            d = d + 1
+        }
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            var j = 0
+            while j < c.status_count {
+                let s = self.statuses[c.status_first + j]
+                j = j + 1
+                if s.kind == TcStatusKind.Written && s.member >= 0 {
+                    let req = self.res.decls[s.requirement]
+                    self.meets_trait[s.member] = req.parent
+                }
+            }
         }
     }
 
@@ -95,6 +120,7 @@ extension TcProgram {
             }
             k = k + 1
         }
+        self.add_synthesized_deinit(d, first)
         self.member_first[d] = first
         let count = self.members.len() - first
         self.member_count[d] = count
@@ -128,6 +154,144 @@ extension TcProgram {
         }
     }
 
+    // Every struct and enum that owns something gets a `deinit` the compiler
+    // writes, unless one is written (spec, Synthesized destruction; design
+    // 131): it joins the table as a derivation of `Deinit` does.
+    func add_synthesized_deinit(&var self, d: Int, first: Int) {
+        let owner = self.res.decls[d]
+        let deinit_trait = self.known.deinit
+        let own_type = owner.kind == ResDeclKind.Struct || owner.kind == ResDeclKind.Enum
+        if not own_type || owner.node < 0 || deinit_trait < 0 {
+            return
+        }
+        let name = self.res.intern("deinit")
+        var k = first
+        while k < self.members.len() {
+            let member = self.members[k]
+            if member.name == name {
+                return
+            }
+            k = k + 1
+        }
+        if not self.decl_owns(d, 0) {
+            return
+        }
+        let reqs = self.members_of(deinit_trait)
+        if reqs.len() == 0 {
+            return
+        }
+        try! self.members.push(TcMember(type_decl: d, decl: reqs[0], source: TcSource.Synthesized,
+                                        module: owner.module, ext: -1, trait_decl: deinit_trait,
+                                        vis: ResVis.Public, name: name))
+    }
+
+    // Whether struct or enum `d` owns something a drop releases: a field or
+    // payload that does, or a `deinit` written for it.
+    func decl_owns(&var self, d: Int, depth: Int) -> Bool {
+        if depth > 16 {
+            return true
+        }
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            let info = self.res.decls[m]
+            k = k + 1
+            if info.kind == ResDeclKind.Field {
+                let field_type = self.sigs[m].result
+                if self.type_owns(field_type, depth + 1) {
+                    return true
+                }
+            } else if info.kind == ResDeclKind.Case {
+                let s = self.sigs[m]
+                var j = 0
+                while j < s.param_count {
+                    let p = self.params[s.param_first + j]
+                    if self.type_owns(p.ty, depth + 1) {
+                        return true
+                    }
+                    j = j + 1
+                }
+            }
+        }
+        false
+    }
+
+    // Whether a value of type `t` owns something a drop releases: a
+    // `String`, a type parameter, a function value's captures, an
+    // existential, or an owning struct or enum.
+    func type_owns(&var self, t: Int, depth: Int) -> Bool {
+        if t < 0 {
+            return false
+        }
+        let info = self.types.ty(t)
+        match info.kind {
+            case Nominal -> {
+                if info.decl == self.known.string {
+                    return true
+                }
+                if info.decl == self.known.unsafe_pointer || info.decl == self.known.unsafe_const_pointer {
+                    return false
+                }
+                let decl = self.res.decls[info.decl]
+                if decl.kind == ResDeclKind.Primitive || decl.node < 0 {
+                    var k = 0
+                    while k < info.count {
+                        let a = self.types.arg(t, k)
+                        if self.type_owns(a, depth + 1) {
+                            return true
+                        }
+                        k = k + 1
+                    }
+                    return false
+                }
+                let name = self.res.intern("deinit")
+                if self.has_written_deinit(info.decl, name) {
+                    return true
+                }
+                self.decl_owns(info.decl, depth + 1)
+            },
+            case Tuple -> {
+                var k = 0
+                while k < info.count {
+                    let a = self.types.arg(t, k)
+                    if self.type_owns(a, depth + 1) {
+                        return true
+                    }
+                    k = k + 1
+                }
+                false
+            },
+            case Array -> self.type_owns(info.b, depth + 1),
+            case Param -> true,
+            case Func -> true,
+            case Any -> true,
+            case SelfType -> true,
+            case Assoc -> true,
+            case _ -> false
+        }
+    }
+
+    // Whether an extension of type `d` writes its `deinit`, whose name is
+    // `name`.
+    func has_written_deinit(&self, d: Int, name: Int) -> Bool {
+        var at = self.extensions_of.first(d, 0)
+        while at >= 0 {
+            let ext = self.extensions_of.value(at)
+            let listed = self.members_of(ext)
+            var k = 0
+            while k < listed.len() {
+                let info = self.res.decls[listed[k]]
+                if info.kind == ResDeclKind.Method && info.name == name {
+                    return true
+                }
+                k = k + 1
+            }
+            at = self.extensions_of.following(at)
+        }
+        false
+    }
+
     // Whether the table begun at `first` holds requirement `req` already,
     // brought by another conformance.
     func brought_already(&self, first: Int, req: Int) -> Bool {
@@ -143,17 +307,42 @@ extension TcProgram {
         false
     }
 
+    // For a member `d` written to meet a requirement: 1 when the trait's
+    // visibility reaches module `viewer`, 0 when it does not; -1 for any
+    // other member (spec, Member visibility: "Trait-conformance methods
+    // follow the trait"). The trait only widens: a member visible on its own
+    // terms stays visible.
+    public func follows_trait(&self, d: Int, viewer: Int) -> Int {
+        if d < 0 || d >= self.meets_trait.len() {
+            return -1
+        }
+        let tr = self.meets_trait[d]
+        if tr < 0 {
+            return -1
+        }
+        let trait_info = self.res.decls[tr]
+        if self.res.visible_to(trait_info.vis, trait_info.module, viewer) {
+            return 1
+        }
+        0
+    }
+
     // Whether module `viewer` sees member `k` of the table. A member of an
     // extension needs the extension's module in the viewer's extension set,
     // or the type's own module; every member needs its visibility tier to
     // reach the viewer. What a conformance brings is as visible as the
-    // conformance, which the orphan rule makes global.
+    // conformance, which the orphan rule makes global, and a member written
+    // to meet a requirement follows its trait: callable wherever the
+    // conformance is visible, when the trait's visibility reaches the viewer.
     public func member_visible(&self, k: Int, viewer: Int, visible: &Vector<Bool>) -> Bool {
         let member = self.members[k]
         let owner = self.res.decls[member.type_decl]
         match member.source {
             case Declared -> self.res.visible_to(member.vis, member.module, viewer),
             case Extension -> {
+                if self.follows_trait(member.decl, viewer) == 1 {
+                    return true
+                }
                 if not self.sees_extensions_of(viewer, member.module, owner.module, &visible) {
                     return false
                 }

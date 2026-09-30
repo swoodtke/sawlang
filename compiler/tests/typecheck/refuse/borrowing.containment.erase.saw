@@ -1,0 +1,33 @@
+// refuses: borrowing.containment at 32:20
+// a borrowing struct erased to an existential
+
+trait Shows {
+    func show(&self) -> Int
+}
+
+struct Holder {
+    n: Int
+}
+
+borrows struct View {
+    holder: &Holder
+}
+
+extension View: Shows {
+    func show(&self) -> Int { 1 }
+}
+
+extension Holder {
+    func view(&self) borrows -> View {
+        View(holder: &self)
+    }
+}
+
+func print_it(s: &any Shows) -> Int {
+    1
+}
+
+func main() {
+    let h = Holder(n: 1)
+    print(print_it(&h.view()))
+}

@@ -6,8 +6,9 @@ import sawparse.src.grammar.{Alt}
 import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
 import sawresolve.src.names.{ResIndex, res_index}
 import sawresolve.src.program.{ResProgram}
-import sawtypecheck.src.model.{TcAdjust, TcAllowance, TcCall, TcConformance, TcDiag, TcGeneric, TcMember,
-                               TcObligation, TcParam, TcSig, TcStatus, TcTier, TcUse, tc_blank_sig}
+import sawtypecheck.src.model.{TcAdjust, TcAllowance, TcAtom, TcCall, TcConformance, TcDiag, TcGeneric,
+                               TcItem, TcMember, TcObligation, TcParam, TcSig, TcStatus, TcSummary,
+                               TcTier, TcUnit, TcUse, tc_blank_sig}
 import sawtypecheck.src.types.{TcKind, TcType, TcTypes, tc_types}
 
 // The builtin declarations typecheck knows by identity, (module, name), found
@@ -120,6 +121,10 @@ public struct TcProgram {
     public typed_count: Vector<Int>
     public expr_place: Vector<Bool>
     public expr_use: Vector<TcUse>
+    // By read: the other use of a local that makes the read a copy, the
+    // read itself when a loop repeats it, TC_COPY_COVERED when another read
+    // of that local carries the requirement, or -1 (`settle_path_uses`).
+    public copy_partner: Vector<Int>
     // Each expression's adjustment chain: `adj_head[e]` its first step in
     // `adjusts`, `adj_tail[e]` its last.
     public adj_head: Vector<Int>
@@ -157,6 +162,30 @@ public struct TcProgram {
     // The place a `borrow` block's binding names while it is typed, or -1: a
     // call there must lend.
     public borrow_head: Int
+    // Phase 2's summaries, by declaration, their conditions' pool, the
+    // bodies' units and items, and each declaration's top unit.
+    public summaries: Vector<TcSummary>
+    public atoms: Vector<TcAtom>
+    public units: Vector<TcUnit>
+    public items: Vector<TcItem>
+    public decl_unit: Vector<Int>
+    // (declaration, 0) -> each unit whose summary read that declaration's.
+    public summary_deps: ResIndex
+    // The std suspension table: (key's name id, 0) -> its verdict, and the
+    // keys in row order.
+    public std_verdicts: ResIndex
+    public std_keys: Vector<Int>
+    // The std functions a NOTE already names as missing from the table.
+    public untabled: Vector<Int>
+    // Each problem the summary verifier found, and its module.
+    public summary_problems: Vector<String>
+    public summary_problem_modules: Vector<Int>
+    // The literal a unary minus is typing, or -1: a signed suffix's minimum
+    // is allowed only there (SL:open-questions D6).
+    public negated_literal: Int
+    // By declaration: the trait whose requirement a written member meets, or
+    // -1.
+    public meets_trait: Vector<Int>
 }
 
 extension TcProgram: NoCopy {}
@@ -204,14 +233,19 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       current_trait: -1, current_ext: -1, current_self: -1, error_type: -1,
                       satisfy_depth: 0, skipped: Vector<Int>(), expr_types: Vector<Int>(),
                       typed_count: Vector<Int>(), expr_place: Vector<Bool>(),
-                      expr_use: Vector<TcUse>(), adj_head: Vector<Int>(),
+                      expr_use: Vector<TcUse>(), copy_partner: Vector<Int>(), adj_head: Vector<Int>(),
                       adj_tail: Vector<Int>(), adjusts: Vector<TcAdjust>(),
                       call_at: Vector<Int>(), calls: Vector<TcCall>(), insts: Vector<Int>(),
                       local_types: Vector<Int>(), res_call_at: Vector<Int>(),
                       body_roots: Vector<Int>(), body_decls: Vector<Int>(),
                       ext_visible: Vector<Bool>(), body_result: -1, loop_breaks: Vector<Int>(),
                       branch_allow: TcAllowance(optionals: 1, results: 1, erases: false, widens: true),
-                      chosen_twin: -1, current_root: -1, poisoned: Vector<Int>(), borrow_head: -1)
+                      chosen_twin: -1, current_root: -1, poisoned: Vector<Int>(), borrow_head: -1,
+                      summaries: Vector<TcSummary>(), atoms: Vector<TcAtom>(), units: Vector<TcUnit>(),
+                      items: Vector<TcItem>(), decl_unit: Vector<Int>(), summary_deps: res_index(),
+                      std_verdicts: res_index(), std_keys: Vector<Int>(), untabled: Vector<Int>(),
+                      summary_problems: Vector<String>(), summary_problem_modules: Vector<Int>(),
+                      negated_literal: -1, meets_trait: Vector<Int>())
     let empty = Vector<Int>()
     let unlabeled = Vector<Int>()
     p.error_type = p.types.intern(TcKind.Error, -1, 0, 0, &empty, &unlabeled)

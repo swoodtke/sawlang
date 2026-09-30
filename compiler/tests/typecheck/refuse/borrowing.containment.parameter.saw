@@ -1,0 +1,8 @@
+// refuses: borrowing.containment at 6:6
+// a borrowing struct taken as a parameter by value
+
+import std.vector.{VectorIterator}
+
+func consume(it: VectorIterator<Int>) -> Int {
+    0
+}

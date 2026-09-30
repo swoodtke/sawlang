@@ -6,17 +6,18 @@
     (struct Res 11:8 private)
     (field Res.w 12:5 private Int)
     (extension 15:1 (target builtin_values.Res) (conforms NoCopy))
-    (func takes 17:6 private (signature (params (r builtin_values.Res owned)) -> Int))
-    (func count 21:6 private (signature (generics (const N Int)) (params (a [Int; N] owned)) -> Int))
-    (func main 29:6 private (signature (params) -> Void)))
+    (func takes 17:6 private (signature (params (r builtin_values.Res owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func count 21:6 private (signature (generics (const N Int)) (params (a [Int; N] owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 29:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (builtin_values.Maybe
       (case Just private declared)
-      (case Nothing private declared))
+      (case Nothing private declared)
+      (method deinit public (synthesized Deinit)))
     (builtin_values.Res
       (field w Int private declared)))
   (views
-    (builtin_values.Maybe Just Nothing)
+    (builtin_values.Maybe Just Nothing deinit)
     (builtin_values.Res w))
   (conformances
     (builtin_values.Res NoCopy 15:16 (deinit implicit)))

@@ -1,10 +1,10 @@
 (Module main
   (declarations
-    (func double 9:6 private (signature (params (n Int owned)) -> Int))
-    (func main 13:6 private (signature (params) -> Void)))
+    (func double 9:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 13:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable no))))
   (members)
   (views
-    (handler.Handler f))
+    (handler.Handler f deinit))
   (conformances)
   (copy-tier)
   (bodies
@@ -33,9 +33,10 @@
   (members
     (handler.Handler
       (field f (Int) -> Int public declared)
-      (method f public (extension adds))))
+      (method f public (extension adds))
+      (method deinit public (synthesized Deinit))))
   (views
-    (handler.Handler f))
+    (handler.Handler f deinit))
   (conformances)
   (copy-tier
     (handler.Handler Copy))
@@ -43,10 +44,10 @@
 
 (Module other
   (declarations
-    (func with_method 4:13 public (signature (params (h &handler.Handler shared)) -> Int)))
+    (func with_method 4:13 public (signature (params (h &handler.Handler shared)) -> Int) (summary body (suspends no) (sync-callable yes))))
   (members)
   (views
-    (handler.Handler f f))
+    (handler.Handler f f deinit))
   (conformances)
   (copy-tier)
   (bodies
@@ -56,10 +57,10 @@
 (Module adds
   (declarations
     (extension 3:1 (target handler.Handler))
-    (method Handler.f 4:17 public (signature (receiver shared) (params (n Int owned)) -> Int)))
+    (method Handler.f 4:17 public (signature (receiver shared) (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes))))
   (members)
   (views
-    (handler.Handler f f))
+    (handler.Handler f f deinit))
   (conformances)
   (copy-tier)
   (bodies

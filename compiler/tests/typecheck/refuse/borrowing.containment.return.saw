@@ -1,0 +1,8 @@
+// refuses: borrowing.containment at 6:6
+// a borrowing struct returned plainly, by a function that does not lend it
+
+import std.vector.{VectorIterator}
+
+func leak(v: &Vector<Int>) -> VectorIterator<Int>? {
+    None
+}

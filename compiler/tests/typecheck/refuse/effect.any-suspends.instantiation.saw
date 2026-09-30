@@ -1,0 +1,31 @@
+// refuses: effect.any-suspends at 30:11
+// a generic body making its `T` an `any Trait`: refused at the call whose type
+// argument implements the requirement with a suspending body
+
+import std.task.{yield_now}
+
+trait Greeter {
+    func greet(&self) -> Int
+}
+
+struct Person {
+    n: Int
+}
+
+extension Person: Greeter {
+    func greet(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+func shout(g: &any Greeter) -> Int { 1 }
+
+func relay<T: Greeter>(t: &T) -> Int {
+    shout(t)
+}
+
+func main() {
+    let p = Person(n: 3)
+    print(relay(&p))
+}

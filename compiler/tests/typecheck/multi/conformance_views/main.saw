@@ -1,0 +1,11 @@
+// A method satisfying a visible trait's requirement is callable wherever the
+// conformance is visible (spec, Member visibility: "Trait-conformance methods
+// follow the trait"), though written without `public`: `main` sees `count`,
+// and the plain private method `hidden` stays out of its view.
+
+import gadget.{Countable, Gadget}
+
+func main() {
+    let g = Gadget(n: 3)
+    print(g.count())
+}

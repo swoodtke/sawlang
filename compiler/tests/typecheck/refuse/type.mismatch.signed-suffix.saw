@@ -1,0 +1,8 @@
+// refuses: type.mismatch at 7:16
+// a signed suffix holds its literal to the signed range; only a unary minus
+// reaches the minimum's magnitude (SL:open-questions D6)
+
+func main() {
+    let low = -128_i8
+    let high = 128_i8
+}

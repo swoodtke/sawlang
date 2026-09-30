@@ -3,9 +3,9 @@
     (struct Row 6:8 private)
     (field Row.cells 7:5 private [Int; 4])
     (extension 10:1 (target borrows.Row))
-    (method Row.[] 11:10 private (signature (receiver exclusive) (params (i Int owned)) (effects borrows) (lend place exclusive) -> &var Int))
-    (method Row.find 15:10 private (signature (receiver exclusive) (params (i Int owned)) (effects borrows) (lend conditional-place exclusive) -> &var Int?))
-    (func forms 23:6 private (signature (params (r &var borrows.Row exclusive) (o Int? owned)) -> Int)))
+    (method Row.[] 11:10 private (signature (receiver exclusive) (params (i Int owned)) (effects borrows) (lend place exclusive) -> &var Int) (summary body (suspends no) (sync-callable yes)))
+    (method Row.find 15:10 private (signature (receiver exclusive) (params (i Int owned)) (effects borrows) (lend conditional-place exclusive) -> &var Int?) (summary body (suspends no) (sync-callable yes)))
+    (func forms 23:6 private (signature (params (r &var borrows.Row exclusive) (o Int? owned)) -> Int) (summary body (suspends no) (sync-callable yes))))
   (members
     (borrows.Row
       (field cells [Int; 4] private declared)

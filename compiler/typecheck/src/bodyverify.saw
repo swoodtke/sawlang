@@ -380,12 +380,23 @@ extension TcProgram {
         false
     }
 
+    // Whether `t` is a raw-backed enum, whose case adopts an integer slot as
+    // the constant of its backing (spec, Flag enums).
+    func is_raw_backed(&self, t: Int) -> Bool {
+        let info = self.types.ty(t)
+        if info.kind != TcKind.Nominal || not self.is_enum_decl(info.decl) {
+            return false
+        }
+        let backing = self.sigs[info.decl].result
+        backing >= 0 && self.is_integer(backing)
+    }
+
     // Whether one adjustment step takes `from` to `to` as its kind says.
     func step_composes(&self, kind: TcAdjustKind, from: Int, to: Int, id: Int) -> Bool {
         let fi = self.types.ty(from)
         let ti = self.types.ty(to)
         match kind {
-            case Adopt -> self.is_integer(from) && ti.kind == TcKind.Nominal,
+            case Adopt -> (self.is_integer(from) || self.is_raw_backed(from)) && ti.kind == TcKind.Nominal,
             case Never -> fi.kind == TcKind.Nominal && fi.decl == self.known.never,
             case Some -> ti.kind == TcKind.Nominal && ti.decl == self.known.optional && self.types.arg(to, 0) == from,
             case Ok -> ti.kind == TcKind.Nominal && ti.decl == self.known.result && self.types.arg(to, 0) == from,

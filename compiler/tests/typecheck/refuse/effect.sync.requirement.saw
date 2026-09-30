@@ -1,0 +1,20 @@
+// refuses: effect.sync at 16:10
+// a `sync` requirement met by a member not declared `sync` that is not
+// sync-callable
+
+import std.task.{yield_now}
+
+trait Probe {
+    func probe(&self) sync -> Int
+}
+
+struct Sensor {
+    n: Int
+}
+
+extension Sensor: Probe {
+    func probe(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}

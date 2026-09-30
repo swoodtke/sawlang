@@ -1,0 +1,8 @@
+// refuses: type.mismatch at 7:23
+// a constant expression judged by its folded value: each literal fits, and
+// the sum does not (design 87)
+
+func main() {
+    let fits: UInt8 = 256 - 1
+    let over: UInt8 = 255 + 1
+}

@@ -1,0 +1,7 @@
+// refuses: effect.sync at 6:5
+// a `sync` body calling a function value whose type is not `sync`, which never
+// suspends and is not sync-callable
+
+func apply(f: (Int) -> Int, x: Int) sync -> Int {
+    f(x)
+}

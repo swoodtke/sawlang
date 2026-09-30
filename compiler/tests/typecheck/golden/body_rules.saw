@@ -1,0 +1,82 @@
+// What the body checks accept: a consuming call spelled with `move`, or on a
+// temporary; `move self.field` in a `consumes` body; a borrowing struct at a
+// `for` head; a `borrows(sync)` borrow whose block calls nothing that
+// suspends; and a function touching an unsafe type that declares `unsafe`.
+
+struct Ticket {
+    n: Int
+}
+
+struct Builder {
+    items: Vector<Int>
+}
+
+extension Builder: NoCopy {}
+
+struct Guarded {
+    n: Int
+}
+
+extension Ticket {
+    func redeem(&var self) consumes -> Int {
+        self.n
+    }
+}
+
+extension Builder {
+    func finish(&var self) consumes -> Vector<Int> {
+        move self.items
+    }
+}
+
+extension Guarded {
+    func lock(&var self) sync borrows(sync) -> &var Int {
+        lend self.n
+    }
+}
+
+func step() sync -> Int {
+    1
+}
+
+func address(x: &Int) unsafe -> Int {
+    let p = x as UnsafePointer<Int>
+    0
+}
+
+// A closure whose own signature names an unsafe type keeps its contact local:
+// the slot declares the effect, so the safe `main` passing it owes nothing.
+unsafe struct UnsafeReg {
+    addr: Int
+}
+
+extension UnsafeReg {
+    func read(&self) unsafe -> Int { self.addr }
+}
+
+func with_reg(offset: Int, body: (UnsafeReg) unsafe sync -> Int) unsafe -> Int {
+    body(UnsafeReg(addr: offset))
+}
+
+func sum(v: &Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        total += x
+    }
+    total
+}
+
+func bump(g: &var Guarded) {
+    borrow var n = g.lock() {
+        n += step()
+    }
+}
+
+func main() {
+    let t = Ticket(n: 1)
+    let b = Builder(items: Vector<Int>())
+    var g = Guarded(n: 0)
+    bump(&var g)
+    print((move t).redeem() + Ticket(n: 2).redeem() + (move b).finish().len())
+    print(with_reg(16, { r: UnsafeReg in r.read() }))
+}

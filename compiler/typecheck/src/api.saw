@@ -6,16 +6,21 @@ import sawresolve.src.model.{ResDiag, ResModule}
 import sawresolve.src.program.{ResProgram}
 import sawresolve.src.verify.{res_verify_module}
 import sawtypecheck.src.bodies.{tc_check_bodies}
+import sawtypecheck.src.bodychecks.{tc_check_body_rules}
 import sawtypecheck.src.bodyverify.{tc_verify_bodies}
 import sawtypecheck.src.checks.{tc_check_finite_size, tc_check_inits, tc_check_unsafe}
 import sawtypecheck.src.conform.{tc_collect_conformances, tc_extension_sets,
                                  tc_settle_conformances}
 import sawtypecheck.src.declarations.{tc_build_signatures}
 import sawtypecheck.src.dump.{tc_dump_module}
+import sawtypecheck.src.effects.{tc_check_effects}
+import sawtypecheck.src.exhaust.{tc_check_exhaustive}
 import sawtypecheck.src.members.{tc_build_members}
 import sawtypecheck.src.model.{TcDiag}
+import sawtypecheck.src.paths.{tc_settle_path_uses}
 import sawtypecheck.src.program.{TcKnown, TcProgram, tc_program}
 import sawtypecheck.src.signatures.{tc_index_generics}
+import sawtypecheck.src.summaries.{tc_solve_summaries, tc_verify_all_summaries}
 import sawtypecheck.src.tier.{tc_check_containment, tc_check_obligations, tc_compute_tiers}
 import sawtypecheck.src.verify.{tc_verify_module}
 
@@ -30,6 +35,8 @@ public struct TypecheckOptions {
     // Dump the std and builtin modules too, whose signatures are checked as
     // interfaces.
     public interfaces: Bool
+    // Print a `SUMMARY` line per function of the modules checked in full.
+    public summaries: Bool
 }
 
 // Resolves the program whose entry file is `path`, then builds every
@@ -54,6 +61,12 @@ public func typecheck_program(path: String, std_root: String, names: &Vector<Str
     tc_check_unsafe(&var p)
     tc_check_inits(&var p)
     tc_check_bodies(&var p)
+    tc_check_exhaustive(&var p)
+    tc_settle_path_uses(&var p)
+    tc_solve_summaries(&var p)
+    tc_check_effects(&var p)
+    tc_check_body_rules(&var p)
+    tc_verify_all_summaries(&var p)
     move p
 }
 
@@ -138,7 +151,19 @@ public func typecheck_record(out: &var StringBuilder, path: String, options: &Ty
         append_invariants(out: &var out, p: &p, m: m, problems: &own)
         let bodies = tc_verify_bodies(&p, m)
         append_invariants(out: &var out, p: &p, m: m, problems: &bodies)
+        var summarized = Vector<String>()
+        var j = 0
+        while j < p.summary_problems.len() {
+            if p.summary_problem_modules[j] == m {
+                try! summarized.push(p.summary_problems.get(j) ?? "")
+            }
+            j = j + 1
+        }
+        append_invariants(out: &var out, p: &p, m: m, problems: &summarized)
         m = m + 1
+    }
+    if options.summaries {
+        p.summary_lines(&var out)
     }
     if options.dump {
         let visible = tc_extension_sets(&p)

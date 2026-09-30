@@ -1,0 +1,5 @@
+// refuses: static.optional at 5:8
+// a static whose own type is an optional (spec, Module-level statics: "Never
+// optional")
+
+static SLOT: Int? = 7

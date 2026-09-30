@@ -3,10 +3,10 @@
     (struct DbErr 6:8 private)
     (field DbErr.code 7:5 private Int)
     (extension 10:1 (target split_conformance.DbErr) (conforms Printable))
-    (method DbErr.format 11:10 private (signature (receiver shared) (params (into &var std.stringbuilder.StringBuilder exclusive)) -> Void))
+    (method DbErr.format 11:10 private (signature (receiver shared) (params (into &var std.stringbuilder.StringBuilder exclusive)) -> Void) (summary body (suspends no) (sync-callable yes)))
     (extension 17:1 (target split_conformance.DbErr) (conforms Error))
-    (func show 19:6 private (signature (params (b std.box.Box<any Error, std.alloc.GlobalAllocator> owned)) -> String))
-    (func main 23:6 private (signature (params) -> Void)))
+    (func show 19:6 private (signature (params (b std.box.Box<any Error, std.alloc.GlobalAllocator> owned)) -> String) (summary body (suspends no) (sync-callable yes)))
+    (func main 23:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (split_conformance.DbErr
       (field code Int private declared)

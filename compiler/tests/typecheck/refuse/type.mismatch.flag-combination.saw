@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 10:25
+// a combination of flags too wide for its integer slot (spec, Flag enums)
+
+enum Cfg: UInt16 {
+    case Mask = 0x000F,
+    case Wide = 0x1000
+}
+
+func main() {
+    let narrow: UInt8 = Cfg.Wide | Cfg.Mask
+}

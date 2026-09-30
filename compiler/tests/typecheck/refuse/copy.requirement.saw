@@ -1,0 +1,22 @@
+// refuses: copy.requirement at 21:11
+// a call whose type argument does not meet the Copy requirement its callee's
+// body infers: `twice` binds its `x` twice on one path (design 219)
+
+struct Res {
+    n: Int
+}
+
+extension Res: NoCopy {}
+
+func sink<T>(x: T) -> Int { 1 }
+
+func twice<T>(x: T) -> Int {
+    let a = sink(x)
+    let b = sink(x)
+    a + b
+}
+
+func main() {
+    let r = Res(n: 1)
+    print(twice(move r))
+}

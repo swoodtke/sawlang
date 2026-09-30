@@ -1,0 +1,15 @@
+// refuses: match.non-exhaustive at 11:5
+// a guarded arm covers nothing, so the case it guards stays unmatched, with
+// its payload written out
+
+enum Shape {
+    case Circle(radius: Int),
+    case Rect(w: Int, h: Int)
+}
+
+func area(s: Shape) -> Int {
+    match s {
+        case Circle(r) -> r * r,
+        case Rect(w, h) if w > 0 -> w * h
+    }
+}

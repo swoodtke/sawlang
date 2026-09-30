@@ -41,6 +41,9 @@ compiler/
     frozen_compare.py the one-time comparison with the frozen parser, not a lane
     std_cone.py       the std cone of sawc2's Stage 0 build, recorded in std_cone.txt
                       and reviewed against SL:hazards in std_cone_review.md
+    std_suspension.py each std function's suspension verdict from Stage 0's std
+                      check, recorded in std_suspension.txt and compiled into
+                      typecheck/src/stdsuspension.saw
   tests/
     run.py            the test runner
     parse_lane.py     the parse lane: sawc2 parse against the parser corpus
@@ -126,6 +129,12 @@ these things.
   declaration), rerun it with `--write`, and commit the file. A declaration new
   to the cone is also reviewed against SL:hazards, as `tools/std_cone_review.md`
   records for the rest.
+- **The std suspension table**: `tools/std_suspension.py` observes the frozen
+  compiler's std check and fails when `tools/std_suspension.txt`, or its
+  compiled form `typecheck/src/stdsuspension.saw`, differs from what it
+  observes, or when the std modules holding a suspending function differ from
+  those whose bodies spell a cooperative primitive. Rerun it with `--write`
+  after std changes, and review the difference.
 - **The grammar tools** in `tests/grammar/`: the lint over `GRAMMAR.md`, with a
   fixture per check that injects one defect and names the line the check must
   report, and the reference recognizer's pinned trees, coverage records and
@@ -151,8 +160,9 @@ these things.
 - **Type checking** (`typecheck/README.md`): the typecheck lane
   (`tests/typecheck/typecheck_lane.py`) holds `sawc2 typecheck` to its golden
   dumps and refusal fixtures, requires a fixture for every rule it refuses by,
-  and checks the compiler's own source whole, signatures and bodies, the sawc2
-  build and each unit program, with no refusal and no verifier problem.
+  and checks the compiler's own source whole, signatures, bodies and effects,
+  the sawc2 build and each unit program, with no refusal, no verifier problem
+  and no function that may suspend.
 
 ## The subset
 

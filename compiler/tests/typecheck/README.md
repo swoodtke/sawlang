@@ -3,8 +3,8 @@
 The corpus the typecheck stage (`compiler/typecheck`, SL-447) is held to. This
 file specifies `sawc2 typecheck`'s records and dump, the type interner's key,
 the position matrices the corpus covers, and the rules typecheck refuses by.
-The stage checks signatures (U6b1) and bodies (U6b2); the effect fixpoints
-come next.
+The stage checks signatures (U6b1), bodies (U6b2), and the summaries and the
+checks that read them (U6b3).
 
 ```
 typecheck/
@@ -15,7 +15,9 @@ typecheck/
   refuse/            RULE[.VARIANT].saw
   frozen_check.py    signatures, Copy tiers, call targets and binding types against
                      the frozen compiler's
-  FROZEN_CHECK.md    the record of that check
+  frozen_effects.py  exhaustiveness, discarded-Result and suspension verdicts
+                     against the frozen compiler's
+  FROZEN_CHECK.md    the record of those checks
   cone_coverage.py   how much of the std cone gets a fully bound signature
   corpus_info.py     how much of tests/corpus/ checks, for information
 ```
@@ -23,8 +25,8 @@ typecheck/
 ## `sawc2 typecheck`
 
 ```sh
-.build/sawc2 typecheck (--dump | --check) [--notes] [--interfaces] [--std-root DIR]
-                       [--module-path NAME=DIR]... [FILE | @LIST]...
+.build/sawc2 typecheck (--dump | --check) [--notes] [--interfaces] [--summaries]
+                       [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...
 ```
 
 Each FILE is the entry of its own program, which is resolved, then checked,
@@ -37,8 +39,12 @@ with the line `FILE<TAB>path`, holding in order:
   resolve's first, then typecheck's, each in the order they were made;
 - with `--notes`, one `NOTE` line, in the same shape, per note: a refusal in
   an interface module, std or builtin, which refuses nothing;
-- one `INVARIANT<TAB>module<TAB>message` line per problem either verifier
+- one `INVARIANT<TAB>module<TAB>message` line per problem any verifier
   finds, resolve's then typecheck's, for every module, interfaces included;
+- with `--summaries`, one `SUMMARY<TAB>identity<TAB>SUSPENDS<TAB>SYNC` line per
+  function of the modules checked in full, SUSPENDS `suspends`,
+  `suspends-when` or `never-suspends`, SYNC `nonsync`,
+  `sync-callable-unless` or `sync-callable`;
 - with `--dump`, the dump of each module checked in full, in load order.
 
 The exit code is 1 when any program has a refusal, 2 on a usage failure, and 0
@@ -89,6 +95,20 @@ A module's dump is one S-expression, one entry per line, in this layout:
   produces `Void`.
 - **GENERICS** is `(generics (NAME [(bounds TRAIT...)] [(default TYPE)])...)`,
   a const parameter written `(const NAME TYPE [(default VALUE)])`.
+- A function's declaration (`func`, `method`, `init`, `extern`, and a
+  `requirement` with a default body) ends with its **summary** (phase 2,
+  `compiler/typecheck/README.md`, "The summaries"): `(summary SOURCE
+  (suspends WHEN) (sync-callable UNLESS) [(copy PARAM...)] [(refuses-when
+  CONDITION...)])`. SOURCE is `body`, `declared` (an extern, or a `sync`
+  function whose body is not checked), `table` (a std function's row) or
+  `untabled`. WHEN is `yes`, `no` or `when CONDITION...`; UNLESS is `yes`,
+  `no` or `unless CONDITION...`. A CONDITION is `PARAM.Trait.requirement`, a
+  requirement called through one of the function's own type parameters, or
+  `Self` in a trait's default body; a PARAM of `copy` is a type parameter the
+  body copies; a `refuses-when` entry is `(KIND CONDITION)`, KIND `closure` (a
+  closure's call would suspend), `any` (a coercion would dispatch to a
+  suspending implementation) or `sync` (a `sync` body's call would not be
+  sync-callable). Each list is sorted.
 - **lend** is the accessor-signature reader's classification of a `borrows`
   result (SL:architecture §3.4): `place` (`&T`, `&var T`),
   `conditional-place` (`&T?`), `slice` (`&[T]`), `conditional-slice`
@@ -99,7 +119,9 @@ A module's dump is one S-expression, one entry per line, in this layout:
   assignments of every extension of it in the program, and what its
   conformances bring. SOURCE is `declared`, `(extension MODULE)`, `(default
   TRAIT)` for a trait's default body, or `(synthesized TRAIT)` for what
-  `@synthesize` derives. A member kind is `field`, `case`, `method`,
+  `@synthesize` derives and for the `deinit` the compiler writes for a type
+  that owns something and writes none (`(synthesized Deinit)`, spec,
+  Synthesized destruction). A member kind is `field`, `case`, `method`,
   `static`, `init` or `type-assign`.
 - **views** lists, for every struct and enum an entry or package module of the
   program declares, the names of the members this module sees: the table
@@ -132,8 +154,10 @@ A module's dump is one S-expression, one entry per line, in this layout:
     `widen` (an integer extended losslessly into a wider one, "The wrap and
     erasure matrix");
   - `place` or `value`, then USE: a value use's transfer, `move` (a spelled
-    `move`, the place it moves, or the owned local a `match` consumes and the
-    parts its bindings take), `copy` (an implicit copy of a place) or `temp`
+    `move`, the place it moves, the owned local a `match` consumes and the
+    parts its bindings take, or a generic body's by-value read of a local
+    that no path uses after it, design 219), `copy` (an implicit copy of a
+    place) or `temp`
     (the hand-off of an owned temporary); or `borrow`, `borrow-var`,
     `project` (the base of a member, index or `!`), `write`, `update` (a
     compound assignment's target) or `test` (a scrutinee, a pattern that binds
@@ -204,7 +228,10 @@ design 142) or the type's own module; and every member needs its visibility
 to reach the module (design 80: a member of another module is seen when it is
 `public`, when it is `package` and the modules share a package, or when it is
 `parent` and the module lies under its parent). What a conformance brings is
-as visible as the conformance, which the orphan rule makes global. A
+as visible as the conformance, which the orphan rule makes global, and so is
+a member written to meet a requirement, whatever its own visibility, when the
+trait's visibility reaches the module (spec, Member visibility:
+"Trait-conformance methods follow the trait"; multi/conformance_views). A
 requirement's default or derivation reaches the table once, however many of
 the type's conformances reach its trait: `E: Printable` and `E: Error`, which
 refines it, bring one `to_string`.
@@ -383,10 +410,24 @@ in an arm is a named value, not a literal, and keeps its declared type
 A bare integer literal, or its negation, that stands at a funnel position is
 range-checked against the integer type it adopts, its own `Int` when it adopts
 none (spec, Primitive Types: "range-checked *at the literal*"). A literal
-inside a larger constant expression is not checked alone, since only the
-folded value has to fit, and that fold is not checked yet. A 64-bit magnitude
-past `Int.max` is refused only where it certainly does not fit: a non-negated
-one at a signed type.
+inside a larger constant expression is not checked alone: the expression is
+folded (`fold.saw`), with a module static of an integer type and a raw-backed
+enum's case as leaves, and the folded value must fit the type the expression
+is typed or adopted as, so `256 - 1` at `UInt8` is 255, and `b >= (BIG + 0)`
+with `BIG = 1000` and a `UInt8` peer is refused as "constant expression 1000
+does not fit in `UInt8`" (constant-range, static-leaf). A fold that would
+overflow an `Int` leaves the expression unchecked. A 64-bit magnitude past
+`Int.max` is refused only where it certainly does not fit: a non-negated one
+at a signed type. A literal with a signed width suffix is held to the width's
+signed range wherever it stands, with the minimum's magnitude allowed only
+under a unary minus, `-128_i8` (SL:open-questions D6; signed-suffix).
+
+A combination of a raw-backed enum's cases is its backing integer, never the
+enum (spec, Flag enums): it adopts an integer slot and is range-checked there
+(flag-combination), and with no integer slot it is the backing type. A lone
+case adopts an integer slot the same way, at every funnel position but an
+operator's peer, a compound assignment's right side and `??`'s fallback,
+where it keeps the enum's type as a named value does (D17).
 
 An operator's peer adopts only when it is a literal or a constant expression.
 A bare module static is a named value and keeps its declared type there, so
@@ -404,7 +445,7 @@ Every body construct in the slice, and how it is typed:
 | construct | typed as | covered by |
 |---|---|---|
 | integer, float, string, `Bool` and `None` literals, `#file`, `#line`, `#function` | `Int` adopting its slot, range-checked, or a suffixed literal's exact type; `Float`, `String`, `Bool`; the slot's Optional, or the Ok payload's `None` at a `Result<T?, E>` slot (spec, Auto-Wrap: "At a declared `Result<T?, E>` it is `Ok(None)`") | funnel, peeling, widening, none_ok |
-| a constant expression: literals, and module statics of an integer type, under `-`, `~`, arithmetic, shift and bit operators | adopts its slot, or its mixed operator's peer; a bare static adopts only as a leaf inside one, and keeps its declared type anywhere else, an operator's peer included (spec, Integer Width Agreement: "a module `static`… may be a leaf") | funnel, widening |
+| a constant expression: literals, module statics of an integer type and raw-backed cases, under `-`, `~`, arithmetic, shift and bit operators | adopts its slot, or its mixed operator's peer, and its folded value must fit there; a bare static adopts only as a leaf inside one, and keeps its declared type anywhere else, an operator's peer included (spec, Integer Width Agreement: "a module `static`… may be a leaf"); a combination of cases with no integer slot is the backing integer (spec, Flag enums) | funnel, widening, folding |
 | a shift, `a << n` | the left operand's type; each count an integer of any width, no peer ("The shift count is exempt") | widening |
 | an interpolation, its segments | `String`; each segment Printable or a primitive, or an erased box `Box<any Trait>` whose trait refines Printable, rendered through the existential; borrowed | format, split_conformance |
 | a local, a parameter, a static, `self` | its type, a place | places |
@@ -414,6 +455,7 @@ Every body construct in the slice, and how it is typed:
 | `E.Case`, `.Case`, `E.Case(...)`, `.Case(...)` | the enum, its arguments from its head (`Maybe<Int>.Nothing`), the slot or the payload | peeling, calls, builtin_values |
 | `Int.max`, `T.from(x)`, `T.from(truncating: x)`, `E.from(raw: x)`, `A(x)` | the conversions no declaration writes | carried |
 | a free function, method, static method, `init` or memberwise call | the overload filter's choice, instantiated | calls, inference |
+| a construction whose head writes a prefix of its type's arguments, `Two<Int>(a: 1, b: true)` | the prefix pins the leading parameters, inference solves the rest (spec, Generics) | partial_arguments |
 | a function value's call | its function type | calls, control |
 | `h.f(x)` where `f` is a field holding a function and the type has no method `f` this module sees | the field's function value, called (`value`); with such a method seen too, refused as `call.field-method-ambiguous` (SL:open-questions D16) | field_calls, multi/field_views |
 | `o.take()`, `o.is_some()`, `o.is_none()`, `x.copy()`, an array's or slice's `len()` and `swap(i, j)` | the methods no declaration writes | places, conversions |
@@ -423,6 +465,7 @@ Every body construct in the slice, and how it is typed:
 | a subscript | a getitem, setitem or place accessor call, or an array's builtin | places, funnel |
 | `o!`, `-x`, `not b`, `~x`, `&x`, `&var x`, `move x`, `move o!`, `*p` | the payload place, the operand's type, a reference, the moved value, the payload moved out of the optional place (design 131), the pointee | places, operators, conversions, builtin_values |
 | arithmetic, bit, shift, comparison, logic, `??`, `as`, `a..b` | agreeing operands; builtin or a declared `equals`/`compare` | operators |
+| `==` on an undeclared generic POD struct, `Pair<Int> == Pair<Int>` | the automatic `Equatable`, judged per instantiation (SL:open-questions D18) | partial_arguments |
 | `==`, `<` on a type parameter, a trivially copyable struct, a tuple | a bound's `equals` or `compare` ("A `T: Equatable` generic bound grants `==`"); the structural comparison of the automatic `Equatable` ("trivial (POD) structs"), and of a tuple whose elements all are ("Tuples are Equatable iff every element is") | comparisons |
 | `try`, `try!`, `try?` | the `Ok` type, its error propagating into the body's Result | carried |
 | tuples, repeat, `Map` and `Set` literals | from the slot, or the first element | funnel |
@@ -459,6 +502,88 @@ Every body construct in the slice, and how it is typed:
 | calling a `FuncPointer`, a function or closure where one is expected | `slice.not-yet` (func-pointer) |
 | pointer arithmetic, `p + i` | `slice.not-yet` (pointer-arithmetic) |
 | the erasing `Box<any Trait>.make` | `slice.not-yet` (box-make-any) |
+| a requirement naming the trait's associated type, called through a type parameter, `s.take(v)` with `take(v: Item)` | `slice.not-yet` (associated-bound) |
+| a method of the interior cell, `c.ptr()` | `slice.not-yet` (cell-method) |
+
+## The summary and check position matrices
+
+Each position a U6b3 rule quantifies over, and the golden case or refusal
+fixture (`refuse/RULE.VARIANT`) that covers it.
+
+**Suspension and sync-callability** (SL:architecture §3.4, "Effects"):
+
+| position | answered by | covered by |
+|---|---|---|
+| a call of a function with a checked body | its summary, at the call's type arguments | summaries |
+| a call of a std function | its row of the std suspension table | summaries (`Vector.map`, `yield_now`) |
+| a call of an extern | its `blocking` | declarations |
+| a call through a bound | a condition over the caller's parameter | summaries; effect.sync.bound |
+| a call through a function value | never suspends; sync-callable when its type says `sync` | summaries; effect.sync.value |
+| a call in a `sync` function, a `deinit`, a closure of a `sync` type | refused when not sync-callable | effect.sync, effect.sync.deinit, effect.sync.closure |
+| a `sync` requirement met by a member not declared `sync` | the member's summary | effect.sync.requirement |
+| a call in a closure body | refused when it may suspend, at once or at the instantiation | effect.closure-suspends, effect.closure-suspends.instantiation |
+| a coercion to `any Trait` | refused when an implementation it dispatches to may suspend | effect.any-suspends, effect.any-suspends.instantiation |
+| a call in a `borrows(sync)` window, `borrow` block or `for` | refused when it may suspend | borrows.sync-window; body_rules |
+| a call site of a body that copies its `T` | the Copy tier of the site's argument | summaries; copy.requirement; path_uses |
+
+**The per-path use count** (design 219, `compiler/typecheck/README.md`, "The
+per-path use count"): where a by-value read of a generic body's local stands,
+and whether it duplicates the local. A function named is one of
+`golden/path_uses.saw`'s; a program named is a golden program or a fixture.
+
+| position | answer | covered by |
+|---|---|---|
+| one read on the path, the parameter forwarded into a construction | `move`, no requirement | `Wrap.init`, body_types, inference |
+| one read in each arm of an `if` | `move` | `larger` |
+| one read in each arm of a `match` | `move` | `arms` |
+| the right side of `??`, which a path may skip | `move` | `either` |
+| two reads on one path | `copy`, the requirement, both quoted | `twice`; copy.requirement |
+| a read in a loop's body | `copy`, the requirement, quoted alone | `repeated` |
+| a read in a closure's body | `copy`, the requirement, quoted alone | `captured` |
+| a read, then a borrow on the same path | `copy`, the requirement, both quoted | `peeked` |
+| a read on a path a `return` ends, and one after it | `move` | `early`, `guarded` |
+| a read on a path a `break` carries past the loop, and one after the loop | `copy`, both quoted | `broken` |
+| a spelled `move`, and nothing after it | `move`, no requirement | `moved` |
+| a read, an assignment, a read | `move` each | `refilled` |
+| a read of a field of a type parameter's type | `copy`, the requirement at one read | `field` |
+
+**A discarded `Result`** (design 151):
+
+| position | covered by |
+|---|---|
+| a bare statement | result.discarded |
+| a `Void` body's tail | result.discarded (its last statement) |
+| a loop body's tail | result.discarded.loop |
+| an arm of a statement-position `match` | result.discarded.arm |
+| an arm of a statement-position `if` | result.discarded.if |
+| a `Void` closure's tail | result.discarded.closure |
+| `let _ =`, the out | exhaustive |
+
+**Exhaustiveness**:
+
+| scrutinee | covered by |
+|---|---|
+| an enum, a case missing | match.non-exhaustive; exhaustive |
+| a case covered only by a guarded arm | match.non-exhaustive.guard; exhaustive |
+| `Bool` | match.non-exhaustive.bool |
+| an optional, nested | match.non-exhaustive.optional; exhaustive |
+| a tuple of constructor types | match.non-exhaustive.tuple; exhaustive |
+| an integer or `String` by literals and ranges | match.non-exhaustive.literal; exhaustive |
+| `Result` | exhaustive |
+| an inline-recursive enum with wildcards | type.infinite-size.matched |
+
+**Borrowing-struct containment** (spec, Borrowing structs; SL:borrowing §2.6):
+
+| position | verdict | covered by |
+|---|---|---|
+| a `let` or `var` binding, a pattern binding | refused | borrowing.containment |
+| a parameter taken by value | refused | borrowing.containment.parameter |
+| a field | refused | borrowing.containment.field |
+| a payload | refused | borrowing.containment.payload |
+| an erasure to an existential | refused | borrowing.containment.erase |
+| a result not lent with `borrows` | refused | borrowing.containment.return |
+| a function type's parameter or result | refused | borrowing.containment.function-type |
+| a `for` head, a `borrow` head, a reference parameter | allowed | body_rules |
 
 ## Refusals
 
@@ -487,13 +612,13 @@ says what the fixture shows.
 | `synthesize.required` | a declared conformance to a derivable trait whose method is neither written nor asked for with `@synthesize` (design 128) |
 | `synthesize.inert` | `@synthesize` on a conformance that derives nothing |
 | `copy.undeclared-policy` | a struct or enum with no policy holding an ExplicitCopy or NoCopy member, or a struct with a field of a declared Copy type |
-| `unsafe.undeclared` | a function whose parameters, result or receiver name an unsafe type and which is not declared `unsafe` (designs 130 and 136) |
+| `unsafe.undeclared` | a function whose parameters, result or receiver name an unsafe type, or whose body (its closures included) names, binds, receives or returns a value of one or names an `unsafe static var`, and which is not declared `unsafe` (designs 130, 136 and 149) |
 | `unsafe.function-type` | a function type that names an unsafe type without saying `unsafe`, or says it without naming one |
 | `unsafe.type-name` | an `unsafe struct` not named `Unsafe*` |
 | `init.result` | an `init` returning neither its receiver nor `Result<Receiver, E>`; an optional on its own terms |
 | `conformance.deinit` | a conformance to `Deinit` itself, which a copy policy carries instead (design 131) |
 | `extension.default-omitted` | an extension head renaming its type's parameters that leaves out a defaulted one, with the head written out (D14) |
-| `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal that does not fit the type it adopts |
+| `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's folded value, that does not fit the type it adopts; a literal past its signed suffix's range (D6) |
 | `type.ambiguous-result` | a value both of a Result slot's payloads could take |
 | `type.not-a-value` | a type, module or trait named where a value is read |
 | `type.not-a-place` | a value where a place is needed: an assignment's target, `move`, `&var` |
@@ -514,6 +639,18 @@ says what the fixture shows.
 | `format.slot-count` | a format string whose `{}` slots and arguments differ in number, or a formatted message that is no literal |
 | `format.argument` | a format argument or interpolated segment that is neither Printable nor a primitive |
 | `operator.undefined` | an operator over a type it is not defined for |
+| `static.optional` | a static whose own type is an optional; an `unsafe static var` is exempt (spec, Module-level statics: "Never optional") |
+| `borrowing.containment` | a borrowing struct (spec, Borrowing structs) bound outside the head of a `borrow` or a `for`, taken as a parameter by value, stored in a field or a payload, erased to an existential, returned by a function that does not lend it with `borrows`, or carried by a function type |
+| `borrows.result` | a `borrows` function whose result is no place, slice, optional of either or borrowing struct (the accessor-signature reader's `other`) |
+| `borrows.sync-window` | a call that may suspend, for some type argument, in the block of a `borrow` or a `for` whose head calls a `borrows(sync)` accessor (SL:borrowing §2.5) |
+| `consumes.move` | a bare call of a `consumes` method on a place, at every Copy tier: the call spells `(move x).m()`, and a temporary receiver needs no `move` (spec, `consumes`) |
+| `consumes.move-self` | `move self` or `move` of a part of `self` outside a `consumes` method (SL-414) |
+| `match.non-exhaustive` | a `match` some value of its scrutinee's type reaches no unguarded arm of, each missing value named as a pattern: enums (`Optional` and `Result` included), `Bool`, tuples, split by their constructors at any depth; any other type, matched by literals and ranges, covered only by a wildcard or a binding |
+| `result.discarded` | a `Result` computed where nothing reads it (design 151): a statement, a `Void` body's or a loop body's tail, an arm of a statement-position `if` or `match`, refused at the expression that produced it; `let _ =` is the out |
+| `effect.sync` | a call in a `sync` body (a function declared `sync`, a `deinit`, a closure of a `sync` type) of a target that is not sync-callable: one that may suspend, a function value whose type is not `sync`; a call whose type arguments make a requirement a generic `sync` body calls through a bound not sync-callable; a `sync` requirement met by a member that is not sync-callable |
+| `copy.requirement` | a call whose type argument is not on the Copy tier where its callee's body copies that parameter with nothing written (design 219), named with the copy's position, or, for a local one path uses twice, both uses |
+| `effect.closure-suspends` | a call in a closure body that may suspend, or a call whose type arguments make a closure in its callee call a suspending implementation (spec: suspension, "a closure body cannot suspend") |
+| `effect.any-suspends` | a coercion to `any Trait`, or a call whose type arguments make one in its callee, where the implementation of a requirement not declared `sync` may suspend, naming both (spec: suspension) |
 | `slice.not-yet` | a signature or body construct outside the bootstrap slice |
 
 The traits that derive under `@synthesize` are `Copy`, `ExplicitCopy`,
@@ -534,6 +671,11 @@ extern has no effect slot, so the unsafe rule asks nothing of it.
 - the compiler's own source checks with no refusal: the sawc2 build, with the
   stage packages mapped, and each unit program; a unit program the parser
   refuses is counted apart;
+- no function of the compiler's own source may suspend, since the subset is
+  sync-only; how many are sync-callable is printed for information, with any
+  that are not listed;
+- no std function the compiler's source calls lacks a row of the std
+  suspension table (a `summary.untabled` NOTE);
 - no record carries an `INVARIANT` line.
 
 ## The verifier
@@ -565,6 +707,15 @@ a target and as many type arguments as its target has parameters, none of them
 its target's own, and that each adjustment chain composes, every step's source
 the step before's result.
 
+The summary verifier (`summaries.saw`) checks that every function has its
+three summaries, that each checked body's summary is a fixpoint (one more step
+over its items changes nothing), that every condition is over the function's
+own type parameters, and, in a module with no refusal, that no call in a
+closure body and no coercion to `any` may suspend: `compiler/` is sync-only,
+so only the refusal fixtures and this invariant show those two checks exist.
+In the builtin module it also checks that every row of the std suspension
+table names a std function.
+
 ## The one-time checks
 
 - `frozen_check.py` observes the frozen typechecker in-process, as
@@ -573,9 +724,16 @@ the step before's result.
   each struct's and enum's Copy tier over the sawc2 build; and, for the body
   half, each call's chosen target and instantiation and each `let` and `var`
   binding's type. `FROZEN_CHECK.md` records what it found.
+- `frozen_effects.py` compares the exhaustiveness and discarded-`Result`
+  verdicts over the sawc2 build and the corpus's refusal programs for those
+  rules, and, over the corpus programs that park through `yield_now` alone,
+  the functions the frozen coroutine transform frames with those sawc2 finds
+  may suspend. `FROZEN_CHECK.md` records what it found.
 - `cone_coverage.py` counts the std cone declarations that get a fully bound
   signature, and lists the rest with the reason.
 - `corpus_info.py` checks every file of `tests/corpus/` and prints how many
-  check with no refusal, and the rules the rest are refused by.
+  check with no refusal, and the rules the rest are refused by; a program
+  whose check crashes the process is counted as such, and the rest are
+  checked in a fresh process.
 
 None of them gates; each is kept runnable.

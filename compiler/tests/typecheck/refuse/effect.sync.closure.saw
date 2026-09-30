@@ -1,0 +1,11 @@
+// refuses: effect.sync at 10:11
+// a closure of a `sync` function type calling a function value whose type is
+// not `sync`
+
+func run(body: () sync -> Int) -> Int {
+    body()
+}
+
+func outer(f: () -> Int) -> Int {
+    run({ f() })
+}

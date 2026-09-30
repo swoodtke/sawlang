@@ -1,0 +1,647 @@
+// The per-path use count of a generic body's locals (design 219): whether a
+// by-value read of a local whose type names one of the function's own type
+// parameters moves the value or duplicates it. The rule is per path, not per
+// mention: a local read by value at most once on every path, with nothing
+// after, is moved by that read; a second use on one path duplicates it, and
+// so the function requires the parameter on the Copy tier.
+//
+// The body walk records every by-value read of a place as a provisional
+// `copy`; this pass settles those of the tracked locals before the summaries
+// read them. A read out of storage the body does not own, a field, an element
+// or a payload, stays a copy, since there is no partial move.
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.model.{ResBindKind}
+import sawtypecheck.src.conform.{tc_copy_ints}
+import sawtypecheck.src.model.{TC_COPY_COVERED, TcAdjustKind, TcUse}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.summaries.{tc_acc}
+import sawtypecheck.src.typeops.{TcClient}
+
+// A tracked local's slot in a path state: not yet read by value, or moved by
+// a spelled `move`. A slot at or above zero holds the by-value read that
+// took the value on that path.
+static TC_PATH_FRESH: Int = -1
+static TC_PATH_GONE: Int = -2
+
+// The frames a `return`, `break` or `continue` leaves its state to.
+static TC_FRAME_LOOP: Int = 0
+static TC_FRAME_CLOSURE: Int = 1
+
+// What the walk over one body keeps. A path state is `width` slots, one per
+// tracked local and a last one that is 1 when no path reaches the position.
+public struct TcPaths {
+    // By declaring leaf: the tracked local's index, or -1.
+    public index: Vector<Int>
+    // The leaves `index` holds an entry for, cleared after each body.
+    public leaves: Vector<Int>
+    // Leaves that declare an alias of a borrowed place.
+    public aliases: Vector<Int>
+    // Each candidate read and its local's index.
+    public reads: Vector<Int>
+    public read_local: Vector<Int>
+    // By local: the by-value read and the use after it on one path, or -1.
+    public dup_first: Vector<Int>
+    public dup_second: Vector<Int>
+    public width: Int
+    // The open frames, innermost last up to `depth`: each one's kind and two
+    // accumulated states, what reaches its exit and, for a loop, its head.
+    public frame_kinds: Vector<Int>
+    public frame_states: Vector<Int>
+    public depth: Int
+}
+
+extension TcPaths: NoCopy {}
+
+func tc_paths(nodes: Int) -> TcPaths {
+    var index = Vector<Int>()
+    var k = 0
+    while k < nodes {
+        try! index.push(-1)
+        k = k + 1
+    }
+    TcPaths(index: move index, leaves: Vector<Int>(), aliases: Vector<Int>(), reads: Vector<Int>(),
+            read_local: Vector<Int>(), dup_first: Vector<Int>(), dup_second: Vector<Int>(), width: 1,
+            frame_kinds: Vector<Int>(), frame_states: Vector<Int>(), depth: 0)
+}
+
+// Settles every body's by-value reads of its locals (design 219).
+public func tc_settle_path_uses(p: &var TcProgram) {
+    p.settle_path_uses()
+}
+
+extension TcProgram {
+    // The funnel for the question a generic body's by-value read of a local
+    // asks: does any path use that local again? It walks each body's control
+    // structure, a branch taking the most any one alternative uses, a loop's
+    // body and a closure's walked twice since they repeat, a spelled `move`
+    // ending the local on its path. A read no later use follows on any path
+    // is recorded as a move; a local some path uses again keeps its reads as
+    // copies, and `copy_partner` names the pair the refusal quotes. The
+    // summaries' `note_items` and `refuse_copy_requirement` read what it
+    // leaves.
+    //
+    // ENTRY POINTS (settle_path_uses):
+    //     tc_settle_path_uses
+    public func settle_path_uses(&var self) {
+        let total = self.res.nodes.len()
+        self.copy_partner = Vector<Int>()
+        var k = 0
+        while k < total {
+            try! self.copy_partner.push(-1)
+            k = k + 1
+        }
+        var w = tc_paths(total)
+        k = 0
+        while k < self.body_roots.len() {
+            let root = self.body_roots[k]
+            let d = self.body_decls[k]
+            k = k + 1
+            if d >= 0 {
+                self.settle_body_paths(&var w, root, d)
+            }
+        }
+    }
+
+    // One body of declaration `d`: its candidate reads, then, when it has
+    // any, the walk and the transfer each read records.
+    func settle_body_paths(&var self, w: &var TcPaths, root: Int, d: Int) {
+        w.reads = Vector<Int>()
+        w.read_local = Vector<Int>()
+        w.aliases = Vector<Int>()
+        w.dup_first = Vector<Int>()
+        w.dup_second = Vector<Int>()
+        self.collect_path_reads(&var w, root, d)
+        if w.reads.len() == 0 {
+            self.clear_path_index(&var w)
+            return
+        }
+        w.width = w.dup_first.len() + 1
+        w.frame_kinds = Vector<Int>()
+        w.frame_states = Vector<Int>()
+        w.depth = 0
+        var st = self.path_state(&w, false)
+        self.walk_path(&var w, root, &var st)
+        var k = 0
+        while k < w.reads.len() {
+            let r = w.reads[k]
+            let i = w.read_local[k]
+            k = k + 1
+            let first = w.dup_first[i]
+            if first < 0 {
+                self.expr_use[r] = TcUse.Move
+                continue
+            }
+            let second = w.dup_second[i]
+            var rep = first
+            if self.expr_use[second] == TcUse.Copy {
+                rep = second
+            }
+            if r == rep {
+                if rep == first {
+                    self.copy_partner[r] = second
+                } else {
+                    self.copy_partner[r] = first
+                }
+            } else {
+                self.copy_partner[r] = TC_COPY_COVERED
+            }
+        }
+        self.clear_path_index(&var w)
+    }
+
+    func clear_path_index(&var self, w: &var TcPaths) {
+        var k = 0
+        while k < w.leaves.len() {
+            w.index[w.leaves[k]] = -1
+            k = k + 1
+        }
+        w.leaves = Vector<Int>()
+    }
+
+    // The by-value reads under `root` of a local the body owns whose type
+    // names a type parameter of `d` not bounded by Copy. A binding that
+    // aliases a borrowed place owns nothing, and a read through a reference
+    // copies out of storage the body does not own.
+    func collect_path_reads(&var self, w: &var TcPaths, root: Int, d: Int) {
+        var names = Vector<Int>()
+        var stack = Vector<Int>()
+        try! stack.push(root)
+        var depth = 1
+        while depth > 0 {
+            depth = depth - 1
+            let id = stack[depth]
+            if self.is_skipped_node(id) {
+                continue
+            }
+            let u = self.expr_use[id]
+            if self.has_alt(id, Alt.Expr_Name) || self.has_alt(id, Alt.Expr_NameRef) {
+                if u == TcUse.Copy {
+                    try! names.push(id)
+                }
+                continue
+            }
+            if u == TcUse.Borrow || u == TcUse.BorrowVar {
+                let leaf = self.res.first_leaf(id)
+                if leaf >= 0 {
+                    try! w.aliases.push(leaf)
+                }
+            }
+            var c = self.child_count(id) - 1
+            while c >= 0 {
+                let child = self.child(id, c)
+                if not self.is_leaf(child) {
+                    if depth < stack.len() {
+                        stack[depth] = child
+                    } else {
+                        try! stack.push(child)
+                    }
+                    depth = depth + 1
+                }
+                c = c - 1
+            }
+        }
+        var k = 0
+        while k < names.len() {
+            let id = names[k]
+            k = k + 1
+            let leaf = self.res.first_leaf(id)
+            let b = self.binding_at(leaf)
+            if b.kind != ResBindKind.Local || b.node < 0 || self.is_path_alias(&w, b.node) {
+                continue
+            }
+            let a = self.adj_head[id]
+            if a >= 0 && self.adjusts[a].kind == TcAdjustKind.Deref {
+                continue
+            }
+            var acc = tc_acc(d, -1)
+            let t = self.expr_types[id]
+            if not self.copy_needs(t, id, id, &var acc) || acc.copies.len() == 0 {
+                continue
+            }
+            var i = w.index[b.node]
+            if i < 0 {
+                i = w.dup_first.len()
+                w.index[b.node] = i
+                try! w.leaves.push(b.node)
+                try! w.dup_first.push(-1)
+                try! w.dup_second.push(-1)
+            }
+            try! w.reads.push(id)
+            try! w.read_local.push(i)
+        }
+    }
+
+    func is_path_alias(&self, w: &TcPaths, leaf: Int) -> Bool {
+        var k = 0
+        while k < w.aliases.len() {
+            if w.aliases[k] == leaf {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // A path state: every local fresh, reached, or with `dead`, reached by
+    // no path.
+    func path_state(&self, w: &TcPaths, dead: Bool) -> Vector<Int> {
+        var st = Vector<Int>()
+        var k = 0
+        while k + 1 < w.width {
+            try! st.push(TC_PATH_FRESH)
+            k = k + 1
+        }
+        try! st.push(if dead { 1 } else { 0 })
+        move st
+    }
+
+    func is_dead(&self, w: &TcPaths, st: &Vector<Int>) -> Bool {
+        st[w.width - 1] == 1
+    }
+
+    // Joins the paths `from` reaches into `into`: a local one of them took is
+    // taken, since a later use duplicates it on that path.
+    func merge_paths(&self, w: &TcPaths, into: &var Vector<Int>, from: &Vector<Int>) {
+        if self.is_dead(&w, &from) {
+            return
+        }
+        let dead = self.is_dead(&w, &into)
+        var k = 0
+        while k < w.width {
+            if dead {
+                into[k] = from[k]
+            } else if k + 1 < w.width && into[k] < 0 {
+                let b = from[k]
+                if b >= 0 || b == TC_PATH_GONE {
+                    into[k] = b
+                }
+            }
+            k = k + 1
+        }
+    }
+
+    // Opens a frame of `kind`, both its states reached by no path yet.
+    func push_frame(&self, w: &var TcPaths, kind: Int) {
+        let stride = 2 * w.width
+        while w.frame_kinds.len() <= w.depth {
+            try! w.frame_kinds.push(0)
+        }
+        while w.frame_states.len() < (w.depth + 1) * stride {
+            try! w.frame_states.push(TC_PATH_FRESH)
+        }
+        w.frame_kinds[w.depth] = kind
+        let base = w.depth * stride
+        var k = 0
+        while k < stride {
+            w.frame_states[base + k] = TC_PATH_FRESH
+            k = k + 1
+        }
+        w.frame_states[base + w.width - 1] = 1
+        w.frame_states[base + stride - 1] = 1
+        w.depth = w.depth + 1
+    }
+
+    // State `which` (0 the exit, 1 a loop's head) of frame `f`.
+    func frame_state(&self, w: &TcPaths, f: Int, which: Int) -> Vector<Int> {
+        let base = (2 * f + which) * w.width
+        var st = Vector<Int>()
+        var k = 0
+        while k < w.width {
+            try! st.push(w.frame_states[base + k])
+            k = k + 1
+        }
+        move st
+    }
+
+    func merge_into_frame(&self, w: &var TcPaths, f: Int, which: Int, st: &Vector<Int>) {
+        var acc = self.frame_state(&w, f, which)
+        self.merge_paths(&w, &var acc, &st)
+        let base = (2 * f + which) * w.width
+        var k = 0
+        while k < w.width {
+            w.frame_states[base + k] = acc[k]
+            k = k + 1
+        }
+    }
+
+    // The innermost open frame of `kind`, or -1; a `break` or `continue`
+    // does not reach past a closure.
+    func open_frame(&self, w: &TcPaths, kind: Int) -> Int {
+        var f = w.depth - 1
+        while f >= 0 {
+            let k = w.frame_kinds[f]
+            if k == kind {
+                return f
+            }
+            if k == TC_FRAME_CLOSURE {
+                return -1
+            }
+            f = f - 1
+        }
+        return -1
+    }
+
+    // Walks node `id` along the paths `st` holds, leaving the state after it.
+    func walk_path(&var self, w: &var TcPaths, id: Int, st: &var Vector<Int>) {
+        if id < 0 || self.is_dead(&w, &st) {
+            return
+        }
+        if self.is_leaf(id) {
+            let i = w.index[id]
+            if i >= 0 {
+                st[i] = TC_PATH_FRESH
+            }
+            return
+        }
+        if self.is_skipped_node(id) {
+            return
+        }
+        if self.has_alt(id, Alt.Expr_Name) || self.has_alt(id, Alt.Expr_NameRef) {
+            self.path_use(&var w, id, &var st)
+        } else if self.has_alt(id, Alt.Expr_If) {
+            self.walk_if(&var w, id, &var st)
+        } else if self.has_alt(id, Alt.Expr_Match) {
+            self.walk_match(&var w, id, &var st)
+        } else if self.has_alt(id, Alt.Expr_And) || self.has_alt(id, Alt.Expr_Or) || self.has_alt(id, Alt.Expr_Coalesce) {
+            self.walk_chain(&var w, id, &var st)
+        } else if self.has_alt(id, Alt.Expr_While_Conditional) || self.has_alt(id, Alt.Expr_While_Infinite) || self.has_alt(id, Alt.Expr_WhileLet_Let) || self.has_alt(id, Alt.Expr_WhileLet_Var) {
+            self.walk_repeated(&var w, id, -1, TC_FRAME_LOOP, &var st)
+        } else if self.has_alt(id, Alt.Expr_For_Plain) {
+            let seq = self.for_sequence(id)
+            self.walk_path(&var w, seq, &var st)
+            self.walk_repeated(&var w, id, seq, TC_FRAME_LOOP, &var st)
+        } else if self.has_alt(id, Alt.Expr_Closure) {
+            self.walk_repeated(&var w, id, -1, TC_FRAME_CLOSURE, &var st)
+        } else if self.has_alt(id, Alt.Stmt_Assign) {
+            // The value is read before the target is written.
+            let value = self.res.last_node_child(id)
+            let target = self.res.first_node_child(id)
+            self.walk_path(&var w, value, &var st)
+            self.walk_path(&var w, target, &var st)
+        } else if self.has_alt(id, Alt.Stmt_Guard_Let) || self.has_alt(id, Alt.Stmt_Guard_Var) || self.has_alt(id, Alt.Stmt_Guard_Condition) {
+            self.walk_guard(&var w, id, &var st)
+        } else if self.has_alt(id, Alt.Stmt_Return) {
+            self.walk_children(&var w, id, -1, &var st)
+            let f = self.open_frame(&w, TC_FRAME_CLOSURE)
+            if f >= 0 {
+                self.merge_into_frame(&var w, f, 0, &st)
+            }
+            st[w.width - 1] = 1
+        } else if self.has_alt(id, Alt.Stmt_Break) || self.has_alt(id, Alt.Stmt_Continue) {
+            let f = self.open_frame(&w, TC_FRAME_LOOP)
+            if f >= 0 {
+                let which = if self.has_alt(id, Alt.Stmt_Break) { 0 } else { 1 }
+                self.merge_into_frame(&var w, f, which, &st)
+            }
+            st[w.width - 1] = 1
+        } else if self.has_alt(id, Alt.Expr_Try_Propagate) {
+            // An error leaves the closure the propagation stands in.
+            self.walk_children(&var w, id, -1, &var st)
+            let f = self.open_frame(&w, TC_FRAME_CLOSURE)
+            if f >= 0 {
+                self.merge_into_frame(&var w, f, 0, &st)
+            }
+        } else {
+            self.walk_children(&var w, id, -1, &var st)
+        }
+        let t = self.expr_types[id]
+        if self.typed_count[id] > 0 && t >= 0 && self.is_never(t) {
+            st[w.width - 1] = 1
+        }
+    }
+
+    // Node `id`'s children in order, but `skip`.
+    func walk_children(&var self, w: &var TcPaths, id: Int, skip: Int, st: &var Vector<Int>) {
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            k = k + 1
+            if c != skip {
+                self.walk_path(&var w, c, &var st)
+            }
+        }
+    }
+
+    // A use of a local. A by-value read takes it, or duplicates it when a
+    // read took it earlier on the path; any other use after such a read
+    // duplicates it too, since the read had to leave the value in place.
+    func path_use(&var self, w: &var TcPaths, id: Int, st: &var Vector<Int>) {
+        let leaf = self.res.first_leaf(id)
+        let b = self.binding_at(leaf)
+        if b.kind != ResBindKind.Local || b.node < 0 {
+            return
+        }
+        let i = w.index[b.node]
+        if i < 0 {
+            return
+        }
+        let u = self.expr_use[id]
+        let taken = st[i]
+        if u == TcUse.Write {
+            st[i] = TC_PATH_FRESH
+            return
+        }
+        if taken >= 0 {
+            if w.dup_first[i] < 0 {
+                w.dup_first[i] = taken
+                w.dup_second[i] = id
+            }
+            return
+        }
+        if taken == TC_PATH_GONE {
+            return
+        }
+        if u == TcUse.Move {
+            st[i] = TC_PATH_GONE
+        } else if u == TcUse.Copy {
+            st[i] = id
+        }
+    }
+
+    // `if`: each head on the path that reaches it, each block on a branch of
+    // that path, and the path past the last head when no `else` ends it.
+    func walk_if(&var self, w: &var TcPaths, id: Int, st: &var Vector<Int>) {
+        var out = self.path_state(&w, true)
+        var blocks = 0
+        var open = true
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            k = k + 1
+            if self.is_leaf(c) {
+                continue
+            }
+            if self.has_alt(c, Alt.Stmt_Block) {
+                blocks = blocks + 1
+                if blocks > 1 {
+                    self.walk_path(&var w, c, &var st)
+                    self.merge_paths(&w, &var out, &st)
+                    open = false
+                } else {
+                    var branch = tc_copy_ints(&st)
+                    self.walk_path(&var w, c, &var branch)
+                    self.merge_paths(&w, &var out, &branch)
+                }
+            } else if self.has_alt(c, Alt.Expr_ElseIf) {
+                self.walk_else_if(&var w, c, &var st, &var out)
+            } else {
+                self.walk_path(&var w, c, &var st)
+            }
+        }
+        if open {
+            self.merge_paths(&w, &var out, &st)
+        }
+        st = move out
+    }
+
+    func walk_else_if(&var self, w: &var TcPaths, id: Int, st: &var Vector<Int>, out: &var Vector<Int>) {
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            k = k + 1
+            if self.is_leaf(c) {
+                continue
+            }
+            if self.has_alt(c, Alt.Stmt_Block) {
+                var branch = tc_copy_ints(&st)
+                self.walk_path(&var w, c, &var branch)
+                self.merge_paths(&w, &var out, &branch)
+            } else {
+                self.walk_path(&var w, c, &var st)
+            }
+        }
+    }
+
+    // `match`: the scrutinee, then each arm on a branch. A guard that fails
+    // passes its path on to the arms after it.
+    func walk_match(&var self, w: &var TcPaths, id: Int, st: &var Vector<Int>) {
+        let scrutinee = self.res.first_node_child(id)
+        self.walk_path(&var w, scrutinee, &var st)
+        var out = self.path_state(&w, true)
+        var arms = 0
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let arm = self.child(id, k)
+            k = k + 1
+            if not self.has_alt(arm, Alt.Expr_MatchArm) {
+                continue
+            }
+            arms = arms + 1
+            let pattern = self.res.first_node_child(arm)
+            let body = self.res.last_node_child(arm)
+            var branch = tc_copy_ints(&st)
+            self.walk_path(&var w, pattern, &var branch)
+            var guarded = false
+            let an = self.child_count(arm)
+            var j = 0
+            while j < an {
+                let c = self.child(arm, j)
+                j = j + 1
+                if c != pattern && c != body && not self.is_leaf(c) {
+                    self.walk_path(&var w, c, &var branch)
+                    guarded = true
+                }
+            }
+            if guarded {
+                self.merge_paths(&w, &var st, &branch)
+            }
+            self.walk_path(&var w, body, &var branch)
+            self.merge_paths(&w, &var out, &branch)
+        }
+        if arms > 0 {
+            st = move out
+        }
+    }
+
+    // `&&`, `||` and `??`: the first operand always, each later one on a
+    // path that may skip it.
+    func walk_chain(&var self, w: &var TcPaths, id: Int, st: &var Vector<Int>) {
+        var first = true
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            k = k + 1
+            if self.is_leaf(c) {
+                continue
+            }
+            if first {
+                self.walk_path(&var w, c, &var st)
+                first = false
+            } else {
+                var branch = tc_copy_ints(&st)
+                self.walk_path(&var w, c, &var branch)
+                self.merge_paths(&w, &var st, &branch)
+            }
+        }
+    }
+
+    // A loop's body or a closure's, but `skip`: walked twice, the second pass
+    // from every path that can reach its start again, so a local the first
+    // pass takes is duplicated by the second. What leaves it is every path
+    // that reaches its end, a `break` or a closure's `return`.
+    func walk_repeated(&var self, w: &var TcPaths, id: Int, skip: Int, kind: Int, st: &var Vector<Int>) {
+        self.push_frame(&var w, kind)
+        let f = w.depth - 1
+        let entry = tc_copy_ints(&st)
+        self.walk_children(&var w, id, skip, &var st)
+        var again = tc_copy_ints(&entry)
+        self.merge_paths(&w, &var again, &st)
+        let resumed = self.frame_state(&w, f, 1)
+        self.merge_paths(&w, &var again, &resumed)
+        self.walk_children(&var w, id, skip, &var again)
+        var out = tc_copy_ints(&entry)
+        self.merge_paths(&w, &var out, &st)
+        self.merge_paths(&w, &var out, &again)
+        let left = self.frame_state(&w, f, 0)
+        self.merge_paths(&w, &var out, &left)
+        let continued = self.frame_state(&w, f, 1)
+        self.merge_paths(&w, &var out, &continued)
+        w.depth = w.depth - 1
+        st = move out
+    }
+
+    // `guard`: its head on the path, its `else` block on a branch, which
+    // leaves the scope.
+    func walk_guard(&var self, w: &var TcPaths, id: Int, st: &var Vector<Int>) {
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            k = k + 1
+            if self.is_leaf(c) {
+                continue
+            }
+            if self.has_alt(c, Alt.Stmt_Block) {
+                var branch = tc_copy_ints(&st)
+                self.walk_path(&var w, c, &var branch)
+                self.merge_paths(&w, &var st, &branch)
+            } else {
+                self.walk_path(&var w, c, &var st)
+            }
+        }
+    }
+
+    // The sequence a `for` walks: its one child that is neither its target
+    // nor its body.
+    func for_sequence(&self, id: Int) -> Int {
+        let target = self.res.first_node_child(id)
+        let body = self.res.last_node_child(id)
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            k = k + 1
+            if c != target && c != body && not self.is_leaf(c) {
+                return c
+            }
+        }
+        return -1
+    }
+}

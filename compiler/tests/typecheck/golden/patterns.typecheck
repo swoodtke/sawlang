@@ -10,12 +10,12 @@
     (case Shape.Circle 18:10 (payload (radius Int)))
     (case Shape.Rect 19:10 (payload (w Int) (h Int)))
     (case Shape.Dot 20:10)
-    (func area 23:6 private (signature (params (s patterns.Shape owned)) -> Int))
-    (func band 32:6 private (signature (params (n Int owned)) -> Int))
-    (func pole 41:6 private (signature (params (c patterns.Compass owned)) -> Bool))
-    (func pair 48:6 private (signature (params (p (Int, String) owned)) -> Int))
-    (func optional 55:6 private (signature (params (o Int? owned)) -> Int))
-    (func bindings 62:6 private (signature (params (o Int? owned) (list std.vector.Vector<Int, std.alloc.GlobalAllocator> owned)) -> Int)))
+    (func area 23:6 private (signature (params (s patterns.Shape owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func band 32:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func pole 41:6 private (signature (params (c patterns.Compass owned)) -> Bool) (summary body (suspends no) (sync-callable yes)))
+    (func pair 48:6 private (signature (params (p (Int, String) owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func optional 55:6 private (signature (params (o Int? owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func bindings 62:6 private (signature (params (o Int? owned) (list std.vector.Vector<Int, std.alloc.GlobalAllocator> owned)) -> Int) (summary body (suspends no) (sync-callable yes))))
   (members
     (patterns.Compass
       (case North private declared)

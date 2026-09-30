@@ -1,0 +1,45 @@
+(Module main
+  (declarations
+    (func main 8:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views
+    (gadget.Gadget n count))
+  (conformances)
+  (copy-tier)
+  (bodies
+    (main 8:6
+      (9:9-9:10 BindingName gadget.Gadget place temp)
+      (9:13-9:25 Call.paren gadget.Gadget value temp (memberwise gadget.Gadget (owner gadget.Gadget)))
+      (9:23-9:24 IntLit Int value temp)
+      (10:5-10:21 Call.paren Void value temp (builtin print))
+      (10:11-10:20 Call.paren Int value borrow (call gadget.Gadget.count() (owner gadget.Gadget)))
+      (10:11-10:12 Name gadget.Gadget (borrow &gadget.Gadget) place borrow))))
+
+(Module gadget
+  (declarations
+    (trait Countable 4:14 public)
+    (requirement Countable.count 5:10 (signature (receiver shared) (params) -> Int))
+    (struct Gadget 8:15 public)
+    (field Gadget.n 9:12 public Int)
+    (extension 12:1 (target gadget.Gadget) (conforms gadget.Countable))
+    (method Gadget.count 13:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (extension 18:1 (target gadget.Gadget))
+    (method Gadget.hidden 19:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (gadget.Gadget
+      (field n Int public declared)
+      (method count private (extension gadget))
+      (method hidden private (extension gadget))))
+  (views
+    (gadget.Gadget n count hidden))
+  (conformances
+    (gadget.Gadget gadget.Countable 12:19 (count written)))
+  (copy-tier
+    (gadget.Gadget Copy))
+  (bodies
+    (Gadget.count 13:10
+      (14:9-14:15 Member Int place copy)
+      (14:9-14:13 SelfExpr gadget.Gadget place project))
+    (Gadget.hidden 19:10
+      (20:9-20:15 Member Int place copy)
+      (20:9-20:13 SelfExpr gadget.Gadget place project))))

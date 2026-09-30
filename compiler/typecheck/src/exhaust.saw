@@ -1,0 +1,637 @@
+// Match exhaustiveness (SL:architecture §3.4, "Other checks that need only
+// types"): every `match` covers every value of its scrutinee's type. Enums,
+// `Bool`, optionals, `Result` and tuples are split by their constructors; any
+// other type, an integer or a `String` matched by literals and ranges, is
+// covered only by a wildcard or a binding (spec, Control Flow: "literal /
+// range / guarded arms never prove it on an open type"). A guarded arm covers
+// nothing. The check is the usefulness of a wildcard row against the arms'
+// pattern matrix, which also builds a witness for each missing value.
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind}
+import sawtypecheck.src.adjust.{TC_FIT_EXACT}
+import sawtypecheck.src.bodies.{TcCand, TcCandKind}
+import sawtypecheck.src.candidates.{tc_contains}
+import sawtypecheck.src.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.summaries.{tc_acc}
+import sawtypecheck.src.tier.{tc_bit}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// A pattern cell that matches anything: a wildcard, a binding, or the
+// wildcard a constructor's expansion fills in.
+static TC_WILD: Int = -1
+// The constructors that are no declaration: `true`, `false`, a tuple's one.
+static TC_CTOR_TRUE: Int = -2
+static TC_CTOR_FALSE: Int = -3
+static TC_CTOR_TUPLE: Int = -4
+// A literal or range pattern: it covers no constructor and is no wildcard.
+static TC_CTOR_OPAQUE: Int = -5
+// How many missing values a refusal names.
+static TC_WITNESS_LIMIT: Int = 8
+
+// Whether a pattern matrix leaves a value unmatched, and one such value, a
+// pattern text per column.
+public struct TcWitness {
+    public missing: Bool
+    public parts: Vector<String>
+}
+
+extension TcWitness: NoCopy {}
+
+// Checks every `match` in every body checked.
+public func tc_check_exhaustive(p: &var TcProgram) {
+    p.check_matches()
+}
+
+extension TcProgram {
+    public func check_matches(&var self) {
+        var k = 0
+        while k < self.body_roots.len() {
+            let root = self.body_roots[k]
+            k = k + 1
+            if tc_contains(&self.poisoned, root) {
+                continue
+            }
+            var stack = Vector<Int>()
+            try! stack.push(root)
+            var depth = 1
+            while depth > 0 {
+                depth = depth - 1
+                let id = stack[depth]
+                if tc_contains(&self.skipped, id) {
+                    continue
+                }
+                if self.has_alt(id, Alt.Expr_Match) {
+                    self.check_match(id)
+                }
+                var c = self.child_count(id) - 1
+                while c >= 0 {
+                    let child = self.child(id, c)
+                    if not self.is_leaf(child) {
+                        if depth < stack.len() {
+                            stack[depth] = child
+                        } else {
+                            try! stack.push(child)
+                        }
+                        depth = depth + 1
+                    }
+                    c = c - 1
+                }
+            }
+        }
+    }
+
+    // One `match`: its unguarded arms' patterns against the scrutinee's
+    // type. A match with a pattern that could not be typed is left alone,
+    // since its refusal says what is wrong.
+    func check_match(&var self, e: Int) {
+        let scrutinee = self.res.first_node_child(e)
+        if scrutinee < 0 || not self.is_typed(scrutinee) {
+            return
+        }
+        let st = self.final_type(scrutinee)
+        let t = self.strip_refs(st)
+        if t < 0 || self.has_error(t) {
+            return
+        }
+        var rows = Vector<Int>()
+        var count = 0
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let arm = self.child(e, k)
+            k = k + 1
+            if not self.has_alt(arm, Alt.Expr_MatchArm) {
+                continue
+            }
+            let pattern = self.res.first_node_child(arm)
+            let body = self.res.last_node_child(arm)
+            if not self.pattern_typed(pattern) {
+                return
+            }
+            var guarded = false
+            let an = self.child_count(arm)
+            var j = 0
+            while j < an {
+                let c = self.child(arm, j)
+                if c != pattern && c != body && not self.is_leaf(c) {
+                    guarded = true
+                }
+                j = j + 1
+            }
+            if not guarded {
+                try! rows.push(pattern)
+                count = count + 1
+            }
+        }
+        var types = Vector<Int>()
+        try! types.push(t)
+        let missing = self.missing_values(&rows, count, &types)
+        if missing.len() == 0 {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("this `match` on `")
+        try! msg.append(self.type_text(t))
+        let open = self.constructors(t)
+        if open.len() == 0 {
+            try! msg.append("` covers only the values its literal and range arms name: add a `case _ ->` arm or a binding (a guarded arm covers nothing)")
+            let m = self.node_in_module(e)
+            self.refuse_in(m, e, "match.non-exhaustive", msg.build())
+            return
+        }
+        try! msg.append("` does not cover every value: ")
+        k = 0
+        while k < missing.len() {
+            if k > 0 {
+                try! msg.append(", ")
+            }
+            try! msg.append("`")
+            try! msg.append(missing.get(k) ?? "")
+            try! msg.append("`")
+            k = k + 1
+        }
+        if missing.len() == 1 {
+            try! msg.append(" is not matched")
+        } else {
+            try! msg.append(" are not matched")
+        }
+        try! msg.append("; add an arm for each, or a `case _ ->` arm (a guarded arm covers nothing)")
+        let m = self.node_in_module(e)
+        self.refuse_in(m, e, "match.non-exhaustive", msg.build())
+    }
+
+    // Whether pattern `p` and every pattern inside it has a type, and every
+    // case it names was found: a case pattern with no case recorded was
+    // refused.
+    func pattern_typed(&self, p: Int) -> Bool {
+        if p < 0 {
+            return false
+        }
+        let t = self.expr_types[p]
+        if t < 0 || self.has_error(t) {
+            return false
+        }
+        if self.has_alt(p, Alt.Pat_Variant) && self.call_at[p] < 0 {
+            return false
+        }
+        if self.has_alt(p, Alt.Pat_Name) && self.call_at[p] < 0 {
+            let leaf = self.res.first_leaf(p)
+            let b = self.binding_at(leaf)
+            if b.kind == ResBindKind.Cases {
+                return false
+            }
+        }
+        let n = self.child_count(p)
+        var k = 0
+        while k < n {
+            let c = self.child(p, k)
+            if not self.is_leaf(c) && not self.pattern_typed(c) {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // The values of type `types[0]` no row covers, one witness per missing
+    // constructor, at most TC_WITNESS_LIMIT.
+    func missing_values(&var self, rows: &Vector<Int>, count: Int, types: &Vector<Int>) -> Vector<String> {
+        var out = Vector<String>()
+        let t = types[0]
+        let ctors = self.constructors(t)
+        if ctors.len() == 0 {
+            let w = self.witness(&rows, count, 1, &types, 0)
+            if w.missing {
+                try! out.push("_")
+            }
+            return move out
+        }
+        var k = 0
+        while k < ctors.len() && out.len() < TC_WITNESS_LIMIT {
+            let c = ctors[k]
+            k = k + 1
+            var spec = Vector<Int>()
+            var sub_types = Vector<Int>()
+            let arity = self.specialize(&rows, count, 1, &types, c, &var spec, &var sub_types)
+            let spec_count = self.row_count(&spec, arity, &rows, count, c)
+            let w = self.witness(&spec, spec_count, arity, &sub_types, 1)
+            if w.missing {
+                try! out.push(self.ctor_text(c, t, &w.parts, 0, arity, true))
+            }
+        }
+        move out
+    }
+
+    // Whether the `count` rows of `width` cells in `rows`, over column types
+    // `types`, leave a value unmatched, with one such value.
+    func witness(&var self, rows: &Vector<Int>, count: Int, width: Int, types: &Vector<Int>,
+                 depth: Int) -> TcWitness {
+        if width == 0 {
+            return TcWitness(missing: count == 0, parts: Vector<String>())
+        }
+        if count == 0 {
+            var parts = Vector<String>()
+            var k = 0
+            while k < width {
+                try! parts.push("_")
+                k = k + 1
+            }
+            return TcWitness(missing: true, parts: move parts)
+        }
+        let t = types[0]
+        let ctors = self.constructors(t)
+        if ctors.len() == 0 {
+            var rest = Vector<Int>()
+            var rest_types = Vector<Int>()
+            var k = 1
+            while k < width {
+                try! rest_types.push(types[k])
+                k = k + 1
+            }
+            var kept = 0
+            var r = 0
+            while r < count {
+                let first = rows[r * width]
+                if self.cell_ctor(first, t) == TC_WILD {
+                    var j = 1
+                    while j < width {
+                        try! rest.push(rows[r * width + j])
+                        j = j + 1
+                    }
+                    kept = kept + 1
+                }
+                r = r + 1
+            }
+            let w = self.witness(&rest, kept, width - 1, &rest_types, depth + 1)
+            if not w.missing {
+                return move w
+            }
+            var parts = Vector<String>()
+            try! parts.push("_")
+            var j = 0
+            while j < w.parts.len() {
+                try! parts.push(w.parts.get(j) ?? "_")
+                j = j + 1
+            }
+            return TcWitness(missing: true, parts: move parts)
+        }
+        // Split on the constructors only when the column names all of them;
+        // otherwise a wildcard row must cover the rest, so the column is
+        // dropped (the default matrix), which also keeps a recursive type's
+        // expansion finite.
+        var absent = TC_WILD
+        var found = false
+        var k = 0
+        while k < ctors.len() && not found {
+            let c = ctors[k]
+            k = k + 1
+            if not self.column_names(&rows, count, width, t, c) {
+                absent = c
+                found = true
+            }
+        }
+        if found {
+            return self.default_witness(&rows, count, width, &types, depth, absent, t)
+        }
+        k = 0
+        while k < ctors.len() {
+            let c = ctors[k]
+            k = k + 1
+            var spec = Vector<Int>()
+            var sub_types = Vector<Int>()
+            let arity = self.specialize(&rows, count, width, &types, c, &var spec, &var sub_types)
+            let spec_count = self.row_count(&spec, arity + width - 1, &rows, count, c)
+            let w = self.witness(&spec, spec_count, arity + width - 1, &sub_types, depth + 1)
+            if w.missing {
+                var parts = Vector<String>()
+                try! parts.push(self.ctor_text(c, t, &w.parts, 0, arity, false))
+                var j = arity
+                while j < w.parts.len() {
+                    try! parts.push(w.parts.get(j) ?? "_")
+                    j = j + 1
+                }
+                return TcWitness(missing: true, parts: move parts)
+            }
+        }
+        TcWitness(missing: false, parts: Vector<String>())
+    }
+
+    // Whether some row's first cell names constructor `c`.
+    func column_names(&self, rows: &Vector<Int>, count: Int, width: Int, t: Int, c: Int) -> Bool {
+        var r = 0
+        while r < count {
+            let first = rows[r * width]
+            if self.cell_ctor(first, t) == c {
+                return true
+            }
+            r = r + 1
+        }
+        false
+    }
+
+    // The witness of a column that leaves constructor `absent` unnamed: the
+    // rows whose first cell is a wildcard, without that column, and
+    // `absent` for it when they leave a value.
+    func default_witness(&var self, rows: &Vector<Int>, count: Int, width: Int, types: &Vector<Int>,
+                         depth: Int, absent: Int, t: Int) -> TcWitness {
+        var rest = Vector<Int>()
+        var rest_types = Vector<Int>()
+        var k = 1
+        while k < width {
+            try! rest_types.push(types[k])
+            k = k + 1
+        }
+        var kept = 0
+        var r = 0
+        while r < count {
+            let first = rows[r * width]
+            if self.cell_ctor(first, t) == TC_WILD {
+                var j = 1
+                while j < width {
+                    try! rest.push(rows[r * width + j])
+                    j = j + 1
+                }
+                kept = kept + 1
+            }
+            r = r + 1
+        }
+        let w = self.witness(&rest, kept, width - 1, &rest_types, depth + 1)
+        if not w.missing {
+            return move w
+        }
+        let args = self.ctor_arg_types(absent, t)
+        var blanks = Vector<String>()
+        k = 0
+        while k < args.len() {
+            try! blanks.push("_")
+            k = k + 1
+        }
+        var parts = Vector<String>()
+        try! parts.push(self.ctor_text(absent, t, &blanks, 0, args.len(), false))
+        var j = 0
+        while j < w.parts.len() {
+            try! parts.push(w.parts.get(j) ?? "_")
+            j = j + 1
+        }
+        TcWitness(missing: true, parts: move parts)
+    }
+
+    // The rows `specialize` kept: its matrix's length over its width, or,
+    // for a width of zero, how many of the original rows match `c`.
+    func row_count(&self, spec: &Vector<Int>, width: Int, rows: &Vector<Int>, count: Int, c: Int) -> Int {
+        if width > 0 {
+            return spec.len() / width
+        }
+        var kept = 0
+        var r = 0
+        while r < count {
+            let first = rows[r]
+            let cc = self.cell_ctor(first, -1)
+            if cc == TC_WILD || cc == c {
+                kept = kept + 1
+            }
+            r = r + 1
+        }
+        kept
+    }
+
+    // The rows of `rows` whose first cell covers constructor `c`, that cell
+    // replaced by `c`'s sub-patterns (wildcards for a wildcard), into `out`;
+    // `out_types` gets `c`'s argument types, then the other columns'.
+    // Returns `c`'s arity.
+    func specialize(&var self, rows: &Vector<Int>, count: Int, width: Int, types: &Vector<Int>, c: Int,
+                    out: &var Vector<Int>, out_types: &var Vector<Int>) -> Int {
+        let t = types[0]
+        let args = self.ctor_arg_types(c, t)
+        let arity = args.len()
+        var k = 0
+        while k < arity {
+            try! out_types.push(args[k])
+            k = k + 1
+        }
+        k = 1
+        while k < width {
+            try! out_types.push(types[k])
+            k = k + 1
+        }
+        var r = 0
+        while r < count {
+            let first = rows[r * width]
+            r = r + 1
+            let cc = self.cell_ctor(first, t)
+            if cc != TC_WILD && cc != c {
+                continue
+            }
+            var subs = Vector<Int>()
+            if cc != TC_WILD {
+                subs = self.sub_patterns(first)
+            }
+            var j = 0
+            while j < arity {
+                if j < subs.len() {
+                    try! out.push(subs[j])
+                } else {
+                    try! out.push(TC_WILD)
+                }
+                j = j + 1
+            }
+            j = 1
+            while j < width {
+                try! out.push(rows[(r - 1) * width + j])
+                j = j + 1
+            }
+        }
+        arity
+    }
+
+    // The constructors of type `t`, or none for a type only a wildcard
+    // covers: an enum's cases (`Optional` and `Result` among them), `Bool`'s
+    // two values, a tuple's one.
+    func constructors(&self, t: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Tuple {
+            try! out.push(TC_CTOR_TUPLE)
+            return move out
+        }
+        if self.is_bool(t) {
+            try! out.push(TC_CTOR_TRUE)
+            try! out.push(TC_CTOR_FALSE)
+            return move out
+        }
+        if info.kind != TcKind.Nominal || not self.is_enum_decl(info.decl) {
+            return move out
+        }
+        let members = self.members_of(info.decl)
+        var k = 0
+        while k < members.len() {
+            let c = members[k]
+            let ci = self.res.decls[c]
+            if ci.kind == ResDeclKind.Case {
+                try! out.push(c)
+            }
+            k = k + 1
+        }
+        move out
+    }
+
+    // Constructor `c`'s argument types, at type `t`'s arguments.
+    func ctor_arg_types(&var self, c: Int, t: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        if c == TC_CTOR_TUPLE {
+            let info = self.types.ty(t)
+            var k = 0
+            while k < info.count {
+                try! out.push(self.types.arg(t, k))
+                k = k + 1
+            }
+            return move out
+        }
+        if c < 0 {
+            return move out
+        }
+        let cand = TcCand(decl: c, kind: TcCandKind.Case, member: -1, owner: t)
+        let count = self.cand_param_count(cand)
+        let d = self.res.decls[c].parent
+        let args = self.nominal_args(t)
+        let sub = tc_args_subst(d, move args)
+        var k = 0
+        while k < count {
+            let raw = self.cand_param_type(cand, k)
+            try! out.push(self.subst(raw, &sub))
+            k = k + 1
+        }
+        move out
+    }
+
+    // The constructor pattern cell `p` names at type `t`, TC_WILD for a cell
+    // that matches anything, or TC_CTOR_OPAQUE for a literal or range.
+    func cell_ctor(&self, p: Int, t: Int) -> Int {
+        if p < 0 {
+            return TC_WILD
+        }
+        guard let alt = self.node_alt(p) else {
+            return TC_WILD
+        }
+        self.cell_ctor_as(p, alt, t)
+    }
+
+    func cell_ctor_as(&self, p: Int, alt: Alt, t: Int) -> Int {
+        match alt {
+            case Pat_Wildcard -> TC_WILD,
+            case Stmt_BindingName -> TC_WILD,
+            case Pat_BorrowBinding_Let -> TC_WILD,
+            case Pat_BorrowBinding_Var -> TC_WILD,
+            case Pat_Literal_True -> TC_CTOR_TRUE,
+            case Pat_Literal_False -> TC_CTOR_FALSE,
+            case Pat_Tuple_Positional -> TC_CTOR_TUPLE,
+            case Pat_None -> self.case_of_pattern(p, true),
+            case Pat_Variant -> self.case_of_pattern(p, false),
+            case Pat_Name -> {
+                let leaf = self.res.first_leaf(p)
+                let b = self.binding_at(leaf)
+                if b.kind == ResBindKind.Cases {
+                    return self.case_of_pattern(p, false)
+                }
+                TC_WILD
+            },
+            case Pat_Payload_Pattern -> {
+                let inner = self.res.first_node_child(p)
+                self.cell_ctor(inner, t)
+            },
+            case Pat_Payload_Borrow -> TC_WILD,
+            case _ -> TC_CTOR_OPAQUE
+        }
+    }
+
+    // The case a variant, lone-name or `None` pattern matches, read off the
+    // call record typing it, or TC_CTOR_OPAQUE when it has none.
+    func case_of_pattern(&self, p: Int, none: Bool) -> Int {
+        let at = self.call_at[p]
+        if at >= 0 {
+            let c = self.calls[at]
+            return c.target
+        }
+        if none {
+            let optional = self.known.optional
+            let members = self.members_of(optional)
+            var k = 0
+            while k < members.len() {
+                let c = members[k]
+                let name_id = self.res.decls[c].name
+                let name = self.name_text(name_id)
+                if name.equals("None") {
+                    return c
+                }
+                k = k + 1
+            }
+        }
+        TC_CTOR_OPAQUE
+    }
+
+    // A constructor pattern's sub-patterns, in order.
+    func sub_patterns(&self, p: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        var at = p
+        if self.has_alt(at, Alt.Pat_Payload_Pattern) {
+            at = self.res.first_node_child(at)
+        }
+        let n = self.child_count(at)
+        var k = 0
+        while k < n {
+            let c = self.child(at, k)
+            if not self.is_leaf(c) {
+                try! out.push(c)
+            }
+            k = k + 1
+        }
+        move out
+    }
+
+    // A missing value's text: constructor `c` with `parts[first ..
+    // first + arity]` as its arguments, its type's name before a case at the
+    // top.
+    func ctor_text(&self, c: Int, t: Int, parts: &Vector<String>, first: Int, arity: Int, top: Bool) -> String {
+        var out = StringBuilder()
+        if c == TC_CTOR_TRUE {
+            return "true"
+        }
+        if c == TC_CTOR_FALSE {
+            return "false"
+        }
+        if c >= 0 {
+            let info = self.res.decls[c]
+            let parent = info.parent
+            let builtin = parent == self.known.optional || parent == self.known.result
+            if top && not builtin {
+                try! out.append(self.res.decl_path(c))
+            } else {
+                try! out.append(self.name_text(info.name))
+            }
+            if arity == 0 {
+                return out.build()
+            }
+        }
+        try! out.append("(")
+        var k = 0
+        while k < arity {
+            if k > 0 {
+                try! out.append(", ")
+            }
+            try! out.append(parts.get(first + k) ?? "_")
+            k = k + 1
+        }
+        if c == TC_CTOR_TUPLE && arity == 1 {
+            try! out.append(",")
+        }
+        try! out.append(")")
+        out.build()
+    }
+}

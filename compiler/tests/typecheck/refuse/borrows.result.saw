@@ -1,0 +1,12 @@
+// refuses: borrows.result at 9:10
+// a `borrows` function whose result is no place, slice or borrowing struct
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func value(&self) borrows -> Int {
+        lend self.n
+    }
+}

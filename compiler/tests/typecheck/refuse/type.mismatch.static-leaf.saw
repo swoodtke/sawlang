@@ -1,0 +1,10 @@
+// refuses: type.mismatch at 9:11
+// a static leaf folds into its constant expression, which the operator's peer
+// type must hold (spec, Integer Width Agreement: "the same 'does not fit'
+// error a bare literal gives")
+
+static BIG: Int = 1000
+
+func check(b: UInt8) -> Bool {
+    b >= (BIG + 0)
+}

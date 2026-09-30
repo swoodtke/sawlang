@@ -1,0 +1,27 @@
+// refuses: effect.any-suspends at 26:17
+// a coercion to `any Trait` whose implementation of a requirement not declared
+// `sync` may suspend, refused at the coercion
+
+import std.task.{yield_now}
+
+trait Greeter {
+    func greet(&self) -> Int
+}
+
+struct Person {
+    n: Int
+}
+
+extension Person: Greeter {
+    func greet(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+func shout(g: &any Greeter) -> Int { 1 }
+
+func main() {
+    let p = Person(n: 3)
+    print(shout(&p))
+}

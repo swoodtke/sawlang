@@ -1,0 +1,22 @@
+// A conformance's method written without `public`: it meets a requirement of
+// a public trait, so it follows the trait's visibility.
+
+public trait Countable {
+    func count(&self) -> Int
+}
+
+public struct Gadget {
+    public n: Int
+}
+
+extension Gadget: Countable {
+    func count(&self) -> Int {
+        self.n
+    }
+}
+
+extension Gadget {
+    func hidden(&self) -> Int {
+        self.n
+    }
+}

@@ -35,7 +35,7 @@ func places(g: &var Grid) -> Int {
     g.cells[1] = first
     g.cells[2] += 1
     let len = size(g)
-    g.cells.push(3)
+    try! g.cells.push(3)
     let maybe = g.cells.get(0) ?? 0
     let label = g.name
     first + len + maybe

@@ -1,8 +1,8 @@
 (Module generic_defaults
   (declarations
-    (func show 6:6 private (signature (generics (T (bounds Printable))) (params (a Int owned) (b T owned default)) -> String))
-    (func describe 10:6 private (signature (generics (T)) (params (a T owned) (b T owned default)) -> String))
-    (func main 14:6 private (signature (params) -> Void)))
+    (func show 6:6 private (signature (generics (T (bounds Printable))) (params (a Int owned) (b T owned default)) -> String) (summary body (suspends no) (sync-callable yes)))
+    (func describe 10:6 private (signature (generics (T)) (params (a T owned) (b T owned default)) -> String) (summary body (suspends no) (sync-callable yes)))
+    (func main 14:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members)
   (views)
   (conformances)

@@ -1,0 +1,8 @@
+// refuses: borrowing.containment at 7:5
+// a borrowing struct stored in a field
+
+import std.vector.{VectorIterator}
+
+struct Cursor {
+    inner: VectorIterator<Int>
+}

@@ -1,0 +1,7 @@
+// refuses: slice.not-yet at 5:13
+// a method of the interior cell, as its construction is, outside the slice
+
+func peek(c: &UnsafeMutableInterior<Int>) unsafe -> Int {
+    let p = c.ptr()
+    0
+}

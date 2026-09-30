@@ -1,0 +1,9 @@
+// refuses: match.non-exhaustive at 5:5
+// a tuple split by its elements' constructors, one combination unmatched
+
+func both(t: (Bool, Int?)) -> Int {
+    match t {
+        case (true, _) -> 1,
+        case (false, Some(v)) -> v
+    }
+}

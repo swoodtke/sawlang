@@ -1,0 +1,715 @@
+# The suspension verdict of every std function, as Stage 0's std check decides
+# it: `suspends` (a frame is built around it), `nonsync` (not sync-callable, and
+# framing nothing) or `sync`. Written by compiler/tools/std_suspension.py
+# --write; compiler/tests/run.py fails when it is stale. sawc2's phase 2 reads
+# these rows, compiled in as compiler/typecheck/src/stdsuspension.saw, for the
+# std functions whose bodies it does not check.
+builtin.Atomic.compare_exchange(expected, desired)	sync
+builtin.Atomic.fetch_add(v)	sync
+builtin.Atomic.load()	sync
+builtin.Atomic.store(v)	sync
+builtin.FuncPointer.from_raw(addr)	sync
+builtin.Hasher.finish()	sync
+builtin.Hasher.init()	sync
+builtin.Hasher.write_int(n)	sync
+builtin.Printable.to_string()	sync
+builtin.Range.next()	sync
+builtin.RangeInclusive.next()	sync
+std.alloc.AllocError.format(into)	sync
+std.alloc.GlobalAllocator.alloc(size, align)	sync
+std.alloc.GlobalAllocator.dealloc(ptr, size, align)	sync
+std.arc.Arc.copy()	sync
+std.arc.Arc.deinit()	sync
+std.arc.Arc.init(value)	sync
+std.arc.Arc.strong_count()	sync
+std.arc.Arc.with_unique(body)	sync
+std.box.Box.deinit()	sync
+std.box.Box.make(value)	sync
+std.box.Box.value()	sync
+std.cbor.CborDecoder.at_null()	sync
+std.cbor.CborDecoder.begin_array()	sync
+std.cbor.CborDecoder.begin_bytes()	sync
+std.cbor.CborDecoder.begin_map()	sync
+std.cbor.CborDecoder.byte_at(i)	sync
+std.cbor.CborDecoder.check_ready()	sync
+std.cbor.CborDecoder.check_simple(h)	sync
+std.cbor.CborDecoder.check_utf8(at, n, item)	sync
+std.cbor.CborDecoder.close_item(stack, at)	sync
+std.cbor.CborDecoder.compare_in(a0, a1, b0, b1)	sync
+std.cbor.CborDecoder.container_count(h)	sync
+std.cbor.CborDecoder.descend(stack, h, owed, is_map)	sync
+std.cbor.CborDecoder.next_byte()	sync
+std.cbor.CborDecoder.offset()	sync
+std.cbor.CborDecoder.open(bytes, max_depth, max_size, max_items)	sync
+std.cbor.CborDecoder.payload_len(h)	sync
+std.cbor.CborDecoder.read_bool()	sync
+std.cbor.CborDecoder.read_byte()	sync
+std.cbor.CborDecoder.read_head()	sync
+std.cbor.CborDecoder.read_int()	sync
+std.cbor.CborDecoder.read_null()	sync
+std.cbor.CborDecoder.read_text()	sync
+std.cbor.CborDecoder.read_uint()	sync
+std.cbor.CborDecoder.reserve_stack_frame(stack)	sync
+std.cbor.CborDecoder.reserve_stack_int(stack)	sync
+std.cbor.CborDecoder.rewind()	sync
+std.cbor.CborDecoder.scan()	sync
+std.cbor.CborDecoder.skip()	sync
+std.cbor.CborDecoder.take_text(h)	sync
+std.cbor.CborDecoder.transcode(to)	sync
+std.cbor.CborDecoder.utf8_width(i, end)	sync
+std.cbor.CborEncoder.begin_array(count)	sync
+std.cbor.CborEncoder.begin_bytes(count)	sync
+std.cbor.CborEncoder.begin_map(count)	sync
+std.cbor.CborEncoder.check_ready()	sync
+std.cbor.CborEncoder.compare_out(a0, a1, b0, b1)	sync
+std.cbor.CborEncoder.finish()	sync
+std.cbor.CborEncoder.init(max_depth)	sync
+std.cbor.CborEncoder.item_done(at)	sync
+std.cbor.CborEncoder.len()	sync
+std.cbor.CborEncoder.open_container(major, count, owed, is_map)	sync
+std.cbor.CborEncoder.reserve(n)	sync
+std.cbor.CborEncoder.write_bool(v)	sync
+std.cbor.CborEncoder.write_byte(b)	sync
+std.cbor.CborEncoder.write_head(major, arg)	sync
+std.cbor.CborEncoder.write_int(v)	sync
+std.cbor.CborEncoder.write_null()	sync
+std.cbor.CborEncoder.write_text(v)	sync
+std.cbor.CborEncoder.write_uint(v)	sync
+std.cbor.__cbor_encoded(r)	sync
+std.cbor.__cbor_encoded_data(r)	sync
+std.cbor.__cbor_scanned(r)	sync
+std.cbor.encode(value)	sync
+std.channel.Channel.__cancelled_result()	sync
+std.channel.Channel.__park_word()	sync
+std.channel.Channel.__try_receive_result()	sync
+std.channel.Channel._closed()	sync
+std.channel.Channel._closed_and_drained(block)	sync
+std.channel.Channel._delivered(v)	sync
+std.channel.Channel._enqueue(v)	sync
+std.channel.Channel._nothing_yet()	sync
+std.channel.Channel._publish_ready(block)	sync
+std.channel.Channel._take_one()	sync
+std.channel.Channel.close()	sync
+std.channel.Channel.copy()	sync
+std.channel.Channel.deinit()	sync
+std.channel.Channel.init()	sync
+std.channel.Channel.receive()	suspends
+std.channel.Channel.recv()	sync
+std.channel.Channel.send(v)	sync
+std.channel.Channel.try_receive()	sync
+std.channel.ChannelError.describe()	sync
+std.channel.ChannelError.format(into)	sync
+std.compiler.frame.Slot.clear()	sync
+std.compiler.frame.Slot.empty()	sync
+std.compiler.frame.Slot.is_occupied()	sync
+std.compiler.frame.Slot.of(value)	sync
+std.compiler.frame.Slot.put(value)	sync
+std.compiler.frame.Slot.take()	sync
+std.compiler.frame.Slot.value()	sync
+std.compiler.frame.UnsafeRef.copy()	sync
+std.compiler.frame.UnsafeRef.deref()	sync
+std.data.Data.[](index)	sync
+std.data.Data._grow_target(min_capacity)	sync
+std.data.Data._grow_target_from(current, wanted)	sync
+std.data.Data._is_unique()	sync
+std.data.Data._make_ready(min_capacity)	sync
+std.data.Data._place_bytes(src, len)	sync
+std.data.Data._place_data(other)	sync
+std.data.Data._rebase(min_capacity)	sync
+std.data.Data._store_at(index, value)	sync
+std.data.Data.append(other)	sync
+std.data.Data.append_bytes(src, len)	sync
+std.data.Data.byte_ptr()	sync
+std.data.Data.capacity()	sync
+std.data.Data.clear()	sync
+std.data.Data.detached()	sync
+std.data.Data.get(index)	sync
+std.data.Data.init()	sync
+std.data.Data.init(capacity)	sync
+std.data.Data.is_empty()	sync
+std.data.Data.iter()	sync
+std.data.Data.len()	sync
+std.data.Data.pop()	sync
+std.data.Data.push(value)	sync
+std.data.Data.reserve(additional)	sync
+std.data.Data.set(index, value)	sync
+std.data.Data.slice(start, end)	sync
+std.data.Data.to_string()	sync
+std.data.DataBuf.absorb(index, src, len)	sync
+std.data.DataBuf.at(index)	sync
+std.data.DataBuf.cap()	sync
+std.data.DataBuf.deinit()	sync
+std.data.DataBuf.grow(new_capacity, live)	sync
+std.data.DataBuf.head()	sync
+std.data.DataBuf.make(capacity)	sync
+std.data.DataBuf.store(index, value)	sync
+std.data.DataIterator.next()	sync
+std.directory.Directory.create(path)	sync
+std.directory.Directory.current()	sync
+std.directory.Directory.exists(path)	sync
+std.directory.Directory.list(path)	sync
+std.directory.Directory.remove(path)	sync
+std.directory.Directory.set_current(path)	sync
+std.duration.Duration.as_micros()	sync
+std.duration.Duration.as_millis()	sync
+std.duration.Duration.as_nanos()	sync
+std.duration.Duration.as_secs()	sync
+std.duration.Duration.format(into)	sync
+std.duration.Duration.ms(n)	sync
+std.duration.Duration.ns(n)	sync
+std.duration.Duration.secs(n)	sync
+std.duration.Duration.us(n)	sync
+std.duration.__saw_wake_nanos(d)	sync
+std.env.Env.arg(index)	sync
+std.env.Env.argc()	sync
+std.env.Env.args()	sync
+std.env.Env.contains(name)	sync
+std.env.Env.cwd()	sync
+std.env.Env.get(name)	sync
+std.env.Env.set(name, value, overwrite)	sync
+std.env.Env.set_cwd(path)	sync
+std.env.Env.unset(name)	sync
+std.file.File._opened(path, mode, perm, syscall)	sync
+std.file.File._seek(fd, offset, whence)	sync
+std.file.File.create(path)	sync
+std.file.File.deinit()	sync
+std.file.File.exists(path)	sync
+std.file.File.open(path)	sync
+std.file.File.open_append(path)	sync
+std.file.File.position()	sync
+std.file.File.read(size)	sync
+std.file.File.remove(path)	sync
+std.file.File.rename(from_path, to_path)	sync
+std.file.File.seek_current(offset)	sync
+std.file.File.seek_end(offset)	sync
+std.file.File.seek_start(offset)	sync
+std.file.File.write(data)	sync
+std.fixedbuf.FixedBuf.capacity()	sync
+std.fixedbuf.FixedBuf.get(i)	sync
+std.fixedbuf.FixedBuf.init()	sync
+std.fixedbuf.FixedBuf.ptr()	sync
+std.fixedbuf.FixedBuf.set(i, b)	sync
+std.fixedbuf.FixedStringBuilder._aim()	sync
+std.fixedbuf.FixedStringBuilder.append(b)	sync
+std.fixedbuf.FixedStringBuilder.append(s)	sync
+std.fixedbuf.FixedStringBuilder.append(value)	sync
+std.fixedbuf.FixedStringBuilder.as_string()	sync
+std.fixedbuf.FixedStringBuilder.capacity()	sync
+std.fixedbuf.FixedStringBuilder.clear()	sync
+std.fixedbuf.FixedStringBuilder.init()	sync
+std.fixedbuf.FixedStringBuilder.is_truncated()	sync
+std.fixedbuf.FixedStringBuilder.len()	sync
+std.float.Float._raw_exponent()	sync
+std.float.Float._raw_mantissa()	sync
+std.float.Float._shortest()	sync
+std.float.Float.from(bits)	sync
+std.float.Float.is_finite()	sync
+std.float.Float.is_infinite()	sync
+std.float.Float.is_nan()	sync
+std.float.Float.to_bits()	sync
+std.float.Float.to_string()	sync
+std.float.FloatDecimal.double(shift)	sync
+std.float.FloatDecimal.empty()	sync
+std.float.FloatDecimal.halve(shift)	sync
+std.float.FloatDecimal.push(digit)	sync
+std.float.FloatDecimal.rounded_integer()	sync
+std.float.FloatDecimal.shift(amount)	sync
+std.float.FloatDecimal.should_round_up(at)	sync
+std.float.FloatDecimal.to_bits()	sync
+std.float.FloatDecimal.trim()	sync
+std.float.String._float_digit(scan, k)	sync
+std.float.String._float_exact(scan, lead, total, exponent)	sync
+std.float.String._float_nonfinite()	sync
+std.float.String._float_scan()	sync
+std.float.String.to_float()	sync
+std.float.StringBuilder.append(value)	sync
+std.float.__float_decimal_length(v)	sync
+std.float.__float_is_digit(b)	sync
+std.float.__float_leading_zeros(v)	sync
+std.float.__float_lemire(significand, exponent, negative)	sync
+std.float.__float_log10_pow2(e)	sync
+std.float.__float_log10_pow5(e)	sync
+std.float.__float_mul_high(a, b)	sync
+std.float.__float_mul_low(a, b)	sync
+std.float.__float_mul_shift(m, low, high, shift)	sync
+std.float.__float_multiple_of_pow2(value, p)	sync
+std.float.__float_multiple_of_pow5(value, p)	sync
+std.float.__float_pow5bits(e)	sync
+std.float.__float_to_chars(value, out, capacity)	sync
+std.json.JsonDecoder._peek_at(at)	sync
+std.json.JsonDecoder._skip_ws_from(at)	sync
+std.json.JsonDecoder._ubyte_at(i)	sync
+std.json.JsonDecoder.at_null()	sync
+std.json.JsonDecoder.before_value()	sync
+std.json.JsonDecoder.begin_array()	sync
+std.json.JsonDecoder.begin_bytes()	sync
+std.json.JsonDecoder.begin_map()	sync
+std.json.JsonDecoder.charge_item()	sync
+std.json.JsonDecoder.expect_literal(word)	sync
+std.json.JsonDecoder.finish()	sync
+std.json.JsonDecoder.float_span(start, end)	sync
+std.json.JsonDecoder.hex_digit_value(b)	sync
+std.json.JsonDecoder.int_span(start, end)	sync
+std.json.JsonDecoder.lookahead_count(at, is_map, budget)	sync
+std.json.JsonDecoder.offset()	sync
+std.json.JsonDecoder.open(text, max_depth, max_size)	sync
+std.json.JsonDecoder.open_container(is_map)	sync
+std.json.JsonDecoder.parse_hex4()	sync
+std.json.JsonDecoder.peek()	sync
+std.json.JsonDecoder.peek_is(b)	sync
+std.json.JsonDecoder.read_bool()	sync
+std.json.JsonDecoder.read_byte()	sync
+std.json.JsonDecoder.read_int()	sync
+std.json.JsonDecoder.read_json_string()	sync
+std.json.JsonDecoder.read_null()	sync
+std.json.JsonDecoder.read_text()	sync
+std.json.JsonDecoder.read_uint()	sync
+std.json.JsonDecoder.scan_number()	sync
+std.json.JsonDecoder.skip()	sync
+std.json.JsonDecoder.skip_string_span(start)	sync
+std.json.JsonDecoder.skip_value(start, budget)	sync
+std.json.JsonDecoder.skip_ws()	sync
+std.json.JsonDecoder.uint_span(start, end)	sync
+std.json.JsonEncoder._hex_digit(d)	sync
+std.json.JsonEncoder.before_item(is_text)	sync
+std.json.JsonEncoder.begin_array(count)	sync
+std.json.JsonEncoder.begin_bytes(count)	sync
+std.json.JsonEncoder.begin_map(count)	sync
+std.json.JsonEncoder.charge_and_close()	sync
+std.json.JsonEncoder.finish()	sync
+std.json.JsonEncoder.init(max_depth)	sync
+std.json.JsonEncoder.len()	sync
+std.json.JsonEncoder.open_container(is_map, count)	sync
+std.json.JsonEncoder.raw(s)	sync
+std.json.JsonEncoder.raw_byte(b)	sync
+std.json.JsonEncoder.write_bool(v)	sync
+std.json.JsonEncoder.write_byte(b)	sync
+std.json.JsonEncoder.write_float(v)	sync
+std.json.JsonEncoder.write_int(v)	sync
+std.json.JsonEncoder.write_json_string(s)	sync
+std.json.JsonEncoder.write_null()	sync
+std.json.JsonEncoder.write_text(v)	sync
+std.json.JsonEncoder.write_u_escape(u)	sync
+std.json.JsonEncoder.write_uint(v)	sync
+std.json.JsonValue._read(dec)	sync
+std.json.JsonValue._read_array(dec)	sync
+std.json.JsonValue._read_number(dec)	sync
+std.json.JsonValue._read_object(dec)	sync
+std.json.JsonValue._write(enc)	nonsync
+std.json.JsonValue.as_array()	sync
+std.json.JsonValue.as_bool()	sync
+std.json.JsonValue.as_float()	sync
+std.json.JsonValue.as_int()	sync
+std.json.JsonValue.as_object()	sync
+std.json.JsonValue.as_text()	sync
+std.json.JsonValue.is_null()	sync
+std.json.JsonValue.parse(text, max_depth, max_size)	sync
+std.json.JsonValue.to_json_string()	nonsync
+std.json.__json_alloc_decoded(at)	sync
+std.json.__json_encoded(r)	sync
+std.json.__json_encoded_local(r, at)	sync
+std.json.encode(value)	sync
+std.map.Map.[](key)	sync
+std.map.Map._find(key)	sync
+std.map.Map._grow_error()	sync
+std.map.Map._hash_code(key)	sync
+std.map.Map._key_eq(idx, key)	sync
+std.map.Map._key_ref(idx)	sync
+std.map.Map._slot_state(idx)	sync
+std.map.Map._take_value(slot)	sync
+std.map.Map._try_grow()	sync
+std.map.Map._value_ref(idx)	sync
+std.map.Map.contains_key(key)	sync
+std.map.Map.copy()	sync
+std.map.Map.deinit()	sync
+std.map.Map.each(body)	nonsync
+std.map.Map.each_key(body)	nonsync
+std.map.Map.each_value(body)	nonsync
+std.map.Map.get(key)	sync
+std.map.Map.init()	sync
+std.map.Map.insert(key, value)	sync
+std.map.Map.is_empty()	sync
+std.map.Map.keys()	nonsync
+std.map.Map.len()	sync
+std.map.Map.remove(key)	sync
+std.map.Map.try_copy()	sync
+std.map.Map.values()	nonsync
+std.mutex.LockRelease.deinit()	sync
+std.mutex.Mutex.get()	sync
+std.mutex.Mutex.init(value)	sync
+std.mutex.Mutex.lock(body)	sync
+std.net.IoError.code()	sync
+std.net.IoError.format(into)	sync
+std.net.IoError.from_errno(syscall)	sync
+std.net.IoError.kind()	sync
+std.net.IoError.of(syscall, kind)	sync
+std.net.IoError.of(syscall, tag)	sync
+std.net.IoErrorKind.describe()	sync
+std.net.IoErrorKind.format(into)	sync
+std.net.IoErrorKind.of(tag)	sync
+std.net.TcpListener.accept()	suspends
+std.net.TcpListener.accept(timeout)	suspends
+std.net.TcpListener.deinit()	sync
+std.net.TcpListener.listen(port, host, reuse_address, backlog)	sync
+std.net.TcpListener.local_port()	sync
+std.net.TcpStream.connect(host, port)	suspends
+std.net.TcpStream.connect(host, port, timeout)	suspends
+std.net.TcpStream.deinit()	sync
+std.net.TcpStream.dial(addr, port)	suspends
+std.net.TcpStream.dial_until(addr, port, at)	suspends
+std.net.TcpStream.pair()	sync
+std.net.TcpStream.read()	suspends
+std.net.TcpStream.read(timeout)	suspends
+std.net.TcpStream.read_into(into)	suspends
+std.net.TcpStream.read_into(into, timeout)	suspends
+std.net.TcpStream.resolve_first(host)	suspends
+std.net.TcpStream.set_keepalive(on)	sync
+std.net.TcpStream.set_no_delay(on)	sync
+std.net.TcpStream.write(bytes)	suspends
+std.net.TcpStream.write(s)	suspends
+std.net.io_cancelled(syscall)	sync
+std.net.io_error(syscall, tag)	sync
+std.net.ipv4_addr(a, b, c, d)	sync
+std.net.net_buffer(size)	sync
+std.net.net_bytes_to_string(buf, len)	sync
+std.net.net_deadline_at(timeout)	sync
+std.net.net_deadline_passed(at)	sync
+std.net.net_free_buffer(buf, size)	sync
+std.net.net_read_once(fd, into)	sync
+std.net.net_sentinel(r)	sync
+std.net.net_would_block(r)	sync
+std.net.net_write_data_once(fd, bytes, off)	sync
+std.net.net_write_str_once(fd, s, off)	sync
+std.net.parse_ipv4_literal(host)	sync
+std.net.raw_code_now()	sync
+std.net.resolve_error(host, tag)	sync
+std.net.tcp_close(fd)	sync
+std.net.tcp_connect_check(fd, addr_be, port)	sync
+std.net.tcp_connect_start(addr_be, port)	sync
+std.net.tcp_listen(port)	sync
+std.net.tcp_local_port(fd)	sync
+std.net.tcp_socketpair()	sync
+std.net.tcp_try_accept(listen_fd)	sync
+std.net.tcp_try_read(fd, buf, len)	sync
+std.net.tcp_try_write(fd, buf, len)	sync
+std.numeric.Float.abs()	sync
+std.numeric.Float.ceil()	sync
+std.numeric.Float.floor()	sync
+std.numeric.Float.max(other)	sync
+std.numeric.Float.min(other)	sync
+std.numeric.Float.round()	sync
+std.numeric.Float.sqrt()	sync
+std.numeric.Int.abs()	sync
+std.numeric.Int.clamp(low, high)	sync
+std.numeric.Int.is_even()	sync
+std.numeric.Int.is_odd()	sync
+std.numeric.Int.max(other)	sync
+std.numeric.Int.min(other)	sync
+std.numeric.Int.pow(exp)	sync
+std.numeric.Int.signum()	sync
+std.once.Once.get()	sync
+std.once.Once.is_set()	sync
+std.once.Once.set(value)	sync
+std.once.Once.try_get()	sync
+std.path.Path.as_str()	sync
+std.path.Path.ext()	sync
+std.path.Path.file_name()	sync
+std.path.Path.init(s)	sync
+std.path.Path.is_absolute()	sync
+std.path.Path.is_empty()	sync
+std.path.Path.is_relative()	sync
+std.path.Path.join(other)	sync
+std.path.Path.join_path(other)	sync
+std.path.Path.parent()	sync
+std.path.Path.stem()	sync
+std.process.Command.arg(argument)	sync
+std.process.Command.arg_count()	sync
+std.process.Command.build_argv()	sync
+std.process.Command.build_envp()	sync
+std.process.Command.deinit()	sync
+std.process.Command.env(name, value)	sync
+std.process.Command.env_count()	sync
+std.process.Command.init(program)	sync
+std.process.Command.merge_stderr()	sync
+std.process.Command.output()	suspends
+std.process.Command.reap(job)	suspends
+std.process.Command.run()	suspends
+std.process.Command.spawn_job(capture)	sync
+std.process.CommandOutput.success()	sync
+std.process.ProcessError.cancelled()	sync
+std.process.ProcessError.format(into)	sync
+std.process.ProcessError.program_name()	sync
+std.process.decode_wait_status(status)	sync
+std.process.launch_failed(program)	sync
+std.process.names_variable(entry, name)	sync
+std.process.wait_cancelled(program)	sync
+std.scalar.InvalidScalar.format(into)	sync
+std.scalar.Scalar.format(into)	sync
+std.scalar.Scalar.init(value)	sync
+std.scalar.Scalar.value()	sync
+std.serde.DecodeError.format(into)	sync
+std.serde.DecodeFault.describe()	sync
+std.serde.Decoder.expect_array(count)	sync
+std.serde.Decoder.read_int_range(min, max)	sync
+std.serde.Decoder.read_uint_max(max)	sync
+std.serde.EncodeError.format(into)	sync
+std.serde.EncodeFault.describe()	sync
+std.set.Set.contains(value)	sync
+std.set.Set.copy()	sync
+std.set.Set.deinit()	sync
+std.set.Set.difference(other)	nonsync
+std.set.Set.each(body)	nonsync
+std.set.Set.init()	sync
+std.set.Set.init(from)	sync
+std.set.Set.insert(value)	sync
+std.set.Set.intersection(other)	nonsync
+std.set.Set.is_empty()	sync
+std.set.Set.is_subset(other)	nonsync
+std.set.Set.is_superset(other)	nonsync
+std.set.Set.len()	sync
+std.set.Set.of(value)	sync
+std.set.Set.remove(value)	sync
+std.set.Set.to_vector()	nonsync
+std.set.Set.try_copy()	sync
+std.set.Set.union(other)	nonsync
+std.signal.Signal.send_to_self()	sync
+std.signal.SignalWatch.deinit()	sync
+std.signal.SignalWatch.next()	suspends
+std.signal.SignalWatch.watch(which)	sync
+std.signal.signal_tag(which)	sync
+std.signal.watch_error(reason)	sync
+std.slab.slab_alloc(region, chunk_count, chunk_size, head)	sync
+std.slab.slab_dealloc(ptr, head)	sync
+std.spinlock.SpinLock._acquire()	sync
+std.spinlock.SpinLock._payload()	sync
+std.spinlock.SpinLock._release()	sync
+std.spinlock.SpinLock.init(value)	sync
+std.spinlock.SpinLock.is_locked()	sync
+std.spinlock.SpinLock.lock(body)	sync
+std.spinlock.SpinLock.try_lock(body)	sync
+std.string.String._decode_at(i, len)	sync
+std.string.String._digit_value(b)	sync
+std.string.String._is_whitespace(b)	sync
+std.string.String._parse_int(radix)	sync
+std.string.String._parse_uint(radix)	sync
+std.string.String._substring(start, length)	sync
+std.string.String._ubyte_at(i)	sync
+std.string.String._utf8_error_offset()	sync
+std.string.String.byte_at(index)	sync
+std.string.String.bytes()	sync
+std.string.String.compare(other)	sync
+std.string.String.contains(needle)	sync
+std.string.String.ends_with(suffix)	sync
+std.string.String.equals(other)	sync
+std.string.String.fromBytes(data)	sync
+std.string.String.hash(h)	sync
+std.string.String.index_of(b)	sync
+std.string.String.is_empty()	sync
+std.string.String.last_index_of(b)	sync
+std.string.String.len()	sync
+std.string.String.matches_at(i, old)	sync
+std.string.String.replace(old, new)	sync
+std.string.String.scalars()	sync
+std.string.String.split(separator)	sync
+std.string.String.starts_with(prefix)	sync
+std.string.String.substring(start, end)	sync
+std.string.String.to_data()	sync
+std.string.String.to_int()	sync
+std.string.String.to_int(radix)	sync
+std.string.String.to_lowercase()	sync
+std.string.String.to_uint()	sync
+std.string.String.to_uint(radix)	sync
+std.string.String.to_uppercase()	sync
+std.string.String.trim()	sync
+std.string.String.trim_end()	sync
+std.string.String.trim_start()	sync
+std.string.String.withCString(body)	nonsync
+std.string.StringBytes.next()	sync
+std.string.StringScalars.next()	sync
+std.string.Utf8Error.format(into)	sync
+std.string.Vector.join(separator)	sync
+std.string.to_c_char(b)	sync
+std.stringbuilder.StringBuilder._c_char(b)	sync
+std.stringbuilder.StringBuilder._grow_target(min_capacity)	sync
+std.stringbuilder.StringBuilder._is_continuation(b)	sync
+std.stringbuilder.StringBuilder._mark_truncated()	sync
+std.stringbuilder.StringBuilder._overflow(s, s_len)	sync
+std.stringbuilder.StringBuilder._place(s, s_len)	sync
+std.stringbuilder.StringBuilder._place_char(b)	sync
+std.stringbuilder.StringBuilder._reserve(min_capacity)	sync
+std.stringbuilder.StringBuilder._scalar_byte(u)	sync
+std.stringbuilder.StringBuilder.append(b)	sync
+std.stringbuilder.StringBuilder.append(s)	sync
+std.stringbuilder.StringBuilder.append(scalar)	sync
+std.stringbuilder.StringBuilder.append(value)	sync
+std.stringbuilder.StringBuilder.as_str()	sync
+std.stringbuilder.StringBuilder.build()	sync
+std.stringbuilder.StringBuilder.clear()	sync
+std.stringbuilder.StringBuilder.deinit()	sync
+std.stringbuilder.StringBuilder.init()	sync
+std.stringbuilder.StringBuilder.init(bytes, capacity)	sync
+std.stringbuilder.StringBuilder.init(capacity)	sync
+std.stringbuilder.StringBuilder.is_empty()	sync
+std.stringbuilder.StringBuilder.is_truncated()	sync
+std.stringbuilder.StringBuilder.len()	sync
+std.stringbuilder.StringBuilder.rebind(bytes)	sync
+std.task.PosixThread.join()	sync
+std.task.Thread.deinit()	sync
+std.task.Thread.detach()	sync
+std.task.Thread.join()	sync
+std.task.VoidThread.deinit()	sync
+std.task.VoidThread.detach()	sync
+std.task.VoidThread.join()	sync
+std.task.dump_tasks()	nonsync
+std.task.yield_now()	suspends
+std.taskgroup.SystemReactor.poll(timeout_ms)	sync
+std.taskgroup.SystemReactor.register(fd, dir, token)	sync
+std.taskgroup.SystemReactor.unregister(fd, dir)	sync
+std.taskgroup.SystemReactor.wake()	sync
+std.taskgroup.Task.__write_fate()	sync
+std.taskgroup.Task.cancel()	sync
+std.taskgroup.Task.cancel_addr()	sync
+std.taskgroup.Task.deinit()	sync
+std.taskgroup.Task.detach()	sync
+std.taskgroup.Task.join()	sync
+std.taskgroup.TaskGroup.__await_slot(slot, generation)	sync
+std.taskgroup.TaskGroup.__await_slot_inner(slot, generation)	sync
+std.taskgroup.TaskGroup.__bt_link()	sync
+std.taskgroup.TaskGroup.__bt_unlink()	sync
+std.taskgroup.TaskGroup.__cancel_every_live()	sync
+std.taskgroup.TaskGroup.__complete(slot)	sync
+std.taskgroup.TaskGroup.__detach_slot(slot, generation)	sync
+std.taskgroup.TaskGroup.__enqueue(task, cell)	sync
+std.taskgroup.TaskGroup.__gen_at(slot)	sync
+std.taskgroup.TaskGroup.__lock()	sync
+std.taskgroup.TaskGroup.__notify()	sync
+std.taskgroup.TaskGroup.__pin(slot, generation)	sync
+std.taskgroup.TaskGroup.__pin_sync(slot, generation)	sync
+std.taskgroup.TaskGroup.__place(task, cell)	sync
+std.taskgroup.TaskGroup.__recycle(slot)	sync
+std.taskgroup.TaskGroup.__recycle_sync(slot)	sync
+std.taskgroup.TaskGroup.__register()	sync
+std.taskgroup.TaskGroup.__release_slots()	sync
+std.taskgroup.TaskGroup.__shutdown_crew()	sync
+std.taskgroup.TaskGroup.__shutdown_crew_inner()	sync
+std.taskgroup.TaskGroup.__stale(slot, generation)	sync
+std.taskgroup.TaskGroup.__stale_sync(slot, generation)	sync
+std.taskgroup.TaskGroup.__start_crew()	sync
+std.taskgroup.TaskGroup.__unlock()	sync
+std.taskgroup.TaskGroup.__unregister()	sync
+std.taskgroup.TaskGroup.count()	sync
+std.taskgroup.TaskGroup.deinit()	sync
+std.taskgroup.TaskGroup.init()	sync
+std.taskgroup.TaskGroup.init(threads)	sync
+std.taskgroup.VoidTask.__write_fate()	sync
+std.taskgroup.VoidTask.cancel()	sync
+std.taskgroup.VoidTask.cancel_addr()	sync
+std.taskgroup.VoidTask.deinit()	sync
+std.taskgroup.VoidTask.detach()	sync
+std.taskgroup.VoidTask.join()	sync
+std.taskgroup.__ResultCell.__cancel_now()	sync
+std.taskgroup.__ResultCell.__carries_result()	sync
+std.taskgroup.__ResultCell.__detach_now()	sync
+std.taskgroup.__ResultCell.__drop_result()	sync
+std.taskgroup.__ResultCell.__is_detached()	sync
+std.taskgroup.__VoidCell.__cancel_now()	sync
+std.taskgroup.__VoidCell.__carries_result()	sync
+std.taskgroup.__VoidCell.__detach_now()	sync
+std.taskgroup.__VoidCell.__drop_result()	sync
+std.taskgroup.__VoidCell.__is_detached()	sync
+std.taskgroup.__bt_depth(tbl, index, addr)	sync
+std.taskgroup.__bt_each_live_slot(body)	nonsync
+std.taskgroup.__bt_emit(text)	sync
+std.taskgroup.__bt_emit_frame(tbl, index, addr, want)	sync
+std.taskgroup.__bt_emit_int(value)	sync
+std.taskgroup.__bt_emit_name(tbl, off)	sync
+std.taskgroup.__bt_emit_stack(tbl, index, addr)	sync
+std.taskgroup.__bt_emit_status(g, slot)	sync
+std.taskgroup.__bt_frame_rec(tbl, index)	sync
+std.taskgroup.__bt_known_frame(tbl, index)	sync
+std.taskgroup.__bt_slot_live(g, slot)	sync
+std.taskgroup.__bt_state_of(tbl, index, addr)	sync
+std.taskgroup.__bt_state_rec(tbl, index, state)	sync
+std.taskgroup.__bt_u32(base, off)	sync
+std.taskgroup.__exec_alloc_or_fault(r, what)	sync
+std.taskgroup.__park_deadline_expired(deadline, now)	sync
+std.taskgroup.__park_deadline_fold(best, deadline, now)	sync
+std.taskgroup.__park_deadline_remaining(deadline, now)	sync
+std.taskgroup.__park_flag_set(wake)	sync
+std.taskgroup.__park_io_runnable(wake, cancelled, deadline, now)	sync
+std.taskgroup.__park_is_flag(wake)	sync
+std.taskgroup.__park_is_io(wake)	sync
+std.taskgroup.__saw_bg_close()	sync
+std.taskgroup.__saw_bg_group()	sync
+std.taskgroup.__saw_bt_dump()	nonsync
+std.taskgroup.__saw_bt_live_count()	nonsync
+std.taskgroup.__saw_bt_panic(message, length)	nonsync
+std.taskgroup.__saw_exec_advance_sleep(deadline)	sync
+std.taskgroup.__saw_exec_any_cancelled_io()	sync
+std.taskgroup.__saw_exec_any_latched_io()	sync
+std.taskgroup.__saw_exec_any_ready()	sync
+std.taskgroup.__saw_exec_chan_wake()	sync
+std.taskgroup.__saw_exec_check_quiescent(self_parked)	sync
+std.taskgroup.__saw_exec_enter()	sync
+std.taskgroup.__saw_exec_finish_resume(g, idx, oc)	sync
+std.taskgroup.__saw_exec_flag_bound(deadline, flag)	sync
+std.taskgroup.__saw_exec_group_has_live(gaddr)	sync
+std.taskgroup.__saw_exec_io_register(fd, dir, token)	sync
+std.taskgroup.__saw_exec_io_unregister(fd, dir)	sync
+std.taskgroup.__saw_exec_leave()	sync
+std.taskgroup.__saw_exec_park(wake, deadline)	sync
+std.taskgroup.__saw_exec_park_flag(wake)	sync
+std.taskgroup.__saw_exec_park_flag_loop(wake)	sync
+std.taskgroup.__saw_exec_park_io(deadline)	sync
+std.taskgroup.__saw_exec_poll_ms(ns)	sync
+std.taskgroup.__saw_exec_quiescent_now(self_parked)	sync
+std.taskgroup.__saw_exec_reactor_wake()	sync
+std.taskgroup.__saw_exec_run(term_group, term_slot, term_gen)	sync
+std.taskgroup.__saw_exec_run_inner(term_group, term_slot, term_gen)	sync
+std.taskgroup.__saw_exec_run_root(rootbox)	sync
+std.taskgroup.__saw_exec_run_root_status(rootbox, cellbox, cellp)	sync
+std.taskgroup.__saw_exec_should_stop(term_group, term_slot, term_gen)	sync
+std.taskgroup.__saw_exec_sleep_ns(ns)	sync
+std.taskgroup.__saw_exec_slot_state(g, i)	sync
+std.taskgroup.__saw_exec_thread_task_ended()	sync
+std.taskgroup.__saw_exec_thread_task_started()	sync
+std.taskgroup.__saw_exec_wake_cancelled_sleepers()	sync
+std.taskgroup.__saw_exec_wake_flags()	sync
+std.taskgroup.__saw_exec_wake_io(events, deadline, now)	sync
+std.taskgroup.__saw_exec_worker(addr)	sync
+std.taskgroup.__saw_host_reactor()	sync
+std.time.Instant.duration_since(earlier)	sync
+std.time.Instant.elapsed()	sync
+std.time.Instant.now()	sync
+std.time.unix_timestamp()	sync
+std.vector.EnumeratedIterator.next()	sync
+std.vector.Vector.[](index)	sync
+std.vector.Vector._greater_at(i, j)	sync
+std.vector.Vector._grow_target(min_capacity)	sync
+std.vector.Vector._reserve(min_capacity)	sync
+std.vector.Vector.clear()	sync
+std.vector.Vector.copy()	sync
+std.vector.Vector.deinit()	sync
+std.vector.Vector.each(body)	nonsync
+std.vector.Vector.each_indexed(body)	nonsync
+std.vector.Vector.enumerated()	sync
+std.vector.Vector.fold(initial, combine)	nonsync
+std.vector.Vector.get(index)	sync
+std.vector.Vector.init()	sync
+std.vector.Vector.init(capacity)	sync
+std.vector.Vector.is_empty()	sync
+std.vector.Vector.iter()	sync
+std.vector.Vector.len()	sync
+std.vector.Vector.map(transform)	nonsync
+std.vector.Vector.pop()	sync
+std.vector.Vector.push(value)	sync
+std.vector.Vector.reserve(additional)	sync
+std.vector.Vector.set(index, value)	sync
+std.vector.Vector.sort()	sync
+std.vector.Vector.sort_by(compare)	nonsync
+std.vector.Vector.swap(i, j)	sync
+std.vector.Vector.swap_out(index, value)	sync
+std.vector.Vector.try_copy()	sync
+std.vector.Vector.with_ref(index, body)	sync
+std.vector.Vector.with_var_ref(index, body)	sync
+std.vector.VectorIterator.next()	sync

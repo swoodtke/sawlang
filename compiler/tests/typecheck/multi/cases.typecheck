@@ -1,8 +1,8 @@
 ERROR	pattern.case-mismatch	compiler/tests/typecheck/multi/cases/main.saw:18:14	`count` names no case of the matched `Int`: it is taken for `level.Level.count`, a case in scope, so it does not bind; rename the binding, as `count_value`
 (Module main
   (declarations
-    (func rank 8:6 private (signature (params (l level.Level owned)) -> Int))
-    (func bucket 15:6 private (signature (params (n Int owned)) -> Int)))
+    (func rank 8:6 private (signature (params (l level.Level owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func bucket 15:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes))))
   (members)
   (views
     (level.Level count limit))

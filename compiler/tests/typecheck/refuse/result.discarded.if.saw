@@ -1,0 +1,13 @@
+// refuses: result.discarded at 11:9
+// a statement-position `if` forwarding its arm's `Result`: refused at the call
+// in the arm
+
+func fails() -> Result<Int, String> {
+    return .Ok(value: 1)
+}
+
+func run(ready: Bool) {
+    if ready {
+        fails()
+    }
+}

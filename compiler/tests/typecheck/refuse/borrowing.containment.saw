@@ -1,0 +1,8 @@
+// refuses: borrowing.containment at 6:9
+// a borrowing struct bound by a `let`, outside the head of a `borrow` or a
+// `for` (spec, Borrowing structs)
+
+func walk(v: &Vector<Int>) -> Int {
+    let it = v.iter()
+    0
+}

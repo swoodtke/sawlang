@@ -41,7 +41,7 @@ TIMEOUT = 300
 _HEADER = re.compile(r"^// refuses: (\S+)(?: at ((?:[\w.-]+\.saw:)?\d+:\d+))?$")
 _RULE_ID = re.compile(r'"((?:type|conformance|synthesize|copy|unsafe|slice|member|call|infer|'
                       r'transfer|subscript|pattern|format|extension|implicit-member|operator|'
-                      r'init)\.[a-z-]+)"')
+                      r'init|effect|match|result|borrowing|borrows|consumes|static)\.[a-z-]+)"')
 
 
 def rel(path):
@@ -217,13 +217,18 @@ def unit_programs():
     return sorted(glob.glob(os.path.join(COMPILER, "*", "tests", "*.saw")))
 
 
-def check_acceptance(failures, counts):
+def check_acceptance(failures, counts, nonsync=None):
     """The compiler's own source checks whole: the sawc2 build, then each unit
     program, each the entry of its own program. A unit program the parser
-    refuses has no tree to check and is counted apart."""
+    refuses has no tree to check and is counted apart. The subset is
+    sync-only, so no function in compiler/ may suspend; how many are
+    sync-callable is information, and `nonsync` collects those that are not.
+    A std function the sawc2 build calls and the suspension table has no row
+    for fails too."""
     entries = [rel(build.DRIVER_ENTRY)] + [rel(p) for p in unit_programs()]
-    code, out = sawc2(["--check"] + package_args() + entries)
+    code, out = sawc2(["--check", "--notes", "--summaries"] + package_args() + entries)
     got = records(out)
+    summarized = {}
     for entry in entries:
         record = got.get(entry)
         if record is None:
@@ -236,7 +241,24 @@ def check_acceptance(failures, counts):
             continue
         for line in lines:
             failures.append("typecheck acceptance %s: %s" % (entry, line))
+        for line in record.split("\n"):
+            if line.startswith("NOTE\tsummary.untabled\t"):
+                failures.append("typecheck acceptance %s: %s" % (entry, line))
+            if line.startswith("SUMMARY\t"):
+                _, identity, suspends, sync = line.split("\t")
+                summarized[identity] = (suspends, sync)
         counts["checked compiler programs"] = counts.get("checked compiler programs", 0) + 1
+    for identity in sorted(summarized):
+        suspends, sync = summarized[identity]
+        if suspends != "never-suspends":
+            failures.append("typecheck acceptance: %s may suspend (%s), and the subset is sync-only"
+                            % (identity, suspends))
+        if sync == "sync-callable":
+            counts["compiler functions sync-callable"] = (
+                counts.get("compiler functions sync-callable", 0) + 1)
+        elif nonsync is not None:
+            nonsync.append("%s (%s)" % (identity, sync))
+    counts["compiler functions summarized"] = len(summarized)
 
 
 def check_invariants(failures, output_records):
@@ -246,7 +268,7 @@ def check_invariants(failures, output_records):
                 failures.append("typecheck %s: %s" % (path, line))
 
 
-def run(write=False, fill=False):
+def run(write=False, fill=False, nonsync=None):
     failures = []
     counts = {}
     check_golden(failures, counts, write)
@@ -255,14 +277,17 @@ def run(write=False, fill=False):
                       + [rel(src) for src, _ in golden_cases()])
     check_invariants(failures, records(out))
     check_catalog(failures, counts, named)
-    check_acceptance(failures, counts)
+    check_acceptance(failures, counts, nonsync)
     return failures, counts
 
 
 def main():
     write = "--write" in sys.argv[1:]
     fill = "--fill" in sys.argv[1:]
-    failures, counts = run(write, fill)
+    nonsync = []
+    failures, counts = run(write, fill, nonsync)
+    for name in nonsync:
+        print("not sync-callable: %s" % name)
     for failure in failures:
         print(failure)
     summary = ", ".join("%d %s" % (n, key) for key, n in sorted(counts.items()))

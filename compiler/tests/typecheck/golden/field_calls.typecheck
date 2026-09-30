@@ -2,13 +2,14 @@
   (declarations
     (struct Handler 5:8 private)
     (field Handler.f 6:5 private (Int) -> Int)
-    (func double 9:6 private (signature (params (n Int owned)) -> Int))
-    (func main 13:6 private (signature (params) -> Void)))
+    (func double 9:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 13:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable no))))
   (members
     (field_calls.Handler
-      (field f (Int) -> Int private declared)))
+      (field f (Int) -> Int private declared)
+      (method deinit public (synthesized Deinit))))
   (views
-    (field_calls.Handler f))
+    (field_calls.Handler f deinit))
   (conformances)
   (copy-tier
     (field_calls.Handler Copy))

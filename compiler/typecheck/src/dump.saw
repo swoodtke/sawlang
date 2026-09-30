@@ -17,6 +17,7 @@ import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFF
                                TcStatus, TcStatusKind, TcTier}
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.summaries.{tc_solve_summaries}
 import sawtypecheck.src.tier.{tc_bit}
 import sawtypecheck.src.types.{TcKind, TcType}
 
@@ -221,6 +222,7 @@ extension TcProgram {
             case Extern -> self.append_signature(&var out, d),
             case _ -> {}
         }
+        try! out.append(self.summary_text(d))
         try! out.append(")")
     }
 

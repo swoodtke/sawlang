@@ -1,0 +1,8 @@
+// refuses: match.non-exhaustive at 5:5
+// a `match` over `Bool` with only one of its two values
+
+func pick(x: Bool) -> Int {
+    match x {
+        case true -> 1
+    }
+}

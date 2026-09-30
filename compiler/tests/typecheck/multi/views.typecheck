@@ -1,6 +1,6 @@
 (Module main
   (declarations
-    (func area_of 9:6 private (signature (params (c &shapes.Circle shared)) -> Int)))
+    (func area_of 9:6 private (signature (params (c &shapes.Circle shared)) -> Int) (summary body (suspends no) (sync-callable yes))))
   (members)
   (views
     (shapes.Circle radius area))
@@ -17,8 +17,8 @@
     (field Circle.radius 2:12 public Int)
     (field Circle.secret 3:13 private Int)
     (extension 6:1 (target shapes.Circle))
-    (method Circle.area 7:17 public (signature (receiver shared) (params) -> Int))
-    (method Circle.helper 11:10 private (signature (receiver shared) (params) -> Int)))
+    (method Circle.area 7:17 public (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (method Circle.helper 11:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes))))
   (members
     (shapes.Circle
       (field radius Int public declared)
@@ -45,7 +45,7 @@
 
 (Module ruler
   (declarations
-    (func measure 4:13 public (signature (params (c &shapes.Circle shared)) -> Int)))
+    (func measure 4:13 public (signature (params (c &shapes.Circle shared)) -> Int) (summary body (suspends no) (sync-callable yes))))
   (members)
   (views
     (shapes.Circle radius area diameter))
@@ -59,7 +59,7 @@
 (Module extra
   (declarations
     (extension 3:1 (target shapes.Circle))
-    (method Circle.diameter 4:17 public (signature (receiver shared) (params) -> Int)))
+    (method Circle.diameter 4:17 public (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes))))
   (members)
   (views
     (shapes.Circle radius area diameter))

@@ -1,12 +1,12 @@
 (Module lowlevel
   (declarations
-    (extern printf 7:10 private (signature (params (format UnsafePointer<UInt8> owned)) -> Int32 variadic))
+    (extern printf 7:10 private (signature (params (format UnsafePointer<UInt8> owned)) -> Int32 variadic) (summary declared (suspends no) (sync-callable yes)))
     (static COUNTER 10:19 private Int unsafe-var)
     (struct Buffer 12:8 private (generics (A (bounds std.alloc.Allocator) (default std.alloc.GlobalAllocator))))
     (field Buffer.size 13:5 private Int)
     (extension 16:1 (target lowlevel.Buffer<A>) (where (A std.alloc.Allocator)))
-    (method Buffer.grab 17:10 private (signature (receiver shared) (params) (effects unsafe) -> UnsafePointer<Int8>?))
-    (func raw 22:6 private (signature (params (p UnsafePointer<Int> owned) (n &var Int exclusive)) (effects unsafe) -> Int)))
+    (method Buffer.grab 17:10 private (signature (receiver shared) (params) (effects unsafe) -> UnsafePointer<Int8>?) (summary body (suspends when A.Allocator.alloc) (sync-callable unless A.Allocator.alloc)))
+    (func raw 22:6 private (signature (params (p UnsafePointer<Int> owned) (n &var Int exclusive)) (effects unsafe) -> Int) (summary body (suspends no) (sync-callable yes))))
   (members
     (lowlevel.Buffer
       (field size Int private declared)

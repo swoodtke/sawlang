@@ -2,10 +2,10 @@
   (declarations
     (struct Stop 4:8 private)
     (field Stop.code 5:5 private Int)
-    (func poll 8:6 private (signature (params (n Int owned)) -> Result<Int?, none_ok.Stop>))
-    (func generic 15:6 private (signature (generics (T)) (params (x T owned)) -> Result<T?, none_ok.Stop>))
-    (func consume 19:6 private (signature (params (r Result<Int?, none_ok.Stop> owned)) -> Bool))
-    (func main 23:6 private (signature (params) -> Void)))
+    (func poll 8:6 private (signature (params (n Int owned)) -> Result<Int?, none_ok.Stop>) (summary body (suspends no) (sync-callable yes)))
+    (func generic 15:6 private (signature (generics (T)) (params (x T owned)) -> Result<T?, none_ok.Stop>) (summary body (suspends no) (sync-callable yes)))
+    (func consume 19:6 private (signature (params (r Result<Int?, none_ok.Stop> owned)) -> Bool) (summary body (suspends no) (sync-callable yes)))
+    (func main 23:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (none_ok.Stop
       (field code Int private declared)))

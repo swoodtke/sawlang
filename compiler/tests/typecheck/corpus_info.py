@@ -43,19 +43,30 @@ def module_paths(path):
 
 
 def first_refusals(rels, flags):
-    """{path: the rule of its first refusal, or None} for one sawc2 process."""
-    r = subprocess.run([build.SAWC2, "typecheck", "--check"] + list(flags) + rels, cwd=REPO,
-                       capture_output=True, text=True)
+    """{path: the rule of its first refusal, or None} for the programs `rels`.
+    A process that dies leaves its last program with no complete record: that
+    one is counted as a crash, and the rest are checked in a fresh process."""
     first = {}
-    current = None
-    for line in r.stdout.split("\n"):
-        if line.startswith("FILE\t"):
-            current = line[len("FILE\t"):]
-            first[current] = None
-        elif line.startswith("ERROR\t") and current is not None and first[current] is None:
-            first[current] = line.split("\t")[1]
-        elif line.startswith("INVARIANT\t"):
-            INVARIANTS.append("%s: %s" % (current, line))
+    pending = list(rels)
+    while pending:
+        r = subprocess.run([build.SAWC2, "typecheck", "--check"] + list(flags) + pending,
+                           cwd=REPO, capture_output=True, text=True)
+        current = None
+        seen = []
+        for line in r.stdout.split("\n"):
+            if line.startswith("FILE\t"):
+                current = line[len("FILE\t"):]
+                first[current] = None
+                seen.append(current)
+            elif line.startswith("ERROR\t") and current is not None and first[current] is None:
+                first[current] = line.split("\t")[1]
+            elif line.startswith("INVARIANT\t"):
+                INVARIANTS.append("%s: %s" % (current, line))
+        if r.returncode in (0, 1):
+            break
+        dead = seen[-1] if seen else pending[0]
+        first[dead] = "(the checker crashed)"
+        pending = pending[pending.index(dead) + 1:]
     return first
 
 

@@ -1,0 +1,135 @@
+// Phase 2's summaries: may-suspend and sync-callable, each a word or a
+// condition over the function's own type parameters, and the Copy
+// requirement a body infers (design 219), solved to the least fixpoint.
+import std.task.{yield_now}
+
+trait Worker {
+    func step(&self) -> Int
+
+    func twice(&self) -> Int {
+        self.step() + self.step()
+    }
+}
+
+struct Slow {
+    n: Int
+}
+
+struct Fast {
+    n: Int
+}
+
+extension Slow: Worker {
+    func step(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+extension Fast: Worker {
+    func step(&self) -> Int { self.n }
+}
+
+extern "C" {
+    func abs(x: Int32) -> Int32
+}
+
+// A condition over `T`, and one composed from a callee's.
+func run<T: Worker>(w: &T) -> Int {
+    w.step()
+}
+
+func run_both<U: Worker>(a: &U, b: &U) -> Int {
+    run(a) + run(b)
+}
+
+// Concrete instantiations evaluate the condition exactly.
+func slow_total(s: &Slow) -> Int {
+    run(s)
+}
+
+func fast_total(f: &Fast) sync -> Int {
+    run(f)
+}
+
+// A function declared before the one it calls is summarized again when that
+// one's summary grows.
+func early() -> Int {
+    late()
+}
+
+func late() -> Int {
+    yield_now()
+    1
+}
+
+// Mutual recursion: both suspend, found at the fixpoint.
+func ping(n: Int) -> Int {
+    if n == 0 {
+        yield_now()
+        return 0
+    }
+    pong(n - 1)
+}
+
+func pong(n: Int) -> Int {
+    ping(n)
+}
+
+// A function value's call never suspends and is not sync-callable.
+func apply(f: (Int) -> Int, x: Int) -> Int {
+    f(x)
+}
+
+func apply_sync(f: (Int) sync -> Int, x: Int) -> Int {
+    f(x)
+}
+
+// A closure's calls are not its function's; what would make one suspend at an
+// instantiation is a condition the call site refuses.
+func later<T: Worker>(w: &T) -> Int {
+    let f = { x: Int in x + w.step() }
+    f(1)
+}
+
+// A `sync` generic body and a coercion to `any` of a type parameter are each
+// judged per instantiation.
+func run_sync<T: Worker>(w: &T) sync -> Int {
+    w.step()
+}
+
+func erased(w: &any Worker) -> Int { 1 }
+
+func relay<T: Worker>(w: &T) -> Int {
+    erased(w)
+}
+
+// The Copy requirement, inferred, then carried by a forwarder.
+func sink<T>(x: T) -> Int { 1 }
+
+func twice<T>(x: T) -> Int {
+    let a = sink(x)
+    a + sink(x)
+}
+
+func forward<V>(v: V) -> Int {
+    twice(move v)
+}
+
+func moves<W>(w: W) -> Int {
+    sink(move w)
+}
+
+// A std function whose row says it calls a function value.
+func mapped(v: &Vector<Int>) -> Int {
+    let doubled = try! v.map({ x in x * 2 })
+    doubled.len()
+}
+
+func main() {
+    let s = Slow(n: 1)
+    let f = Fast(n: 2)
+    print(run(&s) + run(&f) + slow_total(&s) + fast_total(&f) + ping(2) + s.twice() + f.twice())
+    print(apply({ x: Int in x }, 1) + later(&f) + forward(3) + moves(4))
+    print(run_sync(&f) + relay(&f))
+}

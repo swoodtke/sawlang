@@ -1,15 +1,15 @@
 ERROR	member.unknown	compiler/tests/typecheck/golden/body_types.saw:17:21	`Int16` has no method `nothing` this module can see
 (Module body_types
   (declarations
-    (func pick 6:6 private (signature (generics (T)) (params (x T owned)) -> T))
-    (func main 10:6 private (signature (params) -> Void)))
+    (func pick 6:6 private (signature (generics (T)) (params (x T owned)) -> T) (summary body (suspends no) (sync-callable yes)))
+    (func main 10:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable no))))
   (members)
   (views)
   (conformances)
   (copy-tier)
   (bodies
     (pick 6:6
-      (7:5-7:6 Name T place copy))
+      (7:5-7:6 Name T place move))
     (main 10:6
       (11:9-11:10 BindingName Int16 place temp)
       (11:20-11:21 IntLit Int (adopt Int16) value temp)

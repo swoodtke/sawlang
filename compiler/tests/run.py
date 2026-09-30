@@ -7,7 +7,8 @@ Builds `sawc2` and the unit programs with the frozen compiler and runs the unit
 programs; compares `sawc2 lex` with the golden fixtures in `lex/`, whose token
 kinds and lex errors must cover the lexer's; runs the subset checker over the
 compiler source and its own fixtures in `subset/`; recomputes the std cone of
-sawc2's build and compares it with `tools/std_cone.txt`; and runs the grammar lint,
+sawc2's build and compares it with `tools/std_cone.txt`, and the std suspension
+table with `tools/std_suspension.txt`; and runs the grammar lint,
 the reference recognizer's own tests in `grammar/`, and the parser corpus's
 checks over `parse/`; runs the corpus rewriter's golden fixtures in
 `migrate/`; checks that the parser's grammar tables are current and that its
@@ -41,6 +42,7 @@ import depth_funnel  # noqa: E402
 import grammar_tables  # noqa: E402
 import speculation_ledger  # noqa: E402
 import std_cone  # noqa: E402
+import std_suspension  # noqa: E402
 import subset_check  # noqa: E402
 import ast_nodes as A  # noqa: E402  (on sys.path through subset_check)
 import line_length  # noqa: E402
@@ -150,6 +152,7 @@ def check_fixture_whitespace(run):
              for p in glob.glob(os.path.join(d, "*")) if os.path.isfile(p)]
     paths.append(parse_lane.CLAIMS)
     paths.append(std_cone.CONE_FILE)
+    paths.append(std_suspension.TABLE_FILE)
     paths += glob.glob(os.path.join(GRAMMAR_FIXTURES, "**", "*.*"), recursive=True)
     paths += glob.glob(os.path.join(PARSE_CORPUS, "**", "*.*"), recursive=True)
     paths += glob.glob(os.path.join(test_migrate.FIXTURES, "*"))
@@ -349,6 +352,16 @@ def run_std_cone(run):
         run.count(key, n)
 
 
+def run_std_suspension(run):
+    """The std suspension table against the frozen compiler's std check, and
+    the modules its `suspends` rows fall in against the parking spellings."""
+    failures, counts = std_suspension.check()
+    for failure in failures:
+        run.fail(failure)
+    for key, n in counts.items():
+        run.count(key, n)
+
+
 def run_grammar(run):
     """The grammar lint with its fixtures, the recognizer's unit tests, and the
     parser corpus's checks; the full-corpus recognizer run is the battery's
@@ -418,6 +431,7 @@ def main():
     run_subset(run)
     if ok:
         run_std_cone(run)
+    run_std_suspension(run)
     run_grammar(run)
     run_migrate(run)
     if ok:

@@ -1,0 +1,26 @@
+// refuses: borrows.sync-window at 24:14
+// a suspending call inside the block of a borrow a `borrows(sync)` accessor
+// lends, which no suspension may span (SL:borrowing §2.5)
+
+import std.task.{yield_now}
+
+struct Guarded {
+    n: Int
+}
+
+extension Guarded {
+    func lock(&var self) sync borrows(sync) -> &var Int {
+        lend self.n
+    }
+}
+
+func pause() -> Int {
+    yield_now()
+    1
+}
+
+func bump(g: &var Guarded) {
+    borrow var n = g.lock() {
+        n += pause()
+    }
+}

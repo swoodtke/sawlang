@@ -1,0 +1,1364 @@
+// Phase 2 of type checking (SL:architecture §3.4, "Order"): the summaries
+// bodies derive, solved to a fixpoint over the call graph. Each function gets
+// three: whether it may suspend, whether it is sync-callable, and which of its
+// type parameters its body needs on the Copy tier (design 219). A generic
+// function's first two are conditions over its own type parameters, "may
+// suspend when `T`'s `Worker.step` does", which each call site evaluates with
+// its own type arguments. Phase 3 (`effects.saw`) consumes them.
+//
+// A body is split into units: the function's own, and one per closure in it.
+// A closure's calls are not the function's calls, so they add nothing to its
+// suspension; what they would make illegal at an instantiation joins the
+// function's summary as a condition phase 3 refuses at the call.
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.model.{ResDecl, ResDeclKind, ResModule}
+import sawresolve.src.names.{ResIndex, res_index}
+import sawtypecheck.src.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.src.model.{TC_COPY_COVERED, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TC_FORBID_CLOSURE,
+                               TC_FORBID_ERASE, TC_FORBID_SYNC, TC_ITEM_CALL, TC_ITEM_COPY, TC_ITEM_ERASE,
+                               TC_SUMMARY_BODY, TC_SUMMARY_DECLARED, TC_SUMMARY_NONE, TC_SUMMARY_TABLE,
+                               TC_SUMMARY_UNTABLED, TC_TIER_COPY, TcAdjust, TcAdjustKind, TcAtom,
+                               TcCall, TcConformance, TcItem, TcParam, TcRole, TcSig, TcStatus,
+                               TcStatusKind, TcSummary, TcTier, TcUnit, TcUse, tc_blank_summary}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.stdsuspension.{TC_STD_NONSYNC, TC_STD_SUSPENDS, tc_std_suspension_rows}
+import sawtypecheck.src.tier.{tc_bit}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// How deeply a condition's evaluation follows implementations before it gives
+// the conservative answer.
+static TC_EVAL_DEPTH: Int = 16
+
+// What evaluating a body's items gathers.
+public struct TcAcc {
+    public suspends: Bool
+    public nonsync: Bool
+    public suspend_atoms: Vector<TcAtom>
+    public nonsync_atoms: Vector<TcAtom>
+    public copies: Vector<TcAtom>
+    public forbids: Vector<TcAtom>
+    // The declaration whose type parameters are the conditions' own.
+    public owner: Int
+    // The unit being summarized, whose dependencies each summary read adds to.
+    public unit: Int
+}
+
+extension TcAcc: NoCopy {}
+
+public func tc_acc(owner: Int, unit: Int) -> TcAcc {
+    TcAcc(suspends: false, nonsync: false, suspend_atoms: Vector<TcAtom>(), nonsync_atoms: Vector<TcAtom>(),
+          copies: Vector<TcAtom>(), forbids: Vector<TcAtom>(), owner: owner, unit: unit)
+}
+
+// Solves every summary (phase 2).
+public func tc_solve_summaries(p: &var TcProgram) {
+    p.solve_summaries()
+}
+
+// Runs the summary verifier over every module, keeping what it finds.
+public func tc_verify_all_summaries(p: &var TcProgram) {
+    var m = 0
+    while m < p.res.modules.len() {
+        let found = p.verify_summaries(m)
+        var k = 0
+        while k < found.len() {
+            try! p.summary_problems.push(found.get(k) ?? "")
+            try! p.summary_problem_modules.push(m)
+            k = k + 1
+        }
+        m = m + 1
+    }
+}
+
+extension TcProgram {
+    public func solve_summaries(&var self) {
+        self.load_std_table()
+        let total = self.res.decls.len()
+        var k = 0
+        while k < total {
+            try! self.summaries.push(tc_blank_summary())
+            try! self.decl_unit.push(-1)
+            k = k + 1
+        }
+        self.collect_units()
+        k = 0
+        while k < total {
+            if self.is_function_decl(k) && self.decl_unit[k] < 0 {
+                self.summarize_declared(k)
+            }
+            k = k + 1
+        }
+        self.run_worklist()
+    }
+
+    // Whether declaration `d` is a function a summary describes: a free
+    // function, a method, an init, an extern, or a requirement with a
+    // default body.
+    public func is_function_decl(&self, d: Int) -> Bool {
+        let info = self.res.decls[d]
+        match info.kind {
+            case Func -> true,
+            case Method -> true,
+            case Init -> true,
+            case Extern -> true,
+            case Requirement -> (self.sigs[d].flags & TC_FLAG_DEFAULT_BODY) != 0,
+            case _ -> false
+        }
+    }
+
+    // The rows of the std suspension table, keyed by interned text.
+    func load_std_table(&var self) {
+        var keys = Vector<String>()
+        var verdicts = Vector<Int>()
+        tc_std_suspension_rows(&var keys, &var verdicts)
+        var k = 0
+        while k < keys.len() {
+            let key = keys.get(k) ?? ""
+            let id = self.res.intern(key)
+            self.std_verdicts.add(id, 0, verdicts[k])
+            try! self.std_keys.push(id)
+            k = k + 1
+        }
+    }
+
+    // A function's key in the std table: its identity and its parameters'
+    // names.
+    public func std_key(&self, d: Int) -> String {
+        var out = StringBuilder()
+        try! out.append(self.res.decl_identity(d))
+        try! out.append("(")
+        let s = self.sigs[d]
+        var k = 0
+        while k < s.param_count {
+            if k > 0 {
+                try! out.append(", ")
+            }
+            let param = self.params[s.param_first + k]
+            try! out.append(self.name_text(param.name))
+            k = k + 1
+        }
+        try! out.append(")")
+        out.build()
+    }
+
+    // The summary of a function whose body is not checked: its declaration's
+    // word, or the std table's row.
+    func summarize_declared(&var self, d: Int) {
+        let info = self.res.decls[d]
+        let s = self.sigs[d]
+        var summary = tc_blank_summary()
+        summary.suspend_first = self.atoms.len()
+        summary.nonsync_first = self.atoms.len()
+        summary.copy_first = self.atoms.len()
+        summary.forbid_first = self.atoms.len()
+        if info.kind == ResDeclKind.Extern {
+            summary.state = TC_SUMMARY_DECLARED
+            let blocking = (s.flags & TC_FLAG_BLOCKING) != 0
+            summary.suspends = blocking
+            summary.nonsync = blocking
+        } else if (s.effects & TC_EFFECT_SYNC) != 0 {
+            summary.state = TC_SUMMARY_DECLARED
+        } else if self.is_interface(info.module) {
+            let key = self.std_key(d)
+            let id = self.res.names.find(key)
+            let at = if id >= 0 { self.std_verdicts.first(id, 0) } else { -1 }
+            if at < 0 {
+                summary.state = TC_SUMMARY_UNTABLED
+                summary.suspends = true
+                summary.nonsync = true
+            } else {
+                summary.state = TC_SUMMARY_TABLE
+                let verdict = self.std_verdicts.value(at)
+                summary.suspends = verdict == TC_STD_SUSPENDS
+                summary.nonsync = verdict == TC_STD_SUSPENDS || verdict == TC_STD_NONSYNC
+            }
+        } else {
+            summary.state = TC_SUMMARY_DECLARED
+        }
+        self.summaries[d] = summary
+    }
+
+    // Whether requirement `req`, or the type of a function value, is `sync`.
+    public func declares_sync(&self, d: Int) -> Bool {
+        (self.sigs[d].effects & TC_EFFECT_SYNC) != 0
+    }
+}
+
+// The units and their items.
+extension TcProgram {
+    // One unit per declaration with a checked body, in declaration order,
+    // each followed by its closures' units, and one per body outside a
+    // declaration.
+    func collect_units(&var self) {
+        var k = 0
+        while k < self.body_roots.len() {
+            let root = self.body_roots[k]
+            let d = self.body_decls[k]
+            k = k + 1
+            var u = -1
+            if d >= 0 && self.decl_unit[d] >= 0 {
+                u = self.decl_unit[d]
+            } else {
+                u = self.units.len()
+                let sync = d >= 0 && self.is_sync_context(d)
+                let first = self.items.len()
+                try! self.units.push(TcUnit(decl: d, node: -1, top: u, sync: sync, item_first: first,
+                                            item_end: first))
+                if d >= 0 {
+                    self.decl_unit[d] = u
+                }
+            }
+            self.collect_items(root, u, u)
+            var top = self.units[u]
+            top.item_end = self.items.len()
+            self.units[u] = top
+        }
+    }
+
+    // Whether declaration `d`'s body is a `sync` context: declared `sync`, or
+    // a `deinit`, which runs where nothing may suspend.
+    func is_sync_context(&self, d: Int) -> Bool {
+        let info = self.res.decls[d]
+        if info.kind != ResDeclKind.Func && info.kind != ResDeclKind.Method && info.kind != ResDeclKind.Init && info.kind != ResDeclKind.Requirement {
+            return false
+        }
+        if self.declares_sync(d) {
+            return true
+        }
+        let name = self.name_text(info.name)
+        info.kind == ResDeclKind.Method && name.equals("deinit")
+    }
+
+    // The items under `root`, which belongs to unit `u` of top unit `top`: a
+    // closure opens a unit of its own, and a construct refused as outside
+    // the slice adds nothing.
+    func collect_items(&var self, root: Int, u: Int, top: Int) {
+        var stack = Vector<Int>()
+        var owners = Vector<Int>()
+        try! stack.push(root)
+        try! owners.push(u)
+        var depth = 1
+        while depth > 0 {
+            depth = depth - 1
+            let id = stack[depth]
+            let owner = owners[depth]
+            if self.is_skipped_node(id) {
+                continue
+            }
+            var here = owner
+            if id != root && self.has_alt(id, Alt.Expr_Closure) {
+                here = self.units.len()
+                let first = self.items.len()
+                let d = self.units[top].decl
+                let ct = self.expr_types[id]
+                var sync = false
+                if ct >= 0 && self.kind_of(ct) == TcKind.Func {
+                    sync = (self.types.ty(ct).a & TC_EFFECT_SYNC) != 0
+                }
+                try! self.units.push(TcUnit(decl: d, node: id, top: top, sync: sync, item_first: first,
+                                            item_end: first))
+            }
+            self.note_items(id, here)
+            var c = self.child_count(id) - 1
+            while c >= 0 {
+                let child = self.child(id, c)
+                if not self.is_leaf(child) {
+                    if depth < stack.len() {
+                        stack[depth] = child
+                        owners[depth] = here
+                    } else {
+                        try! stack.push(child)
+                        try! owners.push(here)
+                    }
+                    depth = depth + 1
+                }
+                c = c - 1
+            }
+        }
+    }
+
+    public func is_skipped_node(&self, id: Int) -> Bool {
+        var k = 0
+        while k < self.skipped.len() {
+            if self.skipped[k] == id {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // The items node `id` holds for unit `u`: a call, a copy of a place, a
+    // coercion to an existential. Of a local's copies, one carries the
+    // requirement (`settle_path_uses`).
+    func note_items(&var self, id: Int, u: Int) {
+        if self.call_at[id] >= 0 {
+            try! self.items.push(TcItem(kind: TC_ITEM_CALL, node: id, unit: u))
+        }
+        if self.expr_use[id] == TcUse.Copy && self.expr_types[id] >= 0 && self.copy_partner[id] != TC_COPY_COVERED {
+            try! self.items.push(TcItem(kind: TC_ITEM_COPY, node: id, unit: u))
+        }
+        if self.erased_trait(id) >= 0 {
+            try! self.items.push(TcItem(kind: TC_ITEM_ERASE, node: id, unit: u))
+        }
+    }
+
+    // The trait node `id`'s adjustment chain erases a concrete value into,
+    // `any Trait` or `Box<any Trait>`, or -1.
+    public func erased_trait(&self, id: Int) -> Int {
+        var a = self.adj_head[id]
+        while a >= 0 {
+            let adj = self.adjusts[a]
+            if adj.kind == TcAdjustKind.Erase {
+                return self.existential_trait(adj.to)
+            }
+            a = adj.next
+        }
+        return -1
+    }
+
+    // The type node `id` held just before its erasure.
+    public func erased_from(&self, id: Int) -> Int {
+        var t = self.expr_types[id]
+        var a = self.adj_head[id]
+        while a >= 0 {
+            let adj = self.adjusts[a]
+            if adj.kind == TcAdjustKind.Erase {
+                return t
+            }
+            t = adj.to
+            a = adj.next
+        }
+        t
+    }
+
+    // The trait of `any Trait`, of `Box<any Trait>`, or of a reference to
+    // either; -1 for any other type.
+    public func existential_trait(&self, to: Int) -> Int {
+        let t = self.strip_refs(to)
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Any {
+            return info.decl
+        }
+        if info.kind == TcKind.Nominal && info.count > 0 {
+            let inner = self.types.arg(t, 0)
+            let ii = self.types.ty(inner)
+            if ii.kind == TcKind.Any {
+                return ii.decl
+            }
+        }
+        return -1
+    }
+}
+
+// The fixpoint.
+extension TcProgram {
+    // Every top unit of a function is summarized, in declaration order, and
+    // resummarized whenever a summary it read changes, until nothing does:
+    // the least fixpoint, since every summary starts at the bottom and only
+    // grows.
+    func run_worklist(&var self) {
+        let n = self.units.len()
+        var dirty = Vector<Bool>()
+        var pending = 0
+        var k = 0
+        while k < n {
+            let unit = self.units[k]
+            let live = unit.top == k && unit.decl >= 0 && self.is_function_decl(unit.decl)
+            try! dirty.push(live)
+            if live {
+                pending = pending + 1
+                var blank = tc_blank_summary()
+                blank.state = TC_SUMMARY_BODY
+                blank.suspend_first = self.atoms.len()
+                blank.nonsync_first = self.atoms.len()
+                blank.copy_first = self.atoms.len()
+                blank.forbid_first = self.atoms.len()
+                self.summaries[unit.decl] = blank
+            }
+            k = k + 1
+        }
+        var i = 0
+        while pending > 0 {
+            if i >= n {
+                i = 0
+            }
+            if not dirty[i] {
+                i = i + 1
+                continue
+            }
+            dirty[i] = false
+            pending = pending - 1
+            let d = self.units[i].decl
+            var acc = self.summarize_unit(i)
+            let old = self.summaries[d]
+            let fresh = self.summary_from(d, &var acc)
+            if self.same_summary(&old, &fresh) {
+                i = i + 1
+                continue
+            }
+            self.summaries[d] = fresh
+            var next = i + 1
+            var at = self.summary_deps.first(d, 0)
+            while at >= 0 {
+                let dep = self.summary_deps.value(at)
+                if not dirty[dep] {
+                    dirty[dep] = true
+                    pending = pending + 1
+                    if dep < next {
+                        next = dep
+                    }
+                }
+                at = self.summary_deps.following(at)
+            }
+            i = next
+        }
+    }
+
+    // What top unit `u`'s items make of its summary, with every summary as
+    // it stands.
+    public func summarize_unit(&var self, u: Int) -> TcAcc {
+        let unit = self.units[u]
+        var acc = tc_acc(unit.decl, u)
+        var k = unit.item_first
+        while k < unit.item_end {
+            let item = self.items[k]
+            k = k + 1
+            let own = item.unit == u
+            if item.kind == TC_ITEM_CALL {
+                let item_unit = self.units[item.unit]
+                let in_sync = item_unit.sync
+                if own && not in_sync {
+                    self.eval_call(item.node, &var acc)
+                } else {
+                    var inner = tc_acc(unit.decl, u)
+                    self.eval_call(item.node, &var inner)
+                    if in_sync {
+                        self.join_sync(&var acc, &var inner, item.node)
+                    }
+                    if own {
+                        self.join_own(&var acc, &var inner)
+                    } else {
+                        self.join_closure(&var acc, &var inner, item.node)
+                    }
+                }
+            } else if item.kind == TC_ITEM_COPY {
+                let t = self.copied_type(item.node)
+                let _ = self.copy_needs(t, item.node, item.node, &var acc)
+            } else if item.kind == TC_ITEM_ERASE {
+                self.erase_conditions(item.node, &var acc)
+            }
+        }
+        move acc
+    }
+
+    // A call in a `sync` body, evaluated into `inner`: what would make it
+    // lose sync-callability at an instantiation becomes a forbidden
+    // condition, so the call that instantiates the body is refused, as
+    // inference runs per instantiation.
+    func join_sync(&var self, acc: &var TcAcc, inner: &var TcAcc, site: Int) {
+        var k = 0
+        while k < inner.nonsync_atoms.len() {
+            let a = inner.nonsync_atoms[k]
+            try! acc.forbids.push(TcAtom(ty: a.ty, req: a.req, site: site, origin: site,
+                                         kind: TC_FORBID_SYNC))
+            k = k + 1
+        }
+    }
+
+    // A call of the unit's own body, evaluated into `inner`, joins its
+    // summary whole.
+    func join_own(&var self, acc: &var TcAcc, inner: &var TcAcc) {
+        if inner.suspends {
+            acc.suspends = true
+        }
+        if inner.nonsync {
+            acc.nonsync = true
+        }
+        var k = 0
+        while k < inner.suspend_atoms.len() {
+            try! acc.suspend_atoms.push(inner.suspend_atoms[k])
+            k = k + 1
+        }
+        k = 0
+        while k < inner.nonsync_atoms.len() {
+            try! acc.nonsync_atoms.push(inner.nonsync_atoms[k])
+            k = k + 1
+        }
+        k = 0
+        while k < inner.copies.len() {
+            try! acc.copies.push(inner.copies[k])
+            k = k + 1
+        }
+        k = 0
+        while k < inner.forbids.len() {
+            try! acc.forbids.push(inner.forbids[k])
+            k = k + 1
+        }
+    }
+
+    // A closure's call, evaluated into `inner`, joins its function's
+    // summary: what would make it suspend becomes a forbidden condition, and
+    // its Copy requirements and forbidden conditions carry over.
+    func join_closure(&var self, acc: &var TcAcc, inner: &var TcAcc, site: Int) {
+        var k = 0
+        while k < inner.suspend_atoms.len() {
+            let a = inner.suspend_atoms[k]
+            try! acc.forbids.push(TcAtom(ty: a.ty, req: a.req, site: site, origin: site,
+                                         kind: TC_FORBID_CLOSURE))
+            k = k + 1
+        }
+        k = 0
+        while k < inner.copies.len() {
+            try! acc.copies.push(inner.copies[k])
+            k = k + 1
+        }
+        k = 0
+        while k < inner.forbids.len() {
+            try! acc.forbids.push(inner.forbids[k])
+            k = k + 1
+        }
+    }
+
+    // The type a copy of place `id` duplicates: its own, read through each
+    // leading `deref`.
+    public func copied_type(&self, id: Int) -> Int {
+        var t = self.expr_types[id]
+        var a = self.adj_head[id]
+        while a >= 0 {
+            let adj = self.adjusts[a]
+            if adj.kind != TcAdjustKind.Deref {
+                return t
+            }
+            t = adj.to
+            a = adj.next
+        }
+        t
+    }
+
+    // The summary a unit's gathered facts make, its lists deduplicated.
+    public func summary_from(&var self, d: Int, acc: &var TcAcc) -> TcSummary {
+        var s = tc_blank_summary()
+        s.state = TC_SUMMARY_BODY
+        let sync = self.declares_sync(d)
+        s.suspends = acc.suspends && not sync
+        s.nonsync = (acc.nonsync || acc.suspends) && not sync
+        s.suspend_first = self.atoms.len()
+        if not sync && not s.suspends {
+            self.push_unique(&acc.suspend_atoms, true)
+        }
+        s.suspend_count = self.atoms.len() - s.suspend_first
+        s.nonsync_first = self.atoms.len()
+        if not sync && not s.nonsync {
+            self.push_unique(&acc.nonsync_atoms, true)
+        }
+        s.nonsync_count = self.atoms.len() - s.nonsync_first
+        s.copy_first = self.atoms.len()
+        self.push_unique(&acc.copies, false)
+        s.copy_count = self.atoms.len() - s.copy_first
+        s.forbid_first = self.atoms.len()
+        self.push_unique(&acc.forbids, true)
+        s.forbid_count = self.atoms.len() - s.forbid_first
+        s
+    }
+
+    // Appends each atom of `list` whose key is not already in the run that
+    // starts where this call does.
+    func push_unique(&var self, list: &Vector<TcAtom>, by_requirement: Bool) {
+        let first = self.atoms.len()
+        self.push_unique_keyed(&list, first, by_requirement)
+    }
+
+    func push_unique_keyed(&var self, list: &Vector<TcAtom>, first: Int, by_requirement: Bool) {
+        var k = 0
+        while k < list.len() {
+            let a = list[k]
+            k = k + 1
+            var seen = false
+            var j = first
+            while j < self.atoms.len() {
+                let b = self.atoms[j]
+                if b.ty == a.ty && (not by_requirement || (b.req == a.req && b.kind == a.kind)) {
+                    seen = true
+                }
+                j = j + 1
+            }
+            if not seen {
+                try! self.atoms.push(a)
+            }
+        }
+    }
+
+    // Whether two summaries say the same: their words, and each condition
+    // list as a set.
+    public func same_summary(&self, a: &TcSummary, b: &TcSummary) -> Bool {
+        if a.state != b.state || a.suspends != b.suspends || a.nonsync != b.nonsync {
+            return false
+        }
+        self.same_run(a.suspend_first, a.suspend_count, b.suspend_first, b.suspend_count, true) && self.same_run(a.nonsync_first, a.nonsync_count, b.nonsync_first, b.nonsync_count, true) && self.same_run(a.copy_first, a.copy_count, b.copy_first, b.copy_count, false) && self.same_run(a.forbid_first, a.forbid_count, b.forbid_first, b.forbid_count, true)
+    }
+
+    func same_run(&self, af: Int, an: Int, bf: Int, bn: Int, by_requirement: Bool) -> Bool {
+        if an != bn {
+            return false
+        }
+        var k = 0
+        while k < an {
+            let a = self.atoms[af + k]
+            var found = false
+            var j = 0
+            while j < bn {
+                let b = self.atoms[bf + j]
+                if b.ty == a.ty && (not by_requirement || (b.req == a.req && b.kind == a.kind)) {
+                    found = true
+                }
+                j = j + 1
+            }
+            if not found {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // Declaration `d`'s summary, read on behalf of the unit `acc` gathers
+    // for, which is resummarized when it changes.
+    func summary_for(&var self, d: Int, acc: &TcAcc) -> TcSummary {
+        if acc.unit >= 0 {
+            let u = acc.unit
+            self.note_dependency(d, u)
+        }
+        self.summaries[d]
+    }
+
+    func note_dependency(&var self, d: Int, u: Int) {
+        var at = self.summary_deps.first(d, 0)
+        while at >= 0 {
+            if self.summary_deps.value(at) == u {
+                return
+            }
+            at = self.summary_deps.following(at)
+        }
+        self.summary_deps.add(d, 0, u)
+    }
+}
+
+// Evaluating calls and conditions.
+extension TcProgram {
+    // What the call at node `e` adds: its target's summary, instantiated at
+    // the call's type arguments, or what a call through a function value, an
+    // existential or a bound says.
+    public func eval_call(&var self, e: Int, acc: &var TcAcc) {
+        let at = self.call_at[e]
+        if at < 0 {
+            return
+        }
+        let c = self.calls[at]
+        if c.role == TcRole.Value {
+            if c.owner >= 0 && self.kind_of(c.owner) == TcKind.Func {
+                let effects = self.types.ty(c.owner).a
+                if (effects & TC_EFFECT_SYNC) == 0 {
+                    acc.nonsync = true
+                }
+            }
+            return
+        }
+        if c.target < 0 || c.role == TcRole.Builtin || c.role == TcRole.BuiltinOperator || c.role == TcRole.Conversion || c.role == TcRole.Memberwise || c.role == TcRole.Case {
+            return
+        }
+        let info = self.res.decls[c.target]
+        if info.kind == ResDeclKind.Requirement && (self.sigs[c.target].flags & TC_FLAG_DEFAULT_BODY) == 0 {
+            self.eval_requirement(c.target, c.owner, e, &var acc,0)
+            return
+        }
+        if info.kind == ResDeclKind.Requirement && c.owner >= 0 {
+            let recv = self.strip_refs(c.owner)
+            let rk = self.kind_of(recv)
+            if rk == TcKind.Param || rk == TcKind.SelfType || rk == TcKind.Any {
+                self.eval_requirement(c.target, c.owner, e, &var acc,0)
+                return
+            }
+        }
+        if not self.is_function_decl(c.target) {
+            return
+        }
+        let target = c.target
+        self.eval_instance(target, &c, e, &var acc, 0)
+    }
+
+    // A call of function `d` at call record `c`: its summary, each condition
+    // over `d`'s parameters rewritten at the call's type arguments.
+    func eval_instance(&var self, d: Int, c: &TcCall, e: Int, acc: &var TcAcc, depth: Int) {
+        let s = self.summary_for(d, &acc)
+        if s.suspends {
+            acc.suspends = true
+        }
+        if s.nonsync {
+            acc.nonsync = true
+        }
+        if s.suspend_count == 0 && s.nonsync_count == 0 && s.copy_count == 0 && s.forbid_count == 0 {
+            return
+        }
+        var k = 0
+        while k < s.suspend_count {
+            let a = self.atoms[s.suspend_first + k]
+            let t = self.call_subst(a.ty, d, &c)
+            self.eval_condition(t, a.req, e, true, &var acc,depth + 1)
+            k = k + 1
+        }
+        k = 0
+        while k < s.nonsync_count {
+            let a = self.atoms[s.nonsync_first + k]
+            let t = self.call_subst(a.ty, d, &c)
+            self.eval_condition(t, a.req, e, false, &var acc,depth + 1)
+            k = k + 1
+        }
+        k = 0
+        while k < s.copy_count {
+            let a = self.atoms[s.copy_first + k]
+            let t = self.call_subst(a.ty, d, &c)
+            let _ = self.copy_needs(t, e, a.origin, &var acc)
+            k = k + 1
+        }
+        k = 0
+        while k < s.forbid_count {
+            let a = self.atoms[s.forbid_first + k]
+            let t = self.call_subst(a.ty, d, &c)
+            if self.is_own_condition(t, acc.owner) {
+                try! acc.forbids.push(TcAtom(ty: t, req: a.req, site: e, origin: a.origin, kind: a.kind))
+            }
+            k = k + 1
+        }
+    }
+
+    // A requirement `req` called through `owner`: a condition over the
+    // caller's own parameter, nothing through an existential but a lost
+    // guarantee, or a concrete implementation's summary.
+    func eval_requirement(&var self, req: Int, owner: Int, e: Int, acc: &var TcAcc, depth: Int) {
+        if self.declares_sync(req) {
+            return
+        }
+        if owner < 0 {
+            acc.suspends = true
+            acc.nonsync = true
+            return
+        }
+        let recv = self.strip_refs(owner)
+        if self.kind_of(recv) == TcKind.Any {
+            acc.nonsync = true
+            return
+        }
+        self.eval_condition(recv, req, e, true, &var acc,depth)
+        self.eval_condition(recv, req, e, false, &var acc,depth)
+    }
+
+    // Whether `req` through type `t` may suspend (`suspension`) or is not
+    // sync-callable: a condition kept when `t` is the caller's own
+    // parameter, else the implementation's summary.
+    public func eval_condition(&var self, t: Int, req: Int, e: Int, suspension: Bool, acc: &var TcAcc,
+                               depth: Int) {
+        if self.declares_sync(req) {
+            return
+        }
+        let recv = self.strip_refs(t)
+        let kind = self.kind_of(recv)
+        if kind == TcKind.Param || kind == TcKind.SelfType {
+            if self.is_own_condition(recv, acc.owner) {
+                let a = TcAtom(ty: recv, req: req, site: e, origin: e, kind: 0)
+                if suspension {
+                    try! acc.suspend_atoms.push(a)
+                } else {
+                    try! acc.nonsync_atoms.push(a)
+                }
+                return
+            }
+            self.conservative(suspension, &var acc)
+            return
+        }
+        if kind == TcKind.Any {
+            if not suspension {
+                acc.nonsync = true
+            }
+            return
+        }
+        if kind == TcKind.Error {
+            return
+        }
+        if depth > TC_EVAL_DEPTH {
+            self.conservative(suspension, &var acc)
+            return
+        }
+        let impl = self.impl_of(recv, req)
+        if impl < 0 {
+            return
+        }
+        let s = self.summary_for(impl, &acc)
+        if suspension && s.suspends {
+            acc.suspends = true
+        }
+        if not suspension && s.nonsync {
+            acc.nonsync = true
+        }
+        let first = if suspension { s.suspend_first } else { s.nonsync_first }
+        let count = if suspension { s.suspend_count } else { s.nonsync_count }
+        var k = 0
+        while k < count {
+            let a = self.atoms[first + k]
+            let inner = self.impl_subst(a.ty, impl, recv)
+            self.eval_condition(inner, a.req, e, suspension, &var acc,depth + 1)
+            k = k + 1
+        }
+    }
+
+    func conservative(&self, suspension: Bool, acc: &var TcAcc) {
+        if suspension {
+            acc.suspends = true
+        }
+        acc.nonsync = true
+    }
+
+    public func strip_refs(&self, t: Int) -> Int {
+        var inner = t
+        while inner >= 0 && self.kind_of(inner) == TcKind.Ref {
+            inner = self.types.ty(inner).b
+        }
+        inner
+    }
+
+    // Whether type `t` is one of declaration `d`'s own condition subjects:
+    // its type parameters, those of the type it is a member of, or its
+    // trait's `Self`.
+    public func is_own_condition(&self, t: Int, d: Int) -> Bool {
+        if d < 0 || t < 0 {
+            return false
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Param {
+            return info.decl == d || info.decl == self.owner_type_decl(d)
+        }
+        if info.kind == TcKind.SelfType {
+            let di = self.res.decls[d]
+            return di.kind == ResDeclKind.Requirement && di.parent == info.decl
+        }
+        false
+    }
+
+    // The nominal type function `d` is a member of, through its extension,
+    // or -1.
+    public func owner_type_decl(&self, d: Int) -> Int {
+        let info = self.res.decls[d]
+        if info.parent < 0 {
+            return -1
+        }
+        let parent = self.res.decls[info.parent]
+        if parent.kind == ResDeclKind.Extension {
+            return self.ext_target(info.parent)
+        }
+        if parent.kind == ResDeclKind.Struct || parent.kind == ResDeclKind.Enum {
+            return info.parent
+        }
+        return -1
+    }
+
+    // Type `t`, over function `d`'s parameters, at call `c`'s type
+    // arguments: `d`'s own from the instantiation, its type's from the
+    // receiver, `Self` the receiver.
+    public func call_subst(&var self, t: Int, d: Int, c: &TcCall) -> Int {
+        var args = Vector<Int>()
+        var k = 0
+        while k < c.inst_count {
+            try! args.push(self.insts[c.inst_first + k])
+            k = k + 1
+        }
+        let own = tc_args_subst(d, move args)
+        let first = self.subst(t, &own)
+        if c.owner < 0 {
+            return first
+        }
+        self.impl_subst(first, d, c.owner)
+    }
+
+    // Type `t`, over member `d`'s type's parameters and `Self`, at receiver
+    // type `recv`.
+    public func impl_subst(&var self, t: Int, d: Int, recv: Int) -> Int {
+        let r = self.strip_refs(recv)
+        let owner = self.owner_type_decl(d)
+        var args = Vector<Int>()
+        if owner >= 0 && self.kind_of(r) == TcKind.Nominal && self.nominal_decl(r) == owner {
+            let info = self.types.ty(r)
+            var k = 0
+            while k < info.count {
+                try! args.push(self.types.arg(r, k))
+                k = k + 1
+            }
+        }
+        var s = tc_args_subst(owner, move args)
+        s.self_type = r
+        self.subst(t, &s)
+    }
+
+    // The declaration that implements requirement `req` for concrete type
+    // `t`: the member its conformance's status names, the requirement itself
+    // for a default body, or -1 for a derivation, a builtin conformance or
+    // none.
+    public func impl_of(&self, t: Int, req: Int) -> Int {
+        if self.kind_of(t) != TcKind.Nominal {
+            return -1
+        }
+        let d = self.nominal_decl(t)
+        let tr = self.res.decls[req].parent
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if c.type_decl != d || not self.trait_refines(c.trait_decl, tr) {
+                continue
+            }
+            var j = 0
+            while j < c.status_count {
+                let st = self.statuses[c.status_first + j]
+                j = j + 1
+                if st.requirement != req {
+                    continue
+                }
+                if st.kind == TcStatusKind.Written && st.member >= 0 {
+                    return st.member
+                }
+                if st.kind == TcStatusKind.Default {
+                    return req
+                }
+                return -1
+            }
+        }
+        return -1
+    }
+
+    // Whether type `t` is on the Copy tier, with the parameters of `acc`'s
+    // owner it depends on added to `acc`'s Copy requirement: false when it
+    // is not, whatever they are. `site` is the node that needs it, `origin`
+    // the copy that started the requirement.
+    public func copy_needs(&var self, t: Int, site: Int, origin: Int, acc: &var TcAcc) -> Bool {
+        if t < 0 {
+            return true
+        }
+        let info = self.types.ty(t)
+        match info.kind {
+            case Param -> {
+                if self.is_own_condition(t, acc.owner) && not self.declares_copy_bound(t) {
+                    try! acc.copies.push(TcAtom(ty: t, req: -1, site: site, origin: origin, kind: 0))
+                }
+                true
+            },
+            case Nominal -> {
+                let rule = self.tier_of_decl(info.decl)
+                if rule.base != TC_TIER_COPY {
+                    return false
+                }
+                var ok = true
+                var k = 0
+                while k < info.count {
+                    if (rule.mask & tc_bit(k)) != 0 {
+                        let a = self.types.arg(t, k)
+                        if not self.copy_needs(a, site, origin, &var acc) {
+                            ok = false
+                        }
+                    }
+                    k = k + 1
+                }
+                ok
+            },
+            case Tuple -> {
+                var ok = true
+                var k = 0
+                while k < info.count {
+                    let a = self.types.arg(t, k)
+                    if not self.copy_needs(a, site, origin, &var acc) {
+                        ok = false
+                    }
+                    k = k + 1
+                }
+                ok
+            },
+            case Array -> self.copy_needs(info.b, site, origin, &var acc),
+            case Any -> false,
+            case _ -> true
+        }
+    }
+
+    // Whether type parameter `t` declares a bound on the Copy tier.
+    func declares_copy_bound(&var self, t: Int) -> Bool {
+        let info = self.types.ty(t)
+        self.ensure_generic_list(info.decl)
+        let s = self.sigs[info.decl]
+        if info.a >= s.generic_count {
+            return false
+        }
+        let g = self.generics[s.generic_first + info.a]
+        let copy = self.known.copy
+        var k = 0
+        while k < g.bound_count {
+            let b = self.traits[g.bound_first + k]
+            if self.trait_refines(b, copy) {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // A coercion at node `id` into an existential over one of the owner's
+    // parameters adds, for each requirement the dispatch reaches that is not
+    // `sync`, the condition phase 3 refuses a suspending implementation by.
+    func erase_conditions(&var self, id: Int, acc: &var TcAcc) {
+        let tr = self.erased_trait(id)
+        let before = self.erased_from(id)
+        let from = self.strip_refs(before)
+        if tr < 0 || not self.is_own_condition(from, acc.owner) {
+            return
+        }
+        let reqs = self.dispatched_requirements(tr)
+        var k = 0
+        while k < reqs.len() {
+            try! acc.forbids.push(TcAtom(ty: from, req: reqs[k], site: id, origin: id, kind: TC_FORBID_ERASE))
+            k = k + 1
+        }
+    }
+
+    // The requirements of trait `tr` and the traits it refines that a
+    // dispatch through `any` reaches and that are not `sync`.
+    public func dispatched_requirements(&self, tr: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        let traits = self.trait_and_ancestors(tr)
+        var t = 0
+        while t < traits.len() {
+            let members = self.members_of(traits[t])
+            var k = 0
+            while k < members.len() {
+                let r = members[k]
+                let info = self.res.decls[r]
+                if info.kind == ResDeclKind.Requirement && not self.declares_sync(r) {
+                    try! out.push(r)
+                }
+                k = k + 1
+            }
+            t = t + 1
+        }
+        move out
+    }
+}
+
+// The summaries as the dump writes them (compiler/tests/typecheck/README.md).
+extension TcProgram {
+    // ` (summary SOURCE (suspends ...) (sync-callable ...) [(copy ...)]
+    // [(refuses-when ...)])` for function `d`, or "" when it has none.
+    public func summary_text(&self, d: Int) -> String {
+        if d >= self.summaries.len() {
+            return ""
+        }
+        let s = self.summaries[d]
+        if s.state == TC_SUMMARY_NONE {
+            return ""
+        }
+        var out = StringBuilder()
+        try! out.append(" (summary ")
+        if s.state == TC_SUMMARY_BODY {
+            try! out.append("body")
+        } else if s.state == TC_SUMMARY_DECLARED {
+            try! out.append("declared")
+        } else if s.state == TC_SUMMARY_TABLE {
+            try! out.append("table")
+        } else {
+            try! out.append("untabled")
+        }
+        try! out.append(" (suspends ")
+        if s.suspends {
+            try! out.append("yes")
+        } else if s.suspend_count == 0 {
+            try! out.append("no")
+        } else {
+            try! out.append("when")
+            self.append_atoms(&var out, s.suspend_first, s.suspend_count)
+        }
+        try! out.append(") (sync-callable ")
+        if s.nonsync {
+            try! out.append("no")
+        } else if s.nonsync_count == 0 {
+            try! out.append("yes")
+        } else {
+            try! out.append("unless")
+            self.append_atoms(&var out, s.nonsync_first, s.nonsync_count)
+        }
+        try! out.append(")")
+        if s.copy_count > 0 {
+            try! out.append(" (copy")
+            self.append_atoms(&var out, s.copy_first, s.copy_count)
+            try! out.append(")")
+        }
+        if s.forbid_count > 0 {
+            try! out.append(" (refuses-when")
+            self.append_atoms(&var out, s.forbid_first, s.forbid_count)
+            try! out.append(")")
+        }
+        try! out.append(")")
+        out.build()
+    }
+
+    // A run of conditions, each ` TYPE.Trait.req`, or for a forbidden one
+    // ` (KIND TYPE.Trait.req)`, sorted.
+    func append_atoms(&self, out: &var StringBuilder, first: Int, count: Int) {
+        var texts = Vector<String>()
+        var k = 0
+        while k < count {
+            let a = self.atoms[first + k]
+            var one = StringBuilder()
+            if a.kind == TC_FORBID_CLOSURE {
+                try! one.append("(closure ")
+            } else if a.kind == TC_FORBID_ERASE {
+                try! one.append("(any ")
+            } else if a.kind == TC_FORBID_SYNC {
+                try! one.append("(sync ")
+            }
+            try! one.append(self.type_text(a.ty))
+            if a.req >= 0 {
+                try! one.append(".")
+                try! one.append(self.res.decl_path(a.req))
+            }
+            if a.kind > 0 {
+                try! one.append(")")
+            }
+            try! texts.push(one.build())
+            k = k + 1
+        }
+        res_sort_strings(&var texts)
+        k = 0
+        while k < texts.len() {
+            try! out.append(" ")
+            let text = texts.get(k) ?? ""
+            try! out.append(text)
+            k = k + 1
+        }
+    }
+}
+
+// The summary verifier (compiler/tests/typecheck/README.md, "The verifier").
+extension TcProgram {
+    // Every problem the summaries of module `m`'s declarations and bodies
+    // have: a function with no summary, one that is no fixpoint, a condition
+    // over another declaration's parameters, and, where the module has no
+    // refusal, a closure body or a coercion to `any` that may suspend.
+    public func verify_summaries(&var self, m: Int) -> Vector<String> {
+        var out = Vector<String>()
+        let info = self.res.modules[m]
+        var d = info.decl_first
+        while d < info.decl_first + info.decl_count {
+            if self.is_function_decl(d) {
+                let s = self.summaries[d]
+                if s.state == TC_SUMMARY_NONE {
+                    try! out.push(self.summary_problem(d, "has no summary"))
+                } else {
+                    self.verify_conditions(d, &s, &var out)
+                }
+            }
+            d = d + 1
+        }
+        let refused = self.module_refused(m)
+        var u = 0
+        while u < self.units.len() {
+            let unit = self.units[u]
+            u = u + 1
+            if unit.top != u - 1 || unit.item_first == unit.item_end {
+                continue
+            }
+            let first = self.items[unit.item_first]
+            if self.node_in_module(first.node) != m {
+                continue
+            }
+            let top = u - 1
+            if unit.decl >= 0 && self.is_function_decl(unit.decl) {
+                let old = self.summaries[unit.decl]
+                var acc = self.summarize_unit(top)
+                let fresh = self.summary_from(unit.decl, &var acc)
+                if not self.same_summary(&old, &fresh) {
+                    try! out.push(self.summary_problem(unit.decl, "is not a fixpoint: one more step changes it"))
+                }
+            }
+            if not refused {
+                self.verify_unit_suspensions(top, &var out)
+            }
+        }
+        if m == self.res.builtin {
+            self.verify_std_table(&var out)
+        }
+        move out
+    }
+
+    // Every row of the std suspension table names a std function: a row no
+    // function answers to is stale.
+    func verify_std_table(&self, out: &var Vector<String>) {
+        var matched = res_index()
+        var d = 0
+        while d < self.res.decls.len() {
+            let info = self.res.decls[d]
+            if self.is_function_decl(d) && self.is_interface(info.module) {
+                let key = self.std_key(d)
+                let id = self.res.names.find(key)
+                if id >= 0 {
+                    matched.add(id, 0, d)
+                }
+            }
+            d = d + 1
+        }
+        var k = 0
+        while k < self.std_keys.len() {
+            let id = self.std_keys[k]
+            k = k + 1
+            if matched.first(id, 0) < 0 {
+                var msg = StringBuilder()
+                try! msg.append("summary: compiler/tools/std_suspension.txt names `")
+                try! msg.append(self.name_text(id))
+                try! msg.append("`, and no std function has that key: rerun compiler/tools/std_suspension.py --write")
+                try! out.push(msg.build())
+            }
+        }
+    }
+
+    func verify_conditions(&self, d: Int, s: &TcSummary, out: &var Vector<String>) {
+        let total = s.suspend_count + s.nonsync_count + s.copy_count + s.forbid_count
+        var runs = Vector<Int>()
+        try! runs.push(s.suspend_first)
+        try! runs.push(s.suspend_count)
+        try! runs.push(s.nonsync_first)
+        try! runs.push(s.nonsync_count)
+        try! runs.push(s.copy_first)
+        try! runs.push(s.copy_count)
+        try! runs.push(s.forbid_first)
+        try! runs.push(s.forbid_count)
+        if total == 0 {
+            return
+        }
+        var r = 0
+        while r < 8 {
+            let first = runs[r]
+            let count = runs[r + 1]
+            r = r + 2
+            var k = 0
+            while k < count {
+                let a = self.atoms[first + k]
+                k = k + 1
+                if not self.is_own_condition(a.ty, d) {
+                    try! out.push(self.summary_problem(d, "has a condition over a type that is not its own parameter"))
+                }
+            }
+        }
+    }
+
+    // No call in a closure body of top unit `u`, and no coercion in its
+    // bodies, may suspend.
+    func verify_unit_suspensions(&var self, u: Int, out: &var Vector<String>) {
+        let top = self.units[u]
+        var k = top.item_first
+        while k < top.item_end {
+            let item = self.items[k]
+            k = k + 1
+            let unit = self.units[item.unit]
+            if item.kind == TC_ITEM_CALL && unit.node >= 0 {
+                var acc = tc_acc(top.decl, -1)
+                self.eval_call(item.node, &var acc)
+                if acc.suspends {
+                    try! out.push(self.node_problem(item.node, "a closure body's call may suspend, and nothing refused it"))
+                }
+            } else if item.kind == TC_ITEM_ERASE {
+                let tr = self.erased_trait(item.node)
+                let before = self.erased_from(item.node)
+                let from = self.strip_refs(before)
+                if tr >= 0 && not self.is_own_condition(from, top.decl) {
+                    let reqs = self.dispatched_requirements(tr)
+                    var j = 0
+                    while j < reqs.len() {
+                        var acc = tc_acc(top.decl, -1)
+                        let req = reqs[j]
+                        self.eval_condition(from, req, item.node, true, &var acc, 0)
+                        if acc.suspends {
+                            try! out.push(self.node_problem(item.node, "a coercion to `any` dispatches to an implementation that may suspend, and nothing refused it"))
+                        }
+                        j = j + 1
+                    }
+                }
+            }
+        }
+    }
+
+    func summary_problem(&self, d: Int, what: String) -> String {
+        var out = StringBuilder()
+        try! out.append("summary: ")
+        try! out.append(self.res.decl_identity(d))
+        try! out.append(" ")
+        try! out.append(what)
+        out.build()
+    }
+
+    func node_problem(&self, id: Int, what: String) -> String {
+        let m = self.node_in_module(id)
+        var out = StringBuilder()
+        try! out.append("summary: ")
+        if m >= 0 {
+            try! out.append(self.res.node_position(m, id))
+            try! out.append(": ")
+        }
+        try! out.append(what)
+        out.build()
+    }
+
+    // The module whose arena range holds node `id`, or -1.
+    public func node_in_module(&self, id: Int) -> Int {
+        var m = 0
+        while m < self.res.modules.len() {
+            let info = self.res.modules[m]
+            if info.available && id >= info.node_base && id < info.node_base + info.node_count {
+                return m
+            }
+            m = m + 1
+        }
+        return -1
+    }
+
+    // One `SUMMARY` line per function of a module checked in full, for
+    // `sawc2 typecheck --summaries`: its identity, whether it may suspend
+    // and whether it is sync-callable, each `yes`, `no` or `when`.
+    public func summary_lines(&self, out: &var StringBuilder) {
+        var d = 0
+        while d < self.summaries.len() {
+            let info = self.res.decls[d]
+            let s = self.summaries[d]
+            d = d + 1
+            if s.state == TC_SUMMARY_NONE || self.is_interface(info.module) {
+                continue
+            }
+            try! out.append("SUMMARY\t")
+            try! out.append(self.res.decl_identity(d - 1))
+            try! out.append("\t")
+            if s.suspends {
+                try! out.append("suspends")
+            } else if s.suspend_count > 0 {
+                try! out.append("suspends-when")
+            } else {
+                try! out.append("never-suspends")
+            }
+            try! out.append("\t")
+            if s.nonsync {
+                try! out.append("nonsync")
+            } else if s.nonsync_count > 0 {
+                try! out.append("sync-callable-unless")
+            } else {
+                try! out.append("sync-callable")
+            }
+            try! out.append("\n")
+        }
+    }
+}

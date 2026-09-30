@@ -1,0 +1,30 @@
+// refuses: effect.closure-suspends at 29:11
+// a closure whose call through a bound suspends only at the instantiation that
+// makes it: refused at the call that instantiates it
+
+import std.task.{yield_now}
+
+trait Worker {
+    func step(&self) -> Int
+}
+
+struct Slow {
+    n: Int
+}
+
+extension Slow: Worker {
+    func step(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+func later<T: Worker>(w: &T) -> Int {
+    let f = { x: Int in x + w.step() }
+    f(1)
+}
+
+func main() {
+    let s = Slow(n: 2)
+    print(later(&s))
+}

@@ -24,6 +24,9 @@ extension TcProgram {
         match member.source {
             case Declared -> self.res.visible_to(member.vis, member.module, viewer),
             case Extension -> {
+                if self.follows_trait(member.decl, viewer) == 1 {
+                    return true
+                }
                 let e = member.module
                 if e != viewer && e != owner.module && not self.std_extends_builtin(e, owner.module) {
                     let n = self.res.modules.len()

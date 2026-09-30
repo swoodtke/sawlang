@@ -1,0 +1,8 @@
+// refuses: unsafe.undeclared at 5:6
+// a function whose body binds a value of an unsafe type, with only safe types
+// in its signature, is declared `unsafe` (designs 130 and 136)
+
+func address(x: &Int) -> Int {
+    let p = x as UnsafePointer<Int>
+    0
+}

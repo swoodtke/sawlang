@@ -1,0 +1,340 @@
+// Constant folding (spec, Compile-Time Evaluation, "The constant grammar";
+// Integer Width Agreement): the value of a constant expression, so a literal
+// inside one is judged by the folded value it contributes to (design 87).
+// A constant expression is integer literals, module statics of an integer
+// type and the cases of a raw-backed enum, under `-`, `~`, arithmetic, shift
+// and bit operators. Folding never traps: an operation whose result would not
+// fit an `Int` leaves the expression unfolded.
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.kinds.{res_is_type_alt}
+import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind}
+import sawtypecheck.src.model.{TC_FLAG_UNSAFE_VAR}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.typeops.{TcClient}
+
+static TC_FOLD_MAX: Int = 9223372036854775807
+// How many statics and cases one fold follows, which bounds a cycle.
+static TC_FOLD_DEPTH: Int = 32
+
+// A folded value, or none.
+public struct TcFold {
+    public ok: Bool
+    public value: Int
+}
+
+public func tc_no_fold() -> TcFold {
+    TcFold(ok: false, value: 0)
+}
+
+public func tc_folded(v: Int) -> TcFold {
+    TcFold(ok: true, value: v)
+}
+
+extension TcProgram {
+    // Constant expression `e`'s value.
+    public func fold_constant(&self, e: Int) -> TcFold {
+        self.fold_at(e, 0)
+    }
+
+    func fold_at(&self, e: Int, depth: Int) -> TcFold {
+        if e < 0 || depth > TC_FOLD_DEPTH {
+            return tc_no_fold()
+        }
+        guard let alt = self.node_alt(e) else {
+            return tc_no_fold()
+        }
+        self.fold_as(e, alt, depth)
+    }
+
+    func fold_as(&self, e: Int, alt: Alt, depth: Int) -> TcFold {
+        match alt {
+            case Expr_Int -> self.fold_literal(e),
+            case Expr_Unary_Negate -> {
+                let operand = self.res.first_node_child(e)
+                let inner = self.fold_at(operand, depth)
+                if not inner.ok {
+                    return inner
+                }
+                tc_folded(0 - inner.value)
+            },
+            case Expr_Unary_Complement -> {
+                let operand = self.res.first_node_child(e)
+                let inner = self.fold_at(operand, depth)
+                if not inner.ok {
+                    return inner
+                }
+                tc_folded(0 - inner.value - 1)
+            },
+            case Expr_Additive -> self.fold_operators(e, depth),
+            case Expr_Multiplicative -> self.fold_operators(e, depth),
+            case Expr_Shift -> self.fold_operators(e, depth),
+            case Expr_Bitand -> self.fold_operators(e, depth),
+            case Expr_Bitor -> self.fold_operators(e, depth),
+            case Expr_Bitxor -> self.fold_operators(e, depth),
+            case Expr_Name -> self.fold_static(e, depth),
+            case Expr_Member -> self.fold_case(e, depth),
+            case _ -> tc_no_fold()
+        }
+    }
+
+    // An integer literal's value, its suffix left off; none past `Int.max`.
+    func fold_literal(&self, e: Int) -> TcFold {
+        let m = self.node_module_of(e)
+        let leaf = self.res.first_leaf(e)
+        let at = if leaf >= 0 { leaf } else { e }
+        let text = self.text(m, at)
+        var radix = 10
+        var i = 0
+        let n = text.len()
+        if n > 2 && (text.byte_at(0) as Int) == 48 {
+            let letter = text.byte_at(1) as Int
+            if letter == 120 {
+                radix = 16
+                i = 2
+            } else if letter == 111 {
+                radix = 8
+                i = 2
+            } else if letter == 98 {
+                radix = 2
+                i = 2
+            }
+        }
+        var value = 0
+        while i < n {
+            let b = text.byte_at(i) as Int
+            i = i + 1
+            if b == 95 {
+                continue
+            }
+            if b == 105 || b == 117 {
+                break
+            }
+            var digit = -1
+            if b >= 48 && b <= 57 {
+                digit = b - 48
+            } else if b >= 97 && b <= 102 {
+                digit = b - 87
+            } else if b >= 65 && b <= 70 {
+                digit = b - 55
+            }
+            if digit < 0 || digit >= radix || value > (TC_FOLD_MAX - digit) / radix {
+                return tc_no_fold()
+            }
+            value = value * radix + digit
+        }
+        tc_folded(value)
+    }
+
+    // A flat operator chain, left to right.
+    func fold_operators(&self, e: Int, depth: Int) -> TcFold {
+        let m = self.node_module_of(e)
+        var acc = tc_no_fold()
+        var op = ""
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            if self.is_leaf(c) {
+                op = self.text(m, c)
+                continue
+            }
+            let v = self.fold_at(c, depth)
+            if not v.ok {
+                return v
+            }
+            if not acc.ok {
+                acc = v
+                continue
+            }
+            acc = tc_fold_step(acc.value, &op, v.value)
+            if not acc.ok {
+                return acc
+            }
+        }
+        acc
+    }
+
+    // A module static of an integer type, by its initializer.
+    func fold_static(&self, e: Int, depth: Int) -> TcFold {
+        let leaf = self.res.first_leaf(e)
+        let b = self.binding_at(leaf)
+        if b.kind != ResBindKind.Decl || b.decl < 0 {
+            return tc_no_fold()
+        }
+        let info = self.res.decls[b.decl]
+        if info.kind != ResDeclKind.Static {
+            return tc_no_fold()
+        }
+        let s = self.sigs[b.decl]
+        if (s.flags & TC_FLAG_UNSAFE_VAR) != 0 || s.result < 0 || not self.is_integer(s.result) {
+            return tc_no_fold()
+        }
+        let value = self.static_initializer(b.decl)
+        self.fold_at(value, depth + 1)
+    }
+
+    // A raw-backed enum's case, by its raw value.
+    func fold_case(&self, e: Int, depth: Int) -> TcFold {
+        let c = self.raw_case_named(e)
+        if c < 0 {
+            return tc_no_fold()
+        }
+        let value = self.raw_value_node(c)
+        self.fold_at(value, depth + 1)
+    }
+
+    // The case of a raw-backed enum member expression `e` names, `E.Case`,
+    // or -1.
+    public func raw_case_named(&self, e: Int) -> Int {
+        if not self.has_alt(e, Alt.Expr_Member) {
+            return -1
+        }
+        let leaf = self.res.last_leaf_of(e)
+        if leaf < 0 {
+            return -1
+        }
+        let b = self.binding_at(leaf)
+        if (b.kind != ResBindKind.Case && b.kind != ResBindKind.Decl) || b.decl < 0 {
+            return -1
+        }
+        let info = self.res.decls[b.decl]
+        if info.kind != ResDeclKind.Case || info.parent < 0 {
+            return -1
+        }
+        let backing = self.sigs[info.parent].result
+        if backing < 0 || not self.is_integer(backing) {
+            return -1
+        }
+        b.decl
+    }
+
+    // A static's initializer node, or -1.
+    public func static_initializer(&self, d: Int) -> Int {
+        let info = self.res.decls[d]
+        if info.node < 0 {
+            return -1
+        }
+        let n = self.child_count(info.node)
+        var k = 0
+        while k < n {
+            let c = self.child(info.node, k)
+            if not self.is_leaf(c) && not res_is_type_alt(self.node_alt(c)) {
+                return c
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // A raw-backed case's value node, or -1.
+    public func raw_value_node(&self, c: Int) -> Int {
+        let info = self.res.decls[c]
+        if info.node < 0 {
+            return -1
+        }
+        let n = self.child_count(info.node)
+        var k = 0
+        while k < n {
+            let child = self.child(info.node, k)
+            if not self.is_leaf(child) && not self.has_alt(child, Alt.Decl_PayloadField) {
+                return child
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // The module whose arena holds node `id`.
+    func node_module_of(&self, id: Int) -> Int {
+        var m = 0
+        while m < self.res.modules.len() {
+            let info = self.res.modules[m]
+            if info.available && id >= info.node_base && id < info.node_base + info.node_count {
+                return m
+            }
+            m = m + 1
+        }
+        0
+    }
+
+    // Whether folded value `v` fits integer type `t`.
+    public func value_fits(&self, v: Int, t: Int) -> Bool {
+        let w = self.int_width(t)
+        if self.is_unsigned(t) {
+            if v < 0 {
+                return false
+            }
+            if w >= 63 {
+                return true
+            }
+            return v <= (1 << w) - 1
+        }
+        if w >= 64 {
+            return true
+        }
+        let top = (1 << (w - 1)) - 1
+        v <= top && v >= 0 - top - 1
+    }
+}
+
+// `a op b` for one operator of a chain, or none when the result would not fit
+// an `Int`, a count is out of range, or a divisor is zero.
+public func tc_fold_step(a: Int, op: &String, b: Int) -> TcFold {
+    if op.equals("+") {
+        if (b > 0 && a > TC_FOLD_MAX - b) || (b < 0 && a < 0 - TC_FOLD_MAX - 1 - b) {
+            return tc_no_fold()
+        }
+        return tc_folded(a + b)
+    }
+    if op.equals("-") {
+        if (b < 0 && a > TC_FOLD_MAX + b) || (b > 0 && a < 0 - TC_FOLD_MAX - 1 + b) {
+            return tc_no_fold()
+        }
+        return tc_folded(a - b)
+    }
+    if op.equals("*") {
+        if a == 0 || b == 0 {
+            return tc_folded(0)
+        }
+        let ma = if a < 0 { 0 - a } else { a }
+        let mb = if b < 0 { 0 - b } else { b }
+        if ma < 0 || mb < 0 || ma > TC_FOLD_MAX / mb {
+            return tc_no_fold()
+        }
+        return tc_folded(a * b)
+    }
+    if op.equals("/") || op.equals("%") {
+        if b == 0 || (b == -1 && a == 0 - TC_FOLD_MAX - 1) {
+            return tc_no_fold()
+        }
+        if op.equals("/") {
+            return tc_folded(a / b)
+        }
+        return tc_folded(a % b)
+    }
+    if op.equals("<<") {
+        if b < 0 || b > 62 || a < 0 || a > (TC_FOLD_MAX >> b) {
+            return tc_no_fold()
+        }
+        return tc_folded(a << b)
+    }
+    if op.equals(">>") {
+        if b < 0 || b > 63 {
+            return tc_no_fold()
+        }
+        return tc_folded(a >> b)
+    }
+    if op.equals("&") {
+        return tc_folded(a & b)
+    }
+    if op.equals("|") {
+        return tc_folded(a | b)
+    }
+    if op.equals("^") {
+        return tc_folded(a ^ b)
+    }
+    tc_no_fold()
+}

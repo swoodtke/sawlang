@@ -1,0 +1,9 @@
+// refuses: borrowing.containment at 7:10
+// a borrowing struct stored in an enum payload
+
+import std.vector.{VectorIterator}
+
+enum Walk {
+    case Going(it: VectorIterator<Int>),
+    case Done
+}

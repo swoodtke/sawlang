@@ -40,7 +40,7 @@ func driver_usage() -> Int {
     print("       sawc2 parse --redump [FILE | @LIST]...")
     print("       sawc2 resolve (--dump | --check) [--notes] [--std-root DIR]")
     print("                     [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc2 typecheck (--dump | --check) [--notes] [--interfaces]")
+    print("       sawc2 typecheck (--dump | --check) [--notes] [--interfaces] [--summaries]")
     print("                       [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...")
     DRIVER_EXIT_USAGE
 }
@@ -70,6 +70,7 @@ func driver_resolve(args: &Vector<String>, typecheck: Bool) -> Int {
     var check = false
     var notes = false
     var interfaces = false
+    var summaries = false
     var std_root = "sawc"
     var names = Vector<String>()
     var dirs = Vector<String>()
@@ -85,6 +86,8 @@ func driver_resolve(args: &Vector<String>, typecheck: Bool) -> Int {
             notes = true
         } else if arg.equals("--interfaces") && typecheck {
             interfaces = true
+        } else if arg.equals("--summaries") && typecheck {
+            summaries = true
         } else if arg.equals("--std-root") || arg.equals("--module-path") {
             let value = args.get(i + 1) ?? ""
             if value.len() == 0 {
@@ -115,7 +118,7 @@ func driver_resolve(args: &Vector<String>, typecheck: Bool) -> Int {
     }
     let options = ResolveOptions(std_root: std_root, dump: dump, notes: notes)
     let checking = TypecheckOptions(std_root: std_root, dump: dump, notes: notes,
-                                    interfaces: interfaces)
+                                    interfaces: interfaces, summaries: summaries)
     var status = 0
     var k = 0
     while k < inputs.len() {

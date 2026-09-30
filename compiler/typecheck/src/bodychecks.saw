@@ -1,0 +1,443 @@
+// The checks that read a checked program's types, outside the walk that
+// typed it (SL:architecture §3.4, "Other checks that need only types", and
+// "Effects"): borrowing-struct containment, the body half of `unsafe`, and
+// the `borrows(sync)` contract.
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
+import sawtypecheck.src.adjust.{TC_FIT_EXACT}
+import sawtypecheck.src.candidates.{tc_contains}
+import sawtypecheck.src.checks.{tc_check_unsafe}
+import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_UNSAFE,
+                               TC_FLAG_BORROWS_STRUCT, TC_FLAG_UNSAFE_VAR, TcAdjust, TcAdjustKind,
+                               TcCall, TcLend, TcParam, TcSig, TcUse}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.summaries.{tc_acc}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// Runs every check of this file.
+public func tc_check_body_rules(p: &var TcProgram) {
+    p.check_containment_signatures()
+    p.check_body_rules()
+}
+
+extension TcProgram {
+    // Whether declaration `d` is a borrowing struct (spec, Borrowing structs).
+    public func is_borrowing_struct(&self, d: Int) -> Bool {
+        if d < 0 {
+            return false
+        }
+        let info = self.res.decls[d]
+        info.kind == ResDeclKind.Struct && (self.sigs[d].flags & TC_FLAG_BORROWS_STRUCT) != 0
+    }
+
+    // The borrowing struct type `t` holds by value, directly or inside an
+    // argument, an element, a payload, a reference or a function type; -1
+    // for none.
+    public func borrowing_named(&self, t: Int) -> Int {
+        if t < 0 {
+            return -1
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Nominal && self.is_borrowing_struct(info.decl) {
+            return t
+        }
+        if info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array || info.kind == TcKind.Func {
+            let inner = self.borrowing_named(info.b)
+            if inner >= 0 {
+                return inner
+            }
+        }
+        if info.kind == TcKind.Nominal || info.kind == TcKind.Tuple || info.kind == TcKind.Func {
+            var k = 0
+            while k < info.count {
+                let arg = self.types.arg(t, k)
+                let found = self.borrowing_named(arg)
+                if found >= 0 {
+                    return found
+                }
+                k = k + 1
+            }
+        }
+        return -1
+    }
+
+    // The signature positions a borrowing struct may not reach: a field or a
+    // payload, a parameter taken by value, a result other than a `borrows`
+    // function's lend of one, and a function type's parameters or result.
+    func check_containment_signatures(&var self) {
+        var d = 0
+        while d < self.res.decls.len() {
+            let info = self.res.decls[d]
+            d = d + 1
+            if info.node < 0 || self.is_interface(info.module) {
+                continue
+            }
+            let decl = d - 1
+            let site = self.decl_site(decl)
+            if info.kind == ResDeclKind.Field {
+                let t = self.sigs[decl].result
+                let found = self.borrowing_named(t)
+                if found >= 0 {
+                    self.refuse_containment(info.module, site, found, "stored in a field")
+                }
+            } else if info.kind == ResDeclKind.Case {
+                let s = self.sigs[decl]
+                var k = 0
+                while k < s.param_count {
+                    let p = self.params[s.param_first + k]
+                    let found = self.borrowing_named(p.ty)
+                    if found >= 0 {
+                        self.refuse_containment(info.module, site, found, "stored in a payload")
+                    }
+                    k = k + 1
+                }
+            } else if info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.Requirement {
+                self.check_function_containment(decl)
+            } else if info.kind == ResDeclKind.Static {
+                self.check_static_type(decl)
+            }
+        }
+        var k = 0
+        while k < self.func_nodes.len() {
+            let node = self.func_nodes[k]
+            k = k + 1
+            let t = self.node_types[node]
+            if t < 0 {
+                continue
+            }
+            let m = self.node_module(node)
+            if m < 0 || self.is_interface(m) {
+                continue
+            }
+            let found = self.borrowing_named(t)
+            if found >= 0 {
+                self.refuse_containment(m, node, found, "carried by a function type")
+            }
+        }
+    }
+
+    func check_function_containment(&var self, d: Int) {
+        let info = self.res.decls[d]
+        let s = self.sigs[d]
+        let site = self.decl_site(d)
+        if (s.effects & TC_EFFECT_BORROWS) != 0 && s.lending == TcLend.Other {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(self.res.decl_path(d))
+            try! msg.append("` is declared `borrows`, and lends `")
+            try! msg.append(self.type_text(s.result))
+            try! msg.append("`: a `borrows` function lends a place (`&T`, `&var T`), a slice, an optional of either, or a borrowing struct")
+            self.refuse_in(info.module, site, "borrows.result", msg.build())
+        }
+        var k = 0
+        while k < s.param_count {
+            let p = self.params[s.param_first + k]
+            k = k + 1
+            // A reference passes a bound place onward (SL:borrowing §2.7),
+            // and a function type answers for itself.
+            let inner = self.types.ty(p.ty)
+            if inner.kind == TcKind.Ref || inner.kind == TcKind.Func {
+                continue
+            }
+            let found = self.borrowing_named(p.ty)
+            if found >= 0 {
+                self.refuse_containment(info.module, site, found, "taken as a parameter by value")
+            }
+        }
+        if s.result < 0 {
+            return
+        }
+        let lent_struct = (s.effects & TC_EFFECT_BORROWS) != 0 && s.lending == TcLend.BorrowingStruct
+        if lent_struct || self.kind_of(s.result) == TcKind.Func {
+            return
+        }
+        let found = self.borrowing_named(s.result)
+        if found >= 0 {
+            self.refuse_containment(info.module, site, found, "returned plainly, by a function that does not lend it with `borrows`")
+        }
+    }
+
+    // A static's own type is never an optional (spec, Module-level statics:
+    // "Never optional"); an `unsafe static var`, whose absence may be real,
+    // is exempt.
+    func check_static_type(&var self, d: Int) {
+        let s = self.sigs[d]
+        if s.result < 0 || (s.flags & TC_FLAG_UNSAFE_VAR) != 0 || not self.is_optional(s.result) {
+            return
+        }
+        let info = self.res.decls[d]
+        var msg = StringBuilder()
+        try! msg.append("the static `")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` is `")
+        try! msg.append(self.type_text(s.result))
+        try! msg.append("`, and a static is never optional: it is initialized once and always present, so give it the payload's type, or compute absent state with `Once<T>` or an `unsafe static var`")
+        let site = self.decl_site(d)
+        self.refuse_in(info.module, site, "static.optional", msg.build())
+    }
+
+    func refuse_containment(&var self, m: Int, at: Int, t: Int, how: String) {
+        var msg = StringBuilder()
+        try! msg.append("the borrowing struct `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` is ")
+        try! msg.append(how)
+        try! msg.append(": it carries a loan, and lives only where a `borrows` function lends it, the head of a `borrow` or a `for`")
+        self.refuse_in(m, at, "borrowing.containment", msg.build())
+    }
+}
+
+// The walk over every checked body.
+extension TcProgram {
+    func check_body_rules(&var self) {
+        var unsafe_noted = Vector<Int>()
+        var k = 0
+        while k < self.body_roots.len() {
+            let root = self.body_roots[k]
+            let d = self.body_decls[k]
+            k = k + 1
+            if tc_contains(&self.poisoned, root) {
+                continue
+            }
+            var watch_unsafe = d >= 0 && self.needs_unsafe_watch(d) && not tc_contains(&unsafe_noted, d)
+            var stack = Vector<Int>()
+            var local = Vector<Bool>()
+            try! stack.push(root)
+            try! local.push(false)
+            var depth = 1
+            while depth > 0 {
+                depth = depth - 1
+                let id = stack[depth]
+                var contained = local[depth]
+                if tc_contains(&self.skipped, id) {
+                    continue
+                }
+                self.check_node_containment(id)
+                // A closure whose own signature names an unsafe type keeps
+                // its contact local: the slot it is passed to declares the
+                // effect (spec, Unsafe Code, "Closures").
+                if self.has_alt(id, Alt.Expr_Closure) && self.expr_types[id] >= 0 {
+                    let closure_type = self.expr_types[id]
+                    if self.unsafe_named(closure_type) >= 0 {
+                        contained = true
+                    }
+                }
+                if watch_unsafe && not contained && self.touches_unsafe(d, id) {
+                    try! unsafe_noted.push(d)
+                    watch_unsafe = false
+                }
+                self.check_sync_window(id, d)
+                var c = self.child_count(id) - 1
+                while c >= 0 {
+                    let child = self.child(id, c)
+                    if not self.is_leaf(child) {
+                        if depth < stack.len() {
+                            stack[depth] = child
+                            local[depth] = contained
+                        } else {
+                            try! stack.push(child)
+                            try! local.push(contained)
+                        }
+                        depth = depth + 1
+                    }
+                    c = c - 1
+                }
+            }
+        }
+    }
+
+    // A binding of a borrowing struct outside a `borrow` head, and an
+    // erasure of one into an existential.
+    func check_node_containment(&var self, id: Int) {
+        let t = self.expr_types[id]
+        if t < 0 {
+            return
+        }
+        let binding = self.has_alt(id, Alt.Stmt_BindingName) || self.has_alt(id, Alt.Pat_Name)
+        if binding && self.expr_place[id] {
+            let u = self.expr_use[id]
+            if u != TcUse.Borrow && u != TcUse.BorrowVar && u != TcUse.Test {
+                let found = self.borrowing_named(t)
+                if found >= 0 {
+                    let m = self.node_in_module(id)
+                    self.refuse_containment(m, id, found, "bound outside the head of a `borrow` or a `for`")
+                    return
+                }
+            }
+        }
+        if self.erased_trait(id) >= 0 {
+            let from = self.erased_from(id)
+            let found = self.borrowing_named(from)
+            if found >= 0 {
+                let m = self.node_in_module(id)
+                self.refuse_containment(m, id, found, "erased to an existential")
+            }
+        }
+    }
+
+    // Whether function `d` is one whose body the unsafe trigger rule asks
+    // about: a function, method or init not declared `unsafe`.
+    func needs_unsafe_watch(&self, d: Int) -> Bool {
+        let info = self.res.decls[d]
+        let callable = info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.Requirement
+        callable && (self.sigs[d].effects & TC_EFFECT_UNSAFE) == 0
+    }
+
+    // The body half of `unsafe` (designs 130 and 136): node `id` of function
+    // `d`'s body names, binds, receives or returns a value of an unsafe type,
+    // or names an `unsafe static var`, so `d` must be declared `unsafe`.
+    // Returns whether it refused.
+    func touches_unsafe(&var self, d: Int, id: Int) -> Bool {
+        let t = self.expr_types[id]
+        if t < 0 {
+            return false
+        }
+        var found = self.unsafe_named(t)
+        var a = self.adj_head[id]
+        while found < 0 && a >= 0 {
+            let adj = self.adjusts[a]
+            found = self.unsafe_named(adj.to)
+            a = adj.next
+        }
+        let info = self.res.decls[d]
+        let site = self.decl_site(d)
+        if found >= 0 {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(self.res.decl_path(d))
+            try! msg.append("` is not declared `unsafe`, but its body names a value of unsafe type (`")
+            try! msg.append(self.type_text(found))
+            try! msg.append("`) at ")
+            let m = self.node_in_module(id)
+            try! msg.append(self.res.node_position(m, id))
+            try! msg.append(": write `unsafe` after its parameter list, where every caller can see it")
+            self.refuse_in(info.module, site, "unsafe.undeclared", msg.build())
+            return true
+        }
+        if not self.has_alt(id, Alt.Expr_Name) {
+            return false
+        }
+        let leaf = self.res.first_leaf(id)
+        let b = self.binding_at(leaf)
+        if b.kind != ResBindKind.Decl || b.decl < 0 {
+            return false
+        }
+        let target = self.res.decls[b.decl]
+        if target.kind != ResDeclKind.Static || (self.sigs[b.decl].flags & TC_FLAG_UNSAFE_VAR) == 0 {
+            return false
+        }
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` is not declared `unsafe`, but its body names an unsafe static (`")
+        try! msg.append(self.res.decl_path(b.decl))
+        try! msg.append("`): write `unsafe` after its parameter list, where every caller can see it")
+        self.refuse_in(info.module, site, "unsafe.undeclared", msg.build())
+        true
+    }
+
+    // A `borrow` block or `for` whose head calls a `borrows(sync)` accessor
+    // holds a borrow no suspension may span (SL:borrowing §2.5): no call in
+    // its block may suspend, for any type argument. `d` is the declaration
+    // whose body holds it.
+    func check_sync_window(&var self, id: Int, d: Int) {
+        var block = -1
+        var accessor = -1
+        if self.has_alt(id, Alt.Borrow_Block) {
+            let n = self.child_count(id)
+            var k = 0
+            while k < n {
+                let c = self.child(id, k)
+                k = k + 1
+                if self.has_alt(c, Alt.Borrow_Binding_Let) || self.has_alt(c, Alt.Borrow_Binding_Var) {
+                    let place = self.res.last_node_child(c)
+                    let found = self.sync_lender(place)
+                    if found >= 0 && accessor < 0 {
+                        accessor = found
+                    }
+                } else if self.has_alt(c, Alt.Stmt_Block) {
+                    block = c
+                }
+            }
+        } else if self.has_alt(id, Alt.Expr_For_Plain) {
+            let target = self.res.first_node_child(id)
+            block = self.res.last_node_child(id)
+            let n = self.child_count(id)
+            var k = 0
+            while k < n {
+                let c = self.child(id, k)
+                k = k + 1
+                if c != target && c != block && not self.is_leaf(c) {
+                    accessor = self.sync_lender(c)
+                }
+            }
+        }
+        if block < 0 || accessor < 0 {
+            return
+        }
+        self.check_window_calls(block, accessor, d)
+    }
+
+    // The `borrows(sync)` accessor the call at `place` names, or -1.
+    func sync_lender(&self, place: Int) -> Int {
+        if place < 0 {
+            return -1
+        }
+        let at = self.call_at[place]
+        if at < 0 {
+            return -1
+        }
+        let c = self.calls[at]
+        if c.target < 0 {
+            return -1
+        }
+        if (self.sigs[c.target].effects & TC_EFFECT_BORROWS_SYNC) == 0 {
+            return -1
+        }
+        c.target
+    }
+
+    // Every call under `block`, outside a closure, that may suspend.
+    func check_window_calls(&var self, block: Int, accessor: Int, d: Int) {
+        var stack = Vector<Int>()
+        try! stack.push(block)
+        var depth = 1
+        while depth > 0 {
+            depth = depth - 1
+            let id = stack[depth]
+            if tc_contains(&self.skipped, id) || self.has_alt(id, Alt.Expr_Closure) {
+                continue
+            }
+            if self.call_at[id] >= 0 {
+                var acc = tc_acc(d, -1)
+                self.eval_call(id, &var acc)
+                if acc.suspends || acc.suspend_atoms.len() > 0 {
+                    var msg = StringBuilder()
+                    try! msg.append("this call may suspend while a borrow from `")
+                    try! msg.append(self.res.decl_path(accessor))
+                    try! msg.append("` is open, and that accessor is `borrows(sync)`: its borrow cannot be held across a suspension, so end the borrow before the call")
+                    let m = self.node_in_module(id)
+                    self.refuse_in(m, id, "borrows.sync-window", msg.build())
+                }
+            }
+            var c = self.child_count(id) - 1
+            while c >= 0 {
+                let child = self.child(id, c)
+                if not self.is_leaf(child) {
+                    if depth < stack.len() {
+                        stack[depth] = child
+                    } else {
+                        try! stack.push(child)
+                    }
+                    depth = depth + 1
+                }
+                c = c - 1
+            }
+        }
+    }
+}

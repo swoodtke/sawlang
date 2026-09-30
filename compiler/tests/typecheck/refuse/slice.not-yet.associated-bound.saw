@@ -1,0 +1,13 @@
+// refuses: slice.not-yet at 12:5
+// a requirement whose signature names the trait's associated type, called
+// through a type parameter: no conformance gives the type there
+// (SL:open-questions W4)
+
+trait Source {
+    type Item
+    func take(&self, v: Item) -> Int
+}
+
+func pull<S: Source>(s: &S, v: Int) -> Int {
+    s.take(v)
+}
