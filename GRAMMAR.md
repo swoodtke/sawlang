@@ -273,9 +273,11 @@ never enter the token stream, and are attached by position. A run of `///`
 lines documents the next declaration: a `func`, `struct`, `enum`, `trait`,
 `extension`, `type` alias or `static`, a struct field, an enum case, a method or
 `init`, or a trait requirement. Attributes and `public` between the comment and
-the declaration do not matter. A test case is not documentable, so a `///` run
-before one is an error. `//!` lines are legal only before the file's first
-token. A doc comment that documents nothing is an error, and so is a second
+the declaration do not matter, but a comment after one of the declaration's
+attributes documents nothing, as in `@synthesize`, `/// two` and
+`extension P: Equatable {}` on three lines. `@test` is not such an attribute
+(syntax.rule.test-form). A test case is not documentable, so a `///` run before
+one is an error. `//!` lines are legal only before the file's first token. A doc comment that documents nothing is an error, and so is a second
 run before a declaration an earlier run already documents, as in `/// one`,
 `@test`, `/// two` and `func f() {}` on four lines. `////` and a
 `///` after code on the same line are ordinary comments.

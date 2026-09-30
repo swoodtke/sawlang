@@ -531,6 +531,143 @@ def trailing_closures(k):
     return in_function("f { " * (k // 2) + ("{ 1 }" if k % 2 else "1") + " }" * (k // 2))
 
 
+def nested_tuple_literals(k):
+    return in_function("(" * k + "1" + ",)" * k)
+
+
+def nested_repeat_literals(k):
+    return in_function("[" * k + "1" + "; 2]" * k)
+
+
+def nested_calls(k):
+    return in_function("f(" * k + "1" + ")" * k)
+
+
+def call_chain(k):
+    return in_function("f" + "()" * k)
+
+
+def tuple_index_chain(k):
+    return in_function("a" + ".0" * k)
+
+
+def optional_member_chain(k):
+    return in_function("a" + "?.b" * k)
+
+
+def subscript_chain(k):
+    return in_function("a" + "[0]" * k)
+
+
+def nested_subscripts(k):
+    return in_function("a[" * k + "0" + "]" * k)
+
+
+def force_chain(k):
+    return in_function("a" + "!" * k)
+
+
+def not_run(k):
+    return in_function("not " * k + "a")
+
+
+def complement_run(k):
+    return in_function("~ " * k + "a")
+
+
+def deref_run(k):
+    return in_function("* " * k + "p")
+
+
+def ref_run(k):
+    return in_function("& " * k + "x")
+
+
+def exclusive_ref_run(k):
+    return in_function("&var " * k + "x")
+
+
+def move_deref_hops(k):
+    """`move` and its `*` take a level each, and each hop one more, held to the
+    end of the place path."""
+    return in_function("move *p" + ".b" * (k - 2))
+
+
+def borrow_place_hops(k):
+    """The `borrow` takes a level, and each hop one more."""
+    return in_function("borrow a" + ".b" * (k - 1))
+
+
+def nested_borrow_places(k):
+    """Each `borrow` and each parenthesis around its operand take a level, so
+    an odd k ends in a `borrow` of a plain name."""
+    return in_function("borrow (" * (k // 2) + ("borrow x" if k % 2 else "x") + ")" * (k // 2))
+
+
+def nested_payload_types(k):
+    """The payload's `(` takes a level, and each parenthesized type one more."""
+    return "enum E {\n    case A(x: " + "(" * (k - 1) + "Int" + ")" * k + "\n}\n"
+
+
+def reference_type_run(k):
+    return in_type("& " * k + "Int")
+
+
+def exclusive_reference_type_run(k):
+    return in_type("&var " * k + "Int")
+
+
+def nested_array_types(k):
+    return in_type("[" * k + "Int" + "; 1]" * k)
+
+
+def nested_single_tuple_types(k):
+    return in_type("(" * k + "Int" + ",)" * k)
+
+
+def nested_paren_types(k):
+    return in_type("(" * k + "Int" + ")" * k)
+
+
+def default_generic_args(k):
+    """The generic parameter list takes a level, and each argument list in the
+    parameter's default one more."""
+    return "func g<T = " + "A<" * (k - 1) + "B" + ">" * k + "() {\n}\n"
+
+
+def constant_negations(k):
+    """The generic argument list takes a level, and each negation one more."""
+    return in_type("A<" + "- " * (k - 1) + "1>")
+
+
+def constant_groups(k):
+    """The generic argument list takes a level, and each group one more."""
+    return in_type("A<" + "(" * (k - 1) + "1" + ")" * (k - 1) + ">")
+
+
+def segment_depth(k):
+    """An interpolation segment goes on at its string's depth: the parentheses,
+    the string and the segment's own group."""
+    return in_function("(" * (k - 2) + '"{(1)}"' + ")" * (k - 2))
+
+
+def cut_comparison_list(k, operand):
+    """A `<` whose pre-scan finds the `>` after it: the call and the speculated
+    list take a level each, and the groups the rest. The limit cuts the list
+    short, and it is refused there, never re-read as the comparisons that
+    would fit, whether the list's tokens would parse as one (`b`) or not
+    (`"s"`)."""
+    return in_function("g(a < " + "(" * (k - 2) + operand + ")" * (k - 2) + ", c > d)")
+
+
+def cut_kept_list(k):
+    return cut_comparison_list(k, "b")
+
+
+def cut_failing_list(k):
+    return cut_comparison_list(k, '"s"')
+
+
 def nth(text, needle, n, shift=0):
     """The offset of the nth occurrence of `needle` in `text`, plus `shift`."""
     at = -1
@@ -584,7 +721,47 @@ def cells():
             ("nested `for borrow` loops", nested_borrow_fors, lambda t: nth(t, "for", LIMIT + 1)),
             ("a `lends` run", lends_run, lambda t: nth(t, "lends", LIMIT + 1)),
             ("nested slice types", slice_types, lambda t: nth(t, "&[", LIMIT + 1)),
-            ("nested test groups", nested_test_groups, lambda t: nth(t, "{", LIMIT + 1))):
+            ("nested test groups", nested_test_groups, lambda t: nth(t, "{", LIMIT + 1)),
+            ("nested tuple literals", nested_tuple_literals,
+             lambda t: t.index("(" * LIMIT) + LIMIT),
+            ("nested repeat literals", nested_repeat_literals, lambda t: nth(t, "[", LIMIT + 1)),
+            ("nested calls", nested_calls, lambda t: nth(t, "f(", LIMIT + 2, 1)),
+            ("a call chain", call_chain, lambda t: nth(t, "()", LIMIT + 2)),
+            ("a tuple-index chain", tuple_index_chain, lambda t: nth(t, ".0", LIMIT + 1)),
+            ("an optional-member chain", optional_member_chain,
+             lambda t: nth(t, "?.", LIMIT + 1)),
+            ("a subscript chain", subscript_chain, lambda t: nth(t, "[", LIMIT + 1)),
+            ("nested subscripts", nested_subscripts, lambda t: nth(t, "[", LIMIT + 1)),
+            ("a force chain", force_chain, lambda t: nth(t, "!", LIMIT + 1)),
+            ("a `not` run", not_run, lambda t: nth(t, "not ", LIMIT + 1)),
+            ("a `~` run", complement_run, lambda t: nth(t, "~", LIMIT + 1)),
+            ("a deref run", deref_run, lambda t: nth(t, "* ", LIMIT + 1)),
+            ("a `&` run", ref_run, lambda t: nth(t, "& ", LIMIT + 1)),
+            ("a `&var` run", exclusive_ref_run, lambda t: nth(t, "&var", LIMIT + 1)),
+            ("a `move` through a pointer with hops", move_deref_hops,
+             lambda t: nth(t, ".b", LIMIT - 1)),
+            ("a `borrow` place with hops", borrow_place_hops, lambda t: nth(t, ".b", LIMIT)),
+            ("nested `borrow` places", nested_borrow_places, lambda t: t.rindex("borrow")),
+            ("nested payload types", nested_payload_types,
+             lambda t: t.index("(" * LIMIT) + LIMIT - 1),
+            ("a reference type run", reference_type_run, lambda t: nth(t, "& ", LIMIT + 1)),
+            ("an exclusive reference type run", exclusive_reference_type_run,
+             lambda t: nth(t, "&var", LIMIT + 1)),
+            ("nested array types", nested_array_types, lambda t: nth(t, "[", LIMIT + 1)),
+            ("nested one-element tuple types", nested_single_tuple_types,
+             lambda t: t.index("(" * LIMIT) + LIMIT),
+            ("nested parenthesized types", nested_paren_types,
+             lambda t: t.index("(" * LIMIT) + LIMIT),
+            ("generic arguments in a parameter default", default_generic_args,
+             lambda t: nth(t, "A<", LIMIT, 1)),
+            ("a constant negation run", constant_negations, lambda t: nth(t, "- ", LIMIT)),
+            ("nested constant groups", constant_groups,
+             lambda t: t.index("(" * (LIMIT - 1)) + LIMIT - 1),
+            ("a segment at its string's depth", segment_depth, lambda t: t.index("{(") + 1),
+            ("a speculated list the limit cuts short", cut_kept_list,
+             lambda t: t.index("(" * (LIMIT - 1)) + LIMIT - 2),
+            ("a failing speculated list the limit cuts short", cut_failing_list,
+             lambda t: t.index("(" * (LIMIT - 1)) + LIMIT - 2)):
         out.append(("%s at %d" % (name, LIMIT), build_text(LIMIT), None, None))
         text = build_text(LIMIT + 1)
         at = find(text) if find else None

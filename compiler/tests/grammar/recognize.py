@@ -195,6 +195,8 @@ DOCUMENTED = {"syntax.decl.item.func", "syntax.decl.item.static",
               "syntax.decl.extension-member.init", "syntax.decl.trait-member.requirement",
               "syntax.decl.field", "syntax.decl.case"}
 TEST_ONLY_DECLARATION = "syntax.test.declaration.item"
+# The productions that hold a declaration's own attributes.
+ATTRIBUTE_LISTS = ("attribute-list", "synthesize-shared-attr")
 
 
 def is_nonterminal(sym):
@@ -1637,6 +1639,25 @@ class Parse:
                     out[d.i] = item[0].i
         return out
 
+    def after_attributes(self, derivation):
+        """The token indexes among or right after a documentable declaration's
+        attributes: a `///` run reaching one of them stands after an attribute
+        of its declaration, and documents nothing (GRAMMAR.md section 2.6)."""
+        out = set()
+        for d in walk_real(self.g, derivation):
+            if self.g.alternative(d.nt, d.ai).effective_name not in DOCUMENTED:
+                continue
+            kids = list(d.kids)
+            while kids:
+                k = kids.pop()
+                if not isinstance(k, Derivation):
+                    continue
+                if k.nt.startswith("__"):
+                    kids.extend(k.kids)
+                elif k.nt in ATTRIBUTE_LISTS:
+                    out.update(range(k.i + 1, k.j + 1))
+        return out
+
     def trees(self):
         return [d.tree for d in self.derivations()]
 
@@ -2146,7 +2167,8 @@ def module_doc_error(tokens, docs):
 def doc_attach_error(parse, derivation, docs):
     """"L:C ..." for a `///` run that documents nothing (syntax.lex.doc-attach).
     A declaration takes one run, so a run that reaches a declaration an
-    earlier run already documents is refused, and neither is dropped."""
+    earlier run already documents is refused, and neither is dropped; so is
+    one after an attribute of its declaration, which the detail says."""
     if not applies("syntax.lex.doc-attach"):
         return None
     starts = None
@@ -2156,6 +2178,10 @@ def doc_attach_error(parse, derivation, docs):
                       if t.line > last and t.kind != "NEWLINE"), None)
         if starts is None:
             starts = parse.documented(derivation)
+        if after is not None and after not in starts \
+                and after in parse.after_attributes(derivation):
+            return ("%d:%d refused by syntax.lex.doc-attach: this doc comment documents no "
+                    "declaration: it stands after the declaration's attributes" % (line, column))
         if after is None or after not in starts:
             return "%d:%d refused by syntax.lex.doc-attach" % (line, column)
         if starts[after] in claimed:

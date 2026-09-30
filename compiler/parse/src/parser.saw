@@ -42,12 +42,15 @@ func escape_digit_value(b: Int) -> Int {
 }
 
 // A run of `///` lines and the token it documents: the first token after its
-// last line that is not a line break.
+// last line that is not a line break. `after_attributes` marks a run that
+// stands among a declaration's attributes or right after them, where it
+// documents nothing, so its refusal can say where the run belongs.
 struct DocRun {
     first: Int
     last: Int
     target: Int
     attached: Bool
+    after_attributes: Bool
 }
 
 // Where a statement list stands between items: whether it holds one yet, and
@@ -1196,7 +1199,8 @@ extension Parser {
                 k = k + 1
             }
             let target = if k < self.token_count { k } else { self.token_count - 1 }
-            try! self.runs.push(DocRun(first: i, last: last, target: target, attached: false))
+            try! self.runs.push(DocRun(first: i, last: last, target: target, attached: false,
+                                       after_attributes: false))
             i = last + 1
         }
     }
@@ -1243,12 +1247,29 @@ extension Parser {
                 // none may be attached inside a speculation (SPECULATION LEDGER).
                 assert(self.speculating == 0, "parse: a doc run attached inside a speculation")
                 self.runs[r] = DocRun(first: run.first, last: run.last, target: run.target,
-                                      attached: true)
+                                      attached: true, after_attributes: run.after_attributes)
                 return self.doc_node(run.first, run.last)
             }
             r = r + 1
         }
         self.tokens[first].start
+    }
+
+    // Marks each unattached run whose target lies after the declaration's
+    // first token `first` and no later than `end`, the token its attributes
+    // end before: such a run stands among or after the attributes and
+    // documents nothing (GRAMMAR.md section 2.6). Called only beside
+    // attach_docs, so never inside a speculation.
+    func mark_after_attributes(&var self, first: Int, end: Int) {
+        var r = 0
+        while r < self.runs.len() {
+            let run = self.runs[r]
+            if not run.attached && run.target > first && run.target <= end {
+                self.runs[r] = DocRun(first: run.first, last: run.last, target: run.target,
+                                      attached: false, after_attributes: true)
+            }
+            r = r + 1
+        }
     }
 
     // The file's `//!` lines, as the File node's first child.
@@ -1339,6 +1360,12 @@ extension Parser {
                                    hint: "join the two runs, or make one a `//` comment"))
             return
         }
+        if run.after_attributes {
+            self.record(Diagnostic(rule: Rule.Lex_DocAttach, start: at, end: at + 3,
+                                   message: "this doc comment documents no declaration: it stands after the declaration's attributes",
+                                   hint: "move it above the attributes"))
+            return
+        }
         self.record(Diagnostic(rule: Rule.Lex_DocAttach, start: at, end: at + 3,
                                message: "this doc comment documents no declaration",
                                hint: "make it a `//` comment, or move it before a declaration"))
@@ -1376,7 +1403,7 @@ extension Parser {
             let run = self.runs[r]
             if run.target == self.pos && not run.attached {
                 self.runs[r] = DocRun(first: run.first, last: run.last, target: run.target,
-                                      attached: true)
+                                      attached: true, after_attributes: run.after_attributes)
                 self.report_doc_run(&run)
                 return
             }
@@ -1757,7 +1784,8 @@ extension Parser {
             let run = self.runs[r]
             if run.target == at {
                 self.runs[r] = DocRun(first: run.first, last: run.last, target: first,
-                                      attached: run.attached)
+                                      attached: run.attached,
+                                      after_attributes: run.after_attributes)
             }
             r = r + 1
         }
@@ -1839,6 +1867,9 @@ extension Parser {
         }
         let mark = self.builder.mark()
         let start = if alt == Alt.Decl_Item_Extern { self.here() } else { self.attach_docs(first) }
+        if attributed && alt != Alt.Decl_Item_Extern {
+            self.mark_after_attributes(first, first + attrs)
+        }
         if item {
             self.see(Alt.File_Item_Declaration)
         }
@@ -2585,6 +2616,9 @@ extension Parser {
             alt = Alt.Decl_ExtensionMember_SynthesizedMethod
         }
         let start = self.attach_docs(first)
+        if attrs > 0 {
+            self.mark_after_attributes(first, first + attrs)
+        }
         self.see(alt)
         if synthesized {
             self.take_synthesize_shared()

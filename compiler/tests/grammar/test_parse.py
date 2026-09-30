@@ -52,7 +52,24 @@ REFUSED = [
     ("extension S: T {\n    /// d\n    type A = Int\n}\n",
      "FAIL: 2:5 refused by syntax.lex.doc-attach"),
     ("@export\n/// d\npublic func f() {\n}\n",
-     "FAIL: 2:1 refused by syntax.lex.doc-attach"),
+     "FAIL: 2:1 refused by syntax.lex.doc-attach: this doc comment documents no declaration: "
+     "it stands after the declaration's attributes"),
+    ("@synthesize\n/// two\nextension P: Equatable {}\n",
+     "FAIL: 2:1 refused by syntax.lex.doc-attach: this doc comment documents no declaration: "
+     "it stands after the declaration's attributes"),
+    ("@export\n/// d\n@section(\".s\")\nfunc f() {\n}\n",
+     "FAIL: 2:1 refused by syntax.lex.doc-attach: this doc comment documents no declaration: "
+     "it stands after the declaration's attributes"),
+    ("@test\n@export(\"f\")\n/// three\nfunc f() {\n}\n",
+     "FAIL: 3:1 refused by syntax.lex.doc-attach: this doc comment documents no declaration: "
+     "it stands after the declaration's attributes"),
+    ("extension S {\n    @synthesize(shared)\n    /// d\n    func f(&self) {\n    }\n}\n",
+     "FAIL: 3:5 refused by syntax.lex.doc-attach: this doc comment documents no declaration: "
+     "it stands after the declaration's attributes"),
+    # A local is no declaration, so a run after its attribute documents nothing
+    # for the plain reason.
+    ("func f() {\n    @align(8)\n    /// d\n    var b = 1\n}\n",
+     "FAIL: 3:5 refused by syntax.lex.doc-attach"),
     ("/// one\n@test\n/// two\nfunc f() {\n}\n",
      "FAIL: 3:1 refused by syntax.lex.doc-attach: this declaration already has a doc comment, "
      "at 1:1; a declaration takes one"),
@@ -163,6 +180,11 @@ def check_unknown_sources(failures, g):
 REFUSAL_NAMES = [
     ("while { a } + (while { b } { }) { }", None),
     ("while { a } + (x as Int??) { }", None),
+    # A second error elsewhere in the file leaves the statement's own trees.
+    ("while { a } + (while { b } { }) { }\n    let = 1", None),
+    ("while { a } + (while { b } { }) { } 9", None),
+    ("while { a } + (x as Int??) { } 9", None),
+    ("let g = { while { a } + (while { b } { }) { } }\n    let = 1", None),
     ("let n = n as Int?? 9", ("syntax.rule.cast-target-question", "2:21")),
     ("while { a } + b { }", ("syntax.rule.infinite-loop", "2:17")),
 ]

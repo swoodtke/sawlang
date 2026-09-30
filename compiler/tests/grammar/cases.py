@@ -70,6 +70,10 @@ REFUSED_BY = re.compile(r"(\d+:\d+) refused by (syntax\.[a-z-]+\.[a-z-]+)")
 NEAR = re.compile(r"^(\d+:\d+) near ")
 # A lex error no lexical rule names: the lexer's position (recognize.lex_error_detail).
 LEXER_AT = re.compile(r"^Lexer error at (\d+:\d+): ")
+# The statements and items a double refusal is looked for in, each parsed with
+# what surrounds it in its file (Expectations.unit_trees).
+UNITS = ("statement", "top-level-item", "trait-member", "extension-member", "extern-func",
+         "field", "enum-case")
 
 
 class Case:
@@ -310,23 +314,30 @@ class Expectations:
         return rule, "%d:%d" % (line, column)
 
     def refused_once(self, text, start, at):
-        """Problem when, in a tree of the text with every removed production
-        enabled, a removed production's reading around the refusal at `at`
-        ("L:C", or None for anywhere) holds a second removed reading: the text
-        is refused twice, once inside the refused form, and a parser reading
-        the refused form by the rules meets the inner refusal first.
+        """Problem when, with every removed production enabled, a removed
+        production's reading around the refusal at `at` ("L:C", or None for
+        anywhere) holds a second removed reading: the text is refused twice,
+        once inside the refused form, and a parser reading the refused form by
+        the rules meets the inner refusal first.
         `while { a } + (x as Int??) { }` needs refused-cast-question inside
         refused-brace-condition's head. A refusal after the reading, as the
-        juxtaposed `9` of `n as Int?? 9`, is not inside it."""
+        juxtaposed `9` of `n as Int?? 9`, is not inside it. The readings are
+        those of the whole text's trees, or for a step-1 name those of each
+        statement or item holding `at` (`unit_trees`), so an error elsewhere in
+        the file hides nothing."""
         toks, _, err = recognize.lex_with_docs(text)
         if err is not None:
             return
         g = self.all_removed
         parse = recognize.Parse(g, start, recognize.prepare(g, toks, start))
-        if not parse.accepted:
+        if at is not None:
+            trees = self.unit_trees(parse, at)
+        elif parse.accepted:
+            trees = parse.derivations()
+        else:
             return
         removed = {p.nonterminal: p.name for p in self.removed}
-        for tree in parse.derivations():
+        for tree in trees:
             for d in recognize.walk_real(g, tree):
                 if d.nt not in removed or (at is not None and not any(
                         "%d:%d" % (t.line, t.column) == at for t in parse.tokens[d.i:d.j])):
@@ -336,6 +347,24 @@ class Expectations:
                 if inner is not None:
                     raise Problem("refused twice: the reading of %s holds a reading of %s"
                                   % (removed[d.nt], removed[inner.nt]))
+
+    def unit_trees(self, parse, at):
+        """The trees, from the whole text's chart, of each statement or item
+        (UNITS) whose span holds the token at `at`, complete or not in the rest
+        of the file. Taking them from the file's own chart keeps what surrounds
+        the unit: the body it stands in, the head around it, and positions."""
+        k = next((n for n, t in enumerate(parse.tokens) if "%d:%d" % (t.line, t.column) == at),
+                 None)
+        if k is None:
+            return []
+        forest = recognize.Forest(parse.chart)
+        out = []
+        for (nt, i), ends in sorted(parse.chart.ends.items()):
+            if nt in UNITS and i <= k:
+                for j in sorted(ends):
+                    if j > k:
+                        out.extend(forest.derivations(nt, i, j))
+        return out
 
     def taken(self, removed, toks, start):
         """The (line, column) of each token some reading of the removed

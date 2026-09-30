@@ -65,6 +65,17 @@ func main() {
                   "ERROR\tsyntax.lex.doc-attach\t3:1\tthis doc comment documents no declaration\tmake it a `//` comment, or move it before a declaration\n")
     expect_record("/// a case\n@test \"adds\" \{\n\}\n",
                   "ERROR\tsyntax.lex.doc-attach\t1:1\tthis doc comment documents no declaration\tmake it a `//` comment, or move it before a declaration\n")
+    // A run after an attribute of its declaration says it belongs above the
+    // attributes; a local's attribute is no declaration's, so there the plain
+    // message stands.
+    expect_record("@synthesize\n/// two\nextension P: Equatable \{\}\n",
+                  "ERROR\tsyntax.lex.doc-attach\t2:1\tthis doc comment documents no declaration: it stands after the declaration's attributes\tmove it above the attributes\n")
+    expect_record("/// one\n@test\n/// two\n@export(\"f\")\n/// three\nfunc f() \{\}\n",
+                  "ERROR\tsyntax.lex.doc-attach\t3:1\tthis declaration already has a doc comment, at 1:1; a declaration takes one\tjoin the two runs, or make one a `//` comment\nERROR\tsyntax.lex.doc-attach\t5:1\tthis doc comment documents no declaration: it stands after the declaration's attributes\tmove it above the attributes\n")
+    expect_record("extension S \{\n    @synthesize(shared)\n    /// d\n    func f(&self) \{\n    \}\n\}\n",
+                  "ERROR\tsyntax.lex.doc-attach\t3:5\tthis doc comment documents no declaration: it stands after the declaration's attributes\tmove it above the attributes\n")
+    expect_record("func f() \{\n    @align(8)\n    /// d\n    var b = 1\n\}\n",
+                  "ERROR\tsyntax.lex.doc-attach\t3:5\tthis doc comment documents no declaration\tmake it a `//` comment, or move it before a declaration\n")
     // A `{` after a complete `if` or loop on its line is refused alike, as a
     // trailing closure, and as the head restriction where a head could take it.
     expect_ids("func f() \{\n    if borrow let e = m[k] \{ e.ok \} \{ \}\n\}\n", false,
