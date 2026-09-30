@@ -31,6 +31,13 @@ func first<T: Container>(c: T) -> ??? { c.get(i: 0)! }
 
 ## Decided by the lead, for review (reversible)
 
+### D20. In a generic body, a borrow after a by-value read makes that read a copy (Sep 30; U6b3, SL-447)
+Design 219's inferred Copy requirement is per path (spec: "The rule is per PATH, not per mention"). A `T` local read by value once on a path is moved, and a second by-value read on the same path duplicates it. The spec doesn't say what a *borrow* after the by-value read means: `let a = sink(x); look(&x)`.
+
+**Decided:** any use after a by-value read on the same path, a borrow included, makes that read a copy, so the body infers `T: Copy`. The function then works for Copy types and is refused at a call site with a move-only type, quoting both uses. The alternative, recording the read as a move and the later `&x` as a use of a moved value, would refuse the body at every type, including the Copy ones the requirement admits.
+
+**Reversal:** record the move, and let the borrow check refuse the later use at every instantiation.
+
 ### D19. A `sync` body inside a generic is checked per instantiation (Sep 30; U6b3, SL-447)
 SL:architecture §3.4 says a call through a generic bound is conservatively may-suspend inside a generic body, unless the requirement is `sync`. Read literally, a `sync` function, `deinit` or sync-typed closure inside a generic, calling a non-`sync` requirement through a bound, would be refused at the definition. That refuses `closure_captures_self.saw`, which Stage 0 accepts. The spec says suspension "inference runs per instantiation".
 
