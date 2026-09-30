@@ -1,14 +1,14 @@
 // case: syntax.rule.test-form/refuses-on-a-declaration
-refuses parse-error at 1:33
+refuses syntax.rule.test-form at 1:33
 
 // case: syntax.rule.test-form/group-holding-a-statement
-refuses parse-error at 2:5
+refuses syntax.rule.test-form at 2:5
 
 // case: syntax.rule.test-form/test-in-an-ordinary-extension
-refuses parse-error at 2:6
+refuses syntax.rule.test-form at 2:6
 
 // case: syntax.rule.test-form/test-after-another-attribute
-refuses parse-error at 2:2
+refuses syntax.rule.test-form at 2:2
 
 // case from refusal-unit: syntax.rule.refusal-body/syntax-error-in-a-test-build
 refuses parse-error at 1:5
@@ -23,7 +23,7 @@ refuses syntax.stmt.refused-var-discard
 refuses syntax.rule.head-restriction at 1:13
 
 // case: syntax.rule.test-form/panics-on-a-declaration
-refuses parse-error at 1:31
+refuses syntax.rule.test-form at 1:31
 
 // case: syntax.rule.test-form/warns-on-a-declaration
-refuses parse-error at 1:20
+refuses syntax.rule.test-form at 1:20

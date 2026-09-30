@@ -80,7 +80,7 @@ refuses syntax.rule.head-restriction at 4:19
 refuses syntax.rule.head-restriction at 4:39
 
 // case: syntax.rule.brace/map-key-with-its-colon-on-the-next-line
-refuses parse-error at 5:9
+refuses syntax.rule.brace at 5:9
 
 // case: syntax.rule.head-restriction/trailing-closure-in-a-map-value-in-a-head
 refuses syntax.rule.head-restriction at 3:20

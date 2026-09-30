@@ -1,0 +1,6 @@
+// stops: syntax.rule.brace
+// verdict: FAIL 5:9 refused by syntax.rule.brace
+func main() {
+    let m = { a
+        : 1 }
+}

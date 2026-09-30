@@ -1,0 +1,5 @@
+// stops: syntax.rule.attribute-position
+// verdict: FAIL 3:2 refused by syntax.rule.attribute-position
+@inline
+func g() {
+}

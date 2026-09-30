@@ -29,8 +29,10 @@ maps a lexer's rule name onto its case, the tokens that may follow a cast
 target's generic list, the FOLLOW set the recognizer computes, the tokens a
 generic list can hold at its own bracket depth, which the recognizer computes
 too (Speculation, below), the tokens a closure head can hold at its
-brace's own depth, and the tokens that begin a statement and no expression
-(Braces, below). Regenerate it when GRAMMAR.md changes;
+brace's own depth, those a capture list holds, the tokens that begin a
+statement and no expression (Braces, below), and the tokens that begin a
+statement, an expression, a range's upper bound and each list's declaration
+(Refusals at a stop, below). Regenerate it when GRAMMAR.md changes;
 `compiler/tests/run.py` fails while it is stale.
 
 ## Speculation
@@ -66,7 +68,11 @@ nested `( )` and `[ ]` groups whole and every token a closure head holds at
 the brace's own depth, and finds its `in`: `holds_closure_head` in
 `grammar.saw`, generated, and checked by the recognizer tests against a
 sentence of `closure-head` holding each token, failing with `:` made a stop or
-`{` made a pass. Only a `for` puts an `in` in a statement, and `for` is no head
+`{` made a pass. A leading `[` group is a capture list only when it holds what
+captures hold (`holds_capture`, generated too), and two names side by side,
+but `any P`, stand in no head, so `{ [borrow let x = a] in x }` and
+`{ a b in c }` are closures whose first statement is refused as the
+recognizer refuses it. Only a `for` puts an `in` in a statement, and `for` is no head
 token, so a body never reads as a head. Otherwise a statement-only token first
 makes a closure: one that begins a statement and no expression,
 `begins_statement_only` in `grammar.saw`, generated as FIRST(non-expr-statement)
@@ -97,6 +103,21 @@ error to a body's `{` (`brace_condition_ahead`): a body that met an error is
 refused as syntax.expr.refused-brace-condition at the `{`, and a sound one by
 the rule, at the token after it on its line, when that token would continue
 the condition.
+
+## Refusals at a stop
+
+Where the productions stop a text, the parser names the rule the recognizer
+reads at that stop (compiler/tests/parse/README.md, Refusals). After a
+statement that ended on its line, a token that begins a statement is
+syntax.rule.juxtaposition, an assignment operator syntax.rule.assignment-target
+and a `catch` past a plain `try`'s extent syntax.rule.try-extent
+(`refuse_juxtaposed`); after a declaration, a `;` or a token that begins a
+declaration of that list is syntax.rule.declaration-separator. `return` and
+`break` take an operand only when the token after them begins an expression.
+A range operator before a token that neither ends an open range nor begins an
+upper bound is syntax.rule.range-open-end, and a borrow binding's `=` before
+one that begins no expression is syntax.rule.borrow-form, as are bindings that
+no brace follows at all. Each FIRST set is a generated table.
 
 ## Comma lists
 

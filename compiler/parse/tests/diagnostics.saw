@@ -47,7 +47,8 @@ func main() {
     expect_ids("func a() \{\n    let x = 1\n\nfunc b() \{\n\}\n", false,
                "syntax.lex.unclosed-bracket parse-error")
     // A statement after a juxtaposition is skipped to its line's end.
-    expect_ids("func f() \{\n    let a = 1 b\n    let c = 2\n\}\n", false, "parse-error")
+    expect_ids("func f() \{\n    let a = 1 b\n    let c = 2\n\}\n", false,
+               "syntax.rule.juxtaposition")
     // A named rule refuses by name.
     expect_ids("func f() \{\n    var _ = 1\n\}\n", false, "syntax.stmt.refused-var-discard")
     expect_ids("import m.\{a, b as a\}\n", false, "syntax.rule.import-names")
@@ -94,5 +95,5 @@ func main() {
     expect_ids("func f() \{\n    let x = 7.\n\}\n", false, "syntax.lex.float-point")
     // A refusal unit takes statements and declarations, separated as statements are.
     expect_ids("func g() \{\n\}; let x = 1\n", true, "")
-    expect_ids("let x = 1;\n", true, "parse-error")
+    expect_ids("let x = 1;\n", true, "syntax.rule.statement-separator")
 }

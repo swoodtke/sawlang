@@ -1,11 +1,11 @@
 // case: syntax.expr.literal/cell:atgt
-refuses parse-error at 2:7
+refuses syntax.rule.assignment-target at 2:7
 
 // case: syntax.expr.literal/cell:cap
 refuses parse-error at 2:19
 
 // case: syntax.expr.interpolation/cell:atgt
-refuses parse-error at 2:11
+refuses syntax.rule.assignment-target at 2:11
 
 // case: syntax.expr.interpolation/cell:cgen
 refuses parse-error at 2:14
@@ -14,7 +14,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:23
 
 // case: syntax.expr.source-location/cell:atgt
-refuses parse-error at 2:11
+refuses syntax.rule.assignment-target at 2:11
 
 // case: syntax.expr.source-location/cell:cgen
 refuses parse-error at 2:14
@@ -36,7 +36,7 @@ parses as another construct
             (ExprStmt (Name x))))))))
 
 // case: syntax.expr.implicit-member/cell:atgt
-refuses parse-error at 2:8
+refuses syntax.rule.assignment-target at 2:8
 
 // case: syntax.expr.implicit-member/cell:cgen
 refuses parse-error at 2:14
@@ -51,7 +51,7 @@ refuses parse-error at 2:14
 refuses syntax.expr.refused-capture-self
 
 // case: syntax.expr.shorthand-param/cell:atgt
-refuses parse-error at 2:8
+refuses syntax.rule.assignment-target at 2:8
 
 // case: syntax.expr.shorthand-param/cell:cgen
 refuses parse-error at 2:14
@@ -60,13 +60,13 @@ refuses parse-error at 2:14
 refuses parse-error at 2:20
 
 // case: syntax.expr.paren/cell:atgt
-refuses parse-error at 2:9
+refuses syntax.rule.assignment-target at 2:9
 
 // case: syntax.expr.paren/cell:cap
 refuses parse-error at 2:21
 
 // case: syntax.expr.tuple/cell:atgt
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.expr.tuple/cell:cgen
 parses as another construct
@@ -87,16 +87,16 @@ parses as another construct
 refuses parse-error at 2:24
 
 // case: syntax.expr.array/cell:atgt
-refuses parse-error at 2:9
+refuses syntax.rule.assignment-target at 2:9
 
 // case: syntax.expr.array/cell:cgen
-refuses parse-error at 2:16
+refuses syntax.rule.prefix-type-suffix at 2:16
 
 // case: syntax.expr.array/cell:cap
 refuses parse-error at 2:21
 
 // case: syntax.expr.repeat/cell:atgt
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.expr.repeat/cell:cgen
 parses as another construct
@@ -117,7 +117,7 @@ parses as another construct
 refuses parse-error at 2:24
 
 // case: syntax.expr.map/cell:atgt
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.expr.map/cell:cgen
 refuses parse-error at 2:14
@@ -126,7 +126,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:24
 
 // case: syntax.expr.set/cell:atgt
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.expr.set/cell:cgen
 refuses parse-error at 2:14
@@ -135,7 +135,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:24
 
 // case: syntax.expr.closure/cell:atgt
-refuses parse-error at 2:11
+refuses syntax.rule.assignment-target at 2:11
 
 // case: syntax.expr.closure/cell:cgen
 refuses parse-error at 2:14
@@ -168,7 +168,7 @@ refuses syntax.rule.head-restriction at 2:16
 refuses syntax.rule.head-restriction at 2:22
 
 // case: syntax.expr.trailing-call/cell:atgt
-refuses parse-error at 2:13
+refuses syntax.rule.assignment-target at 2:13
 
 // case: syntax.expr.trailing-call/cell:cgen
 refuses parse-error at 2:16
@@ -217,7 +217,7 @@ refuses parse-error at 2:15
 refuses parse-error at 2:20
 
 // case: syntax.expr.unary/cell:atgt
-refuses parse-error at 2:8
+refuses syntax.rule.assignment-target at 2:8
 
 // case: syntax.expr.unary/cell:cap
 refuses parse-error at 2:20
@@ -229,7 +229,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:20
 
 // case: syntax.expr.ref/cell:atgt
-refuses parse-error at 2:8
+refuses syntax.rule.assignment-target at 2:8
 
 // case: syntax.expr.ref/cell:cgen
 parses as another construct
@@ -259,7 +259,7 @@ parses as another construct
             (ExprStmt (Name x))))))))
 
 // case: syntax.expr.move/cell:atgt
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.expr.move/cell:cgen
 refuses parse-error at 2:14
@@ -278,7 +278,7 @@ parses as another construct
             (ExprStmt (Name x))))))))
 
 // case: syntax.expr.try/cell:atgt
-refuses parse-error at 2:13
+refuses syntax.rule.assignment-target at 2:13
 
 // case: syntax.expr.try/cell:cgen
 refuses parse-error at 2:14
@@ -287,7 +287,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:25
 
 // case: syntax.expr.lends/cell:atgt
-refuses parse-error at 2:13
+refuses syntax.rule.assignment-target at 2:13
 
 // case: syntax.expr.lends/cell:cgen
 refuses parse-error at 2:20
@@ -296,7 +296,7 @@ refuses parse-error at 2:20
 refuses parse-error at 2:25
 
 // case: syntax.expr.cast/cell:atgt
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.expr.cast/cell:cgen
 refuses parse-error at 2:16
@@ -305,19 +305,19 @@ refuses parse-error at 2:16
 refuses parse-error at 2:24
 
 // case: syntax.expr.multiplicative/cell:atgt
-refuses parse-error at 2:11
+refuses syntax.rule.assignment-target at 2:11
 
 // case: syntax.expr.multiplicative/cell:cap
 refuses parse-error at 2:23
 
 // case: syntax.expr.additive/cell:atgt
-refuses parse-error at 2:11
+refuses syntax.rule.assignment-target at 2:11
 
 // case: syntax.expr.additive/cell:cap
 refuses parse-error at 2:23
 
 // case: syntax.expr.shift/cell:atgt
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.expr.shift/cell:cgen
 refuses parse-error at 2:17
@@ -329,7 +329,7 @@ refuses parse-error at 2:24
 refuses parse-error at 2:18
 
 // case: syntax.expr.range/cell:atgt
-refuses parse-error at 2:10
+refuses syntax.rule.assignment-target at 2:10
 
 // case: syntax.expr.range/cell:cgen
 refuses parse-error at 2:15
@@ -347,19 +347,19 @@ refuses syntax.rule.range-open-end at 2:20
 refuses parse-error at 2:15
 
 // case: syntax.expr.range-from/cell:aguard
-refuses parse-error at 3:23
+refuses syntax.rule.range-open-end at 3:23
 
 // case: syntax.expr.range-from/cell:iter
 refuses syntax.rule.range-open-end at 2:18
 
 // case: syntax.expr.range-from/cell:rend
-refuses parse-error at 2:18
+refuses syntax.rule.range-open-end at 2:18
 
 // case: syntax.expr.range-from/cell:bhead
 refuses syntax.rule.range-open-end at 2:24
 
 // case: syntax.expr.range-from/cell:atgt
-refuses parse-error at 2:9
+refuses syntax.rule.range-open-end at 2:9
 
 // case: syntax.expr.range-from/cell:cgen
 refuses parse-error at 2:15
@@ -371,7 +371,7 @@ refuses parse-error at 2:21
 refuses parse-error at 2:17
 
 // case: syntax.expr.range-upto/cell:atgt
-refuses parse-error at 2:9
+refuses syntax.rule.assignment-target at 2:9
 
 // case: syntax.expr.range-upto/cell:cgen
 refuses parse-error at 2:14
@@ -380,7 +380,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:21
 
 // case: syntax.expr.compare/cell:atgt
-refuses parse-error at 2:11
+refuses syntax.rule.assignment-target at 2:11
 
 // case: syntax.expr.compare/cell:cgen
 refuses parse-error at 2:21
@@ -389,7 +389,7 @@ refuses parse-error at 2:21
 refuses parse-error at 2:23
 
 // case: syntax.expr.bitand/cell:atgt
-refuses parse-error at 2:11
+refuses syntax.rule.assignment-target at 2:11
 
 // case: syntax.expr.bitand/cell:cgen
 refuses parse-error at 2:16
@@ -398,7 +398,7 @@ refuses parse-error at 2:16
 refuses parse-error at 2:23
 
 // case: syntax.expr.bitxor/cell:atgt
-refuses parse-error at 2:11
+refuses syntax.rule.assignment-target at 2:11
 
 // case: syntax.expr.bitxor/cell:cgen
 refuses parse-error at 2:16
@@ -407,7 +407,7 @@ refuses parse-error at 2:16
 refuses parse-error at 2:23
 
 // case: syntax.expr.bitor/cell:atgt
-refuses parse-error at 2:11
+refuses syntax.rule.assignment-target at 2:11
 
 // case: syntax.expr.bitor/cell:cgen
 refuses parse-error at 2:16
@@ -416,7 +416,7 @@ refuses parse-error at 2:16
 refuses parse-error at 2:23
 
 // case: syntax.expr.and/cell:atgt
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.expr.and/cell:cgen
 refuses parse-error at 2:16
@@ -425,7 +425,7 @@ refuses parse-error at 2:16
 refuses parse-error at 2:24
 
 // case: syntax.expr.or/cell:atgt
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.expr.or/cell:cgen
 refuses parse-error at 2:16
@@ -434,7 +434,7 @@ refuses parse-error at 2:16
 refuses parse-error at 2:24
 
 // case: syntax.expr.coalesce/cell:atgt
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.expr.coalesce/cell:cgen
 refuses parse-error at 2:19
@@ -443,7 +443,7 @@ refuses parse-error at 2:19
 refuses parse-error at 2:24
 
 // case: syntax.expr.if/cell:atgt
-refuses parse-error at 2:27
+refuses syntax.rule.assignment-target at 2:27
 
 // case: syntax.expr.if/cell:cgen
 refuses parse-error at 2:14
@@ -452,7 +452,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:39
 
 // case: syntax.expr.match/cell:atgt
-refuses parse-error at 2:29
+refuses syntax.rule.assignment-target at 2:29
 
 // case: syntax.expr.match/cell:cgen
 refuses parse-error at 2:14
@@ -470,7 +470,7 @@ parses as another construct
           (While.conditional (Name a) (Block)))))))
 
 // case: syntax.expr.while/cell:atgt
-refuses parse-error at 2:17
+refuses syntax.rule.assignment-target at 2:17
 
 // case: syntax.expr.while/cell:cgen
 refuses parse-error at 2:14
@@ -488,7 +488,7 @@ parses as another construct
           (WhileLet.let (BindingName x) (Name a) (Block)))))))
 
 // case: syntax.expr.while-let/cell:atgt
-refuses parse-error at 2:25
+refuses syntax.rule.assignment-target at 2:25
 
 // case: syntax.expr.while-let/cell:cgen
 refuses parse-error at 2:14
@@ -506,7 +506,7 @@ parses as another construct
           (For.plain (BindingName x) (Name a) (Block)))))))
 
 // case: syntax.expr.for/cell:atgt
-refuses parse-error at 2:20
+refuses syntax.rule.assignment-target at 2:20
 
 // case: syntax.expr.for/cell:cgen
 refuses parse-error at 2:14
@@ -525,7 +525,7 @@ parses as another construct
             (ForBorrow.let (BindingName x) (Name a) (Block))))))))
 
 // case: syntax.borrow.for/cell:atgt
-refuses parse-error at 2:31
+refuses syntax.rule.assignment-target at 2:31
 
 // case: syntax.borrow.for/cell:cgen
 refuses parse-error at 2:14
@@ -534,7 +534,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:43
 
 // case: syntax.expr.try-block/cell:atgt
-refuses parse-error at 2:27
+refuses syntax.rule.assignment-target at 2:27
 
 // case: syntax.expr.try-block/cell:cgen
 refuses parse-error at 2:14
@@ -549,7 +549,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:29
 
 // case: syntax.borrow.block/cell:atgt
-refuses parse-error at 2:28
+refuses syntax.rule.assignment-target at 2:28
 
 // case: syntax.borrow.block/cell:cgen
 refuses parse-error at 2:14
@@ -653,7 +653,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:14
 
 // case: syntax.expr.optional-binding/cell:bhead
-refuses parse-error at 2:20
+refuses syntax.rule.borrow-form at 2:20
 
 // case: syntax.expr.optional-binding/cell:init
 refuses parse-error at 2:13
@@ -665,13 +665,13 @@ refuses parse-error at 2:9
 refuses parse-error at 2:10
 
 // case: syntax.expr.optional-binding/cell:atgt
-refuses parse-error at 2:15
+refuses syntax.rule.assignment-target at 2:15
 
 // case: syntax.expr.optional-binding/cell:ret
-refuses parse-error at 2:12
+refuses syntax.rule.juxtaposition at 2:12
 
 // case: syntax.expr.optional-binding/cell:brk
-refuses parse-error at 3:15
+refuses syntax.rule.juxtaposition at 3:15
 
 // case: syntax.expr.optional-binding/cell:lend
 refuses parse-error at 2:10
@@ -707,43 +707,43 @@ refuses parse-error at 1:15
 refuses parse-error at 2:16
 
 // case: syntax.borrow.unwrap/cell:stmt
-refuses parse-error at 3:5
+refuses syntax.rule.borrow-form at 3:5
 
 // case: syntax.borrow.unwrap/cell:tail
-refuses parse-error at 3:1
+refuses syntax.rule.borrow-form at 3:1
 
 // case: syntax.borrow.unwrap/cell:clos
-refuses parse-error at 4:9
+refuses syntax.rule.borrow-form at 4:9
 
 // case: syntax.borrow.unwrap/cell:catch
-refuses parse-error at 6:9
+refuses syntax.rule.borrow-form at 6:9
 
 // case: syntax.borrow.unwrap/cell:arm
-refuses parse-error at 4:5
+refuses syntax.rule.borrow-form at 4:5
 
 // case: syntax.borrow.unwrap/cell:opnd
-refuses parse-error at 3:1
+refuses syntax.rule.borrow-form at 3:1
 
 // case: syntax.borrow.unwrap/cell:rhs
-refuses parse-error at 3:1
+refuses syntax.rule.borrow-form at 3:1
 
 // case: syntax.borrow.unwrap/cell:arg
-refuses parse-error at 2:23
+refuses syntax.rule.borrow-form at 2:23
 
 // case: syntax.borrow.unwrap/cell:larg
-refuses parse-error at 2:26
+refuses syntax.rule.borrow-form at 2:26
 
 // case: syntax.borrow.unwrap/cell:elem
-refuses parse-error at 2:30
+refuses syntax.rule.borrow-form at 2:30
 
 // case: syntax.borrow.unwrap/cell:recv
-refuses parse-error at 3:1
+refuses syntax.rule.borrow-form at 3:1
 
 // case: syntax.borrow.unwrap/cell:idx
-refuses parse-error at 2:31
+refuses syntax.rule.borrow-form at 2:31
 
 // case: syntax.borrow.unwrap/cell:interp
-refuses parse-error
+refuses syntax.rule.borrow-form at 2:29
 
 // case: syntax.borrow.unwrap/cell:subj
 refuses parse-error at 4:1
@@ -764,55 +764,55 @@ refuses parse-error at 4:1
 refuses parse-error at 4:1
 
 // case: syntax.borrow.unwrap/cell:init
-refuses parse-error at 3:1
+refuses syntax.rule.borrow-form at 3:1
 
 // case: syntax.borrow.unwrap/cell:asgn
-refuses parse-error at 3:1
+refuses syntax.rule.borrow-form at 3:1
 
 // case: syntax.borrow.unwrap/cell:crhs
-refuses parse-error at 3:1
+refuses syntax.rule.borrow-form at 3:1
 
 // case: syntax.borrow.unwrap/cell:atgt
-refuses parse-error at 2:22
+refuses syntax.rule.borrow-form at 2:22
 
 // case: syntax.borrow.unwrap/cell:ret
-refuses parse-error at 3:1
+refuses syntax.rule.borrow-form at 3:1
 
 // case: syntax.borrow.unwrap/cell:brk
-refuses parse-error at 4:5
+refuses syntax.rule.borrow-form at 4:5
 
 // case: syntax.borrow.unwrap/cell:lend
-refuses parse-error at 3:1
+refuses syntax.rule.borrow-form at 3:1
 
 // case: syntax.borrow.unwrap/cell:try
-refuses parse-error at 3:1
+refuses syntax.rule.borrow-form at 3:1
 
 // case: syntax.borrow.unwrap/cell:dflt
-refuses parse-error at 1:31
+refuses syntax.rule.borrow-form at 1:31
 
 // case: syntax.borrow.unwrap/cell:sinit
-refuses parse-error at 2:1
+refuses syntax.rule.borrow-form at 2:1
 
 // case: syntax.borrow.unwrap/cell:alen
-refuses parse-error at 2:32
+refuses syntax.rule.borrow-form at 2:32
 
 // case: syntax.borrow.unwrap/cell:rcnt
-refuses parse-error at 2:33
+refuses syntax.rule.borrow-form at 2:33
 
 // case: syntax.borrow.unwrap/cell:cgen
 refuses parse-error at 2:14
 
 // case: syntax.borrow.unwrap/cell:raw
-refuses parse-error at 3:1
+refuses syntax.rule.borrow-form at 3:1
 
 // case: syntax.borrow.unwrap/cell:aarg
-refuses parse-error at 1:24
+refuses syntax.rule.borrow-form at 1:24
 
 // case: syntax.borrow.unwrap/cell:sassert
 refuses parse-error at 1:33
 
 // case: syntax.borrow.unwrap/cell:cap
-refuses parse-error at 2:32
+refuses syntax.rule.borrow-form at 2:32
 
 // case: syntax.stmt.let/cell:tail
 parses as another construct
@@ -873,7 +873,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:14
 
 // case: syntax.stmt.let/cell:bhead
-refuses parse-error at 2:20
+refuses syntax.rule.borrow-form at 2:20
 
 // case: syntax.stmt.let/cell:init
 refuses parse-error at 2:13
@@ -885,13 +885,13 @@ refuses parse-error at 2:9
 refuses parse-error at 2:10
 
 // case: syntax.stmt.let/cell:atgt
-refuses parse-error at 2:15
+refuses syntax.rule.assignment-target at 2:15
 
 // case: syntax.stmt.let/cell:ret
-refuses parse-error at 2:12
+refuses syntax.rule.juxtaposition at 2:12
 
 // case: syntax.stmt.let/cell:brk
-refuses parse-error at 3:15
+refuses syntax.rule.juxtaposition at 3:15
 
 // case: syntax.stmt.let/cell:lend
 refuses parse-error at 2:10
@@ -989,7 +989,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:14
 
 // case: syntax.stmt.destructure/cell:bhead
-refuses parse-error at 2:20
+refuses syntax.rule.borrow-form at 2:20
 
 // case: syntax.stmt.destructure/cell:init
 refuses parse-error at 2:13
@@ -1001,13 +1001,13 @@ refuses parse-error at 2:9
 refuses parse-error at 2:10
 
 // case: syntax.stmt.destructure/cell:atgt
-refuses parse-error at 2:20
+refuses syntax.rule.assignment-target at 2:20
 
 // case: syntax.stmt.destructure/cell:ret
-refuses parse-error at 2:12
+refuses syntax.rule.juxtaposition at 2:12
 
 // case: syntax.stmt.destructure/cell:brk
-refuses parse-error at 3:15
+refuses syntax.rule.juxtaposition at 3:15
 
 // case: syntax.stmt.destructure/cell:lend
 refuses parse-error at 2:10
@@ -1051,10 +1051,10 @@ parses as another construct
         (Assign (Name a) (Name b))))))
 
 // case: syntax.stmt.assign/cell:opnd
-refuses parse-error at 2:15
+refuses syntax.rule.assignment-target at 2:15
 
 // case: syntax.stmt.assign/cell:rhs
-refuses parse-error at 2:20
+refuses syntax.rule.assignment-target at 2:20
 
 // case: syntax.stmt.assign/cell:arg
 refuses parse-error at 2:9
@@ -1066,13 +1066,13 @@ refuses parse-error at 2:12
 refuses parse-error at 2:16
 
 // case: syntax.stmt.assign/cell:recv
-refuses parse-error at 2:15
+refuses syntax.rule.assignment-target at 2:15
 
 // case: syntax.stmt.assign/cell:idx
 refuses parse-error at 2:17
 
 // case: syntax.stmt.assign/cell:interp
-refuses parse-error
+refuses syntax.rule.interpolation-whole at 2:15
 
 // case: syntax.stmt.assign/cell:cond
 refuses parse-error at 2:10
@@ -1093,31 +1093,31 @@ refuses parse-error at 2:16
 refuses parse-error at 2:16
 
 // case: syntax.stmt.assign/cell:bhead
-refuses parse-error at 2:22
+refuses syntax.rule.borrow-form at 2:22
 
 // case: syntax.stmt.assign/cell:init
-refuses parse-error at 2:15
+refuses syntax.rule.assignment-target at 2:15
 
 // case: syntax.stmt.assign/cell:asgn
-refuses parse-error at 2:11
+refuses syntax.rule.assignment-target at 2:11
 
 // case: syntax.stmt.assign/cell:crhs
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.stmt.assign/cell:atgt
-refuses parse-error at 2:11
+refuses syntax.rule.assignment-target at 2:11
 
 // case: syntax.stmt.assign/cell:ret
-refuses parse-error at 2:14
+refuses syntax.rule.assignment-target at 2:14
 
 // case: syntax.stmt.assign/cell:brk
-refuses parse-error at 3:17
+refuses syntax.rule.assignment-target at 3:17
 
 // case: syntax.stmt.assign/cell:lend
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.stmt.assign/cell:try
-refuses parse-error at 2:19
+refuses syntax.rule.assignment-target at 2:19
 
 // case: syntax.stmt.assign/cell:dflt
 refuses parse-error at 1:17
@@ -1155,10 +1155,10 @@ parses as another construct
         (CompoundAssign (Name a) += (Name b))))))
 
 // case: syntax.stmt.compound-assign/cell:opnd
-refuses parse-error at 2:15
+refuses syntax.rule.assignment-target at 2:15
 
 // case: syntax.stmt.compound-assign/cell:rhs
-refuses parse-error at 2:20
+refuses syntax.rule.assignment-target at 2:20
 
 // case: syntax.stmt.compound-assign/cell:arg
 refuses parse-error at 2:9
@@ -1170,13 +1170,13 @@ refuses parse-error at 2:12
 refuses parse-error at 2:16
 
 // case: syntax.stmt.compound-assign/cell:recv
-refuses parse-error at 2:15
+refuses syntax.rule.assignment-target at 2:15
 
 // case: syntax.stmt.compound-assign/cell:idx
 refuses parse-error at 2:17
 
 // case: syntax.stmt.compound-assign/cell:interp
-refuses parse-error
+refuses syntax.rule.interpolation-whole at 2:15
 
 // case: syntax.stmt.compound-assign/cell:cond
 refuses parse-error at 2:10
@@ -1197,31 +1197,31 @@ refuses parse-error at 2:16
 refuses parse-error at 2:16
 
 // case: syntax.stmt.compound-assign/cell:bhead
-refuses parse-error at 2:22
+refuses syntax.rule.borrow-form at 2:22
 
 // case: syntax.stmt.compound-assign/cell:init
-refuses parse-error at 2:15
+refuses syntax.rule.assignment-target at 2:15
 
 // case: syntax.stmt.compound-assign/cell:asgn
-refuses parse-error at 2:11
+refuses syntax.rule.assignment-target at 2:11
 
 // case: syntax.stmt.compound-assign/cell:crhs
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.stmt.compound-assign/cell:atgt
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.stmt.compound-assign/cell:ret
-refuses parse-error at 2:14
+refuses syntax.rule.assignment-target at 2:14
 
 // case: syntax.stmt.compound-assign/cell:brk
-refuses parse-error at 3:17
+refuses syntax.rule.assignment-target at 3:17
 
 // case: syntax.stmt.compound-assign/cell:lend
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.stmt.compound-assign/cell:try
-refuses parse-error at 2:19
+refuses syntax.rule.assignment-target at 2:19
 
 // case: syntax.stmt.compound-assign/cell:dflt
 refuses parse-error at 1:17
@@ -1301,7 +1301,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:14
 
 // case: syntax.stmt.return/cell:bhead
-refuses parse-error at 2:20
+refuses syntax.rule.borrow-form at 2:20
 
 // case: syntax.stmt.return/cell:init
 refuses parse-error at 2:13
@@ -1313,13 +1313,13 @@ refuses parse-error at 2:9
 refuses parse-error at 2:10
 
 // case: syntax.stmt.return/cell:atgt
-refuses parse-error at 2:14
+refuses syntax.rule.assignment-target at 2:14
 
 // case: syntax.stmt.return/cell:ret
-refuses parse-error at 2:12
+refuses syntax.rule.juxtaposition at 2:12
 
 // case: syntax.stmt.return/cell:brk
-refuses parse-error at 3:15
+refuses syntax.rule.juxtaposition at 3:15
 
 // case: syntax.stmt.return/cell:lend
 refuses parse-error at 2:10
@@ -1404,7 +1404,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:14
 
 // case: syntax.stmt.break/cell:bhead
-refuses parse-error at 2:20
+refuses syntax.rule.borrow-form at 2:20
 
 // case: syntax.stmt.break/cell:init
 refuses parse-error at 2:13
@@ -1416,13 +1416,13 @@ refuses parse-error at 2:9
 refuses parse-error at 2:10
 
 // case: syntax.stmt.break/cell:atgt
-refuses parse-error at 2:11
+refuses syntax.rule.assignment-target at 2:11
 
 // case: syntax.stmt.break/cell:ret
-refuses parse-error at 2:12
+refuses syntax.rule.juxtaposition at 2:12
 
 // case: syntax.stmt.break/cell:brk
-refuses parse-error at 3:15
+refuses syntax.rule.juxtaposition at 3:15
 
 // case: syntax.stmt.break/cell:lend
 refuses parse-error at 2:10
@@ -1507,7 +1507,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:14
 
 // case: syntax.stmt.continue/cell:bhead
-refuses parse-error at 2:20
+refuses syntax.rule.borrow-form at 2:20
 
 // case: syntax.stmt.continue/cell:init
 refuses parse-error at 2:13
@@ -1519,13 +1519,13 @@ refuses parse-error at 2:9
 refuses parse-error at 2:10
 
 // case: syntax.stmt.continue/cell:atgt
-refuses parse-error at 2:14
+refuses syntax.rule.assignment-target at 2:14
 
 // case: syntax.stmt.continue/cell:ret
-refuses parse-error at 2:12
+refuses syntax.rule.juxtaposition at 2:12
 
 // case: syntax.stmt.continue/cell:brk
-refuses parse-error at 3:15
+refuses syntax.rule.juxtaposition at 3:15
 
 // case: syntax.stmt.continue/cell:lend
 refuses parse-error at 2:10
@@ -1611,7 +1611,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:14
 
 // case: syntax.stmt.lend/cell:bhead
-refuses parse-error at 2:20
+refuses syntax.rule.borrow-form at 2:20
 
 // case: syntax.stmt.lend/cell:init
 refuses parse-error at 2:13
@@ -1623,13 +1623,13 @@ refuses parse-error at 2:9
 refuses parse-error at 2:10
 
 // case: syntax.stmt.lend/cell:atgt
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.stmt.lend/cell:ret
-refuses parse-error at 2:12
+refuses syntax.rule.juxtaposition at 2:12
 
 // case: syntax.stmt.lend/cell:brk
-refuses parse-error at 3:15
+refuses syntax.rule.juxtaposition at 3:15
 
 // case: syntax.stmt.lend/cell:lend
 refuses parse-error at 2:10
@@ -1718,7 +1718,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:14
 
 // case: syntax.stmt.guard/cell:bhead
-refuses parse-error at 2:20
+refuses syntax.rule.borrow-form at 2:20
 
 // case: syntax.stmt.guard/cell:init
 refuses parse-error at 2:13
@@ -1730,13 +1730,13 @@ refuses parse-error at 2:9
 refuses parse-error at 2:10
 
 // case: syntax.stmt.guard/cell:atgt
-refuses parse-error at 2:37
+refuses syntax.rule.assignment-target at 2:37
 
 // case: syntax.stmt.guard/cell:ret
-refuses parse-error at 2:12
+refuses syntax.rule.juxtaposition at 2:12
 
 // case: syntax.stmt.guard/cell:brk
-refuses parse-error at 3:15
+refuses syntax.rule.juxtaposition at 3:15
 
 // case: syntax.stmt.guard/cell:lend
 refuses parse-error at 2:10
@@ -1825,7 +1825,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:14
 
 // case: syntax.stmt.guard-condition/cell:bhead
-refuses parse-error at 2:20
+refuses syntax.rule.borrow-form at 2:20
 
 // case: syntax.stmt.guard-condition/cell:init
 refuses parse-error at 2:13
@@ -1837,13 +1837,13 @@ refuses parse-error at 2:9
 refuses parse-error at 2:10
 
 // case: syntax.stmt.guard-condition/cell:atgt
-refuses parse-error at 2:29
+refuses syntax.rule.assignment-target at 2:29
 
 // case: syntax.stmt.guard-condition/cell:ret
-refuses parse-error at 2:12
+refuses syntax.rule.juxtaposition at 2:12
 
 // case: syntax.stmt.guard-condition/cell:brk
-refuses parse-error at 3:15
+refuses syntax.rule.juxtaposition at 3:15
 
 // case: syntax.stmt.guard-condition/cell:lend
 refuses parse-error at 2:10
@@ -2367,7 +2367,7 @@ refuses parse-error at 2:14
 refuses parse-error at 2:14
 
 // case: syntax.stmt.attributed-local/cell:bhead
-refuses parse-error at 2:20
+refuses syntax.rule.borrow-form at 2:20
 
 // case: syntax.stmt.attributed-local/cell:init
 refuses parse-error at 2:13
@@ -2379,13 +2379,13 @@ refuses parse-error at 2:9
 refuses parse-error at 2:10
 
 // case: syntax.stmt.attributed-local/cell:atgt
-refuses parse-error at 2:25
+refuses syntax.rule.assignment-target at 2:25
 
 // case: syntax.stmt.attributed-local/cell:ret
-refuses parse-error at 2:12
+refuses syntax.rule.juxtaposition at 2:12
 
 // case: syntax.stmt.attributed-local/cell:brk
-refuses parse-error at 3:15
+refuses syntax.rule.juxtaposition at 3:15
 
 // case: syntax.stmt.attributed-local/cell:lend
 refuses parse-error at 2:10
@@ -2432,10 +2432,10 @@ parses as another construct
           (Name c))))))
 
 // case: syntax.stmt.optional-assign/cell:opnd
-refuses parse-error at 2:18
+refuses syntax.rule.assignment-target at 2:18
 
 // case: syntax.stmt.optional-assign/cell:rhs
-refuses parse-error at 2:23
+refuses syntax.rule.assignment-target at 2:23
 
 // case: syntax.stmt.optional-assign/cell:arg
 refuses parse-error at 2:12
@@ -2447,13 +2447,13 @@ refuses parse-error at 2:15
 refuses parse-error at 2:19
 
 // case: syntax.stmt.optional-assign/cell:recv
-refuses parse-error at 2:18
+refuses syntax.rule.assignment-target at 2:18
 
 // case: syntax.stmt.optional-assign/cell:idx
 refuses parse-error at 2:20
 
 // case: syntax.stmt.optional-assign/cell:interp
-refuses parse-error
+refuses syntax.rule.interpolation-whole at 2:18
 
 // case: syntax.stmt.optional-assign/cell:cond
 refuses parse-error at 2:13
@@ -2471,31 +2471,31 @@ refuses parse-error at 2:19
 refuses parse-error at 2:19
 
 // case: syntax.stmt.optional-assign/cell:bhead
-refuses parse-error at 2:25
+refuses syntax.rule.borrow-form at 2:25
 
 // case: syntax.stmt.optional-assign/cell:init
-refuses parse-error at 2:18
+refuses syntax.rule.assignment-target at 2:18
 
 // case: syntax.stmt.optional-assign/cell:asgn
-refuses parse-error at 2:14
+refuses syntax.rule.assignment-target at 2:14
 
 // case: syntax.stmt.optional-assign/cell:crhs
-refuses parse-error at 2:15
+refuses syntax.rule.assignment-target at 2:15
 
 // case: syntax.stmt.optional-assign/cell:atgt
-refuses parse-error at 2:14
+refuses syntax.rule.assignment-target at 2:14
 
 // case: syntax.stmt.optional-assign/cell:ret
-refuses parse-error at 2:17
+refuses syntax.rule.assignment-target at 2:17
 
 // case: syntax.stmt.optional-assign/cell:brk
-refuses parse-error at 3:20
+refuses syntax.rule.assignment-target at 3:20
 
 // case: syntax.stmt.optional-assign/cell:lend
-refuses parse-error at 2:15
+refuses syntax.rule.assignment-target at 2:15
 
 // case: syntax.stmt.optional-assign/cell:try
-refuses parse-error at 2:22
+refuses syntax.rule.assignment-target at 2:22
 
 // case: syntax.stmt.optional-assign/cell:dflt
 refuses parse-error at 1:20

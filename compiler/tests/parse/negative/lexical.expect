@@ -1,5 +1,14 @@
 // case: syntax.lex.ascii-identifier/non-ascii-letter-starting-a-name
-refuses parse-error at 2:9
+refuses syntax.lex.ascii-identifier at 2:9
+
+// case: syntax.lex.ascii-identifier/non-ascii-letter-inside-a-name
+refuses syntax.lex.ascii-identifier at 2:11
+
+// case: syntax.lex.ascii-identifier/non-ascii-symbol-between-tokens
+refuses syntax.lex.ascii-identifier at 2:15
+
+// case: syntax.lex.ascii-identifier/non-ascii-letter-in-an-interpolation
+refuses parse-error
 
 // case: syntax.lex.module-doc/after-the-first-token
 refuses syntax.lex.module-doc at 3:1
@@ -32,10 +41,10 @@ refuses syntax.lex.doc-attach at 3:1
 refuses syntax.lex.doc-attach at 4:5
 
 // case: syntax.lex.shift-adjacent/spaced-shift
-refuses parse-error at 2:17
+refuses syntax.lex.shift-adjacent at 2:17
 
 // case: syntax.lex.float-point/trailing-point
-refuses parse-error at 2:15
+refuses syntax.lex.float-point at 2:13
 
 // case: syntax.lex.float-point/leading-point
 refuses syntax.lex.float-point at 2:13
@@ -140,4 +149,4 @@ refuses parse-error at 2:15
 refuses parse-error at 2:16
 
 // case: syntax.expr.shorthand-param/suffix-like-word-after-a-shorthand-parameter
-refuses parse-error at 4:17
+refuses syntax.rule.juxtaposition at 4:17

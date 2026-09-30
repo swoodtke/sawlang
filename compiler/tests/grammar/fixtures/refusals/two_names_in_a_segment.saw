@@ -1,0 +1,5 @@
+// stops: syntax.rule.interpolation-whole
+// verdict: SEGFAIL 4:12 {a b} 4:15 refused by syntax.rule.interpolation-whole
+func main() {
+    print("{a b}")
+}

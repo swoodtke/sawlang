@@ -1625,6 +1625,11 @@ extension Lexer {
             } else if ch == B_DOLLAR {
                 let dollar_token = try self.read_dollar()
                 try! tokens.push(dollar_token)
+            } else if ch >= B_CONT_LO {
+                // Stage 0 workaround (SL:hazards S4): canonical: return self.err("…", "syntax.lex.ascii-identifier", self.non_ascii_hint())
+                let hint = self.non_ascii_hint()
+                return self.err("a character outside ASCII stands only in the text of a string or a comment",
+                                "syntax.lex.ascii-identifier", hint)
             } else {
                 return self.err("Unexpected character", "parse-error", "")
             }
@@ -1635,6 +1640,32 @@ extension Lexer {
         try! tokens.push(self.tok(TokenKind.Eof, ""))
         try! offsets.push(self.pos)
         move tokens
+    }
+
+    // The hint for a character outside ASCII at `pos`, naming it: its UTF-8
+    // lead byte says how many bytes it spans (syntax.lex.ascii-identifier).
+    func non_ascii_hint(&self) -> String {
+        let lead = self.peek()
+        var width = 1
+        if lead >= 0xF0 {
+            width = 4
+        } else if lead >= 0xE0 {
+            width = 3
+        } else if lead >= 0xC0 {
+            width = 2
+        }
+        let start = self.pos
+        var end = start + width
+        if end > self.slen {
+            end = self.slen
+        }
+        // Stage 0 workaround (SL:hazards S4): canonical: try! out.append(self.src.substring(self.pos, end))
+        let spelled = self.src.substring(start, end)
+        var out = StringBuilder()
+        try! out.append("`")
+        try! out.append(spelled)
+        try! out.append("` is not ASCII, and source outside strings and comments is; an interpolation's expression is source")
+        out.build()
     }
 
     // The hint for a float written with no digit before its point, `pos` at the

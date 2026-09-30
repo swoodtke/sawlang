@@ -17,7 +17,7 @@ refuses syntax.decl.refused-effect-prefix
 refuses syntax.decl.refused-effect-prefix
 
 // case: syntax.rule.static-head/static-field-in-an-extension
-refuses parse-error at 2:12
+refuses syntax.rule.static-head at 2:12
 
 // case: syntax.rule.contextual-words/const-local
 refuses syntax.stmt.refused-local-const
@@ -74,10 +74,10 @@ refuses syntax.rule.effect-slot at 2:19
 refuses syntax.rule.effect-slot at 2:18
 
 // case: syntax.rule.effect-slot/declaration-word-written-twice
-refuses parse-error at 1:15
+refuses syntax.rule.effect-slot at 1:15
 
 // case: syntax.rule.effect-slot/declaration-words-out-of-order
-refuses parse-error at 1:15
+refuses syntax.rule.effect-slot at 1:15
 
 // case: syntax.rule.effect-slot/escaping-on-a-declaration
 refuses syntax.decl.refused-escaping
@@ -101,13 +101,13 @@ refuses syntax.rule.attribute-position at 2:5
 refuses syntax.rule.attribute-position at 1:1
 
 // case: syntax.rule.attribute-position/unknown-attribute
-refuses parse-error at 1:2
+refuses syntax.rule.attribute-position at 1:2
 
 // case: syntax.rule.attribute-position/wrong-argument-shape
-refuses parse-error at 1:9
+refuses syntax.rule.attribute-position at 1:9
 
 // case: syntax.rule.attribute-position/align-on-a-destructuring-local
-refuses parse-error at 2:19
+refuses syntax.rule.attribute-position at 2:19
 
 // case: syntax.rule.receiver-and-static/method-without-a-receiver
 refuses syntax.rule.receiver-and-static at 2:5

@@ -1,0 +1,5 @@
+// stops: syntax.rule.juxtaposition
+// verdict: FAIL 4:11 refused by syntax.rule.juxtaposition
+func main() {
+    x = 1 y
+}

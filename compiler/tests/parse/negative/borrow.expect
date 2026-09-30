@@ -1,8 +1,8 @@
 // case: syntax.rule.borrow-form/binding-without-a-block
-refuses parse-error at 2:5
+refuses syntax.rule.borrow-form at 3:1
 
 // case: syntax.rule.borrow-form/tuple-binding-without-a-block
-refuses parse-error at 3:1
+refuses syntax.rule.borrow-form at 3:1
 
 // case: syntax.rule.borrow-form/tuple-binding-at-an-if-head
 refuses syntax.rule.borrow-form at 2:8
@@ -41,10 +41,10 @@ refuses syntax.expr.refused-borrow-let-unbound
 refuses syntax.expr.refused-borrow-let-unbound
 
 // case: syntax.rule.borrow-form/line-break-after-borrow-at-statement-level
-refuses parse-error at 2:11
+refuses syntax.rule.borrow-form at 2:11
 
 // case: syntax.rule.borrow-form/line-break-after-borrow-var-at-statement-level
-refuses parse-error at 2:15
+refuses syntax.rule.borrow-form at 2:15
 
 // case: syntax.rule.borrow-form/borrow-without-an-operand
 refuses parse-error at 2:20

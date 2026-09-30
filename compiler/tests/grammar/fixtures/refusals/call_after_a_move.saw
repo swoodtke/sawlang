@@ -1,0 +1,5 @@
+// stops: syntax.rule.move-place
+// verdict: FAIL 4:15 refused by syntax.rule.move-place
+func main() {
+    g(move x.f())
+}

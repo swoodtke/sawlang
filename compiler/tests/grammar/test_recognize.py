@@ -9,8 +9,11 @@ NAME.record. A tree fixture whose first line is `// rule: RULE` must parse to
 one tree, and to a different tree count with RULE switched off. A
 `fixtures/refusals/NAME.saw` fixture starts `// refuses: RULE` and
 `// verdict: VERDICT DETAIL`: `check_source` must give that verdict, and must
-accept the text with RULE switched off. Every rule the recognizer applies needs
-a fixture of one kind or the other, so each is seen deciding something.
+accept the text with RULE switched off. One that starts `// stops: RULE`
+instead pins a rule decided where the chart stops (`recognize.STOPS`): with
+RULE switched off the refusal no longer names it. Every rule the recognizer
+applies needs a fixture of one kind or the other, so each is seen deciding
+something, and each stop's rule a `// stops:` fixture.
 VERDICTS pins more verdicts, REMOVED_FORMS the removed form a refusal is
 classified as, CORPUS_CASES the corpus lane's comparison; each token of
 OPEN_END_FOLLOW must decide a tree of OPEN_END_FIXTURE, the cast-list FOLLOW
@@ -36,7 +39,7 @@ import recognize  # noqa: E402
 TREES = os.path.join(HERE, "fixtures", "trees")
 REFUSALS = os.path.join(HERE, "fixtures", "refusals")
 RULE_RE = re.compile(r"^// rule: (syntax\.(?:rule|lex)\.\S+)$")
-REFUSES_RE = re.compile(r"^// refuses: (syntax\.(?:rule|lex)\.\S+)\n// verdict: (\S+) (.*)\n")
+REFUSES_RE = re.compile(r"^// (refuses|stops): (syntax\.(?:rule|lex)\.\S+)\n// verdict: (\S+) (.*)\n")
 
 # (source, verdict): the token-level rules the recognizer applies before parsing.
 VERDICTS = [
@@ -233,6 +236,10 @@ def applied_rules(failures, model, g):
         if not hasattr(recognize.Forest, method):
             failures.append("recognizer: Forest has no filter %s" % method)
         applied.add(rule)
+    for method, rule in recognize.STOPS:
+        if not hasattr(recognize.Stops, method):
+            failures.append("recognizer: Stops has no rule %s" % method)
+        applied.add(rule)
     applied.update(recognize.OTHER_RULES)
     for rule in sorted(applied - rules):
         failures.append("recognizer: %s is not a section-13 or lexical rule" % rule)
@@ -317,18 +324,19 @@ def check_rules(failures, model, g):
             failures.append("recognizer fixture %s: %s decides nothing here; without it the "
                             "tree counts are still %s" % (rel, rule, without))
     count = len(decided)
+    stopped = set()
     for saw in sorted(glob.glob(os.path.join(REFUSALS, "*.saw"))):
         text = _read(saw)
         rel = os.path.relpath(saw, extract.REPO)
         m = REFUSES_RE.match(text)
         if not m:
-            failures.append("recognizer fixture %s: want `// refuses: RULE` and "
-                            "`// verdict: VERDICT DETAIL` lines first" % rel)
+            failures.append("recognizer fixture %s: want `// refuses: RULE` or `// stops: RULE`, "
+                            "and `// verdict: VERDICT DETAIL` lines first" % rel)
             continue
-        rule, want = m.group(1), (m.group(2), m.group(3))
-        if rule not in applied:
-            failures.append("recognizer fixture %s: the recognizer does not apply %s"
-                            % (rel, rule))
+        kind, rule, want = m.group(1), m.group(2), (m.group(3), m.group(4))
+        if rule not in applied or (kind == "stops" and rule not in recognize.STOP_RULES):
+            failures.append("recognizer fixture %s: the recognizer does not apply %s%s"
+                            % (rel, rule, " at a stop" if kind == "stops" else ""))
             continue
         decided.add(rule)
         count += 1
@@ -336,14 +344,24 @@ def check_rules(failures, model, g):
         if got != want:
             failures.append("recognizer fixture %s: %s %s, expected %s %s"
                             % ((rel,) + got + want))
-        # Without the rule the text parses, with one tree or with the several
-        # the rule was choosing between.
         without = _without(rule, lambda: recognize.check_source(g, text, trees=True))
-        if without[0] not in ("OK", "AMBIGUOUS"):
+        if kind == "stops":
+            # The productions refuse the text whatever the rule says, so
+            # without the rule the refusal is no longer its own.
+            stopped.add(rule)
+            if rule in without[1]:
+                failures.append("recognizer fixture %s: %s decides nothing here; without it the "
+                                "verdict is still %s %s" % ((rel, rule) + without))
+        elif without[0] not in ("OK", "AMBIGUOUS"):
+            # Without the rule the text parses, with one tree or with the
+            # several the rule was choosing between.
             failures.append("recognizer fixture %s: %s decides nothing here; without it the "
                             "verdict is still %s %s" % ((rel, rule) + without))
     for rule in sorted(applied - decided):
         failures.append("recognizer: no fixture cites %s, so nothing shows it deciding" % rule)
+    for rule in sorted(set(recognize.STOP_RULES) - stopped):
+        failures.append("recognizer: no `// stops:` fixture cites %s, so nothing shows it "
+                        "deciding at a stop" % rule)
     return count
 
 

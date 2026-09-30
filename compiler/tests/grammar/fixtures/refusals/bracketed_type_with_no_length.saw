@@ -1,0 +1,5 @@
+// stops: syntax.rule.prefix-type-suffix
+// verdict: FAIL 4:16 refused by syntax.rule.prefix-type-suffix
+func main() {
+    let s: [Int] = w
+}

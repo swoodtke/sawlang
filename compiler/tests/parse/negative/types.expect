@@ -5,16 +5,16 @@ refuses syntax.type.refused-partial-named-tuple
 refuses parse-error at 2:21
 
 // case: syntax.rule.prefix-type-suffix/bare-slice-is-no-type
-refuses parse-error at 2:16
+refuses syntax.rule.prefix-type-suffix at 2:16
 
 // case: syntax.rule.paren-type/consumes-on-a-function-type
 refuses syntax.type.refused-func-consumes
 
 // case: syntax.rule.effect-slot/constexpr-on-a-function-type
-refuses parse-error at 2:18
+refuses syntax.rule.effect-slot at 2:18
 
 // case: syntax.rule.effect-slot/effects-out-of-order-in-a-function-type
-refuses parse-error at 2:23
+refuses syntax.rule.effect-slot at 2:23
 
 // case: syntax.rule.effect-slot/function-type-word-written-twice
-refuses parse-error at 2:25
+refuses syntax.rule.effect-slot at 2:25

@@ -1,0 +1,5 @@
+// stops: syntax.lex.float-point
+// verdict: FAIL 4:13 refused by syntax.lex.float-point
+func main() {
+    let x = 1.
+}

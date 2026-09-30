@@ -9,8 +9,20 @@ func f() {
 }
 
 // case: syntax.rule.move-place/move-does-not-call
+// As a statement, the `(` would also begin a second one (juxtaposition), so
+// the call stands in an argument.
 func f() {
-    let v = move x.f()
+    g(move x.f())
+}
+
+// case: syntax.rule.move-place/optional-member-after-a-move
+func f() {
+    let v = move x.f?.g
+}
+
+// case: syntax.rule.move-place/member-after-a-forced-move
+func f() {
+    g(move o!.h)
 }
 
 // case: syntax.rule.assignment-target/chained-assignment

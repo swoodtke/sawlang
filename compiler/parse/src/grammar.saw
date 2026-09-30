@@ -2506,6 +2506,21 @@ public func holds_closure_head(kind: TokenKind) -> Bool {
     }
 }
 
+// Whether a capture list can hold a token of this kind inside its brackets,
+// so that a `[` group at a closure head's start holding any other is no
+// capture list, and the brace no head (syntax.rule.brace).
+public func holds_capture(kind: TokenKind) -> Bool {
+    match kind {
+        case Ampersand -> true,
+        case Comma -> true,
+        case Ident -> true,
+        case Move_ -> true,
+        case SelfKw -> true,
+        case Var -> true,
+        case _ -> false
+    }
+}
+
 // Whether a token of this kind begins a statement and no expression, so
 // that a brace whose first element starts with it is a closure
 // (syntax.rule.brace).
@@ -2519,6 +2534,181 @@ public func begins_statement_only(kind: TokenKind) -> Bool {
         case Let -> true,
         case Return -> true,
         case Var -> true,
+        case _ -> false
+    }
+}
+
+// Whether a token of this kind begins a statement, so that one on the line
+// of the statement before it is refused as that second statement
+// (syntax.rule.juxtaposition).
+public func begins_statement(kind: TokenKind) -> Bool {
+    match kind {
+        case Ampersand -> true,
+        case At -> true,
+        case Borrow -> true,
+        case Break -> true,
+        case Continue -> true,
+        case DollarParam -> true,
+        case Dot -> true,
+        case DotDot -> true,
+        case DotDotEq -> true,
+        case False_ -> true,
+        case FloatLit -> true,
+        case For -> true,
+        case Guard -> true,
+        case HashDirective -> true,
+        case Ident -> true,
+        case If -> true,
+        case IntLit -> true,
+        case InterpString -> true,
+        case LBrace -> true,
+        case LBracket -> true,
+        case LParen -> true,
+        case Lend -> true,
+        case Let -> true,
+        case Match -> true,
+        case Minus -> true,
+        case Move_ -> true,
+        case NoneKw -> true,
+        case Not_ -> true,
+        case Return -> true,
+        case SelfKw -> true,
+        case Star -> true,
+        case StringLit -> true,
+        case Tilde -> true,
+        case True_ -> true,
+        case Try -> true,
+        case Var -> true,
+        case While -> true,
+        case _ -> false
+    }
+}
+
+// Whether a token of this kind begins an expression, so that a borrow
+// binding's `=` before any other token leaves the binding with no value
+// (syntax.rule.borrow-form).
+public func begins_expression(kind: TokenKind) -> Bool {
+    match kind {
+        case Ampersand -> true,
+        case Borrow -> true,
+        case DollarParam -> true,
+        case Dot -> true,
+        case DotDot -> true,
+        case DotDotEq -> true,
+        case False_ -> true,
+        case FloatLit -> true,
+        case For -> true,
+        case HashDirective -> true,
+        case Ident -> true,
+        case If -> true,
+        case IntLit -> true,
+        case InterpString -> true,
+        case LBrace -> true,
+        case LBracket -> true,
+        case LParen -> true,
+        case Match -> true,
+        case Minus -> true,
+        case Move_ -> true,
+        case NoneKw -> true,
+        case Not_ -> true,
+        case SelfKw -> true,
+        case Star -> true,
+        case StringLit -> true,
+        case Tilde -> true,
+        case True_ -> true,
+        case Try -> true,
+        case While -> true,
+        case _ -> false
+    }
+}
+
+// Whether a token of this kind begins a range's upper bound, so that after
+// a range operator any other token the range cannot end before is refused
+// (syntax.rule.range-open-end).
+public func begins_range_bound(kind: TokenKind) -> Bool {
+    match kind {
+        case Ampersand -> true,
+        case Borrow -> true,
+        case DollarParam -> true,
+        case Dot -> true,
+        case False_ -> true,
+        case FloatLit -> true,
+        case For -> true,
+        case HashDirective -> true,
+        case Ident -> true,
+        case If -> true,
+        case IntLit -> true,
+        case InterpString -> true,
+        case LBrace -> true,
+        case LBracket -> true,
+        case LParen -> true,
+        case Match -> true,
+        case Minus -> true,
+        case Move_ -> true,
+        case NoneKw -> true,
+        case Not_ -> true,
+        case SelfKw -> true,
+        case Star -> true,
+        case StringLit -> true,
+        case Tilde -> true,
+        case True_ -> true,
+        case Try -> true,
+        case While -> true,
+        case _ -> false
+    }
+}
+
+// Whether a token of this kind, spelled `word`, begins a top-level-item, so that one
+// on the line of the one before it is refused (syntax.rule.declaration-separator).
+public func begins_top_level_item(kind: TokenKind, word: String) -> Bool {
+    match kind {
+        case At -> true,
+        case Borrows -> true,
+        case Enum -> true,
+        case Extension -> true,
+        case Extern -> true,
+        case Func -> true,
+        case Public -> true,
+        case Static -> true,
+        case Struct -> true,
+        case Trait -> true,
+        case Unsafe_ -> true,
+        case Ident -> word == "import" || word == "module" || word == "static_assert" || word == "type",
+        case _ -> false
+    }
+}
+
+// Whether a token of this kind, spelled `word`, begins a trait-member, so that one
+// on the line of the one before it is refused (syntax.rule.declaration-separator).
+public func begins_trait_member(kind: TokenKind, word: String) -> Bool {
+    match kind {
+        case Func -> true,
+        case Static -> true,
+        case Ident -> word == "type",
+        case _ -> false
+    }
+}
+
+// Whether a token of this kind, spelled `word`, begins an extension-member, so that one
+// on the line of the one before it is refused (syntax.rule.declaration-separator).
+public func begins_extension_member(kind: TokenKind, word: String) -> Bool {
+    match kind {
+        case At -> true,
+        case Func -> true,
+        case Init -> true,
+        case Public -> true,
+        case Static -> true,
+        case Ident -> word == "type",
+        case _ -> false
+    }
+}
+
+// Whether a token of this kind, spelled `word`, begins an extern-func, so that one
+// on the line of the one before it is refused (syntax.rule.declaration-separator).
+public func begins_extern_func(kind: TokenKind, word: String) -> Bool {
+    match kind {
+        case Func -> true,
+        case Ident -> word == "blocking",
         case _ -> false
     }
 }

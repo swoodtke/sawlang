@@ -1,30 +1,47 @@
 path	verdict	reason
-compiler/lex/tests/escapes.saw	SEGFAIL	c-conflict: 72:63 {1F600}
+compiler/lex/tests/escapes.saw	SEGFAIL	c-conflict: 72:63 {1F600} 72:65 refused by syntax.rule.interpolation-whole
 compiler/tests/grammar/fixtures/refusals/arm_body_brace_is_a_block.saw	FAIL	a-error: 5:19 refused by syntax.rule.arm-body
+compiler/tests/grammar/fixtures/refusals/arm_body_on_the_next_line.saw	FAIL	a-error: 5:18 refused by syntax.rule.arm-body
 compiler/tests/grammar/fixtures/refusals/attribute_on_the_wrong_declaration.saw	FAIL	a-error: 3:1 refused by syntax.rule.attribute-position
 compiler/tests/grammar/fixtures/refusals/attribute_repeated.saw	FAIL	a-error: 4:1 refused by syntax.rule.attribute-position
-compiler/tests/grammar/fixtures/refusals/borrow_binding_without_a_block.saw	FAIL	a-error: 4:5 refused by syntax.rule.borrow-form
+compiler/tests/grammar/fixtures/refusals/borrow_binding_without_a_block.saw	FAIL	a-error: 5:1 refused by syntax.rule.borrow-form
+compiler/tests/grammar/fixtures/refusals/borrow_binding_without_a_place.saw	FAIL	a-error: 4:19 refused by syntax.rule.borrow-form
 compiler/tests/grammar/fixtures/refusals/borrow_block_at_an_if_head.saw	FAIL	a-error: 4:8 refused by syntax.rule.borrow-form
+compiler/tests/grammar/fixtures/refusals/bracketed_type_with_no_length.saw	FAIL	a-error: 4:16 refused by syntax.rule.prefix-type-suffix
+compiler/tests/grammar/fixtures/refusals/call_after_a_move.saw	FAIL	a-error: 4:15 refused by syntax.rule.move-place
 compiler/tests/grammar/fixtures/refusals/cast_target_then_coalesce.saw	FAIL	c-conflict: 4:22 refused by syntax.rule.cast-target-question
+compiler/tests/grammar/fixtures/refusals/catch_after_a_cast.saw	FAIL	c-conflict: 4:28 refused by syntax.rule.try-extent
+compiler/tests/grammar/fixtures/refusals/chained_assignment.saw	FAIL	a-error: 4:11 refused by syntax.rule.assignment-target
+compiler/tests/grammar/fixtures/refusals/clause_on_a_test_only_declaration.saw	FAIL	a-error: 3:31 refused by syntax.rule.test-form
 compiler/tests/grammar/fixtures/refusals/consumes_on_a_free_function.saw	FAIL	a-error: 3:16 refused by syntax.rule.effect-slot
 compiler/tests/grammar/fixtures/refusals/consumes_on_a_requirement.saw	FAIL	a-error: 4:23 refused by syntax.rule.requirement-borrows
 compiler/tests/grammar/fixtures/refusals/doc_comment_documents_nothing.saw	FAIL	a-error: 3:1 refused by syntax.lex.doc-attach
+compiler/tests/grammar/fixtures/refusals/effect_word_written_twice.saw	FAIL	a-error: 3:15 refused by syntax.rule.effect-slot
 compiler/tests/grammar/fixtures/refusals/extern_abi_not_c.saw	FAIL	a-error: 3:8 refused by syntax.rule.extern-abi
+compiler/tests/grammar/fixtures/refusals/float_with_no_digit_after_its_point.saw	FAIL	a-error: 4:13 refused by syntax.lex.float-point
 compiler/tests/grammar/fixtures/refusals/generic_list_without_a_call.saw	FAIL	a-error: 4:14 refused by syntax.rule.generic-or-less
 compiler/tests/grammar/fixtures/refusals/head_restriction_over_a_trailing_closure.saw	FAIL	a-error: 4:14 refused by syntax.rule.head-restriction
 compiler/tests/grammar/fixtures/refusals/import_binds_a_name_twice.saw	FAIL	a-error: 3:14 refused by syntax.rule.import-names
 compiler/tests/grammar/fixtures/refusals/loop_continuing_as_an_operand.saw	FAIL	a-error: 4:17 refused by syntax.rule.block-tail
+compiler/tests/grammar/fixtures/refusals/map_key_colon_on_the_next_line.saw	FAIL	a-error: 5:9 refused by syntax.rule.brace
 compiler/tests/grammar/fixtures/refusals/method_without_a_receiver.saw	FAIL	a-error: 4:5 refused by syntax.rule.receiver-and-static
 compiler/tests/grammar/fixtures/refusals/module_doc_after_a_token.saw	LEXERR	a-error: 5:1 refused by syntax.lex.module-doc
 compiler/tests/grammar/fixtures/refusals/nesting_past_the_depth_limit.saw	FAIL	c-conflict: 4:270 refused by syntax.rule.depth-limit
 compiler/tests/grammar/fixtures/refusals/open_range_before_an_operator.saw	FAIL	a-error: 4:17 refused by syntax.rule.range-open-end
-compiler/tests/grammar/fixtures/refusals/shift_with_a_space.saw	FAIL	a-error: 4:17 near LT '<'
+compiler/tests/grammar/fixtures/refusals/open_range_before_an_operator_at_a_line_end.saw	FAIL	a-error: 4:17 refused by syntax.rule.range-open-end
+compiler/tests/grammar/fixtures/refusals/semicolon_ending_a_statement.saw	FAIL	a-error: 4:11 refused by syntax.rule.statement-separator
+compiler/tests/grammar/fixtures/refusals/shift_with_a_space.saw	FAIL	a-error: 4:17 refused by syntax.lex.shift-adjacent
 compiler/tests/grammar/fixtures/refusals/static_assert_assigned_to.saw	FAIL	a-error: 4:5 refused by syntax.rule.contextual-words
+compiler/tests/grammar/fixtures/refusals/static_field_in_an_extension.saw	FAIL	a-error: 4:12 refused by syntax.rule.static-head
 compiler/tests/grammar/fixtures/refusals/static_method_with_a_receiver.saw	FAIL	a-error: 4:19 refused by syntax.rule.receiver-and-static
 compiler/tests/grammar/fixtures/refusals/trailing_closure_in_a_head.saw	FAIL	a-error: 4:17 refused by syntax.rule.head-restriction
 compiler/tests/grammar/fixtures/refusals/trailing_closure_on_a_call_result.saw	FAIL	a-error: 4:14 refused by syntax.rule.trailing-closure
 compiler/tests/grammar/fixtures/refusals/try_before_a_brace.saw	FAIL	a-error: 4:17 refused by syntax.rule.try-block
 compiler/tests/grammar/fixtures/refusals/try_route_without_a_case.saw	FAIL	a-error: 4:20 refused by syntax.rule.try-route-case
+compiler/tests/grammar/fixtures/refusals/two_declarations_on_one_line.saw	FAIL	a-error: 4:3 refused by syntax.rule.declaration-separator
+compiler/tests/grammar/fixtures/refusals/two_names_in_a_segment.saw	SEGFAIL	c-conflict: 4:12 {a b} 4:15 refused by syntax.rule.interpolation-whole
+compiler/tests/grammar/fixtures/refusals/two_statements_on_one_line.saw	FAIL	a-error: 4:11 refused by syntax.rule.juxtaposition
+compiler/tests/grammar/fixtures/refusals/unknown_attribute.saw	FAIL	a-error: 3:2 refused by syntax.rule.attribute-position
 compiler/tests/grammar/fixtures/refusals/var_discard.saw	FAIL	a-removed: syntax.stmt.refused-var-discard
 compiler/tests/grammar/fixtures/trees/t6_const.saw	FAIL	a-removed: syntax.decl.refused-const
 compiler/tests/grammar/fixtures/trees/t6_local_const.saw	FAIL	a-removed: syntax.stmt.refused-local-const
@@ -41,6 +58,7 @@ compiler/tests/lex/error_empty_directive.saw	LEXERR	a-error: 2:1 refused by synt
 compiler/tests/lex/error_float_suffix.saw	LEXERR	a-error: Lexer error at 2:4: a float takes no suffix
 compiler/tests/lex/error_hex_range.saw	LEXERR	a-error: 2:1 refused by syntax.lex.int-range: integer literal out of range for a 64-bit integer
 compiler/tests/lex/error_leading_point.saw	LEXERR	a-error: 2:9 refused by syntax.lex.float-point: a float needs a digit before its point
+compiler/tests/lex/error_non_ascii_character.saw	LEXERR	a-error: 2:15 refused by syntax.lex.ascii-identifier: a character outside ASCII stands only in the text of a string or a comment
 compiler/tests/lex/error_not_a_width_suffix.saw	LEXERR	a-error: Lexer error at 2:2: not a width suffix
 compiler/tests/lex/error_octal_digit.saw	LEXERR	a-error: Lexer error at 2:4: not an octal digit: an octal number's digits are `0` to `7`
 compiler/tests/lex/error_quote_in_interpolation_comment.saw	LEXERR	a-error: 2:23 refused by syntax.lex.unterminated-string: unterminated string: this quote opens a literal that is never closed
@@ -71,20 +89,20 @@ compiler/tests/subset/borrow-syntax.saw	FAIL	c-conflict: 3:9 near BORROW 'borrow
 compiler/tests/subset/cast-then-optional.interpolation.saw	SEGFAIL	c-conflict: 6:17 {n as Int ?? 9} 1:10 refused by syntax.rule.cast-target-question
 compiler/tests/subset/cast-then-optional.newline.saw	FAIL	c-conflict: 15:14 refused by syntax.rule.cast-target-question
 compiler/tests/subset/cast-then-optional.saw	FAIL	c-conflict: 3:23 refused by syntax.rule.cast-target-question
-compiler/tests/subset/interpolation-line-break.saw	SEGFAIL	c-conflict: 5:17 {x\n        + 3}
+compiler/tests/subset/interpolation-line-break.saw	SEGFAIL	c-conflict: 5:17 {x\n        + 3} 5:19 refused by syntax.rule.interpolation-whole
 compiler/tests/subset/lex.saw	LEXERR	a-error: 3:7 refused by syntax.lex.escape: unknown escape in a string literal
 compiler/tests/subset/parse.interpolation-escape.saw	SEGLEX	a-error: 6:14 Lexer error at 1:3: Unexpected character
 compiler/tests/subset/parse.saw	FAIL	a-error: 3:9 near ASSIGN '='
 examples/array_no_extension_error.saw	FAIL	a-removed: syntax.decl.refused-array-extension
-examples/attr_bad_arity_error.saw	FAIL	a-error: 5:9 near NEWLINE '\\n'
+examples/attr_bad_arity_error.saw	FAIL	a-error: 5:9 refused by syntax.rule.attribute-position
 examples/attr_duplicate_error.saw	FAIL	a-error: 6:1 refused by syntax.rule.attribute-position
 examples/attr_export_on_extension_error.saw	FAIL	a-error: 8:1 refused by syntax.rule.attribute-position
 examples/attr_on_local_error.saw	FAIL	a-error: 9:5 refused by syntax.rule.attribute-position
 examples/attr_on_method_error.saw	FAIL	a-error: 8:6 near IDENT 'export'
 examples/attr_on_struct_error.saw	FAIL	a-error: 7:1 near STRUCT 'struct'
-examples/attr_synthesize_arg_error.saw	FAIL	a-error: 7:13 near STRING 'deep'
+examples/attr_synthesize_arg_error.saw	FAIL	a-error: 7:13 refused by syntax.rule.attribute-position
 examples/attr_synthesize_on_func_error.saw	FAIL	a-error: 6:1 refused by syntax.rule.attribute-position
-examples/attr_unknown_error.saw	FAIL	a-error: 5:2 near IDENT 'inline'
+examples/attr_unknown_error.saw	FAIL	a-error: 5:2 refused by syntax.rule.attribute-position
 examples/borrows_fold_preserves_lexical_scope.saw	FAIL	a-removed: syntax.expr.refused-lend-var
 examples/conformance/K128_cow_gate_survives_the_var_self_spelling.saw	FAIL	a-removed: syntax.expr.refused-lend-var
 examples/conformance/K129_forwarded_lend_carries_the_window_mode.saw	FAIL	a-removed: syntax.expr.refused-lend-var
@@ -95,7 +113,7 @@ examples/doc_comment_module_placement_error.saw	LEXERR	a-error: 11:1 refused by 
 examples/doc_comment_unattached_error.saw	FAIL	a-error: 10:1 refused by syntax.lex.doc-attach
 examples/errors/align_on_function.saw	FAIL	a-error: 6:1 refused by syntax.rule.attribute-position
 examples/errors/align_on_struct_field.saw	FAIL	a-error: 7:5 near AT '@'
-examples/errors/borrows_effect_slot_order.saw	FAIL	a-error: 14:43 near IDENT 'sync'
+examples/errors/borrows_effect_slot_order.saw	FAIL	a-error: 14:43 refused by syntax.rule.effect-slot
 examples/errors/capture_self_move_requires_borrow_sigil.saw	FAIL	a-removed: syntax.expr.refused-capture-self
 examples/errors/capture_self_requires_borrow_sigil.saw	FAIL	a-removed: syntax.expr.refused-capture-self
 examples/errors/consumes_free_function.saw	FAIL	a-error: 12:21 refused by syntax.rule.effect-slot
@@ -108,18 +126,18 @@ examples/errors/lend_var_in_shared_lend_accessor.saw	FAIL	a-removed: syntax.expr
 examples/errors/lend_var_outside_borrows.saw	FAIL	a-removed: syntax.expr.refused-lend-var
 examples/errors/lend_var_ungated_receiver_mutation.saw	FAIL	a-removed: syntax.expr.refused-lend-var
 examples/errors/lend_var_write_needs_var_root.saw	FAIL	a-removed: syntax.expr.refused-lend-var
-examples/errors/semicolon_at_end_of_file.saw	FAIL	a-error: 12:22 near SEMICOLON ';'
-examples/errors/semicolon_at_line_start.saw	FAIL	a-error: 13:5 near SEMICOLON ';'
-examples/errors/semicolon_before_closing_brace.saw	FAIL	a-error: 12:21 near RBRACE '}'
-examples/errors/semicolon_before_newline.saw	FAIL	a-error: 11:15 near NEWLINE '\\n'
-examples/errors/semicolon_between_declarations.saw	FAIL	a-error: 11:24 near SEMICOLON ';'
-examples/errors/semicolon_doubled.saw	FAIL	a-error: 11:15 near SEMICOLON ';'
+examples/errors/semicolon_at_end_of_file.saw	FAIL	a-error: 12:22 refused by syntax.rule.declaration-separator
+examples/errors/semicolon_at_line_start.saw	FAIL	a-error: 13:5 refused by syntax.rule.statement-separator
+examples/errors/semicolon_before_closing_brace.saw	FAIL	a-error: 12:21 refused by syntax.rule.statement-separator
+examples/errors/semicolon_before_newline.saw	FAIL	a-error: 11:15 refused by syntax.rule.statement-separator
+examples/errors/semicolon_between_declarations.saw	FAIL	a-error: 11:24 refused by syntax.rule.declaration-separator
+examples/errors/semicolon_doubled.saw	FAIL	a-error: 11:15 refused by syntax.rule.statement-separator
 examples/errors/shadow_for_tuple_pattern.saw	FAIL	a-removed: syntax.expr.refused-for-tuple
-examples/errors/statement_juxtaposition_in_closure_and_module_scope.saw	FAIL	a-error: 20:26 near IDENT 'c'
-examples/errors/statement_juxtaposition_in_control_flow_bodies.saw	FAIL	a-error: 20:28 near IDENT 'sum'
-examples/errors/statement_juxtaposition_in_declaration_lists.saw	FAIL	a-error: 32:50 near PUBLIC 'public'
-examples/errors/statement_juxtaposition_in_function_and_method_bodies.saw	FAIL	a-error: 28:15 near IDENT 'print'
-examples/errors/statement_juxtaposition_in_match_guard_and_try_blocks.saw	FAIL	a-error: 23:29 near IDENT 'print'
+examples/errors/statement_juxtaposition_in_closure_and_module_scope.saw	FAIL	a-error: 20:26 refused by syntax.rule.juxtaposition
+examples/errors/statement_juxtaposition_in_control_flow_bodies.saw	FAIL	a-error: 20:28 refused by syntax.rule.juxtaposition
+examples/errors/statement_juxtaposition_in_declaration_lists.saw	FAIL	a-error: 32:50 refused by syntax.rule.declaration-separator
+examples/errors/statement_juxtaposition_in_function_and_method_bodies.saw	FAIL	a-error: 28:15 refused by syntax.rule.juxtaposition
+examples/errors/statement_juxtaposition_in_match_guard_and_try_blocks.saw	FAIL	a-error: 23:29 refused by syntax.rule.juxtaposition
 examples/errors/static236_enum_method_no_receiver.saw	FAIL	a-error: 12:5 refused by syntax.rule.receiver-and-static
 examples/errors/static236_generic_extension_no_receiver.saw	FAIL	a-error: 12:5 refused by syntax.rule.receiver-and-static
 examples/errors/static236_static_init.saw	FAIL	a-removed: syntax.decl.refused-member-static
@@ -131,9 +149,9 @@ examples/errors/static_in_function.saw	FAIL	a-error: 7:5 near STATIC 'static'
 examples/errors/static_var_without_unsafe.saw	FAIL	a-removed: syntax.decl.refused-static
 examples/errors/string_interpolation_unescaped_brace.saw	SEGLEX	a-error: 8:27 Lexer error at 1:1: Unexpected character
 examples/errors/string_unknown_escape.saw	LEXERR	a-error: 8:14 refused by syntax.lex.escape: unknown escape in a string literal
-examples/errors/trailing_dot_float.saw	FAIL	a-error: 8:15 near NEWLINE '\\n'
+examples/errors/trailing_dot_float.saw	FAIL	a-error: 8:13 refused by syntax.lex.float-point
 examples/errors/unknown_directive.saw	LEXERR	a-error: 8:13 refused by syntax.lex.directive: unknown directive after `#`
-examples/errors/unsafe_effect_slot_order.saw	FAIL	a-error: 8:26 near UNSAFE 'unsafe'
+examples/errors/unsafe_effect_slot_order.saw	FAIL	a-error: 8:26 refused by syntax.rule.effect-slot
 examples/errors/unsafe_expression_marker_removed.saw	FAIL	a-removed: syntax.expr.refused-unsafe
 examples/errors/unsafe_keyword_before_decl.saw	FAIL	a-removed: syntax.decl.refused-effect-prefix
 examples/errors/unsafe_modifier_on_enum.saw	FAIL	a-removed: syntax.decl.refused-unsafe-prefix
@@ -177,31 +195,31 @@ examples/while_let_no_else_clause.saw	FAIL	a-removed: syntax.expr.refused-while-
 prototypes/minivm/examples/enums/match_qualified.saw	FAIL	a-removed: syntax.pat.refused-qualified-variant
 prototypes/minivm/examples/enums/reject_wrong_qualifier.saw	FAIL	a-removed: syntax.pat.refused-qualified-variant
 prototypes/minivm/examples/lexer_completion/reject_var_discard.saw	FAIL	a-removed: syntax.stmt.refused-var-discard
-prototypes/minivm/examples/numbers/reject_spaced_shift.saw	FAIL	a-error: 1:25 near LT '<'
+prototypes/minivm/examples/numbers/reject_spaced_shift.saw	FAIL	a-error: 1:25 refused by syntax.lex.shift-adjacent
 prototypes/minivm/examples/owning_records/reject_string_match_interpolation.saw	FAIL	a-error: 4:14 near INTERP_STRING '{value}'
 prototypes/minivm/examples/receivers/reject_value_receiver.saw	FAIL	a-removed: syntax.decl.refused-receiver
 prototypes/minivm/examples/reject_large_literal.saw	LEXERR	a-error: 2:11 refused by syntax.lex.int-range: integer literal out of range for a 64-bit integer
-prototypes/minivm/examples/reject_semicolon.saw	FAIL	a-error: 1:25 near RBRACE '}'
+prototypes/minivm/examples/reject_semicolon.saw	FAIL	a-error: 1:25 refused by syntax.rule.statement-separator
 prototypes/minivm/examples/reject_truncated.saw	FAIL	a-error: 3:1 near EOF ''
 prototypes/minivm/examples/vectors/reject_optional_constructor.saw	FAIL	a-error: 1:34 near QUESTION '?'
 sawc/std/data.saw	FAIL	a-removed: syntax.expr.refused-lend-var
 tests/corpus/array_no_extension_error.saw	FAIL	a-removed: syntax.decl.refused-array-extension
-tests/corpus/attr_bad_arity_error.saw	FAIL	a-error: 5:9 near NEWLINE '\\n'
+tests/corpus/attr_bad_arity_error.saw	FAIL	a-error: 5:9 refused by syntax.rule.attribute-position
 tests/corpus/attr_duplicate_error.saw	FAIL	a-error: 6:1 refused by syntax.rule.attribute-position
 tests/corpus/attr_export_on_extension_error.saw	FAIL	a-error: 8:1 refused by syntax.rule.attribute-position
 tests/corpus/attr_on_local_error.saw	FAIL	a-error: 9:5 refused by syntax.rule.attribute-position
 tests/corpus/attr_on_method_error.saw	FAIL	a-error: 8:6 near IDENT 'export'
 tests/corpus/attr_on_struct_error.saw	FAIL	a-error: 7:1 near STRUCT 'struct'
-tests/corpus/attr_synthesize_arg_error.saw	FAIL	a-error: 7:13 near STRING 'deep'
+tests/corpus/attr_synthesize_arg_error.saw	FAIL	a-error: 7:13 refused by syntax.rule.attribute-position
 tests/corpus/attr_synthesize_on_func_error.saw	FAIL	a-error: 6:1 refused by syntax.rule.attribute-position
-tests/corpus/attr_unknown_error.saw	FAIL	a-error: 5:2 near IDENT 'inline'
+tests/corpus/attr_unknown_error.saw	FAIL	a-error: 5:2 refused by syntax.rule.attribute-position
 tests/corpus/const_generic_specialized_extension_unsupported.saw	FAIL	a-error: 30:16 near INT '4'
 tests/corpus/discard_var_error.saw	FAIL	a-removed: syntax.stmt.refused-var-discard
 tests/corpus/doc_comment_module_placement_error.saw	LEXERR	a-error: 11:1 refused by syntax.lex.module-doc
 tests/corpus/doc_comment_unattached_error.saw	FAIL	a-error: 10:1 refused by syntax.lex.doc-attach
 tests/corpus/errors/align_on_function.saw	FAIL	a-error: 6:1 refused by syntax.rule.attribute-position
 tests/corpus/errors/align_on_struct_field.saw	FAIL	a-error: 7:5 near AT '@'
-tests/corpus/errors/borrows_effect_slot_order.saw	FAIL	a-error: 14:43 near IDENT 'sync'
+tests/corpus/errors/borrows_effect_slot_order.saw	FAIL	a-error: 14:43 refused by syntax.rule.effect-slot
 tests/corpus/errors/capture_self_move_requires_borrow_sigil.saw	FAIL	a-removed: syntax.expr.refused-capture-self
 tests/corpus/errors/capture_self_requires_borrow_sigil.saw	FAIL	a-removed: syntax.expr.refused-capture-self
 tests/corpus/errors/consumes_free_function.saw	FAIL	a-error: 12:21 refused by syntax.rule.effect-slot
@@ -209,18 +227,18 @@ tests/corpus/errors/consumes_function_type.saw	FAIL	a-removed: syntax.type.refus
 tests/corpus/errors/consumes_needs_a_receiver.saw	FAIL	a-error: 15:32 refused by syntax.rule.effect-slot
 tests/corpus/errors/consumes_needs_var_self.saw	FAIL	a-error: 13:24 refused by syntax.rule.effect-slot
 tests/corpus/errors/consumes_trait_requirement.saw	FAIL	a-error: 13:28 refused by syntax.rule.requirement-borrows
-tests/corpus/errors/semicolon_at_end_of_file.saw	FAIL	a-error: 12:22 near SEMICOLON ';'
-tests/corpus/errors/semicolon_at_line_start.saw	FAIL	a-error: 13:5 near SEMICOLON ';'
-tests/corpus/errors/semicolon_before_closing_brace.saw	FAIL	a-error: 12:21 near RBRACE '}'
-tests/corpus/errors/semicolon_before_newline.saw	FAIL	a-error: 11:15 near NEWLINE '\\n'
-tests/corpus/errors/semicolon_between_declarations.saw	FAIL	a-error: 11:24 near SEMICOLON ';'
-tests/corpus/errors/semicolon_doubled.saw	FAIL	a-error: 11:15 near SEMICOLON ';'
+tests/corpus/errors/semicolon_at_end_of_file.saw	FAIL	a-error: 12:22 refused by syntax.rule.declaration-separator
+tests/corpus/errors/semicolon_at_line_start.saw	FAIL	a-error: 13:5 refused by syntax.rule.statement-separator
+tests/corpus/errors/semicolon_before_closing_brace.saw	FAIL	a-error: 12:21 refused by syntax.rule.statement-separator
+tests/corpus/errors/semicolon_before_newline.saw	FAIL	a-error: 11:15 refused by syntax.rule.statement-separator
+tests/corpus/errors/semicolon_between_declarations.saw	FAIL	a-error: 11:24 refused by syntax.rule.declaration-separator
+tests/corpus/errors/semicolon_doubled.saw	FAIL	a-error: 11:15 refused by syntax.rule.statement-separator
 tests/corpus/errors/shadow_for_tuple_pattern.saw	FAIL	a-removed: syntax.expr.refused-for-tuple
-tests/corpus/errors/statement_juxtaposition_in_closure_and_module_scope.saw	FAIL	a-error: 20:26 near IDENT 'c'
-tests/corpus/errors/statement_juxtaposition_in_control_flow_bodies.saw	FAIL	a-error: 20:28 near IDENT 'sum'
-tests/corpus/errors/statement_juxtaposition_in_declaration_lists.saw	FAIL	a-error: 32:50 near PUBLIC 'public'
-tests/corpus/errors/statement_juxtaposition_in_function_and_method_bodies.saw	FAIL	a-error: 28:15 near IDENT 'print'
-tests/corpus/errors/statement_juxtaposition_in_match_guard_and_try_blocks.saw	FAIL	a-error: 23:29 near IDENT 'print'
+tests/corpus/errors/statement_juxtaposition_in_closure_and_module_scope.saw	FAIL	a-error: 20:26 refused by syntax.rule.juxtaposition
+tests/corpus/errors/statement_juxtaposition_in_control_flow_bodies.saw	FAIL	a-error: 20:28 refused by syntax.rule.juxtaposition
+tests/corpus/errors/statement_juxtaposition_in_declaration_lists.saw	FAIL	a-error: 32:50 refused by syntax.rule.declaration-separator
+tests/corpus/errors/statement_juxtaposition_in_function_and_method_bodies.saw	FAIL	a-error: 28:15 refused by syntax.rule.juxtaposition
+tests/corpus/errors/statement_juxtaposition_in_match_guard_and_try_blocks.saw	FAIL	a-error: 23:29 refused by syntax.rule.juxtaposition
 tests/corpus/errors/static236_enum_method_no_receiver.saw	FAIL	a-error: 12:5 refused by syntax.rule.receiver-and-static
 tests/corpus/errors/static236_generic_extension_no_receiver.saw	FAIL	a-error: 12:5 refused by syntax.rule.receiver-and-static
 tests/corpus/errors/static236_static_init.saw	FAIL	a-removed: syntax.decl.refused-member-static
@@ -232,9 +250,9 @@ tests/corpus/errors/static_in_function.saw	FAIL	a-error: 7:5 near STATIC 'static
 tests/corpus/errors/static_var_without_unsafe.saw	FAIL	a-removed: syntax.decl.refused-static
 tests/corpus/errors/string_interpolation_unescaped_brace.saw	SEGLEX	a-error: 8:27 Lexer error at 1:1: Unexpected character
 tests/corpus/errors/string_unknown_escape.saw	LEXERR	a-error: 8:14 refused by syntax.lex.escape: unknown escape in a string literal
-tests/corpus/errors/trailing_dot_float.saw	FAIL	a-error: 8:15 near NEWLINE '\\n'
+tests/corpus/errors/trailing_dot_float.saw	FAIL	a-error: 8:13 refused by syntax.lex.float-point
 tests/corpus/errors/unknown_directive.saw	LEXERR	a-error: 8:13 refused by syntax.lex.directive: unknown directive after `#`
-tests/corpus/errors/unsafe_effect_slot_order.saw	FAIL	a-error: 8:26 near UNSAFE 'unsafe'
+tests/corpus/errors/unsafe_effect_slot_order.saw	FAIL	a-error: 8:26 refused by syntax.rule.effect-slot
 tests/corpus/errors/unsafe_expression_marker_removed.saw	FAIL	a-removed: syntax.expr.refused-unsafe
 tests/corpus/errors/unsafe_keyword_before_decl.saw	FAIL	a-removed: syntax.decl.refused-effect-prefix
 tests/corpus/errors/unsafe_modifier_on_enum.saw	FAIL	a-removed: syntax.decl.refused-unsafe-prefix

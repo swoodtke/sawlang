@@ -1,0 +1,5 @@
+// stops: syntax.rule.statement-separator
+// verdict: FAIL 4:11 refused by syntax.rule.statement-separator
+func main() {
+    x = 1;
+}

@@ -51,10 +51,10 @@ PARSES_AS = "parses as another construct"
 # The line a negative cell case writes when its tokens parse as another
 # construct, so that the case says so.
 PARSES_AS_NOTE = "// " + PARSES_AS
-# The line a negative case writes when it leaves a bracket unclosed. Section
-# 2.7 names that refusal and reports it at the opener, where the recognizer,
-# which balances no brackets, only fails later, so the case records the
-# lexical rule at the opener rather than the recognizer's parse error.
+# The line a hand-written negative case writes when it leaves a bracket
+# unclosed. Section 2.7 names that refusal and reports it at the opener, before
+# any parse, where the recognizer, which balances no brackets, only fails
+# later, so every case that leaves one records the lexical rule at the opener.
 UNCLOSED_NOTE = "// an unclosed bracket, refused at its opener"
 UNCLOSED_RULE = "syntax.lex.unclosed-bracket"
 CELL = "/cell:"
@@ -206,9 +206,9 @@ class Expectations:
                 # say which refusal a parser reports.
                 raise Problem("refused by %s and by %s, each refusing another reading"
                               % (m.group(2), ", ".join(others)))
-            # A rule `check` names outside the filters, the depth limit, decides
-            # at an opener's own token, whatever follows it.
-            if settle and m.group(2) not in recognize.NAMED_RULES \
+            # The depth limit, and a stop's rule, decide at their own token,
+            # whatever follows it.
+            if settle and not checked.decided and m.group(2) not in recognize.NAMED_RULES \
                     and self.unsettled(text, start, m.group(2)):
                 return PARSE_ERROR, m.group(1), []
             return m.group(2), m.group(1), list(checked.charged)
@@ -384,14 +384,16 @@ class Expectations:
         case: `refuses NAME`, with the recognizer's position when it gives one,
         or, for a cell or bare-form case that says it parses as another
         construct, that reading's dump."""
+        opener = unclosed_opener(case.text)
+        if UNCLOSED_NOTE in case.text.split("\n") and opener is None:
+            raise Problem("says `%s`, but it leaves no bracket unclosed" % UNCLOSED_NOTE)
+        if opener is not None:
+            # The lexical rule applies before any parse, so it names the text
+            # whatever else would refuse it.
+            return ["refuses %s at %s" % (UNCLOSED_RULE, opener)], UNCLOSED_RULE, []
         got = self.refusal(case.text, case.start)
         if got is not None:
             name, at, alts = got
-            if UNCLOSED_NOTE in case.text.split("\n"):
-                if name != PARSE_ERROR or not unclosed(case.text):
-                    raise Problem("says `%s`, but %s" % (UNCLOSED_NOTE, "it leaves no bracket "
-                                  "unclosed" if name == PARSE_ERROR else "is refused by " + name))
-                name, at = UNCLOSED_RULE, unclosed_opener(case.text)
             return ["refuses %s%s" % (name, " at " + at if at else "")], name, alts
         construct, ctx = cell_of(case.name)
         if construct is None or PARSES_AS_NOTE not in case.text.split("\n"):
@@ -456,20 +458,14 @@ def refused_spans(forest, key):
     return out
 
 
-def unclosed(text):
-    """Whether a text's tokens open more brackets than they close."""
+def unclosed_opener(text):
+    """"L:C" of a text's first unclosed bracket, where section 2.7 reports it,
+    or None when it leaves none or does not lex. A closer that closes an
+    opener deeper in the stack leaves the openers above it unclosed; one that
+    closes nothing is stray and leaves the stack alone."""
     toks, _, err = recognize.lex_with_docs(text)
     if err is not None:
-        return False
-    opens = sum(1 for t in toks if t.kind in ("LPAREN", "LBRACKET", "LBRACE"))
-    return opens > sum(1 for t in toks if t.kind in ("RPAREN", "RBRACKET", "RBRACE"))
-
-
-def unclosed_opener(text):
-    """"L:C" of a text's first unclosed bracket, where section 2.7 reports it.
-    A closer that closes an opener deeper in the stack leaves the openers above
-    it unclosed; one that closes nothing is stray and leaves the stack alone."""
-    toks, _, _ = recognize.lex_with_docs(text)
+        return None
     stack = []
     first = None
     for t in toks:
@@ -486,7 +482,7 @@ def unclosed_opener(text):
                 del stack[j:]
     if stack:
         first = min(first or stack[0], stack[0], key=_at)
-    return "%d:%d" % _at(first)
+    return None if first is None else "%d:%d" % _at(first)
 
 
 def _at(t):
@@ -636,10 +632,41 @@ NAMED_LEXICAL = ("syntax.lex.ascii-identifier", "syntax.lex.doc-attach", "syntax
                  "syntax.lex.int-range", "syntax.lex.unterminated-string")
 
 
+# The section-13 and lexical rules whose decisions refuse nothing: each chooses
+# between readings, shapes the tree, or leaves its refusals to a later stage
+# or to the productions, so no negative case can show a refusing side.
+CHOOSING_RULES = (
+    "syntax.lex.double-question", "syntax.lex.longest-match", "syntax.lex.tuple-index",
+    "syntax.rule.arm-statement-end", "syntax.rule.borrow-extent",
+    "syntax.rule.coalesce-grouping", "syntax.rule.continuation-keywords",
+    "syntax.rule.deref-or-multiply", "syntax.rule.flat-chains", "syntax.rule.flat-else-if",
+    "syntax.rule.generic-arg-value", "syntax.rule.generic-close-split", "syntax.rule.head-reset",
+    "syntax.rule.interpolation-segment", "syntax.rule.leading-minus",
+    "syntax.rule.module-inline", "syntax.rule.name-pattern", "syntax.rule.one-call-node",
+    "syntax.rule.operator-continuation", "syntax.rule.optional-chain-run",
+    "syntax.rule.paren-type", "syntax.rule.postfix-per-hop", "syntax.rule.prefix-or-cast",
+    "syntax.rule.reference-position", "syntax.rule.refusal-body",
+    "syntax.rule.subscript-arguments", "syntax.rule.subscript-declaration",
+    "syntax.rule.tuple-index-dot",
+)
+
+
 def refusing_rules():
     """The rules the recognizer refuses a text by, naming them."""
     return sorted({rule for _, _, rule in recognize.FILTERS} | set(recognize.NAMED_RULES)
-                  | set(NAMED_LEXICAL))
+                  | set(recognize.STOP_RULES) | set(NAMED_LEXICAL) | {UNCLOSED_RULE})
+
+
+def removed_of(model):
+    """{section-13 rule: the removed productions its constructs column lists},
+    which name the refusals of the rules that choose one reading of a text."""
+    removed = {p.name for p in model.productions if p.status == "removed" and p.nonterminal}
+    out = {}
+    for _, cells in model.rows_of("rules"):
+        named = [c.strip() for c in cells[1].split(",") if c.strip() in removed]
+        if named:
+            out.setdefault(cells[0], []).extend(named)
+    return out
 
 
 def coverage(g, results, removed, waivers):
@@ -647,8 +674,11 @@ def coverage(g, results, removed, waivers):
     alternative (`removed`, their names and the production each is refused
     as) needs a negative case refused as that production whose tree, with the
     production enabled, uses it; each section-12 N cell a negative case of its
-    own, and each P cell one of its bare form; each section-13 rule a golden case named for it; each rule the
-    recognizer refuses by name a negative case refused by it; and each
+    own, and each P cell one of its bare form; each section-13 rule a golden case named for it; each
+    section-13 and lexical rule but CHOOSING_RULES, its refusing side: a
+    negative case named for it that records its name, or a removed
+    production's; each rule the recognizer refuses by name a negative case
+    refused by it; and each
     section-11 row a negative case whose depth refusal it is charged at, the
     opener of the 257th level being that row's construct. Each case's
     name must start with a source it may be named for, and each census item,
@@ -666,13 +696,20 @@ def coverage(g, results, removed, waivers):
                    for ctx, code in zip(contexts, row[1:]) if code == "P"},
         "rule": set(g.model.rule_ids()),
         "refusal": set(refusing_rules()),
+        "refusing-side": (set(g.model.rule_ids()) | set(g.model.lexical_rule_ids()))
+                         - set(CHOOSING_RULES),
         "source": set(CENSUS + DESIGN_259 + RULINGS) | set(g.model.lexical_rule_ids()),
         "depth-row": {cells[0] for _, cells in g.model.rows_of("depth")},
     }
     known = {name for name, _, _ in g.model.definitions()} | items["source"]
     production_of = dict(removed)
+    removed_names = {p.name for p in g.model.productions if p.status == "removed"}
     used = {kind: set() for kind in items}
-    out = []
+    out = ["parsecoverage: %s is listed as choosing, but the recognizer refuses by it" % rule
+           for rule in sorted(set(CHOOSING_RULES) & set(refusing_rules()))]
+    out += ["parsecoverage: %s is listed as choosing, but is no section-13 or lexical rule" % rule
+            for rule in sorted(set(CHOOSING_RULES) - set(g.model.rule_ids())
+                               - set(g.model.lexical_rule_ids()))]
     for kind, name, lines, _, refusal, alts in results:
         source = name.split("/")[0]
         if source not in known:
@@ -691,12 +728,18 @@ def coverage(g, results, removed, waivers):
         if refusal is not None:
             used["refusal"].add(refusal)
             used["removed"].update(a for a in alts if production_of.get(a) == refusal)
+            if refusal == source or refusal in removed_names:
+                used["refusing-side"].add(source)
         if refusal == recognize.DEPTH_RULE:
             used["depth-row"].update(alts)
     counts = {}
     for kind in sorted(items):
         for item in sorted(items[kind]):
-            if item not in used[kind] and (kind, item) not in waivers:
+            if item not in used[kind] and (kind, item) not in waivers and kind == "refusing-side":
+                out.append("parsecoverage: the rule %s shows no refusing side: no negative case "
+                           "named for it records its name or a removed form's, and it has no "
+                           "waiver and is not in CHOOSING_RULES" % item)
+            elif item not in used[kind] and (kind, item) not in waivers:
                 out.append("parsecoverage: the %s %s has no %s case and no waiver"
                            % (kind, item, WANTED[kind]))
             elif item in used[kind] and (kind, item) in waivers:
@@ -712,10 +755,11 @@ def coverage(g, results, removed, waivers):
 COUNT_NAMES = {"removed": "covered removed alternatives", "n-cell": "covered N cells",
                "p-cell": "covered P cells", "rule": "rules with a golden case",
                "refusal": "named refusals with a negative case", "source": "sources with a case",
-               "depth-row": "section-11 rows with a limit+1 case"}
+               "depth-row": "section-11 rows with a limit+1 case",
+               "refusing-side": "rules with a named refusing case"}
 WANTED = {"removed": "negative", "n-cell": "negative", "p-cell": "bare-form negative",
           "rule": "golden", "refusal": "negative", "source": "golden or negative",
-          "depth-row": "limit+1 negative"}
+          "depth-row": "limit+1 negative", "refusing-side": "named refusing"}
 
 
 def orphans(root, suffixes):

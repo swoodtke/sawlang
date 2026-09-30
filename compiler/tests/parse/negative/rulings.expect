@@ -17,7 +17,7 @@ refuses syntax.lex.doc-attach at 1:1
 refuses syntax.stmt.refused-guard-borrow
 
 // case: SL-400-c6-Q20/non-ascii-identifier
-refuses parse-error at 2:12
+refuses syntax.lex.ascii-identifier at 2:12
 
 // case: SL-400-c6-U2a/qualified-variant-pattern
 refuses syntax.pat.refused-qualified-variant

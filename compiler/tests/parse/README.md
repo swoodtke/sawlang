@@ -228,15 +228,39 @@ of these that applies:
    syntax.stmt.refused-var-discard.
 3. The rule the recognizer reports, else `parse-error`.
 
-A name from step 3 must also be decided at the refusing token. A rule that
-decides by the token after the construct it refuses, as range-open-end and
-borrow-form do, keeps its name only while dropping the tokens after that token,
-or replacing each run of them by one name, keeps it; line breaks and the
-brackets that balance the text stay. Otherwise the case records `parse-error`:
-`let b = a.. == c` is refused by range-open-end only while an operand follows
-the `==`, so it records `parse-error`, as `a.. + b` does. A rule that decides
-by the construct's own tokens decides at them, whatever follows. Making the
-recognizer name range-open-end at its token is SL-410.
+A name from step 3 must also be decided at the refusing token. The recognizer
+reports a rule in one of two ways:
+
+- **At a stop.** A rule the productions encode refuses where the chart stops:
+  no reading of the text before that token takes it. `STOPS` in `recognize.py`
+  reads the rule from what the readings had built there and from the token
+  itself: syntax.rule.statement-separator for a `;` where a statement would
+  begin, or a `;` separator that no statement follows on its line;
+  juxtaposition for a token that begins a statement, right after one that
+  ended on its line with a tree; declaration-separator the same after a
+  declaration; assignment-target for an assignment operator after a complete
+  statement; and so on for each rule in the table. Two of them decide by the
+  token after a construct, and the chart applies them as it runs, so that it
+  stops there: an open range completes only before a token that lets it end
+  (range-open-end), and a place form never before a binding's `=`
+  (borrow-form). A stop depends on no token after the one it names, so its
+  name holds whatever follows: `let b = a.. == c` and `let b = a.. ==` both
+  record range-open-end at the `==`, and `borrow var e = x` and
+  `borrow var e =` both record borrow-form. A borrow binding outside an `if`
+  or `while` head is a `borrow` block, so bindings with no value, or with no
+  brace after them at all, record borrow-form where the chart stops.
+- **By a filter.** A rule that refuses a tree the chart holds names the
+  refusal of the reading that got furthest. Such a name must be settled: a
+  rule that decides by the token after the construct it refuses keeps its
+  name only while dropping the tokens after that token, or replacing each run
+  of them by one name, keeps it; line breaks and the brackets that balance the
+  text stay. Otherwise the case records `parse-error`. A rule that decides by
+  the construct's own tokens decides at them, whatever follows.
+
+Where a stop and a filter name two rules for one text, the text is between two
+rules (below). `x as &Int ?? z` stays a `parse-error`, unsettled: the `??` also
+reads as the inner type's suffix, so without `z` the text is a cast to
+`&Int??`.
 
 syntax.rule.depth-limit is decided at the opener that would take the 257th
 level, so its cases record that opener, the position sawc2 reports. The
@@ -248,14 +272,15 @@ whenever the parser's pre-scan finds a closer for it: a list that parses by its
 tree, one that fails by the deepest reading of the tokens it holds before it
 fails. The limit decides no reading, so it never chooses between trees.
 
-A rule the productions encode, such as syntax.rule.statement-separator, refuses
-without the recognizer naming it, so its cases record `parse-error`. A lexical
-rule the lexer applies, such as syntax.lex.unterminated-string, is named by the
-lexer's error, and the recognizer passes that name on with the lexer's position,
-the one §2.7 fixes. syntax.lex.unclosed-bracket, which no lexer applies, is
-recorded at its opener by `cases.py` itself (The negative corpus, below). A
-lex error no §2.7 rule names, such as an unexpected
-character or a number whose `_` stands between no two digits, records
+A lexical rule the lexer applies, such as syntax.lex.unterminated-string or
+syntax.lex.ascii-identifier, is named by the lexer's error, and the recognizer
+passes that name on with the lexer's position, the one §2.7 fixes.
+syntax.lex.shift-adjacent and the trailing point of syntax.lex.float-point
+(`7.`) are named at stops, since only the parser sees the token after them.
+syntax.lex.unclosed-bracket, which no lexer applies, is recorded at its opener
+by `cases.py` itself for every text that leaves a bracket unclosed, whatever
+else would refuse it (The negative corpus, below). A lex error no §2.7 rule
+names, such as a number whose `_` stands between no two digits, records
 `parse-error` at the lexer's position. A lex error inside an interpolation's
 segment records `parse-error` with no position, since the segment is lexed on
 its own.
@@ -413,13 +438,14 @@ DUMP
 
 NAME is the refusing rule's or removed production's stable id (Refusals,
 above), and `at L:C` the recognizer's position when it gives one, for
-information only. A case that leaves a bracket unclosed holds the line
-`// an unclosed bracket, refused at its opener` and records
+information only. A case that leaves a bracket unclosed records
 `refuses syntax.lex.unclosed-bracket at L:C`, the first unclosed opener, where
-§2.7 reports it: the recognizer balances no brackets and only fails later,
-where the chart stops, with a plain parse error. A closer that closes an
-opener deeper in the stack leaves the openers above it unclosed. A lexical
-refusal records the lexer's position (Refusals, above).
+§2.7 reports it, before any parse: the recognizer balances no brackets and only
+fails later, where the chart stops. A hand-written one says so with the line
+`// an unclosed bracket, refused at its opener`, which a case that leaves none
+may not hold. A closer that closes an opener deeper in the stack leaves the
+openers above it unclosed. A lexical refusal records the lexer's position
+(Refusals, above).
 A negative case that the recognizer accepts is an error,
 except an N cell, or a P cell's bare form, whose tokens parse as another
 construct: its text holds
@@ -476,12 +502,20 @@ generated case, when a removed alternative has no negative case refused as its
 production whose tree, with that production enabled, uses it, when an N cell
 has no negative case, when a P cell has no bare-form negative case, when a §13 rule has no golden case named for it, when
 a rule the recognizer names in a refusal has no negative case refused by it,
-when a §11 row has no negative case refused by syntax.rule.depth-limit at an
+when a §13 or lexical rule shows no refusing side, when a §11 row has no
+negative case refused by syntax.rule.depth-limit at an
 opener of that row's construct, or when a case's name has no source (The
-golden corpus, above) or a source is owed a case and has none.
+golden corpus, above) or a source is owed a case and has none. A rule shows
+its refusing side with a negative case named for it that records its own name,
+or the name of a removed production, which is how a rule that chooses between
+two readings of one text names its refusal; a rule whose decisions refuse
+nothing, because it only chooses between readings, shapes the tree, or leaves
+its refusals to the productions or to a later stage, is listed in
+`CHOOSING_RULES` in `cases.py` instead, and one that the recognizer names
+cannot be listed there.
 `waivers.tsv` lists the items that have none, one per line: the kind
-(`alternative`, `cell`, `removed`, `n-cell`, `p-cell`, `rule`, `refusal` or
-`source`),
+(`alternative`, `cell`, `removed`, `n-cell`, `p-cell`, `rule`, `refusal`,
+`refusing-side` or `source`),
 the item (an alternative's, rule's or source's name, or a construct row and a
 context separated by a space), and the reason, separated by tabs. A waived item's case may have no
 program. A `case` row waives one generated case, by name, whose tree no

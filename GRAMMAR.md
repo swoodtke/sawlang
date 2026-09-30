@@ -277,17 +277,18 @@ the declaration do not matter, but a comment after one of the declaration's
 attributes documents nothing, as in `@synthesize`, `/// two` and
 `extension P: Equatable {}` on three lines. `@test` is not such an attribute
 (syntax.rule.test-form). A test case is not documentable, so a `///` run before
-one is an error. `//!` lines are legal only before the file's first token. A doc comment that documents nothing is an error, and so is a second
-run before a declaration an earlier run already documents, as in `/// one`,
-`@test`, `/// two` and `func f() {}` on four lines. `////` and a
-`///` after code on the same line are ordinary comments.
+one is an error. `//!` lines are legal only before the file's first token. A
+doc comment that documents nothing is an error, and so is a second run before
+a declaration an earlier run already documents, as in `/// one`, `@test`,
+`/// two` and `func f() {}` on four lines. `////` and a `///` after code on
+the same line are ordinary comments.
 
 ### 2.7 Lexical rules
 
 | rule | statement | source |
 |---|---|---|
 | syntax.lex.longest-match | The lexer takes the longest token at each position. `o!= 5` is a comparison and `a&-b` is a wrapping subtraction, and a warning flags both. `Vector<Int>= v` lexes `>=`, which the parser splits where it closes a generic list (syntax.rule.generic-close-split). | Appendix B: Operators |
-| syntax.lex.ascii-identifier | An identifier is ASCII: letters `A` to `Z` and `a` to `z`, digits and `_`. A letter outside ASCII cannot start or continue one, so it is an error outside a string literal or a comment. | SL-400 c6 |
+| syntax.lex.ascii-identifier | Saw source is ASCII outside the text of string literals and comments; an interpolation's expression is source. Any other character there is an error, a letter as much as a symbol, so an identifier is letters `A` to `Z` and `a` to `z`, digits and `_`. | SL-400 c6; SL-410 |
 | syntax.lex.shift-adjacent | A shift is two `<` or two `>` tokens in expression position with no space between them. With a space they are an error, never a comparison. | Bitwise and Shift Operators |
 | syntax.lex.double-question | In a type, a `??` token is two optional layers. In an expression it is the coalescing operator. | Optionals |
 | syntax.lex.tuple-index | Digits after a member `.` are a tuple index (§2.3). | Composite Types |

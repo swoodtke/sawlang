@@ -1,0 +1,5 @@
+// stops: syntax.rule.declaration-separator
+// verdict: FAIL 4:3 refused by syntax.rule.declaration-separator
+func a() {
+} func b() {
+}

@@ -1,0 +1,6 @@
+// stops: syntax.rule.try-extent
+// verdict: FAIL 4:28 refused by syntax.rule.try-extent
+func main() {
+    let v = try g() as Int catch {
+    }
+}

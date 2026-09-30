@@ -15,8 +15,11 @@
 import sawlex.src.lib.{DocComment, TokenKind, lex}
 import sawparse.src.source.{source_file}
 import sawparse.src.diag.{Diagnostic}
-import sawparse.src.grammar.{ALT_COUNT, Alt, Rule, begins_statement_only, follows_cast_list,
-                             holds_closure_head, rule_named, stops_list_scan}
+import sawparse.src.grammar.{ALT_COUNT, Alt, Rule, begins_expression, begins_extension_member,
+                             begins_extern_func, begins_range_bound, begins_statement,
+                             begins_statement_only, begins_top_level_item, begins_trait_member,
+                             follows_cast_list, holds_capture, holds_closure_head, rule_named,
+                             stops_list_scan}
 import sawparse.src.tokens.{InterpPiece, ParseToken, closes_bracket, opens_bracket, parser_tokens}
 import sawparse.src.tree.{BuilderCheckpoint, NodeShape, TreeBuilder, put_at, trim_to}
 
@@ -158,6 +161,16 @@ func member_list_alt(body: MemberBody) -> Alt {
         case Trait -> Alt.Decl_TraitMembers,
         case Extension -> Alt.Decl_ExtensionMembers,
         case Extern -> Alt.Decl_ExternFuncs
+    }
+}
+
+// Whether a token of this kind, spelled `word`, begins one of the body's
+// members (syntax.rule.declaration-separator).
+func begins_member(body: MemberBody, kind: TokenKind, word: String) -> Bool {
+    match body {
+        case Trait -> begins_trait_member(kind, word),
+        case Extension -> begins_extension_member(kind, word),
+        case Extern -> begins_extern_func(kind, word)
     }
 }
 
@@ -431,6 +444,7 @@ public struct Checkpoint {
     public shadow_brace: Int
     public lifted_brace: Int
     public dropped: Int
+    public catchless_try: Int
 }
 
 public struct Parser {
@@ -517,6 +531,10 @@ public struct Parser {
     // The `{` of an arm body that reads as a map or set literal, or -1: a
     // plain error inside its block is that rule's refusal (syntax.rule.arm-body).
     private literal_arm: Int
+    // The last plain `try` of the statement that took no `catch`, or -1: a
+    // `catch` after the statement is then refused as outside its extent
+    // (syntax.rule.try-extent).
+    private catchless_try: Int
     // How many depth refusals the parse has met, speculations included, and
     // the opener of the last.
     private depth_refusals: Int
@@ -554,7 +572,7 @@ public func new_parser(builder: TreeBuilder, tokens: Vector<ParseToken>,
                         head_brace: -1, head_start: -1, head_follow: TokenKind.LBrace,
                         shadow_brace: -1, lifted_brace: -1, primed: false,
                         spine_alts: Vector<Alt>(), spine_count: 0, literal_arm: -1,
-                        depth_refusals: 0,
+                        catchless_try: -1, depth_refusals: 0,
                         depth_opener: -1)
     parser.find_doc_runs()
     move parser
@@ -772,6 +790,12 @@ extension Parser {
         self.builder.tree.source.span_is(t.start, t.end, word)
     }
 
+    // The current token's spelling, for the tables that read a word by it.
+    func current_word(&self) -> String {
+        let t = self.tokens[self.pos]
+        self.builder.tree.source.slice(t.start, t.end)
+    }
+
     // Consumes the current token. Inside a generic list the line breaks after
     // it are insignificant, so they are passed over too, without moving where
     // a node closing now ends.
@@ -859,6 +883,7 @@ extension Parser {
     //     spine_alts: restored by spine_count
     //     spine_count: restored
     //     literal_arm: restored
+    //     catchless_try: restored
     //     depth_refusals: kept, because it only counts up, so a speculation sees the refusals of those nested in it
     //     depth_opener: kept, because it names the opener a depth refusal a restore undid is reported at
     public func checkpoint(&var self) -> Checkpoint {
@@ -875,7 +900,7 @@ extension Parser {
                                literal_arm: self.literal_arm, head_brace: self.head_brace,
                                head_start: self.head_start, head_follow: self.head_follow,
                                shadow_brace: self.shadow_brace, lifted_brace: self.lifted_brace,
-                               dropped: self.dropped)
+                               dropped: self.dropped, catchless_try: self.catchless_try)
         self.speculating = self.speculating + 1
         saved
     }
@@ -920,6 +945,7 @@ extension Parser {
         self.head_follow = saved.head_follow
         self.shadow_brace = saved.shadow_brace
         self.lifted_brace = saved.lifted_brace
+        self.catchless_try = saved.catchless_try
     }
 
     // Keeps what the speculation since `saved` parsed.
@@ -998,10 +1024,43 @@ extension Parser {
                                "an arm body that starts with `\{` is a block",
                                "parenthesize a map or set literal: `case _ -> (\{a: 1\})`")
         }
+        if self.spaced_shift() {
+            let second = self.pos
+            return self.refuse(Rule.Lex_ShiftAdjacent, second,
+                               "a shift is two `<` or two `>` with no space between them",
+                               "write `<<` or `>>`, or parenthesize a comparison")
+        }
         // Stage 0 workaround (SL:hazards S4): canonical: self.report(None, self.pos, message, "")
         let at = self.pos
         self.report(None, at, message, "")
         false
+    }
+
+    // A refusal named by `rule` at the current token, where the productions
+    // stop and the rule says why, as `error` gives a plain one: the rules
+    // `error` lets outrank a plain error outrank this one too.
+    func error_by(&var self, rule: Rule, message: String, hint: String) -> Bool {
+        if self.head_restricted() {
+            return self.refuse_head_restriction()
+        }
+        let list = self.rejected_list
+        if list >= 0 && self.speculating == 0 {
+            return self.refuse_rejected_list(list)
+        }
+        let at = self.pos
+        self.refuse(rule, at, message, hint)
+    }
+
+    // Whether the current token is a `<` or `>` after one of its own kind with
+    // a space between them, which is no shift and no comparison
+    // (syntax.lex.shift-adjacent).
+    func spaced_shift(&self) -> Bool {
+        let kind = self.kind()
+        if self.pos == 0 || (kind != TokenKind.Lt && kind != TokenKind.Gt) {
+            return false
+        }
+        let prev = self.tokens[self.pos - 1]
+        prev.kind == kind && prev.end != self.tokens[self.pos].start
     }
 
     // The refusal of the generic list at `at`, which parsed and was re-read as
@@ -1421,7 +1480,7 @@ extension Parser {
         let mark = self.builder.mark()
         self.module_docs()
         self.skip_newlines()
-        self.parse_items(false)
+        self.parse_items(false, false)
         let end = self.builder.tree.source.len()
         let _ = self.builder.close(mark, NodeShape.Built, Alt.File_Source, 0, end)
         self.finish()
@@ -1452,8 +1511,10 @@ extension Parser {
     }
 
     // `top-level-list ::= top-level-item ( NEWLINE+ top-level-item )* NEWLINE*`,
-    // inside an inline module when `inline`, which a `}` closes.
-    func parse_items(&var self, inline: Bool) {
+    // inside an inline module or a test group when `inline`, which a `}`
+    // closes. A test group's (`group`) holds no statement
+    // (syntax.rule.test-form).
+    func parse_items(&var self, inline: Bool, group: Bool) {
         var any = false
         while true {
             let kind = self.kind()
@@ -1467,7 +1528,10 @@ extension Parser {
             let from = self.pos
             let point = self.resume_point()
             self.begin_statement()
-            if not self.parse_item() {
+            let statement = (group && begins_statement(kind)
+                             && not begins_top_level_item(kind, self.current_word()))
+            let ok = if statement { self.refuse_group_statement() } else { self.parse_item() }
+            if not ok {
                 self.resume(&point)
                 self.recover(from)
             }
@@ -1479,9 +1543,15 @@ extension Parser {
             } else {
                 let from_here = self.pos
                 if after == TokenKind.Semicolon {
-                    let _ = self.error("declarations are not joined by `;`; put each on its own line")
+                    let _ = self.error_by(Rule.Rule_DeclarationSeparator,
+                                          "declarations are not joined by `;`; put each on its own line",
+                                          "")
+                } else if begins_top_level_item(after, self.current_word()) {
+                    let _ = self.error_by(Rule.Rule_DeclarationSeparator,
+                                          "two declarations on one line need a line break between them",
+                                          "")
                 } else {
-                    let _ = self.error("two declarations on one line need a line break between them")
+                    let _ = self.error("expected a line break after the declaration")
                 }
                 self.recover(from_here)
                 if self.kind() == TokenKind.Semicolon || (not inline && self.kind() == TokenKind.RBrace) {
@@ -1490,6 +1560,11 @@ extension Parser {
                 self.skip_newlines()
             }
         }
+    }
+
+    func refuse_group_statement(&var self) -> Bool {
+        self.error_by(Rule.Rule_TestForm, "a test group holds declarations and cases, never statements",
+                      "put the statement in a test case: `@test \"name\" \{ … \}`")
     }
 
     // Whether the current token begins a top-level item rather than a
@@ -1613,6 +1688,12 @@ extension Parser {
             self.advance()
         }
         if self.kind() != TokenKind.StringLit {
+            let clause = alt != Alt.Test_Case_Run
+            if clause && begins_top_level_item(self.kind(), self.current_word()) {
+                return self.error_by(Rule.Rule_TestForm,
+                                     "`panics:`, `warns:` and `refuses:` go only on a test case",
+                                     "name the case with a string after the clause, or drop the clause from the test-only declaration")
+            }
             return self.error("expected the test case's name, a string")
         }
         self.take_leaf()
@@ -1756,7 +1837,7 @@ extension Parser {
         }
         self.advance()
         self.skip_newlines()
-        self.parse_items(true)
+        self.parse_items(true, true)
         if self.kind() != TokenKind.RBrace {
             return self.refuse_unclosed(open)
         }
@@ -1863,6 +1944,13 @@ extension Parser {
         }
         let alt = self.declaration_alt(k)
         if alt == Alt.File_Item_Declaration {
+            // The head scan passes an attribute's tokens unread, so a
+            // malformed one is refused first, as the tokens come.
+            while self.kind() == TokenKind.At {
+                if not self.parse_attribute() {
+                    return false
+                }
+            }
             return self.error("expected a declaration")
         }
         let mark = self.builder.mark()
@@ -2102,6 +2190,10 @@ extension Parser {
             alt = Alt.Attr_Attribute_Synthesize
         } else if self.word_at(0, "align") && argument {
             alt = Alt.Attr_Attribute_Align
+        } else if self.word_at(0, "test") {
+            return self.refuse_misplaced_test()
+        } else if self.kind() == TokenKind.Ident {
+            return self.refuse_attribute_shape()
         } else {
             return self.error("expected `export`, `section`, `synthesize` or `align` after `@`")
         }
@@ -2109,16 +2201,22 @@ extension Parser {
         if argument {
             let open = self.pos
             self.advance()
-            if alt == Alt.Attr_Attribute_Align {
+            let string = alt != Alt.Attr_Attribute_Align
+            if not string {
                 if not self.parse_expr() {
                     return false
                 }
             } else if self.kind() == TokenKind.StringLit {
                 self.take_leaf()
+            } else if self.kind() != TokenKind.Eof {
+                return self.refuse_attribute_shape()
             } else {
                 return self.list_error(open, "expected the attribute's string")
             }
             if self.kind() != TokenKind.RParen {
+                if string && self.kind() != TokenKind.Eof {
+                    return self.refuse_attribute_shape()
+                }
                 return self.list_error(open, "expected `)` after the attribute's argument")
             }
             self.advance()
@@ -2127,6 +2225,23 @@ extension Parser {
         self.close(mark, alt, start)
         self.skip_newlines()
         true
+    }
+
+    // An attribute's name that is none, or an argument of the wrong shape: a
+    // missing one, or one that is not a string where a string stands
+    // (syntax.rule.attribute-position).
+    func refuse_attribute_shape(&var self) -> Bool {
+        self.error_by(Rule.Rule_AttributePosition,
+                      "an attribute is `@export`, `@export(\"name\")`, `@section(\"name\")`, `@synthesize`, `@synthesize(shared)` or `@align(n)`",
+                      "")
+    }
+
+    // `@test` where no test item stands: after another attribute, or in a
+    // body that takes no test item (syntax.rule.test-form).
+    func refuse_misplaced_test(&var self) -> Bool {
+        self.error_by(Rule.Rule_TestForm,
+                      "`@test` stands at the top level or in a group, before a declaration's other attributes",
+                      "")
     }
 
     // Whether `@synthesize(shared)` stands here.
@@ -2481,9 +2596,15 @@ extension Parser {
             } else if after != TokenKind.RBrace && after != TokenKind.Eof {
                 let from_here = self.pos
                 if after == TokenKind.Semicolon {
-                    let _ = self.error("members are not joined by `;`; put each on its own line")
+                    let _ = self.error_by(Rule.Rule_DeclarationSeparator,
+                                          "members are not joined by `;`; put each on its own line",
+                                          "")
+                } else if begins_member(body, after, self.current_word()) {
+                    let _ = self.error_by(Rule.Rule_DeclarationSeparator,
+                                          "two members on one line need a line break between them",
+                                          "")
                 } else {
-                    let _ = self.error("two members on one line need a line break between them")
+                    let _ = self.error("expected a line break after the member")
                 }
                 self.recover(from_here)
                 if self.kind() == TokenKind.Semicolon {
@@ -2530,7 +2651,18 @@ extension Parser {
             self.see(Alt.Decl_TraitMember_Requirement)
             return self.parse_requirement()
         }
+        if self.kind() == TokenKind.Static {
+            self.advance()
+            return self.refuse_static_head()
+        }
         self.error("expected a requirement or an associated type")
+    }
+
+    // In a trait or an extension body, `static` followed by anything but
+    // `func`, the current token (syntax.rule.static-head).
+    func refuse_static_head(&var self) -> Bool {
+        self.error_by(Rule.Rule_StaticHead, "in a trait or an extension, `static` marks a static method",
+                      "write `static func`, or declare a static at the top level")
     }
 
     func refuse_member_private(&var self) -> Bool {
@@ -2602,7 +2734,7 @@ extension Parser {
         }
         let synthesized = self.kind() == TokenKind.At
         if synthesized && not self.synthesize_shared_ahead() {
-            return self.error("a member takes no attribute but `@synthesize(shared)`")
+            return self.refuse_member_attribute()
         }
         let named = self.after_visibility(attrs)
         let head = self.kind_at(named)
@@ -2640,6 +2772,31 @@ extension Parser {
         true
     }
 
+    // An attribute on an extension member other than `@synthesize(shared)`:
+    // `@test`, which stands in no ordinary extension (syntax.rule.test-form);
+    // an unknown name, or `@synthesize` with another argument
+    // (syntax.rule.attribute-position); or a plain error for a known one.
+    func refuse_member_attribute(&var self) -> Bool {
+        self.advance()
+        if self.word_at(0, "test") {
+            return self.refuse_misplaced_test()
+        }
+        let known = (self.word_at(0, "export") || self.word_at(0, "section")
+                     || self.word_at(0, "synthesize") || self.word_at(0, "align"))
+        if self.kind() == TokenKind.Ident && not known {
+            return self.refuse_attribute_shape()
+        }
+        if self.word_at(0, "synthesize") && self.kind_at(1) == TokenKind.LParen {
+            self.advance()
+            self.advance()
+            if self.word_at(0, "shared") {
+                self.advance()
+            }
+            return self.refuse_attribute_shape()
+        }
+        self.error("a member takes no attribute but `@synthesize(shared)`")
+    }
+
     // `type-assign-decl ::= 'type' IDENT "=" type`
     func parse_type_assign(&var self) -> Bool {
         self.see(Alt.Decl_TypeAssign)
@@ -2670,7 +2827,7 @@ extension Parser {
         if is_static {
             self.take_leaf()
             if self.kind() != TokenKind.Func {
-                return self.error("expected `func` after `static`")
+                return self.refuse_static_head()
             }
         }
         self.advance()
@@ -2762,6 +2919,9 @@ extension Parser {
         let exclusive = self.first_is_exclusive(first)
         if not self.parse_effects(host, exclusive) {
             return false
+        }
+        if self.effect_word_at(0) {
+            return self.refuse_effect_order()
         }
         if self.kind() == TokenKind.Arrow {
             self.see(Alt.Decl_Return)
@@ -3138,7 +3298,7 @@ extension Parser {
         }
         self.advance()
         self.skip_newlines()
-        self.parse_items(true)
+        self.parse_items(true, false)
         if self.kind() != TokenKind.RBrace {
             return self.refuse_unclosed(open)
         }
@@ -3454,6 +3614,7 @@ extension Parser {
     func begin_statement(&var self) {
         self.rejected_list = -1
         self.head_brace = -1
+        self.catchless_try = -1
     }
 
     // A refusal unit's items, statements and top-level items alike, separated
@@ -3490,12 +3651,12 @@ extension Parser {
             let kind = self.kind()
             if kind == TokenKind.Eof || (not unit && kind == TokenKind.RBrace) {
                 if list.need {
-                    let _ = self.error("a `;` joins two statements on one line; it does not end one")
+                    let _ = self.refuse_semicolon()
                 }
                 return false
             }
             if list.need && kind == TokenKind.Newline {
-                let _ = self.error("a `;` joins two statements on one line; it does not end one")
+                let _ = self.refuse_semicolon()
                 list.need = false
             }
             if kind == TokenKind.Newline {
@@ -3509,7 +3670,7 @@ extension Parser {
             if kind == TokenKind.Semicolon {
                 let line_start = self.pos > 0 && self.tokens[self.pos - 1].kind == TokenKind.Newline
                 if not list.any || list.need || line_start {
-                    let _ = self.error("a `;` joins two statements on one line; it does not end one")
+                    let _ = self.refuse_semicolon()
                 }
                 self.see(Alt.Stmt_Sep_Semicolon)
                 self.advance()
@@ -3518,7 +3679,7 @@ extension Parser {
             }
             if list.any && not list.need && self.tokens[self.pos - 1].kind != TokenKind.Newline {
                 let from_here = self.pos
-                let _ = self.error("two statements on one line need a `;` between them")
+                let _ = self.refuse_juxtaposed(unit)
                 self.recover(from_here)
                 continue
             }
@@ -3527,6 +3688,42 @@ extension Parser {
             return true
         }
         false
+    }
+
+    func refuse_semicolon(&var self) -> Bool {
+        self.error_by(Rule.Rule_StatementSeparator,
+                      "a `;` joins two statements on one line; it does not end one",
+                      "put the next statement after the `;`, or drop the `;`")
+    }
+
+    // A token after a complete statement, on its line: a second statement
+    // (syntax.rule.juxtaposition), an assignment whose target is then no place
+    // (syntax.rule.assignment-target), a `catch` past a `try`'s extent
+    // (syntax.rule.try-extent), or a plain error.
+    func refuse_juxtaposed(&var self, unit: Bool) -> Bool {
+        let kind = self.kind()
+        // Every identifier begins a statement, so a unit's items differ from
+        // its statements only by their keywords.
+        if begins_statement(kind) || (unit && begins_top_level_item(kind, "")) {
+            return self.error_by(Rule.Rule_Juxtaposition,
+                                 "two statements on one line need a `;` between them",
+                                 "put the second statement on a line of its own, or after a `;`")
+        }
+        if is_assignment(kind) {
+            return self.refuse_target()
+        }
+        if kind == TokenKind.Catch && self.catchless_try >= 0 {
+            return self.error_by(Rule.Rule_TryExtent,
+                                 "`try` applies to the prefix expression after it, so no `catch` follows the expression it began",
+                                 "catch on the `try` itself, `try f() catch \{ … \}`, and convert its value after")
+        }
+        self.error("two statements on one line need a `;` between them")
+    }
+
+    func refuse_target(&var self) -> Bool {
+        self.error_by(Rule.Rule_AssignmentTarget,
+                      "an assignment's target is a name, `self`, a field, an element or a pointee",
+                      "")
     }
 
     // `statement ::= expr-stmt | non-expr-statement`, or, for an unbraced
@@ -3816,7 +4013,7 @@ extension Parser {
                                                Alt.Stmt_CompoundTarget_Name, arm)
                 return self.finish_assignment(mark, start, compound, node)
             }
-            return self.error("an assignment's target is a name, `self`, a field, an element or a pointee")
+            return self.refuse_target()
         }
         // An optional-chain run still open at the chain's end makes the
         // statement an optional assignment (syntax.rule.optional-chain-run).
@@ -3830,7 +4027,7 @@ extension Parser {
         }
         let last = self.spine_alts[self.spine_count - 1]
         if last == Alt.Expr_Hop_Trailing {
-            return self.error("an assignment's target is a name, `self`, a field, an element or a pointee")
+            return self.refuse_target()
         }
         var k = first
         while k < self.spine_count - 1 {
@@ -3921,7 +4118,7 @@ extension Parser {
         let start = self.here()
         let mark = self.builder.mark()
         self.advance()
-        if not ends_statement(self.kind(), arm) {
+        if not ends_statement(self.kind(), arm) && begins_expression(self.kind()) {
             if not self.parse_expr() {
                 return false
             }
@@ -3980,6 +4177,11 @@ extension Parser {
             return self.refuse(Rule.Rule_TrailingClosure, at,
                                "only a name or a member takes a trailing closure, and only one",
                                "pass the closure in parentheses: `f(…)(\{ … \})`")
+        }
+        // A loop is no place, so an assignment operator after one refuses its
+        // target, not an operand.
+        if is_assignment(self.kind()) {
+            return self.refuse_target()
         }
         if continues_operand(self.kind()) {
             let at = self.pos
@@ -4070,14 +4272,26 @@ extension Parser {
             return false
         }
         let kind = self.kind()
-        if (kind != TokenKind.Let && kind != TokenKind.Var) || self.kind_at(1) == TokenKind.LParen {
-            return self.error("an attribute stands on a `let` or `var` that binds one name")
+        if kind == TokenKind.Let || kind == TokenKind.Var {
+            if self.kind_at(1) != TokenKind.Ident {
+                self.advance()
+                return self.refuse_attributed_statement()
+            }
+        } else {
+            return self.refuse_attributed_statement()
         }
         if not self.parse_let() {
             return false
         }
         self.close(mark, Alt.Stmt_AttributedLocal, start)
         true
+    }
+
+    // An attribute on a statement that is no `let` or `var` binding one name,
+    // at the token that says so (syntax.rule.attribute-position).
+    func refuse_attributed_statement(&var self) -> Bool {
+        self.error_by(Rule.Rule_AttributePosition,
+                      "an attribute stands on a `let` or `var` that binds one name", "")
     }
 
     // `destructure-stmt ::= ("let" | "var") tuple-pattern "=" expr`, which
@@ -4129,7 +4343,9 @@ extension Parser {
         let start = self.here()
         let mark = self.builder.mark()
         self.advance()
-        if not ends_statement(self.kind(), arm) {
+        // A token that begins no expression leaves `return` with none, and
+        // the statement ends before it.
+        if not ends_statement(self.kind(), arm) && begins_expression(self.kind()) {
             if not self.parse_expr() {
                 return false
             }
@@ -4331,6 +4547,9 @@ extension Parser {
         self.advance()
         let _ = self.binding_name()
         self.advance()
+        if not begins_expression(self.kind()) {
+            return self.refuse_valueless_binding()
+        }
         if not self.parse_head_expr(TokenKind.LBrace) {
             return false
         }
@@ -4879,6 +5098,10 @@ extension Parser {
             return self.error("expected `->` and the arm's body")
         }
         self.advance()
+        if self.kind() == TokenKind.Newline {
+            return self.error_by(Rule.Rule_ArmBody, "an arm's body starts on the line of its `->`",
+                                 "write the body after the `->`, or open a block there: `case p -> \{`")
+        }
         if not self.parse_arm_body() {
             return false
         }
@@ -5344,6 +5567,11 @@ extension Parser {
         if not self.parse_type(false) {
             return false
         }
+        if self.kind() == TokenKind.RBracket {
+            return self.error_by(Rule.Rule_PrefixTypeSuffix,
+                                 "`[T]` alone is no type: a slice is borrowed, `&[T]`, and an array has a length, `[T; N]`",
+                                 "write `&[T]` for a slice, or `[T; N]` for an array")
+        }
         if self.kind() != TokenKind.Semicolon {
             return self.list_error(open, "expected `;` and the array's length")
         }
@@ -5382,10 +5610,26 @@ extension Parser {
         }
         let after = k + 1 - self.pos
         let next = self.kind_at(after)
-        if next == TokenKind.Arrow || next == TokenKind.Unsafe_ || next == TokenKind.Borrows {
+        next == TokenKind.Arrow || self.effect_word_at(after)
+    }
+
+    // Whether the token `ahead` tokens on is an effect word, one of a
+    // declaration's or of a function type's (syntax.rule.effect-slot).
+    func effect_word_at(&self, ahead: Int) -> Bool {
+        let kind = self.kind_at(ahead)
+        if kind == TokenKind.Unsafe_ || kind == TokenKind.Borrows {
             return true
         }
-        self.word_at(after, "sync") || self.word_at(after, "escaping") || self.word_at(after, "consumes")
+        (self.word_at(ahead, "sync") || self.word_at(ahead, "escaping")
+         || self.word_at(ahead, "consumes") || self.word_at(ahead, "constexpr"))
+    }
+
+    // An effect word after an effect slot ended: out of the slot's one
+    // order, a second time, or one the slot does not take
+    // (syntax.rule.effect-slot).
+    func refuse_effect_order(&var self) -> Bool {
+        self.error_by(Rule.Rule_EffectSlot, "effect words stand once each, in one order",
+                      "write `consumes unsafe sync borrows` after a declaration's parameters, or `unsafe sync escaping borrows` in a function type, each at most once")
     }
 
     // `func-type ::= "(" func-type-params? ")" func-type-effects "->" type`,
@@ -5434,6 +5678,9 @@ extension Parser {
             return self.refuse(Rule.Type_RefusedFuncConsumes, at,
                                "`consumes` ends a method's receiver, and a function type has none",
                                "call the method")
+        }
+        if self.effect_word_at(0) {
+            return self.refuse_effect_order()
         }
         if self.kind() != TokenKind.Arrow {
             return self.error("expected `->` and the function type's return type")
@@ -6206,6 +6453,9 @@ extension Parser {
             if lead == TokenKind.DotDot && self.range_ends() {
                 self.see(Alt.Expr_RangeUpto_Full)
             } else {
+                if not begins_range_bound(self.kind()) {
+                    return self.refuse_open_end()
+                }
                 let alt = if lead == TokenKind.DotDot { Alt.Expr_RangeUpto_Exclusive } else { Alt.Expr_RangeUpto_Inclusive }
                 self.see(alt)
                 if not self.parse_shift() {
@@ -6242,6 +6492,9 @@ extension Parser {
             self.see(Alt.Expr_RangeFrom)
             self.close(mark, Alt.Expr_Range_From, start)
             return true
+        }
+        if not begins_range_bound(self.kind()) {
+            return self.refuse_open_end()
         }
         self.see(Alt.Expr_Range_Closed)
         let alt = if op == TokenKind.DotDot { Alt.Expr_RangeOp_Exclusive } else { Alt.Expr_RangeOp_Inclusive }
@@ -6598,11 +6851,36 @@ extension Parser {
             return self.error("expected `=` and the place to borrow")
         }
         self.advance()
+        if not begins_expression(self.kind()) {
+            return self.refuse_valueless_binding()
+        }
         if not self.parse_head_expr(TokenKind.Comma) {
             return false
         }
         self.close(mark, alt, start)
         true
+    }
+
+    // A borrow binding's `=` decides it is a binding (syntax.rule.borrow-form),
+    // so one with no place after the `=` is that rule's refusal.
+    func refuse_valueless_binding(&var self) -> Bool {
+        self.error_by(Rule.Rule_BorrowForm, "a borrow binding names the place it borrows after its `=`",
+                      "write the place on the line of the `=`")
+    }
+
+    // The gap after a `borrow` block's bindings, at `open`'s `borrow`, where
+    // no brace follows them at all: a binding outside an `if` or `while` head
+    // is a `borrow` block, which takes one (syntax.rule.borrow-form).
+    func refuse_blockless_binding(&var self, open: Int) -> Bool {
+        var k = open
+        while k < self.pos {
+            if self.tokens[k].kind == TokenKind.LBrace {
+                return self.error(list_gap_message(list_shape(CommaList.BorrowBindings)))
+            }
+            k = k + 1
+        }
+        self.error_by(Rule.Rule_BorrowForm, "a borrow binding here begins a `borrow` block, which takes a body",
+                      "add the block, `borrow let x = place \{ … \}`, or borrow the place bare: `borrow place`")
     }
 
     // `move-expr ::= "move" move-base move-hop* "!"?`: a place path, which
@@ -6682,8 +6960,17 @@ extension Parser {
             }
             self.close(base, node, base_start)
         }
+        var forced = false
         if self.kind() == TokenKind.Exclaim {
             self.take_leaf()
+            forced = true
+        }
+        let next = self.kind()
+        let hop = next == TokenKind.Dot || next == TokenKind.LBracket || next == TokenKind.Exclaim
+        if next == TokenKind.LParen || next == TokenKind.QuestionDot || (forced && hop) {
+            return self.error_by(Rule.Rule_MovePlace,
+                                 "`move` takes a place path: fields, tuple indexes and elements, then an optional `!`",
+                                 "parenthesize the move to go on from its value: `(move x).f()`")
         }
         self.close(mark, Alt.Expr_Move_Place, start)
         while levels > 0 {
@@ -6775,6 +7062,8 @@ extension Parser {
             if not self.parse_catch_clause() {
                 return false
             }
+        } else if alt == Alt.Expr_Try_Propagate && not routed {
+            self.catchless_try = open
         }
         if routed {
             alt = Alt.Expr_Try_Route
@@ -7406,7 +7695,9 @@ extension Parser {
             self.see(Alt.Expr_InterpSegment_Expr)
             ok = self.parse_expr()
             if ok && self.kind() != TokenKind.Eof {
-                ok = self.error("an interpolation segment holds exactly one expression")
+                ok = self.error_by(Rule.Rule_InterpolationWhole,
+                                   "an interpolation segment holds exactly one expression",
+                                   "write one expression between the braces, or escape a literal brace")
             }
         }
         self.pos = saved_pos
@@ -7610,7 +7901,7 @@ extension Parser {
                 }
             } else {
                 if self.kind() != TokenKind.Comma {
-                    return self.list_stop(shape.closer, open, list_gap_message(shape))
+                    return self.list_gap(shape, open)
                 }
                 let comma = self.pos
                 self.advance()
@@ -7742,6 +8033,14 @@ extension Parser {
             return self.list_error(open, message)
         }
         self.error(message)
+    }
+
+    // A token that neither separates the list's elements nor closes it.
+    func list_gap(&var self, shape: ListShape, open: Int) -> Bool {
+        if shape.list == CommaList.BorrowBindings {
+            return self.refuse_blockless_binding(open)
+        }
+        self.list_stop(shape.closer, open, list_gap_message(shape))
     }
 
     // The parser of one element of `list`.
@@ -7929,10 +8228,22 @@ extension Parser {
             self.shadow_brace = saved_shadow
             if ok && bare {
                 let continued = self.loop_continuation(element, first)
+                if continued >= 0 && is_assignment(self.tokens[continued].kind) {
+                    return self.refuse(Rule.Rule_AssignmentTarget, continued,
+                                       "an assignment's target is a name, `self`, a field, an element or a pointee",
+                                       "")
+                }
                 if continued >= 0 {
                     return self.refuse(Rule.Rule_BlockTail, continued,
                                        "a loop that starts a statement is a statement, not an operand",
                                        "parenthesize the loop to use its value")
+                }
+                let breaks = self.breaks_ahead(0)
+                if breaks > 0 && self.kind_at(breaks) == TokenKind.Colon {
+                    let colon = self.pos + breaks
+                    return self.refuse(Rule.Rule_Brace, colon,
+                                       "a map entry's `:` stands on its key's line, so this brace is a closure",
+                                       "move the `:` up to the key's line")
                 }
                 self.see(Alt.Stmt_Statement_Expr)
                 self.see(Alt.Stmt_Expr)
@@ -7994,7 +8305,8 @@ extension Parser {
 
     // Whether a closure head follows the brace here: past line breaks, a run
     // of tokens a head holds at the brace's own depth, then `in`. The scan
-    // passes nested `( )` and `[ ]` groups whole and stops at the first token
+    // passes nested `( )` and `[ ]` groups whole, but a leading capture list's
+    // tokens are captures' (`holds_capture`), and stops at the first token
     // no head holds (`holds_closure_head`, generated from the grammar). Only
     // `for` puts an `in` in a statement, so a body never reaches one this way.
     func closure_head_ahead(&self) -> Bool {
@@ -8017,8 +8329,23 @@ extension Parser {
                 }
             } else if kind == TokenKind.In {
                 return k > first
+            } else if kind == TokenKind.LBracket && k == first {
+                // A capture list holds captures alone, so a group of anything
+                // else is an element (syntax.rule.brace).
+                k = k + 1
+                while self.kind_at(k) != TokenKind.RBracket {
+                    if not holds_capture(self.kind_at(k)) {
+                        return false
+                    }
+                    k = k + 1
+                }
             } else if kind == TokenKind.LParen || kind == TokenKind.LBracket {
                 nested = 1
+            } else if (kind == TokenKind.Ident && self.kind_at(k - 1) == TokenKind.Ident
+                       && not self.word_at(k - 1, "any")) {
+                // Two names side by side stand in no head but `any P`: the
+                // brace's first element is then a statement.
+                return false
             } else if not holds_closure_head(kind) {
                 return false
             }

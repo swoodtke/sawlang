@@ -1,0 +1,5 @@
+// stops: syntax.rule.assignment-target
+// verdict: FAIL 4:11 refused by syntax.rule.assignment-target
+func main() {
+    a = b = c
+}

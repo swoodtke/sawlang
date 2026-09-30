@@ -3,6 +3,23 @@ func f() {
     let π = 3
 }
 
+// case: syntax.lex.ascii-identifier/non-ascii-letter-inside-a-name
+func f() {
+    let naïve = 3
+}
+
+// case: syntax.lex.ascii-identifier/non-ascii-symbol-between-tokens
+func f() {
+    let b = a → c
+}
+
+// case: syntax.lex.ascii-identifier/non-ascii-letter-in-an-interpolation
+// An interpolation's expression is source, lexed on its own, so its lex error
+// records no position (README, Refusals).
+func f() {
+    print("ok {x} then {é + 1} end")
+}
+
 // case: syntax.lex.module-doc/after-the-first-token
 func f() {
 }

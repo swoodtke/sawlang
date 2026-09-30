@@ -5,7 +5,7 @@ refuses syntax.rule.arm-body at 3:19
 refuses syntax.rule.arm-body at 3:19
 
 // case: syntax.rule.arm-body/body-on-the-next-line
-refuses parse-error at 3:18
+refuses syntax.rule.arm-body at 3:18
 
 // case: syntax.rule.try-block/try-before-a-brace-without-catch
 refuses syntax.rule.try-block at 2:17

@@ -5,19 +5,25 @@ refuses syntax.expr.refused-partial-named-tuple
 refuses syntax.expr.refused-partial-named-tuple
 
 // case: syntax.rule.move-place/move-does-not-call
-refuses parse-error at 2:21
+refuses syntax.rule.move-place at 4:15
+
+// case: syntax.rule.move-place/optional-member-after-a-move
+refuses syntax.rule.move-place at 2:21
+
+// case: syntax.rule.move-place/member-after-a-forced-move
+refuses syntax.rule.move-place at 2:14
 
 // case: syntax.rule.assignment-target/chained-assignment
-refuses parse-error at 2:11
+refuses syntax.rule.assignment-target at 2:11
 
 // case: syntax.rule.assignment-target/tuple-target
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.rule.assignment-target/compound-self
 refuses syntax.stmt.refused-compound-self
 
 // case: syntax.rule.assignment-target/literal-target
-refuses parse-error at 2:7
+refuses syntax.rule.assignment-target at 2:7
 
 // case: syntax.rule.implicit-member/dotted-case-pattern
 refuses syntax.pat.refused-dot-variant

@@ -9,13 +9,15 @@ alternative as an `Alt` case with its stable name and the node Kind it builds,
 and every refusal a parser names as a `Rule` case. They come from the same model
 of GRAMMAR.md the recognizer reads (`compiler/tests/grammar/extract.py`), so a
 grammar change is a regeneration, and `compiler/tests/run.py` fails while the
-committed file differs from what this writes. Four tables are computed rather
-than listed, each by the recognizer's model of the productions: the tokens that
-may follow a cast target's generic list, its FOLLOW set; the tokens a generic
-list can hold at its own bracket depth, which the parser's closer scan passes
-and stops at every other; the tokens a closure head holds at its brace's depth;
-and the tokens that begin a statement and no expression, which make a brace a
-closure.
+committed file differs from what this writes. The token tables are computed
+rather than listed, each by the recognizer's model of the productions: the
+tokens that may follow a cast target's generic list, its FOLLOW set; the tokens
+a generic list can hold at its own bracket depth, which the parser's closer
+scan passes and stops at every other; the tokens a closure head holds at its
+brace's depth, and a capture list inside its brackets; the tokens that begin a
+statement and no expression, which make a brace a closure; and the FIRST sets
+the parser names a refusal at a stop by: a statement's, an expression's, a
+range's upper bound's and each declaration list's item's.
 """
 import argparse
 import os
@@ -44,17 +46,38 @@ TOKEN_KINDS = {
     "IDENT": "Ident", "INT": "IntLit", '"var"': "Var", '"unsafe"': "Unsafe_",
     '"borrows"': "Borrows", '"in"': "In", '"let"': "Let", '"return"': "Return",
     '"break"': "Break", '"continue"': "Continue", '"guard"': "Guard", '"lend"': "Lend",
-    '"@"': "At",
+    '"@"': "At", '"#file"': "HashDirective", '"#function"': "HashDirective",
+    '"#line"': "HashDirective", '"&"': "Ampersand", '"None"': "NoneKw", '"borrow"': "Borrow",
+    '"false"': "False_", '"true"': "True_", '"for"': "For", '"if"': "If", '"match"': "Match",
+    '"move"': "Move_", '"not"': "Not_", '"self"': "SelfKw", '"try"': "Try", '"while"': "While",
+    '"~"': "Tilde", "DOLLAR_PARAM": "DollarParam", "FLOAT": "FloatLit",
+    "INTERP_STRING": "InterpString", "STRING": "StringLit", '"enum"': "Enum",
+    '"extension"': "Extension", '"extern"': "Extern", '"func"': "Func", '"public"': "Public",
+    '"static"': "Static", '"struct"': "Struct", '"trait"': "Trait", '"init"': "Init",
 }
 # The nonterminal whose own-depth terminals a generic list's closer scan passes.
 LIST_SCAN_START = "generic-args"
 # The nonterminal whose own-depth terminals the brace scan for a closure head
 # passes, on its way to the `in` that ends the head (syntax.rule.brace).
 HEAD_SCAN_START = "closure-head"
+# The element of a capture list, whose tokens the head scan checks a leading
+# `[` group for (syntax.rule.brace).
+CAPTURE = "capture"
 # The nonterminals whose FIRST sets tell a statement-only first token apart:
 # one that begins a non-expression statement and no expression (syntax.rule.brace).
 STATEMENT_START = "non-expr-statement"
 EXPRESSION_START = "expr"
+# The items whose FIRST sets say that a token begins one: a statement on the
+# line of the one before it (syntax.rule.juxtaposition), and a declaration on
+# the line of the one before it, per list (syntax.rule.declaration-separator).
+# Each is the recognizer's own reading (`recognize.Stops`).
+STATEMENT = "statement"
+# What a range operator's upper bound is (syntax.rule.range-open-end).
+RANGE_BOUND = "shift-expr"
+DECLARATION_ITEMS = (("begins_top_level_item", "top-level-item"),
+                     ("begins_trait_member", "trait-member"),
+                     ("begins_extension_member", "extension-member"),
+                     ("begins_extern_func", "extern-func"))
 # The production whose layers the dump spells as one Kind whatever token wrote
 # them (compiler/tests/parse/README.md, Optional types).
 OPTIONAL_TYPE_PRODUCTION = "syntax.type.suffix"
@@ -137,6 +160,15 @@ def head_scan_holds(model):
     return sorted({token_kind(t) for t in held})
 
 
+def capture_holds(model):
+    """The TokenKind cases a capture list holds inside its brackets, sorted:
+    the terminals of a capture, a refused form's included, and the comma
+    between two. A `[` group of any other token before a closure's `in` is no
+    capture list (syntax.rule.brace)."""
+    held = recognize.Grammar(model, "all").depth_terms(CAPTURE)
+    return sorted({token_kind(t) for t in held} | {"Comma"})
+
+
 def statement_only_starts(model):
     """The TokenKind cases that begin a statement and no expression, sorted:
     FIRST(non-expr-statement) less FIRST(expr), refused forms included, less
@@ -145,6 +177,30 @@ def statement_only_starts(model):
     g = recognize.Grammar(model, "all")
     terms = g.first[STATEMENT_START] - g.first[EXPRESSION_START]
     return sorted({token_kind(t) for t in terms} - {"Ident"})
+
+
+def starts(model, nt):
+    """The TokenKind cases that begin an `nt`, sorted: FIRST(nt), a word the
+    grammar reads by its spelling being an identifier, which begins one anyway
+    wherever an identifier does."""
+    first = recognize.Grammar(model).first[nt]
+    if any(t.startswith("'") for t in first) and "IDENT" not in first:
+        raise SystemExit("grammar_tables: a %s begins with a word but not with every "
+                         "identifier; the table assumes one does" % nt)
+    return sorted({token_kind(t) for t in first})
+
+
+def item_starts(model, nt):
+    """(the TokenKind cases, the words) that begin an `nt`: FIRST(nt), each
+    word the grammar reads by its spelling apart, since an identifier begins
+    one only when so spelled (syntax.rule.declaration-separator)."""
+    first = recognize.Grammar(model).first[nt]
+    if "IDENT" in first:
+        raise SystemExit("grammar_tables: every identifier begins a %s; the table assumes "
+                         "none does" % nt)
+    kinds = sorted({token_kind(t) for t in first if not t.startswith("'")})
+    words = sorted(t[1:-1] for t in first if t.startswith("'"))
+    return kinds, words
 
 
 def render(model):
@@ -222,6 +278,13 @@ def render(model):
     for kind in head_scan_holds(model):
         lines.append("        case %s -> true," % kind)
     lines += ["        case _ -> false", "    }", "}", ""]
+    lines += ["// Whether a capture list can hold a token of this kind inside its brackets,",
+              "// so that a `[` group at a closure head's start holding any other is no",
+              "// capture list, and the brace no head (syntax.rule.brace).",
+              "public func holds_capture(kind: TokenKind) -> Bool {", "    match kind {"]
+    for kind in capture_holds(model):
+        lines.append("        case %s -> true," % kind)
+    lines += ["        case _ -> false", "    }", "}", ""]
     lines += ["// Whether a token of this kind begins a statement and no expression, so",
               "// that a brace whose first element starts with it is a closure",
               "// (syntax.rule.brace).",
@@ -229,6 +292,40 @@ def render(model):
     for kind in statement_only_starts(model):
         lines.append("        case %s -> true," % kind)
     lines += ["        case _ -> false", "    }", "}", ""]
+    lines += ["// Whether a token of this kind begins a statement, so that one on the line",
+              "// of the statement before it is refused as that second statement",
+              "// (syntax.rule.juxtaposition).",
+              "public func begins_statement(kind: TokenKind) -> Bool {", "    match kind {"]
+    for kind in starts(model, STATEMENT):
+        lines.append("        case %s -> true," % kind)
+    lines += ["        case _ -> false", "    }", "}", ""]
+    lines += ["// Whether a token of this kind begins an expression, so that a borrow",
+              "// binding's `=` before any other token leaves the binding with no value",
+              "// (syntax.rule.borrow-form).",
+              "public func begins_expression(kind: TokenKind) -> Bool {", "    match kind {"]
+    for kind in starts(model, EXPRESSION_START):
+        lines.append("        case %s -> true," % kind)
+    lines += ["        case _ -> false", "    }", "}", ""]
+    lines += ["// Whether a token of this kind begins a range's upper bound, so that after",
+              "// a range operator any other token the range cannot end before is refused",
+              "// (syntax.rule.range-open-end).",
+              "public func begins_range_bound(kind: TokenKind) -> Bool {", "    match kind {"]
+    for kind in starts(model, RANGE_BOUND):
+        lines.append("        case %s -> true," % kind)
+    lines += ["        case _ -> false", "    }", "}", ""]
+    for func, nt in DECLARATION_ITEMS:
+        kinds, words = item_starts(model, nt)
+        article = "an" if nt[0] in "aeiou" else "a"
+        lines += ["// Whether a token of this kind, spelled `word`, begins %s %s, so that one"
+                  % (article, nt),
+                  "// on the line of the one before it is refused (syntax.rule.declaration-separator).",
+                  "public func %s(kind: TokenKind, word: String) -> Bool {" % func,
+                  "    match kind {"]
+        for kind in kinds:
+            lines.append("        case %s -> true," % kind)
+        if words:
+            lines.append("        case Ident -> %s," % " || ".join('word == "%s"' % w for w in words))
+        lines += ["        case _ -> false", "    }", "}", ""]
     return "\n".join(lines)
 
 

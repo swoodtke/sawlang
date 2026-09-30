@@ -32,7 +32,7 @@ refuses syntax.expr.refused-compare-chain
 refuses syntax.rule.generic-or-less at 3:14
 
 // case: syntax.rule.generic-close-split/no-split-in-an-expression
-refuses parse-error at 2:12
+refuses syntax.rule.assignment-target at 2:12
 
 // case: syntax.rule.generic-close-split/no-split-after-a-cast-target
 refuses syntax.expr.refused-compare-chain

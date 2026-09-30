@@ -79,7 +79,8 @@ REFUSED = [
     ("func f() {\n}\n//! late\n",
      "LEXERR: 3:1 refused by syntax.lex.module-doc"),
     ('func f() {\n    let s = "{é}"\n}\n',
-     "SEGLEX: 2:14 Lexer error at 1:1: Unexpected character"),
+     "SEGLEX: 2:14 Lexer error at 1:1: a character outside ASCII stands only in the text of a "
+     "string or a comment"),
 ]
 
 

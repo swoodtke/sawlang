@@ -1134,10 +1134,11 @@ WAIVER_HEADER = "kind\titem\treason"
 # `case` is one case, by name, that no program realizes. The rest are coverage
 # items of the golden and negative corpus (cases.coverage): a `removed`
 # alternative, an `n-cell`, a `p-cell` with no bare-form case, a section-13
-# `rule` with no golden case, and a `refusal`, a rule the recognizer refuses by
-# name with no negative case.
+# `rule` with no golden case, a `refusal`, a rule the recognizer refuses by
+# name with no negative case, and a `refusing-side`, a rule with no negative
+# case named for it that shows its refusing side.
 WAIVER_KINDS = ("alternative", "cell", "case", "removed", "n-cell", "p-cell", "rule", "refusal",
-                "source")
+                "source", "refusing-side")
 
 
 def waived_case_names(path=WAIVERS):

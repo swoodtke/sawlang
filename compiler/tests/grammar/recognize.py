@@ -8,7 +8,9 @@ The chart reads the self-hosted lexer's tokens (`lexdump`) after `prepare`
 applies section 2.4's newline rules and the generic-close split. Its
 derivations become trees, shaped by `node=`, after the section-13 rules in
 PREFERENCES and FILTERS; a text is accepted only when a tree survives them, and
-more than one tree is a finding. A text whose tree nests deeper than section 11
+more than one tree is a finding. A refused text whose refusal the productions
+encode is named by the rule STOPS reads at the token where the chart stops
+(`Stops`). A text whose tree nests deeper than section 11
 allows is refused at the opener of the level past the limit (`depth_refusal`).
 `--trees` prints each tree as the canonical dump of
 compiler/tests/parse/README.md (dump.py).
@@ -166,6 +168,11 @@ STARTS = ("source-file", "interp-segment", "refusal-unit")
 # The tokens after `..` that let a range omit its upper bound, besides a line
 # break and the end of input (syntax.rule.range-open-end).
 OPEN_END_FOLLOW = ("]", ")", ",", ";", "}")
+# The open ranges, (nonterminal, alternative or None for every one), and the
+# place forms a binding's `=` refuses, which a restricted chart completes only
+# where syntax.rule.range-open-end and syntax.rule.borrow-form allow them.
+OPEN_ENDS = (("range-from", None), ("range-upto", "syntax.expr.range-upto.full"))
+PLACE_FORMS = ("syntax.borrow.place.shared", "syntax.borrow.place.var")
 # attribute alternative -> its name, and the names each attributed declaration
 # takes (syntax.rule.attribute-position).
 ATTRIBUTE_NAMES = {
@@ -240,6 +247,14 @@ class Grammar:
                                                    self._follow(STARTS)[CAST_TARGET])
         self.depth_limit, self.charges = depth_charges(model)
         self._list_scan = None
+        # The completions a restricted chart makes only where their lookahead
+        # rule allows them (Chart, `restrict`).
+        self.open_ends = {(nt, ai) for nt, name in OPEN_ENDS
+                          for ai, alt in enumerate(self.info[nt].alternatives)
+                          if name is None or alt.effective_name == name}
+        self.place_forms = {("borrow-place", ai)
+                            for ai, alt in enumerate(self.info["borrow-place"].alternatives)
+                            if alt.effective_name in PLACE_FORMS}
 
     def list_scan(self):
         """The terminals the pre-scan before a speculated generic list passes:
@@ -821,31 +836,43 @@ def prepare(g, tokens, start="source-file"):
     return generic_lists(g, start, bracket_newlines(tokens))
 
 
-def non_ascii_identifier(tokens):
-    """The first identifier with a non-ASCII character (syntax.lex.ascii-identifier)."""
-    for t in tokens:
-        if t.kind == "IDENT" and not t.value.isascii():
-            return t
-    return None
-
-
 # Earley ---------------------------------------------------------------------
 
 class Chart:
     """One Earley pass: whether `start` spans the input, how far it got,
     `ends[(nt, i)]`, the positions where a completed `nt` from `i` ends, and
     `frontier`, the items at the end of the input, which say what a prefix's
-    readings take next."""
+    readings take next.
 
-    def __init__(self, g, start, tokens, keep=False):
+    A `restrict`ed chart applies the two rules that decide by the token after
+    a construct as the chart runs, not as filters: an open range completes
+    only before a token that lets it end, and a place form never before a
+    binding's `=`. Such a chart stops where those rules refuse, and `Stops`
+    reads the rule that decides there."""
+
+    def __init__(self, g, start, tokens, keep=False, restrict=False):
         self.g = g
         self.start = start
         self.tokens = tokens
         self.terms = chart_terms(tokens)
         # With `keep`, the items, the waiting items and the completions of every
-        # position stay, for `prefix_depths`.
+        # position stay, for `prefix_depths` and `Stops`.
         self.keep = keep
+        self.restrict = restrict
         self.accepted, self.furthest, self.ends, self.frontier = self._run()
+
+    def _blocked(self, nt, ai, origin, i):
+        """Whether a restricted chart withholds the completion of rule ai of nt
+        over [origin, i) (syntax.rule.range-open-end, syntax.rule.borrow-form)."""
+        toks = self.tokens
+        t = toks[i] if i < len(toks) else None
+        if (nt, ai) in self.g.open_ends:
+            return t is not None and t.kind not in ("NEWLINE", "EOF") \
+                and t.value not in OPEN_END_FOLLOW and applies("syntax.rule.range-open-end")
+        if (nt, ai) in self.g.place_forms:
+            return t is not None and t.value == "=" and toks[origin + 1].kind in ("LET", "VAR") \
+                and binding_target_end(toks, origin + 2) == i and applies("syntax.rule.borrow-form")
+        return False
 
     def _run(self):
         g, n = self.g, len(self.tokens)
@@ -885,6 +912,8 @@ class Chart:
                         add(i + 1, (nt, ai, dot + 1, origin))
                         furthest = max(furthest, i + 1)
                 else:
+                    if self.restrict and self._blocked(nt, ai, origin, i):
+                        continue
                     done[i].setdefault(nt, set()).add(origin)
                     for (pnt, pai, pdot, porigin) in list(waiting[origin].get(nt, ())):
                         add(i, (pnt, pai, pdot + 1, porigin))
@@ -1669,6 +1698,386 @@ class Parse:
         return rec
 
 
+# Stops ------------------------------------------------------------------------
+
+# Rules decided at the token where the chart stops: (method of Stops, rule).
+# The productions encode each, so no tree exists for a filter to refuse, and
+# the rule is read from the chart's state at that token instead: what the
+# readings of the text before it had built, and the token itself. A name
+# decided there holds whatever follows the token.
+STOPS = [
+    ("_statement_separator", "syntax.rule.statement-separator"),
+    ("_juxtaposition", "syntax.rule.juxtaposition"),
+    ("_declaration_separator", "syntax.rule.declaration-separator"),
+    ("_assignment_target", "syntax.rule.assignment-target"),
+    ("_try_extent", "syntax.rule.try-extent"),
+    ("_move_place", "syntax.rule.move-place"),
+    ("_test_form", "syntax.rule.test-form"),
+    ("_effect_slot", "syntax.rule.effect-slot"),
+    ("_static_head", "syntax.rule.static-head"),
+    ("_attribute_position", "syntax.rule.attribute-position"),
+    ("_borrow_form", "syntax.rule.borrow-form"),
+    ("_arm_body", "syntax.rule.arm-body"),
+    ("_brace", "syntax.rule.brace"),
+    ("_range_open_end", "syntax.rule.range-open-end"),
+    ("_prefix_type_suffix", "syntax.rule.prefix-type-suffix"),
+    ("_shift_adjacent", "syntax.lex.shift-adjacent"),
+    ("_float_point", "syntax.lex.float-point"),
+    ("_interpolation_whole", "syntax.rule.interpolation-whole"),
+]
+STOP_RULES = tuple(sorted({rule for _, rule in STOPS}))
+# The lists a statement stands in, whose separator is `stmt-sep`
+# (syntax.rule.statement-separator, syntax.rule.juxtaposition).
+STATEMENT_LISTS = (("statement", "block-body"), ("refusal-unit-item", "refusal-unit"))
+# Each declaration list: its item and the production holding it, one item a
+# line (syntax.rule.declaration-separator).
+DECLARATION_LISTS = (("top-level-item", "top-level-list"), ("trait-member", "trait-member-list"),
+                     ("extension-member", "extension-member-list"),
+                     ("extern-func", "extern-func-list"))
+ASSIGNMENT_OPS = ("=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=")
+# The tokens that would go on with a postfix chain, none of which a `move`
+# operand's place path takes after its end (syntax.rule.move-place). A `{`
+# after one is no trailing closure either, but in a head it begins the body.
+POSTFIX_OPENERS = ("(", "[", ".", "?.", "!")
+EFFECT_WORDS = ("consumes", "unsafe", "sync", "constexpr", "escaping", "borrows")
+# Each effect slot, and the word a removed production refuses there wherever
+# it stands (syntax.decl.refused-escaping, syntax.type.refused-func-consumes).
+EFFECT_SLOTS = {"effect-slot": "escaping", "func-type-effects": "consumes"}
+# The names an attribute may have; `test` is the test form's.
+ATTRIBUTE_WORDS = ("export", "section", "synthesize", "align", "test")
+# The attributes that always take a parenthesized argument.
+ARGUMENT_ATTRIBUTES = ("section", "align")
+ATTRIBUTE_PRODUCTIONS = ("attribute", "synthesize-shared-attr")
+BORROW_BINDINGS = ("borrow-binding", "borrow-unwrap")
+# The keywords a condition follows, where a binding is the unwrap or the
+# refused guard binding and never a `borrow` block (`Forest._head_binding`).
+CONDITION_HEADS = ("if", "while", "guard")
+DECIMAL_DIGITS = re.compile(r"^[0-9_]+$")
+
+
+class Stops:
+    """The rules that decide a refusal at the token where a restricted chart
+    stops (STOPS). `refusals` gives (token index, rule) for each rule whose
+    reading of the chart there says that it refuses the token."""
+
+    def __init__(self, g, start, tokens):
+        self.g = g
+        self.start = start
+        self.toks = tokens
+        self.chart = Chart(g, start, tokens, keep=True, restrict=True)
+        self._forest = None
+
+    def refusals(self):
+        if self.chart.accepted:
+            return []
+        k = self.chart.furthest
+        if k >= len(self.toks):
+            return []
+        out = []
+        for method, rule in STOPS:
+            if applies(rule):
+                at = getattr(self, method)(k)
+                if at is not None:
+                    out.append((at, rule))
+        return out
+
+    # Helpers over the chart at one position ------------------------------------
+
+    def _items(self, k):
+        for item in self.chart.items[k]:
+            nt, ai, dot, origin = item
+            yield nt, self.g.prods[nt][ai], dot, origin
+
+    def _awaits(self, k, sym, owners=None):
+        """Whether an item at k takes `sym` next, in a rule of one of `owners`
+        when given."""
+        return any(dot < len(alt) and alt[dot] == sym
+                   and (owners is None or self.g.real(nt) in owners)
+                   for nt, alt, dot, _ in self._items(k))
+
+    def _terms(self, k):
+        return self.chart.terms[k]
+
+    def _begins(self, k, nt):
+        return not self._terms(k).isdisjoint(self.g.first[nt])
+
+    def _held(self, origin, nt, owners):
+        """Whether an `nt` starting at origin is one that a rule of `owners`
+        waits for there."""
+        return any(self.g.real(p[0]) in owners
+                   for p in self.chart.waiting[origin].get(nt, ()))
+
+    def _tree(self, nt, i, j):
+        """Whether the rules leave some tree of nt over [i, j)."""
+        if self._forest is None:
+            self._forest = Forest(self.chart)
+        return bool(self._forest.derivations(nt, i, j))
+
+    def _ended(self, k, nt, owners):
+        """Whether an `nt` held by one of `owners` ends at k with a tree."""
+        return any(self._held(o, nt, owners) and self._tree(nt, o, k)
+                   for o in sorted(self.chart.done[k].get(nt, ())))
+
+    def _prev(self, k, back=1):
+        return self.toks[k - back] if k >= back else None
+
+    # The rules -------------------------------------------------------------
+
+    def _statement_separator(self, k):
+        """A `;` where a statement would begin, or a `;` separator that no
+        statement follows on its line (syntax.rule.statement-separator)."""
+        t, prev = self.toks[k], self._prev(k)
+        owners = [holder for _, holder in STATEMENT_LISTS]
+        if t.value == ";" and any(self._awaits(k, nt, owners) for nt, _ in STATEMENT_LISTS):
+            return k
+        if prev is not None and prev.value == ";" and k - 1 in self.chart.done[k].get("stmt-sep", ()) \
+                and (t.kind in ("NEWLINE", "EOF") or t.value == "}"):
+            return k
+        return None
+
+    def _juxtaposition(self, k):
+        """A statement that begins on the line of the statement before it,
+        with nothing between them (syntax.rule.juxtaposition)."""
+        for nt, holder in STATEMENT_LISTS:
+            if self._begins(k, nt) and self._ended(k, nt, (holder,)):
+                return k
+        return None
+
+    def _declaration_separator(self, k):
+        """A `;` after a declaration, or a declaration on the line of the one
+        before it (syntax.rule.declaration-separator)."""
+        t = self.toks[k]
+        for nt, holder in DECLARATION_LISTS:
+            if (t.value == ";" or self._begins(k, nt)) and self._ended(k, nt, (holder,)):
+                return k
+        return None
+
+    def _assignment_target(self, k):
+        """An assignment operator after a complete statement, whose target is
+        then no place (syntax.rule.assignment-target)."""
+        if self.toks[k].value not in ASSIGNMENT_OPS:
+            return None
+        held = STATEMENT_LISTS + (("arm-body", "match-arm"),)
+        if any(self._ended(k, nt, (holder,)) for nt, holder in held):
+            return k
+        return None
+
+    def _try_extent(self, k):
+        """A `catch` after a statement whose expression began with a `try`
+        whose prefix expression ended before the expression did
+        (syntax.rule.try-extent)."""
+        if self.toks[k].value != "catch" or not any(
+                self._ended(k, nt, (holder,)) for nt, holder in STATEMENT_LISTS):
+            return None
+        ends = self.chart.ends
+        for p in range(k):
+            for nt, alt, dot, origin in self._items(p):
+                if nt == "try-expr" and dot < len(alt) and alt[dot] == "catch-clause" \
+                        and k in ends.get(("expr", origin), ()):
+                    return k
+        return None
+
+    def _move_place(self, k):
+        """A hop after a `move` operand's place path, which ends before any
+        hop but a field, a tuple index or a subscript (syntax.rule.move-place)."""
+        if self.toks[k].value not in POSTFIX_OPENERS:
+            return None
+        if any(self._tree("move-expr", o, k) for o in sorted(self.chart.done[k].get("move-expr", ()))):
+            return k
+        return None
+
+    def _test_form(self, k):
+        """`@test` where no test item stands, a clause on a declaration, or a
+        statement in a group (syntax.rule.test-form)."""
+        t, prev = self.toks[k], self._prev(k)
+        if t.kind == "IDENT" and t.value == "test" and prev is not None and prev.value == "@":
+            return k
+        if self._begins(k, "top-level-item"):
+            for nt, alt, dot, _ in self._items(k):
+                if nt == "test-case" and 0 < dot < len(alt) and alt[dot] == "STRING" \
+                        and alt[dot - 1] == '")"':
+                    return k
+        if self._begins(k, "statement") and not self._begins(k, "top-level-item") \
+                and self._awaits(k, "top-level-item") and self._in_group(k):
+            return k
+        return None
+
+    def _in_group(self, k):
+        """Whether the innermost brace open at k is a test group's."""
+        opener = innermost_opener(self.toks, k)
+        if opener is None or self.toks[opener].value != "{":
+            return False
+        j = opener - 1
+        while j >= 0 and self.toks[j].kind == "NEWLINE":
+            j -= 1
+        return j >= 1 and self.toks[j].value == "test" and self.toks[j - 1].value == "@"
+
+    def _effect_slot(self, k):
+        """An effect word after an effect slot has ended: out of order,
+        repeated, or not one the slot takes (syntax.rule.effect-slot)."""
+        word = self.toks[k].value
+        if word not in EFFECT_WORDS:
+            return None
+        if any(dot > 0 and alt[dot - 1] in EFFECT_SLOTS and word != EFFECT_SLOTS[alt[dot - 1]]
+               for _, alt, dot, _ in self._items(k)):
+            return k
+        return None
+
+    def _static_head(self, k):
+        """In an extension or trait body, `static` followed by anything but
+        `func` (syntax.rule.static-head)."""
+        prev = self._prev(k)
+        if prev is None or prev.value != "static" or self.toks[k].value == "func":
+            return None
+        if self._awaits(k, '"func"', ("method-decl", "requirement")):
+            return k
+        return None
+
+    def _attribute_position(self, k):
+        """An unknown attribute name, an argument of the wrong shape, or an
+        attribute on a statement that is no local binding one name
+        (syntax.rule.attribute-position)."""
+        t, prev = self.toks[k], self._prev(k)
+        if prev is not None and prev.value == "@" and t.kind == "IDENT" \
+                and t.value not in ATTRIBUTE_WORDS:
+            return k
+        for nt, alt, dot, origin in self._items(k):
+            real = self.g.real(nt)
+            if real in ATTRIBUTE_PRODUCTIONS and nt == real and dot < len(alt):
+                # The attribute's own tokens; an expression argument's are the
+                # expression's, whose errors are its own.
+                if '"("' in alt[:dot] and '")"' in alt[dot:] \
+                        and not any(is_nonterminal(s) for s in alt[:-1]):
+                    return k
+                if dot < len(alt) and alt[dot] == '"("' \
+                        and self.toks[origin + 1].value in ARGUMENT_ATTRIBUTES:
+                    return k
+            if nt == "attributed-local" and dot == 1:
+                return k
+            if nt == "let-stmt" and dot == 1 and self._held(origin, "let-stmt",
+                                                            ("attributed-local",)):
+                return k
+        return None
+
+    def _borrow_form(self, k):
+        """A line break right after `borrow` or `borrow var`; a binding with
+        no value; or a `borrow` block's bindings with no brace after them at
+        all, which a block would open (syntax.rule.borrow-form). A brace a
+        binding's value took is left to the rules that refuse that reading."""
+        t, prev = self.toks[k], self._prev(k)
+        if t.kind == "NEWLINE" and prev is not None and (
+                prev.kind == "BORROW" or (prev.kind == "VAR" and k >= 2
+                                          and self.toks[k - 2].kind == "BORROW")):
+            return k
+        for nt, alt, dot, origin in self._items(k):
+            if nt == "borrow-block" and 2 <= dot < len(alt) and not any(
+                    self.toks[j].kind == "LBRACE" for j in range(origin, k)) \
+                    and self.toks[origin - 1].value not in CONDITION_HEADS:
+                return k
+            if nt in BORROW_BINDINGS and dot > 0 and alt[dot - 1] == '"="':
+                return k
+        return None
+
+    def _arm_body(self, k):
+        """An arm body on the line after its `->` (syntax.rule.arm-body)."""
+        prev = self._prev(k)
+        if self.toks[k].kind == "NEWLINE" and prev is not None and prev.value == "->" \
+                and self._awaits(k, "arm-body"):
+            return k
+        return None
+
+    def _brace(self, k):
+        """A closure's first element followed by a `:` that begins the next
+        line: a map key's `:` stands on its line (syntax.rule.brace)."""
+        prev = self._prev(k)
+        if self.toks[k].value != ":" or prev is None or prev.kind != "NEWLINE" \
+                or not self._awaits(k, "statement", ("block-body",)):
+            return None
+        opener = innermost_opener(self.toks, k)
+        if opener is None or self.toks[opener].value != "{" or not any(
+                nt == "closure-literal" and dot == 1 and origin == opener
+                for nt, _, dot, origin in self._items(opener + 1)):
+            return None
+        j = opener + 1
+        while self.toks[j].kind == "NEWLINE":
+            j += 1
+        first = j
+        depth = 0
+        while j < k:
+            tok = self.toks[j]
+            if tok.kind in OPENERS:
+                depth += 1
+            elif tok.kind in CLOSERS:
+                depth -= 1
+            elif depth == 0 and (tok.value in (";", "in") or (
+                    tok.kind == "NEWLINE" and any(x.kind != "NEWLINE" for x in self.toks[j:k]))):
+                return None
+            j += 1
+        return k if first < k and self.toks[first].kind != "NEWLINE" else None
+
+    def _range_open_end(self, k):
+        """After `..`, a token that neither ends an open range nor begins an
+        upper bound; after `..=`, any token that begins none
+        (syntax.rule.range-open-end)."""
+        t, prev = self.toks[k], self._prev(k)
+        if prev is None or prev.value not in ("..", "..="):
+            return None
+        if prev.value == ".." and (t.kind in ("NEWLINE", "EOF") or t.value in OPEN_END_FOLLOW):
+            return None
+        if any(dot < len(alt) and alt[dot] == "shift-expr"
+               and alt[dot - 1] in ("range-op", '".."', '"..="')
+               for _, alt, dot, _ in self._items(k) if dot > 0):
+            return k
+        return None
+
+    def _prefix_type_suffix(self, k):
+        """A bracketed type closed with no length: `[T]` alone is no type, a
+        slice being one atom after `&` (syntax.rule.prefix-type-suffix)."""
+        if self.toks[k].value == "]" and self._awaits(k, '";"', ("array-type",)):
+            return k
+        return None
+
+    def _shift_adjacent(self, k):
+        """Two `<` or two `>` with a space between them, which are no shift and
+        no comparison (syntax.lex.shift-adjacent)."""
+        t, prev = self.toks[k], self._prev(k)
+        if t.kind in SECOND_OF and prev is not None and prev.kind == t.kind \
+                and not adjacent(prev, t):
+            return k
+        return None
+
+    def _float_point(self, k):
+        """A decimal integer and a `.` against it that no name, digit or
+        second `.` follows: a float with no digit after its point
+        (syntax.lex.float-point)."""
+        t, dot, digits = self.toks[k], self._prev(k), self._prev(k, 2)
+        if digits is None or dot.value != "." or digits.kind != "INT" \
+                or not adjacent(digits, dot) or not DECIMAL_DIGITS.match(digits.value):
+            return None
+        if t.kind in ("IDENT", "INT") or t.value == ".":
+            return None
+        return k - 2
+
+    def _interpolation_whole(self, k):
+        """A segment's expression followed by more than its end
+        (syntax.rule.interpolation-whole)."""
+        if self.start == "interp-segment" and any(
+                nt == "interp-segment" and dot == 1 for nt, _, dot, _ in self._items(k)):
+            return k
+        return None
+
+
+def innermost_opener(tokens, k):
+    """The index of the innermost bracket open before token k, or None."""
+    stack = []
+    for j in range(k):
+        if tokens[j].kind in OPENERS:
+            stack.append(j)
+        elif tokens[j].kind in CLOSERS and stack:
+            stack.pop()
+    return stack[-1] if stack else None
+
+
 def walk_real(g, d):
     """Every derivation of a real (non-auxiliary) nonterminal under d, preorder."""
     stack = [d]
@@ -2196,9 +2605,9 @@ def check_source(g, src, trees=False, path=None, start="source-file"):
     """(verdict, detail) for one source text, read from `path` when it is given,
     parsed from `start`.
 
-    OK; LEXERR, a lex error, a non-ASCII identifier or a misplaced `//!`; FAIL,
-    the chart refuses the tokens (detail: the furthest token reached), the
-    rules leave no tree (detail: the rule and where it refused), or the text,
+    OK; LEXERR, a lex error or a misplaced `//!`; FAIL, the chart refuses the
+    tokens (detail: the furthest token reached, or the rule a stop names and
+    where), the rules leave no tree (detail: the rule and where it refused), or the text,
     or a segment of it, nests deeper than section 11 allows (detail: the file
     position of the opener that would take the level past it); SEGLEX or
     SEGFAIL, an interpolation segment fails to lex or to parse. NOTREE is a
@@ -2215,15 +2624,44 @@ class Checked:
     each interpolation segment, origin its "line:col" as expression_segments
     gives it; for a text the rules leave no tree, every rule that refused one
     of its readings (Parse.refusal_rules); and, for a depth refusal, the
-    section-11 rows charged at its token."""
+    section-11 rows charged at its token. `decided` says that the rule named
+    decided at its own token, whatever follows it: a stop's rule (STOPS)."""
 
-    def __init__(self, verdict, detail, parses=(), docs=(), rules=(), charged=()):
+    def __init__(self, verdict, detail, parses=(), docs=(), rules=(), charged=(), decided=False):
         self.verdict = verdict
         self.detail = detail
         self.parses = list(parses)
         self.docs = list(docs)
         self.rules = list(rules)
         self.charged = list(charged)
+        self.decided = decided
+
+
+def stop_refusal(g, start, tokens, parse, origin=None):
+    """(detail, rules, decided) for a text the recognizer refuses, parsed as
+    `parse`, when a stop's rule names the refusal (STOPS); else None.
+
+    The rules that refused a reading of the text join the stops' in `rules`.
+    A section-13 PRECEDENCE rule outranks a stop; otherwise the report is the
+    refusal at the furthest token, a stop's on a tie. Positions are placed by
+    `origin` as a segment's are (`absolute`)."""
+    found = Stops(g, start, tokens).refusals()
+    if not found:
+        return None
+    filtered = parse.refusal_rules() if parse.accepted else []
+    rules = sorted({rule for _, rule in found} | set(filtered))
+    first = parse.precedence() if parse.accepted else None
+    at, rule = max(found, key=lambda f: f[0])
+    decided = True
+    if first is not None:
+        at, rule, decided = first[0], first[1], False
+    elif parse.accepted:
+        why = parse._forest.refusal((start, 0, len(tokens)))
+        if why is not None and why[0] > at:
+            at, rule, decided = why[0], why[1], False
+    t = tokens[min(at, len(tokens) - 1)]
+    line, column = absolute(t.line, t.column, origin)
+    return "%d:%d refused by %s" % (line, column, rule), rules, decided
 
 
 def check(g, src, trees=False, path=None, start="source-file"):
@@ -2232,19 +2670,20 @@ def check(g, src, trees=False, path=None, start="source-file"):
     toks, docs, err = lex_with_docs(src, path)
     if err is not None:
         return Checked("LEXERR", lex_refusal_detail(err))
-    bad = non_ascii_identifier(toks)
-    if bad is not None:
-        return Checked("LEXERR", "%d:%d refused by syntax.lex.ascii-identifier: %r"
-                       % (bad.line, bad.column, bad.value))
     misplaced = module_doc_error(toks, docs)
     if misplaced is not None:
         return Checked("LEXERR", misplaced)
     toks = prepare(g, toks, start)
     file_parse = Parse(g, start, toks)
+    ds = file_parse.derivations()
+    if not ds:
+        stopped = stop_refusal(g, start, toks, file_parse)
+        if stopped is not None:
+            detail, rules, decided = stopped
+            return Checked("FAIL", detail, rules=rules, decided=decided)
     if not file_parse.accepted:
         t = toks[min(file_parse.chart.furthest, len(toks) - 1)]
         return Checked("FAIL", "%d:%d near %s %r" % (t.line, t.column, t.kind, t.value))
-    ds = file_parse.derivations()
     if not ds:
         refused = file_parse.refusal()
         if refused is None:
@@ -2263,11 +2702,13 @@ def check(g, src, trees=False, path=None, start="source-file"):
         stoks, err = lex(seg.text)
         if err is not None:
             return Checked("SEGLEX", "%s %s" % (where, lex_error_detail(err)))
-        bad = non_ascii_identifier(stoks)
-        if bad is not None:
-            return Checked("SEGLEX", "%s %d:%d refused by syntax.lex.ascii-identifier: %r"
-                           % (where, bad.line, bad.column, bad.value))
         segment = Parse(g, "interp-segment", prepare(g, stoks, "interp-segment"))
+        if not segment.derivations():
+            stopped = stop_refusal(g, "interp-segment", segment.tokens, segment, origin)
+            if stopped is not None:
+                detail, rules, decided = stopped
+                return Checked("SEGFAIL", "%s {%s} %s" % (where, seg.text, detail), rules=rules,
+                               decided=decided)
         if not segment.accepted:
             return Checked("SEGFAIL", "%s {%s}" % (where, seg.text))
         if not segment.derivations():

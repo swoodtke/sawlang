@@ -1,0 +1,5 @@
+// stops: syntax.rule.borrow-form
+// verdict: FAIL 4:19 refused by syntax.rule.borrow-form
+func main() {
+    borrow var e =
+}

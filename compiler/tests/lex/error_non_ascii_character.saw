@@ -1,0 +1,2 @@
+// Fixture: a character outside ASCII between tokens (syntax.lex.ascii-identifier).
+let arrow = a → b

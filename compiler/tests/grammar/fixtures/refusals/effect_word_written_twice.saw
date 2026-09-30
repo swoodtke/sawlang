@@ -1,0 +1,4 @@
+// stops: syntax.rule.effect-slot
+// verdict: FAIL 3:15 refused by syntax.rule.effect-slot
+func f() sync sync {
+}

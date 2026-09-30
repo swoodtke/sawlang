@@ -1,0 +1,4 @@
+// stops: syntax.rule.test-form
+// verdict: FAIL 3:31 refused by syntax.rule.test-form
+@test(panics: "index.bounds") func f() {
+}

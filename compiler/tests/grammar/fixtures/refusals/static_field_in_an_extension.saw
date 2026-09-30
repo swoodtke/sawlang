@@ -1,0 +1,5 @@
+// stops: syntax.rule.static-head
+// verdict: FAIL 4:12 refused by syntax.rule.static-head
+extension S {
+    static x: Int
+}

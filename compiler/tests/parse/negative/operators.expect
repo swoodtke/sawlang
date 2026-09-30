@@ -8,7 +8,7 @@ refuses syntax.expr.refused-compare-chain
 refuses syntax.expr.refused-compare-chain
 
 // case: syntax.rule.try-extent/catch-after-a-cast
-refuses parse-error at 3:28
+refuses syntax.rule.try-extent at 3:28
 
 // case: syntax.rule.cast-target-question/second-optional-token-after-a-cast
 refuses syntax.rule.cast-target-question at 2:23

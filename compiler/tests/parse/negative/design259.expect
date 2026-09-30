@@ -1,2 +1,2 @@
 // case: design259-R7/arm-body-on-the-next-line
-refuses parse-error at 3:18
+refuses syntax.rule.arm-body at 3:18
