@@ -7,24 +7,32 @@ profile, the lang-item table, and the API equivalence of the two stds.
 
 `compiler/tests/run.py` runs `run()`. It checks:
 
-- every module of the new std resolves, typechecks and lowers to MIR with
-  sawc2, with no refusal and no invariant;
+- every module of the new std resolves, typechecks, lowers to MIR and has its
+  constants evaluated with sawc2, with no refusal and no invariant;
 - the std profile of compiler/tools/subset_check.py accepts `std/`, and refuses
   each fixture in `subset/` exactly where its `// refuses:` markers say;
 - each `lang/` program types the same against `std/` as against `sawc/`: its
-  module's typecheck dump is byte-equal under the two roots and to
-  `NAME.typecheck`, and its MIR is equal under the two, a refusal's records
-  too. `optional_methods` is checked against `std/` alone, and `user_optional`
-  is refused as a prelude name while `Optional` stays the prelude's;
+  module's typecheck dump is byte-equal under the two roots, but for the
+  new std's `(string-positions ...)` section, and to `NAME.typecheck`, and its
+  MIR is equal under the two, a refusal's records too. `optional_methods` and
+  `string_positions` are checked against `std/` alone, and `user_optional` is
+  refused as a prelude name while `Optional` stays the prelude's;
 - the std prelude's Optional has one `take`, `is_some` and `is_none` each;
 - each `shape/NAME.fixture` edit of a copy of `std/` is refused first by the
   rule the fixture names, with its message;
-- the API-equivalence of `equivalence.tsv`, under `equivalence_exceptions.tsv`;
-- each `pairs/` program exits 0 when Stage 0 builds it against `sawc/std`, and
-  checks and lowers clean with sawc2 against `std/`;
+- the API-equivalence of `equivalence.tsv`, under `equivalence_exceptions.tsv`:
+  signature records, String's layout, and the conformance sets of String and
+  Vector, read off which trait bounds each type meets under each root;
+- each `pairs/` program exits 0 when Stage 0 builds it against `sawc/std`, or
+  panics with the text its `// expect-panic:` line names, and checks, lowers
+  and evaluates clean with sawc2 against `std/`;
+- each `mir/NAME.mir` holds its functions' MIR as sawc2 lowers them against
+  `std/`, and String's retain and release read the immortal sentinel before
+  any atomic operation;
 - each `cone/` program's new-std cone (compiler/tools/std_cone.py) equals
-  `NAME.cone`; `optional_result`'s holds no runtime module, nothing of
-  `std.alloc` and no task module, and none holds a task module;
+  `NAME.cone`; `optional_result`'s and `literal_only`'s hold no runtime module,
+  nothing of `std.alloc` and no task module, `interpolation`'s reaches the
+  builder and the allocator, and none holds a task module;
 - no fixture here ends a line in whitespace or ends in a blank line.
 """
 import collections
@@ -54,6 +62,7 @@ SHAPE = os.path.join(HERE, "shape")
 SUBSET = os.path.join(HERE, "subset")
 PAIRS = os.path.join(HERE, "pairs")
 CONE = os.path.join(HERE, "cone")
+MIR = os.path.join(HERE, "mir")
 MEMBERS = os.path.join(HERE, "equivalence.tsv")
 EXCEPTIONS = os.path.join(HERE, "equivalence_exceptions.tsv")
 OUT = os.path.join(REPO, ".build", "std-lane")
@@ -62,15 +71,35 @@ RUN_TIMEOUT = 60
 
 # The units of SL-456 whose std modules have landed. A member row of a landed
 # unit is compared, and an exception due by one fails until it is resolved.
-LANDED_UNITS = ("U5b1",)
+LANDED_UNITS = ("U5b1", "U5b2")
 # The programs of `lang/` checked against the new std only, or refused.
-NEW_ONLY = ("optional_methods",)
+NEW_ONLY = ("optional_methods", "string_positions")
 REFUSED_PAIRED = ("missing_case",)
 USER_OPTIONAL = "user_optional"
 OPTIONAL_METHODS = ("take", "is_some", "is_none")
-# What the cone of a program using only Optional and Result must not reach.
-FREESTANDING_CONE = "optional_result"
+# The cones that must reach no allocator: a program using only Optional and
+# Result, and one whose only Strings are literals.
+NO_ALLOCATOR_CONES = ("optional_result", "literal_only")
+# The cone of a program that interpolates, which reaches the builder and the
+# allocator.
+BUILDER_CONE = "interpolation"
+# The conformance probe: the traits whose bounds each type's set is read off,
+# and an expression of the type for the probe to pass.
+PROBE_TRAITS = ("Copy", "ExplicitCopy", "NoCopy", "Equatable", "Comparable", "Hashable",
+                "Printable", "Error", "Send", "Sync")
+PROBE_VALUES = {"String": "\"probe\"", "Vector": "Vector<Int>()"}
+# String's layout under the new std: its declaration's fields, which the
+# `string_layout` pair holds to Stage 0's size and alignment.
+LAYOUT_FIELDS = {"String": {"std.string field String.bytes -": " private UnsafePointer<Int8>"}}
+LAYOUT_PAIR = "string_layout"
+# The functions each `mir/` pin holds, and String's refcount hooks, which read
+# the immortal sentinel before any atomic operation.
+REFCOUNT_HOOKS = ("fn std.string.String.copy()", "fn std.string.String.deinit()")
+SENTINEL = "static std.string.IMMORTAL"
+ATOMIC = "call builtin __saw_atomic_"
 _MARKER = re.compile(r"//\s*refuses:\s*(.+)$")
+_EXPECT_PANIC = re.compile(r"^//\s*expect-panic:\s*(.+)$")
+_PIN_FUNCTION = re.compile(r"^// function: (.+)$")
 _DECLARATION = re.compile(r"^    \((\S+) (\S+) \d+:\d+(.*)\)$")
 _CONFORMANCE = re.compile(r"^    \((\S+) (\S+) \d+:\d+(.*)\)$")
 
@@ -100,6 +129,25 @@ def section(output, name, header="(Module "):
     return "\n".join(out).rstrip("\n") + "\n" if out else ""
 
 
+def without_string_positions(text):
+    """A new-std module dump without its `(string-positions ...)` section,
+    which only the new std's dump prints: under Stage 0's std the String
+    positions lower through what its compiler synthesizes."""
+    out, inside = [], False
+    for line in text.split("\n"):
+        if line == "  (string-positions":
+            inside = True
+            out[-1] = out[-1] + ")"
+            continue
+        if inside:
+            if not line.startswith("    "):
+                inside = False
+            else:
+                continue
+        out.append(line)
+    return "\n".join(out)
+
+
 def module_name(path):
     return os.path.splitext(os.path.basename(path))[0]
 
@@ -107,7 +155,7 @@ def module_name(path):
 # ------------------------------------------------------------- the new std
 
 def check_modules(failures, counts):
-    for stage in ("resolve", "typecheck", "mir"):
+    for stage in ("resolve", "typecheck", "mir", "eval"):
         _, out = sawc2(stage, "--check", "--std-root", NEW_ROOT, rel(ENTRY))
         for line in problems_of(out):
             failures.append("std %s: %s" % (stage, line))
@@ -162,7 +210,7 @@ def check_lang(failures, counts, write):
                 failures.append("std lang %s (%s): %s" % (rel(path), root, line))
         texts = {root: section(dumps[root], name) for root in roots}
         if len(roots) == 2:
-            if texts[STAGE0_ROOT] != texts[NEW_ROOT]:
+            if texts[STAGE0_ROOT] != without_string_positions(texts[NEW_ROOT]):
                 failures.append("std lang %s: its typecheck dump differs between %s and %s"
                                 % (rel(path), STAGE0_ROOT, NEW_ROOT))
             mirs = {root: section(lowered[root], name, "module ") for root in roots}
@@ -354,6 +402,7 @@ def check_equivalence(failures, counts):
                             % (entry, rel(MEMBERS)))
     used = set()
     pending = collections.Counter()
+    probed = []
     for lineno, (entry, declaration, unit) in members:
         where = "%s:%d" % (rel(MEMBERS), lineno)
         if entry not in subset_check.STD_API and entry != "(api)":
@@ -366,8 +415,21 @@ def check_equivalence(failures, counts):
                 failures.append("std equivalence %s: `%s` is no lang item" % (where, declaration))
             counts["equivalent members"] = counts.get("equivalent members", 0) + 1
             continue
-        old = records[STAGE0_ROOT].get(declaration)
-        new = records[NEW_ROOT].get(declaration)
+        if declaration.startswith("layout "):
+            check_layout(failures, where, declaration[len("layout "):], records[NEW_ROOT])
+            counts["equivalent layouts"] = counts.get("equivalent layouts", 0) + 1
+            continue
+        if declaration.startswith("conformances "):
+            probed.append((where, declaration[len("conformances "):]))
+            continue
+        if declaration.startswith("paired "):
+            name = declaration[len("paired "):]
+            if name in NEW_ONLY or not os.path.exists(os.path.join(LANG, name + ".saw")):
+                failures.append("std equivalence %s: no paired program lang/%s.saw" % (where, name))
+            counts["equivalent members"] = counts.get("equivalent members", 0) + 1
+            continue
+        old = records[STAGE0_ROOT].get(stage0_key(declaration))
+        new = records[NEW_ROOT].get(new_key(declaration))
         if old is None and new is None:
             failures.append("std equivalence %s: neither std declares `%s`" % (where, declaration))
             continue
@@ -394,9 +456,86 @@ def check_equivalence(failures, counts):
             counts["exceptions due by %s" % due] = counts.get("exceptions due by %s" % due, 0) + 1
     for unit, n in pending.items():
         counts["members pending %s" % unit] = n
+    if probed:
+        sets = conformance_sets([name for _, name in probed], failures)
+        for where, name in probed:
+            old, new = sets.get((STAGE0_ROOT, name)), sets.get((NEW_ROOT, name))
+            if old != new:
+                failures.append("std equivalence %s: %s's conformances differ: %s meets %s, %s meets %s"
+                                % (where, name, STAGE0_ROOT, sorted(old or ()), NEW_ROOT,
+                                   sorted(new or ())))
+            counts["equivalent conformance sets"] = counts.get("equivalent conformance sets", 0) + 1
+
+
+# A member row may name the vocabulary module, which is `builtin` under Stage
+# 0's std and the prelude under the new one.
+def stage0_key(declaration):
+    if declaration.startswith("vocabulary "):
+        return "builtin " + declaration[len("vocabulary "):]
+    return declaration
+
+
+def new_key(declaration):
+    if declaration.startswith("vocabulary "):
+        return "std.prelude " + declaration[len("vocabulary "):]
+    return declaration
+
+
+def check_layout(failures, where, name, records):
+    """The new std's declaration of `name` holds exactly the fields
+    LAYOUT_FIELDS names, and the pair that holds Stage 0's size to them runs."""
+    prefix = "std.string field %s." % name
+    found = {key: rest for key, rest in records.items() if key.startswith(prefix)}
+    if found != LAYOUT_FIELDS.get(name):
+        failures.append("std equivalence %s: %s's fields are %s, not one pointer: %s"
+                        % (where, name, sorted(found.items()), LAYOUT_FIELDS.get(name)))
+    if not os.path.exists(os.path.join(PAIRS, LAYOUT_PAIR + ".saw")):
+        failures.append("std equivalence %s: no pair pairs/%s.saw holds %s's size to Stage 0's"
+                        % (where, LAYOUT_PAIR, name))
+
+
+def conformance_sets(names, failures):
+    """{(root, type): the PROBE_TRAITS whose bound a value of the type meets},
+    each trait one probe program, all of a root's probes in one sawc2 run."""
+    probe_dir = os.path.join(OUT, "probe")
+    shutil.rmtree(probe_dir, ignore_errors=True)
+    os.makedirs(probe_dir)
+    paths = {}
+    for name in names:
+        for trait in PROBE_TRAITS:
+            path = os.path.join(probe_dir, "%s_%s.saw" % (name.lower(), trait.lower()))
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("func probe<T: %s>(value: &T) -> Int {\n    0\n}\n\n"
+                         "func main() -> Int {\n    let value = %s\n    probe(&value)\n}\n"
+                         % (trait, PROBE_VALUES[name]))
+            paths[rel(path)] = (name, trait)
+    sets = {}
+    for root in (STAGE0_ROOT, NEW_ROOT):
+        _, out = sawc2("typecheck", "--check", "--std-root", root, *sorted(paths))
+        refused, current = set(), None
+        for line in out.split("\n"):
+            if line.startswith("FILE\t"):
+                current = line.split("\t", 1)[1]
+            elif line.startswith("INVARIANT\t"):
+                failures.append("std conformance probe %s (%s): %s" % (current, root, line))
+            elif line.startswith("ERROR\t") and current is not None:
+                refused.add(current)
+        for path, (name, trait) in paths.items():
+            if path not in refused:
+                sets.setdefault((root, name), set()).add(trait)
+            sets.setdefault((root, name), set())
+    return sets
 
 
 # ---------------------------------------------------------------- the pairs
+
+def expected_panic(path):
+    """The text a pair's `// expect-panic:` first line says its panic prints,
+    or None for a pair that exits 0."""
+    with open(path, encoding="utf-8") as fh:
+        m = _EXPECT_PANIC.match(fh.readline().rstrip("\n"))
+    return m.group(1) if m else None
+
 
 def build_and_run_pair(path):
     exe = os.path.join(OUT, "pairs", module_name(path))
@@ -407,9 +546,15 @@ def build_and_run_pair(path):
         r = subprocess.run([exe], capture_output=True, text=True, timeout=RUN_TIMEOUT)
     except subprocess.TimeoutExpired:
         return "std pair %s: timed out under Stage 0" % rel(path)
+    panic = expected_panic(path)
+    said = (r.stderr + r.stdout).strip()
+    if panic is not None:
+        if r.returncode == 0 or panic not in said:
+            return "std pair %s: expected a panic saying `%s` under Stage 0, got exit %d: %s" \
+                % (rel(path), panic, r.returncode, said)
+        return None
     if r.returncode != 0:
-        return "std pair %s: exit %d under Stage 0: %s" % (rel(path), r.returncode,
-                                                           (r.stderr or r.stdout).strip())
+        return "std pair %s: exit %d under Stage 0: %s" % (rel(path), r.returncode, said)
     return None
 
 
@@ -419,7 +564,7 @@ def check_pairs(failures, counts):
         for failure in pool.map(build_and_run_pair, pairs):
             if failure:
                 failures.append(failure)
-    for stage in ("typecheck", "mir"):
+    for stage in ("typecheck", "mir", "eval"):
         _, out = sawc2(stage, "--check", "--std-root", NEW_ROOT, *[rel(p) for p in pairs])
         for line in problems_of(out):
             failures.append("std pair (%s against %s): %s" % (stage, NEW_ROOT, line))
@@ -439,10 +584,15 @@ def check_cones(failures, counts, write):
         for mod in modules:
             if mod.startswith(("rt.", "std.task")):
                 failures.append("std cone %s: reaches `%s`" % (rel(path), mod))
-        if name == FREESTANDING_CONE:
+        if name in NO_ALLOCATOR_CONES:
             if "std.alloc" in modules or "GlobalAllocator" in text:
-                failures.append("std cone %s: a program using only Optional and Result "
-                                "reaches the allocator" % rel(path))
+                failures.append("std cone %s: reaches the allocator, which this program "
+                                "must not" % rel(path))
+        if name == BUILDER_CONE:
+            for wanted in ("std.stringbuilder", "std.alloc"):
+                if wanted not in modules:
+                    failures.append("std cone %s: an interpolation does not reach `%s`"
+                                    % (rel(path), wanted))
         expectation = os.path.splitext(path)[0] + ".cone"
         if write:
             with open(expectation, "w", encoding="utf-8") as fh:
@@ -460,6 +610,72 @@ def check_cones(failures, counts, write):
                 failures += ["std cone %s: reached, not listed: %s" % (name, l) for l in added]
                 failures += ["std cone %s: listed, not reached: %s" % (name, l) for l in removed]
         counts["std cones"] = counts.get("std cones", 0) + 1
+
+
+# ------------------------------------------------------------- the MIR pins
+
+def mir_functions(dump):
+    """{header line: the function's text}, each function of a MIR dump from its
+    `fn` line through its closing brace."""
+    out, current, lines = {}, None, []
+    for line in dump.split("\n"):
+        if line.startswith("fn "):
+            current, lines = line, [line]
+        elif current is not None:
+            lines.append(line)
+            if line == "}":
+                out[current] = "\n".join(lines) + "\n"
+                current = None
+    return out
+
+
+def pin_parts(path):
+    """A pin's header comments, the functions it names, and its text after the
+    header."""
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    header, names = [], []
+    rest = text.split("\n")
+    while rest and rest[0].startswith("//"):
+        line = rest.pop(0)
+        header.append(line)
+        m = _PIN_FUNCTION.match(line)
+        if m:
+            names.append(m.group(1))
+    return header, names, "\n".join(rest)
+
+
+def pinned_text(functions, names):
+    parts = []
+    for name in names:
+        found = [text for header, text in functions.items() if header.startswith(name + " ")]
+        parts.append(found[0] if len(found) == 1 else "(no single function `%s`)\n" % name)
+    return "\n".join(parts)
+
+
+def check_mir_pins(failures, counts, write):
+    _, dump = sawc2("mir", "--dump", "--std-root", NEW_ROOT, rel(ENTRY))
+    functions = mir_functions(dump)
+    for header in REFCOUNT_HOOKS:
+        found = [text for line, text in functions.items() if line.startswith(header + " ")]
+        if len(found) != 1:
+            failures.append("std mir: no single `%s` in the new std's MIR" % header)
+            continue
+        body = found[0]
+        sentinel, atomic = body.find(SENTINEL), body.find(ATOMIC)
+        if atomic < 0 or sentinel < 0 or sentinel > atomic:
+            failures.append("std mir: `%s` performs an atomic operation before it reads the "
+                            "immortal sentinel, so a literal's block could be written" % header)
+    for path in sorted(glob.glob(os.path.join(MIR, "*.mir"))):
+        header, names, expected = pin_parts(path)
+        got = pinned_text(functions, names)
+        if write:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(header) + "\n" + got)
+        elif got != expected:
+            failures.append("std mir %s: the pinned functions' MIR differs; review it and rerun "
+                            "with --write" % rel(path))
+        counts["std mir pins"] = counts.get("std mir pins", 0) + 1
 
 
 def check_whitespace(failures):
@@ -488,6 +704,7 @@ def run(write=False):
     check_shapes(failures, counts)
     check_equivalence(failures, counts)
     check_pairs(failures, counts)
+    check_mir_pins(failures, counts, write)
     check_cones(failures, counts, write)
     return failures, counts
 

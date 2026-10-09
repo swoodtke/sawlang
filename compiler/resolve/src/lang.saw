@@ -3,7 +3,9 @@
 // declaration identity, filled once the std modules are collected. A std root
 // whose prelude module declares the roles (the new std, `std/`) binds them to
 // those declarations; Stage 0's root (`sawc/`), whose prelude the frozen
-// compiler synthesizes, binds them to the builtin module's declarations.
+// compiler synthesizes, binds them to the builtin module's declarations, binds
+// `StringBuilder` to its std's, and leaves unbound the String functions its
+// code generator synthesizes.
 
 import sawresolve.src.loader.{res_read_file}
 import sawresolve.src.model.{ResDeclKind}
@@ -36,16 +38,32 @@ public enum ResLang {
     case RangeInclusiveStruct,
     // Where every panic ends: the builtin `panic` and each check the compiler
     // inserts format their message, then call it.
-    case PanicSinkFunction
+    case PanicSinkFunction,
+    // The text type: literals, interpolation and every message are Strings.
+    case StringStruct,
+    // How a literal becomes a String: its immortal static block's bytes,
+    // wrapped with no allocation. `#file` and `#function` are literals too.
+    case StringLiteralFunction,
+    // Where a String's bytes are read, for a format argument or a message.
+    case StringBytesFunction,
+    // What a string-literal pattern and `==`/`!=` on Strings compare with.
+    case StringEqualsFunction,
+    // What the ordering operators on Strings compare with.
+    case StringCompareFunction,
+    // The builder an interpolation builds through, and the scratch a
+    // message's format arguments render into.
+    case StringBuilderStruct
 }
 
 // One role's row: its index in the table, the name its declaration carries
-// in the new std and the std module declaring it there, and the name of the
-// builtin module's declaration under a synthesized prelude.
+// in the new std and the std module declaring it there, and where Stage 0's
+// root declares it: the module and the name, empty when Stage 0's compiler
+// synthesizes the role and no declaration has it.
 public struct ResLangRow {
     public index: Int
     public name: String
     public home: String
+    public builtin_home: String
     public builtin_name: String
 }
 
@@ -74,11 +92,24 @@ public func res_lang_roles() -> Vector<ResLang> {
     try! out.push(ResLang.RangeStruct)
     try! out.push(ResLang.RangeInclusiveStruct)
     try! out.push(ResLang.PanicSinkFunction)
+    try! out.push(ResLang.StringStruct)
+    try! out.push(ResLang.StringLiteralFunction)
+    try! out.push(ResLang.StringBytesFunction)
+    try! out.push(ResLang.StringEqualsFunction)
+    try! out.push(ResLang.StringCompareFunction)
+    try! out.push(ResLang.StringBuilderStruct)
     move out
 }
 
 func res_lang_type(index: Int, name: String) -> ResLangRow {
-    ResLangRow(index: index, name: name, home: "std.prelude", builtin_name: name)
+    ResLangRow(index: index, name: name, home: "std.prelude", builtin_home: "builtin",
+               builtin_name: name)
+}
+
+// A function role of `std.string` that Stage 0's compiler synthesizes.
+func res_lang_string_function(index: Int, name: String) -> ResLangRow {
+    ResLangRow(index: index, name: name, home: "std.string", builtin_home: "builtin",
+               builtin_name: "")
 }
 
 public func res_lang_row(role: ResLang) -> ResLangRow {
@@ -105,7 +136,17 @@ public func res_lang_row(role: ResLang) -> ResLangRow {
         case RangeStruct -> res_lang_type(19, "Range"),
         case RangeInclusiveStruct -> res_lang_type(20, "RangeInclusive"),
         case PanicSinkFunction -> ResLangRow(index: 21, name: "panic_sink", home: "std.panic",
-                                             builtin_name: "panic")
+                                             builtin_home: "builtin", builtin_name: "panic"),
+        case StringStruct -> ResLangRow(index: 22, name: "String", home: "std.string",
+                                        builtin_home: "builtin", builtin_name: "String"),
+        case StringLiteralFunction -> res_lang_string_function(23, "string_literal"),
+        case StringBytesFunction -> res_lang_string_function(24, "string_bytes"),
+        case StringEqualsFunction -> res_lang_string_function(25, "string_equals"),
+        case StringCompareFunction -> res_lang_string_function(26, "string_compare"),
+        case StringBuilderStruct -> ResLangRow(index: 27, name: "StringBuilder",
+                                               home: "std.stringbuilder",
+                                               builtin_home: "std.stringbuilder",
+                                               builtin_name: "StringBuilder")
     }
 }
 
@@ -118,6 +159,8 @@ extension ResProgram {
     //     tc_check_lang_shapes
     //     check_none_cases
     //     dump_lang_items
+    //     prints_bare
+    //     string_position
     public func lang_item(&self, role: ResLang) -> Int {
         let row = res_lang_row(role)
         self.lang[row.index]
@@ -142,9 +185,8 @@ extension ResProgram {
                 if d < 0 {
                     self.refuse_missing_lang(&row)
                 }
-            } else {
-                let b = self.builtin
-                d = self.module_top_decl(b, row.builtin_name)
+            } else if row.builtin_name.len() > 0 {
+                d = self.std_top_decl(row.builtin_home, row.builtin_name)
             }
             try! self.lang.push(d)
             k = k + 1
@@ -156,6 +198,14 @@ extension ResProgram {
     // prelude, which declares what Stage 0 keeps in the builtin module.
     public func is_vocabulary_module(&self, m: Int) -> Bool {
         m >= 0 && (m == self.builtin || m == self.std_prelude)
+    }
+
+    // Whether type declaration `d` prints by its path alone: a vocabulary
+    // module's, and the String lang item, which programs spell `String`
+    // under either std.
+    public func prints_bare(&self, d: Int) -> Bool {
+        let decl = self.decls[d]
+        self.is_vocabulary_module(decl.module) || d == self.lang_item(ResLang.StringStruct)
     }
 
     // The declaration named `name` at the top of std module `home`, or -1.

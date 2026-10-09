@@ -38,11 +38,22 @@ extension GlobalAllocator: Allocator {
 /// The error an allocating operation reports: its allocator refused a request.
 ///
 /// `size` and `align` are the refused request's, so an out-of-memory site can
-/// be logged with its context. Its `Error` conformance, which renders it as
-/// text, arrives with the String layer.
+/// be logged with its context. It renders as
+/// `allocation of 64 bytes (align 8) failed`.
 public struct AllocError {
     /// Byte count of the request that failed.
     public size: Int
     /// Alignment of the request that failed.
     public align: Int
+}
+
+extension AllocError: Error {
+    /// Writes the refused request's size and alignment.
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append("allocation of ")
+        try! into.append(self.size)
+        try! into.append(" bytes (align ")
+        try! into.append(self.align)
+        try! into.append(") failed")
+    }
 }

@@ -1,0 +1,19 @@
+// `==` and the ordering operators on Strings compare byte by byte: unsigned
+// bytes, so a byte at or above 0x80 sorts after ASCII, and a proper prefix is
+// less.
+
+func main() -> Int {
+    let apple = "apple"
+    let apples = "apples"
+    let banana = "banana"
+    let accented = "\u{e9}t\u{e9}"
+    assert(apple == "apple", "equal bytes are equal")
+    assert(apple != apples, "a prefix is not equal")
+    assert(apple < apples, "a proper prefix is less")
+    assert(apples < banana, "the first differing byte decides")
+    assert(banana < accented, "a byte at or above 0x80 sorts after ASCII")
+    assert(accented >= banana, "the reverse holds too")
+    assert(not (apple > apple), "nothing is greater than itself")
+    assert(apple.equals("apple"), "equals answers as == does")
+    0
+}

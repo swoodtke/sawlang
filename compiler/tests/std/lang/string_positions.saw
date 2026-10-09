@@ -1,0 +1,40 @@
+// The String position matrix (compiler/tests/std/README.md): one row per
+// place the compiler makes or reads a String with no call written, each named
+// in the dump's `(string-positions ...)` with the std declaration it lowers
+// through. A position that bypassed the funnel is a verifier invariant.
+
+struct Gauge {
+    level: Int
+}
+
+extension Gauge: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.level)
+    }
+}
+
+func classify(word: String) -> Int {
+    match word {
+        case "zero" -> 0,
+        case _ -> 1
+    }
+}
+
+func main() -> Int {
+    let word = "zero"
+    let place = #file
+    let caller = #function
+    let joined = "{word} at {place}"
+    print("plain message")
+    print("a format: {}, {}", word, 7)
+    print(joined)
+    print(Gauge(level: 3))
+    if word == caller {
+        panic("the word is not the caller")
+    }
+    if word < "a" {
+        panic("{} sorts before a", word)
+    }
+    assert(classify(word) == 0, "a literal pattern compares")
+    0
+}

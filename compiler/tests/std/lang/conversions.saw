@@ -1,0 +1,16 @@
+// `UInt8.from(x)` is a conversion no declaration writes, the same under
+// either std: the value when it fits, else `None`. The dump must be the same
+// against either std root.
+
+func narrow(n: Int) -> UInt8? {
+    UInt8.from(n)
+}
+
+func main() -> Int {
+    let fits = narrow(200) ?? 0
+    let wide = narrow(300) ?? 255
+    if wide != 255 {
+        return 1
+    }
+    fits as Int
+}

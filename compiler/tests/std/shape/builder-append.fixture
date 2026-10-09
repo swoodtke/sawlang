@@ -1,0 +1,7 @@
+// An interpolation appends each String piece through the builder role's
+// `append(s:)`, so the builder keeps it.
+file: stringbuilder.saw
+replace: |    public func append(&var self, s: String) -> Result<Void, AllocError> {|        self.append_text(&s)
+with: |    public func append(&var self, text: String) -> Result<Void, AllocError> {|        self.append_text(&text)
+refuses: lang.shape stringbuilder.saw
+message: expected `(method append (signature (receiver exclusive) (params (s String owned)) -> Result<Void, std.alloc.AllocError>))`, found `nothing`

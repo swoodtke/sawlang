@@ -1,0 +1,82 @@
+//! Unicode scalar values.
+//!
+//! A `Scalar` is one Unicode scalar value: an integer in `0..0x10FFFF` that is
+//! not a UTF-16 surrogate, the domain UTF-8 encodes. The invariant is checked
+//! in one place, the fallible `init`; past it, `value()` always answers and
+//! `StringBuilder.append(scalar:)` always encodes. Nothing here allocates.
+
+static MAX_SCALAR: Int = 0x10FFFF
+static SURROGATE_MIN: Int = 0xD800
+static SURROGATE_MAX: Int = 0xDFFF
+
+/// Why an integer is not a Unicode scalar value. Each case carries the number
+/// it refused.
+public enum InvalidScalar {
+    /// Outside `0..0x10FFFF`: negative, or past the last code point.
+    case OutOfRange(value: Int),
+    /// Inside the UTF-16 surrogate block `0xD800..0xDFFF`, which UTF-8 does
+    /// not encode.
+    case Surrogate(value: Int)
+}
+
+/// Rejections print the number and the cause.
+extension InvalidScalar: Printable {
+    /// Writes the refused value and why it is not a scalar.
+    public func format(&self, into: &var StringBuilder) {
+        match self {
+            case OutOfRange(value) -> {
+                try! into.append(value)
+                try! into.append(" is not a Unicode scalar value: outside 0..0x10FFFF")
+            },
+            case Surrogate(value) -> {
+                try! into.append(value)
+                try! into.append(" is not a Unicode scalar value: a UTF-16 surrogate")
+            }
+        }
+    }
+}
+
+extension InvalidScalar: Error {}
+
+/// One Unicode scalar value.
+///
+/// Build one with `Scalar(value:)` and read the code point back with
+/// `value()`. Scalars compare by code point and print as the character.
+public struct Scalar {
+    private raw: Int
+}
+
+extension Scalar {
+    /// Builds the scalar for code point `value`, or reports why there is none.
+    ///
+    /// `Err(InvalidScalar)` names the cause: `OutOfRange` for a negative value
+    /// or one past `0x10FFFF`, `Surrogate` for the `0xD800..0xDFFF` block.
+    public init(value: Int) -> Result<Scalar, InvalidScalar> {
+        if value < 0 || value > MAX_SCALAR {
+            return InvalidScalar.OutOfRange(value: value)
+        }
+        if value >= SURROGATE_MIN && value <= SURROGATE_MAX {
+            return InvalidScalar.Surrogate(value: value)
+        }
+        return Scalar(raw: value)
+    }
+
+    /// Returns the code point, in `0..0x10FFFF`.
+    public func value(&self) -> Int {
+        self.raw
+    }
+}
+
+/// Scalars order by code point.
+@synthesize
+extension Scalar: Comparable {
+}
+
+/// Scalars print as the character they stand for.
+extension Scalar: Printable {
+    /// Writes the scalar's UTF-8 encoding, the character rather than its
+    /// number.
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append(self)
+    }
+}

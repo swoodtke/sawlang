@@ -1,0 +1,224 @@
+//! `Vector<T, A>`: a growable array that owns its elements and allocates
+//! through `A`, `GlobalAllocator` by default.
+//!
+//! `v[i]` is a place: the element is read or written where it sits, and a
+//! value read of it follows the element's copy tier. An index out of range
+//! panics; `get` is the `None`-returning twin. Every operation that can run out
+//! of memory reports it as `Err(AllocError)` and leaves the vector as it was.
+//! `Vector` is ExplicitCopy: a transfer is `move v` or `v.copy()`, and `copy()`
+//! exists when the element is ExplicitCopy.
+
+import std.mem.{copy_bytes, drop_in_place}
+
+static FIRST_SLOTS: Int = 4
+
+/// A growable array of `T`, allocated through `A`.
+public struct Vector<T, A: Allocator = GlobalAllocator> {
+    private buffer: UnsafePointer<T>?
+    private length: Int
+    private capacity: Int
+}
+
+// The buffer pointer blocks the derivation, but it is the vector's own
+// storage: moving or sharing a vector is safe exactly when moving or sharing
+// its elements and its allocator is.
+extension Vector<T: Send, A: Send>: UnsafeSend {}
+extension Vector<T: Sync, A: Sync>: UnsafeSync {}
+
+extension Vector<T, A: Allocator = GlobalAllocator> {
+    /// Creates an empty vector, which allocates nothing until an element
+    /// arrives.
+    public init() unsafe -> Vector<T, A> {
+        Vector<T, A>(buffer: None, length: 0, capacity: 0)
+    }
+
+    /// Creates an empty vector with room for `capacity` elements.
+    ///
+    /// Returns `Err(AllocError)` when `A` refuses. A non-positive `capacity`
+    /// allocates nothing.
+    public init(capacity: Int) unsafe -> Result<Vector<T, A>, AllocError> {
+        if capacity <= 0 {
+            return Vector<T, A>(buffer: None, length: 0, capacity: 0)
+        }
+        let bytes = capacity * sizeof<T>()
+        if let raw = A().alloc(bytes, alignof<T>()) {
+            return Vector<T, A>(buffer: raw as UnsafePointer<T>, length: 0, capacity: capacity)
+        }
+        return AllocError(size: bytes, align: alignof<T>())
+    }
+
+    /// Returns the number of elements.
+    public func len(&self) -> Int {
+        self.length
+    }
+
+    /// Returns whether the vector holds no elements.
+    public func is_empty(&self) -> Bool {
+        self.length == 0
+    }
+
+    /// Lends the element at `index` where it sits.
+    ///
+    /// A read of `v[i]` copies the element out, and a write replaces it in
+    /// place. Panics if `index` is outside `0..<len()`.
+    @synthesize(shared)
+    public func [](&var self, index: Int) unsafe borrows -> &var T {
+        if index < 0 || index >= self.length {
+            panic("Vector.[]: index out of range: {} (len {})", index, self.length)
+        }
+        guard let buf = self.buffer else {
+            panic("Vector.[]: buffer is empty")
+        }
+        lend buf[index]
+    }
+
+    /// Lends the element at `index` where it sits, or nothing when `index` is
+    /// outside `0..<len()`.
+    public func get(&var self, index: Int) unsafe borrows -> &var T? {
+        if index < 0 || index >= self.length {
+            return None
+        }
+        guard let buf = self.buffer else {
+            return None
+        }
+        lend buf[index]
+    }
+
+    /// Replaces the element at `index`, destroying the one it overwrites.
+    /// Panics if `index` is outside `0..<len()`; `value` is consumed either
+    /// way.
+    public func set(&var self, index: Int, value: T) unsafe {
+        if index < 0 || index >= self.length {
+            panic("Vector.set: index out of range: {} (len {})", index, self.length)
+        }
+        if let buf = self.buffer {
+            let old = move buf[index]
+            buf[index] = move value
+            let _ = move old
+        }
+    }
+
+    /// Appends `value`.
+    ///
+    /// Returns `Err(AllocError)` when the buffer must grow and `A` refuses; the
+    /// vector is then unchanged and `value` is destroyed.
+    public func push(&var self, value: T) unsafe -> Result<Void, AllocError> {
+        let wanted = self.length + 1
+        if not self.reserve_slots(wanted) {
+            return AllocError(size: self.grow_target(wanted) * sizeof<T>(), align: alignof<T>())
+        }
+        guard let buf = self.buffer else {
+            panic("Vector.push: buffer is empty")
+        }
+        // The slot at `length` is uninitialized, so this placement releases
+        // no prior occupant.
+        buf[self.length] = move value
+        self.length = self.length + 1
+        return
+    }
+
+    /// Makes room for `additional` more elements, so that many pushes cannot
+    /// fail. Returns `Err(AllocError)` when `A` refuses.
+    public func reserve(&var self, additional: Int) -> Result<Void, AllocError> {
+        let wanted = self.length + additional
+        if not self.reserve_slots(wanted) {
+            return AllocError(size: self.grow_target(wanted) * sizeof<T>(), align: alignof<T>())
+        }
+        return
+    }
+
+    /// Removes the last element and returns it, or `None` when the vector is
+    /// empty.
+    public func pop(&var self) unsafe -> T? {
+        if self.length == 0 {
+            return None
+        }
+        guard let buf = self.buffer else {
+            return None
+        }
+        self.length = self.length - 1
+        // The slot is past the new length, so ownership leaves here.
+        move buf[self.length]
+    }
+
+    /// Removes every element, destroying each, last first, and keeps the
+    /// capacity.
+    public func clear(&var self) {
+        while self.length > 0 {
+            let _ = self.pop()
+        }
+    }
+
+    // The capacity a growth to `wanted` elements allocates: double, from a
+    // floor, unless more was asked for.
+    func grow_target(&self, wanted: Int) -> Int {
+        let doubled = if self.capacity == 0 { FIRST_SLOTS } else { self.capacity * 2 }
+        if doubled < wanted {
+            wanted
+        } else {
+            doubled
+        }
+    }
+
+    // Makes room for `wanted` elements. False means `A` refused and the
+    // vector is untouched, which every caller relies on to report
+    // all-or-nothing.
+    func reserve_slots(&var self, wanted: Int) unsafe -> Bool {
+        if self.capacity >= wanted {
+            return true
+        }
+        let target = self.grow_target(wanted)
+        guard let fresh = A().alloc(target * sizeof<T>(), alignof<T>()) else {
+            return false
+        }
+        if let old = self.buffer {
+            let old_raw = old as UnsafePointer<Int8>
+            copy_bytes(old_raw, fresh, self.length * sizeof<T>())
+            A().dealloc(old_raw, self.capacity * sizeof<T>(), alignof<T>())
+        }
+        self.buffer = fresh as UnsafePointer<T>
+        self.capacity = target
+        true
+    }
+}
+
+extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator>: ExplicitCopy {
+    /// Duplicates the vector and every element through the same allocator.
+    ///
+    /// Panics if `A` refuses: `copy()` is the ExplicitCopy hook, whose
+    /// signature has no error channel.
+    public func copy(&self) unsafe -> Vector<T, A> {
+        var result = Vector<T, A>()
+        if not result.reserve_slots(self.length) {
+            panic("Vector.copy: {}", AllocError(size: self.length * sizeof<T>(), align: alignof<T>()))
+        }
+        if let buf = self.buffer {
+            var i = 0
+            while i < self.length {
+                match result.push(buf[i].copy()) {
+                    case Ok(_) -> {},
+                    case Err(e) -> panic("Vector.copy: {}", e)
+                }
+                i = i + 1
+            }
+        }
+        move result
+    }
+
+    // The copy policy is the type's for every `T`, a move-only element's
+    // included, so this is every vector's destructor though the conformance's
+    // `copy()` exists only where `T` is ExplicitCopy. Elements popped or moved
+    // out have left `length`, so they are never visited; the buffer goes back
+    // to this vector's own `A`.
+    public func deinit(&var self) unsafe {
+        if let buf = self.buffer {
+            var i = 0
+            while i < self.length {
+                drop_in_place((&buf[i]) as UnsafePointer<T>)
+                i = i + 1
+            }
+            let raw = buf as UnsafePointer<Int8>
+            A().dealloc(raw, self.capacity * sizeof<T>(), alignof<T>())
+        }
+    }
+}

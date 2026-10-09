@@ -1,26 +1,17 @@
-# The cone of compiler/tests/std/cone/core.saw against the new std (std): every std declaration its
+# The cone of compiler/tests/std/cone/interpolation.saw against the new std (std): every std declaration its
 # functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
-# 44 declarations in 8 modules
+# 37 declarations in 7 modules
 
-std.alloc: 8
+std.alloc: 6
   extern __saw_rt_alloc
   extern __saw_rt_dealloc
   method GlobalAllocator.alloc
   method GlobalAllocator.dealloc
-  requirement Allocator.alloc
-  requirement Allocator.dealloc
   struct AllocError
   struct GlobalAllocator
 
-std.box: 4
-  method Box.deinit
-  method Box.make
-  method Box.value
-  struct Box
-
-std.mem: 2
+std.mem: 1
   func copy_bytes
-  func drop_in_place
 
 std.panic: 2
   extern __saw_rt_panic

@@ -303,6 +303,7 @@ std.vector: 10
     instance T=Bool, A=GlobalAllocator, __R=Void
     instance T=Int, A=GlobalAllocator, __R=Int
     instance T=Int, A=GlobalAllocator, __R=Void
+    instance T=String, A=GlobalAllocator, __R=Bool
   method Vector._grow_target
     instance T=(owning), A=GlobalAllocator
     instance T=(plain), A=GlobalAllocator

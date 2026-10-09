@@ -1,0 +1,9 @@
+// expect-panic: String.byte_at: index out of range: 3 (len 3)
+// `byte_at` past the end panics rather than clamping or returning a sentinel.
+
+func main() -> Int {
+    let text = "abc"
+    assert(text.byte_at(2) == 99, "the last byte is in range")
+    let past = text.byte_at(3)
+    past as Int
+}

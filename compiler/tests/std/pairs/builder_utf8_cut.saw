@@ -1,0 +1,17 @@
+// A fixed builder that overflows cuts on a UTF-8 boundary, never inside a
+// scalar, and marks the cut with `…`.
+
+static SCRATCH_BYTES: Int = 8
+
+func main() unsafe -> Int {
+    var scratch: [Int8; 8] = [0; 8]
+    var b = StringBuilder(bytes: (&scratch) as UnsafePointer<Int8>, capacity: SCRATCH_BYTES)
+    let _ = try! b.append("ab")
+    assert(not b.is_truncated(), "two bytes fit")
+    let _ = try! b.append("c\u{e9}")
+    assert(b.is_truncated(), "the second append overflows")
+    assert(b.len() == 6, "abc and the three-byte marker")
+    let text = b.build()
+    assert(text == "abc\u{2026}", "the cut drops the whole scalar")
+    0
+}

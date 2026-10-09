@@ -1,33 +1,80 @@
-//! `StringBuilder`: a growable buffer of UTF-8 text that `build` turns into a
-//! `String`.
+//! `StringBuilder`: a buffer of UTF-8 text that `build` turns into a `String`.
 //!
-//! It allocates through `GlobalAllocator` and reports a refused allocation as
-//! `Err(AllocError)`, leaving the builder as it was. Appending a `String`
-//! arrives with the String layer.
+//! A growable builder allocates through `GlobalAllocator` and reports a
+//! refused allocation as `Err(AllocError)`, leaving the builder as it was. A
+//! fixed builder writes into storage its caller provides and never allocates:
+//! text that does not fit is cut on a UTF-8 boundary and marked with `…`, which
+//! is how `print`, `panic` and `assert` render their messages with the
+//! allocator refusing everything.
 
 import std.mem.{copy_bytes}
-
-// A helper the compiler emits, not a runtime seam: a fresh `String` holding a
-// copy of the bytes.
-extern "C" {
-    func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
-}
+import std.string.{string_from_bytes}
 
 static ASCII_ZERO: Int = 48
 static MINUS_SIGN: Int = 45
 static FIRST_CAPACITY: Int = 16
 
-/// A growable buffer of UTF-8 text.
+// The truncation marker a fixed builder stamps when content does not fit: `…`
+// (U+2026), whose UTF-8 encoding is these three bytes.
+static MARKER_LEN: Int = 3
+static MARKER_BYTE_0: Int = 226
+static MARKER_BYTE_1: Int = 128
+static MARKER_BYTE_2: Int = 166
+
+// The smallest `capacity` a fixed builder accepts: the marker, the NUL
+// terminator and one byte of text.
+static MIN_FIXED_CAPACITY: Int = 5
+
+// UTF-8's lead bytes and the continuation range (0b10xxxxxx).
+static CONTINUATION_FIRST: Int = 128
+static CONTINUATION_END: Int = 192
+static TWO_BYTE_LEAD: Int = 192
+static THREE_BYTE_LEAD: Int = 224
+static FOUR_BYTE_LEAD: Int = 240
+static ONE_BYTE_END: Int = 128
+static TWO_BYTE_END: Int = 2048
+static THREE_BYTE_END: Int = 65536
+static SIX_BITS: Int = 64
+static TWELVE_BITS: Int = 4096
+static EIGHTEEN_BITS: Int = 262144
+
+/// A buffer of UTF-8 text, growable or over fixed storage.
 public struct StringBuilder {
     private buffer: UnsafePointer<Int8>?
     private length: Int
     private capacity: Int
+    // The buffer is caller storage, never grown and never freed; overflow
+    // truncates and marks instead of reallocating.
+    private fixed: Bool
+    private truncated: Bool
 }
 
+// The buffer pointer blocks the derivation, but a builder owns its bytes: every
+// mutation is a `&var self` method, and no `&self` method writes.
+extension StringBuilder: UnsafeSend {}
+extension StringBuilder: UnsafeSync {}
+
 extension StringBuilder {
-    /// Creates an empty builder, which allocates nothing until text arrives.
+    /// Creates an empty growable builder, which allocates nothing until text
+    /// arrives.
     public init() unsafe -> StringBuilder {
-        StringBuilder(buffer: None, length: 0, capacity: 0)
+        StringBuilder(buffer: None, length: 0, capacity: 0, fixed: false, truncated: false)
+    }
+
+    /// Creates a builder over caller storage that never allocates.
+    ///
+    /// `bytes` must address at least `capacity` writable bytes and outlive the
+    /// builder, which neither grows nor frees them. The last four bytes are
+    /// held back for the marker and the NUL terminator, so the builder holds
+    /// `capacity - 4` bytes of text. Text that does not fit is cut on a UTF-8
+    /// boundary, `…` is stamped in its place, and `is_truncated` answers
+    /// `true` from then on. Panics if `capacity` is below 5.
+    public init(bytes: UnsafePointer<Int8>, capacity: Int) unsafe -> StringBuilder {
+        if capacity < MIN_FIXED_CAPACITY {
+            panic("StringBuilder(bytes:capacity:): capacity is too small to format into")
+        }
+        bytes[0] = 0
+        StringBuilder(buffer: bytes, length: 0, capacity: capacity, fixed: true, truncated: false)
     }
 
     /// Returns the number of bytes appended so far.
@@ -40,11 +87,53 @@ extension StringBuilder {
         self.length == 0
     }
 
+    /// Returns whether text was cut to fit a fixed builder's storage.
+    ///
+    /// Always `false` for a growable builder. Once `true` it stays so until
+    /// `clear`, and the built text ends in `…`.
+    public func is_truncated(&self) -> Bool {
+        self.truncated
+    }
+
+    /// Appends the bytes of `s`.
+    ///
+    /// The length comes from the string's header, so an interior NUL is
+    /// appended too. Returns `Err(AllocError)` when a growable builder cannot
+    /// grow, leaving it unchanged; a fixed builder truncates instead.
+    public func append(&var self, s: String) -> Result<Void, AllocError> {
+        self.append_text(&s)
+    }
+
+    func append_text(&var self, s: &String) unsafe -> Result<Void, AllocError> {
+        let n = s.len()
+        if n == 0 {
+            return
+        }
+        let needed = self.length + n + 1
+        if not self.reserve_bytes(needed) {
+            if self.fixed {
+                self.overflow(&s, n)
+                return
+            }
+            return AllocError(size: self.grow_target(needed), align: 1)
+        }
+        if let buf = self.buffer {
+            var i = 0
+            while i < n {
+                buf[self.length + i] = Int8.from(truncating: s.byte_at(i))
+                i = i + 1
+            }
+            self.length = self.length + n
+            buf[self.length] = 0
+        }
+        return
+    }
+
     /// Appends the decimal rendering of `value`.
     ///
     /// Stages nothing on the heap besides the builder's own buffer. Returns
-    /// `Err(AllocError)` when the buffer cannot grow; the builder is unchanged
-    /// then.
+    /// `Err(AllocError)` when a growable builder cannot grow, leaving it
+    /// unchanged; a fixed builder truncates instead.
     public func append(&var self, value: Int) -> Result<Void, AllocError> {
         self.append_decimal(value)
     }
@@ -61,33 +150,143 @@ extension StringBuilder {
             digits = digits + 1
         }
         let sign = if value < 0 { 1 } else { 0 }
-        let needed = self.length + sign + digits
-        if not self.reserve_bytes(needed) {
+        let needed = self.length + sign + digits + 1
+        if not self.reserve_bytes(needed) && not self.fixed {
             return AllocError(size: self.grow_target(needed), align: 1)
         }
-        if let buf = self.buffer {
-            var at = self.length
-            if value < 0 {
-                buf[at] = Int8.from(truncating: MINUS_SIGN)
-                at = at + 1
-            }
-            while scale > 0 {
-                let digit = 0 - ((n / scale) % 10)
-                buf[at] = Int8.from(truncating: ASCII_ZERO + digit)
-                at = at + 1
-                scale = scale / 10
-            }
-            self.length = at
+        if value < 0 {
+            self.place_byte(MINUS_SIGN)
+        }
+        while scale > 0 {
+            let digit = 0 - ((n / scale) % 10)
+            self.place_byte(ASCII_ZERO + digit)
+            scale = scale / 10
         }
         return
     }
 
+    /// Appends the UTF-8 encoding of `scalar`: the character, not its number.
+    ///
+    /// Returns `Err(AllocError)` when a growable builder cannot grow, leaving
+    /// it unchanged. A fixed builder that cannot hold the whole encoding
+    /// truncates before it, so no half of a scalar is written.
+    public func append(&var self, scalar: Scalar) -> Result<Void, AllocError> {
+        self.append_scalar_bytes(scalar.value())
+    }
+
+    func append_scalar_bytes(&var self, code: Int) unsafe -> Result<Void, AllocError> {
+        var count = 4
+        if code < ONE_BYTE_END {
+            count = 1
+        } else if code < TWO_BYTE_END {
+            count = 2
+        } else if code < THREE_BYTE_END {
+            count = 3
+        }
+        let needed = self.length + count + 1
+        if not self.reserve_bytes(needed) {
+            if self.fixed {
+                self.mark_truncated()
+                return
+            }
+            return AllocError(size: self.grow_target(needed), align: 1)
+        }
+        if count == 1 {
+            self.place_byte(code)
+        } else if count == 2 {
+            self.place_byte(TWO_BYTE_LEAD + code / SIX_BITS)
+            self.place_byte(CONTINUATION_FIRST + code % SIX_BITS)
+        } else if count == 3 {
+            self.place_byte(THREE_BYTE_LEAD + code / TWELVE_BITS)
+            self.place_byte(CONTINUATION_FIRST + (code / SIX_BITS) % SIX_BITS)
+            self.place_byte(CONTINUATION_FIRST + code % SIX_BITS)
+        } else {
+            self.place_byte(FOUR_BYTE_LEAD + code / EIGHTEEN_BITS)
+            self.place_byte(CONTINUATION_FIRST + (code / TWELVE_BITS) % SIX_BITS)
+            self.place_byte(CONTINUATION_FIRST + (code / SIX_BITS) % SIX_BITS)
+            self.place_byte(CONTINUATION_FIRST + code % SIX_BITS)
+        }
+        return
+    }
+
+    /// Removes every byte, keeping the capacity. A fixed builder is no longer
+    /// truncated afterwards.
+    public func clear(&var self) unsafe {
+        self.length = 0
+        self.truncated = false
+        if let buf = self.buffer {
+            buf[0] = 0
+        }
+    }
+
     /// Returns the text appended so far as a new `String`.
+    ///
+    /// Panics if the String's allocation is refused, as every String producer
+    /// does.
     public func build(&self) unsafe -> String {
         if let buf = self.buffer {
-            return __saw_string_from_bytes(buf, self.length)
+            return string_from_bytes(buf, self.length)
         }
         ""
+    }
+
+    // Writes one byte at the end. The caller has reserved room in a growable
+    // builder; a fixed builder at its text limit marks itself truncated.
+    func place_byte(&var self, b: Int) unsafe {
+        if self.fixed && self.length + 2 > self.capacity - MARKER_LEN {
+            self.mark_truncated()
+            return
+        }
+        if let buf = self.buffer {
+            buf[self.length] = Int8.from(truncating: b)
+            self.length = self.length + 1
+            buf[self.length] = 0
+        }
+    }
+
+    // A fixed builder's overflow: the prefix of `s` that fits, cut back to a
+    // UTF-8 boundary, then the marker. The marker's room is held back by
+    // `reserve_bytes`, so no placed text is overwritten.
+    func overflow(&var self, s: &String, n: Int) unsafe {
+        if self.truncated {
+            return
+        }
+        if let buf = self.buffer {
+            var fits = self.capacity - 1 - MARKER_LEN - self.length
+            if fits > n {
+                fits = n
+            }
+            while fits > 0 && self.is_continuation(s.byte_at(fits) as Int) {
+                fits = fits - 1
+            }
+            var i = 0
+            while i < fits {
+                buf[self.length + i] = Int8.from(truncating: s.byte_at(i))
+                i = i + 1
+            }
+            self.length = self.length + fits
+        }
+        self.mark_truncated()
+    }
+
+    // Stamps `…` at the end and seals a fixed builder; once marked, its length
+    // sits at the text limit, so every later append returns here.
+    func mark_truncated(&var self) unsafe {
+        if self.truncated {
+            return
+        }
+        self.truncated = true
+        if let buf = self.buffer {
+            buf[self.length] = Int8.from(truncating: MARKER_BYTE_0)
+            buf[self.length + 1] = Int8.from(truncating: MARKER_BYTE_1)
+            buf[self.length + 2] = Int8.from(truncating: MARKER_BYTE_2)
+            self.length = self.length + MARKER_LEN
+            buf[self.length] = 0
+        }
+    }
+
+    func is_continuation(&self, b: Int) -> Bool {
+        b >= CONTINUATION_FIRST && b < CONTINUATION_END
     }
 
     // The capacity a growth to `wanted` bytes allocates: double, from a floor,
@@ -101,9 +300,13 @@ extension StringBuilder {
         }
     }
 
-    // Makes room for `wanted` bytes. False means the allocator refused and the
-    // builder is untouched.
+    // Makes room for `wanted` bytes. False means the allocator refused, or a
+    // fixed builder's storage is full, and the builder is untouched. A fixed
+    // builder holds MARKER_LEN bytes back so an overflow can always say so.
     func reserve_bytes(&var self, wanted: Int) unsafe -> Bool {
+        if self.fixed {
+            return wanted <= self.capacity - MARKER_LEN
+        }
         if self.capacity >= wanted {
             return true
         }
@@ -114,6 +317,8 @@ extension StringBuilder {
         if let old = self.buffer {
             copy_bytes(old, fresh, self.length)
             GlobalAllocator().dealloc(old, self.capacity, 1)
+        } else {
+            fresh[0] = 0
         }
         self.buffer = fresh
         self.capacity = target
@@ -123,6 +328,11 @@ extension StringBuilder {
 
 extension StringBuilder: NoCopy {
     public func deinit(&var self) unsafe {
+        // Fixed storage is the caller's, so freeing it here would free memory
+        // this builder never allocated.
+        if self.fixed {
+            return
+        }
         if let buf = self.buffer {
             GlobalAllocator().dealloc(buf, self.capacity, 1)
         }

@@ -1,7 +1,7 @@
 // The new std imports only its own modules.
 
 import std.box.{Box}
-import std.vector.{Vector} // refuses: import-allowlist
+import std.file.{File} // refuses: import-allowlist
 import sawparse.src.api.{parse_source} // refuses: import-allowlist
 
 public func count_cells() -> Int {

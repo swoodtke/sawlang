@@ -1,0 +1,7 @@
+// A literal is built from its static block's bytes alone; the literal role is
+// held to that signature.
+file: string.saw
+replace: func string_literal(bytes: UnsafePointer<Int8>) unsafe -> String {
+with: func string_literal(bytes: UnsafePointer<Int8>, count: Int) unsafe -> String {
+refuses: lang.shape string.saw
+message: expected `func (signature (params (bytes UnsafePointer<Int8> owned)) (effects unsafe) -> String)`

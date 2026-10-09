@@ -26,7 +26,9 @@ public func res_declare_synthetic_builtins(p: &var ResProgram) {
     p.builtin_type("UInt64")
     p.builtin_type("Float")
     p.builtin_type("Bool")
-    p.builtin_type("String")
+    if not p.std_new {
+        p.builtin_type("String")
+    }
     p.builtin_type("Void")
     p.builtin_type("Never")
     p.builtin_type("UnsafePointer")
@@ -49,6 +51,13 @@ public func res_declare_synthetic_builtins(p: &var ResProgram) {
     if not p.std_new {
         p.builtin_function("sleep")
         p.builtin_function("cancelled")
+    } else {
+        // The atomic intrinsics the new std's refcounts are written over
+        // (SL:open-questions D23), spelled as Stage 0's synthesized helpers,
+        // which no runtime may provide.
+        p.builtin_function("__saw_atomic_add_i64")
+        p.builtin_function("__saw_atomic_sub_i64_release")
+        p.builtin_function("__saw_atomic_fence_acquire")
     }
 }
 
@@ -67,7 +76,13 @@ public func res_declare_prelude(p: &var ResProgram) {
     p.prelude_name("UInt64", "builtin")
     p.prelude_name("Float", "builtin")
     p.prelude_name("Bool", "builtin")
-    p.prelude_name("String", "builtin")
+    if p.std_new {
+        // The new std declares String in its own module, which the String
+        // lang item names; Stage 0's compiler synthesizes it.
+        p.prelude_name("String", "std.string")
+    } else {
+        p.prelude_name("String", "builtin")
+    }
     p.prelude_name("Void", "builtin")
     p.prelude_name("Never", "builtin")
     p.prelude_name("UnsafePointer", "builtin")

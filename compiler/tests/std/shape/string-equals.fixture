@@ -1,0 +1,7 @@
+// `==` on Strings and a string-literal pattern compare through the equality
+// role, which answers a Bool.
+file: string.saw
+replace: func string_equals(left: &String, right: &String) unsafe -> Bool {
+with: func string_equals(left: &String, right: &String) unsafe -> Int {
+refuses: lang.shape string.saw
+message: expected `func (signature (params (left &String shared) (right &String shared)) (effects unsafe) -> Bool)`

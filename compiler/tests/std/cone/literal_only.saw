@@ -1,0 +1,25 @@
+// A program whose only Strings are literals: messages, a bound literal, a
+// comparison and a literal pattern. A literal is an immortal static block, so
+// its cone holds no allocator type and no builder.
+
+func label(code: Int) -> String {
+    if code == 0 {
+        return "zero"
+    }
+    "other"
+}
+
+func main() -> Int {
+    let name = label(0)
+    print("starting")
+    print(name)
+    match name {
+        case "zero" -> print("matched"),
+        case _ -> panic("no match")
+    }
+    if name == "other" {
+        panic("wrong label")
+    }
+    assert(name.len() == 4, "the label is four bytes")
+    0
+}

@@ -83,7 +83,7 @@ compiler/
     std/              the std lane (std_lane.py) over the new std in `std/`: the
                       subset profile's fixtures, the lang items' paired dumps
                       and shape fixtures, the API-equivalence members and
-                      exceptions, the behaviour pairs and the cones
+                      exceptions, the behaviour pairs, the MIR pins and the cones
 ```
 
 The new std, the std sawc2 compiles from Stage 1 on, is the top-level `std/`
@@ -197,26 +197,39 @@ these things.
   the compiler's own source whole, and fails on any constant of tests/corpus/
   where the evaluator and typecheck's fold disagree.
 - **The new std** (`tests/std/std_lane.py`): every module of `std/` resolves,
-  typechecks and lowers with no refusal and no invariant; the subset checker's
-  std profile accepts it; each lang-item program types the same against `std/`
-  and `sawc/`; each lang item keeps its shape; the std API allowlist's members
-  match in the two stds (below); each behaviour pair runs under Stage 0 and
-  checks against `std/`; and each recorded cone holds, the one of a program
-  using only Optional and Result reaching no runtime module and no allocator.
+  typechecks, lowers and has its constants evaluated with no refusal and no
+  invariant; the subset checker's std profile accepts it; each lang-item
+  program types the same against `std/` and `sawc/`; each lang item keeps its
+  shape; the std API allowlist's members match in the two stds (below); each
+  behaviour pair runs under Stage 0 (exiting 0, or panicking as its
+  `// expect-panic:` line says) and checks, lowers and evaluates against
+  `std/`; each MIR pin (`tests/std/mir/`) holds, String's retain and release
+  reading the immortal sentinel before any atomic operation; and each
+  recorded cone holds, the ones of a program using only Optional and Result
+  and of one whose only Strings are literals reaching no runtime module and
+  no allocator, and the one of a program that interpolates reaching the
+  builder and the allocator.
 
 ## The std profile
 
 `tools/subset_check.py --std` holds `std/` to the subset with exactly the
 low-level features SL:architecture §4 names: `raw-pointer` (raw memory and
 pointers), `borrows-accessor` (`borrows` and `lend`), `deinit-body` (a type
-owning a buffer frees it) and `box-type` (`Box<T, A>`) are dropped, a bound may
-be `Allocator` (`bounded-extension`) and a fieldless struct an allocator
-(`empty-struct`), and a std module imports only std modules
+owning a buffer frees it), and `box-type` and `generic-extension-init`
+(allocator parameters: `Box<T, A>`, and `Vector<T, A>` built by its `init`)
+are dropped. A bound may be `Allocator`, or a policy trait a container's
+conditional conformance needs (`Copy`, `ExplicitCopy`, `Send`, `Sync`), and
+nothing else (`bounded-extension`); a fieldless struct may be an allocator
+(`empty-struct`); the prelude may declare the vocabulary's alias `Byte` and
+no other (`type-alias`); and a std module imports only std modules
 (`import-allowlist`). `prelude-type-name` and `std-api` hold the compiler to
 std, so the profile drops them too, and `compile` and `owned-operand`, which
 ask Stage 0's code generator, never run: sawc2's check of `std/` stands in.
-The frozen parser predates a case named `None`, so the profile reads one as an
-identifier. Its fixtures are `tests/std/subset/`.
+The frozen parser predates a case named `None` and takes no attribute on a
+method, so the profile reads such a case as an identifier and a method
+without its `@synthesize(shared)`, and `move buf[i]` through a binding is the
+raw-memory feature's move out of a pointer place, not `borrowed-match-payload`.
+Its fixtures are `tests/std/subset/`.
 
 ## API equivalence
 
@@ -228,6 +241,12 @@ dump of `sawc/std` and of `std/`, effects, receiver, lend, parameters and
 result. A lang item's members are held by the shape check instead. A
 difference fails unless `tests/std/equivalence_exceptions.tsv` lists it with a
 reason and the unit it is due by; an exception whose unit has landed fails.
+Three rows compare more than a record: `layout String` holds the new std's
+String to one `UnsafePointer<Int8>` field, which the `string_layout` pair holds
+to Stage 0's size and alignment; `conformances TYPE` compares the traits whose
+bounds a value of the type meets under each root, one probe program per
+trait; and `paired NAME` names a conversion no declaration writes, held by the
+paired program `lang/NAME.saw`.
 
 ## The subset
 

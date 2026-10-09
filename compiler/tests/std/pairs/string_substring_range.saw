@@ -1,0 +1,10 @@
+// expect-panic: String.substring: range out of range: 1..5 (len 3)
+// `substring` reaching past the end panics rather than clamping.
+
+func main() -> Int {
+    let text = "abc"
+    assert(text.substring(1, 3) == "bc", "an in-range substring")
+    assert(text.substring(3, 3) == "", "an empty range is legal")
+    let past = text.substring(1, 5)
+    past.len()
+}

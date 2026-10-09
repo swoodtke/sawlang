@@ -1,0 +1,6 @@
+// Only the prelude declares an alias, the language's `Byte`; any other module,
+// and any other name, is refused.
+
+public type Byte = UInt8 // refuses: type-alias
+
+public type Count = Int // refuses: type-alias

@@ -88,7 +88,8 @@ extension TcProgram {
         let std_task_group = self.module_named("std.taskgroup")
         let k = TcKnown(optional: self.res.lang_item(ResLang.OptionalEnum),
                         result: self.res.lang_item(ResLang.ResultEnum),
-                        string: self.top_decl(b, "String"), void_type: self.top_decl(b, "Void"),
+                        string: self.res.lang_item(ResLang.StringStruct),
+                        void_type: self.top_decl(b, "Void"),
                         never: self.top_decl(b, "Never"),
                         unsafe_pointer: self.top_decl(b, "UnsafePointer"),
                         unsafe_const_pointer: self.top_decl(b, "UnsafeConstPointer"),

@@ -24,6 +24,7 @@ import sawtypecheck.src.conform.{tc_extension_sets}
 import sawtypecheck.src.model.{TC_BIND_DEFAULT, TcAdjust, TcAdjustKind, TcCall, TcRole, TcUse}
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.strings.{TcStringPosition}
 import sawtypecheck.src.typeops.{TcClient}
 import sawtypecheck.src.types.{TcKind, TcType}
 
@@ -167,6 +168,9 @@ extension TcProgram {
             let kind = self.node_kind(id)
             if kind == TC_NODE_EXPRESSION || kind == TC_NODE_PATTERN {
                 self.verify_typed(&var problems, m, id, refused)
+                if not refused {
+                    self.verify_string_position(&var problems, m, id)
+                }
             }
             if self.is_call_node(id) {
                 self.verify_call(&var problems, m, id, refused)
@@ -362,6 +366,38 @@ extension TcProgram {
 
     func is_subscript_node(&self, id: Int) -> Bool {
         self.has_alt(id, Alt.Expr_Subscript_Single) || self.has_alt(id, Alt.Expr_Subscript_Multi)
+    }
+
+    // Node `id` is a String position when the compiler makes or reads a
+    // String there: a literal, an interpolation, a source location, a
+    // string-literal pattern, a builtin comparison of Strings, and `panic`
+    // and `assert`. Each must name its lang item through the funnel.
+    func verify_string_position(&self, problems: &var Vector<String>, m: Int, id: Int) {
+        if self.string_positions[id] >= 0 {
+            return
+        }
+        let t = self.expr_types[id]
+        if t >= 0 && self.has_error(t) {
+            return
+        }
+        var needed = self.needs_string_position(id)
+        let at = self.call_at[id]
+        if not needed && at >= 0 {
+            let c = self.calls[at]
+            if c.role == TcRole.Builtin && c.spelling >= 0 {
+                let name = self.name_text(c.spelling)
+                needed = name.equals("panic") || name.equals("assert")
+            } else if c.role == TcRole.BuiltinOperator && self.has_alt(id, Alt.Expr_Compare_Pair) {
+                let left = self.res.first_node_child(id)
+                let lt = self.expr_types[left]
+                let inner = self.referent(lt)
+                needed = lt >= 0 && (self.is_string(lt) || (inner >= 0 && self.is_string(inner)))
+            }
+        }
+        if needed {
+            self.body_problem(&var problems, m, id,
+                              "a String position names no lang item: it bypassed the string-position funnel")
+        }
     }
 
     func body_problem(&self, problems: &var Vector<String>, m: Int, id: Int, text: String) {

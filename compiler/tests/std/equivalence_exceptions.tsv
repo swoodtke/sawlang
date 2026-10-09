@@ -3,6 +3,5 @@
 # difference not listed here, on a listed one that is gone, and on any whose
 # unit has landed (LANDED_UNITS in std_lane.py).
 std.stringbuilder init StringBuilder.init -	-	Stage 0 under-reports the effect: the body names a value of an unsafe type (the `None` of the `UnsafePointer<Int8>?` field), and the spec's trigger rule makes a function unsafe when it "names, binds, receives or returns a value of an unsafe type", deliberately broader than "performs a deref"; calling it needs no ceremony, so no caller changes
-std.stringbuilder method StringBuilder.append s:String	U5b2	String layer: lands in U5b2
-std.alloc conformance AllocError Error	U5b2	String layer: lands in U5b2
-std.alloc method AllocError.format into:&var std.stringbuilder.StringBuilder	U5b2	String layer: lands in U5b2
+std.vector init Vector.init -	-	Stage 0 under-reports the effect, as for `StringBuilder.init`: the body names the `None` of the `UnsafePointer<T>?` field, which the spec's trigger rule makes `unsafe`; calling it needs no ceremony, so no caller changes
+std.vector method Vector.[] index:Int	-	SL:borrowing §4 rules a shared twin for `Vector.[]` (`@synthesize(shared)`), which Stage 0's std predates; a read through `v[i]` borrows the root shared instead of exclusively, and getitem derives from the twin as §5.2 requires

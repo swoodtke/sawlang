@@ -1,0 +1,30 @@
+(Module conversions
+  (declarations
+    (func narrow 5:6 private (signature (params (n Int owned)) -> UInt8?) (summary body (suspends no) (sync-callable yes)))
+    (func main 9:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (narrow 5:6
+      (6:5-6:18 Call.paren UInt8? value temp (conversion from (owner UInt8)))
+      (6:16-6:17 Name Int place copy))
+    (main 9:6
+      (10:9-10:13 BindingName UInt8 place temp)
+      (10:16-10:32 Coalesce UInt8 value temp (op ??))
+      (10:16-10:27 Call.paren UInt8? value temp (call conversions.narrow(n: Int)))
+      (10:23-10:26 IntLit Int value temp)
+      (10:31-10:32 IntLit Int (adopt UInt8) value temp)
+      (11:9-11:13 BindingName UInt8 place temp)
+      (11:16-11:34 Coalesce UInt8 value temp (op ??))
+      (11:16-11:27 Call.paren UInt8? value temp (call conversions.narrow(n: Int)))
+      (11:23-11:26 IntLit Int value temp)
+      (11:31-11:34 IntLit Int (adopt UInt8) value temp)
+      (12:5-14:6 If Void value temp)
+      (12:8-12:19 Binary.pair Bool value temp (op !=))
+      (12:8-12:12 Name UInt8 place borrow)
+      (12:16-12:19 IntLit Int (adopt UInt8) value borrow)
+      (13:16-13:17 IntLit Int value temp)
+      (15:5-15:16 Cast Int value temp)
+      (15:5-15:9 Name UInt8 place copy))))

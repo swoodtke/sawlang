@@ -308,7 +308,10 @@ extension ResProgram {
         self.std_module("mem")
         self.std_module("box")
         self.std_module("panic")
+        self.std_module("scalar")
+        self.std_module("string")
         self.std_module("stringbuilder")
+        self.std_module("vector")
     }
 
     // Stage 0's std modules, each `std.X` at `<std root>/std/X.saw`.

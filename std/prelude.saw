@@ -8,6 +8,13 @@
 
 import std.stringbuilder.{StringBuilder}
 
+/// A byte value: a distinct alias of `UInt8`.
+///
+/// It reads as a `UInt8` (comparisons, masks, arithmetic, a `UInt8`
+/// parameter), and a number becomes one only through `Byte(...)` or an API
+/// that yields bytes, such as `String.byte_at`.
+public type Byte = UInt8
+
 /// A value that may be absent: `Some(value:)`, or `None`.
 ///
 /// `T?` is this type, `None` is its absent case, and a `T` written where a `T?`

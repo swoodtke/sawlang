@@ -1,0 +1,19 @@
+// A String feeds a Hasher one byte at a time, each as an unsigned `Int`, with
+// no length prefix, and the digest is FNV-1a's folded to an `Int`. These are
+// Stage 0's digests, so a feed that differs in the new std changes one.
+
+func digest(text: String) -> Int {
+    var h = Hasher()
+    text.hash(&var h)
+    h.finish()
+}
+
+func main() -> Int {
+    assert(digest("") == 3750763033623838657, "the empty string's digest")
+    assert(digest("a") == 5808556871801516224, "a one-byte digest")
+    assert(digest("hello") == 6615550053767079245, "an ASCII digest")
+    assert(digest("a\0b") == 1886276960757546923, "an interior NUL is fed")
+    assert(digest("h\u{e9}llo") == 6674344406824105983, "UTF-8 bytes feed unsigned")
+    assert(digest("zero") == 2461754175001283554, "a literal pattern's text")
+    0
+}

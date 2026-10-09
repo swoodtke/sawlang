@@ -17,6 +17,7 @@ import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFF
                                TcStatus, TcStatusKind, TcTier}
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.strings.{TcStringPosition}
 import sawtypecheck.src.summaries.{tc_solve_summaries}
 import sawtypecheck.src.tier.{tc_bit}
 import sawtypecheck.src.types.{TcKind, TcType}
@@ -117,6 +118,11 @@ extension TcProgram {
         }
         try! out.append(")")
         tc_dump_bodies(&self, &var out, m)
+        // Under Stage 0's std, String is the builtin its compiler synthesizes,
+        // so only the new std's dump says where each position lowers.
+        if self.res.std_new {
+            self.dump_string_positions(&var out, m)
+        }
         try! out.append(")\n")
     }
 

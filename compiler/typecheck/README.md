@@ -52,6 +52,7 @@ typecheck/
     fold.saw          constant folding by typed arithmetic, for literal ranges, which
                       the MIR evaluator (compiler/eval) agrees with
     lang.saw          the lang items' shapes
+    strings.saw       the String positions and their funnel
     bodychecks.saw    borrowing-struct containment, the body half of `unsafe`,
                       the `borrows(sync)` window
     dump.saw          the dump
@@ -270,6 +271,13 @@ These are the reversible readings U6b2 made; SL-447's report lists them.
   lend's absent path.
 - A `Result<Void, E>` body that ends in a statement, and a bare `return` in
   one, give its `Ok`.
+- The new std's atomic intrinsics (SL:open-questions D23) are typed as Stage
+  0's synthesized helpers of their names: `__saw_atomic_add_i64` and
+  `__saw_atomic_sub_i64_release` take an `UnsafePointer<Int>` and an `Int`
+  delta and return the old value, and `__saw_atomic_fence_acquire` takes
+  nothing. A plain load is an ordinary read through a pointer.
+- A documented enum case's doc comment is a child of its node, and no raw
+  value.
 - sawc2 takes no target yet, so the platform pair, `Int` and `UInt`, is read
   as 64 bits wide when a widening's losslessness is judged: `Int64` into `Int`
   widens, as on the hosted targets.
@@ -371,19 +379,58 @@ These are the reversible readings U6b3 made; SL-447's report lists them.
   type, an integer or a `String`, needs a wildcard or a binding.
 
 The declarations typecheck knows by identity are found once (`find_known`):
-`Optional` (for `T?`, which no name occurrence spells), `Result`, the Copy
-family, the derivable traits and the panic sink from resolve's lang-item table
-(resolve/README.md), and the primitives, the unsafe pointers and the interior
-cell from the builtin module. That is a table of the stage's own vocabulary,
-not a lookup of a name the program wrote. `lang.saw` holds each lang item a
-source declares to its role's shape, its cases and payload labels, its
-requirements and their signatures, its fields, conformances and the methods
-its module writes, and refuses a difference as `lang.shape`, naming the first
-part that differs. The expected shapes are Stage 0's `builtin.saw`, so every
-lane over `sawc/` checks the table against it. An Optional the new std
-declares writes its own `take`, `is_some` and `is_none`, so typecheck answers
-those names builtin only for Stage 0's synthesized one, and a lang item prints
-by its bare name, as a builtin does, under either std.
+`Optional` (for `T?`, which no name occurrence spells), `Result`, `String`,
+the Copy family, the derivable traits and the panic sink from resolve's
+lang-item table (resolve/README.md), and the primitives, the unsafe pointers
+and the interior cell from the builtin module. That is a table of the stage's
+own vocabulary, not a lookup of a name the program wrote. `lang.saw` holds
+each lang item a source declares to its role's shape, its cases and payload
+labels, its requirements and their signatures, its fields, conformances and
+the methods its module writes, and refuses a difference as `lang.shape`,
+naming the first part that differs. The expected shapes are Stage 0's
+`builtin.saw`, so every lane over `sawc/` checks the table against it. The
+String layer's two types, `String` and `StringBuilder`, carry an API beyond
+what the compiler calls, so their shapes are sets of parts each must hold:
+String's single field, its Copy conformance with the retain and release
+hooks, and its other conformances; the builder's fixed-mode `init`,
+`append(s:)`, `append(value:)`, `build` and its policy. A `lang.shape` refusal
+is listed before the refusals the checks ahead of it made, since a slip in a
+lang item explains them. An Optional the new std declares writes its own
+`take`, `is_some` and `is_none`, so typecheck answers those names builtin only
+for Stage 0's synthesized one, and a lang item prints by its bare name, as a
+builtin does, under either std; so does `String`, from `std.string`.
+
+## The String positions
+
+The compiler makes or reads a String itself, with no call written, at a fixed
+set of positions, and each lowers through a lang item (SL-456). The body walk
+records each through one funnel, `string_position` in `strings.saw`, whose
+docstring lists its entry points; the body verifier requires a position for
+every literal, interpolation, source location, string-literal pattern,
+builtin comparison of Strings, and `panic` and `assert` call, so a position
+that bypassed the funnel is an invariant rather than a silent fallback to a
+builtin. Under the new std the module dump ends with `(string-positions (L:C
+POSITION DECLARATION) ...)`, the declaration each lowers through; under Stage
+0's std, whose compiler synthesizes those, nothing is printed.
+
+| position | where | lowers through | pinned by |
+|---|---|---|---|
+| `literal` | a string literal | `std.string.string_literal`, over its immortal static block | std lang `string_positions` |
+| `source-location` | `#file`, `#function` | `std.string.string_literal` | std lang `string_positions` |
+| `interpolation` | `"{x}"`, a message or not | `std.stringbuilder.StringBuilder`: `init`, `append`, `build` | std lang `string_positions`, cone `interpolation` |
+| `message` | a literal message of `print`, `panic`, `assert` with no format arguments | `std.string.string_literal`: its bytes go out as they are | std lang `string_positions`, cone `literal_only` |
+| `format` | a format string with `{}` slots (design 137) | `std.stringbuilder.StringBuilder`'s fixed mode, in stack scratch | std lang `string_positions` |
+| `argument` | a String format argument, or a String message | `std.string.string_bytes` | std lang `string_positions` |
+| `rendered` | a message that is a Printable value off the builtin fast path | `std.prelude.Printable`'s `to_string` default | std lang `string_positions` |
+| `pattern` | `case "zero" ->` | `std.string.string_equals` | std lang `string_positions` |
+| `equality` | `==`, `!=` on Strings | `std.string.string_equals` | std lang `string_positions` |
+| `ordering` | `<`, `<=`, `>`, `>=` on Strings | `std.string.string_compare` | std lang `string_positions` |
+| `panic` | `panic`, `assert` | `std.panic.panic_sink`, the message's bytes and length | std lang `string_positions` |
+
+Copying a String and dropping one are not positions: the new std's String
+writes its retain and release hooks in its Copy conformance, so MIR calls
+`String.copy()` where a transfer copies, as for any type with a written hook,
+and its `deinit` where one drops (the std lane's `mir/string_refcount.mir`).
 
 ## Readings
 

@@ -1,0 +1,105 @@
+// The Hasher feed as sawc2 lowers it against std/. A behaviour pair runs
+// under Stage 0 alone, so this pin holds the new std's side until a backend
+// runs the pair on both. `String.hash` must match Stage 0's
+// (sawc/std/string.saw): a byte loop calling `h.write_int(byte as Int)` once
+// per byte, unsigned, with no length prefix. `Hasher.write_int` and
+// `Hasher.finish` must match Stage 0's (sawc/builtin.saw): an xor, then a
+// wrapping multiply by the FNV prime; and the high half folded into the low
+// bits.
+// function: fn std.string.String.hash(h: &var Hasher)
+// function: fn Hasher.write_int(n: Int)
+// function: fn Hasher.finish()
+fn std.string.String.hash(h: &var Hasher) -> Void {
+    let _0: Void;  // return
+    let _1: &String;  // self
+    let _2: &var Hasher;  // param h
+    let _3: Int;  // n
+    let _4: &String;
+    let _5: Int;
+    let _6: Int;  // i
+    let _7: Bool;
+    let _8: Int;
+    let _9: &String;
+    let _10: UInt8;
+    let _11: Int;
+    let _12: &var Hasher;
+    let _13: Int;
+
+    bb0: {
+        _4 = ref(shared, (*_1));
+        _5 = call std.string.String.len() (owner String) [move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = move _5;
+        _6 = const 0: Int;
+        goto -> bb2;
+    }
+
+    bb2: {
+        _7 = Lt(copy _6, copy _3);
+        switch move _7 -> [true: bb4, false: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+
+    bb4: {
+        _8 = copy _6;
+        _9 = ref(shared, (*_1));
+        _10 = call std.string.String.byte_at(index: Int) (owner String) [move _9, move _8] -> [return: bb5];
+    }
+
+    bb5: {
+        _11 = cast(move _10 as Int);
+        _12 = ref(exclusive, (*_2));
+        call Hasher.write_int(n: Int) (owner Hasher) [move _12, move _11] -> [return: bb6];
+    }
+
+    bb6: {
+        _13 = Add(copy _6, const 1: Int);
+        _6 = move _13;
+        budget(yield-capable);
+        goto -> bb2;
+    }
+}
+
+fn Hasher.write_int(n: Int) -> Void {
+    let _0: Void;  // return
+    let _1: &var Hasher;  // self
+    let _2: Int;  // param n
+    let _3: Int64;
+    let _4: Int64;
+    let _5: Int64;
+    let _6: Int64;
+
+    bb0: {
+        _3 = copy (*_1).state;
+        _4 = cast(copy _2 as Int64);
+        _5 = BitXor(move _3, move _4);
+        _6 = MulWrapping(move _5, const 1099511628211i64: Int64);
+        (*_1).state = move _6;
+        return;
+    }
+}
+
+fn Hasher.finish() -> Int {
+    let _0: Int;  // return
+    let _1: &Hasher;  // self
+    let _2: Int64;  // h
+    let _3: Int64;
+    let _4: Int64;
+    let _5: Int64;
+    let _6: Int;
+
+    bb0: {
+        _2 = copy (*_1).state;
+        _3 = copy _2;
+        _4 = Shr(copy _2, const 32i64: Int64);
+        _5 = BitXor(move _3, move _4);
+        _6 = from(truncating:)(move _5 as Int);
+        _0 = move _6;
+        return;
+    }
+}

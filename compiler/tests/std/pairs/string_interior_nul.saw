@@ -1,0 +1,11 @@
+// A literal's length comes from its header, so an interior `\0` is counted
+// and read back as a byte.
+
+func main() -> Int {
+    let text = "a\0b"
+    assert(text.len() == 3, "the interior NUL is counted")
+    assert(text.byte_at(1) == 0, "the NUL reads back as a byte")
+    assert(text.byte_at(2) == 98, "the byte after the NUL is kept")
+    assert(text != "a", "the text does not end at the NUL")
+    0
+}

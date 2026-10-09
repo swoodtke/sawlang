@@ -39,10 +39,16 @@ nothing declares and `builtin.saw`'s declarations (SL:open-questions D12).
   by its `prelude.saw`: `std.X` is `<std root>/X.saw`, every module in
   `load_new_std_modules`' table is loaded and compiled whole, writes its
   imports as any module does, and its prelude module declares the vocabulary
-  the builtin module keeps under Stage 0's std. That builtin module then holds
-  only what no source can declare: the numbers, `Bool`, `String`, `Void`,
-  `Never`, the two pointers and `print`, `panic`, `assert`, `sizeof` and
-  `alignof`. A prelude name the new std does not declare yet is left out.
+  the builtin module keeps under Stage 0's std; `std.string` declares
+  `String`, which the prelude enters from there. That builtin module then
+  holds only what no source can declare: the numbers, `Bool`, `Void`, `Never`,
+  the two pointers, `print`, `panic`, `assert`, `sizeof` and `alignof`, and
+  the atomic intrinsics the new std's refcounts are written over
+  (`__saw_atomic_add_i64`, `__saw_atomic_sub_i64_release`,
+  `__saw_atomic_fence_acquire`, spelled as Stage 0's synthesized helpers;
+  SL:open-questions D23). No prelude entry names an intrinsic: only a module
+  of the new std sees one, when `lookup` finds the name nowhere else. A
+  prelude name the new std does not declare yet is left out.
 - Under Stage 0's std (`sawc`, the default), `std.X` is
   `<std root>/std/X.saw`. Every std module in `load_frozen_std_modules`'
   table is loaded, as an interface only: its declarations, imports and
@@ -102,15 +108,24 @@ The compiler knows some std declarations by role (SL-456): `Optional`,
 `Result`, `Ordering`, the trait vocabulary it reasons about (the Copy family,
 `Deinit`, `Equatable`, `Comparable`, `Hashable`, `Printable`, `Error`, `Send`,
 `Sync` and their unsafe assertions, `Iterator`), the structs `Hasher`, `Range`
-and `RangeInclusive`, and one function role, the panic sink every panic calls
-once its message is formatted. `lang.saw` holds the table, one declaration per
-role, bound once the builtin and std modules are collected:
+and `RangeInclusive`, the panic sink every panic calls once its message is
+formatted, and the String layer: `String`, the functions the compiler lowers
+its String positions through (`string_literal`, which wraps a literal's
+immortal static block; `string_bytes`; `string_equals` and `string_compare`,
+which `==`, the ordering operators and string-literal patterns compare with),
+and `StringBuilder`, which interpolation builds through and a format string's
+arguments render into (typecheck/README.md, "The String positions").
+`lang.saw` holds the table, one declaration per role, bound once the builtin
+and std modules are collected:
 
 - under the new std, to the declaration its home module declares: the prelude
-  module for a type or trait, `std.panic` for the sink; a role it does not
-  declare is refused as `lang.missing`;
+  module for a type or trait, `std.panic` for the sink, `std.string` for
+  `String` and its functions, `std.stringbuilder` for the builder; a role it
+  does not declare is refused as `lang.missing`;
 - under Stage 0's std, to the builtin module's declaration of the role's name,
-  the builtin `panic` for the sink.
+  the builtin `panic` for the sink and the builtin `String`, and to Stage 0's
+  `std.stringbuilder` for the builder. The String functions are unbound
+  there: Stage 0's code generator synthesizes them.
 
 Only the std root's modules are consulted, so a program's own `enum Optional`
 binds no role (it is refused as a prelude name). `lang_item` is the one query

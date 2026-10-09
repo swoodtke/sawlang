@@ -120,6 +120,9 @@ public struct TcProgram {
     // The nodes refused as outside the bootstrap slice; the verifier asks
     // nothing of what lies under one.
     public skipped: Vector<Int>
+    // Keyed by node id: the String position a node is, a TcStringPosition's
+    // index, or -1 (strings.saw).
+    public string_positions: Vector<Int>
     // The body half's side tables, keyed by node id: each expression's own
     // type before its adjustments (-1 for none), how many times it was
     // typed, whether it is a place, and how its position reads it.
@@ -251,7 +254,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       obligations: Vector<TcObligation>(), func_nodes: Vector<Int>(),
                       diags: Vector<TcDiag>(), known: known, current: -1, current_decl: -1,
                       current_trait: -1, current_ext: -1, current_self: -1, error_type: -1,
-                      satisfy_depth: 0, skipped: Vector<Int>(), expr_types: Vector<Int>(),
+                      satisfy_depth: 0, skipped: Vector<Int>(), string_positions: Vector<Int>(),
+                      expr_types: Vector<Int>(),
                       typed_count: Vector<Int>(), expr_place: Vector<Bool>(),
                       expr_use: Vector<TcUse>(), copy_partner: Vector<Int>(), adj_head: Vector<Int>(),
                       adj_tail: Vector<Int>(), adjusts: Vector<TcAdjust>(),

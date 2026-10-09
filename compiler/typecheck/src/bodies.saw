@@ -39,6 +39,7 @@ import sawtypecheck.src.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS,
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.signatures.{TcContext}
 import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.strings.{TcStringPosition}
 import sawtypecheck.src.tier.{tc_tier}
 import sawtypecheck.src.typeops.{TcClient}
 import sawtypecheck.src.types.{TcKind, TcType}
@@ -116,6 +117,7 @@ extension TcProgram {
             try! self.call_at.push(-1)
             try! self.local_types.push(-1)
             try! self.res_call_at.push(-1)
+            try! self.string_positions.push(-1)
             k = k + 1
         }
         k = 0
@@ -336,7 +338,8 @@ extension TcProgram {
         var k = 0
         while k < n {
             let c = self.child(info.node, k)
-            if not self.is_leaf(c) && not self.has_alt(c, Alt.Decl_PayloadField) {
+            // A documented case's doc comment is a child of its node too.
+            if not self.is_leaf(c) && not self.has_alt(c, Alt.Decl_PayloadField) && not self.res.is_doc(c) {
                 self.begin_body(d, c)
                 self.body_result = backing
                 if backing >= 0 {
@@ -1663,6 +1666,7 @@ extension TcProgram {
                 self.set_type(e, t, false)
             },
             case Expr_String -> {
+                self.string_position(e, TcStringPosition.Literal)
                 let t = self.string_type()
                 self.set_type(e, t, false)
             },
@@ -1677,10 +1681,12 @@ extension TcProgram {
             case Expr_None -> self.none_literal(e, want),
             case Expr_Interpolation -> self.interpolation(e),
             case Expr_SourceLocation_File -> {
+                self.string_position(e, TcStringPosition.SourceLocation)
                 let t = self.string_type()
                 self.set_type(e, t, false)
             },
             case Expr_SourceLocation_Function -> {
+                self.string_position(e, TcStringPosition.SourceLocation)
                 let t = self.string_type()
                 self.set_type(e, t, false)
             },
@@ -1871,6 +1877,7 @@ extension TcProgram {
             }
             k = k + 1
         }
+        self.string_position(e, TcStringPosition.Interpolation)
         let t = self.string_type()
         self.set_type(e, t, false)
     }
@@ -2600,6 +2607,10 @@ extension TcProgram {
     func resolve_comparison(&var self, e: Int, t: Int, equality: Bool, spelling: String) {
         if self.builtin_comparable(t, equality) {
             self.record_builtin(e, -1, TcRole.BuiltinOperator, spelling)
+            if self.is_string(t) {
+                let pos = if equality { TcStringPosition.Equality } else { TcStringPosition.Ordering }
+                self.string_position(e, pos)
+            }
             return
         }
         let d = self.nominal_decl(t)
@@ -6474,6 +6485,9 @@ extension TcProgram {
             let t = self.int_type()
             return self.set_type(e, t, false)
         }
+        if name.starts_with("__saw_atomic_") {
+            return self.atomic_intrinsic(e, d, name, &args)
+        }
         if not (name.equals("print") || name.equals("panic") || name.equals("assert")) {
             var msg = StringBuilder()
             try! msg.append("`")
@@ -6506,6 +6520,17 @@ extension TcProgram {
             if rest == 0 && slots == 0 {
                 let _ = self.expr(fmt, TC_WANT_NONE)
                 let ft = self.final_type(fmt)
+                if self.has_alt(fmt, Alt.Expr_String) {
+                    self.string_position(fmt, TcStringPosition.Message)
+                } else if self.has_alt(fmt, Alt.Expr_Interpolation) {
+                    // An interpolation builds the String the message prints,
+                    // so the position stays the builder's.
+                    self.string_position(fmt, TcStringPosition.Interpolation)
+                } else if self.is_string(ft) {
+                    self.string_position(fmt, TcStringPosition.Argument)
+                } else if self.renders_through_to_string(ft) {
+                    self.string_position(fmt, TcStringPosition.Rendered)
+                }
                 if self.is_string(ft) || self.has_error(ft) {
                     self.consume(fmt)
                 } else {
@@ -6515,6 +6540,9 @@ extension TcProgram {
             } else {
                 let literal = self.has_alt(fmt, Alt.Expr_String) || self.has_alt(fmt, Alt.Expr_Interpolation)
                 let _ = self.expr(fmt, TC_WANT_NONE)
+                if literal {
+                    self.string_position(fmt, TcStringPosition.Format)
+                }
                 self.consume(fmt)
                 if not literal {
                     self.refuse(fmt, "format.slot-count",
@@ -6534,16 +6562,73 @@ extension TcProgram {
                     let _ = self.expr(v, TC_WANT_NONE)
                     self.check_formattable(v)
                     self.set_use(v, TcUse.Borrow)
+                    let vt = self.final_type(v)
+                    let inner = self.referent(vt)
+                    if self.is_string(vt) || (inner >= 0 && self.is_string(inner)) {
+                        self.string_position(v, TcStringPosition.Argument)
+                    }
                     k = k + 1
                 }
             }
         }
         self.record_builtin(e, d, TcRole.Builtin, name)
+        if name.equals("panic") || name.equals("assert") {
+            self.string_position(e, TcStringPosition.Panic)
+        }
         if name.equals("panic") {
             let t = self.never_type()
             return self.set_type(e, t, false)
         }
         let t = self.void_type()
+        self.set_type(e, t, false)
+    }
+
+    // Whether a message of type `t` renders through a synthesized
+    // `to_string()` (design 135): a Printable value off the builtin fast
+    // path, which writes the numbers and `Bool` directly.
+    func renders_through_to_string(&self, t: Int) -> Bool {
+        if self.has_error(t) || self.is_string(t) {
+            return false
+        }
+        let d = self.nominal_decl(t)
+        if d < 0 {
+            return true
+        }
+        let kind = self.res.decls[d].kind
+        kind != ResDeclKind.Primitive && kind != ResDeclKind.Alias
+    }
+
+    // An atomic intrinsic of the new std's builtin module (SL:open-questions
+    // D23), typed as Stage 0's synthesized helper of its name: the add and the
+    // release subtract take a word pointer and a delta and return the old
+    // value, and the acquire fence takes nothing.
+    func atomic_intrinsic(&var self, e: Int, d: Int, name: String, args: &TcArgs) -> Int {
+        let fence = name.equals("__saw_atomic_fence_acquire")
+        let wanted = if fence { 0 } else { 2 }
+        if args.values.len() != wanted {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(name)
+            try! msg.append("` takes ")
+            try! msg.append(wanted)
+            try! msg.append(" arguments")
+            self.refuse(e, "call.arity", msg.build())
+            self.type_args_alone(&args)
+        } else if not fence {
+            let word = self.int_type()
+            var targs = Vector<Int>()
+            try! targs.push(word)
+            let pointer_decl = self.known.unsafe_pointer
+            let pointer = self.mk_nominal(pointer_decl, &targs)
+            self.check_argument(args.values[0], pointer)
+            self.check_argument(args.values[1], word)
+        }
+        self.record_builtin(e, d, TcRole.Builtin, name)
+        if fence {
+            let t = self.void_type()
+            return self.set_type(e, t, false)
+        }
+        let t = self.int_type()
         self.set_type(e, t, false)
     }
 
@@ -6717,6 +6802,8 @@ extension TcProgram {
         let fits = (kind == 0 && self.is_integer(t)) || (kind == 1 && self.is_string(t)) || (kind == 2 && self.is_bool(t))
         if not fits {
             self.refuse_pattern(p, "this literal pattern does not match the value", t)
+        } else if kind == 1 {
+            self.string_position(p, TcStringPosition.Pattern)
         }
     }
 

@@ -208,6 +208,18 @@ extension ResProgram {
         }
         let text = self.name_text(name)
         var msg = StringBuilder()
+        // The atomic intrinsics are the new std's alone: no prelude names
+        // them, and only a std module sees the builtin module's spelling.
+        let info = self.modules[m]
+        if info.kind == ResModuleKind.Std && self.std_new && text.starts_with("__saw_atomic_") {
+            let b = self.builtin
+            let intrinsic = self.top.first(b, name)
+            if intrinsic >= 0 {
+                let d = self.top.value(intrinsic)
+                let decl = self.decls[d]
+                return res_decl_binding(d, &decl)
+            }
+        }
         if text.starts_with("__saw_") {
             // The frozen compiler's test intrinsics (`__saw_drive` and its
             // kin) drive coroutines, which the slice leaves out.

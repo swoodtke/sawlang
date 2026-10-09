@@ -1,0 +1,171 @@
+// The String positions (SL-456): every expression where the compiler makes or
+// reads a String itself, with no call written, names the lang item it lowers
+// through. Under the new std each is a declaration of `std/`, never the
+// builtin String Stage 0 synthesizes; the body verifier requires a position
+// for every such node, so a missed one is an invariant rather than a silent
+// fallback. compiler/typecheck/README.md holds the matrix.
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.lang.{ResLang, res_lang_row}
+import sawtypecheck.src.program.{TcProgram}
+
+// A position, and through it the lang item it lowers through.
+public enum TcStringPosition {
+    // A string literal: its static block, wrapped by the literal role.
+    case Literal,
+    // `#file` or `#function`, a literal the compiler writes.
+    case SourceLocation,
+    // An interpolation, built through the builder role.
+    case Interpolation,
+    // A literal message of `print`, `panic` or `assert` with no format
+    // arguments: its static block's bytes go out as they are, so no String
+    // and no builder is made.
+    case Message,
+    // A format string of `print`, `panic` or `assert`, whose `{}` slots its
+    // arguments fill, rendered through the builder role's fixed mode into
+    // stack scratch (design 137).
+    case Format,
+    // A String format argument, or a String message, whose bytes are read.
+    case Argument,
+    // A message that is a Printable value, rendered through `to_string`.
+    case Rendered,
+    // A string-literal pattern, which compares.
+    case Pattern,
+    // `==` or `!=` on Strings.
+    case Equality,
+    // `<`, `<=`, `>` or `>=` on Strings.
+    case Ordering,
+    // `panic`, or `assert`, whose failure panics: the message's bytes and
+    // length cross to the panic sink.
+    case Panic
+}
+
+public func tc_string_positions() -> Vector<TcStringPosition> {
+    var out = Vector<TcStringPosition>()
+    try! out.push(TcStringPosition.Literal)
+    try! out.push(TcStringPosition.SourceLocation)
+    try! out.push(TcStringPosition.Interpolation)
+    try! out.push(TcStringPosition.Message)
+    try! out.push(TcStringPosition.Format)
+    try! out.push(TcStringPosition.Argument)
+    try! out.push(TcStringPosition.Rendered)
+    try! out.push(TcStringPosition.Pattern)
+    try! out.push(TcStringPosition.Equality)
+    try! out.push(TcStringPosition.Ordering)
+    try! out.push(TcStringPosition.Panic)
+    move out
+}
+
+// The position's index in `tc_string_positions`, its dump name and its role.
+public func tc_string_position_index(pos: TcStringPosition) -> Int {
+    match pos {
+        case Literal -> 0,
+        case SourceLocation -> 1,
+        case Interpolation -> 2,
+        case Message -> 3,
+        case Format -> 4,
+        case Argument -> 5,
+        case Rendered -> 6,
+        case Pattern -> 7,
+        case Equality -> 8,
+        case Ordering -> 9,
+        case Panic -> 10
+    }
+}
+
+public func tc_string_position_name(pos: TcStringPosition) -> String {
+    match pos {
+        case Literal -> "literal",
+        case SourceLocation -> "source-location",
+        case Interpolation -> "interpolation",
+        case Message -> "message",
+        case Format -> "format",
+        case Argument -> "argument",
+        case Rendered -> "rendered",
+        case Pattern -> "pattern",
+        case Equality -> "equality",
+        case Ordering -> "ordering",
+        case Panic -> "panic"
+    }
+}
+
+public func tc_string_position_role(pos: TcStringPosition) -> ResLang {
+    match pos {
+        case Literal -> ResLang.StringLiteralFunction,
+        case SourceLocation -> ResLang.StringLiteralFunction,
+        case Interpolation -> ResLang.StringBuilderStruct,
+        case Message -> ResLang.StringLiteralFunction,
+        case Format -> ResLang.StringBuilderStruct,
+        case Argument -> ResLang.StringBytesFunction,
+        case Rendered -> ResLang.PrintableTrait,
+        case Pattern -> ResLang.StringEqualsFunction,
+        case Equality -> ResLang.StringEqualsFunction,
+        case Ordering -> ResLang.StringCompareFunction,
+        case Panic -> ResLang.PanicSinkFunction
+    }
+}
+
+extension TcProgram {
+    // THE STRING-POSITION FUNNEL: records that node `e` is position `pos`, so
+    // what the compiler synthesizes there lowers through `pos`'s lang item. A
+    // later entry for the same node wins: a literal written as a message is a
+    // message.
+    // ENTRY POINTS:
+    //     expr_as
+    //     interpolation
+    //     builtin_call
+    //     literal_pattern
+    //     resolve_comparison
+    public func string_position(&var self, e: Int, pos: TcStringPosition) {
+        if e >= 0 && e < self.string_positions.len() {
+            self.string_positions[e] = tc_string_position_index(pos)
+        }
+    }
+
+    // Whether node `e` is a construct the funnel must have recorded: a
+    // literal, an interpolation, a source location or a string-literal
+    // pattern, as the tree spells it.
+    public func needs_string_position(&self, e: Int) -> Bool {
+        self.has_alt(e, Alt.Expr_String) || self.has_alt(e, Alt.Expr_Interpolation) || self.has_alt(e, Alt.Expr_SourceLocation_File) || self.has_alt(e, Alt.Expr_SourceLocation_Function) || self.has_alt(e, Alt.Pat_Literal_String)
+    }
+
+    // Module `m`'s positions, ` (L:C POSITION ROLE)` each in node order, for
+    // the new std's dump; nothing when it has none.
+    public func dump_string_positions(&self, out: &var StringBuilder, m: Int) {
+        let info = self.res.modules[m]
+        let positions = tc_string_positions()
+        var opened = false
+        var e = info.node_base
+        while e < info.node_base + info.node_count && e < self.string_positions.len() {
+            let at = self.string_positions[e]
+            if at >= 0 {
+                if not opened {
+                    try! out.append("\n  (string-positions")
+                    opened = true
+                }
+                let pos = positions[at]
+                let role = tc_string_position_role(pos)
+                let d = self.res.lang_item(role)
+                try! out.append("\n    (")
+                try! out.append(self.res.node_position(m, e))
+                try! out.append(" ")
+                try! out.append(tc_string_position_name(pos))
+                try! out.append(" ")
+                if d < 0 {
+                    let row = res_lang_row(role)
+                    try! out.append("(unbound ")
+                    try! out.append(row.name)
+                    try! out.append(")")
+                } else {
+                    try! out.append(self.res.decl_identity(d))
+                }
+                try! out.append(")")
+            }
+            e = e + 1
+        }
+        if opened {
+            try! out.append(")")
+        }
+    }
+}

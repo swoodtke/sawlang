@@ -1,0 +1,7 @@
+// String is one pointer wide: its fields are exactly the bytes pointer, which
+// literals and FFI rely on.
+file: string.saw
+replace: |    private bytes: UnsafePointer<Int8>
+with: |    private bytes: UnsafePointer<Int8>|    private length: Int
+refuses: lang.shape string.saw
+message: expected `no other field`, found `(field length Int private)`

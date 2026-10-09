@@ -1,0 +1,17 @@
+# The cone of compiler/tests/std/cone/literal_only.saw against the new std (std): every std declaration its
+# functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
+# 10 declarations in 2 modules
+
+std.panic: 2
+  extern __saw_rt_panic
+  func panic_sink
+
+std.string: 8
+  extern __saw_rt_dealloc
+  func string_bytes
+  func string_equals
+  func string_literal
+  method String.copy
+  method String.deinit
+  method String.len
+  struct String

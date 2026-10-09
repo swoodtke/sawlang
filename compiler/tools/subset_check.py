@@ -156,6 +156,8 @@ STD_PROFILE_FEATURES = {
     "borrows-accessor": "`borrows` accessors and `lend`",
     "deinit-body": "raw memory: a type owning a buffer frees it in its `deinit`",
     "box-type": "allocator parameters: `Box<T, A>` owns one value through its allocator",
+    "generic-extension-init": "allocator parameters: a container generic over its allocator, "
+                              "`Vector<T, A>`, is built by its `init`",
 }
 # Rules that hold the compiler's source to std, which the std profile is
 # checking itself: std declares the std names, imports std and calls std.
@@ -163,6 +165,31 @@ STD_PROFILE_SELF = ("prelude-type-name", "std-api")
 # The bound an extension of the new std may write on a type parameter, and the
 # trait whose conformers may be fieldless: allocator parameters.
 STD_PROFILE_BOUND = "Allocator"
+# The traits a container's conditional conformance may bound its element on,
+# as the language defines `Vector`: ExplicitCopy when its element is, Send and
+# Sync when its element and allocator are, and `iter()` where it is Copy.
+STD_PROFILE_POLICY_BOUNDS = ("Copy", "ExplicitCopy", "Send", "Sync")
+# The aliases the language's vocabulary defines, which the new std's prelude
+# declares where Stage 0's builtin module did: `type-alias` refuses any other.
+STD_PROFILE_ALIAS_HOME = "std/prelude.saw"
+STD_PROFILE_ALIASES = ("Byte",)
+
+
+def _drop_shared_twins(tokens):
+    """The frozen parser takes no attribute on a method, and predates the
+    `@synthesize(shared)` twin SL:borrowing §4 rules for a std accessor, so
+    the std profile reads the method without it; no rule asks about it."""
+    out, i = [], 0
+    shape = (T.AT, T.IDENT, T.LPAREN, T.IDENT, T.RPAREN)
+    while i < len(tokens):
+        window = tokens[i:i + len(shape)]
+        if len(window) == len(shape) and tuple(t.type for t in window) == shape \
+                and window[1].value == "synthesize" and window[3].value == "shared":
+            i += len(shape)
+            continue
+        out.append(tokens[i])
+        i += 1
+    return out
 
 
 def _read_none_cases(tokens):
@@ -250,6 +277,7 @@ class SourceFile:
             return
         if std_profile:
             _read_none_cases(self.tokens)
+            self.tokens = _drop_shared_twins(self.tokens)
         try:
             self.program = Parser(self.tokens, source_file=path,
                                   doc_comments=lexer.doc_comments).parse()
@@ -1060,6 +1088,9 @@ class FileChecker:
                             "no inline `module %s { }`; Stage 0 never drops a value of a "
                             "type declared in one, so use a file module" % md.name)
         for td in prog.type_definitions:
+            if self.std_profile and self.src.rel == STD_PROFILE_ALIAS_HOME \
+                    and td.name in STD_PROFILE_ALIASES:
+                continue
             self.report(td.line, "type-alias",
                         "no `type` aliases; use `Int` or a one-field struct")
         for imp in prog.imports:
@@ -1114,8 +1145,10 @@ class FileChecker:
             BodyChecker(self, None, None).run_expression(sa.condition)
 
     def refused_bound(self, bound):
-        """Every bound, but the std profile's allocator parameter."""
-        return not (self.std_profile and bound == STD_PROFILE_BOUND)
+        """Every bound, but the std profile's allocator parameter and the
+        policy traits a conditional conformance is bounded on."""
+        return not (self.std_profile and
+                    (bound == STD_PROFILE_BOUND or bound in STD_PROFILE_POLICY_BOUNDS))
 
     def check_deinit(self, m):
         """A `deinit` in any extension or trait body. Stage 1 tolerates leaks
@@ -1605,7 +1638,11 @@ class BodyChecker:
         elif isinstance(e, A.MoveExpr):
             self.use(e.variable, e.line)
             b = self.lookup(e.variable)
-            if b is not None and b.borrowed:
+            # Under the std profile, `move buf[i]` through a binding is the
+            # raw-memory feature's move out of a pointer place, not a move of
+            # the binding.
+            pointer_place = self.fc.std_profile and e.path is not None
+            if b is not None and b.borrowed and not pointer_place:
                 self.report(e.line, "borrowed-match-payload",
                             "`%s` aliases storage it does not own; pass it on by `&` "
                             "instead of moving it" % e.variable)

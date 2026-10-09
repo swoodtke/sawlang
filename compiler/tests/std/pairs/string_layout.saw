@@ -1,0 +1,8 @@
+// A String is one pointer wide: Stage 0's size and alignment, which the std
+// lane holds the new std's declaration to (one `UnsafePointer<Int8>` field).
+
+func main() -> Int {
+    assert(sizeof<String>() == sizeof<UnsafePointer<Int8>>(), "a String is one pointer wide")
+    assert(alignof<String>() == alignof<UnsafePointer<Int8>>(), "a String is pointer-aligned")
+    0
+}

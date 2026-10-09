@@ -1,0 +1,14 @@
+// A program that interpolates: the interpolation builds through the builder
+// lang item, so its cone reaches StringBuilder and the allocator, and nothing
+// executor-shaped.
+
+func describe(count: Int) -> String {
+    "{count} items"
+}
+
+func main() -> Int {
+    let text = describe(3)
+    print(text)
+    print("n = {}", text.len())
+    0
+}

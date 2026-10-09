@@ -1,0 +1,159 @@
+// String's retain and release hooks as sawc2 lowers them against std/. Each
+// reads the refcount with a plain load and compares it with the immortal
+// sentinel `-1` before any atomic operation, so a literal's static block,
+// which may sit in read-only memory, is never written. They must match Stage
+// 0's synthesized `__saw_string_retain` and `__saw_string_release`
+// (sawc/codegen/core.py): the plain load first, then `add` relaxed for a
+// retain, and `sub` release for a release, whose last owner issues an acquire
+// fence before it frees the block.
+// function: fn std.string.String.copy()
+// function: fn std.string.String.deinit()
+fn std.string.String.copy() -> String {
+    let _0: String;  // return
+    let _1: &String;  // self
+    let _2: UnsafePointer<Int>;  // words
+    let _3: UnsafePointer<Int>;
+    let _4: Int;
+    let _5: Bool;
+    let _6: UnsafePointer<Int>;  // count
+    let _7: Int;
+    let _8: &Int;
+    let _9: UnsafePointer<Int>;
+    let _10: Int;
+    let _11: String;
+
+    bb0: {
+        _3 = cast(copy (*_1).bytes as UnsafePointer<Int>);
+        _2 = move _3;
+        _4 = copy static std.string.REFCOUNT_SLOT;
+        _5 = Ne(copy _2[_4], copy static std.string.IMMORTAL);
+        switch move _5 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _11 = String { bytes: copy (*_1).bytes };
+        _0 = move _11;
+        return;
+    }
+
+    bb2: {
+        _7 = copy static std.string.REFCOUNT_SLOT;
+        _8 = ref(shared, _2[_7]);
+        _9 = cast(move _8 as UnsafePointer<Int>);
+        _6 = move _9;
+        _10 = call builtin __saw_atomic_add_i64 [copy _6, const 1: Int] -> [return: bb4];
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        goto -> bb1;
+    }
+}
+
+fn std.string.String.deinit() -> Void {
+    let _0: Void;  // return
+    let _1: &var String;  // self
+    let _2: UnsafePointer<Int>;  // words
+    let _3: UnsafePointer<Int>;
+    let _4: Int;
+    let _5: Bool;
+    let _6: UnsafePointer<Int>;  // count
+    let _7: Int;
+    let _8: &Int;
+    let _9: UnsafePointer<Int>;
+    let _10: Int;  // old
+    let _11: Int;
+    let _12: Bool;
+    let _13: Bool;
+    let _14: Int;  // header_bytes
+    let _15: Int;
+    let _16: Int;
+    let _17: Int;
+    let _18: UnsafePointer<Int8>;  // block
+    let _19: UnsafePointer<Int8>;
+    let _20: UnsafePointer<Int8>;
+    let _21: Int;
+    let _22: Int;
+    let _23: Int;
+    let _24: Int;
+
+    bb0: {
+        _3 = cast(copy (*_1).bytes as UnsafePointer<Int>);
+        _2 = move _3;
+        _4 = copy static std.string.REFCOUNT_SLOT;
+        _5 = Eq(copy _2[_4], copy static std.string.IMMORTAL);
+        switch move _5 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _7 = copy static std.string.REFCOUNT_SLOT;
+        _8 = ref(shared, _2[_7]);
+        _9 = cast(move _8 as UnsafePointer<Int>);
+        _6 = move _9;
+        _11 = call builtin __saw_atomic_sub_i64_release [copy _6, const 1: Int] -> [return: bb4];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        _10 = move _11;
+        _12 = Lt(copy _10, const 1: Int);
+        switch move _12 -> [true: bb6, false: bb7];
+    }
+
+    bb5: {
+        _13 = Eq(copy _10, const 1: Int);
+        switch move _13 -> [true: bb9, false: bb10];
+    }
+
+    bb6: {
+        call builtin panic [const "String: over-release of a String reference (refcount underflow)": String] -> !;
+    }
+
+    bb7: {
+        goto -> bb5;
+    }
+
+    bb8: {
+        return;
+    }
+
+    bb9: {
+        call builtin __saw_atomic_fence_acquire [] -> [return: bb11];
+    }
+
+    bb10: {
+        goto -> bb8;
+    }
+
+    bb11: {
+        _15 = copy static std.string.HEADER_WORDS;
+        _16 = call builtin sizeof (inst Int) [] -> [return: bb12];
+    }
+
+    bb12: {
+        _17 = Mul(move _15, move _16);
+        _14 = move _17;
+        _19 = cast(copy _6 as UnsafePointer<Int8>);
+        _18 = move _19;
+        _20 = copy _18;
+        _21 = copy _14;
+        _22 = copy static std.string.LENGTH_SLOT;
+        _23 = Add(move _21, copy _2[_22]);
+        _24 = Add(move _23, const 1: Int);
+        call std.string.__saw_rt_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) [move _20, move _24, copy static std.string.BLOCK_ALIGN] -> [return: bb13];
+    }
+
+    bb13: {
+        goto -> bb8;
+    }
+}

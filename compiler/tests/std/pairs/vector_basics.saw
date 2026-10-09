@@ -1,0 +1,25 @@
+// Vector: `push` appends, `v[i]` reads and writes the element in place, `get`
+// answers `None` out of range, `pop` takes the last element, and `clear`
+// empties the vector.
+
+func main() -> Int {
+    var v = Vector<Int>()
+    assert(v.is_empty(), "a new vector is empty")
+    try! v.push(3)
+    try! v.push(5)
+    try! v.push(8)
+    assert(v.len() == 3, "three pushes")
+    assert(v[1] == 5, "a read of v[i]")
+    v[0] = 7
+    assert(v[0] == 7, "a write of v[i]")
+    let second = v.get(1) ?? 0
+    assert(second == 5, "get finds an element in range")
+    let missing = v.get(3) ?? -1
+    assert(missing == -1, "get answers None out of range")
+    let last = v.pop() ?? 0
+    assert(last == 8, "pop takes the last element")
+    assert(v.len() == 2, "pop shortens the vector")
+    v.clear()
+    assert(v.is_empty(), "clear removes every element")
+    0
+}

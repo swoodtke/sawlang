@@ -1,0 +1,21 @@
+// The String members the compiler calls: `len` counts bytes, `byte_at` reads
+// one unsigned, `starts_with` tests a prefix, `substring` copies a range, and
+// `to_uint` parses the whole text or answers `None`.
+
+func main() -> Int {
+    let text = "h\u{e9}llo"
+    assert(text.len() == 6, "len counts UTF-8 bytes")
+    assert(not text.is_empty(), "the text holds bytes")
+    assert("".is_empty(), "the empty literal is empty")
+    assert(text.byte_at(1) == 195, "a byte reads unsigned")
+    assert(text.starts_with("h\u{e9}"), "a prefix")
+    assert(not text.starts_with("hello"), "not a prefix")
+    assert(text.substring(3, 6) == "llo", "a range copies out")
+    assert(("18446744073709551615".to_uint() ?? 0) == UInt.max, "the largest UInt")
+    assert(("18446744073709551616".to_uint()).is_none(), "an overflow is None")
+    assert(("+42".to_uint() ?? 0) == 42, "a leading plus")
+    assert(("-1".to_uint()).is_none(), "a minus is None")
+    assert((" 1".to_uint()).is_none(), "nothing is trimmed")
+    assert(("".to_uint()).is_none(), "the empty text is None")
+    0
+}

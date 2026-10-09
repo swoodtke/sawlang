@@ -1011,9 +1011,10 @@ def _declaration_count(text):
 # ------------------------------------------------------- the new std's cone
 # Stage 0 cannot build against the new std (`std/`), so its cone is read off
 # sawc2's own typecheck dump: every std declaration a program's functions
-# reach through their calls and the types their bodies name, closed over each
-# reached type's `deinit` and each reached requirement's implementations. The
-# panic sink is always in it, since any body may panic.
+# reach through their calls, the types their bodies name and the lang item each
+# String position in them lowers through, closed over each reached type's
+# `deinit` and `copy` and each reached requirement's implementations. The panic sink is
+# always in it, since any body may panic.
 
 _NEW_DECL = re.compile(r"^    \((\w[\w-]*) ([^ ]+) \d+:\d+")
 _NEW_BODY = re.compile(r"^    \(([^ ]+) \d+:\d+$")
@@ -1021,6 +1022,16 @@ _NEW_CALL = re.compile(r"\((?:call|memberwise|iterator) ([\w.]+)")
 _NEW_NAME = re.compile(r"[A-Za-z_][\w.]*")
 _NEW_CONFORMANCE = re.compile(r"^    \(([\w.]+) ([\w.]+) \d+:\d+((?: \(\w+ \w+\))*)\)*$")
 _NEW_LANG = re.compile(r"^    \((\w+) ([\w.]+)\)")
+_NEW_POSITION = re.compile(r"^    \((\d+:\d+) ([\w-]+) ([\w.]+)\)")
+_NEW_LINE_START = re.compile(r"^\s*\((\d+:\d+)-")
+# What a String position reaches of its lang item, when not the item itself:
+# an interpolation builds, appends and finishes; a format string's scratch is
+# built and appended to; a Printable message renders through `to_string`.
+_POSITION_MEMBERS = {
+    "interpolation": ("", ".init", ".append", ".build"),
+    "format": ("", ".init", ".append"),
+    "rendered": (".to_string",),
+}
 
 
 def _new_std_dump(entry, std_root):
@@ -1042,6 +1053,11 @@ def new_std_cone(entry, std_root="std"):
     bodies = {}       # identity -> body text
     bare = {}         # a vocabulary module's bare name -> identity
     implementors = {}  # (trait identity, requirement) -> [method identity]
+    # (module, L:C) -> the lang items a String position there lowers through:
+    # what the compiler synthesizes at a literal, an interpolation or a
+    # message is reached from the body that holds it.
+    positions = {}
+    body_module = {}   # body identity -> its module
     module = None
     section = None
     current = None
@@ -1069,9 +1085,16 @@ def new_std_cone(entry, std_root="std"):
             m = _NEW_BODY.match(line)
             if m:
                 current = "%s.%s" % (module, m.group(1))
-                bodies[current] = []
+                # Overloads share an identity, so their bodies are one.
+                bodies.setdefault(current, [])
+                body_module[current] = module
             elif current is not None:
                 bodies[current].append(line)
+        elif section == "string-positions":
+            m = _NEW_POSITION.match(line)
+            if m:
+                roles = [m.group(3) + member for member in _POSITION_MEMBERS.get(m.group(2), ("",))]
+                positions.setdefault((module, m.group(1)), []).extend(roles)
 
     def identity_of(name):
         if name in decls:
@@ -1096,6 +1119,10 @@ def new_std_cone(entry, std_root="std"):
         for line in bodies.get(d, ()):
             for target in _NEW_CALL.findall(line):
                 work.append(identity_of(target))
+            start = _NEW_LINE_START.match(line)
+            if start:
+                for role in positions.get((body_module[d], start.group(1)), ()):
+                    work.append(identity_of(role))
             # `T?` spells the Optional lang item with no name to find.
             if "?" in line:
                 work.append(optional)
@@ -1105,7 +1132,10 @@ def new_std_cone(entry, std_root="std"):
                     work.append(found)
         kind = decls.get(d)
         if kind in ("struct", "enum"):
+            # A copy hook runs where a transfer copies, as a deinit runs where
+            # a value drops, with no call written.
             work.append(identity_of(d + ".deinit"))
+            work.append(identity_of(d + ".copy"))
         if kind == "requirement":
             trait, req = d.rsplit(".", 1)
             short = trait.split(".")[-1] if trait.startswith("std.prelude.") else trait

@@ -17,6 +17,7 @@ import sawtypecheck.src.spell.{tc_effects_text}
 // Holds every bound role whose declaration has a source to its shape. Stage
 // 0's synthesized `Optional` and `Result` have none: they are the compiler's.
 public func tc_check_lang_shapes(p: &var TcProgram) {
+    let before = p.diags.len()
     let roles = res_lang_roles()
     var k = 0
     while k < roles.len() {
@@ -25,9 +26,30 @@ public func tc_check_lang_shapes(p: &var TcProgram) {
         if d >= 0 && p.res.decls[d].node >= 0 {
             let found = p.lang_shape(d)
             let expected = tc_lang_expected(role)
-            p.compare_lang_shape(role, d, &expected, &found)
+            if tc_lang_contains(role) {
+                p.compare_lang_parts(role, d, &expected, &found)
+            } else {
+                p.compare_lang_shape(role, d, &expected, &found)
+            }
         }
         k = k + 1
+    }
+    // A slip in a lang item explains the refusals the checks before this one
+    // made against it, such as a std conformance to a changed requirement, so
+    // its refusals come first.
+    if p.diags.len() > before && before > 0 {
+        var reordered = Vector<TcDiag>()
+        var j = before
+        while j < p.diags.len() {
+            try! reordered.push(p.diags[j])
+            j = j + 1
+        }
+        j = 0
+        while j < before {
+            try! reordered.push(p.diags[j])
+            j = j + 1
+        }
+        p.diags = move reordered
     }
 }
 
@@ -119,9 +141,54 @@ func tc_lang_expected(role: ResLang) -> Vector<String> {
         },
         case PanicSinkFunction -> {
             try! out.push("func (signature (params (message UnsafePointer<Int8> owned) (length Int owned)) (effects unsafe) -> Never)")
+        },
+        case StringStruct -> {
+            try! out.push("struct")
+            try! out.push("(field bytes UnsafePointer<Int8> private)")
+            try! out.push("(conforms Copy)")
+            try! out.push("(method copy (signature (receiver shared) (params) (effects unsafe) -> String))")
+            try! out.push("(method deinit (signature (receiver exclusive) (params) (effects unsafe) -> Void))")
+            try! out.push("(conforms Equatable)")
+            try! out.push("(conforms Comparable)")
+            try! out.push("(conforms Hashable)")
+            try! out.push("(conforms Printable)")
+            try! out.push("(conforms UnsafeSend)")
+            try! out.push("(conforms UnsafeSync)")
+        },
+        case StringLiteralFunction -> {
+            try! out.push("func (signature (params (bytes UnsafePointer<Int8> owned)) (effects unsafe) -> String)")
+        },
+        case StringBytesFunction -> {
+            try! out.push("func (signature (params (text &String shared)) (effects unsafe) -> UnsafePointer<Int8>)")
+        },
+        case StringEqualsFunction -> {
+            try! out.push("func (signature (params (left &String shared) (right &String shared)) (effects unsafe) -> Bool)")
+        },
+        case StringCompareFunction -> {
+            try! out.push("func (signature (params (left &String shared) (right &String shared)) (effects unsafe) -> Ordering)")
+        },
+        case StringBuilderStruct -> {
+            try! out.push("struct")
+            try! out.push("(init (signature (params (bytes UnsafePointer<Int8> owned) (capacity Int owned)) (effects unsafe) -> std.stringbuilder.StringBuilder))")
+            try! out.push("(method append (signature (receiver exclusive) (params (s String owned)) -> Result<Void, std.alloc.AllocError>))")
+            try! out.push("(method append (signature (receiver exclusive) (params (value Int owned)) -> Result<Void, std.alloc.AllocError>))")
+            try! out.push("(method build (signature (receiver shared) (params) (effects unsafe) -> String))")
+            try! out.push("(conforms NoCopy)")
         }
     }
     move out
+}
+
+// Whether `role`'s shape is a set of parts its declaration must hold, beside
+// whatever else it declares: the String layer's types carry an API beyond
+// what the compiler synthesizes calls into. When the shape lists fields, they
+// are exactly the declaration's, since they are its representation.
+func tc_lang_contains(role: ResLang) -> Bool {
+    match role {
+        case StringStruct -> true,
+        case StringBuilderStruct -> true,
+        case _ -> false
+    }
 }
 
 extension TcProgram {
@@ -234,22 +301,77 @@ extension TcProgram {
             let want = expected.get(k) ?? "nothing"
             let have = found.get(k) ?? "nothing"
             if not want.equals(have) {
-                let row = res_lang_row(role)
-                let info = self.res.decls[d]
-                var msg = StringBuilder()
-                try! msg.append("`")
-                try! msg.append(row.name)
-                try! msg.append("` is a lang item, and its declaration differs from the shape the compiler requires: expected `")
-                try! msg.append(want)
-                try! msg.append("`, found `")
-                try! msg.append(have)
-                try! msg.append("`")
-                let n = self.res.nodes[info.leaf]
-                try! self.diags.push(TcDiag(module: info.module, start: n.start, end: n.end,
-                                            id: "lang.shape", message: msg.build(), note: false))
+                self.refuse_lang_shape(role, d, want, have)
                 return
             }
             k = k + 1
         }
     }
+
+    // Refuses `d` at its name when it lacks a part `role` requires, or holds
+    // a field the role does not list, naming the first such part. The head
+    // is compared as written.
+    func compare_lang_parts(&var self, role: ResLang, d: Int, expected: &Vector<String>,
+                            found: &Vector<String>) {
+        let want_head = expected.get(0) ?? "nothing"
+        let have_head = found.get(0) ?? "nothing"
+        if not want_head.equals(have_head) {
+            self.refuse_lang_shape(role, d, want_head, have_head)
+            return
+        }
+        var k = 1
+        while k < expected.len() {
+            let want = expected.get(k) ?? ""
+            if not tc_lang_holds(&found, &want) {
+                self.refuse_lang_shape(role, d, want, "nothing")
+                return
+            }
+            k = k + 1
+        }
+        var lists_fields = false
+        k = 1
+        while k < expected.len() {
+            if expected[k].starts_with("(field ") {
+                lists_fields = true
+            }
+            k = k + 1
+        }
+        k = 1
+        while lists_fields && k < found.len() {
+            let have = found.get(k) ?? ""
+            if have.starts_with("(field ") && not tc_lang_holds(&expected, &have) {
+                self.refuse_lang_shape(role, d, "no other field", have)
+                return
+            }
+            k = k + 1
+        }
+    }
+
+    func refuse_lang_shape(&var self, role: ResLang, d: Int, want: String, have: String) {
+        let row = res_lang_row(role)
+        let info = self.res.decls[d]
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(row.name)
+        try! msg.append("` is a lang item, and its declaration differs from the shape the compiler requires: expected `")
+        try! msg.append(want)
+        try! msg.append("`, found `")
+        try! msg.append(have)
+        try! msg.append("`")
+        let n = self.res.nodes[info.leaf]
+        try! self.diags.push(TcDiag(module: info.module, start: n.start, end: n.end,
+                                    id: "lang.shape", message: msg.build(), note: false))
+    }
+}
+
+// Whether `parts` holds `part`.
+func tc_lang_holds(parts: &Vector<String>, part: &String) -> Bool {
+    var k = 0
+    while k < parts.len() {
+        if parts[k].equals(part) {
+            return true
+        }
+        k = k + 1
+    }
+    false
 }
