@@ -97,6 +97,7 @@ positions do.
 | `(cases NAME CANDIDATE...)` | a case selector: a variant pattern's head, a lone name pattern that names a case, or an implicit member; each candidate is a `MODULE.ENUM.CASE` identity of an enum in the module's import closure (its own module, `builtin`, the prelude's modules, and every module those import, transitively), and typecheck chooses one by the scrutinee's or the expected type. A lone name pattern names a case only when the closure declares a payload-free case of that name. A variant pattern's head no enum in the closure declares as a case is looked up as a type instead: an arm of a `try` block's error union names an error type |
 | `(module MODULE)` | a module, through a qualifier or an import's path |
 | `(self-type [IDENTITY])` | `Self`: the enclosing type, or a trait's own |
+| `(projection NAME L:C IDENTITY)` | `T.Item`'s last segment: the associated type IDENTITY that type parameter NAME, declared at L:C, has through its bounds |
 | `(error)` | refused; an `ERROR` line says why |
 
 A call's binding may also be `(member [IDENTITY])`: a static method of a named
@@ -158,6 +159,9 @@ GRAMMAR.md alternative; the last table lists them.
 | associated type, type assignment | a type-level binding in the trait or extension | declarations, expressions |
 | named type with generic arguments | a type, each argument a type or a constant | types, lockdown |
 | qualified type `m.T` | a module, then its member | multi/imports |
+| `T.Item` under a type parameter: an associated type its bounds declare or inherit through refinement, once however many bounds reach it | a projection | associated_types |
+| `Self.Item` in a trait: its own associated type or one it inherits | the associated type | associated_types |
+| `T.Item` naming nothing, or two declarations; bare `Item` in a generic body | refused with the bounds searched, the declarations reached, or the `T.Item` fix-it naming every candidate | associated_type_refusals |
 | reference, optional, tuple, array, slice, function and `any` types | their parts | types |
 | `Self` | the enclosing type or trait | types |
 | constant: literal, static, arithmetic, `sizeof`, `alignof` | its parts | types |
@@ -193,14 +197,13 @@ GRAMMAR.md alternative; the last table lists them.
 | a `package` or `parent` import path | `slice.not-yet` |
 | the `Thread.spawn` and `Task.spawn` forms | `slice.not-yet` |
 | a frozen-compiler test intrinsic, a name that starts `__saw_` and nothing declares | `slice.not-yet` |
-| an associated type named bare through a type parameter's bound, `-> Item` under `<T: Container>`, when nothing else binds the name | `slice.not-yet` |
-| the same associated type named through its parameter, `-> T.Item`; a member of `T` its bounds do not declare stays `name.undefined` | `slice.not-yet` |
+| a member named through an associated type, `T.Item.Key` | `slice.not-yet` |
 
 The slice is sync-only (SL:architecture §4), so the concurrency forms and the
 intrinsics that drive coroutines are outside it; nothing under a refused
-construct is resolved, and the verifier asks nothing of it. How a bound's
-associated type is spelled is an open language question, so that name is
-refused as unbuilt rather than as undefined.
+construct is resolved, and the verifier asks nothing of it. An associated type
+declares no bound, so `T.Item.Key` names nothing today; it is refused as
+unbuilt rather than as undefined.
 
 A refusal case's body is never resolved: a normal build matches only its
 braces (SL:testing §5).
@@ -228,12 +231,12 @@ what the fixture shows.
 
 | rule | refuses |
 |---|---|
-| `name.undefined` | a name nothing binds, or a path segment its module does not have as a type |
+| `name.undefined` | a name nothing binds, or a path segment its module does not have as a type; `T.Item` when no bound of `T` reaches an associated type of that name |
 | `name.duplicate-declaration` | two top-level declarations of one name that are not both functions, a function beside a type of its name included (a reading: types and values share one namespace, which the spec does not state); a case or field declared twice |
 | `name.reserved` | a declaration named like a prelude name (design 255) |
 | `name.shadowing` | a binding that shadows a local or a module static and does not derive from it: a `let`, `var`, loop or optional binding whose initializer does not mention it, a same-scope redefinition, and always a pattern binding, a parameter and a closure parameter (designs 100 and 107) |
 | `name.duplicate-binding` | two parameters, or two generic parameters, of one name |
-| `name.ambiguous` | a bare name two explicit imports bind to two declarations that are not both functions, refused at the use |
+| `name.ambiguous` | a bare name two explicit imports bind to two declarations that are not both functions, refused at the use; `T.Item` when `T`'s bounds reach two associated types of that name |
 | `name.not-in-prelude` | a std name the prelude leaves out, with the import that supplies it (design 255) |
 | `name.self-outside-method` | `self` with no receiver |
 | `name.self-outside-type` | `Self` with no enclosing type |
@@ -270,7 +273,7 @@ declaration its module does not have. `prelude_check.py` covers the tables.
   `import.unreadable`;
 - a std signature outside the slice is a `NOTE` with its rule, never an
   `ERROR` or an `INVARIANT`: the lane copies the std root under `.build`, adds
-  `-> T.Item?` to `std/path.saw`, and resolves a golden program against it;
+  `-> T.Item.Key?` to `std/path.saw`, and resolves a golden program against it;
 - the compiler's own source resolves with no refusal: the sawc2 build, with
   the stage packages mapped, and each unit program; a unit program the parser
   refuses is counted apart;

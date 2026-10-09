@@ -1,0 +1,95 @@
+// Associated types named through a type parameter (SL:open-questions W4):
+// `T.Item` as a projection in a generic body, two type parameters' projections
+// kept apart, an associated type inherited from a parent trait, two bounds
+// reaching one declaration, a requirement's `Self.Item` called through a bound,
+// one generic instantiating another, and call sites whose types substitute
+// each projection through the conformance's assignment.
+
+trait Sequence {
+    type Item
+    func next(&var self) -> Self.Item?
+}
+
+trait Collection: Sequence {
+    func count(&self) -> Int
+}
+
+trait Source {
+    type Item
+    func get(&self) -> Item
+    func take(&self, v: Self.Item) -> Int
+}
+
+struct IntBox {
+    value: Int
+}
+
+extension IntBox: Source {
+    type Item = Int
+    func get(&self) -> Int { self.value }
+    func take(&self, v: Int) -> Int { self.value + v }
+}
+
+struct NameBox {
+    name: String
+}
+
+extension NameBox: Source {
+    type Item = String
+    func get(&self) -> String { self.name.copy() }
+    func take(&self, v: String) -> Int { v.len() }
+}
+
+struct Countdown {
+    left: Int
+}
+
+extension Countdown: Collection {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.left == 0 {
+            return None
+        }
+        self.left = self.left - 1
+        self.left
+    }
+    func count(&self) -> Int { self.left }
+}
+
+func first<T: Source>(box: &T) -> T.Item {
+    box.get()
+}
+
+func give_back<S: Source>(s: &S) -> Int {
+    let v = s.get()
+    s.take(move v)
+}
+
+func again<U: Source>(box: &U) -> U.Item {
+    first(box)
+}
+
+func pair<T: Source, U: Source>(a: &T, b: &U) -> (T.Item, U.Item) {
+    (a.get(), b.get())
+}
+
+func pull<C: Collection>(c: &var C) -> C.Item? {
+    c.next()
+}
+
+func both<C: Collection + Sequence>(c: &var C) -> C.Item? {
+    c.next()
+}
+
+func main() {
+    let b = IntBox(value: 3)
+    let n = NameBox(name: "saw")
+    let x = first(&b)
+    let s = again(&n)
+    let p = pair(&b, &n)
+    var c = Countdown(left: 2)
+    let next = pull(&var c)
+    let last = both(&var c)
+    print("{} {} {} {} {}", x, s, p.0, next ?? 0, last ?? 0)
+    print("{} {}", give_back(&b), p.1)
+}

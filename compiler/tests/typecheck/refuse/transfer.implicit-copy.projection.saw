@@ -1,0 +1,12 @@
+// refuses: transfer.implicit-copy at 11:12
+// a projection copies silently under no bound, so a by-value read of one
+// needs `move`, as a NoCopy place does
+
+trait Source {
+    type Item
+    func take(&self, v: Self.Item) -> Int
+}
+
+func pull<S: Source>(s: &S, v: S.Item) -> Int {
+    s.take(v)
+}

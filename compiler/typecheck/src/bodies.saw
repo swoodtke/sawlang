@@ -5259,8 +5259,13 @@ extension TcProgram {
                            args: move args, assoc_decls: Vector<Int>(),
                            assoc_types: Vector<Int>())
         }
-        TcSubst(self_type: c.owner, from_owner: -1, to_owner: -1, args_owner: -1,
-                args: Vector<Int>(), assoc_decls: Vector<Int>(), assoc_types: Vector<Int>())
+        var s = TcSubst(self_type: c.owner, from_owner: -1, to_owner: -1, args_owner: -1,
+                        args: Vector<Int>(), assoc_decls: Vector<Int>(),
+                        assoc_types: Vector<Int>())
+        if c.owner >= 0 {
+            self.bound_projections(c.decl, c.owner, &var s)
+        }
+        move s
     }
 
     // The substitution that instantiates member-table entry `k` at `owner`.
@@ -5408,15 +5413,6 @@ extension TcProgram {
             return self.set_type(e, poisoned, false)
         }
         let c = cands[chosen]
-        if c.kind == TcCandKind.Function && self.reaches_assoc_through_bound(c) {
-            self.not_yet(e, "an associated type reached through a type parameter's bound")
-            if receiver >= 0 {
-                self.set_use(receiver, TcUse.Borrow)
-            }
-            self.type_args_alone(&args)
-            let poisoned = self.error_type
-            return self.set_type(e, poisoned, false)
-        }
         if c.kind == TcCandKind.Function && self.names_unreadable_type(c.decl) {
             self.refuse_unreadable(e, c.decl)
             if receiver >= 0 {
@@ -5468,56 +5464,6 @@ extension TcProgram {
         record.bind_count = count
         record.variadic_from = variadic
         self.calls[at] = record
-    }
-
-    // Whether candidate `c` is a requirement called through a type parameter
-    // whose signature names the trait's associated type, which no
-    // conformance is there to give (SL:open-questions W4).
-    func reaches_assoc_through_bound(&self, c: TcCand) -> Bool {
-        let info = self.res.decls[c.decl]
-        if info.kind != ResDeclKind.Requirement || c.owner < 0 {
-            return false
-        }
-        var recv = c.owner
-        while self.kind_of(recv) == TcKind.Ref {
-            recv = self.types.ty(recv).b
-        }
-        if self.kind_of(recv) != TcKind.Param {
-            return false
-        }
-        let s = self.sigs[c.decl]
-        var k = 0
-        while k < s.param_count {
-            let p = self.params[s.param_first + k]
-            if self.mentions_assoc(p.ty) {
-                return true
-            }
-            k = k + 1
-        }
-        s.result >= 0 && self.mentions_assoc(s.result)
-    }
-
-    func mentions_assoc(&self, t: Int) -> Bool {
-        if t < 0 {
-            return false
-        }
-        let info = self.types.ty(t)
-        if info.kind == TcKind.Assoc {
-            return true
-        }
-        let has_inner = info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array
-        if has_inner && self.mentions_assoc(info.b) {
-            return true
-        }
-        var k = 0
-        while k < info.count {
-            let a = self.types.arg(t, k)
-            if self.mentions_assoc(a) {
-                return true
-            }
-            k = k + 1
-        }
-        false
     }
 
     // Whether interface function `d`'s signature names a type it could not

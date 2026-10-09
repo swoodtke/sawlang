@@ -402,6 +402,11 @@ These are the reversible readings this unit made; SL-447's report lists them.
   nothing of it. A default parameter value is an expression, which U6b3's
   body half checks.
 - `()` is the empty tuple, a type of its own beside `Void`.
+- A projection, `T.Item`, is keyed by its associated type, its trait and its
+  base (tests/typecheck/README.md, the interner's key). No bound can say a
+  projection copies or meets a trait, so it is NoCopy, satisfies no bound,
+  and a generic body moves it with `move`, as it would a NoCopy value; a
+  struct holding one declares its policy.
 - A constant argument folds when it is a literal, a const parameter, or `+`,
   `-` and `*` over literals; a static, and arithmetic over a const parameter,
   are outside the slice.

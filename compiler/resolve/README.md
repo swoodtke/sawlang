@@ -153,10 +153,20 @@ These are the reversible readings the unit made; SL-445's report lists them.
   `case Some(v)` is a case selector as `case Ok(v)` is: the builtin module's
   under Stage 0's std, the prelude's under the new std. `None` is a keyword, so
   only the declaration names its case, and no expression constructs a `Some`.
-- A bare name nothing binds that an in-scope type parameter's bound declares
-  as an associated type (`-> Item` under `<T: Container>`) is refused as
-  `slice.not-yet`: how a bound's associated type is spelled is an open
-  language question. A bare name a glob import misses only because the
+- A generic body names its type parameter's associated type as `T.Item`
+  (SL:open-questions W4): a path headed by a type parameter is bound, as a
+  projection, to the one associated type of that name its bounds declare or
+  inherit through refinement. Two bounds reaching one declaration name it
+  once; two declarations are refused as `name.ambiguous`, none as
+  `name.undefined` naming the bounds searched. `Self.Item` in a trait names
+  its own or an inherited associated type the same way. A trait's parents may
+  sit in a module walked later, so these are decided once every module is
+  walked (`settle_pending`), and their refusals follow the others.
+- Bare `Item` in a generic body stays refused, as `name.undefined` with the
+  fix-it `T.Item`, every in-scope parameter whose bounds reach one listed. A
+  trait's body and its conformances name their own `Item` bare. `T.Item.Key`
+  is `slice.not-yet`: an associated type declares no bound, so it names
+  nothing yet. A bare name a glob import misses only because the
   declaration is private in its module is refused as `visibility.private`.
 - A module of Stage 0's std sees the gated std tier bare, where any other
   module is refused with the import that supplies the name: `sawc/std` is

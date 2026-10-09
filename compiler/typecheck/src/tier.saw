@@ -208,6 +208,7 @@ extension TcProgram {
             case Any -> tc_tier(TC_TIER_NOCOPY, 0, false),
             case SelfType -> tc_tier(TC_TIER_NOCOPY, 0, false),
             case Assoc -> tc_tier(TC_TIER_NOCOPY, 0, false),
+            case Projection -> tc_tier(TC_TIER_NOCOPY, 0, false),
             case _ -> tc_tier(TC_TIER_COPY, 0, false)
         }
     }
@@ -367,6 +368,8 @@ extension TcProgram {
             case Error -> true,
             case ConstInt -> true,
             case Assoc -> true,
+            // An associated type carries no bound, so its projection meets none.
+            case Projection -> false,
             case Param -> self.param_satisfies(info.decl, info.a, tr, env_decl, env_ext),
             case SelfType -> self.trait_refines(info.decl, tr),
             case Any -> self.trait_refines(info.decl, tr),

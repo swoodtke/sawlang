@@ -21,6 +21,7 @@ import sawresolve.src.program.{ResProgram}
 // Phase 3 over the whole program.
 public func res_resolve_bodies(p: &var ResProgram) {
     p.resolve_bodies()
+    p.settle_pending()
 }
 
 extension ResProgram {
@@ -1381,16 +1382,10 @@ extension ResProgram {
         }
     }
 
-    // Whether segment `leaf`, after a type parameter declared at `param`, names
-    // an associated type of the parameter's bounds.
-    func names_assoc_type(&var self, param: Int, leaf: Int) -> Bool {
-        let name = self.leaf_name(leaf)
-        self.param_declares_assoc_type(param, name)
-    }
-
     // A path: its first segment looked up in `space`, each later segment a
     // member of the one before. Every segment is recorded; the last one's
-    // binding is the path's.
+    // binding is the path's. A path headed by a type parameter, or by a
+    // trait's `Self`, names an associated type, decided by `settle_pending`.
     public func walk_path(&var self, path: Int, space: ResSpace) -> ResBinding {
         if path < 0 {
             return self.unbound()
@@ -1405,12 +1400,9 @@ extension ResProgram {
             let leaf = self.child(path, k)
             if b.kind == ResBindKind.Error {
                 self.record_error(leaf)
-            } else if b.kind == ResBindKind.TypeParam && self.names_assoc_type(b.node, leaf) {
-                let m = self.current
-                let text = self.text_of(m, leaf)
-                self.refuse_assoc_type(leaf, text)
-                b = self.error_binding()
-                self.record(leaf, b)
+            } else if k == 1 && self.heads_projection(b) {
+                self.defer_projection(path, b)
+                return self.error_binding()
             } else {
                 b = self.member_of(b, leaf)
                 if b.kind == ResBindKind.Member {

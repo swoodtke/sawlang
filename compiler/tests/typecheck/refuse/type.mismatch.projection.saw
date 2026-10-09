@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 10:5
+// two type parameters' projections are different types, though one trait
+// declares both (SL:open-questions W4)
+
+trait Source {
+    type Item
+}
+
+func swap<T: Source, U: Source>(t: T.Item, u: U.Item) -> T.Item {
+    move u
+}

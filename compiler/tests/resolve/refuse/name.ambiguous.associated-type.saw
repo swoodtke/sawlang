@@ -1,0 +1,16 @@
+// refuses: name.ambiguous at 14:41
+// `T.Item` when two bounds declare two associated types named `Item`
+
+trait Source {
+    type Item
+    func take(&self) -> Int
+}
+
+trait Sink {
+    type Item
+    func give(&self) -> Int
+}
+
+func pick<T: Source + Sink>(t: &T) -> T.Item? {
+    None
+}

@@ -1,5 +1,5 @@
-// refuses: slice.not-yet at 13:37
-// an associated type named bare through a type parameter's bound, whose spelling is not settled
+// refuses: name.undefined at 13:37
+// an associated type named bare in a generic body, refused with the fix-it `T.Item`
 
 trait Container {
     type Item

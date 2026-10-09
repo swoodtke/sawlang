@@ -120,6 +120,10 @@ public enum ResBindKind {
     case Module,
     // `Self`: the enclosing type, or a trait's own.
     case SelfType,
+    // `T.Item`: the associated type `decl` that type parameter `T`'s bounds
+    // declare or inherit; `node`, `name` and `module` are `T`'s, as in its
+    // TypeParam binding.
+    case Projection,
     // A member selected on a value, or a static member on a type: found in the
     // type's member tables by typecheck, which needs the type.
     case Member,
@@ -147,6 +151,27 @@ public func res_unbound() -> ResBinding {
 
 public func res_error_binding() -> ResBinding {
     ResBinding(kind: ResBindKind.Error, module: -1, decl: -1, name: -1, node: -1)
+}
+
+// A name whose meaning depends on traits' parents, settled once every module
+// is walked: `T.Item`, `Self.Item` in a trait, or a bare name nothing binds
+// while a bounded type parameter is in scope, refused with its fix-it.
+public struct ResPending {
+    public module: Int
+    // The leaf of the associated type's name, or of the bare name.
+    public leaf: Int
+    public name: Int
+    // The type parameter heading the path, as its TypeParam binding; Unbound
+    // for `Self.Item` and for a bare name.
+    public param: ResBinding
+    // The trait whose `Self` heads the path, or -1.
+    public trait_decl: Int
+    // The segment after the associated type, or -1.
+    public chain: Int
+    // A bare name's in-scope type parameters: their leaves are
+    // `first .. first + count` of `pending_params`.
+    public first: Int
+    public count: Int
 }
 
 // One name occurrence and what it denotes.

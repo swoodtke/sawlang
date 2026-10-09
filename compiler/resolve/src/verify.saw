@@ -397,6 +397,14 @@ extension ResProgram {
                     self.problem(&var problems, m, leaf, "a declaration is out of range")
                 }
             },
+            case Projection -> {
+                if b.module < 0 || b.module >= self.modules.len() {
+                    self.problem(&var problems, m, leaf, "a projection's type parameter module is out of range")
+                } else if b.decl < 0 || b.decl >= self.decls.len() || self.decls[b.decl].kind != ResDeclKind.AssocType {
+                    self.problem(&var problems, m, leaf,
+                                 "a projection names a declaration that is not an associated type")
+                }
+            },
             case Case -> {
                 if b.decl < 0 || b.decl >= self.decls.len() {
                     self.problem(&var problems, m, leaf, "a case is out of range")

@@ -70,7 +70,7 @@ PARSE_REFUSED_AT = "broken.saw:2:9"
 # signature spelling resolve does not build yet. An interface module's
 # refusal is a note, and the verifier checks the signatures it walked.
 INTERFACE_ROOT = os.path.join(BUILT_DIR, "interface-root")
-INTERFACE_DECLARATION = ("\npublic func first_item<T: Iterator>(items: &var T) -> T.Item? {\n"
+INTERFACE_DECLARATION = ("\npublic func first_item<T: Iterator>(items: &var T) -> T.Item.Key? {\n"
                          "    items.next()\n}\n")
 INTERFACE_RULE = "slice.not-yet"
 

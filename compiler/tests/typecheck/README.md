@@ -194,6 +194,7 @@ order types were interned in, and two spellings of one type print the same.
 | `Optional<T>` | `T?`, with a reference or function type in parentheses: `(&T)?` |
 | a type or const parameter | its name |
 | `Self` in a trait, a trait's associated type | `Self`, `Self.Item` |
+| a type parameter's associated type, a projection | its base, then the associated type's name: `T.Item` |
 | tuples | `()`, `(A,)`, `(A, B)`, `(x: A, y: B)` |
 | a function type | `(A, B) EFFECTS -> R` |
 | references, slices, arrays | `&T`, `&var T`, `&[T]`, `&var [T]`, `[T; N]` |
@@ -219,6 +220,15 @@ One interner per compilation holds every type, and identity is key equality:
 - `Self` in a trait requirement is a placeholder keyed by the trait, and a
   trait's own associated type a placeholder keyed by its declaration; a
   conformance substitutes both when a requirement is matched;
+- a projection, `T.Item` (SL:open-questions W4), is the associated type's
+  declaration, its trait, and the type it is projected from, `T`'s parameter
+  key. Two projections are one type only when their keys are equal, so the
+  `T.Item` and `U.Item` of one trait never meet; no bound can pin a
+  projection to a concrete type, so none equals one. Substitution replaces
+  the base, and a base that becomes a nominal type replaces the projection by
+  the type its conformance assigns. A requirement called through a type
+  parameter `T` has the trait's associated types substituted by `T`'s
+  projections, so `s.take(v)` with `take(v: Self.Item)` takes an `S.Item`;
 - every other form is its kind and its parts: a tuple's elements and labels,
   a function type's parameters, result and effects, a reference's or slice's
   referent and exclusivity, an array's element and length, an existential's
@@ -265,6 +275,7 @@ that covers it.
 | an alias, a type assignment | the type it stands for | types, traits |
 | `Self` in a struct, enum or extension | the type applied to its own parameters | traits, declarations |
 | `Self` in a trait, a trait's associated type | a placeholder | traits |
+| `T.Item`, a type parameter's associated type, inherited from a parent trait or reached through two bounds | a projection | associated_types |
 | type parameter, const parameter | a parameter keyed by its declaration | generics |
 | generic parameter's bounds, default and const type | traits, a type, a constant | generics |
 | constant argument: a literal, `+`, `-`, `*`, a const parameter | its folded value, or the parameter | generics |
@@ -282,7 +293,7 @@ that covers it.
 | a constant argument written with `/`, `%`, a shift, a bit operator, a call or a member | `slice.not-yet` (the alternative) |
 | a generic type alias | `slice.not-yet` (`syntax.decl.type-alias`) |
 | an extension of a declaration that is not a struct, an enum or a builtin type | `slice.not-yet` (`syntax.decl.extension`) |
-| an associated type named through a type parameter, bare or as `T.Item` | resolve's `slice.not-yet` |
+| a member named through an associated type, `T.Item.Key` | resolve's `slice.not-yet` |
 
 The slice is what `compiler/` and the std cone use; a construct outside it is
 refused by name, never mis-typed, and the verifier asks nothing of what lies
@@ -464,6 +475,7 @@ Every body construct in the slice, and how it is typed:
 | `E.Case`, `.Case`, `E.Case(...)`, `.Case(...)` | the enum, its arguments from its head (`Maybe<Int>.Nothing`), the slot or the payload | peeling, calls, builtin_values |
 | `Int.max`, `T.from(x)`, `T.from(truncating: x)`, `E.from(raw: x)`, `A(x)` | the conversions no declaration writes | carried |
 | a free function, method, static method, `init` or memberwise call | the overload filter's choice, instantiated | calls, inference |
+| a requirement called through a type parameter whose signature names an associated type, `s.take(v)` with `take(v: Self.Item)`; a call instantiating a signature that names `T.Item` | the receiver's projection, `S.Item`, which takes no concrete type and copies silently under no bound; at the call, the conformance's assignment | associated_types; type.mismatch.projection, type.mismatch.projection-concrete, transfer.implicit-copy.projection |
 | a call's arguments: positional, a label skipping a default, a default left out, a construction's or payload's labels out of order, a C variadic tail | the binding of each parameter to its argument or its default | arguments, lowlevel |
 | a construction whose head writes a prefix of its type's arguments, `Two<Int>(a: 1, b: true)` | the prefix pins the leading parameters, inference solves the rest (spec, Generics) | partial_arguments |
 | a function value's call | its function type | calls, control |
@@ -513,7 +525,6 @@ Every body construct in the slice, and how it is typed:
 | calling a `FuncPointer`, a function or closure where one is expected | `slice.not-yet` (func-pointer) |
 | pointer arithmetic, `p + i` | `slice.not-yet` (pointer-arithmetic) |
 | the erasing `Box<any Trait>.make` | `slice.not-yet` (box-make-any) |
-| a requirement naming the trait's associated type, called through a type parameter, `s.take(v)` with `take(v: Item)` | `slice.not-yet` (associated-bound) |
 | a method of the interior cell, `c.ptr()` | `slice.not-yet` (cell-method) |
 
 ## The summary and check position matrices

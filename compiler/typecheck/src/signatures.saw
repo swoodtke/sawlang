@@ -216,6 +216,15 @@ extension TcProgram {
         self.types.intern(TcKind.Assoc, d, 0, 0, &none, &unlabeled)
     }
 
+    // `base.Item`, for associated type `d`; the key carries its trait too.
+    public func mk_projection(&var self, base: Int, d: Int) -> Int {
+        var args = Vector<Int>()
+        try! args.push(base)
+        let unlabeled = Vector<Int>()
+        let t = self.res.decls[d].parent
+        self.types.intern(TcKind.Projection, d, t, 0, &args, &unlabeled)
+    }
+
     public func mk_optional(&var self, inner: Int) -> Int {
         var args = Vector<Int>()
         try! args.push(inner)
@@ -637,6 +646,19 @@ extension TcProgram {
                     return self.error_type
                 }
                 self.mk_param(owner, index)
+            },
+            case Projection -> {
+                if arg_nodes.len() > 0 {
+                    self.refuse_arguments_on(leaf)
+                    return self.error_type
+                }
+                let owner = self.param_owner(b.node)
+                let index = self.param_index(b.node)
+                if owner < 0 {
+                    return self.error_type
+                }
+                let base = self.mk_param(owner, index)
+                self.mk_projection(base, b.decl)
             },
             case SelfType -> {
                 if arg_nodes.len() > 0 {

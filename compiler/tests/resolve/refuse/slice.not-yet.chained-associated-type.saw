@@ -1,0 +1,11 @@
+// refuses: slice.not-yet at 9:44
+// a member named through an associated type, `T.Item.Key`
+
+trait Container {
+    type Item
+    func get(&self) -> Item
+}
+
+func first<T: Container>(box: T) -> T.Item.Key? {
+    None
+}

@@ -16,7 +16,8 @@
 import sawparse.src.grammar.{Alt}
 import sawresolve.src.imports.{res_decl_binding, res_same_binding, res_vis_text}
 import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResImport,
-                             ResImportForm, ResLocal, ResModuleKind, ResName, ResSymbol}
+                             ResImportForm, ResLocal, ResModuleKind, ResName, ResPending,
+                             ResSymbol, res_unbound}
 import sawresolve.src.program.{ResProgram}
 
 // Adds `b` to `out` unless a binding denoting the same thing is there.
@@ -30,6 +31,37 @@ func res_add_distinct(out: &var Vector<ResBinding>, b: ResBinding) {
         k = k + 1
     }
     try! out.push(b)
+}
+
+// Whether `v` holds `x`.
+func res_holds(v: &Vector<Int>, x: Int) -> Bool {
+    var k = 0
+    while k < v.len() {
+        if v[k] == x {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
+
+// `names`, each in backquotes, joined by commas and `last` before the last:
+// "`A`", "`A` or `B`", "`A`, `B` or `C`".
+func res_join_names(names: &Vector<String>, last: String) -> String {
+    var out = StringBuilder()
+    var k = 0
+    while k < names.len() {
+        if k > 0 && k == names.len() - 1 {
+            try! out.append(last)
+        } else if k > 0 {
+            try! out.append(", ")
+        }
+        try! out.append("`")
+        try! out.append(names.get(k) ?? "")
+        try! out.append("`")
+        k = k + 1
+    }
+    out.build()
 }
 
 // Where a name is looked up: a value position sees locals, a type position
@@ -198,10 +230,7 @@ extension ResProgram {
             self.refuse(leaf, "visibility.private", msg.build())
             return self.error_binding()
         }
-        if self.bound_declares_assoc_type(name) {
-            // How to name a bound's associated type is not settled, so the
-            // bare spelling is refused as unbuilt rather than as undefined.
-            self.refuse_assoc_type(leaf, text)
+        if self.defer_bare_name(name, leaf) {
             return self.error_binding()
         }
         try! msg.append("cannot find `")
@@ -234,84 +263,291 @@ extension ResProgram {
         return -1
     }
 
-    // Whether a bound of a type parameter in scope is a trait that declares an
-    // associated type named `name`.
-    func bound_declares_assoc_type(&self, name: Int) -> Bool {
-        var k = self.local_top - 1
-        while k >= 0 {
+    // Whether a path headed by `b` names an associated type by its second
+    // segment: `T.Item` under a type parameter, `Self.Item` in a trait.
+    public func heads_projection(&self, b: ResBinding) -> Bool {
+        if b.kind == ResBindKind.TypeParam {
+            return true
+        }
+        b.kind == ResBindKind.SelfType && b.decl >= 0 && self.decls[b.decl].kind == ResDeclKind.Trait
+    }
+
+    // Defers the associated type `path`'s second segment names under `head`
+    // to `settle_pending`, since a bound's parents may sit in a module not
+    // walked yet. Every segment after the head is recorded refused until then.
+    public func defer_projection(&var self, path: Int, head: ResBinding) {
+        let n = self.child_count(path)
+        let leaf = self.child(path, 1)
+        let name = self.leaf_name(leaf)
+        var k = 1
+        while k < n {
+            let segment = self.child(path, k)
+            let refused = self.error_binding()
+            self.record(segment, refused)
+            k = k + 1
+        }
+        var chain = -1
+        if n > 2 {
+            chain = self.child(path, 2)
+        }
+        var trait_decl = -1
+        var param = res_unbound()
+        if head.kind == ResBindKind.SelfType {
+            trait_decl = head.decl
+        } else {
+            param = head
+        }
+        let m = self.current
+        try! self.pending.push(ResPending(module: m, leaf: leaf, name: name, param: param,
+                                          trait_decl: trait_decl, chain: chain, first: 0, count: 0))
+    }
+
+    // Defers the refusal of bare `name` at `leaf`, which nothing binds, when a
+    // type parameter in scope has a bound: `settle_pending` refuses it with
+    // the `T.Item` spellings the bounds reach as its fix-it. Returns whether
+    // it was deferred.
+    func defer_bare_name(&var self, name: Int, leaf: Int) -> Bool {
+        let first = self.pending_params.len()
+        var k = 0
+        while k < self.local_top {
             let local = self.locals[k]
             if local.type_level && local.binding.kind == ResBindKind.TypeParam {
-                let at = self.param_nodes.first(0, local.binding.node)
-                if at >= 0 {
-                    let g = self.param_nodes.value(at)
-                    if self.bounds_declare_assoc_type(g, name) {
-                        return true
-                    }
+                var traits = Vector<Int>()
+                self.bound_traits(local.binding.node, &var traits)
+                if traits.len() > 0 {
+                    try! self.pending_params.push(local.binding.node)
                 }
             }
-            k = k - 1
+            k = k + 1
         }
-        false
-    }
-
-    // Refuses `text` at `leaf` as an associated type named through a type
-    // parameter's bound, bare or as `T.Item`: its spelling is not settled, so
-    // it is unbuilt rather than undefined.
-    public func refuse_assoc_type(&var self, leaf: Int, text: String) {
-        var msg = StringBuilder()
-        try! msg.append("`")
-        try! msg.append(text)
-        try! msg.append("` is an associated type named through a type parameter's bound, which is not in the bootstrap slice yet")
-        self.refuse(leaf, "slice.not-yet", msg.build())
-    }
-
-    // Whether a bound of the type parameter declared at `leaf` is a trait that
-    // declares an associated type named `name`.
-    public func param_declares_assoc_type(&self, leaf: Int, name: Int) -> Bool {
-        let at = self.param_nodes.first(0, leaf)
-        if at < 0 {
+        let count = self.pending_params.len() - first
+        if count == 0 {
             return false
         }
-        let g = self.param_nodes.value(at)
-        self.bounds_declare_assoc_type(g, name)
+        let m = self.current
+        try! self.pending.push(ResPending(module: m, leaf: leaf, name: name, param: res_unbound(),
+                                          trait_decl: -1, chain: -1, first: first, count: count))
+        true
     }
 
-    // Whether a bound of generic parameter `g` is a trait that declares an
-    // associated type named `name`.
-    func bounds_declare_assoc_type(&self, g: Int, name: Int) -> Bool {
-        let n = self.child_count(g)
+    // Decides every deferred name, once every trait's parents are recorded.
+    // A projection is bound or refused; a bare name is refused with its fix-it.
+    public func settle_pending(&var self) {
+        let saved = self.current
+        var k = 0
+        while k < self.pending.len() {
+            let p = self.pending[k]
+            self.current = p.module
+            if p.count > 0 {
+                self.settle_bare(&p)
+            } else {
+                self.settle_projection(&p)
+            }
+            k = k + 1
+        }
+        self.current = saved
+    }
+
+    // `T.Item`: the one associated type named `Item` that `T`'s bounds
+    // declare or inherit. Two bounds reaching one declaration name it once;
+    // two declarations are ambiguous. `Self.Item` searches the trait itself.
+    func settle_projection(&var self, p: &ResPending) {
+        var traits = Vector<Int>()
+        if p.trait_decl >= 0 {
+            try! traits.push(p.trait_decl)
+        } else {
+            self.bound_traits(p.param.node, &var traits)
+        }
+        var seen = Vector<Int>()
+        var found = Vector<Int>()
+        var k = 0
+        while k < traits.len() {
+            self.collect_assoc_types(traits[k], p.name, &var seen, &var found)
+            k = k + 1
+        }
+        let head = if p.trait_decl >= 0 { "Self" } else { self.name_text(p.param.name) }
+        let text = self.name_text(p.name)
+        var msg = StringBuilder()
+        if found.len() == 1 {
+            let d = found[0]
+            if p.trait_decl >= 0 {
+                let owner = self.decls[d].module
+                self.rebind(p.leaf, ResBinding(kind: ResBindKind.Decl, module: owner, decl: d,
+                                               name: -1, node: -1))
+            } else {
+                self.rebind(p.leaf, ResBinding(kind: ResBindKind.Projection,
+                                               module: p.param.module, decl: d,
+                                               name: p.param.name, node: p.param.node))
+            }
+            if p.chain >= 0 {
+                let m = self.current
+                try! msg.append("`")
+                try! msg.append(self.text_of(m, p.chain))
+                try! msg.append("` is named through the associated type `")
+                try! msg.append(head)
+                try! msg.append(".")
+                try! msg.append(text)
+                try! msg.append("`, which is not in the bootstrap slice yet")
+                self.refuse(p.chain, "slice.not-yet", msg.build())
+            }
+            return
+        }
+        var names = Vector<String>()
+        if found.len() == 0 {
+            k = 0
+            while k < traits.len() {
+                let trait_name = self.decls[traits[k]].name
+                try! names.push(self.name_text(trait_name))
+                k = k + 1
+            }
+            try! msg.append("`")
+            try! msg.append(head)
+            try! msg.append("` has no associated type `")
+            try! msg.append(text)
+            if names.len() == 0 {
+                try! msg.append("`: it has no bounds")
+            } else if p.trait_decl >= 0 {
+                try! msg.append("`: ")
+                try! msg.append(res_join_names(&names, ", "))
+                try! msg.append(" and the traits it refines declare none")
+            } else if names.len() == 1 {
+                try! msg.append("`: its bound ")
+                try! msg.append(res_join_names(&names, ", "))
+                try! msg.append(" and the traits it refines declare none")
+            } else {
+                try! msg.append("`: its bounds ")
+                try! msg.append(res_join_names(&names, ", "))
+                try! msg.append(" and the traits they refine declare none")
+            }
+            self.refuse(p.leaf, "name.undefined", msg.build())
+            return
+        }
+        k = 0
+        while k < found.len() {
+            let d = self.decls[found[k]]
+            var qualified = StringBuilder()
+            let trait_name = self.decls[d.parent].name
+            try! qualified.append(self.name_text(trait_name))
+            try! qualified.append(".")
+            try! qualified.append(self.name_text(d.name))
+            try! names.push(qualified.build())
+            k = k + 1
+        }
+        try! msg.append("ambiguous `")
+        try! msg.append(head)
+        try! msg.append(".")
+        try! msg.append(text)
+        try! msg.append("`: the bounds of `")
+        try! msg.append(head)
+        try! msg.append("` reach the associated types ")
+        try! msg.append(res_join_names(&names, " and "))
+        self.refuse(p.leaf, "name.ambiguous", msg.build())
+    }
+
+    // A bare name nothing binds, refused with each `T.Item` the in-scope type
+    // parameters' bounds reach, all of them when there are several.
+    func settle_bare(&var self, p: &ResPending) {
+        let text = self.name_text(p.name)
+        let m = self.current
+        var spellings = Vector<String>()
+        var k = 0
+        while k < p.count {
+            let param = self.pending_params[p.first + k]
+            var traits = Vector<Int>()
+            self.bound_traits(param, &var traits)
+            var seen = Vector<Int>()
+            var found = Vector<Int>()
+            var j = 0
+            while j < traits.len() {
+                self.collect_assoc_types(traits[j], p.name, &var seen, &var found)
+                j = j + 1
+            }
+            if found.len() > 0 {
+                var spelling = StringBuilder()
+                try! spelling.append(self.text_of(m, param))
+                try! spelling.append(".")
+                try! spelling.append(text)
+                try! spellings.push(spelling.build())
+            }
+            k = k + 1
+        }
+        var msg = StringBuilder()
+        try! msg.append("cannot find `")
+        try! msg.append(text)
+        try! msg.append("` in scope")
+        if spellings.len() > 0 {
+            try! msg.append("; an associated type of a bound is named through its type parameter, as ")
+            try! msg.append(res_join_names(&spellings, " or "))
+        }
+        self.refuse(p.leaf, "name.undefined", msg.build())
+    }
+
+    // Replaces the binding recorded for `leaf`.
+    func rebind(&var self, leaf: Int, b: ResBinding) {
+        let at = self.record_of[leaf]
+        var r = self.records[at]
+        r.binding = b
+        self.records[at] = r
+    }
+
+    // The traits the type parameter declared at `leaf` is bounded by, in the
+    // order its bounds are written.
+    public func bound_traits(&self, leaf: Int, out: &var Vector<Int>) {
+        let at = self.param_nodes.first(0, leaf)
+        if at < 0 {
+            return
+        }
+        let g = self.param_nodes.value(at)
+        self.path_traits(g, &var out)
+    }
+
+    // The traits node `owner`'s path children name: a generic parameter's
+    // bounds, or a trait's parents.
+    func path_traits(&self, owner: Int, out: &var Vector<Int>) {
+        let n = self.child_count(owner)
         var j = 0
         while j < n {
-            let c = self.child(g, j)
+            let c = self.child(owner, j)
             if self.is_alt(c, Alt.Type_Path) {
                 let segments = self.child_count(c)
                 let last = self.child(c, segments - 1)
                 let r = self.record_of[last]
                 if r >= 0 {
                     let b = self.records[r].binding
-                    if b.kind == ResBindKind.Decl && self.is_assoc_type_of(b.decl, name) {
-                        return true
+                    if b.kind == ResBindKind.Decl && self.decls[b.decl].kind == ResDeclKind.Trait {
+                        try! out.push(b.decl)
                     }
                 }
             }
             j = j + 1
         }
-        false
     }
 
-    // Whether trait `t` declares an associated type named `name`.
-    func is_assoc_type_of(&self, t: Int, name: Int) -> Bool {
-        if self.decls[t].kind != ResDeclKind.Trait {
-            return false
+    // Adds to `out` each associated type named `name` that trait `t` declares
+    // or inherits through its parents, each declaration once; `seen` holds
+    // the traits already searched.
+    func collect_assoc_types(&self, t: Int, name: Int, seen: &var Vector<Int>,
+                             out: &var Vector<Int>) {
+        if res_holds(&seen, t) {
+            return
         }
+        try! seen.push(t)
         var at = self.members.first(t, name)
         while at >= 0 {
-            if self.decls[self.members.value(at)].kind == ResDeclKind.AssocType {
-                return true
+            let d = self.members.value(at)
+            if self.decls[d].kind == ResDeclKind.AssocType && not res_holds(&out, d) {
+                try! out.push(d)
             }
             at = self.members.following(at)
         }
-        false
+        var parents = Vector<Int>()
+        let node = self.decls[t].node
+        self.path_traits(node, &var parents)
+        var k = 0
+        while k < parents.len() {
+            self.collect_assoc_types(parents[k], name, &var seen, &var out)
+            k = k + 1
+        }
     }
 
     public func error_binding(&self) -> ResBinding {

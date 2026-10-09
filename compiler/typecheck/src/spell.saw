@@ -78,6 +78,13 @@ extension TcProgram {
                 let d = self.res.decls[info.decl]
                 try! out.append(self.name_text(d.name))
             },
+            case Projection -> {
+                let base = self.types.arg(t, 0)
+                self.append_type(&var out, base)
+                try! out.append(".")
+                let d = self.res.decls[info.decl]
+                try! out.append(self.name_text(d.name))
+            },
             case Tuple -> self.append_tuple(&var out, t),
             case Func -> {
                 try! out.append("(")

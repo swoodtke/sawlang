@@ -6,7 +6,7 @@ import sawparse.src.grammar.{Alt}
 import sawparse.src.tree.{AstNode, AstTree, NodeShape, is_leaf_shape}
 import sawresolve.src.model.{ResBinding, ResBindKind, ResCall, ResConformance, ResDecl,
                              ResDeclKind, ResDiag, ResExport, ResImport, ResLocal, ResModule,
-                             ResModuleKind, ResName, ResSymbol, ResVis}
+                             ResModuleKind, ResName, ResPending, ResSymbol, ResVis}
 import sawresolve.src.names.{ResIndex, ResNames, res_index, res_names}
 
 static RES_NEWLINE: Int = 10
@@ -78,6 +78,10 @@ public struct ResProgram {
     param_nodes: ResIndex
     // For each node of the arena, the index of its name record, or -1.
     record_of: Vector<Int>
+    // The names `settle_pending` decides after every module is walked, and
+    // the type parameter leaves their bare entries list.
+    pending: Vector<ResPending>
+    pending_params: Vector<Int>
     // Bindings in scope while a body or signature is resolved: a stack whose
     // first `local_top` entries are live, and the height each open scope began at.
     locals: Vector<ResLocal>
@@ -119,7 +123,8 @@ public func res_program(std_root: String) -> ResProgram {
                        surface: res_index(), bare: res_index(),
                        qualifiers: res_index(), prelude: res_index(), by_name: res_index(),
                        param_nodes: res_index(),
-                       record_of: Vector<Int>(), locals: Vector<ResLocal>(), local_top: 0,
+                       record_of: Vector<Int>(), pending: Vector<ResPending>(),
+                       pending_params: Vector<Int>(), locals: Vector<ResLocal>(), local_top: 0,
                        scope_marks: Vector<Int>(), scope_top: 0, current: -1,
                        current_decl: -1, receiver: res_blank(), self_type: res_blank(),
                        in_test: false, builtin: -1, entry: -1, name_self_type: -1, name_error: -1,

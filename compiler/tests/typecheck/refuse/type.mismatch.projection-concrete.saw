@@ -1,0 +1,12 @@
+// refuses: type.mismatch at 11:12
+// a requirement's `Self.Item` called through a bound is the parameter's
+// projection, which no concrete type equals: no bound pins it
+
+trait Source {
+    type Item
+    func take(&self, v: Self.Item) -> Int
+}
+
+func pull<S: Source>(s: &S, v: Int) -> Int {
+    s.take(v)
+}

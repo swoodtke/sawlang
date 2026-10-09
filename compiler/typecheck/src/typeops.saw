@@ -285,6 +285,9 @@ extension TcProgram {
             },
             case Array -> self.copies_silently(info.b),
             case Any -> false,
+            // No bound can say a projection copies, so a generic body moves
+            // or borrows one, and never copies it.
+            case Projection -> false,
             case _ -> true
         }
     }

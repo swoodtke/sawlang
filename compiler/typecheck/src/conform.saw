@@ -85,6 +85,11 @@ extension TcProgram {
                 }
                 t
             },
+            case Projection -> {
+                let written = self.types.arg(t, 0)
+                let base = self.subst(written, &s)
+                self.project(base, info.decl)
+            },
             case Param -> {
                 if info.decl == s.from_owner && s.from_owner >= 0 {
                     return self.mk_param(s.to_owner, info.a)
@@ -130,6 +135,78 @@ extension TcProgram {
                 self.mk_array(element, length)
             },
             case _ -> t
+        }
+    }
+
+    // `base.Item` for associated type `d`: a projection while `base` is
+    // still generic, else the type `base`'s conformance assigns. A base that
+    // assigns none fails a bound, which is refused where it is written, so
+    // the projection is an error type there.
+    public func project(&var self, base: Int, d: Int) -> Int {
+        let info = self.types.ty(base)
+        let generic = info.kind == TcKind.Param || info.kind == TcKind.Projection || info.kind == TcKind.SelfType || info.kind == TcKind.Assoc
+        if generic {
+            return self.mk_projection(base, d)
+        }
+        if info.kind != TcKind.Nominal {
+            return self.error_type
+        }
+        var args = Vector<Int>()
+        var j = 0
+        while j < info.count {
+            try! args.push(self.types.arg(base, j))
+            j = j + 1
+        }
+        let by_args = tc_args_subst(info.decl, move args)
+        var c = 0
+        while c < self.conformances.len() {
+            let one = self.conformances[c]
+            c = c + 1
+            if one.type_decl != info.decl {
+                continue
+            }
+            let s = self.conformance_subst(c - 1)
+            var k = 0
+            while k < s.assoc_decls.len() {
+                if s.assoc_decls[k] == d {
+                    return self.subst(s.assoc_types[k], &by_args)
+                }
+                k = k + 1
+            }
+        }
+        self.error_type
+    }
+
+    // For requirement `req` called through a type parameter `T` (`recv`, its
+    // references peeled), adds to `s` each associated type of its trait and
+    // the traits it refines as `T.Item`: the signature's `Item` is `T`'s.
+    public func bound_projections(&var self, req: Int, recv: Int, s: &var TcSubst) {
+        let info = self.res.decls[req]
+        if info.kind != ResDeclKind.Requirement {
+            return
+        }
+        var r = recv
+        while self.types.ty(r).kind == TcKind.Ref {
+            r = self.types.ty(r).b
+        }
+        let kind = self.types.ty(r).kind
+        if kind != TcKind.Param && kind != TcKind.Projection {
+            return
+        }
+        let traits = self.trait_and_ancestors(info.parent)
+        var k = 0
+        while k < traits.len() {
+            let members = self.members_of(traits[k])
+            var j = 0
+            while j < members.len() {
+                let d = members[j]
+                if self.res.decls[d].kind == ResDeclKind.AssocType {
+                    try! s.assoc_decls.push(d)
+                    try! s.assoc_types.push(self.mk_projection(r, d))
+                }
+                j = j + 1
+            }
+            k = k + 1
         }
     }
 

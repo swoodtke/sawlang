@@ -1,0 +1,35 @@
+// Associated types named through a type parameter, `T.Item` (SL:open-questions
+// W4): a single bound, two type parameters, an associated type a bound
+// inherits from its parent trait, two bounds reaching one declaration, and
+// `Self.Item` in a trait, its own and inherited.
+
+trait Sequence {
+    type Item
+    func next(&var self) -> Self.Item?
+}
+
+trait Collection: Sequence {
+    func count(&self) -> Int
+    func last(&self) -> Self.Item?
+}
+
+trait Container {
+    type Item
+    func get(&self) -> Item
+}
+
+func first<T: Container>(box: &T) -> T.Item {
+    box.get()
+}
+
+func pair<T: Container, U: Container>(a: &T, b: &U) -> (T.Item, U.Item) {
+    (a.get(), b.get())
+}
+
+func pull<C: Collection>(c: &var C) -> C.Item? {
+    c.next()
+}
+
+func both<C: Collection + Sequence>(c: &var C) -> Vector<C.Item> {
+    Vector<C.Item>()
+}

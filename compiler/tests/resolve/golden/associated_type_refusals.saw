@@ -1,0 +1,55 @@
+// The refusals of an associated type named through a type parameter, with
+// their messages: two declarations reached, none reached, a parameter with no
+// bounds, a chained path, `Self.Other` in a trait, and bare `Item` in a generic
+// body, whose fix-it names every `T.Item` the bounds in scope reach.
+
+trait Source {
+    type Item
+    func take(&self) -> Int
+}
+
+trait Sink {
+    type Item
+    func give(&self) -> Int
+}
+
+trait Plain {
+    func plain(&self) -> Int
+}
+
+func ambiguous<T: Source + Sink>(t: &T) -> T.Item? {
+    None
+}
+
+func absent_one<T: Source>(t: &T) -> T.Missing? {
+    None
+}
+
+func absent_two<T: Source + Plain>(t: &T) -> T.Missing? {
+    None
+}
+
+func unbounded<T>(t: &T) -> T.Item? {
+    None
+}
+
+func chained<T: Source>(t: &T) -> T.Item.Key? {
+    None
+}
+
+trait Holder {
+    type Item
+    func other(&self) -> Self.Other
+}
+
+func bare_one<T: Source>(t: &T) -> Item? {
+    None
+}
+
+func bare_two<T: Source, U: Sink>(t: &T, u: &U) -> Item? {
+    None
+}
+
+func bare_none<T: Plain>(t: &T) -> Item? {
+    None
+}

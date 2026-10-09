@@ -900,6 +900,7 @@ extension TcProgram {
         }
         var s = tc_args_subst(owner, move args)
         s.self_type = r
+        self.bound_projections(d, r, &var s)
         self.subst(t, &s)
     }
 
@@ -987,6 +988,7 @@ extension TcProgram {
             },
             case Array -> self.copy_needs(info.b, site, origin, &var acc),
             case Any -> false,
+            case Projection -> false,
             case _ -> true
         }
     }
