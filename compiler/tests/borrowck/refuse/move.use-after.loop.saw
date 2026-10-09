@@ -1,0 +1,19 @@
+// refuses: move.use-after at 15:25
+// a binding moved in a loop body is moved again on the next iteration
+// (conformance V06)
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func take(r: Res) -> Int { r.id }
+
+func main() {
+    let r = Res(id: 1)
+    var k = 0
+    var total = 0
+    while k < 3 {
+        total = total + take(move r)
+        k = k + 1
+    }
+    print(total)
+}

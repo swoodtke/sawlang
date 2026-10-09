@@ -12,12 +12,14 @@ import sawresolve.src.dump.{res_sort_strings}
 import sawresolve.src.model.{ResDeclKind}
 import sawresolve.src.program.{ResProgram}
 import sawtypecheck.src.bodydump.{tc_dump_bodies}
+import sawtypecheck.src.checks.{tc_check_unsafe}
 import sawtypecheck.src.conform.{tc_extension_sets}
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.spell.{tc_effects_text}
 
-// Module `m`'s dump: every function lowered from its bodies, in order.
-public func mir_dump_module(p: &MirProgram, out: &var StringBuilder, m: Int) {
+// Module `m`'s dump: every function lowered from its bodies, in order; with
+// `spans`, each statement and terminator followed by its source position.
+public func mir_dump_module(p: &MirProgram, out: &var StringBuilder, m: Int, spans: Bool) {
     try! out.append("module ")
     try! out.append(p.tc.res.module_name(m))
     try! out.append("\n")
@@ -25,7 +27,7 @@ public func mir_dump_module(p: &MirProgram, out: &var StringBuilder, m: Int) {
     var k = 0
     while k < order.len() {
         try! out.append("\n")
-        p.dump_func(&var out, order[k])
+        p.dump_func(&var out, order[k], spans)
         k = k + 1
     }
 }
@@ -141,7 +143,7 @@ public func mir_operator_name(op: String, unary: Bool) -> String {
 }
 
 extension MirProgram {
-    public func dump_func(&self, out: &var StringBuilder, f: Int) {
+    public func dump_func(&self, out: &var StringBuilder, f: Int, spans: Bool) {
         let info = self.funcs[f]
         try! out.append("fn ")
         try! out.append(self.func_name(f))
@@ -197,15 +199,38 @@ extension MirProgram {
                 let stmt = self.stmts[s]
                 try! out.append("        ")
                 self.append_stmt(&var out, info.local_first, &stmt)
+                if spans {
+                    try! out.append("  @")
+                    try! out.append(self.span_text(stmt.node, stmt.closing))
+                }
                 try! out.append("\n")
                 s = stmt.next
             }
             try! out.append("        ")
             self.append_term(&var out, info.local_first, &b)
+            if spans {
+                try! out.append("  @")
+                try! out.append(self.span_text(b.term_node, b.term_closing))
+            }
             try! out.append("\n    \}\n")
             k = k + 1
         }
         try! out.append("\}\n")
+    }
+
+    // Source node `node`'s `line:col`, or at its end the position of its
+    // last byte, a block's closing brace; `?` for none.
+    public func span_text(&self, node: Int, closing: Bool) -> String {
+        if node < 0 {
+            return "?"
+        }
+        let m = self.tc.node_module(node)
+        let n = self.tc.res.nodes[node]
+        var offset = n.start
+        if closing && n.end > n.start {
+            offset = n.end - 1
+        }
+        self.tc.res.position_text(m, offset)
     }
 
     // The name a function's header gives it: its declaration's identity and
@@ -297,7 +322,7 @@ extension MirProgram {
         self.tc.append_type(&var out, t)
     }
 
-    func append_stmt(&self, out: &var StringBuilder, base: Int, s: &MirStmt) {
+    public func append_stmt(&self, out: &var StringBuilder, base: Int, s: &MirStmt) {
         match s.kind {
             case Assign -> {
                 self.append_place(&var out, s.place)
@@ -583,7 +608,7 @@ extension MirProgram {
         self.append_type(&var out, info.ty)
     }
 
-    func append_term(&self, out: &var StringBuilder, base: Int, b: &MirBlock) {
+    public func append_term(&self, out: &var StringBuilder, base: Int, b: &MirBlock) {
         match b.term {
             case Open -> try! out.append("(unterminated);"),
             case Goto -> {

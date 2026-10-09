@@ -1,0 +1,103 @@
+// A consuming destructure under each consuming form moves a payload or a
+// part out of a temporary and never drops the temporary whole on that path;
+// the borrow check accepts every one: `try`, `??`, `if let`, `guard let`,
+// `while let`, `for`, and a binding `match` arm.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+enum Shape {
+    case Held(res: Res),
+    case Empty
+}
+extension Shape: NoCopy {}
+
+struct Countdown { n: Int }
+
+extension Countdown: Iterator {
+    type Item = Res
+    func next(&var self) -> Res? {
+        if self.n == 0 {
+            return None
+        }
+        self.n = self.n - 1
+        Res(id: self.n)
+    }
+}
+
+func risky(n: Int) -> Result<Res, String> {
+    if n < 0 {
+        return Result.Err("negative")
+    }
+    Res(id: n)
+}
+
+func maybe(n: Int) -> Res? {
+    if n < 0 {
+        return None
+    }
+    Res(id: n)
+}
+
+func shape(n: Int) -> Shape {
+    if n < 0 {
+        return Shape.Empty
+    }
+    Shape.Held(res: Res(id: n))
+}
+
+func take(r: Res) -> Int { r.id }
+
+func tried(n: Int) -> Result<Int, String> {
+    let r = try risky(n)
+    take(move r)
+}
+
+func coalesced(n: Int) -> Int {
+    let r = maybe(n) ?? Res(id: 0)
+    take(move r)
+}
+
+func if_let(n: Int) -> Int {
+    if let r = maybe(n) {
+        return take(move r)
+    }
+    0
+}
+
+func guarded(n: Int) -> Int {
+    guard let r = maybe(n) else {
+        return 0
+    }
+    take(move r)
+}
+
+func drained(n: Int) -> Int {
+    var total = 0
+    var k = n
+    while let r = maybe(k) {
+        total = total + take(move r)
+        k = k - 1
+    }
+    total
+}
+
+func iterated(n: Int) -> Int {
+    var total = 0
+    for r in Countdown(n: n) {
+        total = total + take(move r)
+    }
+    total
+}
+
+func matched(n: Int) -> Int {
+    match shape(n) {
+        case Held(res) -> take(move res),
+        case Empty -> 0
+    }
+}
+
+func main() {
+    let _ = tried(1)
+    print(coalesced(1) + if_let(1) + guarded(1) + drained(2) + iterated(2) + matched(1))
+}

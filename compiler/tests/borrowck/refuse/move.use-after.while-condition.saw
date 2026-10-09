@@ -1,0 +1,17 @@
+// refuses: move.use-after at 13:11
+// a `move` in a `while` condition consumes the binding again on the
+// backedge (conformance V109)
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func more(r: Res) -> Bool { r.id > 0 }
+
+func main() {
+    let r = Res(id: 1)
+    var k = 0
+    while more(move r) && k < 3 {
+        k = k + 1
+    }
+    print(k)
+}

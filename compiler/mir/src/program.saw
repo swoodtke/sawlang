@@ -23,6 +23,8 @@ public struct MirLoop {
     public exit: Int
     public depth: Int
     public yields: Bool
+    // The loop's node, which its budget points carry.
+    public node: Int
 }
 
 public struct MirProgram {
@@ -82,11 +84,10 @@ public struct MirProgram {
     // `dissolve` reads once they are bound.
     public moved_parts: Vector<Int>
     // A `consumes` body's receiver release: the fields its body leaves in
-    // `self`, in declaration order, with their types; and the fields it
-    // moves out, which every path to a return must have moved.
+    // `self`, in declaration order, with their types. A field moved on some
+    // paths only is borrowck's to refuse (`init_consumes_partial`).
     public release_fields: Vector<Int>
     public release_types: Vector<Int>
-    public moved_fields: Vector<Int>
     // Runs a function's record locals and carried windows name.
     public aux: Vector<Int>
     // The accessors lowered as halves, and by declaration the one each
@@ -95,6 +96,10 @@ public struct MirProgram {
     public accessor_of: Vector<Int>
     // The order of the body root being lowered, which its functions take.
     public order_now: Int
+    // The source node the next statement or terminator carries, and whether
+    // at its end (`source_at` in build.saw).
+    public at: Int
+    public at_closing: Bool
 }
 
 extension MirProgram: NoCopy {}
@@ -127,7 +132,7 @@ public func mir_program(tc: TcProgram) -> MirProgram {
                touched: Vector<Int>(), leaf_capture: move leaf_capture, pending: Vector<Int>(),
                pending_parents: Vector<Int>(), closure_counts: res_index(),
                statement_windows: Vector<Int>(), refused: false, moved_parts: Vector<Int>(),
-               release_fields: Vector<Int>(), release_types: Vector<Int>(), moved_fields: Vector<Int>(),
+               release_fields: Vector<Int>(), release_types: Vector<Int>(),
                aux: Vector<Int>(), accessors: Vector<MirAccessor>(), accessor_of: move accessor_of,
-               order_now: 0)
+               order_now: 0, at: -1, at_closing: false)
 }

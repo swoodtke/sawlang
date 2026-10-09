@@ -1,0 +1,21 @@
+// refuses: move.use-after at 16:5
+// a move on one arm, then a use after the join, where the binding may have
+// been moved (conformance V07)
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func take(r: Res) -> Int { r.id }
+
+func pick(hot: Bool) -> Int {
+    let r = Res(id: 1)
+    var n = 0
+    if hot {
+        n = take(move r)
+    }
+    n + r.id
+}
+
+func main() {
+    print(pick(true))
+}

@@ -125,8 +125,76 @@ extension MirProgram {
         let id = self.blocks.len() - self.block_base
         try! self.blocks.push(MirBlock(first: -1, last: -1, term: MirTermKind.Open, target: -1,
                                        switch_kind: MirSwitchKind.Bool, operand: -1, place: -1,
-                                       arm_first: 0, arm_count: 0, otherwise: -1, call: -1))
+                                       arm_first: 0, arm_count: 0, otherwise: -1, call: -1, term_node: -1,
+                                       term_closing: false))
         id
+    }
+
+    // Source nodes.
+
+    // Makes node `n` the one the statements and terminators emitted next
+    // carry; returns the node it replaces, for `source_restore`. Every
+    // statement and terminator carries the node being lowered when it is
+    // emitted: a scope exit's drops carry the exit that caused it, a
+    // fallthrough's the block's closing; a destructure's moves and drops
+    // carry its pattern; a budget point carries its loop. A node is set only
+    // here and in `source_closing`, so a stale node is one of these entry
+    // points missing around a path that emits.
+    //
+    // ENTRY POINTS (source_at):
+    //     begin_function
+    //     finish_function
+    //     lower_statement
+    //     lower_statements
+    //     lower_block
+    //     lower_val
+    //     lower_into
+    //     lower_discarded
+    //     lower_control
+    //     operand_as
+    //     bind_one
+    //     dissolve
+    //     lower_continue
+    //     lower_if
+    //     lower_while_let
+    //     lower_for
+    //     copy_blocks
+    //     copy_terminator
+    //     build_prologue
+    //     build_epilogue
+    public func source_at(&var self, n: Int) -> Int {
+        let saved = self.at
+        self.at = n
+        self.at_closing = false
+        saved
+    }
+
+    // `source_at` at node `n`'s end: a block's closing brace.
+    public func source_closing(&var self, n: Int) -> Int {
+        let saved = self.at
+        self.at = n
+        self.at_closing = true
+        saved
+    }
+
+    // `source_at` or `source_closing` as `closing` says: a copied
+    // statement's or terminator's own node.
+    public func source_as(&var self, n: Int, closing: Bool) -> Int {
+        if closing {
+            return self.source_closing(n)
+        }
+        self.source_at(n)
+    }
+
+    public func source_restore(&var self, saved: Int) {
+        self.at = saved
+        self.at_closing = false
+    }
+
+    // Stamps a block's terminator with the current source node.
+    func stamp_terminator(&self, info: &var MirBlock) {
+        info.term_node = self.at
+        info.term_closing = self.at_closing
     }
 
     public func enter(&var self, b: Int) {
@@ -227,22 +295,61 @@ extension MirProgram {
 
     // Operands.
 
+    // A copy of place `p`, except that an exclusive reference read out of a
+    // part (an Optional's payload, a tuple's element), not through a
+    // reference, is moved: a reborrow out of a container that is dead after
+    // it, never a second live alias of the referent.
     public func op_copy(&var self, p: Int) -> Int {
         let t = self.place_type(p)
+        var kind = MirOperandKind.Copy
+        if self.exclusive_part(p) {
+            kind = MirOperandKind.Move
+        }
         let at = self.operands.len()
-        try! self.operands.push(MirOperand(kind: MirOperandKind.Copy, place: p, ty: t,
-                                           const_kind: MirConstKind.Unit, text: -1))
+        try! self.operands.push(MirOperand(kind: kind, place: p, ty: t, const_kind: MirConstKind.Unit, text: -1))
         at
     }
 
-    // A move out of place `p`. A part of a trivially copyable type is read as
-    // a copy instead: the bits are the same, and the value it lies in stays
-    // whole, so a later drop of that value is its one drop and no
-    // destructure has to dissolve it.
+    // Whether a part of type `t` read by value is copied: a trivially
+    // copyable type, a shared reference or a shared slice.
+    public func copied_part_type(&var self, t: Int) -> Bool {
+        let kind = self.tc.kind_of(t)
+        if kind == TcKind.Ref || kind == TcKind.Slice {
+            return self.tc.types.ty(t).a != 1
+        }
+        self.tc.is_trivial(t, 0)
+    }
+
+    // Whether place `p` is a part of a local or a static, reached through no
+    // reference, holding an exclusive reference.
+    public func exclusive_part(&self, p: Int) -> Bool {
+        let info = self.places[p]
+        if info.count == 0 || info.ty < 0 {
+            return false
+        }
+        let kind = self.tc.kind_of(info.ty)
+        if kind != TcKind.Ref || self.tc.types.ty(info.ty).a != 1 {
+            return false
+        }
+        var k = 0
+        while k < info.count {
+            if self.projs[info.first + k].kind == MirProjKind.Deref {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // A move out of place `p`. A part of a trivially copyable type, or a
+    // shared reference or slice, is read as a copy instead: the bits are the
+    // same, and the value it lies in stays whole, so a later drop of that
+    // value is its one drop and no destructure has to dissolve it. An
+    // exclusive reference is no such part: it moves (`op_copy`).
     public func op_move(&var self, p: Int) -> Int {
         let t = self.place_type(p)
         var kind = MirOperandKind.Move
-        if self.places[p].count > 0 && t >= 0 && self.tc.is_trivial(t, 0) {
+        if self.places[p].count > 0 && t >= 0 && self.copied_part_type(t) {
             kind = MirOperandKind.Copy
         }
         let at = self.operands.len()
@@ -392,7 +499,11 @@ extension MirProgram {
             return
         }
         let s = self.stmts.len()
-        try! self.stmts.push(MirStmt(kind: kind, place: p, rvalue: rv, yields: yields, next: -1))
+        // Stage 0 workaround (SL:hazards S4): canonical: try! self.stmts.push(MirStmt(kind: kind, place: p, rvalue: rv, yields: yields, next: -1, node: self.at, closing: self.at_closing))
+        let node = self.at
+        let closing = self.at_closing
+        try! self.stmts.push(MirStmt(kind: kind, place: p, rvalue: rv, yields: yields, next: -1, node: node,
+                                     closing: closing))
         let b = self.current
         var info = self.block(b)
         if info.first < 0 {
@@ -426,6 +537,7 @@ extension MirProgram {
         var info = self.block(b)
         info.term = MirTermKind.Goto
         info.target = target
+        self.stamp_terminator(&var info)
         self.set_block(b, info)
         self.current = -1
     }
@@ -445,6 +557,7 @@ extension MirProgram {
         let b = self.current
         var info = self.block(b)
         info.term = kind
+        self.stamp_terminator(&var info)
         self.set_block(b, info)
         self.current = -1
     }
@@ -464,6 +577,7 @@ extension MirProgram {
         info.operand = o
         info.arm_first = first
         info.arm_count = 2
+        self.stamp_terminator(&var info)
         self.set_block(b, info)
         self.current = -1
     }
@@ -487,6 +601,7 @@ extension MirProgram {
         info.arm_first = first
         info.arm_count = cases.len()
         info.otherwise = otherwise
+        self.stamp_terminator(&var info)
         self.set_block(b, info)
         self.current = -1
     }
@@ -502,6 +617,7 @@ extension MirProgram {
         var info = self.block(b)
         info.term = MirTermKind.Call
         info.call = at
+        self.stamp_terminator(&var info)
         self.set_block(b, info)
         self.current = -1
         at

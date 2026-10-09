@@ -1,0 +1,629 @@
+// The initialisation analysis (SL:architecture §3.6, "Initialisation"): a
+// forward dataflow over one function's blocks, per move path, of the
+// conditions each path may be in where control reaches. It is the one answer
+// to "which parts of this local are still initialised"; its clients only ask.
+//
+// A move path is a local, or a path inside one through fields, tuple
+// elements and payloads (`(_3 as Err).0` is a path like a field); a place
+// reaching through a reference or an index stops at the path before it. On
+// one execution path, each move path is in exactly one condition:
+// unassigned, whole, partial (assigned, then a part moved out), moved, or
+// dropped. The analysis keeps, per path, the set of conditions some
+// execution path reaching the point leaves it in, so a join is a union and
+// one bit set means a definite fact.
+//
+// CLIENTS (init_analysis):
+//     verify_flow (compiler/mir/src/verify.saw: compiler bugs, as invariants)
+//     sawborrowck (compiler/borrowck: use after move, `consumes.some-paths`,
+//     and each drop's label for drop elaboration)
+
+import sawmir.src.build.{mir_func_local}
+import sawmir.src.dump.{mir_module_functions}
+import sawmir.src.model.{MirCallKind, MirFuncKind, MirLocalKind, MirOperandKind, MirProjKind, MirRvalueKind,
+                         MirStmtKind, MirSwitchKind, MirTermKind}
+import sawmir.src.program.{MirProgram}
+import sawtypecheck.src.model.{TC_EFFECT_CONSUMES}
+
+// The conditions, one bit each.
+public static MIR_INIT_UNASSIGNED: Int = 1
+public static MIR_INIT_WHOLE: Int = 2
+public static MIR_INIT_PARTIAL: Int = 4
+public static MIR_INIT_MOVED: Int = 8
+public static MIR_INIT_DROPPED: Int = 16
+
+// What an access does to the place it names: a read (a copy, a switch, an
+// index, a write through a reference), a move, a borrow, a write that
+// assigns the path, or a drop.
+public enum MirAccessKind {
+    case Read,
+    case Move,
+    case Borrow,
+    case Write,
+    case Drop
+}
+
+// One access of a statement or a terminator, in evaluation order. `path` is
+// the move path the place lies in, or -1 for a static; `cut` says the place
+// reaches through a reference or an index past that path, so the access
+// reads the path rather than acting on it. An index projection's local is an
+// access of its own, a read with no place.
+public struct MirAccess {
+    public kind: MirAccessKind
+    public place: Int
+    public path: Int
+    public cut: Bool
+    // The statement it belongs to, or -1 for the block's terminator.
+    public stmt: Int
+}
+
+// What drop elaboration does with a `drop(p)` (SL:architecture §3.7): a
+// plain drop where `p` is definitely whole, nothing where it is definitely
+// not initialised, and a drop under a flag where it may be either.
+public enum MirDropLabel {
+    case Static,
+    case Elided,
+    case Flagged
+}
+
+// One function's move paths and the conditions at each block's entry.
+public struct MirInit {
+    public f: Int
+    public block_count: Int
+    // Paths `0 .. local_count` are the locals themselves.
+    public local_count: Int
+    public path_local: Vector<Int>
+    public path_parent: Vector<Int>
+    // The step from the parent: its projection kind (a payload's `!` form
+    // counted as the payload), declaration and index.
+    public path_kind: Vector<MirProjKind>
+    public path_decl: Vector<Int>
+    public path_index: Vector<Int>
+    // The path's type.
+    public path_ty: Vector<Int>
+    public path_child: Vector<Int>
+    public path_sibling: Vector<Int>
+    // `block * path_count + path`: the conditions at the block's entry.
+    public entry: Vector<Int>
+    public reached: Vector<Bool>
+}
+
+extension MirInit: NoCopy {}
+
+extension MirInit {
+    public func path_count(&self) -> Int {
+        self.path_local.len()
+    }
+
+    // The conditions path `q` may be in, in `state`.
+    public func own(&self, state: &Vector<Int>, q: Int) -> Int {
+        state[q]
+    }
+
+    // Block `b`'s entry conditions, one per path.
+    public func entry_state(&self, b: Int) -> Vector<Int> {
+        let n = self.path_local.len()
+        var out = Vector<Int>()
+        var k = 0
+        while k < n {
+            try! out.push(self.entry[b * n + k])
+            k = k + 1
+        }
+        move out
+    }
+
+    // Path `q` and every path inside it, `q` first.
+    public func subtree(&self, q: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        try! out.push(q)
+        var k = 0
+        while k < out.len() {
+            var c = self.path_child[out[k]]
+            while c >= 0 {
+                try! out.push(c)
+                c = self.path_sibling[c]
+            }
+            k = k + 1
+        }
+        move out
+    }
+
+    // Applies access `a` to `state`: a move leaves the path and everything in
+    // it moved, and the paths around it partial where they were whole; a
+    // write leaves the path and everything in it whole; a drop leaves them
+    // dropped. A read or a borrow, and any access reaching through a
+    // reference or an index, changes nothing. A write to a part of a partial
+    // path leaves that path partial, since the part written need not be the
+    // one that left.
+    public func apply(&self, state: &var Vector<Int>, a: &MirAccess) {
+        if a.path < 0 || a.cut {
+            return
+        }
+        var set = 0
+        if a.kind == MirAccessKind.Move {
+            set = MIR_INIT_MOVED
+        } else if a.kind == MirAccessKind.Write {
+            set = MIR_INIT_WHOLE
+        } else if a.kind == MirAccessKind.Drop {
+            set = MIR_INIT_DROPPED
+        } else {
+            return
+        }
+        let inside = self.subtree(a.path)
+        var k = 0
+        while k < inside.len() {
+            state[inside[k]] = set
+            k = k + 1
+        }
+        if a.kind != MirAccessKind.Move {
+            return
+        }
+        var up = self.path_parent[a.path]
+        while up >= 0 {
+            let had = state[up]
+            if (had & MIR_INIT_WHOLE) != 0 {
+                state[up] = (had - MIR_INIT_WHOLE) | MIR_INIT_PARTIAL
+            }
+            up = self.path_parent[up]
+        }
+    }
+}
+
+// The label of a drop of a path whose conditions are `own`.
+public func mir_drop_label(own: Int) -> MirDropLabel {
+    if own == MIR_INIT_WHOLE {
+        return MirDropLabel.Static
+    }
+    if (own & (MIR_INIT_WHOLE | MIR_INIT_PARTIAL)) == 0 {
+        return MirDropLabel.Elided
+    }
+    MirDropLabel.Flagged
+}
+
+public func mir_drop_label_name(label: MirDropLabel) -> String {
+    match label {
+        case Static -> "static",
+        case Elided -> "elided",
+        case Flagged -> "flagged"
+    }
+}
+
+extension MirProgram {
+    // Function `f`'s move paths and the conditions at each block's entry,
+    // solved to a fixpoint: at the entry block its parameters are whole and
+    // every other local unassigned.
+    public func init_analysis(&self, f: Int) -> MirInit {
+        let info = self.funcs[f]
+        var facts = MirInit(f: f, block_count: info.block_count, local_count: info.local_count,
+                           path_local: Vector<Int>(), path_parent: Vector<Int>(),
+                           path_kind: Vector<MirProjKind>(), path_decl: Vector<Int>(),
+                           path_index: Vector<Int>(), path_ty: Vector<Int>(), path_child: Vector<Int>(),
+                           path_sibling: Vector<Int>(), entry: Vector<Int>(), reached: Vector<Bool>())
+        var k = 0
+        while k < info.local_count {
+            try! facts.path_local.push(k)
+            try! facts.path_parent.push(-1)
+            try! facts.path_kind.push(MirProjKind.Field)
+            try! facts.path_decl.push(-1)
+            try! facts.path_index.push(-1)
+            try! facts.path_ty.push(mir_func_local(&self, f, k).ty)
+            try! facts.path_child.push(-1)
+            try! facts.path_sibling.push(-1)
+            k = k + 1
+        }
+        self.init_collect_paths(f, &var facts)
+        let n = facts.path_count()
+        k = 0
+        while k < info.block_count * n {
+            try! facts.entry.push(0)
+            k = k + 1
+        }
+        k = 0
+        while k < info.block_count {
+            try! facts.reached.push(k == 0)
+            k = k + 1
+        }
+        if info.block_count == 0 {
+            return move facts
+        }
+        k = 0
+        while k < n {
+            let l = facts.path_local[k]
+            let param = l >= 1 && l <= info.param_count
+            facts.entry[k] = if param { MIR_INIT_WHOLE } else { MIR_INIT_UNASSIGNED }
+            k = k + 1
+        }
+        var changed = true
+        while changed {
+            changed = false
+            var b = 0
+            while b < info.block_count {
+                if facts.reached[b] {
+                    var state = facts.entry_state(b)
+                    self.init_walk_block(f, b, &facts, &var state)
+                    let succ = self.init_successors(f, b)
+                    var j = 0
+                    while j < succ.len() {
+                        let target = succ[j]
+                        j = j + 1
+                        if not facts.reached[target] {
+                            facts.reached[target] = true
+                            changed = true
+                        }
+                        var q = 0
+                        while q < n {
+                            let at = target * n + q
+                            let joined = facts.entry[at] | state[q]
+                            if joined != facts.entry[at] {
+                                facts.entry[at] = joined
+                                changed = true
+                            }
+                            q = q + 1
+                        }
+                    }
+                }
+                b = b + 1
+            }
+        }
+        move facts
+    }
+
+    // Applies every access of block `b`, its statements' then its
+    // terminator's, to `state`.
+    public func init_walk_block(&self, f: Int, b: Int, facts: &MirInit, state: &var Vector<Int>) {
+        let info = self.funcs[f]
+        let block = self.blocks[info.block_first + b]
+        var s = block.first
+        while s >= 0 {
+            let accesses = self.init_stmt_accesses(f, s, &facts)
+            mir_init_apply_all(&facts, &var state, &accesses)
+            s = self.stmts[s].next
+        }
+        let accesses = self.init_term_accesses(f, b, &facts)
+        mir_init_apply_all(&facts, &var state, &accesses)
+    }
+
+    // Block `b`'s successors, a call's return edge and its absent edge.
+    public func init_successors(&self, f: Int, b: Int) -> Vector<Int> {
+        let info = self.funcs[f]
+        let block = self.blocks[info.block_first + b]
+        var out = Vector<Int>()
+        if block.term == MirTermKind.Goto {
+            try! out.push(block.target)
+        } else if block.term == MirTermKind.Switch {
+            var k = 0
+            while k < block.arm_count {
+                try! out.push(self.arms[block.arm_first + k].target)
+                k = k + 1
+            }
+            if block.otherwise >= 0 {
+                try! out.push(block.otherwise)
+            }
+        } else if block.term == MirTermKind.Call {
+            let c = self.calls[block.call]
+            if c.next >= 0 {
+                try! out.push(c.next)
+            }
+            if c.absent >= 0 {
+                try! out.push(c.absent)
+            }
+        }
+        move out
+    }
+
+    // Statement `s`'s accesses, in evaluation order: an assignment's
+    // operands, the place a `ref` borrows, the target's index locals, then
+    // the target; a drop's place.
+    public func init_stmt_accesses(&self, f: Int, s: Int, facts: &MirInit) -> Vector<MirAccess> {
+        var out = Vector<MirAccess>()
+        let stmt = self.stmts[s]
+        if stmt.kind == MirStmtKind.Assign {
+            if stmt.rvalue >= 0 {
+                let rv = self.rvalues[stmt.rvalue]
+                self.init_operand_accesses(rv.first, rv.count, s, &facts, &var out)
+                if rv.kind == MirRvalueKind.Ref && rv.place >= 0 {
+                    self.init_place_access(MirAccessKind.Borrow, rv.place, s, &facts, &var out)
+                }
+            }
+            if stmt.place >= 0 {
+                self.init_place_access(MirAccessKind.Write, stmt.place, s, &facts, &var out)
+            }
+        } else if stmt.kind == MirStmtKind.Drop && stmt.place >= 0 {
+            self.init_place_access(MirAccessKind.Drop, stmt.place, s, &facts, &var out)
+        }
+        move out
+    }
+
+    // Block `b`'s terminator's accesses: a switch's operand or place; a
+    // call's function value, its arguments in order, then its destination.
+    public func init_term_accesses(&self, f: Int, b: Int, facts: &MirInit) -> Vector<MirAccess> {
+        var out = Vector<MirAccess>()
+        let info = self.funcs[f]
+        let block = self.blocks[info.block_first + b]
+        if block.term == MirTermKind.Switch {
+            if block.switch_kind == MirSwitchKind.Bool {
+                if block.operand >= 0 {
+                    self.init_operand_accesses_one(block.operand, -1, &facts, &var out)
+                }
+            } else if block.place >= 0 {
+                self.init_place_access(MirAccessKind.Read, block.place, -1, &facts, &var out)
+            }
+        } else if block.term == MirTermKind.Call {
+            let c = self.calls[block.call]
+            if c.kind == MirCallKind.Value && c.callee >= 0 {
+                self.init_operand_accesses_one(c.callee, -1, &facts, &var out)
+            }
+            self.init_operand_accesses(c.arg_first, c.arg_count, -1, &facts, &var out)
+            if c.dest >= 0 {
+                self.init_place_access(MirAccessKind.Write, c.dest, -1, &facts, &var out)
+            }
+        }
+        move out
+    }
+
+    func init_operand_accesses(&self, first: Int, count: Int, s: Int, facts: &MirInit, out: &var Vector<MirAccess>) {
+        var k = 0
+        while k < count {
+            let o = self.lists[first + k]
+            self.init_operand_accesses_one(o, s, &facts, &var out)
+            k = k + 1
+        }
+    }
+
+    func init_operand_accesses_one(&self, o: Int, s: Int, facts: &MirInit, out: &var Vector<MirAccess>) {
+        let operand = self.operands[o]
+        if operand.kind == MirOperandKind.Const || operand.place < 0 {
+            return
+        }
+        let kind = if operand.kind == MirOperandKind.Move { MirAccessKind.Move } else { MirAccessKind.Read }
+        self.init_place_access(kind, operand.place, s, &facts, &var out)
+    }
+
+    // The accesses of place `p` by `kind`: each index local it reads, then
+    // the place itself.
+    func init_place_access(&self, kind: MirAccessKind, p: Int, s: Int, facts: &MirInit,
+                           out: &var Vector<MirAccess>) {
+        let place = self.places[p]
+        var k = 0
+        while k < place.count {
+            let step = self.projs[place.first + k]
+            if step.kind == MirProjKind.Index && step.index >= 0 && step.index < facts.local_count {
+                try! out.push(MirAccess(kind: MirAccessKind.Read, place: -1, path: step.index, cut: false,
+                                        stmt: s))
+            }
+            k = k + 1
+        }
+        let path = self.init_path_of(p, &facts)
+        let cut = self.init_place_cut(p)
+        try! out.push(MirAccess(kind: kind, place: p, path: path, cut: cut, stmt: s))
+    }
+
+    // Whether place `p` reaches through a reference or an index.
+    public func init_place_cut(&self, p: Int) -> Bool {
+        let place = self.places[p]
+        var k = 0
+        while k < place.count {
+            let kind = self.projs[place.first + k].kind
+            if kind == MirProjKind.Deref || kind == MirProjKind.Index {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // The move path place `p` lies in: its local's, then each field, element
+    // or payload step up to a reference or an index; -1 for a static.
+    public func init_path_of(&self, p: Int, facts: &MirInit) -> Int {
+        let place = self.places[p]
+        if place.local < 0 || place.local >= facts.local_count {
+            return -1
+        }
+        var at = place.local
+        var k = 0
+        while k < place.count {
+            let step = self.projs[place.first + k]
+            if step.kind == MirProjKind.Deref || step.kind == MirProjKind.Index {
+                return at
+            }
+            let next = mir_init_child(&facts, at, step.kind, step.decl, step.index)
+            if next < 0 {
+                return at
+            }
+            at = next
+            k = k + 1
+        }
+        at
+    }
+
+    // Every path a place of function `f` names, created with its parents.
+    func init_collect_paths(&self, f: Int, facts: &var MirInit) {
+        let info = self.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = self.blocks[info.block_first + b]
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.stmts[s]
+                if stmt.place >= 0 {
+                    self.init_add_place(stmt.place, &var facts)
+                }
+                if stmt.rvalue >= 0 {
+                    let rv = self.rvalues[stmt.rvalue]
+                    if rv.place >= 0 {
+                        self.init_add_place(rv.place, &var facts)
+                    }
+                    self.init_add_operands(rv.first, rv.count, &var facts)
+                }
+                s = stmt.next
+            }
+            if block.term == MirTermKind.Switch && block.switch_kind == MirSwitchKind.Discriminant && block.place >= 0 {
+                self.init_add_place(block.place, &var facts)
+            }
+            if block.term == MirTermKind.Call {
+                let c = self.calls[block.call]
+                self.init_add_operands(c.arg_first, c.arg_count, &var facts)
+                if c.dest >= 0 {
+                    self.init_add_place(c.dest, &var facts)
+                }
+            }
+            b = b + 1
+        }
+    }
+
+    func init_add_operands(&self, first: Int, count: Int, facts: &var MirInit) {
+        var k = 0
+        while k < count {
+            let o = self.lists[first + k]
+            let operand = self.operands[o]
+            if operand.kind != MirOperandKind.Const && operand.place >= 0 {
+                self.init_add_place(operand.place, &var facts)
+            }
+            k = k + 1
+        }
+    }
+
+    func init_add_place(&self, p: Int, facts: &var MirInit) {
+        let place = self.places[p]
+        if place.local < 0 || place.local >= facts.local_count {
+            return
+        }
+        var at = place.local
+        var k = 0
+        while k < place.count {
+            let step = self.projs[place.first + k]
+            if step.kind == MirProjKind.Deref || step.kind == MirProjKind.Index {
+                return
+            }
+            var next = mir_init_child(&facts, at, step.kind, step.decl, step.index)
+            if next < 0 {
+                next = facts.path_local.len()
+                let kind = if step.kind == MirProjKind.Force { MirProjKind.Payload } else { step.kind }
+                try! facts.path_local.push(place.local)
+                try! facts.path_parent.push(at)
+                try! facts.path_kind.push(kind)
+                try! facts.path_decl.push(step.decl)
+                try! facts.path_index.push(step.index)
+                try! facts.path_ty.push(step.ty)
+                try! facts.path_child.push(-1)
+                let sibling = facts.path_child[at]
+                try! facts.path_sibling.push(sibling)
+                facts.path_child[at] = next
+            }
+            at = next
+            k = k + 1
+        }
+    }
+
+    // Path `q` spelled as the dump spells a place: `_3`, `_3.left`,
+    // `(_3 as Some).0`.
+    public func init_path_text(&self, facts: &MirInit, q: Int) -> String {
+        if facts.path_parent[q] < 0 {
+            var root = StringBuilder()
+            try! root.append("_")
+            try! root.append(q)
+            return root.build()
+        }
+        let parent = facts.path_parent[q]
+        let inner = self.init_path_text(&facts, parent)
+        var text = StringBuilder()
+        let kind = facts.path_kind[q]
+        if kind == MirProjKind.Field {
+            try! text.append(inner)
+            try! text.append(".")
+            try! text.append(self.decl_name(facts.path_decl[q]))
+        } else if kind == MirProjKind.Tuple {
+            try! text.append(inner)
+            try! text.append(".")
+            try! text.append(facts.path_index[q])
+        } else {
+            try! text.append("(")
+            try! text.append(inner)
+            try! text.append(" as ")
+            try! text.append(self.decl_name(facts.path_decl[q]))
+            try! text.append(").")
+            try! text.append(facts.path_index[q])
+        }
+        text.build()
+    }
+
+    // The paths of a `consumes` method's receiver, the receiver itself or
+    // one of its fields, that some path to a `return` moves and another
+    // leaves in place (spec, Moving a field out: every path or no path). A
+    // path that diverges reaches no `return`, so it is exempt.
+    public func init_consumes_partial(&self, f: Int, facts: &MirInit) -> Vector<Int> {
+        var out = Vector<Int>()
+        let info = self.funcs[f]
+        if info.kind != MirFuncKind.Body || info.decl < 0 || info.param_count < 1 {
+            return move out
+        }
+        if (self.tc.sigs[info.decl].effects & TC_EFFECT_CONSUMES) == 0 {
+            return move out
+        }
+        if mir_func_local(&self, f, 1).kind != MirLocalKind.Receiver {
+            return move out
+        }
+        var watched = Vector<Int>()
+        try! watched.push(1)
+        var c = facts.path_child[1]
+        while c >= 0 {
+            if facts.path_kind[c] == MirProjKind.Field {
+                try! watched.push(c)
+            }
+            c = facts.path_sibling[c]
+        }
+        var seen = Vector<Int>()
+        var k = 0
+        while k < watched.len() {
+            try! seen.push(0)
+            k = k + 1
+        }
+        var b = 0
+        while b < info.block_count {
+            let block = self.blocks[info.block_first + b]
+            if facts.reached[b] && block.term == MirTermKind.Return {
+                var state = facts.entry_state(b)
+                self.init_walk_block(f, b, &facts, &var state)
+                k = 0
+                while k < watched.len() {
+                    seen[k] |= state[watched[k]]
+                    k = k + 1
+                }
+            }
+            b = b + 1
+        }
+        k = 0
+        while k < watched.len() {
+            let moved = (seen[k] & MIR_INIT_MOVED) != 0
+            let stayed = (seen[k] & (MIR_INIT_WHOLE | MIR_INIT_PARTIAL | MIR_INIT_DROPPED)) != 0
+            if moved && stayed {
+                try! out.push(watched[k])
+            }
+            k = k + 1
+        }
+        move out
+    }
+}
+
+// Each of `accesses` applied to `state`, in order.
+public func mir_init_apply_all(facts: &MirInit, state: &var Vector<Int>, accesses: &Vector<MirAccess>) {
+    var k = 0
+    while k < accesses.len() {
+        let a = accesses[k]
+        facts.apply(&var state, &a)
+        k = k + 1
+    }
+}
+
+// The child of path `at` reached by the step (`kind`, `decl`, `index`), or -1.
+func mir_init_child(facts: &MirInit, at: Int, kind: MirProjKind, decl: Int, index: Int) -> Int {
+    let want = if kind == MirProjKind.Force { MirProjKind.Payload } else { kind }
+    var c = facts.path_child[at]
+    while c >= 0 {
+        let same_kind = facts.path_kind[c] == want
+        if same_kind && facts.path_decl[c] == decl && facts.path_index[c] == index {
+            return c
+        }
+        c = facts.path_sibling[c]
+    }
+    return -1
+}

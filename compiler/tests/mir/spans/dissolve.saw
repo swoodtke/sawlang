@@ -1,0 +1,37 @@
+// A consuming destructure: its part moves and the drops of what it leaves
+// carry its pattern; an optional head's temporaries drop on the absent edge
+// at the head, and on the present edge at the block's closing.
+
+struct Pair {
+    left: String,
+    right: String
+}
+
+extension Pair: NoCopy {}
+
+func make() -> Pair {
+    Pair(left: "l", right: "r")
+}
+
+func maybe(n: Int) -> String? {
+    if n > 0 {
+        return "some"
+    }
+    None
+}
+
+func split() -> Int {
+    let (a, _) = (make().left, 1)
+    a.len()
+}
+
+func head(n: Int) -> Int {
+    if let s = maybe(n) {
+        return s.len()
+    }
+    0
+}
+
+func main() {
+    print(split() + head(1))
+}

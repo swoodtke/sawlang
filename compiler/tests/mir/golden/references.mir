@@ -1,0 +1,221 @@
+module references
+
+fn references.wrap(f: (&var Int) -> R, r: &var Int) -> R? {
+    let _0: R?;  // return
+    let _1: (&var Int) -> R;  // param f
+    let _2: &var Int;  // param r
+    let _3: R;
+    let _4: R?;
+
+    bb0: {
+        _3 = call value copy _1 [copy _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = R?::Some(move _3);
+        _0 = move _4;
+        drop(_1);
+        return;
+    }
+}
+
+fn references.view(f: (&Int) -> R, r: &Int) -> R? {
+    let _0: R?;  // return
+    let _1: (&Int) -> R;  // param f
+    let _2: &Int;  // param r
+    let _3: R;
+    let _4: R?;
+
+    bb0: {
+        _3 = call value copy _1 [copy _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = R?::Some(move _3);
+        _0 = move _4;
+        drop(_1);
+        return;
+    }
+}
+
+fn references.pair(f: (&var Int) -> R, r: &var Int) -> (R, Int) {
+    let _0: (R, Int);  // return
+    let _1: (&var Int) -> R;  // param f
+    let _2: &var Int;  // param r
+    let _3: R;
+    let _4: (R, Int);
+
+    bb0: {
+        _3 = call value copy _1 [copy _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = (move _3, const 1: Int);
+        _0 = move _4;
+        drop(_1);
+        return;
+    }
+}
+
+fn references.exclusive(n: &var Int) -> Int {
+    let _0: Int;  // return
+    let _1: &var Int;  // param n
+    let _2: (&var Int) -> &var Int;
+    let _3: (&var Int)?;
+    let _4: &var Int;  // r
+    let _5: Int;
+
+    bb0: {
+        _2 = closure#0 of references.exclusive(n: &var Int) [];
+        _3 = call references.wrap(f: (&var Int) -> R, r: &var Int) (inst &var Int) [move _2, copy _1] -> [return: bb2];
+    }
+
+    bb1: {
+        _0 = const 0: Int;
+        return;
+    }
+
+    bb2: {
+        switch discriminant(_3) -> [Some: bb3, None: bb4];
+    }
+
+    bb3: {
+        _4 = move (_3 as Some).0;
+        _5 = Add(copy (*_4), const 1: Int);
+        _0 = move _5;
+        return;
+    }
+
+    bb4: {
+        goto -> bb1;
+    }
+}
+
+fn closure#0 of references.exclusive(n: &var Int) -> &var Int {
+    let _0: &var Int;  // return
+    let _1: &();  // env
+    let _2: &var Int;  // param m
+
+    bb0: {
+        _0 = copy _2;
+        return;
+    }
+}
+
+fn references.shared(n: &Int) -> Int {
+    let _0: Int;  // return
+    let _1: &Int;  // param n
+    let _2: (&Int) -> &Int;
+    let _3: (&Int)?;
+    let _4: &Int;  // r
+    let _5: Int;
+
+    bb0: {
+        _2 = closure#0 of references.shared(n: &Int) [];
+        _3 = call references.view(f: (&Int) -> R, r: &Int) (inst &Int) [move _2, copy _1] -> [return: bb2];
+    }
+
+    bb1: {
+        _0 = const 0: Int;
+        return;
+    }
+
+    bb2: {
+        switch discriminant(_3) -> [Some: bb3, None: bb4];
+    }
+
+    bb3: {
+        _4 = copy (_3 as Some).0;
+        _5 = Add(copy (*_4), const 1: Int);
+        _0 = move _5;
+        return;
+    }
+
+    bb4: {
+        goto -> bb1;
+    }
+}
+
+fn closure#0 of references.shared(n: &Int) -> &Int {
+    let _0: &Int;  // return
+    let _1: &();  // env
+    let _2: &Int;  // param m
+
+    bb0: {
+        _0 = copy _2;
+        return;
+    }
+}
+
+fn references.element(n: &var Int) -> Int {
+    let _0: Int;  // return
+    let _1: &var Int;  // param n
+    let _2: (&var Int) -> &var Int;
+    let _3: (&var Int, Int);
+    let _4: &var Int;  // r
+    let _5: Int;  // k
+    let _6: Int;
+
+    bb0: {
+        _2 = closure#0 of references.element(n: &var Int) [];
+        _3 = call references.pair(f: (&var Int) -> R, r: &var Int) (inst &var Int) [move _2, copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = move _3.0;
+        _5 = copy _3.1;
+        _6 = Add(copy (*_4), copy _5);
+        _0 = move _6;
+        return;
+    }
+}
+
+fn closure#0 of references.element(n: &var Int) -> &var Int {
+    let _0: &var Int;  // return
+    let _1: &();  // env
+    let _2: &var Int;  // param m
+
+    bb0: {
+        _0 = copy _2;
+        return;
+    }
+}
+
+fn references.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;  // a
+    let _2: &var Int;
+    let _3: Int;
+    let _4: &Int;
+    let _5: Int;
+    let _6: Int;
+    let _7: &var Int;
+    let _8: Int;
+    let _9: Int;
+
+    bb0: {
+        _1 = const 1: Int;
+        _2 = ref(exclusive, _1);
+        _3 = call references.exclusive(n: &var Int) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = ref(shared, _1);
+        _5 = call references.shared(n: &Int) [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = Add(move _3, move _5);
+        _7 = ref(exclusive, _1);
+        _8 = call references.element(n: &var Int) [move _7] -> [return: bb3];
+    }
+
+    bb3: {
+        _9 = Add(move _6, move _8);
+        call builtin print [move _9] -> [return: bb4];
+    }
+
+    bb4: {
+        return;
+    }
+}

@@ -9,7 +9,8 @@
 directory specifies:
 
 - each golden program, `golden/NAME.saw`, lowers to exactly the record in
-  `golden/NAME.mir`;
+  `golden/NAME.mir`, and each span program, `spans/NAME.saw`, to exactly the
+  `--spans` record in `spans/NAME.mir`;
 - each refusal fixture, `refuse/NAME.saw`, is refused first by
   `slice.not-yet` at the position its `// refuses:` header names;
 - no record of a golden program or a fixture carries an `INVARIANT` line;
@@ -31,6 +32,7 @@ sys.path.insert(0, os.path.join(COMPILER, "tools"))
 import build  # noqa: E402
 
 GOLDEN = os.path.join(HERE, "golden")
+SPANS = os.path.join(HERE, "spans")
 REFUSE = os.path.join(HERE, "refuse")
 TIMEOUT = 300
 
@@ -92,9 +94,16 @@ def refusal_cases():
     return sorted(glob.glob(os.path.join(REFUSE, "*.saw")))
 
 
-def check_golden(failures, counts, write):
-    cases = golden_cases()
-    code, out = sawc2(["--dump"] + [rel(src) for src, _ in cases])
+def check_golden(failures, counts, write, spans=False):
+    if spans:
+        cases = [(src, os.path.splitext(src)[0] + ".mir")
+                 for src in sorted(glob.glob(os.path.join(SPANS, "*.saw")))]
+        code, out = sawc2(["--dump", "--spans"] + [rel(src) for src, _ in cases])
+        key = "mir span golden cases"
+    else:
+        cases = golden_cases()
+        code, out = sawc2(["--dump"] + [rel(src) for src, _ in cases])
+        key = "mir golden cases"
     got = records(out)
     for src, exp in cases:
         record = got.get(rel(src))
@@ -116,7 +125,7 @@ def check_golden(failures, counts, write):
         for line in record.split("\n"):
             if line.startswith(("ERROR\t", "INVARIANT\t")):
                 failures.append("mir golden %s: %s" % (rel(src), line))
-        counts["mir golden cases"] = counts.get("mir golden cases", 0) + 1
+        counts[key] = counts.get(key, 0) + 1
 
 
 def first_error(record):
@@ -202,6 +211,7 @@ def run(write=False, fill=False):
     failures = []
     counts = {}
     check_golden(failures, counts, write)
+    check_golden(failures, counts, write, spans=True)
     check_refusals(failures, counts, fill)
     check_acceptance(failures, counts)
     return failures, counts

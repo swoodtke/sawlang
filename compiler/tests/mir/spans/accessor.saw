@@ -1,0 +1,24 @@
+// An accessor's halves keep the nodes of the statements they copy; a
+// `lend`'s record writes carry the `lend`, and the epilogue's entry the
+// accessor's body. A caller's window opens and closes at its `borrow`.
+
+struct Grid {
+    cells: [Int; 4],
+    reads: Int
+}
+
+extension Grid {
+    func counted(&var self, i: Int) borrows -> &var Int {
+        let before = self.reads
+        lend self.cells[i]
+        self.reads = before + i
+    }
+}
+
+func main() {
+    var g = Grid(cells: [1, 2, 3, 4], reads: 0)
+    borrow var slot = g.counted(1) {
+        slot = slot + 1
+    }
+    print(g.reads)
+}

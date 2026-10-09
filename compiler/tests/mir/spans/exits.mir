@@ -1,0 +1,258 @@
+module exits
+
+fn exits.fallthrough(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: String;  // s
+    let _3: Bool;
+    let _4: String;  // t
+    let _5: &String;
+    let _6: Int;
+
+    bb0: {
+        _2 = const "fallthrough": String;  @5:13
+        _3 = Gt(copy _1, const 0: Int);  @6:8
+        switch move _3 -> [true: bb2, false: bb3];  @6:5
+    }
+
+    bb1: {
+        _5 = ref(shared, _2);  @10:5
+        _6 = call std.string.String.len() (owner String) [move _5] -> [return: bb5];  @10:5
+    }
+
+    bb2: {
+        _4 = const "inner": String;  @7:17
+        call builtin print [copy _4] -> [return: bb4];  @8:9
+    }
+
+    bb3: {
+        goto -> bb1;  @6:5
+    }
+
+    bb4: {
+        drop(_4);  @9:5
+        goto -> bb1;  @6:5
+    }
+
+    bb5: {
+        _0 = move _6;  @10:5
+        drop(_2);  @11:1
+        return;  @11:1
+    }
+}
+
+fn exits.returned(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: String;  // s
+    let _3: Bool;
+    let _4: &String;
+    let _5: Int;
+
+    bb0: {
+        _2 = const "returned": String;  @14:13
+        _3 = Gt(copy _1, const 0: Int);  @15:8
+        switch move _3 -> [true: bb2, false: bb3];  @15:5
+    }
+
+    bb1: {
+        _0 = const 0: Int;  @18:5
+        drop(_2);  @19:1
+        return;  @19:1
+    }
+
+    bb2: {
+        _4 = ref(shared, _2);  @16:16
+        _5 = call std.string.String.len() (owner String) [move _4] -> [return: bb4];  @16:16
+    }
+
+    bb3: {
+        goto -> bb1;  @15:5
+    }
+
+    bb4: {
+        _0 = move _5;  @16:16
+        drop(_2);  @16:9
+        return;  @16:9
+    }
+}
+
+fn exits.looped(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;  // k
+    let _3: Bool;
+    let _4: String;  // s
+    let _5: Int;
+    let _6: Bool;
+    let _7: Bool;
+
+    bb0: {
+        _2 = const 0: Int;  @22:13
+        goto -> bb1;  @23:5
+    }
+
+    bb1: {
+        _3 = Lt(copy _2, copy _1);  @23:11
+        switch move _3 -> [true: bb3, false: bb2];  @23:5
+    }
+
+    bb2: {
+        _0 = copy _2;  @34:5
+        return;  @35:1
+    }
+
+    bb3: {
+        _4 = const "looped": String;  @24:17
+        _5 = Add(copy _2, const 1: Int);  @25:13
+        _2 = move _5;  @25:9
+        _6 = Eq(copy _2, const 2: Int);  @26:12
+        switch move _6 -> [true: bb5, false: bb6];  @26:9
+    }
+
+    bb4: {
+        _7 = Eq(copy _2, const 5: Int);  @29:12
+        switch move _7 -> [true: bb8, false: bb9];  @29:9
+    }
+
+    bb5: {
+        drop(_4);  @27:13
+        budget(yield-capable);  @23:5
+        goto -> bb1;  @27:13
+    }
+
+    bb6: {
+        goto -> bb4;  @26:9
+    }
+
+    bb7: {
+        call builtin print [copy _4] -> [return: bb10];  @32:9
+    }
+
+    bb8: {
+        drop(_4);  @30:13
+        goto -> bb2;  @30:13
+    }
+
+    bb9: {
+        goto -> bb7;  @29:9
+    }
+
+    bb10: {
+        drop(_4);  @33:5
+        budget(yield-capable);  @23:5
+        goto -> bb1;  @23:5
+    }
+}
+
+fn exits.check(n: Int) -> Result<Int, String> {
+    let _0: Result<Int, String>;  // return
+    let _1: Int;  // param n
+    let _2: Bool;
+    let _3: Result<Int, String>;
+    let _4: Result<Int, String>;
+
+    bb0: {
+        _2 = Gt(copy _1, const 0: Int);  @38:8
+        switch move _2 -> [true: bb2, false: bb3];  @38:5
+    }
+
+    bb1: {
+        _4 = Result<Int, String>::Err(const "negative": String);  @41:5
+        _0 = move _4;  @41:5
+        return;  @42:1
+    }
+
+    bb2: {
+        _3 = Result<Int, String>::Ok(copy _1);  @39:16
+        _0 = move _3;  @39:16
+        return;  @39:9
+    }
+
+    bb3: {
+        goto -> bb1;  @38:5
+    }
+}
+
+fn exits.tried(n: Int) -> Result<Int, String> {
+    let _0: Result<Int, String>;  // return
+    let _1: Int;  // param n
+    let _2: String;  // s
+    let _3: Int;  // v
+    let _4: Result<Int, String>;
+    let _5: Int;
+    let _6: Int;
+    let _7: &String;
+    let _8: Int;
+    let _9: Int;
+    let _10: Result<Int, String>;
+
+    bb0: {
+        _2 = const "tried": String;  @45:13
+        _4 = call exits.check(n: Int) [copy _1] -> [return: bb1];  @46:17
+    }
+
+    bb1: {
+        switch discriminant(_4) -> [Ok: bb2, Err: bb3];  @46:13
+    }
+
+    bb2: {
+        _5 = copy (_4 as Ok).0;  @46:13
+        drop(_4);  @46:13
+        _3 = move _5;  @46:13
+        _6 = copy _3;  @47:5
+        _7 = ref(shared, _2);  @47:9
+        _8 = call std.string.String.len() (owner String) [move _7] -> [return: bb4];  @47:9
+    }
+
+    bb3: {
+        _0 = Result<Int, String>::Err(move (_4 as Err).0);  @46:13
+        drop(_2);  @46:13
+        return;  @46:13
+    }
+
+    bb4: {
+        _9 = Add(move _6, move _8);  @47:5
+        _10 = Result<Int, String>::Ok(move _9);  @47:5
+        _0 = move _10;  @47:5
+        drop(_2);  @48:1
+        return;  @48:1
+    }
+}
+
+fn exits.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: Int;
+    let _3: Int;
+    let _4: Int;
+    let _5: Int;
+    let _6: Result<Int, String>;
+
+    bb0: {
+        _1 = call exits.fallthrough(n: Int) [const 1: Int] -> [return: bb1];  @51:11
+    }
+
+    bb1: {
+        _2 = call exits.returned(n: Int) [const 1: Int] -> [return: bb2];  @51:28
+    }
+
+    bb2: {
+        _3 = Add(move _1, move _2);  @51:11
+        _4 = call exits.looped(n: Int) [const 9: Int] -> [return: bb3];  @51:42
+    }
+
+    bb3: {
+        _5 = Add(move _3, move _4);  @51:11
+        call builtin print [move _5] -> [return: bb4];  @51:5
+    }
+
+    bb4: {
+        _6 = call exits.tried(n: Int) [const 1: Int] -> [return: bb5];  @52:13
+    }
+
+    bb5: {
+        drop(_6);  @52:5
+        return;  @53:1
+    }
+}

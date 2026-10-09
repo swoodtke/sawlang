@@ -9,6 +9,7 @@ mir/
   README.md        this specification
   mir_lane.py      the lane compiler/tests/run.py runs
   golden/          NAME.saw, a program, and NAME.mir, its expected record
+  spans/           NAME.saw, a program, and NAME.mir, its expected `--spans` record
   refuse/          NAME.saw, a construct the lowering refuses
   corpus_info.py   how much of tests/corpus/ lowers, for information
 ```
@@ -16,7 +17,7 @@ mir/
 ## `sawc2 mir`
 
 ```sh
-.build/sawc2 mir (--dump | --check) [--notes] [--std-root DIR]
+.build/sawc2 mir (--dump | --check) [--notes] [--spans] [--std-root DIR]
                  [--module-path NAME=DIR]... [FILE | @LIST]...
 ```
 
@@ -222,7 +223,11 @@ Copy tier copies, through its type's written `copy()` when it has one
 rvalue table says. A part of a trivially copyable type (a field, an element,
 a payload) is read as `copy` wherever its position takes it by value: the
 bits are the same, and the value it lies in stays whole, so that value's one
-drop is still right (destructures `relayed`).
+drop is still right (destructures `relayed`). So is a part holding a shared
+reference or slice. A part holding an exclusive reference, `&var T`, read by
+value through no reference, is always a `move`, even where its position copies:
+it is a reborrow out of a container that is dead after it, never a second live
+alias of the referent (references).
 
 **Adjustments**, each made explicit (adjustments):
 
@@ -310,7 +315,7 @@ nothing.
 | `if let`, `guard let`, `while let` | the present edge, after the binding; `if let x = move o` moves `o` into a temporary first | destructures `optional`, `unwrapped`, `drained` |
 | a destructuring `let` | after its bindings | destructures `destructured` |
 | `for`'s `next()` Optional | each item, after the binding; an item nothing binds drops there | destructures `iterated` |
-| `move self.f` in a `consumes` body | every exit: the fields the body leaves, never the whole receiver nor its `deinit` body | destructures `Holder.take_kept` |
+| `move self.f` in a `consumes` body | every exit: the fields the body moves out nowhere, never the whole receiver nor its `deinit` body; a field moved on some paths to a return only is borrowck's `consumes.some-paths` | destructures `Holder.take_kept` |
 
 ## Refusals
 
@@ -324,7 +329,6 @@ slice.not-yet at L:C`.
 | a `borrow` block binding a conditional lend | conditional-block |
 | a `for` over an iterator held in a place | iterator-place |
 | a consuming destructure of a type that writes its own `deinit`, since the spec does not say whether dissolving one skips that body | consuming-deinit |
-| a `consumes` body moving a field out of `self` on some paths to a return and not others, which the spec refuses and typecheck does not check yet | consumes-some-paths |
 | a `consumes` body moving out of `self` deeper than one field | consumes-deep-move |
 | the release of a consumed receiver that moves out whole, or is an enum, when its type writes its own `deinit` | consumes-whole |
 | a `for` head that lends a place; a `borrows` call lending a slice or a borrowing struct outside a `for` head; a `borrows` function called with no receiver; a setitem derived from a conditional lend; a conditional lend's place read other than through `!` | none: nothing in the slice reaches them |
@@ -368,24 +372,57 @@ nowhere, and checks, from the MIR alone:
   is assigned again, so every scope exit drops it; no window may still be
   open at a `return`, or when it opens again, so every path out of its body
   closes it;
-- no path drops a local whole once a move has taken any part out of it (a
+- no path drops a place whole once a move has taken any part out of it (a
   field, an element, a payload, not through a reference): a consuming
   destructure dissolves its value, and the move ends the local's life. There
   is no exemption for a part that owns nothing, since such a part is read as
   `copy` (Transfers, above);
-- no path drops a local twice, an owned local or a statement's temporary,
-  with no assignment to it between, and no path reads, borrows, writes a part
-  of, or indexes with a local after its drop with no assignment between. The
-  drop semantics, drop it if it is still initialised, make such a drop
-  harmless at run time, so this is the check that tells a lowering's
-  misplaced exit apart from a correct one;
+- no path drops a place twice, an owned local, a statement's temporary or a
+  part of either, with no assignment to it between, and no path reads,
+  borrows, writes a part of, or indexes with a local after its drop with no
+  assignment between. The drop semantics, drop it if it is still initialised,
+  make such a drop harmless at run time, so this is the check that tells a
+  lowering's misplaced exit apart from a correct one. These move-path facts,
+  and the liveness at a `return`, are the initialisation analysis's
+  (`compiler/mir/src/initialisation.saw`, specified in
+  `compiler/tests/borrowck/README.md`), whose other client is the borrow
+  check. A `consumes` body moving a field on some paths to a return only is a
+  user's error the borrow check reports, so its move paths are not checked
+  here;
 - every loop backedge, an edge to a block on the depth-first path from the
-  entry, leaves a block whose last statement is an op-budget point.
+  entry, leaves a block whose last statement is an op-budget point;
+- every statement and terminator the entry reaches carries a source node.
+
+## Source nodes
+
+Every statement and terminator carries the source node it lowers, which the
+later stages report at; `--spans` follows each one in the dump with
+`  @LINE:COL`. The node is the one being lowered when the statement is
+emitted, set only through `source_at` in `compiler/mir/src/build.saw`, whose
+docstring names its entry points. One rule covers what no expression spells:
+
+- a scope exit's drops and window closes carry the exit that caused them: the
+  `return`, `break`, `continue` or `try`, and for a fallthrough the closing
+  brace of the block that ends;
+- a consuming destructure's part moves and drops carry its pattern;
+- a budget point carries its loop;
+- an accessor's halves keep the nodes of what they copy; a `lend`'s record
+  writes carry the `lend`, and the epilogue's entry the accessor's body.
+
+Each shape has a span golden in `spans/`, recorded with `--dump --spans`:
+
+| shape | covered by |
+|---|---|
+| a move, then a use | moves |
+| a drop at a block's fallthrough; on `return`, `break`, `continue`, `try` | exits |
+| a dissolve; an optional head's temporaries on both edges | dissolve |
+| a call, a switch, a loop's budget point | calls |
+| an accessor's halves; a window's open and close | accessor |
 
 ## The lane
 
 `mir_lane.py` runs one `sawc2 mir` process per group and checks that each
-golden program's record equals its `.mir` file byte for byte (`--write`
+golden and span program's record equals its `.mir` file byte for byte (`--write`
 rewrites them after a deliberate change, for review), that each refusal
 fixture is refused first at its position (`--fill` writes a `// refuses:
 TODO` header), that no golden or fixture record carries an `INVARIANT` line,

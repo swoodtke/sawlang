@@ -1,0 +1,18 @@
+// A move, then a use of what it left: each statement carries the expression
+// or the statement it lowers.
+
+struct Note {
+    text: String
+}
+
+extension Note: NoCopy {}
+
+func keep(n: Note) -> Int {
+    n.text.len()
+}
+
+func main() {
+    let a = Note(text: "a")
+    let b = move a
+    print(keep(move b))
+}

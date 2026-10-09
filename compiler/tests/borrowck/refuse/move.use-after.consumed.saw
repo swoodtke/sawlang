@@ -1,0 +1,18 @@
+// refuses: move.use-after at 17:11
+// a binding read past the consuming call that ended it (conformance V51,
+// V52)
+
+struct Builder { count: Int, name: String }
+extension Builder: NoCopy {}
+
+extension Builder {
+    func finish(&var self) consumes -> Int {
+        self.count
+    }
+}
+
+func main() {
+    let b = Builder(count: 3, name: "b")
+    let n = (move b).finish()
+    print(n + b.count)
+}

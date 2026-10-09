@@ -1,0 +1,27 @@
+// A call terminator carries its call, a switch its condition or its match,
+// and a loop's budget point its loop.
+
+func twice(n: Int) -> Int {
+    n * 2
+}
+
+func pick(n: Int) -> Int {
+    match n {
+        case 0 -> twice(1),
+        case _ -> twice(n)
+    }
+}
+
+func spin(n: Int) -> Int {
+    var k = 0
+    while k < n {
+        k = k + twice(1)
+    }
+    k
+}
+
+func main() {
+    if pick(2) > 1 {
+        print(spin(3))
+    }
+}

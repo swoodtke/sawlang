@@ -1,0 +1,84 @@
+module accessor
+
+fn prologue accessor.Grid.counted(i: Int) -> &var Int {
+    let _0: &var Int;  // return
+    let _1: &var (&var accessor.Grid, Int, Int);  // record
+    let _2: &var accessor.Grid;  // self
+    let _3: Int;  // param i
+    let _4: Int;  // before
+    let _5: Int;
+    let _6: &var Int;
+
+    bb0: {
+        _4 = copy (*_2).reads;  @12:22
+        _5 = copy _3;  @13:9
+        _6 = ref(exclusive, (*_2).cells[_5]);  @13:9
+        _0 = move _6;  @13:9
+        (*_1).0 = move _2;  @13:9
+        (*_1).1 = move _3;  @13:9
+        (*_1).2 = move _4;  @13:9
+        return;  @13:9
+    }
+}
+
+fn epilogue accessor.Grid.counted(i: Int) -> Void {
+    let _0: Void;  // return
+    let _1: &var (&var accessor.Grid, Int, Int);  // record
+    let _2: &var accessor.Grid;  // self
+    let _3: Int;  // param i
+    let _4: Int;  // before
+    let _5: Int;
+
+    bb0: {
+        _2 = move (*_1).0;  @11:57
+        _3 = copy (*_1).1;  @11:57
+        _4 = copy (*_1).2;  @11:57
+        goto -> bb1;  @11:57
+    }
+
+    bb1: {
+        _5 = Add(copy _4, copy _3);  @14:22
+        (*_2).reads = move _5;  @14:9
+        return;  @15:5
+    }
+}
+
+fn accessor.main() -> Void {
+    let _0: Void;  // return
+    let _1: accessor.Grid;  // g
+    let _2: [Int; 4];
+    let _3: accessor.Grid;
+    let _4: &var Int;
+    let _5: &var accessor.Grid;
+    let _6: (&var accessor.Grid, Int, Int);  // record
+    let _7: &var (&var accessor.Grid, Int, Int);
+    let _8: &var Int;  // ref slot
+    let _9: Int;
+    let _10: &var (&var accessor.Grid, Int, Int);
+    window w0: accessor.Grid.counted(i: Int) exclusive record _6;
+
+    bb0: {
+        _2 = [const 1: Int, const 2: Int, const 3: Int, const 4: Int];  @19:25
+        _3 = accessor.Grid { cells: move _2, reads: const 0: Int };  @19:13
+        _1 = move _3;  @19:13
+        _5 = ref(exclusive, _1);  @20:5
+        _7 = ref(exclusive, _6);  @20:5
+        _4 = window_open w0 prologue accessor.Grid.counted(i: Int) (owner accessor.Grid) [move _7, move _5, const 1: Int] -> [present: bb1];  @20:5
+    }
+
+    bb1: {
+        _8 = ref(exclusive, (*_4));  @20:16
+        _9 = Add(copy (*_8), const 1: Int);  @21:16
+        (*_8) = move _9;  @21:9
+        _10 = ref(exclusive, _6);  @20:5
+        window_close w0 epilogue accessor.Grid.counted(i: Int) (owner accessor.Grid) [move _10] -> [return: bb2];  @20:5
+    }
+
+    bb2: {
+        call builtin print [copy _1.reads] -> [return: bb3];  @23:5
+    }
+
+    bb3: {
+        return;  @24:1
+    }
+}

@@ -1,6 +1,7 @@
-// refuses: slice.not-yet at 12:54
-// A `consumes` body that moves a field out of `self` on one path to a return
-// and not on another: the spec refuses it, and one release cannot fit both.
+// refuses: consumes.some-paths at 15:20
+// a `consumes` body that moves a field out of `self` on one path to a return
+// and not on another: the spec refuses it, and one release cannot fit both
+// (conformance V54)
 
 struct Res { id: Int }
 extension Res: NoCopy {}

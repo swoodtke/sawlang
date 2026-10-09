@@ -1,0 +1,138 @@
+module branches
+
+fn branches.take(r: branches.Res) {
+    place _1: branches.Res;  // r
+
+    bb0: {
+        [W] _0 = copy _1.id;
+        [W] drop(_1);  // static
+        [D] return;
+    }
+}
+
+fn branches.one_arm(hot: Bool) {
+    place _2: branches.Res;  // r
+    place _3: branches.Res;  // _3
+
+    bb0: {
+        [U U] _3 = branches.Res { id: const 1: Int };
+        [U W] _2 = move _3;
+        [W M] _4 = const 0: Int;
+        [W M] switch copy _1 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        [WM M] _0 = copy _4;
+        [WM M] drop(_2);  // flagged
+        [D M] return;
+    }
+
+    bb2: {
+        [W M] _5 = call branches.take(r: branches.Res) [move _2] -> [return: bb4];
+    }
+
+    bb3: {
+        [W M] goto -> bb1;
+    }
+
+    bb4: {
+        [M M] _4 = move _5;
+        [M M] goto -> bb1;
+    }
+}
+
+fn branches.both_arms(hot: Bool) {
+    place _2: branches.Res;  // r
+    place _3: branches.Res;  // _3
+
+    bb0: {
+        [U U] _3 = branches.Res { id: const 2: Int };
+        [U W] _2 = move _3;
+        [W M] switch copy _1 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        [W M] _5 = call branches.take(r: branches.Res) [move _2] -> [return: bb5];
+    }
+
+    bb2: {
+        [W M] _4 = call branches.take(r: branches.Res) [move _2] -> [return: bb4];
+    }
+
+    bb3: {
+        [W M] goto -> bb1;
+    }
+
+    bb4: {
+        [M M] _0 = move _4;
+        [M M] drop(_2);  // elided
+        [D M] return;
+    }
+
+    bb5: {
+        [M M] _0 = move _5;
+        [M M] drop(_2);  // elided
+        [D M] return;
+    }
+}
+
+fn branches.restored(hot: Bool) {
+    place _2: branches.Res;  // r
+    place _3: branches.Res;  // _3
+    place _6: branches.Res;  // _6
+
+    bb0: {
+        [U U U] _3 = branches.Res { id: const 3: Int };
+        [U W U] _2 = move _3;
+        [W M U] _4 = const 0: Int;
+        [W M U] switch copy _1 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        [W M UM] _7 = Add(copy _4, copy _2.id);
+        [W M UM] _0 = move _7;
+        [W M UM] drop(_2);  // static
+        [D M UM] return;
+    }
+
+    bb2: {
+        [W M U] _5 = call branches.take(r: branches.Res) [move _2] -> [return: bb4];
+    }
+
+    bb3: {
+        [W M U] goto -> bb1;
+    }
+
+    bb4: {
+        [M M U] _4 = move _5;
+        [M M U] _6 = branches.Res { id: const 4: Int };
+        [M M W] drop(_2);  // elided
+        [D M W] _2 = move _6;
+        [W M M] goto -> bb1;
+    }
+}
+
+fn branches.main() {
+
+    bb0: {
+        [] _1 = call branches.one_arm(hot: Bool) [const true: Bool] -> [return: bb1];
+    }
+
+    bb1: {
+        [] _2 = call branches.both_arms(hot: Bool) [const false: Bool] -> [return: bb2];
+    }
+
+    bb2: {
+        [] _3 = Add(move _1, move _2);
+        [] _4 = call branches.restored(hot: Bool) [const true: Bool] -> [return: bb3];
+    }
+
+    bb3: {
+        [] _5 = Add(move _3, move _4);
+        [] call builtin print [move _5] -> [return: bb4];
+    }
+
+    bb4: {
+        [] return;
+    }
+}

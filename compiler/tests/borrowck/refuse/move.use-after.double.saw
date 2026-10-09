@@ -1,0 +1,12 @@
+// refuses: move.use-after at 10:13
+// a binding moved twice (conformance V02)
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func main() {
+    let a = Res(id: 1)
+    let b = move a
+    let c = move a
+    print(b.id + c.id)
+}

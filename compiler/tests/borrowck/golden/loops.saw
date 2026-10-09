@@ -1,0 +1,53 @@
+// Loops: a binding moved in the body and assigned again before the backedge
+// is whole at the head on every iteration; one moved and then left moved by a
+// `break` reaches the exit maybe moved; one moved by the condition and
+// revived by the body is whole at the head (conformance V110).
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func take(r: Res) -> Int { r.id }
+
+func refilled(n: Int) -> Int {
+    var r = Res(id: 0)
+    var total = 0
+    var k = 0
+    while k < n {
+        total = total + take(move r)
+        r = Res(id: k)
+        k = k + 1
+    }
+    total + r.id
+}
+
+func broken(n: Int) -> Int {
+    let r = Res(id: 1)
+    var k = 0
+    var total = 0
+    while k < n {
+        if k == 3 {
+            total = take(move r)
+            break
+        }
+        k = k + 1
+    }
+    total
+}
+
+func more(r: Res) -> Bool { r.id > 0 }
+
+// A move in the loop's condition that the body revives before the
+// backedge: whole at the head every time, moved at the exit.
+func revived_head(n: Int) -> Int {
+    var r = Res(id: n)
+    var k = 0
+    while more(move r) {
+        k = k + 1
+        r = Res(id: n - k)
+    }
+    k
+}
+
+func main() {
+    print(refilled(3) + broken(5) + revived_head(2))
+}

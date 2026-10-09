@@ -1,0 +1,24 @@
+// Re-initialisation: assigning a moved `var` makes it whole again, and a
+// whole-referent replacement through a `&var` parameter is a write through
+// the reference, never a move of it.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func take(r: Res) -> Int { r.id }
+
+func replace(slot: &var Res, n: Int) {
+    slot = Res(id: n)
+}
+
+func revived() -> Int {
+    var r = Res(id: 1)
+    let n = take(move r)
+    r = Res(id: n + 1)
+    replace(&var r, 5)
+    r.id
+}
+
+func main() {
+    print(revived())
+}

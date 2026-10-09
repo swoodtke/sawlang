@@ -1,0 +1,386 @@
+// The borrow check's initialisation half (SL:architecture §3.6): one
+// function at a time, a client of the MIR's initialisation analysis
+// (compiler/mir/src/initialisation.saw). It refuses a use of a place that may
+// have been moved, and a `consumes` body moving a field out on some paths to
+// a return and not others, and labels each reached drop for drop
+// elaboration: static, elided or flagged.
+
+import sawborrowck.src.program.{BORROWCK_LABEL_ELIDED, BORROWCK_LABEL_FLAGGED, BORROWCK_LABEL_STATIC,
+                                BorrowckProgram}
+import sawmir.src.build.{mir_func_local}
+import sawmir.src.dump.{mir_module_functions}
+import sawmir.src.initialisation.{MIR_INIT_MOVED, MIR_INIT_PARTIAL, MirAccess, MirAccessKind, MirDropLabel, MirInit,
+                                  mir_drop_label}
+import sawmir.src.model.{MirDiag, MirLocalKind, MirProjKind}
+import sawmir.src.program.{MirProgram}
+import sawtypecheck.src.checks.{tc_check_unsafe}
+import sawtypecheck.src.program.{TcProgram}
+
+// Every rule the borrow check refuses by.
+public func borrowck_rules() -> Vector<String> {
+    var out = Vector<String>()
+    try! out.push("consumes.some-paths")
+    try! out.push("move.use-after")
+    move out
+}
+
+// The label a drop of a place in conditions `own` gets in the side table.
+public func borrowck_label_of(own: Int) -> Int {
+    let label = mir_drop_label(own)
+    if label == MirDropLabel.Static {
+        return BORROWCK_LABEL_STATIC
+    }
+    if label == MirDropLabel.Elided {
+        return BORROWCK_LABEL_ELIDED
+    }
+    BORROWCK_LABEL_FLAGGED
+}
+
+public func borrowck_label_name(label: Int) -> String {
+    if label == BORROWCK_LABEL_STATIC {
+        return "static"
+    }
+    if label == BORROWCK_LABEL_ELIDED {
+        return "elided"
+    }
+    if label == BORROWCK_LABEL_FLAGGED {
+        return "flagged"
+    }
+    "none"
+}
+
+extension BorrowckProgram {
+    // Every function module `m`'s bodies lowered to, checked.
+    public func check_module(&var self, m: Int) {
+        let order = mir_module_functions(&self.mir, m)
+        var k = 0
+        while k < order.len() {
+            self.check_func(order[k])
+            k = k + 1
+        }
+    }
+
+    func check_func(&var self, f: Int) {
+        let info = self.mir.funcs[f]
+        let facts = self.mir.init_analysis(f)
+        let partial = self.mir.init_consumes_partial(f, &facts)
+        var k = 0
+        while k < partial.len() {
+            self.report_some_paths(f, &facts, partial[k])
+            k = k + 1
+        }
+        var reported = Vector<Int>()
+        var b = 0
+        while b < info.block_count {
+            if facts.reached[b] {
+                var state = facts.entry_state(b)
+                let block = self.mir.blocks[info.block_first + b]
+                var s = block.first
+                while s >= 0 {
+                    let accesses = self.mir.init_stmt_accesses(f, s, &facts)
+                    self.check_accesses(f, b, &facts, &var state, &accesses, &var reported)
+                    s = self.mir.stmts[s].next
+                }
+                let accesses = self.mir.init_term_accesses(f, b, &facts)
+                self.check_accesses(f, b, &facts, &var state, &accesses, &var reported)
+            }
+            b = b + 1
+        }
+    }
+
+    // Each of `accesses` checked against `state`, then applied to it: a read,
+    // a move or a borrow of a place that may have been moved, or a part of
+    // which may have been, is a use after move, and so is a write to a part
+    // of a place that may have been moved whole; a drop is labelled.
+    func check_accesses(&var self, f: Int, b: Int, facts: &MirInit, state: &var Vector<Int>,
+                        accesses: &Vector<MirAccess>, reported: &var Vector<Int>) {
+        var k = 0
+        while k < accesses.len() {
+            let a = accesses[k]
+            k = k + 1
+            if a.kind == MirAccessKind.Drop {
+                if a.stmt >= 0 {
+                    var label = BORROWCK_LABEL_STATIC
+                    if a.path >= 0 && not a.cut {
+                        label = borrowck_label_of(state[a.path])
+                    }
+                    self.labels[a.stmt] = label
+                }
+            } else if a.path >= 0 {
+                self.check_use(f, b, &facts, &state, &a, &var reported)
+            }
+            facts.apply(&var state, &a)
+        }
+    }
+
+    func check_use(&var self, f: Int, b: Int, facts: &MirInit, state: &Vector<Int>, a: &MirAccess,
+                   reported: &var Vector<Int>) {
+        var gone = 0
+        if a.kind == MirAccessKind.Write && not a.cut {
+            var up = facts.path_parent[a.path]
+            while up >= 0 {
+                gone = gone | (state[up] & MIR_INIT_MOVED)
+                up = facts.path_parent[up]
+            }
+        } else {
+            gone = state[a.path] & (MIR_INIT_MOVED | MIR_INIT_PARTIAL)
+        }
+        if gone == 0 {
+            return
+        }
+        let node = self.access_node(f, b, &a)
+        var k = 0
+        while k < reported.len() {
+            if reported[k] == node {
+                return
+            }
+            k = k + 1
+        }
+        try! reported.push(node)
+        let site = self.move_site(f, b, &facts, &a)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.path_name(f, &facts, a.path))
+        if (gone & MIR_INIT_MOVED) != 0 {
+            try! msg.append("` is used after it may have been moved")
+        } else {
+            try! msg.append("` is used after a part of it may have been moved out")
+        }
+        if site >= 0 {
+            try! msg.append(" (moved at ")
+            try! msg.append(self.mir.span_text(site, false))
+            try! msg.append(")")
+        }
+        try! msg.append("; a moved value is gone until it is assigned again")
+        self.report(f, node, "move.use-after", msg.build())
+    }
+
+    // A `consumes` body's path `q`, the receiver or a field of it, that some
+    // path to a return moves and another does not: refused at its first move.
+    func report_some_paths(&var self, f: Int, facts: &MirInit, q: Int) {
+        let info = self.mir.funcs[f]
+        var node = info.root
+        var found = false
+        var b = 0
+        while b < info.block_count && not found {
+            let block = self.mir.blocks[info.block_first + b]
+            var s = block.first
+            while s >= 0 && not found {
+                let accesses = self.mir.init_stmt_accesses(f, s, &facts)
+                let at = self.first_move_of(&facts, &accesses, q)
+                if at >= 0 {
+                    node = self.mir.stmts[s].node
+                    found = true
+                }
+                s = self.mir.stmts[s].next
+            }
+            if not found {
+                let accesses = self.mir.init_term_accesses(f, b, &facts)
+                if self.first_move_of(&facts, &accesses, q) >= 0 {
+                    node = block.term_node
+                    found = true
+                }
+            }
+            b = b + 1
+        }
+        var msg = StringBuilder()
+        try! msg.append("a `consumes` body moves `")
+        try! msg.append(self.path_name(f, &facts, q))
+        try! msg.append("` out on some paths to a return and not on others; move it on every path or on none, since the receiver's release is decided statically")
+        self.report(f, node, "consumes.some-paths", msg.build())
+    }
+
+    // The index in `accesses` of the first move of path `q` or a path inside
+    // it, or -1.
+    func first_move_of(&self, facts: &MirInit, accesses: &Vector<MirAccess>, q: Int) -> Int {
+        var k = 0
+        while k < accesses.len() {
+            let a = accesses[k]
+            if a.kind == MirAccessKind.Move && not a.cut && a.path >= 0 && borrowck_within(&facts, a.path, q) {
+                return k
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // The source node an access of block `b` stands at: its statement's, or
+    // the terminator's.
+    func access_node(&self, f: Int, b: Int, a: &MirAccess) -> Int {
+        if a.stmt >= 0 {
+            return self.mir.stmts[a.stmt].node
+        }
+        let info = self.mir.funcs[f]
+        self.mir.blocks[info.block_first + b].term_node
+    }
+
+    // The source node of a move that reaches access `a` of block `b` and
+    // takes out the place it uses, a place around it or a part of it: the
+    // nearest one walking back from the access, or -1.
+    func move_site(&self, f: Int, b: Int, facts: &MirInit, a: &MirAccess) -> Int {
+        let info = self.mir.funcs[f]
+        let q = a.path
+        let block = self.mir.blocks[info.block_first + b]
+        var found = -1
+        var s = block.first
+        while s >= 0 && (a.stmt < 0 || s != a.stmt) {
+            let accesses = self.mir.init_stmt_accesses(f, s, &facts)
+            if self.moves_related(&facts, &accesses, q) {
+                found = self.mir.stmts[s].node
+            }
+            s = self.mir.stmts[s].next
+        }
+        if found >= 0 {
+            return found
+        }
+        var seen = Vector<Bool>()
+        var j = 0
+        while j < info.block_count {
+            try! seen.push(false)
+            j = j + 1
+        }
+        var work = self.predecessors(f, b)
+        var at = 0
+        while at < work.len() {
+            let p = work[at]
+            at = at + 1
+            if seen[p] {
+                continue
+            }
+            seen[p] = true
+            let site = self.last_related_move(f, p, &facts, q)
+            if site >= 0 {
+                return site
+            }
+            let more = self.predecessors(f, p)
+            var i = 0
+            while i < more.len() {
+                try! work.push(more[i])
+                i = i + 1
+            }
+        }
+        return -1
+    }
+
+    // The node of block `b`'s last move of a place related to path `q`, or -1.
+    func last_related_move(&self, f: Int, b: Int, facts: &MirInit, q: Int) -> Int {
+        let info = self.mir.funcs[f]
+        let block = self.mir.blocks[info.block_first + b]
+        var found = -1
+        var s = block.first
+        while s >= 0 {
+            let accesses = self.mir.init_stmt_accesses(f, s, &facts)
+            if self.moves_related(&facts, &accesses, q) {
+                found = self.mir.stmts[s].node
+            }
+            s = self.mir.stmts[s].next
+        }
+        let accesses = self.mir.init_term_accesses(f, b, &facts)
+        if self.moves_related(&facts, &accesses, q) {
+            found = block.term_node
+        }
+        found
+    }
+
+    // Whether `accesses` move path `q`, a path around it or one inside it.
+    func moves_related(&self, facts: &MirInit, accesses: &Vector<MirAccess>, q: Int) -> Bool {
+        var k = 0
+        while k < accesses.len() {
+            let a = accesses[k]
+            k = k + 1
+            if a.kind != MirAccessKind.Move || a.cut || a.path < 0 {
+                continue
+            }
+            if borrowck_within(&facts, a.path, q) || borrowck_within(&facts, q, a.path) {
+                return true
+            }
+        }
+        false
+    }
+
+    // The blocks with an edge to block `b`.
+    func predecessors(&self, f: Int, b: Int) -> Vector<Int> {
+        let info = self.mir.funcs[f]
+        var out = Vector<Int>()
+        var p = 0
+        while p < info.block_count {
+            let succ = self.mir.init_successors(f, p)
+            var j = 0
+            while j < succ.len() {
+                if succ[j] == b {
+                    try! out.push(p)
+                }
+                j = j + 1
+            }
+            p = p + 1
+        }
+        move out
+    }
+
+    // How a diagnostic names path `q`: its binding's name, `self`, or the
+    // local's number for a temporary, then each field, element or payload.
+    public func path_name(&self, f: Int, facts: &MirInit, q: Int) -> String {
+        var steps = Vector<Int>()
+        var at = q
+        while facts.path_parent[at] >= 0 {
+            try! steps.push(at)
+            at = facts.path_parent[at]
+        }
+        var text = StringBuilder()
+        let l = mir_func_local(&self.mir, f, at)
+        if l.kind == MirLocalKind.Receiver {
+            try! text.append("self")
+        } else if l.name >= 0 {
+            try! text.append(self.mir.tc.name_text(l.name))
+        } else {
+            try! text.append("_")
+            try! text.append(at)
+        }
+        var k = steps.len() - 1
+        while k >= 0 {
+            let step = steps[k]
+            k = k - 1
+            let kind = facts.path_kind[step]
+            if kind == MirProjKind.Field {
+                try! text.append(".")
+                try! text.append(self.mir.decl_name(facts.path_decl[step]))
+            } else if kind == MirProjKind.Tuple {
+                try! text.append(".")
+                try! text.append(facts.path_index[step])
+            } else {
+                var inner = StringBuilder()
+                try! inner.append("(")
+                try! inner.append(text.build())
+                try! inner.append(" as ")
+                try! inner.append(self.mir.decl_name(facts.path_decl[step]))
+                try! inner.append(").")
+                try! inner.append(facts.path_index[step])
+                text = StringBuilder()
+                try! text.append(inner.build())
+            }
+        }
+        text.build()
+    }
+
+    func report(&var self, f: Int, node: Int, id: String, message: String) {
+        var at = node
+        if at < 0 {
+            at = self.mir.funcs[f].root
+        }
+        let m = self.mir.tc.node_module(at)
+        let n = self.mir.tc.res.nodes[at]
+        try! self.diags.push(MirDiag(module: m, start: n.start, end: n.end, id: id, message: message))
+    }
+}
+
+// Whether path `inner` is path `outer` or lies inside it.
+public func borrowck_within(facts: &MirInit, inner: Int, outer: Int) -> Bool {
+    var at = inner
+    while at >= 0 {
+        if at == outer {
+            return true
+        }
+        at = facts.path_parent[at]
+    }
+    false
+}

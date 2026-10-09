@@ -1,0 +1,69 @@
+// The borrow check's entry point: a program checked, lowered, borrow
+// checked, and the record `sawc2 borrowck` prints for it.
+
+import sawborrowck.src.check.{borrowck_rules}
+import sawborrowck.src.dump.{borrowck_conditions_text}
+import sawborrowck.src.program.{BorrowckProgram, borrowck_program}
+import sawborrowck.src.verify.{borrowck_verify_module}
+import sawmir.src.api.{mir_append_checks, mir_append_diag, mir_append_invariants, mir_lower_file}
+import sawmir.src.program.{MirProgram}
+import sawresolve.src.program.{ResProgram}
+import sawtypecheck.src.program.{TcProgram}
+
+// How `sawc2 borrowck` treats one entry file.
+public struct BorrowckOptions {
+    public std_root: String
+    // Print each checked module's dump.
+    public dump: Bool
+    public notes: Bool
+}
+
+// The record of one program borrow checked, after its `FILE` line:
+// everything `sawc2 mir --check` prints, then the borrow check's refusals,
+// each an `ERROR` line, then an `INVARIANT` line per problem its verifier
+// finds, and with `dump` each checked module's dump. Returns 0 when nothing
+// was refused and 1 otherwise.
+public func borrowck_record(out: &var StringBuilder, path: String, options: &BorrowckOptions,
+                            names: &Vector<String>, dirs: &Vector<String>) -> Int {
+    var lowered = mir_lower_file(path, options.std_root, &names, &dirs)
+    var status = mir_append_checks(out: &var out, p: &var lowered, notes: options.notes)
+    var p = borrowck_program(move lowered)
+    var m = 0
+    while m < p.mir.tc.res.module_count() {
+        let info = p.mir.tc.res.module(m)
+        if info.available && not info.interface_only {
+            p.check_module(m)
+        }
+        m = m + 1
+    }
+    var k = 0
+    while k < p.diags.len() {
+        let d = p.diags[k]
+        mir_append_diag(out: &var out, p: &p.mir, d: &d)
+        k = k + 1
+    }
+    if p.diags.len() > 0 {
+        status = 1
+    }
+    m = 0
+    while m < p.mir.tc.res.module_count() {
+        let info = p.mir.tc.res.module(m)
+        if info.available && not info.interface_only {
+            let found = borrowck_verify_module(&var p, m)
+            mir_append_invariants(out: &var out, p: &p.mir, m: m, problems: &found)
+        }
+        m = m + 1
+    }
+    if options.dump {
+        m = 0
+        while m < p.mir.tc.res.module_count() {
+            let info = p.mir.tc.res.module(m)
+            if info.available && not info.interface_only {
+                p.dump_module(&var out, m)
+                try! out.append("\n")
+            }
+            m = m + 1
+        }
+    }
+    status
+}

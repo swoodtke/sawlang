@@ -261,6 +261,7 @@ extension MirProgram {
         self.scope_marks = Vector<Int>()
         self.loops = Vector<MirLoop>()
         self.refused = false
+        let _ = self.source_at(root)
         let _ = self.new_local(result, MirLocalKind.Return, -1, -1)
         let entry = self.new_block()
         self.enter(entry)
@@ -279,13 +280,11 @@ extension MirProgram {
     // a block nothing reaches and nothing terminated is unreachable.
     func finish_function(&var self) {
         if self.live() {
+            let root = self.funcs[self.cur].root
+            let saved = self.source_closing(root)
             self.unwind_to(0)
             self.ret()
-        }
-        if self.moved_fields.len() > 0 {
-            let root = self.funcs[self.cur].root
-            self.check_field_moves(root)
-            self.moved_fields = Vector<Int>()
+            self.source_restore(saved)
         }
         let f = self.cur
         var info = self.funcs[f]
@@ -402,7 +401,6 @@ extension MirProgram {
     func bind_consumed_receiver(&var self, root: Int, l: Int) {
         self.release_fields = Vector<Int>()
         self.release_types = Vector<Int>()
-        self.moved_fields = Vector<Int>()
         let t = self.local_type(l)
         let d = self.tc.nominal_decl(t)
         var moved = Vector<Int>()
@@ -433,7 +431,6 @@ extension MirProgram {
             try! self.release_fields.push(f)
             try! self.release_types.push(ft)
         }
-        self.moved_fields = move moved
         self.scope_fieldwise(l)
     }
 
@@ -501,160 +498,6 @@ extension MirProgram {
             at = self.tc.res.first_node_child(at)
         }
         false
-    }
-
-    // Every field a `consumes` body moves out of `self` is moved on every path
-    // to a return, so one release fits them all (spec: "every path or no
-    // path"); one moved on some paths only is refused at the body.
-    func check_field_moves(&var self, root: Int) {
-        let w = self.moved_fields.len()
-        let n = self.blocks.len() - self.block_base
-        if w == 0 || n == 0 {
-            return
-        }
-        var entry = Vector<Bool>()
-        var reached = Vector<Bool>()
-        var k = 0
-        while k < n * w {
-            try! entry.push(k >= w)
-            k = k + 1
-        }
-        k = 0
-        while k < n {
-            try! reached.push(k == 0)
-            k = k + 1
-        }
-        var changed = true
-        var rounds = 0
-        while changed && rounds < 1000 {
-            changed = false
-            rounds = rounds + 1
-            var b = 0
-            while b < n {
-                if reached[b] {
-                    let state = self.field_moves_out(b, &entry)
-                    let succ = self.block_successors(b)
-                    var j = 0
-                    while j < succ.len() {
-                        let s = succ[j]
-                        j = j + 1
-                        var i = 0
-                        while i < w {
-                            let at = s * w + i
-                            let met = if reached[s] { entry[at] && state[i] } else { state[i] }
-                            if met != entry[at] {
-                                entry[at] = met
-                                changed = true
-                            }
-                            i = i + 1
-                        }
-                        if not reached[s] {
-                            reached[s] = true
-                            changed = true
-                        }
-                    }
-                }
-                b = b + 1
-            }
-        }
-        var b = 0
-        while b < n {
-            let block = self.block(b)
-            if reached[b] && block.term == MirTermKind.Return {
-                let state = self.field_moves_out(b, &entry)
-                var i = 0
-                while i < w {
-                    if not state[i] {
-                        self.not_yet(root, "a `consumes` body that moves a field out of `self` on some paths to a return and not on others")
-                        return
-                    }
-                    i = i + 1
-                }
-            }
-            b = b + 1
-        }
-    }
-
-    // Which moved fields block `b` leaves moved, from its entry state.
-    func field_moves_out(&self, b: Int, entry: &Vector<Bool>) -> Vector<Bool> {
-        let w = self.moved_fields.len()
-        var state = Vector<Bool>()
-        var i = 0
-        while i < w {
-            try! state.push(entry[b * w + i])
-            i = i + 1
-        }
-        let block = self.block(b)
-        var s = block.first
-        while s >= 0 {
-            let stmt = self.stmts[s]
-            s = stmt.next
-            if stmt.kind == MirStmtKind.Assign && stmt.rvalue >= 0 {
-                let rv = self.rvalues[stmt.rvalue]
-                self.note_field_moves(rv.first, rv.count, &var state)
-            }
-        }
-        if block.term == MirTermKind.Call {
-            let c = self.calls[block.call]
-            self.note_field_moves(c.arg_first, c.arg_count, &var state)
-        }
-        move state
-    }
-
-    // Marks each moved field a move among operands `first .. first + count`
-    // takes out of the receiver, local 1.
-    func note_field_moves(&self, first: Int, count: Int, state: &var Vector<Bool>) {
-        var k = 0
-        while k < count {
-            let o = self.lists[first + k]
-            k = k + 1
-            let operand = self.operands[o]
-            if operand.kind != MirOperandKind.Move || operand.place < 0 {
-                continue
-            }
-            let place = self.places[operand.place]
-            if place.local != 1 || place.count < 1 {
-                continue
-            }
-            let step = self.projs[place.first]
-            if step.kind != MirProjKind.Field {
-                continue
-            }
-            var i = 0
-            while i < self.moved_fields.len() {
-                if self.moved_fields[i] == step.decl {
-                    state[i] = true
-                }
-                i = i + 1
-            }
-        }
-    }
-
-    // Block `b`'s successors.
-    func block_successors(&self, b: Int) -> Vector<Int> {
-        var out = Vector<Int>()
-        let block = self.block(b)
-        if block.term == MirTermKind.Goto {
-            try! out.push(block.target)
-        } else if block.term == MirTermKind.Switch {
-            var k = 0
-            while k < block.arm_count {
-                try! out.push(self.arms[block.arm_first + k].target)
-                k = k + 1
-            }
-            if block.otherwise >= 0 {
-                try! out.push(block.otherwise)
-            }
-        } else if block.term == MirTermKind.Call {
-            let c = self.calls[block.call]
-            if c.next >= 0 {
-                try! out.push(c.next)
-            }
-            if c.absent >= 0 {
-                try! out.push(c.absent)
-            }
-        }
-        move out
     }
 
     // A parameter declared at `leaf`, owned by the function.
@@ -850,7 +693,9 @@ extension MirProgram {
     public func lower_block(&var self, b: Int, dest: Int) {
         let _ = self.open_scope()
         self.lower_statements(b, dest)
+        let saved = self.source_closing(b)
         self.close_scope()
+        self.source_restore(saved)
     }
 
     // The statements among node `id`'s children, a block's or a closure's.
@@ -878,9 +723,11 @@ extension MirProgram {
             }
             if s == last && dest >= 0 && self.tc.has_alt(s, Alt.Stmt_Expr) {
                 let e = self.tc.res.first_node_child(s)
+                let saved = self.source_at(s)
                 let _ = self.open_scope()
                 self.lower_into(e, dest)
                 self.close_scope()
+                self.source_restore(saved)
             } else {
                 self.lower_statement(s)
             }
@@ -915,7 +762,9 @@ extension MirProgram {
         guard let alt = self.tc.node_alt(s) else {
             return
         }
+        let saved = self.source_at(s)
         self.lower_statement_as(s, alt)
+        self.source_restore(saved)
     }
 
     func lower_statement_as(&var self, s: Int, alt: Alt) {
@@ -951,6 +800,12 @@ extension MirProgram {
     // An expression whose value nothing reads: evaluated, and its value
     // dropped when its statement ends.
     public func lower_discarded(&var self, e: Int) {
+        let saved = self.source_at(e)
+        self.lower_discarded_at(e)
+        self.source_restore(saved)
+    }
+
+    func lower_discarded_at(&var self, e: Int) {
         if self.is_control(e) && self.tc.adj_head[e] < 0 {
             self.lower_control(e, -1)
             return
@@ -1250,7 +1105,9 @@ extension MirProgram {
         }
         let loop = self.loops[n - 1]
         self.unwind_to(loop.depth)
+        let saved = self.source_at(loop.node)
         self.emit_budget(loop.yields)
+        self.source_restore(saved)
         self.goto(loop.head)
     }
 
@@ -1384,6 +1241,13 @@ extension MirProgram {
     // `operand` where the position borrows its value as a shared reference,
     // as a declared `equals` or `compare` takes its operands.
     public func operand_as(&var self, e: Int, want_ref: Bool) -> Int {
+        let saved = self.source_at(e)
+        let o = self.operand_at(e, want_ref)
+        self.source_restore(saved)
+        o
+    }
+
+    func operand_at(&var self, e: Int, want_ref: Bool) -> Int {
         let u = self.tc.expr_use[e]
         if u == TcUse.Unused {
             self.missing(e, "an expression is read with no transfer recorded for its position")
@@ -1632,6 +1496,12 @@ extension MirProgram {
     // when `dest` is -1: a branch's arms and a block's tail go straight to
     // the destination.
     public func lower_into(&var self, e: Int, dest: Int) {
+        let saved = self.source_at(e)
+        self.lower_into_at(e, dest)
+        self.source_restore(saved)
+    }
+
+    func lower_into_at(&var self, e: Int, dest: Int) {
         if self.is_control(e) && self.tc.adj_head[e] < 0 {
             self.lower_control(e, dest)
             return
@@ -1652,6 +1522,13 @@ extension MirProgram {
 extension MirProgram {
     // Expression `e` lowered, before its adjustments and its transfer.
     public func lower_val(&var self, e: Int) -> MirVal {
+        let saved = self.source_at(e)
+        let v = self.lower_val_at(e)
+        self.source_restore(saved)
+        v
+    }
+
+    func lower_val_at(&var self, e: Int) -> MirVal {
         let t = self.tc.expr_types[e]
         guard let alt = self.tc.node_alt(e) else {
             self.not_yet(e, "this expression")
@@ -3773,11 +3650,13 @@ extension MirProgram {
         guard let alt = self.tc.node_alt(e) else {
             return
         }
+        let saved = self.source_at(e)
         self.lower_control_as(e, alt, dest)
         let t = self.tc.expr_types[e]
         if self.tc.is_never(t) {
             self.unreachable()
         }
+        self.source_restore(saved)
     }
 
     func lower_control_as(&var self, e: Int, alt: Alt, dest: Int) {
@@ -3859,8 +3738,10 @@ extension MirProgram {
                 self.bind_test(&test, target, unwrap, &var bound)
                 self.scope_all(&bound)
                 self.lower_block(block, dest)
+                let saved = self.source_closing(block)
                 self.close_scope()
                 let absent = self.close_head(&opened)
+                self.source_restore(saved)
                 self.goto(join)
                 self.enter(absent)
             } else {
@@ -4063,6 +3944,13 @@ extension MirProgram {
     // a copy, a move or a hand-off into a local of its own, or a reference
     // its name reads through. Returns the local, or -1 for `_`.
     func bind_one(&var self, p: Int, place: Int) -> Int {
+        let saved = self.source_at(p)
+        let l = self.bind_one_at(p, place)
+        self.source_restore(saved)
+        l
+    }
+
+    func bind_one_at(&var self, p: Int, place: Int) -> Int {
         let u = self.tc.expr_use[p]
         if u == TcUse.Test {
             return -1
@@ -4128,7 +4016,7 @@ extension MirProgram {
         }
         let yields = self.budget_class()
         let loop_depth = self.scope_marks.len()
-        try! self.loops.push(MirLoop(head: head, exit: exit, depth: loop_depth, yields: yields))
+        try! self.loops.push(MirLoop(head: head, exit: exit, depth: loop_depth, yields: yields, node: e))
         self.lower_block(block, -1)
         self.emit_budget(yields)
         self.goto(head)
@@ -4173,14 +4061,16 @@ extension MirProgram {
         let opened = self.open_head(subject, false, target)
         let test = opened.test
         let yields = self.budget_class()
-        try! self.loops.push(MirLoop(head: head, exit: exit, depth: opened.depth, yields: yields))
+        try! self.loops.push(MirLoop(head: head, exit: exit, depth: opened.depth, yields: yields, node: e))
         let _ = self.open_scope()
         var bound = Vector<Int>()
         self.bind_test(&test, target, false, &var bound)
         self.scope_all(&bound)
         self.lower_block(block, -1)
+        let saved = self.source_closing(block)
         self.close_scope()
         let absent = self.close_head(&opened)
+        self.source_restore(saved)
         self.emit_budget(yields)
         self.goto(head)
         self.pop_loop()
@@ -4252,7 +4142,7 @@ extension MirProgram {
         self.enter(present)
         let yields = self.budget_class()
         let loop_depth = self.scope_marks.len()
-        try! self.loops.push(MirLoop(head: head, exit: exit, depth: loop_depth, yields: yields))
+        try! self.loops.push(MirLoop(head: head, exit: exit, depth: loop_depth, yields: yields, node: e))
         let _ = self.open_scope()
         let item = self.tc.arg_of(item_opt, 0)
         let payload = self.project(np, MirProjKind.Payload, some, 0, item)
@@ -4265,7 +4155,9 @@ extension MirProgram {
         self.dissolve(np, &taken, target)
         self.scope_all(&bound)
         self.lower_block(body, -1)
+        let saved = self.source_closing(body)
         self.close_scope()
+        self.source_restore(saved)
         self.emit_budget(yields)
         self.goto(head)
         self.pop_loop()
@@ -4400,14 +4292,16 @@ extension MirProgram {
         if not self.live() {
             return
         }
+        let saved = self.source_at(node)
         if taken.len() == 0 {
             let t = self.place_type(whole)
             if self.owns(t) {
                 self.emit_drop(whole)
             }
-            return
+        } else {
+            self.drop_rest(whole, &taken, node)
         }
-        self.drop_rest(whole, &taken, node)
+        self.source_restore(saved)
     }
 
     // The owned parts of `base` no place in `taken` reaches, dropped; a part

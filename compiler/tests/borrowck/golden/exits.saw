@@ -1,0 +1,36 @@
+// Early exits: a `return` after a move drops what is still whole and elides
+// what moved; a `try` that propagates leaves the moved binding moved on its
+// error edge too.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func take(r: Res) -> Int { r.id }
+
+func check(n: Int) -> Result<Int, String> {
+    if n < 0 {
+        return Result.Err("negative")
+    }
+    n
+}
+
+func early(n: Int) -> Int {
+    let a = Res(id: 1)
+    let b = Res(id: 2)
+    if n > 0 {
+        return take(move a)
+    }
+    take(move b) + a.id
+}
+
+func propagated(n: Int) -> Result<Int, String> {
+    let a = Res(id: 3)
+    let m = take(move a)
+    let v = try check(n + m)
+    v
+}
+
+func main() {
+    print(early(1))
+    let _ = propagated(1)
+}

@@ -13,13 +13,18 @@
 //     conditional one with its conditions;
 //   - no owned local is live at a `return` or when it is assigned again,
 //     so every scope exit drops it; no window is open at a `return` or when
-//     it opens again, so every path out of its body closes it; no local is
+//     it opens again, so every path out of its body closes it; no path is
 //     dropped whole once a move has taken a part out of it; no path drops a
-//     local twice, or uses it after its drop, with no assignment between;
-//   - every loop backedge carries an op-budget point.
+//     place twice, or uses a local after its drop, with no assignment
+//     between. The move-path facts are the initialisation analysis's
+//     (initialisation.saw);
+//   - every loop backedge carries an op-budget point;
+//   - every statement and terminator the entry reaches carries a source node.
 
 import sawmir.src.build.{mir_func_local}
 import sawmir.src.dump.{mir_dump_module, mir_module_functions}
+import sawmir.src.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind,
+                        MirInit}
 import sawmir.src.model.{MirAccessor, MirArm, MirBlock, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocal,
                          MirOperand, MirOperandKind, MirPlace, MirProj, MirProjKind, MirRvalue, MirRvalueKind,
                          MirStmt, MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind}
@@ -65,6 +70,61 @@ extension MirProgram {
         self.verify_flow(f, &var out)
         self.verify_backedges(f, &var out)
         self.verify_halves(f, &var out)
+        self.verify_nodes(f, &var out)
+    }
+
+    // Every statement and terminator the entry reaches carries a source node
+    // (`source_at` in build.saw).
+    func verify_nodes(&self, f: Int, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        if info.block_count == 0 {
+            return
+        }
+        var reached = Vector<Bool>()
+        var k = 0
+        while k < info.block_count {
+            try! reached.push(k == 0)
+            k = k + 1
+        }
+        var work = Vector<Int>()
+        try! work.push(0)
+        var at = 0
+        while at < work.len() {
+            let b = work[at]
+            at = at + 1
+            let block = self.blocks[info.block_first + b]
+            var succ = Vector<Int>()
+            var opened = -1
+            self.successors(f, &block, &var succ, &var opened)
+            var j = 0
+            while j < succ.len() {
+                let target = succ[j]
+                if target >= 0 && target < info.block_count && not reached[target] {
+                    reached[target] = true
+                    try! work.push(target)
+                }
+                j = j + 1
+            }
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.stmts[s]
+                if stmt.node < 0 {
+                    var text = StringBuilder()
+                    try! text.append("a statement of bb")
+                    try! text.append(b)
+                    try! text.append(" carries no source node")
+                    self.problem(f, &var out, text.build())
+                }
+                s = stmt.next
+            }
+            if block.term_node < 0 {
+                var text = StringBuilder()
+                try! text.append("the terminator of bb")
+                try! text.append(b)
+                try! text.append(" carries no source node")
+                self.problem(f, &var out, text.build())
+            }
+        }
     }
 
     // An accessor's halves (SL:architecture §3.5): a `borrows` accessor that
@@ -709,14 +769,168 @@ extension MirProgram {
         }
     }
 
-    // The may-dataflows over the blocks: the owned locals assigned and not
-    // yet dropped, the windows open, the locals a move of a part dissolved,
-    // and the locals dropped and not assigned since.
+    // The flow checks: the move-path invariants, each a question the
+    // initialisation analysis (initialisation.saw) answers, and which windows
+    // are open.
+    // A `consumes` body that moves a field on some paths only is a user's
+    // error borrowck reports, so its move paths are not checked here.
     func verify_flow(&var self, f: Int, out: &var Vector<String>) {
         let info = self.funcs[f]
-        // Each local's liveness, each window's openness, each local's
-        // dissolution, then each local's drop.
-        let width = info.local_count + info.window_count + info.local_count + info.local_count
+        let facts = self.init_analysis(f)
+        let partial = self.init_consumes_partial(f, &facts)
+        let moves = partial.len() == 0
+        let open = self.window_entries(f)
+        var b = 0
+        while b < info.block_count {
+            if facts.reached[b] {
+                var state = facts.entry_state(b)
+                var windows = Vector<Bool>()
+                var k = 0
+                while k < info.window_count {
+                    try! windows.push(open[b * info.window_count + k])
+                    k = k + 1
+                }
+                let block = self.blocks[info.block_first + b]
+                var s = block.first
+                while s >= 0 {
+                    let accesses = self.init_stmt_accesses(f, s, &facts)
+                    self.check_accesses(f, b, &facts, &var state, &accesses, moves, &var out)
+                    s = self.stmts[s].next
+                }
+                let accesses = self.init_term_accesses(f, b, &facts)
+                self.check_accesses(f, b, &facts, &var state, &accesses, moves, &var out)
+                if block.term == MirTermKind.Return {
+                    self.check_return(f, b, &facts, &state, &windows, moves, &var out)
+                }
+                if block.term == MirTermKind.Call {
+                    let c = self.calls[block.call]
+                    if c.kind == MirCallKind.WindowOpen && c.window >= 0 && windows[c.window] {
+                        self.problem(f, &var out, "a window opens again while it may still be open")
+                    }
+                }
+            }
+            b = b + 1
+        }
+    }
+
+    // A `return`: no owned local may still be live, assigned or moved whole
+    // and not dropped, and no window open, except what a prologue's `lend`
+    // hands its epilogue.
+    func check_return(&self, f: Int, b: Int, facts: &MirInit, state: &Vector<Int>, windows: &Vector<Bool>,
+                      moves: Bool, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        var k = 0
+        while k < info.local_count && moves {
+            let l = mir_func_local(&self, f, k)
+            let live = (state[k] & (MIR_INIT_WHOLE | MIR_INIT_MOVED)) != 0
+            if l.owned && live && not self.carried_at_lend(f, k) {
+                var text = StringBuilder()
+                try! text.append("owned local _")
+                try! text.append(k)
+                try! text.append(" may still be live at a `return` in bb")
+                try! text.append(b)
+                try! text.append(": a scope exit does not drop it")
+                self.problem(f, &var out, text.build())
+            }
+            k = k + 1
+        }
+        k = 0
+        while k < info.window_count {
+            if windows[k] && not self.carried_at_lend(f, info.local_count + k) {
+                var text = StringBuilder()
+                try! text.append("window w")
+                try! text.append(k)
+                try! text.append(" may still be open at a `return` in bb")
+                try! text.append(b)
+                try! text.append(": a path out of its body does not close it")
+                self.problem(f, &var out, text.build())
+            }
+            k = k + 1
+        }
+    }
+
+    // Each of `accesses` checked against `state`, then applied to it: a use,
+    // a part's write included, of a local some path dropped with nothing
+    // assigned since; a drop of a path some path dropped already, or whose
+    // part some path moved out; an assignment to a whole owned local that
+    // may still be live, so the scope exit before it does not drop it.
+    func check_accesses(&self, f: Int, b: Int, facts: &MirInit, state: &var Vector<Int>,
+                        accesses: &Vector<MirAccess>, moves: Bool, out: &var Vector<String>) {
+        var k = 0
+        while k < accesses.len() {
+            let a = accesses[k]
+            k = k + 1
+            if moves && a.path >= 0 {
+                self.check_access(f, b, &facts, &state, &a, &var out)
+            }
+            facts.apply(&var state, &a)
+        }
+    }
+
+    func check_access(&self, f: Int, b: Int, facts: &MirInit, state: &Vector<Int>, a: &MirAccess,
+                      out: &var Vector<String>) {
+        let local = facts.path_local[a.path]
+        let whole = a.path == local
+        if a.kind == MirAccessKind.Drop && not a.cut {
+            let own = state[a.path]
+            if (own & MIR_INIT_PARTIAL) != 0 {
+                var text = StringBuilder()
+                try! text.append(self.path_noun(&facts, a.path))
+                try! text.append(" is dropped whole after a part of it moved out: a destructure does not dissolve it")
+                self.problem(f, &var out, text.build())
+            }
+            if (own & MIR_INIT_DROPPED) != 0 {
+                var text = StringBuilder()
+                try! text.append(self.path_noun(&facts, a.path))
+                try! text.append(" may be dropped twice in bb")
+                try! text.append(b)
+                try! text.append(": a path drops it before, and nothing assigns it between")
+                self.problem(f, &var out, text.build())
+            }
+            return
+        }
+        if a.kind == MirAccessKind.Write && whole && not a.cut {
+            let l = mir_func_local(&self, f, local)
+            let live = (state[local] & (MIR_INIT_WHOLE | MIR_INIT_MOVED)) != 0
+            if a.stmt >= 0 && l.owned && live {
+                var text = StringBuilder()
+                try! text.append("owned local _")
+                try! text.append(local)
+                try! text.append(" is assigned while it may still be live: a scope exit before it does not drop it")
+                self.problem(f, &var out, text.build())
+            }
+            return
+        }
+        if (state[local] & MIR_INIT_DROPPED) != 0 {
+            var text = StringBuilder()
+            try! text.append("local _")
+            try! text.append(local)
+            try! text.append(" may be used in bb")
+            try! text.append(b)
+            try! text.append(" after a path dropped it, and nothing assigns it between")
+            self.problem(f, &var out, text.build())
+        }
+    }
+
+    // `local _K` for a local's own path, `place P` for a path inside one.
+    func path_noun(&self, facts: &MirInit, q: Int) -> String {
+        var text = StringBuilder()
+        if facts.path_parent[q] < 0 {
+            try! text.append("local ")
+        } else {
+            try! text.append("place ")
+        }
+        try! text.append(self.init_path_text(&facts, q))
+        text.build()
+    }
+
+    // Each window's openness at each block's entry, `block * window_count +
+    // window`: a may-dataflow in which a window's open opens it on its
+    // present edge and its close closes it. An epilogue resumes with the
+    // windows its prologue left open.
+    func window_entries(&self, f: Int) -> Vector<Bool> {
+        let info = self.funcs[f]
+        let width = info.window_count
         var entry = Vector<Bool>()
         var reached = Vector<Bool>()
         var k = 0
@@ -729,19 +943,10 @@ extension MirProgram {
             try! reached.push(k == 0)
             k = k + 1
         }
-        k = 1
-        while k <= info.param_count {
-            let l = mir_func_local(&self, f, k)
-            if l.owned {
-                entry[k] = true
-            }
-            k = k + 1
-        }
-        // An epilogue resumes with the windows its prologue left open.
-        if info.kind == MirFuncKind.Epilogue {
+        if info.kind == MirFuncKind.Epilogue && width > 0 {
             k = 0
             while k < info.carried_count {
-                entry[info.local_count + self.aux[info.carried_first + k]] = true
+                entry[self.aux[info.carried_first + k]] = true
                 k = k + 1
             }
         }
@@ -760,7 +965,12 @@ extension MirProgram {
                         k = k + 1
                     }
                     let block = self.blocks[info.block_first + b]
-                    self.flow_statements(f, b, &block, &var state, false, &var out)
+                    if block.term == MirTermKind.Call {
+                        let c = self.calls[block.call]
+                        if c.kind == MirCallKind.WindowClose && c.window >= 0 && c.window < width {
+                            state[c.window] = false
+                        }
+                    }
                     var succ = Vector<Int>()
                     var opened = -1
                     self.successors(f, &block, &var succ, &var opened)
@@ -773,8 +983,8 @@ extension MirProgram {
                             try! next.push(state[k])
                             k = k + 1
                         }
-                        if opened >= 0 && not (block.term == MirTermKind.Call && self.calls[block.call].absent == target) {
-                            next[info.local_count + opened] = true
+                        if opened >= 0 && opened < width && not (block.term == MirTermKind.Call && self.calls[block.call].absent == target) {
+                            next[opened] = true
                         }
                         if not reached[target] {
                             reached[target] = true
@@ -794,256 +1004,7 @@ extension MirProgram {
                 b = b + 1
             }
         }
-        var b = 0
-        while b < info.block_count {
-            if reached[b] {
-                var state = Vector<Bool>()
-                k = 0
-                while k < width {
-                    try! state.push(entry[b * width + k])
-                    k = k + 1
-                }
-                let block = self.blocks[info.block_first + b]
-                self.flow_statements(f, b, &block, &var state, true, &var out)
-                if block.term == MirTermKind.Return {
-                    k = 0
-                    while k < info.local_count + info.window_count {
-                        if state[k] && not self.carried_at_lend(f, k) {
-                            if k < info.local_count {
-                                var text = StringBuilder()
-                                try! text.append("owned local _")
-                                try! text.append(k)
-                                try! text.append(" may still be live at a `return` in bb")
-                                try! text.append(b)
-                                try! text.append(": a scope exit does not drop it")
-                                self.problem(f, &var out, text.build())
-                            } else {
-                                var text = StringBuilder()
-                                try! text.append("window w")
-                                try! text.append(k - info.local_count)
-                                try! text.append(" may still be open at a `return` in bb")
-                                try! text.append(b)
-                                try! text.append(": a path out of its body does not close it")
-                                self.problem(f, &var out, text.build())
-                            }
-                        }
-                        k = k + 1
-                    }
-                }
-                if block.term == MirTermKind.Call {
-                    let c = self.calls[block.call]
-                    if c.kind == MirCallKind.WindowOpen && c.window >= 0 && state[info.local_count + c.window] {
-                        self.problem(f, &var out, "a window opens again while it may still be open")
-                    }
-                }
-            }
-            b = b + 1
-        }
-    }
-
-    // One block's statements over `state`: an assignment to a whole owned
-    // local makes it live, a drop of it ends it, and a window's close ends
-    // the window. A move of any part out of a local dissolves it, which ends
-    // it too (`dissolve` in lower.saw), and a whole assignment makes it whole
-    // again. With `report`, an assignment to a live owned local is a missing
-    // drop, a whole drop of a local some path dissolved drops the parts that
-    // left it a second time, and a drop or a use of a local some path
-    // dropped, with no assignment since, is a double drop or a use after its
-    // drop.
-    func flow_statements(&var self, f: Int, b: Int, block: &MirBlock, state: &var Vector<Bool>, report: Bool,
-                         out: &var Vector<String>) {
-        let info = self.funcs[f]
-        let dissolved = info.local_count + info.window_count
-        let dropped = dissolved + info.local_count
-        var s = block.first
-        while s >= 0 {
-            let stmt = self.stmts[s]
-            s = stmt.next
-            if stmt.kind == MirStmtKind.Assign && stmt.rvalue >= 0 {
-                let rv = self.rvalues[stmt.rvalue]
-                self.flow_reads(f, b, rv.first, rv.count, &state, report, &var out)
-                if rv.kind == MirRvalueKind.Ref && rv.place >= 0 {
-                    self.flow_use(f, b, rv.place, &state, report, &var out)
-                }
-                self.flow_moves(f, rv.first, rv.count, &var state)
-            }
-            if stmt.place < 0 {
-                continue
-            }
-            let place = self.places[stmt.place]
-            if place.local < 0 {
-                continue
-            }
-            if place.count != 0 {
-                self.flow_use(f, b, stmt.place, &state, report, &var out)
-                continue
-            }
-            if stmt.kind == MirStmtKind.Drop && report && state[dissolved + place.local] {
-                var text = StringBuilder()
-                try! text.append("local _")
-                try! text.append(place.local)
-                try! text.append(" is dropped whole after a part of it moved out: a destructure does not dissolve it")
-                self.problem(f, &var out, text.build())
-            }
-            if stmt.kind == MirStmtKind.Drop {
-                if report && state[dropped + place.local] {
-                    var text = StringBuilder()
-                    try! text.append("local _")
-                    try! text.append(place.local)
-                    try! text.append(" may be dropped twice in bb")
-                    try! text.append(b)
-                    try! text.append(": a path drops it before, and nothing assigns it between")
-                    self.problem(f, &var out, text.build())
-                }
-                state[dropped + place.local] = true
-            }
-            if stmt.kind == MirStmtKind.Assign {
-                state[dissolved + place.local] = false
-                state[dropped + place.local] = false
-            }
-            let l = mir_func_local(&self, f, place.local)
-            if not l.owned {
-                continue
-            }
-            if stmt.kind == MirStmtKind.Drop {
-                state[place.local] = false
-            } else if stmt.kind == MirStmtKind.Assign {
-                if report && state[place.local] {
-                    var text = StringBuilder()
-                    try! text.append("owned local _")
-                    try! text.append(place.local)
-                    try! text.append(" is assigned while it may still be live: a scope exit before it does not drop it")
-                    self.problem(f, &var out, text.build())
-                }
-                state[place.local] = true
-            }
-        }
-        if block.term == MirTermKind.Switch {
-            if block.switch_kind == MirSwitchKind.Bool {
-                if block.operand >= 0 {
-                    self.flow_operand(f, b, block.operand, &state, report, &var out)
-                }
-            } else if block.place >= 0 {
-                self.flow_use(f, b, block.place, &state, report, &var out)
-            }
-        }
-        if block.term == MirTermKind.Call {
-            let c = self.calls[block.call]
-            self.flow_reads(f, b, c.arg_first, c.arg_count, &state, report, &var out)
-            if c.kind == MirCallKind.Value && c.callee >= 0 {
-                self.flow_operand(f, b, c.callee, &state, report, &var out)
-            }
-            self.flow_moves(f, c.arg_first, c.arg_count, &var state)
-            if c.kind == MirCallKind.WindowClose && c.window >= 0 {
-                state[info.local_count + c.window] = false
-            }
-            if c.dest >= 0 {
-                let place = self.places[c.dest]
-                if place.count != 0 {
-                    self.flow_use(f, b, c.dest, &state, report, &var out)
-                } else if place.local >= 0 {
-                    state[dissolved + place.local] = false
-                    state[dropped + place.local] = false
-                    let l = mir_func_local(&self, f, place.local)
-                    if l.owned {
-                        state[place.local] = true
-                    }
-                }
-            }
-        }
-    }
-
-    // The operands `first .. first + count` of the operand lists, each read.
-    func flow_reads(&self, f: Int, b: Int, first: Int, count: Int, state: &Vector<Bool>, report: Bool,
-                    out: &var Vector<String>) {
-        var k = 0
-        while k < count {
-            let o = self.lists[first + k]
-            self.flow_operand(f, b, o, &state, report, &var out)
-            k = k + 1
-        }
-    }
-
-    func flow_operand(&self, f: Int, b: Int, o: Int, state: &Vector<Bool>, report: Bool, out: &var Vector<String>) {
-        let operand = self.operands[o]
-        if operand.kind != MirOperandKind.Const && operand.place >= 0 {
-            self.flow_use(f, b, operand.place, &state, report, &var out)
-        }
-    }
-
-    // Place `p` read, borrowed, or written in part: its local, and each local
-    // an index projection reads, must not be one some path dropped with no
-    // assignment since.
-    func flow_use(&self, f: Int, b: Int, p: Int, state: &Vector<Bool>, report: Bool, out: &var Vector<String>) {
-        if not report {
-            return
-        }
-        let info = self.funcs[f]
-        let dropped = info.local_count + info.window_count + info.local_count
-        let place = self.places[p]
-        if place.local >= 0 && place.local < info.local_count {
-            self.report_use_after_drop(f, b, place.local, &state, dropped, &var out)
-        }
-        var k = 0
-        while k < place.count {
-            let step = self.projs[place.first + k]
-            if step.kind == MirProjKind.Index && step.index >= 0 && step.index < info.local_count {
-                self.report_use_after_drop(f, b, step.index, &state, dropped, &var out)
-            }
-            k = k + 1
-        }
-    }
-
-    func report_use_after_drop(&self, f: Int, b: Int, l: Int, state: &Vector<Bool>, dropped: Int,
-                               out: &var Vector<String>) {
-        if not state[dropped + l] {
-            return
-        }
-        var text = StringBuilder()
-        try! text.append("local _")
-        try! text.append(l)
-        try! text.append(" may be used in bb")
-        try! text.append(b)
-        try! text.append(" after a path dropped it, and nothing assigns it between")
-        self.problem(f, &var out, text.build())
-    }
-
-    // Whether place `p` reaches its storage through a reference.
-    func reaches_through_reference(&self, p: Int) -> Bool {
-        let place = self.places[p]
-        var j = 0
-        while j < place.count {
-            if self.projs[place.first + j].kind == MirProjKind.Deref {
-                return true
-            }
-            j = j + 1
-        }
-        false
-    }
-
-    // The operands `first .. first + count` of the operand lists: each that
-    // moves a part out of a local, through no reference, dissolves it.
-    func flow_moves(&var self, f: Int, first: Int, count: Int, state: &var Vector<Bool>) {
-        let info = self.funcs[f]
-        let dissolved = info.local_count + info.window_count
-        var k = 0
-        while k < count {
-            let o = self.lists[first + k]
-            k = k + 1
-            let operand = self.operands[o]
-            if operand.kind != MirOperandKind.Move || operand.place < 0 {
-                continue
-            }
-            let place = self.places[operand.place]
-            if place.count == 0 || place.local < 0 || place.local >= info.local_count {
-                continue
-            }
-            if self.reaches_through_reference(operand.place) {
-                continue
-            }
-            state[place.local] = false
-            state[dissolved + place.local] = true
-        }
+        move entry
     }
 
     func successors(&self, f: Int, block: &MirBlock, succ: &var Vector<Int>, opened: &var Int) {

@@ -1,0 +1,63 @@
+module closures
+
+fn closures.run(f: () -> Int) {
+    place _1: () -> Int;  // f
+
+    bb0: {
+        [W] _2 = call value copy _1 [] -> [return: bb1];
+    }
+
+    bb1: {
+        [W] _0 = move _2;
+        [W] drop(_1);  // static
+        [D] return;
+    }
+}
+
+fn closures.captured() {
+    place _1: closures.Res;  // r
+    place _2: closures.Res;  // _2
+    place _3: () -> Int;  // f
+    place _4: () -> Int;  // _4
+
+    bb0: {
+        [U U U U] _2 = closures.Res { id: const 7: Int };
+        [U W U U] _1 = move _2;
+        [W M U U] _4 = closure#0 of closures.captured() [move _1];
+        [M M U W] _3 = move _4;
+        [M M W M] _5 = call value copy _3 [] -> [return: bb1];
+    }
+
+    bb1: {
+        [M M W M] _0 = move _5;
+        [M M W M] drop(_3);  // static
+        [M M D M] drop(_1);  // elided
+        [D M D M] return;
+    }
+}
+
+fn closure#0 of closures.captured() {
+    place _2: closures.Res;  // r
+
+    bb0: {
+        [U] _2 = move (*_1).0;
+        [W] _0 = copy _2.id;
+        [W] drop(_2);  // static
+        [D] return;
+    }
+}
+
+fn closures.main() {
+
+    bb0: {
+        [] _1 = call closures.captured() [] -> [return: bb1];
+    }
+
+    bb1: {
+        [] call builtin print [copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        [] return;
+    }
+}

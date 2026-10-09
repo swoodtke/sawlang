@@ -1,0 +1,26 @@
+path	why the borrow check does not refuse it
+tests/corpus/conformance/C14_comparison_body_cannot_consume_operand.saw	SL-462: moving out of a reference parameter is a source rule
+tests/corpus/conformance/K78_singleton_spawn_discard_is_refused.saw	slice.not-yet: the spawn forms; then §3.7, a handle that must be consumed
+tests/corpus/conformance/K79_unconsumed_thread_handle_is_refused.saw	slice.not-yet: the spawn forms; then §3.7, a handle that must be consumed
+tests/corpus/conformance/K85_background_spawn_handle_must_be_consumed.saw	slice.not-yet: the spawn forms; then §3.7, a handle that must be consumed
+tests/corpus/conformance/V04_move_out_of_ref.saw	SL-462: moving out of a reference parameter is a source rule
+tests/corpus/conformance/V31_move_out_of_vector_element.saw	SL-462: moving out of an element is a source rule; refused first by result.discarded, a migration artifact
+tests/corpus/conformance/V55_consuming_receiver_needs_move.saw	typecheck: consumes.move, a bare call of a consuming method
+tests/corpus/conformance/V60_match_through_a_reference_is_a_borrow.saw	SL-462: moving a payload out through a borrow is a source rule
+tests/corpus/conformance/V61_match_self_payload_move_refused.saw	SL-462: moving a payload out through a borrow is a source rule
+tests/corpus/conformance/V62_borrowed_payload_move_is_tier_blind.saw	SL-462: moving a payload out through a borrow is a source rule
+tests/corpus/conformance/V69_borrow_capture_is_a_borrow.saw	slice.not-yet: a borrow block over Mutex.lock; then SL-462
+tests/corpus/coro_hoist_move_diagnostic.saw	typecheck: transfer.implicit-copy, an ExplicitCopy value read without move
+tests/corpus/erased_downcast_use_after_take_error.saw	slice.not-yet: a method call on an existential
+tests/corpus/errors/consumes_field_move_outside_a_consuming_body.saw	typecheck: consumes.move-self
+tests/corpus/errors/consumes_receiver_through_a_field_or_place.saw	SL-462: moving out of a field or element is a source rule; until it lands, the MIR verifier reports the whole drop as an invariant
+tests/corpus/errors/move_in_a_while_condition_positions.saw	slice.not-yet: a construct in the file outside the bootstrap slice
+tests/corpus/errors/optional_move_unwrap_field.saw	SL-462: moving out of a field is a source rule; until it lands, the MIR verifier reports the whole drop as an invariant
+tests/corpus/errors/partial_move_field.saw	SL-462: moving out of a field is a source rule, and MIR reads an Int field as a copy
+tests/corpus/errors/partial_move_index.saw	SL-462: moving out of an element is a source rule
+tests/corpus/errors/partial_move_nested_field.saw	SL-462: moving out of a field is a source rule
+tests/corpus/errors/spawn_handle_may_not_escape_the_function.saw	slice.not-yet: the spawn forms; then §3.7, a handle that must be consumed
+tests/corpus/errors/use_after_move_shadow_outer.saw	resolve: name.shadowing refuses the program first
+tests/corpus/expr_suspend_move_error.saw	slice.not-yet: a construct in the file outside the bootstrap slice
+tests/corpus/reference_move_error.saw	SL-462: moving out of a reference parameter is a source rule; refused first by type.mismatch
+tests/corpus/set_from_vector_use_after_move_error.saw	refused first by result.discarded, a migration artifact

@@ -1,0 +1,177 @@
+module loops
+
+fn loops.take(r: loops.Res) {
+    place _1: loops.Res;  // r
+
+    bb0: {
+        [W] _0 = copy _1.id;
+        [W] drop(_1);  // static
+        [D] return;
+    }
+}
+
+fn loops.refilled(n: Int) {
+    place _2: loops.Res;  // r
+    place _3: loops.Res;  // _3
+    place _10: loops.Res;  // _10
+
+    bb0: {
+        [U U U] _3 = loops.Res { id: const 0: Int };
+        [U W U] _2 = move _3;
+        [W M U] _4 = const 0: Int;
+        [W M U] _5 = const 0: Int;
+        [W M U] goto -> bb1;
+    }
+
+    bb1: {
+        [W M UM] _6 = Lt(copy _5, copy _1);
+        [W M UM] switch move _6 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        [W M UM] _12 = Add(copy _4, copy _2.id);
+        [W M UM] _0 = move _12;
+        [W M UM] drop(_2);  // static
+        [D M UM] return;
+    }
+
+    bb3: {
+        [W M UM] _7 = copy _4;
+        [W M UM] _8 = call loops.take(r: loops.Res) [move _2] -> [return: bb4];
+    }
+
+    bb4: {
+        [M M UM] _9 = Add(move _7, move _8);
+        [M M UM] _4 = move _9;
+        [M M UM] _10 = loops.Res { id: copy _5 };
+        [M M W] drop(_2);  // elided
+        [D M W] _2 = move _10;
+        [W M M] _11 = Add(copy _5, const 1: Int);
+        [W M M] _5 = move _11;
+        [W M M] budget(yield-capable);
+        [W M M] goto -> bb1;
+    }
+}
+
+fn loops.broken(n: Int) {
+    place _2: loops.Res;  // r
+    place _3: loops.Res;  // _3
+
+    bb0: {
+        [U U] _3 = loops.Res { id: const 1: Int };
+        [U W] _2 = move _3;
+        [W M] _4 = const 0: Int;
+        [W M] _5 = const 0: Int;
+        [W M] goto -> bb1;
+    }
+
+    bb1: {
+        [W M] _6 = Lt(copy _4, copy _1);
+        [W M] switch move _6 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        [WM M] _0 = copy _5;
+        [WM M] drop(_2);  // flagged
+        [D M] return;
+    }
+
+    bb3: {
+        [W M] _7 = Eq(copy _4, const 3: Int);
+        [W M] switch move _7 -> [true: bb5, false: bb6];
+    }
+
+    bb4: {
+        [W M] _9 = Add(copy _4, const 1: Int);
+        [W M] _4 = move _9;
+        [W M] budget(yield-capable);
+        [W M] goto -> bb1;
+    }
+
+    bb5: {
+        [W M] _8 = call loops.take(r: loops.Res) [move _2] -> [return: bb7];
+    }
+
+    bb6: {
+        [W M] goto -> bb4;
+    }
+
+    bb7: {
+        [M M] _5 = move _8;
+        [M M] goto -> bb2;
+    }
+}
+
+fn loops.more(r: loops.Res) {
+    place _1: loops.Res;  // r
+
+    bb0: {
+        [W] _2 = Gt(copy _1.id, const 0: Int);
+        [W] _0 = move _2;
+        [W] drop(_1);  // static
+        [D] return;
+    }
+}
+
+fn loops.revived_head(n: Int) {
+    place _2: loops.Res;  // r
+    place _3: loops.Res;  // _3
+    place _8: loops.Res;  // _8
+
+    bb0: {
+        [U U U] _3 = loops.Res { id: copy _1 };
+        [U W U] _2 = move _3;
+        [W M U] _4 = const 0: Int;
+        [W M U] goto -> bb1;
+    }
+
+    bb1: {
+        [W M UM] _5 = call loops.more(r: loops.Res) [move _2] -> [return: bb3];
+    }
+
+    bb2: {
+        [M M UM] _0 = copy _4;
+        [M M UM] drop(_2);  // elided
+        [D M UM] return;
+    }
+
+    bb3: {
+        [M M UM] switch move _5 -> [true: bb4, false: bb2];
+    }
+
+    bb4: {
+        [M M UM] _6 = Add(copy _4, const 1: Int);
+        [M M UM] _4 = move _6;
+        [M M UM] _7 = Sub(copy _1, copy _4);
+        [M M UM] _8 = loops.Res { id: move _7 };
+        [M M W] drop(_2);  // elided
+        [D M W] _2 = move _8;
+        [W M M] budget(yield-capable);
+        [W M M] goto -> bb1;
+    }
+}
+
+fn loops.main() {
+
+    bb0: {
+        [] _1 = call loops.refilled(n: Int) [const 3: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        [] _2 = call loops.broken(n: Int) [const 5: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        [] _3 = Add(move _1, move _2);
+        [] _4 = call loops.revived_head(n: Int) [const 2: Int] -> [return: bb3];
+    }
+
+    bb3: {
+        [] _5 = Add(move _3, move _4);
+        [] call builtin print [move _5] -> [return: bb4];
+    }
+
+    bb4: {
+        [] return;
+    }
+}

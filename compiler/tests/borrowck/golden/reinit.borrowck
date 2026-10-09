@@ -1,0 +1,65 @@
+module reinit
+
+fn reinit.take(r: reinit.Res) {
+    place _1: reinit.Res;  // r
+
+    bb0: {
+        [W] _0 = copy _1.id;
+        [W] drop(_1);  // static
+        [D] return;
+    }
+}
+
+fn reinit.replace(slot: &var reinit.Res, n: Int) {
+    place _3: reinit.Res;  // _3
+
+    bb0: {
+        [U] _3 = reinit.Res { id: copy _2 };
+        [W] drop((*_1));  // static
+        [W] (*_1) = move _3;
+        [M] return;
+    }
+}
+
+fn reinit.revived() {
+    place _1: reinit.Res;  // r
+    place _2: reinit.Res;  // _2
+    place _6: reinit.Res;  // _6
+
+    bb0: {
+        [U U U] _2 = reinit.Res { id: const 1: Int };
+        [U W U] _1 = move _2;
+        [W M U] _4 = call reinit.take(r: reinit.Res) [move _1] -> [return: bb1];
+    }
+
+    bb1: {
+        [M M U] _3 = move _4;
+        [M M U] _5 = Add(copy _3, const 1: Int);
+        [M M U] _6 = reinit.Res { id: move _5 };
+        [M M W] drop(_1);  // elided
+        [D M W] _1 = move _6;
+        [W M M] _7 = ref(exclusive, _1);
+        [W M M] call reinit.replace(slot: &var reinit.Res, n: Int) [move _7, const 5: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        [W M M] _0 = copy _1.id;
+        [W M M] drop(_1);  // static
+        [D M M] return;
+    }
+}
+
+fn reinit.main() {
+
+    bb0: {
+        [] _1 = call reinit.revived() [] -> [return: bb1];
+    }
+
+    bb1: {
+        [] call builtin print [copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        [] return;
+    }
+}

@@ -1,0 +1,136 @@
+module consumes
+
+fn consumes.Pair.every(hot: Bool) {
+    place _0: consumes.Res;  // _0
+    place _1: consumes.Pair;  // self
+    place _1.a: consumes.Res;  // self.a
+    place _1.b: consumes.Res;  // self.b
+
+    bb0: {
+        [U W W W] switch copy _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        [U W W W] _0 = move _1.a;
+        [W P M W] drop(_1.b);  // static
+        [W P M D] return;
+    }
+
+    bb2: {
+        [U W W W] _0 = move _1.a;
+        [W P M W] drop(_1.b);  // static
+        [W P M D] return;
+    }
+
+    bb3: {
+        [U W W W] goto -> bb1;
+    }
+}
+
+fn consumes.Pair.none() {
+    place _1: consumes.Pair;  // self
+    place _1.a: consumes.Res;  // self.a
+    place _1.b: consumes.Res;  // self.b
+
+    bb0: {
+        [W W W] _2 = Add(copy _1.a.id, copy _1.b.id);
+        [W W W] _0 = move _2;
+        [W W W] drop(_1);  // static
+        [D D D] return;
+    }
+}
+
+fn consumes.Pair.diverging(n: Int) {
+    place _0: consumes.Res;  // _0
+    place _1: consumes.Pair;  // self
+    place _1.b: consumes.Res;  // self.b
+    place _1.a: consumes.Res;  // self.a
+
+    bb0: {
+        [U W W W] _3 = Lt(copy _2, const 0: Int);
+        [U W W W] switch move _3 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        [U W W W] _0 = move _1.b;
+        [W P M W] drop(_1.a);  // static
+        [W P M D] return;
+    }
+
+    bb2: {
+        [U W W W] call builtin panic [const "negative": String] -> !;
+    }
+
+    bb3: {
+        [U W W W] goto -> bb1;
+    }
+}
+
+fn consumes.make() {
+    place _0: consumes.Pair;  // _0
+    place _1: consumes.Res;  // _1
+    place _2: consumes.Res;  // _2
+    place _3: consumes.Pair;  // _3
+
+    bb0: {
+        [U U U U] _1 = consumes.Res { id: const 1: Int };
+        [U W U U] _2 = consumes.Res { id: const 2: Int };
+        [U W W U] _3 = consumes.Pair { a: move _1, b: move _2 };
+        [U M M W] _0 = move _3;
+        [W M M M] return;
+    }
+}
+
+fn consumes.main() {
+    place _1: consumes.Pair;  // p
+    place _2: consumes.Pair;  // _2
+    place _3: consumes.Pair;  // q
+    place _4: consumes.Pair;  // _4
+    place _5: consumes.Pair;  // r
+    place _6: consumes.Pair;  // _6
+    place _7: consumes.Res;  // _7
+    place _11: consumes.Res;  // _11
+
+    bb0: {
+        [U U U U U U U U] _2 = call consumes.make() [] -> [return: bb1];
+    }
+
+    bb1: {
+        [U W U U U U U U] _1 = move _2;
+        [W M U U U U U U] _4 = call consumes.make() [] -> [return: bb2];
+    }
+
+    bb2: {
+        [W M U W U U U U] _3 = move _4;
+        [W M W M U U U U] _6 = call consumes.make() [] -> [return: bb3];
+    }
+
+    bb3: {
+        [W M W M U W U U] _5 = move _6;
+        [W M W M W M U U] _7 = call consumes.Pair.every(hot: Bool) (owner consumes.Pair) [move _1, const true: Bool] -> [return: bb4];
+    }
+
+    bb4: {
+        [M M W M W M W U] _8 = copy _7.id;
+        [M M W M W M W U] _9 = call consumes.Pair.none() (owner consumes.Pair) [move _3] -> [return: bb5];
+    }
+
+    bb5: {
+        [M M M M W M W U] _10 = Add(move _8, move _9);
+        [M M M M W M W U] _11 = call consumes.Pair.diverging(n: Int) (owner consumes.Pair) [move _5, const 1: Int] -> [return: bb6];
+    }
+
+    bb6: {
+        [M M M M M M W W] _12 = Add(move _10, copy _11.id);
+        [M M M M M M W W] call builtin print [move _12] -> [return: bb7];
+    }
+
+    bb7: {
+        [M M M M M M W W] drop(_11);  // static
+        [M M M M M M W D] drop(_7);  // static
+        [M M M M M M D D] drop(_5);  // elided
+        [M M M M D M D D] drop(_3);  // elided
+        [M M D M D M D D] drop(_1);  // elided
+        [D M D M D M D D] return;
+    }
+}

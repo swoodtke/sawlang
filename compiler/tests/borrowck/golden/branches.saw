@@ -1,0 +1,40 @@
+// Branches and joins: a move on one arm leaves the binding maybe moved after
+// the join, so its drop there is flagged; a move on every arm leaves it moved,
+// and the drop is elided; a binding assigned again on the moving arm is whole
+// at the join.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func take(r: Res) -> Int { r.id }
+
+func one_arm(hot: Bool) -> Int {
+    let r = Res(id: 1)
+    var n = 0
+    if hot {
+        n = take(move r)
+    }
+    n
+}
+
+func both_arms(hot: Bool) -> Int {
+    let r = Res(id: 2)
+    if hot {
+        return take(move r)
+    }
+    take(move r)
+}
+
+func restored(hot: Bool) -> Int {
+    var r = Res(id: 3)
+    var n = 0
+    if hot {
+        n = take(move r)
+        r = Res(id: 4)
+    }
+    n + r.id
+}
+
+func main() {
+    print(one_arm(true) + both_arms(false) + restored(true))
+}

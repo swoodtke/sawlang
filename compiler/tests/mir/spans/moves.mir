@@ -1,0 +1,44 @@
+module moves
+
+fn moves.keep(n: moves.Note) -> Int {
+    let _0: Int;  // return
+    let _1: moves.Note;  // param n
+    let _2: &String;
+    let _3: Int;
+
+    bb0: {
+        _2 = ref(shared, _1.text);  @11:5
+        _3 = call std.string.String.len() (owner String) [move _2] -> [return: bb1];  @11:5
+    }
+
+    bb1: {
+        _0 = move _3;  @11:5
+        drop(_1);  @12:1
+        return;  @12:1
+    }
+}
+
+fn moves.main() -> Void {
+    let _0: Void;  // return
+    let _1: moves.Note;  // a
+    let _2: moves.Note;
+    let _3: moves.Note;  // b
+    let _4: Int;
+
+    bb0: {
+        _2 = moves.Note { text: const "a": String };  @15:13
+        _1 = move _2;  @15:13
+        _3 = move _1;  @16:13
+        _4 = call moves.keep(n: moves.Note) [move _3] -> [return: bb1];  @17:11
+    }
+
+    bb1: {
+        call builtin print [copy _4] -> [return: bb2];  @17:5
+    }
+
+    bb2: {
+        drop(_3);  @18:1
+        drop(_1);  @18:1
+        return;  @18:1
+    }
+}

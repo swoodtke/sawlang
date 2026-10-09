@@ -1,0 +1,109 @@
+// The borrow check's verifier, run on every function it checked: every
+// statement a path reaches has an initialisation state, every drop a path
+// reaches has a label and no other drop has one, and each label is the one
+// its place's conditions give, re-derived from the shared analysis at the
+// drop. A disagreement, either way, names the function and the drop.
+
+import sawborrowck.src.check.{borrowck_label_name, borrowck_label_of}
+import sawborrowck.src.program.{BORROWCK_LABEL_NONE, BORROWCK_LABEL_STATIC, BorrowckProgram}
+import sawmir.src.dump.{mir_module_functions}
+import sawmir.src.initialisation.{MirAccessKind, MirInit}
+import sawmir.src.model.{MirStmtKind}
+import sawmir.src.program.{MirProgram}
+
+// Every problem the verifier finds in module `m`'s functions, one line each.
+public func borrowck_verify_module(p: &var BorrowckProgram, m: Int) -> Vector<String> {
+    var out = Vector<String>()
+    let order = mir_module_functions(&p.mir, m)
+    var k = 0
+    while k < order.len() {
+        p.verify_func(order[k], &var out)
+        k = k + 1
+    }
+    move out
+}
+
+extension BorrowckProgram {
+    func verify_func(&var self, f: Int, out: &var Vector<String>) {
+        let info = self.mir.funcs[f]
+        let facts = self.mir.init_analysis(f)
+        var b = 0
+        while b < info.block_count {
+            let block = self.mir.blocks[info.block_first + b]
+            if not facts.reached[b] {
+                var s = block.first
+                while s >= 0 {
+                    if self.labels[s] != BORROWCK_LABEL_NONE {
+                        self.verify_problem(f, b, s, "is labelled though no path reaches it", &var out)
+                    }
+                    s = self.mir.stmts[s].next
+                }
+                b = b + 1
+                continue
+            }
+            var state = facts.entry_state(b)
+            if state.len() != facts.path_count() {
+                self.verify_problem(f, b, -1, "has no initialisation state for every path", &var out)
+            }
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.mir.stmts[s]
+                let accesses = self.mir.init_stmt_accesses(f, s, &facts)
+                if stmt.kind == MirStmtKind.Drop {
+                    var want = BORROWCK_LABEL_STATIC
+                    var k = 0
+                    while k < accesses.len() {
+                        let a = accesses[k]
+                        if a.kind == MirAccessKind.Drop && a.path >= 0 && not a.cut {
+                            want = borrowck_label_of(state[a.path])
+                        }
+                        k = k + 1
+                    }
+                    let have = self.labels[s]
+                    if have == BORROWCK_LABEL_NONE {
+                        self.verify_problem(f, b, s, "has no label", &var out)
+                    } else if have != want {
+                        var text = StringBuilder()
+                        try! text.append("is labelled ")
+                        try! text.append(borrowck_label_name(have))
+                        try! text.append(" where its place's conditions make it ")
+                        try! text.append(borrowck_label_name(want))
+                        self.verify_problem(f, b, s, text.build(), &var out)
+                    }
+                } else if self.labels[s] != BORROWCK_LABEL_NONE {
+                    self.verify_problem(f, b, s, "is labelled though it drops nothing", &var out)
+                }
+                var k = 0
+                while k < accesses.len() {
+                    let a = accesses[k]
+                    facts.apply(&var state, &a)
+                    k = k + 1
+                }
+                s = stmt.next
+            }
+            b = b + 1
+        }
+    }
+
+    // `POSITION FUNCTION: the drop at L:C in bbK TEXT`, or the block's when
+    // `s` is -1.
+    func verify_problem(&self, f: Int, b: Int, s: Int, text: String, out: &var Vector<String>) {
+        let info = self.mir.funcs[f]
+        var line = StringBuilder()
+        try! line.append(self.mir.tc.res.node_position(info.module, info.root))
+        try! line.append(" ")
+        try! line.append(self.mir.func_name(f))
+        if s >= 0 {
+            let stmt = self.mir.stmts[s]
+            try! line.append(": the statement at ")
+            try! line.append(self.mir.span_text(stmt.node, stmt.closing))
+            try! line.append(" in bb")
+        } else {
+            try! line.append(": bb")
+        }
+        try! line.append(b)
+        try! line.append(" ")
+        try! line.append(text)
+        try! out.push(line.build())
+    }
+}

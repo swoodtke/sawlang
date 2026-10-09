@@ -1,0 +1,445 @@
+module dissolves
+
+fn dissolves.Countdown.next() {
+    place _0: dissolves.Res?;  // _0
+    place _3: dissolves.Res?;  // _3
+    place _5: dissolves.Res;  // _5
+    place _6: dissolves.Res?;  // _6
+
+    bb0: {
+        [U U U U] _2 = Eq(copy (*_1).n, const 0: Int);
+        [U U U U] switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        [U U U U] _4 = Sub(copy (*_1).n, const 1: Int);
+        [U U U U] (*_1).n = move _4;
+        [U U U U] _5 = dissolves.Res { id: copy (*_1).n };
+        [U U W U] _6 = dissolves.Res?::Some(move _5);
+        [U U M W] _0 = move _6;
+        [W U M M] return;
+    }
+
+    bb2: {
+        [U U U U] _3 = dissolves.Res?::None;
+        [U W U U] _0 = move _3;
+        [W M U U] return;
+    }
+
+    bb3: {
+        [U U U U] goto -> bb1;
+    }
+}
+
+fn dissolves.risky(n: Int) {
+    place _0: Result<dissolves.Res, String>;  // _0
+    place _3: Result<dissolves.Res, String>;  // _3
+    place _4: dissolves.Res;  // _4
+    place _5: Result<dissolves.Res, String>;  // _5
+
+    bb0: {
+        [U U U U] _2 = Lt(copy _1, const 0: Int);
+        [U U U U] switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        [U U U U] _4 = dissolves.Res { id: copy _1 };
+        [U U W U] _5 = Result<dissolves.Res, String>::Ok(move _4);
+        [U U M W] _0 = move _5;
+        [W U M M] return;
+    }
+
+    bb2: {
+        [U U U U] _3 = Result<dissolves.Res, String>::Err(const "negative": String);
+        [U W U U] _0 = move _3;
+        [W M U U] return;
+    }
+
+    bb3: {
+        [U U U U] goto -> bb1;
+    }
+}
+
+fn dissolves.maybe(n: Int) {
+    place _0: dissolves.Res?;  // _0
+    place _3: dissolves.Res?;  // _3
+    place _4: dissolves.Res;  // _4
+    place _5: dissolves.Res?;  // _5
+
+    bb0: {
+        [U U U U] _2 = Lt(copy _1, const 0: Int);
+        [U U U U] switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        [U U U U] _4 = dissolves.Res { id: copy _1 };
+        [U U W U] _5 = dissolves.Res?::Some(move _4);
+        [U U M W] _0 = move _5;
+        [W U M M] return;
+    }
+
+    bb2: {
+        [U U U U] _3 = dissolves.Res?::None;
+        [U W U U] _0 = move _3;
+        [W M U U] return;
+    }
+
+    bb3: {
+        [U U U U] goto -> bb1;
+    }
+}
+
+fn dissolves.shape(n: Int) {
+    place _0: dissolves.Shape;  // _0
+    place _3: dissolves.Shape;  // _3
+    place _4: dissolves.Res;  // _4
+    place _5: dissolves.Shape;  // _5
+
+    bb0: {
+        [U U U U] _2 = Lt(copy _1, const 0: Int);
+        [U U U U] switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        [U U U U] _4 = dissolves.Res { id: copy _1 };
+        [U U W U] _5 = dissolves.Shape::Held(move _4);
+        [U U M W] _0 = move _5;
+        [W U M M] return;
+    }
+
+    bb2: {
+        [U U U U] _3 = dissolves.Shape::Empty;
+        [U W U U] _0 = move _3;
+        [W M U U] return;
+    }
+
+    bb3: {
+        [U U U U] goto -> bb1;
+    }
+}
+
+fn dissolves.take(r: dissolves.Res) {
+    place _1: dissolves.Res;  // r
+
+    bb0: {
+        [W] _0 = copy _1.id;
+        [W] drop(_1);  // static
+        [D] return;
+    }
+}
+
+fn dissolves.tried(n: Int) {
+    place _0: Result<Int, String>;  // _0
+    place _2: dissolves.Res;  // r
+    place _3: Result<dissolves.Res, String>;  // _3
+    place _4: dissolves.Res;  // _4
+    place _6: Result<Int, String>;  // _6
+    place (_3 as Ok).0: dissolves.Res;  // (_3 as Ok).0
+    place (_3 as Err).0: String;  // (_3 as Err).0
+
+    bb0: {
+        [U U U U U U U] _3 = call dissolves.risky(n: Int) [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        [U U W U U W W] switch discriminant(_3) -> [Ok: bb2, Err: bb3];
+    }
+
+    bb2: {
+        [U U W U U W W] _4 = move (_3 as Ok).0;
+        [U U P W U M W] _2 = move _4;
+        [U W P M U M W] _5 = call dissolves.take(r: dissolves.Res) [move _2] -> [return: bb4];
+    }
+
+    bb3: {
+        [U U W U U W W] _0 = Result<Int, String>::Err(move (_3 as Err).0);
+        [W U P U U W M] return;
+    }
+
+    bb4: {
+        [U M P M U M W] _6 = Result<Int, String>::Ok(move _5);
+        [U M P M W M W] _0 = move _6;
+        [W M P M M M W] drop(_2);  // elided
+        [W D P M M M W] return;
+    }
+}
+
+fn dissolves.coalesced(n: Int) {
+    place _2: dissolves.Res;  // r
+    place _3: dissolves.Res;  // _3
+    place _4: dissolves.Res?;  // _4
+    place _5: dissolves.Res;  // _5
+    place (_4 as Some).0: dissolves.Res;  // (_4 as Some).0
+
+    bb0: {
+        [U U U U U] _4 = call dissolves.maybe(n: Int) [copy _1] -> [return: bb2];
+    }
+
+    bb1: {
+        [U W PD UM MD] _2 = move _3;
+        [W M PD UM MD] _6 = call dissolves.take(r: dissolves.Res) [move _2] -> [return: bb5];
+    }
+
+    bb2: {
+        [U U W U W] switch discriminant(_4) -> [Some: bb3, None: bb4];
+    }
+
+    bb3: {
+        [U U W U W] _3 = move (_4 as Some).0;
+        [U W P U M] goto -> bb1;
+    }
+
+    bb4: {
+        [U U W U W] drop(_4);  // static
+        [U U D U D] _5 = dissolves.Res { id: const 0: Int };
+        [U U D W D] _3 = move _5;
+        [U W D M D] goto -> bb1;
+    }
+
+    bb5: {
+        [M M PD UM MD] _0 = move _6;
+        [M M PD UM MD] drop(_2);  // elided
+        [D M PD UM MD] return;
+    }
+}
+
+fn dissolves.if_let(n: Int) {
+    place _2: dissolves.Res?;  // _2
+    place _3: dissolves.Res;  // r
+    place (_2 as Some).0: dissolves.Res;  // (_2 as Some).0
+
+    bb0: {
+        [U U U] _2 = call dissolves.maybe(n: Int) [copy _1] -> [return: bb2];
+    }
+
+    bb1: {
+        [D U D] _0 = const 0: Int;
+        [D U D] return;
+    }
+
+    bb2: {
+        [W U W] switch discriminant(_2) -> [Some: bb3, None: bb4];
+    }
+
+    bb3: {
+        [W U W] _3 = move (_2 as Some).0;
+        [P W M] _4 = call dissolves.take(r: dissolves.Res) [move _3] -> [return: bb5];
+    }
+
+    bb4: {
+        [W U W] drop(_2);  // static
+        [D U D] goto -> bb1;
+    }
+
+    bb5: {
+        [P M M] _0 = move _4;
+        [P M M] drop(_3);  // elided
+        [P D M] return;
+    }
+}
+
+fn dissolves.guarded(n: Int) {
+    place _2: dissolves.Res?;  // _2
+    place _3: dissolves.Res;  // r
+    place (_2 as Some).0: dissolves.Res;  // (_2 as Some).0
+
+    bb0: {
+        [U U U] _2 = call dissolves.maybe(n: Int) [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        [W U W] switch discriminant(_2) -> [Some: bb2, None: bb3];
+    }
+
+    bb2: {
+        [W U W] _3 = move (_2 as Some).0;
+        [P W M] _4 = call dissolves.take(r: dissolves.Res) [move _3] -> [return: bb4];
+    }
+
+    bb3: {
+        [W U W] drop(_2);  // static
+        [D U D] _0 = const 0: Int;
+        [D U D] return;
+    }
+
+    bb4: {
+        [P M M] _0 = move _4;
+        [P M M] drop(_3);  // elided
+        [P D M] return;
+    }
+}
+
+fn dissolves.drained(n: Int) {
+    place _4: dissolves.Res?;  // _4
+    place _5: dissolves.Res;  // r
+    place (_4 as Some).0: dissolves.Res;  // (_4 as Some).0
+
+    bb0: {
+        [U U U] _2 = const 0: Int;
+        [U U U] _3 = copy _1;
+        [U U U] goto -> bb1;
+    }
+
+    bb1: {
+        [UP UD UM] _4 = call dissolves.maybe(n: Int) [copy _3] -> [return: bb3];
+    }
+
+    bb2: {
+        [D UD D] _0 = copy _2;
+        [D UD D] return;
+    }
+
+    bb3: {
+        [W UD W] switch discriminant(_4) -> [Some: bb4, None: bb5];
+    }
+
+    bb4: {
+        [W UD W] _5 = move (_4 as Some).0;
+        [P W M] _6 = copy _2;
+        [P W M] _7 = call dissolves.take(r: dissolves.Res) [move _5] -> [return: bb6];
+    }
+
+    bb5: {
+        [W UD W] drop(_4);  // static
+        [D UD D] goto -> bb2;
+    }
+
+    bb6: {
+        [P M M] _8 = Add(move _6, move _7);
+        [P M M] _2 = move _8;
+        [P M M] _9 = Sub(copy _3, const 1: Int);
+        [P M M] _3 = move _9;
+        [P M M] drop(_5);  // elided
+        [P D M] budget(yield-capable);
+        [P D M] goto -> bb1;
+    }
+}
+
+fn dissolves.iterated(n: Int) {
+    place _4: dissolves.Res?;  // _4
+    place _6: dissolves.Res;  // r
+    place (_4 as Some).0: dissolves.Res;  // (_4 as Some).0
+
+    bb0: {
+        [U U U] _2 = const 0: Int;
+        [U U U] _3 = dissolves.Countdown { n: copy _1 };
+        [U U U] goto -> bb1;
+    }
+
+    bb1: {
+        [UP UD UM] _5 = ref(exclusive, _3);
+        [UP UD UM] _4 = call dissolves.Countdown.next() (owner dissolves.Countdown) [move _5] -> [return: bb3];
+    }
+
+    bb2: {
+        [W UD W] _0 = copy _2;
+        [W UD W] return;
+    }
+
+    bb3: {
+        [W UD W] switch discriminant(_4) -> [Some: bb4, None: bb2];
+    }
+
+    bb4: {
+        [W UD W] _6 = move (_4 as Some).0;
+        [P W M] _7 = copy _2;
+        [P W M] _8 = call dissolves.take(r: dissolves.Res) [move _6] -> [return: bb5];
+    }
+
+    bb5: {
+        [P M M] _9 = Add(move _7, move _8);
+        [P M M] _2 = move _9;
+        [P M M] drop(_6);  // elided
+        [P D M] budget(yield-capable);
+        [P D M] goto -> bb1;
+    }
+}
+
+fn dissolves.matched(n: Int) {
+    place _2: dissolves.Shape;  // _2
+    place _3: dissolves.Res;  // res
+    place (_2 as Held).0: dissolves.Res;  // (_2 as Held).0
+
+    bb0: {
+        [U U U] _2 = call dissolves.shape(n: Int) [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        [W U W] switch discriminant(_2) -> [Held: bb3, Empty: bb4];
+    }
+
+    bb2: {
+        [PD UD MD] return;
+    }
+
+    bb3: {
+        [W U W] _3 = move (_2 as Held).0;
+        [P W M] goto -> bb5;
+    }
+
+    bb4: {
+        [W U W] drop(_2);  // static
+        [D U D] goto -> bb6;
+    }
+
+    bb5: {
+        [P W M] _4 = call dissolves.take(r: dissolves.Res) [move _3] -> [return: bb7];
+    }
+
+    bb6: {
+        [D U D] _0 = const 0: Int;
+        [D U D] goto -> bb2;
+    }
+
+    bb7: {
+        [P M M] _0 = move _4;
+        [P M M] drop(_3);  // elided
+        [P D M] goto -> bb2;
+    }
+}
+
+fn dissolves.main() {
+    place _1: Result<Int, String>;  // _1
+
+    bb0: {
+        [U] _1 = call dissolves.tried(n: Int) [const 1: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        [W] drop(_1);  // static
+        [D] _2 = call dissolves.coalesced(n: Int) [const 1: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        [D] _3 = call dissolves.if_let(n: Int) [const 1: Int] -> [return: bb3];
+    }
+
+    bb3: {
+        [D] _4 = Add(move _2, move _3);
+        [D] _5 = call dissolves.guarded(n: Int) [const 1: Int] -> [return: bb4];
+    }
+
+    bb4: {
+        [D] _6 = Add(move _4, move _5);
+        [D] _7 = call dissolves.drained(n: Int) [const 2: Int] -> [return: bb5];
+    }
+
+    bb5: {
+        [D] _8 = Add(move _6, move _7);
+        [D] _9 = call dissolves.iterated(n: Int) [const 2: Int] -> [return: bb6];
+    }
+
+    bb6: {
+        [D] _10 = Add(move _8, move _9);
+        [D] _11 = call dissolves.matched(n: Int) [const 1: Int] -> [return: bb7];
+    }
+
+    bb7: {
+        [D] _12 = Add(move _10, move _11);
+        [D] call builtin print [move _12] -> [return: bb8];
+    }
+
+    bb8: {
+        [D] return;
+    }
+}

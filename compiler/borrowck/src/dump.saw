@@ -1,0 +1,146 @@
+// The borrow check's dump (compiler/tests/borrowck/README.md): per function,
+// its owned places, then each block's statements and terminator, each after
+// the conditions those places are in before it, and each drop's label.
+
+import sawborrowck.src.check.{borrowck_label_name}
+import sawborrowck.src.program.{BorrowckProgram}
+import sawmir.src.build.{mir_func_local}
+import sawmir.src.dump.{mir_module_functions}
+import sawmir.src.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL, MIR_INIT_UNASSIGNED,
+                                  MIR_INIT_WHOLE, MirInit, mir_init_apply_all}
+import sawmir.src.model.{MirStmtKind}
+import sawmir.src.program.{MirProgram}
+
+// The letters of conditions `own`, in a fixed order: `U` unassigned, `W`
+// whole, `P` partial, `M` moved, `D` dropped; `-` for a block no path reaches.
+public func borrowck_conditions_text(own: Int) -> String {
+    var text = StringBuilder()
+    if (own & MIR_INIT_UNASSIGNED) != 0 {
+        try! text.append("U")
+    }
+    if (own & MIR_INIT_WHOLE) != 0 {
+        try! text.append("W")
+    }
+    if (own & MIR_INIT_PARTIAL) != 0 {
+        try! text.append("P")
+    }
+    if (own & MIR_INIT_MOVED) != 0 {
+        try! text.append("M")
+    }
+    if (own & MIR_INIT_DROPPED) != 0 {
+        try! text.append("D")
+    }
+    if own == 0 {
+        try! text.append("-")
+    }
+    text.build()
+}
+
+extension BorrowckProgram {
+    // Module `m`'s dump: every function lowered from its bodies, in order.
+    public func dump_module(&var self, out: &var StringBuilder, m: Int) {
+        try! out.append("module ")
+        try! out.append(self.mir.tc.res.module_name(m))
+        try! out.append("\n")
+        let order = mir_module_functions(&self.mir, m)
+        var k = 0
+        while k < order.len() {
+            try! out.append("\n")
+            self.dump_func(&var out, order[k])
+            k = k + 1
+        }
+    }
+
+    func dump_func(&var self, out: &var StringBuilder, f: Int) {
+        let info = self.mir.funcs[f]
+        let facts = self.mir.init_analysis(f)
+        let shown = self.owned_paths(f, &facts)
+        try! out.append("fn ")
+        try! out.append(self.mir.func_name(f))
+        try! out.append(" \{\n")
+        var k = 0
+        while k < shown.len() {
+            let q = shown[k]
+            try! out.append("    place ")
+            self.append_path(&var out, &facts, q)
+            try! out.append(": ")
+            let t = facts.path_ty[q]
+            self.mir.append_type(&var out, t)
+            try! out.append(";  // ")
+            try! out.append(self.path_name(f, &facts, q))
+            try! out.append("\n")
+            k = k + 1
+        }
+        var b = 0
+        while b < info.block_count {
+            try! out.append("\n    bb")
+            try! out.append(b)
+            if not facts.reached[b] {
+                try! out.append(": unreached\n")
+                b = b + 1
+                continue
+            }
+            try! out.append(": \{\n")
+            var state = facts.entry_state(b)
+            let block = self.mir.blocks[info.block_first + b]
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.mir.stmts[s]
+                try! out.append("        ")
+                self.append_state(&var out, &shown, &state)
+                self.mir.append_stmt(&var out, info.local_first, &stmt)
+                if stmt.kind == MirStmtKind.Drop {
+                    try! out.append("  // ")
+                    try! out.append(borrowck_label_name(self.labels[s]))
+                }
+                try! out.append("\n")
+                let accesses = self.mir.init_stmt_accesses(f, s, &facts)
+                mir_init_apply_all(&facts, &var state, &accesses)
+                s = stmt.next
+            }
+            try! out.append("        ")
+            self.append_state(&var out, &shown, &state)
+            self.mir.append_term(&var out, info.local_first, &block)
+            try! out.append("\n    \}\n")
+            b = b + 1
+        }
+        try! out.append("\}\n")
+    }
+
+    // `[C C ...] `: the conditions of each shown path in `state`.
+    func append_state(&self, out: &var StringBuilder, shown: &Vector<Int>, state: &Vector<Int>) {
+        try! out.append("[")
+        var k = 0
+        while k < shown.len() {
+            if k > 0 {
+                try! out.append(" ")
+            }
+            try! out.append(borrowck_conditions_text(state[shown[k]]))
+            k = k + 1
+        }
+        try! out.append("] ")
+    }
+
+    // The paths of function `f` whose type owns something a drop releases,
+    // in path order.
+    public func owned_paths(&var self, f: Int, facts: &MirInit) -> Vector<Int> {
+        var out = Vector<Int>()
+        var q = 0
+        while q < facts.path_count() {
+            let t = self.path_type(f, &facts, q)
+            if self.mir.owns(t) {
+                try! out.push(q)
+            }
+            q = q + 1
+        }
+        move out
+    }
+
+    public func path_type(&self, f: Int, facts: &MirInit, q: Int) -> Int {
+        facts.path_ty[q]
+    }
+
+    public func append_path(&self, out: &var StringBuilder, facts: &MirInit, q: Int) {
+        try! out.append(self.mir.init_path_text(&facts, q))
+    }
+}

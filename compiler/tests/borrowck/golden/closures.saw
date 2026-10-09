@@ -1,0 +1,18 @@
+// A closure capturing by `move` moves the binding into its environment: the
+// binding is moved from there on, and the closure's own body owns the
+// capture.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func run(f: () -> Int) -> Int { f() }
+
+func captured() -> Int {
+    let r = Res(id: 7)
+    let f = { [move r] in r.id }
+    f()
+}
+
+func main() {
+    print(captured())
+}

@@ -1,0 +1,26 @@
+// refuses: move.use-after at 18:17
+// a `consumes` body borrows the whole receiver after a field of it moved
+// out, so the receiver is no longer whole (conformance V119's field form)
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Pair { a: Res, b: Res }
+extension Pair: NoCopy {}
+
+extension Pair {
+    func total(&self) -> Int {
+        self.a.id + self.b.id
+    }
+
+    func split(&var self) consumes -> Res {
+        let a = move self.a
+        let n = self.total()
+        Res(id: a.id + n)
+    }
+}
+
+func main() {
+    let p = Pair(a: Res(id: 1), b: Res(id: 2))
+    print((move p).split().id)
+}

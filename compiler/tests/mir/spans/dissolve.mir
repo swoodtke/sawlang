@@ -1,0 +1,133 @@
+module dissolve
+
+fn dissolve.make() -> dissolve.Pair {
+    let _0: dissolve.Pair;  // return
+    let _1: dissolve.Pair;
+
+    bb0: {
+        _1 = dissolve.Pair { left: const "l": String, right: const "r": String };  @13:5
+        _0 = move _1;  @13:5
+        return;  @14:1
+    }
+}
+
+fn dissolve.maybe(n: Int) -> String? {
+    let _0: String?;  // return
+    let _1: Int;  // param n
+    let _2: Bool;
+    let _3: String?;
+    let _4: String?;
+
+    bb0: {
+        _2 = Gt(copy _1, const 0: Int);  @17:8
+        switch move _2 -> [true: bb2, false: bb3];  @17:5
+    }
+
+    bb1: {
+        _4 = String?::None;  @20:5
+        _0 = move _4;  @20:5
+        return;  @21:1
+    }
+
+    bb2: {
+        _3 = String?::Some(const "some": String);  @18:16
+        _0 = move _3;  @18:16
+        return;  @18:9
+    }
+
+    bb3: {
+        goto -> bb1;  @17:5
+    }
+}
+
+fn dissolve.split() -> Int {
+    let _0: Int;  // return
+    let _1: dissolve.Pair;
+    let _2: String;
+    let _3: (String, Int);
+    let _4: String;  // a
+    let _5: &String;
+    let _6: Int;
+
+    bb0: {
+        _1 = call dissolve.make() [] -> [return: bb1];  @24:19
+    }
+
+    bb1: {
+        _2 = move _1.left;  @24:19
+        drop(_1.right);  @24:19
+        _3 = (move _2, const 1: Int);  @24:18
+        _4 = move _3.0;  @24:10
+        _5 = ref(shared, _4);  @25:5
+        _6 = call std.string.String.len() (owner String) [move _5] -> [return: bb2];  @25:5
+    }
+
+    bb2: {
+        _0 = move _6;  @25:5
+        drop(_4);  @26:1
+        return;  @26:1
+    }
+}
+
+fn dissolve.head(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: String?;
+    let _3: String;  // s
+    let _4: &String;
+    let _5: Int;
+
+    bb0: {
+        _2 = call dissolve.maybe(n: Int) [copy _1] -> [return: bb2];  @29:16
+    }
+
+    bb1: {
+        _0 = const 0: Int;  @32:5
+        return;  @33:1
+    }
+
+    bb2: {
+        switch discriminant(_2) -> [Some: bb3, None: bb4];  @29:5
+    }
+
+    bb3: {
+        _3 = move (_2 as Some).0;  @29:12
+        _4 = ref(shared, _3);  @30:16
+        _5 = call std.string.String.len() (owner String) [move _4] -> [return: bb5];  @30:16
+    }
+
+    bb4: {
+        drop(_2);  @29:5
+        goto -> bb1;  @29:5
+    }
+
+    bb5: {
+        _0 = move _5;  @30:16
+        drop(_3);  @30:9
+        return;  @30:9
+    }
+}
+
+fn dissolve.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: Int;
+    let _3: Int;
+
+    bb0: {
+        _1 = call dissolve.split() [] -> [return: bb1];  @36:11
+    }
+
+    bb1: {
+        _2 = call dissolve.head(n: Int) [const 1: Int] -> [return: bb2];  @36:21
+    }
+
+    bb2: {
+        _3 = Add(move _1, move _2);  @36:11
+        call builtin print [move _3] -> [return: bb3];  @36:5
+    }
+
+    bb3: {
+        return;  @37:1
+    }
+}

@@ -1,0 +1,52 @@
+module moves
+
+fn moves.take(r: moves.Res) {
+    place _1: moves.Res;  // r
+
+    bb0: {
+        [W] _0 = copy _1.id;
+        [W] drop(_1);  // static
+        [D] return;
+    }
+}
+
+fn moves.main() {
+    place _1: moves.Res;  // a
+    place _2: moves.Res;  // _2
+    place _3: moves.Res;  // b
+    place _6: moves.Res;  // c
+    place _7: moves.Res;  // _7
+    place _8: moves.Box2;  // d
+    place _9: moves.Box2;  // _9
+    place _10: moves.Res;  // e
+    place _11: moves.Res;  // _11
+    place _8.inner: moves.Res;  // d.inner
+
+    bb0: {
+        [U U U U U U U U U U] _2 = moves.Res { id: const 1: Int };
+        [U W U U U U U U U U] _1 = move _2;
+        [W M U U U U U U U U] _3 = move _1;
+        [M M W U U U U U U U] _5 = call moves.take(r: moves.Res) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        [M M M U U U U U U U] _4 = move _5;
+        [M M M U U U U U U U] _7 = moves.Res { id: copy _4 };
+        [M M M U W U U U U U] _6 = move _7;
+        [M M M W M U U U U U] _9 = moves.Box2 { inner: move _6 };
+        [M M M M M U W U U U] _8 = move _9;
+        [M M M M M W M U U W] _11 = moves.Res { id: const 2: Int };
+        [M M M M M W M U W W] _10 = move _11;
+        [M M M M M W M W M W] _12 = Add(copy _8.inner.id, copy _10.id);
+        [M M M M M W M W M W] call builtin print [move _12] -> [return: bb2];
+    }
+
+    bb2: {
+        [M M M M M W M W M W] drop(_10);  // static
+        [M M M M M W M D M W] drop(_8);  // static
+        [M M M M M D M D M D] drop(_6);  // elided
+        [M M M D M D M D M D] drop(_3);  // elided
+        [M M D D M D M D M D] drop(_1);  // elided
+        [D M D D M D M D M D] return;
+    }
+}

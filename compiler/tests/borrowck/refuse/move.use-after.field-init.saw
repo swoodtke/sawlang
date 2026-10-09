@@ -1,0 +1,17 @@
+// refuses: move.use-after at 16:22
+// a binding moved into a struct literal, then passed on by value
+// (conformance V13, V14)
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Holder { res: Res }
+extension Holder: NoCopy {}
+
+func take(r: Res) -> Int { r.id }
+
+func main() {
+    let r = Res(id: 1)
+    let h = Holder(res: move r)
+    print(h.res.id + take(move r))
+}

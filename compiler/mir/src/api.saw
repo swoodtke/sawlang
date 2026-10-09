@@ -20,6 +20,8 @@ public struct MirOptions {
     public dump: Bool
     // Print the notes about interface modules as well as the refusals.
     public notes: Bool
+    // Follow each dumped statement and terminator with its source position.
+    public spans: Bool
 }
 
 // The program whose entry file is `path`, type checked and lowered to MIR.
@@ -41,18 +43,18 @@ public func mir_record(out: &var StringBuilder, path: String, options: &MirOptio
     var p = mir_lower_file(path, options.std_root, &names, &dirs)
     let status = mir_append_checks(out: &var out, p: &var p, notes: options.notes)
     if options.dump {
-        mir_append_dumps(out: &var out, p: &p)
+        mir_append_dumps(out: &var out, p: &p, spans: options.spans)
     }
     status
 }
 
 // Each module checked in full's dump, in load order.
-public func mir_append_dumps(out: &var StringBuilder, p: &MirProgram) {
+public func mir_append_dumps(out: &var StringBuilder, p: &MirProgram, spans: Bool) {
     var m = 0
     while m < p.tc.res.module_count() {
         let info = p.tc.res.module(m)
         if info.available && not info.interface_only {
-            mir_dump_module(&p, &var out, m)
+            mir_dump_module(&p, &var out, m, spans)
             try! out.append("\n")
         }
         m = m + 1

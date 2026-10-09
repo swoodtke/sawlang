@@ -1,0 +1,14 @@
+// refuses: move.use-after at 11:5
+// `move o!` retires the whole Optional binding, which is then read
+// (conformance V15)
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func main() {
+    let o: Res? = Res(id: 1)
+    let r = move o!
+    if let _ = o {
+        print(r.id)
+    }
+}

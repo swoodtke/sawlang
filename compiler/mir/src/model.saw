@@ -187,6 +187,10 @@ public struct MirStmt {
     public yields: Bool
     // The next statement of the same block, or -1.
     public next: Int
+    // The source node it lowers, and whether it stands at that node's end,
+    // a block's closing (compiler/tests/mir/README.md, "Source nodes").
+    public node: Int
+    public closing: Bool
 }
 
 public enum MirTermKind {
@@ -226,6 +230,9 @@ public struct MirBlock {
     // A switch's arm for every value no arm names, or -1.
     public otherwise: Int
     public call: Int
+    // The terminator's source node, and whether it stands at that node's end.
+    public term_node: Int
+    public term_closing: Bool
 }
 
 // What a call terminator calls.

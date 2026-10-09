@@ -454,6 +454,9 @@ extension MirProgram {
             if keep[b] {
                 let block = self.blocks[source.block_first + b]
                 self.enter(half.block_map[b])
+                // A `lend`'s record writes and a return's `None` carry the
+                // terminator they replace.
+                let saved = self.source_as(block.term_node, block.term_closing)
                 if block.term == MirTermKind.Call && self.calls[block.call].kind == MirCallKind.Lend {
                     let c = self.calls[block.call]
                     let site = self.site_index(&source, b)
@@ -484,6 +487,7 @@ extension MirProgram {
                 } else {
                     self.copy_terminator(&block, &half)
                 }
+                self.source_restore(saved)
             }
             b = b + 1
         }
@@ -559,6 +563,9 @@ extension MirProgram {
         let entry = self.new_block()
         self.copy_blocks(&source, &var half, &keep)
         self.enter(entry)
+        // The entry's record reads and resume dispatch carry the accessor's
+        // body.
+        let saved = self.source_at(source.root)
         if record_type >= 0 {
             let base = self.place_local(1)
             let whole = self.project(base, MirProjKind.Deref, -1, -1, record_type)
@@ -573,6 +580,7 @@ extension MirProgram {
             }
         }
         self.dispatch_resumes(&half, &record, record_type, &resumes)
+        self.source_restore(saved)
         var b = 0
         while b < source.block_count {
             if keep[b] {
@@ -821,6 +829,7 @@ extension MirProgram {
                 while s >= 0 {
                     let stmt = self.stmts[s]
                     s = stmt.next
+                    let saved = self.source_as(stmt.node, stmt.closing)
                     if stmt.kind == MirStmtKind.Assign {
                         let p = self.half_place(stmt.place, &half)
                         let rv = self.half_rvalue(stmt.rvalue, &half)
@@ -831,6 +840,7 @@ extension MirProgram {
                     } else {
                         self.emit_budget(stmt.yields)
                     }
+                    self.source_restore(saved)
                 }
             }
             b = b + 1
@@ -839,6 +849,12 @@ extension MirProgram {
 
     // Block `block`'s terminator, copied into the current block.
     func copy_terminator(&var self, block: &MirBlock, half: &MirHalf) {
+        let saved = self.source_as(block.term_node, block.term_closing)
+        self.copy_terminator_at(&block, &half)
+        self.source_restore(saved)
+    }
+
+    func copy_terminator_at(&var self, block: &MirBlock, half: &MirHalf) {
         match block.term {
             case Open -> {},
             case Goto -> self.goto(half.block_map[block.target]),

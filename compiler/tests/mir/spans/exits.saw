@@ -1,0 +1,53 @@
+// Scope-exit drops: at a block's fallthrough they carry the block's closing
+// brace; on `return`, `break` and `continue` the statement that exits.
+
+func fallthrough(n: Int) -> Int {
+    let s = "fallthrough"
+    if n > 0 {
+        let t = "inner"
+        print(t)
+    }
+    s.len()
+}
+
+func returned(n: Int) -> Int {
+    let s = "returned"
+    if n > 0 {
+        return s.len()
+    }
+    0
+}
+
+func looped(n: Int) -> Int {
+    var k = 0
+    while k < n {
+        let s = "looped"
+        k = k + 1
+        if k == 2 {
+            continue
+        }
+        if k == 5 {
+            break
+        }
+        print(s)
+    }
+    k
+}
+
+func check(n: Int) -> Result<Int, String> {
+    if n > 0 {
+        return n
+    }
+    Result.Err("negative")
+}
+
+func tried(n: Int) -> Result<Int, String> {
+    let s = "tried"
+    let v = try check(n)
+    v + s.len()
+}
+
+func main() {
+    print(fallthrough(1) + returned(1) + looped(9))
+    let _ = tried(1)
+}

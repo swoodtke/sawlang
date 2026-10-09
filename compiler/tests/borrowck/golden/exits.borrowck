@@ -1,0 +1,143 @@
+module exits
+
+fn exits.take(r: exits.Res) {
+    place _1: exits.Res;  // r
+
+    bb0: {
+        [W] _0 = copy _1.id;
+        [W] drop(_1);  // static
+        [D] return;
+    }
+}
+
+fn exits.check(n: Int) {
+    place _0: Result<Int, String>;  // _0
+    place _3: Result<Int, String>;  // _3
+    place _4: Result<Int, String>;  // _4
+
+    bb0: {
+        [U U U] _2 = Lt(copy _1, const 0: Int);
+        [U U U] switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        [U U U] _4 = Result<Int, String>::Ok(copy _1);
+        [U U W] _0 = move _4;
+        [W U M] return;
+    }
+
+    bb2: {
+        [U U U] _3 = Result<Int, String>::Err(const "negative": String);
+        [U W U] _0 = move _3;
+        [W M U] return;
+    }
+
+    bb3: {
+        [U U U] goto -> bb1;
+    }
+}
+
+fn exits.early(n: Int) {
+    place _2: exits.Res;  // a
+    place _3: exits.Res;  // _3
+    place _4: exits.Res;  // b
+    place _5: exits.Res;  // _5
+
+    bb0: {
+        [U U U U] _3 = exits.Res { id: const 1: Int };
+        [U W U U] _2 = move _3;
+        [W M U U] _5 = exits.Res { id: const 2: Int };
+        [W M U W] _4 = move _5;
+        [W M W M] _6 = Gt(copy _1, const 0: Int);
+        [W M W M] switch move _6 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        [W M W M] _8 = call exits.take(r: exits.Res) [move _4] -> [return: bb5];
+    }
+
+    bb2: {
+        [W M W M] _7 = call exits.take(r: exits.Res) [move _2] -> [return: bb4];
+    }
+
+    bb3: {
+        [W M W M] goto -> bb1;
+    }
+
+    bb4: {
+        [M M W M] _0 = move _7;
+        [M M W M] drop(_4);  // static
+        [M M D M] drop(_2);  // elided
+        [D M D M] return;
+    }
+
+    bb5: {
+        [W M M M] _9 = Add(move _8, copy _2.id);
+        [W M M M] _0 = move _9;
+        [W M M M] drop(_4);  // elided
+        [W M D M] drop(_2);  // static
+        [D M D M] return;
+    }
+}
+
+fn exits.propagated(n: Int) {
+    place _0: Result<Int, String>;  // _0
+    place _2: exits.Res;  // a
+    place _3: exits.Res;  // _3
+    place _8: Result<Int, String>;  // _8
+    place _10: Result<Int, String>;  // _10
+    place (_8 as Err).0: String;  // (_8 as Err).0
+
+    bb0: {
+        [U U U U U U] _3 = exits.Res { id: const 3: Int };
+        [U U W U U U] _2 = move _3;
+        [U W M U U U] _5 = call exits.take(r: exits.Res) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        [U M M U U U] _4 = move _5;
+        [U M M U U U] _7 = Add(copy _1, copy _4);
+        [U M M U U U] _8 = call exits.check(n: Int) [move _7] -> [return: bb2];
+    }
+
+    bb2: {
+        [U M M W U W] switch discriminant(_8) -> [Ok: bb3, Err: bb4];
+    }
+
+    bb3: {
+        [U M M W U W] _9 = copy (_8 as Ok).0;
+        [U M M W U W] drop(_8);  // static
+        [U M M D U D] _6 = move _9;
+        [U M M D U D] _10 = Result<Int, String>::Ok(copy _6);
+        [U M M D W D] _0 = move _10;
+        [W M M D M D] drop(_2);  // elided
+        [W D M D M D] return;
+    }
+
+    bb4: {
+        [U M M W U W] _0 = Result<Int, String>::Err(move (_8 as Err).0);
+        [W M M P U M] drop(_2);  // elided
+        [W D M P U M] return;
+    }
+}
+
+fn exits.main() {
+    place _2: Result<Int, String>;  // _2
+
+    bb0: {
+        [U] _1 = call exits.early(n: Int) [const 1: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        [U] call builtin print [copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        [U] _2 = call exits.propagated(n: Int) [const 1: Int] -> [return: bb3];
+    }
+
+    bb3: {
+        [W] drop(_2);  // static
+        [D] return;
+    }
+}

@@ -1,0 +1,38 @@
+// `consumes` field moves: a field moved on every path to a return, a field
+// moved on none, and a field moved on all but a path that diverges, which is
+// exempt since it reaches no return. The release drops the fields that stay.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Pair { a: Res, b: Res }
+extension Pair: NoCopy {}
+
+extension Pair {
+    func every(&var self, hot: Bool) consumes -> Res {
+        if hot {
+            return move self.a
+        }
+        move self.a
+    }
+
+    func none(&var self) consumes -> Int {
+        self.a.id + self.b.id
+    }
+
+    func diverging(&var self, n: Int) consumes -> Res {
+        if n < 0 {
+            panic("negative")
+        }
+        move self.b
+    }
+}
+
+func make() -> Pair { Pair(a: Res(id: 1), b: Res(id: 2)) }
+
+func main() {
+    let p = make()
+    let q = make()
+    let r = make()
+    print((move p).every(true).id + (move q).none() + (move r).diverging(1).id)
+}

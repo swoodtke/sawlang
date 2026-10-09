@@ -1,0 +1,21 @@
+// Straight-line moves: a binding moved into another, into a call and into a
+// struct is moved from there on, and the scope exit's drop of it is elided;
+// a binding never moved is dropped statically.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Box2 { inner: Res }
+extension Box2: NoCopy {}
+
+func take(r: Res) -> Int { r.id }
+
+func main() {
+    let a = Res(id: 1)
+    let b = move a
+    let n = take(move b)
+    let c = Res(id: n)
+    let d = Box2(inner: move c)
+    let e = Res(id: 2)
+    print(d.inner.id + e.id)
+}

@@ -37,6 +37,10 @@ compiler/
   eval/               the constant evaluator over MIR, package `saweval`
                       (tests/eval/README.md has its positions, record and rules)
     src/*.saw
+  borrowck/           the borrow check over MIR, package `sawborrowck`
+                      (tests/borrowck/README.md has its analysis, rules, labels
+                      and dump)
+    src/*.saw
   driver/             the `sawc2` binary, package `sawc2`
     src/main.saw
   tools/
@@ -84,6 +88,11 @@ compiler/
                       subset profile's fixtures, the lang items' paired dumps
                       and shape fixtures, the API-equivalence members and
                       exceptions, the behaviour pairs, the MIR pins and the cones
+    borrowck/         the borrowck lane (borrowck_lane.py): the dump's
+                      specification (README.md), golden records, refusal
+                      fixtures, the conformance matrix of the borrow-check rows
+                      (CONFORMANCE.md) and the move-error differential over
+                      tests/corpus/ (differential.tsv)
 ```
 
 The new std, the std sawc2 compiles from Stage 1 on, is the top-level `std/`
@@ -209,6 +218,14 @@ these things.
   and of one whose only Strings are literals reaching no runtime module and
   no allocator, and the one of a program that interpolates reaching the
   builder and the allocator.
+- **The borrow check** (`tests/borrowck/README.md`): the borrowck lane
+  (`tests/borrowck/borrowck_lane.py`) holds `sawc2 borrowck` to its golden
+  records and refusal fixtures, requires a fixture for every rule it refuses
+  by, checks the compiler's own source whole and the new std with no refusal
+  and no invariant, requires `tests/borrowck/CONFORMANCE.md` to account for
+  every row of the five borrow-check sections of
+  `examples/conformance/INDEX.md`, and holds every tests/corpus/ program that
+  expects a move error to a borrow-check refusal or a stated reason.
 
 ## The std profile
 
