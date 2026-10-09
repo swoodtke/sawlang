@@ -796,18 +796,13 @@ A temporary passed by value as an argument is dropped by its callee. An owned `m
 - **An exact rule:** refuse an owned operand that `_is_owned_temporary` accepts, at a comparison, an interpolation segment, a format argument or a cast in `compiler/`. String literals are exempt, since they are static.
 - **Today:** that predicate finds 0 leaking comparison operands in sawc2 (the driver, the lexer and the std they use). `compiler/lex` compares bytes as `Int` and builds records with `StringBuilder.append`.
 
-### S24. A reference nested in a type, or bound to a `let` (SL-462)
+### S24. A reference nested in a parameter's tuple type (SL-462)
 
-**Shape (missing check):** the spec allows a reference only as a parameter (plus a borrows lend, and a borrowing struct's shared field). Stage 0 checks the outermost written type, so it accepts a reference nested inside one, which sawc2's `type.reference-position` refuses:
-- a reference in a parameter type's tuple or type argument, such as `func f(p: (&Int, Int))` or `func f(v: Vector<&Int>)`;
-- a `let` whose annotation names a reference, such as `let r: &Int = …`;
-- a tuple built over a reference parameter, such as `let t = (p, 1)` where `p: &Int`.
+**Shape (missing check):** Stage 0 accepts a parameter declared with a reference inside a tuple type, `func f(p: (&Int, Int))`. sawc2's `type.reference-position` refuses it. The declaration is inert under Stage 0: no call can pass it a reference, since `f((&n, 4))` is refused ("`&` here is not a call argument"). Stage 0 already refuses a reference as a generic argument and a `let` annotated with a reference.
 
-A value built this way can carry a reference past the call that lent it, which is what the parameters-only rule exists to prevent.
+**Instead:** write a reference only as a whole parameter type; pass the tuple's parts as separate parameters.
 
-**Instead:** write a reference only as a whole parameter type, never inside a tuple or a type argument. Read the value into a plain binding (`let n = p`, which copies on read) before tupling or storing it.
-
-**Checker:** no. sawc2's typecheck refuses all three (`compiler/tests/typecheck/refuse/type.reference-position.*`), so Stage 1 rejects any compiler source that Stage 0 let through.
+**Checker:** no. sawc2's typecheck refuses it, so Stage 1 rejects any compiler source that Stage 0 let through.
 
 ## Loud hazards
 
