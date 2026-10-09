@@ -22,7 +22,8 @@ lane over `typecheck/`, the MIR lane over `mir/` and the evaluator lane over
 hold `sawc2 resolve`, `sawc2 typecheck`, `sawc2 mir` and `sawc2 eval` to their
 specifications, the evaluator lane also holding the evaluator and typecheck's
 fold to agreement over tests/corpus/; runs the std lane over `std/`, the
-new std; and runs the borrowck lane over `borrowck/`.
+new std; runs the borrowck lane over `borrowck/`; and runs the drops lane over
+`drops/`.
 The inventory of Stage 0 workaround markers prints first, then each failure as
 one line in a fixed order; the summary comes last, and any failure exits 1.
 """
@@ -76,6 +77,9 @@ import std_lane  # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "borrowck"))
 import borrowck_lane  # noqa: E402
 
+sys.path.insert(0, os.path.join(HERE, "drops"))
+import drops_lane  # noqa: E402
+
 UNIT_OUT = os.path.join(REPO, ".build", "compiler-tests")
 LEX_FIXTURES = os.path.join(HERE, "lex")
 SUBSET_FIXTURES = os.path.join(HERE, "subset")
@@ -87,6 +91,7 @@ TYPECHECK_CORPUS = os.path.join(HERE, "typecheck")
 MIR_CORPUS = os.path.join(HERE, "mir")
 EVAL_CORPUS = os.path.join(HERE, "eval")
 BORROWCK_CORPUS = os.path.join(HERE, "borrowck")
+DROPS_CORPUS = os.path.join(HERE, "drops")
 FUNNEL_FIXTURES = os.path.join(HERE, "funnel")
 LEXER_SOURCE = os.path.join(COMPILER, "lex", "src", "lib.saw")
 RUN_TIMEOUT = 60
@@ -185,6 +190,8 @@ def check_fixture_whitespace(run):
         paths += glob.glob(os.path.join(EVAL_CORPUS, "**", suffix), recursive=True)
     for suffix in ("*.saw", "*.borrowck", "*.md"):
         paths += glob.glob(os.path.join(BORROWCK_CORPUS, "**", suffix), recursive=True)
+    for suffix in ("*.saw", "*.drops", "*.md", "*.tsv"):
+        paths += glob.glob(os.path.join(DROPS_CORPUS, "**", suffix), recursive=True)
     for path in sorted(paths):
         rel = os.path.relpath(path, REPO)
         with open(path, "rb") as fh:
@@ -490,6 +497,18 @@ def run_borrowck(run):
         run.count(key, n)
 
 
+def run_drops(run):
+    """The drops lane (compiler/tests/drops/drops_lane.py): the golden
+    records, the refusal and due fixtures, the compiler's own source and the
+    new std elaborating with no refusal, the verifier clean over tests/corpus/,
+    and the conformance rows drop elaboration owns."""
+    failures, counts = drops_lane.run()
+    for failure in failures:
+        run.fail(failure)
+    for key, n in counts.items():
+        run.count(key, n)
+
+
 def main():
     run = Run()
     ok, output = build.build_sawc2()
@@ -513,6 +532,7 @@ def main():
         run_eval(run)
         run_std(run)
         run_borrowck(run)
+        run_drops(run)
     for line in run.inventory:
         print(line)
     for failure in run.failures:

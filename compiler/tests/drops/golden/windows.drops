@@ -1,0 +1,168 @@
+module windows
+
+fn windows.iterate(v: std.vector.Vector<String, std.alloc.GlobalAllocator>) -> Int {
+    let _0: Int;  // return
+    let _1: std.vector.Vector<String, std.alloc.GlobalAllocator>;  // param v
+    let _2: Int;  // total
+    let _3: std.vector.VectorIterator<String, std.alloc.GlobalAllocator>;
+    let _4: &std.vector.Vector<String, std.alloc.GlobalAllocator>;
+    let _5: String?;
+    let _6: &var std.vector.VectorIterator<String, std.alloc.GlobalAllocator>;
+    let _7: String;  // s
+    let _8: String;  // copied
+    let _9: Int;
+    let _10: &String;
+    let _11: Int;
+    let _12: Int;
+    window w0: std.vector.Vector.iter() shared;
+
+    bb0: {
+        _2 = const 0: Int;
+        _4 = ref(shared, _1);
+        _3 = window_open w0 prologue std.vector.Vector.iter() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) [move _4] -> [present: bb1];
+    }
+
+    bb1: {
+        goto -> bb2;
+    }
+
+    bb2: {
+        _6 = ref(exclusive, _3);
+        _5 = call std.vector.VectorIterator.next() (owner std.vector.VectorIterator<String, std.alloc.GlobalAllocator>) [move _6] -> [return: bb4];
+    }
+
+    bb3: {
+        window_close w0 epilogue std.vector.Vector.iter() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) -> [return: bb7];
+    }
+
+    bb4: {
+        switch discriminant(_5) -> [Some: bb5, None: bb3];
+    }
+
+    bb5: {
+        _7 = move (_5 as Some).0;
+        _8 = copy _7;
+        _9 = copy _2;
+        _10 = ref(shared, _8);
+        _11 = call std.string.String.len() (owner String) [move _10] -> [return: bb6];
+    }
+
+    bb6: {
+        _12 = Add(move _9, move _11);
+        _2 = move _12;
+        drop(_8);
+        drop(_7);
+        budget(yield-capable);
+        goto -> bb2;
+    }
+
+    bb7: {
+        _0 = copy _2;
+        drop(_1);
+        return;
+    }
+
+    glue String: builtin
+    glue std.vector.Vector<String, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit(), then structural
+}
+
+fn windows.inside(v: std.vector.Vector<String, std.alloc.GlobalAllocator>) -> Int {
+    let _0: Int;  // return
+    let _1: std.vector.Vector<String, std.alloc.GlobalAllocator>;  // param v
+    let _2: Int;  // total
+    let _3: &String;
+    let _4: &std.vector.Vector<String, std.alloc.GlobalAllocator>;
+    let _5: &String;  // ref first
+    let _6: String;  // label
+    let _7: &String;
+    let _8: Int;
+    window w0: std.vector.Vector.[](index: Int) shared;
+
+    bb0: {
+        _2 = const 0: Int;
+        _4 = ref(shared, _1);
+        _3 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) [move _4, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _5 = ref(shared, (*_3));
+        _6 = copy (*_5);
+        _7 = ref(shared, _6);
+        _8 = call std.string.String.len() (owner String) [move _7] -> [return: bb2];
+    }
+
+    bb2: {
+        _2 = move _8;
+        drop(_6);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) -> [return: bb3];
+    }
+
+    bb3: {
+        _0 = copy _2;
+        drop(_1);
+        return;
+    }
+
+    glue String: builtin
+    glue std.vector.Vector<String, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit(), then structural
+}
+
+fn windows.main() -> Void {
+    let _0: Void;  // return
+    let _1: std.vector.Vector<String, std.alloc.GlobalAllocator>;  // v
+    let _2: std.vector.Vector<String, std.alloc.GlobalAllocator>;
+    let _3: &var std.vector.Vector<String, std.alloc.GlobalAllocator>;
+    let _4: Result<Void, std.alloc.AllocError>;
+    let _5: Void;
+    let _6: std.vector.Vector<String, std.alloc.GlobalAllocator>;  // w
+    let _7: std.vector.Vector<String, std.alloc.GlobalAllocator>;
+    let _8: &var std.vector.Vector<String, std.alloc.GlobalAllocator>;
+    let _9: Result<Void, std.alloc.AllocError>;
+    let _10: Void;
+    let _11: Int;
+    let _12: Int;
+    let _13: Int;
+
+    bb0: {
+        _2 = call std.vector.Vector.init() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) [] -> [return: bb1];
+    }
+
+    bb1: {
+        _1 = move _2;
+        _3 = ref(exclusive, _1);
+        _4 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) [move _3, const "a": String] -> [return: bb2];
+    }
+
+    bb2: {
+        _5 = copy (_4 as Ok!).0;
+        drop(_4);
+        _7 = call std.vector.Vector.init() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) [] -> [return: bb3];
+    }
+
+    bb3: {
+        _6 = move _7;
+        _8 = ref(exclusive, _6);
+        _9 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) [move _8, const "bc": String] -> [return: bb4];
+    }
+
+    bb4: {
+        _10 = copy (_9 as Ok!).0;
+        drop(_9);
+        _11 = call windows.iterate(v: std.vector.Vector<String, std.alloc.GlobalAllocator>) [move _1] -> [return: bb5];
+    }
+
+    bb5: {
+        _12 = call windows.inside(v: std.vector.Vector<String, std.alloc.GlobalAllocator>) [move _6] -> [return: bb6];
+    }
+
+    bb6: {
+        _13 = Add(move _11, move _12);
+        call builtin print [move _13] -> [return: bb7];
+    }
+
+    bb7: {
+        return;
+    }
+
+    glue Result<Void, std.alloc.AllocError>: structural
+}

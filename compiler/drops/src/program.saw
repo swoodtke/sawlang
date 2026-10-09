@@ -1,0 +1,141 @@
+// Drop elaboration's program (SL:architecture §3.7): the borrow-checked MIR,
+// rewritten in place so that every drop is a concrete operation, with the
+// side tables that say how: each output drop's guard, and each function's drop
+// flags. The labels it elaborates are the borrow check's, read off the shared
+// initialisation analysis; nothing here derives initialisation again.
+
+import sawborrowck.src.program.{BorrowckProgram}
+import sawmir.src.initialisation.{MIR_INIT_UNASSIGNED, MIR_INIT_WHOLE, MirAccess, MirInit}
+import sawmir.src.model.{MirDiag}
+import sawmir.src.program.{MirProgram}
+
+// An output statement's guard: no drop, a plain drop, or (any value from 0
+// up) a drop guarded by the drop flag held in that local.
+public static DROPS_NOT_A_DROP: Int = -2
+public static DROPS_PLAIN: Int = -1
+
+// What an access does to a drop flag: nothing, clear it, or set it.
+public static DROPS_KEEP: Int = -1
+public static DROPS_CLEAR: Int = 0
+public static DROPS_SET: Int = 1
+
+public struct DropsProgram {
+    public bc: BorrowckProgram
+    // The refusals elaboration makes, `drop.must-consume`.
+    public diags: Vector<MirDiag>
+    // What elaboration found the stages before it left wrong, and in which
+    // module: each an INVARIANT line.
+    public problems: Vector<String>
+    public problem_modules: Vector<Int>
+    // The flagged drops of a place a part of which may have moved out, by
+    // statement: reported once, and elaborated to nothing.
+    public partial_drops: Vector<Int>
+    // By statement, in the MIR's statement arena: an output drop's guard.
+    public guards: Vector<Int>
+    // By function: whether it was elaborated, and its run of flags.
+    public elaborated: Vector<Bool>
+    public flag_first: Vector<Int>
+    public flag_count: Vector<Int>
+    // By flag: the local holding it, and a place naming the move path it
+    // tracks, which locates the path in any analysis of the function.
+    public flag_local: Vector<Int>
+    public flag_place: Vector<Int>
+}
+
+extension DropsProgram: NoCopy {}
+
+public func drops_program(bc: BorrowckProgram) -> DropsProgram {
+    var elaborated = Vector<Bool>()
+    var firsts = Vector<Int>()
+    var counts = Vector<Int>()
+    var k = 0
+    while k < bc.mir.funcs.len() {
+        try! elaborated.push(false)
+        try! firsts.push(0)
+        try! counts.push(0)
+        k = k + 1
+    }
+    DropsProgram(bc: move bc, diags: Vector<MirDiag>(), problems: Vector<String>(), problem_modules: Vector<Int>(),
+                 partial_drops: Vector<Int>(), guards: Vector<Int>(), elaborated: move elaborated, flag_first: move firsts,
+                 flag_count: move counts, flag_local: Vector<Int>(), flag_place: Vector<Int>())
+}
+
+extension DropsProgram {
+    // Statement `s`'s guard.
+    public func guard_of(&self, s: Int) -> Int {
+        if s < 0 || s >= self.guards.len() {
+            return DROPS_NOT_A_DROP
+        }
+        self.guards[s]
+    }
+
+    // Records statement `s`'s guard, growing the table to it.
+    public func set_guard(&var self, s: Int, value: Int) {
+        while self.guards.len() <= s {
+            try! self.guards.push(DROPS_NOT_A_DROP)
+        }
+        self.guards[s] = value
+    }
+
+    // Function `f`'s flag whose tracked path is `q` in `facts`, or -1.
+    public func flag_for_path(&self, f: Int, facts: &MirInit, q: Int) -> Int {
+        var j = 0
+        while j < self.flag_count[f] {
+            let at = self.flag_first[f] + j
+            let p = self.flag_place[at]
+            if self.bc.mir.init_path_of(p, &facts) == q {
+                return at
+            }
+            j = j + 1
+        }
+        return -1
+    }
+}
+
+// What access `a` does to the drop flag of path `q`: the flag mirrors
+// whether `q` is whole, so it is set where the shared analysis's transfer
+// makes `q` whole from any condition, cleared where it leaves `q` anything
+// but whole, and kept otherwise. The answer is the analysis's own `apply`,
+// run on the two extreme states.
+public func drops_flag_effect(facts: &MirInit, q: Int, a: &MirAccess) -> Int {
+    if a.path < 0 || a.cut || not drops_related(&facts, a.path, q) {
+        return DROPS_KEEP
+    }
+    let n = facts.path_count()
+    var whole = Vector<Int>()
+    var unset = Vector<Int>()
+    var k = 0
+    while k < n {
+        try! whole.push(MIR_INIT_WHOLE)
+        try! unset.push(MIR_INIT_UNASSIGNED)
+        k = k + 1
+    }
+    facts.apply(&var whole, &a)
+    facts.apply(&var unset, &a)
+    let stays = whole[q] == MIR_INIT_WHOLE
+    let becomes = unset[q] == MIR_INIT_WHOLE
+    if becomes {
+        return DROPS_SET
+    }
+    if stays {
+        return DROPS_KEEP
+    }
+    DROPS_CLEAR
+}
+
+// Whether path `a` and path `q` are one, or one lies inside the other.
+public func drops_related(facts: &MirInit, a: Int, q: Int) -> Bool {
+    drops_within(&facts, a, q) || drops_within(&facts, q, a)
+}
+
+// Whether path `inner` is path `outer` or lies inside it.
+public func drops_within(facts: &MirInit, inner: Int, outer: Int) -> Bool {
+    var at = inner
+    while at >= 0 {
+        if at == outer {
+            return true
+        }
+        at = facts.path_parent[at]
+    }
+    false
+}

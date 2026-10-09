@@ -83,6 +83,18 @@ arguments, then its destination. An access does this to the conditions:
 - a read, a borrow, and any access through a reference or an index change
   nothing.
 
+An accessor's state record carries a local that owns something and is not
+definitely whole at some `lend` with a drop flag (`compiler/tests/mir/README.md`,
+"Accessors"). Its two record statements are accesses of their own:
+
+- the prologue's `(*_1).K = move _L` is a **transfer** of `_L`: it acts as a
+  move, but the borrow check reports no use of it, since the local may already
+  be gone and its flag says whether it was;
+- the epilogue's `_L = move (*_1).K` is a **resume** of `_L`: it leaves the
+  local and every path inside it `W M`, maybe initialised, so its drop is
+  `flagged` and a use of it in the epilogue after a move in the prologue is
+  still a use after move.
+
 ## Rules
 
 | rule | refuses | fixtures |

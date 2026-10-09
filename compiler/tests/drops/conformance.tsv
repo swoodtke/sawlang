@@ -1,0 +1,17 @@
+# The conformance rows drop elaboration owns (CONFORMANCE.md, owner §3.7): each
+# row's migrated program in tests/corpus/, and what `sawc2 drops --dump` gives
+# it: `drops N, flags M` over its elaborated dump, or the refusal standing first.
+# A count changes only on purpose: review the program's dump, then this line.
+row	path	summary	reading
+V25	tests/corpus/conformance/V25_implicitcopy_deinit_once.saw	drops 2, flags 0	each Copy-tier value has one static drop; the copy's retain is glue (§3.8)
+V49	tests/corpus/closure_escaping_move_capture_consumed_once.saw	drops 2, flags 0	the escaping environment's one drop is placed; the body's move out of the environment and the environment's glue are DF-255a's shape, still open in the MIR
+V56	tests/corpus/conformance/V56_consuming_body_replaces_deinit_body.saw	drops 8, flags 0	a consumed receiver is released field by field, statically; `self = v` drops the old referent whole, through its deinit
+V63	tests/corpus/conformance/V63_owned_match_still_consumes.saw	drops 8, flags 0	every consuming match dissolves its scrutinee; each part's drop is static
+V71	tests/corpus/conformance/V71_borrowed_closure_binding_fence_is_narrow.saw	drops 6, flags 0	each value is dropped once, statically, in reverse declaration order
+V72	tests/corpus/conformance/V72_std_visitors_lend.saw	drops 12, flags 0	the visited values keep one static drop each; a visitor lends and drops nothing
+V73	tests/corpus/conformance/V73_closure_by_value_parameter_is_owned.saw	drops 6, flags 0	a by-value closure parameter is dropped once at the body's end, named or not
+V74	tests/corpus/conformance/V74_closure_parameter_moved_into_a_new_owner.saw	drops 5, flags 0	a parameter moved into a new owner has its drop elided
+V75	tests/corpus/conformance/V75_escaping_and_non_escaping_release_identically.saw	drops 4, flags 0	the escaping and non-escaping bodies drop their parameter alike
+V76	tests/corpus/conformance/V76_fold_threads_its_accumulator.saw	drops 8, flags 0	the accumulator moves through each call; only its final owner drops it
+V115	tests/corpus/conformance/V115_stored_closure_owns_its_captures.saw	refused type.mismatch	the migrated file is refused by typecheck first, a migration artifact
+V116	tests/corpus/conformance/V116_non_escaping_closure_keeps_its_stack_env.saw	drops 2, flags 0	a non-escaping closure's environment owns nothing a drop releases

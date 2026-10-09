@@ -252,7 +252,7 @@ extension MirProgram {
                                      block_first: block_first, block_count: 0, param_count: 0,
                                      window_first: window_first, window_count: 0, owner: owner,
                                      refused: false, order: order, record_first: 0, record_count: 0,
-                                     carried_first: 0, carried_count: 0))
+                                     record_flags_first: 0, carried_first: 0, carried_count: 0))
         self.func_of.add(root, 0, f)
         self.cur = f
         self.local_base = self.locals.len()

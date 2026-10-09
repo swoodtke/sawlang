@@ -6,10 +6,12 @@
 // conditional lend's absent path returns `None`. The epilogue is every block
 // a `lend` resumes into: it reads the record into its locals and continues.
 // The record holds exactly the locals live across the `lend`, by liveness
-// over the whole body, and a resume index when the body lends at more than
+// over the whole body, a drop flag for each owning one that is not definitely
+// whole at every `lend`, and a resume index when the body lends at more than
 // one place. It is the shape coroutine frames take (§3.9).
 
 import sawmir.src.build.{mir_func_local}
+import sawmir.src.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirInit}
 import sawmir.src.model.{MirAccessor, MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind,
                          MirFunc, MirFuncKind, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace,
                          MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind, MirSuspend,
@@ -102,15 +104,19 @@ extension MirProgram {
             }
             l = l + 1
         }
-        let record_t = self.record_type(f, &record, sites.len())
+        let flags = self.record_flag_slots(f, &record, &sites)
+        if self.funcs[f].refused {
+            return
+        }
+        let record_t = self.record_type(f, &record, &flags, sites.len())
         let s = self.tc.sigs[info.decl]
         let conditional = s.lending == TcLend.ConditionalPlace
         // Windows the prologue opens and the epilogue closes stay open across
         // the `lend`.
         let carried = self.carried_windows(f, &before, &after)
         let epilogue = self.funcs.len()
-        self.build_prologue(f, &info, &before, &record, record_t, &carried, conditional)
-        self.build_epilogue(&info, epilogue, &after, &record, record_t, &carried, &resumes)
+        self.build_prologue(f, &info, &before, &record, &flags, record_t, &carried, conditional)
+        self.build_epilogue(&info, epilogue, &after, &record, &flags, record_t, &carried, &resumes)
         let at = self.accessors.len()
         let prologue_suspends = self.half_suspends(f)
         let epilogue_suspends = self.half_suspends(epilogue)
@@ -352,10 +358,62 @@ extension MirProgram {
         }
     }
 
-    // The record's type: a tuple of the record locals' types, then an `Int`
-    // resume index when the body lends at more than one place; -1 when it
-    // holds nothing.
-    func record_type(&var self, f: Int, record: &Vector<Int>, sites: Int) -> Int {
+    // Per record local, the record field of its drop flag, or -1: a local
+    // that owns something and is not definitely whole at some `lend` carries
+    // its initialisation across the split in a `Bool` field after the locals,
+    // so the epilogue's drop of it is decided by the flag, not by the load
+    // (SL:architecture §3.7). The record write is a transfer the shared
+    // analysis models (initialisation.saw). A local partly moved out at a
+    // `lend` has no one flag, and is refused.
+    func record_flag_slots(&var self, f: Int, record: &Vector<Int>, sites: &Vector<Int>) -> Vector<Int> {
+        var out = Vector<Int>()
+        let facts = self.init_analysis(f)
+        var states = Vector<Int>()
+        var k = 0
+        while k < record.len() {
+            try! states.push(0)
+            k = k + 1
+        }
+        var j = 0
+        while j < sites.len() {
+            let b = sites[j]
+            j = j + 1
+            if not facts.reached[b] {
+                continue
+            }
+            var state = facts.entry_state(b)
+            self.init_walk_block(f, b, &facts, &var state)
+            k = 0
+            while k < record.len() {
+                let l = record[k]
+                states[k] |= state[l]
+                k = k + 1
+            }
+        }
+        var next = record.len()
+        k = 0
+        while k < record.len() {
+            let t = mir_func_local(&self, f, record[k]).ty
+            let own = states[k]
+            var slot = -1
+            if (own & MIR_INIT_PARTIAL) != 0 {
+                let root = self.funcs[f].root
+                self.not_yet_at(f, root, "an accessor whose local is partly moved out at `lend`")
+            } else if own != MIR_INIT_WHOLE && self.owns(t) {
+                slot = next
+                next = next + 1
+            }
+            try! out.push(slot)
+            k = k + 1
+        }
+        move out
+    }
+
+    // The record's type: a tuple of the record locals' types, then a `Bool`
+    // drop flag for each local `flags` gives a field, then an `Int` resume
+    // index when the body lends at more than one place; -1 when it holds
+    // nothing.
+    func record_type(&var self, f: Int, record: &Vector<Int>, flags: &Vector<Int>, sites: Int) -> Int {
         if record.len() == 0 && sites <= 1 {
             return -1
         }
@@ -364,6 +422,14 @@ extension MirProgram {
         while k < record.len() {
             let l = mir_func_local(&self, f, record[k])
             try! elements.push(l.ty)
+            k = k + 1
+        }
+        k = 0
+        while k < flags.len() {
+            if flags[k] >= 0 {
+                let b = self.tc.bool_type()
+                try! elements.push(b)
+            }
             k = k + 1
         }
         if sites > 1 {
@@ -433,7 +499,7 @@ extension MirProgram {
     // record, `_0` and returns; a return the entry reaches without lending
     // is a conditional lend's absent path, which gives `None`.
     func build_prologue(&var self, f: Int, source: &MirFunc, keep: &Vector<Bool>, record: &Vector<Int>,
-                        record_type: Int, carried: &Vector<Int>, conditional: Bool) {
+                        flags: &Vector<Int>, record_type: Int, carried: &Vector<Int>, conditional: Bool) {
         let s = self.tc.sigs[source.decl]
         var lent = s.result
         let exclusive = self.tc.is_exclusive_ref(lent)
@@ -475,7 +541,8 @@ extension MirProgram {
                     let ret = self.place_local(0)
                     let vrv = self.rv_use(value)
                     self.assign(ret, vrv)
-                    self.write_record(&half, &record, record_type, site)
+                    let index_field = mir_resume_field(&record, &flags)
+                    self.write_record(&half, &record, record_type, site, index_field)
                     self.ret()
                 } else if block.term == MirTermKind.Return && conditional {
                     let none = self.optional_case("None")
@@ -495,7 +562,7 @@ extension MirProgram {
         if record_type >= 0 {
             params = params + 1
         }
-        self.finish_half(f, &half, &record, &carried, params)
+        self.finish_half(f, &half, &record, &flags, &carried, params)
     }
 
     // Which `lend` site of `source` block `b` is, counted from 0 in block
@@ -514,8 +581,9 @@ extension MirProgram {
     }
 
     // The record's writes at `lend` site `site`: each record local moved into
-    // its field, then the resume index.
-    func write_record(&var self, half: &MirHalf, record: &Vector<Int>, record_type: Int, site: Int) {
+    // its field, then the resume index in field `index_field`. A local's flag
+    // field is drop elaboration's to write, since the flag is born there.
+    func write_record(&var self, half: &MirHalf, record: &Vector<Int>, record_type: Int, site: Int, index_field: Int) {
         if record_type < 0 {
             return
         }
@@ -532,9 +600,9 @@ extension MirProgram {
             k = k + 1
         }
         let n = self.tc.types.ty(record_type).count
-        if n > record.len() {
+        if n > index_field {
             let i = self.tc.int_type()
-            let field = self.project(whole, MirProjKind.Tuple, -1, record.len(), i)
+            let field = self.project(whole, MirProjKind.Tuple, -1, index_field, i)
             let text = site.to_string()
             let c = self.op_const(MirConstKind.Int, text, i)
             let rv = self.rv_use(c)
@@ -547,7 +615,7 @@ extension MirProgram {
     // reads each record field into its local and continues where the `lend`
     // resumed, by the resume index when there are several.
     func build_epilogue(&var self, source: &MirFunc, epilogue: Int, keep: &Vector<Bool>, record: &Vector<Int>,
-                        record_type: Int, carried: &Vector<Int>, resumes: &Vector<Int>) {
+                        flags: &Vector<Int>, record_type: Int, carried: &Vector<Int>, resumes: &Vector<Int>) {
         let v = self.tc.void_type()
         let local_first = self.locals.len()
         let block_first = self.blocks.len()
@@ -558,7 +626,7 @@ extension MirProgram {
                                      block_first: block_first, block_count: 0, param_count: 0,
                                      window_first: window_first, window_count: 0, owner: source.owner,
                                      refused: false, order: source.order, record_first: 0, record_count: 0,
-                                     carried_first: 0, carried_count: 0))
+                                     record_flags_first: 0, carried_first: 0, carried_count: 0))
         var half = self.start_half(epilogue, &source, &keep, &record, v, record_type, false)
         let entry = self.new_block()
         self.copy_blocks(&source, &var half, &keep)
@@ -579,7 +647,8 @@ extension MirProgram {
                 k = k + 1
             }
         }
-        self.dispatch_resumes(&half, &record, record_type, &resumes)
+        let index_field = mir_resume_field(&record, &flags)
+        self.dispatch_resumes(&half, index_field, record_type, &resumes)
         self.source_restore(saved)
         var b = 0
         while b < source.block_count {
@@ -591,12 +660,13 @@ extension MirProgram {
             b = b + 1
         }
         let params = if record_type >= 0 { 1 } else { 0 }
-        self.finish_half(epilogue, &half, &record, &carried, params)
+        self.finish_half(epilogue, &half, &record, &flags, &carried, params)
     }
 
     // The epilogue's entry continues at the block its `lend` resumes into:
-    // directly for one site, else by testing the resume index, site by site.
-    func dispatch_resumes(&var self, half: &MirHalf, record: &Vector<Int>, record_type: Int, resumes: &Vector<Int>) {
+    // directly for one site, else by testing the resume index in field
+    // `index_field`, site by site.
+    func dispatch_resumes(&var self, half: &MirHalf, index_field: Int, record_type: Int, resumes: &Vector<Int>) {
         if resumes.len() == 0 {
             self.ret()
             return
@@ -611,7 +681,7 @@ extension MirProgram {
         let b = self.tc.bool_type()
         var k = 0
         while k + 1 < resumes.len() {
-            let field = self.project(whole, MirProjKind.Tuple, -1, record.len(), i)
+            let field = self.project(whole, MirProjKind.Tuple, -1, index_field, i)
             var ops = Vector<Int>()
             try! ops.push(self.op_copy(field))
             let text = k.to_string()
@@ -967,9 +1037,10 @@ extension MirProgram {
         at
     }
 
-    // Closes half `h`: its counts, and its record locals and carried windows
-    // in its own numbering.
-    func finish_half(&var self, h: Int, half: &MirHalf, record: &Vector<Int>, carried: &Vector<Int>, params: Int) {
+    // Closes half `h`: its counts, and its record locals, their flag fields
+    // and its carried windows in its own numbering.
+    func finish_half(&var self, h: Int, half: &MirHalf, record: &Vector<Int>, flags: &Vector<Int>,
+                     carried: &Vector<Int>, params: Int) {
         var info = self.funcs[h]
         info.local_count = self.locals.len() - info.local_first
         info.block_count = self.blocks.len() - info.block_first
@@ -982,6 +1053,12 @@ extension MirProgram {
             k = k + 1
         }
         info.record_count = record.len()
+        info.record_flags_first = self.aux.len()
+        k = 0
+        while k < flags.len() {
+            try! self.aux.push(flags[k])
+            k = k + 1
+        }
         info.carried_first = self.aux.len()
         k = 0
         while k < carried.len() {
@@ -992,4 +1069,17 @@ extension MirProgram {
         self.funcs[h] = info
         self.current = -1
     }
+}
+
+// The record field of the resume index: after the locals and their flags.
+func mir_resume_field(record: &Vector<Int>, flags: &Vector<Int>) -> Int {
+    var n = record.len()
+    var k = 0
+    while k < flags.len() {
+        if flags[k] >= 0 {
+            n = n + 1
+        }
+        k = k + 1
+    }
+    n
 }

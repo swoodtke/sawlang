@@ -1,0 +1,47 @@
+// Glue resolution: each type a drop destroys resolves to its glue, which
+// monomorphization generates once per concrete type. A hand-written `deinit`
+// names its declaration and the conformance holding it, then the
+// structural drops follow; a type without one is structural, an Optional and
+// a tuple included; a closure value releases its environment; the String
+// Stage 0's root declares is builtin. In a generic body a drop of `T` or of
+// `Vector<T>` resolves per instantiation, never by a guess at one.
+
+struct Handle { fd: Int }
+extension Handle: NoCopy {
+    func deinit(&var self) {
+        print("closing {}", self.fd)
+    }
+}
+
+struct Owner { handle: Handle, name: String }
+extension Owner: NoCopy {}
+
+enum Slot {
+    case Full(handle: Handle),
+    case Empty
+}
+extension Slot: NoCopy {}
+
+func kinds(n: Int) -> Int {
+    let h = Handle(fd: n)
+    let o = Owner(handle: Handle(fd: n + 1), name: "owner")
+    let s = Slot.Full(handle: Handle(fd: n + 2))
+    let maybe: Handle? = Handle(fd: n + 3)
+    let pair = (Handle(fd: n + 4), 7)
+    let tag = "tag"
+    let f = { [tag] in tag.len() }
+    h.fd + o.handle.fd + pair.1 + f()
+}
+
+func hold<T>(x: T) -> Int {
+    let kept = move x
+    1
+}
+
+func count<T>(v: Vector<T>) -> Int {
+    v.len()
+}
+
+func main() {
+    print(kinds(1) + hold(Handle(fd: 9)) + count(Vector<Int>()))
+}

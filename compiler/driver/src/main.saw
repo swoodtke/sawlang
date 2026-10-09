@@ -16,18 +16,22 @@
 //   sawc2 eval --check FILE...      each entry file's constants evaluated, refusals and invariants only
 //   sawc2 borrowck --dump FILE...   each entry file's program borrow checked, and its dump
 //   sawc2 borrowck --check FILE...  each entry file's program borrow checked, refusals and invariants only
+//   sawc2 drops --dump FILE...      each entry file's program with its drops elaborated, and its dump
+//   sawc2 drops --check FILE...     each entry file's program elaborated, refusals and invariants only
 //
 // The lexer's records are its canonical dump (compiler/lex/README.md), the
 // parser's are described in compiler/parse/README.md, the resolver's in
 // compiler/tests/resolve/README.md, and the type checker's in
 // compiler/tests/typecheck/README.md, the MIR's in compiler/tests/mir/README.md,
-// the evaluator's in compiler/tests/eval/README.md, and the borrow check's in
-// compiler/tests/borrowck/README.md.
+// the evaluator's in compiler/tests/eval/README.md, the borrow check's in
+// compiler/tests/borrowck/README.md, and drop elaboration's in
+// compiler/tests/drops/README.md.
 // A lex error prints one ERROR record and
 // exits 1, and so does a file a later stage refuses; a usage or I/O failure
 // prints a message and exits 2.
 
 import sawborrowck.src.api.{BorrowckOptions, borrowck_record}
+import sawdrops.src.api.{DropsOptions, drops_record}
 import saweval.src.api.{EvalOptions, eval_record}
 import sawlex.src.lib.{LexResult, format_doc, format_error, format_token, kind_name, lex, token_kinds}
 import sawmir.src.api.{MirOptions, mir_record}
@@ -60,6 +64,8 @@ func driver_usage() -> Int {
     print("                  [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 borrowck (--dump | --check) [--notes] [--std-root DIR]")
     print("                      [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc2 drops (--dump | --check) [--notes] [--std-root DIR]")
+    print("                   [--module-path NAME=DIR]... [FILE | @LIST]...")
     DRIVER_EXIT_USAGE
 }
 
@@ -87,6 +93,9 @@ func main() -> Int {
     if command.equals("borrowck") {
         return driver_resolve(&args, DRIVER_STAGE_BORROWCK)
     }
+    if command.equals("drops") {
+        return driver_resolve(&args, DRIVER_STAGE_DROPS)
+    }
     driver_usage()
 }
 
@@ -96,8 +105,9 @@ static DRIVER_STAGE_TYPECHECK: Int = 1
 static DRIVER_STAGE_MIR: Int = 2
 static DRIVER_STAGE_EVAL: Int = 3
 static DRIVER_STAGE_BORROWCK: Int = 4
+static DRIVER_STAGE_DROPS: Int = 5
 
-// `sawc2 resolve`, `typecheck`, `mir`, `eval` and `borrowck`, which take the same
+// `sawc2 resolve`, `typecheck`, `mir`, `eval`, `borrowck` and `drops`, which take the same
 // flags, `--interfaces` and `--summaries` typecheck's alone and `--spans` the
 // MIR's: one record per
 // entry file, in order, each file the entry of its own program.
@@ -162,6 +172,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     let lowering = MirOptions(std_root: std_root, dump: dump, notes: notes, spans: spans)
     let evaluating = EvalOptions(std_root: std_root, dump: dump, notes: notes)
     let borrowing = BorrowckOptions(std_root: std_root, dump: dump, notes: notes)
+    let elaborating = DropsOptions(std_root: std_root, dump: dump, notes: notes)
     var status = 0
     var k = 0
     while k < inputs.len() {
@@ -171,7 +182,10 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
             try! out.append(input.path)
             try! out.append("\n")
             var result = 0
-            if stage == DRIVER_STAGE_BORROWCK {
+            if stage == DRIVER_STAGE_DROPS {
+                result = drops_record(out: &var out, path: input.path, options: &elaborating, names: &names,
+                                      dirs: &dirs)
+            } else if stage == DRIVER_STAGE_BORROWCK {
                 result = borrowck_record(out: &var out, path: input.path, options: &borrowing, names: &names,
                                          dirs: &dirs)
             } else if stage == DRIVER_STAGE_EVAL {

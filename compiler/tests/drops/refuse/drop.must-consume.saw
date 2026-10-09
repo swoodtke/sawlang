@@ -1,0 +1,15 @@
+// due: drop.must-consume when spawn enters the slice
+// refuses: slice.not-yet at 13:13
+// A `Thread` handle whose fate is never written reaches the scope exit's
+// implicit drop, which drop elaboration refuses once spawn is lowered: a
+// handle must reach `join` or `detach` on every path.
+
+func crunch(n: Int) -> Int {
+    n * 2
+}
+
+func main() {
+    let n = 4
+    var t = Thread.spawn { [n] in crunch(n) }
+    print(n)
+}

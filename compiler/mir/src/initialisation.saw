@@ -16,6 +16,10 @@
 //     verify_flow (compiler/mir/src/verify.saw: compiler bugs, as invariants)
 //     sawborrowck (compiler/borrowck: use after move, `consumes.some-paths`,
 //     and each drop's label for drop elaboration)
+//     record_flag_slots (compiler/mir/src/split.saw: which record locals
+//     carry a drop flag across an accessor's split)
+//     sawdrops (compiler/drops: each flag's updates, and the verifier after
+//     elaboration)
 
 import sawmir.src.build.{mir_func_local}
 import sawmir.src.dump.{mir_module_functions}
@@ -33,13 +37,19 @@ public static MIR_INIT_DROPPED: Int = 16
 
 // What an access does to the place it names: a read (a copy, a switch, an
 // index, a write through a reference), a move, a borrow, a write that
-// assigns the path, or a drop.
+// assigns the path, or a drop. An accessor's record carries a local that is
+// only maybe initialised at `lend` with its drop flag: the prologue's write
+// into the record is a transfer, which ends the local as a move does but
+// uses nothing, since the local may already be gone; the epilogue's load out
+// of it is a resume, which leaves the local maybe initialised.
 public enum MirAccessKind {
     case Read,
     case Move,
     case Borrow,
     case Write,
-    case Drop
+    case Drop,
+    case Transfer,
+    case Resume
 }
 
 // One access of a statement or a terminator, in evaluation order. `path` is
@@ -133,18 +143,22 @@ extension MirInit {
     // dropped. A read or a borrow, and any access reaching through a
     // reference or an index, changes nothing. A write to a part of a partial
     // path leaves that path partial, since the part written need not be the
-    // one that left.
+    // one that left. A transfer acts as a move, and a resume leaves the path
+    // and everything in it whole or moved.
     public func apply(&self, state: &var Vector<Int>, a: &MirAccess) {
         if a.path < 0 || a.cut {
             return
         }
         var set = 0
-        if a.kind == MirAccessKind.Move {
+        let moving = a.kind == MirAccessKind.Move || a.kind == MirAccessKind.Transfer
+        if moving {
             set = MIR_INIT_MOVED
         } else if a.kind == MirAccessKind.Write {
             set = MIR_INIT_WHOLE
         } else if a.kind == MirAccessKind.Drop {
             set = MIR_INIT_DROPPED
+        } else if a.kind == MirAccessKind.Resume {
+            set = MIR_INIT_WHOLE | MIR_INIT_MOVED
         } else {
             return
         }
@@ -154,7 +168,7 @@ extension MirInit {
             state[inside[k]] = set
             k = k + 1
         }
-        if a.kind != MirAccessKind.Move {
+        if not moving {
             return
         }
         var up = self.path_parent[a.path]
@@ -317,20 +331,99 @@ extension MirProgram {
         var out = Vector<MirAccess>()
         let stmt = self.stmts[s]
         if stmt.kind == MirStmtKind.Assign {
+            let transfer = self.record_transfer_field(f, s) >= 0
             if stmt.rvalue >= 0 {
                 let rv = self.rvalues[stmt.rvalue]
-                self.init_operand_accesses(rv.first, rv.count, s, &facts, &var out)
+                if transfer {
+                    let o = self.lists[rv.first]
+                    let operand = self.operands[o]
+                    self.init_place_access(MirAccessKind.Transfer, operand.place, s, &facts, &var out)
+                } else {
+                    self.init_operand_accesses(rv.first, rv.count, s, &facts, &var out)
+                }
                 if rv.kind == MirRvalueKind.Ref && rv.place >= 0 {
                     self.init_place_access(MirAccessKind.Borrow, rv.place, s, &facts, &var out)
                 }
             }
             if stmt.place >= 0 {
-                self.init_place_access(MirAccessKind.Write, stmt.place, s, &facts, &var out)
+                var kind = MirAccessKind.Write
+                if self.record_resume_field(f, s) >= 0 {
+                    kind = MirAccessKind.Resume
+                }
+                self.init_place_access(kind, stmt.place, s, &facts, &var out)
             }
         } else if stmt.kind == MirStmtKind.Drop && stmt.place >= 0 {
             self.init_place_access(MirAccessKind.Drop, stmt.place, s, &facts, &var out)
         }
         move out
+    }
+
+    // The flag field of the record entry statement `s` of prologue `f` moves
+    // a local into, `(*_1).K = move _L`, when that entry carries a flag; -1
+    // for any other statement.
+    public func record_transfer_field(&self, f: Int, s: Int) -> Int {
+        let info = self.funcs[f]
+        let stmt = self.stmts[s]
+        if info.kind != MirFuncKind.Prologue || stmt.kind != MirStmtKind.Assign || stmt.rvalue < 0 {
+            return -1
+        }
+        let rv = self.rvalues[stmt.rvalue]
+        if rv.kind != MirRvalueKind.Use || rv.count != 1 {
+            return -1
+        }
+        let o = self.lists[rv.first]
+        let operand = self.operands[o]
+        if operand.kind != MirOperandKind.Move || operand.place < 0 {
+            return -1
+        }
+        self.record_entry_flag(f, stmt.place)
+    }
+
+    // The flag field of the record entry statement `s` of epilogue `f` loads
+    // a local from, `_L = move (*_1).K`, when that entry carries a flag; -1
+    // for any other statement.
+    public func record_resume_field(&self, f: Int, s: Int) -> Int {
+        let info = self.funcs[f]
+        let stmt = self.stmts[s]
+        if info.kind != MirFuncKind.Epilogue || stmt.kind != MirStmtKind.Assign || stmt.rvalue < 0 {
+            return -1
+        }
+        if stmt.place < 0 || self.places[stmt.place].count != 0 {
+            return -1
+        }
+        let rv = self.rvalues[stmt.rvalue]
+        if rv.kind != MirRvalueKind.Use || rv.count != 1 {
+            return -1
+        }
+        let o = self.lists[rv.first]
+        let operand = self.operands[o]
+        if operand.kind != MirOperandKind.Move || operand.place < 0 {
+            return -1
+        }
+        self.record_entry_flag(f, operand.place)
+    }
+
+    // When place `p` is a record entry of half `f`, `(*_1).K` for a record
+    // local K, the field of that entry's flag, else -1.
+    public func record_entry_flag(&self, f: Int, p: Int) -> Int {
+        let info = self.funcs[f]
+        if p < 0 {
+            return -1
+        }
+        let place = self.places[p]
+        if place.local != 1 || place.count != 2 {
+            return -1
+        }
+        let first = self.projs[place.first]
+        let second = self.projs[place.first + 1]
+        if first.kind != MirProjKind.Deref || second.kind != MirProjKind.Tuple {
+            return -1
+        }
+        let k = second.index
+        if k < 0 || k >= info.record_count {
+            return -1
+        }
+        self.aux[info.record_flags_first + k]
     }
 
     // Block `b`'s terminator's accesses: a switch's operand or place; a

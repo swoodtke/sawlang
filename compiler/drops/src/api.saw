@@ -1,0 +1,153 @@
+// Drop elaboration's entry point: a program checked, lowered, borrow checked,
+// then elaborated once the borrow check accepts it, and the record
+// `sawc2 drops` prints for it.
+
+import sawborrowck.src.check.{borrowck_rules}
+import sawborrowck.src.program.{BorrowckProgram, borrowck_program}
+import sawborrowck.src.verify.{borrowck_verify_module}
+import sawdrops.src.dump.{drops_dump_module}
+import sawdrops.src.elaborate.{drops_rules}
+import sawdrops.src.program.{DropsProgram, drops_program}
+import sawdrops.src.verify.{drops_verify_module}
+import sawmir.src.api.{mir_append_checks, mir_append_diag, mir_append_invariants, mir_lower_file}
+import sawmir.src.program.{MirProgram}
+import sawresolve.src.program.{ResProgram}
+import sawtypecheck.src.program.{TcProgram}
+
+// How `sawc2 drops` treats one entry file.
+public struct DropsOptions {
+    public std_root: String
+    // Print each elaborated module's dump.
+    public dump: Bool
+    public notes: Bool
+}
+
+// The record of one program, after its `FILE` line: everything
+// `sawc2 borrowck --check` prints; then, when nothing was refused and no
+// verifier found a problem, drop elaboration's refusals, each an `ERROR`
+// line, an `INVARIANT` line per problem elaboration met or its verifier
+// finds, and with `dump` each elaborated module's dump. Returns 0 when
+// nothing was refused and 1 otherwise.
+public func drops_record(out: &var StringBuilder, path: String, options: &DropsOptions, names: &Vector<String>,
+                         dirs: &Vector<String>) -> Int {
+    var lowered = mir_lower_file(path, options.std_root, &names, &dirs)
+    var head = StringBuilder()
+    var status = mir_append_checks(out: &var head, p: &var lowered, notes: options.notes)
+    var bc = borrowck_program(move lowered)
+    var m = 0
+    while m < bc.mir.tc.res.module_count() {
+        let info = bc.mir.tc.res.module(m)
+        if info.available && not info.interface_only {
+            bc.check_module(m)
+        }
+        m = m + 1
+    }
+    var k = 0
+    while k < bc.diags.len() {
+        let d = bc.diags[k]
+        mir_append_diag(out: &var head, p: &bc.mir, d: &d)
+        k = k + 1
+    }
+    if bc.diags.len() > 0 {
+        status = 1
+    }
+    m = 0
+    while m < bc.mir.tc.res.module_count() {
+        let info = bc.mir.tc.res.module(m)
+        if info.available && not info.interface_only {
+            let found = borrowck_verify_module(&var bc, m)
+            mir_append_invariants(out: &var head, p: &bc.mir, m: m, problems: &found)
+        }
+        m = m + 1
+    }
+    let before = head.build()
+    try! out.append(before)
+    // MIR some verifier found a problem in is not elaborated: the drops it
+    // holds are not the ones the program owes.
+    if status != 0 || drops_has_invariant(before) {
+        return status
+    }
+    var p = drops_program(move bc)
+    m = 0
+    while m < p.bc.mir.tc.res.module_count() {
+        let info = p.bc.mir.tc.res.module(m)
+        if info.available && not info.interface_only {
+            p.elaborate_module(m)
+        }
+        m = m + 1
+    }
+    k = 0
+    while k < p.diags.len() {
+        let d = p.diags[k]
+        mir_append_diag(out: &var out, p: &p.bc.mir, d: &d)
+        k = k + 1
+    }
+    if p.diags.len() > 0 {
+        status = 1
+    }
+    m = 0
+    while m < p.bc.mir.tc.res.module_count() {
+        let info = p.bc.mir.tc.res.module(m)
+        if info.available && not info.interface_only {
+            var met = Vector<String>()
+            var j = 0
+            while j < p.problems.len() {
+                if p.problem_modules[j] == m {
+                    try! met.push(p.problems.get(j) ?? "")
+                }
+                j = j + 1
+            }
+            mir_append_invariants(out: &var out, p: &p.bc.mir, m: m, problems: &met)
+            let found = drops_verify_module(&var p, m)
+            mir_append_invariants(out: &var out, p: &p.bc.mir, m: m, problems: &found)
+        }
+        m = m + 1
+    }
+    if options.dump {
+        m = 0
+        while m < p.bc.mir.tc.res.module_count() {
+            let info = p.bc.mir.tc.res.module(m)
+            if info.available && not info.interface_only {
+                drops_dump_module(&var p, &var out, m)
+                try! out.append("\n")
+            }
+            m = m + 1
+        }
+    }
+    status
+}
+
+static DROPS_NEWLINE: Int = 10
+
+// Whether record text `text` holds an `INVARIANT` line.
+public func drops_has_invariant(text: String) -> Bool {
+    let n = text.len()
+    var start = 0
+    while start < n {
+        if drops_starts_at(&text, start, "INVARIANT\t") {
+            return true
+        }
+        var i = start
+        while i < n && (text.byte_at(i) as Int) != DROPS_NEWLINE {
+            i = i + 1
+        }
+        start = i + 1
+    }
+    false
+}
+
+// Whether `text` holds `word` from byte `at`.
+func drops_starts_at(text: &String, at: Int, word: String) -> Bool {
+    let m = word.len()
+    if at + m > text.len() {
+        return false
+    }
+    var k = 0
+    while k < m {
+        if (text.byte_at(at + k) as Int) != (word.byte_at(k) as Int) {
+            return false
+        }
+        k = k + 1
+    }
+    true
+}

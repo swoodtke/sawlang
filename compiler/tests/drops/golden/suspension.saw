@@ -1,0 +1,25 @@
+// A flagged drop across a suspending call: the flag is an ordinary `Bool`
+// local, set and cleared before the suspension point and read after it, so
+// the coroutine frame builder carries it like any other local that lives
+// across one.
+
+import std.task.{yield_now}
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func take(r: Res) -> Int { r.id }
+
+func paused(keep: Bool) -> Int {
+    let r = Res(id: 1)
+    var n = 0
+    if keep {
+        n = take(move r)
+    }
+    yield_now()
+    n + 1
+}
+
+func main() {
+    print(paused(true) + paused(false))
+}

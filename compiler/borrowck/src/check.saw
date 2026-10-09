@@ -91,7 +91,9 @@ extension BorrowckProgram {
     // Each of `accesses` checked against `state`, then applied to it: a read,
     // a move or a borrow of a place that may have been moved, or a part of
     // which may have been, is a use after move, and so is a write to a part
-    // of a place that may have been moved whole; a drop is labelled.
+    // of a place that may have been moved whole; a drop is labelled. A
+    // record transfer uses nothing: its flag carries whether the local was
+    // still there.
     func check_accesses(&var self, f: Int, b: Int, facts: &MirInit, state: &var Vector<Int>,
                         accesses: &Vector<MirAccess>, reported: &var Vector<Int>) {
         var k = 0
@@ -106,7 +108,7 @@ extension BorrowckProgram {
                     }
                     self.labels[a.stmt] = label
                 }
-            } else if a.path >= 0 {
+            } else if a.path >= 0 && a.kind != MirAccessKind.Transfer {
                 self.check_use(f, b, &facts, &state, &a, &var reported)
             }
             facts.apply(&var state, &a)

@@ -1,0 +1,53 @@
+module straight
+
+fn straight.take(r: straight.Res) -> Int {
+    let _0: Int;  // return
+    let _1: straight.Res;  // param r
+
+    bb0: {
+        _0 = copy _1.id;
+        drop(_1);
+        return;
+    }
+
+    glue straight.Res: structural
+}
+
+fn straight.main() -> Void {
+    let _0: Void;  // return
+    let _1: straight.Res;  // a
+    let _2: straight.Res;
+    let _3: straight.Res;  // b
+    let _4: straight.Res;
+    let _5: straight.Res;  // c
+    let _6: straight.Res;
+    let _7: Int;  // n
+    let _8: Int;
+    let _9: Int;
+    let _10: Int;
+
+    bb0: {
+        _2 = straight.Res { id: const 1: Int };
+        _1 = move _2;
+        _4 = straight.Res { id: const 2: Int };
+        _3 = move _4;
+        _6 = straight.Res { id: const 3: Int };
+        _5 = move _6;
+        _8 = call straight.take(r: straight.Res) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _7 = move _8;
+        _9 = Add(copy _1.id, copy _7);
+        _10 = Add(move _9, copy _5.id);
+        call builtin print [move _10] -> [return: bb2];
+    }
+
+    bb2: {
+        drop(_5);
+        drop(_1);
+        return;
+    }
+
+    glue straight.Res: structural
+}

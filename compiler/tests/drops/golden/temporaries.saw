@@ -1,0 +1,24 @@
+// Statement temporaries drop at the end of their statement, in reverse order
+// of creation: the second `label` call's String drops before the first's.
+// A temporary created on one side of a short circuit only is dropped under
+// a flag, since the other side never creates it.
+
+func label(n: Int) -> String {
+    if n > 0 {
+        return "positive"
+    }
+    "other"
+}
+
+func both(n: Int) -> Int {
+    label(n).len() + label(n + 1).len()
+}
+
+func short(n: Int, check: Bool) -> Bool {
+    check && label(n).len() > 3
+}
+
+func main() {
+    print(both(1))
+    print(short(1, true))
+}

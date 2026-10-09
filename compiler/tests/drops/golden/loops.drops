@@ -1,0 +1,200 @@
+module loops
+
+fn loops.take(r: loops.Res) -> Int {
+    let _0: Int;  // return
+    let _1: loops.Res;  // param r
+
+    bb0: {
+        _0 = copy _1.id;
+        drop(_1);
+        return;
+    }
+
+    glue loops.Res: structural
+}
+
+fn loops.sometimes(n: Int, stop: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;  // param stop
+    let _3: loops.Res;  // r
+    let _4: loops.Res;
+    let _5: Int;  // total
+    let _6: Int;  // k
+    let _7: Bool;
+    let _8: Int;
+    let _9: Bool;
+    let _10: Int;
+    let _11: Int;
+    let _12: Int;
+    let _13: Int;
+    let _14: Bool;
+    let _15: Int;
+    let _16: Int;
+    let _17: Int;
+    let _18: loops.Res;
+    let _19: Bool;  // flag _3
+
+    bb0: {
+        _19 = const false: Bool;
+        _4 = loops.Res { id: const 0: Int };
+        _3 = move _4;
+        _19 = const true: Bool;
+        _5 = const 0: Int;
+        _6 = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _7 = Lt(copy _6, copy _1);
+        switch move _7 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        _0 = copy _5;
+        switch copy _19 -> [true: bb12, false: bb13];
+    }
+
+    bb3: {
+        _8 = Add(copy _6, const 1: Int);
+        _6 = move _8;
+        _9 = Eq(copy _6, copy _2);
+        switch move _9 -> [true: bb5, false: bb6];
+    }
+
+    bb4: {
+        _13 = Rem(copy _6, const 2: Int);
+        _14 = Eq(move _13, const 0: Int);
+        switch move _14 -> [true: bb9, false: bb10];
+    }
+
+    bb5: {
+        _10 = copy _5;
+        _19 = const false: Bool;
+        _11 = call loops.take(r: loops.Res) [move _3] -> [return: bb7];
+    }
+
+    bb6: {
+        goto -> bb4;
+    }
+
+    bb7: {
+        _12 = Add(move _10, move _11);
+        _5 = move _12;
+        goto -> bb2;
+    }
+
+    bb8: {
+        budget(yield-capable);
+        goto -> bb1;
+    }
+
+    bb9: {
+        _15 = copy _5;
+        _19 = const false: Bool;
+        _16 = call loops.take(r: loops.Res) [move _3] -> [return: bb11];
+    }
+
+    bb10: {
+        goto -> bb8;
+    }
+
+    bb11: {
+        _17 = Add(move _15, move _16);
+        _5 = move _17;
+        _18 = loops.Res { id: copy _6 };
+        _3 = move _18;
+        _19 = const true: Bool;
+        goto -> bb8;
+    }
+
+    bb12: {
+        drop(_3);
+        _19 = const false: Bool;
+        goto -> bb13;
+    }
+
+    bb13: {
+        return;
+    }
+
+    glue loops.Res: structural
+}
+
+fn loops.always(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: loops.Res;  // r
+    let _3: loops.Res;
+    let _4: Int;  // total
+    let _5: Int;  // k
+    let _6: Bool;
+    let _7: Int;
+    let _8: Int;
+    let _9: Int;
+    let _10: loops.Res;
+    let _11: Int;
+    let _12: Int;
+
+    bb0: {
+        _3 = loops.Res { id: const 0: Int };
+        _2 = move _3;
+        _4 = const 0: Int;
+        _5 = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _6 = Lt(copy _5, copy _1);
+        switch move _6 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        _12 = Add(copy _4, copy _2.id);
+        _0 = move _12;
+        drop(_2);
+        return;
+    }
+
+    bb3: {
+        _7 = copy _4;
+        _8 = call loops.take(r: loops.Res) [move _2] -> [return: bb4];
+    }
+
+    bb4: {
+        _9 = Add(move _7, move _8);
+        _4 = move _9;
+        _10 = loops.Res { id: copy _5 };
+        _2 = move _10;
+        _11 = Add(copy _5, const 1: Int);
+        _5 = move _11;
+        budget(yield-capable);
+        goto -> bb1;
+    }
+
+    glue loops.Res: structural
+}
+
+fn loops.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: Int;
+    let _3: Int;
+
+    bb0: {
+        _1 = call loops.sometimes(n: Int, stop: Int) [const 5: Int, const 3: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = call loops.always(n: Int) [const 2: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _3 = Add(move _1, move _2);
+        call builtin print [move _3] -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+}

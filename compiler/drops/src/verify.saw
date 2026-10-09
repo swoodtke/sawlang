@@ -1,0 +1,574 @@
+// The verifier after drop elaboration, run on every function elaborated. It
+// re-checks the OUTPUT with the shared initialisation analysis's accesses
+// and transfer, refined by one fact, that a flag's false edge leaves its
+// path not whole, so the double-drop and leak checks see the drops
+// elaboration emitted:
+//   - no drop is left unlabelled: each is plain or guarded by a flag;
+//   - a plain drop's path is definitely whole, so no path drops it twice; a
+//     guarded drop's path is never partly moved, and its block is entered
+//     only on its flag's true edge;
+//   - every flag is set before a guard reads it, on every path (the flag
+//     local itself is definitely whole at the switch);
+//   - no owned local is still whole, or partly moved, at a `return`, so
+//     every value is destroyed exactly once on every path to a return; a
+//     path that diverges reaches no return, and a panic does not unwind;
+//   - each flag follows its path: set in bb0 from the entry's conditions,
+//     then updated after every statement, and before every terminator, whose
+//     accesses change whether the path is whole;
+//   - no flag tracks a `consumes` body's receiver or a field of it;
+//   - a prologue's `lend` writes every flag field of its record.
+
+import sawdrops.src.elaborate.{drops_rules}
+import sawdrops.src.program.{DROPS_KEEP, DROPS_NOT_A_DROP, DROPS_PLAIN, DROPS_SET, DropsProgram,
+                             drops_flag_effect, drops_within}
+import sawmir.src.build.{mir_func_local}
+import sawmir.src.dump.{mir_module_functions}
+import sawmir.src.initialisation.{MIR_INIT_DROPPED, MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind,
+                                  MirInit, mir_init_apply_all}
+import sawmir.src.model.{MirFuncKind, MirOperandKind, MirProjKind, MirRvalueKind, MirStmt, MirStmtKind,
+                         MirSwitchKind, MirTermKind}
+import sawmir.src.program.{MirProgram}
+
+// Every problem the verifier finds in module `m`'s elaborated functions.
+public func drops_verify_module(p: &var DropsProgram, m: Int) -> Vector<String> {
+    var out = Vector<String>()
+    let order = mir_module_functions(&p.bc.mir, m)
+    var k = 0
+    while k < order.len() {
+        let f = order[k]
+        if p.elaborated[f] {
+            p.verify_func(f, &var out)
+        }
+        k = k + 1
+    }
+    move out
+}
+
+extension DropsProgram {
+    func verify_func(&var self, f: Int, out: &var Vector<String>) {
+        let facts = self.bc.mir.init_analysis(f)
+        self.verify_labels(f, &var out)
+        self.verify_flow(f, &facts, &var out)
+        var j = 0
+        while j < self.flag_count[f] {
+            let at = self.flag_first[f] + j
+            self.verify_flag(f, &facts, at, &var out)
+            j = j + 1
+        }
+        self.verify_record_flags(f, &var out)
+    }
+
+    // No drop is left unlabelled.
+    func verify_labels(&self, f: Int, out: &var Vector<String>) {
+        let info = self.bc.mir.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = self.bc.mir.blocks[info.block_first + b]
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.bc.mir.stmts[s]
+                if stmt.kind == MirStmtKind.Drop && self.guard_of(s) == DROPS_NOT_A_DROP {
+                    self.verify_problem(f, b, s, "is a drop elaboration left unlabelled", &var out)
+                }
+                s = stmt.next
+            }
+            b = b + 1
+        }
+    }
+
+    // The conditions at each block's entry of the output, `block * paths +
+    // path`, solved with the shared analysis's own accesses and transfer and
+    // one fact elaboration adds: the false edge of a switch on a drop flag
+    // leaves the flag's path, and every path inside it, not whole. The flag
+    // checks below prove each flag follows its path, which makes that fact
+    // sound. A block no path reaches keeps no conditions at all.
+    func refined_entries(&self, f: Int, facts: &MirInit) -> Vector<Int> {
+        let info = self.bc.mir.funcs[f]
+        let n = facts.path_count()
+        var entry = Vector<Int>()
+        var k = 0
+        while k < info.block_count * n {
+            try! entry.push(0)
+            k = k + 1
+        }
+        if info.block_count == 0 {
+            return move entry
+        }
+        k = 0
+        while k < n {
+            entry[k] = facts.entry[k]
+            k = k + 1
+        }
+        var changed = true
+        while changed {
+            changed = false
+            var b = 0
+            while b < info.block_count {
+                var state = Vector<Int>()
+                var live = false
+                k = 0
+                while k < n {
+                    let c = entry[b * n + k]
+                    if c != 0 {
+                        live = true
+                    }
+                    try! state.push(c)
+                    k = k + 1
+                }
+                if live {
+                    self.bc.mir.init_walk_block(f, b, &facts, &var state)
+                    let block = self.bc.mir.blocks[info.block_first + b]
+                    let succ = self.bc.mir.init_successors(f, b)
+                    var unflagged = -1
+                    var q = -1
+                    if block.term == MirTermKind.Switch && block.switch_kind == MirSwitchKind.Bool {
+                        let flag = self.flag_read(f, block.operand)
+                        if flag >= 0 {
+                            q = self.flag_path(f, &facts, flag)
+                            unflagged = self.bc.mir.arms[block.arm_first + 1].target
+                        }
+                    }
+                    var j = 0
+                    while j < succ.len() {
+                        let target = succ[j]
+                        j = j + 1
+                        var edge = Vector<Int>()
+                        k = 0
+                        while k < n {
+                            var c = state[k]
+                            if target == unflagged && q >= 0 && drops_within(&facts, k, q) && (c & MIR_INIT_WHOLE) != 0 {
+                                c = c - MIR_INIT_WHOLE
+                            }
+                            try! edge.push(c)
+                            k = k + 1
+                        }
+                        k = 0
+                        while k < n {
+                            let at = target * n + k
+                            let joined = entry[at] | edge[k]
+                            if joined != entry[at] {
+                                entry[at] = joined
+                                changed = true
+                            }
+                            k = k + 1
+                        }
+                    }
+                }
+                b = b + 1
+            }
+        }
+        move entry
+    }
+
+    // The path flag local `flag` of `f` tracks, in `facts`, or -1.
+    func flag_path(&self, f: Int, facts: &MirInit, flag: Int) -> Int {
+        var j = 0
+        while j < self.flag_count[f] {
+            let at = self.flag_first[f] + j
+            if self.flag_local[at] == flag {
+                let p = self.flag_place[at]
+                return self.bc.mir.init_path_of(p, &facts)
+            }
+            j = j + 1
+        }
+        return -1
+    }
+
+    // The flow checks over the output, each a question the shared analysis
+    // answers, refined by the flags.
+    func verify_flow(&var self, f: Int, facts: &MirInit, out: &var Vector<String>) {
+        let info = self.bc.mir.funcs[f]
+        let preds = self.single_predecessors(f)
+        let entries = self.refined_entries(f, &facts)
+        let n = facts.path_count()
+        var b = 0
+        while b < info.block_count {
+            var state = Vector<Int>()
+            var live = false
+            var k = 0
+            while k < n {
+                let c = entries[b * n + k]
+                if c != 0 {
+                    live = true
+                }
+                try! state.push(c)
+                k = k + 1
+            }
+            if live {
+                let block = self.bc.mir.blocks[info.block_first + b]
+                var s = block.first
+                while s >= 0 {
+                    let stmt = self.bc.mir.stmts[s]
+                    let accesses = self.bc.mir.init_stmt_accesses(f, s, &facts)
+                    if stmt.kind == MirStmtKind.Drop {
+                        self.verify_drop(f, b, s, &facts, &state, &accesses, &preds, &var out)
+                    }
+                    mir_init_apply_all(&facts, &var state, &accesses)
+                    s = stmt.next
+                }
+                if block.term == MirTermKind.Switch && block.switch_kind == MirSwitchKind.Bool {
+                    let flag = self.flag_read(f, block.operand)
+                    if flag >= 0 && state[flag] != MIR_INIT_WHOLE {
+                        self.verify_problem(f, b, -1, "reads a drop flag some path has not set", &var out)
+                    }
+                }
+                let term = self.bc.mir.init_term_accesses(f, b, &facts)
+                mir_init_apply_all(&facts, &var state, &term)
+                if block.term == MirTermKind.Return {
+                    k = 0
+                    while k < info.local_count {
+                        let l = mir_func_local(&self.bc.mir, f, k)
+                        if l.owned && self.still_whole(&facts, &state, k) {
+                            var text = StringBuilder()
+                            try! text.append("returns while owned local _")
+                            try! text.append(k)
+                            try! text.append(", or a field or element of it, may still hold a value no drop destroys")
+                            self.verify_problem(f, b, -1, text.build(), &var out)
+                        }
+                        k = k + 1
+                    }
+                }
+            }
+            b = b + 1
+        }
+    }
+
+    // Whether path `q`, or an owning field or element inside it, may still
+    // be whole. A partial path is whole in no part the analysis does not
+    // track apart, since a destructure drops each owning part it does not
+    // move. A payload path is not followed: the analysis keeps every case's
+    // payload, and only the one the value holds is there.
+    func still_whole(&var self, facts: &MirInit, state: &Vector<Int>, q: Int) -> Bool {
+        if (state[q] & MIR_INIT_WHOLE) != 0 {
+            return true
+        }
+        if (state[q] & MIR_INIT_PARTIAL) == 0 {
+            return false
+        }
+        var c = facts.path_child[q]
+        while c >= 0 {
+            let kind = facts.path_kind[c]
+            let t = facts.path_ty[c]
+            let part = (kind == MirProjKind.Field || kind == MirProjKind.Tuple) && self.bc.mir.owns(t)
+            if part && self.still_whole(&facts, &state, c) {
+                return true
+            }
+            c = facts.path_sibling[c]
+        }
+        false
+    }
+
+    func verify_drop(&self, f: Int, b: Int, s: Int, facts: &MirInit, state: &Vector<Int>,
+                     accesses: &Vector<MirAccess>, preds: &Vector<Int>, out: &var Vector<String>) {
+        var q = -1
+        var k = 0
+        while k < accesses.len() {
+            let a = accesses[k]
+            if a.kind == MirAccessKind.Drop && not a.cut {
+                q = a.path
+            }
+            k = k + 1
+        }
+        if q < 0 {
+            return
+        }
+        let g = self.guard_of(s)
+        if g == DROPS_PLAIN && state[q] != MIR_INIT_WHOLE {
+            self.verify_problem(f, b, s, "is a plain drop of a place some path leaves not whole", &var out)
+        }
+        if g < 0 {
+            return
+        }
+        if (state[q] & MIR_INIT_PARTIAL) != 0 {
+            self.verify_problem(f, b, s, "is a guarded drop of a place a part of which some path moved out", &var out)
+        }
+        let info = self.bc.mir.funcs[f]
+        let pred = preds[b]
+        var guarded = false
+        if pred >= 0 {
+            let head = self.bc.mir.blocks[info.block_first + pred]
+            let is_bool = head.term == MirTermKind.Switch && head.switch_kind == MirSwitchKind.Bool
+            if is_bool && self.flag_read(f, head.operand) == g && head.arm_count == 2 {
+                let yes = self.bc.mir.arms[head.arm_first]
+                guarded = yes.value == 1 && yes.target == b
+            }
+        }
+        if not guarded {
+            self.verify_problem(f, b, s, "is a guarded drop its flag's true edge does not alone enter", &var out)
+        }
+    }
+
+    // The flag local a switch operand `o` copies, or -1.
+    func flag_read(&self, f: Int, o: Int) -> Int {
+        if o < 0 {
+            return -1
+        }
+        let operand = self.bc.mir.operands[o]
+        if operand.kind != MirOperandKind.Copy || operand.place < 0 {
+            return -1
+        }
+        let place = self.bc.mir.places[operand.place]
+        if place.count != 0 {
+            return -1
+        }
+        var j = 0
+        while j < self.flag_count[f] {
+            if self.flag_local[self.flag_first[f] + j] == place.local {
+                return place.local
+            }
+            j = j + 1
+        }
+        return -1
+    }
+
+    // Each block's one predecessor: -1 for none, -2 for several.
+    func single_predecessors(&self, f: Int) -> Vector<Int> {
+        let info = self.bc.mir.funcs[f]
+        var out = Vector<Int>()
+        var b = 0
+        while b < info.block_count {
+            try! out.push(-1)
+            b = b + 1
+        }
+        b = 0
+        while b < info.block_count {
+            let succ = self.bc.mir.init_successors(f, b)
+            var k = 0
+            while k < succ.len() {
+                let t = succ[k]
+                if out[t] == -1 {
+                    out[t] = b
+                } else if out[t] != b {
+                    out[t] = -2
+                }
+                k = k + 1
+            }
+            b = b + 1
+        }
+        move out
+    }
+
+    // Flag `at` follows its path: in bb0 it starts as the entry's conditions
+    // give; in each reached block, every statement that changes whether the
+    // path is whole is followed by the matching update before the path is
+    // touched again, and the updates a terminator owes stand before it.
+    func verify_flag(&self, f: Int, facts: &MirInit, at: Int, out: &var Vector<String>) {
+        let info = self.bc.mir.funcs[f]
+        let flag = self.flag_local[at]
+        let p = self.flag_place[at]
+        let q = self.bc.mir.init_path_of(p, &facts)
+        if q < 0 {
+            self.verify_problem(f, 0, -1, "has a drop flag whose path the analysis does not know", &var out)
+            return
+        }
+        if self.consumed_receiver(f) && facts.path_local[q] == 1 {
+            self.verify_problem(f, 0, -1, "has a drop flag on its consumed receiver or a field of it", &var out)
+        }
+        let first = self.bc.mir.blocks[info.block_first]
+        let start = self.flag_value_at_entry(f, first.first, flag)
+        let whole = facts.entry[q] == MIR_INIT_WHOLE
+        let want = if whole { DROPS_SET } else { 0 }
+        if start != want {
+            self.verify_problem(f, 0, -1, "starts a drop flag against its path's entry conditions", &var out)
+        }
+        var b = 0
+        while b < info.block_count {
+            if facts.reached[b] {
+                self.verify_flag_block(f, b, &facts, flag, q, &var out)
+            }
+            b = b + 1
+        }
+    }
+
+    // The constant bb0's leading flag assignments give `flag`, or -1.
+    func flag_value_at_entry(&self, f: Int, s: Int, flag: Int) -> Int {
+        var at = s
+        while at >= 0 {
+            let stmt = self.bc.mir.stmts[at]
+            let v = self.flag_constant(f, &stmt, flag)
+            if v >= 0 {
+                return v
+            }
+            if self.assigned_flag(f, &stmt) < 0 {
+                return -1
+            }
+            at = stmt.next
+        }
+        return -1
+    }
+
+    // The flag local of `f` statement `stmt` assigns, or -1.
+    func assigned_flag(&self, f: Int, stmt: &MirStmt) -> Int {
+        if stmt.kind != MirStmtKind.Assign || stmt.place < 0 {
+            return -1
+        }
+        let place = self.bc.mir.places[stmt.place]
+        if place.count != 0 || place.local < 0 {
+            return -1
+        }
+        var j = 0
+        while j < self.flag_count[f] {
+            if self.flag_local[self.flag_first[f] + j] == place.local {
+                return place.local
+            }
+            j = j + 1
+        }
+        return -1
+    }
+
+    // 1 or 0 when `stmt` assigns flag `flag` of `f` a constant, else -1.
+    func flag_constant(&self, f: Int, stmt: &MirStmt, flag: Int) -> Int {
+        if self.assigned_flag(f, &stmt) != flag || stmt.rvalue < 0 {
+            return -1
+        }
+        let rv = self.bc.mir.rvalues[stmt.rvalue]
+        if rv.kind != MirRvalueKind.Use || rv.count != 1 {
+            return -1
+        }
+        let o = self.bc.mir.lists[rv.first]
+        let operand = self.bc.mir.operands[o]
+        if operand.kind != MirOperandKind.Const {
+            return -1
+        }
+        let text = self.bc.mir.tc.name_text(operand.text)
+        if text.equals("true") {
+            return 1
+        }
+        0
+    }
+
+    func verify_flag_block(&self, f: Int, b: Int, facts: &MirInit, flag: Int, q: Int, out: &var Vector<String>) {
+        let info = self.bc.mir.funcs[f]
+        let block = self.bc.mir.blocks[info.block_first + b]
+        var pending = DROPS_KEEP
+        var last = DROPS_KEEP
+        var s = block.first
+        while s >= 0 {
+            let at = s
+            let stmt = self.bc.mir.stmts[at]
+            s = stmt.next
+            if self.assigned_flag(f, &stmt) == flag {
+                let v = self.flag_constant(f, &stmt, flag)
+                if pending != DROPS_KEEP && v >= 0 && v != pending {
+                    self.verify_problem(f, b, -1, "updates a drop flag against its path's change", &var out)
+                }
+                pending = DROPS_KEEP
+                last = v
+                continue
+            }
+            let accesses = self.bc.mir.init_stmt_accesses(f, at, &facts)
+            let effect = self.net_effect(&facts, q, &accesses)
+            if effect != DROPS_KEEP {
+                if pending != DROPS_KEEP {
+                    self.verify_problem(f, b, -1, "changes a flagged path twice with no flag update between", &var out)
+                }
+                pending = effect
+                last = DROPS_KEEP
+            }
+        }
+        if pending != DROPS_KEEP {
+            self.verify_problem(f, b, -1, "changes a flagged path and leaves its flag as it was", &var out)
+        }
+        let term = self.bc.mir.init_term_accesses(f, b, &facts)
+        let effect = self.net_effect(&facts, q, &term)
+        if effect != DROPS_KEEP && effect != last {
+            self.verify_problem(f, b, -1, "ends in a terminator whose flag update does not stand before it", &var out)
+        }
+    }
+
+    // The net effect of `accesses` on the flag of path `q`.
+    func net_effect(&self, facts: &MirInit, q: Int, accesses: &Vector<MirAccess>) -> Int {
+        var net = DROPS_KEEP
+        var k = 0
+        while k < accesses.len() {
+            let a = accesses[k]
+            let effect = drops_flag_effect(&facts, q, &a)
+            if effect != DROPS_KEEP {
+                net = effect
+            }
+            k = k + 1
+        }
+        net
+    }
+
+    // A prologue's `lend`, a return that writes its record, writes every
+    // flag field of it.
+    func verify_record_flags(&self, f: Int, out: &var Vector<String>) {
+        let info = self.bc.mir.funcs[f]
+        if info.kind != MirFuncKind.Prologue || info.record_count == 0 {
+            return
+        }
+        var b = 0
+        while b < info.block_count {
+            let block = self.bc.mir.blocks[info.block_first + b]
+            if block.term == MirTermKind.Return {
+                var locals = 0
+                var flags = Vector<Int>()
+                var s = block.first
+                while s >= 0 {
+                    let stmt = self.bc.mir.stmts[s]
+                    s = stmt.next
+                    let field = self.record_field_written(&stmt)
+                    if field >= 0 && field < info.record_count {
+                        locals = locals + 1
+                    } else if field >= 0 {
+                        try! flags.push(field)
+                    }
+                }
+                var k = 0
+                while k < info.record_count && locals > 0 {
+                    let slot = self.bc.mir.aux[info.record_flags_first + k]
+                    var found = slot < 0
+                    var j = 0
+                    while j < flags.len() {
+                        if flags[j] == slot {
+                            found = true
+                        }
+                        j = j + 1
+                    }
+                    if not found {
+                        self.verify_problem(f, b, -1, "returns from a `lend` without writing a record local's drop flag", &var out)
+                    }
+                    k = k + 1
+                }
+            }
+            b = b + 1
+        }
+    }
+
+    // The record field `(*_1).K` statement `stmt` assigns, or -1.
+    func record_field_written(&self, stmt: &MirStmt) -> Int {
+        if stmt.kind != MirStmtKind.Assign || stmt.place < 0 {
+            return -1
+        }
+        let place = self.bc.mir.places[stmt.place]
+        if place.local != 1 || place.count != 2 {
+            return -1
+        }
+        let first = self.bc.mir.projs[place.first]
+        let second = self.bc.mir.projs[place.first + 1]
+        if first.kind != MirProjKind.Deref || second.kind != MirProjKind.Tuple {
+            return -1
+        }
+        second.index
+    }
+
+    // `POSITION FUNCTION: bbK [the statement at L:C] TEXT`.
+    func verify_problem(&self, f: Int, b: Int, s: Int, text: String, out: &var Vector<String>) {
+        let info = self.bc.mir.funcs[f]
+        var line = StringBuilder()
+        try! line.append(self.bc.mir.tc.res.node_position(info.module, info.root))
+        try! line.append(" ")
+        try! line.append(self.bc.mir.func_name(f))
+        try! line.append(": bb")
+        try! line.append(b)
+        if s >= 0 {
+            let stmt = self.bc.mir.stmts[s]
+            try! line.append(" the statement at ")
+            try! line.append(self.bc.mir.span_text(stmt.node, stmt.closing))
+        }
+        try! line.append(" ")
+        try! line.append(text)
+        try! out.push(line.build())
+    }
+}

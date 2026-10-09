@@ -41,6 +41,10 @@ compiler/
                       (tests/borrowck/README.md has its analysis, rules, labels
                       and dump)
     src/*.saw
+  drops/              drop elaboration over borrow-checked MIR, package `sawdrops`
+                      (tests/drops/README.md has its flags, glue resolution, rule,
+                      dump and verifier)
+    src/*.saw
   driver/             the `sawc2` binary, package `sawc2`
     src/main.saw
   tools/
@@ -93,6 +97,9 @@ compiler/
                       fixtures, the conformance matrix of the borrow-check rows
                       (CONFORMANCE.md) and the move-error differential over
                       tests/corpus/ (differential.tsv)
+    drops/            the drops lane (drops_lane.py): the dump's specification
+                      (README.md), golden records, refusal and due fixtures, and
+                      the conformance rows drop elaboration owns (conformance.tsv)
 ```
 
 The new std, the std sawc2 compiles from Stage 1 on, is the top-level `std/`
@@ -226,6 +233,12 @@ these things.
   every row of the five borrow-check sections of
   `examples/conformance/INDEX.md`, and holds every tests/corpus/ program that
   expects a move error to a borrow-check refusal or a stated reason.
+- **Drop elaboration** (`tests/drops/README.md`): the drops lane
+  (`tests/drops/drops_lane.py`) holds `sawc2 drops` to its golden records,
+  refusal and due fixtures, elaborates the compiler's own source whole and
+  the new std with no refusal and no invariant, requires the verifier after
+  elaboration to be clean over every tests/corpus/ program that elaborates,
+  and holds each conformance row drop elaboration owns to its summary.
 
 ## The std profile
 

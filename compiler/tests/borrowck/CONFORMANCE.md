@@ -181,7 +181,7 @@ INDEX.md, or when an owner is not one of the words below.
 | V22 | typecheck-gap | `.copy()` on a tuple with a NoCopy element is not refused today |
 | V23 | typecheck | `conformance.deinit`: `compiler/tests/typecheck/refuse/conformance.deinit.saw` |
 | V24 | typecheck-gap | a manual `deinit()` call is not refused today |
-| V25 | §3.7 | a Copy-tier struct's deinit runs once |
+| V25 | §3.7 | a Copy-tier struct's deinit runs once: one static drop per value, `compiler/tests/drops/conformance.tsv` (the retain is §3.8's glue) |
 | V26 | slice.not-yet | constructing the builtin type `Atomic` (then typecheck: `Atomic` is move-only) |
 | V27 | typecheck | `copy.undeclared-policy`: `compiler/tests/typecheck/refuse/copy.undeclared-policy.saw` |
 | V28 | slice.not-yet | constructing the builtin type `Atomic` (then typecheck, accepted) |
@@ -205,14 +205,14 @@ INDEX.md, or when an owner is not one of the words below.
 | V46 | typecheck-gap | a declared bound the body exceeds is not refused today |
 | V47 | typecheck | accepted: returning a whole binding out of a generic body is a move |
 | V48 | slice.not-yet | `syntax.expr.optional-member` (then §3.7: a non-escaping `move` capture transfers when the body runs) |
-| V49 | §3.7 | an escaping closure consuming its `move` capture frees it once |
+| V49 | §3.7 | an escaping closure consuming its `move` capture frees it once: the environment's drop is placed, `compiler/tests/drops/conformance.tsv`; the body's move out through its `&` environment, which the environment's glue then frees again, is DF-255a's shape, still open in the MIR |
 | V50 | slice.not-yet | the intrinsic `__saw_drive` (then §3.9 and §3.7) |
 | V51 | U6d1 | `move.use-after`, the rule a second consuming call meets: `compiler/tests/borrowck/refuse/move.use-after.double.saw` |
 | V52 | U6d1 | `move.use-after`: `compiler/tests/borrowck/refuse/move.use-after.consumed.saw` |
 | V53 | typecheck-gap | a `NoMove` receiver at a consuming call is not refused today |
 | V54 | U6d1 | `consumes.some-paths`: `compiler/tests/borrowck/refuse/consumes.some-paths.saw`; every path, none, and a diverging path exempt, `compiler/tests/borrowck/golden/consumes.saw` |
 | V55 | typecheck | `consumes.move`: `compiler/tests/typecheck/refuse/consumes.move.saw` |
-| V56 | §3.7 | a consuming body replaces the hand-written deinit body |
+| V56 | §3.7 | a consuming body replaces the hand-written deinit body: the fields that stay drop statically, `compiler/tests/drops/golden/consumes.saw`, `compiler/tests/drops/conformance.tsv` |
 | V117 | slice.not-yet | the release of a consumed receiver that moves out whole, `compiler/tests/mir/refuse/consumes-whole.saw` (then U6d1 and §3.7) |
 | V118 | slice.not-yet | the release of a consumed receiver that moves out whole, `compiler/tests/mir/refuse/consumes-whole.saw` (then U6d1: `consumes.some-paths` covers the receiver itself) |
 | V119 | slice.not-yet | the release of a consumed receiver that moves out whole, `compiler/tests/mir/refuse/consumes-whole.saw` (then U6d1; the field form, a use of `self` after `move self.f`, is `compiler/tests/borrowck/refuse/move.use-after.partial.saw`) |
@@ -223,7 +223,7 @@ INDEX.md, or when an owner is not one of the words below.
 | V60 | SL-462 | a payload moved out of a match through a reference: moving through a borrow |
 | V61 | SL-462 | `match self` in a reference receiver moving a payload |
 | V62 | SL-462 | the same refusal at every tier and on a field scrutinee |
-| V63 | §3.7 | an owned match still consumes, released once |
+| V63 | §3.7 | an owned match still consumes, released once: `compiler/tests/drops/golden/dissolves.saw`, `compiler/tests/drops/conformance.tsv` |
 | V64 | typecheck | `transfer.implicit-copy` at a forwarding cast; tests/corpus file refused by it |
 | V65 | §3.8 | the Copy tier retains through a forwarding cast |
 | V66 | typecheck | a forwarding alias projection; refused today by `type.mismatch` first |
@@ -231,12 +231,12 @@ INDEX.md, or when an owner is not one of the words below.
 | V68 | SL-462 | a closure's reference parameter moved out: moving through a borrow |
 | V69 | slice.not-yet | a `borrow` block over `Mutex.lock`, which lends through a closure parameter (then SL-462) |
 | V70 | SL-462 | the borrowed closure binding refusal at every tier |
-| V71 | §3.7 | the borrowed-binding fence is narrow, each value released once |
-| V72 | §3.7 | std visitors lend; its error file is refused first by `result.discarded`, a migration artifact |
-| V73 | §3.7 | a by-value closure parameter is released once |
-| V74 | §3.7 | a moved closure parameter, released once |
-| V75 | §3.7 | escaping and non-escaping release identically |
-| V76 | §3.7 | `fold` threads its accumulator |
+| V71 | §3.7 | the borrowed-binding fence is narrow, each value released once: `compiler/tests/drops/conformance.tsv` |
+| V72 | §3.7 | std visitors lend: `compiler/tests/drops/conformance.tsv`; its error file is refused first by `result.discarded`, a migration artifact |
+| V73 | §3.7 | a by-value closure parameter is released once: `compiler/tests/drops/conformance.tsv` |
+| V74 | §3.7 | a moved closure parameter, released once: `compiler/tests/drops/conformance.tsv` |
+| V75 | §3.7 | escaping and non-escaping release identically: `compiler/tests/drops/conformance.tsv` |
+| V76 | §3.7 | `fold` threads its accumulator: `compiler/tests/drops/conformance.tsv` |
 | V77 | typecheck | `transfer.implicit-copy` at a value branch arm; tests/corpus file refused by it |
 | V78 | typecheck | `transfer.implicit-copy` at every value-arm position; tests/corpus file refused by it |
 | V79 | typecheck | `transfer.implicit-copy` at every block-tail construct; tests/corpus file refused by it |
@@ -275,8 +275,8 @@ INDEX.md, or when an owner is not one of the words below.
 | V112 | slice.not-yet | the intrinsic `__saw_suspend` (then §3.8) |
 | V113 | slice.not-yet | the intrinsic `__saw_suspend` (then §3.8) |
 | V114 | slice.not-yet | the intrinsic `__saw_suspend` (then §3.8) |
-| V115 | §3.7 | a stored closure owns its captures; the migrated file is refused first by `type.mismatch`, a migration artifact |
-| V116 | §3.7 | a non-escaping closure keeps its stack environment |
+| V115 | §3.7 | a stored closure owns its captures; the migrated file is refused first by `type.mismatch`, a migration artifact, `compiler/tests/drops/conformance.tsv` |
+| V116 | §3.7 | a non-escaping closure keeps its stack environment: `compiler/tests/drops/conformance.tsv` |
 
 ## Places (`borrows` / `lend`)
 

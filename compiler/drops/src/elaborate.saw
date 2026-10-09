@@ -1,0 +1,537 @@
+// Drop elaboration (SL:architecture §3.7): every `drop(p)` of borrow-checked
+// MIR becomes a concrete operation on a concrete path, by the label the
+// borrow check gave it from the shared initialisation analysis:
+//   - static: an unconditional drop;
+//   - elided: nothing;
+//   - flagged: a drop under a drop flag, a `Bool` local that mirrors whether
+//     the path is whole. It is set from the entry's conditions in bb0, then
+//     after each statement (before each terminator) whose accesses change
+//     that, and the drop sits in a block of its own that a switch on the
+//     flag enters.
+// Flags exist only for the paths a flagged drop names, and for an
+// accessor's record locals that carry one across its split, whose flag the
+// prologue writes into the record and the epilogue reads back. A drop never
+// moves: placement is the MIR's, which drops in reverse declaration order at
+// scope exits and in reverse creation order at a statement's end, and
+// decomposes a value whose parts left into drops of the parts. A panic does
+// not unwind, so no cleanup path is generated.
+
+import sawborrowck.src.program.{BORROWCK_LABEL_ELIDED, BORROWCK_LABEL_FLAGGED, BORROWCK_LABEL_STATIC,
+                                BorrowckProgram}
+import sawdrops.src.program.{DROPS_KEEP, DROPS_PLAIN, DROPS_SET, DropsProgram, drops_flag_effect}
+import sawmir.src.build.{mir_func_local}
+import sawmir.src.dump.{mir_module_functions}
+import sawmir.src.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit,
+                                  mir_init_apply_all}
+import sawmir.src.model.{MirBlock, MirConstKind, MirDiag, MirFuncKind, MirLocal, MirLocalKind, MirProjKind,
+                         MirStmt, MirStmtKind}
+import sawmir.src.program.{MirProgram}
+import sawresolve.src.lang.{ResLang}
+import sawresolve.src.program.{ResProgram}
+import sawtypecheck.src.checks.{tc_check_unsafe}
+import sawtypecheck.src.model.{TC_EFFECT_CONSUMES}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.typeops.{TcClient}
+
+// Every rule drop elaboration refuses by.
+public func drops_rules() -> Vector<String> {
+    var out = Vector<String>()
+    try! out.push("drop.must-consume")
+    move out
+}
+
+// The lang roles whose types must reach a written fate rather than an
+// implicit drop: a `Thread` handle's `join` or `detach` (spec, "every
+// non-group handle's fate is written"). The std declares no such role until
+// spawn enters the bootstrap slice, so the list is empty and the rule refuses
+// nothing yet.
+public func drops_must_consume_roles() -> Vector<ResLang> {
+    Vector<ResLang>()
+}
+
+extension DropsProgram {
+    // Every function module `m`'s bodies lowered to, elaborated.
+    public func elaborate_module(&var self, m: Int) {
+        let order = mir_module_functions(&self.bc.mir, m)
+        var k = 0
+        while k < order.len() {
+            self.elaborate_func(order[k])
+            k = k + 1
+        }
+    }
+
+    func elaborate_func(&var self, f: Int) {
+        let facts = self.bc.mir.init_analysis(f)
+        self.collect_flags(f, &facts)
+        let relocated = self.flag_count[f] > 0
+        if relocated {
+            self.relocate(f)
+        }
+        let info = self.bc.mir.funcs[f]
+        self.bc.mir.cur = f
+        self.bc.mir.local_base = info.local_first
+        self.bc.mir.block_base = info.block_first
+        var b = 0
+        while b < info.block_count {
+            self.rebuild_block(f, b, &facts)
+            b = b + 1
+        }
+        if relocated {
+            var done = self.bc.mir.funcs[f]
+            done.block_count = self.bc.mir.blocks.len() - done.block_first
+            self.bc.mir.funcs[f] = done
+        }
+        self.bc.mir.current = -1
+        self.elaborated[f] = true
+    }
+
+    // Function `f`'s flags: one per path a flagged drop names, and one per
+    // record local a prologue transfers, each numbered after its locals.
+    func collect_flags(&var self, f: Int, facts: &MirInit) {
+        let info = self.bc.mir.funcs[f]
+        // Stage 0 workaround (SL:hazards S4): canonical: self.flag_first[f] = self.flag_local.len()
+        let first = self.flag_local.len()
+        self.flag_first[f] = first
+        var paths = Vector<Int>()
+        var b = 0
+        while b < info.block_count {
+            if facts.reached[b] {
+                var state = facts.entry_state(b)
+                let block = self.bc.mir.blocks[info.block_first + b]
+                var s = block.first
+                while s >= 0 {
+                    let stmt = self.bc.mir.stmts[s]
+                    let accesses = self.bc.mir.init_stmt_accesses(f, s, &facts)
+                    var k = 0
+                    while k < accesses.len() {
+                        let a = accesses[k]
+                        k = k + 1
+                        if a.path < 0 || a.cut {
+                            continue
+                        }
+                        let flagged_drop = a.kind == MirAccessKind.Drop && self.bc.labels[s] == BORROWCK_LABEL_FLAGGED
+                        if flagged_drop && (state[a.path] & MIR_INIT_PARTIAL) != 0 {
+                            try! self.partial_drops.push(s)
+                            self.problem(f, s, "is a flagged drop of a place a part of which may have moved out, which no flag can decide")
+                        } else if flagged_drop || a.kind == MirAccessKind.Transfer {
+                            self.add_flag(f, &facts, &var paths, a.path, a.place)
+                        }
+                    }
+                    mir_init_apply_all(&facts, &var state, &accesses)
+                    s = stmt.next
+                }
+            }
+            b = b + 1
+        }
+        self.flag_count[f] = paths.len()
+    }
+
+    // Path `q`'s flag, named by place `p`, unless it has one. A `consumes`
+    // body's receiver is released field by field on every path or on none
+    // (borrowck's `consumes.some-paths`), so a flag there is a broken
+    // invariant.
+    func add_flag(&var self, f: Int, facts: &MirInit, paths: &var Vector<Int>, q: Int, p: Int) {
+        var k = 0
+        while k < paths.len() {
+            if paths[k] == q {
+                return
+            }
+            k = k + 1
+        }
+        if self.consumed_receiver(f) && facts.path_local[q] == 1 {
+            self.problem(f, -1, "needs a drop flag for its consumed receiver or a field of it, which the every-path-or-none rule makes static")
+        }
+        let info = self.bc.mir.funcs[f]
+        try! self.flag_local.push(info.local_count + paths.len())
+        try! self.flag_place.push(p)
+        try! paths.push(q)
+    }
+
+    // Whether `f` is a `consumes` body, whose local `_1` is its receiver.
+    public func consumed_receiver(&self, f: Int) -> Bool {
+        let info = self.bc.mir.funcs[f]
+        if info.kind != MirFuncKind.Body || info.decl < 0 || info.param_count < 1 {
+            return false
+        }
+        if (self.bc.mir.tc.sigs[info.decl].effects & TC_EFFECT_CONSUMES) == 0 {
+            return false
+        }
+        mir_func_local(&self.bc.mir, f, 1).kind == MirLocalKind.Receiver
+    }
+
+    // Moves function `f`'s locals and blocks to the end of their arenas,
+    // the locals followed by its flags, so the blocks a guard needs can join
+    // its run. Local and block numbers are unchanged.
+    func relocate(&var self, f: Int) {
+        var info = self.bc.mir.funcs[f]
+        let local_first = self.bc.mir.locals.len()
+        var k = 0
+        while k < info.local_count {
+            let l = self.bc.mir.locals[info.local_first + k]
+            try! self.bc.mir.locals.push(l)
+            k = k + 1
+        }
+        let flag = self.bc.mir.tc.bool_type()
+        k = 0
+        while k < self.flag_count[f] {
+            try! self.bc.mir.locals.push(MirLocal(ty: flag, kind: MirLocalKind.Temp, name: -1, node: -1, owned: false,
+                                                  reference: false))
+            k = k + 1
+        }
+        let block_first = self.bc.mir.blocks.len()
+        k = 0
+        while k < info.block_count {
+            let block = self.bc.mir.blocks[info.block_first + k]
+            try! self.bc.mir.blocks.push(block)
+            k = k + 1
+        }
+        info.local_count = info.local_count + self.flag_count[f]
+        info.local_first = local_first
+        info.block_first = block_first
+        self.bc.mir.funcs[f] = info
+    }
+
+    // Block `b` of `f` rebuilt: its statements elaborated, a flag's update
+    // after the statement that changes its path, a guarded drop splitting
+    // the block, then its terminator, after the updates its accesses owe. A
+    // block no path reaches keeps everything but its drops.
+    func rebuild_block(&var self, f: Int, b: Int, facts: &MirInit) {
+        let at = self.bc.mir.block_base + b
+        let old = self.bc.mir.blocks[at]
+        let reached = facts.reached[b]
+        var term = Vector<MirAccess>()
+        if reached {
+            term = self.bc.mir.init_term_accesses(f, b, &facts)
+        }
+        var order = Vector<Int>()
+        var s = old.first
+        while s >= 0 {
+            try! order.push(s)
+            s = self.bc.mir.stmts[s].next
+        }
+        var fresh = old
+        fresh.first = -1
+        fresh.last = -1
+        self.bc.mir.blocks[at] = fresh
+        self.bc.mir.enter(b)
+        if b == 0 {
+            self.init_flags(f, &facts)
+        }
+        var k = 0
+        while k < order.len() {
+            let one = order[k]
+            k = k + 1
+            if reached {
+                self.rebuild_stmt(f, one, &facts)
+            } else {
+                self.copy_unreached(one)
+            }
+        }
+        let saved = self.bc.mir.source_as(old.term_node, old.term_closing)
+        self.emit_updates(f, &facts, &term, -1)
+        self.install_terminator(&old)
+        self.bc.mir.source_restore(saved)
+    }
+
+    // Each flag of `f` set from the entry's conditions: a parameter's path is
+    // whole there, every other path not.
+    func init_flags(&var self, f: Int, facts: &MirInit) {
+        let root = self.bc.mir.funcs[f].root
+        let saved = self.bc.mir.source_at(root)
+        var j = 0
+        while j < self.flag_count[f] {
+            let at = self.flag_first[f] + j
+            let p = self.flag_place[at]
+            let q = self.bc.mir.init_path_of(p, &facts)
+            let whole = q >= 0 && facts.entry[q] == MIR_INIT_WHOLE
+            let flag = self.flag_local[at]
+            self.assign_flag(flag, whole)
+            j = j + 1
+        }
+        self.bc.mir.source_restore(saved)
+    }
+
+    func copy_unreached(&var self, s: Int) {
+        let stmt = self.bc.mir.stmts[s]
+        if stmt.kind == MirStmtKind.Drop {
+            return
+        }
+        let saved = self.bc.mir.source_as(stmt.node, stmt.closing)
+        self.copy_stmt(&stmt)
+        self.bc.mir.source_restore(saved)
+    }
+
+    func copy_stmt(&var self, stmt: &MirStmt) {
+        if stmt.kind == MirStmtKind.Assign {
+            self.bc.mir.assign(stmt.place, stmt.rvalue)
+        } else if stmt.kind == MirStmtKind.Budget {
+            self.bc.mir.emit_budget(stmt.yields)
+        }
+    }
+
+    func rebuild_stmt(&var self, f: Int, s: Int, facts: &MirInit) {
+        let stmt = self.bc.mir.stmts[s]
+        let saved = self.bc.mir.source_as(stmt.node, stmt.closing)
+        let accesses = self.bc.mir.init_stmt_accesses(f, s, &facts)
+        if stmt.kind == MirStmtKind.Drop {
+            let label = self.bc.labels[s]
+            if label == BORROWCK_LABEL_STATIC {
+                self.emit_drop(f, s, stmt.place, DROPS_PLAIN)
+                self.emit_updates(f, &facts, &accesses, -1)
+            } else if label == BORROWCK_LABEL_FLAGGED {
+                self.emit_guarded_drop(f, s, &facts, &accesses)
+            } else if label != BORROWCK_LABEL_ELIDED {
+                self.problem(f, s, "is a drop a path reaches that carries no label")
+            }
+        } else {
+            let into = self.bc.mir.record_transfer_field(f, s)
+            if into >= 0 {
+                self.write_record_flag(f, &facts, &accesses, into)
+            }
+            self.copy_stmt(&stmt)
+            let from = self.bc.mir.record_resume_field(f, s)
+            var resumed = -1
+            if from >= 0 {
+                resumed = self.read_record_flag(f, &facts, &accesses, from)
+            }
+            self.emit_updates(f, &facts, &accesses, resumed)
+        }
+        self.bc.mir.source_restore(saved)
+    }
+
+    // A flagged drop: `switch copy F -> [true: bbD, false: bbC]`, then in bbD
+    // the drop and the flag cleared, `goto -> bbC`; the block goes on in bbC.
+    func emit_guarded_drop(&var self, f: Int, s: Int, facts: &MirInit, accesses: &Vector<MirAccess>) {
+        let p = self.bc.mir.stmts[s].place
+        let q = self.dropped_path(&accesses)
+        let j = self.flag_for_path(f, &facts, q)
+        if j < 0 {
+            if not self.partial_drop(s) {
+                self.problem(f, s, "is a flagged drop whose path has no flag")
+            }
+            return
+        }
+        let flag = self.flag_local[j]
+        let dropping = self.bc.mir.new_block()
+        let after = self.bc.mir.new_block()
+        let fp = self.bc.mir.place_local(flag)
+        let read = self.bc.mir.op_copy(fp)
+        self.bc.mir.switch_bool(read, dropping, after)
+        self.bc.mir.enter(dropping)
+        self.emit_drop(f, s, p, flag)
+        self.emit_updates(f, &facts, &accesses, -1)
+        self.bc.mir.goto(after)
+        self.bc.mir.enter(after)
+    }
+
+    func partial_drop(&self, s: Int) -> Bool {
+        var k = 0
+        while k < self.partial_drops.len() {
+            if self.partial_drops[k] == s {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // The path a drop's accesses drop, or -1 for one through a reference.
+    func dropped_path(&self, accesses: &Vector<MirAccess>) -> Int {
+        var k = 0
+        while k < accesses.len() {
+            let a = accesses[k]
+            if a.kind == MirAccessKind.Drop && not a.cut {
+                return a.path
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // An output drop of place `p`, guarded by `by`; a type whose fate must
+    // be written is refused at it.
+    func emit_drop(&var self, f: Int, s: Int, p: Int, by: Int) {
+        let t = self.bc.mir.places[p].ty
+        if self.must_consume(t) {
+            self.refuse_must_consume(f, s, t)
+        }
+        let at = self.bc.mir.stmts.len()
+        self.bc.mir.emit_drop(p)
+        self.set_guard(at, by)
+    }
+
+    // The flag updates `accesses` owe, each flag of `f` set or cleared once
+    // by their net effect, in flag order; flag `skip` is a resume's, which
+    // the record gives.
+    func emit_updates(&var self, f: Int, facts: &MirInit, accesses: &Vector<MirAccess>, skip: Int) {
+        var j = 0
+        while j < self.flag_count[f] {
+            let at = self.flag_first[f] + j
+            j = j + 1
+            if at == skip {
+                continue
+            }
+            let p = self.flag_place[at]
+            let q = self.bc.mir.init_path_of(p, &facts)
+            var net = DROPS_KEEP
+            var k = 0
+            while k < accesses.len() {
+                let a = accesses[k]
+                let effect = drops_flag_effect(&facts, q, &a)
+                if effect != DROPS_KEEP {
+                    net = effect
+                }
+                k = k + 1
+            }
+            if net != DROPS_KEEP {
+                let flag = self.flag_local[at]
+                self.assign_flag(flag, net == DROPS_SET)
+            }
+        }
+    }
+
+    // `F = const true` or `false`.
+    func assign_flag(&var self, flag: Int, value: Bool) {
+        let t = self.bc.mir.tc.bool_type()
+        let text = if value { "true" } else { "false" }
+        let c = self.bc.mir.op_const(MirConstKind.Bool, text, t)
+        let rv = self.bc.mir.rv_use(c)
+        let fp = self.bc.mir.place_local(flag)
+        self.bc.mir.assign(fp, rv)
+    }
+
+    // The prologue's record field `field`, `(*_1).field`, of type `Bool`.
+    func record_flag_place(&var self, field: Int) -> Int {
+        let record = self.bc.mir.local_type(1)
+        let rt = self.bc.mir.tc.referent(record)
+        let base = self.bc.mir.place_local(1)
+        let whole = self.bc.mir.project(base, MirProjKind.Deref, -1, -1, rt)
+        let t = self.bc.mir.tc.bool_type()
+        self.bc.mir.project(whole, MirProjKind.Tuple, -1, field, t)
+    }
+
+    // Before a prologue's transfer of a flagged local into its record, the
+    // local's flag into the record's field `field`.
+    func write_record_flag(&var self, f: Int, facts: &MirInit, accesses: &Vector<MirAccess>, field: Int) {
+        var q = -1
+        var k = 0
+        while k < accesses.len() {
+            let a = accesses[k]
+            if a.kind == MirAccessKind.Transfer && not a.cut {
+                q = a.path
+            }
+            k = k + 1
+        }
+        let j = self.flag_for_path(f, &facts, q)
+        if j < 0 {
+            self.problem(f, -1, "transfers a record local that has no flag")
+            return
+        }
+        let flag = self.flag_local[j]
+        let slot = self.record_flag_place(field)
+        let fp = self.bc.mir.place_local(flag)
+        let read = self.bc.mir.op_copy(fp)
+        let rv = self.bc.mir.rv_use(read)
+        self.bc.mir.assign(slot, rv)
+    }
+
+    // After an epilogue's resume of a record local, its flag from the
+    // record's field `field`; returns the flag, or -1 when the epilogue needs
+    // none for the local.
+    func read_record_flag(&var self, f: Int, facts: &MirInit, accesses: &Vector<MirAccess>, field: Int) -> Int {
+        var q = -1
+        var k = 0
+        while k < accesses.len() {
+            let a = accesses[k]
+            if a.kind == MirAccessKind.Resume && not a.cut {
+                q = a.path
+            }
+            k = k + 1
+        }
+        let j = self.flag_for_path(f, &facts, q)
+        if j < 0 {
+            return -1
+        }
+        let flag = self.flag_local[j]
+        let slot = self.record_flag_place(field)
+        let read = self.bc.mir.op_copy(slot)
+        let rv = self.bc.mir.rv_use(read)
+        let fp = self.bc.mir.place_local(flag)
+        self.bc.mir.assign(fp, rv)
+        j
+    }
+
+    // The original terminator of a rebuilt block, on the block the rebuild
+    // ended in.
+    func install_terminator(&var self, old: &MirBlock) {
+        let cur = self.bc.mir.current
+        if cur < 0 {
+            return
+        }
+        let at = self.bc.mir.block_base + cur
+        var info = self.bc.mir.blocks[at]
+        info.term = old.term
+        info.target = old.target
+        info.switch_kind = old.switch_kind
+        info.operand = old.operand
+        info.place = old.place
+        info.arm_first = old.arm_first
+        info.arm_count = old.arm_count
+        info.otherwise = old.otherwise
+        info.call = old.call
+        info.term_node = old.term_node
+        info.term_closing = old.term_closing
+        self.bc.mir.blocks[at] = info
+        self.bc.mir.current = -1
+    }
+
+    // Whether a value of type `t` must reach a written fate.
+    func must_consume(&var self, t: Int) -> Bool {
+        let d = self.bc.mir.tc.nominal_decl(t)
+        if d < 0 {
+            return false
+        }
+        let roles = drops_must_consume_roles()
+        var k = 0
+        while k < roles.len() {
+            if self.bc.mir.tc.res.lang_item(roles[k]) == d {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    func refuse_must_consume(&var self, f: Int, s: Int, t: Int) {
+        var node = self.bc.mir.stmts[s].node
+        if node < 0 {
+            node = self.bc.mir.funcs[f].root
+        }
+        let m = self.bc.mir.tc.node_module(node)
+        let n = self.bc.mir.tc.res.nodes[node]
+        var msg = StringBuilder()
+        try! msg.append("a value of type `")
+        try! msg.append(self.bc.mir.tc.type_text(t))
+        try! msg.append("` reaches an implicit drop here, but its fate must be written: consume it on every path")
+        try! self.diags.push(MirDiag(module: m, start: n.start, end: n.end, id: "drop.must-consume", message: msg.build()))
+    }
+
+    // A broken invariant in function `f`, at statement `s` or the function.
+    public func problem(&var self, f: Int, s: Int, text: String) {
+        let info = self.bc.mir.funcs[f]
+        var line = StringBuilder()
+        try! line.append(self.bc.mir.tc.res.node_position(info.module, info.root))
+        try! line.append(" ")
+        try! line.append(self.bc.mir.func_name(f))
+        if s >= 0 {
+            let stmt = self.bc.mir.stmts[s]
+            try! line.append(": the statement at ")
+            try! line.append(self.bc.mir.span_text(stmt.node, stmt.closing))
+        }
+        try! line.append(" ")
+        try! line.append(text)
+        try! self.problems.push(line.build())
+        try! self.problem_modules.push(info.module)
+    }
+}

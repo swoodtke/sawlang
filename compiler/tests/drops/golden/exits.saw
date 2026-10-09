@@ -1,0 +1,52 @@
+// Early exits: each exit drops what its path left whole, statically, and
+// elides what moved. `return`, `break`, `continue` and a propagating `try`
+// each leave their scopes on their own edge.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func take(r: Res) -> Int { r.id }
+
+func check(n: Int) -> Result<Int, String> {
+    if n < 0 {
+        return Result.Err("negative")
+    }
+    n
+}
+
+func early(n: Int) -> Int {
+    let a = Res(id: 1)
+    let b = Res(id: 2)
+    if n > 0 {
+        return take(move a)
+    }
+    take(move b) + a.id
+}
+
+func looped(n: Int) -> Int {
+    var total = 0
+    var k = 0
+    while k < n {
+        k = k + 1
+        let r = Res(id: k)
+        if k == 2 {
+            continue
+        }
+        if k == 4 {
+            break
+        }
+        total = total + take(move r)
+    }
+    total
+}
+
+func propagated(n: Int) -> Result<Int, String> {
+    let a = Res(id: 3)
+    let v = try check(n)
+    v + a.id
+}
+
+func main() {
+    print(early(1) + looped(5))
+    let _ = propagated(1)
+}

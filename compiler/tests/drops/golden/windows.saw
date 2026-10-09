@@ -1,0 +1,32 @@
+// Drops and windows: a scope's exits run newest first, so a value declared
+// inside a window's body is dropped before the window closes. A `for` over a
+// borrowing struct keeps the iterator in its window; Vector's iterator owns
+// nothing, so nothing drops it, and the window closes at the loop's exit. A
+// borrowing struct that owns something needs `lends`, which is not in the
+// slice yet (refuse/order.borrowing-struct.saw records the row as due).
+
+func iterate(v: Vector<String>) -> Int {
+    var total = 0
+    for s in v.iter() {
+        let copied = s
+        total = total + copied.len()
+    }
+    total
+}
+
+func inside(v: Vector<String>) -> Int {
+    var total = 0
+    borrow let first = v[0] {
+        let label = first
+        total = label.len()
+    }
+    total
+}
+
+func main() {
+    var v = Vector<String>()
+    try! v.push("a")
+    var w = Vector<String>()
+    try! w.push("bc")
+    print(iterate(move v) + inside(move w))
+}

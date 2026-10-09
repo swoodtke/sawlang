@@ -321,8 +321,9 @@ public struct MirWindow {
 // (SL:architecture §3.5): the prologue, run at `window_open`, which produces
 // the lent reference and writes the state record; the epilogue, run at
 // `window_close`, which reads it. The record is a tuple of the locals live
-// across the `lend`, over the accessor's own type parameters, and a resume
-// index when the body lends at more than one place.
+// across the `lend`, over the accessor's own type parameters, a `Bool` drop
+// flag for each one only maybe initialised there, and a resume index when the
+// body lends at more than one place.
 public struct MirAccessor {
     public decl: Int
     public prologue: Int
@@ -391,6 +392,10 @@ public struct MirFunc {
     // `lend`, in its own numbering: runs of the program's `aux` list.
     public record_first: Int
     public record_count: Int
+    // Parallel to the record locals: the record field holding each one's
+    // drop flag, or -1 for a local definitely whole at every `lend`. Drop
+    // elaboration writes those fields (SL:architecture §3.7).
+    public record_flags_first: Int
     public carried_first: Int
     public carried_count: Int
 }

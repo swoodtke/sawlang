@@ -131,8 +131,8 @@ extension MirProgram {
     // lends a place is never lowered whole; each half belongs to its
     // accessor's entry; the epilogue's record holds exactly the locals live
     // where it resumes, none read before the record gives it and none it
-    // never reads; and each prologue return writes every field of the record,
-    // or none on a conditional lend's absent path.
+    // never reads; and each prologue return writes every field of the record
+    // but the drop flags, or none on a conditional lend's absent path.
     func verify_halves(&var self, f: Int, out: &var Vector<String>) {
         let info = self.funcs[f]
         if info.kind == MirFuncKind.Body && info.decl >= 0 && self.lends_place_decl(info.decl) {
@@ -241,6 +241,17 @@ extension MirProgram {
                     }
                 }
             }
+            // A record local's flag field is drop elaboration's to write.
+            k = 0
+            var flagged = 0
+            while k < info.record_count {
+                let slot = self.aux[info.record_flags_first + k]
+                if slot >= 0 && slot < fields {
+                    written[slot] = false
+                    flagged = flagged + 1
+                }
+                k = k + 1
+            }
             var count = 0
             k = 0
             while k < fields {
@@ -249,7 +260,7 @@ extension MirProgram {
                 }
                 k = k + 1
             }
-            if count != 0 && count != fields {
+            if count != 0 && count != fields - flagged {
                 self.problem(f, &var out, "a prologue's `lend` writes some of the record's fields and not others")
             }
         }

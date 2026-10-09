@@ -1,0 +1,32 @@
+// Drop flags across an accessor's split (the Air's SL-468 c2 probe): `note`
+// is moved on one path before the `lend` and not on the other, so the state
+// record carries it with a flag field. The prologue writes the field from
+// `note`'s flag before the transfer, the epilogue reads it back after the
+// resume, and the drop at the end of the body runs under it: exactly one
+// drop of `note` on each path, at scope end after the epilogue, where Stage 0
+// runs it too.
+
+struct Board {
+    cells: Vector<Int>,
+    log: Vector<String>
+}
+extension Board: NoCopy {}
+
+extension Board {
+    func noted(&var self, i: Int, tag: String, keep: Bool) borrows -> &var Int {
+        let note = tag
+        if keep {
+            let _ = self.log.push(move note)
+        }
+        lend self.cells[i]
+        self.cells[0] = self.cells[0] + 1
+    }
+}
+
+func main() {
+    var b = Board(cells: [4, 5, 6], log: Vector<String>())
+    b.noted(1, "a", true) = 8
+    b.noted(2, "b", false) = 9
+    print(b.cells[0] + b.cells[1])
+    print(b.log.len())
+}

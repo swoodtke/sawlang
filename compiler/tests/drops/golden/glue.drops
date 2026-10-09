@@ -1,0 +1,187 @@
+module glue
+
+fn glue.Handle.deinit() -> Void {
+    let _0: Void;  // return
+    let _1: &var glue.Handle;  // self
+
+    bb0: {
+        call builtin print [format "closing {}", copy (*_1).fd] -> [return: bb1];
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn glue.kinds(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: glue.Handle;  // h
+    let _3: glue.Handle;
+    let _4: glue.Owner;  // o
+    let _5: Int;
+    let _6: glue.Handle;
+    let _7: glue.Owner;
+    let _8: glue.Slot;  // s
+    let _9: Int;
+    let _10: glue.Handle;
+    let _11: glue.Slot;
+    let _12: glue.Handle?;  // maybe
+    let _13: Int;
+    let _14: glue.Handle;
+    let _15: glue.Handle?;
+    let _16: (glue.Handle, Int);  // pair
+    let _17: Int;
+    let _18: glue.Handle;
+    let _19: (glue.Handle, Int);
+    let _20: String;  // tag
+    let _21: () -> Int;  // f
+    let _22: () -> Int;
+    let _23: Int;
+    let _24: Int;
+    let _25: Int;
+    let _26: Int;
+
+    bb0: {
+        _3 = glue.Handle { fd: copy _1 };
+        _2 = move _3;
+        _5 = Add(copy _1, const 1: Int);
+        _6 = glue.Handle { fd: move _5 };
+        _7 = glue.Owner { handle: move _6, name: const "owner": String };
+        _4 = move _7;
+        _9 = Add(copy _1, const 2: Int);
+        _10 = glue.Handle { fd: move _9 };
+        _11 = glue.Slot::Full(move _10);
+        _8 = move _11;
+        _13 = Add(copy _1, const 3: Int);
+        _14 = glue.Handle { fd: move _13 };
+        _15 = glue.Handle?::Some(move _14);
+        _12 = move _15;
+        _17 = Add(copy _1, const 4: Int);
+        _18 = glue.Handle { fd: move _17 };
+        _19 = (move _18, const 7: Int);
+        _16 = move _19;
+        _20 = const "tag": String;
+        _22 = closure#0 of glue.kinds(n: Int) [copy _20];
+        _21 = move _22;
+        _23 = Add(copy _2.fd, copy _4.handle.fd);
+        _24 = Add(move _23, copy _16.1);
+        _25 = call value copy _21 [] -> [return: bb1];
+    }
+
+    bb1: {
+        _26 = Add(move _24, move _25);
+        _0 = move _26;
+        drop(_21);
+        drop(_20);
+        drop(_16);
+        drop(_12);
+        drop(_8);
+        drop(_4);
+        drop(_2);
+        return;
+    }
+
+    glue () -> Int: closure environment
+    glue (glue.Handle, Int): structural
+    glue String: builtin
+    glue glue.Handle: deinit glue.Handle.deinit() in the NoCopy conformance, then structural
+    glue glue.Handle?: structural
+    glue glue.Owner: structural
+    glue glue.Slot: structural
+}
+
+fn closure#0 of glue.kinds(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: &(String,);  // env
+    let _2: String;  // tag
+    let _3: &String;
+    let _4: Int;
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _3 = ref(shared, _2);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        drop(_2);
+        return;
+    }
+
+    glue String: builtin
+}
+
+fn glue.hold(x: T) -> Int {
+    let _0: Int;  // return
+    let _1: T;  // param x
+    let _2: T;  // kept
+
+    bb0: {
+        _2 = move _1;
+        _0 = const 1: Int;
+        drop(_2);
+        return;
+    }
+
+    glue T: per instantiation
+}
+
+fn glue.count(v: std.vector.Vector<T, std.alloc.GlobalAllocator>) -> Int {
+    let _0: Int;  // return
+    let _1: std.vector.Vector<T, std.alloc.GlobalAllocator>;  // param v
+    let _2: &std.vector.Vector<T, std.alloc.GlobalAllocator>;
+    let _3: Int;
+
+    bb0: {
+        _2 = ref(shared, _1);
+        _3 = call std.vector.Vector.len() (owner std.vector.Vector<T, std.alloc.GlobalAllocator>) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _3;
+        drop(_1);
+        return;
+    }
+
+    glue std.vector.Vector<T, std.alloc.GlobalAllocator>: per instantiation
+}
+
+fn glue.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: glue.Handle;
+    let _3: Int;
+    let _4: Int;
+    let _5: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _6: Int;
+    let _7: Int;
+
+    bb0: {
+        _1 = call glue.kinds(n: Int) [const 1: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = glue.Handle { fd: const 9: Int };
+        _3 = call glue.hold(x: T) (inst glue.Handle) [move _2] -> [return: bb2];
+    }
+
+    bb2: {
+        _4 = Add(move _1, move _3);
+        _5 = call std.vector.Vector.init() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [] -> [return: bb3];
+    }
+
+    bb3: {
+        _6 = call glue.count(v: std.vector.Vector<T, std.alloc.GlobalAllocator>) (inst Int) [move _5] -> [return: bb4];
+    }
+
+    bb4: {
+        _7 = Add(move _4, move _6);
+        call builtin print [move _7] -> [return: bb5];
+    }
+
+    bb5: {
+        return;
+    }
+}

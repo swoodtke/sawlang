@@ -1,0 +1,46 @@
+// due: order.borrowing-struct when `lends` enters the slice
+// refuses: slice.not-yet at 34:23
+// A borrowing struct that owns something and writes a `deinit` is destroyed
+// before the window whose loan it carries ends (SL:architecture §3.6, the
+// Air's t21), so its `deinit` may still read through its reference. Once
+// `lends` is lowered, this program's elaborated dump must drop the walker
+// before the window closes; the MIR registers no drop for a lent struct today.
+
+struct Shelf { items: Vector<Int> }
+extension Shelf: NoCopy {}
+
+borrows struct Walker {
+    shelf: &Shelf,
+    at: Int,
+    tag: String
+}
+
+extension Walker: NoCopy {}
+
+extension Walker: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.at >= self.shelf.items.len() {
+            return None
+        }
+        let v = self.shelf.items[self.at]
+        self.at = self.at + 1
+        v
+    }
+}
+
+extension Shelf {
+    func walk(&self) borrows -> Walker {
+        Walker(shelf: lends self, at: 0, tag: "walker")
+    }
+}
+
+func main() {
+    var s = Shelf(items: Vector<Int>())
+    try! s.items.push(3)
+    var sum = 0
+    for x in s.walk() {
+        sum = sum + x
+    }
+    print(sum)
+}

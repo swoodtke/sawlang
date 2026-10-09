@@ -1,0 +1,21 @@
+// flags: --std-root std
+// Glue resolution under the new std: a `Vector<Token>` with `Token` NoCopy
+// resolves to the `deinit` declared in Vector's bounded `ExplicitCopy`
+// conformance, as a `Vector<Int>` does: the copy policy is the type's for
+// every element type, a move-only one included, so its destructor is every
+// vector's (the uniform-policy reading of the Air's SL-456.p2 note 1).
+
+struct Token { id: Int }
+extension Token: NoCopy {}
+
+func count() -> Int {
+    var tokens = Vector<Token>()
+    let _ = tokens.push(Token(id: 1))
+    var numbers = Vector<Int>()
+    let _ = numbers.push(7)
+    tokens.len() + numbers.len()
+}
+
+func main() {
+    let _ = count()
+}

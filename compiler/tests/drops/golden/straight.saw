@@ -1,0 +1,16 @@
+// Straight-line code: every drop is static or elided. A binding never moved
+// is dropped unconditionally at its scope's exit, in reverse declaration
+// order; one moved has its drop removed. No flag is created.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func take(r: Res) -> Int { r.id }
+
+func main() {
+    let a = Res(id: 1)
+    let b = Res(id: 2)
+    let c = Res(id: 3)
+    let n = take(move b)
+    print(a.id + n + c.id)
+}

@@ -1,0 +1,30 @@
+// A conditional move: `r` is moved on one branch only, so its scope-exit drop
+// is flagged. Its flag starts false, is set where `r` is initialised and
+// cleared where it is moved, and the drop runs only on the flag's true edge.
+// A move on both branches elides the drop instead, and needs no flag.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func take(r: Res) -> Int { r.id }
+
+func maybe(keep: Bool) -> Int {
+    let r = Res(id: 1)
+    var n = 0
+    if keep {
+        n = take(move r)
+    }
+    n + 1
+}
+
+func both(left: Bool) -> Int {
+    let r = Res(id: 2)
+    if left {
+        return take(move r)
+    }
+    take(move r) + 1
+}
+
+func main() {
+    print(maybe(true) + maybe(false) + both(true))
+}

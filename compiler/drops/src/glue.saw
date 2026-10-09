@@ -1,0 +1,131 @@
+// Glue resolution (SL:architecture §3.7, "Placement is separate from glue"):
+// for each type a drop destroys, which glue it resolves to. Elaboration
+// decides only where a drop happens; what it does is the type's glue,
+// generated once per concrete type at monomorphization (§3.8), so this stage
+// records the resolution and generates nothing.
+
+import sawdrops.src.program.{DropsProgram}
+import sawmir.src.build.{mir_func_local}
+import sawmir.src.program.{MirProgram}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.lang.{ResLang}
+import sawresolve.src.program.{ResProgram}
+import sawtypecheck.src.bodydump.{tc_dump_bodies}
+import sawtypecheck.src.model.{TcSource}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind}
+
+// What a type's drop glue is: none; its members, by field in reverse
+// declaration order or by an enum's active payload; a hand-written `deinit`
+// body, then the same; not known until a type parameter is instantiated; a
+// vocabulary type whose glue the compiler supplies; or a closure value's
+// environment.
+public enum DropsGlueKind {
+    case Trivial,
+    case Structural,
+    case Deinit,
+    case Instantiation,
+    case Builtin,
+    case Environment
+}
+
+public struct DropsGlue {
+    public kind: DropsGlueKind
+    // A `deinit`'s declaration, and the trait of the conformance declaring it.
+    public decl: Int
+    public trait_decl: Int
+}
+
+extension DropsProgram {
+    // The glue a drop of type `t` resolves to. A type mentioning a type
+    // parameter resolves per instantiation, never by guessing at one. A
+    // `deinit` is found by name among the type's extension members whatever
+    // the bound on the conformance declaring it: a copy policy is the type's
+    // for every argument, so a bounded conformance's `deinit` is every
+    // instantiation's destructor (the uniform-policy reading).
+    public func glue_of(&var self, t: Int) -> DropsGlue {
+        if self.bc.mir.tc.mentions_param(t) {
+            return DropsGlue(kind: DropsGlueKind.Instantiation, decl: -1, trait_decl: -1)
+        }
+        if not self.bc.mir.owns(t) {
+            return DropsGlue(kind: DropsGlueKind.Trivial, decl: -1, trait_decl: -1)
+        }
+        let kind = self.bc.mir.tc.kind_of(t)
+        if kind == TcKind.Func {
+            return DropsGlue(kind: DropsGlueKind.Environment, decl: -1, trait_decl: -1)
+        }
+        if kind != TcKind.Nominal {
+            return DropsGlue(kind: DropsGlueKind.Structural, decl: -1, trait_decl: -1)
+        }
+        let d = self.bc.mir.tc.nominal_decl(t)
+        let found = self.deinit_member(d)
+        if found >= 0 {
+            let member = self.bc.mir.tc.members[found]
+            var policy = -1
+            var k = 0
+            while k < self.bc.mir.tc.conformances.len() {
+                let c = self.bc.mir.tc.conformances[k]
+                if c.ext == member.ext {
+                    policy = c.trait_decl
+                }
+                k = k + 1
+            }
+            return DropsGlue(kind: DropsGlueKind.Deinit, decl: member.decl, trait_decl: policy)
+        }
+        let known = self.bc.mir.tc.known
+        let wrapper = d == known.optional || d == known.result
+        let m = self.bc.mir.tc.res.decls[d].module
+        if not wrapper && self.bc.mir.tc.res.is_vocabulary_module(m) {
+            return DropsGlue(kind: DropsGlueKind.Builtin, decl: -1, trait_decl: -1)
+        }
+        DropsGlue(kind: DropsGlueKind.Structural, decl: -1, trait_decl: -1)
+    }
+
+    // The member table index of type declaration `d`'s `deinit`, written in
+    // one of its extensions, or -1.
+    func deinit_member(&var self, d: Int) -> Int {
+        if d < 0 || d >= self.bc.mir.tc.member_first.len() {
+            return -1
+        }
+        let first = self.bc.mir.tc.member_first[d]
+        if first < 0 {
+            return -1
+        }
+        let count = self.bc.mir.tc.member_count[d]
+        let name = self.bc.mir.tc.res.intern("deinit")
+        var k = first
+        while k < first + count {
+            let member = self.bc.mir.tc.members[k]
+            if member.name == name && member.source == TcSource.Extension {
+                return k
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // How the dump spells a resolution.
+    public func glue_text(&self, g: &DropsGlue) -> String {
+        var out = StringBuilder()
+        match g.kind {
+            case Trivial -> try! out.append("trivial"),
+            case Structural -> try! out.append("structural"),
+            case Instantiation -> try! out.append("per instantiation"),
+            case Builtin -> try! out.append("builtin"),
+            case Environment -> try! out.append("closure environment"),
+            case Deinit -> {
+                try! out.append("deinit ")
+                try! out.append(self.bc.mir.tc.target_text(g.decl))
+                if g.trait_decl >= 0 {
+                    try! out.append(" in the ")
+                    try! out.append(self.bc.mir.tc.res.decl_path(g.trait_decl))
+                    try! out.append(" conformance")
+                }
+                try! out.append(", then structural")
+            }
+        }
+        out.build()
+    }
+}

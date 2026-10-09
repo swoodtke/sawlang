@@ -1,0 +1,152 @@
+module consumes
+
+fn consumes.Triple.middle(hot: Bool) -> consumes.Res {
+    let _0: consumes.Res;  // return
+    let _1: consumes.Triple;  // self
+    let _2: Bool;  // param hot
+
+    bb0: {
+        switch copy _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _0 = move _1.b;
+        drop(_1.c);
+        drop(_1.a);
+        return;
+    }
+
+    bb2: {
+        _0 = move _1.b;
+        drop(_1.c);
+        drop(_1.a);
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    glue consumes.Res: structural
+}
+
+fn consumes.Triple.none() -> Int {
+    let _0: Int;  // return
+    let _1: consumes.Triple;  // self
+    let _2: Int;
+    let _3: Int;
+
+    bb0: {
+        _2 = Add(copy _1.a.id, copy _1.b.id);
+        _3 = Add(move _2, copy _1.c.id);
+        _0 = move _3;
+        drop(_1);
+        return;
+    }
+
+    glue consumes.Triple: structural
+}
+
+fn consumes.Triple.diverging(n: Int) -> consumes.Res {
+    let _0: consumes.Res;  // return
+    let _1: consumes.Triple;  // self
+    let _2: Int;  // param n
+    let _3: Bool;
+
+    bb0: {
+        _3 = Lt(copy _2, const 0: Int);
+        switch move _3 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _0 = move _1.a;
+        drop(_1.c);
+        drop(_1.b);
+        return;
+    }
+
+    bb2: {
+        call builtin panic [const "negative": String] -> !;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    glue consumes.Res: structural
+}
+
+fn consumes.make() -> consumes.Triple {
+    let _0: consumes.Triple;  // return
+    let _1: consumes.Res;
+    let _2: consumes.Res;
+    let _3: consumes.Res;
+    let _4: consumes.Triple;
+
+    bb0: {
+        _1 = consumes.Res { id: const 1: Int };
+        _2 = consumes.Res { id: const 2: Int };
+        _3 = consumes.Res { id: const 3: Int };
+        _4 = consumes.Triple { a: move _1, b: move _2, c: move _3 };
+        _0 = move _4;
+        return;
+    }
+}
+
+fn consumes.main() -> Void {
+    let _0: Void;  // return
+    let _1: consumes.Triple;  // p
+    let _2: consumes.Triple;
+    let _3: consumes.Triple;  // q
+    let _4: consumes.Triple;
+    let _5: consumes.Triple;  // r
+    let _6: consumes.Triple;
+    let _7: consumes.Res;
+    let _8: Int;
+    let _9: Int;
+    let _10: Int;
+    let _11: consumes.Res;
+    let _12: Int;
+
+    bb0: {
+        _2 = call consumes.make() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _1 = move _2;
+        _4 = call consumes.make() [] -> [return: bb2];
+    }
+
+    bb2: {
+        _3 = move _4;
+        _6 = call consumes.make() [] -> [return: bb3];
+    }
+
+    bb3: {
+        _5 = move _6;
+        _7 = call consumes.Triple.middle(hot: Bool) (owner consumes.Triple) [move _1, const true: Bool] -> [return: bb4];
+    }
+
+    bb4: {
+        _8 = copy _7.id;
+        _9 = call consumes.Triple.none() (owner consumes.Triple) [move _3] -> [return: bb5];
+    }
+
+    bb5: {
+        _10 = Add(move _8, move _9);
+        _11 = call consumes.Triple.diverging(n: Int) (owner consumes.Triple) [move _5, const 1: Int] -> [return: bb6];
+    }
+
+    bb6: {
+        _12 = Add(move _10, copy _11.id);
+        call builtin print [move _12] -> [return: bb7];
+    }
+
+    bb7: {
+        drop(_11);
+        drop(_7);
+        return;
+    }
+
+    glue consumes.Res: structural
+}

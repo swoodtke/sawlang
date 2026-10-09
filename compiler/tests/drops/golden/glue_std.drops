@@ -1,0 +1,77 @@
+module glue_std
+
+fn glue_std.count() -> Int {
+    let _0: Int;  // return
+    let _1: std.vector.Vector<glue_std.Token, std.alloc.GlobalAllocator>;  // tokens
+    let _2: std.vector.Vector<glue_std.Token, std.alloc.GlobalAllocator>;
+    let _3: glue_std.Token;
+    let _4: &var std.vector.Vector<glue_std.Token, std.alloc.GlobalAllocator>;
+    let _5: Result<Void, std.alloc.AllocError>;
+    let _6: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // numbers
+    let _7: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _8: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _9: Result<Void, std.alloc.AllocError>;
+    let _10: &std.vector.Vector<glue_std.Token, std.alloc.GlobalAllocator>;
+    let _11: Int;
+    let _12: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _13: Int;
+    let _14: Int;
+
+    bb0: {
+        _2 = call std.vector.Vector.init() (owner std.vector.Vector<glue_std.Token, std.alloc.GlobalAllocator>) [] -> [return: bb1];
+    }
+
+    bb1: {
+        _1 = move _2;
+        _3 = glue_std.Token { id: const 1: Int };
+        _4 = ref(exclusive, _1);
+        _5 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<glue_std.Token, std.alloc.GlobalAllocator>) [move _4, move _3] -> [return: bb2];
+    }
+
+    bb2: {
+        drop(_5);
+        _7 = call std.vector.Vector.init() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [] -> [return: bb3];
+    }
+
+    bb3: {
+        _6 = move _7;
+        _8 = ref(exclusive, _6);
+        _9 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _8, const 7: Int] -> [return: bb4];
+    }
+
+    bb4: {
+        drop(_9);
+        _10 = ref(shared, _1);
+        _11 = call std.vector.Vector.len() (owner std.vector.Vector<glue_std.Token, std.alloc.GlobalAllocator>) [move _10] -> [return: bb5];
+    }
+
+    bb5: {
+        _12 = ref(shared, _6);
+        _13 = call std.vector.Vector.len() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _12] -> [return: bb6];
+    }
+
+    bb6: {
+        _14 = Add(move _11, move _13);
+        _0 = move _14;
+        drop(_6);
+        drop(_1);
+        return;
+    }
+
+    glue Result<Void, std.alloc.AllocError>: structural
+    glue std.vector.Vector<Int, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit() in the ExplicitCopy conformance, then structural
+    glue std.vector.Vector<glue_std.Token, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit() in the ExplicitCopy conformance, then structural
+}
+
+fn glue_std.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+
+    bb0: {
+        _1 = call glue_std.count() [] -> [return: bb1];
+    }
+
+    bb1: {
+        return;
+    }
+}

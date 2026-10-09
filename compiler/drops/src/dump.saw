@@ -1,0 +1,182 @@
+// Drop elaboration's dump (compiler/tests/drops/README.md): each elaborated
+// function as the MIR dump prints a function, its drop flags named after the
+// paths they track, then the glue each dropped type resolves to.
+
+import sawdrops.src.glue.{DropsGlue}
+import sawdrops.src.program.{DropsProgram}
+import sawmir.src.dump.{mir_module_functions}
+import sawmir.src.model.{MirLocal, MirLocalKind, MirStmtKind}
+import sawmir.src.program.{MirProgram}
+import sawresolve.src.dump.{res_sort_strings}
+import sawtypecheck.src.bodydump.{tc_dump_bodies}
+import sawtypecheck.src.program.{TcProgram}
+
+// Module `m`'s dump: every elaborated function, in the MIR dump's order.
+public func drops_dump_module(p: &var DropsProgram, out: &var StringBuilder, m: Int) {
+    p.dump_module(&var out, m)
+}
+
+extension DropsProgram {
+    func dump_module(&var self, out: &var StringBuilder, m: Int) {
+        try! out.append("module ")
+        try! out.append(self.bc.mir.tc.res.module_name(m))
+        try! out.append("\n")
+        let order = mir_module_functions(&self.bc.mir, m)
+        var k = 0
+        while k < order.len() {
+            let f = order[k]
+            k = k + 1
+            if self.elaborated[f] {
+                try! out.append("\n")
+                self.dump_func(&var out, f)
+            }
+        }
+    }
+
+    func dump_func(&var self, out: &var StringBuilder, f: Int) {
+        let info = self.bc.mir.funcs[f]
+        try! out.append("fn ")
+        try! out.append(self.bc.mir.func_name(f))
+        try! out.append(" -> ")
+        let result = self.bc.mir.locals[info.local_first].ty
+        self.bc.mir.append_type(&var out, result)
+        try! out.append(" \{\n")
+        var k = 0
+        while k < info.local_count {
+            let l = self.bc.mir.locals[info.local_first + k]
+            try! out.append("    let _")
+            try! out.append(k)
+            try! out.append(": ")
+            self.bc.mir.append_type(&var out, l.ty)
+            try! out.append(";")
+            self.append_note(&var out, f, k, &l)
+            try! out.append("\n")
+            k = k + 1
+        }
+        k = 0
+        while k < info.window_count {
+            let w = self.bc.mir.windows[info.window_first + k]
+            try! out.append("    window w")
+            try! out.append(k)
+            try! out.append(": ")
+            try! out.append(self.bc.mir.tc.target_text(w.accessor))
+            if w.exclusive {
+                try! out.append(" exclusive")
+            } else {
+                try! out.append(" shared")
+            }
+            if w.conditional {
+                try! out.append(" conditional")
+            }
+            if w.sync {
+                try! out.append(" sync")
+            }
+            if w.record >= 0 {
+                try! out.append(" record _")
+                try! out.append(w.record)
+            }
+            try! out.append(";\n")
+            k = k + 1
+        }
+        var dropped = Vector<Int>()
+        k = 0
+        while k < info.block_count {
+            try! out.append("\n    bb")
+            try! out.append(k)
+            try! out.append(": \{\n")
+            let b = self.bc.mir.blocks[info.block_first + k]
+            var s = b.first
+            while s >= 0 {
+                let stmt = self.bc.mir.stmts[s]
+                try! out.append("        ")
+                self.bc.mir.append_stmt(&var out, info.local_first, &stmt)
+                try! out.append("\n")
+                if stmt.kind == MirStmtKind.Drop {
+                    let t = self.bc.mir.places[stmt.place].ty
+                    try! dropped.push(t)
+                }
+                s = stmt.next
+            }
+            try! out.append("        ")
+            self.bc.mir.append_term(&var out, info.local_first, &b)
+            try! out.append("\n    \}\n")
+            k = k + 1
+        }
+        self.append_glue(&var out, &dropped)
+        try! out.append("\}\n")
+    }
+
+    // `glue TYPE: RESOLUTION` for each distinct type of `types`, sorted by
+    // the line.
+    func append_glue(&var self, out: &var StringBuilder, types: &Vector<Int>) {
+        var lines = Vector<String>()
+        var k = 0
+        while k < types.len() {
+            let t = types[k]
+            k = k + 1
+            var text = StringBuilder()
+            try! text.append("    glue ")
+            self.bc.mir.append_type(&var text, t)
+            try! text.append(": ")
+            let g = self.glue_of(t)
+            try! text.append(self.glue_text(&g))
+            let line = text.build()
+            var seen = false
+            var j = 0
+            while j < lines.len() {
+                if (lines.get(j) ?? "").equals(line) {
+                    seen = true
+                }
+                j = j + 1
+            }
+            if not seen {
+                try! lines.push(line)
+            }
+        }
+        if lines.len() == 0 {
+            return
+        }
+        res_sort_strings(&var lines)
+        try! out.append("\n")
+        k = 0
+        while k < lines.len() {
+            try! out.append(lines.get(k) ?? "")
+            try! out.append("\n")
+            k = k + 1
+        }
+    }
+
+    // A local's note: the MIR dump's, or `flag PLACE` for a drop flag.
+    func append_note(&self, out: &var StringBuilder, f: Int, k: Int, l: &MirLocal) {
+        var j = 0
+        while j < self.flag_count[f] {
+            let at = self.flag_first[f] + j
+            if self.flag_local[at] == k {
+                try! out.append("  // flag ")
+                let p = self.flag_place[at]
+                self.bc.mir.append_place(&var out, p)
+                return
+            }
+            j = j + 1
+        }
+        match l.kind {
+            case Return -> try! out.append("  // return"),
+            case Receiver -> try! out.append("  // self"),
+            case Env -> try! out.append("  // env"),
+            case Record -> try! out.append("  // record"),
+            case Param -> {
+                try! out.append("  // param ")
+                try! out.append(self.bc.mir.tc.name_text(l.name))
+            },
+            case User -> {
+                if l.reference {
+                    try! out.append("  // ref ")
+                } else {
+                    try! out.append("  // ")
+                }
+                try! out.append(self.bc.mir.tc.name_text(l.name))
+            },
+            case Temp -> {}
+        }
+    }
+}

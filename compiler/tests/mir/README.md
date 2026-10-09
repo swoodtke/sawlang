@@ -171,10 +171,16 @@ caller is lowered, since a caller holds the state record the split lays out:
   `lend` resumed, testing the resume index when there are several;
 - the **state record**, a tuple of the locals live across the `lend`
   (liveness over the whole body: read on some path after it before written),
-  in local order, then an `Int` resume index when the body lends at more than
-  one place. An accessor with neither has no record and no `_1`. A window the
-  prologue opens to forward a place stays open into the epilogue, which
-  closes it.
+  in local order, then a `Bool` drop flag for each of them that owns
+  something and is not definitely whole at some `lend`, then an `Int` resume
+  index when the body lends at more than one place. An accessor with none of
+  them has no record and no `_1`. A window the prologue opens to forward a
+  place stays open into the epilogue, which closes it. A flagged local's
+  record write is a transfer and its load a resume, which the initialisation
+  analysis models (`compiler/tests/borrowck/README.md`); the flag field
+  itself is written by drop elaboration (`compiler/tests/drops/README.md`),
+  where the flag is born, so the MIR leaves it unwritten. A local partly
+  moved out at a `lend` has no one flag, and is refused as `slice.not-yet`.
 
 A caller's window holds the record in a local of its own, instantiated at the
 window's call, and passes it by exclusive reference to both halves. An
@@ -331,7 +337,7 @@ slice.not-yet at L:C`.
 | a consuming destructure of a type that writes its own `deinit`, since the spec does not say whether dissolving one skips that body | consuming-deinit |
 | a `consumes` body moving out of `self` deeper than one field | consumes-deep-move |
 | the release of a consumed receiver that moves out whole, or is an enum, when its type writes its own `deinit` | consumes-whole |
-| a `for` head that lends a place; a `borrows` call lending a slice or a borrowing struct outside a `for` head; a `borrows` function called with no receiver; a setitem derived from a conditional lend; a conditional lend's place read other than through `!` | none: nothing in the slice reaches them |
+| a `for` head that lends a place; a `borrows` call lending a slice or a borrowing struct outside a `for` head; a `borrows` function called with no receiver; a setitem derived from a conditional lend; a conditional lend's place read other than through `!`; an accessor's local partly moved out at a `lend` | none: nothing in the slice reaches them |
 
 ## The verifier
 
@@ -365,7 +371,8 @@ nowhere, and checks, from the MIR alone:
   for an accessor whose body is not lowered; the epilogue reads no local the
   record does not give it, and every record local is read after the `lend`,
   so the record holds exactly the locals live across it; each prologue
-  return writes all of the record's fields or none; a prologue's return may
+  return writes all of the record's fields but the drop flags, or none; a
+  prologue's return may
   leave its record locals live and its carried windows open, which the
   epilogue resumes with;
 - over the blocks, no owned local may still be live at a `return`, or when it

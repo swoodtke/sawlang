@@ -1,0 +1,44 @@
+// Loops: a binding moved and revived on some iterations, and moved for good
+// by the iteration that breaks out, is maybe initialised at the exit, so its
+// drop is flagged, and its flag is updated around the loop as the moves and
+// the assignment run. A binding moved and revived on every iteration is
+// whole at the exit and dropped statically.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func take(r: Res) -> Int { r.id }
+
+func sometimes(n: Int, stop: Int) -> Int {
+    var r = Res(id: 0)
+    var total = 0
+    var k = 0
+    while k < n {
+        k = k + 1
+        if k == stop {
+            total = total + take(move r)
+            break
+        }
+        if k % 2 == 0 {
+            total = total + take(move r)
+            r = Res(id: k)
+        }
+    }
+    total
+}
+
+func always(n: Int) -> Int {
+    var r = Res(id: 0)
+    var total = 0
+    var k = 0
+    while k < n {
+        total = total + take(move r)
+        r = Res(id: k)
+        k = k + 1
+    }
+    total + r.id
+}
+
+func main() {
+    print(sometimes(5, 3) + always(2))
+}

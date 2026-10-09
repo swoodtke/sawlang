@@ -30,6 +30,7 @@ STAGE_PACKAGES = (
     ("sawmir", "compiler/mir"),
     ("saweval", "compiler/eval"),
     ("sawborrowck", "compiler/borrowck"),
+    ("sawdrops", "compiler/drops"),
 )
 
 

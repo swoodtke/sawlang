@@ -1,0 +1,149 @@
+module temporaries
+
+fn temporaries.label(n: Int) -> String {
+    let _0: String;  // return
+    let _1: Int;  // param n
+    let _2: Bool;
+
+    bb0: {
+        _2 = Gt(copy _1, const 0: Int);
+        switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _0 = const "other": String;
+        return;
+    }
+
+    bb2: {
+        _0 = const "positive": String;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn temporaries.both(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: String;
+    let _3: &String;
+    let _4: Int;
+    let _5: Int;
+    let _6: String;
+    let _7: &String;
+    let _8: Int;
+    let _9: Int;
+
+    bb0: {
+        _2 = call temporaries.label(n: Int) [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = ref(shared, _2);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb2];
+    }
+
+    bb2: {
+        _5 = Add(copy _1, const 1: Int);
+        _6 = call temporaries.label(n: Int) [move _5] -> [return: bb3];
+    }
+
+    bb3: {
+        _7 = ref(shared, _6);
+        _8 = call std.string.String.len() (owner String) [move _7] -> [return: bb4];
+    }
+
+    bb4: {
+        _9 = Add(move _4, move _8);
+        _0 = move _9;
+        drop(_6);
+        drop(_2);
+        return;
+    }
+
+    glue String: builtin
+}
+
+fn temporaries.short(n: Int, check: Bool) -> Bool {
+    let _0: Bool;  // return
+    let _1: Int;  // param n
+    let _2: Bool;  // param check
+    let _3: Bool;
+    let _4: String;
+    let _5: &String;
+    let _6: Int;
+    let _7: Bool;
+    let _8: Bool;  // flag _4
+
+    bb0: {
+        _8 = const false: Bool;
+        switch copy _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _0 = move _3;
+        switch copy _8 -> [true: bb6, false: bb7];
+    }
+
+    bb2: {
+        _8 = const true: Bool;
+        _4 = call temporaries.label(n: Int) [copy _1] -> [return: bb4];
+    }
+
+    bb3: {
+        _3 = const false: Bool;
+        goto -> bb1;
+    }
+
+    bb4: {
+        _5 = ref(shared, _4);
+        _6 = call std.string.String.len() (owner String) [move _5] -> [return: bb5];
+    }
+
+    bb5: {
+        _7 = Gt(copy _6, const 3: Int);
+        _3 = move _7;
+        goto -> bb1;
+    }
+
+    bb6: {
+        drop(_4);
+        _8 = const false: Bool;
+        goto -> bb7;
+    }
+
+    bb7: {
+        return;
+    }
+
+    glue String: builtin
+}
+
+fn temporaries.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: Bool;
+
+    bb0: {
+        _1 = call temporaries.both(n: Int) [const 1: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        call builtin print [copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        _2 = call temporaries.short(n: Int, check: Bool) [const 1: Int, const true: Bool] -> [return: bb3];
+    }
+
+    bb3: {
+        call builtin print [copy _2] -> [return: bb4];
+    }
+
+    bb4: {
+        return;
+    }
+}
