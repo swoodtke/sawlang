@@ -1305,6 +1305,30 @@ program.
 
 **Checker:** not needed: the build fails loudly.
 
+### L24. `Vector.clear` on owning elements (SL-464)
+
+**Shape:** Stage 0's `Vector.clear()` sets the length to zero without
+destroying the elements, so a vector of owning elements (a `String`, a
+`Vector`, a struct with a `deinit`) leaks them, and their `deinit` bodies never
+run. Nothing reports it.
+
+**Instead:** let the vector go out of scope, assign a fresh one
+(`v = Vector<T>()`), or `pop` until empty. `StringBuilder.clear` is unaffected.
+
+**Checker:** not needed yet: no `compiler/` source calls `Vector.clear`.
+
+### L25. A multi-byte scalar appended to a full fixed-mode builder (SL-465)
+
+**Shape:** Stage 0's `StringBuilder(bytes:capacity:)` fixed mode can write part
+of a multi-byte scalar when `append(scalar:)` reaches capacity, so the built
+`String` holds invalid UTF-8. This was found by reading the code, and no run
+probe exists yet.
+
+**Instead:** size the scratch with room for a whole scalar (four bytes) beyond
+the text, or append whole strings, which cut on a boundary.
+
+**Checker:** not needed yet: no `compiler/` source uses fixed mode.
+
 ## Cases with no issue
 
 These four come from codex's review of the parked SL-2.p2 r3 (SL-2 c29, with
