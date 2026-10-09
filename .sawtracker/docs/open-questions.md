@@ -254,6 +254,9 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 
 ## Resolved
 
+### Escaping closures stay refcounted `Copy`, not move-only (Oct 9; the USER agreed with the lead and the Air)
+The user asked whether escaping closures should be move-only. After SL-469 and SL-472 the shared env is immutable and never consumed, so sharing is semantically invisible, and move-only would cost copyability for callbacks held twice and the Copy tier of every struct with a closure field. The refcount's only job is deciding when the env's owned captures are freed. **Decided:** keep the refcounted Copy model. **For the codegen unit, measure two observable-equivalent optimisations:** a non-atomic refcount (closures never cross threads; spawn takes an explicit capture list), and copying a closure whose captures are all trivial bitwise, like a plain function. Revisit the model only if a `Send` closure type is ever added.
+
 ### SL-472. Captures are `let`: no by-value or move capture is writable in any closure body (Oct 9; the USER's ruling)
 "For a non escaping closure capturing the vec by ref would be the correct behavior imo. For an escaping closure no captures should be modifiable ever." Read as one rule: a by-value or move capture is a `let` in the body, and the only way a closure changes outside state is a `[&var x]` capture, which only a non-escaping closure may take. It replaces design 132's lost-write rule and its heap-container carve-out, which let an escaping closure's copies share and change a captured `Vector` (both compilers print `2 3 4`). **Confirmed by the user:** `&self` interior-mutability methods (`Mutex.lock`) and writes to a captured raw pointer's pointee stay legal, both by design ("Mutex is modifiable and pointers are unsafe and modifiable").
 
