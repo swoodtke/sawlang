@@ -804,6 +804,14 @@ A temporary passed by value as an argument is dropped by its callee. An owned `m
 
 **Checker:** no. sawc2's typecheck refuses it, so Stage 1 rejects any compiler source that Stage 0 let through.
 
+### S25. A write to a by-value capture, or a consume of one in an escaping closure (SL-472, SL-469)
+
+**Shape (missing check):** Stage 0 refuses only the assignment forms on a by-value capture (`n = v`, `n += v`, `s.f = v`, design 132). It accepts a write through an index into a heap-backed container (`{ [move v] in v[0] = 1 }`), a `&var self` method (`v.push(1)`, `o.take()`) and `&var n` of a capture, so copies of an escaping closure share and change one environment (`let g = f`, then `f()`, `g()`, `f()` prints 2, 3, 4). It also compiles a `move` of a capture inside an escaping body, which frees the value twice (DF-255a). Both are now rulings: a by-value, `move` or `copy` capture is a `let` in every closure (SL-472), and an escaping closure never consumes a capture (SL-469). sawc2's typecheck refuses both, as `mutability.immutable` and `capture.escaping-consume`.
+
+**Instead:** avoid both in compiler source. The source takes no closure captures at all (SL:architecture §4).
+
+**Checker:** yes: `closure-capture` refuses every capture in compiler source. The rules themselves come from sawc2, so Stage 1 rejects any source Stage 0 let through.
+
 ## Loud hazards
 
 ### L1. Integer literal adoption (SL-13, SL-53, SL-56, SL-70, SL-75, SL-84, SL-194)
