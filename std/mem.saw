@@ -1,0 +1,17 @@
+//! Raw memory: what a type that owns a buffer does with it.
+
+/// Destroys the value at `at`, leaving its slot uninitialized.
+public func drop_in_place<T>(at: UnsafePointer<T>) unsafe {
+    let _ = move at[0]
+}
+
+/// Copies `count` bytes from `source` to `target`; the two ranges must not
+/// overlap.
+public func copy_bytes(source: UnsafePointer<Int8>, target: UnsafePointer<Int8>,
+                       count: Int) unsafe {
+    var i = 0
+    while i < count {
+        target[i] = source[i]
+        i = i + 1
+    }
+}

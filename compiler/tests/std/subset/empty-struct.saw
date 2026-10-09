@@ -1,0 +1,9 @@
+// Only an allocator may be fieldless.
+
+public struct Marker {} // refuses: empty-struct
+
+extension Marker: Equatable {
+    public func equals(&self, other: &Self) -> Bool {
+        true
+    }
+}

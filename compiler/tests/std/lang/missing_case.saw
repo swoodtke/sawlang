@@ -1,0 +1,19 @@
+// Exhaustiveness over the lang items: a match on a Result missing its `Err`
+// and one on an Optional missing its absent case are refused the same way
+// against either std root.
+
+func code(r: Result<Int, Bool>) -> Int {
+    match r {
+        case Ok(v) -> v
+    }
+}
+
+func level(o: Int?) -> Int {
+    match o {
+        case Some(v) -> v
+    }
+}
+
+func main() {
+    print(code(1) + level(2))
+}

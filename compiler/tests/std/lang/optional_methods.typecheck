@@ -1,0 +1,28 @@
+(Module optional_methods
+  (declarations
+    (func main 5:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (main 5:6
+      (6:9-6:13 BindingName Int? place temp)
+      (6:22-6:23 IntLit Int (some Int?) value temp)
+      (7:9-7:13 BindingName Bool place temp)
+      (7:16-7:30 Call.paren Bool value temp (call Optional.is_some() (owner Int?)))
+      (7:16-7:20 Name Int? (borrow &Int?) place borrow)
+      (8:9-8:13 BindingName Bool place temp)
+      (8:16-8:30 Call.paren Bool value temp (call Optional.is_none() (owner Int?)))
+      (8:16-8:20 Name Int? (borrow &Int?) place borrow)
+      (9:9-9:14 BindingName Int? place temp)
+      (9:17-9:28 Call.paren Int? value temp (call Optional.take() (owner Int?)))
+      (9:17-9:21 Name Int? (borrow-var &var Int?) place borrow-var)
+      (10:5-10:16 Call.paren Void value temp (builtin print))
+      (10:11-10:15 Name Bool place borrow)
+      (11:5-11:16 Call.paren Void value temp (builtin print))
+      (11:11-11:15 Name Bool place borrow)
+      (12:5-12:22 Call.paren Void value temp (builtin print))
+      (12:11-12:21 Coalesce Int value borrow (op ??))
+      (12:11-12:16 Name Int? place copy)
+      (12:20-12:21 IntLit Int value temp))))

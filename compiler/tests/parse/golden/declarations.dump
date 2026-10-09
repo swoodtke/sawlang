@@ -508,3 +508,21 @@
   (Declaration.func
     (Visibility.parent)
     (Func f (Block))))
+
+// case: syntax.decl.case/none-names-a-case
+(File
+  (Declaration.enum
+    (Visibility.public)
+    (Enum Optional
+      (GenericParam.type T)
+      (Case Some \(
+        (PayloadField value
+          (NamedType (Path T)))
+        \))
+      (Case None)))
+  (Declaration.enum
+    (Enum E
+      (Case None \(
+        (PayloadField x
+          (NamedType (Path Int)))
+        \)))))

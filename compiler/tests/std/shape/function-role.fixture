@@ -1,0 +1,6 @@
+// The panic sink is a function role, held to its signature like a type's.
+file: panic.saw
+replace: length: Int) unsafe -> Never {
+with: length: Int, code: Int) unsafe -> Never {
+refuses: lang.shape panic.saw
+message: expected `func (signature (params (message UnsafePointer<Int8> owned) (length Int owned)) (effects unsafe) -> Never)`

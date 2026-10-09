@@ -7,6 +7,7 @@ import sawparse.src.grammar.{Alt}
 import sawresolve.src.collect.{res_is_top_level}
 import sawresolve.src.imports.{res_vis_text}
 import sawresolve.src.kinds.{res_is_type_alt}
+import sawresolve.src.lang.{ResLang}
 import sawresolve.src.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResDecl,
                              ResDeclKind, ResExport, ResImport, ResImportForm, ResModule,
                              ResName, ResSymbol, ResVis}
@@ -263,6 +264,9 @@ extension ResProgram {
         self.dump_surface(&var out, m)
         self.dump_imports(&var out, m)
         self.dump_extension_set(&var out, m)
+        if self.std_new && self.module_name(m).equals("std.prelude") {
+            self.dump_lang_items(&var out)
+        }
         try! out.append(")")
     }
 

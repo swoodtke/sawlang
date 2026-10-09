@@ -11,7 +11,8 @@ import sawresolve.src.model.{ResDeclKind, ResVis}
 import sawresolve.src.program.{ResProgram}
 
 // Declares the builtin module's synthetic declarations into the current
-// module, which is the builtin module.
+// module, which is the builtin module: what no Saw source can declare, and,
+// under Stage 0's std root, what its frozen compiler synthesizes besides.
 public func res_declare_synthetic_builtins(p: &var ResProgram) {
     p.builtin_type("Int")
     p.builtin_type("UInt")
@@ -30,21 +31,25 @@ public func res_declare_synthetic_builtins(p: &var ResProgram) {
     p.builtin_type("Never")
     p.builtin_type("UnsafePointer")
     p.builtin_type("UnsafeConstPointer")
-    // A pattern names Optional's cases, `Some(v)` and `None`, though no
-    // expression constructs a `Some`.
-    let optional = p.builtin_decl("Optional", ResDeclKind.Enum, -1, false)
-    let _ = p.builtin_decl("Some", ResDeclKind.Case, optional, true)
-    let _ = p.builtin_decl("None", ResDeclKind.Case, optional, false)
-    let result = p.builtin_decl("Result", ResDeclKind.Enum, -1, false)
-    let _ = p.builtin_decl("Ok", ResDeclKind.Case, result, true)
-    let _ = p.builtin_decl("Err", ResDeclKind.Case, result, true)
+    if not p.std_new {
+        // A pattern names Optional's cases, `Some(v)` and `None`, though no
+        // expression constructs a `Some`.
+        let optional = p.builtin_decl("Optional", ResDeclKind.Enum, -1, false)
+        let _ = p.builtin_decl("Some", ResDeclKind.Case, optional, true)
+        let _ = p.builtin_decl("None", ResDeclKind.Case, optional, false)
+        let result = p.builtin_decl("Result", ResDeclKind.Enum, -1, false)
+        let _ = p.builtin_decl("Ok", ResDeclKind.Case, result, true)
+        let _ = p.builtin_decl("Err", ResDeclKind.Case, result, true)
+    }
     p.builtin_function("print")
     p.builtin_function("panic")
     p.builtin_function("assert")
     p.builtin_function("sizeof")
     p.builtin_function("alignof")
-    p.builtin_function("sleep")
-    p.builtin_function("cancelled")
+    if not p.std_new {
+        p.builtin_function("sleep")
+        p.builtin_function("cancelled")
+    }
 }
 
 // Enters the prelude: each name visible bare with no import, and the module
@@ -159,19 +164,38 @@ extension ResProgram {
 
     // Enters `text` from module `module` in the prelude. A name its module does
     // not declare is a note on the builtin module, which a check of the tables
-    // reports.
+    // reports. Under the new std, a builtin name its prelude module declares
+    // comes from there; a builtin name it does not declare yet is left out, and
+    // so is every name of a module it does not have yet.
     func prelude_name(&var self, text: String, module: String) {
         let name = self.intern(text)
+        if self.std_new && module.equals("builtin") {
+            let home = self.intern("std.prelude")
+            let at = self.by_name.first(0, home)
+            if at >= 0 {
+                let m = self.by_name.value(at)
+                let entry = self.top.first(m, name)
+                if entry >= 0 {
+                    let d = self.top.value(entry)
+                    self.prelude.add(0, name, d)
+                    return
+                }
+            }
+        }
         let key = self.intern(module)
         let at = self.by_name.first(0, key)
         if at < 0 {
-            self.prelude_missing(text, module)
+            if not self.std_new {
+                self.prelude_missing(text, module)
+            }
             return
         }
         let m = self.by_name.value(at)
         let entry = self.top.first(m, name)
         if entry < 0 {
-            self.prelude_missing(text, module)
+            if not self.std_new || not module.equals("builtin") {
+                self.prelude_missing(text, module)
+            }
             return
         }
         let d = self.top.value(entry)

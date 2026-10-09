@@ -4,6 +4,7 @@
 
 import sawparse.src.grammar.{Alt, alt_kind}
 import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.lang.{ResLang}
 import sawresolve.src.model.{ResDecl, ResDeclKind, ResModule}
 import sawtypecheck.src.conform.{tc_extension_sets}
 import sawtypecheck.src.model.{TC_BIND_DEFAULT, TcAdjust, TcAdjustKind, TcCall, TcRole, TcUse}
@@ -312,7 +313,7 @@ extension TcProgram {
     public func target_text(&self, d: Int) -> String {
         var out = StringBuilder()
         let info = self.res.decls[d]
-        if info.module == self.res.builtin {
+        if self.res.is_vocabulary_module(info.module) {
             try! out.append(self.res.decl_path(d))
         } else {
             try! out.append(self.res.decl_identity(d))

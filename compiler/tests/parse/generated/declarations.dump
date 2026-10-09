@@ -1259,6 +1259,16 @@
   (Declaration.enum
     (Enum a (Case b))))
 
+// case: syntax.decl.case/choice:1:(IDENT | "None")=1
+(File
+  (Declaration.enum
+    (Enum a (Case b))))
+
+// case: syntax.decl.case/choice:1:(IDENT | "None")=2
+(File
+  (Declaration.enum
+    (Enum a (Case None))))
+
 // case: syntax.decl.case/opt:2:payload-decl?=absent
 (File
   (Declaration.enum
@@ -1279,6 +1289,17 @@
   (Declaration.enum
     (Enum a
       (Case b = (Name c)))))
+
+// case: syntax.decl.case/pair:1:(IDENT | "None")=2,2:payload-decl?=present
+(File
+  (Declaration.enum
+    (Enum a (Case None \( \)))))
+
+// case: syntax.decl.case/pair:1:(IDENT | "None")=2,3:raw-value?=present
+(File
+  (Declaration.enum
+    (Enum a
+      (Case None = (Name b)))))
 
 // case: syntax.decl.case/pair:2:payload-decl?=present,3:raw-value?=present
 (File

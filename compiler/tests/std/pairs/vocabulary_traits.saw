@@ -1,0 +1,67 @@
+// The trait vocabulary: a derived `equals` compares fields, a written
+// `compare` orders, equal values hash alike through a `Hasher`, and ranges
+// count their bounds.
+
+struct Point {
+    x: Int,
+    y: Int
+}
+
+@synthesize
+extension Point: Equatable {}
+
+@synthesize
+extension Point: Hashable {}
+
+struct Level {
+    rank: Int
+}
+
+extension Level: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        self.rank == other.rank
+    }
+}
+
+extension Level: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        if self.rank < other.rank {
+            return Ordering.Less
+        }
+        if self.rank > other.rank {
+            return Ordering.Greater
+        }
+        Ordering.Equal
+    }
+}
+
+func digest(p: &Point) -> Int {
+    var h = Hasher()
+    p.hash(h: &var h)
+    h.finish()
+}
+
+func main() -> Int {
+    let a = Point(x: 1, y: 2)
+    let b = Point(x: 1, y: 2)
+    let c = Point(x: 2, y: 1)
+    assert(a == b, "equal fields compare equal")
+    assert(a != c, "different fields compare unequal")
+    assert(a.equals(&b), "equals is ==")
+    assert(digest(&a) == digest(&b), "equal points hash alike")
+    let low = Level(rank: 1)
+    let high = Level(rank: 3)
+    assert(low < high, "compare orders")
+    assert(high >= low, ">= reads compare")
+    var open = 0
+    for i in 0..4 {
+        open = open + i
+    }
+    var closed = 0
+    for j in 1..=4 {
+        closed = closed + j
+    }
+    assert(open == 6, "0..4 counts 0 through 3")
+    assert(closed == 10, "1..=4 counts 1 through 4")
+    0
+}

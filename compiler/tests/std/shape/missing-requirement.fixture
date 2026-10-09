@@ -1,0 +1,6 @@
+// Equatable keeps its one requirement, which `==` calls.
+file: prelude.saw
+replace: |    func equals(&self, other: &Self) -> Bool
+with: |
+refuses: lang.shape prelude.saw
+message: expected `(requirement equals (signature (receiver shared) (params (other &Self shared)) -> Bool))`, found `nothing`

@@ -43,7 +43,8 @@ compiler/
     comma_funnel.py   the parser's comma-list-funnel lane
     frozen_compare.py the one-time comparison with the frozen parser, not a lane
     std_cone.py       the std cone of sawc2's Stage 0 build, recorded in std_cone.txt
-                      and reviewed against SL:hazards in std_cone_review.md
+                      and reviewed against SL:hazards in std_cone_review.md; with
+                      --std-root, a program's cone against the new std
     std_suspension.py each std function's suspension verdict from Stage 0's std
                       check, recorded in std_suspension.txt and compiled into
                       typecheck/src/stdsuspension.saw
@@ -72,7 +73,17 @@ compiler/
     mir/              the MIR lane (mir_lane.py): the dump's specification
                       (README.md), golden dumps, refusal fixtures, and how much
                       of tests/corpus/ lowers (corpus_info.py, for information)
+    std/              the std lane (std_lane.py) over the new std in `std/`: the
+                      subset profile's fixtures, the lang items' paired dumps
+                      and shape fixtures, the API-equivalence members and
+                      exceptions, the behaviour pairs and the cones
 ```
+
+The new std, the std sawc2 compiles from Stage 1 on, is the top-level `std/`
+(SL-456): `sawc2 resolve`, `typecheck` and `mir` take it with `--std-root std`,
+and compile each of its modules whole. Its prelude module declares what Stage
+0's builtin module synthesizes, and resolve's lang-item table (resolve/README.md)
+binds the compiler's vocabulary to it.
 
 Each stage has its own directory and is a package, with its source under
 `src/`. The others import it as `<package>.src.<module>`, through
@@ -173,6 +184,38 @@ these things.
   `sawc2 mir` to its golden dumps and refusal fixtures, and lowers the
   compiler's own source whole, the sawc2 build and each unit program, with no
   refusal and no problem from the MIR verifier.
+- **The new std** (`tests/std/std_lane.py`): every module of `std/` resolves,
+  typechecks and lowers with no refusal and no invariant; the subset checker's
+  std profile accepts it; each lang-item program types the same against `std/`
+  and `sawc/`; each lang item keeps its shape; the std API allowlist's members
+  match in the two stds (below); each behaviour pair runs under Stage 0 and
+  checks against `std/`; and each recorded cone holds, the one of a program
+  using only Optional and Result reaching no runtime module and no allocator.
+
+## The std profile
+
+`tools/subset_check.py --std` holds `std/` to the subset with exactly the
+low-level features SL:architecture §4 names: `raw-pointer` (raw memory and
+pointers), `borrows-accessor` (`borrows` and `lend`), `deinit-body` (a type
+owning a buffer frees it) and `box-type` (`Box<T, A>`) are dropped, a bound may
+be `Allocator` (`bounded-extension`) and a fieldless struct an allocator
+(`empty-struct`), and a std module imports only std modules
+(`import-allowlist`). `prelude-type-name` and `std-api` hold the compiler to
+std, so the profile drops them too, and `compile` and `owned-operand`, which
+ask Stage 0's code generator, never run: sawc2's check of `std/` stands in.
+The frozen parser predates a case named `None`, so the profile reads one as an
+identifier. Its fixtures are `tests/std/subset/`.
+
+## API equivalence
+
+`STD_API` in `tools/subset_check.py` carries each allowlisted member's
+contract, and `tests/std/equivalence.tsv` maps each to the declarations that
+answer it, with the unit of SL-456 that writes them. Once a unit has landed,
+the lane compares each of its declarations' signature record, from sawc2's
+dump of `sawc/std` and of `std/`, effects, receiver, lend, parameters and
+result. A lang item's members are held by the shape check instead. A
+difference fails unless `tests/std/equivalence_exceptions.tsv` lists it with a
+reason and the unit it is due by; an exception whose unit has landed fails.
 
 ## The subset
 

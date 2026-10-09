@@ -1,0 +1,223 @@
+//! The prelude: the types and traits every module sees with no import.
+//!
+//! The compiler knows each declaration here by its role (`Optional` for `T?`
+//! and `None`, `Result` for `try` and its automatic wrapping, the Copy family
+//! for transfers, the derivable traits for `==`, `<` and hashing), so each one
+//! keeps the names, cases, payload labels and requirements the language
+//! defines. Nothing here allocates or reaches the runtime.
+
+import std.stringbuilder.{StringBuilder}
+
+/// A value that may be absent: `Some(value:)`, or `None`.
+///
+/// `T?` is this type, `None` is its absent case, and a `T` written where a `T?`
+/// is expected becomes `Some` of it.
+public enum Optional<T> {
+    case Some(value: T),
+    case None
+}
+
+extension Optional<T> {
+    /// Returns the payload and leaves `None` in its place.
+    ///
+    /// The move-out that works on a field, where `move` cannot reach.
+    public func take(&var self) -> T? {
+        self.take_payload()
+    }
+
+    func take_payload(&var self) unsafe -> T? {
+        let at = (&var self) as UnsafePointer<T?>
+        let held = move at[0]
+        at[0] = None
+        move held
+    }
+
+    /// Returns whether a payload is present, reading the case alone.
+    public func is_some(&self) -> Bool {
+        match self {
+            case Some(_) -> true,
+            case _ -> false
+        }
+    }
+
+    /// Returns whether the payload is absent, reading the case alone.
+    public func is_none(&self) -> Bool {
+        match self {
+            case Some(_) -> false,
+            case _ -> true
+        }
+    }
+}
+
+/// The outcome of an operation that can fail: `Ok(value:)` or `Err(error:)`.
+///
+/// A `T` or an `E` written where a `Result<T, E>` is expected becomes the
+/// matching case, and `try` hands an `Err` on to the caller.
+public enum Result<T, E> {
+    case Ok(value: T),
+    case Err(error: E)
+}
+
+/// The three-way answer of `Comparable.compare`.
+///
+/// The cases are declared in the order `Less`, `Equal`, `Greater`, which the
+/// ordering operators rely on.
+public enum Ordering {
+    case Less,
+    case Equal,
+    case Greater
+}
+
+/// A type whose values are destroyed by running `deinit`.
+public trait Deinit {
+    func deinit(&var self)
+}
+
+/// The silently copyable tier: a transfer duplicates the value with nothing
+/// written at the site.
+public trait Copy {
+    func copy(&self) -> Self
+}
+
+/// A duplicable type whose duplicate is spelled: `.copy()`.
+public trait ExplicitCopy: Deinit {
+    func copy(&self) -> Self
+}
+
+/// A move-only type: every transfer is a `move`.
+public trait NoCopy: Deinit {
+}
+
+/// A type pinned to the binding its constructor built it in.
+public trait NoMove {
+}
+
+/// A type `==` and `!=` compare.
+public trait Equatable {
+    func equals(&self, other: &Self) -> Bool
+}
+
+/// A type the ordering operators compare.
+public trait Comparable {
+    func compare(&self, other: &Self) -> Ordering
+}
+
+/// The streaming hash accumulator, 64-bit FNV-1a.
+///
+/// The state is `Int64` on every target, so a digest does not depend on the
+/// platform word.
+public struct Hasher {
+    private state: Int64
+}
+
+extension Hasher {
+    /// Creates a hasher at the FNV-1a offset basis.
+    public init() -> Hasher {
+        Hasher(state: -3750763034362895579i64)
+    }
+
+    /// Feeds `n` into the state: an xor, then a wrapping multiply by the FNV
+    /// prime.
+    public func write_int(&var self, n: Int) {
+        self.state = (self.state ^ (n as Int64)) &* 1099511628211i64
+    }
+
+    /// Returns the digest, its high half folded into the low bits, as an `Int`.
+    public func finish(&self) -> Int {
+        let h = self.state
+        Int.from(truncating: h ^ (h >> 32i64))
+    }
+}
+
+/// A type usable as a hash-map key: it feeds itself into a `Hasher`.
+public trait Hashable {
+    func hash(&self, h: &var Hasher)
+}
+
+/// A type that renders itself as text.
+public trait Printable {
+    func format(&self, into: &var StringBuilder)
+
+    func to_string(&self) -> String {
+        var b = StringBuilder()
+        self.format(into: &var b)
+        b.build()
+    }
+}
+
+/// An error: a value that renders itself as text.
+public trait Error: Printable {
+}
+
+/// A type whose values may move to another thread, derived from its members.
+public trait Send {
+}
+
+/// A type whose shared surface is safe under true parallelism, derived from
+/// its members.
+public trait Sync {
+}
+
+/// The declared assertion that a type is `Sync` for reasons the compiler
+/// cannot see.
+public trait UnsafeSync: Sync {
+}
+
+/// The declared assertion that a type is `Send` for reasons the compiler
+/// cannot see.
+public trait UnsafeSend: Send {
+}
+
+/// A source of values a `for` loop consumes one `next()` at a time.
+public trait Iterator {
+    type Item
+    func next(&var self) -> Item?
+}
+
+/// The half-open range `current..end`.
+public struct Range {
+    public current: Int
+    public end: Int
+}
+
+extension Range: Iterator {
+    type Item = Int
+
+    public func next(&var self) -> Int? {
+        if self.current < self.end {
+            let result = self.current
+            self.current = self.current + 1
+            result
+        } else {
+            None
+        }
+    }
+}
+
+/// The closed range `current..=last`, which stops after `last` without
+/// stepping past it.
+public struct RangeInclusive {
+    public current: Int
+    public last: Int
+    public done: Bool
+}
+
+extension RangeInclusive: Iterator {
+    type Item = Int
+
+    public func next(&var self) -> Int? {
+        if self.done {
+            None
+        } else if self.current < self.last {
+            let result = self.current
+            self.current = self.current + 1
+            result
+        } else if self.current == self.last {
+            self.done = true
+            self.current
+        } else {
+            self.done = true
+            None
+        }
+    }
+}

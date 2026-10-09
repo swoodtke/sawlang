@@ -1,0 +1,13 @@
+// Under the new std, Optional's `take`, `is_some` and `is_none` are the std
+// prelude's declarations, called as any method is, and no builtin method of
+// those names is synthesized beside them. Checked against `std/` only.
+
+func main() {
+    var slot: Int? = 4
+    let some = slot.is_some()
+    let none = slot.is_none()
+    let taken = slot.take()
+    print(some)
+    print(none)
+    print(taken ?? 0)
+}

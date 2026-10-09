@@ -1,0 +1,7 @@
+// refuses: name.none-case at 6:10
+// `None` names a case only in the enum the std prelude declares as Optional
+
+enum Reading {
+    case Some(level: Int),
+    case None
+}

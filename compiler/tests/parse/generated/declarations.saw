@@ -879,6 +879,12 @@ enum a { case b, case c, case d, case e, }
 // case: syntax.decl.case/alt
 enum a { case b }
 
+// case: syntax.decl.case/choice:1:(IDENT | "None")=1
+enum a { case b }
+
+// case: syntax.decl.case/choice:1:(IDENT | "None")=2
+enum a { case None }
+
 // case: syntax.decl.case/opt:2:payload-decl?=absent
 enum a { case b }
 
@@ -890,6 +896,12 @@ enum a { case b }
 
 // case: syntax.decl.case/opt:3:raw-value?=present
 enum a { case b = c }
+
+// case: syntax.decl.case/pair:1:(IDENT | "None")=2,2:payload-decl?=present
+enum a { case None () }
+
+// case: syntax.decl.case/pair:1:(IDENT | "None")=2,3:raw-value?=present
+enum a { case None = b }
 
 // case: syntax.decl.case/pair:2:payload-decl?=present,3:raw-value?=present
 enum a { case b() = c }

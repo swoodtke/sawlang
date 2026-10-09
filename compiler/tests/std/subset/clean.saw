@@ -1,0 +1,43 @@
+// The std profile's named features, each accepted: raw pointers and `unsafe`,
+// an extern seam, a `borrows` accessor and its `lend`, a `deinit` freeing a
+// buffer, an allocator-bounded extension, a fieldless allocator, `Box`, and a
+// case declared `None`.
+
+import std.box.{Box}
+
+extern "C" {
+    func probe_seam(size: Int) -> UnsafePointer<Int8>?
+}
+
+public enum Maybe<T> {
+    case Some(value: T),
+    case None
+}
+
+public struct SlabAllocator {}
+
+extension SlabAllocator: Allocator {
+    public func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? {
+        probe_seam(size)
+    }
+
+    public func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
+    }
+}
+
+public struct Cell<T, A: Allocator = GlobalAllocator> {
+    private at: UnsafePointer<T>
+    private holder: Box<Int, A>
+}
+
+extension Cell<T, A: Allocator = GlobalAllocator> {
+    public func value(&var self) unsafe borrows -> &var T {
+        lend self.at[0]
+    }
+}
+
+extension Cell<T, A: Allocator = GlobalAllocator>: NoCopy {
+    public func deinit(&var self) unsafe {
+        let raw = *self.at
+    }
+}

@@ -1,0 +1,48 @@
+//! Allocation: the `Allocator` trait, `GlobalAllocator`, and `AllocError`.
+//!
+//! Every allocating std operation reports a refused request as
+//! `Err(AllocError)` and leaves its container as it was. A type parameterized
+//! by its allocator (`Box<T, A>`) is the freestanding toolkit; `GlobalAllocator`
+//! is the default, over the runtime's allocation seams.
+
+extern "C" {
+    func __saw_rt_alloc(size: Int, align: Int) -> UnsafePointer<Int8>?
+    func __saw_rt_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)
+}
+
+/// The allocation contract every container routes through.
+///
+/// `alloc` reports exhaustion as `None`, which the caller turns into an
+/// `AllocError`. `dealloc` takes the `size` and `align` the block was
+/// allocated with, since the seams keep no per-block layout.
+public trait Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>?
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe
+}
+
+/// The default allocator, over `__saw_rt_alloc` and `__saw_rt_dealloc`.
+///
+/// It holds nothing, so `GlobalAllocator().alloc(...)` is a call into the seam.
+public struct GlobalAllocator {}
+
+extension GlobalAllocator: Allocator {
+    public func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? {
+        __saw_rt_alloc(size, align)
+    }
+
+    public func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
+        __saw_rt_dealloc(ptr, size, align)
+    }
+}
+
+/// The error an allocating operation reports: its allocator refused a request.
+///
+/// `size` and `align` are the refused request's, so an out-of-memory site can
+/// be logged with its context. Its `Error` conformance, which renders it as
+/// text, arrives with the String layer.
+public struct AllocError {
+    /// Byte count of the request that failed.
+    public size: Int
+    /// Alignment of the request that failed.
+    public align: Int
+}

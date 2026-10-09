@@ -1,0 +1,6 @@
+// Optional's absent case is `None`, which the literal and the pattern mean.
+file: prelude.saw
+replace: |    case None
+with: |    case Nothing
+refuses: lang.shape prelude.saw
+message: expected `(case None)`, found `(case Nothing)`

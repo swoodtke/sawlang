@@ -1,0 +1,130 @@
+//! `StringBuilder`: a growable buffer of UTF-8 text that `build` turns into a
+//! `String`.
+//!
+//! It allocates through `GlobalAllocator` and reports a refused allocation as
+//! `Err(AllocError)`, leaving the builder as it was. Appending a `String`
+//! arrives with the String layer.
+
+import std.mem.{copy_bytes}
+
+// A helper the compiler emits, not a runtime seam: a fresh `String` holding a
+// copy of the bytes.
+extern "C" {
+    func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
+}
+
+static ASCII_ZERO: Int = 48
+static MINUS_SIGN: Int = 45
+static FIRST_CAPACITY: Int = 16
+
+/// A growable buffer of UTF-8 text.
+public struct StringBuilder {
+    private buffer: UnsafePointer<Int8>?
+    private length: Int
+    private capacity: Int
+}
+
+extension StringBuilder {
+    /// Creates an empty builder, which allocates nothing until text arrives.
+    public init() unsafe -> StringBuilder {
+        StringBuilder(buffer: None, length: 0, capacity: 0)
+    }
+
+    /// Returns the number of bytes appended so far.
+    public func len(&self) -> Int {
+        self.length
+    }
+
+    /// Returns whether nothing has been appended.
+    public func is_empty(&self) -> Bool {
+        self.length == 0
+    }
+
+    /// Appends the decimal rendering of `value`.
+    ///
+    /// Stages nothing on the heap besides the builder's own buffer. Returns
+    /// `Err(AllocError)` when the buffer cannot grow; the builder is unchanged
+    /// then.
+    public func append(&var self, value: Int) -> Result<Void, AllocError> {
+        self.append_decimal(value)
+    }
+
+    func append_decimal(&var self, value: Int) unsafe -> Result<Void, AllocError> {
+        // The magnitude is carried on the negative side, where `Int.min` fits.
+        let n = if value < 0 { value } else { 0 - value }
+        var digits = 1
+        var scale = 1
+        var probe = n
+        while probe <= -10 {
+            probe = probe / 10
+            scale = scale * 10
+            digits = digits + 1
+        }
+        let sign = if value < 0 { 1 } else { 0 }
+        let needed = self.length + sign + digits
+        if not self.reserve_bytes(needed) {
+            return AllocError(size: self.grow_target(needed), align: 1)
+        }
+        if let buf = self.buffer {
+            var at = self.length
+            if value < 0 {
+                buf[at] = Int8.from(truncating: MINUS_SIGN)
+                at = at + 1
+            }
+            while scale > 0 {
+                let digit = 0 - ((n / scale) % 10)
+                buf[at] = Int8.from(truncating: ASCII_ZERO + digit)
+                at = at + 1
+                scale = scale / 10
+            }
+            self.length = at
+        }
+        return
+    }
+
+    /// Returns the text appended so far as a new `String`.
+    public func build(&self) unsafe -> String {
+        if let buf = self.buffer {
+            return __saw_string_from_bytes(buf, self.length)
+        }
+        ""
+    }
+
+    // The capacity a growth to `wanted` bytes allocates: double, from a floor,
+    // unless more was asked for.
+    func grow_target(&self, wanted: Int) -> Int {
+        let doubled = if self.capacity == 0 { FIRST_CAPACITY } else { self.capacity * 2 }
+        if doubled < wanted {
+            wanted
+        } else {
+            doubled
+        }
+    }
+
+    // Makes room for `wanted` bytes. False means the allocator refused and the
+    // builder is untouched.
+    func reserve_bytes(&var self, wanted: Int) unsafe -> Bool {
+        if self.capacity >= wanted {
+            return true
+        }
+        let target = self.grow_target(wanted)
+        guard let fresh = GlobalAllocator().alloc(target, 1) else {
+            return false
+        }
+        if let old = self.buffer {
+            copy_bytes(old, fresh, self.length)
+            GlobalAllocator().dealloc(old, self.capacity, 1)
+        }
+        self.buffer = fresh
+        self.capacity = target
+        true
+    }
+}
+
+extension StringBuilder: NoCopy {
+    public func deinit(&var self) unsafe {
+        if let buf = self.buffer {
+            GlobalAllocator().dealloc(buf, self.capacity, 1)
+        }
+    }
+}

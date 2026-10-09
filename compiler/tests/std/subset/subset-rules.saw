@@ -1,0 +1,15 @@
+// The rest of the subset holds in the new std: a sample of rules no named
+// feature touches.
+
+type Width = Int // refuses: type-alias
+
+public func scaled(n: Int) -> Int {
+    let f = { x in x * n } // refuses: closure-capture closure-syntax
+    var total = 0
+    let ratio = 1.5 // refuses: float-literal
+    total
+}
+
+public func describe(e: &any Error) -> Int { // refuses: any-type
+    0
+}

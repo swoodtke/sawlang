@@ -232,3 +232,10 @@ public(package) func f() {
 // case: syntax.decl.visibility.parent/on-a-function
 public(parent) func f() {
 }
+
+// case: syntax.decl.case/none-names-a-case
+public enum Optional<T> {
+    case Some(value: T),
+    case None
+}
+enum E { case None(x: Int) }

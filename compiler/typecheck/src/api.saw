@@ -2,6 +2,7 @@
 // checked, and the record `sawc2 typecheck` prints for it.
 
 import sawresolve.src.api.{append_res_diag, resolve_program}
+import sawresolve.src.lang.{ResLang}
 import sawresolve.src.model.{ResDiag, ResModule}
 import sawresolve.src.program.{ResProgram}
 import sawresolve.src.verify.{res_verify_module}
@@ -15,6 +16,7 @@ import sawtypecheck.src.declarations.{tc_build_signatures}
 import sawtypecheck.src.dump.{tc_dump_module}
 import sawtypecheck.src.effects.{tc_check_effects}
 import sawtypecheck.src.exhaust.{tc_check_exhaustive}
+import sawtypecheck.src.lang.{tc_check_lang_shapes}
 import sawtypecheck.src.members.{tc_build_members}
 import sawtypecheck.src.model.{TcDiag}
 import sawtypecheck.src.paths.{tc_settle_path_uses}
@@ -60,6 +62,7 @@ public func typecheck_program(path: String, std_root: String, names: &Vector<Str
     tc_check_finite_size(&var p)
     tc_check_unsafe(&var p)
     tc_check_inits(&var p)
+    tc_check_lang_shapes(&var p)
     tc_check_bodies(&var p)
     tc_check_exhaustive(&var p)
     tc_settle_path_uses(&var p)
@@ -71,7 +74,9 @@ public func typecheck_program(path: String, std_root: String, names: &Vector<Str
 }
 
 extension TcProgram {
-    // The builtin declarations typecheck knows by identity.
+    // The declarations typecheck knows by identity: each lang item from
+    // resolve's table, and the primitives and std types it builds or refuses
+    // with no name occurrence to read.
     func find_known(&var self) {
         let b = self.res.builtin
         let serde = self.module_named("std.serde")
@@ -81,22 +86,26 @@ extension TcProgram {
         let std_set = self.module_named("std.set")
         let std_arc = self.module_named("std.arc")
         let std_task_group = self.module_named("std.taskgroup")
-        let k = TcKnown(optional: self.top_decl(b, "Optional"), result: self.top_decl(b, "Result"),
+        let k = TcKnown(optional: self.res.lang_item(ResLang.OptionalEnum),
+                        result: self.res.lang_item(ResLang.ResultEnum),
                         string: self.top_decl(b, "String"), void_type: self.top_decl(b, "Void"),
                         never: self.top_decl(b, "Never"),
                         unsafe_pointer: self.top_decl(b, "UnsafePointer"),
                         unsafe_const_pointer: self.top_decl(b, "UnsafeConstPointer"),
-                        copy: self.top_decl(b, "Copy"),
-                        explicit_copy: self.top_decl(b, "ExplicitCopy"),
-                        no_copy: self.top_decl(b, "NoCopy"), deinit: self.top_decl(b, "Deinit"),
-                        no_move: self.top_decl(b, "NoMove"),
-                        equatable: self.top_decl(b, "Equatable"),
-                        comparable: self.top_decl(b, "Comparable"),
-                        hashable: self.top_decl(b, "Hashable"),
-                        printable: self.top_decl(b, "Printable"), error: self.top_decl(b, "Error"),
-                        send: self.top_decl(b, "Send"), sync: self.top_decl(b, "Sync"),
-                        unsafe_send: self.top_decl(b, "UnsafeSend"),
-                        unsafe_sync: self.top_decl(b, "UnsafeSync"),
+                        copy: self.res.lang_item(ResLang.CopyTrait),
+                        explicit_copy: self.res.lang_item(ResLang.ExplicitCopyTrait),
+                        no_copy: self.res.lang_item(ResLang.NoCopyTrait),
+                        deinit: self.res.lang_item(ResLang.DeinitTrait),
+                        no_move: self.res.lang_item(ResLang.NoMoveTrait),
+                        equatable: self.res.lang_item(ResLang.EquatableTrait),
+                        comparable: self.res.lang_item(ResLang.ComparableTrait),
+                        hashable: self.res.lang_item(ResLang.HashableTrait),
+                        printable: self.res.lang_item(ResLang.PrintableTrait),
+                        error: self.res.lang_item(ResLang.ErrorTrait),
+                        send: self.res.lang_item(ResLang.SendTrait),
+                        sync: self.res.lang_item(ResLang.SyncTrait),
+                        unsafe_send: self.res.lang_item(ResLang.UnsafeSendTrait),
+                        unsafe_sync: self.res.lang_item(ResLang.UnsafeSyncTrait),
                         interior: self.top_decl(b, "UnsafeMutableInterior"),
                         serialize: self.top_decl(serde, "Serialize"),
                         deserialize: self.top_decl(serde, "Deserialize"),
@@ -106,15 +115,18 @@ extension TcProgram {
                         uint8: self.top_decl(b, "UInt8"), uint16: self.top_decl(b, "UInt16"),
                         uint32: self.top_decl(b, "UInt32"), uint64: self.top_decl(b, "UInt64"),
                         float: self.top_decl(b, "Float"), bool_type: self.top_decl(b, "Bool"),
-                        range: self.top_decl(b, "Range"),
-                        range_inclusive: self.top_decl(b, "RangeInclusive"),
-                        iterator: self.top_decl(b, "Iterator"),
+                        range: self.res.lang_item(ResLang.RangeStruct),
+                        range_inclusive: self.res.lang_item(ResLang.RangeInclusiveStruct),
+                        iterator: self.res.lang_item(ResLang.IteratorTrait),
                         box: self.top_decl(std_box, "Box"),
                         vector: self.top_decl(std_vector, "Vector"),
                         map: self.top_decl(std_map, "Map"), set: self.top_decl(std_set, "Set"),
                         arc: self.top_decl(std_arc, "Arc"),
                         task_group: self.top_decl(std_task_group, "TaskGroup"),
-                        func_pointer: self.top_decl(b, "FuncPointer"))
+                        func_pointer: self.top_decl(b, "FuncPointer"),
+                        ordering: self.res.lang_item(ResLang.OrderingEnum),
+                        hasher: self.res.lang_item(ResLang.HasherStruct),
+                        panic_sink: self.res.lang_item(ResLang.PanicSinkFunction))
         self.known = k
     }
 }

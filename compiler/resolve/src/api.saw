@@ -3,6 +3,7 @@
 
 import sawresolve.src.dump.{res_sort_strings}
 import sawresolve.src.imports.{res_same_binding}
+import sawresolve.src.lang.{ResLang}
 import sawresolve.src.loader.{res_read_file}
 import sawresolve.src.model.{ResDiag, ResModule, ResModuleKind}
 import sawresolve.src.prelude.{res_declare_prelude}
@@ -13,7 +14,8 @@ import sawresolve.src.walk.{res_resolve_bodies}
 
 // How `sawc2 resolve` treats one entry file.
 public struct ResolveOptions {
-    // The directory holding `std/` and `builtin.saw`.
+    // The std root: Stage 0's, holding `std/` and `builtin.saw`, or the new
+    // std's, holding its modules and `prelude.saw`.
     public std_root: String
     // Print each resolved module's dump.
     public dump: Bool
@@ -33,12 +35,15 @@ public func resolve_program(path: String, std_root: String, names: &Vector<Strin
         p.add_package(names.get(k) ?? "", dirs.get(k) ?? "")
         k = k + 1
     }
+    p.detect_std_layout()
     p.load_builtin()
     p.load_std_modules()
+    p.bind_lang_items()
     res_declare_prelude(&var p)
     p.index_gated_std()
     let _ = p.load_entry(path)
     p.process_imports()
+    p.check_none_cases()
     res_resolve_bodies(&var p)
     p.check_conformances()
     move p

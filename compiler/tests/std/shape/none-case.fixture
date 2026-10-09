@@ -1,0 +1,7 @@
+// `None` names a case only in the Optional role's enum, a std one included
+// (SL:open-questions D22).
+file: prelude.saw
+replace: |    case Greater
+with: |    case Greater,|    case None
+refuses: name.none-case prelude.saw
+message: `None` names a case only in the enum the std prelude declares as `Optional`

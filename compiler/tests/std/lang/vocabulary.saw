@@ -1,0 +1,115 @@
+// The lang items in use: Optional and Result with auto-wrap, `try`, `??`,
+// `!`, `if let` and exhaustive matches, Ordering, a range loop, and the trait
+// vocabulary as bounds, derived and written. The dump must be the same against
+// either std root.
+
+struct Fault {
+    code: Int
+}
+
+struct Point {
+    x: Int,
+    y: Int
+}
+
+@synthesize
+extension Point: Equatable {}
+
+@synthesize
+extension Point: Hashable {}
+
+enum Shade {
+    case Light,
+    case Dark
+}
+
+extension Shade: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        let a = self.rank()
+        let b = other.rank()
+        if a < b {
+            return Ordering.Less
+        }
+        if a > b {
+            return Ordering.Greater
+        }
+        Ordering.Equal
+    }
+}
+
+extension Shade {
+    func rank(&self) -> Int {
+        match self {
+            case Light -> 0,
+            case Dark -> 1
+        }
+    }
+}
+
+func half(n: Int) -> Result<Int, Fault> {
+    if n % 2 != 0 {
+        return Fault(code: n)
+    }
+    n / 2
+}
+
+func quarter(n: Int) -> Result<Int, Fault> {
+    let h = try half(n)
+    half(h)
+}
+
+func lookup(n: Int) -> Int? {
+    if n > 0 {
+        return n
+    }
+    None
+}
+
+func same<T: Equatable>(a: &T, b: &T) -> Bool {
+    a.equals(&b)
+}
+
+func darker<T: Comparable>(a: &T, b: &T) -> Bool {
+    a > b
+}
+
+func digest<T: Hashable>(value: &T) -> Int {
+    var h = Hasher()
+    value.hash(h: &var h)
+    h.finish()
+}
+
+func outcome(r: Result<Int, Fault>) -> Int {
+    match r {
+        case Ok(v) -> v,
+        case Err(e) -> e.code
+    }
+}
+
+func present(o: Int?) -> Int {
+    match o {
+        case Some(v) -> v,
+        case _ -> 0
+    }
+}
+
+func main() {
+    let fallback = lookup(0) ?? 7
+    let forced = lookup(3)!
+    if let found = lookup(5) {
+        print(found)
+    }
+    let p = Point(x: 1, y: 2)
+    let q = Point(x: 1, y: 2)
+    var total = outcome(quarter(8)) + present(lookup(2)) + fallback + forced
+    for i in 0..3 {
+        total = total + i
+    }
+    for j in 1..=2 {
+        total = total + j
+    }
+    print(total)
+    print(same(&p, &q))
+    print(darker(&Shade.Dark, &Shade.Light))
+    print(digest(&p))
+}

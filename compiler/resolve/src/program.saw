@@ -21,8 +21,15 @@ public struct ResPackage {
 
 public struct ResProgram {
     names: ResNames
-    // The directory holding `std/` and `builtin.saw`.
+    // The std root: Stage 0's, a directory holding `std/` and `builtin.saw`,
+    // or the new std's, which holds the std modules and their `prelude.saw`.
     std_root: String
+    // Whether the std root is the new std's (`std_root/prelude.saw` exists).
+    std_new: Bool
+    // The lang-item table, by role index (lang.saw); -1 for an unbound role.
+    lang: Vector<Int>
+    // The new std's prelude module, `std.prelude`; -1 under Stage 0's std.
+    std_prelude: Int
     packages: Vector<ResPackage>
     modules: Vector<ResModule>
     // Each module's source text, by module index.
@@ -97,7 +104,8 @@ public struct ResProgram {
 extension ResProgram: NoCopy {}
 
 public func res_program(std_root: String) -> ResProgram {
-    var p = ResProgram(names: res_names(), std_root: std_root, packages: Vector<ResPackage>(),
+    var p = ResProgram(names: res_names(), std_root: std_root, std_new: false,
+                       lang: Vector<Int>(), std_prelude: -1, packages: Vector<ResPackage>(),
                        modules: Vector<ResModule>(), texts: Vector<String>(),
                        nodes: Vector<AstNode>(), children: Vector<Int>(),
                        line_starts: Vector<Int>(), decls: Vector<ResDecl>(),

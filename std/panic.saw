@@ -1,0 +1,15 @@
+//! The panic sink: where every panic ends, through no task machinery.
+
+extern "C" {
+    func __saw_rt_panic(ptr: UnsafePointer<Int8>, len: Int) -> Never
+}
+
+/// Writes the `length` bytes at `message` through the runtime's panic seam,
+/// which does not return.
+///
+/// The compiler calls it once a panic's message is formatted: for `panic`, a
+/// failed `assert`, and each check it inserts, such as an index out of range,
+/// an overflow, or `try!` on an `Err`.
+public func panic_sink(message: UnsafePointer<Int8>, length: Int) unsafe -> Never {
+    __saw_rt_panic(message, length)
+}

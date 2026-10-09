@@ -1,0 +1,7 @@
+// A role the std root's prelude does not declare is refused when the table
+// binds, before any name is looked up.
+file: prelude.saw
+replace: public trait NoMove {
+with: public trait Unmovable {
+refuses: lang.missing prelude.saw
+message: the std root declares no `NoMove` in `std.prelude`

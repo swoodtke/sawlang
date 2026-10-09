@@ -1,0 +1,42 @@
+# The cone of compiler/tests/std/cone/core.saw against the new std (std): every std declaration its
+# functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
+# 27 declarations in 6 modules
+
+std.alloc: 8
+  extern __saw_rt_alloc
+  extern __saw_rt_dealloc
+  method GlobalAllocator.alloc
+  method GlobalAllocator.dealloc
+  requirement Allocator.alloc
+  requirement Allocator.dealloc
+  struct AllocError
+  struct GlobalAllocator
+
+std.box: 4
+  method Box.deinit
+  method Box.make
+  method Box.value
+  struct Box
+
+std.mem: 2
+  func copy_bytes
+  func drop_in_place
+
+std.panic: 2
+  extern __saw_rt_panic
+  func panic_sink
+
+std.prelude: 2
+  enum Optional
+  enum Result
+
+std.stringbuilder: 9
+  extern __saw_string_from_bytes
+  init StringBuilder.init
+  method StringBuilder.append
+  method StringBuilder.append_decimal
+  method StringBuilder.build
+  method StringBuilder.deinit
+  method StringBuilder.grow_target
+  method StringBuilder.reserve_bytes
+  struct StringBuilder

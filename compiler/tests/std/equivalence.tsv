@@ -1,0 +1,54 @@
+# The API-equivalence lane's members (compiler/tests/std/std_lane.py): each
+# entry of the subset checker's STD_API, whose contracts it carries, by the
+# declarations that answer it, and the public API of the new std's modules.
+# Columns: entry, declaration, unit. A declaration is `MODULE KIND PATH PARAMS`
+# (PARAMS each `name:Type`, comma-joined, or `-`), `lang ROLE` for a lang item
+# the shape check holds to Stage 0's builtins, or `-` for an entry whose
+# declarations a later unit writes. The lane compares a declaration's full
+# signature record from sawc2's dump of each std once its unit has landed.
+print	builtin builtin-func print -	U5b1
+panic	builtin builtin-func panic -	U5b1
+assert	builtin builtin-func assert -	U5b1
+Result.Ok	lang Result	U5b1
+Result.Err	lang Result	U5b1
+StringBuilder	std.stringbuilder struct StringBuilder -	U5b1
+StringBuilder	std.stringbuilder init StringBuilder.init -	U5b1
+.append	std.stringbuilder method StringBuilder.append value:Int	U5b1
+.append	std.stringbuilder method StringBuilder.append s:String	U5b1
+.build	std.stringbuilder method StringBuilder.build -	U5b1
+.is_empty	std.stringbuilder method StringBuilder.is_empty -	U5b1
+.len	std.stringbuilder method StringBuilder.len -	U5b1
+.equals	lang Equatable	U5b1
+.to_string	lang Printable	U5b1
+Byte	-	U5b2
+Path	-	U5b2
+Scalar	-	U5b2
+Vector	-	U5b2
+Env.args	-	U5b2
+File.open	-	U5b2
+UInt8.from	-	U5b2
+.byte_at	-	U5b2
+.clear	-	U5b2
+.get	-	U5b2
+.push	-	U5b2
+.read	-	U5b2
+.starts_with	-	U5b2
+.substring	-	U5b2
+.to_uint	-	U5b2
+(api)	std.alloc trait Allocator -	U5b1
+(api)	std.alloc requirement Allocator.alloc size:Int,align:Int	U5b1
+(api)	std.alloc requirement Allocator.dealloc ptr:UnsafePointer<Int8>,size:Int,align:Int	U5b1
+(api)	std.alloc struct GlobalAllocator -	U5b1
+(api)	std.alloc method GlobalAllocator.alloc size:Int,align:Int	U5b1
+(api)	std.alloc method GlobalAllocator.dealloc ptr:UnsafePointer<Int8>,size:Int,align:Int	U5b1
+(api)	std.alloc conformance GlobalAllocator Allocator	U5b1
+(api)	std.alloc struct AllocError -	U5b1
+(api)	std.alloc field AllocError.size -	U5b1
+(api)	std.alloc field AllocError.align -	U5b1
+(api)	std.alloc conformance AllocError Error	U5b1
+(api)	std.alloc method AllocError.format into:&var std.stringbuilder.StringBuilder	U5b1
+(api)	std.box struct Box -	U5b1
+(api)	std.box method Box.make value:T	U5b1
+(api)	std.box method Box.deinit -	U5b1
+(api)	std.box method Box.value -	U5b1
+(api)	std.box conformance Box NoCopy	U5b1

@@ -1,0 +1,7 @@
+// Optional's payload keeps its label, which `Some(value:)` construction and
+// the dump read.
+file: prelude.saw
+replace: case Some(value: T),
+with: case Some(val: T),
+refuses: lang.shape prelude.saw
+message: expected `(case Some (payload (value T)))`, found `(case Some (payload (val T)))`

@@ -1,0 +1,6 @@
+// The std lane's entry: a program against the new std compiles every one of its
+// modules whole, so checking this checks them all.
+
+func main() {
+    print("std")
+}

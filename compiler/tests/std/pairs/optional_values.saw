@@ -1,0 +1,28 @@
+// Optional: a value is `Some`, `??` supplies the absent case, `if let` binds
+// the payload, `take` moves it out and leaves `None`, and `is_some` and
+// `is_none` read the case alone.
+
+func positive(n: Int) -> Int? {
+    if n > 0 {
+        return n
+    }
+    None
+}
+
+func main() -> Int {
+    assert((positive(0) ?? 7) == 7, "?? supplies the absent case")
+    assert((positive(3) ?? 7) == 3, "?? keeps a payload")
+    var seen = 0
+    if let v = positive(5) {
+        seen = v
+    }
+    assert(seen == 5, "if let binds the payload")
+    var slot = positive(4)
+    assert(slot.is_some(), "a payload is present")
+    let taken = slot.take()
+    assert(slot.is_none(), "take leaves None")
+    assert((taken ?? 0) == 4, "take hands out the payload")
+    let again = slot.take()
+    assert(again.is_none(), "take of None is None")
+    0
+}

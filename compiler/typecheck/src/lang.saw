@@ -1,0 +1,255 @@
+// The lang items' shapes (SL-456): each declaration the lang-item table binds
+// is held to the shape the compiler reasons about, its cases and payload
+// labels, its requirements and their signatures, its fields and the members
+// its own module writes, so a slip in the std prelude is refused rather than
+// changing what programs mean. The expected shapes are Stage 0's built-in
+// vocabulary's, so the check over `sawc/builtin.saw` pins the table to it.
+
+import sawresolve.src.lang.{ResLang, res_lang_roles, res_lang_row}
+import sawresolve.src.model.{ResDecl, ResDeclKind}
+import sawtypecheck.src.conform.{tc_extension_sets}
+import sawtypecheck.src.dump.{tc_vis_text}
+import sawtypecheck.src.members.{tc_build_members}
+import sawtypecheck.src.model.{TcDiag}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.spell.{tc_effects_text}
+
+// Holds every bound role whose declaration has a source to its shape. Stage
+// 0's synthesized `Optional` and `Result` have none: they are the compiler's.
+public func tc_check_lang_shapes(p: &var TcProgram) {
+    let roles = res_lang_roles()
+    var k = 0
+    while k < roles.len() {
+        let role = roles[k]
+        let d = p.res.lang_item(role)
+        if d >= 0 && p.res.decls[d].node >= 0 {
+            let found = p.lang_shape(d)
+            let expected = tc_lang_expected(role)
+            p.compare_lang_shape(role, d, &expected, &found)
+        }
+        k = k + 1
+    }
+}
+
+// The parts of the shape `role` requires, in order: its head, then its cases,
+// fields, requirements, and the conformances and members its module writes.
+func tc_lang_expected(role: ResLang) -> Vector<String> {
+    var out = Vector<String>()
+    match role {
+        case OptionalEnum -> {
+            try! out.push("enum (generics (T))")
+            try! out.push("(case Some (payload (value T)))")
+            try! out.push("(case None)")
+        },
+        case ResultEnum -> {
+            try! out.push("enum (generics (T) (E))")
+            try! out.push("(case Ok (payload (value T)))")
+            try! out.push("(case Err (payload (error E)))")
+        },
+        case OrderingEnum -> {
+            try! out.push("enum")
+            try! out.push("(case Less)")
+            try! out.push("(case Equal)")
+            try! out.push("(case Greater)")
+        },
+        case CopyTrait -> {
+            try! out.push("trait")
+            try! out.push("(requirement copy (signature (receiver shared) (params) -> Self))")
+        },
+        case ExplicitCopyTrait -> {
+            try! out.push("trait (parents Deinit)")
+            try! out.push("(requirement copy (signature (receiver shared) (params) -> Self))")
+        },
+        case NoCopyTrait -> try! out.push("trait (parents Deinit)"),
+        case NoMoveTrait -> try! out.push("trait"),
+        case DeinitTrait -> {
+            try! out.push("trait")
+            try! out.push("(requirement deinit (signature (receiver exclusive) (params) -> Void))")
+        },
+        case EquatableTrait -> {
+            try! out.push("trait")
+            try! out.push("(requirement equals (signature (receiver shared) (params (other &Self shared)) -> Bool))")
+        },
+        case ComparableTrait -> {
+            try! out.push("trait")
+            try! out.push("(requirement compare (signature (receiver shared) (params (other &Self shared)) -> Ordering))")
+        },
+        case HashableTrait -> {
+            try! out.push("trait")
+            try! out.push("(requirement hash (signature (receiver shared) (params (h &var Hasher exclusive)) -> Void))")
+        },
+        case HasherStruct -> {
+            try! out.push("struct")
+            try! out.push("(field state Int64 private)")
+            try! out.push("(init (signature (params) -> Hasher))")
+            try! out.push("(method write_int (signature (receiver exclusive) (params (n Int owned)) -> Void))")
+            try! out.push("(method finish (signature (receiver shared) (params) -> Int))")
+        },
+        case PrintableTrait -> {
+            try! out.push("trait")
+            try! out.push("(requirement format (signature (receiver shared) (params (into &var std.stringbuilder.StringBuilder exclusive)) -> Void))")
+            try! out.push("(requirement to_string (signature (receiver shared) (params) -> String default-body))")
+        },
+        case ErrorTrait -> try! out.push("trait (parents Printable)"),
+        case SendTrait -> try! out.push("trait"),
+        case SyncTrait -> try! out.push("trait"),
+        case UnsafeSendTrait -> try! out.push("trait (parents Send)"),
+        case UnsafeSyncTrait -> try! out.push("trait (parents Sync)"),
+        case IteratorTrait -> {
+            try! out.push("trait")
+            try! out.push("(assoc-type Item)")
+            try! out.push("(requirement next (signature (receiver exclusive) (params) -> Self.Item?))")
+        },
+        case RangeStruct -> {
+            try! out.push("struct")
+            try! out.push("(field current Int public)")
+            try! out.push("(field end Int public)")
+            try! out.push("(conforms Iterator)")
+            try! out.push("(type-assign Item Int)")
+            try! out.push("(method next (signature (receiver exclusive) (params) -> Int?))")
+        },
+        case RangeInclusiveStruct -> {
+            try! out.push("struct")
+            try! out.push("(field current Int public)")
+            try! out.push("(field last Int public)")
+            try! out.push("(field done Bool public)")
+            try! out.push("(conforms Iterator)")
+            try! out.push("(type-assign Item Int)")
+            try! out.push("(method next (signature (receiver exclusive) (params) -> Int?))")
+        },
+        case PanicSinkFunction -> {
+            try! out.push("func (signature (params (message UnsafePointer<Int8> owned) (length Int owned)) (effects unsafe) -> Never)")
+        }
+    }
+    move out
+}
+
+extension TcProgram {
+    // Declaration `d`'s shape, a part per line of the expected table.
+    func lang_shape(&self, d: Int) -> Vector<String> {
+        var out = Vector<String>()
+        let info = self.res.decls[d]
+        var head = StringBuilder()
+        match info.kind {
+            case Enum -> try! head.append("enum"),
+            case Struct -> try! head.append("struct"),
+            case Trait -> try! head.append("trait"),
+            case _ -> try! head.append("func")
+        }
+        if info.kind == ResDeclKind.Func {
+            self.append_signature(&var head, d)
+        } else {
+            self.append_generics(&var head, d)
+        }
+        if info.kind == ResDeclKind.Trait {
+            self.append_traits(&var head, " (parents", d)
+        }
+        try! out.push(head.build())
+        let own = self.members_of(d)
+        var k = 0
+        while k < own.len() {
+            try! out.push(self.lang_member_part(own[k]))
+            k = k + 1
+        }
+        if info.kind == ResDeclKind.Struct {
+            let exts = self.extensions_in_order(d)
+            var j = 0
+            while j < exts.len() {
+                let ext = exts[j]
+                if self.res.decls[ext].module == info.module {
+                    if self.sigs[ext].trait_count > 0 {
+                        var conforms = StringBuilder()
+                        self.append_traits(&var conforms, "(conforms", ext)
+                        try! out.push(conforms.build())
+                    }
+                    let written = self.members_of(ext)
+                    var m = 0
+                    while m < written.len() {
+                        try! out.push(self.lang_member_part(written[m]))
+                        m = m + 1
+                    }
+                }
+                j = j + 1
+            }
+        }
+        move out
+    }
+
+    // One member's part: a case, a field, a requirement, an associated type, a
+    // method or an `init`.
+    func lang_member_part(&self, d: Int) -> String {
+        let info = self.res.decls[d]
+        let s = self.sigs[d]
+        var out = StringBuilder()
+        try! out.append("(")
+        match info.kind {
+            case Case -> {
+                try! out.append("case ")
+                try! out.append(self.name_text(info.name))
+                if s.param_count > 0 {
+                    try! out.append(" (payload")
+                    self.append_params(&var out, d, false)
+                    try! out.append(")")
+                }
+            },
+            case Field -> {
+                try! out.append("field ")
+                try! out.append(self.name_text(info.name))
+                try! out.append(" ")
+                self.append_type(&var out, s.result)
+                try! out.append(" ")
+                try! out.append(tc_vis_text(info.vis))
+            },
+            case AssocType -> {
+                try! out.append("assoc-type ")
+                try! out.append(self.name_text(info.name))
+            },
+            case TypeAssign -> {
+                try! out.append("type-assign ")
+                try! out.append(self.name_text(info.name))
+                try! out.append(" ")
+                self.append_type(&var out, s.result)
+            },
+            case Init -> {
+                try! out.append("init")
+                self.append_signature(&var out, d)
+            },
+            case _ -> {
+                try! out.append(self.decl_kind_text(d))
+                try! out.append(" ")
+                try! out.append(self.name_text(info.name))
+                self.append_signature(&var out, d)
+            }
+        }
+        try! out.append(")")
+        out.build()
+    }
+
+    // Refuses `d` at its name when its shape differs from what `role`
+    // requires, naming the first part that differs.
+    func compare_lang_shape(&var self, role: ResLang, d: Int, expected: &Vector<String>,
+                            found: &Vector<String>) {
+        var k = 0
+        while k < expected.len() || k < found.len() {
+            let want = expected.get(k) ?? "nothing"
+            let have = found.get(k) ?? "nothing"
+            if not want.equals(have) {
+                let row = res_lang_row(role)
+                let info = self.res.decls[d]
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(row.name)
+                try! msg.append("` is a lang item, and its declaration differs from the shape the compiler requires: expected `")
+                try! msg.append(want)
+                try! msg.append("`, found `")
+                try! msg.append(have)
+                try! msg.append("`")
+                let n = self.res.nodes[info.leaf]
+                try! self.diags.push(TcDiag(module: info.module, start: n.start, end: n.end,
+                                            id: "lang.shape", message: msg.build(), note: false))
+                return
+            }
+            k = k + 1
+        }
+    }
+}

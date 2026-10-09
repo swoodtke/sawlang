@@ -156,7 +156,9 @@ extension ResProgram {
     func new_module(&var self, key: Int, path: String, kind: ResModuleKind,
                     package: String) -> Int {
         let m = self.modules.len()
-        let interface = kind == ResModuleKind.Std || kind == ResModuleKind.Builtin
+        // The new std's modules are compiled whole; Stage 0's std is read for
+        // its interface only, since sawc2 never compiles its bodies.
+        let interface = (kind == ResModuleKind.Std && not self.std_new) || kind == ResModuleKind.Builtin
         let dir_text = res_dir_of(&path)
         let dir = self.intern(dir_text)
         let file = self.intern(path)
@@ -178,8 +180,6 @@ extension ResProgram {
     // declaration and keeps the rest. Pushes the module's text, empty when
     // there is none, so `texts` stays indexed by module.
     func read_module(&var self, m: Int, path: String) {
-        let saved = self.current
-        self.current = m
         let info = self.modules[m]
         let source = res_read_file(path)
         guard let text = source else {
@@ -189,9 +189,17 @@ extension ResProgram {
             try! msg.append(path)
             try! msg.append("`")
             self.refuse_at(m, 0, "import.unreadable", msg.build(), info.interface_only)
-            self.current = saved
             return
         }
+        self.parse_module(m, path, text)
+    }
+
+    // Parses `text`, module `m`'s source read from `path`, into the arena and
+    // collects it.
+    func parse_module(&var self, m: Int, path: String, text: String) {
+        let saved = self.current
+        self.current = m
+        let info = self.modules[m]
         try! self.texts.push(text)
         let line_base = self.index_lines(&text)
         var indexed = self.modules[m]
@@ -257,9 +265,19 @@ extension ResProgram {
         }
     }
 
-    // The builtin module: its synthetic declarations, then `builtin.saw`'s.
+    // Which std the root holds: the new std when it has a `prelude.saw`.
+    public func detect_std_layout(&var self) {
+        let prelude = self.std_file("prelude.saw")
+        if let found = res_read_file(prelude) {
+            self.std_new = true
+        }
+    }
+
+    // The builtin module: its synthetic declarations, then, under Stage 0's
+    // std root, `builtin.saw`'s. The new std declares that vocabulary in its
+    // prelude, so the module has no source of its own there.
     public func load_builtin(&var self) {
-        let path = self.std_file("builtin.saw")
+        let path = if self.std_new { "<builtin>" } else { self.std_file("builtin.saw") }
         let key = self.intern("builtin")
         let m = self.new_module(key, path, ResModuleKind.Builtin, "std")
         self.builtin = m
@@ -267,12 +285,34 @@ extension ResProgram {
         self.current = m
         res_declare_synthetic_builtins(&var self)
         self.current = saved
-        self.read_module(m, path)
+        if self.std_new {
+            self.parse_module(m, path, "")
+        } else {
+            self.read_module(m, path)
+        }
     }
 
-    // Every std module, by its path under `std`: the third of the tables
-    // prelude.saw describes.
+    // Every std module: the third of the tables prelude.saw describes.
     public func load_std_modules(&var self) {
+        if self.std_new {
+            self.load_new_std_modules()
+        } else {
+            self.load_frozen_std_modules()
+        }
+    }
+
+    // The new std's modules, each `std.X` at `<std root>/X.saw`.
+    func load_new_std_modules(&var self) {
+        self.std_module("prelude")
+        self.std_module("alloc")
+        self.std_module("mem")
+        self.std_module("box")
+        self.std_module("panic")
+        self.std_module("stringbuilder")
+    }
+
+    // Stage 0's std modules, each `std.X` at `<std root>/std/X.saw`.
+    func load_frozen_std_modules(&var self) {
         self.std_module("alloc")
         self.std_module("arc")
         self.std_module("box")
@@ -314,13 +354,15 @@ extension ResProgram {
         res_join(root, rel)
     }
 
-    // Loads `std.<path>` from `<std root>/std/<path>.saw`.
+    // Loads `std.<path>` from its file under the std root.
     public func std_module(&var self, path: String) {
         var identity = StringBuilder()
         try! identity.append("std.")
         try! identity.append(path)
         var rel = StringBuilder()
-        try! rel.append("std/")
+        if not self.std_new {
+            try! rel.append("std/")
+        }
         try! rel.append(res_dots_to_slashes(&path))
         try! rel.append(".saw")
         let file = self.std_file(rel.build())

@@ -1,0 +1,241 @@
+// The lang-item table (SL-456): the std declarations the compiler knows by
+// role rather than by a name the program wrote. Each role binds to one
+// declaration identity, filled once the std modules are collected. A std root
+// whose prelude module declares the roles (the new std, `std/`) binds them to
+// those declarations; Stage 0's root (`sawc/`), whose prelude the frozen
+// compiler synthesizes, binds them to the builtin module's declarations.
+
+import sawresolve.src.loader.{res_read_file}
+import sawresolve.src.model.{ResDeclKind}
+import sawresolve.src.program.{ResProgram}
+
+// A role the compiler knows a declaration by. The types and traits are the
+// vocabulary its checks reason about; a function role is a call the compiler
+// synthesizes into std.
+public enum ResLang {
+    case OptionalEnum,
+    case ResultEnum,
+    case OrderingEnum,
+    case CopyTrait,
+    case ExplicitCopyTrait,
+    case NoCopyTrait,
+    case NoMoveTrait,
+    case DeinitTrait,
+    case EquatableTrait,
+    case ComparableTrait,
+    case HashableTrait,
+    case HasherStruct,
+    case PrintableTrait,
+    case ErrorTrait,
+    case SendTrait,
+    case SyncTrait,
+    case UnsafeSendTrait,
+    case UnsafeSyncTrait,
+    case IteratorTrait,
+    case RangeStruct,
+    case RangeInclusiveStruct,
+    // Where every panic ends: the builtin `panic` and each check the compiler
+    // inserts format their message, then call it.
+    case PanicSinkFunction
+}
+
+// One role's row: its index in the table, the name its declaration carries
+// in the new std and the std module declaring it there, and the name of the
+// builtin module's declaration under a synthesized prelude.
+public struct ResLangRow {
+    public index: Int
+    public name: String
+    public home: String
+    public builtin_name: String
+}
+
+// Every role, in table order.
+public func res_lang_roles() -> Vector<ResLang> {
+    var out = Vector<ResLang>()
+    try! out.push(ResLang.OptionalEnum)
+    try! out.push(ResLang.ResultEnum)
+    try! out.push(ResLang.OrderingEnum)
+    try! out.push(ResLang.CopyTrait)
+    try! out.push(ResLang.ExplicitCopyTrait)
+    try! out.push(ResLang.NoCopyTrait)
+    try! out.push(ResLang.NoMoveTrait)
+    try! out.push(ResLang.DeinitTrait)
+    try! out.push(ResLang.EquatableTrait)
+    try! out.push(ResLang.ComparableTrait)
+    try! out.push(ResLang.HashableTrait)
+    try! out.push(ResLang.HasherStruct)
+    try! out.push(ResLang.PrintableTrait)
+    try! out.push(ResLang.ErrorTrait)
+    try! out.push(ResLang.SendTrait)
+    try! out.push(ResLang.SyncTrait)
+    try! out.push(ResLang.UnsafeSendTrait)
+    try! out.push(ResLang.UnsafeSyncTrait)
+    try! out.push(ResLang.IteratorTrait)
+    try! out.push(ResLang.RangeStruct)
+    try! out.push(ResLang.RangeInclusiveStruct)
+    try! out.push(ResLang.PanicSinkFunction)
+    move out
+}
+
+func res_lang_type(index: Int, name: String) -> ResLangRow {
+    ResLangRow(index: index, name: name, home: "std.prelude", builtin_name: name)
+}
+
+public func res_lang_row(role: ResLang) -> ResLangRow {
+    match role {
+        case OptionalEnum -> res_lang_type(0, "Optional"),
+        case ResultEnum -> res_lang_type(1, "Result"),
+        case OrderingEnum -> res_lang_type(2, "Ordering"),
+        case CopyTrait -> res_lang_type(3, "Copy"),
+        case ExplicitCopyTrait -> res_lang_type(4, "ExplicitCopy"),
+        case NoCopyTrait -> res_lang_type(5, "NoCopy"),
+        case NoMoveTrait -> res_lang_type(6, "NoMove"),
+        case DeinitTrait -> res_lang_type(7, "Deinit"),
+        case EquatableTrait -> res_lang_type(8, "Equatable"),
+        case ComparableTrait -> res_lang_type(9, "Comparable"),
+        case HashableTrait -> res_lang_type(10, "Hashable"),
+        case HasherStruct -> res_lang_type(11, "Hasher"),
+        case PrintableTrait -> res_lang_type(12, "Printable"),
+        case ErrorTrait -> res_lang_type(13, "Error"),
+        case SendTrait -> res_lang_type(14, "Send"),
+        case SyncTrait -> res_lang_type(15, "Sync"),
+        case UnsafeSendTrait -> res_lang_type(16, "UnsafeSend"),
+        case UnsafeSyncTrait -> res_lang_type(17, "UnsafeSync"),
+        case IteratorTrait -> res_lang_type(18, "Iterator"),
+        case RangeStruct -> res_lang_type(19, "Range"),
+        case RangeInclusiveStruct -> res_lang_type(20, "RangeInclusive"),
+        case PanicSinkFunction -> ResLangRow(index: 21, name: "panic_sink", home: "std.panic",
+                                             builtin_name: "panic")
+    }
+}
+
+extension ResProgram {
+    // THE LANG-ITEM FUNNEL: the declaration bound to `role`, or -1 when the
+    // std root declares none. Nothing else reads the table, and nothing finds
+    // a role's declaration by its name.
+    // ENTRY POINTS:
+    //     find_known
+    //     tc_check_lang_shapes
+    //     check_none_cases
+    //     dump_lang_items
+    public func lang_item(&self, role: ResLang) -> Int {
+        let row = res_lang_row(role)
+        self.lang[row.index]
+    }
+
+    // Binds every role, once the builtin and std modules are collected. Only
+    // the std root's own modules are consulted, so a program's
+    // `enum Optional` never binds one.
+    public func bind_lang_items(&var self) {
+        self.lang = Vector<Int>()
+        if self.std_new {
+            let key = self.intern("std.prelude")
+            self.std_prelude = self.find_module(key)
+        }
+        let roles = res_lang_roles()
+        var k = 0
+        while k < roles.len() {
+            let row = res_lang_row(roles[k])
+            var d = -1
+            if self.std_new {
+                d = self.std_top_decl(row.home, row.name)
+                if d < 0 {
+                    self.refuse_missing_lang(&row)
+                }
+            } else {
+                let b = self.builtin
+                d = self.module_top_decl(b, row.builtin_name)
+            }
+            try! self.lang.push(d)
+            k = k + 1
+        }
+    }
+
+    // Whether module `m` holds the language's vocabulary, whose declarations
+    // print by their path alone: the builtin module, and under the new std its
+    // prelude, which declares what Stage 0 keeps in the builtin module.
+    public func is_vocabulary_module(&self, m: Int) -> Bool {
+        m >= 0 && (m == self.builtin || m == self.std_prelude)
+    }
+
+    // The declaration named `name` at the top of std module `home`, or -1.
+    func std_top_decl(&var self, home: String, name: String) -> Int {
+        let key = self.intern(home)
+        let m = self.find_module(key)
+        if m < 0 {
+            return -1
+        }
+        self.module_top_decl(m, name)
+    }
+
+    // The first declaration named `name` at the top of module `m`, or -1.
+    func module_top_decl(&var self, m: Int, name: String) -> Int {
+        if m < 0 {
+            return -1
+        }
+        let id = self.intern(name)
+        let at = self.top.first(m, id)
+        if at < 0 {
+            return -1
+        }
+        self.top.value(at)
+    }
+
+    func refuse_missing_lang(&var self, row: &ResLangRow) {
+        var msg = StringBuilder()
+        try! msg.append("the std root declares no `")
+        try! msg.append(row.name)
+        try! msg.append("` in `")
+        try! msg.append(row.home)
+        try! msg.append("`, which the compiler needs as a lang item")
+        let key = self.intern(row.home)
+        var m = self.find_module(key)
+        if m < 0 {
+            m = self.builtin
+        }
+        self.refuse_at(m, 0, "lang.missing", msg.build(), false)
+    }
+
+    // Refuses every case named `None` outside the Optional role's enum, in
+    // every module the program loaded, so the keyword keeps its one meaning
+    // (SL:open-questions D22).
+    public func check_none_cases(&var self) {
+        let optional = self.lang_item(ResLang.OptionalEnum)
+        let none = self.intern("None")
+        var d = 0
+        while d < self.decls.len() {
+            let decl = self.decls[d]
+            if decl.kind == ResDeclKind.Case && decl.name == none && decl.parent != optional && decl.leaf >= 0 {
+                self.refuse_in(decl.module, decl.leaf, "name.none-case",
+                               "`None` names a case only in the enum the std prelude declares as `Optional`")
+            }
+            d = d + 1
+        }
+    }
+
+    // The table, one ` (ROLE IDENTITY)` per bound role, for the std prelude
+    // module's dump.
+    public func dump_lang_items(&self, out: &var StringBuilder) {
+        try! out.append("\n  (lang-items")
+        let roles = res_lang_roles()
+        var k = 0
+        while k < roles.len() {
+            let row = res_lang_row(roles[k])
+            let d = self.lang_item(roles[k])
+            try! out.append("\n    (")
+            try! out.append(row.name)
+            try! out.append(" ")
+            if d < 0 {
+                try! out.append("(unbound)")
+            } else {
+                let decl = self.decls[d]
+                try! out.append(self.module_name(decl.module))
+                try! out.append(".")
+                try! out.append(self.name_text(decl.name))
+            }
+            try! out.append(")")
+            k = k + 1
+        }
+        try! out.append(")")
+    }
+}

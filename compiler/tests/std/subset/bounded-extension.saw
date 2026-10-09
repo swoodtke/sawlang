@@ -1,0 +1,11 @@
+// An allocator parameter is the one bound a std extension may write.
+
+public struct Pair<T> {
+    first: T
+}
+
+extension Pair<T: Equatable> { // refuses: bounded-extension
+    public func same(&self, other: &Pair<T>) -> Bool {
+        self.first == other.first
+    }
+}

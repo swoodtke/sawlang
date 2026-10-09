@@ -455,6 +455,11 @@ borrows-sync-effect ::= "borrows" "(" 'sync' ")"
 A struct's fields, and an enum's cases, are separated by a comma, a line break,
 or both, so two on one line need a comma between them (§14).
 
+A case may be named `None`, a keyword, so that the std prelude can declare
+`Optional` as an ordinary enum. The grammar takes it in every enum; name
+resolution refuses it in any enum but the one the compiler knows as `Optional`
+(SL:open-questions D22), so `None` keeps its one meaning.
+
 ```ebnf
 # syntax.decl.struct  status=current  spec="Structs"  node=Struct
 struct-decl ::= struct-modifier? "struct" IDENT generic-params? NEWLINE* "{" NEWLINE* field-list? "}"
@@ -488,7 +493,7 @@ raw-backing ::= ":" type
 case-list ::= enum-case ( list-sep enum-case )* list-sep?
 
 # syntax.decl.case  status=current  spec="Enums (Algebraic Data Types)"  node=Case
-enum-case ::= "case" IDENT payload-decl? raw-value?
+enum-case ::= "case" ( IDENT | "None" ) payload-decl? raw-value?
 
 # syntax.decl.payload  status=current  spec="Enums (Algebraic Data Types)"  node=-
 payload-decl ::= "(" ( payload-field ( "," payload-field )* ","? )? ")"

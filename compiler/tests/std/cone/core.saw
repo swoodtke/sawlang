@@ -1,0 +1,27 @@
+// A program over the new std's core: a box, a builder and a panic. Its cone
+// is recorded in core.cone and holds no task machinery.
+
+struct Reading {
+    level: Int
+}
+
+func boxed(level: Int) -> Int {
+    var b = try! Box<Reading>.make(Reading(level: level))
+    b.value().level = b.value().level + 1
+    b.value().level
+}
+
+func rendered(n: Int) -> String {
+    var builder = StringBuilder()
+    let _ = try! builder.append(n)
+    builder.build()
+}
+
+func main() -> Int {
+    let n = boxed(4)
+    if n != 5 {
+        panic("a boxed reading did not change in place")
+    }
+    print(rendered(n))
+    0
+}

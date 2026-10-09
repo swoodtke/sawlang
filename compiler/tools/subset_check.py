@@ -9,6 +9,7 @@ the rules only its code generator can answer.
 
     python compiler/tools/subset_check.py          # compiler/**/*.saw, no tests/ or sidecars
     python compiler/tools/subset_check.py FILE...  # each file as a unit program
+    python compiler/tools/subset_check.py --std [FILE...]  # the std profile over std/
 """
 import concurrent.futures
 import contextlib
@@ -112,15 +113,67 @@ PACKAGE_RELATIVE_HEADS = ("src", "parent", "package")
 
 # The std members the compiler may call, each meaning the same under `sawc/std`
 # (Stage 0) and the new std (Stage 1): a free function or constructor by name, a
-# static member as `Type.member`, an instance method as `.name`. An addition
-# re-checks the `deinit` condition `ALLOWED_STD_MODULES` states.
-STD_API = (
-    "print", "panic", "assert",
-    "Byte", "Path", "Scalar", "StringBuilder", "Vector",
-    "Env.args", "File.open", "UInt8.from", "Result.Ok", "Result.Err",
-    ".append", ".build", ".byte_at", ".clear", ".equals", ".get", ".is_empty", ".len",
-    ".push", ".read", ".starts_with", ".substring", ".to_string", ".to_uint",
-)
+# static member as `Type.member`, an instance method as `.name`, each with its
+# contract. An addition re-checks the `deinit` condition `ALLOWED_STD_MODULES`
+# states, and gets a row in compiler/tests/std/equivalence.tsv, whose lane
+# compares its declarations in the two stds.
+STD_API = {
+    "print": "writes its arguments' rendering and a line break to standard output",
+    "panic": "formats its message and ends the program through the panic sink",
+    "assert": "panics with its message when its condition is false",
+    "Byte": "a byte value, a distinct alias over UInt8",
+    "Path": "a filesystem path built from its text",
+    "Scalar": "a Unicode scalar value, built only from a valid code point",
+    "StringBuilder": "an empty growable text buffer",
+    "Vector": "an empty growable array",
+    "Env.args": "every command-line argument in order; Err when allocation fails",
+    "File.open": "opens the file at a path for reading; Err carries why open(2) refused",
+    "UInt8.from": "the value when it fits a UInt8, else None",
+    "Result.Ok": "the success case, its payload the value",
+    "Result.Err": "the failure case, its payload the error",
+    ".append": "adds to the end: text, a rendering, or an element; Err when allocation fails",
+    ".build": "the builder's text as a new String",
+    ".byte_at": "the byte at an index; panics out of range",
+    ".clear": "removes every element, keeping the capacity",
+    ".equals": "whether two values are equal, as `==` answers",
+    ".get": "the element at an index or key as a place, None when absent",
+    ".is_empty": "whether the length is zero",
+    ".len": "the number of elements, or of bytes for text",
+    ".push": "appends one element; Err when allocation fails",
+    ".read": "the file's remaining bytes, an empty Ok at its end; Err carries the cause",
+    ".starts_with": "whether the text begins with the given prefix",
+    ".substring": "the bytes between two indices as a new String; panics out of range",
+    ".to_string": "the value's text rendering, through its `format`",
+    ".to_uint": "the whole text, untrimmed, as an unsigned decimal; None when it is not one",
+}
+
+# The std profile (SL-456): the subset's rules over the new std in `std/`, which
+# only sawc2 compiles, with exactly the low-level features SL:architecture §4
+# names allowed. Each rule the profile drops says which feature it is.
+STD_ROOT = os.path.join(REPO, "std")
+STD_PROFILE_FEATURES = {
+    "raw-pointer": "raw memory and pointers",
+    "borrows-accessor": "`borrows` accessors and `lend`",
+    "deinit-body": "raw memory: a type owning a buffer frees it in its `deinit`",
+    "box-type": "allocator parameters: `Box<T, A>` owns one value through its allocator",
+}
+# Rules that hold the compiler's source to std, which the std profile is
+# checking itself: std declares the std names, imports std and calls std.
+STD_PROFILE_SELF = ("prelude-type-name", "std-api")
+# The bound an extension of the new std may write on a type parameter, and the
+# trait whose conformers may be fieldless: allocator parameters.
+STD_PROFILE_BOUND = "Allocator"
+
+
+def _read_none_cases(tokens):
+    """The frozen lexer makes every `None` a keyword, and its parser predates
+    a case declared `None` (SL:open-questions D22), so the std profile reads
+    one as the identifier it names. A `case None ->` arm stays a pattern."""
+    for i in range(1, len(tokens) - 1):
+        if tokens[i].type == T.NONE and tokens[i - 1].type == T.CASE \
+                and tokens[i + 1].type not in (T.ARROW, T.IF):
+            tokens[i].type = T.IDENT
+
 
 # Std calls the lockdown retires, refused by name whatever the allowlist says.
 RETIRED_STD_METHODS = ("with_ref", "with_var_ref", "with_unique")
@@ -180,7 +233,7 @@ class Diagnostic:
 class SourceFile:
     """One file: its text, the frozen lexer's tokens and the frozen parser's tree."""
 
-    def __init__(self, path):
+    def __init__(self, path, std_profile=False):
         self.path = path
         self.rel = os.path.relpath(path, REPO)
         with open(path, encoding="utf-8") as fh:
@@ -195,6 +248,8 @@ class SourceFile:
         except Exception as exc:  # the frozen lexer raises more than SyntaxError
             self.lex_error = _position(exc)
             return
+        if std_profile:
+            _read_none_cases(self.tokens)
         try:
             self.program = Parser(self.tokens, source_file=path,
                                   doc_comments=lexer.doc_comments).parse()
@@ -237,7 +292,11 @@ def programs(prog):
 # ---------------------------------------------------------------------------
 
 class StdFacts:
-    def __init__(self):
+    """What Stage 0's std and builtins declare. With `stage0` false, only the
+    names no std file declares: the new std is a build of its own, so its
+    declarations are the build's facts."""
+
+    def __init__(self, stage0=True):
         from mono_identity import PRIMITIVE_TYPE_NAMES
         self.names = {}
         self.generic_functions = set()
@@ -254,7 +313,7 @@ class StdFacts:
         std_dir = os.path.join(REPO, "sawc", "std")
         paths = sorted(glob.glob(os.path.join(std_dir, "**", "*.saw"), recursive=True))
         paths.append(os.path.join(REPO, "sawc", "builtin.saw"))
-        for path in paths:
+        for path in paths if stage0 else ():
             src = SourceFile(path)
             if src.program is None:
                 raise RuntimeError("subset_check: cannot parse %s" % src.rel)
@@ -754,15 +813,18 @@ def _is_map(t):
 # ---------------------------------------------------------------------------
 
 class FileChecker:
-    def __init__(self, src, std, facts):
+    def __init__(self, src, std, facts, std_profile=False):
         self.src = src
         self.std = std
         self.facts = facts
+        self.std_profile = std_profile
         self.diags = []
         self.seen = set()
         self._token_index = None
 
     def report(self, line, rule, message):
+        if self.std_profile and (rule in STD_PROFILE_FEATURES or rule in STD_PROFILE_SELF):
+            return
         key = (line, rule, message)
         if key in self.seen:
             return
@@ -1006,8 +1068,10 @@ class FileChecker:
             if decl.name in self.std.reserved_types:
                 self.report(decl.line, "prelude-type-name",
                             "`%s` is the name of a std type" % decl.name)
+        allocators = {ext.struct_name for ext in prog.extensions
+                      if STD_PROFILE_BOUND in ext.conformances} if self.std_profile else set()
         for s in prog.structs:
-            if not s.fields:
+            if not s.fields and s.name not in allocators:
                 self.report(s.line, "empty-struct", "give every struct at least one field")
         for blk in prog.extern_blocks:
             for fn in blk.functions:
@@ -1032,7 +1096,7 @@ class FileChecker:
                     if m.is_init:
                         self.report(m.line, "generic-extension-init",
                                     "no `init` in a generic extension; build it memberwise")
-                if any(tp.bounds for tp in ext.type_params):
+                if any(self.refused_bound(b) for tp in ext.type_params for b in tp.bounds):
                     self.report(ext.line, "bounded-extension",
                                 "no bounds on an extension's type parameters")
             for m in ext.methods:
@@ -1048,6 +1112,10 @@ class FileChecker:
                 BodyChecker(self, None, None).run_expression(st.initializer)
         for sa in prog.static_asserts:
             BodyChecker(self, None, None).run_expression(sa.condition)
+
+    def refused_bound(self, bound):
+        """Every bound, but the std profile's allocator parameter."""
+        return not (self.std_profile and bound == STD_PROFILE_BOUND)
 
     def check_deinit(self, m):
         """A `deinit` in any extension or trait body. Stage 1 tolerates leaks
@@ -1071,7 +1139,12 @@ class FileChecker:
             self.report(imp.line, "selective-imports",
                         "import names selectively: `import %s.{...}`" % ".".join(path))
         head = path[0] if path else ""
-        if head == "std":
+        if self.std_profile:
+            if head != "std" or not os.path.isfile(os.path.join(STD_ROOT, *path[1:]) + ".saw"):
+                self.report(imp.line, "import-allowlist",
+                            "the new std imports only its own modules, and `%s` is not one"
+                            % ".".join(path))
+        elif head == "std":
             module = ".".join(path[1:])
             if module not in ALLOWED_STD_MODULES:
                 self.report(imp.line, "import-allowlist",
@@ -2483,6 +2556,31 @@ def check_files(paths, compiler=(), stages=None):
     return sorted(set(diags))
 
 
+STD_FLAG = "--std"
+
+
+def std_tree_files():
+    """Every module of the new std, sorted."""
+    return sorted(glob.glob(os.path.join(STD_ROOT, "**", "*.saw"), recursive=True))
+
+
+def check_std(paths=None):
+    """The std profile over `paths`, by default every module of the new std:
+    one build, checked by the source rules alone. `compile` and
+    `owned-operand` ask Stage 0's code generator, which never compiles the new
+    std; sawc2's own check of it stands in their place (compiler/tests/std)."""
+    if paths is None:
+        paths = std_tree_files()
+    std = StdFacts(stage0=False)
+    files = [SourceFile(p, std_profile=True) for p in sorted(set(paths))]
+    facts = BuildFacts(files)
+    diags = []
+    for f in files:
+        diags.extend(FileChecker(f, std, facts, std_profile=True).run())
+    diags.extend(check_build(files, [], std))
+    return sorted(set(diags))
+
+
 def check_tree():
     files = tree_files()
     stages = stage_files()
@@ -2494,7 +2592,11 @@ def main(argv):
     if argv[:1] == [GENERATED_FLAG] and len(argv) == 2:
         print(json.dumps(generated_sites(os.path.abspath(argv[1]))))
         return 0
-    if argv:
+    if argv[:1] == [STD_FLAG]:
+        paths = [os.path.abspath(p) for p in argv[1:]] or std_tree_files()
+        diags = check_std(paths)
+        count = len(paths)
+    elif argv:
         paths = [os.path.abspath(p) for p in argv]
         diags = check_files(paths)
         count = len(paths)

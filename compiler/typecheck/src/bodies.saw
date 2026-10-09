@@ -4433,10 +4433,13 @@ extension TcProgram {
     }
 
     // Whether `t` answers method `text` with no declaration to find: an
-    // Optional's `take`, `is_some` and `is_none` (design 131), and `copy`
-    // on a type of the Copy or ExplicitCopy tier.
+    // Optional's `take`, `is_some` and `is_none` (design 131) while the
+    // Optional lang item is the synthesized one, since an Optional a std
+    // declares writes its own, and `copy` on a type of the Copy or
+    // ExplicitCopy tier.
     func is_builtin_method(&var self, t: Int, text: &String) -> Bool {
-        if self.is_optional(t) && (text.equals("take") || text.equals("is_some") || text.equals("is_none")) {
+        let synthesized = self.known.optional >= 0 && self.res.decls[self.known.optional].node < 0
+        if synthesized && self.is_optional(t) && (text.equals("take") || text.equals("is_some") || text.equals("is_none")) {
             return true
         }
         text.equals("copy") && not self.has_error(t)

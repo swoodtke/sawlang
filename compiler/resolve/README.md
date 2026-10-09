@@ -16,6 +16,7 @@ resolve/
     names.saw       the interner and the pair index, over flat vectors
     loader.saw      module identity to file to arena; the std module table
     prelude.saw     the builtin module's synthetic declarations; the prelude
+    lang.saw        the lang-item table and its funnel
     collect.saw     phase 1
     imports.saw     phase 2
     lookup.saw      the lookup funnel and the scopes it reads
@@ -34,7 +35,16 @@ beside the entry file, the path as written (`shapes`, `util.io`); the entry
 file's is its name without `.saw`. The synthetic `builtin` module holds what
 nothing declares and `builtin.saw`'s declarations (SL:open-questions D12).
 
-- `std.X` is `<std root>/std/X.saw`. Every std module in `load_std_modules`'
+- The std root holds one of two stds. The new std (`--std-root std`) is told
+  by its `prelude.saw`: `std.X` is `<std root>/X.saw`, every module in
+  `load_new_std_modules`' table is loaded and compiled whole, writes its
+  imports as any module does, and its prelude module declares the vocabulary
+  the builtin module keeps under Stage 0's std. That builtin module then holds
+  only what no source can declare: the numbers, `Bool`, `String`, `Void`,
+  `Never`, the two pointers and `print`, `panic`, `assert`, `sizeof` and
+  `alignof`. A prelude name the new std does not declare yet is left out.
+- Under Stage 0's std (`sawc`, the default), `std.X` is
+  `<std root>/std/X.saw`. Every std module in `load_frozen_std_modules`'
   table is loaded, as an interface only: its declarations, imports and
   signatures (generics with their bounds and defaults, field, payload, static
   and alias types, parameter and return types, extension heads, conformances
@@ -86,6 +96,32 @@ another module prints as that module's identity and the declaration's path.
 After the three phases, `rules.saw` checks the conformances: each lives in its
 type's module or its trait's, and each (type, trait) pair is declared once.
 
+## The lang-item table
+
+The compiler knows some std declarations by role (SL-456): `Optional`,
+`Result`, `Ordering`, the trait vocabulary it reasons about (the Copy family,
+`Deinit`, `Equatable`, `Comparable`, `Hashable`, `Printable`, `Error`, `Send`,
+`Sync` and their unsafe assertions, `Iterator`), the structs `Hasher`, `Range`
+and `RangeInclusive`, and one function role, the panic sink every panic calls
+once its message is formatted. `lang.saw` holds the table, one declaration per
+role, bound once the builtin and std modules are collected:
+
+- under the new std, to the declaration its home module declares: the prelude
+  module for a type or trait, `std.panic` for the sink; a role it does not
+  declare is refused as `lang.missing`;
+- under Stage 0's std, to the builtin module's declaration of the role's name,
+  the builtin `panic` for the sink.
+
+Only the std root's modules are consulted, so a program's own `enum Optional`
+binds no role (it is refused as a prelude name). `lang_item` is the one query
+of the table; its docstring names its entry points, and typecheck's known
+declarations take each lang item from it. A role for allocation joins it with
+the collections. Typecheck holds each bound declaration to its role's shape
+(`lang.shape`, typecheck/README.md). A case named `None` is refused as
+`name.none-case` in any enum but the Optional role's (SL:open-questions D22),
+so the keyword keeps one meaning. Under the new std the resolve dump of
+`std.prelude` ends with the table, `(lang-items ...)`.
+
 ## The lookup funnel
 
 `lookup` in `lookup.saw` is the one lookup of a bare name, in design 150's
@@ -113,18 +149,20 @@ These are the reversible readings the unit made; SL-445's report lists them.
   name is left out, and an enum in a module the closure does not reach changes
   nothing. A variant pattern's head no enum in the closure declares as a case
   is looked up as a type, for a `try` block's error union.
-- `Optional` is a builtin enum with the cases `Some`, with a payload, and
-  `None`, so `case Some(v)` is a case selector as `case Ok(v)` is. `None` is a
-  keyword, so its case is never named, and no expression constructs a `Some`.
+- `Optional` is an enum with the cases `Some`, with a payload, and `None`, so
+  `case Some(v)` is a case selector as `case Ok(v)` is: the builtin module's
+  under Stage 0's std, the prelude's under the new std. `None` is a keyword, so
+  only the declaration names its case, and no expression constructs a `Some`.
 - A bare name nothing binds that an in-scope type parameter's bound declares
   as an associated type (`-> Item` under `<T: Container>`) is refused as
   `slice.not-yet`: how a bound's associated type is spelled is an open
   language question. A bare name a glob import misses only because the
   declaration is private in its module is refused as `visibility.private`.
-- A std module sees the gated std tier bare, where any other module is refused
-  with the import that supplies the name: `sawc/std` is written for the frozen
-  compiler's one std namespace, in which `std/file.saw` names `Path` and
-  `IoError` with no import.
+- A module of Stage 0's std sees the gated std tier bare, where any other
+  module is refused with the import that supplies the name: `sawc/std` is
+  written for the frozen compiler's one std namespace, in which
+  `std/file.saw` names `Path` and `IoError` with no import. The new std's
+  modules write their imports.
 - A function beside a type of its name is a duplicate declaration, since
   types and values share one namespace.
 - The concurrency forms `Thread.spawn` and `Task.spawn`, and the frozen

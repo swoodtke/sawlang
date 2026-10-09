@@ -1192,7 +1192,9 @@ extension TcProgram {
                 self.verify_unit_suspensions(top, &var out)
             }
         }
-        if m == self.res.builtin {
+        // The table describes Stage 0's std, whose bodies sawc2 never reads;
+        // the new std's summaries are inferred from its bodies.
+        if m == self.res.builtin && not self.res.std_new {
             self.verify_std_table(&var out)
         }
         move out

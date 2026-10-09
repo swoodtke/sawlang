@@ -1,0 +1,48 @@
+//! `Box<T, A>`: one `T` owned on the heap, allocated through `A`.
+//!
+//! Hosted code writes `Box<T>`; a kernel names its allocator,
+//! `Box<Task, TaskSlab>`. A box is `NoCopy`, and its `T` is destroyed exactly
+//! once, by the box's own allocator.
+
+import std.mem.{drop_in_place}
+
+/// One `T` owned on the heap through allocator `A`.
+public struct Box<T, A: Allocator = GlobalAllocator> {
+    // Always valid in a live box: `make` builds none when the allocator refuses.
+    private ptr: UnsafePointer<T>
+}
+
+extension Box<T, A: Allocator = GlobalAllocator> {
+    /// Allocates one `T` through `A` and moves `value` into it.
+    ///
+    /// Returns `Err(AllocError)` when `A` refuses; `value` is then not moved
+    /// anywhere, and is destroyed at the end of this call.
+    public static func make(value: T) unsafe -> Result<Box<T, A>, AllocError> {
+        let size = sizeof<T>()
+        let align = alignof<T>()
+        if let raw = A().alloc(size, align) {
+            let ptr = raw as UnsafePointer<T>
+            ptr[0] = move value
+            return Box<T, A>(ptr: ptr)
+        }
+        return AllocError(size: size, align: align)
+    }
+}
+
+extension Box<T, A: Allocator = GlobalAllocator>: NoCopy {
+    public func deinit(&var self) unsafe {
+        drop_in_place(self.ptr)
+        let raw = self.ptr as UnsafePointer<Int8>
+        A().dealloc(raw, sizeof<T>(), alignof<T>())
+    }
+}
+
+extension Box<T, A: Allocator = GlobalAllocator> {
+    /// Lends the heap `T` where it sits.
+    ///
+    /// The use site picks the window: `b.value().method()` borrows it, and
+    /// `b.value().n += 1` writes it in place.
+    public func value(&var self) unsafe borrows -> &var T {
+        lend self.ptr[0]
+    }
+}

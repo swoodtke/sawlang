@@ -11,9 +11,10 @@ import sawtypecheck.src.model.{TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture,
                                TcTier, TcUnit, TcUse, tc_blank_sig}
 import sawtypecheck.src.types.{TcKind, TcType, TcTypes, tc_types}
 
-// The builtin declarations typecheck knows by identity, (module, name), found
-// once: `T?` names `Optional` with no name occurrence, and the Copy family,
-// the derivable traits and the unsafe pointers have rules of their own.
+// The declarations typecheck knows by identity, found once: `T?` names
+// `Optional` with no name occurrence, and the Copy family, the derivable
+// traits and the unsafe pointers have rules of their own. A lang item's field
+// is filled from resolve's lang-item table, never by a name (`find_known`).
 public struct TcKnown {
     public optional: Int
     public result: Int
@@ -66,6 +67,11 @@ public struct TcKnown {
     public arc: Int
     public task_group: Int
     public func_pointer: Int
+    public ordering: Int
+    public hasher: Int
+    // The function every panic calls once its message is formatted: the new
+    // std's panic sink, or the builtin `panic` under Stage 0's std.
+    public panic_sink: Int
 }
 
 public struct TcProgram {
@@ -232,7 +238,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
                         deserialize: -1, int: -1, uint: -1, int8: -1, int16: -1, int32: -1,
                         int64: -1, uint8: -1, uint16: -1, uint32: -1, uint64: -1, float: -1,
                         bool_type: -1, range: -1, range_inclusive: -1, iterator: -1, box: -1,
-                        vector: -1, map: -1, set: -1, arc: -1, task_group: -1, func_pointer: -1)
+                        vector: -1, map: -1, set: -1, arc: -1, task_group: -1, func_pointer: -1,
+                        ordering: -1, hasher: -1, panic_sink: -1)
     var p = TcProgram(res: move res, types: tc_types(), sigs: move sigs,
                       generics: Vector<TcGeneric>(), traits: Vector<Int>(),
                       params: Vector<TcParam>(), node_types: move node_types,

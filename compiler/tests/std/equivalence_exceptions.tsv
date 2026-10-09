@@ -1,0 +1,8 @@
+# Reviewed differences between the two stds' signature records, each with the
+# unit it is due by (`-` for none) and the reason. The lane fails on a
+# difference not listed here, on a listed one that is gone, and on any whose
+# unit has landed (LANDED_UNITS in std_lane.py).
+std.stringbuilder init StringBuilder.init -	-	Stage 0 under-reports the effect: the body names a value of an unsafe type (the `None` of the `UnsafePointer<Int8>?` field), and the spec's trigger rule makes a function unsafe when it "names, binds, receives or returns a value of an unsafe type", deliberately broader than "performs a deref"; calling it needs no ceremony, so no caller changes
+std.stringbuilder method StringBuilder.append s:String	U5b2	String layer: lands in U5b2
+std.alloc conformance AllocError Error	U5b2	String layer: lands in U5b2
+std.alloc method AllocError.format into:&var std.stringbuilder.StringBuilder	U5b2	String layer: lands in U5b2

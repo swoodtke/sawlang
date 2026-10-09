@@ -1,0 +1,7 @@
+// Comparable's requirement returns an Ordering, which the ordering operators
+// read.
+file: prelude.saw
+replace: func compare(&self, other: &Self) -> Ordering
+with: func compare(&self, other: &Self) -> Int
+refuses: lang.shape prelude.saw
+message: found `(requirement compare (signature (receiver shared) (params (other &Self shared)) -> Int))`

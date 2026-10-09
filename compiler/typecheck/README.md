@@ -48,6 +48,7 @@ typecheck/
     effects.saw       phase 3: the checks that read the summaries
     exhaust.saw       match exhaustiveness
     fold.saw          constant folding, for literal ranges
+    lang.saw          the lang items' shapes
     bodychecks.saw    borrowing-struct containment, the body half of `unsafe`,
                       the `borrows(sync)` window
     dump.saw          the dump
@@ -349,11 +350,20 @@ These are the reversible readings U6b3 made; SL-447's report lists them.
   `(true, false)` and `(false, _)` cover `(Bool, Bool)` (D21). Only an open
   type, an integer or a `String`, needs a wildcard or a binding.
 
-The builtin declarations typecheck knows by identity, (builtin, name), are
-found once: `Optional` (for `T?`, which no name occurrence spells), `Result`,
-the Copy family, the derivable traits, the unsafe pointers and the interior
-cell. That is a table of the stage's own vocabulary, not a lookup of a name
-the program wrote.
+The declarations typecheck knows by identity are found once (`find_known`):
+`Optional` (for `T?`, which no name occurrence spells), `Result`, the Copy
+family, the derivable traits and the panic sink from resolve's lang-item table
+(resolve/README.md), and the primitives, the unsafe pointers and the interior
+cell from the builtin module. That is a table of the stage's own vocabulary,
+not a lookup of a name the program wrote. `lang.saw` holds each lang item a
+source declares to its role's shape, its cases and payload labels, its
+requirements and their signatures, its fields, conformances and the methods
+its module writes, and refuses a difference as `lang.shape`, naming the first
+part that differs. The expected shapes are Stage 0's `builtin.saw`, so every
+lane over `sawc/` checks the table against it. An Optional the new std
+declares writes its own `take`, `is_some` and `is_none`, so typecheck answers
+those names builtin only for Stage 0's synthesized one, and a lang item prints
+by its bare name, as a builtin does, under either std.
 
 ## Readings
 

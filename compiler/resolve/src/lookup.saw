@@ -104,8 +104,8 @@ extension ResProgram {
 
     // THE LOOKUP: what bare `name`, written at `leaf`, denotes. Locals, then
     // the module's declarations, then imported bare names, then the prelude,
-    // then the gated std tier (refused with a precise hint, except in a std
-    // module, which sees it bare), then qualifiers.
+    // then the gated std tier (refused with a precise hint, except in a
+    // module of Stage 0's std, which sees it bare), then qualifiers.
     // A name nothing binds is refused. Never returns Unbound.
     public func lookup(&var self, name: Int, leaf: Int, space: ResSpace) -> ResBinding {
         if name == self.name_self_type {
@@ -158,9 +158,10 @@ extension ResProgram {
         if gated >= 0 {
             let d = self.prelude.value(gated)
             let info = self.modules[m]
-            if info.kind == ResModuleKind.Std {
+            if info.kind == ResModuleKind.Std && not self.std_new {
                 // `sawc/std` is written for the frozen compiler's one std
-                // namespace, where each std module sees every other bare.
+                // namespace, where each std module sees every other bare; the
+                // new std writes its imports as any module does.
                 let decl = self.decls[d]
                 return res_decl_binding(d, &decl)
             }

@@ -3,6 +3,7 @@
 // diagnostic that names a type spell it here.
 
 import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.lang.{ResLang}
 import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
                                TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SYNC,
                                TC_EFFECT_UNSAFE}
@@ -36,11 +37,12 @@ public func tc_effects_text(effects: Int) -> String {
 }
 
 extension TcProgram {
-    // A nominal declaration's canonical name: bare for a builtin, else its
-    // module's identity and its path (design 144).
+    // A nominal declaration's canonical name: bare for the language's
+    // vocabulary, a builtin or the new std prelude's, else its module's
+    // identity and its path (design 144).
     public func nominal_name(&self, d: Int) -> String {
         let info = self.res.decls[d]
-        if info.module == self.res.builtin {
+        if self.res.is_vocabulary_module(info.module) {
             return self.res.decl_path(d)
         }
         self.res.decl_identity(d)

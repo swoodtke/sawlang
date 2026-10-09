@@ -3,7 +3,7 @@
 // order types were interned in.
 
 import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.model.{ResDecl, ResDeclKind, ResModule, ResVis}
+import sawresolve.src.model.{ResDecl, ResDeclKind, ResModule, ResModuleKind, ResVis}
 import sawtypecheck.src.bodydump.{tc_dump_bodies}
 import sawtypecheck.src.conform.{TcSubst}
 import sawtypecheck.src.members.{tc_build_members}
@@ -120,7 +120,7 @@ extension TcProgram {
         try! out.append(")\n")
     }
 
-    func decl_kind_text(&self, d: Int) -> String {
+    public func decl_kind_text(&self, d: Int) -> String {
         let info = self.res.decls[d]
         match info.kind {
             case Struct -> "struct",
@@ -227,7 +227,7 @@ extension TcProgram {
     }
 
     // ` (generics G...)` when `d` has generic parameters.
-    func append_generics(&self, out: &var StringBuilder, d: Int) {
+    public func append_generics(&self, out: &var StringBuilder, d: Int) {
         let s = self.sigs[d]
         if s.generic_count == 0 {
             return
@@ -298,7 +298,7 @@ extension TcProgram {
         }
     }
 
-    func append_traits(&self, out: &var StringBuilder, head: String, d: Int) {
+    public func append_traits(&self, out: &var StringBuilder, head: String, d: Int) {
         let s = self.sigs[d]
         if s.trait_count == 0 {
             return
@@ -315,7 +315,7 @@ extension TcProgram {
     }
 
     // Each parameter as ` (name TYPE)`, with its passing when `passing` is set.
-    func append_params(&self, out: &var StringBuilder, d: Int, passing: Bool) {
+    public func append_params(&self, out: &var StringBuilder, d: Int, passing: Bool) {
         let s = self.sigs[d]
         var k = 0
         while k < s.param_count {
@@ -342,7 +342,7 @@ extension TcProgram {
         }
     }
 
-    func append_signature(&self, out: &var StringBuilder, d: Int) {
+    public func append_signature(&self, out: &var StringBuilder, d: Int) {
         let s = self.sigs[d]
         try! out.append(" (signature")
         self.append_generics(&var out, d)
@@ -460,7 +460,9 @@ extension TcProgram {
         while d < self.res.decls.len() {
             let info = self.res.decls[d]
             let own = info.kind == ResDeclKind.Struct || info.kind == ResDeclKind.Enum
-            if own && not self.is_interface(info.module) {
+            let home = self.res.modules[info.module]
+            let program = home.kind == ResModuleKind.Entry || home.kind == ResModuleKind.Package
+            if own && program {
                 try! out.append("\n    (")
                 try! out.append(self.nominal_name(d))
                 let first = self.member_first[d]

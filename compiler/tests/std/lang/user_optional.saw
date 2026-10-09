@@ -1,0 +1,13 @@
+// Only the std root's prelude binds a lang item: a program's own `Optional`
+// is refused as a prelude name and binds no role, so `Int?` still names the
+// prelude's.
+
+enum Optional<T> {
+    case Present(value: T),
+    case Missing
+}
+
+func main() {
+    let n: Int? = 3
+    print(n ?? 0)
+}

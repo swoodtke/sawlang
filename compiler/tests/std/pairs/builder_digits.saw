@@ -1,0 +1,15 @@
+// StringBuilder: `append(value:)` writes an integer's decimal digits, `len`
+// and `is_empty` count bytes, and `build` returns the text.
+
+func main() -> Int {
+    var b = StringBuilder()
+    assert(b.is_empty(), "a new builder is empty")
+    let _ = try! b.append(-42)
+    let _ = try! b.append(0)
+    let _ = try! b.append(1_234)
+    assert(b.len() == 8, "-42, 0 and 1234 are eight bytes")
+    assert(not b.is_empty(), "the builder holds text")
+    let text = b.build()
+    assert(text == "-4201234", "build returns the digits in order")
+    0
+}

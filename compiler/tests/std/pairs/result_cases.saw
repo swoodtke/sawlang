@@ -1,0 +1,36 @@
+// Result: a returned value is `Ok`, a returned error `Err`, `try` hands an
+// `Err` on, and a match reads each case's payload.
+
+struct Fault {
+    code: Int
+}
+
+func half(n: Int) -> Result<Int, Fault> {
+    if n % 2 != 0 {
+        return Fault(code: n)
+    }
+    n / 2
+}
+
+func quarter(n: Int) -> Result<Int, Fault> {
+    let h = try half(n)
+    half(h)
+}
+
+func value_of(r: Result<Int, Fault>) -> Int {
+    match r {
+        case Ok(v) -> v,
+        case Err(e) -> 0 - e.code
+    }
+}
+
+func main() -> Int {
+    assert(value_of(quarter(8)) == 2, "quarter(8) is Ok(2)")
+    assert(value_of(quarter(6)) == -3, "quarter(6) fails on 3")
+    assert(value_of(half(5)) == -5, "half(5) fails on 5")
+    let made: Result<Int, Fault> = Result<Int, Fault>.Ok(value: 9)
+    assert(value_of(made) == 9, "an explicit Ok carries its value")
+    let failed: Result<Int, Fault> = Result<Int, Fault>.Err(error: Fault(code: 4))
+    assert(value_of(failed) == -4, "an explicit Err carries its error")
+    0
+}

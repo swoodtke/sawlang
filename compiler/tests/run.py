@@ -19,7 +19,8 @@ claims, and times the line-length cells, which hold a parse to linear time on
 one very long line; and runs the resolve lane over `resolve/`, the typecheck
 lane over `typecheck/` and the MIR lane over `mir/`, whose golden dumps,
 refusal fixtures and the compiler's own source hold `sawc2 resolve`, `sawc2
-typecheck` and `sawc2 mir` to their specifications.
+typecheck` and `sawc2 mir` to their specifications; and runs the std lane over
+`std/`, the new std.
 The inventory of Stage 0 workaround markers prints first, then each failure as
 one line in a fixed order; the summary comes last, and any failure exits 1.
 """
@@ -63,6 +64,9 @@ import typecheck_lane  # noqa: E402
 
 sys.path.insert(0, os.path.join(HERE, "mir"))
 import mir_lane  # noqa: E402
+
+sys.path.insert(0, os.path.join(HERE, "std"))
+import std_lane  # noqa: E402
 
 UNIT_OUT = os.path.join(REPO, ".build", "compiler-tests")
 LEX_FIXTURES = os.path.join(HERE, "lex")
@@ -438,6 +442,16 @@ def run_mir(run):
         run.count(key, n)
 
 
+def run_std(run):
+    """The std lane (compiler/tests/std/std_lane.py): the new std under sawc2,
+    its subset profile, its lang items, its cone and its API equivalence."""
+    failures, counts = std_lane.run()
+    for failure in failures:
+        run.fail(failure)
+    for key, n in counts.items():
+        run.count(key, n)
+
+
 def main():
     run = Run()
     ok, output = build.build_sawc2()
@@ -458,6 +472,7 @@ def main():
         run_resolver(run)
         run_typechecker(run)
         run_mir(run)
+        run_std(run)
     for line in run.inventory:
         print(line)
     for failure in run.failures:

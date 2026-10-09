@@ -2507,8 +2507,9 @@ extension Parser {
         true
     }
 
-    // `enum-case ::= "case" IDENT payload-decl? raw-value?`, with its doc
-    // comment; `raw-value ::= "=" expr`, whose `=` prints.
+    // `enum-case ::= "case" ( IDENT | "None" ) payload-decl? raw-value?`, with
+    // its doc comment; `raw-value ::= "=" expr`, whose `=` prints. Resolve
+    // decides where a `None` case may stand.
     func parse_enum_case(&var self) -> Bool {
         if self.kind() != TokenKind.Case {
             return self.error("expected `case` and the case's name")
@@ -2518,7 +2519,7 @@ extension Parser {
         let start = self.attach_docs(first)
         self.see(Alt.Decl_Case)
         self.advance()
-        if self.kind() != TokenKind.Ident {
+        if self.kind() != TokenKind.Ident && self.kind() != TokenKind.NoneKw {
             return self.error("expected the case's name")
         }
         self.take_leaf()

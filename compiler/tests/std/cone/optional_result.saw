@@ -1,0 +1,28 @@
+// A program that uses only Optional and Result: its cone holds no runtime
+// module and no allocator, so the prelude is freestanding-safe.
+
+struct Refusal {
+    code: Int
+}
+
+func checked(n: Int) -> Result<Int, Refusal> {
+    if n < 0 {
+        return Refusal(code: n)
+    }
+    n
+}
+
+func first(n: Int) -> Int? {
+    if n == 0 {
+        return None
+    }
+    n
+}
+
+func main() -> Int {
+    let a = first(2) ?? 0
+    match checked(a) {
+        case Ok(v) -> v,
+        case Err(e) -> e.code
+    }
+}
