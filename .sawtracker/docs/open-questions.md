@@ -14,6 +14,15 @@ None right now.
 
 **D2–D21 were all accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. Nothing in this section is waiting for review.
 
+### D24. String's sentinel check is a relaxed atomic load, not a plain one (Oct 9; SL-466; the Air's SL-456.p2 review)
+The spec's String section says a literal's sentinel refcount is checked with a "plain (non-atomic) load" before any atomic operation, and Stage 0 emits exactly that. The fact being read, "is this block immortal", never changes over a live block, so the result is right in practice. But in the C++/LLVM memory model a non-atomic load that races with another thread's atomic read-modify-write of the same word is a data race, and its result is `undef`. A relaxed (monotonic) atomic load compiles to the same instruction on every mainstream target and has no race.
+
+**Decided:** the check is a relaxed atomic load. The builtin module gains `__saw_atomic_load_i64_relaxed`, alongside D23's three. `std/string.saw`'s `copy` and `deinit` use it, and the spec's String section says "relaxed atomic load". The property that matters is unchanged: a literal's block, which may be read-only, is never written. sawc2's backend emits a monotonic load. Stage 0's plain load is left as it is, since `sawc/` is frozen and the two compile to the same machine code.
+
+**Rejected:** keeping the plain load, which is formally undefined behaviour under the model the backend targets.
+
+**Reversal:** return to the plain load and the old wording. That is one intrinsic and two call sites.
+
 ### D23. Atomics are builtin intrinsics, and `Atomic<T>` is a `std/` type over them (Oct 9; U5b2, SL-456; the Air's c17)
 Under "the builtins should not be magic", String's retain hook is written in Saw in `std/`, and it needs atomic operations: a plain load, `add`/`sub` with an ordering, and a fence. Stage 0 synthesizes `__saw_atomic_*` (and `__saw_string_*`) as IR bodies, and `sawc/rt/ABI.md` says a runtime must not provide them.
 
