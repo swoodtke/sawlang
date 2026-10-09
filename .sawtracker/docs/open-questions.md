@@ -12,7 +12,7 @@ None right now.
 
 ## Decided by the lead, for review (reversible)
 
-**D6–D21 were accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. D2–D5 remain for review.
+**D2–D21 were all accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. Nothing in this section is waiting for review.
 
 ### D21. Two typecheck readings from SL-447.p3's review (Sep 30; the Air)
 1. **A suspending implementation is refused where it is coerced to `any Trait`,** not where it is dispatched. Stage 0 refuses at the dispatch, so a coercion that is never dispatched is accepted by Stage 0 and refused by sawc2. Refusing at the coercion is sound, and it is the site a modular checker can see: the dispatch may be in another module. Decision 3 of U6b3 rests on it.
