@@ -1,0 +1,66 @@
+// A trait's own associated type in its default bodies (SL-458): `Item` and
+// `Self.Item` are the projection on `Self`, NoCopy and meeting no bound, so a
+// default body moves a value of it with `move` or borrows it. A refining
+// trait's default body reads its parent's `Self.Item` through its own `Self`,
+// and a generic body calls the default through its bound.
+
+struct Token {
+    id: Int
+}
+
+extension Token: NoCopy {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}
+
+trait Source {
+    type Item
+    func make(&self) -> Item
+    func take(&self, v: Self.Item) -> Int
+    func peek(&self, v: &Item) -> Int
+
+    func dup(&self) -> Int {
+        let v = self.make()
+        let a = move v
+        let looked = self.peek(&a)
+        looked + self.take(move a)
+    }
+
+    func pair(&self) -> (Item, Int) {
+        let v = self.make()
+        (move v, 2)
+    }
+}
+
+trait Pipe: Source {
+    func first(&self) -> Self.Item {
+        self.make()
+    }
+
+    func drain(&self) -> Int {
+        let v = self.first()
+        self.take(move v)
+    }
+}
+
+struct Maker {
+    n: Int
+}
+
+extension Maker: Pipe {
+    type Item = Token
+    func make(&self) -> Token { Token(id: self.n) }
+    func take(&self, v: Token) -> Int { v.id }
+    func peek(&self, v: &Token) -> Int { v.id }
+}
+
+func drive<P: Pipe>(p: &P) -> Int {
+    p.dup() + p.drain()
+}
+
+func main() {
+    let m = Maker(n: 5)
+    let p = m.pair()
+    print("{} {} {}", m.dup(), drive(&m), p.1)
+}

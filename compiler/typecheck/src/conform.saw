@@ -75,18 +75,17 @@ extension TcProgram {
                 }
                 t
             },
-            case Assoc -> {
-                var k = 0
-                while k < s.assoc_decls.len() {
-                    if s.assoc_decls[k] == info.decl {
-                        return s.assoc_types[k]
-                    }
-                    k = k + 1
-                }
-                t
-            },
             case Projection -> {
                 let written = self.types.arg(t, 0)
+                if self.types.ty(written).kind == TcKind.SelfType {
+                    var k = 0
+                    while k < s.assoc_decls.len() {
+                        if s.assoc_decls[k] == info.decl {
+                            return s.assoc_types[k]
+                        }
+                        k = k + 1
+                    }
+                }
                 let base = self.subst(written, &s)
                 self.project(base, info.decl)
             },
@@ -144,7 +143,7 @@ extension TcProgram {
     // the projection is an error type there.
     public func project(&var self, base: Int, d: Int) -> Int {
         let info = self.types.ty(base)
-        let generic = info.kind == TcKind.Param || info.kind == TcKind.Projection || info.kind == TcKind.SelfType || info.kind == TcKind.Assoc
+        let generic = info.kind == TcKind.Param || info.kind == TcKind.Projection || info.kind == TcKind.SelfType
         if generic {
             return self.mk_projection(base, d)
         }

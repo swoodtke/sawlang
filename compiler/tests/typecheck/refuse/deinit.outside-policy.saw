@@ -1,0 +1,15 @@
+// refuses: deinit.outside-policy at 12:10
+// a `deinit` in a plain extension beside the type's `NoCopy` conformance: the
+// hand-written body goes inside the policy conformance (spec, The Deinit trait)
+
+struct Token {
+    id: Int
+}
+
+extension Token: NoCopy {}
+
+extension Token {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}

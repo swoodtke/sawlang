@@ -1,0 +1,76 @@
+// Every way a trait's default body reads a value of its own associated type
+// by value with nothing written (SL-458), each refused as
+// `transfer.implicit-copy`: two bindings of one local, a tail reading it
+// twice, a `return` after a binding, two calls, a field of a generic struct
+// holding one, and a closure's capture.
+
+struct Token {
+    id: Int
+}
+
+extension Token: NoCopy {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}
+
+struct Holder<T> {
+    item: T
+}
+
+func sink<T>(x: T) -> Int { 1 }
+
+trait Source {
+    type Item
+    func make(&self) -> Item
+    func take(&self, v: Self.Item) -> Int
+
+    func dup(&self) -> Int {
+        let v = self.make()
+        let a = v
+        let b = v
+        2
+    }
+
+    func twice(&self) -> (Item, Item) {
+        let v = self.make()
+        (v, v)
+    }
+
+    func back(&self) -> Item {
+        let v = self.make()
+        let a = move v
+        let b = a
+        return a
+    }
+
+    func calls(&self) -> Int {
+        let v = self.make()
+        self.take(v) + self.take(v)
+    }
+
+    func held(&self) -> Int {
+        let h = Holder(item: self.make())
+        self.take(h.item)
+    }
+
+    func captured(&self) -> Int {
+        let v = self.make()
+        let f = { k: Int in k + sink(v) }
+        f(1)
+    }
+}
+
+struct Maker {
+    n: Int
+}
+
+extension Maker: Source {
+    type Item = Token
+    func make(&self) -> Token { Token(id: self.n) }
+    func take(&self, v: Token) -> Int { v.id }
+}
+
+func main() {
+    print(Maker(n: 5).dup())
+}

@@ -73,11 +73,6 @@ extension TcProgram {
                 }
             },
             case SelfType -> try! out.append("Self"),
-            case Assoc -> {
-                try! out.append("Self.")
-                let d = self.res.decls[info.decl]
-                try! out.append(self.name_text(d.name))
-            },
             case Projection -> {
                 let base = self.types.arg(t, 0)
                 self.append_type(&var out, base)

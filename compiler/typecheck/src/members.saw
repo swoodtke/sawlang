@@ -267,7 +267,6 @@ extension TcProgram {
             case Func -> true,
             case Any -> true,
             case SelfType -> true,
-            case Assoc -> true,
             case Projection -> true,
             case _ -> false
         }

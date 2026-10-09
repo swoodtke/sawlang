@@ -18,11 +18,10 @@ public enum TcKind {
     case Param,
     // `Self` in a trait: `decl` the trait, substituted by each conformance.
     case SelfType,
-    // A trait's own associated type on `Self`: `decl` the AssocType declaration.
-    case Assoc,
     // `T.Item`: `decl` the AssocType declaration, `a` its trait, the one arg
-    // the type it is projected from, a type parameter until substitution
-    // replaces it by a type whose conformance assigns the associated type.
+    // the type it is projected from, a type parameter or a trait's `Self`
+    // until substitution replaces it by a type whose conformance assigns the
+    // associated type. A trait's own `Item` is the projection on its `Self`.
     case Projection,
     // Elements as args, and a label per element when named.
     case Tuple,
@@ -86,7 +85,6 @@ public func tc_kind_code(kind: TcKind) -> Int {
         case Nominal -> 1,
         case Param -> 2,
         case SelfType -> 3,
-        case Assoc -> 4,
         case Tuple -> 5,
         case Func -> 6,
         case Ref -> 7,

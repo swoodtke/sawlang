@@ -1,0 +1,144 @@
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/own_associated_refusals.saw:30:17	this reads a place of type `Self.Item`, which is NoCopy, by value: only a Copy type copies silently; write `move` to take it, `.copy()` for a copy, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/own_associated_refusals.saw:31:17	this reads a place of type `Self.Item`, which is NoCopy, by value: only a Copy type copies silently; write `move` to take it, `.copy()` for a copy, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/own_associated_refusals.saw:37:10	this reads a place of type `Self.Item`, which is NoCopy, by value: only a Copy type copies silently; write `move` to take it, `.copy()` for a copy, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/own_associated_refusals.saw:37:13	this reads a place of type `Self.Item`, which is NoCopy, by value: only a Copy type copies silently; write `move` to take it, `.copy()` for a copy, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/own_associated_refusals.saw:43:17	this reads a place of type `Self.Item`, which is NoCopy, by value: only a Copy type copies silently; write `move` to take it, `.copy()` for a copy, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/own_associated_refusals.saw:44:16	this reads a place of type `Self.Item`, which is NoCopy, by value: only a Copy type copies silently; write `move` to take it, `.copy()` for a copy, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/own_associated_refusals.saw:49:19	this reads a place of type `Self.Item`, which is NoCopy, by value: only a Copy type copies silently; write `move` to take it, `.copy()` for a copy, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/own_associated_refusals.saw:49:34	this reads a place of type `Self.Item`, which is NoCopy, by value: only a Copy type copies silently; write `move` to take it, `.copy()` for a copy, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/own_associated_refusals.saw:54:19	this reads a place of type `Self.Item`, which is NoCopy, by value: only a Copy type copies silently; write `move` to take it, `.copy()` for a copy, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/own_associated_refusals.saw:59:38	this reads a place of type `Self.Item`, which is NoCopy, by value: only a Copy type copies silently; write `move` to take it, `.copy()` for a copy, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/own_associated_refusals.saw:59:38	the closure captures `v` by value, and `Self.Item` is NoCopy, which does not copy silently: capture it with `[move v]`, or copy it into a local the closure captures
+(Module own_associated_refusals
+  (declarations
+    (struct Token 7:8 private)
+    (field Token.id 8:5 private Int)
+    (extension 11:1 (target own_associated_refusals.Token) (conforms NoCopy))
+    (method Token.deinit 12:10 private (signature (receiver exclusive) (params) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (struct Holder 17:8 private (generics (T)))
+    (field Holder.item 18:5 private T)
+    (func sink 21:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (trait Source 23:7 private)
+    (assoc-type Source.Item 24:10)
+    (requirement Source.make 25:10 (signature (receiver shared) (params) -> Self.Item))
+    (requirement Source.take 26:10 (signature (receiver shared) (params (v Self.Item owned)) -> Int))
+    (requirement Source.dup 28:10 (signature (receiver shared) (params) -> Int default-body) (summary body (suspends when Self.Source.make) (sync-callable unless Self.Source.make)))
+    (requirement Source.twice 35:10 (signature (receiver shared) (params) -> (Self.Item, Self.Item) default-body) (summary body (suspends when Self.Source.make) (sync-callable unless Self.Source.make)))
+    (requirement Source.back 40:10 (signature (receiver shared) (params) -> Self.Item default-body) (summary body (suspends when Self.Source.make) (sync-callable unless Self.Source.make)))
+    (requirement Source.calls 47:10 (signature (receiver shared) (params) -> Int default-body) (summary body (suspends when Self.Source.make Self.Source.take) (sync-callable unless Self.Source.make Self.Source.take)))
+    (requirement Source.held 52:10 (signature (receiver shared) (params) -> Int default-body) (summary body (suspends when Self.Source.make Self.Source.take) (sync-callable unless Self.Source.make Self.Source.take)))
+    (requirement Source.captured 57:10 (signature (receiver shared) (params) -> Int default-body) (summary body (suspends when Self.Source.make) (sync-callable no)))
+    (struct Maker 64:8 private)
+    (field Maker.n 65:5 private Int)
+    (extension 68:1 (target own_associated_refusals.Maker) (conforms own_associated_refusals.Source))
+    (type-assign Maker.Item 69:10 own_associated_refusals.Token)
+    (method Maker.make 70:10 private (signature (receiver shared) (params) -> own_associated_refusals.Token) (summary body (suspends no) (sync-callable yes)))
+    (method Maker.take 71:10 private (signature (receiver shared) (params (v own_associated_refusals.Token owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 74:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (own_associated_refusals.Token
+      (field id Int private declared)
+      (method deinit private (extension own_associated_refusals)))
+    (own_associated_refusals.Holder
+      (field item T private declared)
+      (method deinit public (synthesized Deinit)))
+    (own_associated_refusals.Maker
+      (field n Int private declared)
+      (type-assign Item public (extension own_associated_refusals))
+      (method make private (extension own_associated_refusals))
+      (method take private (extension own_associated_refusals))
+      (method dup public (default own_associated_refusals.Source))
+      (method twice public (default own_associated_refusals.Source))
+      (method back public (default own_associated_refusals.Source))
+      (method calls public (default own_associated_refusals.Source))
+      (method held public (default own_associated_refusals.Source))
+      (method captured public (default own_associated_refusals.Source))))
+  (views
+    (own_associated_refusals.Token id deinit)
+    (own_associated_refusals.Holder item deinit)
+    (own_associated_refusals.Maker n Item make take dup twice back calls held captured))
+  (conformances
+    (own_associated_refusals.Token NoCopy 11:18 (deinit written))
+    (own_associated_refusals.Maker own_associated_refusals.Source 68:18 (Item written) (make written) (take written) (dup default) (twice default) (back default) (calls default) (held default) (captured default)))
+  (copy-tier
+    (own_associated_refusals.Token NoCopy declared)
+    (own_associated_refusals.Holder (join Copy T))
+    (own_associated_refusals.Maker Copy))
+  (bodies
+    (Token.deinit 12:10
+      (13:9-13:23 Call.paren Void value temp (builtin print))
+      (13:15-13:22 Member Int place borrow)
+      (13:15-13:19 SelfExpr own_associated_refusals.Token place project))
+    (sink 21:6
+      (21:29-21:30 IntLit Int value temp))
+    (Source.dup 28:10
+      (29:13-29:14 BindingName Self.Item place temp)
+      (29:17-29:28 Call.paren Self.Item value temp (call own_associated_refusals.Source.make() (owner Self)))
+      (29:17-29:21 SelfExpr Self (borrow &Self) place borrow)
+      (30:13-30:14 BindingName Self.Item place temp)
+      (30:17-30:18 Name Self.Item place copy)
+      (31:13-31:14 BindingName Self.Item place temp)
+      (31:17-31:18 Name Self.Item place copy)
+      (32:9-32:10 IntLit Int value temp))
+    (Source.twice 35:10
+      (36:13-36:14 BindingName Self.Item place temp)
+      (36:17-36:28 Call.paren Self.Item value temp (call own_associated_refusals.Source.make() (owner Self)))
+      (36:17-36:21 SelfExpr Self (borrow &Self) place borrow)
+      (37:9-37:15 Tuple.positional (Self.Item, Self.Item) value temp)
+      (37:10-37:11 Name Self.Item place copy)
+      (37:13-37:14 Name Self.Item place copy))
+    (Source.back 40:10
+      (41:13-41:14 BindingName Self.Item place temp)
+      (41:17-41:28 Call.paren Self.Item value temp (call own_associated_refusals.Source.make() (owner Self)))
+      (41:17-41:21 SelfExpr Self (borrow &Self) place borrow)
+      (42:13-42:14 BindingName Self.Item place temp)
+      (42:17-42:23 Move Self.Item value move)
+      (42:22-42:23 Name Self.Item place move)
+      (43:13-43:14 BindingName Self.Item place temp)
+      (43:17-43:18 Name Self.Item place copy)
+      (44:16-44:17 Name Self.Item place copy))
+    (Source.calls 47:10
+      (48:13-48:14 BindingName Self.Item place temp)
+      (48:17-48:28 Call.paren Self.Item value temp (call own_associated_refusals.Source.make() (owner Self)))
+      (48:17-48:21 SelfExpr Self (borrow &Self) place borrow)
+      (49:9-49:36 Binary Int value temp (op +))
+      (49:9-49:21 Call.paren Int value temp (call own_associated_refusals.Source.take(v: Self.Item) (owner Self)))
+      (49:9-49:13 SelfExpr Self (borrow &Self) place borrow)
+      (49:19-49:20 Name Self.Item place copy)
+      (49:24-49:36 Call.paren Int value temp (call own_associated_refusals.Source.take(v: Self.Item) (owner Self)))
+      (49:24-49:28 SelfExpr Self (borrow &Self) place borrow)
+      (49:34-49:35 Name Self.Item place copy))
+    (Source.held 52:10
+      (53:13-53:14 BindingName own_associated_refusals.Holder<Self.Item> place temp)
+      (53:17-53:42 Call.paren own_associated_refusals.Holder<Self.Item> value temp (memberwise own_associated_refusals.Holder (owner own_associated_refusals.Holder<Self.Item>)))
+      (53:30-53:41 Call.paren Self.Item value temp (call own_associated_refusals.Source.make() (owner Self)))
+      (53:30-53:34 SelfExpr Self (borrow &Self) place borrow)
+      (54:9-54:26 Call.paren Int value temp (call own_associated_refusals.Source.take(v: Self.Item) (owner Self)))
+      (54:9-54:13 SelfExpr Self (borrow &Self) place borrow)
+      (54:19-54:25 Member Self.Item place copy)
+      (54:19-54:20 Name own_associated_refusals.Holder<Self.Item> place project))
+    (Source.captured 57:10
+      (58:13-58:14 BindingName Self.Item place temp)
+      (58:17-58:28 Call.paren Self.Item value temp (call own_associated_refusals.Source.make() (owner Self)))
+      (58:17-58:21 SelfExpr Self (borrow &Self) place borrow)
+      (59:13-59:14 BindingName (Int) -> Int place temp)
+      (59:17-59:42 Closure (Int) -> Int value temp (captures (v copy)))
+      (59:29-59:40 Binary Int value temp (op +))
+      (59:29-59:30 Name Int place copy)
+      (59:33-59:40 Call.paren Int value temp (call own_associated_refusals.sink(x: T) (inst Self.Item)))
+      (59:38-59:39 Name Self.Item place copy)
+      (60:9-60:13 Call.paren Int value temp (value (owner (Int) -> Int)))
+      (60:9-60:10 Name (Int) -> Int place borrow)
+      (60:11-60:12 IntLit Int value temp))
+    (Maker.make 70:10
+      (70:33-70:50 Call.paren own_associated_refusals.Token value temp (memberwise own_associated_refusals.Token (owner own_associated_refusals.Token)))
+      (70:43-70:49 Member Int place copy)
+      (70:43-70:47 SelfExpr own_associated_refusals.Maker place project))
+    (Maker.take 71:10
+      (71:41-71:45 Member Int place copy)
+      (71:41-71:42 Name own_associated_refusals.Token place project))
+    (main 74:6
+      (75:5-75:29 Call.paren Void value temp (builtin print))
+      (75:11-75:28 Call.paren Int value borrow (call own_associated_refusals.Source.dup() (owner own_associated_refusals.Maker)))
+      (75:11-75:22 Call.paren own_associated_refusals.Maker (borrow &own_associated_refusals.Maker) value borrow (memberwise own_associated_refusals.Maker (owner own_associated_refusals.Maker)))
+      (75:20-75:21 IntLit Int value temp))))

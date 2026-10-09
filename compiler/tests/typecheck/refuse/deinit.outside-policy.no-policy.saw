@@ -1,0 +1,15 @@
+// refuses: deinit.outside-policy at 10:10
+// a `deinit` on a type that declares no copy policy at all, which would be an
+// ordinary method no scope exit calls
+
+struct Token {
+    id: Int
+}
+
+extension Token: Equatable {
+    func deinit(&var self) {
+        print(self.id)
+    }
+
+    func equals(&self, other: &Token) -> Bool { self.id == other.id }
+}

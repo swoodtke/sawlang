@@ -1,0 +1,24 @@
+// refuses: transfer.implicit-copy at 14:17
+// a trait's default body binding a value of its own associated type twice:
+// `Item` is the projection on `Self`, so each read needs `move` (SL-458)
+
+struct Token { id: Int }
+extension Token: NoCopy {
+    func deinit(&var self) { print(self.id) }
+}
+trait Source {
+    type Item
+    func make(&self) -> Item
+    func dup(&self) -> Int {
+        let v = self.make()
+        let a = v
+        let b = v
+        2
+    }
+}
+struct Maker { n: Int }
+extension Maker: Source {
+    type Item = Token
+    func make(&self) -> Token { Token(id: self.n) }
+}
+func main() { print(Maker(n: 5).dup()) }

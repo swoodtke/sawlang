@@ -252,7 +252,6 @@ extension TcProgram {
         match info.kind {
             case Param -> true,
             case SelfType -> true,
-            case Assoc -> true,
             case Error -> true,
             case Nominal -> {
                 let rule = self.tier_of_decl(info.decl)
@@ -285,8 +284,8 @@ extension TcProgram {
             },
             case Array -> self.copies_silently(info.b),
             case Any -> false,
-            // No bound can say a projection copies, so a generic body moves
-            // or borrows one, and never copies it.
+            // No bound can say a projection copies, so a generic body or a
+            // trait's default body moves or borrows one, and never copies it.
             case Projection -> false,
             case _ -> true
         }

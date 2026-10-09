@@ -29,7 +29,8 @@ typecheck/
     tier.saw          the Copy-tier classifier, containment, bound satisfaction
     members.saw       the member tables and a module's view of them
     checks.saw        finite size, the signature half of `unsafe`, what an
-                      `init` returns, `Deinit`'s conformances
+                      `init` returns, `Deinit`'s conformances and where a
+                      `deinit` is written
     typeops.saw       the type questions a body asks: numbers, Optionals, Results
     adjust.saw        adjustment chains, conversions, and peeling
     candidates.saw    what a name or selector can mean: overload sets, members,
@@ -79,8 +80,9 @@ typecheck/
 4. **Member tables** (`members.saw`), one per struct, enum and builtin type.
 5. **Copy tiers** (`tier.saw`), one per nominal type.
 6. **The checks** that need the tables: bounds, Copy-policy containment,
-   finite size, the signature half of `unsafe`, what an `init` returns, and
-   the conformances `Deinit` refuses.
+   finite size, the signature half of `unsafe`, what an `init` returns, the
+   conformances `Deinit` refuses, and a `deinit` written outside the copy
+   policy.
 7. **Bodies** (`bodies.saw`), each module checked in full, declarations in
    source order: a function's parameter defaults and block, a static's
    initializer, a raw case's value, an `@align` argument, then the file's
@@ -424,7 +426,15 @@ These are the reversible readings this unit made; SL-447's report lists them.
   base (tests/typecheck/README.md, the interner's key). No bound can say a
   projection copies or meets a trait, so it is NoCopy, satisfies no bound,
   and a generic body moves it with `move`, as it would a NoCopy value; a
-  struct holding one declares its policy.
+  struct holding one declares its policy. A trait's own associated type is
+  the projection on its `Self`, with the same reading, so a default body
+  moves or borrows it too (SL-458).
+- A hand-written `deinit` is refused outside an extension declaring the
+  type's copy policy (`Copy`, or a trait refining `Deinit`), since none
+  would call it at a scope's end (spec, The Deinit trait).
+- A slot holding a type already refused is poisoned: what is checked against
+  it, a `None`, an implicit member, an empty literal, adopts the error type
+  rather than refusing again (SL:architecture §3.0).
 - A constant argument folds when it is a literal, a const parameter, or `+`,
   `-` and `*` over literals; a static, and arithmetic over a const parameter,
   are outside the slice.

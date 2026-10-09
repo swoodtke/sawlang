@@ -217,18 +217,20 @@ One interner per compilation holds every type, and identity is key equality:
   the `T` of `Vector<T>.push` and the `T` of `Map<K, T>` never meet. An
   extension's parameters rename the parameters of the type it extends, and
   are keyed as the type's;
-- `Self` in a trait requirement is a placeholder keyed by the trait, and a
-  trait's own associated type a placeholder keyed by its declaration; a
-  conformance substitutes both when a requirement is matched;
+- `Self` in a trait requirement is a placeholder keyed by the trait; a
+  conformance substitutes it when a requirement is matched;
 - a projection, `T.Item` (SL:open-questions W4), is the associated type's
   declaration, its trait, and the type it is projected from, `T`'s parameter
-  key. Two projections are one type only when their keys are equal, so the
-  `T.Item` and `U.Item` of one trait never meet; no bound can pin a
-  projection to a concrete type, so none equals one. Substitution replaces
-  the base, and a base that becomes a nominal type replaces the projection by
-  the type its conformance assigns. A requirement called through a type
-  parameter `T` has the trait's associated types substituted by `T`'s
-  projections, so `s.take(v)` with `take(v: Self.Item)` takes an `S.Item`;
+  key. A trait's own associated type, `Item` or `Self.Item` in the trait, is
+  the projection on the `Self` it is written under, so a refining trait's
+  `Self.Item` is projected from its own `Self` (SL-458). Two projections are
+  one type only when their keys are equal, so the `T.Item` and `U.Item` of
+  one trait never meet; no bound can pin a projection to a concrete type, so
+  none equals one. Substitution replaces the base, and a base that becomes a
+  nominal type replaces the projection by the type its conformance assigns.
+  A requirement called through a type parameter `T` has the trait's
+  associated types substituted by `T`'s projections, so `s.take(v)` with
+  `take(v: Self.Item)` takes an `S.Item`;
 - every other form is its kind and its parts: a tuple's elements and labels,
   a function type's parameters, result and effects, a reference's or slice's
   referent and exclusivity, an array's element and length, an existential's
@@ -643,6 +645,7 @@ says what the fixture shows.
 | `unsafe.type-name` | an `unsafe struct` not named `Unsafe*` |
 | `init.result` | an `init` returning neither its receiver nor `Result<Receiver, E>`; an optional on its own terms |
 | `conformance.deinit` | a conformance to `Deinit` itself, which a copy policy carries instead (design 131) |
+| `deinit.outside-policy` | a `deinit` written in an extension that declares no copy policy, beside the type's policy or on a type with none, where no scope exit would call it (spec, The Deinit trait) |
 | `extension.default-omitted` | an extension head renaming its type's parameters that leaves out a defaulted one, with the head written out (D14) |
 | `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's literal or leaf, that does not fit the type it adopts; a constant expression whose typed arithmetic overflows, shifts past its width or divides by zero; a literal past its signed suffix's range (D6) |
 | `type.ambiguous-result` | a value both of a Result slot's payloads could take |
@@ -657,9 +660,9 @@ says what the fixture shows.
 | `call.no-match` | no overload the arguments fit, each named |
 | `call.not-callable` | a call of a value that is no function |
 | `call.field-method-ambiguous` | `h.f(x)` where `f` names both a field holding a function and a method this module sees, with the fix-it `let g = h.f; g(x)` (D16) |
-| `infer.failed` | a type argument nothing determines or two arguments disagree on; `None` or an empty literal with nothing expected |
+| `infer.failed` | a type argument nothing determines or two arguments disagree on; `None` or an empty literal with nothing expected, though not one whose slot holds a type already refused, which adopts the error type |
 | `implicit-member.no-type` | an implicit member where nothing expects a type, with the `Enum.Case` fix-it |
-| `transfer.implicit-copy` | an ExplicitCopy or NoCopy place read by value with no `move`, payload reads included (design 131), and a closure's capture of one by value with nothing written, with the fix-it `[move x]` |
+| `transfer.implicit-copy` | an ExplicitCopy or NoCopy place read by value with no `move`, payload reads included (design 131), and a projection's (`T.Item` in a generic body, a trait's own `Item` in its default bodies); a closure's capture of one by value with nothing written, with the fix-it `[move x]` |
 | `capture.copy` | `[copy x]` of a NoCopy binding, which has no copy |
 | `capture.escaping-borrow` | a borrow of the enclosing frame, `[&x]`, `[&var x]`, a reference parameter or `self`, captured by a closure that escapes: anything but one passed straight to a parameter whose function type does not say `escaping` (spec, Capturing `self` and reference parameters) |
 | `capture.exclusive-self` | `[&var self]` in a method whose receiver is `&self` |

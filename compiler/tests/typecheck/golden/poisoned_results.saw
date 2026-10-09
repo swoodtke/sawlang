@@ -1,0 +1,41 @@
+// A refused result type poisons its body's slot (SL:architecture §3.0): the
+// `None`, implicit member and empty literal a body returns into it adopt the
+// error type, so the refusal of the type is the only one each function gets.
+
+trait Left {
+    type Item
+}
+
+trait Right {
+    type Item
+}
+
+enum Mode {
+    case On,
+    case Off
+}
+
+func ambiguous<T: Left + Right>(t: &T) -> T.Item? {
+    None
+}
+
+func absent<T: Equatable>(t: &T) -> T.Item? {
+    if true {
+        return None
+    }
+    None
+}
+
+func chained<T: Left>(t: &T) -> T.Item.Key? {
+    None
+}
+
+func paired<T: Left + Right>(t: &T) -> (T.Item?, Mode) {
+    (None, .On)
+}
+
+func listed<T: Equatable>(t: &T) -> Vector<T.Item> {
+    []
+}
+
+func main() {}

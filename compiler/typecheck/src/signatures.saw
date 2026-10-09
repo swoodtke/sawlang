@@ -210,10 +210,17 @@ extension TcProgram {
         self.types.intern(TcKind.SelfType, trait_decl, 0, 0, &none, &unlabeled)
     }
 
-    public func mk_assoc(&var self, d: Int) -> Int {
-        let none = Vector<Int>()
-        let unlabeled = Vector<Int>()
-        self.types.intern(TcKind.Assoc, d, 0, 0, &none, &unlabeled)
+    // A trait's own associated type `d`, written `Item` or `Self.Item`: the
+    // projection on the `Self` it is written under, so a refining trait's
+    // `Self.Item` is its own `Self`'s and meets what its parent's requirements
+    // give it. Being a projection, it copies only by `move` and meets no bound.
+    public func own_projection(&var self, d: Int) -> Int {
+        var base = self.current_self
+        if base < 0 || self.types.ty(base).kind != TcKind.SelfType {
+            let t = self.res.decls[d].parent
+            base = self.mk_self(t)
+        }
+        self.mk_projection(base, d)
     }
 
     // `base.Item`, for associated type `d`; the key carries its trait too.
@@ -504,7 +511,7 @@ extension TcProgram {
     // Whether type `t` mentions a type parameter anywhere.
     public func mentions_param(&self, t: Int) -> Bool {
         let info = self.types.ty(t)
-        if info.kind == TcKind.Param || info.kind == TcKind.SelfType || info.kind == TcKind.Assoc {
+        if info.kind == TcKind.Param || info.kind == TcKind.SelfType {
             return true
         }
         if info.b >= 0 && (info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array) {
@@ -703,7 +710,7 @@ extension TcProgram {
                 self.refuse_arguments_on(leaf)
                 return self.error_type
             }
-            return self.mk_assoc(d)
+            return self.own_projection(d)
         }
         self.refuse_not_a_type(leaf)
         self.error_type

@@ -24,10 +24,11 @@ public func tc_check_unsafe(p: &var TcProgram) {
     p.check_unsafe()
 }
 
-// What an `init` returns, and the conformances `Deinit` refuses.
+// What an `init` returns, and where `Deinit`'s body may be written.
 public func tc_check_inits(p: &var TcProgram) {
     p.check_inits()
     p.check_deinit_conformances()
+    p.check_deinit_placement()
 }
 
 // How many distinct instantiations one containment path may cross. A path
@@ -290,6 +291,55 @@ extension TcProgram {
             try! msg.append("` conforms to `Deinit` directly, and `Deinit` takes no conformance: a hand-written `deinit` goes in the type's copy policy, `NoCopy`, `ExplicitCopy` or `Copy`")
             self.refuse_in(c.module, c.node, "conformance.deinit", msg.build())
         }
+    }
+
+    // A hand-written `deinit` goes in the extension that declares the type's
+    // copy policy (spec, The Deinit trait). Written in any other extension it
+    // would be an ordinary method that no scope exit calls.
+    public func check_deinit_placement(&var self) {
+        let name = self.res.intern("deinit")
+        var d = 0
+        while d < self.res.decls.len() {
+            let info = self.res.decls[d]
+            d = d + 1
+            if info.kind != ResDeclKind.Method || info.name != name || info.parent < 0 || info.leaf < 0 {
+                continue
+            }
+            let ext = info.parent
+            if self.res.decls[ext].kind != ResDeclKind.Extension || self.declares_policy(ext) {
+                continue
+            }
+            let target = self.ext_target(ext)
+            var msg = StringBuilder()
+            try! msg.append("this `deinit` is written in an extension that declares no copy policy, where no scope exit calls it: write it inside ")
+            if target >= 0 {
+                try! msg.append("`")
+                try! msg.append(self.res.decl_path(target))
+                try! msg.append("`'s")
+            } else {
+                try! msg.append("the type's")
+            }
+            try! msg.append(" `NoCopy`, `ExplicitCopy` or `Copy` conformance")
+            self.refuse_in(info.module, info.leaf, "deinit.outside-policy", msg.build())
+        }
+    }
+
+    // Whether extension `ext` declares a copy policy, or `Deinit`, which
+    // `conformance.deinit` refuses on its own.
+    func declares_policy(&var self, ext: Int) -> Bool {
+        let deinit = self.known.deinit
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if c.ext != ext {
+                continue
+            }
+            if c.trait_decl == self.known.copy || self.trait_refines(c.trait_decl, deinit) {
+                return true
+            }
+        }
+        false
     }
 }
 

@@ -987,7 +987,11 @@ extension TcProgram {
         }
         if not self.is_typed(e) {
             if not known {
-                let _ = self.expr(e, TC_WANT_NONE)
+                // A poisoned slot was refused where it was written, so it is
+                // still the hint: a literal that needs a type adopts the
+                // poison rather than refusing a second time.
+                let hint = if slot >= 0 { slot } else { TC_WANT_NONE }
+                let _ = self.expr(e, hint)
             } else {
                 let target = self.peeled_target(e, slot)
                 if target == TC_PEEL_AMBIGUOUS {

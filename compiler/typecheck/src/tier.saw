@@ -207,7 +207,6 @@ extension TcProgram {
             case Array -> self.type_tier(info.b, cls),
             case Any -> tc_tier(TC_TIER_NOCOPY, 0, false),
             case SelfType -> tc_tier(TC_TIER_NOCOPY, 0, false),
-            case Assoc -> tc_tier(TC_TIER_NOCOPY, 0, false),
             case Projection -> tc_tier(TC_TIER_NOCOPY, 0, false),
             case _ -> tc_tier(TC_TIER_COPY, 0, false)
         }
@@ -367,7 +366,6 @@ extension TcProgram {
         match info.kind {
             case Error -> true,
             case ConstInt -> true,
-            case Assoc -> true,
             // An associated type carries no bound, so its projection meets none.
             case Projection -> false,
             case Param -> self.param_satisfies(info.decl, info.a, tr, env_decl, env_ext),
