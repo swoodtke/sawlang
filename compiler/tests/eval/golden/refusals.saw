@@ -1,0 +1,17 @@
+// The evaluator's refusals, each once, at the constant whose evaluation met
+// it: an overflow met while evaluating a static another reads, which names
+// that one; a division by zero; a value a cast cannot hold; a cycle between
+// statics, named in order; a shift count past its type's width; a false
+// `static_assert`; and an aggregate, which the slice does not evaluate yet.
+// A constant that reads a refused one has no value and no refusal of its own.
+
+static USER: Int = (EDGE as Int) * 2
+static EDGE: Int = (Int.max as Int) + 1
+static QUOTIENT: Int = Int.max / 0
+static NARROW: UInt8 = 300 as UInt8
+static A: Int = B + 1
+static B: Int = A + 1
+static TABLE: [UInt8; 4] = [0; 4]
+
+static_assert((1 << 64) == 0, "a count at the width is no count")
+static_assert(1 > 2, "one is not greater than two")

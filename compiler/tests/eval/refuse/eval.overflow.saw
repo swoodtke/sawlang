@@ -1,0 +1,7 @@
+// refuses: eval.overflow at 7:21
+// an operation whose result its type cannot hold, met while evaluating a
+// static another static reads: the refusal names the static it was evaluated
+// for
+
+static USER: Int = (EDGE as Int) * 2
+static EDGE: Int = (Int.max as Int) + 1

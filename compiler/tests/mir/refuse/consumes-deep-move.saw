@@ -1,0 +1,17 @@
+// refuses: slice.not-yet at 15:9
+// A `consumes` body that moves out of `self` deeper than one of its fields.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Inner { r: Res }
+extension Inner: NoCopy {}
+
+struct Outer { inner: Inner }
+extension Outer: NoCopy {}
+
+extension Outer {
+    func deep(&var self) consumes -> Res {
+        move self.inner.r
+    }
+}

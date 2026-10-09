@@ -6,14 +6,16 @@
 // and calls are arena indices. Types are typecheck's interned ids.
 
 // What a local is: the return place `_0`, a parameter (the receiver first), a
-// closure's environment, a binding the source names, or a temporary.
+// closure's environment, a binding the source names, a temporary, or an
+// accessor's state record (a half's parameter, or a window's storage).
 public enum MirLocalKind {
     case Return,
     case Param,
     case Receiver,
     case Env,
     case User,
-    case Temp
+    case Temp,
+    case Record
 }
 
 public struct MirLocal {
@@ -81,6 +83,10 @@ public enum MirConstKind {
     case Unit,
     // A format placeholder `{}` in an interpolated format string.
     case Placeholder,
+    // The format string of `print`, `panic` or `assert`, its pieces and `{}`
+    // slots as the literal spells them; its arguments are the call's next
+    // operands, rendered without allocating (design 137).
+    case Format,
     // A function named as a value: its spelling is its target's identity.
     case Function,
     // A const generic parameter, `N`, folded per instantiation.
@@ -280,6 +286,10 @@ public struct MirCall {
     public cond_count: Int
     // The source node the call lowers.
     public node: Int
+    // A window call's half: the accessor's prologue for an open, its
+    // epilogue for a close, a MIR function; -1 when this program lowers no
+    // body for the accessor.
+    public half: Int
 }
 
 // A window a body opens: the accessor, whether it lends exclusively, and
@@ -292,6 +302,30 @@ public struct MirWindow {
     // The call node the window lowers, whose summary answers whether each
     // half suspends.
     public node: Int
+    // The local holding the accessor's state record for the window's
+    // duration, or -1: none when the record is empty or the accessor's body
+    // is not lowered here.
+    public record: Int
+    // Whether this program lowers the accessor's body, so its halves exist.
+    public lowered: Bool
+}
+
+// A `borrows` accessor lowered as two halves around its `lend`
+// (SL:architecture §3.5): the prologue, run at `window_open`, which produces
+// the lent reference and writes the state record; the epilogue, run at
+// `window_close`, which reads it. The record is a tuple of the locals live
+// across the `lend`, over the accessor's own type parameters, and a resume
+// index when the body lends at more than one place.
+public struct MirAccessor {
+    public decl: Int
+    public prologue: Int
+    public epilogue: Int
+    // The record's type, or -1 when nothing lives across the `lend`.
+    public record: Int
+    public lend_sites: Int
+    // Whether each half holds a call that may suspend.
+    public prologue_suspends: Bool
+    public epilogue_suspends: Bool
 }
 
 // Which body a MIR function lowers.
@@ -311,7 +345,11 @@ public enum MirFuncKind {
     // A test case's block.
     case Test,
     // A closure's body: `parent` the function it is written in.
-    case Closure
+    case Closure,
+    // A `borrows` accessor's halves: the code up to its `lend`, and the code
+    // after it.
+    case Prologue,
+    case Epilogue
 }
 
 public struct MirFunc {
@@ -339,6 +377,15 @@ public struct MirFunc {
     // Whether lowering refused a construct in it, or found a fact missing;
     // a refused function is neither dumped nor verified.
     public refused: Bool
+    // Where its body root stands in typecheck's order, which the dump
+    // follows; a closure and an accessor's halves share their function's.
+    public order: Int
+    // An accessor half's record locals and the windows open across its
+    // `lend`, in its own numbering: runs of the program's `aux` list.
+    public record_first: Int
+    public record_count: Int
+    public carried_first: Int
+    public carried_count: Int
 }
 
 public struct MirDiag {

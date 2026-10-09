@@ -429,14 +429,18 @@ in an arm is a named value, not a literal, and keeps its declared type
 
 A bare integer literal, or its negation, that stands at a funnel position is
 range-checked against the integer type it adopts, its own `Int` when it adopts
-none (spec, Primitive Types: "range-checked *at the literal*"). A literal
-inside a larger constant expression is not checked alone: the expression is
-folded (`fold.saw`), with a module static of an integer type and a raw-backed
-enum's case as leaves, and the folded value must fit the type the expression
-is typed or adopted as, so `256 - 1` at `UInt8` is 255, and `b >= (BIG + 0)`
-with `BIG = 1000` and a `UInt8` peer is refused as "constant expression 1000
-does not fit in `UInt8`" (constant-range, static-leaf). A fold that would
-overflow an `Int` leaves the expression unchecked. A 64-bit magnitude past
+none (spec, Primitive Types: "range-checked *at the literal*"). A larger
+constant expression is folded (`fold.saw`) by typed arithmetic
+(SL:architecture §3.10), with a module static of an integer type and a
+raw-backed enum's case as leaves: each literal is written at the type the
+expression adopts, each leaf converted to it, and each operation runs at its
+operands' type. A value that does not fit where it adopts is refused as "does
+not fit", so `b >= (BIG + 0)` with `BIG = 1000` and a `UInt8` peer is refused
+as "constant expression 1000 does not fit in `UInt8`" (static-leaf); an
+operation that leaves its type's range is refused as overflowing it, so `255 +
+1` at `UInt8` is (constant-range), and so is `256 - 1`, whose `256` does not
+fit; a shift count outside the shifted type's width and a division by zero
+are refused too. `1 << 63` at `UInt64` is 2^63. A 64-bit magnitude past
 `Int.max` is refused only where it certainly does not fit: a non-negated one
 at a signed type. A literal with a signed width suffix is held to the width's
 signed range wherever it stands, with the minimum's magnitude allowed only
@@ -465,7 +469,7 @@ Every body construct in the slice, and how it is typed:
 | construct | typed as | covered by |
 |---|---|---|
 | integer, float, string, `Bool` and `None` literals, `#file`, `#line`, `#function` | `Int` adopting its slot, range-checked, or a suffixed literal's exact type; `Float`, `String`, `Bool`; the slot's Optional, or the Ok payload's `None` at a `Result<T?, E>` slot (spec, Auto-Wrap: "At a declared `Result<T?, E>` it is `Ok(None)`") | funnel, peeling, widening, none_ok |
-| a constant expression: literals, module statics of an integer type and raw-backed cases, under `-`, `~`, arithmetic, shift and bit operators | adopts its slot, or its mixed operator's peer, and its folded value must fit there; a bare static adopts only as a leaf inside one, and keeps its declared type anywhere else, an operator's peer included (spec, Integer Width Agreement: "a module `static`… may be a leaf"); a combination of cases with no integer slot is the backing integer (spec, Flag enums) | funnel, widening, folding |
+| a constant expression: literals, module statics of an integer type and raw-backed cases, under `-`, `~`, arithmetic, shift and bit operators | adopts its slot, or its mixed operator's peer, and folds there by typed arithmetic, every literal and leaf fitting and no operation overflowing; a bare static adopts only as a leaf inside one, and keeps its declared type anywhere else, an operator's peer included (spec, Integer Width Agreement: "a module `static`… may be a leaf"); a combination of cases with no integer slot is the backing integer (spec, Flag enums) | funnel, widening, folding |
 | a shift, `a << n` | the left operand's type; each count an integer of any width, no peer ("The shift count is exempt") | widening |
 | an interpolation, its segments | `String`; each segment Printable or a primitive, or an erased box `Box<any Trait>` whose trait refines Printable, rendered through the existential; borrowed | format, split_conformance |
 | a local, a parameter, a static, `self` | its type, a place | places |
@@ -640,7 +644,7 @@ says what the fixture shows.
 | `init.result` | an `init` returning neither its receiver nor `Result<Receiver, E>`; an optional on its own terms |
 | `conformance.deinit` | a conformance to `Deinit` itself, which a copy policy carries instead (design 131) |
 | `extension.default-omitted` | an extension head renaming its type's parameters that leaves out a defaulted one, with the head written out (D14) |
-| `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's folded value, that does not fit the type it adopts; a literal past its signed suffix's range (D6) |
+| `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's literal or leaf, that does not fit the type it adopts; a constant expression whose typed arithmetic overflows, shifts past its width or divides by zero; a literal past its signed suffix's range (D6) |
 | `type.ambiguous-result` | a value both of a Result slot's payloads could take |
 | `type.not-a-value` | a type, module or trait named where a value is read |
 | `type.not-a-place` | a value where a place is needed: an assignment's target, `move`, `&var` |

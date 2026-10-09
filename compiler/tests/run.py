@@ -17,10 +17,12 @@ depth-funnel lane with its fixtures in `funnel/`, runs the parse lane, which
 holds `sawc2 parse` to the parser corpus as far as `compiler/parse/CLAIMS.tsv`
 claims, and times the line-length cells, which hold a parse to linear time on
 one very long line; and runs the resolve lane over `resolve/`, the typecheck
-lane over `typecheck/` and the MIR lane over `mir/`, whose golden dumps,
-refusal fixtures and the compiler's own source hold `sawc2 resolve`, `sawc2
-typecheck` and `sawc2 mir` to their specifications; and runs the std lane over
-`std/`, the new std.
+lane over `typecheck/`, the MIR lane over `mir/` and the evaluator lane over
+`eval/`, whose golden dumps, refusal fixtures and the compiler's own source
+hold `sawc2 resolve`, `sawc2 typecheck`, `sawc2 mir` and `sawc2 eval` to their
+specifications, the evaluator lane also holding the evaluator and typecheck's
+fold to agreement over tests/corpus/; and runs the std lane over `std/`, the
+new std.
 The inventory of Stage 0 workaround markers prints first, then each failure as
 one line in a fixed order; the summary comes last, and any failure exits 1.
 """
@@ -65,6 +67,9 @@ import typecheck_lane  # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "mir"))
 import mir_lane  # noqa: E402
 
+sys.path.insert(0, os.path.join(HERE, "eval"))
+import eval_lane  # noqa: E402
+
 sys.path.insert(0, os.path.join(HERE, "std"))
 import std_lane  # noqa: E402
 
@@ -77,6 +82,7 @@ PARSE_CORPUS = os.path.join(HERE, "parse")
 RESOLVE_CORPUS = os.path.join(HERE, "resolve")
 TYPECHECK_CORPUS = os.path.join(HERE, "typecheck")
 MIR_CORPUS = os.path.join(HERE, "mir")
+EVAL_CORPUS = os.path.join(HERE, "eval")
 FUNNEL_FIXTURES = os.path.join(HERE, "funnel")
 LEXER_SOURCE = os.path.join(COMPILER, "lex", "src", "lib.saw")
 RUN_TIMEOUT = 60
@@ -171,6 +177,8 @@ def check_fixture_whitespace(run):
         paths += glob.glob(os.path.join(TYPECHECK_CORPUS, "**", suffix), recursive=True)
     for suffix in ("*.saw", "*.mir"):
         paths += glob.glob(os.path.join(MIR_CORPUS, "**", suffix), recursive=True)
+    for suffix in ("*.saw", "*.eval"):
+        paths += glob.glob(os.path.join(EVAL_CORPUS, "**", suffix), recursive=True)
     for path in sorted(paths):
         rel = os.path.relpath(path, REPO)
         with open(path, "rb") as fh:
@@ -442,6 +450,18 @@ def run_mir(run):
         run.count(key, n)
 
 
+def run_eval(run):
+    """The evaluator lane (compiler/tests/eval/eval_lane.py): the golden
+    records, the refusal fixtures and their rule coverage, the compiler's own
+    source evaluating with no refusal, and the evaluator's agreement with
+    typecheck's fold over tests/corpus/."""
+    failures, counts = eval_lane.run()
+    for failure in failures:
+        run.fail(failure)
+    for key, n in counts.items():
+        run.count(key, n)
+
+
 def run_std(run):
     """The std lane (compiler/tests/std/std_lane.py): the new std under sawc2,
     its subset profile, its lang items, its cone and its API equivalence."""
@@ -472,6 +492,7 @@ def main():
         run_resolver(run)
         run_typechecker(run)
         run_mir(run)
+        run_eval(run)
         run_std(run)
     for line in run.inventory:
         print(line)

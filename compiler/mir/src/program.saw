@@ -2,16 +2,18 @@
 // MIR's arenas, with the state the builder keeps while one function is
 // lowered. One value holds it all, so each phase is a set of methods on it.
 
-import sawmir.src.model.{MirArm, MirBlock, MirCall, MirDiag, MirFunc, MirLocal, MirOperand, MirPlace,
-                         MirProj, MirRvalue, MirStmt, MirWindow}
+import sawmir.src.model.{MirAccessor, MirArm, MirBlock, MirCall, MirDiag, MirFunc, MirLocal, MirOperand,
+                         MirPlace, MirProj, MirRvalue, MirStmt, MirWindow}
 import sawresolve.src.names.{ResIndex, res_index}
 import sawtypecheck.src.program.{TcProgram}
 
 // One entry of the builder's scope stack: an owned local a scope exit drops,
-// or a window it closes.
+// or a window it closes. A consumed receiver whose body moves fields out is
+// released field by field, the fields that stayed (`release_fields`).
 public struct MirScopeEntry {
     public window: Bool
     public index: Int
+    public fieldwise: Bool
 }
 
 // A loop being lowered: where `continue` goes, where `break` goes, the scope
@@ -76,6 +78,23 @@ public struct MirProgram {
     public statement_windows: Vector<Int>
     // Whether the function being lowered is refused.
     public refused: Bool
+    // The owned parts a destructure's bindings have moved out so far, which
+    // `dissolve` reads once they are bound.
+    public moved_parts: Vector<Int>
+    // A `consumes` body's receiver release: the fields its body leaves in
+    // `self`, in declaration order, with their types; and the fields it
+    // moves out, which every path to a return must have moved.
+    public release_fields: Vector<Int>
+    public release_types: Vector<Int>
+    public moved_fields: Vector<Int>
+    // Runs a function's record locals and carried windows name.
+    public aux: Vector<Int>
+    // The accessors lowered as halves, and by declaration the one each
+    // declaration's halves are, or -1.
+    public accessors: Vector<MirAccessor>
+    public accessor_of: Vector<Int>
+    // The order of the body root being lowered, which its functions take.
+    public order_now: Int
 }
 
 extension MirProgram: NoCopy {}
@@ -90,6 +109,12 @@ public func mir_program(tc: TcProgram) -> MirProgram {
         try! leaf_capture.push(-1)
         k = k + 1
     }
+    var accessor_of = Vector<Int>()
+    k = 0
+    while k < tc.res.decls.len() {
+        try! accessor_of.push(-1)
+        k = k + 1
+    }
     MirProgram(tc: move tc, funcs: Vector<MirFunc>(), locals: Vector<MirLocal>(),
                blocks: Vector<MirBlock>(), stmts: Vector<MirStmt>(), places: Vector<MirPlace>(),
                projs: Vector<MirProj>(), operands: Vector<MirOperand>(), rvalues: Vector<MirRvalue>(),
@@ -101,5 +126,8 @@ public func mir_program(tc: TcProgram) -> MirProgram {
                scope_marks: Vector<Int>(), loops: Vector<MirLoop>(), leaf_local: move leaf_local,
                touched: Vector<Int>(), leaf_capture: move leaf_capture, pending: Vector<Int>(),
                pending_parents: Vector<Int>(), closure_counts: res_index(),
-               statement_windows: Vector<Int>(), refused: false)
+               statement_windows: Vector<Int>(), refused: false, moved_parts: Vector<Int>(),
+               release_fields: Vector<Int>(), release_types: Vector<Int>(), moved_fields: Vector<Int>(),
+               aux: Vector<Int>(), accessors: Vector<MirAccessor>(), accessor_of: move accessor_of,
+               order_now: 0)
 }

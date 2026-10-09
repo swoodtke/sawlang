@@ -1,0 +1,6 @@
+// refuses: eval.assert at 6:15
+// a `static_assert` whose condition is false
+
+static WIDTH: Int = 32
+
+static_assert(WIDTH == 64, "a 64-bit width")

@@ -63,7 +63,8 @@ fn NAME -> RESULT {
   value; `static IDENTITY`, `raw IDENTITY` and `align IDENTITY` for a
   static's initializer, a raw-backed case's value and an `@align` argument;
   `static_assert MODULE L:C` and `test MODULE L:C`; `closure#K of PARENT` for
-  the K-th closure, counted from 0, written in function PARENT.
+  the K-th closure, counted from 0, written in function PARENT; `prologue
+  TARGET` and `epilogue TARGET` for a `borrows` accessor's two halves (below).
 - Locals are numbered from 0 in each function. `_0` is the return place, then
   the parameters, the receiver first (`// self`) and a closure's environment
   first (`// env`), then the rest. The note names a binding: `// param NAME`,
@@ -71,10 +72,13 @@ fn NAME -> RESULT {
   local holds a reference its name reads through (a borrow binding, an
   alias into a borrowed scrutinee, a guard's view of a binding); a temporary
   has none. A receiver is `&Self` or `&var Self`, and `Self` for a `consumes`
-  method, which owns it.
+  method, which owns it. `// record` marks an accessor's state record: a
+  half's first parameter, `&var` of the record, or a caller's local holding
+  one for a window.
 - Each window the function opens: its accessor's target text, `shared` or
   `exclusive`, `conditional` for a lend that may be absent, `sync` for a
-  `borrows(sync)` accessor.
+  `borrows(sync)` accessor, and `record _K` for the local holding its
+  accessor's state record.
 - Blocks are numbered from 0 in each function, `bb0` the entry. Types print in
   their canonical spelling (`compiler/tests/typecheck/README.md`, "Type
   spellings").
@@ -87,10 +91,15 @@ another case, as `o!` and `try!` do.
 An **operand** is `copy PLACE`, `move PLACE`, or `const TEXT: TYPE`, TEXT as
 the source spells it: an integer, a string with its quotes, `true`, `()`, a
 format placeholder `{}`, a function's target text, a const parameter's name,
-`Int.max` or a source location's directive.
+`Int.max` or a source location's directive. `format TEXT` is the format string
+of `print`, `panic` or `assert`, the message that format arguments follow or
+that holds `{}` slots, spelled as the literal is: a constant whose slots the
+call's next operands fill, rendered through stack scratch with nothing
+allocated (design 137). Only a real interpolation, `"x = {x}"`, builds a
+`String` with `interpolate`.
 
 A **statement** is `PLACE = RVALUE;`, `drop(PLACE);` (drop it if it is still
-initialised), or `budget(yield-capable);` / `budget(charge-only);`, an
+initialised; a part's place drops that part alone), or `budget(yield-capable);` / `budget(charge-only);`, an
 op-budget point. An **rvalue** is:
 
 | rvalue | reads |
@@ -106,7 +115,7 @@ op-budget point. An **rvalue** is:
 | `(A, B)`, `[A, B]`, `[A; N]` | a tuple, a fixed array, a repeat literal |
 | `vector [...]: T`, `set [...]: T`, `map [K: V, ...]: T` | a collection literal |
 | `closure#K of PARENT [A, ...]` | a closure, its captures in its table's order |
-| `interpolate [A, ...]` | an interpolated string's segments, placeholders and values |
+| `interpolate [A, ...]` | an interpolated string's segments, placeholders and values, a `String` it allocates |
 
 A builtin operator's operand is the value for a trivially copyable type, a
 reference, a slice or a function value, and a shared reference to it for any
@@ -122,15 +131,66 @@ call:
   [SUSPENSION];`, or `-> !` for a call that never returns. CALLEE is `call
   TARGET`, `call default TARGET.PARAM` (a parameter's default value), `call
   builtin NAME`, `call value OPERAND` (a function value), `window_open wK
-  TARGET`, `window_close wK TARGET`, or `lend`. A window's open continues
-  `-> [present: bbK, absent: bbK]`, the absent edge only for a conditional lend
-  the construct branches on at once; a close takes no arguments. ARGS are in
-  the target's parameter order, a receiver first.
+  prologue TARGET` or `window_close wK epilogue TARGET`, which call its
+  accessor's halves at the instantiation the open took. A window's open
+  continues `-> [present: bbK, absent: bbK]`, the absent edge only for a
+  conditional lend the construct branches on at once. ARGS are in the
+  target's parameter order, a receiver first; a window's open passes its
+  record first when it holds one, and its close passes only that record. A
+  `lend` stands only in an accessor's body before it is split, so no dump
+  shows one.
 - SUSPENSION is ` suspends` for a call that may suspend whatever its type
   arguments, or ` suspends when T.Trait.req ...` for one that may when the
   conditions over the function's own type parameters hold (typecheck's
   summaries, evaluated at the call's instantiation), sorted. A call that
   never suspends says nothing.
+
+The functions of a static's initializer, a raw-backed case's value, an
+`@align` argument and a `static_assert`'s condition are the constant
+positions `compiler/eval` evaluates (`compiler/tests/eval/README.md`).
+Const-generic arguments, array lengths and repeat counts have no function of
+their own yet; SL-457 owns lowering them.
+
+## Accessors
+
+A `borrows` accessor that lends a place lowers to two functions around its
+`lend` (SL:architecture §3.5; `compiler/mir/src/split.saw`). Its body is
+lowered whole, `lend` a call that pauses it, then split there, before any
+caller is lowered, since a caller holds the state record the split lays out:
+
+- the **prologue**, the blocks the entry reaches without resuming from a
+  `lend`: `_0` is the lent reference (an Optional of it for a conditional
+  lend), `_1` the record, then the accessor's parameters. Each `lend` writes
+  `_0`, then every record field, then returns; a return the entry reaches
+  without lending is a conditional lend's absent path, and gives `None`;
+- the **epilogue**, the blocks a `lend` resumes into: `_0` of `Void`, `_1` the
+  record. Its entry reads each field into its local and continues where the
+  `lend` resumed, testing the resume index when there are several;
+- the **state record**, a tuple of the locals live across the `lend`
+  (liveness over the whole body: read on some path after it before written),
+  in local order, then an `Int` resume index when the body lends at more than
+  one place. An accessor with neither has no record and no `_1`. A window the
+  prologue opens to forward a place stays open into the epilogue, which
+  closes it.
+
+A caller's window holds the record in a local of its own, instantiated at the
+window's call, and passes it by exclusive reference to both halves. An
+accessor whose body this program does not lower, an interface module's (std's
+today), has no halves here: its window holds no record, and its calls name
+its halves only by its target. A window call is a suspension point only when
+its half holds a call that may suspend; one of an accessor whose body is not
+lowered is one as the accessor's summary makes it.
+
+| case | covered by |
+|---|---|
+| a plain accessor | accessors `Grid.[]` |
+| a conditional lend | accessors `Grid.find` |
+| a record of two live locals | accessors `Grid.counted` |
+| two `lend`s and a resume index | accessors `Grid.either` |
+| a forwarded `lend`, its window open across | accessors `Grid.forwarded` |
+| a prologue that may suspend | accessors `Grid.waited` |
+| a `borrows(sync)` accessor | accessors `Lock.hold` |
+| a caller holding records | accessors `use_all` |
 
 ## The position matrices
 
@@ -193,8 +253,37 @@ rvalue table says.
 | `v[i]` read, `v[i] = x` | a derived getitem or setitem around the place accessor's window, or the declared `[]`, `[]=` | windows, order |
 | `x.f(...)` on a `borrows` accessor | a window on a place, or a copy out of it | windows |
 | a closure | an aggregate of its captures, its body a function of its own | closures |
-| `lend p` | a `lend` call, the accessor's pause | windows |
+| `print("x = {}", x)`, `panic`'s and `assert`'s format messages | a `format` constant, the arguments after it; `"x = {x}"` an `interpolate` | formats |
+| `lend p` | the end of the accessor's prologue, the start of its epilogue | windows, accessors |
 | a call of a function that may suspend | a suspension point, conditional in a generic body | points |
+
+**Consuming destructures** (`dissolve` in `compiler/mir/src/lower.saw`,
+whose docstring lists its entry points). Saw has no partial moves, so a value
+comes apart only where a construct consumes it whole: a pattern whose bindings
+take parts by move, a payload taken out of an Optional or a Result, a field or
+element of a temporary read by value, and a `consumes` body's `move self.f`.
+The value, always a temporary (a consumed local moves into one first, `move
+o!` included), is dissolved at the destructure: the parts the bindings take
+move into them, every other owned part drops right there, in reverse
+declaration order (spec, Synthesized destruction), and the value is never
+dropped whole on that path, so it leaves its scope. A path that takes no part
+drops the value whole there instead. A construct is consuming when some
+binding takes an owned part by move; one that only copies or borrows changes
+nothing.
+
+| position | dissolved at | covered by |
+|---|---|---|
+| `try e` | the switch: the `Ok` payload into a temporary, the `Err` payload into the returned `Err` | destructures `propagated` |
+| `try! e` | the checked `Ok!` payload, moved into a temporary when its position takes it by value | destructures `forced` |
+| `try? e` | the `Ok` edge's `Some`; the `Err` edge drops the Result whole | destructures `optional` |
+| `a ?? b` | the present edge's payload; the absent edge drops the `None` | destructures `coalesced` |
+| `move o!` | the Optional moved whole into a temporary, then its payload | destructures `moved_force` |
+| `f()!`, `f().field`, `f().0` by value | the temporary, around the part | destructures `temporary_parts` |
+| `match` on a consumed local or a temporary | each leaf, after its bindings | destructures `matched`, `matched_temporary` |
+| `if let`, `guard let`, `while let` | the present edge, after the binding; `if let x = move o` moves `o` into a temporary first | destructures `optional`, `unwrapped`, `drained` |
+| a destructuring `let` | after its bindings | destructures `destructured` |
+| `for`'s `next()` Optional | each item, after the binding; an item nothing binds drops there | destructures `iterated` |
+| `move self.f` in a `consumes` body | every exit: the fields the body leaves, never the whole receiver nor its `deinit` body | destructures `Holder.take_kept` |
 
 ## Refusals
 
@@ -207,6 +296,10 @@ slice.not-yet at L:C`.
 | a `match` on a conditional lend | conditional-match |
 | a `borrow` block binding a conditional lend | conditional-block |
 | a `for` over an iterator held in a place | iterator-place |
+| a consuming destructure of a type that writes its own `deinit`, since the spec does not say whether dissolving one skips that body | consuming-deinit |
+| a `consumes` body moving a field out of `self` on some paths to a return and not others, which the spec refuses and typecheck does not check yet | consumes-some-paths |
+| a `consumes` body moving out of `self` deeper than one field | consumes-deep-move |
+| the release of a consumed receiver that moves out whole, or is an enum, when its type writes its own `deinit` | consumes-whole |
 | a `for` head that lends a place; a `borrows` call lending a slice or a borrowing struct outside a `for` head; a `borrows` function called with no receiver; a setitem derived from a conditional lend; a conditional lend's place read other than through `!` | none: nothing in the slice reaches them |
 
 ## The verifier
@@ -219,17 +312,38 @@ nowhere, and checks, from the MIR alone:
   type, an index projection a local; every operand is a move or a copy of a
   place, or a constant with a spelling; every rvalue has a type;
 - no conversion is left implicit: an assignment's rvalue has its place's type,
-  a `Use` keeps its operand's, and a call's argument after its receiver has
-  its parameter's type at the call's instantiation;
+  a `Use` keeps its operand's, and every call's arguments have the types its
+  own target takes at the instantiation and owner the call carries, a
+  synthesized call (a `copy()` hook, a derived getitem's or setitem's window,
+  `for`'s `next`, a comparison's `equals`) and an extern included: a
+  receiver by reference in the mode the call takes it (a window's in its use
+  site's mode) or by value for `consumes`, then each parameter, as many as
+  the target declares; a function value's call its type's parameters; a
+  `lend` the reference its accessor lends; a default's result its
+  parameter's type. Only a builtin, which declares no signature, and a C
+  variadic tail, which no declaration types, go unchecked;
 - every call names its target (a declaration, a builtin, a function value)
   and an instantiation as long as its target's generic list;
 - every call is a suspension point exactly as typecheck's summaries,
   evaluated at its source node, make it, and a conditional one carries its
-  conditions;
+  conditions; a window call whose half holds no call that may suspend is
+  none;
+- no accessor that lends a place is lowered whole; each half belongs to its
+  accessor; every window call names its accessor's half and passes the
+  record its accessor lays out, instantiated, or names none and passes none
+  for an accessor whose body is not lowered; the epilogue reads no local the
+  record does not give it, and every record local is read after the `lend`,
+  so the record holds exactly the locals live across it; each prologue
+  return writes all of the record's fields or none; a prologue's return may
+  leave its record locals live and its carried windows open, which the
+  epilogue resumes with;
 - over the blocks, no owned local may still be live at a `return`, or when it
   is assigned again, so every scope exit drops it; no window may still be
   open at a `return`, or when it opens again, so every path out of its body
   closes it;
+- no path drops a local whole once a move has taken an owned part out of it
+  (a field, an element, a payload, not through a reference): a consuming
+  destructure dissolves its value, and the move ends the local's life;
 - every loop backedge, an edge to a block on the depth-first path from the
   entry, leaves a block whose last statement is an op-budget point.
 

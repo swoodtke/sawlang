@@ -1,8 +1,8 @@
 // refuses: type.mismatch at 7:23
-// a constant expression judged by its folded value: each literal fits, and
-// the sum does not (design 87)
+// a constant expression is typed arithmetic at the type it adopts
+// (SL:architecture §3.10): each literal fits, and the sum overflows
 
 func main() {
-    let fits: UInt8 = 256 - 1
+    let fits: UInt8 = 254 + 1
     let over: UInt8 = 255 + 1
 }

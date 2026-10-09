@@ -104,13 +104,12 @@ fn operands.operands(tag: operands.Tagged, label: operands.Label, other: operand
     let _26: UInt8;
     let _27: Int;  // wide
     let _28: Int;
-    let _29: String;
-    let _30: Int;  // total
+    let _29: Int;  // total
+    let _30: Int;
     let _31: Int;
     let _32: Int;
     let _33: Int;
     let _34: Int;
-    let _35: Int;
 
     bb0: {
         _6 = copy _1.hits;
@@ -150,28 +149,27 @@ fn operands.operands(tag: operands.Tagged, label: operands.Label, other: operand
         _25 = move _26;
         _28 = cast(copy _25 as Int);
         _27 = move _28;
-        _29 = interpolate [const "count = ": String, const {}: String];
-        call builtin print [move _29, copy _6] -> [return: bb5];
+        call builtin print [format "count = {}", copy _6] -> [return: bb5];
     }
 
     bb5: {
-        _31 = call operands.sink(t: operands.Tagged, n: Int) [copy _19, copy _27] -> [return: bb6];
+        _30 = call operands.sink(t: operands.Tagged, n: Int) [copy _19, copy _27] -> [return: bb6];
     }
 
     bb6: {
-        _32 = call operands.Counter.take() (owner operands.Counter) [move _5] -> [return: bb7];
+        _31 = call operands.Counter.take() (owner operands.Counter) [move _5] -> [return: bb7];
     }
 
     bb7: {
-        _33 = Add(move _31, move _32);
-        _30 = move _33;
+        _32 = Add(move _30, move _31);
+        _29 = move _32;
         switch copy _21 -> [true: bb9, false: bb10];
     }
 
     bb8: {
-        _34 = Add(copy _30, copy _12.n);
-        _35 = Add(move _34, copy _16.n);
-        _0 = move _35;
+        _33 = Add(copy _29, copy _12.n);
+        _34 = Add(move _33, copy _16.n);
+        _0 = move _34;
         drop(_19);
         drop(_16);
         drop(_12);
@@ -184,7 +182,7 @@ fn operands.operands(tag: operands.Tagged, label: operands.Label, other: operand
     }
 
     bb9: {
-        _0 = copy _30;
+        _0 = copy _29;
         drop(_19);
         drop(_16);
         drop(_12);

@@ -30,8 +30,12 @@ compiler/
   typecheck/          type checking, package `sawtypecheck` (typecheck/README.md
                       has its phases and readings)
     src/*.saw
+    tests/*.saw       unit programs
   mir/                lowering to MIR, package `sawmir` (tests/mir/README.md has
                       the dump, the position matrices and the verifier's checks)
+    src/*.saw
+  eval/               the constant evaluator over MIR, package `saweval`
+                      (tests/eval/README.md has its positions, record and rules)
     src/*.saw
   driver/             the `sawc2` binary, package `sawc2`
     src/main.saw
@@ -73,6 +77,9 @@ compiler/
     mir/              the MIR lane (mir_lane.py): the dump's specification
                       (README.md), golden dumps, refusal fixtures, and how much
                       of tests/corpus/ lowers (corpus_info.py, for information)
+    eval/             the evaluator lane (eval_lane.py): the record's specification
+                      (README.md), golden records, refusal fixtures, and the
+                      evaluator's agreement with typecheck's fold over tests/corpus/
     std/              the std lane (std_lane.py) over the new std in `std/`: the
                       subset profile's fixtures, the lang items' paired dumps
                       and shape fixtures, the API-equivalence members and
@@ -184,6 +191,11 @@ these things.
   `sawc2 mir` to its golden dumps and refusal fixtures, and lowers the
   compiler's own source whole, the sawc2 build and each unit program, with no
   refusal and no problem from the MIR verifier.
+- **Constants** (`tests/eval/README.md`): the evaluator lane
+  (`tests/eval/eval_lane.py`) holds `sawc2 eval` to its golden records and
+  refusal fixtures, requires a fixture for every rule it refuses by, evaluates
+  the compiler's own source whole, and fails on any constant of tests/corpus/
+  where the evaluator and typecheck's fold disagree.
 - **The new std** (`tests/std/std_lane.py`): every module of `std/` resolves,
   typechecks and lowers with no refusal and no invariant; the subset checker's
   std profile accepts it; each lang-item program types the same against `std/`

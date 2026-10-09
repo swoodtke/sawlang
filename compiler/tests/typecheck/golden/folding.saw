@@ -1,8 +1,10 @@
-// Constant folding: a literal inside a constant expression is judged by the
-// folded value (design 87), a static and a raw-backed case are leaves, and a
-// combination of flags is its backing integer (spec, Flag enums), as is a
-// lone case in an integer slot. A signed suffix's minimum is written under a
-// unary minus (SL:open-questions D6).
+// Constant folding is typed arithmetic (SL:architecture §3.10): each literal
+// adopts the type its constant expression takes, and each operation runs at
+// its operands' type, so `~0` at `UInt8` is 255 and `1 << 63` at `UInt64` is
+// 2^63. A static and a raw-backed case are leaves, and a combination of flags
+// is its backing integer (spec, Flag enums), as is a lone case in an integer
+// slot. A signed suffix's minimum is written under a unary minus
+// (SL:open-questions D6).
 
 enum Perm: UInt8 {
     case Read = 0x01,
@@ -13,11 +15,13 @@ enum Perm: UInt8 {
 static SHIFT: Int = 3
 static RW: UInt8 = Perm.Read | Perm.Write
 static EXEC: UInt32 = Perm.Exec
+static HIGH: UInt64 = 1 << 63
+static ALL: UInt = ~(0 as UInt)
 
 static_assert((Perm.Read | Perm.Write) == 3, "read and write")
 
 func main() {
-    let top: UInt8 = 256 - 1
+    let top: UInt8 = ~0
     let page: UInt16 = 1 << SHIFT
     let low = -128_i8
     let high = 127_i8
@@ -27,4 +31,6 @@ func main() {
     print(low + high)
     print(flags)
     print(EXEC)
+    print(HIGH)
+    print(ALL)
 }

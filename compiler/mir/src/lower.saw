@@ -13,9 +13,10 @@
 import sawmir.src.build.{mir_func_local}
 import sawmir.src.model.{MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind, MirFunc,
                          MirFuncKind, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace,
-                         MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirStmt, MirSuspend,
-                         MirTermKind, MirWindow}
+                         MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind,
+                         MirSuspend, MirTermKind, MirWindow}
 import sawmir.src.program.{MirLoop, MirProgram, MirScopeEntry}
+import sawmir.src.split.{MirHalf}
 import sawparse.src.grammar.{Alt, alt_name}
 import sawparse.src.tree.{AstNode, NodeShape}
 import sawresolve.src.collect.{res_is_top_level}
@@ -24,7 +25,7 @@ import sawresolve.src.kinds.{res_is_statement_alt, res_is_type_alt}
 import sawresolve.src.model.{ResBindKind, ResBinding, ResCallClass, ResDecl, ResDeclKind, ResModule}
 import sawresolve.src.program.{ResProgram}
 import sawtypecheck.src.adjust.{TC_FIT_NONE}
-import sawtypecheck.src.bodies.{tc_check_bodies}
+import sawtypecheck.src.bodies.{TcCand, TcCandKind, tc_check_bodies}
 import sawtypecheck.src.bodydump.{tc_dump_bodies}
 import sawtypecheck.src.candidates.{tc_contains}
 import sawtypecheck.src.checks.{tc_check_unsafe}
@@ -98,6 +99,15 @@ extension MirProgram {
             try! refused.push(self.tc.module_refused(m))
             m = m + 1
         }
+        // Accessors first, each split around its `lend`: a window's caller
+        // holds the state record its accessor's split lays out.
+        self.lower_roots(&refused, true)
+        self.lower_roots(&refused, false)
+    }
+
+    // The body roots that are, or with `accessors` false are not, a
+    // `borrows` accessor's block.
+    func lower_roots(&var self, refused: &Vector<Bool>, accessors: Bool) {
         var k = 0
         while k < self.tc.body_roots.len() {
             let root = self.tc.body_roots[k]
@@ -108,12 +118,32 @@ extension MirProgram {
                 continue
             }
             let info = self.tc.res.modules[module]
-            if info.interface_only {
+            if info.interface_only || self.is_accessor_root(d, root) != accessors {
                 continue
             }
+            self.order_now = k - 1
+            let f = self.funcs.len()
             self.lower_root(module, d, root)
+            if accessors {
+                self.split_accessor(f)
+            }
             self.lower_pending()
         }
+    }
+
+    // Whether `root` is the block of a `borrows` accessor that lends a
+    // place, which is lowered as two halves.
+    func is_accessor_root(&self, d: Int, root: Int) -> Bool {
+        if d < 0 || not self.tc.has_alt(root, Alt.Stmt_Block) {
+            return false
+        }
+        let kind = self.tc.res.decls[d].kind
+        if kind != ResDeclKind.Func && kind != ResDeclKind.Method && kind != ResDeclKind.Requirement {
+            return false
+        }
+        let s = self.tc.sigs[d]
+        let place = s.lending == TcLend.Place || s.lending == TcLend.ConditionalPlace
+        (s.effects & TC_EFFECT_BORROWS) != 0 && place
     }
 
     func is_poisoned(&self, root: Int) -> Bool {
@@ -216,11 +246,13 @@ extension MirProgram {
         let local_first = self.locals.len()
         let block_first = self.blocks.len()
         let window_first = self.windows.len()
+        let order = self.order_now
         try! self.funcs.push(MirFunc(module: m, kind: kind, decl: d, root: root, param: param, parent: parent,
                                      ordinal: ordinal, local_first: local_first, local_count: 0,
                                      block_first: block_first, block_count: 0, param_count: 0,
                                      window_first: window_first, window_count: 0, owner: owner,
-                                     refused: false))
+                                     refused: false, order: order, record_first: 0, record_count: 0,
+                                     carried_first: 0, carried_count: 0))
         self.func_of.add(root, 0, f)
         self.cur = f
         self.local_base = self.locals.len()
@@ -249,6 +281,11 @@ extension MirProgram {
         if self.live() {
             self.unwind_to(0)
             self.ret()
+        }
+        if self.moved_fields.len() > 0 {
+            let root = self.funcs[self.cur].root
+            self.check_field_moves(root)
+            self.moved_fields = Vector<Int>()
         }
         let f = self.cur
         var info = self.funcs[f]
@@ -334,7 +371,7 @@ extension MirProgram {
                 let l = self.new_local(t, MirLocalKind.Receiver, -1, c)
                 self.bind_leaf(c, l)
                 if consumes {
-                    self.scope_owned(l)
+                    self.bind_consumed_receiver(root, l)
                 } else {
                     self.mark_reference(l)
                 }
@@ -355,6 +392,266 @@ extension MirProgram {
             }
         }
         self.finish_function()
+    }
+
+    // A `consumes` method's receiver, which its body owns and ends. Once the
+    // body moves fields out of it with `move self.f`, or its type writes its
+    // own `deinit`, it is released field by field at every exit: the fields
+    // that stayed, never the whole value, and never that `deinit` body (spec,
+    // Consuming method receivers; SL:architecture §3.7).
+    func bind_consumed_receiver(&var self, root: Int, l: Int) {
+        self.release_fields = Vector<Int>()
+        self.release_types = Vector<Int>()
+        self.moved_fields = Vector<Int>()
+        let t = self.local_type(l)
+        let d = self.tc.nominal_decl(t)
+        var moved = Vector<Int>()
+        var whole = false
+        self.fields_moved_from_self(root, d, &var moved, &var whole)
+        let deinit = self.writes_deinit(t)
+        if moved.len() == 0 && not deinit && not whole {
+            self.scope_owned(l)
+            return
+        }
+        let is_struct = d >= 0 && self.tc.res.decls[d].kind == ResDeclKind.Struct
+        if whole || not is_struct {
+            self.not_yet(root, "the release of a consumed receiver that moves out whole, or is an enum that writes its own `deinit`,")
+            self.scope_owned(l)
+            return
+        }
+        let sub = tc_args_subst(d, self.tc.nominal_args(t))
+        let members = self.tc.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let f = members[k]
+            k = k + 1
+            if self.tc.res.decls[f].kind != ResDeclKind.Field || tc_contains(&moved, f) {
+                continue
+            }
+            let written = self.tc.sigs[f].result
+            let ft = self.tc.subst(written, &sub)
+            try! self.release_fields.push(f)
+            try! self.release_types.push(ft)
+        }
+        self.moved_fields = move moved
+        self.scope_fieldwise(l)
+    }
+
+    // The fields of struct `d` that `move self.f` moves out anywhere under
+    // node `id`, each once; `whole` set by a `move self` of all of it. A move
+    // deeper into `self` is refused.
+    func fields_moved_from_self(&var self, id: Int, d: Int, moved: &var Vector<Int>, whole: &var Bool) {
+        let n = self.tc.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(id, k)
+            k = k + 1
+            if self.tc.is_leaf(c) {
+                continue
+            }
+            if self.tc.has_alt(c, Alt.Expr_Move_Place) {
+                let operand = self.tc.res.first_node_child(c)
+                let base = self.tc.res.first_node_child(operand)
+                if self.tc.has_alt(operand, Alt.Expr_Self) {
+                    whole = true
+                } else if self.tc.has_alt(operand, Alt.Expr_Member) && base >= 0 && self.tc.has_alt(base, Alt.Expr_Self) {
+                    let f = self.self_field(operand, d)
+                    if f >= 0 && not tc_contains(&moved, f) {
+                        try! moved.push(f)
+                    }
+                } else if self.rooted_in_self(operand) {
+                    self.not_yet(c, "a move out of `self` that is not one of its fields")
+                }
+            }
+            self.fields_moved_from_self(c, d, &var moved, &var whole)
+        }
+    }
+
+    // The field of struct `d` that member expression `e` on `self` names.
+    func self_field(&var self, e: Int, d: Int) -> Int {
+        let m = self.tc.node_module(e)
+        let leaf = self.tc.res.first_leaf(e)
+        let name = self.leaf_name(m, leaf)
+        let found = self.tc.members_named(d, name, m)
+        var k = 0
+        while k < found.len() {
+            let member = self.tc.members[found[k]]
+            if self.tc.res.decls[member.decl].kind == ResDeclKind.Field {
+                return member.decl
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // Whether place expression `e` is a projection of `self`.
+    func rooted_in_self(&self, e: Int) -> Bool {
+        var at = e
+        while at >= 0 {
+            if self.tc.has_alt(at, Alt.Expr_Self) {
+                return true
+            }
+            let projected = self.tc.has_alt(at, Alt.Expr_Member) || self.tc.has_alt(at, Alt.Expr_TupleIndex) || self.tc.has_alt(at, Alt.Expr_Force)
+            if not projected {
+                return false
+            }
+            at = self.tc.res.first_node_child(at)
+        }
+        false
+    }
+
+    // Every field a `consumes` body moves out of `self` is moved on every path
+    // to a return, so one release fits them all (spec: "every path or no
+    // path"); one moved on some paths only is refused at the body.
+    func check_field_moves(&var self, root: Int) {
+        let w = self.moved_fields.len()
+        let n = self.blocks.len() - self.block_base
+        if w == 0 || n == 0 {
+            return
+        }
+        var entry = Vector<Bool>()
+        var reached = Vector<Bool>()
+        var k = 0
+        while k < n * w {
+            try! entry.push(k >= w)
+            k = k + 1
+        }
+        k = 0
+        while k < n {
+            try! reached.push(k == 0)
+            k = k + 1
+        }
+        var changed = true
+        var rounds = 0
+        while changed && rounds < 1000 {
+            changed = false
+            rounds = rounds + 1
+            var b = 0
+            while b < n {
+                if reached[b] {
+                    let state = self.field_moves_out(b, &entry)
+                    let succ = self.block_successors(b)
+                    var j = 0
+                    while j < succ.len() {
+                        let s = succ[j]
+                        j = j + 1
+                        var i = 0
+                        while i < w {
+                            let at = s * w + i
+                            let met = if reached[s] { entry[at] && state[i] } else { state[i] }
+                            if met != entry[at] {
+                                entry[at] = met
+                                changed = true
+                            }
+                            i = i + 1
+                        }
+                        if not reached[s] {
+                            reached[s] = true
+                            changed = true
+                        }
+                    }
+                }
+                b = b + 1
+            }
+        }
+        var b = 0
+        while b < n {
+            let block = self.block(b)
+            if reached[b] && block.term == MirTermKind.Return {
+                let state = self.field_moves_out(b, &entry)
+                var i = 0
+                while i < w {
+                    if not state[i] {
+                        self.not_yet(root, "a `consumes` body that moves a field out of `self` on some paths to a return and not on others")
+                        return
+                    }
+                    i = i + 1
+                }
+            }
+            b = b + 1
+        }
+    }
+
+    // Which moved fields block `b` leaves moved, from its entry state.
+    func field_moves_out(&self, b: Int, entry: &Vector<Bool>) -> Vector<Bool> {
+        let w = self.moved_fields.len()
+        var state = Vector<Bool>()
+        var i = 0
+        while i < w {
+            try! state.push(entry[b * w + i])
+            i = i + 1
+        }
+        let block = self.block(b)
+        var s = block.first
+        while s >= 0 {
+            let stmt = self.stmts[s]
+            s = stmt.next
+            if stmt.kind == MirStmtKind.Assign && stmt.rvalue >= 0 {
+                let rv = self.rvalues[stmt.rvalue]
+                self.note_field_moves(rv.first, rv.count, &var state)
+            }
+        }
+        if block.term == MirTermKind.Call {
+            let c = self.calls[block.call]
+            self.note_field_moves(c.arg_first, c.arg_count, &var state)
+        }
+        move state
+    }
+
+    // Marks each moved field a move among operands `first .. first + count`
+    // takes out of the receiver, local 1.
+    func note_field_moves(&self, first: Int, count: Int, state: &var Vector<Bool>) {
+        var k = 0
+        while k < count {
+            let o = self.lists[first + k]
+            k = k + 1
+            let operand = self.operands[o]
+            if operand.kind != MirOperandKind.Move || operand.place < 0 {
+                continue
+            }
+            let place = self.places[operand.place]
+            if place.local != 1 || place.count < 1 {
+                continue
+            }
+            let step = self.projs[place.first]
+            if step.kind != MirProjKind.Field {
+                continue
+            }
+            var i = 0
+            while i < self.moved_fields.len() {
+                if self.moved_fields[i] == step.decl {
+                    state[i] = true
+                }
+                i = i + 1
+            }
+        }
+    }
+
+    // Block `b`'s successors.
+    func block_successors(&self, b: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        let block = self.block(b)
+        if block.term == MirTermKind.Goto {
+            try! out.push(block.target)
+        } else if block.term == MirTermKind.Switch {
+            var k = 0
+            while k < block.arm_count {
+                try! out.push(self.arms[block.arm_first + k].target)
+                k = k + 1
+            }
+            if block.otherwise >= 0 {
+                try! out.push(block.otherwise)
+            }
+        } else if block.term == MirTermKind.Call {
+            let c = self.calls[block.call]
+            if c.next >= 0 {
+                try! out.push(c.next)
+            }
+            if c.absent >= 0 {
+                try! out.push(c.absent)
+            }
+        }
+        move out
     }
 
     // A parameter declared at `leaf`, owned by the function.
@@ -805,9 +1102,21 @@ extension MirProgram {
                 self.bind_leaf(leaf, l)
             }
         } else {
-            let v = self.lower_val(value)
-            let p = self.as_place(v, value)
+            // The value is taken as its position records, a place's copied
+            // out, and the pattern takes the temporary that holds it apart.
+            let o = self.operand(value)
+            var p = self.as_place(mir_operand_val(o), value)
+            let consuming = self.pattern_moves_owned(target)
+            if consuming {
+                p = self.consumed_root(p, target)
+            }
+            self.begin_taking()
             self.bind_pattern(target, p, &var bound)
+            let taken = self.taken_parts()
+            if consuming {
+                self.dissolve(p, &taken, target)
+                self.forget_temp(p)
+            }
         }
         self.close_scope()
         self.scope_all(&bound)
@@ -978,7 +1287,7 @@ extension MirProgram {
         }
         var bound = Vector<Int>()
         let head = self.open_scope()
-        let test = self.optional_switch(subject, false)
+        let test = self.optional_switch(subject, false, target)
         self.enter(test.absent)
         self.unwind_to(head)
         self.lower_block(block, -1)
@@ -1638,14 +1947,22 @@ extension MirProgram {
         let last = self.tc.res.last_leaf_of(e)
         var steps = Vector<MirStep>()
         self.prepare_base(inner, &var steps)
-        if last >= 0 && self.tc.text(m, last).equals("!") {
-            let t = self.tc.expr_types[e]
-            let some = self.optional_case("Some")
-            try! steps.push(MirStep(kind: MIR_STEP_FORCE, node: e, place: -1, decl: some, index: 0, first: 0,
-                                    count: 0, ty: t, fresh: false))
-        }
         let p = self.realize_all(&steps)
-        mir_place_val(p, false)
+        if last < 0 || not self.tc.text(m, last).equals("!") {
+            return mir_place_val(p, false)
+        }
+        // `move o!` retires the whole binding: the Optional moves out whole,
+        // and the temporary holding it is dissolved around its payload.
+        let t = self.tc.expr_types[e]
+        let some = self.optional_case("Some")
+        let pt = self.place_type(p)
+        let whole = self.new_temp(pt)
+        let rv = self.rv_move(p)
+        self.assign_local(whole, rv)
+        let wp = self.place_local(whole)
+        let value = self.project(wp, MirProjKind.Force, some, 0, t)
+        let moved = self.take_payload(wp, value, e)
+        mir_place_val(self.operands[moved].place, true)
     }
 }
 
@@ -1695,6 +2012,7 @@ extension MirProgram {
                 }
                 let t = self.node_type(e)
                 self.push_step(&var steps, MIR_STEP_TUPLE, e, -1, index, t)
+                self.take_from_temporary(e, &var steps)
             },
             case Expr_Force -> {
                 let base = self.tc.res.first_node_child(e)
@@ -1702,6 +2020,7 @@ extension MirProgram {
                 let some = self.optional_case("Some")
                 let t = self.node_type(e)
                 self.push_step(&var steps, MIR_STEP_FORCE, e, some, 0, t)
+                self.take_from_temporary(e, &var steps)
             },
             case Expr_Deref -> {
                 let inner = self.tc.res.first_node_child(e)
@@ -1861,6 +2180,7 @@ extension MirProgram {
             while k < info.count {
                 if self.tc.types.label(bt, k) == name {
                     self.push_step(&var steps, MIR_STEP_TUPLE, e, -1, k, t)
+                    self.take_from_temporary(e, &var steps)
                     return
                 }
                 k = k + 1
@@ -1873,6 +2193,7 @@ extension MirProgram {
             let member = self.tc.members[found[k]]
             if self.tc.res.decls[member.decl].kind == ResDeclKind.Field {
                 self.push_step(&var steps, MIR_STEP_FIELD, e, member.decl, -1, t)
+                self.take_from_temporary(e, &var steps)
                 return
             }
             k = k + 1
@@ -2096,6 +2417,7 @@ extension MirProgram {
         let rv = self.rv_ref(exclusive, receiver)
         let rl = self.temp_of(rv)
         var args = Vector<Int>()
+        self.record_argument(w, &c, &var args)
         let rp = self.place_local(rl)
         try! args.push(self.op_move(rp))
         var k = 0
@@ -2111,7 +2433,7 @@ extension MirProgram {
         call.arg_count = args.len()
         call.dest = self.place_local(d)
         call.window = w
-        self.suspension(e, &var call)
+        self.open_half(e, &var call)
         if not self.live() {
             return MirOpen(window: w, dest: d, present: -1, absent: -1)
         }
@@ -2125,6 +2447,55 @@ extension MirProgram {
         let _ = self.emit_call(call)
         self.enter(present)
         MirOpen(window: w, dest: d, present: present, absent: absent)
+    }
+
+    // Window `w`'s state record, when its accessor's halves have one: a local
+    // of the record's type at the window's instantiation, which the window
+    // holds, passed by exclusive reference first.
+    func record_argument(&var self, w: Int, c: &TcCall, args: &var Vector<Int>) {
+        let a = self.accessor_of[c.target]
+        if a < 0 {
+            return
+        }
+        let raw = self.accessors[a].record
+        if raw < 0 {
+            return
+        }
+        var inst = Vector<Int>()
+        var k = 0
+        while k < c.inst_count {
+            try! inst.push(self.tc.insts[c.inst_first + k])
+            k = k + 1
+        }
+        let own = tc_args_subst(c.target, move inst)
+        var t = self.tc.subst(raw, &own)
+        if c.owner >= 0 {
+            t = self.tc.impl_subst(t, c.target, c.owner)
+        }
+        let l = self.new_local(t, MirLocalKind.Record, -1, -1)
+        self.set_window_record(w, l)
+        let p = self.place_local(l)
+        let rv = self.rv_ref(true, p)
+        let r = self.temp_of(rv)
+        let rp = self.place_local(r)
+        try! args.push(self.op_move(rp))
+    }
+
+    // A window's open names its accessor's prologue, and is a suspension
+    // point when the prologue may suspend; one whose accessor has no lowered
+    // body here is one as the accessor's summary makes it (SL:architecture
+    // §3.5).
+    func open_half(&var self, e: Int, call: &var MirCall) {
+        let a = self.accessor_of[call.target]
+        if a < 0 {
+            self.suspension(e, &var call)
+            return
+        }
+        let acc = self.accessors[a]
+        call.half = acc.prologue
+        if acc.prologue_suspends {
+            self.suspension(e, &var call)
+        }
     }
 
     // Copies call record `c`'s instantiation into call `call`.
@@ -2620,12 +2991,74 @@ extension MirProgram {
             call.inst_first = self.push_types(&types)
             call.inst_count = types.len()
         } else {
-            let args = self.builtin_operands(e)
+            let format_at = self.format_position(e, &name)
+            let args = self.builtin_operands_from(e, format_at)
             self.append_all(&var all, &args)
         }
         call.arg_first = self.push_args(&all)
         call.arg_count = all.len()
         self.finish_call(call, t)
+    }
+
+    // Which written argument of builtin call `e`, named `name`, is a format
+    // string, or -1: the message of `print`, `panic` or `assert` that format
+    // arguments follow or that holds `{}` slots. It renders through stack
+    // scratch and allocates nothing (design 137), so it is a constant of its
+    // own and never an interpolation.
+    func format_position(&self, e: Int, name: &String) -> Int {
+        var at = -1
+        if name.equals("print") || name.equals("panic") {
+            at = 0
+        } else if name.equals("assert") {
+            at = 1
+        }
+        if at < 0 {
+            return -1
+        }
+        let written = self.written_arguments(e)
+        if written.len() <= at {
+            return -1
+        }
+        let fmt = written[at]
+        if written.len() > at + 1 {
+            return at
+        }
+        if not self.tc.has_alt(fmt, Alt.Expr_Interpolation) {
+            return -1
+        }
+        let n = self.tc.child_count(fmt)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(fmt, k)
+            if self.tc.res.nodes[c].shape == NodeShape.Placeholder {
+                return at
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // A format string's constant: its pieces and `{}` slots, as the source
+    // spells the literal. One that also interpolates a value is refused.
+    func format_constant(&var self, e: Int) -> Int {
+        let st = self.tc.string_type()
+        if self.tc.expr_use[e] == TcUse.Unused {
+            self.missing(e, "a format string is read with no transfer recorded for its position")
+            return self.dead_operand(st)
+        }
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(e, k)
+            k = k + 1
+            let shape = self.tc.res.nodes[c].shape
+            if shape != NodeShape.Segment && shape != NodeShape.Placeholder && not self.tc.is_leaf(c) {
+                self.not_yet(c, "a format string that also interpolates a value")
+                return self.dead_operand(st)
+            }
+        }
+        let text = self.node_text(e)
+        self.op_const(MirConstKind.Format, text, st)
     }
 
     func append_all(&var self, into: &var Vector<Int>, from: &Vector<Int>) {
@@ -2642,11 +3075,21 @@ extension MirProgram {
     }
 
     func builtin_operands(&var self, e: Int) -> Vector<Int> {
+        self.builtin_operands_from(e, -1)
+    }
+
+    // `builtin_operands`, the argument at `format_at` a format string.
+    func builtin_operands_from(&var self, e: Int, format_at: Int) -> Vector<Int> {
         let written = self.written_arguments(e)
         var out = Vector<Int>()
         var k = 0
         while k < written.len() {
-            let o = self.builtin_operand(written[k])
+            var o = -1
+            if k == format_at {
+                o = self.format_constant(written[k])
+            } else {
+                o = self.builtin_operand(written[k])
+            }
             var later = false
             var i = k + 1
             while i < written.len() {
@@ -2916,6 +3359,10 @@ extension MirProgram {
             try! targets.push(present)
             try! targets.push(absent)
             self.switch_cases(p, &cases, &targets, -1)
+            let consuming = not whole && self.owns(t)
+            if consuming {
+                self.forget_temp(p)
+            }
             self.enter(present)
             let rp = self.place_local(r)
             if whole {
@@ -2925,9 +3372,19 @@ extension MirProgram {
                 let payload = self.project(p, MirProjKind.Payload, some, 0, t)
                 let rv = self.rv_move(payload)
                 self.assign(rp, rv)
+                if consuming {
+                    self.begin_taking()
+                    self.note_taken(payload)
+                    let taken = self.taken_parts()
+                    self.dissolve(p, &taken, e)
+                }
             }
             self.goto(join)
             self.enter(absent)
+            if consuming {
+                let none_taken = Vector<Int>()
+                self.dissolve(p, &none_taken, e)
+            }
             k = k + 1
         }
         let rp = self.place_local(r)
@@ -2987,6 +3444,9 @@ extension MirProgram {
         let o = self.operand(inner)
         let p = self.as_place(mir_operand_val(o), inner)
         let pt = self.place_type(p)
+        let t = self.tc.expr_types[e]
+        let et = self.tc.arg_of(pt, 1)
+        let consuming = self.owns(t) || self.owns(et)
         let ok = self.result_case("Ok")
         let err = self.result_case("Err")
         let good = self.new_block()
@@ -2998,21 +3458,46 @@ extension MirProgram {
         try! targets.push(good)
         try! targets.push(bad)
         self.switch_cases(p, &cases, &targets, -1)
+        if consuming {
+            self.forget_temp(p)
+        }
         self.enter(bad)
         let result = self.local_type(0)
-        let et = self.tc.arg_of(pt, 1)
         let error = self.project(p, MirProjKind.Payload, err, 0, et)
         var ops = Vector<Int>()
         try! ops.push(self.op_move(error))
         let rv = self.rv_aggregate(MirAggregate.Case, err, result, &ops)
         let ret = self.place_local(0)
         self.assign(ret, rv)
+        if consuming {
+            self.begin_taking()
+            self.note_taken(error)
+            let taken = self.taken_parts()
+            self.dissolve(p, &taken, e)
+        }
         self.unwind_to(0)
         self.ret()
         self.enter(good)
-        let t = self.tc.expr_types[e]
         let value = self.project(p, MirProjKind.Payload, ok, 0, t)
-        self.op_move(value)
+        if not consuming {
+            return self.op_move(value)
+        }
+        self.take_payload(p, value, e)
+    }
+
+    // A consumed temporary's one payload `value`, moved into a temporary of
+    // its own, the temporary `whole` dissolved around it; returns the move
+    // out of the new temporary.
+    func take_payload(&var self, whole: Int, value: Int, e: Int) -> Int {
+        let t = self.place_type(value)
+        let l = self.new_temp(t)
+        let rv = self.rv_move(value)
+        self.assign_local(l, rv)
+        self.begin_taking()
+        self.note_taken(value)
+        let taken = self.taken_parts()
+        self.dissolve(whole, &taken, e)
+        self.move_local(l)
     }
 
     // `try! e`: the `Ok` payload, which panics with the error otherwise.
@@ -3023,7 +3508,19 @@ extension MirProgram {
         let ok = self.result_case("Ok")
         let t = self.tc.expr_types[e]
         let value = self.project(p, MirProjKind.Force, ok, 0, t)
-        mir_place_val(value, false)
+        if not self.takes_payload(e, t) {
+            return mir_place_val(value, false)
+        }
+        self.forget_temp(p)
+        let moved = self.take_payload(p, value, e)
+        mir_place_val(self.operands[moved].place, true)
+    }
+
+    // Whether payload read `e`, of type `t`, moves an owned payload out of
+    // the temporary it reads, which its position takes by value.
+    func takes_payload(&var self, e: Int, t: Int) -> Bool {
+        let u = self.tc.expr_use[e]
+        (u == TcUse.Move || u == TcUse.Temp) && self.owns(t)
     }
 
     // `try? e`: `Some` of the `Ok` payload, or `None`.
@@ -3048,15 +3545,29 @@ extension MirProgram {
         try! targets.push(good)
         try! targets.push(bad)
         self.switch_cases(p, &cases, &targets, -1)
-        self.enter(good)
         let ok_type = self.tc.arg_of(pt, 0)
+        let consuming = self.owns(ok_type)
+        if consuming {
+            self.forget_temp(p)
+        }
+        self.enter(good)
         let value = self.project(p, MirProjKind.Payload, ok, 0, ok_type)
         var ops = Vector<Int>()
         try! ops.push(self.op_move(value))
         let rv = self.rv_aggregate(MirAggregate.Case, some, t, &ops)
         self.assign_local(r, rv)
+        if consuming {
+            self.begin_taking()
+            self.note_taken(value)
+            let taken = self.taken_parts()
+            self.dissolve(p, &taken, e)
+        }
         self.goto(join)
         self.enter(bad)
+        if consuming {
+            let none_taken = Vector<Int>()
+            self.dissolve(p, &none_taken, e)
+        }
         let empty = Vector<Int>()
         let nrv = self.rv_aggregate(MirAggregate.Case, none, t, &empty)
         self.assign_local(r, nrv)
@@ -3235,6 +3746,9 @@ public struct MirTest {
     public absent: Int
     public payload: Int
     public window: Int
+    // The Optional switched on, and whether the bindings consume it.
+    public whole: Int
+    public consuming: Bool
 }
 
 // Control flow.
@@ -3324,7 +3838,7 @@ extension MirProgram {
                 let target = self.tc.res.first_node_child(head)
                 let subject = self.tc.res.last_node_child(head)
                 let depth = self.open_scope()
-                let test = self.optional_switch(subject, unwrap)
+                let test = self.optional_switch(subject, unwrap, target)
                 self.enter(test.absent)
                 self.unwind_to(depth)
                 let absent = self.current
@@ -3361,20 +3875,25 @@ extension MirProgram {
     // conditional lend opens its window, which lends on the present edge
     // and takes the absent edge when there is nothing to lend; any other
     // Optional is switched on, its own place or a temporary holding it.
-    func optional_switch(&var self, written: Int, unwrap: Bool) -> MirTest {
+    func optional_switch(&var self, written: Int, unwrap: Bool, target: Int) -> MirTest {
         let subject = self.lend_subject(written)
         if self.conditional_lend(subject) {
             let opened = self.open_lend(subject, true)
             let w = self.place_local(opened.dest)
             let inner = self.lent_type(&opened)
             let payload = self.project(w, MirProjKind.Deref, -1, -1, inner)
-            return MirTest(present: opened.present, absent: opened.absent, payload: payload, window: opened.window)
+            return MirTest(present: opened.present, absent: opened.absent, payload: payload, window: opened.window,
+                           whole: -1, consuming: false)
         }
         var steps = Vector<MirStep>()
         self.prepare_base(subject, &var steps)
-        let p = self.realize_all(&steps)
+        var p = self.realize_all(&steps)
         if steps.len() == 1 && steps[0].fresh {
             self.own_temp(p)
+        }
+        let consuming = target >= 0 && self.pattern_moves_owned(target)
+        if consuming {
+            p = self.consumed_root(p, target)
         }
         let t = self.place_type(p)
         let some = self.optional_case("Some")
@@ -3390,7 +3909,7 @@ extension MirProgram {
         self.switch_cases(p, &cases, &targets, -1)
         let payload_type = self.tc.arg_of(t, 0)
         let payload = self.project(p, MirProjKind.Payload, some, 0, payload_type)
-        MirTest(present: present, absent: absent, payload: payload, window: -1)
+        MirTest(present: present, absent: absent, payload: payload, window: -1, whole: p, consuming: consuming)
     }
 
     // The conditional lend a `borrow` expression `e` spells out, or `e`
@@ -3447,7 +3966,13 @@ extension MirProgram {
     // out of a lent place lets its window close at once; a `borrow` unwrap
     // keeps it open for the arm, whose scope then closes it.
     func bind_test(&var self, test: &MirTest, target: Int, unwrap: Bool, bound: &var Vector<Int>) {
+        self.begin_taking()
         self.bind_pattern(target, test.payload, &var bound)
+        let taken = self.taken_parts()
+        if test.consuming {
+            self.dissolve(test.whole, &taken, target)
+            self.forget_temp(test.whole)
+        }
         if test.window < 0 {
             return
         }
@@ -3521,6 +4046,7 @@ extension MirProgram {
             o = self.copy_place(place)
         } else if u == TcUse.Move || u == TcUse.Temp {
             o = self.op_move(place)
+            self.note_taken(place)
         } else {
             self.missing(p, "a binding has no transfer recorded")
             o = self.op_copy(place)
@@ -3605,7 +4131,7 @@ extension MirProgram {
         self.goto(head)
         self.enter(head)
         let depth = self.open_scope()
-        let test = self.optional_switch(subject, false)
+        let test = self.optional_switch(subject, false, target)
         self.enter(test.absent)
         self.unwind_to(depth)
         self.goto(exit)
@@ -3694,7 +4220,12 @@ extension MirProgram {
         let item = self.tc.arg_of(item_opt, 0)
         let payload = self.project(np, MirProjKind.Payload, some, 0, item)
         var bound = Vector<Int>()
+        self.begin_taking()
         self.bind_pattern(target, payload, &var bound)
+        // `next()`'s Optional is no scope's: the item's parts the pattern
+        // does not take drop here.
+        let taken = self.taken_parts()
+        self.dissolve(np, &taken, target)
         self.scope_all(&bound)
         self.lower_block(body, -1)
         self.close_scope()
@@ -3802,6 +4333,292 @@ extension MirProgram {
     }
 }
 
+// Consuming destructures. Saw has no partial moves, so the one way a value
+// comes apart is a destructure that consumes it whole: a pattern's bindings,
+// or a payload taken out of an Optional or a Result. The value is dissolved
+// where it is destructured, never dropped whole after a part has left it.
+extension MirProgram {
+    // The one helper every consuming destructure goes through: on the
+    // current path, the parts of `whole` in `taken`, places rooted at it
+    // whose values have moved out, belong to whoever took them, and every
+    // other owned part of what the path proved `whole` holds is dropped
+    // here, in reverse declaration order (spec, Synthesized destruction);
+    // with nothing taken, `whole` is dropped as one value. `whole` is a
+    // temporary its construct consumes on every path past it, so the caller
+    // takes it off its scope once each path is done. A value whose type
+    // writes its own `deinit` is refused: the spec does not say whether
+    // dissolving one skips that body.
+    //
+    // ENTRY POINTS (dissolve):
+    //     try_propagate
+    //     try_optional
+    //     coalesce
+    //     take_payload
+    //     consumed_root
+    //     leaf
+    //     bind_test
+    //     lower_let
+    //     lower_for
+    public func dissolve(&var self, whole: Int, taken: &Vector<Int>, node: Int) {
+        if not self.live() {
+            return
+        }
+        if taken.len() == 0 {
+            let t = self.place_type(whole)
+            if self.owns(t) {
+                self.emit_drop(whole)
+            }
+            return
+        }
+        self.drop_rest(whole, &taken, node)
+    }
+
+    // The owned parts of `base` no place in `taken` reaches, dropped; a part
+    // some taken place lies inside is opened in turn.
+    func drop_rest(&var self, base: Int, taken: &Vector<Int>, node: Int) {
+        let info = self.places[base]
+        var inside = -1
+        var k = 0
+        while k < taken.len() {
+            let t = taken[k]
+            if self.place_within(t, base) {
+                if self.places[t].count == info.count {
+                    return
+                }
+                inside = t
+            }
+            k = k + 1
+        }
+        let ty = info.ty
+        if inside < 0 {
+            if self.owns(ty) {
+                self.emit_drop(base)
+            }
+            return
+        }
+        if self.writes_deinit(ty) {
+            self.not_yet(node, "a consuming destructure of a type that writes its own `deinit`")
+            return
+        }
+        let step = self.projs[self.places[inside].first + info.count]
+        var parts = Vector<Int>()
+        if step.kind == MirProjKind.Tuple {
+            let n = self.tc.types.ty(ty).count
+            var j = 0
+            while j < n {
+                let pt = self.tc.types.arg(ty, j)
+                try! parts.push(self.project(base, MirProjKind.Tuple, -1, j, pt))
+                j = j + 1
+            }
+        } else if step.kind == MirProjKind.Payload || step.kind == MirProjKind.Force {
+            let types = self.payload_types(ty, step.decl)
+            var j = 0
+            while j < types.len() {
+                try! parts.push(self.project(base, MirProjKind.Payload, step.decl, j, types[j]))
+                j = j + 1
+            }
+        } else if step.kind == MirProjKind.Field {
+            let d = self.tc.nominal_decl(ty)
+            let sub = tc_args_subst(d, self.tc.nominal_args(ty))
+            let members = self.tc.members_of(d)
+            var j = 0
+            while j < members.len() {
+                let f = members[j]
+                j = j + 1
+                if self.tc.res.decls[f].kind != ResDeclKind.Field {
+                    continue
+                }
+                let written = self.tc.sigs[f].result
+                let ft = self.tc.subst(written, &sub)
+                try! parts.push(self.project(base, MirProjKind.Field, f, -1, ft))
+            }
+        } else {
+            self.missing(node, "a destructure takes a part through a projection that is no field, element or payload")
+            return
+        }
+        k = parts.len() - 1
+        while k >= 0 {
+            self.drop_rest(parts[k], &taken, node)
+            k = k - 1
+        }
+    }
+
+    // Whether place `p` is `base` or lies inside it: the same root, and
+    // `base`'s projections a prefix of `p`'s, a proven payload and a checked
+    // one counting as one step.
+    func place_within(&self, p: Int, base: Int) -> Bool {
+        let a = self.places[p]
+        let b = self.places[base]
+        if a.local != b.local || a.static_decl != b.static_decl || a.count < b.count {
+            return false
+        }
+        var k = 0
+        while k < b.count {
+            let x = self.projs[a.first + k]
+            let y = self.projs[b.first + k]
+            let x_payload = x.kind == MirProjKind.Payload || x.kind == MirProjKind.Force
+            let y_payload = y.kind == MirProjKind.Payload || y.kind == MirProjKind.Force
+            let same_kind = x.kind == y.kind || (x_payload && y_payload)
+            if not same_kind || x.decl != y.decl || x.index != y.index {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // The payload field types of case `c` of enum type `t`, at `t`'s
+    // arguments.
+    func payload_types(&var self, t: Int, c: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        let cand = TcCand(decl: c, kind: TcCandKind.Case, member: -1, owner: t)
+        let count = self.tc.cand_param_count(cand)
+        let d = self.tc.res.decls[c].parent
+        let sub = tc_args_subst(d, self.tc.nominal_args(t))
+        var k = 0
+        while k < count {
+            let raw = self.tc.cand_param_type(cand, k)
+            try! out.push(self.tc.subst(raw, &sub))
+            k = k + 1
+        }
+        move out
+    }
+
+    // Whether type `t` is a struct or enum whose own extensions write its
+    // `deinit`.
+    func writes_deinit(&var self, t: Int) -> Bool {
+        let d = self.tc.nominal_decl(t)
+        if d < 0 || d >= self.tc.member_first.len() {
+            return false
+        }
+        let first = self.tc.member_first[d]
+        if first < 0 {
+            return false
+        }
+        let name = self.tc.res.intern("deinit")
+        var k = first
+        while k < first + self.tc.member_count[d] {
+            let member = self.tc.members[k]
+            if member.name == name && member.source == TcSource.Extension {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // The temporary a consuming destructure takes apart: `p` itself when it
+    // is one, else a temporary `p` is moved into whole, which the innermost
+    // scope holds until the destructure. A `p` inside a temporary, a payload
+    // `try!` or `!` reads, dissolves that temporary as it moves out.
+    func consumed_root(&var self, p: Int, node: Int) -> Int {
+        let l = self.bare_local(p)
+        if l >= 0 && self.local(l).kind == MirLocalKind.Temp {
+            return p
+        }
+        let t = self.place_type(p)
+        let temp = self.new_temp(t)
+        let rv = self.rv_move(p)
+        self.assign_local(temp, rv)
+        let q = self.place_local(temp)
+        self.own_temp(q)
+        let info = self.places[p]
+        if info.count > 0 && info.local >= 0 && self.local(info.local).kind == MirLocalKind.Temp && not self.through_reference(p) {
+            let whole = self.place_local(info.local)
+            self.begin_taking()
+            self.note_taken(p)
+            let taken = self.taken_parts()
+            self.dissolve(whole, &taken, node)
+            self.forget_local(info.local)
+        }
+        q
+    }
+
+    // Whether place `p` reaches its storage through a reference.
+    func through_reference(&self, p: Int) -> Bool {
+        let info = self.places[p]
+        var k = 0
+        while k < info.count {
+            if self.projs[info.first + k].kind == MirProjKind.Deref {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // Whether pattern `p` binds an owned part by move: a binding the
+    // pattern's subject hands over, a temporary or an owned value consumed.
+    func pattern_moves_owned(&var self, p: Int) -> Bool {
+        guard let alt = self.tc.node_alt(p) else {
+            return false
+        }
+        if alt == Alt.Pat_Tuple_Positional || alt == Alt.Pat_Variant {
+            let n = self.tc.child_count(p)
+            var k = 0
+            while k < n {
+                let c = self.tc.child(p, k)
+                k = k + 1
+                if not self.tc.is_leaf(c) && self.pattern_moves_owned(c) {
+                    return true
+                }
+            }
+            return false
+        }
+        let binding = alt == Alt.Stmt_BindingName || (alt == Alt.Pat_Name && self.tc.call_at[p] < 0)
+        if not binding {
+            return false
+        }
+        let u = self.tc.expr_use[p]
+        let t = self.tc.expr_types[p]
+        (u == TcUse.Move || u == TcUse.Temp) && self.owns(t)
+    }
+
+    // A plan whose last step projects a part `e` reads out of a temporary:
+    // when the position takes the part by value and it owns something, the
+    // part moves into a temporary of its own, the root is dissolved around
+    // it, and the plan becomes that temporary.
+    func take_from_temporary(&var self, e: Int, steps: &var Vector<MirStep>) {
+        if steps.len() != 2 || not steps[0].fresh {
+            return
+        }
+        let t = steps[1].ty
+        if not self.takes_payload(e, t) {
+            return
+        }
+        let p = self.realize_all(&steps)
+        let root = steps[0].place
+        self.forget_temp(root)
+        let moved = self.take_payload(root, p, e)
+        let q = self.operands[moved].place
+        steps = Vector<MirStep>()
+        self.push_root(&var steps, e, q, true)
+    }
+
+    // Takes the temporary place `p` names off its scope.
+    func forget_temp(&var self, p: Int) {
+        let l = self.bare_local(p)
+        self.forget_local(l)
+    }
+
+    // Starts collecting the owned parts the bindings about to be made move.
+    func begin_taking(&var self) {
+        self.moved_parts = Vector<Int>()
+    }
+
+    // The owned parts moved since `begin_taking`.
+    func taken_parts(&var self) -> Vector<Int> {
+        var out = Vector<Int>()
+        var k = 0
+        while k < self.moved_parts.len() {
+            try! out.push(self.moved_parts[k])
+            k = k + 1
+        }
+        self.moved_parts = Vector<Int>()
+        move out
+    }
+}
+
 // One pending test of a decision-tree row: a pattern against a place.
 public struct MirCell {
     public place: Int
@@ -3831,6 +4648,9 @@ public struct MirMatch {
     public bind_leaves: Vector<Int>
     public bind_locals: Vector<Int>
     public bind_arms: Vector<Int>
+    // Whether some arm takes an owned part by move, so every leaf dissolves
+    // the scrutinee.
+    public consuming: Bool
 }
 
 extension MirMatch: NoCopy {}
@@ -3869,10 +4689,26 @@ extension MirProgram {
         var state = MirMatch(arms: Vector<Int>(), entries: Vector<Int>(), cells: Vector<MirCell>(),
                              cache_parent: Vector<Int>(), cache_decl: Vector<Int>(), cache_index: Vector<Int>(),
                              cache_place: Vector<Int>(), bind_leaves: Vector<Int>(), bind_locals: Vector<Int>(),
-                             bind_arms: Vector<Int>())
+                             bind_arms: Vector<Int>(), consuming: false)
         var rows = Vector<MirRow>()
         let n = self.tc.child_count(e)
+        var consuming = false
         var k = 0
+        while k < n {
+            let arm = self.tc.child(e, k)
+            k = k + 1
+            if self.tc.has_alt(arm, Alt.Expr_MatchArm) {
+                let pattern = self.tc.res.first_node_child(arm)
+                if self.pattern_moves_owned(pattern) {
+                    consuming = true
+                }
+            }
+        }
+        if consuming {
+            root = self.consumed_root(root, scrutinee)
+        }
+        state.consuming = consuming
+        k = 0
         while k < n {
             let arm = self.tc.child(e, k)
             k = k + 1
@@ -3888,6 +4724,10 @@ extension MirProgram {
         }
         let join = self.new_block()
         self.compile_rows(&var state, &rows, root)
+        if consuming {
+            // Every leaf consumed the scrutinee on its path.
+            self.forget_temp(root)
+        }
         k = 0
         while k < state.arms.len() {
             let entry = state.entries[k]
@@ -4383,7 +5223,12 @@ extension MirProgram {
             self.compile_rows(&var state, &rest, root)
             self.enter(yes)
         }
+        self.begin_taking()
         self.bind_arm(&var state, arm, pattern, root, false)
+        let taken = self.taken_parts()
+        if state.consuming {
+            self.dissolve(root, &taken, pattern)
+        }
         if state.entries[arm] < 0 {
             state.entries[arm] = self.new_block()
         }
@@ -4496,7 +5341,16 @@ extension MirProgram {
             rv = self.rv_use(o)
         } else {
             rv = self.rv_move(place)
+            self.note_taken(place)
         }
         self.assign_local(l, rv)
+    }
+
+    // Place `place`, a part a binding just moved out, when it owns something.
+    func note_taken(&var self, place: Int) {
+        let t = self.place_type(place)
+        if self.owns(t) {
+            try! self.moved_parts.push(place)
+        }
     }
 }

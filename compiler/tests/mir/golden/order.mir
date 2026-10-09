@@ -1,6 +1,6 @@
 module order
 
-fn order.Row.[](i: Int) -> &var Int {
+fn prologue order.Row.[](i: Int) -> &var Int {
     let _0: &var Int;  // return
     let _1: &var order.Row;  // self
     let _2: Int;  // param i
@@ -10,7 +10,16 @@ fn order.Row.[](i: Int) -> &var Int {
     bb0: {
         _3 = copy _2;
         _4 = ref(exclusive, (*_1).cells[_3]);
-        lend [move _4] -> [return: bb1];
+        _0 = move _4;
+        return;
+    }
+}
+
+fn epilogue order.Row.[](i: Int) -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        goto -> bb1;
     }
 
     bb1: {
@@ -188,12 +197,12 @@ fn order.order(row: &var order.Row, v: &var std.vector.Vector<Int, std.alloc.Glo
 
     bb11: {
         _32 = ref(exclusive, (*_2));
-        _31 = window_open w0 std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _32, move _28] -> [present: bb12];
+        _31 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _32, move _28] -> [present: bb12];
     }
 
     bb12: {
         (*_31) = move _30;
-        window_close w0 std.vector.Vector.[](index: Int) -> [return: bb13];
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb13];
     }
 
     bb13: {
@@ -208,12 +217,12 @@ fn order.order(row: &var order.Row, v: &var std.vector.Vector<Int, std.alloc.Glo
 
     bb15: {
         _38 = ref(exclusive, (*_1));
-        _37 = window_open w1 order.Row.[](i: Int) (owner order.Row) [move _38, move _34] -> [present: bb16];
+        _37 = window_open w1 prologue order.Row.[](i: Int) (owner order.Row) [move _38, move _34] -> [present: bb16];
     }
 
     bb16: {
         (*_37) = move _36;
-        window_close w1 order.Row.[](i: Int) -> [return: bb17];
+        window_close w1 epilogue order.Row.[](i: Int) (owner order.Row) -> [return: bb17];
     }
 
     bb17: {

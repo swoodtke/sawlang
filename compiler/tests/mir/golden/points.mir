@@ -14,14 +14,23 @@ fn points.Slow.step() -> Int {
     }
 }
 
-fn points.Guarded.hold() -> &var Int {
+fn prologue points.Guarded.hold() -> &var Int {
     let _0: &var Int;  // return
     let _1: &var points.Guarded;  // self
     let _2: &var Int;
 
     bb0: {
         _2 = ref(exclusive, (*_1).n);
-        lend [move _2] -> [return: bb1];
+        _0 = move _2;
+        return;
+    }
+}
+
+fn epilogue points.Guarded.hold() -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        goto -> bb1;
     }
 
     bb1: {
@@ -87,7 +96,7 @@ fn points.spin(g: &var points.Guarded, limit: Int) -> Int {
 
     bb2: {
         _7 = ref(exclusive, (*_1));
-        _6 = window_open w0 points.Guarded.hold() (owner points.Guarded) [move _7] -> [present: bb4];
+        _6 = window_open w0 prologue points.Guarded.hold() (owner points.Guarded) [move _7] -> [present: bb4];
     }
 
     bb3: {
@@ -108,7 +117,7 @@ fn points.spin(g: &var points.Guarded, limit: Int) -> Int {
     }
 
     bb6: {
-        window_close w0 points.Guarded.hold() -> [return: bb8];
+        window_close w0 epilogue points.Guarded.hold() (owner points.Guarded) -> [return: bb8];
     }
 
     bb7: {

@@ -1,0 +1,134 @@
+// A consuming destructure dissolves the value it takes apart: the parts its
+// bindings take move into them, every other owned part drops right there in
+// reverse declaration order, and the value itself is never dropped whole
+// afterwards. Every position the lowering moves a payload or a part out of a
+// temporary: a pattern's bindings (`match`, `if let`, `guard let`, `while
+// let`, a destructuring `let`, `for`), `try`, `try!`, `try?`, `??`, `move o!`,
+// `o!` and a field or element of a temporary taken by value, and the fields
+// a `consumes` body moves out of `self`.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+enum Fault { case Broken(note: String) }
+
+enum Slot {
+    case Filled(first: Res, second: Res, count: Int),
+    case Nested(inner: Res?, rest: Res),
+    case Empty
+}
+extension Slot: NoCopy {}
+
+struct Holder { kept: Res, other: Res }
+extension Holder: NoCopy {}
+
+func fresh(n: Int) -> Res { Res(id: n) }
+func slot(n: Int) -> Slot { Slot.Filled(first: fresh(n), second: fresh(n), count: n) }
+func risky(n: Int) -> Result<Res, Fault> {
+    if n < 0 {
+        return Fault.Broken(note: "negative")
+    }
+    fresh(n)
+}
+func maybe(n: Int) -> Res? {
+    if n < 0 {
+        return None
+    }
+    fresh(n)
+}
+func pair(n: Int) -> (Res, Res) { (fresh(n), fresh(n)) }
+func holder(n: Int) -> Holder { Holder(kept: fresh(n), other: fresh(n)) }
+func use_res(r: Res) -> Int { r.id }
+
+func propagated(n: Int) -> Result<Int, Fault> {
+    let r = try risky(n)
+    use_res(move r)
+}
+
+func forced(n: Int) -> Int {
+    let r = try! risky(n)
+    use_res(move r)
+}
+
+func optional(n: Int) -> Int {
+    let o = try? risky(n)
+    if let r = move o {
+        return use_res(move r)
+    }
+    0
+}
+
+func coalesced(n: Int) -> Int {
+    let r = maybe(n) ?? fresh(0)
+    use_res(move r)
+}
+
+func moved_force(n: Int) -> Int {
+    let o = maybe(n)
+    let r = move o!
+    use_res(move r)
+}
+
+func temporary_parts(n: Int) -> Int {
+    let a = maybe(n)!
+    let b = holder(n).kept
+    let c = pair(n).1
+    use_res(move a) + use_res(move b) + use_res(move c)
+}
+
+func matched(n: Int) -> Int {
+    let s = slot(n)
+    match s {
+        case Filled(first, _, count) -> use_res(move first) + count,
+        case Nested(Some(inner), _) -> use_res(move inner),
+        case Nested(None, rest) -> use_res(move rest),
+        case Empty -> 0
+    }
+}
+
+func matched_temporary(n: Int) -> Int {
+    match slot(n) {
+        case Filled(_, second, _) -> use_res(move second),
+        case _ -> 0
+    }
+}
+
+func unwrapped(n: Int) -> Int {
+    if let r = maybe(n) {
+        return use_res(move r)
+    }
+    guard let g = maybe(n) else {
+        return 0
+    }
+    use_res(move g)
+}
+
+func drained(n: Int) -> Int {
+    var total = 0
+    var left = n
+    while let r = maybe(left) {
+        total = total + use_res(move r)
+        left = left - 1
+    }
+    total
+}
+
+func destructured(n: Int) -> Int {
+    let (a, _) = pair(n)
+    use_res(move a)
+}
+
+func iterated(items: Vector<String>) -> Int {
+    var total = 0
+    for s in items.iter() {
+        total = total + s.len()
+    }
+    for _ in items.iter() {
+        total = total + 1
+    }
+    total
+}
+
+extension Holder {
+    func take_kept(&var self) consumes -> Res { move self.kept }
+}

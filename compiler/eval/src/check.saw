@@ -1,0 +1,152 @@
+// The evaluator's verifier and its dump. The verifier checks that every
+// constant position lowered has an evaluation that ended: a value of its own
+// type, or a refusal, or no value because a constant it reads was refused;
+// and that typecheck's fold (`fold.saw`), which computes the same constants
+// from the tree, agrees with every one: the same value at the same type, or
+// the same fault. The only constants it skips are those whose value is an
+// enum case, which the fold has no form for.
+
+import sawmir.src.dump.{mir_module_functions}
+import sawmir.src.model.{MirFuncKind}
+import sawmir.src.program.{MirProgram}
+import saweval.src.program.{EvalEnd, EvalKind, EvalProgram, EvalValue, eval_is_constant_kind}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.program.{ResProgram}
+import sawtypecheck.src.arith.{TcFault, tc_arith_text}
+import sawtypecheck.src.fold.{TcFold}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.typeops.{TcClient}
+
+extension EvalProgram {
+    // Every problem the verifier finds with module `m`'s constants.
+    public func verify_module(&var self, m: Int) -> Vector<String> {
+        var out = Vector<String>()
+        let order = mir_module_functions(&self.mir, m)
+        var k = 0
+        while k < order.len() {
+            let f = order[k]
+            k = k + 1
+            let info = self.mir.funcs[f]
+            if not eval_is_constant_kind(info.kind) {
+                continue
+            }
+            let v = self.values[f]
+            let end = self.ends[f]
+            if end == EvalEnd.Pending {
+                self.problem(f, &var out, "a constant position was never evaluated")
+                continue
+            }
+            if end == EvalEnd.Valued {
+                let want = self.mir.locals[info.local_first].ty
+                if v.kind == EvalKind.Missing || v.ty != want {
+                    self.problem(f, &var out, "a constant's value is not of its position's type")
+                }
+            }
+            self.verify_agreement(f, &var out)
+        }
+        move out
+    }
+
+    // The evaluator and typecheck's fold agree on constant `f`.
+    func verify_agreement(&var self, f: Int, out: &var Vector<String>) {
+        let v = self.values[f]
+        if v.kind == EvalKind.Case {
+            return
+        }
+        let root = self.mir.funcs[f].root
+        let fold = self.mir.tc.fold_constant(root)
+        var same = false
+        if v.kind == EvalKind.Integer || v.kind == EvalKind.Boolean {
+            same = fold.ok && fold.ty == v.ty && fold.bits == v.bits
+        } else if v.kind == EvalKind.Missing {
+            same = not fold.ok && fold.fault == v.fault
+        }
+        if same {
+            return
+        }
+        var text = StringBuilder()
+        try! text.append("the evaluator and typecheck's fold disagree: the evaluator's ")
+        try! text.append(self.value_text(&v))
+        try! text.append(", the fold's ")
+        try! text.append(self.fold_text_of(&fold))
+        self.problem(f, &var out, text.build())
+    }
+
+    func problem(&self, f: Int, out: &var Vector<String>, text: String) {
+        let info = self.mir.funcs[f]
+        var line = StringBuilder()
+        try! line.append(self.mir.tc.res.node_position(info.module, info.root))
+        try! line.append(" ")
+        try! line.append(self.mir.func_name(f))
+        try! line.append(": ")
+        try! line.append(text)
+        try! out.push(line.build())
+    }
+
+    // A value as the dump writes it: an integer in decimal, `true`, `false`,
+    // a case's identity, or the fault that left none.
+    public func value_text(&self, v: &EvalValue) -> String {
+        match v.kind {
+            case Integer -> tc_arith_text(v.bits, self.mir.tc.int_width(v.ty), not self.mir.tc.is_unsigned(v.ty)),
+            case Boolean -> if v.bits != 0 { "true" } else { "false" },
+            case Case -> self.mir.tc.res.decl_identity(v.decl),
+            case Unit -> "()",
+            case Missing -> eval_fault_name(v.fault)
+        }
+    }
+
+    func fold_text_of(&self, fold: &TcFold) -> String {
+        if fold.ok {
+            var out = StringBuilder()
+            try! out.append(self.mir.tc.fold_text(&fold))
+            try! out.append(": ")
+            try! out.append(self.mir.tc.type_text(fold.ty))
+            return out.build()
+        }
+        eval_fault_name(fold.fault)
+    }
+
+    // Module `m`'s constants, one line each: `NAME: TYPE = VALUE`, or
+    // `NAME: TYPE (no value)` when its evaluation was refused or read a
+    // refused constant.
+    public func dump_module(&self, out: &var StringBuilder, m: Int) {
+        try! out.append("module ")
+        try! out.append(self.mir.tc.res.module_name(m))
+        try! out.append("\n")
+        let order = mir_module_functions(&self.mir, m)
+        var k = 0
+        while k < order.len() {
+            let f = order[k]
+            k = k + 1
+            let info = self.mir.funcs[f]
+            if not eval_is_constant_kind(info.kind) {
+                continue
+            }
+            try! out.append(self.mir.func_name(f))
+            try! out.append(": ")
+            let t = self.mir.locals[info.local_first].ty
+            self.mir.append_type(&var out, t)
+            let v = self.values[f]
+            if v.kind == EvalKind.Missing {
+                try! out.append(" (no value)\n")
+            } else {
+                try! out.append(" = ")
+                try! out.append(self.value_text(&v))
+                try! out.append("\n")
+            }
+        }
+    }
+}
+
+public func eval_fault_name(fault: TcFault) -> String {
+    match fault {
+        case Clean -> "no fault",
+        case Overflow -> "an overflow",
+        case ShiftRange -> "a shift out of range",
+        case DivideByZero -> "a division by zero",
+        case NotFit -> "a value that does not fit",
+        case NotConstant -> "no constant",
+        case Cycle -> "a cycle"
+    }
+}

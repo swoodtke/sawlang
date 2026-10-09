@@ -1,136 +1,228 @@
-// Constant folding (spec, Compile-Time Evaluation, "The constant grammar";
-// Integer Width Agreement): the value of a constant expression, so a literal
-// inside one is judged by the folded value it contributes to (design 87).
-// A constant expression is integer literals, module statics of an integer
-// type and the cases of a raw-backed enum, under `-`, `~`, arithmetic, shift
-// and bit operators. Folding never traps: an operation whose result would not
-// fit an `Int` leaves the expression unfolded.
+// Constant folding (spec, Compile-Time Evaluation, "The constant grammar"):
+// a constant expression's value, which typecheck needs before any MIR
+// exists, for a literal inside one is judged by the value it contributes to
+// (design 87). It follows the MIR evaluator's rule, typed arithmetic
+// (`arith.saw`, SL:architecture §3.10): every value is its type's, every
+// operation its operands' type's, and an overflow, an out-of-range shift or
+// a division by zero is a fault, never an unfolded expression. The grammar is
+// integer and `Bool` literals, module statics, raw-backed enum cases and an
+// integer type's `max` and `min`, under `-`, `~`, `not`, arithmetic, shift,
+// bit and comparison operators, `&&`, `||` and `as` between integer types.
+// The MIR evaluator in `compiler/eval` computes the same values from MIR,
+// and a lane holds the two to agreement; lowering this fold to MIR on demand
+// is a later unit's.
 
 import sawparse.src.grammar.{Alt}
 import sawresolve.src.collect.{res_is_top_level}
 import sawresolve.src.kinds.{res_is_type_alt}
 import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind}
-import sawtypecheck.src.model.{TC_FLAG_UNSAFE_VAR}
+import sawtypecheck.src.arith.{TcFault, TcValue, tc_arith_binary, tc_arith_compare, tc_arith_convert, tc_arith_literal,
+                               tc_arith_max, tc_arith_min, tc_arith_negative_literal, tc_arith_normalize, tc_arith_shift,
+                               tc_arith_text, tc_arith_unary}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.model.{TC_FLAG_UNSAFE_VAR, TcAdjust, TcAdjustKind}
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.typeops.{TcClient}
 
-static TC_FOLD_MAX: Int = 9223372036854775807
-// How many statics and cases one fold follows, which bounds a cycle.
-static TC_FOLD_DEPTH: Int = 32
-
-// A folded value, or none.
+// A folded value: an integer's bits at type `ty`, or a `Bool` as 1 or 0; or
+// the fault that stopped the fold, at node `at`, with `bits` the value a
+// conversion could not hold and `ty` the type it was converted from, or the
+// type an operation faulted in.
 public struct TcFold {
     public ok: Bool
-    public value: Int
+    public bits: Int
+    public ty: Int
+    public fault: TcFault
+    public at: Int
 }
 
-public func tc_no_fold() -> TcFold {
-    TcFold(ok: false, value: 0)
+public func tc_folded(bits: Int, ty: Int) -> TcFold {
+    TcFold(ok: true, bits: bits, ty: ty, fault: TcFault.Clean, at: -1)
 }
 
-public func tc_folded(v: Int) -> TcFold {
-    TcFold(ok: true, value: v)
+public func tc_fold_fault(fault: TcFault, ty: Int, at: Int) -> TcFold {
+    TcFold(ok: false, bits: 0, ty: ty, fault: fault, at: at)
 }
 
 extension TcProgram {
-    // Constant expression `e`'s value.
-    public func fold_constant(&self, e: Int) -> TcFold {
-        self.fold_at(e, 0)
+    // Constant expression `e`'s value at its final type, its adjustments
+    // applied.
+    public func fold_constant(&var self, e: Int) -> TcFold {
+        var chain = Vector<Int>()
+        self.fold_at(e, &var chain)
     }
 
-    func fold_at(&self, e: Int, depth: Int) -> TcFold {
-        if e < 0 || depth > TC_FOLD_DEPTH {
-            return tc_no_fold()
+    // `e`'s value, `chain` the statics being folded around it, newest last.
+    func fold_at(&var self, e: Int, chain: &var Vector<Int>) -> TcFold {
+        if e < 0 {
+            return tc_fold_fault(TcFault.NotConstant, -1, e)
         }
         guard let alt = self.node_alt(e) else {
-            return tc_no_fold()
+            return tc_fold_fault(TcFault.NotConstant, -1, e)
         }
-        self.fold_as(e, alt, depth)
+        let v = self.fold_as(e, alt, &var chain)
+        if not v.ok {
+            return v
+        }
+        var cur = v
+        var a = self.adj_head[e]
+        while a >= 0 {
+            let adj = self.adjusts[a]
+            a = adj.next
+            if adj.kind != TcAdjustKind.Adopt && adj.kind != TcAdjustKind.Widen {
+                return tc_fold_fault(TcFault.NotConstant, cur.ty, e)
+            }
+            cur = self.fold_convert(cur, adj.to, e)
+            if not cur.ok {
+                return cur
+            }
+        }
+        cur
     }
 
-    func fold_as(&self, e: Int, alt: Alt, depth: Int) -> TcFold {
+    func fold_as(&var self, e: Int, alt: Alt, chain: &var Vector<Int>) -> TcFold {
         match alt {
-            case Expr_Int -> self.fold_literal(e),
+            case Expr_Int -> {
+                let t = self.literal_type(e)
+                self.fold_literal(e, t, false)
+            },
+            case Expr_Bool_True -> tc_folded(1, self.bool_type()),
+            case Expr_Bool_False -> tc_folded(0, self.bool_type()),
             case Expr_Unary_Negate -> {
                 let operand = self.res.first_node_child(e)
-                let inner = self.fold_at(operand, depth)
-                if not inner.ok {
-                    return inner
+                if self.has_alt(operand, Alt.Expr_Int) {
+                    // A negated literal is one constant, so `-128` is an
+                    // `Int8` though `128` is not (SL:open-questions D6).
+                    var t = self.expr_types[e]
+                    if self.adj_head[operand] >= 0 {
+                        t = self.literal_type(operand)
+                    }
+                    return self.fold_literal(operand, t, true)
                 }
-                tc_folded(0 - inner.value)
+                self.fold_unary(e, "-", &var chain)
             },
-            case Expr_Unary_Complement -> {
+            case Expr_Unary_Complement -> self.fold_unary(e, "~", &var chain),
+            case Expr_Unary_Not -> {
                 let operand = self.res.first_node_child(e)
-                let inner = self.fold_at(operand, depth)
+                let inner = self.fold_at(operand, &var chain)
                 if not inner.ok {
                     return inner
                 }
-                tc_folded(0 - inner.value - 1)
+                tc_folded(1 - inner.bits, inner.ty)
             },
-            case Expr_Additive -> self.fold_operators(e, depth),
-            case Expr_Multiplicative -> self.fold_operators(e, depth),
-            case Expr_Shift -> self.fold_operators(e, depth),
-            case Expr_Bitand -> self.fold_operators(e, depth),
-            case Expr_Bitor -> self.fold_operators(e, depth),
-            case Expr_Bitxor -> self.fold_operators(e, depth),
-            case Expr_Name -> self.fold_static(e, depth),
-            case Expr_Member -> self.fold_case(e, depth),
-            case _ -> tc_no_fold()
+            case Expr_Additive -> self.fold_operators(e, &var chain),
+            case Expr_Multiplicative -> self.fold_operators(e, &var chain),
+            case Expr_Shift -> self.fold_operators(e, &var chain),
+            case Expr_Bitand -> self.fold_operators(e, &var chain),
+            case Expr_Bitor -> self.fold_operators(e, &var chain),
+            case Expr_Bitxor -> self.fold_operators(e, &var chain),
+            case Expr_Compare_Pair -> self.fold_compare(e, &var chain),
+            case Expr_And -> self.fold_logic(e, true, &var chain),
+            case Expr_Or -> self.fold_logic(e, false, &var chain),
+            case Expr_Cast -> {
+                let operand = self.res.first_node_child(e)
+                let inner = self.fold_at(operand, &var chain)
+                if not inner.ok {
+                    return inner
+                }
+                let t = self.expr_types[e]
+                self.fold_convert(inner, t, e)
+            },
+            case Expr_Name -> self.fold_name(e, &var chain),
+            case Expr_Member -> self.fold_member(e, &var chain),
+            case _ -> tc_fold_fault(TcFault.NotConstant, -1, e)
         }
     }
 
-    // An integer literal's value, its suffix left off; none past `Int.max`.
-    func fold_literal(&self, e: Int) -> TcFold {
+    // Value `v` converted to type `t`, which must hold it.
+    func fold_convert(&self, v: TcFold, t: Int, at: Int) -> TcFold {
+        if v.ty == t {
+            return v
+        }
+        if not self.is_integer(v.ty) || not self.is_integer(t) {
+            return tc_fold_fault(TcFault.NotConstant, v.ty, at)
+        }
+        let r = tc_arith_convert(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty), self.int_width(t),
+                                 not self.is_unsigned(t))
+        if not r.ok {
+            return TcFold(ok: false, bits: v.bits, ty: v.ty, fault: TcFault.NotFit, at: at)
+        }
+        tc_folded(r.bits, t)
+    }
+
+    // The type a literal is written at: the integer type it adopts, as a
+    // literal adopts its slot whole, or its own.
+    func literal_type(&self, e: Int) -> Int {
+        let a = self.adj_head[e]
+        if a >= 0 && self.adjusts[a].kind == TcAdjustKind.Adopt {
+            return self.adjusts[a].to
+        }
+        self.expr_types[e]
+    }
+
+    // Integer literal `e` at type `t`, negated with `negated`.
+    func fold_literal(&var self, e: Int, t: Int, negated: Bool) -> TcFold {
+        if t < 0 || not self.is_integer(t) {
+            return tc_fold_fault(TcFault.NotConstant, t, e)
+        }
         let m = self.node_module_of(e)
         let leaf = self.res.first_leaf(e)
         let at = if leaf >= 0 { leaf } else { e }
         let text = self.text(m, at)
-        var radix = 10
-        var i = 0
-        let n = text.len()
-        if n > 2 && (text.byte_at(0) as Int) == 48 {
-            let letter = text.byte_at(1) as Int
-            if letter == 120 {
-                radix = 16
-                i = 2
-            } else if letter == 111 {
-                radix = 8
-                i = 2
-            } else if letter == 98 {
-                radix = 2
-                i = 2
-            }
+        let magnitude = tc_arith_literal(&text)
+        if not magnitude.ok {
+            return TcFold(ok: false, bits: magnitude.bits, ty: t, fault: magnitude.fault, at: e)
         }
-        var value = 0
-        while i < n {
-            let b = text.byte_at(i) as Int
-            i = i + 1
-            if b == 95 {
-                continue
+        let w = self.int_width(t)
+        let signed = not self.is_unsigned(t)
+        if not negated {
+            let r = tc_arith_convert(magnitude.bits, 64, false, w, signed)
+            if not r.ok {
+                return TcFold(ok: false, bits: magnitude.bits, ty: self.uint64_type(), fault: TcFault.NotFit, at: e)
             }
-            if b == 105 || b == 117 {
-                break
-            }
-            var digit = -1
-            if b >= 48 && b <= 57 {
-                digit = b - 48
-            } else if b >= 97 && b <= 102 {
-                digit = b - 87
-            } else if b >= 65 && b <= 70 {
-                digit = b - 55
-            }
-            if digit < 0 || digit >= radix || value > (TC_FOLD_MAX - digit) / radix {
-                return tc_no_fold()
-            }
-            value = value * radix + digit
+            return tc_folded(r.bits, t)
         }
-        tc_folded(value)
+        let r = tc_arith_negative_literal(magnitude.bits, w, signed)
+        if not r.ok {
+            return TcFold(ok: false, bits: r.bits, ty: self.int_type(), fault: TcFault.NotFit, at: e)
+        }
+        tc_folded(r.bits, t)
     }
 
-    // A flat operator chain, left to right.
-    func fold_operators(&self, e: Int, depth: Int) -> TcFold {
+    func uint64_type(&var self) -> Int {
+        let d = self.known.uint64
+        let none = Vector<Int>()
+        self.mk_nominal(d, &none)
+    }
+
+    // `-x`, `~x`, at `e`'s operand's type.
+    func fold_unary(&var self, e: Int, op: String, chain: &var Vector<Int>) -> TcFold {
+        let operand = self.res.first_node_child(e)
+        let inner = self.fold_at(operand, &var chain)
+        if not inner.ok {
+            return inner
+        }
+        if not self.is_integer(inner.ty) {
+            return tc_fold_fault(TcFault.NotConstant, inner.ty, e)
+        }
+        let r = tc_arith_unary(&op, inner.bits, self.int_width(inner.ty), not self.is_unsigned(inner.ty))
+        self.fold_result(r, inner.ty, e)
+    }
+
+    // A typed arithmetic result at type `t`, or its fault at `e`.
+    func fold_result(&self, r: TcValue, t: Int, e: Int) -> TcFold {
+        if not r.ok {
+            return tc_fold_fault(r.fault, t, e)
+        }
+        tc_folded(r.bits, t)
+    }
+
+    // A flat operator chain, left to right, each operator at its left
+    // operand's type; a shift's count keeps its own.
+    func fold_operators(&var self, e: Int, chain: &var Vector<Int>) -> TcFold {
         let m = self.node_module_of(e)
-        var acc = tc_no_fold()
+        var acc = tc_fold_fault(TcFault.NotConstant, -1, e)
+        var started = false
         var op = ""
         let n = self.child_count(e)
         var k = 0
@@ -141,15 +233,27 @@ extension TcProgram {
                 op = self.text(m, c)
                 continue
             }
-            let v = self.fold_at(c, depth)
+            let v = self.fold_at(c, &var chain)
             if not v.ok {
                 return v
             }
-            if not acc.ok {
+            if not started {
                 acc = v
+                started = true
                 continue
             }
-            acc = tc_fold_step(acc.value, &op, v.value)
+            if not self.is_integer(acc.ty) || not self.is_integer(v.ty) {
+                return tc_fold_fault(TcFault.NotConstant, acc.ty, e)
+            }
+            let w = self.int_width(acc.ty)
+            let signed = not self.is_unsigned(acc.ty)
+            var r = tc_arith_binary(&op, acc.bits, v.bits, w, signed)
+            if op.equals("<<") || op.equals(">>") {
+                r = tc_arith_shift(&op, acc.bits, w, signed, v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty))
+            } else if acc.ty != v.ty {
+                return tc_fold_fault(TcFault.NotConstant, acc.ty, e)
+            }
+            acc = self.fold_result(r, acc.ty, e)
             if not acc.ok {
                 return acc
             }
@@ -157,33 +261,135 @@ extension TcProgram {
         acc
     }
 
-    // A module static of an integer type, by its initializer.
-    func fold_static(&self, e: Int, depth: Int) -> TcFold {
+    // `a op b`, a comparison: a `Bool`.
+    func fold_compare(&var self, e: Int, chain: &var Vector<Int>) -> TcFold {
+        let left = self.res.first_node_child(e)
+        let right = self.res.last_node_child(e)
+        let m = self.node_module_of(e)
+        let op_leaf = self.res.first_leaf(e)
+        let op = self.text(m, op_leaf)
+        let a = self.fold_at(left, &var chain)
+        if not a.ok {
+            return a
+        }
+        let b = self.fold_at(right, &var chain)
+        if not b.ok {
+            return b
+        }
+        let bt = self.bool_type()
+        if a.ty != b.ty {
+            return tc_fold_fault(TcFault.NotConstant, a.ty, e)
+        }
+        if self.is_bool(a.ty) {
+            if op.equals("==") {
+                return tc_folded(if a.bits == b.bits { 1 } else { 0 }, bt)
+            }
+            if op.equals("!=") {
+                return tc_folded(if a.bits != b.bits { 1 } else { 0 }, bt)
+            }
+            return tc_fold_fault(TcFault.NotConstant, a.ty, e)
+        }
+        if not self.is_integer(a.ty) {
+            return tc_fold_fault(TcFault.NotConstant, a.ty, e)
+        }
+        let holds = tc_arith_compare(&op, a.bits, b.bits, self.int_width(a.ty), not self.is_unsigned(a.ty))
+        tc_folded(if holds { 1 } else { 0 }, bt)
+    }
+
+    // `a && b && ...` or `a || b || ...`: each operand after the first only
+    // when the ones before leave the answer open, as at run time.
+    func fold_logic(&var self, e: Int, conjunction: Bool, chain: &var Vector<Int>) -> TcFold {
+        let bt = self.bool_type()
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            if self.is_leaf(c) {
+                continue
+            }
+            let v = self.fold_at(c, &var chain)
+            if not v.ok {
+                return v
+            }
+            if conjunction && v.bits == 0 {
+                return tc_folded(0, bt)
+            }
+            if not conjunction && v.bits != 0 {
+                return tc_folded(1, bt)
+            }
+        }
+        tc_folded(if conjunction { 1 } else { 0 }, bt)
+    }
+
+    // A name: a module static, by its initializer.
+    func fold_name(&var self, e: Int, chain: &var Vector<Int>) -> TcFold {
         let leaf = self.res.first_leaf(e)
         let b = self.binding_at(leaf)
         if b.kind != ResBindKind.Decl || b.decl < 0 {
-            return tc_no_fold()
+            return tc_fold_fault(TcFault.NotConstant, -1, e)
         }
-        let info = self.res.decls[b.decl]
-        if info.kind != ResDeclKind.Static {
-            return tc_no_fold()
-        }
-        let s = self.sigs[b.decl]
-        if (s.flags & TC_FLAG_UNSAFE_VAR) != 0 || s.result < 0 || not self.is_integer(s.result) {
-            return tc_no_fold()
-        }
-        let value = self.static_initializer(b.decl)
-        self.fold_at(value, depth + 1)
+        self.fold_static(b.decl, e, &var chain)
     }
 
-    // A raw-backed enum's case, by its raw value.
-    func fold_case(&self, e: Int, depth: Int) -> TcFold {
-        let c = self.raw_case_named(e)
-        if c < 0 {
-            return tc_no_fold()
+    // Static `d`'s value, named at `e`; one already being folded is a cycle.
+    func fold_static(&var self, d: Int, e: Int, chain: &var Vector<Int>) -> TcFold {
+        let info = self.res.decls[d]
+        if info.kind != ResDeclKind.Static {
+            return tc_fold_fault(TcFault.NotConstant, -1, e)
         }
-        let value = self.raw_value_node(c)
-        self.fold_at(value, depth + 1)
+        let s = self.sigs[d]
+        if (s.flags & TC_FLAG_UNSAFE_VAR) != 0 || s.result < 0 {
+            return tc_fold_fault(TcFault.NotConstant, s.result, e)
+        }
+        var k = 0
+        while k < chain.len() {
+            if chain[k] == d {
+                return tc_fold_fault(TcFault.Cycle, s.result, e)
+            }
+            k = k + 1
+        }
+        let value = self.static_initializer(d)
+        try! chain.push(d)
+        let v = self.fold_at(value, &var chain)
+        var rest = Vector<Int>()
+        k = 0
+        while k + 1 < chain.len() {
+            try! rest.push(chain[k])
+            k = k + 1
+        }
+        chain = move rest
+        v
+    }
+
+    // `E.Case` of a raw-backed enum, by its raw value at its backing; an
+    // integer type's `max` or `min`; a static named through its module.
+    func fold_member(&var self, e: Int, chain: &var Vector<Int>) -> TcFold {
+        let c = self.raw_case_named(e)
+        if c >= 0 {
+            let value = self.raw_value_node(c)
+            return self.fold_at(value, &var chain)
+        }
+        let leaf = self.res.last_leaf_of(e)
+        let b = self.binding_at(leaf)
+        if b.kind == ResBindKind.Decl && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Static {
+            return self.fold_static(b.decl, e, &var chain)
+        }
+        let base = self.res.first_node_child(e)
+        let t = self.expr_types[e]
+        if base >= 0 && self.expr_types[base] < 0 && t >= 0 && self.is_integer(t) && leaf >= 0 {
+            let m = self.node_module_of(e)
+            let name = self.text(m, leaf)
+            let w = self.int_width(t)
+            let signed = not self.is_unsigned(t)
+            if name.equals("max") {
+                return tc_folded(tc_arith_max(w, signed), t)
+            }
+            if name.equals("min") {
+                return tc_folded(tc_arith_min(w, signed), t)
+            }
+        }
+        tc_fold_fault(TcFault.NotConstant, -1, e)
     }
 
     // The case of a raw-backed enum member expression `e` names, `E.Case`,
@@ -260,81 +466,17 @@ extension TcProgram {
         0
     }
 
-    // Whether folded value `v` fits integer type `t`.
-    public func value_fits(&self, v: Int, t: Int) -> Bool {
-        let w = self.int_width(t)
-        if self.is_unsigned(t) {
-            if v < 0 {
-                return false
+    // Folded value `v`, in decimal, or `true` or `false`.
+    public func fold_text(&self, v: &TcFold) -> String {
+        if v.ty >= 0 && self.is_integer(v.ty) {
+            return tc_arith_text(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty))
+        }
+        if v.ty >= 0 && self.is_bool(v.ty) {
+            if v.bits != 0 {
+                return "true"
             }
-            if w >= 63 {
-                return true
-            }
-            return v <= (1 << w) - 1
+            return "false"
         }
-        if w >= 64 {
-            return true
-        }
-        let top = (1 << (w - 1)) - 1
-        v <= top && v >= 0 - top - 1
+        v.bits.to_string()
     }
-}
-
-// `a op b` for one operator of a chain, or none when the result would not fit
-// an `Int`, a count is out of range, or a divisor is zero.
-public func tc_fold_step(a: Int, op: &String, b: Int) -> TcFold {
-    if op.equals("+") {
-        if (b > 0 && a > TC_FOLD_MAX - b) || (b < 0 && a < 0 - TC_FOLD_MAX - 1 - b) {
-            return tc_no_fold()
-        }
-        return tc_folded(a + b)
-    }
-    if op.equals("-") {
-        if (b < 0 && a > TC_FOLD_MAX + b) || (b > 0 && a < 0 - TC_FOLD_MAX - 1 + b) {
-            return tc_no_fold()
-        }
-        return tc_folded(a - b)
-    }
-    if op.equals("*") {
-        if a == 0 || b == 0 {
-            return tc_folded(0)
-        }
-        let ma = if a < 0 { 0 - a } else { a }
-        let mb = if b < 0 { 0 - b } else { b }
-        if ma < 0 || mb < 0 || ma > TC_FOLD_MAX / mb {
-            return tc_no_fold()
-        }
-        return tc_folded(a * b)
-    }
-    if op.equals("/") || op.equals("%") {
-        if b == 0 || (b == -1 && a == 0 - TC_FOLD_MAX - 1) {
-            return tc_no_fold()
-        }
-        if op.equals("/") {
-            return tc_folded(a / b)
-        }
-        return tc_folded(a % b)
-    }
-    if op.equals("<<") {
-        if b < 0 || b > 62 || a < 0 || a > (TC_FOLD_MAX >> b) {
-            return tc_no_fold()
-        }
-        return tc_folded(a << b)
-    }
-    if op.equals(">>") {
-        if b < 0 || b > 63 {
-            return tc_no_fold()
-        }
-        return tc_folded(a >> b)
-    }
-    if op.equals("&") {
-        return tc_folded(a & b)
-    }
-    if op.equals("|") {
-        return tc_folded(a | b)
-    }
-    if op.equals("^") {
-        return tc_folded(a ^ b)
-    }
-    tc_no_fold()
 }

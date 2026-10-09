@@ -1,0 +1,58 @@
+// The evaluator's entry point: a program checked, lowered, its constants
+// evaluated, and the record `sawc2 eval` prints for it.
+
+import sawmir.src.api.{mir_append_checks, mir_append_diag, mir_append_dumps, mir_append_invariants,
+                       mir_lower_file}
+import sawmir.src.program.{MirProgram}
+import saweval.src.check.{eval_fault_name}
+import saweval.src.interp.{eval_step_budget}
+import saweval.src.program.{EvalProgram, eval_program}
+import saweval.src.report.{eval_rules}
+
+// How `sawc2 eval` treats one entry file.
+public struct EvalOptions {
+    public std_root: String
+    // Print each module's constants and their values.
+    public dump: Bool
+    public notes: Bool
+}
+
+// The record of one program evaluated, after its `FILE` line: everything
+// `sawc2 mir --check` prints, then the evaluator's refusals, each an `ERROR`
+// line, then an `INVARIANT` line per problem its verifier finds, and with
+// `dump` each lowered module's constants. Returns 0 when nothing was refused
+// and 1 otherwise.
+public func eval_record(out: &var StringBuilder, path: String, options: &EvalOptions, names: &Vector<String>,
+                        dirs: &Vector<String>) -> Int {
+    var lowered = mir_lower_file(path, options.std_root, &names, &dirs)
+    var status = mir_append_checks(out: &var out, p: &var lowered, notes: options.notes)
+    var p = eval_program(move lowered)
+    p.evaluate_all()
+    var k = 0
+    while k < p.diags.len() {
+        let d = p.diags[k]
+        mir_append_diag(out: &var out, p: &p.mir, d: &d)
+        k = k + 1
+    }
+    if p.diags.len() > 0 {
+        status = 1
+    }
+    var m = 0
+    while m < p.mir.tc.res.module_count() {
+        let found = p.verify_module(m)
+        mir_append_invariants(out: &var out, p: &p.mir, m: m, problems: &found)
+        m = m + 1
+    }
+    if options.dump {
+        m = 0
+        while m < p.mir.tc.res.module_count() {
+            let info = p.mir.tc.res.module(m)
+            if info.available && not info.interface_only {
+                p.dump_module(&var out, m)
+                try! out.append("\n")
+            }
+            m = m + 1
+        }
+    }
+    status
+}

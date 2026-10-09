@@ -1,0 +1,93 @@
+// A `borrows` accessor is two functions around its `lend`: the prologue,
+// which produces the lent reference (an Optional of it for a conditional
+// lend, `None` on the absent path) and writes the state record; and the
+// epilogue, which reads the record into its locals and runs what follows the
+// `lend`. The record holds exactly the locals live across the `lend`, and a
+// resume index when the body lends at more than one place; a window the
+// prologue opens to forward a place stays open into the epilogue. A caller
+// holds the record for the window's duration and passes it to both halves.
+// A window call is a suspension point only when its half may suspend.
+
+import std.task.{yield_now}
+
+struct Grid {
+    cells: [Int; 4],
+    reads: Int
+}
+
+struct Lock {
+    value: Int
+}
+
+extension Grid {
+    // A plain accessor: nothing lives across the `lend`.
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+
+    // A conditional lend.
+    func find(&var self, i: Int) borrows -> &var Int? {
+        if i < 0 || i >= 4 {
+            return None
+        }
+        lend self.cells[i]
+    }
+
+    // Two locals live across the `lend`: the receiver and `before`.
+    func counted(&var self, i: Int) borrows -> &var Int {
+        let before = self.reads
+        lend self.cells[i]
+        self.reads = before + i
+    }
+
+    // Two places it may lend, so the record carries where to resume.
+    func either(&var self, first: Bool) borrows -> &var Int {
+        if first {
+            lend self.cells[0]
+        } else {
+            lend self.cells[1]
+        }
+        self.reads = self.reads + 1
+    }
+
+    // A forwarded lend: the window it opens on `self[i]` stays open across
+    // its own `lend`, and the epilogue closes it.
+    func forwarded(&var self, i: Int) borrows -> &var Int {
+        lend self[i]
+    }
+
+    // The prologue may suspend; the epilogue does not.
+    func waited(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.cells[i]
+    }
+}
+
+extension Lock {
+    // A `borrows(sync)` accessor, whose window allows no suspension.
+    func hold(&var self) sync borrows(sync) -> &var Int {
+        lend self.value
+    }
+}
+
+func use_all(g: &var Grid, l: &var Lock) -> Int {
+    borrow var a = g.counted(1) {
+        a += 1
+    }
+    borrow var b = g.either(true) {
+        b += 1
+    }
+    borrow var c = g.forwarded(2) {
+        c += 1
+    }
+    borrow var d = g.waited(3) {
+        d += 1
+    }
+    borrow var e = l.hold() {
+        e += 1
+    }
+    if borrow var found = g.find(0) {
+        found += 1
+    }
+    g[0]
+}

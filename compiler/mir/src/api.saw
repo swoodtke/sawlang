@@ -39,10 +39,34 @@ public func mir_lower_file(path: String, std_root: String, names: &Vector<String
 public func mir_record(out: &var StringBuilder, path: String, options: &MirOptions, names: &Vector<String>,
                        dirs: &Vector<String>) -> Int {
     var p = mir_lower_file(path, options.std_root, &names, &dirs)
+    let status = mir_append_checks(out: &var out, p: &var p, notes: options.notes)
+    if options.dump {
+        mir_append_dumps(out: &var out, p: &p)
+    }
+    status
+}
+
+// Each module checked in full's dump, in load order.
+public func mir_append_dumps(out: &var StringBuilder, p: &MirProgram) {
+    var m = 0
+    while m < p.tc.res.module_count() {
+        let info = p.tc.res.module(m)
+        if info.available && not info.interface_only {
+            mir_dump_module(&p, &var out, m)
+            try! out.append("\n")
+        }
+        m = m + 1
+    }
+}
+
+// A lowered program's refusals, `NOTE` lines when asked for, and every
+// verifier's `INVARIANT` lines, as `mir_record` describes; returns 0 when
+// nothing was refused and 1 otherwise.
+public func mir_append_checks(out: &var StringBuilder, p: &var MirProgram, notes: Bool) -> Int {
     var k = 0
     while k < p.tc.res.diags.len() {
         let d = p.tc.res.diags[k]
-        if not d.note || options.notes {
+        if not d.note || notes {
             append_res_diag(out: &var out, p: &p.tc.res, d: &d)
         }
         k = k + 1
@@ -50,7 +74,7 @@ public func mir_record(out: &var StringBuilder, path: String, options: &MirOptio
     k = 0
     while k < p.tc.diags.len() {
         let d = p.tc.diags[k]
-        if not d.note || options.notes {
+        if not d.note || notes {
             append_tc_diag(out: &var out, p: &p.tc, d: &d)
         }
         k = k + 1
@@ -89,24 +113,13 @@ public func mir_record(out: &var StringBuilder, path: String, options: &MirOptio
         mir_append_invariants(out: &var out, p: &p, m: m, problems: &lowered)
         m = m + 1
     }
-    if options.dump {
-        m = 0
-        while m < p.tc.res.module_count() {
-            let info = p.tc.res.module(m)
-            if info.available && not info.interface_only {
-                mir_dump_module(&p, &var out, m)
-                try! out.append("\n")
-            }
-            m = m + 1
-        }
-    }
     if p.tc.error_count() > 0 || p.diags.len() > 0 {
         return 1
     }
     0
 }
 
-func mir_append_invariants(out: &var StringBuilder, p: &MirProgram, m: Int, problems: &Vector<String>) {
+public func mir_append_invariants(out: &var StringBuilder, p: &MirProgram, m: Int, problems: &Vector<String>) {
     var j = 0
     while j < problems.len() {
         try! out.append("INVARIANT\t")
@@ -119,7 +132,7 @@ func mir_append_invariants(out: &var StringBuilder, p: &MirProgram, m: Int, prob
 }
 
 // `ERROR<TAB>id<TAB>file:line:col<TAB>message`.
-func mir_append_diag(out: &var StringBuilder, p: &MirProgram, d: &MirDiag) {
+public func mir_append_diag(out: &var StringBuilder, p: &MirProgram, d: &MirDiag) {
     try! out.append("ERROR\t")
     try! out.append(d.id)
     try! out.append("\t")

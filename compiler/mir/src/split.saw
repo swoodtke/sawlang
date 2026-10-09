@@ -1,0 +1,979 @@
+// An accessor lowered as two halves around its `lend` (SL:architecture §3.5,
+// Ruled). A `borrows` accessor's body is lowered whole first, `lend` a call
+// that pauses it; then it is split there. The prologue is every block the
+// entry reaches without resuming from a `lend`: it ends each `lend` by
+// writing the state record and returning the lent reference, and a
+// conditional lend's absent path returns `None`. The epilogue is every block
+// a `lend` resumes into: it reads the record into its locals and continues.
+// The record holds exactly the locals live across the `lend`, by liveness
+// over the whole body, and a resume index when the body lends at more than
+// one place. It is the shape coroutine frames take (§3.9).
+
+import sawmir.src.build.{mir_func_local}
+import sawmir.src.model.{MirAccessor, MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind,
+                         MirFunc, MirFuncKind, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace,
+                         MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind, MirSuspend,
+                         MirSwitchKind, MirTermKind, MirWindow}
+import sawmir.src.program.{MirLoop, MirProgram, MirScopeEntry}
+import sawtypecheck.src.declarations.{tc_build_signatures}
+import sawtypecheck.src.model.{TcLend}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind}
+
+// One half under construction: the source function's locals, blocks and
+// windows it keeps, each mapped to its own numbering, or -1.
+public struct MirHalf {
+    public local_map: Vector<Int>
+    public block_map: Vector<Int>
+    public window_map: Vector<Int>
+}
+
+extension MirHalf: NoCopy {}
+
+extension MirProgram {
+    // Splits accessor function `f`, lowered whole, into its two halves: `f`
+    // becomes the prologue and the epilogue follows it. A body whose code
+    // after a `lend` is reachable without lending is refused.
+    public func split_accessor(&var self, f: Int) {
+        let info = self.funcs[f]
+        if info.refused {
+            return
+        }
+        let n_blocks = info.block_count
+        let n_locals = info.local_count
+        // The `lend` sites and the blocks each resumes into.
+        var sites = Vector<Int>()
+        var resumes = Vector<Int>()
+        var b = 0
+        while b < n_blocks {
+            let block = self.blocks[info.block_first + b]
+            if block.term == MirTermKind.Call && self.calls[block.call].kind == MirCallKind.Lend {
+                try! sites.push(b)
+                try! resumes.push(self.calls[block.call].next)
+            }
+            b = b + 1
+        }
+        let before = self.reach(f, 0, true)
+        var after = Vector<Bool>()
+        b = 0
+        while b < n_blocks {
+            try! after.push(false)
+            b = b + 1
+        }
+        var k = 0
+        while k < resumes.len() {
+            if resumes[k] >= 0 {
+                let from = self.reach(f, resumes[k], false)
+                b = 0
+                while b < n_blocks {
+                    if from[b] {
+                        after[b] = true
+                    }
+                    b = b + 1
+                }
+            }
+            k = k + 1
+        }
+        b = 0
+        while b < n_blocks {
+            if before[b] && after[b] {
+                self.not_yet_at(f, info.root, "an accessor whose code after `lend` is reachable without lending")
+                return
+            }
+            b = b + 1
+        }
+        // The record: the locals live where some `lend` resumes.
+        let live = self.liveness(f)
+        var record = Vector<Int>()
+        var l = 1
+        while l < n_locals {
+            var held = false
+            k = 0
+            while k < resumes.len() {
+                if resumes[k] >= 0 && live[resumes[k] * n_locals + l] {
+                    held = true
+                }
+                k = k + 1
+            }
+            if held {
+                try! record.push(l)
+            }
+            l = l + 1
+        }
+        let record_t = self.record_type(f, &record, sites.len())
+        let s = self.tc.sigs[info.decl]
+        let conditional = s.lending == TcLend.ConditionalPlace
+        // Windows the prologue opens and the epilogue closes stay open across
+        // the `lend`.
+        let carried = self.carried_windows(f, &before, &after)
+        let epilogue = self.funcs.len()
+        self.build_prologue(f, &info, &before, &record, record_t, &carried, conditional)
+        self.build_epilogue(&info, epilogue, &after, &record, record_t, &carried, &resumes)
+        let at = self.accessors.len()
+        let prologue_suspends = self.half_suspends(f)
+        let epilogue_suspends = self.half_suspends(epilogue)
+        try! self.accessors.push(MirAccessor(decl: info.decl, prologue: f, epilogue: epilogue, record: record_t,
+                                             lend_sites: sites.len(), prologue_suspends: prologue_suspends,
+                                             epilogue_suspends: epilogue_suspends))
+        self.accessor_of[info.decl] = at
+    }
+
+    // A refusal in function `f`, at node `node`.
+    func not_yet_at(&var self, f: Int, node: Int, what: String) {
+        let outer = self.refused
+        self.not_yet(node, what)
+        self.refused = outer
+        var info = self.funcs[f]
+        info.refused = true
+        self.funcs[f] = info
+    }
+
+    // The blocks of `f` reachable from block `from`; with `stop`, a `lend`'s
+    // resume edge is not followed.
+    func reach(&self, f: Int, from: Int, stop: Bool) -> Vector<Bool> {
+        let info = self.funcs[f]
+        var seen = Vector<Bool>()
+        var b = 0
+        while b < info.block_count {
+            try! seen.push(false)
+            b = b + 1
+        }
+        var work = Vector<Int>()
+        try! work.push(from)
+        seen[from] = true
+        while work.len() > 0 {
+            let top = work.len() - 1
+            let at = work[top]
+            var rest = Vector<Int>()
+            var j = 0
+            while j < top {
+                try! rest.push(work[j])
+                j = j + 1
+            }
+            work = move rest
+            let block = self.blocks[info.block_first + at]
+            if stop && block.term == MirTermKind.Call && self.calls[block.call].kind == MirCallKind.Lend {
+                continue
+            }
+            let succ = self.successors_of(&block)
+            j = 0
+            while j < succ.len() {
+                let s = succ[j]
+                if not seen[s] {
+                    seen[s] = true
+                    try! work.push(s)
+                }
+                j = j + 1
+            }
+        }
+        move seen
+    }
+
+    // A block's successors.
+    public func successors_of(&self, block: &MirBlock) -> Vector<Int> {
+        var out = Vector<Int>()
+        if block.term == MirTermKind.Goto {
+            try! out.push(block.target)
+        } else if block.term == MirTermKind.Switch {
+            var k = 0
+            while k < block.arm_count {
+                try! out.push(self.arms[block.arm_first + k].target)
+                k = k + 1
+            }
+            if block.otherwise >= 0 {
+                try! out.push(block.otherwise)
+            }
+        } else if block.term == MirTermKind.Call {
+            let c = self.calls[block.call]
+            if c.next >= 0 {
+                try! out.push(c.next)
+            }
+            if c.absent >= 0 {
+                try! out.push(c.absent)
+            }
+        }
+        move out
+    }
+
+    // Backward liveness over `f`'s blocks: `live[b * locals + l]` when local
+    // `l` is read on some path from block `b`'s entry before it is written
+    // whole. A read is an operand, a reference, a drop, a switch, a call's
+    // arguments, a write into a part, and an index.
+    public func liveness(&self, f: Int) -> Vector<Bool> {
+        let info = self.funcs[f]
+        let n = info.local_count
+        var live = Vector<Bool>()
+        var k = 0
+        while k < info.block_count * n {
+            try! live.push(false)
+            k = k + 1
+        }
+        var changed = true
+        var rounds = 0
+        while changed && rounds < 1000 {
+            changed = false
+            rounds = rounds + 1
+            var b = info.block_count - 1
+            while b >= 0 {
+                let block = self.blocks[info.block_first + b]
+                var state = Vector<Bool>()
+                k = 0
+                while k < n {
+                    try! state.push(false)
+                    k = k + 1
+                }
+                let succ = self.successors_of(&block)
+                var j = 0
+                while j < succ.len() {
+                    k = 0
+                    while k < n {
+                        if live[succ[j] * n + k] {
+                            state[k] = true
+                        }
+                        k = k + 1
+                    }
+                    j = j + 1
+                }
+                self.block_transfer(&block, &var state)
+                k = 0
+                while k < n {
+                    if state[k] && not live[b * n + k] {
+                        live[b * n + k] = true
+                        changed = true
+                    }
+                    k = k + 1
+                }
+                b = b - 1
+            }
+        }
+        move live
+    }
+
+    // Block `block` run backward over live set `state`: its terminator, then
+    // its statements, last first.
+    func block_transfer(&self, block: &MirBlock, state: &var Vector<Bool>) {
+        if block.term == MirTermKind.Switch {
+            if block.switch_kind == MirSwitchKind.Bool {
+                self.use_operand(block.operand, &var state)
+            } else {
+                self.use_place(block.place, &var state)
+            }
+        } else if block.term == MirTermKind.Call {
+            let c = self.calls[block.call]
+            if c.dest >= 0 {
+                self.def_place(c.dest, &var state)
+            }
+            var k = 0
+            while k < c.arg_count {
+                let o = self.lists[c.arg_first + k]
+                self.use_operand(o, &var state)
+                k = k + 1
+            }
+            if c.callee >= 0 {
+                self.use_operand(c.callee, &var state)
+            }
+        }
+        var order = Vector<Int>()
+        var s = block.first
+        while s >= 0 {
+            try! order.push(s)
+            s = self.stmts[s].next
+        }
+        var k = order.len() - 1
+        while k >= 0 {
+            let stmt = self.stmts[order[k]]
+            k = k - 1
+            if stmt.kind == MirStmtKind.Assign {
+                self.def_place(stmt.place, &var state)
+                let rv = self.rvalues[stmt.rvalue]
+                if rv.kind == MirRvalueKind.Ref {
+                    self.use_place(rv.place, &var state)
+                }
+                var j = 0
+                while j < rv.count {
+                    let o = self.lists[rv.first + j]
+                    self.use_operand(o, &var state)
+                    j = j + 1
+                }
+            } else if stmt.kind == MirStmtKind.Drop {
+                self.use_place(stmt.place, &var state)
+            }
+        }
+    }
+
+    func use_operand(&self, o: Int, state: &var Vector<Bool>) {
+        if o < 0 {
+            return
+        }
+        let info = self.operands[o]
+        if info.kind != MirOperandKind.Const {
+            self.use_place(info.place, &var state)
+        }
+    }
+
+    func use_place(&self, p: Int, state: &var Vector<Bool>) {
+        if p < 0 {
+            return
+        }
+        let info = self.places[p]
+        if info.local >= 0 {
+            state[info.local] = true
+        }
+        self.use_indices(p, &var state)
+    }
+
+    // A write: a whole local's ends its liveness above it; a write into a
+    // part reads the rest of the local.
+    func def_place(&self, p: Int, state: &var Vector<Bool>) {
+        let info = self.places[p]
+        if info.local < 0 {
+            self.use_indices(p, &var state)
+            return
+        }
+        if info.count == 0 {
+            state[info.local] = false
+            return
+        }
+        state[info.local] = true
+        self.use_indices(p, &var state)
+    }
+
+    func use_indices(&self, p: Int, state: &var Vector<Bool>) {
+        let info = self.places[p]
+        var k = 0
+        while k < info.count {
+            let step = self.projs[info.first + k]
+            if step.kind == MirProjKind.Index && step.index >= 0 {
+                state[step.index] = true
+            }
+            k = k + 1
+        }
+    }
+
+    // The record's type: a tuple of the record locals' types, then an `Int`
+    // resume index when the body lends at more than one place; -1 when it
+    // holds nothing.
+    func record_type(&var self, f: Int, record: &Vector<Int>, sites: Int) -> Int {
+        if record.len() == 0 && sites <= 1 {
+            return -1
+        }
+        var elements = Vector<Int>()
+        var k = 0
+        while k < record.len() {
+            let l = mir_func_local(&self, f, record[k])
+            try! elements.push(l.ty)
+            k = k + 1
+        }
+        if sites > 1 {
+            let i = self.tc.int_type()
+            try! elements.push(i)
+        }
+        let none = Vector<Int>()
+        self.tc.mk_tuple(&elements, &none)
+    }
+
+    // The windows of `f` the prologue's blocks open and the epilogue's close.
+    func carried_windows(&self, f: Int, before: &Vector<Bool>, after: &Vector<Bool>) -> Vector<Int> {
+        let info = self.funcs[f]
+        var opened = Vector<Bool>()
+        var closed = Vector<Bool>()
+        var k = 0
+        while k < info.window_count {
+            try! opened.push(false)
+            try! closed.push(false)
+            k = k + 1
+        }
+        var b = 0
+        while b < info.block_count {
+            let block = self.blocks[info.block_first + b]
+            if block.term == MirTermKind.Call {
+                let c = self.calls[block.call]
+                if c.kind == MirCallKind.WindowOpen && c.window >= 0 && before[b] {
+                    opened[c.window] = true
+                }
+                if c.kind == MirCallKind.WindowClose && c.window >= 0 && after[b] {
+                    closed[c.window] = true
+                }
+            }
+            b = b + 1
+        }
+        var out = Vector<Int>()
+        k = 0
+        while k < info.window_count {
+            if opened[k] && closed[k] {
+                try! out.push(k)
+            }
+            k = k + 1
+        }
+        move out
+    }
+
+    // Whether function `f` holds a call that may suspend.
+    func half_suspends(&self, f: Int) -> Bool {
+        let info = self.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = self.blocks[info.block_first + b]
+            if block.term == MirTermKind.Call && self.calls[block.call].suspend != MirSuspend.Never {
+                return true
+            }
+            b = b + 1
+        }
+        false
+    }
+}
+
+// Building the halves.
+extension MirProgram {
+    // The prologue, in `f`'s own slot: `_0` the lent reference (an Optional
+    // of it for a conditional lend), `_1` the record when there is one, then
+    // `f`'s parameters and the locals its blocks use. Each `lend` writes the
+    // record, `_0` and returns; a return the entry reaches without lending
+    // is a conditional lend's absent path, which gives `None`.
+    func build_prologue(&var self, f: Int, source: &MirFunc, keep: &Vector<Bool>, record: &Vector<Int>,
+                        record_type: Int, carried: &Vector<Int>, conditional: Bool) {
+        let s = self.tc.sigs[source.decl]
+        var lent = s.result
+        let exclusive = self.tc.is_exclusive_ref(lent)
+        if conditional {
+            let inner = self.tc.referent(lent)
+            let payload = self.tc.arg_of(inner, 0)
+            let r = self.tc.mk_ref(exclusive, payload)
+            lent = self.tc.mk_optional(r)
+        }
+        var half = self.start_half(f, &source, &keep, &record, lent, record_type, true)
+        var info = self.funcs[f]
+        info.kind = MirFuncKind.Prologue
+        self.funcs[f] = info
+        self.copy_blocks(&source, &var half, &keep)
+        // Each kept block's terminator, the `lend`s and returns rewritten.
+        var b = 0
+        while b < source.block_count {
+            if keep[b] {
+                let block = self.blocks[source.block_first + b]
+                self.enter(half.block_map[b])
+                if block.term == MirTermKind.Call && self.calls[block.call].kind == MirCallKind.Lend {
+                    let c = self.calls[block.call]
+                    let site = self.site_index(&source, b)
+                    let lent_operand = self.lists[c.arg_first]
+                    let r = self.half_operand(lent_operand, &half)
+                    var value = r
+                    if conditional {
+                        let some = self.optional_case("Some")
+                        var ops = Vector<Int>()
+                        try! ops.push(r)
+                        let rv = self.rv_aggregate(MirAggregate.Case, some, lent, &ops)
+                        let t = self.temp_of(rv)
+                        let tp = self.place_local(t)
+                        value = self.op_move(tp)
+                    }
+                    let ret = self.place_local(0)
+                    let vrv = self.rv_use(value)
+                    self.assign(ret, vrv)
+                    self.write_record(&half, &record, record_type, site)
+                    self.ret()
+                } else if block.term == MirTermKind.Return && conditional {
+                    let none = self.optional_case("None")
+                    let empty = Vector<Int>()
+                    let rv = self.rv_aggregate(MirAggregate.Case, none, lent, &empty)
+                    let ret = self.place_local(0)
+                    self.assign(ret, rv)
+                    self.ret()
+                } else {
+                    self.copy_terminator(&block, &half)
+                }
+            }
+            b = b + 1
+        }
+        var params = source.param_count
+        if record_type >= 0 {
+            params = params + 1
+        }
+        self.finish_half(f, &half, &record, &carried, params)
+    }
+
+    // Which `lend` site of `source` block `b` is, counted from 0 in block
+    // order.
+    func site_index(&self, source: &MirFunc, b: Int) -> Int {
+        var count = 0
+        var k = 0
+        while k < b {
+            let block = self.blocks[source.block_first + k]
+            if block.term == MirTermKind.Call && self.calls[block.call].kind == MirCallKind.Lend {
+                count = count + 1
+            }
+            k = k + 1
+        }
+        count
+    }
+
+    // The record's writes at `lend` site `site`: each record local moved into
+    // its field, then the resume index.
+    func write_record(&var self, half: &MirHalf, record: &Vector<Int>, record_type: Int, site: Int) {
+        if record_type < 0 {
+            return
+        }
+        let base = self.place_local(1)
+        let whole = self.project(base, MirProjKind.Deref, -1, -1, record_type)
+        var k = 0
+        while k < record.len() {
+            let l = half.local_map[record[k]]
+            let t = self.local_type(l)
+            let field = self.project(whole, MirProjKind.Tuple, -1, k, t)
+            let lp = self.place_local(l)
+            let rv = self.rv_move(lp)
+            self.assign(field, rv)
+            k = k + 1
+        }
+        let n = self.tc.types.ty(record_type).count
+        if n > record.len() {
+            let i = self.tc.int_type()
+            let field = self.project(whole, MirProjKind.Tuple, -1, record.len(), i)
+            let text = site.to_string()
+            let c = self.op_const(MirConstKind.Int, text, i)
+            let rv = self.rv_use(c)
+            self.assign(field, rv)
+        }
+    }
+
+    // The epilogue, a function of its own after the prologue: `_0` of
+    // `Void`, `_1` the record, then the locals its blocks use. Its entry
+    // reads each record field into its local and continues where the `lend`
+    // resumed, by the resume index when there are several.
+    func build_epilogue(&var self, source: &MirFunc, epilogue: Int, keep: &Vector<Bool>, record: &Vector<Int>,
+                        record_type: Int, carried: &Vector<Int>, resumes: &Vector<Int>) {
+        let v = self.tc.void_type()
+        let local_first = self.locals.len()
+        let block_first = self.blocks.len()
+        let window_first = self.windows.len()
+        try! self.funcs.push(MirFunc(module: source.module, kind: MirFuncKind.Epilogue, decl: source.decl,
+                                     root: source.root, param: -1, parent: -1, ordinal: 0,
+                                     local_first: local_first, local_count: 0,
+                                     block_first: block_first, block_count: 0, param_count: 0,
+                                     window_first: window_first, window_count: 0, owner: source.owner,
+                                     refused: false, order: source.order, record_first: 0, record_count: 0,
+                                     carried_first: 0, carried_count: 0))
+        var half = self.start_half(epilogue, &source, &keep, &record, v, record_type, false)
+        let entry = self.new_block()
+        self.copy_blocks(&source, &var half, &keep)
+        self.enter(entry)
+        if record_type >= 0 {
+            let base = self.place_local(1)
+            let whole = self.project(base, MirProjKind.Deref, -1, -1, record_type)
+            var k = 0
+            while k < record.len() {
+                let l = half.local_map[record[k]]
+                let t = self.local_type(l)
+                let field = self.project(whole, MirProjKind.Tuple, -1, k, t)
+                let rv = self.rv_move(field)
+                self.assign_local(l, rv)
+                k = k + 1
+            }
+        }
+        self.dispatch_resumes(&half, &record, record_type, &resumes)
+        var b = 0
+        while b < source.block_count {
+            if keep[b] {
+                let block = self.blocks[source.block_first + b]
+                self.enter(half.block_map[b])
+                self.copy_terminator(&block, &half)
+            }
+            b = b + 1
+        }
+        let params = if record_type >= 0 { 1 } else { 0 }
+        self.finish_half(epilogue, &half, &record, &carried, params)
+    }
+
+    // The epilogue's entry continues at the block its `lend` resumes into:
+    // directly for one site, else by testing the resume index, site by site.
+    func dispatch_resumes(&var self, half: &MirHalf, record: &Vector<Int>, record_type: Int, resumes: &Vector<Int>) {
+        if resumes.len() == 0 {
+            self.ret()
+            return
+        }
+        if resumes.len() == 1 {
+            self.goto(half.block_map[resumes[0]])
+            return
+        }
+        let base = self.place_local(1)
+        let whole = self.project(base, MirProjKind.Deref, -1, -1, record_type)
+        let i = self.tc.int_type()
+        let b = self.tc.bool_type()
+        var k = 0
+        while k + 1 < resumes.len() {
+            let field = self.project(whole, MirProjKind.Tuple, -1, record.len(), i)
+            var ops = Vector<Int>()
+            try! ops.push(self.op_copy(field))
+            let text = k.to_string()
+            try! ops.push(self.op_const(MirConstKind.Int, text, i))
+            let rv = self.rv_over(MirRvalueKind.Binary, b, "==", &ops)
+            let t = self.temp_of(rv)
+            let tp = self.place_local(t)
+            let no = self.new_block()
+            let test = self.op_move(tp)
+            self.switch_bool(test, half.block_map[resumes[k]], no)
+            self.enter(no)
+            k = k + 1
+        }
+        self.goto(half.block_map[resumes[resumes.len() - 1]])
+    }
+
+    // Opens half `h`, of kind `kind` and result type `result`: its return
+    // place, its record parameter, then (for the prologue) `f`'s parameters,
+    // then every other local of `f` its kept blocks name; and a block for
+    // each kept block, in order.
+    func start_half(&var self, h: Int, source: &MirFunc, keep: &Vector<Bool>, record: &Vector<Int>, result: Int,
+                    record_type: Int, prologue: Bool) -> MirHalf {
+        var info = self.funcs[h]
+        info.local_first = self.locals.len()
+        info.block_first = self.blocks.len()
+        info.window_first = self.windows.len()
+        self.funcs[h] = info
+        self.cur = h
+        self.local_base = info.local_first
+        self.block_base = info.block_first
+        self.current = -1
+        let _ = self.new_local(result, MirLocalKind.Return, -1, -1)
+        if record_type >= 0 {
+            let r = self.tc.mk_ref(true, record_type)
+            let _ = self.new_local(r, MirLocalKind.Record, -1, -1)
+        }
+        var local_map = Vector<Int>()
+        var used = self.locals_used(&source, &keep)
+        var k = 0
+        while k < source.local_count {
+            try! local_map.push(-1)
+            k = k + 1
+        }
+        if prologue {
+            k = 1
+            while k <= source.param_count {
+                used[k] = true
+                k = k + 1
+            }
+        }
+        k = 0
+        while k < record.len() {
+            used[record[k]] = true
+            k = k + 1
+        }
+        k = 1
+        while k < source.local_count {
+            if used[k] {
+                let l = self.locals[source.local_first + k]
+                let id = self.locals.len() - self.local_base
+                try! self.locals.push(l)
+                local_map[k] = id
+            }
+            k = k + 1
+        }
+        var block_map = Vector<Int>()
+        k = 0
+        while k < source.block_count {
+            try! block_map.push(-1)
+            k = k + 1
+        }
+        var window_map = Vector<Int>()
+        k = 0
+        while k < source.window_count {
+            try! window_map.push(-1)
+            k = k + 1
+        }
+        let windows = self.windows_used(&source, &keep)
+        k = 0
+        while k < source.window_count {
+            if windows[k] {
+                let w = self.windows[source.window_first + k]
+                let id = self.windows.len() - info.window_first
+                var copy = w
+                if copy.record >= 0 {
+                    copy.record = local_map[copy.record]
+                }
+                try! self.windows.push(copy)
+                window_map[k] = id
+            }
+            k = k + 1
+        }
+        MirHalf(local_map: move local_map, block_map: move block_map, window_map: move window_map)
+    }
+
+    // Which locals of `source` the kept blocks name.
+    func locals_used(&self, source: &MirFunc, keep: &Vector<Bool>) -> Vector<Bool> {
+        var used = Vector<Bool>()
+        var k = 0
+        while k < source.local_count {
+            try! used.push(false)
+            k = k + 1
+        }
+        var b = 0
+        while b < source.block_count {
+            if keep[b] {
+                let block = self.blocks[source.block_first + b]
+                // Every name a block reads or writes is a read here.
+                var state = Vector<Bool>()
+                k = 0
+                while k < source.local_count {
+                    try! state.push(false)
+                    k = k + 1
+                }
+                self.block_names(&block, &var state)
+                k = 0
+                while k < source.local_count {
+                    if state[k] {
+                        used[k] = true
+                    }
+                    k = k + 1
+                }
+            }
+            b = b + 1
+        }
+        move used
+    }
+
+    // Every local block `block` names: read, written or dropped.
+    func block_names(&self, block: &MirBlock, state: &var Vector<Bool>) {
+        var s = block.first
+        while s >= 0 {
+            let stmt = self.stmts[s]
+            s = stmt.next
+            if stmt.place >= 0 {
+                self.use_place(stmt.place, &var state)
+            }
+            if stmt.kind == MirStmtKind.Assign {
+                let rv = self.rvalues[stmt.rvalue]
+                if rv.kind == MirRvalueKind.Ref {
+                    self.use_place(rv.place, &var state)
+                }
+                var j = 0
+                while j < rv.count {
+                    let o = self.lists[rv.first + j]
+                    self.use_operand(o, &var state)
+                    j = j + 1
+                }
+            }
+        }
+        if block.term == MirTermKind.Switch {
+            if block.switch_kind == MirSwitchKind.Bool {
+                self.use_operand(block.operand, &var state)
+            } else {
+                self.use_place(block.place, &var state)
+            }
+        } else if block.term == MirTermKind.Call {
+            let c = self.calls[block.call]
+            if c.dest >= 0 {
+                self.use_place(c.dest, &var state)
+            }
+            var k = 0
+            while k < c.arg_count {
+                let o = self.lists[c.arg_first + k]
+                self.use_operand(o, &var state)
+                k = k + 1
+            }
+            if c.callee >= 0 {
+                self.use_operand(c.callee, &var state)
+            }
+        }
+    }
+
+    // Which windows of `source` the kept blocks open or close.
+    func windows_used(&self, source: &MirFunc, keep: &Vector<Bool>) -> Vector<Bool> {
+        var used = Vector<Bool>()
+        var k = 0
+        while k < source.window_count {
+            try! used.push(false)
+            k = k + 1
+        }
+        var b = 0
+        while b < source.block_count {
+            if keep[b] {
+                let block = self.blocks[source.block_first + b]
+                if block.term == MirTermKind.Call {
+                    let c = self.calls[block.call]
+                    if c.window >= 0 && (c.kind == MirCallKind.WindowOpen || c.kind == MirCallKind.WindowClose) {
+                        used[c.window] = true
+                    }
+                }
+            }
+            b = b + 1
+        }
+        move used
+    }
+
+    // A block for each kept block of `source`, numbered from `offset` in
+    // order, with its statements copied; terminators come after, once every
+    // block has its number.
+    func copy_blocks(&var self, source: &MirFunc, half: &var MirHalf, keep: &Vector<Bool>) {
+        var b = 0
+        while b < source.block_count {
+            if keep[b] {
+                half.block_map[b] = self.new_block()
+            }
+            b = b + 1
+        }
+        b = 0
+        while b < source.block_count {
+            if keep[b] {
+                let block = self.blocks[source.block_first + b]
+                self.enter(half.block_map[b])
+                var s = block.first
+                while s >= 0 {
+                    let stmt = self.stmts[s]
+                    s = stmt.next
+                    if stmt.kind == MirStmtKind.Assign {
+                        let p = self.half_place(stmt.place, &half)
+                        let rv = self.half_rvalue(stmt.rvalue, &half)
+                        self.assign(p, rv)
+                    } else if stmt.kind == MirStmtKind.Drop {
+                        let p = self.half_place(stmt.place, &half)
+                        self.emit_drop(p)
+                    } else {
+                        self.emit_budget(stmt.yields)
+                    }
+                }
+            }
+            b = b + 1
+        }
+    }
+
+    // Block `block`'s terminator, copied into the current block.
+    func copy_terminator(&var self, block: &MirBlock, half: &MirHalf) {
+        match block.term {
+            case Open -> {},
+            case Goto -> self.goto(half.block_map[block.target]),
+            case Return -> self.ret(),
+            case Unreachable -> self.unreachable(),
+            case Switch -> {
+                if block.switch_kind == MirSwitchKind.Bool {
+                    let o = self.half_operand(block.operand, &half)
+                    let yes = self.arms[block.arm_first].target
+                    let no = self.arms[block.arm_first + 1].target
+                    self.switch_bool(o, half.block_map[yes], half.block_map[no])
+                } else {
+                    let p = self.half_place(block.place, &half)
+                    var cases = Vector<Int>()
+                    var targets = Vector<Int>()
+                    var k = 0
+                    while k < block.arm_count {
+                        let arm = self.arms[block.arm_first + k]
+                        try! cases.push(arm.value)
+                        try! targets.push(half.block_map[arm.target])
+                        k = k + 1
+                    }
+                    var otherwise = -1
+                    if block.otherwise >= 0 {
+                        otherwise = half.block_map[block.otherwise]
+                    }
+                    self.switch_cases(p, &cases, &targets, otherwise)
+                }
+            },
+            case Call -> {
+                var c = self.calls[block.call]
+                var args = Vector<Int>()
+                var k = 0
+                while k < c.arg_count {
+                    let o = self.lists[c.arg_first + k]
+                    try! args.push(self.half_operand(o, &half))
+                    k = k + 1
+                }
+                c.arg_first = self.push_args(&args)
+                if c.dest >= 0 {
+                    c.dest = self.half_place(c.dest, &half)
+                }
+                if c.callee >= 0 {
+                    c.callee = self.half_operand(c.callee, &half)
+                }
+                if c.next >= 0 {
+                    c.next = half.block_map[c.next]
+                }
+                if c.absent >= 0 {
+                    c.absent = half.block_map[c.absent]
+                }
+                if c.window >= 0 && (c.kind == MirCallKind.WindowOpen || c.kind == MirCallKind.WindowClose) {
+                    c.window = half.window_map[c.window]
+                }
+                let _ = self.emit_call(c)
+            }
+        }
+    }
+
+    // Place `p` of the source, in the half's numbering.
+    func half_place(&var self, p: Int, half: &MirHalf) -> Int {
+        let info = self.places[p]
+        var at = -1
+        if info.local >= 0 {
+            at = self.place_local(half.local_map[info.local])
+        } else {
+            let st = self.tc.sigs[info.static_decl].result
+            at = self.place_static(info.static_decl, st)
+        }
+        var k = 0
+        while k < info.count {
+            let step = self.projs[info.first + k]
+            var index = step.index
+            if step.kind == MirProjKind.Index {
+                index = half.local_map[step.index]
+            }
+            at = self.project(at, step.kind, step.decl, index, step.ty)
+            k = k + 1
+        }
+        at
+    }
+
+    func half_operand(&var self, o: Int, half: &MirHalf) -> Int {
+        let info = self.operands[o]
+        if info.kind == MirOperandKind.Const {
+            return o
+        }
+        let p = self.half_place(info.place, &half)
+        if info.kind == MirOperandKind.Move {
+            return self.op_move(p)
+        }
+        self.op_copy(p)
+    }
+
+    func half_rvalue(&var self, r: Int, half: &MirHalf) -> Int {
+        var info = self.rvalues[r]
+        if info.place >= 0 {
+            info.place = self.half_place(info.place, &half)
+        }
+        var ops = Vector<Int>()
+        var k = 0
+        while k < info.count {
+            let o = self.lists[info.first + k]
+            try! ops.push(self.half_operand(o, &half))
+            k = k + 1
+        }
+        info.first = self.push_args(&ops)
+        let at = self.rvalues.len()
+        try! self.rvalues.push(info)
+        at
+    }
+
+    // Closes half `h`: its counts, and its record locals and carried windows
+    // in its own numbering.
+    func finish_half(&var self, h: Int, half: &MirHalf, record: &Vector<Int>, carried: &Vector<Int>, params: Int) {
+        var info = self.funcs[h]
+        info.local_count = self.locals.len() - info.local_first
+        info.block_count = self.blocks.len() - info.block_first
+        info.window_count = self.windows.len() - info.window_first
+        info.param_count = params
+        info.record_first = self.aux.len()
+        var k = 0
+        while k < record.len() {
+            try! self.aux.push(half.local_map[record[k]])
+            k = k + 1
+        }
+        info.record_count = record.len()
+        info.carried_first = self.aux.len()
+        k = 0
+        while k < carried.len() {
+            try! self.aux.push(half.window_map[carried[k]])
+            k = k + 1
+        }
+        info.carried_count = carried.len()
+        self.funcs[h] = info
+        self.current = -1
+    }
+}

@@ -1,0 +1,18 @@
+// refuses: slice.not-yet at 12:54
+// A `consumes` body that moves a field out of `self` on one path to a return
+// and not on another: the spec refuses it, and one release cannot fit both.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Pair { a: Res, b: Res }
+extension Pair: NoCopy {}
+
+extension Pair {
+    func first(&var self, hot: Bool) consumes -> Res {
+        if hot {
+            return move self.a
+        }
+        Res(id: 0)
+    }
+}

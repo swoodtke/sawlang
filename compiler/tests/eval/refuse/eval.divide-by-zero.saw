@@ -1,0 +1,4 @@
+// refuses: eval.divide-by-zero at 4:24
+// a division by zero
+
+static QUOTIENT: Int = Int.max / 0

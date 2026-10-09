@@ -5,26 +5,33 @@
 //   - every place, operand and rvalue is typed and in range, and every
 //     operand is a move, a copy or a constant;
 //   - no conversion is left implicit: an assignment's rvalue has its place's
-//     type, and a call's argument its parameter's, instantiated;
+//     type, and a call's argument the type its target takes at the call's
+//     own instantiation, synthesized calls and externs included (a builtin
+//     declares no signature, and a C variadic tail no type);
 //   - every call names its target and a complete instantiation, and is a
 //     suspension point exactly as typecheck's summaries make it, a
 //     conditional one with its conditions;
 //   - no owned local is live at a `return` or when it is assigned again,
 //     so every scope exit drops it; no window is open at a `return` or when
-//     it opens again, so every path out of its body closes it;
+//     it opens again, so every path out of its body closes it; no local is
+//     dropped whole once a move has taken an owned part out of it;
 //   - every loop backedge carries an op-budget point.
 
 import sawmir.src.build.{mir_func_local}
-import sawmir.src.dump.{mir_dump_module}
-import sawmir.src.model.{MirArm, MirBlock, MirCall, MirCallKind, MirFunc, MirLocal, MirOperand,
-                         MirOperandKind, MirPlace, MirProj, MirProjKind, MirRvalue, MirRvalueKind,
+import sawmir.src.dump.{mir_dump_module, mir_module_functions}
+import sawmir.src.model.{MirAccessor, MirArm, MirBlock, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocal,
+                         MirOperand, MirOperandKind, MirPlace, MirProj, MirProjKind, MirRvalue, MirRvalueKind,
                          MirStmt, MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind}
 import sawmir.src.program.{MirProgram}
+import sawmir.src.split.{MirHalf}
 import sawresolve.src.dump.{res_sort_strings}
 import sawresolve.src.model.{ResDeclKind}
 import sawresolve.src.program.{ResProgram}
 import sawtypecheck.src.bodydump.{tc_dump_bodies}
+import sawtypecheck.src.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TcLend, TcReceiver}
 import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
 import sawtypecheck.src.spell.{tc_effects_text}
 import sawtypecheck.src.summaries.{TcAcc, tc_acc}
 import sawtypecheck.src.typeops.{TcClient}
@@ -34,13 +41,11 @@ import sawtypecheck.src.types.{TcKind}
 // lowered to, one line each.
 public func mir_verify_module(p: &var MirProgram, m: Int) -> Vector<String> {
     var out = Vector<String>()
-    var f = 0
-    while f < p.funcs.len() {
-        let info = p.funcs[f]
-        if info.module == m && not info.refused {
-            p.verify_func(f, &var out)
-        }
-        f = f + 1
+    let order = mir_module_functions(&p, m)
+    var k = 0
+    while k < order.len() {
+        p.verify_func(order[k], &var out)
+        k = k + 1
     }
     move out
 }
@@ -58,6 +63,216 @@ extension MirProgram {
         }
         self.verify_flow(f, &var out)
         self.verify_backedges(f, &var out)
+        self.verify_halves(f, &var out)
+    }
+
+    // An accessor's halves (SL:architecture §3.5): a `borrows` accessor that
+    // lends a place is never lowered whole; each half belongs to its
+    // accessor's entry; the epilogue's record holds exactly the locals live
+    // where it resumes, none read before the record gives it and none it
+    // never reads; and each prologue return writes every field of the record,
+    // or none on a conditional lend's absent path.
+    func verify_halves(&var self, f: Int, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        if info.kind == MirFuncKind.Body && info.decl >= 0 && self.lends_place_decl(info.decl) {
+            self.problem(f, &var out, "a `borrows` accessor is lowered whole, not as two halves around its `lend`")
+            return
+        }
+        if info.kind != MirFuncKind.Prologue && info.kind != MirFuncKind.Epilogue {
+            return
+        }
+        let a = self.accessor_of[info.decl]
+        if a < 0 {
+            self.problem(f, &var out, "an accessor's half belongs to no accessor")
+            return
+        }
+        let acc = self.accessors[a]
+        let half = if info.kind == MirFuncKind.Prologue { acc.prologue } else { acc.epilogue }
+        if half != f {
+            self.problem(f, &var out, "an accessor's half is not the one its accessor names")
+            return
+        }
+        if info.kind == MirFuncKind.Epilogue {
+            self.verify_epilogue_record(f, acc.record, &var out)
+        } else {
+            self.verify_prologue_record(f, acc.record, &var out)
+        }
+    }
+
+    // Whether declaration `d` is a `borrows` accessor that lends a place.
+    func lends_place_decl(&self, d: Int) -> Bool {
+        let s = self.tc.sigs[d]
+        let place = s.lending == TcLend.Place || s.lending == TcLend.ConditionalPlace
+        (s.effects & TC_EFFECT_BORROWS) != 0 && place
+    }
+
+    func verify_epilogue_record(&var self, f: Int, record: Int, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        let n = info.local_count
+        let live = self.liveness(f)
+        var k = 0
+        while k < n {
+            let is_record_param = record >= 0 && k == 1
+            if live[k] && not is_record_param {
+                var text = StringBuilder()
+                try! text.append("local _")
+                try! text.append(k)
+                try! text.append(" is read in the epilogue before the record gives it: the record misses a local live across `lend`")
+                self.problem(f, &var out, text.build())
+            }
+            k = k + 1
+        }
+        let entry = self.blocks[info.block_first]
+        let succ = self.successors_of(&entry)
+        k = 0
+        while k < info.record_count {
+            let l = self.aux[info.record_first + k]
+            var read = false
+            var j = 0
+            while j < succ.len() {
+                if live[succ[j] * n + l] {
+                    read = true
+                }
+                j = j + 1
+            }
+            if not read {
+                var text = StringBuilder()
+                try! text.append("record local _")
+                try! text.append(l)
+                try! text.append(" is never read after the `lend`: the record holds a local not live across it")
+                self.problem(f, &var out, text.build())
+            }
+            k = k + 1
+        }
+    }
+
+    func verify_prologue_record(&self, f: Int, record: Int, out: &var Vector<String>) {
+        if record < 0 {
+            return
+        }
+        let info = self.funcs[f]
+        let fields = self.tc.types.ty(record).count
+        var b = 0
+        while b < info.block_count {
+            let block = self.blocks[info.block_first + b]
+            b = b + 1
+            if block.term != MirTermKind.Return {
+                continue
+            }
+            var written = Vector<Bool>()
+            var k = 0
+            while k < fields {
+                try! written.push(false)
+                k = k + 1
+            }
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.stmts[s]
+                s = stmt.next
+                if stmt.kind != MirStmtKind.Assign {
+                    continue
+                }
+                let place = self.places[stmt.place]
+                if place.local == 1 && place.count == 2 {
+                    let step = self.projs[place.first + 1]
+                    if step.kind == MirProjKind.Tuple && step.index < fields {
+                        written[step.index] = true
+                    }
+                }
+            }
+            var count = 0
+            k = 0
+            while k < fields {
+                if written[k] {
+                    count = count + 1
+                }
+                k = k + 1
+            }
+            if count != 0 && count != fields {
+                self.problem(f, &var out, "a prologue's `lend` writes some of the record's fields and not others")
+            }
+        }
+    }
+
+    // Whether MIR function `f` holds a call that may suspend.
+    func function_suspends(&self, f: Int) -> Bool {
+        let info = self.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = self.blocks[info.block_first + b]
+            if block.term == MirTermKind.Call && self.calls[block.call].suspend != MirSuspend.Never {
+                return true
+            }
+            b = b + 1
+        }
+        false
+    }
+
+    // Whether flow slot `k` of prologue `f` (a local, then a window) is what
+    // its `lend` hands the epilogue: a record local, or a window left open.
+    func carried_at_lend(&self, f: Int, k: Int) -> Bool {
+        let info = self.funcs[f]
+        if info.kind != MirFuncKind.Prologue {
+            return false
+        }
+        var j = 0
+        if k < info.local_count {
+            while j < info.record_count {
+                if self.aux[info.record_first + j] == k {
+                    return true
+                }
+                j = j + 1
+            }
+            return false
+        }
+        while j < info.carried_count {
+            if self.aux[info.carried_first + j] == k - info.local_count {
+                return true
+            }
+            j = j + 1
+        }
+        false
+    }
+
+    // A window call names its accessor's half and passes its record, or,
+    // for an accessor this program lowers no body of, neither.
+    func verify_window_call(&var self, f: Int, c: &MirCall, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        if c.window < 0 || c.window >= info.window_count {
+            return
+        }
+        let w = self.windows[info.window_first + c.window]
+        let a = self.accessor_of[c.target]
+        if a < 0 {
+            if c.half >= 0 || w.record >= 0 {
+                self.problem(f, &var out, "a window call names a half or a record for an accessor this program lowers no body of")
+            }
+            return
+        }
+        let acc = self.accessors[a]
+        let half = if c.kind == MirCallKind.WindowOpen { acc.prologue } else { acc.epilogue }
+        if c.half != half {
+            self.problem(f, &var out, "a window call does not name its accessor's half")
+        }
+        if (acc.record >= 0) != (w.record >= 0) {
+            self.problem(f, &var out, "a window holds a record its accessor does not lay out, or none for one it does")
+            return
+        }
+        if w.record < 0 {
+            return
+        }
+        if c.arg_count == 0 {
+            self.problem(f, &var out, "a window call does not pass its record")
+            return
+        }
+        let o = self.lists[c.arg_first]
+        let have = self.operands[o].ty
+        let rt = mir_func_local(&self, f, w.record).ty
+        let want = self.tc.mk_ref(true, rt)
+        let raw = self.call_type(acc.record, &c)
+        if have != want || rt != raw {
+            self.problem(f, &var out, "a window call's record is not its accessor's, instantiated")
+        }
     }
 
     func problem(&self, f: Int, out: &var Vector<String>, text: String) {
@@ -267,52 +482,196 @@ extension MirProgram {
                 if (c.kind == MirCallKind.WindowOpen || c.kind == MirCallKind.WindowClose) && c.window < 0 {
                     self.problem(f, &var out, "a window call names no window")
                 }
-                if c.kind == MirCallKind.Function {
-                    self.verify_arguments(f, &c, &var out)
+                if c.kind == MirCallKind.WindowOpen || c.kind == MirCallKind.WindowClose {
+                    self.verify_window_call(f, &c, &var out)
                 }
             }
         }
+        self.verify_arguments(f, &c, &var out)
         self.verify_suspension(f, &c, &var out)
     }
 
-    // Each argument after a receiver has its parameter's type at the call's
-    // instantiation.
+    // Type `t`, over call `c`'s target's own type parameters and its owner's,
+    // at the instantiation and owner the call carries.
+    func call_type(&var self, t: Int, c: &MirCall) -> Int {
+        var args = Vector<Int>()
+        var k = 0
+        while k < c.inst_count {
+            try! args.push(self.types[c.inst_first + k])
+            k = k + 1
+        }
+        let own = tc_args_subst(c.target, move args)
+        let first = self.tc.subst(t, &own)
+        if c.owner < 0 {
+            return first
+        }
+        self.tc.impl_subst(first, c.target, c.owner)
+    }
+
+    // Each argument has the type its target takes, at the call's own
+    // instantiation, so synthesized calls are checked as written ones are: a
+    // declaration's (a function, a window's prologue) its receiver, by
+    // reference in the mode the call takes it or by value for `consumes`,
+    // then each parameter, a C variadic tail past them unchecked since no
+    // declaration types it; a function value's its type's parameters; a
+    // `lend` the reference its accessor lends; a default's result its
+    // parameter's type. A builtin declares no signature, so its operands
+    // are checked only as operands.
     func verify_arguments(&var self, f: Int, c: &MirCall, out: &var Vector<String>) {
-        if c.node < 0 || self.tc.call_at[c.node] < 0 {
-            return
+        match c.kind {
+            case Function -> self.verify_declared_arguments(f, &c, false, &var out),
+            case WindowOpen -> {
+                let info = self.funcs[f]
+                let exclusive = c.window >= 0 && self.windows[info.window_first + c.window].exclusive
+                self.verify_declared_arguments(f, &c, exclusive, &var out)
+            },
+            case Value -> self.verify_value_arguments(f, &c, &var out),
+            case Default -> {
+                let s = self.tc.sigs[c.target]
+                if c.param < 0 || c.param >= s.param_count || c.dest < 0 {
+                    self.problem(f, &var out, "a default's call names no parameter or no destination")
+                    return
+                }
+                let param = self.tc.params[s.param_first + c.param]
+                let want = self.call_type(param.ty, &c)
+                let have = self.places[c.dest].ty
+                self.compare_argument(f, &c, want, have, &var out)
+            },
+            case Lend -> self.verify_lend_argument(f, &c, &var out),
+            case _ -> {}
         }
-        let record = self.tc.calls[self.tc.call_at[c.node]]
-        if record.target != c.target {
-            return
-        }
+    }
+
+    // A declaration's call: `window_exclusive` the mode a window's prologue
+    // takes its receiver in, which its use site picks (SL:borrowing §1).
+    func verify_declared_arguments(&var self, f: Int, c: &MirCall, window_exclusive: Bool,
+                                   out: &var Vector<String>) {
         let s = self.tc.sigs[c.target]
-        let info = self.tc.res.decls[c.target]
-        var skip = 0
-        if c.arg_count == s.param_count + 1 {
-            skip = 1
+        let decl = self.tc.res.decls[c.target]
+        var at = 0
+        // A window's open passes its record first, which `verify_window_call`
+        // checks.
+        let info = self.funcs[f]
+        if c.kind == MirCallKind.WindowOpen && c.window >= 0 && c.window < info.window_count {
+            if self.windows[info.window_first + c.window].record >= 0 {
+                at = 1
+            }
         }
-        if c.arg_count < s.param_count + skip || info.kind == ResDeclKind.Extern {
+        if s.receiver != TcReceiver.Absent {
+            if c.arg_count <= at {
+                self.problem(f, &var out, "a method's call passes no receiver")
+                return
+            }
+            let o = self.lists[c.arg_first + at]
+            let have = self.operands[o].ty
+            let consumes = (s.effects & TC_EFFECT_CONSUMES) != 0
+            if c.owner < 0 {
+                self.problem(f, &var out, "a method's call names no owner type for its receiver")
+            } else if consumes {
+                let recv = self.tc.strip_refs(c.owner)
+                self.compare_argument(f, &c, recv, have, &var out)
+            } else {
+                var exclusive = s.receiver == TcReceiver.Exclusive
+                if c.kind == MirCallKind.WindowOpen {
+                    exclusive = window_exclusive
+                }
+                let recv = self.tc.strip_refs(c.owner)
+                let want = self.tc.mk_ref(exclusive, recv)
+                self.compare_argument(f, &c, want, have, &var out)
+            }
+            at = at + 1
+        }
+        if c.arg_count < at + s.param_count {
+            self.problem(f, &var out, "a call passes fewer arguments than its target has parameters")
             return
+        }
+        if c.arg_count > at + s.param_count && decl.kind != ResDeclKind.Extern {
+            self.problem(f, &var out, "a call passes more arguments than its target has parameters")
         }
         var k = 0
         while k < s.param_count {
             let param = self.tc.params[s.param_first + k]
-            let want = self.tc.call_subst(param.ty, c.target, &record)
-            let o = self.lists[c.arg_first + skip + k]
+            let want = self.call_type(param.ty, &c)
+            let o = self.lists[c.arg_first + at + k]
             let have = self.operands[o].ty
-            if want != have && not self.tc.has_error(want) {
-                var text = StringBuilder()
-                try! text.append("an argument of `")
-                try! text.append(self.tc.res.decl_path(c.target))
-                try! text.append("` is a `")
-                try! text.append(self.tc.type_text(have))
-                try! text.append("` where its parameter takes `")
-                try! text.append(self.tc.type_text(want))
-                try! text.append("`, a conversion left implicit")
-                self.problem(f, &var out, text.build())
-            }
+            self.compare_argument(f, &c, want, have, &var out)
             k = k + 1
         }
+    }
+
+    // A function value's call: each argument its type's parameter.
+    func verify_value_arguments(&var self, f: Int, c: &MirCall, out: &var Vector<String>) {
+        if c.callee < 0 {
+            return
+        }
+        var ft = self.operands[c.callee].ty
+        if self.tc.kind_of(ft) == TcKind.Ref {
+            ft = self.tc.referent(ft)
+        }
+        if self.tc.kind_of(ft) != TcKind.Func {
+            self.problem(f, &var out, "a function value's call calls a value of no function type")
+            return
+        }
+        let info = self.tc.types.ty(ft)
+        if c.arg_count != info.count {
+            self.problem(f, &var out, "a function value's call passes another number of arguments than its type takes")
+            return
+        }
+        var k = 0
+        while k < info.count {
+            let want = self.tc.types.arg(ft, k)
+            let o = self.lists[c.arg_first + k]
+            let have = self.operands[o].ty
+            self.compare_argument(f, &c, want, have, &var out)
+            k = k + 1
+        }
+    }
+
+    // A `lend`: a reference to the place its accessor declares it lends.
+    func verify_lend_argument(&var self, f: Int, c: &MirCall, out: &var Vector<String>) {
+        let d = self.funcs[f].decl
+        if d < 0 || c.arg_count != 1 {
+            self.problem(f, &var out, "a `lend` outside an accessor, or lending no one reference")
+            return
+        }
+        let s = self.tc.sigs[d]
+        var lent = s.result
+        if self.tc.kind_of(lent) == TcKind.Ref {
+            lent = self.tc.referent(lent)
+        }
+        if s.lending == TcLend.ConditionalPlace {
+            lent = self.tc.arg_of(lent, 0)
+        }
+        let o = self.lists[c.arg_first]
+        let have = self.operands[o].ty
+        if self.tc.kind_of(have) != TcKind.Ref || self.tc.referent(have) != lent {
+            var text = StringBuilder()
+            try! text.append("a `lend` passes a `")
+            try! text.append(self.tc.type_text(have))
+            try! text.append("` where its accessor lends `")
+            try! text.append(self.tc.type_text(lent))
+            try! text.append("`")
+            self.problem(f, &var out, text.build())
+        }
+    }
+
+    func compare_argument(&var self, f: Int, c: &MirCall, want: Int, have: Int, out: &var Vector<String>) {
+        if want == have || self.tc.has_error(want) {
+            return
+        }
+        var text = StringBuilder()
+        try! text.append("an argument of `")
+        if c.target >= 0 {
+            try! text.append(self.tc.res.decl_path(c.target))
+        } else {
+            try! text.append("a function value")
+        }
+        try! text.append("` is a `")
+        try! text.append(self.tc.type_text(have))
+        try! text.append("` where its parameter takes `")
+        try! text.append(self.tc.type_text(want))
+        try! text.append("`, a conversion left implicit")
+        self.problem(f, &var out, text.build())
     }
 
     // A call is a suspension point exactly when typecheck's summaries,
@@ -334,6 +693,12 @@ extension MirProgram {
         } else if acc.suspend_atoms.len() > 0 {
             want = MirSuspend.When
         }
+        // A window call runs one half, a suspension point only when that half
+        // may suspend (SL:architecture §3.5).
+        let window = c.kind == MirCallKind.WindowOpen || c.kind == MirCallKind.WindowClose
+        if window && c.half >= 0 && not self.function_suspends(c.half) {
+            want = MirSuspend.Never
+        }
         if want != c.suspend {
             self.problem(f, &var out, "a call's suspension point disagrees with its callee's summary")
             return
@@ -347,7 +712,9 @@ extension MirProgram {
     // not yet dropped, and the windows open.
     func verify_flow(&var self, f: Int, out: &var Vector<String>) {
         let info = self.funcs[f]
-        let width = info.local_count + info.window_count
+        // Each local's liveness, each window's openness, then each local's
+        // dissolution.
+        let width = info.local_count + info.window_count + info.local_count
         var entry = Vector<Bool>()
         var reached = Vector<Bool>()
         var k = 0
@@ -367,6 +734,14 @@ extension MirProgram {
                 entry[k] = true
             }
             k = k + 1
+        }
+        // An epilogue resumes with the windows its prologue left open.
+        if info.kind == MirFuncKind.Epilogue {
+            k = 0
+            while k < info.carried_count {
+                entry[info.local_count + self.aux[info.carried_first + k]] = true
+                k = k + 1
+            }
         }
         var changed = true
         var rounds = 0
@@ -430,8 +805,8 @@ extension MirProgram {
                 self.flow_statements(f, &block, &var state, true, &var out)
                 if block.term == MirTermKind.Return {
                     k = 0
-                    while k < width {
-                        if state[k] {
+                    while k < info.local_count + info.window_count {
+                        if state[k] && not self.carried_at_lend(f, k) {
                             if k < info.local_count {
                                 var text = StringBuilder()
                                 try! text.append("owned local _")
@@ -466,21 +841,39 @@ extension MirProgram {
 
     // One block's statements over `state`: an assignment to a whole owned
     // local makes it live, a drop of it ends it, and a window's close ends
-    // the window. With `report`, an assignment to a live owned local is a
-    // missing drop.
-    func flow_statements(&self, f: Int, block: &MirBlock, state: &var Vector<Bool>, report: Bool,
+    // the window. A move of an owned part out of a local dissolves it, which
+    // ends it too (`dissolve` in lower.saw), and a whole assignment makes it
+    // whole again. With `report`, an assignment to a live owned local is a
+    // missing drop, and a drop of a local some path dissolved drops the parts
+    // that left it a second time.
+    func flow_statements(&var self, f: Int, block: &MirBlock, state: &var Vector<Bool>, report: Bool,
                          out: &var Vector<String>) {
         let info = self.funcs[f]
+        let dissolved = info.local_count + info.window_count
         var s = block.first
         while s >= 0 {
             let stmt = self.stmts[s]
             s = stmt.next
+            if stmt.kind == MirStmtKind.Assign && stmt.rvalue >= 0 {
+                let rv = self.rvalues[stmt.rvalue]
+                self.flow_moves(f, rv.first, rv.count, &var state)
+            }
             if stmt.place < 0 {
                 continue
             }
             let place = self.places[stmt.place]
             if place.count != 0 || place.local < 0 {
                 continue
+            }
+            if stmt.kind == MirStmtKind.Drop && report && state[dissolved + place.local] {
+                var text = StringBuilder()
+                try! text.append("local _")
+                try! text.append(place.local)
+                try! text.append(" is dropped whole after a part of it moved out: a destructure does not dissolve it")
+                self.problem(f, &var out, text.build())
+            }
+            if stmt.kind == MirStmtKind.Assign {
+                state[dissolved + place.local] = false
             }
             let l = mir_func_local(&self, f, place.local)
             if not l.owned {
@@ -501,18 +894,53 @@ extension MirProgram {
         }
         if block.term == MirTermKind.Call {
             let c = self.calls[block.call]
+            self.flow_moves(f, c.arg_first, c.arg_count, &var state)
             if c.kind == MirCallKind.WindowClose && c.window >= 0 {
                 state[info.local_count + c.window] = false
             }
             if c.dest >= 0 {
                 let place = self.places[c.dest]
                 if place.count == 0 && place.local >= 0 {
+                    state[dissolved + place.local] = false
                     let l = mir_func_local(&self, f, place.local)
                     if l.owned {
                         state[place.local] = true
                     }
                 }
             }
+        }
+    }
+
+    // The operands `first .. first + count` of the operand lists: each that
+    // moves an owned part out of a local, through no reference, dissolves it.
+    func flow_moves(&var self, f: Int, first: Int, count: Int, state: &var Vector<Bool>) {
+        let info = self.funcs[f]
+        let dissolved = info.local_count + info.window_count
+        var k = 0
+        while k < count {
+            let o = self.lists[first + k]
+            k = k + 1
+            let operand = self.operands[o]
+            if operand.kind != MirOperandKind.Move || operand.place < 0 {
+                continue
+            }
+            let place = self.places[operand.place]
+            if place.count == 0 || place.local < 0 || place.local >= info.local_count {
+                continue
+            }
+            var through_reference = false
+            var j = 0
+            while j < place.count {
+                if self.projs[place.first + j].kind == MirProjKind.Deref {
+                    through_reference = true
+                }
+                j = j + 1
+            }
+            if through_reference || not self.owns(place.ty) {
+                continue
+            }
+            state[place.local] = false
+            state[dissolved + place.local] = true
         }
     }
 

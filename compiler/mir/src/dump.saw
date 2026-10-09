@@ -21,15 +21,46 @@ public func mir_dump_module(p: &MirProgram, out: &var StringBuilder, m: Int) {
     try! out.append("module ")
     try! out.append(p.tc.res.module_name(m))
     try! out.append("\n")
+    let order = mir_module_functions(&p, m)
+    var k = 0
+    while k < order.len() {
+        try! out.append("\n")
+        p.dump_func(&var out, order[k])
+        k = k + 1
+    }
+}
+
+// Module `m`'s functions lowered and refused nowhere, in the order typecheck
+// checked their bodies: accessors are lowered ahead of their callers, so the
+// arena's order is not the source's.
+public func mir_module_functions(p: &MirProgram, m: Int) -> Vector<Int> {
+    var out = Vector<Int>()
     var f = 0
     while f < p.funcs.len() {
         let info = p.funcs[f]
         if info.module == m && not info.refused {
-            try! out.append("\n")
-            p.dump_func(&var out, f)
+            // Insertion by order, stable among equal orders.
+            var at = out.len()
+            while at > 0 && p.funcs[out[at - 1]].order > info.order {
+                at = at - 1
+            }
+            var next = Vector<Int>()
+            var j = 0
+            while j < out.len() {
+                if j == at {
+                    try! next.push(f)
+                }
+                try! next.push(out[j])
+                j = j + 1
+            }
+            if at == out.len() {
+                try! next.push(f)
+            }
+            out = move next
         }
         f = f + 1
     }
+    move out
 }
 
 // The spelling a builtin binary or unary operator prints as.
@@ -148,6 +179,10 @@ extension MirProgram {
             if w.sync {
                 try! out.append(" sync")
             }
+            if w.record >= 0 {
+                try! out.append(" record _")
+                try! out.append(w.record)
+            }
             try! out.append(";\n")
             k = k + 1
         }
@@ -219,6 +254,14 @@ extension MirProgram {
                 try! out.append(info.ordinal)
                 try! out.append(" of ")
                 try! out.append(self.func_name(info.parent))
+            },
+            case Prologue -> {
+                try! out.append("prologue ")
+                try! out.append(self.tc.target_text(info.decl))
+            },
+            case Epilogue -> {
+                try! out.append("epilogue ")
+                try! out.append(self.tc.target_text(info.decl))
             }
         }
         out.build()
@@ -229,6 +272,7 @@ extension MirProgram {
             case Return -> try! out.append("  // return"),
             case Receiver -> try! out.append("  // self"),
             case Env -> try! out.append("  // env"),
+            case Record -> try! out.append("  // record"),
             case Param -> {
                 try! out.append("  // param ")
                 try! out.append(self.tc.name_text(l.name))
@@ -356,6 +400,11 @@ extension MirProgram {
                 self.append_place(&var out, info.place)
             },
             case Const -> {
+                if info.const_kind == MirConstKind.Format {
+                    try! out.append("format ")
+                    try! out.append(self.tc.name_text(info.text))
+                    return
+                }
                 try! out.append("const ")
                 try! out.append(self.tc.name_text(info.text))
                 try! out.append(": ")
@@ -617,13 +666,13 @@ extension MirProgram {
             case WindowOpen -> {
                 try! out.append("window_open w")
                 try! out.append(c.window)
-                try! out.append(" ")
+                try! out.append(" prologue ")
                 try! out.append(self.tc.target_text(c.target))
             },
             case WindowClose -> {
                 try! out.append("window_close w")
                 try! out.append(c.window)
-                try! out.append(" ")
+                try! out.append(" epilogue ")
                 try! out.append(self.tc.target_text(c.target))
             },
             case Lend -> try! out.append("lend")
@@ -644,7 +693,7 @@ extension MirProgram {
             }
             try! out.append(")")
         }
-        if c.kind != MirCallKind.WindowClose {
+        if c.kind != MirCallKind.WindowClose || c.arg_count > 0 {
             try! out.append(" [")
             self.append_operands(&var out, c.arg_first, c.arg_count)
             try! out.append("]")

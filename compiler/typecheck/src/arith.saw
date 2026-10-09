@@ -1,0 +1,516 @@
+// Typed integer arithmetic, the one rule every constant follows
+// (SL:architecture §3.10, "Constant arithmetic is ordinary typed arithmetic"):
+// a value is its type's, and an operation is its operands' type's, exactly as
+// it runs, at the target's width. Typecheck's folder and the MIR evaluator
+// both compute through these functions, so they cannot disagree about one.
+//
+// A value is held as the bits of an `Int`, two's complement of its low 64
+// bits: a narrow type's value exactly, sign- or zero-extended, and a 64-bit
+// unsigned value at or above 2^63 as the negative `Int` with the same bits.
+// No function here traps on the host: every product, sum and quotient that
+// could leave an `Int` is taken apart into 32-bit or 16-bit pieces first.
+
+public enum TcFault {
+    // No fault: the value stands.
+    case Clean,
+    // An arithmetic result its type cannot hold.
+    case Overflow,
+    // A shift count negative, or at or past the shifted type's width.
+    case ShiftRange,
+    case DivideByZero,
+    // A value converted or adopted into a type that cannot hold it.
+    case NotFit,
+    // An expression outside the constant grammar.
+    case NotConstant,
+    // A static whose value depends on itself.
+    case Cycle
+}
+
+// An evaluated value, or the fault that stopped it.
+public struct TcValue {
+    public ok: Bool
+    public bits: Int
+    public fault: TcFault
+}
+
+static TC_ARITH_LOW32: Int = 0xFFFF_FFFF
+static TC_ARITH_LOW16: Int = 0xFFFF
+static TC_ARITH_MAX: Int = Int.max
+static TC_ARITH_MIN: Int = Int.min
+
+public func tc_value(bits: Int) -> TcValue {
+    TcValue(ok: true, bits: bits, fault: TcFault.Clean)
+}
+
+public func tc_fault(fault: TcFault) -> TcValue {
+    TcValue(ok: false, bits: 0, fault: fault)
+}
+
+// The bits of `bits` read as a value of `w` bits, signed or not.
+public func tc_arith_normalize(bits: Int, w: Int, signed: Bool) -> Int {
+    if w >= 64 {
+        return bits
+    }
+    let mask = (1 << w) - 1
+    let low = bits & mask
+    if signed && low >= (1 << (w - 1)) {
+        return low - (1 << w)
+    }
+    low
+}
+
+// The smallest and largest value of a `w`-bit type, as its bits.
+public func tc_arith_min(w: Int, signed: Bool) -> Int {
+    if not signed {
+        return 0
+    }
+    if w >= 64 {
+        return TC_ARITH_MIN
+    }
+    0 - (1 << (w - 1))
+}
+
+public func tc_arith_max(w: Int, signed: Bool) -> Int {
+    if w >= 64 {
+        if signed {
+            return TC_ARITH_MAX
+        }
+        return -1
+    }
+    if signed {
+        return (1 << (w - 1)) - 1
+    }
+    (1 << w) - 1
+}
+
+// Whether 64-bit patterns `a` < `b` read unsigned.
+public func tc_arith_ult(a: Int, b: Int) -> Bool {
+    (a ^ TC_ARITH_MIN) < (b ^ TC_ARITH_MIN)
+}
+
+func tc_high(x: Int) -> Int {
+    (x >> 32) & TC_ARITH_LOW32
+}
+
+func tc_low(x: Int) -> Int {
+    x & TC_ARITH_LOW32
+}
+
+func tc_join(high: Int, low: Int) -> Int {
+    (high << 32) | (low & TC_ARITH_LOW32)
+}
+
+// `a + b` of 64-bit patterns, wrapped, with whether it carried out.
+func tc_add64(a: Int, b: Int) -> TcValue {
+    let low = tc_low(a) + tc_low(b)
+    let high = tc_high(a) + tc_high(b) + (low >> 32)
+    let bits = tc_join(high & TC_ARITH_LOW32, low)
+    if high > TC_ARITH_LOW32 {
+        return TcValue(ok: false, bits: bits, fault: TcFault.Overflow)
+    }
+    tc_value(bits)
+}
+
+// `a - b` of 64-bit patterns, wrapped, with whether it went below zero.
+func tc_sub64(a: Int, b: Int) -> TcValue {
+    var low = tc_low(a) - tc_low(b)
+    var owed = 0
+    if low < 0 {
+        low = low + (1 << 32)
+        owed = 1
+    }
+    var high = tc_high(a) - tc_high(b) - owed
+    var out = false
+    if high < 0 {
+        high = high + (1 << 32)
+        out = true
+    }
+    let bits = tc_join(high, low)
+    if out {
+        return TcValue(ok: false, bits: bits, fault: TcFault.Overflow)
+    }
+    tc_value(bits)
+}
+
+// `x * y` mod 2^32, for `x` and `y` below 2^32.
+func tc_mul32_low(x: Int, y: Int) -> Int {
+    let y0 = y & TC_ARITH_LOW16
+    let y1 = (y >> 16) & TC_ARITH_LOW16
+    let a = x * y0
+    let b = (x * y1) & TC_ARITH_LOW16
+    (a + (b << 16)) & TC_ARITH_LOW32
+}
+
+// `x * y` for `x` and `y` below 2^32: the 64-bit pattern of the product,
+// which may exceed `Int.max` as unsigned.
+func tc_mul32_full(x: Int, y: Int) -> Int {
+    let y0 = y & TC_ARITH_LOW16
+    let y1 = (y >> 16) & TC_ARITH_LOW16
+    let t0 = x * y0
+    let t1 = x * y1
+    let low = (t0 & TC_ARITH_LOW32) + ((t1 & TC_ARITH_LOW16) << 16)
+    let high = (t0 >> 32) + (t1 >> 16) + (low >> 32)
+    tc_join(high & TC_ARITH_LOW32, low)
+}
+
+// `a * b` of 64-bit patterns read unsigned, wrapped, with whether the true
+// product passes 2^64 - 1.
+func tc_mul64(a: Int, b: Int) -> TcValue {
+    let ah = tc_high(a)
+    let al = tc_low(a)
+    let bh = tc_high(b)
+    let bl = tc_low(b)
+    let low = tc_mul32_full(al, bl)
+    let cross = (tc_mul32_low(ah, bl) + tc_mul32_low(al, bh)) & TC_ARITH_LOW32
+    let high = (tc_high(low) + cross) & TC_ARITH_LOW32
+    let bits = tc_join(high, low)
+    var over = ah != 0 && bh != 0
+    if not over && (ah != 0 || bh != 0) {
+        let x = if ah != 0 { ah } else { bh }
+        let y = if ah != 0 { bl } else { al }
+        if y != 0 && x > TC_ARITH_LOW32 / y {
+            over = true
+        } else if tc_high(low) + x * y > TC_ARITH_LOW32 {
+            over = true
+        }
+    }
+    if over {
+        return TcValue(ok: false, bits: bits, fault: TcFault.Overflow)
+    }
+    tc_value(bits)
+}
+
+// `a / b` and `a % b` of 64-bit patterns read unsigned, `b` not zero.
+func tc_divmod64(a: Int, b: Int, remainder: Bool) -> Int {
+    if a >= 0 && b > 0 {
+        if remainder {
+            return a % b
+        }
+        return a / b
+    }
+    if tc_arith_ult(a, b) {
+        if remainder {
+            return a
+        }
+        return 0
+    }
+    if b < 0 {
+        // `b` is at least 2^63, so `a` holds it once.
+        if remainder {
+            return tc_sub64(a, b).bits
+        }
+        return 1
+    }
+    var quotient = 0
+    var rest = 0
+    var i = 63
+    while i >= 0 {
+        rest = (rest << 1) | ((a >> i) & 1)
+        if not tc_arith_ult(rest, b) {
+            rest = tc_sub64(rest, b).bits
+            quotient = quotient | (1 << i)
+        }
+        i = i - 1
+    }
+    if remainder {
+        return rest
+    }
+    quotient
+}
+
+// Whether value `v` of a `fw`-bit type, signed or not, has a value a
+// `tw`-bit type holds.
+public func tc_arith_fits(v: Int, fw: Int, fs: Bool, tw: Int, ts: Bool) -> Bool {
+    let huge = fw >= 64 && not fs && v < 0
+    if huge {
+        return tw >= 64 && not ts
+    }
+    if tw >= 64 {
+        return ts || v >= 0
+    }
+    v >= tc_arith_min(tw, ts) && v <= tc_arith_max(tw, ts)
+}
+
+// Value `v` of a `fw`-bit type converted to a `tw`-bit one, which must hold
+// it: `as`, a widening, a constant's adoption.
+public func tc_arith_convert(v: Int, fw: Int, fs: Bool, tw: Int, ts: Bool) -> TcValue {
+    if not tc_arith_fits(v, fw, fs, tw, ts) {
+        return TcValue(ok: false, bits: v, fault: TcFault.NotFit)
+    }
+    tc_value(tc_arith_normalize(v, tw, ts))
+}
+
+// `a op b` for two values of one `w`-bit type: `+ - * / %`, the wrapping
+// `&+ &- &*`, and `& | ^`.
+public func tc_arith_binary(op: &String, a: Int, b: Int, w: Int, signed: Bool) -> TcValue {
+    if op.equals("&") {
+        return tc_value(tc_arith_normalize(a & b, w, signed))
+    }
+    if op.equals("|") {
+        return tc_value(tc_arith_normalize(a | b, w, signed))
+    }
+    if op.equals("^") {
+        return tc_value(tc_arith_normalize(a ^ b, w, signed))
+    }
+    if op.equals("&+") {
+        return tc_value(tc_arith_normalize(tc_add64(a, b).bits, w, signed))
+    }
+    if op.equals("&-") {
+        return tc_value(tc_arith_normalize(tc_sub64(a, b).bits, w, signed))
+    }
+    if op.equals("&*") {
+        return tc_value(tc_arith_normalize(tc_mul64(a, b).bits, w, signed))
+    }
+    if op.equals("/") || op.equals("%") {
+        return tc_arith_divide(op.equals("%"), a, b, w, signed)
+    }
+    if w < 64 {
+        // Narrow operands are under 2^32 in magnitude, so a sum is exact; a
+        // product that could leave an `Int` overflows the type anyway.
+        var exact = 0
+        if op.equals("+") {
+            exact = a + b
+        } else if op.equals("-") {
+            exact = a - b
+        } else if op.equals("*") {
+            let ma = if a < 0 { 0 - a } else { a }
+            let mb = if b < 0 { 0 - b } else { b }
+            if ma != 0 && mb > (1 << 62) / ma {
+                return tc_fault(TcFault.Overflow)
+            }
+            exact = a * b
+        } else {
+            return tc_fault(TcFault.NotConstant)
+        }
+        if exact < tc_arith_min(w, signed) || exact > tc_arith_max(w, signed) {
+            return tc_fault(TcFault.Overflow)
+        }
+        return tc_value(exact)
+    }
+    if signed {
+        return tc_arith_signed64(&op, a, b)
+    }
+    var r = tc_fault(TcFault.NotConstant)
+    if op.equals("+") {
+        r = tc_add64(a, b)
+    } else if op.equals("-") {
+        r = tc_sub64(a, b)
+    } else if op.equals("*") {
+        r = tc_mul64(a, b)
+    }
+    if not r.ok && r.fault == TcFault.Overflow {
+        return tc_fault(TcFault.Overflow)
+    }
+    r
+}
+
+// `a op b` of two signed 64-bit values: `+`, `-`, `*`.
+func tc_arith_signed64(op: &String, a: Int, b: Int) -> TcValue {
+    if op.equals("+") {
+        if (b > 0 && a > TC_ARITH_MAX - b) || (b < 0 && a < TC_ARITH_MIN - b) {
+            return tc_fault(TcFault.Overflow)
+        }
+        return tc_value(a + b)
+    }
+    if op.equals("-") {
+        if (b < 0 && a > TC_ARITH_MAX + b) || (b > 0 && a < TC_ARITH_MIN + b) {
+            return tc_fault(TcFault.Overflow)
+        }
+        return tc_value(a - b)
+    }
+    if op.equals("*") {
+        if a == 0 || b == 0 {
+            return tc_value(0)
+        }
+        if a == 1 {
+            return tc_value(b)
+        }
+        if b == 1 {
+            return tc_value(a)
+        }
+        if a == TC_ARITH_MIN || b == TC_ARITH_MIN {
+            return tc_fault(TcFault.Overflow)
+        }
+        let ma = if a < 0 { 0 - a } else { a }
+        let mb = if b < 0 { 0 - b } else { b }
+        if ma > TC_ARITH_MAX / mb {
+            return tc_fault(TcFault.Overflow)
+        }
+        return tc_value(a * b)
+    }
+    tc_fault(TcFault.NotConstant)
+}
+
+// `a / b`, or `a % b`, truncated toward zero.
+func tc_arith_divide(remainder: Bool, a: Int, b: Int, w: Int, signed: Bool) -> TcValue {
+    if b == 0 {
+        return tc_fault(TcFault.DivideByZero)
+    }
+    if not signed {
+        if w >= 64 {
+            return tc_value(tc_divmod64(a, b, remainder))
+        }
+        if remainder {
+            return tc_value(a % b)
+        }
+        return tc_value(a / b)
+    }
+    if b == -1 && a == tc_arith_min(w, true) {
+        return tc_fault(TcFault.Overflow)
+    }
+    if remainder {
+        return tc_value(a % b)
+    }
+    tc_value(a / b)
+}
+
+// `a << count` or `a >> count` for `a` of a `w`-bit type and a count of
+// its own `cw`-bit type: a count outside `0..<w` is out of range; `<<` keeps
+// the low bits, `>>` is arithmetic on a signed type and logical otherwise.
+public func tc_arith_shift(op: &String, a: Int, w: Int, signed: Bool, count: Int, cw: Int, cs: Bool) -> TcValue {
+    let huge = cw >= 64 && not cs && count < 0
+    if huge || count < 0 || count >= w {
+        return tc_fault(TcFault.ShiftRange)
+    }
+    if op.equals("<<") {
+        return tc_value(tc_arith_normalize(a << count, w, signed))
+    }
+    if signed || a >= 0 || count == 0 {
+        return tc_value(a >> count)
+    }
+    let mask = ~(-1 << (64 - count))
+    tc_value((a >> count) & mask)
+}
+
+// `-a` and `~a` for `a` of a `w`-bit type.
+public func tc_arith_unary(op: &String, a: Int, w: Int, signed: Bool) -> TcValue {
+    if op.equals("~") {
+        return tc_value(tc_arith_normalize(~a, w, signed))
+    }
+    if op.equals("-") {
+        if not signed {
+            if a == 0 {
+                return tc_value(0)
+            }
+            return tc_fault(TcFault.Overflow)
+        }
+        if a == tc_arith_min(w, true) {
+            return tc_fault(TcFault.Overflow)
+        }
+        return tc_value(0 - a)
+    }
+    tc_fault(TcFault.NotConstant)
+}
+
+// `a op b` for two values of one `w`-bit type: `==`, `!=`, `<`, `<=`, `>`,
+// `>=`.
+public func tc_arith_compare(op: &String, a: Int, b: Int, w: Int, signed: Bool) -> Bool {
+    if op.equals("==") {
+        return a == b
+    }
+    if op.equals("!=") {
+        return a != b
+    }
+    var less = a < b
+    var greater = a > b
+    if w >= 64 && not signed {
+        less = tc_arith_ult(a, b)
+        greater = tc_arith_ult(b, a)
+    }
+    if op.equals("<") {
+        return less
+    }
+    if op.equals("<=") {
+        return not greater
+    }
+    if op.equals(">") {
+        return greater
+    }
+    not less
+}
+
+// An integer literal's magnitude, its `_`s and its suffix left off, as a
+// 64-bit pattern read unsigned; past 2^64 - 1 it does not fit.
+public func tc_arith_literal(text: &String) -> TcValue {
+    var radix = 10
+    var i = 0
+    let n = text.len()
+    if n > 2 && (text.byte_at(0) as Int) == 48 {
+        let letter = text.byte_at(1) as Int
+        if letter == 120 {
+            radix = 16
+            i = 2
+        } else if letter == 111 {
+            radix = 8
+            i = 2
+        } else if letter == 98 {
+            radix = 2
+            i = 2
+        }
+    }
+    var high = 0
+    var low = 0
+    var digits = 0
+    while i < n {
+        let b = text.byte_at(i) as Int
+        i = i + 1
+        if b == 95 {
+            continue
+        }
+        if b == 105 || b == 117 {
+            break
+        }
+        var digit = -1
+        if b >= 48 && b <= 57 {
+            digit = b - 48
+        } else if b >= 97 && b <= 102 {
+            digit = b - 87
+        } else if b >= 65 && b <= 70 {
+            digit = b - 55
+        }
+        if digit < 0 || digit >= radix {
+            return tc_fault(TcFault.NotConstant)
+        }
+        let next_low = low * radix + digit
+        high = high * radix + (next_low >> 32)
+        low = next_low & TC_ARITH_LOW32
+        if high > TC_ARITH_LOW32 {
+            return tc_fault(TcFault.NotFit)
+        }
+        digits = digits + 1
+    }
+    if digits == 0 {
+        return tc_fault(TcFault.NotConstant)
+    }
+    tc_value(tc_join(high, low))
+}
+
+// A literal of magnitude `m` (a 64-bit pattern read unsigned), negated, at a
+// `w`-bit type: one constant, so `-128` is an `Int8` though `128` is not, and
+// `-9223372036854775808` an `Int`.
+public func tc_arith_negative_literal(m: Int, w: Int, signed: Bool) -> TcValue {
+    if m == 0 {
+        return tc_value(0)
+    }
+    let low = tc_arith_min(w, signed)
+    if signed && m == low {
+        return tc_value(low)
+    }
+    if not signed || m < 0 || 0 - m < low {
+        return TcValue(ok: false, bits: 0 - m, fault: TcFault.NotFit)
+    }
+    tc_value(0 - m)
+}
+
+// Value `v` of a `w`-bit type, in decimal.
+public func tc_arith_text(v: Int, w: Int, signed: Bool) -> String {
+    if signed || v >= 0 {
+        return v.to_string()
+    }
+    let tens = tc_divmod64(v, 10, false)
+    let unit = tc_divmod64(v, 10, true)
+    var out = StringBuilder()
+    try! out.append(tens.to_string())
+    try! out.append(unit.to_string())
+    out.build()
+}

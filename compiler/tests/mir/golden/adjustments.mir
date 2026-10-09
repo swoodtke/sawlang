@@ -180,7 +180,8 @@ fn adjustments.erased(n: Int) -> Result<Int, std.box.Box<any Error, std.alloc.Gl
     let _3: adjustments.Fault;
     let _4: Result<Int, adjustments.Fault>;
     let _5: Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>;
-    let _6: Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>;
+    let _6: Int;
+    let _7: Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>;
 
     bb0: {
         _3 = adjustments.Fault::Broken;
@@ -193,16 +194,16 @@ fn adjustments.erased(n: Int) -> Result<Int, std.box.Box<any Error, std.alloc.Gl
     }
 
     bb2: {
-        _2 = move (_5 as Ok).0;
+        _6 = move (_5 as Ok).0;
         drop(_5);
-        _6 = Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>::Ok(copy _2);
-        _0 = move _6;
+        _2 = move _6;
+        _7 = Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>::Ok(copy _2);
+        _0 = move _7;
         return;
     }
 
     bb3: {
         _0 = Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>::Err(move (_5 as Err).0);
-        drop(_5);
         return;
     }
 }

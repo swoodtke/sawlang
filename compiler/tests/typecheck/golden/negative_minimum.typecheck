@@ -1,0 +1,93 @@
+(Module negative_minimum
+  (declarations
+    (enum Level 5:6 private (raw Int8))
+    (case Level.Floor 6:10)
+    (case Level.Ceiling 7:10)
+    (static LOW 10:8 private Int8)
+    (static WIDE_LOW 11:8 private Int16)
+    (static DOUBLE 12:8 private Int8)
+    (struct Pair 19:8 private)
+    (field Pair.a 20:5 private Int8)
+    (field Pair.b 21:5 private Int16)
+    (func main 24:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (negative_minimum.Level
+      (case Floor private declared)
+      (case Ceiling private declared)
+      (static from public (synthesized raw)))
+    (negative_minimum.Pair
+      (field a Int8 private declared)
+      (field b Int16 private declared)))
+  (views
+    (negative_minimum.Level Floor Ceiling from)
+    (negative_minimum.Pair a b))
+  (conformances)
+  (copy-tier
+    (negative_minimum.Level Copy)
+    (negative_minimum.Pair Copy))
+  (bodies
+    (Level.Floor 6:10
+      (6:18-6:22 Unary.negate Int8 value temp (op -))
+      (6:19-6:22 IntLit Int (adopt Int8) value temp))
+    (Level.Ceiling 7:10
+      (7:20-7:23 IntLit Int (adopt Int8) value temp))
+    (LOW 10:8
+      (10:20-10:24 Unary.negate Int8 value temp (op -))
+      (10:21-10:24 IntLit Int (adopt Int8) value temp))
+    (WIDE_LOW 11:8
+      (11:26-11:32 Unary.negate Int16 value temp (op -))
+      (11:27-11:32 IntLit Int (adopt Int16) value temp))
+    (DOUBLE 12:8
+      (12:23-12:31 Binary Int8 value temp (op +))
+      (12:23-12:27 Unary.negate Int8 value temp (op -))
+      (12:24-12:27 IntLit Int (adopt Int8) value temp)
+      (12:30-12:31 IntLit Int (adopt Int8) value temp))
+    (main 24:6
+      (25:9-25:10 BindingName Int8 place temp)
+      (25:19-25:23 Unary.negate Int8 value temp (op -))
+      (25:20-25:23 IntLit Int (adopt Int8) value temp)
+      (26:9-26:10 BindingName Int8 place temp)
+      (26:19-26:20 IntLit Int (adopt Int8) value temp)
+      (27:5-27:6 Name Int8 place write)
+      (27:9-27:13 Unary.negate Int8 value temp (op -))
+      (27:10-27:13 IntLit Int (adopt Int8) value temp)
+      (28:9-28:10 BindingName negative_minimum.Pair place temp)
+      (28:13-28:29 Call.paren negative_minimum.Pair value temp (memberwise negative_minimum.Pair (owner negative_minimum.Pair)))
+      (28:21-28:22 IntLit Int (adopt Int8) value temp)
+      (28:27-28:28 IntLit Int (adopt Int16) value temp)
+      (29:5-29:8 Member Int8 place write)
+      (29:5-29:6 Name negative_minimum.Pair place project)
+      (29:11-29:15 Unary.negate Int8 value temp (op -))
+      (29:12-29:15 IntLit Int (adopt Int8) value temp)
+      (30:5-30:8 Member Int16 place write)
+      (30:5-30:6 Name negative_minimum.Pair place project)
+      (30:11-30:17 Unary.negate Int16 value temp (op -))
+      (30:12-30:17 IntLit Int (adopt Int16) value temp)
+      (31:5-31:17 Call.paren Void value temp (builtin print))
+      (31:11-31:16 Binary Int8 value borrow (op +))
+      (31:11-31:12 Name Int8 place copy)
+      (31:15-31:16 Name Int8 place copy)
+      (32:5-32:15 Call.paren Void value temp (builtin print))
+      (32:11-32:14 Member Int8 place borrow)
+      (32:11-32:12 Name negative_minimum.Pair place project)
+      (33:5-33:18 Call.paren Void value temp (builtin print))
+      (33:11-33:17 Name Int8 place borrow))
+    (item 14:15
+      (14:15-14:22 Binary.pair Bool value temp (op <))
+      (14:15-14:18 Name Int8 place borrow)
+      (14:21-14:22 IntLit Int (adopt Int8) value borrow))
+    (item 15:15
+      (15:15-15:23 Binary.pair Bool value temp (op <))
+      (15:15-15:19 Unary.negate Int value borrow (op -))
+      (15:16-15:19 IntLit Int value temp)
+      (15:22-15:23 IntLit Int value borrow))
+    (item 16:15
+      (16:15-16:26 Binary.pair Bool value temp (op ==))
+      (16:15-16:18 Name Int8 place borrow)
+      (16:22-16:26 Unary.negate Int8 value borrow (op -))
+      (16:23-16:26 IntLit Int (adopt Int8) value temp))
+    (item 17:15
+      (17:15-17:33 Binary.pair Bool value temp (op ==))
+      (17:15-17:23 Name Int16 place borrow)
+      (17:27-17:33 Unary.negate Int16 value borrow (op -))
+      (17:28-17:33 IntLit Int (adopt Int16) value temp))))

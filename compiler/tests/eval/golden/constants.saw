@@ -1,0 +1,50 @@
+// Every constant position the evaluator computes, each from its MIR: a
+// static's initializer, a raw-backed case's value, an `@align` argument and
+// a `static_assert`'s condition. Arithmetic is typed: a literal is written at
+// the type its expression adopts, and each operation runs at its operands'
+// type, so `1 << 63` at `UInt64` is 2^63 and `~(0 as UInt)` is `UInt.max`. A
+// static reads another, declared before it or after it, and a case's raw
+// value is a constant of its backing. A negated literal is one constant, so a
+// width's minimum, `-128` at `Int8`, fits.
+
+enum Perm: UInt8 {
+    case Read = 1 << 0,
+    case Write = 1 << 1,
+    case Exec = 1 << 2
+}
+
+enum Level: Int8 {
+    case Floor = -128,
+    case Top = 127
+}
+
+static PAGE_SHIFT: Int = 12
+static PAGE_SIZE: Int = 1 << PAGE_SHIFT
+static PAGE_MASK: Int = PAGE_SIZE - 1
+static DOUBLED: Int = LATER * 2
+static LATER: Int = 21
+static HIGH: UInt64 = 1 << 63
+static ALL: UInt = ~(0 as UInt)
+static BYTE_ALL: UInt8 = ~0
+static RW: UInt8 = Perm.Read | Perm.Write
+static EXEC: UInt32 = Perm.Exec
+static LIMIT: Int = Int.max
+static LOW: Int8 = -128
+static WIDE_LOW: Int16 = -32768
+static NEXT_LOW: Int8 = -128 + 1
+static WIDE: UInt64 = 18446744073709551615
+static TRUNCATED: Int = 7 / 2
+static NEGATIVE: Int = -7 % 2
+static WRAPPED: UInt8 = 250 &+ 10
+static NARROWED: UInt16 = PAGE_SIZE as UInt16
+static SHIFTED: UInt64 = HIGH >> 62
+static FLAG: Bool = PAGE_SIZE > 4096 || PAGE_SHIFT == 12
+
+@align(PAGE_SIZE)
+static BUFFER: Int = 0
+
+static_assert(PAGE_SIZE == 4096, "four-kilobyte pages")
+static_assert((Perm.Read | Perm.Write | Perm.Exec) == 7, "three flags")
+static_assert(not (HIGH < 1), "2^63 read unsigned")
+static_assert(LOW < 0 && Level.Floor == Level.Floor, "a minimum and a case")
+static_assert(LOW == -128 && WIDE_LOW == -32768, "each width's minimum is one literal")

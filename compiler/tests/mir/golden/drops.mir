@@ -188,8 +188,7 @@ fn drops.temporaries() -> Int {
     let _4: Int;
     let _5: String;
     let _6: String;
-    let _7: String;
-    let _8: &String;
+    let _7: &String;
 
     bb0: {
         _2 = call drops.make() [] -> [return: bb1];
@@ -208,17 +207,16 @@ fn drops.temporaries() -> Int {
 
     bb3: {
         drop(_5);
-        _6 = interpolate [const {}: String];
-        _7 = call drops.make() [] -> [return: bb4];
+        _6 = call drops.make() [] -> [return: bb4];
     }
 
     bb4: {
-        _8 = ref(shared, _7);
-        call builtin print [move _6, move _8] -> [return: bb5];
+        _7 = ref(shared, _6);
+        call builtin print [format "{}", move _7] -> [return: bb5];
     }
 
     bb5: {
-        drop(_7);
+        drop(_6);
         _0 = copy _1;
         return;
     }

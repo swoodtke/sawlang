@@ -1,0 +1,427 @@
+module accessors
+
+fn prologue accessors.Grid.[](i: Int) -> &var Int {
+    let _0: &var Int;  // return
+    let _1: &var accessors.Grid;  // self
+    let _2: Int;  // param i
+    let _3: Int;
+    let _4: &var Int;
+
+    bb0: {
+        _3 = copy _2;
+        _4 = ref(exclusive, (*_1).cells[_3]);
+        _0 = move _4;
+        return;
+    }
+}
+
+fn epilogue accessors.Grid.[](i: Int) -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn prologue accessors.Grid.find(i: Int) -> (&var Int)? {
+    let _0: (&var Int)?;  // return
+    let _1: &var accessors.Grid;  // self
+    let _2: Int;  // param i
+    let _3: Bool;
+    let _4: Bool;
+    let _5: Bool;
+    let _6: Int?;
+    let _7: Int;
+    let _8: &var Int;
+    let _9: (&var Int)?;
+
+    bb0: {
+        _4 = Lt(copy _2, const 0: Int);
+        switch move _4 -> [true: bb4, false: bb3];
+    }
+
+    bb1: {
+        _7 = copy _2;
+        _8 = ref(exclusive, (*_1).cells[_7]);
+        _9 = (&var Int)?::Some(move _8);
+        _0 = move _9;
+        return;
+    }
+
+    bb2: {
+        switch move _3 -> [true: bb5, false: bb6];
+    }
+
+    bb3: {
+        _5 = Ge(copy _2, const 4: Int);
+        _3 = move _5;
+        goto -> bb2;
+    }
+
+    bb4: {
+        _3 = const true: Bool;
+        goto -> bb2;
+    }
+
+    bb5: {
+        _6 = Int?::None;
+        _0 = (&var Int)?::None;
+        return;
+    }
+
+    bb6: {
+        goto -> bb1;
+    }
+}
+
+fn epilogue accessors.Grid.find(i: Int) -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn prologue accessors.Grid.counted(i: Int) -> &var Int {
+    let _0: &var Int;  // return
+    let _1: &var (&var accessors.Grid, Int, Int);  // record
+    let _2: &var accessors.Grid;  // self
+    let _3: Int;  // param i
+    let _4: Int;  // before
+    let _5: Int;
+    let _6: &var Int;
+
+    bb0: {
+        _4 = copy (*_2).reads;
+        _5 = copy _3;
+        _6 = ref(exclusive, (*_2).cells[_5]);
+        _0 = move _6;
+        (*_1).0 = move _2;
+        (*_1).1 = move _3;
+        (*_1).2 = move _4;
+        return;
+    }
+}
+
+fn epilogue accessors.Grid.counted(i: Int) -> Void {
+    let _0: Void;  // return
+    let _1: &var (&var accessors.Grid, Int, Int);  // record
+    let _2: &var accessors.Grid;  // self
+    let _3: Int;  // param i
+    let _4: Int;  // before
+    let _5: Int;
+
+    bb0: {
+        _2 = move (*_1).0;
+        _3 = move (*_1).1;
+        _4 = move (*_1).2;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _5 = Add(copy _4, copy _3);
+        (*_2).reads = move _5;
+        return;
+    }
+}
+
+fn prologue accessors.Grid.either(first: Bool) -> &var Int {
+    let _0: &var Int;  // return
+    let _1: &var (&var accessors.Grid, Int);  // record
+    let _2: &var accessors.Grid;  // self
+    let _3: Bool;  // param first
+    let _4: Int;
+    let _5: &var Int;
+    let _6: Int;
+    let _7: &var Int;
+
+    bb0: {
+        switch copy _3 -> [true: bb1, false: bb2];
+    }
+
+    bb1: {
+        _4 = const 0: Int;
+        _5 = ref(exclusive, (*_2).cells[_4]);
+        _0 = move _5;
+        (*_1).0 = move _2;
+        (*_1).1 = const 0: Int;
+        return;
+    }
+
+    bb2: {
+        _6 = const 1: Int;
+        _7 = ref(exclusive, (*_2).cells[_6]);
+        _0 = move _7;
+        (*_1).0 = move _2;
+        (*_1).1 = const 1: Int;
+        return;
+    }
+}
+
+fn epilogue accessors.Grid.either(first: Bool) -> Void {
+    let _0: Void;  // return
+    let _1: &var (&var accessors.Grid, Int);  // record
+    let _2: &var accessors.Grid;  // self
+    let _3: Int;
+    let _4: Bool;
+
+    bb0: {
+        _2 = move (*_1).0;
+        _4 = Eq(copy (*_1).1, const 0: Int);
+        switch move _4 -> [true: bb2, false: bb4];
+    }
+
+    bb1: {
+        _3 = Add(copy (*_2).reads, const 1: Int);
+        (*_2).reads = move _3;
+        return;
+    }
+
+    bb2: {
+        goto -> bb1;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        goto -> bb3;
+    }
+}
+
+fn prologue accessors.Grid.forwarded(i: Int) -> &var Int {
+    let _0: &var Int;  // return
+    let _1: &var accessors.Grid;  // self
+    let _2: Int;  // param i
+    let _3: Int;
+    let _4: &var Int;
+    let _5: &var accessors.Grid;
+    let _6: &var Int;
+    window w0: accessors.Grid.[](i: Int) exclusive;
+
+    bb0: {
+        _3 = copy _2;
+        _5 = ref(exclusive, (*_1));
+        _4 = window_open w0 prologue accessors.Grid.[](i: Int) (owner accessors.Grid) [move _5, move _3] -> [present: bb1];
+    }
+
+    bb1: {
+        _6 = ref(exclusive, (*_4));
+        _0 = move _6;
+        return;
+    }
+}
+
+fn epilogue accessors.Grid.forwarded(i: Int) -> Void {
+    let _0: Void;  // return
+    window w0: accessors.Grid.[](i: Int) exclusive;
+
+    bb0: {
+        goto -> bb1;
+    }
+
+    bb1: {
+        window_close w0 epilogue accessors.Grid.[](i: Int) (owner accessors.Grid) -> [return: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+}
+
+fn prologue accessors.Grid.waited(i: Int) -> &var Int {
+    let _0: &var Int;  // return
+    let _1: &var accessors.Grid;  // self
+    let _2: Int;  // param i
+    let _3: Int;
+    let _4: &var Int;
+
+    bb0: {
+        call std.task.yield_now() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _3 = copy _2;
+        _4 = ref(exclusive, (*_1).cells[_3]);
+        _0 = move _4;
+        return;
+    }
+}
+
+fn epilogue accessors.Grid.waited(i: Int) -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn prologue accessors.Lock.hold() -> &var Int {
+    let _0: &var Int;  // return
+    let _1: &var accessors.Lock;  // self
+    let _2: &var Int;
+
+    bb0: {
+        _2 = ref(exclusive, (*_1).value);
+        _0 = move _2;
+        return;
+    }
+}
+
+fn epilogue accessors.Lock.hold() -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn accessors.use_all(g: &var accessors.Grid, l: &var accessors.Lock) -> Int {
+    let _0: Int;  // return
+    let _1: &var accessors.Grid;  // param g
+    let _2: &var accessors.Lock;  // param l
+    let _3: &var Int;
+    let _4: &var accessors.Grid;
+    let _5: (&var accessors.Grid, Int, Int);  // record
+    let _6: &var (&var accessors.Grid, Int, Int);
+    let _7: &var Int;  // ref a
+    let _8: &var (&var accessors.Grid, Int, Int);
+    let _9: &var Int;
+    let _10: &var accessors.Grid;
+    let _11: (&var accessors.Grid, Int);  // record
+    let _12: &var (&var accessors.Grid, Int);
+    let _13: &var Int;  // ref b
+    let _14: &var (&var accessors.Grid, Int);
+    let _15: &var Int;
+    let _16: &var accessors.Grid;
+    let _17: &var Int;  // ref c
+    let _18: &var Int;
+    let _19: &var accessors.Grid;
+    let _20: &var Int;  // ref d
+    let _21: &var Int;
+    let _22: &var accessors.Lock;
+    let _23: &var Int;  // ref e
+    let _24: &var Int;
+    let _25: &var accessors.Grid;
+    let _26: &var Int;  // ref found
+    let _27: Int;
+    let _28: &Int;
+    let _29: &accessors.Grid;
+    window w0: accessors.Grid.counted(i: Int) exclusive record _5;
+    window w1: accessors.Grid.either(first: Bool) exclusive record _11;
+    window w2: accessors.Grid.forwarded(i: Int) exclusive;
+    window w3: accessors.Grid.waited(i: Int) exclusive;
+    window w4: accessors.Lock.hold() exclusive sync;
+    window w5: accessors.Grid.find(i: Int) exclusive conditional;
+    window w6: accessors.Grid.[](i: Int) shared;
+
+    bb0: {
+        _4 = ref(exclusive, (*_1));
+        _6 = ref(exclusive, _5);
+        _3 = window_open w0 prologue accessors.Grid.counted(i: Int) (owner accessors.Grid) [move _6, move _4, const 1: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _7 = ref(exclusive, (*_3));
+        (*_7) = Add(copy (*_7), const 1: Int);
+        _8 = ref(exclusive, _5);
+        window_close w0 epilogue accessors.Grid.counted(i: Int) (owner accessors.Grid) [move _8] -> [return: bb2];
+    }
+
+    bb2: {
+        _10 = ref(exclusive, (*_1));
+        _12 = ref(exclusive, _11);
+        _9 = window_open w1 prologue accessors.Grid.either(first: Bool) (owner accessors.Grid) [move _12, move _10, const true: Bool] -> [present: bb3];
+    }
+
+    bb3: {
+        _13 = ref(exclusive, (*_9));
+        (*_13) = Add(copy (*_13), const 1: Int);
+        _14 = ref(exclusive, _11);
+        window_close w1 epilogue accessors.Grid.either(first: Bool) (owner accessors.Grid) [move _14] -> [return: bb4];
+    }
+
+    bb4: {
+        _16 = ref(exclusive, (*_1));
+        _15 = window_open w2 prologue accessors.Grid.forwarded(i: Int) (owner accessors.Grid) [move _16, const 2: Int] -> [present: bb5];
+    }
+
+    bb5: {
+        _17 = ref(exclusive, (*_15));
+        (*_17) = Add(copy (*_17), const 1: Int);
+        window_close w2 epilogue accessors.Grid.forwarded(i: Int) (owner accessors.Grid) -> [return: bb6];
+    }
+
+    bb6: {
+        _19 = ref(exclusive, (*_1));
+        _18 = window_open w3 prologue accessors.Grid.waited(i: Int) (owner accessors.Grid) [move _19, const 3: Int] -> [present: bb7] suspends;
+    }
+
+    bb7: {
+        _20 = ref(exclusive, (*_18));
+        (*_20) = Add(copy (*_20), const 1: Int);
+        window_close w3 epilogue accessors.Grid.waited(i: Int) (owner accessors.Grid) -> [return: bb8];
+    }
+
+    bb8: {
+        _22 = ref(exclusive, (*_2));
+        _21 = window_open w4 prologue accessors.Lock.hold() (owner accessors.Lock) [move _22] -> [present: bb9];
+    }
+
+    bb9: {
+        _23 = ref(exclusive, (*_21));
+        (*_23) = Add(copy (*_23), const 1: Int);
+        window_close w4 epilogue accessors.Lock.hold() (owner accessors.Lock) -> [return: bb10];
+    }
+
+    bb10: {
+        _25 = ref(exclusive, (*_1));
+        _24 = window_open w5 prologue accessors.Grid.find(i: Int) (owner accessors.Grid) [move _25, const 0: Int] -> [present: bb12, absent: bb13];
+    }
+
+    bb11: {
+        _29 = ref(shared, (*_1));
+        _28 = window_open w6 prologue accessors.Grid.[](i: Int) (owner accessors.Grid) [move _29, const 0: Int] -> [present: bb15];
+    }
+
+    bb12: {
+        _26 = ref(exclusive, (*_24));
+        (*_26) = Add(copy (*_26), const 1: Int);
+        window_close w5 epilogue accessors.Grid.find(i: Int) (owner accessors.Grid) -> [return: bb14];
+    }
+
+    bb13: {
+        goto -> bb11;
+    }
+
+    bb14: {
+        goto -> bb11;
+    }
+
+    bb15: {
+        _27 = copy (*_28);
+        window_close w6 epilogue accessors.Grid.[](i: Int) (owner accessors.Grid) -> [return: bb16];
+    }
+
+    bb16: {
+        _0 = move _27;
+        return;
+    }
+}

@@ -12,15 +12,19 @@
 //   sawc2 typecheck --check FILE... each entry file's signatures checked, refusals only
 //   sawc2 mir --dump FILE...        each entry file's program lowered to MIR, and its dump
 //   sawc2 mir --check FILE...       each entry file's program lowered, refusals and invariants only
+//   sawc2 eval --dump FILE...       each entry file's constants evaluated, and their values
+//   sawc2 eval --check FILE...      each entry file's constants evaluated, refusals and invariants only
 //
 // The lexer's records are its canonical dump (compiler/lex/README.md), the
 // parser's are described in compiler/parse/README.md, the resolver's in
 // compiler/tests/resolve/README.md, and the type checker's in
-// compiler/tests/typecheck/README.md, and the MIR's in compiler/tests/mir/README.md.
+// compiler/tests/typecheck/README.md, the MIR's in compiler/tests/mir/README.md, and
+// the evaluator's in compiler/tests/eval/README.md.
 // A lex error prints one ERROR record and
 // exits 1, and so does a file a later stage refuses; a usage or I/O failure
 // prints a message and exits 2.
 
+import saweval.src.api.{EvalOptions, eval_record}
 import sawlex.src.lib.{LexResult, format_doc, format_error, format_token, kind_name, lex, token_kinds}
 import sawmir.src.api.{MirOptions, mir_record}
 import sawparse.src.api.{ParseOptions, parse_record}
@@ -48,6 +52,8 @@ func driver_usage() -> Int {
     print("                       [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 mir (--dump | --check) [--notes] [--std-root DIR]")
     print("                 [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc2 eval (--dump | --check) [--notes] [--std-root DIR]")
+    print("                  [--module-path NAME=DIR]... [FILE | @LIST]...")
     DRIVER_EXIT_USAGE
 }
 
@@ -69,6 +75,9 @@ func main() -> Int {
     if command.equals("mir") {
         return driver_resolve(&args, DRIVER_STAGE_MIR)
     }
+    if command.equals("eval") {
+        return driver_resolve(&args, DRIVER_STAGE_EVAL)
+    }
     driver_usage()
 }
 
@@ -76,8 +85,9 @@ func main() -> Int {
 static DRIVER_STAGE_RESOLVE: Int = 0
 static DRIVER_STAGE_TYPECHECK: Int = 1
 static DRIVER_STAGE_MIR: Int = 2
+static DRIVER_STAGE_EVAL: Int = 3
 
-// `sawc2 resolve`, `sawc2 typecheck` and `sawc2 mir`, which take the same
+// `sawc2 resolve`, `sawc2 typecheck`, `sawc2 mir` and `sawc2 eval`, which take the same
 // flags, `--interfaces` and `--summaries` typecheck's alone: one record per
 // entry file, in order, each file the entry of its own program.
 func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
@@ -136,6 +146,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     let checking = TypecheckOptions(std_root: std_root, dump: dump, notes: notes,
                                     interfaces: interfaces, summaries: summaries)
     let lowering = MirOptions(std_root: std_root, dump: dump, notes: notes)
+    let evaluating = EvalOptions(std_root: std_root, dump: dump, notes: notes)
     var status = 0
     var k = 0
     while k < inputs.len() {
@@ -145,7 +156,10 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
             try! out.append(input.path)
             try! out.append("\n")
             var result = 0
-            if stage == DRIVER_STAGE_MIR {
+            if stage == DRIVER_STAGE_EVAL {
+                result = eval_record(out: &var out, path: input.path, options: &evaluating, names: &names,
+                                     dirs: &dirs)
+            } else if stage == DRIVER_STAGE_MIR {
                 result = mir_record(out: &var out, path: input.path, options: &lowering, names: &names,
                                     dirs: &dirs)
             } else if typecheck {

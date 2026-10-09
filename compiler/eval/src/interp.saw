@@ -1,0 +1,425 @@
+// The constant evaluator (SL:architecture §3.10, Ruled): a MIR interpreter
+// scoped to the bootstrap slice's constant positions, a static's initializer,
+// a raw-backed case's value, an `@align` argument and a `static_assert`'s
+// condition. It runs their MIR as it would run: straight-line typed
+// arithmetic (`sawtypecheck.src.arith`, the one rule typecheck's fold also
+// follows), bit and shift operators, comparisons, `&&` and `||` as the
+// branches MIR makes them, casts between integer types, and reads of other
+// constant statics and raw-backed cases. Calls, loops and memory are outside
+// it, refused by name. An overflow, an out-of-range shift, a division by zero
+// or a value that does not fit is a compile error naming the statics the
+// evaluation went through; a static whose value depends on itself is a cycle,
+// and a step budget bounds every evaluation besides.
+
+import sawmir.src.dump.{mir_operator_name}
+import sawmir.src.model.{MirAggregate, MirBlock, MirCallKind, MirConstKind, MirDiag, MirFuncKind, MirOperand,
+                         MirOperandKind, MirPlace, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind, MirSwitchKind,
+                         MirTermKind}
+import sawmir.src.program.{MirProgram}
+import saweval.src.program.{EvalEnd, EvalKind, EvalProgram, EvalValue, eval_is_constant_kind, eval_missing,
+                            eval_value}
+import saweval.src.report.{eval_rules}
+import sawtypecheck.src.arith.{TcFault, TcValue, tc_arith_binary, tc_arith_compare, tc_arith_convert,
+                               tc_arith_literal, tc_arith_max, tc_arith_min, tc_arith_negative_literal,
+                               tc_arith_shift, tc_arith_text, tc_arith_unary}
+import sawtypecheck.src.model.{TC_FLAG_UNSAFE_VAR}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.typeops.{TcClient}
+
+// How many blocks one constant's evaluation may enter, the statics it reads
+// included.
+static EVAL_STEP_BUDGET: Int = 100000
+// What `next_block` answers besides a block: the function returns, or its
+// evaluation stops.
+static EVAL_RETURNS: Int = -2
+static EVAL_STOPS: Int = -3
+
+// Whether `text` ends in `tail`.
+func eval_ends_in(text: &String, tail: String) -> Bool {
+    let n = text.len()
+    let m = tail.len()
+    n >= m && text.substring(n - m, n).equals(tail)
+}
+
+// The step budget: how many blocks one constant's evaluation may enter.
+public func eval_step_budget() -> Int {
+    EVAL_STEP_BUDGET
+}
+
+extension EvalProgram {
+    // Evaluates every constant position of every lowered function.
+    public func evaluate_all(&var self) {
+        let n = self.mir.funcs.len()
+        var f = 0
+        while f < n {
+            let info = self.mir.funcs[f]
+            if eval_is_constant_kind(info.kind) && not info.refused {
+                self.steps = 0
+                let _ = self.evaluate(f)
+                if info.kind == MirFuncKind.Assert {
+                    self.check_assert(f)
+                }
+            }
+            f = f + 1
+        }
+    }
+
+    // A `static_assert` whose condition evaluated false.
+    func check_assert(&var self, f: Int) {
+        let v = self.values[f]
+        if v.kind == EvalKind.Boolean && v.bits == 0 {
+            self.report_at(f, "eval.assert", "this `static_assert` condition is false")
+        }
+    }
+
+    // The value of MIR function `f`, evaluated once; a function already under
+    // way is a cycle among the statics on the stack.
+    public func evaluate(&var self, f: Int) -> EvalValue {
+        if self.ends[f] != EvalEnd.Pending {
+            return self.values[f]
+        }
+        if self.active[f] {
+            self.report_cycle(f)
+            return eval_missing(TcFault.Cycle)
+        }
+        self.active[f] = true
+        try! self.stack.push(f)
+        let v = self.run(f)
+        self.pop_stack()
+        self.active[f] = false
+        self.values[f] = v
+        if self.ends[f] == EvalEnd.Pending {
+            if v.kind == EvalKind.Missing {
+                self.ends[f] = EvalEnd.Poisoned
+            } else {
+                self.ends[f] = EvalEnd.Valued
+            }
+        }
+        v
+    }
+
+    func pop_stack(&var self) {
+        var kept = Vector<Int>()
+        var k = 0
+        while k + 1 < self.stack.len() {
+            try! kept.push(self.stack[k])
+            k = k + 1
+        }
+        self.stack = move kept
+    }
+
+    // Function `f` run from its entry: each block's statements, then its
+    // terminator, until a return.
+    func run(&var self, f: Int) -> EvalValue {
+        let info = self.mir.funcs[f]
+        var locals = Vector<EvalValue>()
+        var k = 0
+        while k < info.local_count {
+            try! locals.push(eval_missing(TcFault.NotConstant))
+            k = k + 1
+        }
+        var b = 0
+        while b >= 0 {
+            self.steps = self.steps + 1
+            if self.steps > EVAL_STEP_BUDGET {
+                let text = self.budget_text()
+                self.report_at(f, "eval.cycle", text)
+                return eval_missing(TcFault.Cycle)
+            }
+            let block = self.mir.blocks[info.block_first + b]
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.mir.stmts[s]
+                s = stmt.next
+                if stmt.kind == MirStmtKind.Budget {
+                    return self.not_yet(f, "a loop")
+                }
+                if stmt.kind != MirStmtKind.Assign {
+                    continue
+                }
+                let p = self.mir.places[stmt.place]
+                if p.count != 0 || p.local < 0 {
+                    return self.not_yet(f, "a write into part of a value")
+                }
+                let v = self.rvalue(f, stmt.rvalue, &locals)
+                if v.kind == EvalKind.Missing {
+                    return v
+                }
+                locals[p.local] = v
+            }
+            b = self.next_block(f, &block, &locals)
+            if b == EVAL_RETURNS {
+                return locals[0]
+            }
+        }
+        // A step that stopped reported its fault, or the evaluation it
+        // read did; this one passes the value on as missing.
+        eval_missing(self.last_fault)
+    }
+
+    // Where control goes after block `block`: a block, `EVAL_RETURNS`, or
+    // `EVAL_STOPS` when it cannot go on.
+    func next_block(&var self, f: Int, block: &MirBlock, locals: &Vector<EvalValue>) -> Int {
+        match block.term {
+            case Goto -> block.target,
+            case Return -> EVAL_RETURNS,
+            case Switch -> {
+                if block.switch_kind != MirSwitchKind.Bool {
+                    let _ = self.not_yet(f, "a `match`")
+                    return EVAL_STOPS
+                }
+                let v = self.operand(f, block.operand, &locals)
+                if v.kind == EvalKind.Missing {
+                    return EVAL_STOPS
+                }
+                let want = if v.bits != 0 { 1 } else { 0 }
+                var k = 0
+                while k < block.arm_count {
+                    let arm = self.mir.arms[block.arm_first + k]
+                    if arm.value == want {
+                        return arm.target
+                    }
+                    k = k + 1
+                }
+                EVAL_STOPS
+            },
+            case Call -> {
+                let _ = self.not_yet(f, "a call")
+                EVAL_STOPS
+            },
+            case _ -> {
+                let _ = self.not_yet(f, "control that cannot go on")
+                EVAL_STOPS
+            }
+        }
+    }
+
+    // Rvalue `r`'s value.
+    func rvalue(&var self, f: Int, r: Int, locals: &Vector<EvalValue>) -> EvalValue {
+        let rv = self.mir.rvalues[r]
+        match rv.kind {
+            case Use -> {
+                let o = self.mir.lists[rv.first]
+                self.operand(f, o, &locals)
+            },
+            case Binary -> self.binary(f, &rv, &locals),
+            case Unary -> self.unary(f, &rv, &locals),
+            case Cast -> self.converted(f, &rv, &locals),
+            case Widen -> self.converted(f, &rv, &locals),
+            case Adopt -> self.converted(f, &rv, &locals),
+            case Aggregate -> {
+                if rv.aggregate == MirAggregate.Case && rv.count == 0 {
+                    return EvalValue(kind: EvalKind.Case, bits: 0, ty: rv.ty, decl: rv.decl, fault: TcFault.Clean)
+                }
+                self.not_yet(f, "an aggregate")
+            },
+            case Ref -> self.not_yet(f, "a reference"),
+            case Conversion -> self.not_yet(f, "a conversion"),
+            case Interpolate -> self.not_yet(f, "an interpolation"),
+            case _ -> self.not_yet(f, "a conversion")
+        }
+    }
+
+    // Operand `o`'s value.
+    func operand(&var self, f: Int, o: Int, locals: &Vector<EvalValue>) -> EvalValue {
+        let info = self.mir.operands[o]
+        if info.kind == MirOperandKind.Const {
+            return self.constant(f, &info)
+        }
+        let p = self.mir.places[info.place]
+        if p.count != 0 {
+            return self.not_yet(f, "a part of a value")
+        }
+        if p.local >= 0 {
+            return locals[p.local]
+        }
+        let d = p.static_decl
+        let s = self.mir.tc.sigs[d]
+        if (s.flags & TC_FLAG_UNSAFE_VAR) != 0 {
+            return self.not_yet(f, "a mutable static")
+        }
+        let g = self.constant_of[d]
+        if g < 0 {
+            return self.not_yet(f, "a static whose initializer this program does not lower")
+        }
+        let v = self.evaluate(g)
+        if v.kind == EvalKind.Missing {
+            self.last_fault = v.fault
+        }
+        v
+    }
+
+    // A constant operand: an integer literal at its type, `true`, `false`,
+    // `()`, or an integer type's `max` and `min`.
+    func constant(&var self, f: Int, info: &MirOperand) -> EvalValue {
+        let text = self.mir.tc.name_text(info.text)
+        let t = info.ty
+        match info.const_kind {
+            case Int -> {
+                if not self.mir.tc.is_integer(t) {
+                    return self.not_yet(f, "a literal of no integer type")
+                }
+                let m = tc_arith_literal(&text)
+                if not m.ok {
+                    return self.fault(f, m.fault, m.bits, t)
+                }
+                let w = self.mir.tc.int_width(t)
+                let signed = not self.mir.tc.is_unsigned(t)
+                let r = tc_arith_convert(m.bits, 64, false, w, signed)
+                if not r.ok {
+                    return self.fault_value(f, m.bits, -1, t)
+                }
+                eval_value(EvalKind.Integer, r.bits, t)
+            },
+            case Bool -> eval_value(EvalKind.Boolean, if text.equals("true") { 1 } else { 0 }, t),
+            case Unit -> eval_value(EvalKind.Unit, 0, t),
+            case Builtin -> {
+                let max = eval_ends_in(&text, ".max")
+                if self.mir.tc.is_integer(t) && (max || eval_ends_in(&text, ".min")) {
+                    let w = self.mir.tc.int_width(t)
+                    let signed = not self.mir.tc.is_unsigned(t)
+                    if max {
+                        return eval_value(EvalKind.Integer, tc_arith_max(w, signed), t)
+                    }
+                    return eval_value(EvalKind.Integer, tc_arith_min(w, signed), t)
+                }
+                self.not_yet(f, "a source location")
+            },
+            case _ -> self.not_yet(f, "a constant of a type the evaluator does not hold")
+        }
+    }
+
+    // A builtin binary operator: arithmetic, bit and shift operators at the
+    // left operand's type, comparisons giving a `Bool`.
+    func binary(&var self, f: Int, rv: &MirRvalue, locals: &Vector<EvalValue>) -> EvalValue {
+        let op = self.mir.tc.name_text(rv.op)
+        let first = self.mir.lists[rv.first]
+        let second = self.mir.lists[rv.first + 1]
+        let a = self.operand(f, first, &locals)
+        if a.kind == EvalKind.Missing {
+            return a
+        }
+        let b = self.operand(f, second, &locals)
+        if b.kind == EvalKind.Missing {
+            return b
+        }
+        let comparison = op.equals("==") || op.equals("!=") || op.equals("<") || op.equals("<=") || op.equals(">") || op.equals(">=")
+        if comparison {
+            return self.comparison(f, &op, &a, &b, rv.ty)
+        }
+        if a.kind != EvalKind.Integer || b.kind != EvalKind.Integer {
+            return self.not_yet(f, "an operator over values of no integer type")
+        }
+        let w = self.mir.tc.int_width(a.ty)
+        let signed = not self.mir.tc.is_unsigned(a.ty)
+        if op.equals("<<") || op.equals(">>") {
+            let cw = self.mir.tc.int_width(b.ty)
+            let cs = not self.mir.tc.is_unsigned(b.ty)
+            let r = tc_arith_shift(&op, a.bits, w, signed, b.bits, cw, cs)
+            return self.result(f, r, a.ty)
+        }
+        if op.equals("..") || op.equals("..=") {
+            return self.not_yet(f, "a range")
+        }
+        if a.ty != b.ty {
+            return self.not_yet(f, "an operator over two integer types")
+        }
+        let r = tc_arith_binary(&op, a.bits, b.bits, w, signed)
+        self.result(f, r, a.ty)
+    }
+
+    func comparison(&var self, f: Int, op: &String, a: &EvalValue, b: &EvalValue, t: Int) -> EvalValue {
+        var holds = false
+        if a.kind == EvalKind.Integer && b.kind == EvalKind.Integer && a.ty == b.ty {
+            let w = self.mir.tc.int_width(a.ty)
+            let signed = not self.mir.tc.is_unsigned(a.ty)
+            holds = tc_arith_compare(&op, a.bits, b.bits, w, signed)
+        } else if a.kind == b.kind && (a.kind == EvalKind.Boolean || a.kind == EvalKind.Case) && (op.equals("==") || op.equals("!=")) {
+            let same = a.bits == b.bits && a.decl == b.decl
+            holds = if op.equals("==") { same } else { not same }
+        } else {
+            return self.not_yet(f, "a comparison of values the evaluator does not hold")
+        }
+        eval_value(EvalKind.Boolean, if holds { 1 } else { 0 }, t)
+    }
+
+    // `-x`, `not x`, `~x`; a negated integer literal is one constant.
+    func unary(&var self, f: Int, rv: &MirRvalue, locals: &Vector<EvalValue>) -> EvalValue {
+        let op = self.mir.tc.name_text(rv.op)
+        let o = self.mir.lists[rv.first]
+        let info = self.mir.operands[o]
+        if op.equals("-") && info.kind == MirOperandKind.Const && info.const_kind == MirConstKind.Int {
+            let text = self.mir.tc.name_text(info.text)
+            let m = tc_arith_literal(&text)
+            if not m.ok {
+                return self.fault(f, m.fault, m.bits, info.ty)
+            }
+            let t = info.ty
+            if not self.mir.tc.is_integer(t) {
+                return self.not_yet(f, "a literal of no integer type")
+            }
+            let r = tc_arith_negative_literal(m.bits, self.mir.tc.int_width(t), not self.mir.tc.is_unsigned(t))
+            if not r.ok {
+                return self.fault_value(f, r.bits, -1, t)
+            }
+            return eval_value(EvalKind.Integer, r.bits, t)
+        }
+        let v = self.operand(f, o, &locals)
+        if v.kind == EvalKind.Missing {
+            return v
+        }
+        if op.equals("not") {
+            if v.kind != EvalKind.Boolean {
+                return self.not_yet(f, "`not` of a value that is no `Bool`")
+            }
+            return eval_value(EvalKind.Boolean, 1 - v.bits, v.ty)
+        }
+        if v.kind != EvalKind.Integer {
+            return self.not_yet(f, "an operator over a value of no integer type")
+        }
+        let r = tc_arith_unary(&op, v.bits, self.mir.tc.int_width(v.ty), not self.mir.tc.is_unsigned(v.ty))
+        self.result(f, r, v.ty)
+    }
+
+    // `x as T`, a widening, an adoption: an integer converted, which `T` must
+    // hold; a raw-backed case read as its raw value first.
+    func converted(&var self, f: Int, rv: &MirRvalue, locals: &Vector<EvalValue>) -> EvalValue {
+        let o = self.mir.lists[rv.first]
+        var v = self.operand(f, o, &locals)
+        if v.kind == EvalKind.Missing {
+            return v
+        }
+        if v.kind == EvalKind.Case {
+            let g = if v.decl >= 0 { self.constant_of[v.decl] } else { -1 }
+            if g < 0 {
+                return self.not_yet(f, "a case with no raw value")
+            }
+            v = self.evaluate(g)
+            if v.kind == EvalKind.Missing {
+                self.last_fault = v.fault
+                return v
+            }
+        }
+        if v.ty == rv.ty {
+            return v
+        }
+        if v.kind != EvalKind.Integer || not self.mir.tc.is_integer(rv.ty) {
+            return self.not_yet(f, "a conversion between types that are no integers")
+        }
+        let r = tc_arith_convert(v.bits, self.mir.tc.int_width(v.ty), not self.mir.tc.is_unsigned(v.ty),
+                                 self.mir.tc.int_width(rv.ty), not self.mir.tc.is_unsigned(rv.ty))
+        if not r.ok {
+            return self.fault_value(f, v.bits, v.ty, rv.ty)
+        }
+        eval_value(EvalKind.Integer, r.bits, rv.ty)
+    }
+
+    // A typed arithmetic result at type `t`, or its fault reported.
+    func result(&var self, f: Int, r: TcValue, t: Int) -> EvalValue {
+        if r.ok {
+            return eval_value(EvalKind.Integer, r.bits, t)
+        }
+        self.fault(f, r.fault, r.bits, t)
+    }
+}

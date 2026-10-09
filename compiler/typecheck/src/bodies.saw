@@ -29,7 +29,8 @@ import sawtypecheck.src.candidates.{tc_contains}
 import sawtypecheck.src.checks.{tc_check_unsafe}
 import sawtypecheck.src.conform.{TcSubst, tc_args_subst, tc_copy_ints, tc_extension_sets}
 import sawtypecheck.src.declarations.{tc_build_signatures}
-import sawtypecheck.src.fold.{TcFold, tc_fold_step}
+import sawtypecheck.src.arith.{TcFault, tc_arith_literal}
+import sawtypecheck.src.fold.{TcFold}
 import sawtypecheck.src.infer.{TcSolve, tc_solve}
 import sawtypecheck.src.members.{tc_build_members}
 import sawtypecheck.src.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_FLAG_STATIC, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
@@ -1085,8 +1086,11 @@ extension TcProgram {
         self.refuse(e, "type.mismatch", msg.build())
     }
 
-    // A constant expression, or a lone raw-backed case, must fit the
-    // integer type it is typed or adopted as, by its folded value.
+    // A constant expression, or a lone raw-backed case, must fold at the
+    // integer type it is typed or adopted as, by typed arithmetic
+    // (SL:architecture §3.10): a value that does not fit where it adopts, or
+    // an operation that overflows its type, leaves its range; a shift count
+    // out of range and a division by zero are faults of their own.
     func check_constant_range(&var self, e: Int) {
         if not self.is_constant_expr(e) && self.raw_case_named(e) < 0 {
             return
@@ -1096,17 +1100,31 @@ extension TcProgram {
             return
         }
         let v = self.fold_constant(e)
-        if not v.ok || self.value_fits(v.value, t) {
+        if v.ok || v.fault == TcFault.NotConstant || v.fault == TcFault.Cycle {
             return
         }
         var msg = StringBuilder()
-        try! msg.append("constant expression ")
-        try! msg.append(v.value.to_string())
-        try! msg.append(" does not fit in `")
-        try! msg.append(self.type_text(t))
-        try! msg.append("` (range ")
-        try! msg.append(self.int_range_text(t))
-        try! msg.append(")")
+        if v.fault == TcFault.NotFit {
+            try! msg.append("constant expression ")
+            try! msg.append(self.fold_text(&v))
+            try! msg.append(" does not fit in `")
+            try! msg.append(self.type_text(t))
+            try! msg.append("` (range ")
+            try! msg.append(self.int_range_text(t))
+            try! msg.append(")")
+        } else if v.fault == TcFault.Overflow {
+            try! msg.append("constant expression overflows `")
+            try! msg.append(self.type_text(v.ty))
+            try! msg.append("` (range ")
+            try! msg.append(self.int_range_text(v.ty))
+            try! msg.append(")")
+        } else if v.fault == TcFault.ShiftRange {
+            try! msg.append("constant expression shifts a value of type `")
+            try! msg.append(self.type_text(v.ty))
+            try! msg.append("` by a count outside its width")
+        } else {
+            try! msg.append("constant expression divides by zero")
+        }
         self.refuse(e, "type.mismatch", msg.build())
     }
 
@@ -1118,18 +1136,20 @@ extension TcProgram {
             return
         }
         let w = self.int_width(t)
-        let v = self.fold_constant(e)
         let negated = self.negated_literal == e
         let m = self.current
         let leaf = self.res.first_leaf(e)
         let at = if leaf >= 0 { leaf } else { e }
         let text = self.text(m, at)
+        // The magnitude as a 64-bit pattern read unsigned: negative past
+        // `Int.max`, `Int.min` at exactly 2^63.
+        let v = tc_arith_literal(&text)
         var fits = true
         if w < 64 {
             let top = (1 << (w - 1)) - 1
-            fits = v.ok && (v.value <= top || (negated && v.value == top + 1))
-        } else if not v.ok {
-            fits = negated && text.starts_with("9223372036854775808")
+            fits = v.ok && v.bits >= 0 && (v.bits <= top || (negated && v.bits == top + 1))
+        } else {
+            fits = v.ok && (v.bits >= 0 || (negated && v.bits == Int.min))
         }
         if fits {
             return

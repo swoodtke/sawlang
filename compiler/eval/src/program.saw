@@ -1,0 +1,107 @@
+// The constant evaluator's program: the MIR program, unchanged, and the
+// value table it fills, one entry per MIR function, of which the constant
+// positions' are read by later stages (SL:architecture §3.10).
+
+import sawmir.src.model.{MirDiag, MirFuncKind}
+import sawmir.src.program.{MirProgram}
+import sawresolve.src.program.{ResProgram}
+import sawtypecheck.src.arith.{TcFault}
+import sawtypecheck.src.program.{TcProgram}
+
+// What an evaluated value is: an integer of type `ty`, a `Bool`, a
+// payload-free case `decl` of an enum, `()`, or no value.
+public enum EvalKind {
+    case Integer,
+    case Boolean,
+    case Case,
+    case Unit,
+    case Missing
+}
+
+// A value, or, `Missing`, the fault that left none.
+public struct EvalValue {
+    public kind: EvalKind
+    public bits: Int
+    public ty: Int
+    public decl: Int
+    public fault: TcFault
+}
+
+public func eval_value(kind: EvalKind, bits: Int, ty: Int) -> EvalValue {
+    EvalValue(kind: kind, bits: bits, ty: ty, decl: -1, fault: TcFault.Clean)
+}
+
+public func eval_missing(fault: TcFault) -> EvalValue {
+    EvalValue(kind: EvalKind.Missing, bits: 0, ty: -1, decl: -1, fault: fault)
+}
+
+// How a function's evaluation ended: with a value, refused with a
+// diagnostic of its own, or with no value because a constant it reads was
+// refused.
+public enum EvalEnd {
+    case Pending,
+    case Valued,
+    case Refused,
+    case Poisoned
+}
+
+public struct EvalProgram {
+    public mir: MirProgram
+    // By MIR function: its value, how its evaluation ended, and whether it is
+    // under way.
+    public values: Vector<EvalValue>
+    public ends: Vector<EvalEnd>
+    public active: Vector<Bool>
+    // By declaration: the MIR function computing a static's initializer or a
+    // raw-backed case's value, or -1.
+    public constant_of: Vector<Int>
+    // The functions being evaluated, outermost first.
+    public stack: Vector<Int>
+    // Steps taken by the evaluation under way, which the step budget bounds.
+    public steps: Int
+    public diags: Vector<MirDiag>
+    // The fault that stopped the last evaluation step that had one.
+    public last_fault: TcFault
+}
+
+extension EvalProgram: NoCopy {}
+
+// Whether MIR function kind `kind` is a constant position the evaluator
+// computes: a static's initializer, a raw-backed case's value, an `@align`
+// argument and a `static_assert`'s condition.
+public func eval_is_constant_kind(kind: MirFuncKind) -> Bool {
+    kind == MirFuncKind.Static || kind == MirFuncKind.RawValue || kind == MirFuncKind.Align || kind == MirFuncKind.Assert
+}
+
+public func eval_program(mir: MirProgram) -> EvalProgram {
+    var values = Vector<EvalValue>()
+    var ends = Vector<EvalEnd>()
+    var active = Vector<Bool>()
+    let funcs = mir.funcs.len()
+    var k = 0
+    while k < funcs {
+        try! values.push(eval_missing(TcFault.NotConstant))
+        try! ends.push(EvalEnd.Pending)
+        try! active.push(false)
+        k = k + 1
+    }
+    var constant_of = Vector<Int>()
+    let decl_count = mir.tc.res.decl_count()
+    k = 0
+    while k < decl_count {
+        try! constant_of.push(-1)
+        k = k + 1
+    }
+    k = 0
+    while k < funcs {
+        let info = mir.funcs[k]
+        let named = info.kind == MirFuncKind.Static || info.kind == MirFuncKind.RawValue
+        if named && info.decl >= 0 && not info.refused {
+            constant_of[info.decl] = k
+        }
+        k = k + 1
+    }
+    EvalProgram(mir: move mir, values: move values, ends: move ends, active: move active,
+                constant_of: move constant_of, stack: Vector<Int>(), steps: 0, diags: Vector<MirDiag>(),
+                last_fault: TcFault.Clean)
+}

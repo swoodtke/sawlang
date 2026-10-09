@@ -1,0 +1,17 @@
+ERROR	eval.overflow	compiler/tests/eval/golden/refusals.saw:9:21	`static refusals.EDGE` overflows `Int` (range -9223372036854775808..=9223372036854775807); evaluated for static refusals.USER
+ERROR	eval.divide-by-zero	compiler/tests/eval/golden/refusals.saw:10:24	`static refusals.QUOTIENT` divides by zero
+ERROR	eval.not-fit	compiler/tests/eval/golden/refusals.saw:11:24	`static refusals.NARROW`: 300 does not fit in `UInt8` (range 0..=255)
+ERROR	eval.cycle	compiler/tests/eval/golden/refusals.saw:12:17	`static refusals.A` depends on its own value: static refusals.A, static refusals.B, static refusals.A
+ERROR	slice.not-yet	compiler/tests/eval/golden/refusals.saw:14:28	an aggregate in `static refusals.TABLE` is not evaluated as a constant in the bootstrap slice yet
+ERROR	eval.shift-range	compiler/tests/eval/golden/refusals.saw:16:16	`static_assert refusals 16:16` shifts a value of type `Int` by a count outside its width
+ERROR	eval.assert	compiler/tests/eval/golden/refusals.saw:17:15	this `static_assert` condition is false
+module refusals
+static refusals.USER: Int (no value)
+static refusals.EDGE: Int (no value)
+static refusals.QUOTIENT: Int (no value)
+static refusals.NARROW: UInt8 (no value)
+static refusals.A: Int (no value)
+static refusals.B: Int (no value)
+static refusals.TABLE: [UInt8; 4] (no value)
+static_assert refusals 16:16: Bool (no value)
+static_assert refusals 17:15: Bool = false

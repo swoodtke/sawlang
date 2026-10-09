@@ -47,7 +47,9 @@ typecheck/
                       compiler/tools/std_suspension.py
     effects.saw       phase 3: the checks that read the summaries
     exhaust.saw       match exhaustiveness
-    fold.saw          constant folding, for literal ranges
+    arith.saw         typed integer arithmetic, the one rule every constant follows
+    fold.saw          constant folding by typed arithmetic, for literal ranges, which
+                      the MIR evaluator (compiler/eval) agrees with
     lang.saw          the lang items' shapes
     bodychecks.saw    borrowing-struct containment, the body half of `unsafe`,
                       the `borrows(sync)` window
@@ -110,6 +112,22 @@ typecheck/
     half of `unsafe`, and the `borrows(sync)` window, which reads the
     summaries. A `consumes` call's `move` and `move self`'s `consumes` body
     are checked as the body is walked.
+
+## Constants
+
+Typecheck needs a constant's value before any MIR exists, to range-check a
+literal or a constant expression where it adopts an integer slot
+(SL:architecture §3.10, "the one exception to the staged order"), so
+`fold.saw` folds over the tree. It follows the evaluator's rule, typed
+arithmetic (`arith.saw`, ruled Sep 25): each literal is written at the type
+it adopts, each operation runs at its operands' type at the target's width,
+and an overflow, an out-of-range shift or a division by zero is a refusal,
+where design 185 folded in the signed `Int` domain. So `1 << 63` at `UInt64`
+is 2^63, `~(0 as UInt)` is `UInt.max`, and `256 - 1` at `UInt8` is refused,
+since `256` does not fit there. The MIR evaluator (`compiler/eval`) computes
+every constant position's value from MIR through the same arithmetic, and the
+eval lane holds the two to agreement. Retiring this fold in favour of lowering
+a constant expression to MIR on demand is a later unit's.
 
 ## The summaries
 

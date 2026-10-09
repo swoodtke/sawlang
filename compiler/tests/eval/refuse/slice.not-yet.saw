@@ -1,0 +1,4 @@
+// refuses: slice.not-yet at 4:28
+// an aggregate, a constant the bootstrap slice's evaluator does not hold yet
+
+static TABLE: [UInt8; 4] = [0; 4]

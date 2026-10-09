@@ -1,0 +1,16 @@
+// A message that format arguments follow, or that holds `{}` slots, is a
+// format string: a constant of its own, its arguments the call's next
+// operands, rendered through stack scratch with nothing allocated (design
+// 137). A real interpolation builds a `String` and stays `interpolate`.
+
+func report(count: Int, name: String) {
+    print("count = {}", count)
+    print("{} and {}", name, count)
+    print("braces \{\} only")
+    print("hello {name}")
+    assert(count >= 0, "a negative count: {}", count)
+}
+
+func fail(code: Int) -> Never {
+    panic("failed with {}", code)
+}

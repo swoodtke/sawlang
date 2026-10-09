@@ -1,0 +1,123 @@
+// Typed integer arithmetic at the edges of each width: what a value of each
+// type holds, where an operation overflows, how a shift and a division
+// fault, and how a 64-bit unsigned value past `Int.max` is held and printed.
+import sawtypecheck.src.arith.{TcFault, TcValue, tc_arith_binary, tc_arith_compare, tc_arith_convert, tc_arith_literal,
+                               tc_arith_max, tc_arith_min, tc_arith_shift, tc_arith_text, tc_arith_unary}
+
+func expect_value(v: TcValue, bits: Int, what: String) {
+    assert(v.ok, "{} faulted", what)
+    assert(v.bits == bits, "{} is {}, not {}", what, v.bits, bits)
+}
+
+func expect_fault(v: TcValue, fault: TcFault, what: String) {
+    assert(not v.ok, "{} did not fault", what)
+    assert(v.fault == fault, "{} faulted the wrong way", what)
+}
+
+func binary(op: String, a: Int, b: Int, w: Int, signed: Bool) -> TcValue {
+    tc_arith_binary(&op, a, b, w, signed)
+}
+
+func shift(op: String, a: Int, w: Int, signed: Bool, count: Int) -> TcValue {
+    tc_arith_shift(&op, a, w, signed, count, 64, true)
+}
+
+func literal(text: String) -> TcValue {
+    tc_arith_literal(&text)
+}
+
+func unary(op: String, a: Int, w: Int, signed: Bool) -> TcValue {
+    tc_arith_unary(&op, a, w, signed)
+}
+
+func compare(op: String, a: Int, b: Int, w: Int, signed: Bool) -> Bool {
+    tc_arith_compare(&op, a, b, w, signed)
+}
+
+// A left shift by a count of type `UInt64`.
+func shift_unsigned_count(a: Int, count: Int) -> TcValue {
+    let op = "<<"
+    tc_arith_shift(&op, a, 64, true, count, 64, false)
+}
+
+func main() {
+    // 2^63 at `UInt64` is a value of its own, held as `Int.min`'s bits.
+    let top = shift("<<", 1, 64, false, 63)
+    expect_value(top, Int.min, "1 << 63 at UInt64")
+    assert(tc_arith_text(top.bits, 64, false).equals("9223372036854775808"), "2^63 prints unsigned")
+    expect_value(shift("<<", 1, 64, true, 63), Int.min, "1 << 63 at Int")
+    expect_fault(shift("<<", 1, 64, false, 64), TcFault.ShiftRange, "1 << 64")
+    expect_fault(shift("<<", 1, 8, false, 8), TcFault.ShiftRange, "1 << 8 at UInt8")
+    expect_fault(shift_unsigned_count(1, -1), TcFault.ShiftRange, "a count of 2^64 - 1")
+    expect_value(shift("<<", 1, 8, true, 7), -128, "1 << 7 at Int8")
+    expect_value(shift(">>", -1, 64, false, 60), 15, ">> on UInt64 is logical")
+    expect_value(shift(">>", -16, 64, true, 2), -4, ">> on Int is arithmetic")
+
+    // `~` keeps the type's width.
+    expect_value(unary("~", 0, 64, false), -1, "~0 at UInt")
+    expect_value(unary("~", 0, 8, false), 255, "~0 at UInt8")
+    expect_value(unary("~", 0, 64, true), -1, "~0 at Int")
+    expect_fault(unary("-", -128, 8, true), TcFault.Overflow, "-(-128) at Int8")
+    expect_fault(unary("-", 1, 64, false), TcFault.Overflow, "-1 at UInt")
+
+    // Overflow at each width, both signs.
+    expect_fault(binary("+", 255, 1, 8, false), TcFault.Overflow, "255 + 1 at UInt8")
+    expect_value(binary("+", 254, 1, 8, false), 255, "254 + 1 at UInt8")
+    expect_fault(binary("-", 0, 1, 32, false), TcFault.Overflow, "0 - 1 at UInt32")
+    expect_fault(binary("*", 65536, 65536, 32, false), TcFault.Overflow, "2^16 * 2^16 at UInt32")
+    expect_value(binary("*", 65535, 65537, 32, false), 4294967295, "UInt32.max as a product")
+    expect_fault(binary("+", Int.max, 1, 64, true), TcFault.Overflow, "Int.max + 1")
+    expect_fault(binary("*", Int.min, -1, 64, true), TcFault.Overflow, "Int.min * -1")
+    expect_value(binary("+", Int.max, 1, 64, false), Int.min, "Int.max + 1 at UInt64")
+    expect_fault(binary("+", -1, 1, 64, false), TcFault.Overflow, "UInt64.max + 1")
+    expect_fault(binary("-", 0, 1, 64, false), TcFault.Overflow, "0 - 1 at UInt64")
+    expect_value(binary("-", Int.min, 1, 64, false), Int.max, "2^63 - 1 at UInt64")
+    expect_value(binary("*", 4294967296, 2147483648, 64, false), Int.min, "2^32 * 2^31 at UInt64")
+    expect_fault(binary("*", 4294967296, 4294967296, 64, false), TcFault.Overflow, "2^32 * 2^32 at UInt64")
+    expect_fault(binary("*", 3, Int.min, 64, false), TcFault.Overflow, "3 * 2^63 at UInt64")
+    expect_value(binary("*", 4294967295, 4294967297, 64, false), -1, "UInt64.max as a product")
+
+    // The wrapping operators keep the low bits.
+    expect_value(binary("&+", -1, 2, 64, false), 1, "UInt64.max &+ 2")
+    expect_value(binary("&*", 16, 16, 8, false), 0, "16 &* 16 at UInt8")
+    expect_value(binary("&-", -128, 1, 8, true), 127, "-128 &- 1 at Int8")
+
+    // Division truncates toward zero; by zero, or `min / -1`, faults.
+    expect_value(binary("/", -7, 2, 64, true), -3, "-7 / 2")
+    expect_value(binary("%", -7, 2, 64, true), -1, "-7 % 2")
+    expect_fault(binary("/", 1, 0, 64, true), TcFault.DivideByZero, "1 / 0")
+    expect_fault(binary("%", 1, 0, 8, false), TcFault.DivideByZero, "1 % 0 at UInt8")
+    expect_fault(binary("/", -128, -1, 8, true), TcFault.Overflow, "-128 / -1 at Int8")
+    expect_value(binary("/", -1, 10, 64, false), 1844674407370955161, "UInt64.max / 10")
+    expect_value(binary("%", -1, 10, 64, false), 5, "UInt64.max % 10")
+    expect_value(binary("/", -1, Int.min, 64, false), 1, "UInt64.max / 2^63")
+    expect_value(binary("/", Int.min, 3, 64, false), 3074457345618258602, "2^63 / 3 at UInt64")
+
+    // Comparisons read the type's sign.
+    assert(compare("<", 1, -1, 64, false), "1 < UInt64.max")
+    assert(compare(">", 1, -1, 64, true), "1 > -1")
+    assert(compare(">=", Int.min, Int.max, 64, false), "2^63 >= Int.max at UInt64")
+
+    // Conversions hold a value or refuse it.
+    expect_fault(tc_arith_convert(-1, 64, true, 64, false), TcFault.NotFit, "-1 as UInt")
+    expect_fault(tc_arith_convert(Int.min, 64, false, 64, true), TcFault.NotFit, "2^63 as Int")
+    expect_value(tc_arith_convert(Int.min, 64, false, 64, false), Int.min, "2^63 as UInt64")
+    expect_fault(tc_arith_convert(256, 64, true, 8, false), TcFault.NotFit, "256 as UInt8")
+    expect_value(tc_arith_convert(-128, 64, true, 8, true), -128, "-128 as Int8")
+    expect_value(tc_arith_convert(255, 8, false, 32, true), 255, "255 widened to Int32")
+
+    // Literals, every notation, to 2^64 - 1.
+    expect_value(literal("18446744073709551615"), -1, "UInt64.max as a literal")
+    expect_value(literal("14695981039346656037"), -3750763034362895579, "the FNV offset")
+    expect_value(literal("0xFFFF_FFFF_FFFF_FFFF"), -1, "a hex UInt64.max")
+    expect_value(literal("0b1010"), 10, "a binary literal")
+    expect_value(literal("0o755"), 493, "an octal literal")
+    expect_value(literal("255u8"), 255, "a suffixed literal")
+    expect_fault(literal("18446744073709551616"), TcFault.NotFit, "2^64 as a literal")
+
+    // Each width's bounds.
+    assert(tc_arith_max(8, true) == 127 && tc_arith_min(8, true) == -128, "Int8's bounds")
+    assert(tc_arith_max(64, false) == -1 && tc_arith_min(64, false) == 0, "UInt64's bounds")
+    assert(tc_arith_text(-1, 64, false).equals("18446744073709551615"), "UInt64.max prints unsigned")
+    assert(tc_arith_text(-5, 64, true).equals("-5"), "a negative Int prints signed")
+}

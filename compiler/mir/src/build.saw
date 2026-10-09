@@ -4,7 +4,7 @@
 // is a no-op once control cannot reach the current block, so code after a
 // diverging expression leaves nothing behind.
 
-import sawmir.src.model.{MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind, MirDiag,
+import sawmir.src.model.{MirAccessor, MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind, MirDiag,
                          MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace, MirProj,
                          MirProjKind, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind, MirSuspend,
                          MirSwitchKind, MirTermKind, MirWindow}
@@ -83,7 +83,7 @@ extension MirProgram {
         var info = self.locals[at]
         info.owned = true
         self.locals[at] = info
-        try! self.scope.push(MirScopeEntry(window: false, index: l))
+        try! self.scope.push(MirScopeEntry(window: false, index: l, fieldwise: false))
     }
 
     // Binds leaf `leaf` to local `l` for the rest of the function.
@@ -481,7 +481,7 @@ extension MirProgram {
         MirCall(kind: kind, target: -1, param: -1, owner: -1, inst_first: self.types.len(), inst_count: 0,
                 spelling: -1, callee: -1, arg_first: self.lists.len(), arg_count: 0, dest: -1, next: -1,
                 absent: -1, window: -1, suspend: MirSuspend.Never, cond_first: self.conds.len(),
-                cond_count: 0, node: node)
+                cond_count: 0, node: node, half: -1)
     }
 
     // Ends the current block in call `c` and continues in a new block on its
@@ -577,9 +577,18 @@ extension MirProgram {
                            node: Int) -> Int {
         let base = self.funcs[self.cur].window_first
         let id = self.windows.len() - base
+        let lowered = accessor >= 0 && self.accessor_of[accessor] >= 0
         try! self.windows.push(MirWindow(accessor: accessor, exclusive: exclusive, sync: sync,
-                                         conditional: conditional, node: node))
+                                         conditional: conditional, node: node, record: -1, lowered: lowered))
         id
+    }
+
+    // Window `w`'s state record is held in local `l`.
+    public func set_window_record(&var self, w: Int, l: Int) {
+        let at = self.funcs[self.cur].window_first + w
+        var info = self.windows[at]
+        info.record = l
+        self.windows[at] = info
     }
 
     public func window(&self, w: Int) -> MirWindow {
@@ -587,7 +596,10 @@ extension MirProgram {
         self.windows[base + w]
     }
 
-    // Closes window `w` on the current path: the accessor's epilogue.
+    // Closes window `w` on the current path: the accessor's epilogue, at the
+    // instantiation its open took, reading the window's record. It is a
+    // suspension point when the epilogue may suspend, or, for an accessor
+    // whose body is not lowered here, when the accessor may.
     public func close_window(&var self, w: Int) {
         if self.current < 0 {
             return
@@ -596,7 +608,39 @@ extension MirProgram {
         var c = self.blank_call(MirCallKind.WindowClose, info.node)
         c.target = info.accessor
         c.window = w
-        self.suspension(info.node, &var c)
+        let at = self.tc.call_at[info.node]
+        if at >= 0 {
+            let record = self.tc.calls[at]
+            c.owner = record.owner
+            c.inst_first = self.types.len()
+            c.inst_count = record.inst_count
+            var k = 0
+            while k < record.inst_count {
+                let t = self.tc.insts[record.inst_first + k]
+                try! self.types.push(t)
+                k = k + 1
+            }
+        }
+        var suspends = true
+        let a = self.accessor_of[info.accessor]
+        if a >= 0 {
+            let acc = self.accessors[a]
+            c.half = acc.epilogue
+            suspends = acc.epilogue_suspends
+            if info.record >= 0 {
+                let p = self.place_local(info.record)
+                let rv = self.rv_ref(true, p)
+                let r = self.temp_of(rv)
+                var args = Vector<Int>()
+                let rp = self.place_local(r)
+                try! args.push(self.op_move(rp))
+                c.arg_first = self.push_args(&args)
+                c.arg_count = 1
+            }
+        }
+        if suspends {
+            self.suspension(info.node, &var c)
+        }
         let _ = self.call_and_continue(c)
     }
 
@@ -647,12 +691,37 @@ extension MirProgram {
             let entry = self.scope[k]
             if entry.window {
                 self.close_window(entry.index)
+            } else if entry.fieldwise {
+                self.release_fields_of(entry.index)
             } else {
                 let p = self.place_local(entry.index)
                 self.emit_drop(p)
             }
             k = k - 1
         }
+    }
+
+    // A consumed receiver's release: each field its body leaves in it, in
+    // reverse declaration order; its own `deinit` body does not run (spec,
+    // Consuming method receivers).
+    func release_fields_of(&var self, l: Int) {
+        var k = self.release_fields.len() - 1
+        while k >= 0 {
+            let p = self.place_local(l)
+            let f = self.release_fields[k]
+            let t = self.release_types[k]
+            if self.owns(t) {
+                let q = self.project(p, MirProjKind.Field, f, -1, t)
+                self.emit_drop(q)
+            }
+            k = k - 1
+        }
+    }
+
+    // Registers consumed receiver `l` with the innermost scope, released
+    // field by field.
+    public func scope_fieldwise(&var self, l: Int) {
+        try! self.scope.push(MirScopeEntry(window: false, index: l, fieldwise: true))
     }
 
     func pop_scope_entries(&var self, mark: Int) {
@@ -667,7 +736,7 @@ extension MirProgram {
 
     // Registers window `w` with the innermost scope, whose exits close it.
     public func scope_window(&var self, w: Int) {
-        try! self.scope.push(MirScopeEntry(window: true, index: w))
+        try! self.scope.push(MirScopeEntry(window: true, index: w, fieldwise: false))
     }
 
     // Removes the newest scope entry for window `w`, which its own
@@ -692,6 +761,42 @@ extension MirProgram {
             k = k - 1
         }
         self.scope = move kept
+    }
+
+    // Removes the newest scope entry for owned local `l`, which a consuming
+    // destructure has dropped or dissolved on every path past it.
+    public func forget_local(&var self, l: Int) {
+        var at = -1
+        var k = self.scope.len() - 1
+        while k >= 0 && at < 0 {
+            let entry = self.scope[k]
+            if not entry.window && entry.index == l {
+                at = k
+            }
+            k = k - 1
+        }
+        if at < 0 {
+            return
+        }
+        var kept = Vector<MirScopeEntry>()
+        k = 0
+        while k < self.scope.len() {
+            if k != at {
+                try! kept.push(self.scope[k])
+            }
+            k = k + 1
+        }
+        self.scope = move kept
+        // A scope opened after the entry starts one entry earlier now.
+        k = 0
+        while k < self.scope_marks.len() {
+            let mark = self.scope_marks[k]
+            if mark > at {
+                // Stage 0 workaround (SL:hazards S4): canonical: self.scope_marks[k] = self.scope_marks[k] - 1
+                self.scope_marks[k] = mark - 1
+            }
+            k = k + 1
+        }
     }
 
     // Diagnostics.

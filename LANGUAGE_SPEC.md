@@ -996,16 +996,20 @@ division libcalls (`__divdi3`) on a 32-bit chip. Consequently:
   (`let x = 5`), and `Int`/`Int` arithmetic is unaffected. The one place a
   literal is typed by a sibling rather than a declared slot is a mixed binop
   (`b + 0`, `fd < 200`): the literal adopts the other operand's fixed-width type.
-- **A CONSTANT EXPRESSION adopts and is range-checked exactly as a literal is.**
-  Anything the constant evaluator folds — `2 + 3`, a shift, a mask, `~m`, a
-  negated constant — takes the slot's fixed width at every position above, and
-  the check runs on the FOLDED value: `let e: UInt16 = 1 << 20` is the same
-  clean "does not fit" error `let e: UInt16 = 1048576` is, and `let a: Int8 =
-  -(1 << 7)` is `Int8.min` and compiles. The fold happens in the signed platform
-  `Int` domain (see *Constant expressions*), so `1 << 63` is `Int.min` and does
-  not fit an unsigned slot — mask it (`~0 & 0xFFFF_FFFF`) or write the literal.
-  An expression with a runtime operand in it is not a constant and is unaffected:
-  `n * 2` and `word | (1u32 << n)` type as they always did.
+- **A CONSTANT EXPRESSION adopts the slot's type, and its arithmetic is that
+  type's.** Anything the constant evaluator folds (`2 + 3`, a shift, a mask,
+  `~m`, a negated constant) takes the slot's fixed width at every position
+  above. Each literal in it is written at that type, and each operation runs at
+  its operands' type exactly as it would at run time (see *Constant
+  expressions*). So `static HIGH: UInt64 = 1 << 63` is 2^63, and `~0` at a
+  `UInt8` slot is 255. A literal that does not fit the type, and an operation
+  whose result the type cannot hold, are clean compile errors: `let e: UInt16 =
+  1 << 20` is refused because the count 20 is past `UInt16`'s width, `256 - 1`
+  at `UInt8` because `256` does not fit, and `-(1 << 7)` at `Int8` because
+  `1 << 7` is already -128 there and negating it overflows. Write `Int8.min`,
+  or `-128`, which is one literal. An expression with a runtime operand in it
+  is not a constant and is unaffected: `n * 2` and `word | (1u32 << n)` type as
+  they always did.
 - **A CLOSURE body's return positions are those positions too.** The tail
   expression, the if/match arm results inside it, and a `return` in the body all
   take the closure's declared return type, so a `(Int32) sync -> Int32` slot
@@ -10569,19 +10573,24 @@ Anything else — a runtime function call, a `let` local, a case of an enum with
 no backing — is rejected as non-constant, and the diagnostic names the
 sub-expression that failed rather than the whole condition.
 
-**A constant is evaluated at the target's integer width.** The domain is the
-platform `Int`: signed, pointer-wide, the type a bare integer literal already
-has. `<<` wraps at that width exactly as the emitted `shl` does, so `1 << 63` is
-`Int.min` on a 64-bit target and `1 << 31` is `Int.min` on a 32-bit one. A shift
-count that is negative or `>=` the width is a compile error, which is the
-compile-time form of the "shift out of range" panic. The destination is
-range-checked where the constant lands (an `as`, an integer slot, an array
-length), not inside the arithmetic — so `~0` is `-1`, and `0xFF & ~0` is the way
-to say 255. That check applies to an **unsigned** slot of any width, the
-platform `UInt` included: a fold that goes negative does not fit one, which is
-why `1 << 63` is refused at a `UInt64` and `~0` at a `UInt` — write the value
-(`UInt.max`) or mask it back. Division and modulo truncate toward zero, matching
-the runtime semantics above.
+**Constant arithmetic is ordinary typed arithmetic.** A constant expression
+adopts its literal types and then applies typed operations, exactly as the
+same expression would at run time, at the target's integer width and never
+the host's. Each literal is written at the type its expression adopts, a
+static or a raw-backed case converts into that type where it stands, and each
+operation runs at its operands' type. So `static HIGH: UInt64 = 1 << 63` is
+2^63, `~(0 as UInt)` is `UInt.max`, and `1 << 31` at an `Int32` is `Int32.min`:
+`<<` keeps the low bits of its type, as the emitted `shl` does.
+
+The faults a run-time operation would panic with are compile errors in a
+constant: a result its type cannot hold, a shift count that is negative or
+`>=` the shifted type's width (the compile-time form of the "shift out of
+range" panic), and a division or remainder by zero. A literal or a converted
+value that does not fit the type it lands in is one too, so `256 - 1` at a
+`UInt8` slot is refused, since `256` does not fit there. A negated literal is
+one literal, suffixed or not: `-128` fits an `Int8` slot and `-32768` an
+`Int16` one, as `-128_i8` does, though `128` alone fits neither. Division and
+modulo truncate toward zero, matching the runtime semantics above.
 
 #### Layout in a constant
 

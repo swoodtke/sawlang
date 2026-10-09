@@ -1,0 +1,34 @@
+// An unsuffixed negated literal is one constant, so a fixed width's minimum
+// fits where it adopts that width, as `-128_i8` does (SL:open-questions D6),
+// though typed arithmetic holds `-(1 << 7)` at `Int8` to an overflow.
+
+enum Level: Int8 {
+    case Floor = -128,
+    case Ceiling = 127
+}
+
+static LOW: Int8 = -128
+static WIDE_LOW: Int16 = -32768
+static DOUBLE: Int8 = -128 + 1
+
+static_assert(LOW < 0, "the minimum is negative")
+static_assert(-128 < 0, "a negative literal")
+static_assert(LOW == -128, "the 8-bit minimum")
+static_assert(WIDE_LOW == -32768, "the 16-bit minimum")
+
+struct Pair {
+    a: Int8,
+    b: Int16
+}
+
+func main() {
+    let a: Int8 = -128
+    var b: Int8 = 0
+    b = -128
+    var s = Pair(a: 0, b: 0)
+    s.a = -128
+    s.b = -32768
+    print(a + b)
+    print(s.a)
+    print(DOUBLE)
+}
