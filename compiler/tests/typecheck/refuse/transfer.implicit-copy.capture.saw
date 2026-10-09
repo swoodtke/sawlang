@@ -1,0 +1,14 @@
+// refuses: transfer.implicit-copy at 12:29
+// a closure capturing a NoCopy local by value with nothing written, whose fix
+// is `[move h]`
+
+struct Handle {
+    name: String
+}
+
+extension Handle: NoCopy {}
+
+func run(h: Handle) -> Int {
+    let f = { k: Int in k + h.name.len() }
+    f(1)
+}

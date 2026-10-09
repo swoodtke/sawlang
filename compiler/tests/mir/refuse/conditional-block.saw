@@ -1,0 +1,24 @@
+// refuses: slice.not-yet at 19:20
+// a `borrow` block binding a conditional lend, whose binding is an optional
+// place the body discriminates
+
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        if i < 0 || i >= 4 {
+            return None
+        }
+        lend self.cells[i]
+    }
+}
+
+func bump(r: &var Row) {
+    borrow var e = r.find(1) {
+        if borrow var cell = e {
+            cell += 1
+        }
+    }
+}

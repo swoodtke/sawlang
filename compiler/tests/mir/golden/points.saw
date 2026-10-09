@@ -1,0 +1,53 @@
+// Suspension points and op-budget points. A call whose callee may suspend is
+// a suspension point: always, or, in a generic body, when a condition over its
+// type parameters holds, which the point carries. Every loop backedge carries
+// an op-budget point: yield-capable, or charge-only inside a `borrows(sync)`
+// window.
+
+import std.task.{yield_now}
+
+trait Worker {
+    func step(&self) -> Int
+}
+
+struct Slow {
+    n: Int
+}
+
+extension Slow: Worker {
+    func step(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+struct Guarded {
+    n: Int
+}
+
+extension Guarded {
+    func hold(&var self) sync borrows(sync) -> &var Int {
+        lend self.n
+    }
+}
+
+func run<T: Worker>(w: &T) -> Int {
+    w.step()
+}
+
+func slow(s: &Slow) -> Int {
+    run(s)
+}
+
+func spin(g: &var Guarded, limit: Int) -> Int {
+    var i = 0
+    while i < limit {
+        i = i + 1
+    }
+    borrow var n = g.hold() {
+        while n < limit {
+            n = n + 1
+        }
+    }
+    i
+}

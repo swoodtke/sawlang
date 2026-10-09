@@ -41,7 +41,7 @@ TIMEOUT = 300
 _HEADER = re.compile(r"^// refuses: (\S+)(?: at ((?:[\w.-]+\.saw:)?\d+:\d+))?$")
 _RULE_ID = re.compile(r'"((?:type|conformance|synthesize|copy|unsafe|slice|member|call|infer|'
                       r'transfer|subscript|pattern|format|extension|implicit-member|operator|'
-                      r'init|effect|match|result|borrowing|borrows|consumes|static)\.[a-z-]+)"')
+                      r'init|effect|match|result|borrowing|borrows|consumes|static|capture)\.[a-z-]+)"')
 
 
 def rel(path):

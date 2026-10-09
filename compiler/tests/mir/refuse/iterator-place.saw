@@ -1,0 +1,12 @@
+// refuses: slice.not-yet at 8:14
+// a `for` over an iterator held in a place, which its `next` would advance in
+// place through a borrow typecheck records as shared
+
+func total(limit: Int) -> Int {
+    let range = 0..limit
+    var sum = 0
+    for i in range {
+        sum = sum + i
+    }
+    sum
+}

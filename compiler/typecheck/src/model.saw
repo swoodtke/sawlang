@@ -323,6 +323,34 @@ public struct TcCall {
     // The exclusive twin of a shared accessor the call chose, which a use
     // that writes switches to (design 141); -1 for none.
     public twin: Int
+    // How the written arguments bind the target's parameters (design 66): a
+    // run of `binds`, one entry per parameter in order, the index of the
+    // written argument that binds it or TC_BIND_DEFAULT when its default
+    // fills it. -1 for a record no overload filter resolved.
+    public bind_first: Int
+    public bind_count: Int
+    // The first written argument a C variadic tail takes, or -1.
+    public variadic_from: Int
+}
+
+// A parameter no written argument binds, which its default fills.
+public static TC_BIND_DEFAULT: Int = -1
+
+// One capture of a closure (spec, Capturing `self` and reference
+// parameters): the enclosing binding its body names or its capture list
+// writes, and how the closure takes it. `use` is `Copy` or `Move` for a
+// by-value capture, `Borrow` or `BorrowVar` for a borrow of the enclosing
+// frame; a reference parameter's value is copied, so it borrows through it.
+public struct TcCapture {
+    public closure: Int
+    // The leaf that declares the binding, or the receiver's parameter node
+    // for `self`.
+    public binding: Int
+    public ty: Int
+    public use: TcUse
+    // The capture-list entry, or the body's first mention of the binding.
+    public site: Int
+    public explicit: Bool
 }
 
 // Where a function's summary comes from (phase 2).

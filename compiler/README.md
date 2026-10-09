@@ -30,6 +30,9 @@ compiler/
   typecheck/          type checking, package `sawtypecheck` (typecheck/README.md
                       has its phases and readings)
     src/*.saw
+  mir/                lowering to MIR, package `sawmir` (tests/mir/README.md has
+                      the dump, the position matrices and the verifier's checks)
+    src/*.saw
   driver/             the `sawc2` binary, package `sawc2`
     src/main.saw
   tools/
@@ -66,6 +69,9 @@ compiler/
                       the one-time frozen-compiler check (frozen_check.py,
                       FROZEN_CHECK.md) and the std cone's coverage
                       (cone_coverage.py)
+    mir/              the MIR lane (mir_lane.py): the dump's specification
+                      (README.md), golden dumps, refusal fixtures, and how much
+                      of tests/corpus/ lowers (corpus_info.py, for information)
 ```
 
 Each stage has its own directory and is a package, with its source under
@@ -163,6 +169,10 @@ these things.
   and checks the compiler's own source whole, signatures, bodies and effects,
   the sawc2 build and each unit program, with no refusal, no verifier problem
   and no function that may suspend.
+- **MIR** (`tests/mir/README.md`): the MIR lane (`tests/mir/mir_lane.py`) holds
+  `sawc2 mir` to its golden dumps and refusal fixtures, and lowers the
+  compiler's own source whole, the sawc2 build and each unit program, with no
+  refusal and no problem from the MIR verifier.
 
 ## The subset
 

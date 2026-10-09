@@ -1,0 +1,12 @@
+// refuses: capture.escaping-borrow at 11:13
+// an explicit `[&x]` borrow capture in a closure that is passed to a
+// parameter whose function type says `escaping`
+
+func keep(f: (Int) escaping -> Int) -> Int {
+    f(1)
+}
+
+func run() -> Int {
+    let x = 3
+    keep({ [&x] k: Int in k + x })
+}

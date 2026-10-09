@@ -1,0 +1,723 @@
+// The builder's primitives: locals, blocks, places, operands, rvalues,
+// statements and terminators appended to the function being lowered, and the
+// scope stack whose exits drop owned locals and close windows. Every emitter
+// is a no-op once control cannot reach the current block, so code after a
+// diverging expression leaves nothing behind.
+
+import sawmir.src.model.{MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind, MirDiag,
+                         MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace, MirProj,
+                         MirProjKind, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind, MirSuspend,
+                         MirSwitchKind, MirTermKind, MirWindow}
+import sawmir.src.program.{MirLoop, MirProgram, MirScopeEntry}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.program.{ResProgram}
+import sawtypecheck.src.checks.{tc_check_unsafe}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.summaries.{TcAcc, tc_acc}
+import sawtypecheck.src.tier.{tc_compute_tiers}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// Local `l` of function `f`.
+public func mir_func_local(p: &MirProgram, f: Int, l: Int) -> MirLocal {
+    let info = p.funcs[f]
+    p.locals[info.local_first + l]
+}
+
+extension MirProgram {
+    // Locals.
+
+    // A new local of the function being lowered; returns its number there.
+    public func new_local(&var self, ty: Int, kind: MirLocalKind, name: Int, node: Int) -> Int {
+        let id = self.locals.len() - self.local_base
+        try! self.locals.push(MirLocal(ty: ty, kind: kind, name: name, node: node, owned: false,
+                                       reference: false))
+        id
+    }
+
+    public func new_temp(&var self, ty: Int) -> Int {
+        self.new_local(ty, MirLocalKind.Temp, -1, -1)
+    }
+
+    public func local(&self, l: Int) -> MirLocal {
+        let base = self.local_base
+        self.locals[base + l]
+    }
+
+    public func local_type(&self, l: Int) -> Int {
+        let base = self.local_base
+        self.locals[base + l].ty
+    }
+
+    public func mark_reference(&var self, l: Int) {
+        let at = self.local_base + l
+        var info = self.locals[at]
+        info.reference = true
+        self.locals[at] = info
+    }
+
+    // Whether a value of type `t` owns something a drop releases: anything
+    // but a reference, a slice or a trivially copyable type.
+    public func owns(&var self, t: Int) -> Bool {
+        if t < 0 {
+            return false
+        }
+        let kind = self.tc.kind_of(t)
+        if kind == TcKind.Ref || kind == TcKind.Slice || kind == TcKind.Error {
+            return false
+        }
+        not self.tc.is_trivial(t, 0)
+    }
+
+    // Registers local `l` with the innermost scope, whose exits drop it,
+    // when its type owns something.
+    public func scope_owned(&var self, l: Int) {
+        let t = self.local_type(l)
+        if not self.owns(t) {
+            return
+        }
+        let at = self.local_base + l
+        var info = self.locals[at]
+        info.owned = true
+        self.locals[at] = info
+        try! self.scope.push(MirScopeEntry(window: false, index: l))
+    }
+
+    // Binds leaf `leaf` to local `l` for the rest of the function.
+    public func bind_leaf(&var self, leaf: Int, l: Int) {
+        if leaf < 0 {
+            return
+        }
+        self.leaf_local[leaf] = l
+        try! self.touched.push(leaf)
+    }
+
+    // Blocks.
+
+    public func new_block(&var self) -> Int {
+        let id = self.blocks.len() - self.block_base
+        try! self.blocks.push(MirBlock(first: -1, last: -1, term: MirTermKind.Open, target: -1,
+                                       switch_kind: MirSwitchKind.Bool, operand: -1, place: -1,
+                                       arm_first: 0, arm_count: 0, otherwise: -1, call: -1))
+        id
+    }
+
+    public func enter(&var self, b: Int) {
+        self.current = b
+    }
+
+    public func live(&self) -> Bool {
+        self.current >= 0
+    }
+
+    public func block(&self, b: Int) -> MirBlock {
+        let base = self.block_base
+        self.blocks[base + b]
+    }
+
+    func set_block(&var self, b: Int, info: MirBlock) {
+        let at = self.block_base + b
+        self.blocks[at] = info
+    }
+
+    // Places.
+
+    public func place_local(&var self, l: Int) -> Int {
+        let t = self.local_type(l)
+        let at = self.places.len()
+        let first = self.projs.len()
+        try! self.places.push(MirPlace(local: l, static_decl: -1, first: first, count: 0, ty: t))
+        at
+    }
+
+    public func place_static(&var self, d: Int, t: Int) -> Int {
+        let at = self.places.len()
+        let first = self.projs.len()
+        try! self.places.push(MirPlace(local: -1, static_decl: d, first: first, count: 0, ty: t))
+        at
+    }
+
+    // A move out of whole local `l`.
+    public func move_local(&var self, l: Int) -> Int {
+        let p = self.place_local(l)
+        self.op_move(p)
+    }
+
+    // The rvalue moving place `p` whole.
+    public func rv_move(&var self, p: Int) -> Int {
+        let o = self.op_move(p)
+        self.rv_use(o)
+    }
+
+    // `l = rv` for whole local `l`.
+    public func assign_local(&var self, l: Int, rv: Int) {
+        let p = self.place_local(l)
+        self.assign(p, rv)
+    }
+
+    // The case named `name` of the builtin `Optional`, and of `Result`.
+    public func optional_case(&var self, name: String) -> Int {
+        let d = self.tc.known.optional
+        let id = self.tc.res.intern(name)
+        self.tc.case_named(d, id)
+    }
+
+    public func result_case(&var self, name: String) -> Int {
+        let d = self.tc.known.result
+        let id = self.tc.res.intern(name)
+        self.tc.case_named(d, id)
+    }
+
+    // Place `base` with one more projection step, of type `t`.
+    public func project(&var self, base: Int, kind: MirProjKind, decl: Int, index: Int, t: Int) -> Int {
+        let b = self.places[base]
+        let first = self.projs.len()
+        var k = 0
+        while k < b.count {
+            let step = self.projs[b.first + k]
+            try! self.projs.push(step)
+            k = k + 1
+        }
+        try! self.projs.push(MirProj(kind: kind, decl: decl, index: index, ty: t))
+        let at = self.places.len()
+        try! self.places.push(MirPlace(local: b.local, static_decl: b.static_decl, first: first,
+                                       count: b.count + 1, ty: t))
+        at
+    }
+
+    public func place_type(&self, p: Int) -> Int {
+        self.places[p].ty
+    }
+
+    // Whether place `p` is a local with no projection.
+    public func bare_local(&self, p: Int) -> Int {
+        let info = self.places[p]
+        if info.count == 0 {
+            return info.local
+        }
+        return -1
+    }
+
+    // Operands.
+
+    public func op_copy(&var self, p: Int) -> Int {
+        let t = self.place_type(p)
+        let at = self.operands.len()
+        try! self.operands.push(MirOperand(kind: MirOperandKind.Copy, place: p, ty: t,
+                                           const_kind: MirConstKind.Unit, text: -1))
+        at
+    }
+
+    public func op_move(&var self, p: Int) -> Int {
+        let t = self.place_type(p)
+        let at = self.operands.len()
+        try! self.operands.push(MirOperand(kind: MirOperandKind.Move, place: p, ty: t,
+                                           const_kind: MirConstKind.Unit, text: -1))
+        at
+    }
+
+    public func op_const(&var self, kind: MirConstKind, text: String, t: Int) -> Int {
+        let id = self.tc.res.intern(text)
+        let at = self.operands.len()
+        try! self.operands.push(MirOperand(kind: MirOperandKind.Const, place: -1, ty: t, const_kind: kind,
+                                           text: id))
+        at
+    }
+
+    // A constant operand `o` retyped as `t`, which the constant adopts.
+    public func retype_const(&var self, o: Int, t: Int) -> Int {
+        let info = self.operands[o]
+        let at = self.operands.len()
+        try! self.operands.push(MirOperand(kind: info.kind, place: info.place, ty: t,
+                                           const_kind: info.const_kind, text: info.text))
+        at
+    }
+
+    public func operand_type(&self, o: Int) -> Int {
+        self.operands[o].ty
+    }
+
+    public func is_const(&self, o: Int) -> Bool {
+        self.operands[o].kind == MirOperandKind.Const
+    }
+
+    // Rvalues.
+
+    public func rv_use(&var self, o: Int) -> Int {
+        let t = self.operand_type(o)
+        let first = self.lists.len()
+        try! self.lists.push(o)
+        self.push_rvalue(MirRvalueKind.Use, t, -1, false, -1, first, 1, MirAggregate.Plain, -1)
+    }
+
+    public func rv_ref(&var self, exclusive: Bool, p: Int) -> Int {
+        let inner = self.place_type(p)
+        let t = self.tc.mk_ref(exclusive, inner)
+        let first = self.lists.len()
+        self.push_rvalue(MirRvalueKind.Ref, t, -1, exclusive, p, first, 0, MirAggregate.Plain, -1)
+    }
+
+    // An rvalue over operands `ops`: one of kind `kind` whose spelling is
+    // `op` ("" for none).
+    public func rv_over(&var self, kind: MirRvalueKind, t: Int, op: String, ops: &Vector<Int>) -> Int {
+        var spelling = -1
+        if op.len() > 0 {
+            spelling = self.tc.res.intern(op)
+        }
+        let first = self.lists.len()
+        var k = 0
+        while k < ops.len() {
+            try! self.lists.push(ops[k])
+            k = k + 1
+        }
+        self.push_rvalue(kind, t, spelling, false, -1, first, ops.len(), MirAggregate.Plain, -1)
+    }
+
+    public func rv_one(&var self, kind: MirRvalueKind, t: Int, op: String, o: Int) -> Int {
+        var ops = Vector<Int>()
+        try! ops.push(o)
+        self.rv_over(kind, t, op, &ops)
+    }
+
+    public func rv_aggregate(&var self, agg: MirAggregate, decl: Int, t: Int, ops: &Vector<Int>) -> Int {
+        let first = self.lists.len()
+        var k = 0
+        while k < ops.len() {
+            try! self.lists.push(ops[k])
+            k = k + 1
+        }
+        self.push_rvalue(MirRvalueKind.Aggregate, t, -1, false, -1, first, ops.len(), agg, decl)
+    }
+
+    func push_rvalue(&var self, kind: MirRvalueKind, t: Int, op: Int, exclusive: Bool, p: Int, first: Int,
+                     count: Int, agg: MirAggregate, decl: Int) -> Int {
+        let at = self.rvalues.len()
+        try! self.rvalues.push(MirRvalue(kind: kind, ty: t, op: op, exclusive: exclusive, place: p,
+                                         first: first, count: count, aggregate: agg, decl: decl))
+        at
+    }
+
+    // Statements.
+
+    public func assign(&var self, p: Int, rv: Int) {
+        self.push_stmt(MirStmtKind.Assign, p, rv, false)
+    }
+
+    public func emit_drop(&var self, p: Int) {
+        self.push_stmt(MirStmtKind.Drop, p, -1, false)
+    }
+
+    // An op-budget point (design 127), of the class `budget_class` gave its
+    // loop.
+    public func emit_budget(&var self, yields: Bool) {
+        self.push_stmt(MirStmtKind.Budget, -1, -1, yields)
+    }
+
+    // The class of a budget point placed here: charge-only inside a
+    // `borrows(sync)` window that is open here, yield-capable otherwise.
+    public func budget_class(&self) -> Bool {
+        var k = 0
+        while k < self.scope.len() {
+            let entry = self.scope[k]
+            if entry.window {
+                let w = self.window(entry.index)
+                if w.sync {
+                    return false
+                }
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // Pops the innermost scope without emitting its exits, which the
+    // construct that opened it emitted on each of its paths.
+    public func discard_scope(&var self) {
+        let n = self.scope_marks.len()
+        if n == 0 {
+            return
+        }
+        let mark = self.scope_marks[n - 1]
+        self.pop_scope_entries(mark)
+        var marks = Vector<Int>()
+        var k = 0
+        while k + 1 < n {
+            try! marks.push(self.scope_marks[k])
+            k = k + 1
+        }
+        self.scope_marks = move marks
+    }
+
+    // The depth of the innermost scope, which `unwind_to` takes.
+    public func scope_depth(&self) -> Int {
+        self.scope_marks.len() - 1
+    }
+
+    func push_stmt(&var self, kind: MirStmtKind, p: Int, rv: Int, yields: Bool) {
+        if self.current < 0 {
+            return
+        }
+        let s = self.stmts.len()
+        try! self.stmts.push(MirStmt(kind: kind, place: p, rvalue: rv, yields: yields, next: -1))
+        let b = self.current
+        var info = self.block(b)
+        if info.first < 0 {
+            info.first = s
+        } else {
+            var prev = self.stmts[info.last]
+            prev.next = s
+            self.stmts[info.last] = prev
+        }
+        info.last = s
+        self.set_block(b, info)
+    }
+
+    // `place = rvalue` into a fresh temporary of the rvalue's type; returns
+    // the temporary.
+    public func temp_of(&var self, rv: Int) -> Int {
+        let t = self.rvalues[rv].ty
+        let l = self.new_temp(t)
+        let p = self.place_local(l)
+        self.assign(p, rv)
+        l
+    }
+
+    // Terminators.
+
+    public func goto(&var self, target: Int) {
+        if self.current < 0 {
+            return
+        }
+        let b = self.current
+        var info = self.block(b)
+        info.term = MirTermKind.Goto
+        info.target = target
+        self.set_block(b, info)
+        self.current = -1
+    }
+
+    public func ret(&var self) {
+        self.close_terminator(MirTermKind.Return)
+    }
+
+    public func unreachable(&var self) {
+        self.close_terminator(MirTermKind.Unreachable)
+    }
+
+    func close_terminator(&var self, kind: MirTermKind) {
+        if self.current < 0 {
+            return
+        }
+        let b = self.current
+        var info = self.block(b)
+        info.term = kind
+        self.set_block(b, info)
+        self.current = -1
+    }
+
+    // `switch o -> [true: yes, false: no]` on a `Bool` operand.
+    public func switch_bool(&var self, o: Int, yes: Int, no: Int) {
+        if self.current < 0 {
+            return
+        }
+        let first = self.arms.len()
+        try! self.arms.push(MirArm(value: 1, target: yes))
+        try! self.arms.push(MirArm(value: 0, target: no))
+        let b = self.current
+        var info = self.block(b)
+        info.term = MirTermKind.Switch
+        info.switch_kind = MirSwitchKind.Bool
+        info.operand = o
+        info.arm_first = first
+        info.arm_count = 2
+        self.set_block(b, info)
+        self.current = -1
+    }
+
+    // `switch discriminant(p) -> [CASE: target..., otherwise]`.
+    public func switch_cases(&var self, p: Int, cases: &Vector<Int>, targets: &Vector<Int>, otherwise: Int) {
+        if self.current < 0 {
+            return
+        }
+        let first = self.arms.len()
+        var k = 0
+        while k < cases.len() {
+            try! self.arms.push(MirArm(value: cases[k], target: targets[k]))
+            k = k + 1
+        }
+        let b = self.current
+        var info = self.block(b)
+        info.term = MirTermKind.Switch
+        info.switch_kind = MirSwitchKind.Discriminant
+        info.place = p
+        info.arm_first = first
+        info.arm_count = cases.len()
+        info.otherwise = otherwise
+        self.set_block(b, info)
+        self.current = -1
+    }
+
+    // Ends the current block in call `c`, whose edges its record names.
+    public func emit_call(&var self, c: MirCall) -> Int {
+        if self.current < 0 {
+            return -1
+        }
+        let at = self.calls.len()
+        try! self.calls.push(c)
+        let b = self.current
+        var info = self.block(b)
+        info.term = MirTermKind.Call
+        info.call = at
+        self.set_block(b, info)
+        self.current = -1
+        at
+    }
+
+    // A call record with nothing filled in but its kind and source node.
+    public func blank_call(&self, kind: MirCallKind, node: Int) -> MirCall {
+        MirCall(kind: kind, target: -1, param: -1, owner: -1, inst_first: self.types.len(), inst_count: 0,
+                spelling: -1, callee: -1, arg_first: self.lists.len(), arg_count: 0, dest: -1, next: -1,
+                absent: -1, window: -1, suspend: MirSuspend.Never, cond_first: self.conds.len(),
+                cond_count: 0, node: node)
+    }
+
+    // Ends the current block in call `c` and continues in a new block on its
+    // return edge.
+    public func call_and_continue(&var self, c: MirCall) -> Int {
+        if self.current < 0 {
+            return -1
+        }
+        let next = self.new_block()
+        var record = c
+        record.next = next
+        let at = self.emit_call(record)
+        self.enter(next)
+        at
+    }
+
+    // Appends the operands `args` as a call's argument run; returns its first.
+    public func push_args(&var self, args: &Vector<Int>) -> Int {
+        let first = self.lists.len()
+        var k = 0
+        while k < args.len() {
+            try! self.lists.push(args[k])
+            k = k + 1
+        }
+        first
+    }
+
+    public func push_types(&var self, list: &Vector<Int>) -> Int {
+        let first = self.types.len()
+        var k = 0
+        while k < list.len() {
+            try! self.types.push(list[k])
+            k = k + 1
+        }
+        first
+    }
+
+    // Whether the call at source node `e` is a suspension point, from
+    // typecheck's summaries evaluated at its type arguments: never, always,
+    // or when conditions over the function's own type parameters hold.
+    public func suspension(&var self, e: Int, c: &var MirCall) {
+        if e < 0 || self.tc.call_at[e] < 0 {
+            return
+        }
+        let owner = self.funcs[self.cur].owner
+        var acc = tc_acc(owner, -1)
+        self.tc.eval_call(e, &var acc)
+        if acc.suspends {
+            c.suspend = MirSuspend.Always
+            return
+        }
+        if acc.suspend_atoms.len() == 0 {
+            return
+        }
+        var texts = Vector<String>()
+        var k = 0
+        while k < acc.suspend_atoms.len() {
+            let a = acc.suspend_atoms[k]
+            var one = StringBuilder()
+            try! one.append(self.tc.type_text(a.ty))
+            if a.req >= 0 {
+                try! one.append(".")
+                try! one.append(self.tc.res.decl_path(a.req))
+            }
+            let text = one.build()
+            var seen = false
+            var j = 0
+            while j < texts.len() {
+                if (texts.get(j) ?? "").equals(text) {
+                    seen = true
+                }
+                j = j + 1
+            }
+            if not seen {
+                try! texts.push(text)
+            }
+            k = k + 1
+        }
+        res_sort_strings(&var texts)
+        c.suspend = MirSuspend.When
+        c.cond_first = self.conds.len()
+        c.cond_count = texts.len()
+        k = 0
+        while k < texts.len() {
+            try! self.conds.push(texts.get(k) ?? "")
+            k = k + 1
+        }
+    }
+
+    // Windows.
+
+    public func new_window(&var self, accessor: Int, exclusive: Bool, sync: Bool, conditional: Bool,
+                           node: Int) -> Int {
+        let base = self.funcs[self.cur].window_first
+        let id = self.windows.len() - base
+        try! self.windows.push(MirWindow(accessor: accessor, exclusive: exclusive, sync: sync,
+                                         conditional: conditional, node: node))
+        id
+    }
+
+    public func window(&self, w: Int) -> MirWindow {
+        let base = self.funcs[self.cur].window_first
+        self.windows[base + w]
+    }
+
+    // Closes window `w` on the current path: the accessor's epilogue.
+    public func close_window(&var self, w: Int) {
+        if self.current < 0 {
+            return
+        }
+        let info = self.window(w)
+        var c = self.blank_call(MirCallKind.WindowClose, info.node)
+        c.target = info.accessor
+        c.window = w
+        self.suspension(info.node, &var c)
+        let _ = self.call_and_continue(c)
+    }
+
+    // Scopes.
+
+    // Opens a scope; returns its depth, which `unwind_to` takes.
+    public func open_scope(&var self) -> Int {
+        let depth = self.scope_marks.len()
+        let mark = self.scope.len()
+        try! self.scope_marks.push(mark)
+        depth
+    }
+
+    // Closes the innermost scope on the current path: its windows close and
+    // its owned locals drop, in reverse order of opening and declaration.
+    public func close_scope(&var self) {
+        let n = self.scope_marks.len()
+        if n == 0 {
+            return
+        }
+        let mark = self.scope_marks[n - 1]
+        self.emit_exits(mark)
+        self.pop_scope_entries(mark)
+        var marks = Vector<Int>()
+        var k = 0
+        while k + 1 < n {
+            try! marks.push(self.scope_marks[k])
+            k = k + 1
+        }
+        self.scope_marks = move marks
+    }
+
+    // Leaves every scope deeper than `depth` on the current path, as a
+    // `break`, `continue`, `return` or propagating `try` does, without
+    // closing them for the code that follows.
+    public func unwind_to(&var self, depth: Int) {
+        var from = self.scope.len()
+        if depth < self.scope_marks.len() {
+            from = self.scope_marks[depth]
+        }
+        self.emit_exits(from)
+    }
+
+    // The exits of scope entries `from` onward, newest first.
+    public func emit_exits(&var self, from: Int) {
+        var k = self.scope.len() - 1
+        while k >= from {
+            let entry = self.scope[k]
+            if entry.window {
+                self.close_window(entry.index)
+            } else {
+                let p = self.place_local(entry.index)
+                self.emit_drop(p)
+            }
+            k = k - 1
+        }
+    }
+
+    func pop_scope_entries(&var self, mark: Int) {
+        var kept = Vector<MirScopeEntry>()
+        var k = 0
+        while k < mark {
+            try! kept.push(self.scope[k])
+            k = k + 1
+        }
+        self.scope = move kept
+    }
+
+    // Registers window `w` with the innermost scope, whose exits close it.
+    public func scope_window(&var self, w: Int) {
+        try! self.scope.push(MirScopeEntry(window: true, index: w))
+    }
+
+    // Removes the newest scope entry for window `w`, which its own
+    // construct has closed on every path.
+    public func forget_window(&var self, w: Int) {
+        var kept = Vector<MirScopeEntry>()
+        var dropped = false
+        var k = self.scope.len() - 1
+        var order = Vector<Int>()
+        while k >= 0 {
+            let entry = self.scope[k]
+            if not dropped && entry.window && entry.index == w {
+                dropped = true
+            } else {
+                try! order.push(k)
+            }
+            k = k - 1
+        }
+        k = order.len() - 1
+        while k >= 0 {
+            try! kept.push(self.scope[order[k]])
+            k = k - 1
+        }
+        self.scope = move kept
+    }
+
+    // Diagnostics.
+
+    // A construct the MIR does not lower yet: refused by name, never lowered
+    // wrong; the function it stands in is not dumped.
+    public func not_yet(&var self, node: Int, what: String) {
+        let m = self.tc.node_module(node)
+        let n = self.tc.res.nodes[node]
+        var msg = StringBuilder()
+        try! msg.append(what)
+        try! msg.append(" is not lowered to MIR in the bootstrap slice yet")
+        try! self.diags.push(MirDiag(module: m, start: n.start, end: n.end, id: "slice.not-yet",
+                                     message: msg.build()))
+        self.refused = true
+    }
+
+    // A fact typecheck should have recorded and did not: an INVARIANT line.
+    public func missing(&var self, node: Int, what: String) {
+        let m = self.tc.node_module(node)
+        var msg = StringBuilder()
+        try! msg.append(self.tc.res.node_position(m, node))
+        try! msg.append(" ")
+        try! msg.append(what)
+        try! self.problems.push(msg.build())
+        try! self.problem_modules.push(m)
+        self.refused = true
+    }
+}

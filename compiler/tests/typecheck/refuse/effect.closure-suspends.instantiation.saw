@@ -1,4 +1,4 @@
-// refuses: effect.closure-suspends at 29:11
+// refuses: effect.closure-suspends at 32:11
 // a closure whose call through a bound suspends only at the instantiation that
 // makes it: refused at the call that instantiates it
 
@@ -19,9 +19,12 @@ extension Slow: Worker {
     }
 }
 
-func later<T: Worker>(w: &T) -> Int {
-    let f = { x: Int in x + w.step() }
+func apply(f: (Int) -> Int) -> Int {
     f(1)
+}
+
+func later<T: Worker>(w: &T) -> Int {
+    apply({ x: Int in x + w.step() })
 }
 
 func main() {

@@ -1,0 +1,105 @@
+// The program under MIR lowering: typecheck's program, unchanged, and the
+// MIR's arenas, with the state the builder keeps while one function is
+// lowered. One value holds it all, so each phase is a set of methods on it.
+
+import sawmir.src.model.{MirArm, MirBlock, MirCall, MirDiag, MirFunc, MirLocal, MirOperand, MirPlace,
+                         MirProj, MirRvalue, MirStmt, MirWindow}
+import sawresolve.src.names.{ResIndex, res_index}
+import sawtypecheck.src.program.{TcProgram}
+
+// One entry of the builder's scope stack: an owned local a scope exit drops,
+// or a window it closes.
+public struct MirScopeEntry {
+    public window: Bool
+    public index: Int
+}
+
+// A loop being lowered: where `continue` goes, where `break` goes, the scope
+// depth outside its body, and whether its backedge's budget point may yield.
+public struct MirLoop {
+    public head: Int
+    public exit: Int
+    public depth: Int
+    public yields: Bool
+}
+
+public struct MirProgram {
+    public tc: TcProgram
+    public funcs: Vector<MirFunc>
+    public locals: Vector<MirLocal>
+    public blocks: Vector<MirBlock>
+    public stmts: Vector<MirStmt>
+    public places: Vector<MirPlace>
+    public projs: Vector<MirProj>
+    public operands: Vector<MirOperand>
+    public rvalues: Vector<MirRvalue>
+    // Operand runs: an rvalue's operands, a call's arguments.
+    public lists: Vector<Int>
+    public arms: Vector<MirArm>
+    public calls: Vector<MirCall>
+    // Type runs: a call's instantiation.
+    public types: Vector<Int>
+    // Condition runs: a conditional suspension point's conditions.
+    public conds: Vector<String>
+    public windows: Vector<MirWindow>
+    public diags: Vector<MirDiag>
+    // What the lowering found typecheck left unrecorded, and in which module:
+    // each an INVARIANT line, never a guess.
+    public problems: Vector<String>
+    public problem_modules: Vector<Int>
+    // (body root, 0) -> the function lowering it; (closure node, 0) -> its
+    // body's function.
+    public func_of: ResIndex
+    // The function being lowered, its first local and block, and the block
+    // code is emitted into, -1 once control cannot reach it.
+    public cur: Int
+    public local_base: Int
+    public block_base: Int
+    public current: Int
+    public scope: Vector<MirScopeEntry>
+    public scope_marks: Vector<Int>
+    public loops: Vector<MirLoop>
+    // By leaf: the local a binding lowers to, or -1; the leaves set, so they
+    // are cleared when the function is done.
+    public leaf_local: Vector<Int>
+    public touched: Vector<Int>
+    // A closure body's captures: by the binding's leaf, its index in the
+    // environment, or -1.
+    public leaf_capture: Vector<Int>
+    // The closures met while a function is lowered, lowered after it.
+    public pending: Vector<Int>
+    public pending_parents: Vector<Int>
+    // How many closures each declaration's bodies hold so far.
+    public closure_counts: ResIndex
+    // Windows a statement-form `borrow` opened, closed when its statement
+    // ends or its value is copied out.
+    public statement_windows: Vector<Int>
+    // Whether the function being lowered is refused.
+    public refused: Bool
+}
+
+extension MirProgram: NoCopy {}
+
+public func mir_program(tc: TcProgram) -> MirProgram {
+    let n = tc.res.nodes.len()
+    var leaf_local = Vector<Int>()
+    var leaf_capture = Vector<Int>()
+    var k = 0
+    while k < n {
+        try! leaf_local.push(-1)
+        try! leaf_capture.push(-1)
+        k = k + 1
+    }
+    MirProgram(tc: move tc, funcs: Vector<MirFunc>(), locals: Vector<MirLocal>(),
+               blocks: Vector<MirBlock>(), stmts: Vector<MirStmt>(), places: Vector<MirPlace>(),
+               projs: Vector<MirProj>(), operands: Vector<MirOperand>(), rvalues: Vector<MirRvalue>(),
+               lists: Vector<Int>(), arms: Vector<MirArm>(), calls: Vector<MirCall>(),
+               types: Vector<Int>(), conds: Vector<String>(), windows: Vector<MirWindow>(),
+               diags: Vector<MirDiag>(), problems: Vector<String>(), problem_modules: Vector<Int>(),
+               func_of: res_index(), cur: -1, local_base: 0,
+               block_base: 0, current: -1, scope: Vector<MirScopeEntry>(),
+               scope_marks: Vector<Int>(), loops: Vector<MirLoop>(), leaf_local: move leaf_local,
+               touched: Vector<Int>(), leaf_capture: move leaf_capture, pending: Vector<Int>(),
+               pending_parents: Vector<Int>(), closure_counts: res_index(),
+               statement_windows: Vector<Int>(), refused: false)
+}

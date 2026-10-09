@@ -1,0 +1,125 @@
+module points
+
+fn points.Slow.step() -> Int {
+    let _0: Int;  // return
+    let _1: &points.Slow;  // self
+
+    bb0: {
+        call std.task.yield_now() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _0 = copy (*_1).n;
+        return;
+    }
+}
+
+fn points.Guarded.hold() -> &var Int {
+    let _0: &var Int;  // return
+    let _1: &var points.Guarded;  // self
+    let _2: &var Int;
+
+    bb0: {
+        _2 = ref(exclusive, (*_1).n);
+        lend [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn points.run(w: &T) -> Int {
+    let _0: Int;  // return
+    let _1: &T;  // param w
+    let _2: &T;
+    let _3: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1));
+        _3 = call points.Worker.step() (owner T) [move _2] -> [return: bb1] suspends when T.Worker.step;
+    }
+
+    bb1: {
+        _0 = move _3;
+        return;
+    }
+}
+
+fn points.slow(s: &points.Slow) -> Int {
+    let _0: Int;  // return
+    let _1: &points.Slow;  // param s
+    let _2: Int;
+
+    bb0: {
+        _2 = call points.run(w: &T) (inst points.Slow) [copy _1] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _0 = move _2;
+        return;
+    }
+}
+
+fn points.spin(g: &var points.Guarded, limit: Int) -> Int {
+    let _0: Int;  // return
+    let _1: &var points.Guarded;  // param g
+    let _2: Int;  // param limit
+    let _3: Int;  // i
+    let _4: Bool;
+    let _5: Int;
+    let _6: &var Int;
+    let _7: &var points.Guarded;
+    let _8: &var Int;  // ref n
+    let _9: Bool;
+    let _10: Int;
+    window w0: points.Guarded.hold() exclusive sync;
+
+    bb0: {
+        _3 = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _4 = Lt(copy _3, copy _2);
+        switch move _4 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        _7 = ref(exclusive, (*_1));
+        _6 = window_open w0 points.Guarded.hold() (owner points.Guarded) [move _7] -> [present: bb4];
+    }
+
+    bb3: {
+        _5 = Add(copy _3, const 1: Int);
+        _3 = move _5;
+        budget(yield-capable);
+        goto -> bb1;
+    }
+
+    bb4: {
+        _8 = ref(exclusive, (*_6));
+        goto -> bb5;
+    }
+
+    bb5: {
+        _9 = Lt(copy (*_8), copy _2);
+        switch move _9 -> [true: bb7, false: bb6];
+    }
+
+    bb6: {
+        window_close w0 points.Guarded.hold() -> [return: bb8];
+    }
+
+    bb7: {
+        _10 = Add(copy (*_8), const 1: Int);
+        (*_8) = move _10;
+        budget(charge-only);
+        goto -> bb5;
+    }
+
+    bb8: {
+        _0 = copy _3;
+        return;
+    }
+}

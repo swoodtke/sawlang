@@ -1,3 +1,4 @@
+ERROR	capture.escaping-borrow	compiler/tests/typecheck/golden/summaries.saw:91:29	an escaping closure cannot capture `w`, a reference (`&T`), and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not escape, or copy what its body needs into locals and capture those
 (Module summaries
   (declarations
     (trait Worker 6:7 private)
@@ -108,7 +109,7 @@
       (85:7-85:8 Name Int place copy))
     (later 90:6
       (91:9-91:10 BindingName (Int) -> Int place temp)
-      (91:13-91:39 Closure (Int) -> Int value temp)
+      (91:13-91:39 Closure (Int) -> Int value temp (captures (w copy)))
       (91:25-91:37 Binary Int value temp (op +))
       (91:25-91:26 Name Int place copy)
       (91:29-91:37 Call.paren Int value temp (call summaries.Worker.step() (owner T)))

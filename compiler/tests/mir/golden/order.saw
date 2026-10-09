@@ -1,0 +1,49 @@
+// Evaluation order, fixed once (SL:architecture §3.5): arguments left to right
+// as written, a by-value argument copied when it is evaluated, before a later
+// `&var` of the same place exists (spec, Argument Evaluation Order: `f(b,
+// &var b)` sees 1); labels written out of parameter order evaluated as written;
+// an omitted default after every written argument, in parameter order; a
+// receiver's place resolved first and its borrow taken just before the call;
+// an index key evaluated before the right side, and the right side before the
+// left side's borrow.
+
+struct Span {
+    start: Int,
+    end: Int
+}
+
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+func snapshot(value: Int, target: &var Int) -> Int {
+    target = target + 100
+    value
+}
+
+func tick(n: &var Int) -> Int {
+    n = n + 1
+    n
+}
+
+func connect(host: Int, port: Int = 80, retries: Int = 3) -> Int {
+    host + port + retries
+}
+
+func order(row: &var Row, v: &var Vector<Int>) -> Int {
+    var b = 1
+    let seen = snapshot(b, &var b)
+    var n = 0
+    let span = Span(end: tick(&var n), start: tick(&var n))
+    let link = connect(tick(&var n), retries: tick(&var n))
+    try! v.push(v.len())
+    v[tick(&var n)] = tick(&var n)
+    borrow var row[tick(&var n)] = tick(&var n)
+    seen + span.end + link
+}

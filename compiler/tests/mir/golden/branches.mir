@@ -1,0 +1,284 @@
+module branches
+
+fn branches.check(n: Int) -> Bool {
+    let _0: Bool;  // return
+    let _1: Int;  // param n
+    let _2: Bool;
+
+    bb0: {
+        _2 = Gt(copy _1, const 2: Int);
+        _0 = move _2;
+        return;
+    }
+}
+
+fn branches.parse(n: Int) -> Result<Int, branches.Fault> {
+    let _0: Result<Int, branches.Fault>;  // return
+    let _1: Int;  // param n
+    let _2: Bool;
+    let _3: branches.Fault;
+    let _4: Result<Int, branches.Fault>;
+    let _5: Result<Int, branches.Fault>;
+
+    bb0: {
+        _2 = Lt(copy _1, const 0: Int);
+        switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _5 = Result<Int, branches.Fault>::Ok(copy _1);
+        _0 = move _5;
+        return;
+    }
+
+    bb2: {
+        _3 = branches.Fault::Broken;
+        _4 = Result<Int, branches.Fault>::Err(move _3);
+        _0 = move _4;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn branches.logic(a: Int, b: Int) -> Bool {
+    let _0: Bool;  // return
+    let _1: Int;  // param a
+    let _2: Int;  // param b
+    let _3: Bool;
+    let _4: Bool;
+    let _5: Bool;
+    let _6: Bool;
+    let _7: Bool;
+
+    bb0: {
+        _5 = call branches.check(n: Int) [copy _1] -> [return: bb3];
+    }
+
+    bb1: {
+        _0 = move _3;
+        return;
+    }
+
+    bb2: {
+        switch move _4 -> [true: bb8, false: bb7];
+    }
+
+    bb3: {
+        switch move _5 -> [true: bb4, false: bb5];
+    }
+
+    bb4: {
+        _6 = call branches.check(n: Int) [copy _2] -> [return: bb6];
+    }
+
+    bb5: {
+        _4 = const false: Bool;
+        goto -> bb2;
+    }
+
+    bb6: {
+        _4 = move _6;
+        goto -> bb2;
+    }
+
+    bb7: {
+        _7 = Eq(copy _1, copy _2);
+        _3 = move _7;
+        goto -> bb1;
+    }
+
+    bb8: {
+        _3 = const true: Bool;
+        goto -> bb1;
+    }
+}
+
+fn branches.coalesce(first: Int?, second: Int?, last: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int?;  // param first
+    let _2: Int?;  // param second
+    let _3: Int;  // param last
+    let _4: Int;
+    let _5: Int?;
+    let _6: Int?;
+
+    bb0: {
+        _5 = copy _1;
+        switch discriminant(_5) -> [Some: bb2, None: bb3];
+    }
+
+    bb1: {
+        _0 = move _4;
+        return;
+    }
+
+    bb2: {
+        _4 = move (_5 as Some).0;
+        goto -> bb1;
+    }
+
+    bb3: {
+        _6 = copy _2;
+        switch discriminant(_6) -> [Some: bb4, None: bb5];
+    }
+
+    bb4: {
+        _4 = move (_6 as Some).0;
+        goto -> bb1;
+    }
+
+    bb5: {
+        _4 = copy _3;
+        goto -> bb1;
+    }
+}
+
+fn branches.coalesce_optional(first: Int?, second: Int?) -> Int? {
+    let _0: Int?;  // return
+    let _1: Int?;  // param first
+    let _2: Int?;  // param second
+    let _3: Int?;
+    let _4: Int?;
+
+    bb0: {
+        _4 = copy _1;
+        switch discriminant(_4) -> [Some: bb2, None: bb3];
+    }
+
+    bb1: {
+        _0 = move _3;
+        return;
+    }
+
+    bb2: {
+        _3 = move _4;
+        goto -> bb1;
+    }
+
+    bb3: {
+        _3 = copy _2;
+        goto -> bb1;
+    }
+}
+
+fn branches.tries(n: Int) -> Result<Int, branches.Fault> {
+    let _0: Result<Int, branches.Fault>;  // return
+    let _1: Int;  // param n
+    let _2: Int;  // a
+    let _3: Result<Int, branches.Fault>;
+    let _4: Int;  // b
+    let _5: Result<Int, branches.Fault>;
+    let _6: Int?;  // c
+    let _7: Result<Int, branches.Fault>;
+    let _8: Int?;
+    let _9: Int;  // d
+    let _10: Result<Int, branches.Fault>;
+    let _11: Result<Int, branches.Fault>;
+    let _12: Int;  // e
+    let _13: Int?;  // o
+    let _14: Int?;
+    let _15: Int;  // f
+    let _16: Int?;
+    let _17: Int;
+    let _18: Result<Int, branches.Fault>;
+
+    bb0: {
+        _3 = call branches.parse(n: Int) [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        switch discriminant(_3) -> [Ok: bb2, Err: bb3];
+    }
+
+    bb2: {
+        _2 = move (_3 as Ok).0;
+        drop(_3);
+        _5 = call branches.parse(n: Int) [copy _2] -> [return: bb4];
+    }
+
+    bb3: {
+        _0 = Result<Int, branches.Fault>::Err(move (_3 as Err).0);
+        drop(_3);
+        return;
+    }
+
+    bb4: {
+        _4 = move (_5 as Ok!).0;
+        drop(_5);
+        _7 = call branches.parse(n: Int) [copy _4] -> [return: bb5];
+    }
+
+    bb5: {
+        switch discriminant(_7) -> [Ok: bb6, Err: bb7];
+    }
+
+    bb6: {
+        _8 = Int?::Some(move (_7 as Ok).0);
+        goto -> bb8;
+    }
+
+    bb7: {
+        _8 = Int?::None;
+        goto -> bb8;
+    }
+
+    bb8: {
+        _6 = move _8;
+        drop(_7);
+        switch discriminant(_6) -> [Some: bb10, None: bb11];
+    }
+
+    bb9: {
+        switch discriminant(_6) -> [Some: bb12, None: bb13];
+    }
+
+    bb10: {
+        _9 = copy (_6 as Some).0;
+        _10 = Result<Int, branches.Fault>::Ok(copy _9);
+        _0 = move _10;
+        return;
+    }
+
+    bb11: {
+        goto -> bb9;
+    }
+
+    bb12: {
+        _12 = copy (_6 as Some).0;
+        _14 = Int?::Some(copy _12);
+        _13 = move _14;
+        goto -> bb14;
+    }
+
+    bb13: {
+        _11 = Result<Int, branches.Fault>::Ok(const 0: Int);
+        _0 = move _11;
+        return;
+    }
+
+    bb14: {
+        switch discriminant(_13) -> [Some: bb16, None: bb17];
+    }
+
+    bb15: {
+        _17 = Add(copy _2, copy _4);
+        _18 = Result<Int, branches.Fault>::Ok(move _17);
+        _0 = move _18;
+        return;
+    }
+
+    bb16: {
+        _15 = copy (_13 as Some).0;
+        _16 = Int?::None;
+        _13 = move _16;
+        budget(yield-capable);
+        goto -> bb14;
+    }
+
+    bb17: {
+        goto -> bb15;
+    }
+}

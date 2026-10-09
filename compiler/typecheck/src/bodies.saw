@@ -32,9 +32,9 @@ import sawtypecheck.src.declarations.{tc_build_signatures}
 import sawtypecheck.src.fold.{TcFold, tc_fold_step}
 import sawtypecheck.src.infer.{TcSolve, tc_solve}
 import sawtypecheck.src.members.{tc_build_members}
-import sawtypecheck.src.model.{TC_ANY_DEPTH, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_FLAG_STATIC, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
-                               TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcLend, TcMember, TcParam, TcReceiver,
-                               TcRole, TcSig, TcSource, TcUse}
+import sawtypecheck.src.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_FLAG_STATIC, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
+                               TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcLend, TcMember, TcParam, TcReceiver,
+                               TcRole, TcSig, TcSource, TcUse, tc_blank_sig}
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.signatures.{TcContext}
 import sawtypecheck.src.spell.{tc_effects_text}
@@ -134,6 +134,7 @@ extension TcProgram {
             m = m + 1
         }
         self.settle_places()
+        self.settle_captures()
     }
 
     func check_module_bodies(&var self, m: Int) {
@@ -414,7 +415,8 @@ extension TcProgram {
         }
         let at = self.calls.len()
         try! self.calls.push(TcCall(node: e, target: target, role: role, derived: false, owner: owner,
-                                    inst_first: first, inst_count: inst.len(), spelling: -1, twin: -1))
+                                    inst_first: first, inst_count: inst.len(), spelling: -1, twin: -1,
+                                    bind_first: -1, bind_count: 0, variadic_from: -1))
         self.call_at[e] = at
         at
     }
@@ -3269,6 +3271,13 @@ extension TcProgram {
                 fwant = w
             }
         }
+        if self.closure_index.first(e, 0) < 0 {
+            let ordinal = self.closures.len()
+            let enclosing = self.current_decl
+            self.closure_index.add(e, 0, ordinal)
+            try! self.closures.push(e)
+            try! self.closure_decls.push(enclosing)
+        }
         var params = Vector<Int>()
         let n = self.child_count(e)
         var k = 0
@@ -5418,12 +5427,44 @@ extension TcProgram {
         let solve = self.check_candidate(e, c, &args, &bind, &explicit)
         let t = self.finish_call(e, c, &solve, receiver)
         let at = self.call_at[e]
+        if at >= 0 {
+            self.record_binding(at, c, &bind)
+        }
         if twin >= 0 && at >= 0 {
             var record = self.calls[at]
             record.twin = twin
             self.calls[at] = record
         }
         t
+    }
+
+    // Records on call record `at` how its written arguments bind candidate
+    // `c`'s parameters: per parameter, the argument that binds it or its
+    // default, and where a C variadic tail begins.
+    func record_binding(&var self, at: Int, c: TcCand, bind: &TcBind) {
+        let count = self.cand_param_count(c)
+        let first = self.binds.len()
+        var j = 0
+        while j < count {
+            try! self.binds.push(TC_BIND_DEFAULT)
+            j = j + 1
+        }
+        var variadic = -1
+        var k = 0
+        while k < bind.arg_param.len() {
+            let p = bind.arg_param[k]
+            if p >= 0 {
+                self.binds[first + p] = k
+            } else if variadic < 0 {
+                variadic = k
+            }
+            k = k + 1
+        }
+        var record = self.calls[at]
+        record.bind_first = first
+        record.bind_count = count
+        record.variadic_from = variadic
+        self.calls[at] = record
     }
 
     // Whether candidate `c` is a requirement called through a type parameter
@@ -7049,6 +7090,328 @@ extension TcProgram {
         let m = self.node_module(e)
         self.refuse_in(m, e, "subscript.role", msg.build())
     }
+}
+
+// Each closure's captures (spec, Capturing `self` and reference parameters).
+extension TcProgram {
+    // Records every closure's captures once every body is checked: the
+    // enclosing bindings its capture list writes, in order, then those its
+    // body names, in the order it first names them. A capture takes its
+    // transfer by the rules a value use takes elsewhere: the capture list's
+    // word when one is written; a borrow for `self`, as its receiver
+    // declares, and for a reference parameter, whose reference is copied;
+    // otherwise a copy, which only a Copy type makes silently. A borrow of
+    // the enclosing frame is refused in a closure that escapes.
+    public func settle_captures(&var self) {
+        if self.closures.len() == 0 {
+            return
+        }
+        let n = self.res.nodes.len()
+        var parents = Vector<Int>()
+        var k = 0
+        while k < n {
+            try! parents.push(-1)
+            k = k + 1
+        }
+        k = 0
+        while k < n {
+            let count = self.child_count(k)
+            var j = 0
+            while j < count {
+                let c = self.child(k, j)
+                parents[c] = k
+                j = j + 1
+            }
+            k = k + 1
+        }
+        k = 0
+        while k < self.closures.len() {
+            let e = self.closures[k]
+            let d = self.closure_decls[k]
+            let first = self.captures.len()
+            try! self.capture_first.push(first)
+            self.current = self.node_module(e)
+            let escapes = self.closure_escapes(e, &parents)
+            self.collect_captures(e, d, escapes)
+            let count = self.captures.len() - first
+            try! self.capture_count.push(count)
+            k = k + 1
+        }
+    }
+
+    // Closure `e`'s captures, recorded in order.
+    func collect_captures(&var self, e: Int, d: Int, escapes: Bool) {
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            if not self.is_capture(c) {
+                continue
+            }
+            var b = self.binding_at(c)
+            if not self.has_alt(c, Alt.Expr_Capture_Self) && not self.has_alt(c, Alt.Expr_Capture_SelfExclusive) {
+                let leaf = self.res.first_leaf(c)
+                b = self.binding_at(leaf)
+            }
+            if b.kind == ResBindKind.Local && b.node >= 0 && not self.captured_already(e, b.node) {
+                self.add_capture(e, d, b.node, c, c, escapes)
+            }
+        }
+        let mentions = tc_closure_mentions(&self, e)
+        k = 0
+        while k < mentions.len() {
+            let site = mentions[k]
+            let b = self.mention_binding(site)
+            if not self.captured_already(e, b.node) {
+                self.add_capture(e, d, b.node, site, -1, escapes)
+            }
+            k = k + 1
+        }
+    }
+
+    // The binding a mention found by `tc_closure_mentions` names.
+    public func mention_binding(&self, site: Int) -> ResBinding {
+        if self.has_alt(site, Alt.Expr_Self) {
+            return self.binding_at(site)
+        }
+        let leaf = self.res.first_leaf(site)
+        self.binding_at(leaf)
+    }
+
+    // Whether closure `e`'s run already captures the binding declared at
+    // `binding`.
+    func captured_already(&self, e: Int, binding: Int) -> Bool {
+        var at = self.capture_first[self.capture_first.len() - 1]
+        while at < self.captures.len() {
+            let cap = self.captures[at]
+            if cap.closure == e && cap.binding == binding {
+                return true
+            }
+            at = at + 1
+        }
+        false
+    }
+
+    // Records one capture of the binding declared at `binding`, written as
+    // capture-list entry `entry` or first named at `site` (`entry` -1).
+    func add_capture(&var self, e: Int, d: Int, binding: Int, site: Int, entry: Int, escapes: Bool) {
+        let t = self.local_types[binding]
+        let receiver = self.has_alt(binding, Alt.Decl_Param_Receiver)
+        var s = tc_blank_sig()
+        if d >= 0 {
+            s = self.sigs[d]
+        }
+        let consumes = (s.effects & TC_EFFECT_CONSUMES) != 0
+        var u = TcUse.Copy
+        var frame = false
+        if entry >= 0 && self.has_alt(entry, Alt.Expr_Capture_Move) {
+            u = TcUse.Move
+        } else if entry >= 0 && self.has_alt(entry, Alt.Expr_Capture_Copy) {
+            if t >= 0 && not self.has_error(t) && not self.copies_silently(t) && self.tier_word(t).equals("NoCopy") {
+                self.refuse_capture_copy(entry, binding, t)
+            }
+        } else if entry >= 0 && (self.has_alt(entry, Alt.Expr_Capture_Borrow) || self.has_alt(entry, Alt.Expr_Capture_Self)) {
+            u = TcUse.Borrow
+            frame = true
+        } else if entry >= 0 && self.has_alt(entry, Alt.Expr_Capture_BorrowExclusive) {
+            u = TcUse.BorrowVar
+            frame = true
+        } else if entry >= 0 && self.has_alt(entry, Alt.Expr_Capture_SelfExclusive) {
+            u = TcUse.BorrowVar
+            frame = true
+            if s.receiver != TcReceiver.Exclusive {
+                self.refuse_exclusive_self(entry, d)
+            }
+        } else if receiver && not consumes {
+            u = if s.receiver == TcReceiver.Exclusive { TcUse.BorrowVar } else { TcUse.Borrow }
+            frame = true
+        } else if t >= 0 && self.kind_of(t) == TcKind.Ref {
+            frame = true
+        } else if t >= 0 && not self.has_error(t) && not self.copies_silently(t) {
+            self.refuse_capture_by_value(site, binding, t)
+        }
+        // A borrow of the enclosing frame lowers to a pointer into it.
+        if frame && escapes {
+            self.refuse_escaping_borrow(site, binding, t, entry >= 0)
+        }
+        try! self.captures.push(TcCapture(closure: e, binding: binding, ty: t, use: u, site: site,
+                                          explicit: entry >= 0))
+    }
+
+    // Whether closure `e` escapes: anything but a direct argument of a call
+    // whose parameter is a function type that does not say `escaping`.
+    func closure_escapes(&var self, e: Int, parents: &Vector<Int>) -> Bool {
+        let up = parents[e]
+        if up < 0 {
+            return true
+        }
+        var call = -1
+        var arg = e
+        if self.has_alt(up, Alt.Expr_Argument_Positional) || self.has_alt(up, Alt.Expr_Argument_Labelled) {
+            arg = up
+            call = parents[up]
+        } else if self.is_call_alt(up) && self.res.first_node_child(up) != e {
+            call = up
+        }
+        if call < 0 || not self.is_call_alt(call) {
+            return true
+        }
+        let at = self.call_at[call]
+        if at < 0 {
+            return true
+        }
+        let c = self.calls[at]
+        let callee = self.res.first_node_child(call)
+        var index = 0
+        var found = -1
+        let n = self.child_count(call)
+        var k = 0
+        while k < n {
+            let child = self.child(call, k)
+            k = k + 1
+            if child == callee || self.is_leaf(child) {
+                continue
+            }
+            if child == arg {
+                found = index
+            }
+            index = index + 1
+        }
+        if found < 0 {
+            return true
+        }
+        var pt = -1
+        if c.role == TcRole.Value && c.owner >= 0 && self.kind_of(c.owner) == TcKind.Func {
+            if found < self.types.ty(c.owner).count {
+                pt = self.types.arg(c.owner, found)
+            }
+        } else if c.role == TcRole.Call && c.bind_first >= 0 {
+            var j = 0
+            while j < c.bind_count {
+                if self.binds[c.bind_first + j] == found {
+                    let s = self.sigs[c.target]
+                    pt = self.params[s.param_first + j].ty
+                }
+                j = j + 1
+            }
+        }
+        if pt < 0 || self.kind_of(pt) != TcKind.Func {
+            return true
+        }
+        (self.types.ty(pt).a & TC_EFFECT_ESCAPING) != 0
+    }
+
+    // The name a capture's binding is written with.
+    func capture_name(&self, binding: Int) -> String {
+        if self.has_alt(binding, Alt.Decl_Param_Receiver) {
+            return "self"
+        }
+        let m = self.node_module(binding)
+        self.text(m, binding)
+    }
+
+    func refuse_capture_by_value(&var self, site: Int, binding: Int, t: Int) {
+        let name = self.capture_name(binding)
+        var msg = StringBuilder()
+        try! msg.append("the closure captures `")
+        try! msg.append(name)
+        try! msg.append("` by value, and `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` is ")
+        try! msg.append(self.tier_word(t))
+        try! msg.append(", which does not copy silently: capture it with `[move ")
+        try! msg.append(name)
+        try! msg.append("]`, or copy it into a local the closure captures")
+        self.refuse(site, "transfer.implicit-copy", msg.build())
+    }
+
+    func refuse_capture_copy(&var self, entry: Int, binding: Int, t: Int) {
+        let name = self.capture_name(binding)
+        var msg = StringBuilder()
+        try! msg.append("`[copy ")
+        try! msg.append(name)
+        try! msg.append("]` copies `")
+        try! msg.append(name)
+        try! msg.append("`, and `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` is NoCopy, so it has no copy: capture it with `[move ")
+        try! msg.append(name)
+        try! msg.append("]`")
+        self.refuse(entry, "capture.copy", msg.build())
+    }
+
+    func refuse_exclusive_self(&var self, entry: Int, d: Int) {
+        var msg = StringBuilder()
+        try! msg.append("`[&var self]` needs a `&var self` receiver")
+        if d >= 0 {
+            try! msg.append(", and `")
+            try! msg.append(self.res.decl_path(d))
+            try! msg.append("` takes `&self`")
+        }
+        try! msg.append(": a shared borrow has no exclusive borrow to hand out; write `[&self]`")
+        self.refuse(entry, "capture.exclusive-self", msg.build())
+    }
+
+    func refuse_escaping_borrow(&var self, site: Int, binding: Int, t: Int, written: Bool) {
+        let name = self.capture_name(binding)
+        var msg = StringBuilder()
+        try! msg.append("an escaping closure cannot capture `")
+        try! msg.append(name)
+        if self.has_alt(binding, Alt.Decl_Param_Receiver) {
+            try! msg.append("`: a method's receiver is a borrow of storage the caller owns")
+        } else if not written && t >= 0 && self.kind_of(t) == TcKind.Ref {
+            try! msg.append("`, a reference (`")
+            try! msg.append(self.type_text(t))
+            try! msg.append("`)")
+        } else {
+            try! msg.append("` by borrow")
+        }
+        try! msg.append(", and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not escape, or copy what its body needs into locals and capture those")
+        self.refuse(site, "capture.escaping-borrow", msg.build())
+    }
+}
+
+// The places closure `e`'s body names an enclosing local or `self`, in
+// source order: each a name or `self` node whose binding is a local declared
+// outside the closure. A capture list's entries are not among them.
+public func tc_closure_mentions(p: &TcProgram, e: Int) -> Vector<Int> {
+    var out = Vector<Int>()
+    let span = p.res.nodes[e]
+    var stack = Vector<Int>()
+    try! stack.push(e)
+    var top = 1
+    while top > 0 {
+        top = top - 1
+        let id = stack[top]
+        if id != e && p.is_capture(id) {
+            continue
+        }
+        if p.has_alt(id, Alt.Expr_Name) || p.has_alt(id, Alt.Expr_NameRef) || p.has_alt(id, Alt.Expr_Self) {
+            let b = p.mention_binding(id)
+            if b.kind == ResBindKind.Local && b.node >= 0 {
+                let declared = p.res.nodes[b.node]
+                let inside = declared.start >= span.start && declared.end <= span.end
+                if not inside {
+                    try! out.push(id)
+                }
+            }
+        }
+        var c = p.child_count(id) - 1
+        while c >= 0 {
+            let child = p.child(id, c)
+            if not p.is_leaf(child) {
+                if top < stack.len() {
+                    stack[top] = child
+                } else {
+                    try! stack.push(child)
+                }
+                top = top + 1
+            }
+            c = c - 1
+        }
+    }
+    move out
 }
 
 // The body half's refusals.

@@ -1,0 +1,23 @@
+// A closure is an aggregate of its captures, each taken as typecheck's
+// capture table says: a Copy local copied, a `move` capture moved, a borrow of
+// the frame a `ref`. Its body is a function of its own, after the one it is
+// written in, which loads each capture out of its environment at entry.
+
+struct Handle {
+    name: String
+}
+
+extension Handle: NoCopy {}
+
+func apply(f: (Int) -> Int, x: Int) -> Int {
+    f(x)
+}
+
+func closures(limit: Int, total: &var Int, name: String) -> Int {
+    let h = Handle(name: name)
+    var count = 3
+    let copied = { k: Int in k + limit }
+    let moved = { [move h] k: Int in k + h.name.len() }
+    let both = apply({ [&var count] k: Int in k + count + total }, 4)
+    copied(1) + moved(2) + both
+}

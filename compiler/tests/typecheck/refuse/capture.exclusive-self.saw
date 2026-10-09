@@ -1,0 +1,17 @@
+// refuses: capture.exclusive-self at 15:18
+// `[&var self]` in a method whose receiver is `&self`, which has no exclusive
+// borrow to hand out
+
+struct Counter {
+    n: Int
+}
+
+func apply(f: (Int) -> Int, x: Int) -> Int {
+    f(x)
+}
+
+extension Counter {
+    func read(&self) -> Int {
+        apply({ [&var self] k: Int in k + self.n }, 1)
+    }
+}

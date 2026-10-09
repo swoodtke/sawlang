@@ -1,0 +1,605 @@
+// The MIR verifier (SL:architecture §3.0, "every boundary has a verifier"),
+// run on every function lowered. It reads the MIR alone, apart from the
+// lowering, and checks:
+//   - every block ends in one terminator, and every edge names a block;
+//   - every place, operand and rvalue is typed and in range, and every
+//     operand is a move, a copy or a constant;
+//   - no conversion is left implicit: an assignment's rvalue has its place's
+//     type, and a call's argument its parameter's, instantiated;
+//   - every call names its target and a complete instantiation, and is a
+//     suspension point exactly as typecheck's summaries make it, a
+//     conditional one with its conditions;
+//   - no owned local is live at a `return` or when it is assigned again,
+//     so every scope exit drops it; no window is open at a `return` or when
+//     it opens again, so every path out of its body closes it;
+//   - every loop backedge carries an op-budget point.
+
+import sawmir.src.build.{mir_func_local}
+import sawmir.src.dump.{mir_dump_module}
+import sawmir.src.model.{MirArm, MirBlock, MirCall, MirCallKind, MirFunc, MirLocal, MirOperand,
+                         MirOperandKind, MirPlace, MirProj, MirProjKind, MirRvalue, MirRvalueKind,
+                         MirStmt, MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind}
+import sawmir.src.program.{MirProgram}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.model.{ResDeclKind}
+import sawresolve.src.program.{ResProgram}
+import sawtypecheck.src.bodydump.{tc_dump_bodies}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.summaries.{TcAcc, tc_acc}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind}
+
+// Every problem the verifier finds in the functions module `m`'s bodies
+// lowered to, one line each.
+public func mir_verify_module(p: &var MirProgram, m: Int) -> Vector<String> {
+    var out = Vector<String>()
+    var f = 0
+    while f < p.funcs.len() {
+        let info = p.funcs[f]
+        if info.module == m && not info.refused {
+            p.verify_func(f, &var out)
+        }
+        f = f + 1
+    }
+    move out
+}
+
+extension MirProgram {
+    func verify_func(&var self, f: Int, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        self.cur = f
+        self.local_base = info.local_first
+        self.block_base = info.block_first
+        var b = 0
+        while b < info.block_count {
+            self.verify_block(f, b, &var out)
+            b = b + 1
+        }
+        self.verify_flow(f, &var out)
+        self.verify_backedges(f, &var out)
+    }
+
+    func problem(&self, f: Int, out: &var Vector<String>, text: String) {
+        var line = StringBuilder()
+        try! line.append(self.func_label(f))
+        try! line.append(": ")
+        try! line.append(text)
+        try! out.push(line.build())
+    }
+
+    func func_label(&self, f: Int) -> String {
+        let info = self.funcs[f]
+        var line = StringBuilder()
+        try! line.append(self.tc.res.node_position(info.module, info.root))
+        try! line.append(" ")
+        try! line.append(self.func_name(f))
+        line.build()
+    }
+
+    func verify_block(&var self, f: Int, b: Int, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        let block = self.blocks[info.block_first + b]
+        var s = block.first
+        while s >= 0 {
+            let stmt = self.stmts[s]
+            if stmt.kind == MirStmtKind.Assign {
+                self.verify_place(f, stmt.place, &var out)
+                self.verify_rvalue(f, stmt.rvalue, &var out)
+                if stmt.place >= 0 && stmt.rvalue >= 0 {
+                    let pt = self.places[stmt.place].ty
+                    let rt = self.rvalues[stmt.rvalue].ty
+                    if pt != rt {
+                        var text = StringBuilder()
+                        try! text.append("bb")
+                        try! text.append(b)
+                        try! text.append(" assigns a `")
+                        try! text.append(self.tc.type_text(rt))
+                        try! text.append("` to a place of type `")
+                        try! text.append(self.tc.type_text(pt))
+                        try! text.append("`, a conversion left implicit")
+                        self.problem(f, &var out, text.build())
+                    }
+                }
+            } else if stmt.kind == MirStmtKind.Drop {
+                self.verify_place(f, stmt.place, &var out)
+            }
+            s = stmt.next
+        }
+        match block.term {
+            case Open -> self.problem(f, &var out, "a block has no terminator"),
+            case Goto -> self.verify_edge(f, block.target, &var out),
+            case Switch -> {
+                var k = 0
+                while k < block.arm_count {
+                    let arm = self.arms[block.arm_first + k]
+                    self.verify_edge(f, arm.target, &var out)
+                    k = k + 1
+                }
+                if block.otherwise >= 0 {
+                    self.verify_edge(f, block.otherwise, &var out)
+                }
+                if block.switch_kind == MirSwitchKind.Bool {
+                    self.verify_operand(f, block.operand, &var out)
+                    var read = -1
+                    if block.operand >= 0 {
+                        read = self.operands[block.operand].ty
+                    }
+                    if read >= 0 && not self.tc.is_bool(read) {
+                        self.problem(f, &var out, "a switch on a `Bool` reads no `Bool`")
+                    }
+                } else {
+                    self.verify_place(f, block.place, &var out)
+                }
+            },
+            case Call -> self.verify_call(f, block.call, &var out),
+            case Return -> {},
+            case Unreachable -> {}
+        }
+    }
+
+    func verify_edge(&self, f: Int, target: Int, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        if target < 0 || target >= info.block_count {
+            self.problem(f, &var out, "an edge names no block")
+        }
+    }
+
+    func verify_place(&self, f: Int, p: Int, out: &var Vector<String>) {
+        if p < 0 || p >= self.places.len() {
+            self.problem(f, &var out, "a place is out of range")
+            return
+        }
+        let info = self.funcs[f]
+        let place = self.places[p]
+        if place.local >= info.local_count || (place.local < 0 && place.static_decl < 0) {
+            self.problem(f, &var out, "a place names no local")
+        }
+        if place.ty < 0 {
+            self.problem(f, &var out, "a place has no type")
+        }
+        var k = 0
+        while k < place.count {
+            let step = self.projs[place.first + k]
+            if step.ty < 0 {
+                self.problem(f, &var out, "a projection has no type")
+            }
+            if step.kind == MirProjKind.Index && (step.index < 0 || step.index >= info.local_count) {
+                self.problem(f, &var out, "an index projection names no local")
+            }
+            k = k + 1
+        }
+    }
+
+    func verify_operand(&self, f: Int, o: Int, out: &var Vector<String>) {
+        if o < 0 || o >= self.operands.len() {
+            self.problem(f, &var out, "an operand is out of range")
+            return
+        }
+        let info = self.operands[o]
+        if info.ty < 0 {
+            self.problem(f, &var out, "an operand has no type")
+        }
+        if info.kind == MirOperandKind.Const {
+            if info.text < 0 {
+                self.problem(f, &var out, "a constant has no spelling")
+            }
+        } else {
+            self.verify_place(f, info.place, &var out)
+        }
+    }
+
+    func verify_rvalue(&self, f: Int, r: Int, out: &var Vector<String>) {
+        if r < 0 || r >= self.rvalues.len() {
+            self.problem(f, &var out, "an rvalue is out of range")
+            return
+        }
+        let info = self.rvalues[r]
+        if info.ty < 0 {
+            self.problem(f, &var out, "an rvalue has no type")
+        }
+        if info.kind == MirRvalueKind.Ref {
+            self.verify_place(f, info.place, &var out)
+        }
+        var k = 0
+        while k < info.count {
+            let o = self.lists[info.first + k]
+            self.verify_operand(f, o, &var out)
+            k = k + 1
+        }
+        if info.kind == MirRvalueKind.Use && info.count == 1 {
+            let o = self.lists[info.first]
+            if self.operands[o].ty != info.ty {
+                self.problem(f, &var out, "a use changes its operand's type")
+            }
+        }
+    }
+
+    // A call's target, instantiation, arguments and suspension point.
+    func verify_call(&var self, f: Int, at: Int, out: &var Vector<String>) {
+        if at < 0 || at >= self.calls.len() {
+            self.problem(f, &var out, "a call terminator names no call")
+            return
+        }
+        let c = self.calls[at]
+        if c.next >= 0 {
+            self.verify_edge(f, c.next, &var out)
+        }
+        if c.absent >= 0 {
+            self.verify_edge(f, c.absent, &var out)
+        }
+        if c.dest >= 0 {
+            self.verify_place(f, c.dest, &var out)
+        }
+        var k = 0
+        while k < c.arg_count {
+            let o = self.lists[c.arg_first + k]
+            self.verify_operand(f, o, &var out)
+            k = k + 1
+        }
+        let info = self.funcs[f]
+        match c.kind {
+            case Builtin -> {
+                if c.spelling < 0 {
+                    self.problem(f, &var out, "a builtin call names no builtin")
+                }
+            },
+            case Value -> {
+                if c.callee < 0 {
+                    self.problem(f, &var out, "a function value's call names no value")
+                } else {
+                    self.verify_operand(f, c.callee, &var out)
+                }
+            },
+            case Lend -> {},
+            case _ -> {
+                if c.target < 0 {
+                    self.problem(f, &var out, "a call names no target")
+                    return
+                }
+                let s = self.tc.sigs[c.target]
+                if c.inst_count != s.generic_count {
+                    self.problem(f, &var out, "a call's instantiation is incomplete")
+                }
+                if c.window >= 0 && c.window >= info.window_count {
+                    self.problem(f, &var out, "a window call names no window")
+                }
+                if (c.kind == MirCallKind.WindowOpen || c.kind == MirCallKind.WindowClose) && c.window < 0 {
+                    self.problem(f, &var out, "a window call names no window")
+                }
+                if c.kind == MirCallKind.Function {
+                    self.verify_arguments(f, &c, &var out)
+                }
+            }
+        }
+        self.verify_suspension(f, &c, &var out)
+    }
+
+    // Each argument after a receiver has its parameter's type at the call's
+    // instantiation.
+    func verify_arguments(&var self, f: Int, c: &MirCall, out: &var Vector<String>) {
+        if c.node < 0 || self.tc.call_at[c.node] < 0 {
+            return
+        }
+        let record = self.tc.calls[self.tc.call_at[c.node]]
+        if record.target != c.target {
+            return
+        }
+        let s = self.tc.sigs[c.target]
+        let info = self.tc.res.decls[c.target]
+        var skip = 0
+        if c.arg_count == s.param_count + 1 {
+            skip = 1
+        }
+        if c.arg_count < s.param_count + skip || info.kind == ResDeclKind.Extern {
+            return
+        }
+        var k = 0
+        while k < s.param_count {
+            let param = self.tc.params[s.param_first + k]
+            let want = self.tc.call_subst(param.ty, c.target, &record)
+            let o = self.lists[c.arg_first + skip + k]
+            let have = self.operands[o].ty
+            if want != have && not self.tc.has_error(want) {
+                var text = StringBuilder()
+                try! text.append("an argument of `")
+                try! text.append(self.tc.res.decl_path(c.target))
+                try! text.append("` is a `")
+                try! text.append(self.tc.type_text(have))
+                try! text.append("` where its parameter takes `")
+                try! text.append(self.tc.type_text(want))
+                try! text.append("`, a conversion left implicit")
+                self.problem(f, &var out, text.build())
+            }
+            k = k + 1
+        }
+    }
+
+    // A call is a suspension point exactly when typecheck's summaries,
+    // evaluated at its source node, say it may suspend, and a conditional
+    // one carries the conditions they leave.
+    func verify_suspension(&var self, f: Int, c: &MirCall, out: &var Vector<String>) {
+        if c.node < 0 || self.tc.call_at[c.node] < 0 {
+            if c.suspend != MirSuspend.Never {
+                self.problem(f, &var out, "a call no summary answers is marked a suspension point")
+            }
+            return
+        }
+        let owner = self.funcs[f].owner
+        var acc = tc_acc(owner, -1)
+        self.tc.eval_call(c.node, &var acc)
+        var want = MirSuspend.Never
+        if acc.suspends {
+            want = MirSuspend.Always
+        } else if acc.suspend_atoms.len() > 0 {
+            want = MirSuspend.When
+        }
+        if want != c.suspend {
+            self.problem(f, &var out, "a call's suspension point disagrees with its callee's summary")
+            return
+        }
+        if want == MirSuspend.When && c.cond_count == 0 {
+            self.problem(f, &var out, "a conditional suspension point carries no condition")
+        }
+    }
+
+    // The two may-dataflows over the blocks: the owned locals assigned and
+    // not yet dropped, and the windows open.
+    func verify_flow(&var self, f: Int, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        let width = info.local_count + info.window_count
+        var entry = Vector<Bool>()
+        var reached = Vector<Bool>()
+        var k = 0
+        while k < info.block_count * width {
+            try! entry.push(false)
+            k = k + 1
+        }
+        k = 0
+        while k < info.block_count {
+            try! reached.push(k == 0)
+            k = k + 1
+        }
+        k = 1
+        while k <= info.param_count {
+            let l = mir_func_local(&self, f, k)
+            if l.owned {
+                entry[k] = true
+            }
+            k = k + 1
+        }
+        var changed = true
+        var rounds = 0
+        while changed && rounds < 1000 {
+            changed = false
+            rounds = rounds + 1
+            var b = 0
+            while b < info.block_count {
+                if reached[b] {
+                    var state = Vector<Bool>()
+                    k = 0
+                    while k < width {
+                        try! state.push(entry[b * width + k])
+                        k = k + 1
+                    }
+                    let block = self.blocks[info.block_first + b]
+                    self.flow_statements(f, &block, &var state, false, &var out)
+                    var succ = Vector<Int>()
+                    var opened = -1
+                    self.successors(f, &block, &var succ, &var opened)
+                    var j = 0
+                    while j < succ.len() {
+                        let target = succ[j]
+                        var next = Vector<Bool>()
+                        k = 0
+                        while k < width {
+                            try! next.push(state[k])
+                            k = k + 1
+                        }
+                        if opened >= 0 && not (block.term == MirTermKind.Call && self.calls[block.call].absent == target) {
+                            next[info.local_count + opened] = true
+                        }
+                        if not reached[target] {
+                            reached[target] = true
+                            changed = true
+                        }
+                        k = 0
+                        while k < width {
+                            if next[k] && not entry[target * width + k] {
+                                entry[target * width + k] = true
+                                changed = true
+                            }
+                            k = k + 1
+                        }
+                        j = j + 1
+                    }
+                }
+                b = b + 1
+            }
+        }
+        var b = 0
+        while b < info.block_count {
+            if reached[b] {
+                var state = Vector<Bool>()
+                k = 0
+                while k < width {
+                    try! state.push(entry[b * width + k])
+                    k = k + 1
+                }
+                let block = self.blocks[info.block_first + b]
+                self.flow_statements(f, &block, &var state, true, &var out)
+                if block.term == MirTermKind.Return {
+                    k = 0
+                    while k < width {
+                        if state[k] {
+                            if k < info.local_count {
+                                var text = StringBuilder()
+                                try! text.append("owned local _")
+                                try! text.append(k)
+                                try! text.append(" may still be live at a `return` in bb")
+                                try! text.append(b)
+                                try! text.append(": a scope exit does not drop it")
+                                self.problem(f, &var out, text.build())
+                            } else {
+                                var text = StringBuilder()
+                                try! text.append("window w")
+                                try! text.append(k - info.local_count)
+                                try! text.append(" may still be open at a `return` in bb")
+                                try! text.append(b)
+                                try! text.append(": a path out of its body does not close it")
+                                self.problem(f, &var out, text.build())
+                            }
+                        }
+                        k = k + 1
+                    }
+                }
+                if block.term == MirTermKind.Call {
+                    let c = self.calls[block.call]
+                    if c.kind == MirCallKind.WindowOpen && c.window >= 0 && state[info.local_count + c.window] {
+                        self.problem(f, &var out, "a window opens again while it may still be open")
+                    }
+                }
+            }
+            b = b + 1
+        }
+    }
+
+    // One block's statements over `state`: an assignment to a whole owned
+    // local makes it live, a drop of it ends it, and a window's close ends
+    // the window. With `report`, an assignment to a live owned local is a
+    // missing drop.
+    func flow_statements(&self, f: Int, block: &MirBlock, state: &var Vector<Bool>, report: Bool,
+                         out: &var Vector<String>) {
+        let info = self.funcs[f]
+        var s = block.first
+        while s >= 0 {
+            let stmt = self.stmts[s]
+            s = stmt.next
+            if stmt.place < 0 {
+                continue
+            }
+            let place = self.places[stmt.place]
+            if place.count != 0 || place.local < 0 {
+                continue
+            }
+            let l = mir_func_local(&self, f, place.local)
+            if not l.owned {
+                continue
+            }
+            if stmt.kind == MirStmtKind.Drop {
+                state[place.local] = false
+            } else if stmt.kind == MirStmtKind.Assign {
+                if report && state[place.local] {
+                    var text = StringBuilder()
+                    try! text.append("owned local _")
+                    try! text.append(place.local)
+                    try! text.append(" is assigned while it may still be live: a scope exit before it does not drop it")
+                    self.problem(f, &var out, text.build())
+                }
+                state[place.local] = true
+            }
+        }
+        if block.term == MirTermKind.Call {
+            let c = self.calls[block.call]
+            if c.kind == MirCallKind.WindowClose && c.window >= 0 {
+                state[info.local_count + c.window] = false
+            }
+            if c.dest >= 0 {
+                let place = self.places[c.dest]
+                if place.count == 0 && place.local >= 0 {
+                    let l = mir_func_local(&self, f, place.local)
+                    if l.owned {
+                        state[place.local] = true
+                    }
+                }
+            }
+        }
+    }
+
+    func successors(&self, f: Int, block: &MirBlock, succ: &var Vector<Int>, opened: &var Int) {
+        if block.term == MirTermKind.Goto {
+            try! succ.push(block.target)
+        } else if block.term == MirTermKind.Switch {
+            var k = 0
+            while k < block.arm_count {
+                try! succ.push(self.arms[block.arm_first + k].target)
+                k = k + 1
+            }
+            if block.otherwise >= 0 {
+                try! succ.push(block.otherwise)
+            }
+        } else if block.term == MirTermKind.Call {
+            let c = self.calls[block.call]
+            if c.next >= 0 {
+                try! succ.push(c.next)
+            }
+            if c.absent >= 0 {
+                try! succ.push(c.absent)
+            }
+            if c.kind == MirCallKind.WindowOpen {
+                opened = c.window
+            }
+        }
+    }
+
+    // Every edge to a block on the depth-first path from the entry, a loop's
+    // backedge, leaves a block whose last statement is an op-budget point.
+    func verify_backedges(&self, f: Int, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        if info.block_count == 0 {
+            return
+        }
+        var state = Vector<Int>()
+        var k = 0
+        while k < info.block_count {
+            try! state.push(0)
+            k = k + 1
+        }
+        var stack = Vector<Int>()
+        var cursor = Vector<Int>()
+        try! stack.push(0)
+        try! cursor.push(0)
+        state[0] = 1
+        while stack.len() > 0 {
+            let top = stack.len() - 1
+            let b = stack[top]
+            let block = self.blocks[info.block_first + b]
+            var succ = Vector<Int>()
+            var opened = -1
+            self.successors(f, &block, &var succ, &var opened)
+            let i = cursor[top]
+            if i >= succ.len() {
+                state[b] = 2
+                var kept = Vector<Int>()
+                var kept_cursor = Vector<Int>()
+                var j = 0
+                while j < top {
+                    try! kept.push(stack[j])
+                    try! kept_cursor.push(cursor[j])
+                    j = j + 1
+                }
+                stack = move kept
+                cursor = move kept_cursor
+                continue
+            }
+            cursor[top] = i + 1
+            let target = succ[i]
+            if state[target] == 1 {
+                let last = block.last
+                if last < 0 || self.stmts[last].kind != MirStmtKind.Budget {
+                    var text = StringBuilder()
+                    try! text.append("the backedge bb")
+                    try! text.append(b)
+                    try! text.append(" -> bb")
+                    try! text.append(target)
+                    try! text.append(" has no op-budget point")
+                    self.problem(f, &var out, text.build())
+                }
+            } else if state[target] == 0 {
+                state[target] = 1
+                try! stack.push(target)
+                try! cursor.push(0)
+            }
+        }
+    }
+}

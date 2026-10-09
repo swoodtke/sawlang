@@ -1,0 +1,225 @@
+module drops
+
+fn drops.make() -> String {
+    let _0: String;  // return
+
+    bb0: {
+        _0 = const "made": String;
+        return;
+    }
+}
+
+fn drops.parse(n: Int) -> Result<Int, drops.Fault> {
+    let _0: Result<Int, drops.Fault>;  // return
+    let _1: Int;  // param n
+    let _2: Bool;
+    let _3: drops.Fault;
+    let _4: Result<Int, drops.Fault>;
+    let _5: Result<Int, drops.Fault>;
+
+    bb0: {
+        _2 = Lt(copy _1, const 0: Int);
+        switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _5 = Result<Int, drops.Fault>::Ok(copy _1);
+        _0 = move _5;
+        return;
+    }
+
+    bb2: {
+        _3 = drops.Fault::Broken;
+        _4 = Result<Int, drops.Fault>::Err(move _3);
+        _0 = move _4;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn drops.exits(n: Int) -> Result<Int, drops.Fault> {
+    let _0: Result<Int, drops.Fault>;  // return
+    let _1: Int;  // param n
+    let _2: String;  // first
+    let _3: String;
+    let _4: Int;  // i
+    let _5: Bool;
+    let _6: String;  // inner
+    let _7: String;
+    let _8: Int;
+    let _9: Bool;
+    let _10: Bool;
+    let _11: Bool;
+    let _12: Result<Int, drops.Fault>;
+    let _13: Int;  // parsed
+    let _14: Result<Int, drops.Fault>;
+    let _15: Bool;
+    let _16: Result<Int, drops.Fault>;
+    let _17: String;  // second
+    let _18: String;
+    let _19: Result<Int, drops.Fault>;
+
+    bb0: {
+        _3 = call drops.make() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = move _3;
+        _4 = const 0: Int;
+        goto -> bb2;
+    }
+
+    bb2: {
+        _5 = Lt(copy _4, copy _1);
+        switch move _5 -> [true: bb4, false: bb3];
+    }
+
+    bb3: {
+        _15 = Gt(copy _4, const 0: Int);
+        switch move _15 -> [true: bb18, false: bb19];
+    }
+
+    bb4: {
+        _7 = call drops.make() [] -> [return: bb5];
+    }
+
+    bb5: {
+        _6 = move _7;
+        _8 = Add(copy _4, const 1: Int);
+        _4 = move _8;
+        _9 = Eq(copy _4, const 2: Int);
+        switch move _9 -> [true: bb7, false: bb8];
+    }
+
+    bb6: {
+        _10 = Eq(copy _4, const 5: Int);
+        switch move _10 -> [true: bb10, false: bb11];
+    }
+
+    bb7: {
+        drop(_6);
+        budget(yield-capable);
+        goto -> bb2;
+    }
+
+    bb8: {
+        goto -> bb6;
+    }
+
+    bb9: {
+        _11 = Eq(copy _4, const 7: Int);
+        switch move _11 -> [true: bb13, false: bb14];
+    }
+
+    bb10: {
+        drop(_6);
+        goto -> bb3;
+    }
+
+    bb11: {
+        goto -> bb9;
+    }
+
+    bb12: {
+        _14 = call drops.parse(n: Int) [copy _4] -> [return: bb15];
+    }
+
+    bb13: {
+        _12 = Result<Int, drops.Fault>::Ok(copy _4);
+        _0 = move _12;
+        drop(_6);
+        drop(_2);
+        return;
+    }
+
+    bb14: {
+        goto -> bb12;
+    }
+
+    bb15: {
+        switch discriminant(_14) -> [Ok: bb16, Err: bb17];
+    }
+
+    bb16: {
+        _13 = move (_14 as Ok).0;
+        drop(_14);
+        drop(_6);
+        budget(yield-capable);
+        goto -> bb2;
+    }
+
+    bb17: {
+        _0 = Result<Int, drops.Fault>::Err(move (_14 as Err).0);
+        drop(_14);
+        drop(_6);
+        drop(_2);
+        return;
+    }
+
+    bb18: {
+        _18 = call drops.make() [] -> [return: bb20];
+    }
+
+    bb19: {
+        _16 = Result<Int, drops.Fault>::Ok(const 0: Int);
+        _0 = move _16;
+        drop(_2);
+        return;
+    }
+
+    bb20: {
+        _17 = move _18;
+        _19 = Result<Int, drops.Fault>::Ok(copy _4);
+        _0 = move _19;
+        drop(_17);
+        drop(_2);
+        return;
+    }
+}
+
+fn drops.temporaries() -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // length
+    let _2: String;
+    let _3: &String;
+    let _4: Int;
+    let _5: String;
+    let _6: String;
+    let _7: String;
+    let _8: &String;
+
+    bb0: {
+        _2 = call drops.make() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = ref(shared, _2);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb2];
+    }
+
+    bb2: {
+        _1 = move _4;
+        drop(_2);
+        _5 = call drops.make() [] -> [return: bb3];
+    }
+
+    bb3: {
+        drop(_5);
+        _6 = interpolate [const {}: String];
+        _7 = call drops.make() [] -> [return: bb4];
+    }
+
+    bb4: {
+        _8 = ref(shared, _7);
+        call builtin print [move _6, move _8] -> [return: bb5];
+    }
+
+    bb5: {
+        drop(_7);
+        _0 = copy _1;
+        return;
+    }
+}

@@ -162,8 +162,13 @@ A module's dump is one S-expression, one entry per line, in this layout:
     `project` (the base of a member, index or `!`), `write`, `update` (a
     compound assignment's target) or `test` (a scrutinee, a pattern that binds
     nothing);
+  - for a closure that captures something, `(captures (NAME USE)...)`: each
+    capture in order, the capture list's entries then the bindings its body
+    names, with its transfer: `copy` or `move` by value, `borrow` or
+    `borrow-var` for a borrow of the enclosing frame;
   - CALL, for a call, operator, subscript, `for` or pattern case: `(ROLE
-    [TARGET] [SPELLING] [derived] [(owner TYPE)] [(inst TYPE...)])`. ROLE is
+    [TARGET] [SPELLING] [derived] [(owner TYPE)] [(inst TYPE...)]
+    [(bind PARAM=ARG...)] [(variadic K)])`. ROLE is
     `call`, `memberwise`, `case`, `builtin`, `conversion`, `op` (a builtin
     operator, by its spelling), `operator` (a declared `equals` or `compare`),
     `getitem`, `setitem`, `place` (SL:borrowing §5's roles, `derived` when the
@@ -171,7 +176,11 @@ A module's dump is one S-expression, one entry per line, in this layout:
     or `value` (a function value). TARGET is the declaration's identity and,
     for a function, its parameters, which tell an overload apart; `owner` is
     the type a member is instantiated at, and `inst` the target's own type
-    arguments.
+    arguments. `bind` is how the overload filter bound the written arguments
+    (design 66): each parameter in order, with the position among the written
+    arguments of the one that binds it, or `default` when its default fills
+    it. It is printed only when the binding is not one to one in order, and
+    `variadic` names the first argument a C variadic tail takes.
 
 ### Type spellings
 
@@ -455,6 +464,7 @@ Every body construct in the slice, and how it is typed:
 | `E.Case`, `.Case`, `E.Case(...)`, `.Case(...)` | the enum, its arguments from its head (`Maybe<Int>.Nothing`), the slot or the payload | peeling, calls, builtin_values |
 | `Int.max`, `T.from(x)`, `T.from(truncating: x)`, `E.from(raw: x)`, `A(x)` | the conversions no declaration writes | carried |
 | a free function, method, static method, `init` or memberwise call | the overload filter's choice, instantiated | calls, inference |
+| a call's arguments: positional, a label skipping a default, a default left out, a construction's or payload's labels out of order, a C variadic tail | the binding of each parameter to its argument or its default | arguments, lowlevel |
 | a construction whose head writes a prefix of its type's arguments, `Two<Int>(a: 1, b: true)` | the prefix pins the leading parameters, inference solves the rest (spec, Generics) | partial_arguments |
 | a function value's call | its function type | calls, control |
 | `h.f(x)` where `f` is a field holding a function and the type has no method `f` this module sees | the field's function value, called (`value`); with such a method seen too, refused as `call.field-method-ambiguous` (SL:open-questions D16) | field_calls, multi/field_views |
@@ -471,6 +481,7 @@ Every body construct in the slice, and how it is typed:
 | tuples, repeat, `Map` and `Set` literals | from the slot, or the first element | funnel |
 | a bracket literal | a `Vector` where the slot is one; otherwise a fixed array `[T; N]`, `T` from the slot or the first element and `N` its element count (spec, Composite Types: "with no expected type it is a fixed-size array") | arrays, funnel |
 | a closure | parameters written or from the slot's function type, or, as a generic call's argument, from the parameter type once inference has solved its parameters; result from the slot or its tail | control, closure_inference |
+| a closure's captures: a Copy local named with nothing written, `[move x]`, `[copy x]`, `[&x]`, `[&var x]`, a reference parameter, `self`, `[&self]`, `[&var self]` | copied, moved, or borrowed as the word or the receiver says; a borrow of the frame only in a closure passed straight to a parameter whose function type does not say `escaping` | captures; transfer.implicit-copy.capture, capture.copy, capture.escaping-borrow, capture.exclusive-self |
 | `if`, `match` | the merged branch type, or `Void` as a statement | control, patterns |
 | `while`, `while { }`, `while let`, `for`, `break`, `continue`, `return` | `Void`, or `Never` with no `break` | control, places |
 | `let`, `var`, destructuring, assignment, compound assignment, `guard`, `lend` | statements | funnel, patterns, declarations |
@@ -633,7 +644,10 @@ says what the fixture shows.
 | `call.field-method-ambiguous` | `h.f(x)` where `f` names both a field holding a function and a method this module sees, with the fix-it `let g = h.f; g(x)` (D16) |
 | `infer.failed` | a type argument nothing determines or two arguments disagree on; `None` or an empty literal with nothing expected |
 | `implicit-member.no-type` | an implicit member where nothing expects a type, with the `Enum.Case` fix-it |
-| `transfer.implicit-copy` | an ExplicitCopy or NoCopy place read by value with no `move`, payload reads included (design 131) |
+| `transfer.implicit-copy` | an ExplicitCopy or NoCopy place read by value with no `move`, payload reads included (design 131), and a closure's capture of one by value with nothing written, with the fix-it `[move x]` |
+| `capture.copy` | `[copy x]` of a NoCopy binding, which has no copy |
+| `capture.escaping-borrow` | a borrow of the enclosing frame, `[&x]`, `[&var x]`, a reference parameter or `self`, captured by a closure that escapes: anything but one passed straight to a parameter whose function type does not say `escaping` (spec, Capturing `self` and reference parameters) |
+| `capture.exclusive-self` | `[&var self]` in a method whose receiver is `&self` |
 | `subscript.role` | a subscript of a type that declares no `[]`, or a role it declares and derives no accessor for (SL:borrowing §5.2) |
 | `pattern.case-mismatch` | a lone name resolve took for a case none of whose candidates is a case of the matched type, naming the case and suggesting the rename (D13) |
 | `format.slot-count` | a format string whose `{}` slots and arguments differ in number, or a formatted message that is no literal |
@@ -704,8 +718,12 @@ expression and pattern was typed exactly once, that no type is left unresolved i
 no other module's refusal poisoned (SL:architecture §3.0), that each
 has a use and a value use a transfer that fits its category, that each call has
 a target and as many type arguments as its target has parameters, none of them
-its target's own, and that each adjustment chain composes, every step's source
-the step before's result.
+its target's own, that each call the overload filter resolved records a total
+argument binding (every written argument binds exactly one parameter or falls
+in the variadic tail, and every parameter no argument binds has a default),
+that each closure records a capture, with a capture's transfer, of every
+enclosing binding its body names, and that each adjustment chain composes,
+every step's source the step before's result.
 
 The summary verifier (`summaries.saw`) checks that every function has its
 three summaries, that each checked body's summary is a fixpoint (one more step

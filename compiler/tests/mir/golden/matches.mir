@@ -1,0 +1,457 @@
+module matches
+
+fn matches.area(s: matches.Shape) -> Int {
+    let _0: Int;  // return
+    let _1: matches.Shape;  // param s
+    let _2: &Int;  // ref n
+    let _3: Bool;
+    let _4: Int;  // n
+    let _5: Int;  // n
+    let _6: Int;  // w
+    let _7: Int;  // h
+    let _8: Int;
+
+    bb0: {
+        switch discriminant(_1) -> [Dot: bb2, Line: bb3, Box: bb4];
+    }
+
+    bb1: {
+        drop(_1);
+        return;
+    }
+
+    bb2: {
+        goto -> bb5;
+    }
+
+    bb3: {
+        _2 = ref(shared, (_1 as Line).0);
+        _3 = Gt(copy (*_2), const 10: Int);
+        switch move _3 -> [true: bb6, false: bb7];
+    }
+
+    bb4: {
+        _6 = copy (_1 as Box).0;
+        _7 = copy (_1 as Box).1;
+        goto -> bb10;
+    }
+
+    bb5: {
+        _0 = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb6: {
+        _5 = copy (_1 as Line).0;
+        goto -> bb9;
+    }
+
+    bb7: {
+        _4 = copy (_1 as Line).0;
+        goto -> bb8;
+    }
+
+    bb8: {
+        _0 = copy _4;
+        goto -> bb1;
+    }
+
+    bb9: {
+        _0 = const 10: Int;
+        goto -> bb1;
+    }
+
+    bb10: {
+        _8 = Mul(copy _6, copy _7);
+        _0 = move _8;
+        goto -> bb1;
+    }
+}
+
+fn matches.digits(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Bool;
+    let _3: Bool;
+    let _4: Bool;
+    let _5: Bool;
+
+    bb0: {
+        _2 = Eq(copy _1, const 0: Int);
+        switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        goto -> bb4;
+    }
+
+    bb3: {
+        _3 = Ge(copy _1, const 1: Int);
+        switch move _3 -> [true: bb5, false: bb6];
+    }
+
+    bb4: {
+        _0 = const 1: Int;
+        goto -> bb1;
+    }
+
+    bb5: {
+        _4 = Le(copy _1, const 9: Int);
+        goto -> bb7;
+    }
+
+    bb6: {
+        _4 = const false: Bool;
+        goto -> bb7;
+    }
+
+    bb7: {
+        switch move _4 -> [true: bb8, false: bb9];
+    }
+
+    bb8: {
+        goto -> bb10;
+    }
+
+    bb9: {
+        _5 = Eq(copy _1, const -1: Int);
+        switch move _5 -> [true: bb11, false: bb12];
+    }
+
+    bb10: {
+        _0 = const 1: Int;
+        goto -> bb1;
+    }
+
+    bb11: {
+        goto -> bb13;
+    }
+
+    bb12: {
+        goto -> bb14;
+    }
+
+    bb13: {
+        _0 = const 2: Int;
+        goto -> bb1;
+    }
+
+    bb14: {
+        _0 = const 3: Int;
+        goto -> bb1;
+    }
+}
+
+fn matches.keyword(text: String) -> Bool {
+    let _0: Bool;  // return
+    let _1: String;  // param text
+    let _2: &String;
+    let _3: Bool;
+    let _4: &String;
+    let _5: Bool;
+
+    bb0: {
+        _2 = ref(shared, _1);
+        _3 = Eq(move _2, const "let": String);
+        switch move _3 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        drop(_1);
+        return;
+    }
+
+    bb2: {
+        goto -> bb4;
+    }
+
+    bb3: {
+        _4 = ref(shared, _1);
+        _5 = Eq(move _4, const "var": String);
+        switch move _5 -> [true: bb5, false: bb6];
+    }
+
+    bb4: {
+        _0 = const true: Bool;
+        goto -> bb1;
+    }
+
+    bb5: {
+        goto -> bb7;
+    }
+
+    bb6: {
+        goto -> bb8;
+    }
+
+    bb7: {
+        _0 = const true: Bool;
+        goto -> bb1;
+    }
+
+    bb8: {
+        _0 = const false: Bool;
+        goto -> bb1;
+    }
+}
+
+fn matches.both(pair: (Bool, Bool)) -> Int {
+    let _0: Int;  // return
+    let _1: (Bool, Bool);  // param pair
+
+    bb0: {
+        switch copy _1.0 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        switch copy _1.1 -> [true: bb4, false: bb5];
+    }
+
+    bb3: {
+        goto -> bb8;
+    }
+
+    bb4: {
+        goto -> bb6;
+    }
+
+    bb5: {
+        goto -> bb7;
+    }
+
+    bb6: {
+        _0 = const 3: Int;
+        goto -> bb1;
+    }
+
+    bb7: {
+        _0 = const 2: Int;
+        goto -> bb1;
+    }
+
+    bb8: {
+        _0 = const 0: Int;
+        goto -> bb1;
+    }
+}
+
+fn matches.pairs(p: (Int, Int)) -> Int {
+    let _0: Int;  // return
+    let _1: (Int, Int);  // param p
+    let _2: Bool;
+    let _3: Bool;
+    let _4: &Int;  // ref x
+    let _5: &Int;  // ref y
+    let _6: Bool;
+    let _7: Int;  // x
+    let _8: Int;  // y
+    let _9: Int;  // x
+    let _10: Int;  // y
+    let _11: Bool;
+    let _12: Int;  // x
+    let _13: &Int;  // ref x
+    let _14: &Int;  // ref y
+    let _15: Bool;
+    let _16: Int;
+    let _17: Int;
+
+    bb0: {
+        _2 = Eq(copy _1.0, const 0: Int);
+        switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        _3 = Eq(copy _1.1, const 0: Int);
+        switch move _3 -> [true: bb4, false: bb5];
+    }
+
+    bb3: {
+        _11 = Eq(copy _1.1, const 0: Int);
+        switch move _11 -> [true: bb11, false: bb12];
+    }
+
+    bb4: {
+        goto -> bb6;
+    }
+
+    bb5: {
+        _4 = ref(shared, _1.0);
+        _5 = ref(shared, _1.1);
+        _6 = Eq(copy (*_4), copy (*_5));
+        switch move _6 -> [true: bb7, false: bb8];
+    }
+
+    bb6: {
+        _0 = const 1: Int;
+        goto -> bb1;
+    }
+
+    bb7: {
+        _9 = copy _1.0;
+        _10 = copy _1.1;
+        goto -> bb10;
+    }
+
+    bb8: {
+        _7 = copy _1.0;
+        _8 = copy _1.1;
+        goto -> bb9;
+    }
+
+    bb9: {
+        _17 = Add(copy _7, copy _8);
+        _0 = move _17;
+        goto -> bb1;
+    }
+
+    bb10: {
+        _0 = const 99: Int;
+        goto -> bb1;
+    }
+
+    bb11: {
+        _12 = copy _1.0;
+        goto -> bb13;
+    }
+
+    bb12: {
+        _13 = ref(shared, _1.0);
+        _14 = ref(shared, _1.1);
+        _15 = Eq(copy (*_13), copy (*_14));
+        switch move _15 -> [true: bb14, false: bb15];
+    }
+
+    bb13: {
+        _16 = Add(copy _12, const 10: Int);
+        _0 = move _16;
+        goto -> bb1;
+    }
+
+    bb14: {
+        _9 = copy _1.0;
+        _10 = copy _1.1;
+        goto -> bb10;
+    }
+
+    bb15: {
+        _7 = copy _1.0;
+        _8 = copy _1.1;
+        goto -> bb9;
+    }
+}
+
+fn matches.consume(t: matches.Token) -> Int {
+    let _0: Int;  // return
+    let _1: matches.Token;  // param t
+    let _2: String;  // text
+    let _3: Int;  // value
+    let _4: &String;
+    let _5: Int;
+
+    bb0: {
+        switch discriminant(_1) -> [Word: bb2, Number: bb3, End: bb4];
+    }
+
+    bb1: {
+        drop(_1);
+        return;
+    }
+
+    bb2: {
+        _2 = copy (_1 as Word).0;
+        goto -> bb5;
+    }
+
+    bb3: {
+        _3 = copy (_1 as Number).0;
+        goto -> bb6;
+    }
+
+    bb4: {
+        goto -> bb7;
+    }
+
+    bb5: {
+        _4 = ref(shared, _2);
+        _5 = call std.string.String.len() (owner String) [move _4] -> [return: bb8];
+    }
+
+    bb6: {
+        _0 = copy _3;
+        goto -> bb1;
+    }
+
+    bb7: {
+        _0 = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb8: {
+        _0 = move _5;
+        drop(_2);
+        goto -> bb1;
+    }
+}
+
+fn matches.inspect(h: &matches.Holder) -> Int {
+    let _0: Int;  // return
+    let _1: &matches.Holder;  // param h
+    let _2: &String;  // ref text
+    let _3: &Int;  // ref value
+    let _4: &String;
+    let _5: Int;
+
+    bb0: {
+        switch discriminant((*_1).token) -> [Word: bb2, Number: bb3, End: bb4];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        _2 = ref(shared, ((*_1).token as Word).0);
+        goto -> bb5;
+    }
+
+    bb3: {
+        _3 = ref(shared, ((*_1).token as Number).0);
+        goto -> bb6;
+    }
+
+    bb4: {
+        goto -> bb7;
+    }
+
+    bb5: {
+        _4 = ref(shared, (*_2));
+        _5 = call std.string.String.len() (owner String) [move _4] -> [return: bb8];
+    }
+
+    bb6: {
+        _0 = copy (*_3);
+        goto -> bb1;
+    }
+
+    bb7: {
+        _0 = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb8: {
+        _0 = move _5;
+        goto -> bb1;
+    }
+}

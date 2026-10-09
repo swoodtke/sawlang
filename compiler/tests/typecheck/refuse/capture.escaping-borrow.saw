@@ -1,0 +1,14 @@
+// refuses: capture.escaping-borrow at 11:33
+// a closure bound to a `let` escapes, so it may not capture `self`, a borrow
+// of storage the caller owns
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func later(&self) -> Int {
+        let f = { k: Int in k + self.n }
+        f(1)
+    }
+}

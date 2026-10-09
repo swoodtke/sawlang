@@ -1,0 +1,10 @@
+// refuses: slice.not-yet at 6:11
+// a `match` whose scrutinee is a conditional lend, whose arms would alias a
+// place the window lends only on its present edge
+
+func pick(v: Vector<Int>) -> Int {
+    match v.get(0) {
+        case Some(n) -> n,
+        case None -> 0
+    }
+}

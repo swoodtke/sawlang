@@ -296,6 +296,7 @@ std.vector: 10
     instance T=(owning), A=GlobalAllocator, __R=(plain)
     instance T=(owning), A=GlobalAllocator, __R=Int
     instance T=(plain), A=GlobalAllocator, __R=(plain)
+    instance T=(plain), A=GlobalAllocator, __R=Bool
     instance T=(plain), A=GlobalAllocator, __R=Int
     instance T=(plain), A=GlobalAllocator, __R=Void
     instance T=Bool, A=GlobalAllocator, __R=Bool

@@ -6,7 +6,7 @@ import sawparse.src.grammar.{Alt}
 import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
 import sawresolve.src.names.{ResIndex, res_index}
 import sawresolve.src.program.{ResProgram}
-import sawtypecheck.src.model.{TcAdjust, TcAllowance, TcAtom, TcCall, TcConformance, TcDiag, TcGeneric,
+import sawtypecheck.src.model.{TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture, TcConformance, TcDiag, TcGeneric,
                                TcItem, TcMember, TcObligation, TcParam, TcSig, TcStatus, TcSummary,
                                TcTier, TcUnit, TcUse, tc_blank_sig}
 import sawtypecheck.src.types.{TcKind, TcType, TcTypes, tc_types}
@@ -135,6 +135,10 @@ public struct TcProgram {
     public call_at: Vector<Int>
     public calls: Vector<TcCall>
     public insts: Vector<Int>
+    // The argument bindings of the calls the overload filter resolved: each
+    // call's run holds, per parameter, the argument binding it or
+    // TC_BIND_DEFAULT.
+    public binds: Vector<Int>
     // A local's type, by the leaf that declares it.
     public local_types: Vector<Int>
     // Resolve's call record for a call node, or -1.
@@ -186,6 +190,15 @@ public struct TcProgram {
     // By declaration: the trait whose requirement a written member meets, or
     // -1.
     public meets_trait: Vector<Int>
+    // Every closure checked, in the order the walk met them, with the
+    // declaration whose body holds it; and each one's captures, a run of
+    // `captures` (`settle_captures`). (closure node, 0) -> its ordinal.
+    public closures: Vector<Int>
+    public closure_decls: Vector<Int>
+    public capture_first: Vector<Int>
+    public capture_count: Vector<Int>
+    public captures: Vector<TcCapture>
+    public closure_index: ResIndex
 }
 
 extension TcProgram: NoCopy {}
@@ -236,6 +249,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       expr_use: Vector<TcUse>(), copy_partner: Vector<Int>(), adj_head: Vector<Int>(),
                       adj_tail: Vector<Int>(), adjusts: Vector<TcAdjust>(),
                       call_at: Vector<Int>(), calls: Vector<TcCall>(), insts: Vector<Int>(),
+                      binds: Vector<Int>(),
                       local_types: Vector<Int>(), res_call_at: Vector<Int>(),
                       body_roots: Vector<Int>(), body_decls: Vector<Int>(),
                       ext_visible: Vector<Bool>(), body_result: -1, loop_breaks: Vector<Int>(),
@@ -245,7 +259,10 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       items: Vector<TcItem>(), decl_unit: Vector<Int>(), summary_deps: res_index(),
                       std_verdicts: res_index(), std_keys: Vector<Int>(), untabled: Vector<Int>(),
                       summary_problems: Vector<String>(), summary_problem_modules: Vector<Int>(),
-                      negated_literal: -1, meets_trait: Vector<Int>())
+                      negated_literal: -1, meets_trait: Vector<Int>(), closures: Vector<Int>(),
+                      closure_decls: Vector<Int>(), capture_first: Vector<Int>(),
+                      capture_count: Vector<Int>(), captures: Vector<TcCapture>(),
+                      closure_index: res_index())
     let empty = Vector<Int>()
     let unlabeled = Vector<Int>()
     p.error_type = p.types.intern(TcKind.Error, -1, 0, 0, &empty, &unlabeled)

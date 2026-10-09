@@ -1,0 +1,51 @@
+// Scope-end drops at every exit (SL:architecture §3.5): falling off a block,
+// `break`, `continue`, `return`, `try`'s propagation, a `guard`'s exit; each
+// owned local dropped in reverse declaration order, and each owned temporary
+// at the end of its statement, newest first: a call's result used as a
+// receiver, a value `let _` discards, a format argument.
+
+enum Fault {
+    case Broken
+}
+
+func make() -> String {
+    "made"
+}
+
+func parse(n: Int) -> Result<Int, Fault> {
+    if n < 0 {
+        return Fault.Broken
+    }
+    n
+}
+
+func exits(n: Int) -> Result<Int, Fault> {
+    let first = make()
+    var i = 0
+    while i < n {
+        let inner = make()
+        i = i + 1
+        if i == 2 {
+            continue
+        }
+        if i == 5 {
+            break
+        }
+        if i == 7 {
+            return i
+        }
+        let parsed = try parse(i)
+    }
+    guard i > 0 else {
+        return 0
+    }
+    let second = make()
+    i
+}
+
+func temporaries() -> Int {
+    let length = make().len()
+    let _ = make()
+    print("{}", make())
+    length
+}

@@ -1,0 +1,132 @@
+module closures
+
+fn closures.apply(f: (Int) -> Int, x: Int) -> Int {
+    let _0: Int;  // return
+    let _1: (Int) -> Int;  // param f
+    let _2: Int;  // param x
+    let _3: Int;
+
+    bb0: {
+        _3 = call value copy _1 [copy _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _3;
+        drop(_1);
+        return;
+    }
+}
+
+fn closures.closures(limit: Int, total: &var Int, name: String) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param limit
+    let _2: &var Int;  // param total
+    let _3: String;  // param name
+    let _4: closures.Handle;  // h
+    let _5: closures.Handle;
+    let _6: Int;  // count
+    let _7: (Int) -> Int;  // copied
+    let _8: (Int) -> Int;
+    let _9: (Int) -> Int;  // moved
+    let _10: (Int) -> Int;
+    let _11: Int;  // both
+    let _12: &var Int;
+    let _13: (Int) -> Int;
+    let _14: Int;
+    let _15: Int;
+    let _16: Int;
+    let _17: Int;
+    let _18: Int;
+
+    bb0: {
+        _5 = closures.Handle { name: copy _3 };
+        _4 = move _5;
+        _6 = const 3: Int;
+        _8 = closure#0 of closures.closures(limit: Int, total: &var Int, name: String) [copy _1];
+        _7 = move _8;
+        _10 = closure#1 of closures.closures(limit: Int, total: &var Int, name: String) [move _4];
+        _9 = move _10;
+        _12 = ref(exclusive, _6);
+        _13 = closure#2 of closures.closures(limit: Int, total: &var Int, name: String) [move _12, copy _2];
+        _14 = call closures.apply(f: (Int) -> Int, x: Int) [move _13, const 4: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _11 = move _14;
+        _15 = call value copy _7 [const 1: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _16 = call value copy _9 [const 2: Int] -> [return: bb3];
+    }
+
+    bb3: {
+        _17 = Add(move _15, move _16);
+        _18 = Add(move _17, copy _11);
+        _0 = move _18;
+        drop(_9);
+        drop(_7);
+        drop(_4);
+        drop(_3);
+        return;
+    }
+}
+
+fn closure#0 of closures.closures(limit: Int, total: &var Int, name: String) -> Int {
+    let _0: Int;  // return
+    let _1: &(Int,);  // env
+    let _2: Int;  // param k
+    let _3: Int;  // limit
+    let _4: Int;
+
+    bb0: {
+        _3 = copy (*_1).0;
+        _4 = Add(copy _2, copy _3);
+        _0 = move _4;
+        return;
+    }
+}
+
+fn closure#1 of closures.closures(limit: Int, total: &var Int, name: String) -> Int {
+    let _0: Int;  // return
+    let _1: &(closures.Handle,);  // env
+    let _2: Int;  // param k
+    let _3: closures.Handle;  // h
+    let _4: Int;
+    let _5: &String;
+    let _6: Int;
+    let _7: Int;
+
+    bb0: {
+        _3 = move (*_1).0;
+        _4 = copy _2;
+        _5 = ref(shared, _3.name);
+        _6 = call std.string.String.len() (owner String) [move _5] -> [return: bb1];
+    }
+
+    bb1: {
+        _7 = Add(move _4, move _6);
+        _0 = move _7;
+        drop(_3);
+        return;
+    }
+}
+
+fn closure#2 of closures.closures(limit: Int, total: &var Int, name: String) -> Int {
+    let _0: Int;  // return
+    let _1: &(&var Int, &var Int);  // env
+    let _2: Int;  // param k
+    let _3: &var Int;  // ref count
+    let _4: &var Int;  // total
+    let _5: Int;
+    let _6: Int;
+
+    bb0: {
+        _3 = copy (*_1).0;
+        _4 = copy (*_1).1;
+        _5 = Add(copy _2, copy (*_3));
+        _6 = Add(move _5, copy (*_4));
+        _0 = move _6;
+        return;
+    }
+}

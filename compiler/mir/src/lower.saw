@@ -1,0 +1,4502 @@
+// MIR lowering (SL:architecture §3.5): every body typecheck checked becomes a
+// function of locals and basic blocks. One module holds the whole walk, since
+// statements, expressions, places and patterns recurse into each other. It
+// reads typecheck's side tables and never the tree's spellings for a fact
+// typecheck decided: each operand's transfer, each conversion, each call's
+// target, binding and instantiation, each closure's captures. A fact it needs
+// and finds unrecorded is an INVARIANT, never a guess; a construct it does not
+// lower yet is refused by name, never lowered wrong.
+//
+// The walk recurses only into a node's children, so its depth is the tree's
+// height, which the parser's depth funnel bounds.
+
+import sawmir.src.build.{mir_func_local}
+import sawmir.src.model.{MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind, MirFunc,
+                         MirFuncKind, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace,
+                         MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirStmt, MirSuspend,
+                         MirTermKind, MirWindow}
+import sawmir.src.program.{MirLoop, MirProgram, MirScopeEntry}
+import sawparse.src.grammar.{Alt, alt_name}
+import sawparse.src.tree.{AstNode, NodeShape}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.kinds.{res_is_statement_alt, res_is_type_alt}
+import sawresolve.src.model.{ResBindKind, ResBinding, ResCallClass, ResDecl, ResDeclKind, ResModule}
+import sawresolve.src.program.{ResProgram}
+import sawtypecheck.src.adjust.{TC_FIT_NONE}
+import sawtypecheck.src.bodies.{tc_check_bodies}
+import sawtypecheck.src.bodydump.{tc_dump_bodies}
+import sawtypecheck.src.candidates.{tc_contains}
+import sawtypecheck.src.checks.{tc_check_unsafe}
+import sawtypecheck.src.conform.{TcSubst, tc_args_subst, tc_extension_sets}
+import sawtypecheck.src.declarations.{tc_build_signatures}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.tier.{tc_compute_tiers}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.model.{TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC,
+                               TC_EFFECT_CONSUMES, TC_TIER_COPY, TcAdjust, TcAdjustKind, TcCall,
+                               TcCapture, TcLend, TcParam, TcReceiver, TcRole, TcSig, TcSource, TcUse}
+import sawtypecheck.src.summaries.{tc_solve_summaries}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// Lowers every body of every module checked in full, refusal-free.
+public func mir_lower_program(p: &var MirProgram) {
+    p.lower_program()
+}
+
+// A lowered expression: a place, or an operand. `fresh` marks a place that is
+// a whole temporary holding a value made here, a copy already taken or a
+// call's result, which hands off by a move.
+public struct MirVal {
+    public place: Int
+    public operand: Int
+    public fresh: Bool
+}
+
+// One step of a place's plan: the subexpressions a place reads are evaluated
+// when it is prepared, and the borrows it opens when it is realized, so an
+// assignment's right side runs between the two.
+public struct MirStep {
+    public kind: Int
+    public node: Int
+    public place: Int
+    public decl: Int
+    public index: Int
+    public first: Int
+    public count: Int
+    public ty: Int
+    public fresh: Bool
+}
+
+static MIR_STEP_ROOT: Int = 0
+static MIR_STEP_FIELD: Int = 1
+static MIR_STEP_TUPLE: Int = 2
+static MIR_STEP_DEREF: Int = 3
+static MIR_STEP_FORCE: Int = 4
+static MIR_STEP_INDEX: Int = 5
+static MIR_STEP_WINDOW: Int = 6
+static MIR_STEP_SETITEM: Int = 7
+
+func mir_place_val(p: Int, fresh: Bool) -> MirVal {
+    MirVal(place: p, operand: -1, fresh: fresh)
+}
+
+func mir_operand_val(o: Int) -> MirVal {
+    MirVal(place: -1, operand: o, fresh: false)
+}
+
+// Functions: one per body root typecheck recorded, and one per closure.
+extension MirProgram {
+    // Every body of every module checked in full and refused nowhere, in the
+    // order typecheck checked them, each followed by the closures it holds.
+    public func lower_program(&var self) {
+        var refused = Vector<Bool>()
+        var m = 0
+        while m < self.tc.res.modules.len() {
+            try! refused.push(self.tc.module_refused(m))
+            m = m + 1
+        }
+        var k = 0
+        while k < self.tc.body_roots.len() {
+            let root = self.tc.body_roots[k]
+            let d = self.tc.body_decls[k]
+            k = k + 1
+            let module = self.tc.node_module(root)
+            if module < 0 || refused[module] || self.is_poisoned(root) {
+                continue
+            }
+            let info = self.tc.res.modules[module]
+            if info.interface_only {
+                continue
+            }
+            self.lower_root(module, d, root)
+            self.lower_pending()
+        }
+    }
+
+    func is_poisoned(&self, root: Int) -> Bool {
+        var k = 0
+        while k < self.tc.poisoned.len() {
+            if self.tc.poisoned[k] == root {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // Body `root` of declaration `d` (-1 for an item), as the kind of body it
+    // is.
+    func lower_root(&var self, m: Int, d: Int, root: Int) {
+        if d < 0 {
+            if self.tc.has_alt(root, Alt.Stmt_Block) {
+                self.lower_item_block(m, root)
+            } else {
+                let t = self.tc.bool_type()
+                self.lower_expression_body(MirFuncKind.Assert, m, d, root, -1, t)
+            }
+            return
+        }
+        let info = self.tc.res.decls[d]
+        let callable = info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.Requirement
+        if callable && self.tc.has_alt(root, Alt.Stmt_Block) {
+            self.lower_function(m, d, root)
+            return
+        }
+        if callable {
+            let param = self.default_index(d, root)
+            let t = self.tc.final_type(root)
+            self.lower_expression_body(MirFuncKind.Default, m, d, root, param, t)
+            return
+        }
+        if self.is_align_argument(d, root) {
+            let t = self.tc.int_type()
+            self.lower_expression_body(MirFuncKind.Align, m, d, root, -1, t)
+            return
+        }
+        if info.kind == ResDeclKind.Static {
+            let t = self.tc.sigs[d].result
+            self.lower_expression_body(MirFuncKind.Static, m, d, root, -1, t)
+            return
+        }
+        if info.kind == ResDeclKind.Case {
+            let t = self.tc.final_type(root)
+            self.lower_expression_body(MirFuncKind.RawValue, m, d, root, -1, t)
+            return
+        }
+        self.missing(root, "a body root belongs to no kind of body a declaration has")
+    }
+
+    // Whether `root` is the argument of an `@align` attribute of `d`.
+    func is_align_argument(&self, d: Int, root: Int) -> Bool {
+        let outer = self.tc.res.decls[d].outer
+        if outer < 0 {
+            return false
+        }
+        let n = self.tc.child_count(outer)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(outer, k)
+            k = k + 1
+            if self.tc.has_alt(c, Alt.Attr_Attribute_Align) && self.tc.res.first_node_child(c) == root {
+                return true
+            }
+        }
+        false
+    }
+
+    // Which parameter of function `d` default value `root` fills.
+    func default_index(&self, d: Int, root: Int) -> Int {
+        let node = self.tc.res.decls[d].node
+        var index = 0
+        let n = self.tc.child_count(node)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(node, k)
+            k = k + 1
+            let plain = self.tc.has_alt(c, Alt.Decl_Param_Plain)
+            let defaulted = self.tc.has_alt(c, Alt.Decl_Param_Default)
+            if not plain && not defaulted {
+                continue
+            }
+            if defaulted && self.tc.res.last_node_child(c) == root {
+                return index
+            }
+            index = index + 1
+        }
+        return -1
+    }
+
+    // Starts a function of kind `kind` whose return place has type `result`.
+    func begin_function(&var self, kind: MirFuncKind, m: Int, d: Int, root: Int, param: Int, parent: Int,
+                        ordinal: Int, owner: Int, result: Int) {
+        let f = self.funcs.len()
+        let local_first = self.locals.len()
+        let block_first = self.blocks.len()
+        let window_first = self.windows.len()
+        try! self.funcs.push(MirFunc(module: m, kind: kind, decl: d, root: root, param: param, parent: parent,
+                                     ordinal: ordinal, local_first: local_first, local_count: 0,
+                                     block_first: block_first, block_count: 0, param_count: 0,
+                                     window_first: window_first, window_count: 0, owner: owner,
+                                     refused: false))
+        self.func_of.add(root, 0, f)
+        self.cur = f
+        self.local_base = self.locals.len()
+        self.block_base = self.blocks.len()
+        self.scope = Vector<MirScopeEntry>()
+        self.scope_marks = Vector<Int>()
+        self.loops = Vector<MirLoop>()
+        self.refused = false
+        let _ = self.new_local(result, MirLocalKind.Return, -1, -1)
+        let entry = self.new_block()
+        self.enter(entry)
+        let _ = self.open_scope()
+    }
+
+    // Records how many parameters the function has, once they are bound.
+    func end_params(&var self) {
+        let f = self.cur
+        var info = self.funcs[f]
+        info.param_count = self.locals.len() - self.local_base - 1
+        self.funcs[f] = info
+    }
+
+    // Ends the function: the path still open leaves every scope and returns;
+    // a block nothing reaches and nothing terminated is unreachable.
+    func finish_function(&var self) {
+        if self.live() {
+            self.unwind_to(0)
+            self.ret()
+        }
+        let f = self.cur
+        var info = self.funcs[f]
+        info.local_count = self.locals.len() - self.local_base
+        info.block_count = self.blocks.len() - self.block_base
+        info.window_count = self.windows.len() - info.window_first
+        info.refused = self.refused
+        self.funcs[f] = info
+        var referenced = Vector<Bool>()
+        var b = 0
+        while b < info.block_count {
+            try! referenced.push(b == 0)
+            b = b + 1
+        }
+        b = 0
+        while b < info.block_count {
+            self.mark_successors(b, &var referenced)
+            b = b + 1
+        }
+        b = 0
+        while b < info.block_count {
+            let block = self.block(b)
+            if block.term == MirTermKind.Open && not referenced[b] {
+                self.enter(b)
+                self.unreachable()
+            }
+            b = b + 1
+        }
+        self.current = -1
+        var k = 0
+        while k < self.touched.len() {
+            let leaf = self.touched[k]
+            self.leaf_local[leaf] = -1
+            k = k + 1
+        }
+        self.touched = Vector<Int>()
+    }
+
+    func mark_successors(&self, b: Int, seen: &var Vector<Bool>) {
+        let block = self.block(b)
+        if block.term == MirTermKind.Goto {
+            seen[block.target] = true
+        } else if block.term == MirTermKind.Switch {
+            var k = 0
+            while k < block.arm_count {
+                let arm = self.arms[block.arm_first + k]
+                seen[arm.target] = true
+                k = k + 1
+            }
+            if block.otherwise >= 0 {
+                seen[block.otherwise] = true
+            }
+        } else if block.term == MirTermKind.Call {
+            let c = self.calls[block.call]
+            if c.next >= 0 {
+                seen[c.next] = true
+            }
+            if c.absent >= 0 {
+                seen[c.absent] = true
+            }
+        }
+    }
+
+    // A function's, method's, `init`'s or default-bodied requirement's
+    // block: its receiver and parameters, then its statements, whose tail is
+    // its value.
+    func lower_function(&var self, m: Int, d: Int, root: Int) {
+        let s = self.tc.sigs[d]
+        self.begin_function(MirFuncKind.Body, m, d, root, -1, -1, 0, d, s.result)
+        let consumes = (s.effects & TC_EFFECT_CONSUMES) != 0
+        let node = self.tc.res.decls[d].node
+        let n = self.tc.child_count(node)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(node, k)
+            k = k + 1
+            if self.tc.has_alt(c, Alt.Decl_Param_Receiver) {
+                let own = self.tc.local_types[c]
+                var t = own
+                if not consumes {
+                    t = self.tc.mk_ref(s.receiver == TcReceiver.Exclusive, own)
+                }
+                let l = self.new_local(t, MirLocalKind.Receiver, -1, c)
+                self.bind_leaf(c, l)
+                if consumes {
+                    self.scope_owned(l)
+                } else {
+                    self.mark_reference(l)
+                }
+            } else if self.tc.has_alt(c, Alt.Decl_Param_Plain) || self.tc.has_alt(c, Alt.Decl_Param_Default) {
+                let leaf = self.tc.res.first_leaf(c)
+                self.bind_param(m, leaf)
+            }
+        }
+        self.end_params()
+        let lending = (s.effects & TC_EFFECT_BORROWS) != 0
+        if lending || self.tc.is_void(s.result) || self.tc.is_never(s.result) {
+            self.lower_block(root, -1)
+        } else {
+            let ret = self.place_local(0)
+            self.lower_block(root, ret)
+            if self.live() && self.block_tail(root) < 0 && self.returns_void_ok(s.result) {
+                self.assign_void_ok(ret)
+            }
+        }
+        self.finish_function()
+    }
+
+    // A parameter declared at `leaf`, owned by the function.
+    func bind_param(&var self, m: Int, leaf: Int) {
+        let t = self.tc.local_types[leaf]
+        let name = self.leaf_name(m, leaf)
+        let l = self.new_local(t, MirLocalKind.Param, name, leaf)
+        self.bind_leaf(leaf, l)
+        self.scope_owned(l)
+    }
+
+    func leaf_name(&var self, m: Int, leaf: Int) -> Int {
+        let text = self.tc.text(m, leaf)
+        self.tc.res.intern(text)
+    }
+
+    // A body that is one expression: a default value, a static's
+    // initializer, a raw case's value, an `@align` argument, a
+    // `static_assert`'s condition.
+    func lower_expression_body(&var self, kind: MirFuncKind, m: Int, d: Int, root: Int, param: Int, t: Int) {
+        self.begin_function(kind, m, d, root, param, -1, 0, d, t)
+        self.end_params()
+        let ret = self.place_local(0)
+        let _ = self.open_scope()
+        self.lower_into(root, ret)
+        self.close_scope()
+        self.finish_function()
+    }
+
+    // A test case's block.
+    func lower_item_block(&var self, m: Int, root: Int) {
+        let v = self.tc.void_type()
+        self.begin_function(MirFuncKind.Test, m, -1, root, -1, -1, 0, -1, v)
+        self.end_params()
+        self.lower_block(root, -1)
+        self.finish_function()
+    }
+
+    // Whether `t` is `Result<Void, E>`, whose `Ok` a body ending in a
+    // statement and a bare `return` give.
+    func returns_void_ok(&self, t: Int) -> Bool {
+        if not self.tc.is_result(t) {
+            return false
+        }
+        let ok = self.tc.arg_of(t, 0)
+        self.tc.is_void(ok)
+    }
+
+    // `p = Ok(())` into a `Result<Void, E>` place.
+    func assign_void_ok(&var self, p: Int) {
+        let t = self.place_type(p)
+        let v = self.tc.void_type()
+        let unit = self.op_const(MirConstKind.Unit, "()", v)
+        var ops = Vector<Int>()
+        try! ops.push(unit)
+        let ok = self.result_case("Ok")
+        let rv = self.rv_aggregate(MirAggregate.Case, ok, t, &ops)
+        self.assign(p, rv)
+    }
+
+    // The case named `name` of builtin enum `d`: `Optional`'s or `Result`'s.
+    public func builtin_case(&var self, d: Int, name: String) -> Int {
+        let id = self.tc.res.intern(name)
+        self.tc.case_named(d, id)
+    }
+
+    // The closures met while the last function was lowered, each after the
+    // function it is written in, nested ones after theirs.
+    func lower_pending(&var self) {
+        var k = 0
+        while k < self.pending.len() {
+            let e = self.pending[k]
+            let parent = self.pending_parents[k]
+            var ordinal = 0
+            var j = 0
+            while j < k {
+                if self.pending_parents[j] == parent {
+                    ordinal = ordinal + 1
+                }
+                j = j + 1
+            }
+            k = k + 1
+            self.lower_closure(e, parent, ordinal)
+        }
+        self.pending = Vector<Int>()
+        self.pending_parents = Vector<Int>()
+    }
+
+    // A closure's body: its environment, which it reads its captures out of
+    // at entry, its parameters, and its statements (spec, Closures).
+    func lower_closure(&var self, e: Int, parent: Int, ordinal: Int) {
+        let m = self.tc.node_module(e)
+        let ft = self.tc.expr_types[e]
+        let result = self.tc.types.ty(ft).b
+        let p = self.funcs[parent]
+        self.begin_function(MirFuncKind.Closure, m, p.decl, e, -1, parent, ordinal, p.owner, result)
+        let at = self.tc.closure_index.first(e, 0)
+        if at < 0 {
+            self.missing(e, "a closure has no capture table")
+            self.finish_function()
+            return
+        }
+        let k = self.tc.closure_index.value(at)
+        let first = self.tc.capture_first[k]
+        let count = self.tc.capture_count[k]
+        var elements = Vector<Int>()
+        var j = 0
+        while j < count {
+            let cap = self.tc.captures[first + j]
+            try! elements.push(self.capture_type(&cap))
+            j = j + 1
+        }
+        let none = Vector<Int>()
+        let env_tuple = self.tc.mk_tuple(&elements, &none)
+        let env_type = self.tc.mk_ref(false, env_tuple)
+        let env = self.new_local(env_type, MirLocalKind.Env, -1, -1)
+        let n = self.tc.child_count(e)
+        j = 0
+        while j < n {
+            let c = self.tc.child(e, j)
+            j = j + 1
+            if self.is_closure_param(c) {
+                let leaf = self.tc.res.first_leaf(c)
+                self.bind_param(m, leaf)
+            }
+        }
+        self.end_params()
+        j = 0
+        while j < count {
+            let cap = self.tc.captures[first + j]
+            let et = elements[j]
+            let name = self.capture_name(m, cap.binding)
+            let l = self.new_local(et, MirLocalKind.User, name, cap.binding)
+            let env_place = self.place_local(env)
+            let whole = self.project(env_place, MirProjKind.Deref, -1, -1, env_tuple)
+            let part = self.project(whole, MirProjKind.Tuple, -1, j, et)
+            var o = self.op_copy(part)
+            if cap.use == TcUse.Move {
+                o = self.op_move(part)
+            }
+            let dest = self.place_local(l)
+            let rv = self.rv_use(o)
+            self.assign(dest, rv)
+            self.bind_leaf(cap.binding, l)
+            if cap.use == TcUse.Borrow || cap.use == TcUse.BorrowVar {
+                self.mark_reference(l)
+            } else {
+                self.scope_owned(l)
+            }
+            j = j + 1
+        }
+        if self.tc.is_void(result) || self.tc.is_never(result) {
+            self.lower_statements(e, -1)
+        } else {
+            let ret = self.place_local(0)
+            self.lower_statements(e, ret)
+        }
+        self.finish_function()
+    }
+
+    // The type a capture takes in its closure's environment: the value, or a
+    // reference for a borrow of the frame.
+    func capture_type(&var self, cap: &TcCapture) -> Int {
+        if cap.use == TcUse.Borrow {
+            return self.tc.mk_ref(false, cap.ty)
+        }
+        if cap.use == TcUse.BorrowVar {
+            return self.tc.mk_ref(true, cap.ty)
+        }
+        cap.ty
+    }
+
+    func capture_name(&var self, m: Int, binding: Int) -> Int {
+        if self.tc.has_alt(binding, Alt.Decl_Param_Receiver) {
+            return self.tc.res.intern("self")
+        }
+        self.leaf_name(m, binding)
+    }
+
+    func is_closure_param(&self, c: Int) -> Bool {
+        self.tc.has_alt(c, Alt.Expr_ClosureParam_Value) || self.tc.has_alt(c, Alt.Expr_ClosureParam_Ref) || self.tc.has_alt(c, Alt.Expr_ClosureParam_RefExclusive)
+    }
+
+    func is_capture_node(&self, c: Int) -> Bool {
+        self.tc.has_alt(c, Alt.Expr_Capture_Value) || self.tc.has_alt(c, Alt.Expr_Capture_Move) || self.tc.has_alt(c, Alt.Expr_Capture_Copy) || self.tc.has_alt(c, Alt.Expr_Capture_Borrow) || self.tc.has_alt(c, Alt.Expr_Capture_BorrowExclusive) || self.tc.has_alt(c, Alt.Expr_Capture_Self) || self.tc.has_alt(c, Alt.Expr_Capture_SelfExclusive)
+    }
+}
+
+// Statements and blocks.
+extension MirProgram {
+    // Block `b` in a scope of its own; with `dest`, its tail statement's
+    // value goes there.
+    public func lower_block(&var self, b: Int, dest: Int) {
+        let _ = self.open_scope()
+        self.lower_statements(b, dest)
+        self.close_scope()
+    }
+
+    // The statements among node `id`'s children, a block's or a closure's.
+    // Code after a statement control never leaves is not lowered.
+    public func lower_statements(&var self, id: Int, dest: Int) {
+        let n = self.tc.child_count(id)
+        var last = -1
+        var k = 0
+        while k < n {
+            let c = self.tc.child(id, k)
+            if self.is_statement_child(c) {
+                last = c
+            }
+            k = k + 1
+        }
+        k = 0
+        while k < n {
+            let s = self.tc.child(id, k)
+            k = k + 1
+            if not self.is_statement_child(s) {
+                continue
+            }
+            if not self.live() {
+                return
+            }
+            if s == last && dest >= 0 && self.tc.has_alt(s, Alt.Stmt_Expr) {
+                let e = self.tc.res.first_node_child(s)
+                let _ = self.open_scope()
+                self.lower_into(e, dest)
+                self.close_scope()
+            } else {
+                self.lower_statement(s)
+            }
+        }
+    }
+
+    func is_statement_child(&self, c: Int) -> Bool {
+        not self.tc.is_leaf(c) && not self.is_closure_param(c) && not self.is_capture_node(c)
+    }
+
+    // The expression block `b` ends in, or -1.
+    func block_tail(&self, b: Int) -> Int {
+        var last = -1
+        let n = self.tc.child_count(b)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(b, k)
+            if not self.tc.is_leaf(c) {
+                last = c
+            }
+            k = k + 1
+        }
+        if last >= 0 && self.tc.has_alt(last, Alt.Stmt_Expr) {
+            return self.tc.res.first_node_child(last)
+        }
+        return -1
+    }
+
+    // One statement, in a scope that holds its temporaries, which drop when
+    // it ends, newest first.
+    public func lower_statement(&var self, s: Int) {
+        guard let alt = self.tc.node_alt(s) else {
+            return
+        }
+        self.lower_statement_as(s, alt)
+    }
+
+    func lower_statement_as(&var self, s: Int, alt: Alt) {
+        match alt {
+            case Stmt_Expr -> {
+                let e = self.tc.res.first_node_child(s)
+                let _ = self.open_scope()
+                self.lower_discarded(e)
+                self.close_scope()
+            },
+            case Stmt_Let_Immutable -> self.lower_let(s),
+            case Stmt_Let_Mutable -> self.lower_let(s),
+            case Stmt_Destructure_Immutable -> self.lower_let(s),
+            case Stmt_Destructure_Mutable -> self.lower_let(s),
+            case Stmt_AttributedLocal -> {
+                let local = self.tc.res.last_node_child(s)
+                self.lower_statement(local)
+            },
+            case Stmt_Assign -> self.lower_assign(s),
+            case Stmt_CompoundAssign -> self.lower_compound(s),
+            case Stmt_Return -> self.lower_return(s),
+            case Stmt_Break -> self.lower_break(),
+            case Stmt_Continue -> self.lower_continue(),
+            case Stmt_Lend -> self.lower_lend(s),
+            case Stmt_Guard_Let -> self.lower_guard_let(s),
+            case Stmt_Guard_Var -> self.lower_guard_let(s),
+            case Stmt_Guard_Condition -> self.lower_guard_condition(s),
+            case Decl_StaticAssert -> {},
+            case _ -> self.not_yet(s, alt_name(alt))
+        }
+    }
+
+    // An expression whose value nothing reads: evaluated, and its value
+    // dropped when its statement ends.
+    public func lower_discarded(&var self, e: Int) {
+        if self.is_control(e) && self.tc.adj_head[e] < 0 {
+            self.lower_control(e, -1)
+            return
+        }
+        let o = self.operand(e)
+        let t = self.tc.final_type(e)
+        if not self.is_unit_type(t) || self.reads_place(o) {
+            self.discard_operand(o)
+        }
+    }
+
+    // Whether operand `o` reads a place, as a `try!` payload does: the read
+    // is what checks it, so a discarded one is still read.
+    func reads_place(&self, o: Int) -> Bool {
+        if o < 0 {
+            return false
+        }
+        let info = self.operands[o]
+        info.kind != MirOperandKind.Const && self.places[info.place].count > 0
+    }
+
+    // An operand nothing reads: a temporary it moves out of is registered
+    // with the innermost scope, and any other value is first copied into one.
+    func discard_operand(&var self, o: Int) {
+        if o < 0 || not self.live() {
+            return
+        }
+        let info = self.operands[o]
+        if info.kind == MirOperandKind.Const {
+            return
+        }
+        if info.kind == MirOperandKind.Move {
+            let l = self.bare_local(info.place)
+            if l >= 0 && self.local(l).kind == MirLocalKind.Temp {
+                self.scope_owned(l)
+                return
+            }
+        }
+        let rv = self.rv_use(o)
+        let t = self.temp_of(rv)
+        self.scope_owned(t)
+    }
+
+    // Whether `t` is `Void`, `Never` or `()`, which no place holds.
+    public func is_unit_type(&self, t: Int) -> Bool {
+        if t < 0 {
+            return true
+        }
+        if self.tc.is_void(t) || self.tc.is_never(t) {
+            return true
+        }
+        let info = self.tc.types.ty(t)
+        info.kind == TcKind.Tuple && info.count == 0
+    }
+
+    // Whether `e` is a construct that lowers into its destination itself.
+    func is_control(&self, e: Int) -> Bool {
+        guard let alt = self.tc.node_alt(e) else {
+            return false
+        }
+        mir_is_control_alt(alt)
+    }
+}
+
+// Whether alternative `alt` builds an expression whose evaluation runs no
+// code and opens no loan: a literal, a name, `self`.
+func mir_is_pure_alt(alt: Alt) -> Bool {
+    match alt {
+        case Expr_Int -> true,
+        case Expr_Float -> true,
+        case Expr_String -> true,
+        case Expr_Bool_True -> true,
+        case Expr_Bool_False -> true,
+        case Expr_None -> true,
+        case Expr_SourceLocation_File -> true,
+        case Expr_SourceLocation_Line -> true,
+        case Expr_SourceLocation_Function -> true,
+        case Expr_Name -> true,
+        case Expr_NameRef -> true,
+        case Expr_Self -> true,
+        case Expr_ImplicitMember -> true,
+        case _ -> false
+    }
+}
+
+// A range pattern's lower bound, or with `low` false its upper one, as
+// written around its `..` or `..=`.
+func mir_range_bound(text: &String, low: Bool) -> String {
+    let n = text.len()
+    var at = 0
+    while at + 1 < n {
+        if (text.byte_at(at) as Int) == 46 && (text.byte_at(at + 1) as Int) == 46 {
+            break
+        }
+        at = at + 1
+    }
+    var end = at
+    while end > 0 && (text.byte_at(end - 1) as Int) == 32 {
+        end = end - 1
+    }
+    if low {
+        return text.substring(0, end)
+    }
+    var start = at + 2
+    if start < n && (text.byte_at(start) as Int) == 61 {
+        start = start + 1
+    }
+    while start < n && (text.byte_at(start) as Int) == 32 {
+        start = start + 1
+    }
+    text.substring(start, n)
+}
+
+// Whether alternative `alt` builds a control construct.
+func mir_is_control_alt(alt: Alt) -> Bool {
+    match alt {
+        case Expr_If -> true,
+        case Expr_Match -> true,
+        case Expr_While_Conditional -> true,
+        case Expr_While_Infinite -> true,
+        case Expr_WhileLet_Let -> true,
+        case Expr_WhileLet_Var -> true,
+        case Expr_For_Plain -> true,
+        case Borrow_Block -> true,
+        case _ -> false
+    }
+}
+
+extension MirProgram {
+    // `let x = e`, `let x: T = e`, `let (a, b) = e` and their `var` forms.
+    // The bindings belong to the enclosing block, the temporaries to the
+    // statement.
+    func lower_let(&var self, s: Int) {
+        let target = self.tc.res.first_node_child(s)
+        let value = self.tc.res.last_node_child(s)
+        let m = self.tc.node_module(s)
+        var bound = Vector<Int>()
+        let _ = self.open_scope()
+        if self.tc.has_alt(target, Alt.Stmt_BindingName) {
+            let leaf = self.tc.res.first_leaf(target)
+            let text = self.tc.text(m, leaf)
+            if text.equals("_") {
+                let o = self.operand(value)
+                self.discard_operand(o)
+            } else {
+                let t = self.tc.local_types[leaf]
+                let name = self.tc.res.intern(text)
+                let l = self.new_local(t, MirLocalKind.User, name, leaf)
+                let dest = self.place_local(l)
+                self.lower_into(value, dest)
+                try! bound.push(l)
+                self.bind_leaf(leaf, l)
+            }
+        } else {
+            let v = self.lower_val(value)
+            let p = self.as_place(v, value)
+            self.bind_pattern(target, p, &var bound)
+        }
+        self.close_scope()
+        self.scope_all(&bound)
+    }
+
+    // Registers each of `locals` with the innermost scope.
+    public func scope_all(&var self, locals: &Vector<Int>) {
+        var k = 0
+        while k < locals.len() {
+            let l = locals[k]
+            if not self.local(l).reference {
+                self.scope_owned(l)
+            }
+            k = k + 1
+        }
+    }
+
+    // `place = value`: the target's subexpressions first, then the value,
+    // then the target's borrows open and the old value drops before the new
+    // one is stored (SL:architecture §3.5, evaluation order).
+    func lower_assign(&var self, s: Int) {
+        let target = self.tc.res.first_node_child(s)
+        let value = self.tc.res.last_node_child(s)
+        let _ = self.open_scope()
+        var steps = Vector<MirStep>()
+        self.prepare_base(target, &var steps)
+        let o = self.operand(value)
+        let n = steps.len()
+        if n > 0 && steps[n - 1].kind == MIR_STEP_SETITEM {
+            self.store_setitem(&steps, o)
+        } else {
+            let p = self.realize(&steps, n)
+            let t = self.place_type(p)
+            if self.owns(t) {
+                self.emit_drop(p)
+            }
+            let rv = self.rv_use(o)
+            self.assign(p, rv)
+        }
+        self.close_scope()
+    }
+
+    // `place op= value`: read and written in place, the value evaluated
+    // before the target's borrows open.
+    func lower_compound(&var self, s: Int) {
+        let target = self.tc.res.first_node_child(s)
+        let value = self.tc.res.last_node_child(s)
+        let m = self.tc.node_module(s)
+        var op = ""
+        let n = self.tc.child_count(s)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(s, k)
+            if self.tc.is_leaf(c) && op.len() == 0 {
+                let text = self.tc.text(m, c)
+                let size = text.len()
+                op = text.substring(0, size - 1)
+            }
+            k = k + 1
+        }
+        let _ = self.open_scope()
+        var steps = Vector<MirStep>()
+        self.prepare_base(target, &var steps)
+        let o = self.operand(value)
+        let p = self.realize_all(&steps)
+        let t = self.place_type(p)
+        let read = self.op_copy(p)
+        var ops = Vector<Int>()
+        try! ops.push(read)
+        try! ops.push(o)
+        let rv = self.rv_over(MirRvalueKind.Binary, t, op, &ops)
+        self.assign(p, rv)
+        self.close_scope()
+    }
+
+    // `return` and `return e`: the value into the return place, then every
+    // scope's exits. A `borrows` body's `return` is its absent path, which
+    // lends nothing.
+    func lower_return(&var self, s: Int) {
+        let e = self.tc.res.first_node_child(s)
+        let result = self.local_type(0)
+        let lending = self.lending_function()
+        if e >= 0 && not lending {
+            let _ = self.open_scope()
+            let ret = self.place_local(0)
+            self.lower_into(e, ret)
+            self.close_scope()
+        } else if e >= 0 {
+            let _ = self.open_scope()
+            self.lower_into(e, -1)
+            self.close_scope()
+        } else if self.returns_void_ok(result) {
+            let ret = self.place_local(0)
+            self.assign_void_ok(ret)
+        }
+        self.unwind_to(0)
+        self.ret()
+    }
+
+    // Whether the function being lowered is a `borrows` accessor's body.
+    func lending_function(&self) -> Bool {
+        let info = self.funcs[self.cur]
+        if info.kind != MirFuncKind.Body || info.decl < 0 {
+            return false
+        }
+        (self.tc.sigs[info.decl].effects & TC_EFFECT_BORROWS) != 0
+    }
+
+    func lower_break(&var self) {
+        let n = self.loops.len()
+        if n == 0 {
+            return
+        }
+        let loop = self.loops[n - 1]
+        self.unwind_to(loop.depth)
+        self.goto(loop.exit)
+    }
+
+    // `continue`: the scopes of the body exit, and the backedge charges the
+    // op budget.
+    func lower_continue(&var self) {
+        let n = self.loops.len()
+        if n == 0 {
+            return
+        }
+        let loop = self.loops[n - 1]
+        self.unwind_to(loop.depth)
+        self.emit_budget(loop.yields)
+        self.goto(loop.head)
+    }
+
+    // `lend place`: the accessor pauses while its caller's window is open. A
+    // window the operand opens to forward another accessor's place stays
+    // open until the body ends.
+    func lower_lend(&var self, s: Int) {
+        let e = self.tc.res.first_node_child(s)
+        let exclusive = self.tc.expr_use[e] == TcUse.BorrowVar
+        let p = self.place_of(e)
+        let rv = self.rv_ref(exclusive, p)
+        let r = self.temp_of(rv)
+        let rp = self.place_local(r)
+        var args = Vector<Int>()
+        try! args.push(self.op_move(rp))
+        var c = self.blank_call(MirCallKind.Lend, s)
+        c.arg_first = self.push_args(&args)
+        c.arg_count = 1
+        let _ = self.call_and_continue(c)
+    }
+
+    // `guard let x = e else { ... }`: the binding outlives the guard.
+    func lower_guard_let(&var self, s: Int) {
+        let target = self.tc.res.first_node_child(s)
+        var subject = -1
+        var block = -1
+        let n = self.tc.child_count(s)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(s, k)
+            k = k + 1
+            if c == target || self.tc.is_leaf(c) {
+                continue
+            }
+            if self.tc.has_alt(c, Alt.Stmt_Block) {
+                block = c
+            } else if subject < 0 {
+                subject = c
+            }
+        }
+        var bound = Vector<Int>()
+        let head = self.open_scope()
+        let test = self.optional_switch(subject, false)
+        self.enter(test.absent)
+        self.unwind_to(head)
+        self.lower_block(block, -1)
+        self.unreachable()
+        self.enter(test.present)
+        self.bind_test(&test, target, false, &var bound)
+        self.unwind_to(head)
+        self.discard_scope()
+        self.scope_all(&bound)
+    }
+
+    // `guard cond else { ... }`.
+    func lower_guard_condition(&var self, s: Int) {
+        var cond = -1
+        var block = -1
+        let n = self.tc.child_count(s)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(s, k)
+            k = k + 1
+            if self.tc.is_leaf(c) {
+                continue
+            }
+            if self.tc.has_alt(c, Alt.Stmt_Block) {
+                block = c
+            } else {
+                cond = c
+            }
+        }
+        let o = self.condition_operand(cond)
+        let pass = self.new_block()
+        let fail = self.new_block()
+        self.switch_bool(o, pass, fail)
+        self.enter(fail)
+        self.lower_block(block, -1)
+        self.unreachable()
+        self.enter(pass)
+    }
+
+    // A condition's operand, its temporaries dropped before the branch reads
+    // it.
+    public func condition_operand(&var self, e: Int) -> Int {
+        let _ = self.open_scope()
+        let mark = self.scope_marks[self.scope_marks.len() - 1]
+        var o = self.operand(e)
+        if self.scope.len() > mark && self.live() {
+            let rv = self.rv_use(o)
+            let t = self.temp_of(rv)
+            let p = self.place_local(t)
+            o = self.op_move(p)
+        }
+        self.close_scope()
+        o
+    }
+}
+
+// The operand funnel.
+extension MirProgram {
+    // The one funnel every operand is built through (SL:architecture §3.5,
+    // "Every operand says move or copy"): expression `e` lowered, each step
+    // of its adjustment chain made an explicit rvalue or projection, and the
+    // transfer typecheck recorded for its position applied. It never invents
+    // a move: a spelled `move` moves, an owned temporary is handed off, a
+    // named place copies, running a declared `copy()` hook even at its last
+    // use, and a generic local's single-path read is typecheck's own `move`
+    // (design 219). A position typecheck recorded no transfer for is an
+    // INVARIANT.
+    //
+    // ENTRY POINTS (operand):
+    //     lower_into
+    //     lower_let
+    //     lower_assign
+    //     lower_compound
+    //     lower_discarded
+    //     condition_operand
+    //     call_arguments
+    //     receiver_operand
+    //     aggregate_operands
+    //     closure_captures
+    //     builtin_operand
+    //     format_operand
+    //     operator_call
+    //     conversion_operand
+    public func operand(&var self, e: Int) -> Int {
+        self.operand_as(e, false)
+    }
+
+    // `operand` where the position borrows its value as a shared reference,
+    // as a declared `equals` or `compare` takes its operands.
+    public func operand_as(&var self, e: Int, want_ref: Bool) -> Int {
+        let u = self.tc.expr_use[e]
+        if u == TcUse.Unused {
+            self.missing(e, "an expression is read with no transfer recorded for its position")
+            let t = self.tc.final_type(e)
+            return self.dead_operand(t)
+        }
+        var v = self.lower_val(e)
+        var a = self.tc.adj_head[e]
+        while a >= 0 {
+            let adj = self.tc.adjusts[a]
+            v = self.adjust(v, &adj, u, e)
+            a = adj.next
+        }
+        self.transfer(v, u, e, want_ref)
+    }
+
+    // A placeholder for the value of an expression control never leaves; no
+    // emitted code reads it.
+    public func dead_operand(&var self, t: Int) -> Int {
+        self.op_const(MirConstKind.Unit, "!", t)
+    }
+
+    // One adjustment step, made explicit (compiler/tests/typecheck/README.md,
+    // "The dump").
+    func adjust(&var self, v: MirVal, adj: &TcAdjust, u: TcUse, e: Int) -> MirVal {
+        match adj.kind {
+            case Deref -> {
+                let p = self.as_place(v, e)
+                let q = self.project(p, MirProjKind.Deref, -1, -1, adj.to)
+                mir_place_val(q, false)
+            },
+            case Borrow -> {
+                let p = self.as_place(v, e)
+                let rv = self.rv_ref(false, p)
+                let t = self.temp_of(rv)
+                let q = self.place_local(t)
+                mir_operand_val(self.op_move(q))
+            },
+            case BorrowVar -> {
+                let p = self.as_place(v, e)
+                let rv = self.rv_ref(true, p)
+                let t = self.temp_of(rv)
+                let q = self.place_local(t)
+                mir_operand_val(self.op_move(q))
+            },
+            case Shared -> {
+                let p = self.as_place(v, e)
+                let inner = self.place_referent(p)
+                let d = self.project(p, MirProjKind.Deref, -1, -1, inner)
+                let rv = self.rv_ref(false, d)
+                let t = self.temp_of(rv)
+                let q = self.place_local(t)
+                mir_operand_val(self.op_move(q))
+            },
+            case Never -> mir_operand_val(self.dead_operand(adj.to)),
+            case Adopt -> {
+                let o = self.transfer(v, u, e, false)
+                if self.is_const(o) {
+                    return mir_operand_val(self.retype_const(o, adj.to))
+                }
+                self.rebuilt(MirRvalueKind.Adopt, adj.to, o)
+            },
+            case Some -> self.wrapped(v, u, e, true, "Some", adj.to),
+            case Ok -> self.wrapped(v, u, e, false, "Ok", adj.to),
+            case Err -> self.wrapped(v, u, e, false, "Err", adj.to),
+            case Widen -> {
+                let o = self.transfer(v, u, e, false)
+                self.rebuilt(MirRvalueKind.Widen, adj.to, o)
+            },
+            case Erase -> {
+                let o = self.transfer(v, u, e, false)
+                self.rebuilt(MirRvalueKind.Erase, adj.to, o)
+            },
+            case Slice -> {
+                let o = self.transfer(v, u, e, false)
+                self.rebuilt(MirRvalueKind.Slice, adj.to, o)
+            }
+        }
+    }
+
+    // A new value built from operand `o` by an rvalue of kind `kind`, held in
+    // a temporary.
+    func rebuilt(&var self, kind: MirRvalueKind, t: Int, o: Int) -> MirVal {
+        let rv = self.rv_one(kind, t, "", o)
+        let l = self.temp_of(rv)
+        let p = self.place_local(l)
+        mir_operand_val(self.op_move(p))
+    }
+
+    // An auto-wrap: the value as case `name` of `Optional`, or else of
+    // `Result` (`Some`, `Ok`, `Err`), of type `t`.
+    func wrapped(&var self, v: MirVal, u: TcUse, e: Int, optional: Bool, name: String, t: Int) -> MirVal {
+        let o = self.transfer(v, u, e, false)
+        var c = -1
+        if optional {
+            c = self.optional_case(name)
+        } else {
+            c = self.result_case(name)
+        }
+        var ops = Vector<Int>()
+        try! ops.push(o)
+        let rv = self.rv_aggregate(MirAggregate.Case, c, t, &ops)
+        let l = self.temp_of(rv)
+        let p = self.place_local(l)
+        mir_operand_val(self.op_move(p))
+    }
+
+    // How a position reads lowered value `v`, by use `u`: an operand is
+    // itself; a place is moved, copied, or borrowed.
+    func transfer(&var self, v: MirVal, u: TcUse, e: Int, want_ref: Bool) -> Int {
+        if v.operand >= 0 {
+            if not want_ref {
+                return v.operand
+            }
+            let p = self.as_place(v, e)
+            return self.shared_ref(p)
+        }
+        let p = v.place
+        if want_ref {
+            if v.fresh {
+                self.own_temp(p)
+            }
+            return self.shared_ref(p)
+        }
+        if v.fresh && u == TcUse.Borrow {
+            self.own_temp(p)
+            return self.borrowed_value(p)
+        }
+        if v.fresh {
+            return self.op_move(p)
+        }
+        match u {
+            case Move -> self.op_move(p),
+            case Temp -> self.op_move(p),
+            case Copy -> self.copy_place(p),
+            case Borrow -> self.borrowed_value(p),
+            case BorrowVar -> {
+                let rv = self.rv_ref(true, p)
+                let l = self.temp_of(rv)
+                let q = self.place_local(l)
+                self.op_move(q)
+            },
+            case _ -> {
+                self.missing(e, "a place is read as a value where typecheck recorded no transfer")
+                self.op_copy(p)
+            }
+        }
+    }
+
+    // A value a builtin operator, a format argument or an interpolated
+    // segment borrows: a trivially copyable value, a reference, a slice or a
+    // function value is copied; anything else is passed by shared reference.
+    func borrowed_value(&var self, p: Int) -> Int {
+        let t = self.place_type(p)
+        let kind = self.tc.kind_of(t)
+        if kind == TcKind.Ref || kind == TcKind.Slice || kind == TcKind.Func || self.tc.is_trivial(t, 0) {
+            return self.op_copy(p)
+        }
+        self.shared_ref(p)
+    }
+
+    func shared_ref(&var self, p: Int) -> Int {
+        let rv = self.rv_ref(false, p)
+        let l = self.temp_of(rv)
+        let q = self.place_local(l)
+        self.op_move(q)
+    }
+
+    // A copy of named place `p`: through its type's declared `copy()` when
+    // it writes one, the retain hook every silent transfer runs.
+    func copy_place(&var self, p: Int) -> Int {
+        let t = self.place_type(p)
+        let hook = self.copy_hook(t)
+        if hook < 0 {
+            return self.op_copy(p)
+        }
+        let r = self.shared_ref(p)
+        var args = Vector<Int>()
+        try! args.push(r)
+        let l = self.new_temp(t)
+        var c = self.blank_call(MirCallKind.Function, -1)
+        c.target = hook
+        c.owner = t
+        c.arg_first = self.push_args(&args)
+        c.arg_count = 1
+        c.dest = self.place_local(l)
+        let _ = self.call_and_continue(c)
+        let q = self.place_local(l)
+        self.op_move(q)
+    }
+
+    // The `copy()` a Copy-tier type `t` writes for itself, or -1.
+    func copy_hook(&var self, t: Int) -> Int {
+        let d = self.tc.nominal_decl(t)
+        if d < 0 || self.tc.is_primitive_decl(d) || not self.tc.copies_silently(t) {
+            return -1
+        }
+        let name = self.tc.res.intern("copy")
+        let m = self.funcs[self.cur].module
+        let found = self.tc.members_named(d, name, m)
+        var k = 0
+        while k < found.len() {
+            let member = self.tc.members[found[k]]
+            if member.source == TcSource.Extension && self.tc.is_method_member(found[k], false) {
+                return member.decl
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // A lowered value as a place: an operand is held in a temporary first,
+    // which then drops with its statement.
+    public func as_place(&var self, v: MirVal, e: Int) -> Int {
+        if v.place >= 0 {
+            if v.fresh {
+                self.own_temp(v.place)
+            }
+            return v.place
+        }
+        let info = self.operands[v.operand]
+        if info.kind == MirOperandKind.Move {
+            let l = self.bare_local(info.place)
+            if l >= 0 && self.local(l).kind == MirLocalKind.Temp {
+                self.own_temp(info.place)
+                return info.place
+            }
+        }
+        let rv = self.rv_use(v.operand)
+        let l = self.temp_of(rv)
+        let p = self.place_local(l)
+        self.own_temp(p)
+        p
+    }
+
+    // Registers the temporary place `p` names with the innermost scope, once.
+    func own_temp(&var self, p: Int) {
+        let l = self.bare_local(p)
+        if l < 0 || self.local(l).owned {
+            return
+        }
+        self.scope_owned(l)
+    }
+
+    // Expression `e` into place `dest`, or evaluated for its effects alone
+    // when `dest` is -1: a branch's arms and a block's tail go straight to
+    // the destination.
+    public func lower_into(&var self, e: Int, dest: Int) {
+        if self.is_control(e) && self.tc.adj_head[e] < 0 {
+            self.lower_control(e, dest)
+            return
+        }
+        if dest < 0 {
+            self.lower_discarded(e)
+            return
+        }
+        let o = self.operand(e)
+        if self.live() {
+            let rv = self.rv_use(o)
+            self.assign(dest, rv)
+        }
+    }
+}
+
+// Lowering an expression to a place or an operand.
+extension MirProgram {
+    // Expression `e` lowered, before its adjustments and its transfer.
+    public func lower_val(&var self, e: Int) -> MirVal {
+        let t = self.tc.expr_types[e]
+        guard let alt = self.tc.node_alt(e) else {
+            self.not_yet(e, "this expression")
+            return mir_operand_val(self.dead_operand(t))
+        }
+        self.lower_val_as(e, alt, t)
+    }
+
+    func lower_val_as(&var self, e: Int, alt: Alt, t: Int) -> MirVal {
+        match alt {
+            case Expr_Int -> mir_operand_val(self.literal(e, MirConstKind.Int, t)),
+            case Expr_Float -> mir_operand_val(self.literal(e, MirConstKind.Float, t)),
+            case Expr_String -> mir_operand_val(self.literal(e, MirConstKind.String, t)),
+            case Expr_Bool_True -> mir_operand_val(self.op_const(MirConstKind.Bool, "true", t)),
+            case Expr_Bool_False -> mir_operand_val(self.op_const(MirConstKind.Bool, "false", t)),
+            case Expr_None -> mir_operand_val(self.none_value(t)),
+            case Expr_Interpolation -> mir_operand_val(self.interpolation(e)),
+            case Expr_SourceLocation_File -> mir_operand_val(self.literal(e, MirConstKind.Builtin, t)),
+            case Expr_SourceLocation_Line -> mir_operand_val(self.literal(e, MirConstKind.Builtin, t)),
+            case Expr_SourceLocation_Function -> mir_operand_val(self.literal(e, MirConstKind.Builtin, t)),
+            case Expr_Name -> self.name_val(e),
+            case Expr_NameRef -> self.name_val(e),
+            case Expr_Self -> self.prepared_val(e),
+            case Expr_ImplicitMember -> mir_operand_val(self.case_value(e)),
+            case Expr_Member -> self.member_val(e),
+            case Expr_TupleIndex -> self.prepared_val(e),
+            case Expr_Force -> self.prepared_val(e),
+            case Expr_Deref -> self.prepared_val(e),
+            case Expr_Subscript_Single -> self.subscript_val(e),
+            case Expr_Subscript_Multi -> self.subscript_val(e),
+            case Borrow_Place_Shared -> self.borrow_place_val(e),
+            case Borrow_Place_Var -> self.borrow_place_val(e),
+            case Expr_Call_Paren -> self.call_val(e),
+            case Expr_Call_ParenTrailing -> self.call_val(e),
+            case Expr_TrailingCall -> self.call_val(e),
+            case Expr_Unary_Negate -> mir_operand_val(self.unary(e, "-")),
+            case Expr_Unary_Not -> mir_operand_val(self.unary(e, "not")),
+            case Expr_Unary_Complement -> mir_operand_val(self.unary(e, "~")),
+            case Expr_Additive -> mir_operand_val(self.arithmetic(e)),
+            case Expr_Multiplicative -> mir_operand_val(self.arithmetic(e)),
+            case Expr_Shift -> mir_operand_val(self.arithmetic(e)),
+            case Expr_Bitand -> mir_operand_val(self.arithmetic(e)),
+            case Expr_Bitor -> mir_operand_val(self.arithmetic(e)),
+            case Expr_Bitxor -> mir_operand_val(self.arithmetic(e)),
+            case Expr_And -> mir_operand_val(self.logic(e, true)),
+            case Expr_Or -> mir_operand_val(self.logic(e, false)),
+            case Expr_Compare_Pair -> mir_operand_val(self.comparison(e)),
+            case Expr_Coalesce -> mir_operand_val(self.coalesce(e)),
+            case Expr_Range_Closed -> mir_operand_val(self.range(e)),
+            case Expr_Cast -> mir_operand_val(self.cast(e)),
+            case Expr_Ref_Shared -> mir_operand_val(self.reference(e, false)),
+            case Expr_Ref_Exclusive -> mir_operand_val(self.reference(e, true)),
+            case Expr_Move_Place -> self.move_val(e),
+            case Expr_Try_Propagate -> mir_operand_val(self.try_propagate(e)),
+            case Expr_Try_Force -> self.try_force(e),
+            case Expr_Try_Optional -> mir_operand_val(self.try_optional(e)),
+            case Expr_Tuple_Unit -> mir_operand_val(self.op_const(MirConstKind.Unit, "()", t)),
+            case Expr_Tuple_Positional -> mir_operand_val(self.tuple(e, false)),
+            case Expr_Tuple_Named -> mir_operand_val(self.tuple(e, true)),
+            case Expr_Array -> mir_operand_val(self.array(e)),
+            case Expr_Repeat -> mir_operand_val(self.repeat(e)),
+            case Expr_Map_Empty -> mir_operand_val(self.map_literal(e)),
+            case Expr_Map_Entries -> mir_operand_val(self.map_literal(e)),
+            case Expr_Set -> mir_operand_val(self.set_literal(e)),
+            case Expr_Closure -> mir_operand_val(self.closure(e)),
+            case _ -> {
+                if self.is_control(e) {
+                    return self.control_val(e)
+                }
+                self.not_yet(e, alt_name(alt))
+                mir_operand_val(self.dead_operand(t))
+            }
+        }
+    }
+
+    // A literal's constant, spelled as the source writes it.
+    func literal(&var self, e: Int, kind: MirConstKind, t: Int) -> Int {
+        let m = self.tc.node_module(e)
+        let text = self.tc.text(m, e)
+        self.op_const(kind, text, t)
+    }
+
+    // `None` of Optional type `t`.
+    func none_value(&var self, t: Int) -> Int {
+        let c = self.optional_case("None")
+        let none = Vector<Int>()
+        let rv = self.rv_aggregate(MirAggregate.Case, c, t, &none)
+        let l = self.temp_of(rv)
+        let p = self.place_local(l)
+        self.op_move(p)
+    }
+
+    // A control construct's value, in a temporary of its type.
+    func control_val(&var self, e: Int) -> MirVal {
+        let t = self.tc.expr_types[e]
+        if self.is_unit_type(t) {
+            self.lower_control(e, -1)
+            return mir_operand_val(self.op_const(MirConstKind.Unit, "()", t))
+        }
+        let l = self.new_temp(t)
+        let dest = self.place_local(l)
+        self.lower_control(e, dest)
+        mir_place_val(self.place_local(l), true)
+    }
+
+    // An interpolated string: its segments, placeholders and borrowed values,
+    // in order.
+    func interpolation(&var self, e: Int) -> Int {
+        let m = self.tc.node_module(e)
+        let st = self.tc.string_type()
+        var ops = Vector<Int>()
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(e, k)
+            k = k + 1
+            let node = self.tc.res.nodes[c]
+            if node.shape == NodeShape.Segment {
+                var text = StringBuilder()
+                try! text.append("\"")
+                try! text.append(self.tc.text(m, c))
+                try! text.append("\"")
+                try! ops.push(self.op_const(MirConstKind.String, text.build(), st))
+            } else if node.shape == NodeShape.Placeholder {
+                try! ops.push(self.op_const(MirConstKind.Placeholder, "\{\}", st))
+            } else if not self.tc.is_leaf(c) {
+                try! ops.push(self.format_operand(c))
+            }
+        }
+        let t = self.tc.expr_types[e]
+        let rv = self.rv_over(MirRvalueKind.Interpolate, t, "", &ops)
+        let l = self.temp_of(rv)
+        let p = self.place_local(l)
+        self.op_move(p)
+    }
+
+    // A value a format string's slot or an interpolation's segment shows,
+    // which it borrows.
+    func format_operand(&var self, e: Int) -> Int {
+        self.operand(e)
+    }
+
+    // A name read as a value: a local or a static is a place; a function
+    // named as a value and a const parameter are constants.
+    func name_val(&var self, e: Int) -> MirVal {
+        let leaf = self.tc.res.first_leaf(e)
+        let b = self.tc.binding_at(leaf)
+        let t = self.tc.expr_types[e]
+        if b.kind == ResBindKind.Local || b.kind == ResBindKind.Decl {
+            return self.prepared_val(e)
+        }
+        if b.kind == ResBindKind.Overload || b.kind == ResBindKind.Overloads {
+            return mir_operand_val(self.function_constant(e, t))
+        }
+        if b.kind == ResBindKind.TypeParam {
+            let m = self.tc.node_module(e)
+            let text = self.tc.text(m, leaf)
+            return mir_operand_val(self.op_const(MirConstKind.Generic, text, t))
+        }
+        self.not_yet(e, "this name")
+        mir_operand_val(self.dead_operand(t))
+    }
+
+    // A function named as a value: its call record's target.
+    func function_constant(&var self, e: Int, t: Int) -> Int {
+        let at = self.tc.call_at[e]
+        if at < 0 {
+            self.missing(e, "a function named as a value has no target recorded")
+            return self.dead_operand(t)
+        }
+        let target = self.tc.calls[at].target
+        let text = self.tc.target_text(target)
+        self.op_const(MirConstKind.Function, text, t)
+    }
+
+    // `E.Case` or `.Case` with no payload: the case, of the enum type its
+    // call record names.
+    func case_value(&var self, e: Int) -> Int {
+        let at = self.tc.call_at[e]
+        let t = self.tc.expr_types[e]
+        if at < 0 {
+            self.missing(e, "a case value has no case recorded")
+            return self.dead_operand(t)
+        }
+        let c = self.tc.calls[at]
+        let none = Vector<Int>()
+        let rv = self.rv_aggregate(MirAggregate.Case, c.target, t, &none)
+        let l = self.temp_of(rv)
+        let p = self.place_local(l)
+        self.op_move(p)
+    }
+
+    // `base.name`: a case, a static, a function value, `Int.max`, or a
+    // field, which is a place.
+    func member_val(&var self, e: Int) -> MirVal {
+        let at = self.tc.call_at[e]
+        let t = self.tc.expr_types[e]
+        if at >= 0 {
+            let c = self.tc.calls[at]
+            if c.role == TcRole.Case {
+                return mir_operand_val(self.case_value(e))
+            }
+            if c.role == TcRole.Value {
+                return mir_operand_val(self.function_constant(e, t))
+            }
+        }
+        let leaf = self.tc.res.first_leaf(e)
+        let b = self.tc.binding_at(leaf)
+        if b.kind == ResBindKind.Decl {
+            return self.prepared_val(e)
+        }
+        let base = self.tc.res.first_node_child(e)
+        if self.type_named(base) {
+            let m = self.tc.node_module(e)
+            let text = self.tc.text(m, e)
+            return mir_operand_val(self.op_const(MirConstKind.Builtin, text, t))
+        }
+        self.prepared_val(e)
+    }
+
+    // Whether `base` names a type rather than a value: its expression was
+    // never typed.
+    func type_named(&self, base: Int) -> Bool {
+        base >= 0 && self.tc.expr_types[base] < 0
+    }
+
+    // A place expression, prepared and realized at once.
+    func prepared_val(&var self, e: Int) -> MirVal {
+        var steps = Vector<MirStep>()
+        self.prepare(e, &var steps)
+        let p = self.realize_all(&steps)
+        let fresh = steps.len() == 1 && steps[0].fresh
+        mir_place_val(p, fresh)
+    }
+
+    // A place a position needs: a target's, a borrow's, a `lend`'s.
+    public func place_of(&var self, e: Int) -> Int {
+        let v = self.prepared_val(e)
+        self.as_place(v, e)
+    }
+
+    // `borrow PLACE` read as a value: the place, its windows closed as soon
+    // as the value is copied out (SL:borrowing §2.2).
+    func borrow_place_val(&var self, e: Int) -> MirVal {
+        let t = self.tc.expr_types[e]
+        if self.tc.referent(t) >= 0 {
+            // A borrow handed on as a reference: its windows stay open to
+            // the end of the statement, across the call it is passed to.
+            let v = self.prepared_val(e)
+            let exclusive = self.tc.is_exclusive_ref(t)
+            let rv = self.rv_ref(exclusive, v.place)
+            let l = self.temp_of(rv)
+            return mir_place_val(self.place_local(l), true)
+        }
+        let u = self.tc.expr_use[e]
+        let subject = self.lend_subject(e)
+        if u == TcUse.Copy && subject != e {
+            return self.lent_copy(subject)
+        }
+        if u != TcUse.Copy {
+            return self.prepared_val(e)
+        }
+        let mark = self.scope.len()
+        let v = self.prepared_val(e)
+        if v.fresh {
+            return v
+        }
+        let o = self.copy_place(v.place)
+        let rv = self.rv_use(o)
+        let l = self.temp_of(rv)
+        self.close_windows_since(mark)
+        mir_place_val(self.place_local(l), true)
+    }
+
+    // Closes the windows registered since scope entry `mark`, newest first,
+    // and forgets them.
+    func close_windows_since(&var self, mark: Int) {
+        var k = self.scope.len() - 1
+        var closed = Vector<Int>()
+        while k >= mark {
+            let entry = self.scope[k]
+            if entry.window {
+                self.close_window(entry.index)
+                try! closed.push(entry.index)
+            }
+            k = k - 1
+        }
+        k = 0
+        while k < closed.len() {
+            self.forget_window(closed[k])
+            k = k + 1
+        }
+    }
+
+    // `move place` and `move o!`.
+    func move_val(&var self, e: Int) -> MirVal {
+        let inner = self.tc.res.first_node_child(e)
+        let m = self.tc.node_module(e)
+        let last = self.tc.res.last_leaf_of(e)
+        var steps = Vector<MirStep>()
+        self.prepare_base(inner, &var steps)
+        if last >= 0 && self.tc.text(m, last).equals("!") {
+            let t = self.tc.expr_types[e]
+            let some = self.optional_case("Some")
+            try! steps.push(MirStep(kind: MIR_STEP_FORCE, node: e, place: -1, decl: some, index: 0, first: 0,
+                                    count: 0, ty: t, fresh: false))
+        }
+        let p = self.realize_all(&steps)
+        mir_place_val(p, false)
+    }
+}
+
+// A window a call opens: its number, the local its lent reference lands in,
+// and the edges it continues on.
+public struct MirOpen {
+    public window: Int
+    public dest: Int
+    public present: Int
+    public absent: Int
+}
+
+// Places: prepared, then realized.
+extension MirProgram {
+    // The plan of place expression `e`: each subexpression its place reads
+    // is evaluated now, and each borrow it opens waits for `realize`. The
+    // expression's own adjustments are its position's, which the funnel
+    // applies.
+    public func prepare(&var self, e: Int, steps: &var Vector<MirStep>) {
+        guard let alt = self.tc.node_alt(e) else {
+            self.value_root(e, &var steps)
+            return
+        }
+        self.prepare_as(e, alt, &var steps)
+    }
+
+    func prepare_as(&var self, e: Int, alt: Alt, steps: &var Vector<MirStep>) {
+        match alt {
+            case Expr_Name -> self.prepare_name(e, &var steps),
+            case Expr_NameRef -> self.prepare_name(e, &var steps),
+            case Expr_Self -> {
+                let b = self.tc.binding_at(e)
+                self.prepare_local(b.node, e, &var steps)
+            },
+            case Expr_Member -> self.prepare_member(e, &var steps),
+            case Expr_TupleIndex -> {
+                let base = self.tc.res.first_node_child(e)
+                self.prepare_base(base, &var steps)
+                let m = self.tc.node_module(e)
+                let leaf = self.tc.res.last_leaf_of(e)
+                let text = self.tc.text(m, leaf)
+                var index = 0
+                var i = 0
+                while i < text.len() {
+                    index = index * 10 + (text.byte_at(i) as Int) - 48
+                    i = i + 1
+                }
+                let t = self.node_type(e)
+                self.push_step(&var steps, MIR_STEP_TUPLE, e, -1, index, t)
+            },
+            case Expr_Force -> {
+                let base = self.tc.res.first_node_child(e)
+                self.prepare_base(base, &var steps)
+                let some = self.optional_case("Some")
+                let t = self.node_type(e)
+                self.push_step(&var steps, MIR_STEP_FORCE, e, some, 0, t)
+            },
+            case Expr_Deref -> {
+                let inner = self.tc.res.first_node_child(e)
+                let o = self.operand(inner)
+                let p = self.as_place(mir_operand_val(o), inner)
+                self.push_root(&var steps, e, p, false)
+                let t = self.node_type(e)
+                self.push_step(&var steps, MIR_STEP_DEREF, e, -1, -1, t)
+            },
+            case Expr_Subscript_Single -> self.prepare_subscript(e, &var steps),
+            case Expr_Subscript_Multi -> self.prepare_subscript(e, &var steps),
+            case Borrow_Place_Shared -> {
+                let inner = self.tc.res.first_node_child(e)
+                self.prepare_base(inner, &var steps)
+            },
+            case Borrow_Place_Var -> {
+                let inner = self.tc.res.first_node_child(e)
+                self.prepare_base(inner, &var steps)
+            },
+            case _ -> {
+                if self.tc.is_call_alt(e) && self.lends_place(e) {
+                    self.prepare_lend(e, &var steps)
+                } else {
+                    self.value_root(e, &var steps)
+                }
+            }
+        }
+    }
+
+    // `prepare` for the base of a projection or a receiver, with the
+    // reference reads its own adjustment chain begins with.
+    public func prepare_base(&var self, e: Int, steps: &var Vector<MirStep>) {
+        self.prepare(e, &var steps)
+        var a = self.tc.adj_head[e]
+        while a >= 0 {
+            let adj = self.tc.adjusts[a]
+            if adj.kind != TcAdjustKind.Deref {
+                return
+            }
+            self.push_step(&var steps, MIR_STEP_DEREF, e, -1, -1, adj.to)
+            a = adj.next
+        }
+    }
+
+    // Whether the receiver base `e` is borrowed exclusively, as its
+    // adjustment chain records.
+    func borrows_exclusively(&self, e: Int) -> Bool {
+        var a = self.tc.adj_head[e]
+        while a >= 0 {
+            let adj = self.tc.adjusts[a]
+            if adj.kind == TcAdjustKind.BorrowVar {
+                return true
+            }
+            if adj.kind == TcAdjustKind.Borrow {
+                return false
+            }
+            a = adj.next
+        }
+        self.tc.expr_use[e] == TcUse.BorrowVar
+    }
+
+    // Whether base `e`'s chain borrows it, after its reference reads.
+    func borrows_receiver(&self, e: Int) -> Bool {
+        var a = self.tc.adj_head[e]
+        while a >= 0 {
+            let adj = self.tc.adjusts[a]
+            if adj.kind == TcAdjustKind.BorrowVar || adj.kind == TcAdjustKind.Borrow {
+                return true
+            }
+            a = adj.next
+        }
+        false
+    }
+
+    func push_step(&var self, steps: &var Vector<MirStep>, kind: Int, node: Int, decl: Int, index: Int, t: Int) {
+        try! steps.push(MirStep(kind: kind, node: node, place: -1, decl: decl, index: index, first: 0, count: 0,
+                                ty: t, fresh: false))
+    }
+
+    func push_root(&var self, steps: &var Vector<MirStep>, node: Int, p: Int, fresh: Bool) {
+        let t = self.place_type(p)
+        try! steps.push(MirStep(kind: MIR_STEP_ROOT, node: node, place: p, decl: -1, index: -1, first: 0,
+                                count: 0, ty: t, fresh: fresh))
+    }
+
+    // A value standing where a place is read: held in a temporary, which
+    // drops with its statement.
+    func value_root(&var self, e: Int, steps: &var Vector<MirStep>) {
+        let v = self.lower_val(e)
+        let fresh = v.fresh || (v.operand >= 0 && self.operands[v.operand].kind == MirOperandKind.Move)
+        let p = self.as_place(v, e)
+        let whole = self.bare_local(p) >= 0
+        self.push_root(&var steps, e, p, fresh && whole)
+    }
+
+    func prepare_name(&var self, e: Int, steps: &var Vector<MirStep>) {
+        let leaf = self.tc.res.first_leaf(e)
+        let b = self.tc.binding_at(leaf)
+        if b.kind == ResBindKind.Local {
+            self.prepare_local(b.node, e, &var steps)
+            return
+        }
+        if b.kind == ResBindKind.Decl && self.tc.res.decls[b.decl].kind == ResDeclKind.Static {
+            let t = self.tc.sigs[b.decl].result
+            let p = self.place_static(b.decl, t)
+            self.push_root(&var steps, e, p, false)
+            return
+        }
+        self.value_root(e, &var steps)
+    }
+
+    // The local bound at `node`; a borrow binding's name reads through the
+    // reference it holds.
+    func prepare_local(&var self, node: Int, e: Int, steps: &var Vector<MirStep>) {
+        let l = if node >= 0 { self.leaf_local[node] } else { -1 }
+        if l < 0 {
+            self.missing(e, "a name reads a local the lowering bound no MIR local for")
+            let t = self.tc.expr_types[e]
+            let dead = self.new_temp(t)
+            let p = self.place_local(dead)
+            self.push_root(&var steps, e, p, false)
+            return
+        }
+        let p = self.place_local(l)
+        self.push_root(&var steps, e, p, false)
+        let info = self.local(l)
+        if info.reference {
+            let inner = self.tc.referent(info.ty)
+            self.push_step(&var steps, MIR_STEP_DEREF, e, -1, -1, inner)
+        }
+    }
+
+    // `base.name`: a static, or a field or labeled element of the base.
+    func prepare_member(&var self, e: Int, steps: &var Vector<MirStep>) {
+        let leaf = self.tc.res.first_leaf(e)
+        let b = self.tc.binding_at(leaf)
+        if b.kind == ResBindKind.Decl && self.tc.res.decls[b.decl].kind == ResDeclKind.Static {
+            let t = self.tc.sigs[b.decl].result
+            let p = self.place_static(b.decl, t)
+            self.push_root(&var steps, e, p, false)
+            return
+        }
+        let base = self.tc.res.first_node_child(e)
+        if self.type_named(base) || self.tc.call_at[e] >= 0 {
+            self.value_root(e, &var steps)
+            return
+        }
+        self.prepare_base(base, &var steps)
+        let bt = steps[steps.len() - 1].ty
+        let m = self.tc.node_module(e)
+        let written = self.tc.text(m, leaf)
+        let name = self.tc.res.intern(written)
+        let t = self.tc.expr_types[e]
+        let info = self.tc.types.ty(bt)
+        if info.kind == TcKind.Tuple {
+            var k = 0
+            while k < info.count {
+                if self.tc.types.label(bt, k) == name {
+                    self.push_step(&var steps, MIR_STEP_TUPLE, e, -1, k, t)
+                    return
+                }
+                k = k + 1
+            }
+        }
+        let d = self.tc.nominal_decl(bt)
+        let found = self.tc.members_named(d, name, m)
+        var k = 0
+        while k < found.len() {
+            let member = self.tc.members[found[k]]
+            if self.tc.res.decls[member.decl].kind == ResDeclKind.Field {
+                self.push_step(&var steps, MIR_STEP_FIELD, e, member.decl, -1, t)
+                return
+            }
+            k = k + 1
+        }
+        self.missing(e, "a field read names no field of its base's type")
+    }
+
+    // `v[i]` as a place: a builtin element, a getitem's copy, a setitem's
+    // target, or a place accessor's window.
+    func prepare_subscript(&var self, e: Int, steps: &var Vector<MirStep>) {
+        let at = self.tc.call_at[e]
+        if at < 0 {
+            self.missing(e, "a subscript has no role recorded")
+            return
+        }
+        let c = self.tc.calls[at]
+        let base = self.tc.res.first_node_child(e)
+        if c.role == TcRole.BuiltinOperator {
+            self.prepare_base(base, &var steps)
+            let key = self.subscript_values(e)
+            let o = self.operand(key[0])
+            let p = self.as_place(mir_operand_val(o), key[0])
+            let l = self.bare_local(p)
+            let t = self.node_type(e)
+            self.push_step(&var steps, MIR_STEP_INDEX, e, -1, l, t)
+            return
+        }
+        if c.role == TcRole.Getitem {
+            let p = self.getitem(e, &c)
+            self.push_root(&var steps, e, p, true)
+            return
+        }
+        self.prepare_base(base, &var steps)
+        let keys = self.call_arguments(e, &c, true)
+        let first = self.push_args(&keys)
+        var kind = MIR_STEP_WINDOW
+        if c.role == TcRole.Setitem {
+            kind = MIR_STEP_SETITEM
+        }
+        var exclusive = 0
+        if c.role == TcRole.Setitem || self.borrows_exclusively(base) {
+            exclusive = 1
+        }
+        try! steps.push(MirStep(kind: kind, node: e, place: -1, decl: c.target, index: exclusive, first: first,
+                                count: keys.len(), ty: self.tc.expr_types[e], fresh: false))
+    }
+
+    // A subscript's written key expressions, in order.
+    func subscript_values(&self, e: Int) -> Vector<Int> {
+        let base = self.tc.res.first_node_child(e)
+        var out = Vector<Int>()
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(e, k)
+            k = k + 1
+            if c == base || self.tc.is_leaf(c) {
+                continue
+            }
+            if self.tc.has_alt(c, Alt.Expr_Argument_Positional) {
+                try! out.push(self.tc.res.first_node_child(c))
+            } else if self.tc.has_alt(c, Alt.Expr_Argument_Labelled) {
+                try! out.push(self.tc.res.last_node_child(c))
+            } else {
+                try! out.push(c)
+            }
+        }
+        move out
+    }
+
+    // Whether call `e` calls a `borrows` accessor that lends a place.
+    func lends_place(&self, e: Int) -> Bool {
+        let at = self.tc.call_at[e]
+        if at < 0 {
+            return false
+        }
+        let c = self.tc.calls[at]
+        if c.target < 0 || c.role != TcRole.Call {
+            return false
+        }
+        let s = self.tc.sigs[c.target]
+        let place_lent = s.lending == TcLend.Place || s.lending == TcLend.ConditionalPlace
+        (s.effects & TC_EFFECT_BORROWS) != 0 && place_lent
+    }
+
+    // A `borrows` method call as a place: its receiver and arguments now,
+    // its window when realized.
+    func prepare_lend(&var self, e: Int, steps: &var Vector<MirStep>) {
+        let c = self.tc.calls[self.tc.call_at[e]]
+        let callee = self.tc.res.first_node_child(e)
+        if not self.tc.has_alt(callee, Alt.Expr_Member) {
+            self.not_yet(e, "a `borrows` function called with no receiver")
+            return
+        }
+        let base = self.tc.res.first_node_child(callee)
+        self.prepare_base(base, &var steps)
+        let args = self.call_arguments(e, &c, true)
+        let first = self.push_args(&args)
+        var exclusive = 0
+        if self.borrows_exclusively(base) {
+            exclusive = 1
+        }
+        try! steps.push(MirStep(kind: MIR_STEP_WINDOW, node: e, place: -1, decl: c.target, index: exclusive,
+                                first: first, count: args.len(), ty: self.tc.expr_types[e], fresh: false))
+    }
+
+    // The place a plan's first `n` steps name, each window opened as the
+    // plan reaches it and registered with the innermost scope.
+    public func realize(&var self, steps: &Vector<MirStep>, n: Int) -> Int {
+        var p = -1
+        var optional_ref = false
+        var k = 0
+        while k < n {
+            let s = steps[k]
+            k = k + 1
+            if s.kind == MIR_STEP_ROOT {
+                p = s.place
+            } else if p < 0 {
+                return self.dead_place(s.ty)
+            } else if s.kind == MIR_STEP_FIELD {
+                p = self.project(p, MirProjKind.Field, s.decl, -1, s.ty)
+            } else if s.kind == MIR_STEP_TUPLE {
+                p = self.project(p, MirProjKind.Tuple, -1, s.index, s.ty)
+            } else if s.kind == MIR_STEP_DEREF {
+                p = self.project(p, MirProjKind.Deref, -1, -1, s.ty)
+            } else if s.kind == MIR_STEP_FORCE {
+                if optional_ref {
+                    let r = self.place_arg(p, 0)
+                    p = self.project(p, MirProjKind.Force, s.decl, 0, r)
+                    p = self.project(p, MirProjKind.Deref, -1, -1, s.ty)
+                    optional_ref = false
+                } else {
+                    p = self.project(p, MirProjKind.Force, s.decl, 0, s.ty)
+                }
+            } else if s.kind == MIR_STEP_INDEX {
+                p = self.project(p, MirProjKind.Index, -1, s.index, s.ty)
+            } else if s.kind == MIR_STEP_WINDOW {
+                let opened = self.window_open(s.node, p, s.index == 1, s.first, s.count, false)
+                self.scope_window(opened.window)
+                let w = self.place_local(opened.dest)
+                let info = self.window(opened.window)
+                if info.conditional {
+                    p = w
+                    optional_ref = true
+                } else {
+                    p = self.project(w, MirProjKind.Deref, -1, -1, s.ty)
+                }
+            } else {
+                self.missing(s.node, "a setitem stands inside a place it does not end")
+            }
+        }
+        if optional_ref {
+            self.not_yet(steps[n - 1].node, "a conditional lend's place read other than through `!`")
+        }
+        p
+    }
+
+    // The type of what an open window lends: its reference's referent.
+    func lent_type(&self, opened: &MirOpen) -> Int {
+        let r = self.local_type(opened.dest)
+        self.tc.referent(r)
+    }
+
+    // The type argument `k` of the type of place `p`.
+    func place_arg(&self, p: Int, k: Int) -> Int {
+        let t = self.place_type(p)
+        self.tc.types.arg(t, k)
+    }
+
+    func place_referent(&self, p: Int) -> Int {
+        let t = self.place_type(p)
+        self.tc.referent(t)
+    }
+
+    func place_decl(&self, p: Int) -> Int {
+        let t = self.place_type(p)
+        self.tc.nominal_decl(t)
+    }
+
+    // Expression `e`'s own type.
+    func node_type(&self, e: Int) -> Int {
+        self.tc.expr_types[e]
+    }
+
+    // The source text of node `id`.
+    func node_text(&self, id: Int) -> String {
+        let m = self.tc.node_module(id)
+        self.tc.text(m, id)
+    }
+
+    // The place a whole plan names.
+    public func realize_all(&var self, steps: &Vector<MirStep>) -> Int {
+        let n = steps.len()
+        self.realize(&steps, n)
+    }
+
+    func dead_place(&var self, t: Int) -> Int {
+        let l = self.new_temp(t)
+        self.place_local(l)
+    }
+
+    // Opens the window of accessor call or subscript `e` on receiver place
+    // `receiver`: the prologue runs, and lends a reference on the present
+    // edge. A conditional lend with `edges` takes the absent edge when it
+    // lends nothing; without, its lent value is an optional reference.
+    public func window_open(&var self, e: Int, receiver: Int, exclusive: Bool, first: Int, count: Int,
+                            edges: Bool) -> MirOpen {
+        let c = self.tc.calls[self.tc.call_at[e]]
+        let s = self.tc.sigs[c.target]
+        let conditional = s.lending == TcLend.ConditionalPlace || s.lending == TcLend.ConditionalSlice
+        let sync = (s.effects & TC_EFFECT_BORROWS_SYNC) != 0
+        let w = self.new_window(c.target, exclusive, sync, conditional, e)
+        let lent = self.tc.expr_types[e]
+        var dest_type = self.tc.mk_ref(exclusive, lent)
+        if conditional {
+            let payload = self.tc.arg_of(lent, 0)
+            let r = self.tc.mk_ref(exclusive, payload)
+            dest_type = if edges { r } else { self.tc.mk_optional(r) }
+        }
+        let d = self.new_temp(dest_type)
+        let rv = self.rv_ref(exclusive, receiver)
+        let rl = self.temp_of(rv)
+        var args = Vector<Int>()
+        let rp = self.place_local(rl)
+        try! args.push(self.op_move(rp))
+        var k = 0
+        while k < count {
+            try! args.push(self.lists[first + k])
+            k = k + 1
+        }
+        var call = self.blank_call(MirCallKind.WindowOpen, e)
+        call.target = c.target
+        call.owner = c.owner
+        self.instantiate(&var call, &c)
+        call.arg_first = self.push_args(&args)
+        call.arg_count = args.len()
+        call.dest = self.place_local(d)
+        call.window = w
+        self.suspension(e, &var call)
+        if not self.live() {
+            return MirOpen(window: w, dest: d, present: -1, absent: -1)
+        }
+        let present = self.new_block()
+        call.next = present
+        var absent = -1
+        if conditional && edges {
+            absent = self.new_block()
+            call.absent = absent
+        }
+        let _ = self.emit_call(call)
+        self.enter(present)
+        MirOpen(window: w, dest: d, present: present, absent: absent)
+    }
+
+    // Copies call record `c`'s instantiation into call `call`.
+    func instantiate(&var self, call: &var MirCall, c: &TcCall) {
+        call.inst_first = self.types.len()
+        call.inst_count = c.inst_count
+        var k = 0
+        while k < c.inst_count {
+            let t = self.tc.insts[c.inst_first + k]
+            try! self.types.push(t)
+            k = k + 1
+        }
+    }
+
+    // A getitem's value, in a fresh temporary: a declared `[]` is called; a
+    // derived one opens the place accessor's shared window, copies the
+    // element out and closes it (SL:borrowing §5.2).
+    func getitem(&var self, e: Int, c: &TcCall) -> Int {
+        let base = self.tc.res.first_node_child(e)
+        let t = self.tc.expr_types[e]
+        var steps = Vector<MirStep>()
+        self.prepare_base(base, &var steps)
+        let keys = self.call_arguments(e, &c, true)
+        let p = self.realize_all(&steps)
+        let result = self.new_temp(t)
+        let dest = self.place_local(result)
+        if not c.derived {
+            let r = self.shared_ref(p)
+            var args = Vector<Int>()
+            try! args.push(r)
+            var k = 0
+            while k < keys.len() {
+                try! args.push(keys[k])
+                k = k + 1
+            }
+            var call = self.blank_call(MirCallKind.Function, e)
+            call.target = c.target
+            call.owner = c.owner
+            self.instantiate(&var call, &c)
+            call.arg_first = self.push_args(&args)
+            call.arg_count = args.len()
+            call.dest = dest
+            self.suspension(e, &var call)
+            let _ = self.call_and_continue(call)
+            return self.place_local(result)
+        }
+        let first = self.push_args(&keys)
+        let opened = self.window_open(e, p, false, first, keys.len(), true)
+        self.copy_out(&opened, t, dest)
+        self.place_local(result)
+    }
+
+    // What an open window lends, copied into `dest` of type `t`, and the
+    // window closed: an optional copy for a conditional lend, `None` on its
+    // absent edge.
+    func copy_out(&var self, opened: &MirOpen, t: Int, dest: Int) {
+        let info = self.window(opened.window)
+        let w = self.place_local(opened.dest)
+        let inner = self.lent_type(&opened)
+        let lent = self.project(w, MirProjKind.Deref, -1, -1, inner)
+        let o = self.copy_place(lent)
+        if not info.conditional {
+            let rv = self.rv_use(o)
+            self.assign(dest, rv)
+            self.close_window(opened.window)
+            return
+        }
+        let join = self.new_block()
+        let some = self.optional_case("Some")
+        var ops = Vector<Int>()
+        try! ops.push(o)
+        let rv = self.rv_aggregate(MirAggregate.Case, some, t, &ops)
+        self.assign(dest, rv)
+        self.close_window(opened.window)
+        self.goto(join)
+        if opened.absent >= 0 {
+            self.enter(opened.absent)
+            let none = self.optional_case("None")
+            let empty = Vector<Int>()
+            let nrv = self.rv_aggregate(MirAggregate.Case, none, t, &empty)
+            self.assign(dest, nrv)
+            self.goto(join)
+        }
+        self.enter(join)
+    }
+
+    // A setitem's store of `value`: a declared `[]=` called with the keys and
+    // the value last, or a derived one through the exclusive place accessor,
+    // the old element dropped before the new one lands.
+    func store_setitem(&var self, steps: &Vector<MirStep>, value: Int) {
+        let n = steps.len()
+        let last = steps[n - 1]
+        let base = self.realize(&steps, n - 1)
+        let e = last.node
+        let c = self.tc.calls[self.tc.call_at[e]]
+        if c.derived {
+            let opened = self.window_open(e, base, true, last.first, last.count, false)
+            if self.window(opened.window).conditional {
+                self.not_yet(e, "a setitem derived from a conditional lend")
+                return
+            }
+            let w = self.place_local(opened.dest)
+            let p = self.project(w, MirProjKind.Deref, -1, -1, last.ty)
+            if self.owns(last.ty) {
+                self.emit_drop(p)
+            }
+            let rv = self.rv_use(value)
+            self.assign(p, rv)
+            self.close_window(opened.window)
+            return
+        }
+        let rv = self.rv_ref(true, base)
+        let rl = self.temp_of(rv)
+        var args = Vector<Int>()
+        let rp = self.place_local(rl)
+        try! args.push(self.op_move(rp))
+        var k = 0
+        while k < last.count {
+            try! args.push(self.lists[last.first + k])
+            k = k + 1
+        }
+        try! args.push(value)
+        var call = self.blank_call(MirCallKind.Function, e)
+        call.target = c.target
+        call.owner = c.owner
+        self.instantiate(&var call, &c)
+        call.arg_first = self.push_args(&args)
+        call.arg_count = args.len()
+        self.suspension(e, &var call)
+        let _ = self.call_and_continue(call)
+    }
+
+    // `v[i]` lowered as a value or a place, by its role.
+    func subscript_val(&var self, e: Int) -> MirVal {
+        let at = self.tc.call_at[e]
+        if at >= 0 && self.tc.calls[at].role == TcRole.Getitem {
+            let c = self.tc.calls[at]
+            let p = self.getitem(e, &c)
+            return mir_place_val(p, true)
+        }
+        self.prepared_val(e)
+    }
+}
+
+// Calls.
+extension MirProgram {
+    // A call: a function's, a builtin's, a function value's; a construction;
+    // a conversion; or a `borrows` accessor's window.
+    func call_val(&var self, e: Int) -> MirVal {
+        let at = self.tc.call_at[e]
+        let t = self.tc.expr_types[e]
+        if at < 0 {
+            self.missing(e, "a call has no target recorded")
+            return mir_operand_val(self.dead_operand(t))
+        }
+        let c = self.tc.calls[at]
+        match c.role {
+            case Builtin -> self.builtin_call(e, &c),
+            case Conversion -> mir_operand_val(self.conversion(e, &c)),
+            case Memberwise -> mir_operand_val(self.construction(e, &c, MirAggregate.Struct)),
+            case Case -> mir_operand_val(self.construction(e, &c, MirAggregate.Case)),
+            case Value -> self.value_call(e, &c),
+            case Call -> {
+                let s = self.tc.sigs[c.target]
+                if (s.effects & TC_EFFECT_BORROWS) == 0 {
+                    return self.function_call(e, &c)
+                }
+                if not self.lends_place(e) {
+                    self.not_yet(e, "a `borrows` call lending a slice or a borrowing struct outside a `for` head")
+                    return mir_operand_val(self.dead_operand(t))
+                }
+                if self.tc.expr_use[e] == TcUse.Copy {
+                    return self.lent_copy(e)
+                }
+                self.prepared_val(e)
+            },
+            case _ -> {
+                self.not_yet(e, "this call")
+                mir_operand_val(self.dead_operand(t))
+            }
+        }
+    }
+
+    // A place a `borrows` call lends, copied out whole: the window opens,
+    // the value is copied, and the window closes (SL:borrowing §2.2).
+    func lent_copy(&var self, e: Int) -> MirVal {
+        let c = self.tc.calls[self.tc.call_at[e]]
+        let t = self.tc.expr_types[e]
+        let callee = self.tc.res.first_node_child(e)
+        let base = self.tc.res.first_node_child(callee)
+        var steps = Vector<MirStep>()
+        self.prepare_base(base, &var steps)
+        let args = self.call_arguments(e, &c, true)
+        let p = self.realize_all(&steps)
+        let first = self.push_args(&args)
+        let exclusive = self.borrows_exclusively(base)
+        let opened = self.window_open(e, p, exclusive, first, args.len(), true)
+        let result = self.new_temp(t)
+        let dest = self.place_local(result)
+        self.copy_out(&opened, t, dest)
+        mir_place_val(self.place_local(result), true)
+    }
+
+    // A call of a function, method, requirement or `init`. A receiver taken
+    // by reference has its place resolved first and its borrow taken after
+    // the arguments, just before the call; one taken by value is an operand
+    // like an argument.
+    func function_call(&var self, e: Int, c: &TcCall) -> MirVal {
+        let t = self.tc.expr_types[e]
+        let callee = self.tc.res.first_node_child(e)
+        let s = self.tc.sigs[c.target]
+        var base = -1
+        let rc = self.tc.res_call_at[e]
+        if rc >= 0 && self.tc.res.calls[rc].classification == ResCallClass.Method {
+            base = self.tc.res.first_node_child(callee)
+        }
+        var receiver = -1
+        var steps = Vector<MirStep>()
+        var by_reference = false
+        if base >= 0 {
+            if self.borrows_receiver(base) {
+                by_reference = true
+                self.prepare_base(base, &var steps)
+            } else {
+                receiver = self.receiver_operand(base, e, &c)
+            }
+        }
+        let args = self.call_arguments(e, &c, by_reference)
+        var all = Vector<Int>()
+        if by_reference {
+            let p = self.realize_all(&steps)
+            let exclusive = self.borrows_exclusively(base)
+            let rv = self.rv_ref(exclusive, p)
+            let rl = self.temp_of(rv)
+            let rp = self.place_local(rl)
+            try! all.push(self.op_move(rp))
+        } else if receiver >= 0 {
+            try! all.push(receiver)
+        }
+        var k = 0
+        while k < args.len() {
+            try! all.push(args[k])
+            k = k + 1
+        }
+        var call = self.blank_call(MirCallKind.Function, e)
+        call.target = c.target
+        call.owner = c.owner
+        self.instantiate(&var call, &c)
+        call.arg_first = self.push_args(&all)
+        call.arg_count = all.len()
+        self.suspension(e, &var call)
+        self.finish_call(call, t)
+    }
+
+    // A receiver a consuming method takes by value: an operand, snapshot
+    // when an argument runs code before the call.
+    func receiver_operand(&var self, base: Int, e: Int, c: &TcCall) -> Int {
+        let o = self.operand(base)
+        if self.arguments_pure(e) {
+            return o
+        }
+        self.snapshot(o)
+    }
+
+    // Ends the current block in `call`, whose result of type `t` lands in a
+    // fresh temporary; a call of a `Never` result does not return.
+    func finish_call(&var self, call: MirCall, t: Int) -> MirVal {
+        var record = call
+        if self.tc.is_never(t) {
+            let _ = self.emit_call(record)
+            return mir_operand_val(self.dead_operand(t))
+        }
+        if self.is_unit_type(t) {
+            let _ = self.call_and_continue(record)
+            return mir_operand_val(self.op_const(MirConstKind.Unit, "()", t))
+        }
+        let l = self.new_temp(t)
+        record.dest = self.place_local(l)
+        let _ = self.call_and_continue(record)
+        mir_place_val(self.place_local(l), true)
+    }
+
+    // A call's arguments in its target's parameter order, as typecheck bound
+    // them (design 66): each written argument evaluated left to right as
+    // written, then each default its target's parameter takes, in parameter
+    // order, then a C variadic tail. A by-value argument that reads a place
+    // is copied out when it is evaluated if anything after it, a later
+    // argument, a default or the receiver's borrow (`loans`), could see the
+    // place change.
+    public func call_arguments(&var self, e: Int, c: &TcCall, loans: Bool) -> Vector<Int> {
+        let written = self.written_arguments(e)
+        var out = Vector<Int>()
+        if c.bind_first < 0 {
+            self.missing(e, "a call has no argument binding recorded")
+            return move out
+        }
+        var defaults = false
+        var j = 0
+        while j < c.bind_count {
+            if self.tc.binds[c.bind_first + j] == TC_BIND_DEFAULT {
+                defaults = true
+            }
+            j = j + 1
+        }
+        var values = Vector<Int>()
+        var k = 0
+        while k < written.len() {
+            let o = self.operand(written[k])
+            var later_effects = defaults || loans
+            var i = k + 1
+            while i < written.len() {
+                if not self.is_pure(written[i]) {
+                    later_effects = true
+                }
+                i = i + 1
+            }
+            if later_effects {
+                try! values.push(self.snapshot(o))
+            } else {
+                try! values.push(o)
+            }
+            k = k + 1
+        }
+        j = 0
+        while j < c.bind_count {
+            let arg = self.tc.binds[c.bind_first + j]
+            if arg == TC_BIND_DEFAULT {
+                try! out.push(self.default_argument(e, &c, j))
+            } else {
+                try! out.push(values[arg])
+            }
+            j = j + 1
+        }
+        if c.variadic_from >= 0 {
+            k = c.variadic_from
+            while k < values.len() {
+                try! out.push(values[k])
+                k = k + 1
+            }
+        }
+        move out
+    }
+
+    // The default value parameter `j` of call `c`'s target takes: a call of
+    // the default's own body, instantiated as the call is.
+    func default_argument(&var self, e: Int, c: &TcCall, j: Int) -> Int {
+        let s = self.tc.sigs[c.target]
+        let param = self.tc.params[s.param_first + j]
+        let target = c.target
+        let t = self.tc.call_subst(param.ty, target, &c)
+        let l = self.new_temp(t)
+        var call = self.blank_call(MirCallKind.Default, e)
+        call.target = c.target
+        call.param = j
+        call.owner = c.owner
+        self.instantiate(&var call, &c)
+        call.dest = self.place_local(l)
+        let _ = self.call_and_continue(call)
+        let p = self.place_local(l)
+        self.op_move(p)
+    }
+
+    // The argument expressions call or subscript `e` writes, in order.
+    func written_arguments(&self, e: Int) -> Vector<Int> {
+        if self.tc.has_alt(e, Alt.Expr_Subscript_Single) || self.tc.has_alt(e, Alt.Expr_Subscript_Multi) {
+            return self.subscript_values(e)
+        }
+        let callee = self.tc.res.first_node_child(e)
+        var out = Vector<Int>()
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(e, k)
+            k = k + 1
+            if c == callee || self.tc.is_leaf(c) {
+                continue
+            }
+            if self.tc.has_alt(c, Alt.Expr_Argument_Positional) {
+                try! out.push(self.tc.res.first_node_child(c))
+            } else if self.tc.has_alt(c, Alt.Expr_Argument_Labelled) {
+                try! out.push(self.tc.res.last_node_child(c))
+            } else {
+                try! out.push(c)
+            }
+        }
+        move out
+    }
+
+    // Whether evaluating `e` can change a place another operand reads, or
+    // open a loan on one: false only for a literal and a plain place read.
+    public func is_pure(&self, e: Int) -> Bool {
+        guard let alt = self.tc.node_alt(e) else {
+            return false
+        }
+        let reads_base = alt == Alt.Expr_Member || alt == Alt.Expr_TupleIndex || alt == Alt.Expr_Unary_Negate
+        if reads_base {
+            let base = self.tc.res.first_node_child(e)
+            return self.is_pure(base)
+        }
+        mir_is_pure_alt(alt)
+    }
+
+    // Whether every argument call `e` writes is pure.
+    func arguments_pure(&self, e: Int) -> Bool {
+        let written = self.written_arguments(e)
+        var k = 0
+        while k < written.len() {
+            if not self.is_pure(written[k]) {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // Operand `o` taken now: a read of a place is copied or moved into a
+    // temporary, so a later evaluation cannot change what it reads.
+    public func snapshot(&var self, o: Int) -> Int {
+        if o < 0 || not self.live() {
+            return o
+        }
+        let info = self.operands[o]
+        if info.kind == MirOperandKind.Const {
+            return o
+        }
+        let l = self.bare_local(info.place)
+        if l >= 0 && self.local(l).kind == MirLocalKind.Temp {
+            return o
+        }
+        let rv = self.rv_use(o)
+        let t = self.temp_of(rv)
+        let p = self.place_local(t)
+        self.op_move(p)
+    }
+
+    // A struct's memberwise construction or an enum case's, its operands in
+    // field or payload order.
+    func construction(&var self, e: Int, c: &TcCall, agg: MirAggregate) -> Int {
+        let t = self.tc.expr_types[e]
+        let ops = self.aggregate_operands(e, &c)
+        let rv = self.rv_aggregate(agg, c.target, t, &ops)
+        let l = self.temp_of(rv)
+        let p = self.place_local(l)
+        self.op_move(p)
+    }
+
+    func aggregate_operands(&var self, e: Int, c: &TcCall) -> Vector<Int> {
+        self.call_arguments(e, &c, false)
+    }
+
+    // A builtin: `print`, `panic`, `assert`, `sizeof`, `alignof`, a type
+    // parameter's `A()`, and the methods no declaration writes (`take`,
+    // `is_some`, `is_none`, `copy`, `len`, `swap`).
+    func builtin_call(&var self, e: Int, c: &TcCall) -> MirVal {
+        let t = self.tc.expr_types[e]
+        let name = self.tc.name_text(c.spelling)
+        let callee = self.tc.res.first_node_child(e)
+        var all = Vector<Int>()
+        var call = self.blank_call(MirCallKind.Builtin, e)
+        call.spelling = c.spelling
+        call.owner = c.owner
+        let rc = self.tc.res_call_at[e]
+        let method = rc >= 0 && self.tc.res.calls[rc].classification == ResCallClass.Method
+        if method {
+            let base = self.tc.res.first_node_child(callee)
+            if self.borrows_receiver(base) {
+                var steps = Vector<MirStep>()
+                self.prepare_base(base, &var steps)
+                let args = self.builtin_operands(e)
+                let p = self.realize_all(&steps)
+                let exclusive = self.borrows_exclusively(base)
+                let rv = self.rv_ref(exclusive, p)
+                let rl = self.temp_of(rv)
+                let rp = self.place_local(rl)
+                try! all.push(self.op_move(rp))
+                self.append_all(&var all, &args)
+            } else {
+                try! all.push(self.operand(base))
+                let args = self.builtin_operands(e)
+                self.append_all(&var all, &args)
+            }
+        } else if name.equals("sizeof") || name.equals("alignof") {
+            var types = Vector<Int>()
+            let n = self.tc.child_count(callee)
+            var k = 0
+            while k < n {
+                let child = self.tc.child(callee, k)
+                k = k + 1
+                if not self.tc.is_leaf(child) && self.tc.node_types[child] >= 0 {
+                    try! types.push(self.tc.node_types[child])
+                }
+            }
+            call.inst_first = self.push_types(&types)
+            call.inst_count = types.len()
+        } else {
+            let args = self.builtin_operands(e)
+            self.append_all(&var all, &args)
+        }
+        call.arg_first = self.push_args(&all)
+        call.arg_count = all.len()
+        self.finish_call(call, t)
+    }
+
+    func append_all(&var self, into: &var Vector<Int>, from: &Vector<Int>) {
+        var k = 0
+        while k < from.len() {
+            try! into.push(from[k])
+            k = k + 1
+        }
+    }
+
+    // A builtin's written arguments, left to right.
+    func builtin_operand(&var self, e: Int) -> Int {
+        self.operand(e)
+    }
+
+    func builtin_operands(&var self, e: Int) -> Vector<Int> {
+        let written = self.written_arguments(e)
+        var out = Vector<Int>()
+        var k = 0
+        while k < written.len() {
+            let o = self.builtin_operand(written[k])
+            var later = false
+            var i = k + 1
+            while i < written.len() {
+                if not self.is_pure(written[i]) {
+                    later = true
+                }
+                i = i + 1
+            }
+            if later {
+                try! out.push(self.snapshot(o))
+            } else {
+                try! out.push(o)
+            }
+            k = k + 1
+        }
+        move out
+    }
+
+    // A function value's call: the value, then its positional arguments.
+    func value_call(&var self, e: Int, c: &TcCall) -> MirVal {
+        let t = self.tc.expr_types[e]
+        let callee = self.tc.res.first_node_child(e)
+        let f = self.operand(callee)
+        let args = self.builtin_operands(e)
+        var call = self.blank_call(MirCallKind.Value, e)
+        call.callee = f
+        call.owner = c.owner
+        call.arg_first = self.push_args(&args)
+        call.arg_count = args.len()
+        self.finish_call(call, t)
+    }
+
+    // A conversion no declaration writes: an integer's `from` and `from(
+    // truncating:)`, a raw-backed enum's `from(raw:)`, an alias's
+    // construction.
+    func conversion(&var self, e: Int, c: &TcCall) -> Int {
+        let t = self.tc.expr_types[e]
+        let written = self.written_arguments(e)
+        if written.len() != 1 {
+            self.missing(e, "a conversion does not take one argument")
+            return self.dead_operand(t)
+        }
+        let o = self.conversion_operand(written[0])
+        let spelling = self.tc.name_text(c.spelling)
+        let rv = self.rv_one(MirRvalueKind.Conversion, t, spelling, o)
+        let l = self.temp_of(rv)
+        let p = self.place_local(l)
+        self.op_move(p)
+    }
+
+    func conversion_operand(&var self, e: Int) -> Int {
+        self.operand(e)
+    }
+}
+
+// Operators, conversions, references, `try`, and constructions.
+extension MirProgram {
+    // `-x`, `not b`, `~x`.
+    func unary(&var self, e: Int, op: String) -> Int {
+        let inner = self.tc.res.first_node_child(e)
+        let o = self.operand(inner)
+        let t = self.tc.expr_types[e]
+        let rv = self.rv_one(MirRvalueKind.Unary, t, op, o)
+        self.temp_operand(rv)
+    }
+
+    // The value of rvalue `rv`, held in a temporary and handed off.
+    func temp_operand(&var self, rv: Int) -> Int {
+        let l = self.temp_of(rv)
+        let p = self.place_local(l)
+        self.op_move(p)
+    }
+
+    // A flat chain of one precedence level's operators, left to right: each
+    // operator applies once the operand after it is evaluated.
+    func arithmetic(&var self, e: Int) -> Int {
+        let m = self.tc.node_module(e)
+        let t = self.tc.expr_types[e]
+        var operands = Vector<Int>()
+        var ops = Vector<String>()
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(e, k)
+            k = k + 1
+            if self.tc.is_leaf(c) {
+                try! ops.push(self.tc.text(m, c))
+            } else {
+                try! operands.push(c)
+            }
+        }
+        var acc = self.operand(operands[0])
+        k = 1
+        while k < operands.len() {
+            if not self.is_pure(operands[k]) {
+                acc = self.snapshot(acc)
+            }
+            let o = self.operand(operands[k])
+            var pair = Vector<Int>()
+            try! pair.push(acc)
+            try! pair.push(o)
+            let rv = self.rv_over(MirRvalueKind.Binary, t, ops.get(k - 1) ?? "", &pair)
+            acc = self.temp_operand(rv)
+            k = k + 1
+        }
+        acc
+    }
+
+    // `a && b`, `a || b`: each operand after the first evaluated only on the
+    // path the ones before leave open.
+    func logic(&var self, e: Int, conjunction: Bool) -> Int {
+        let t = self.tc.expr_types[e]
+        var operands = Vector<Int>()
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(e, k)
+            if not self.tc.is_leaf(c) {
+                try! operands.push(c)
+            }
+            k = k + 1
+        }
+        let r = self.new_temp(t)
+        let join = self.new_block()
+        let settled = if conjunction { "false" } else { "true" }
+        k = 0
+        while k + 1 < operands.len() {
+            let o = self.operand(operands[k])
+            let next = self.new_block()
+            let short = self.new_block()
+            if conjunction {
+                self.switch_bool(o, next, short)
+            } else {
+                self.switch_bool(o, short, next)
+            }
+            self.enter(short)
+            let c = self.op_const(MirConstKind.Bool, settled, t)
+            let rp = self.place_local(r)
+            let rv = self.rv_use(c)
+            self.assign(rp, rv)
+            self.goto(join)
+            self.enter(next)
+            k = k + 1
+        }
+        let rp = self.place_local(r)
+        self.lower_into(operands[operands.len() - 1], rp)
+        self.goto(join)
+        self.enter(join)
+        let p = self.place_local(r)
+        self.op_move(p)
+    }
+
+    // `a == b` and the other comparisons: a builtin operator over borrowed
+    // operands, or a declared `equals` or `compare` called with both by
+    // reference.
+    func comparison(&var self, e: Int) -> Int {
+        let left = self.tc.res.first_node_child(e)
+        let right = self.tc.res.last_node_child(e)
+        let m = self.tc.node_module(e)
+        let op_leaf = self.tc.res.first_leaf(e)
+        let op = self.tc.text(m, op_leaf)
+        let t = self.tc.expr_types[e]
+        let at = self.tc.call_at[e]
+        if at < 0 {
+            self.missing(e, "a comparison has no operator recorded")
+            return self.dead_operand(t)
+        }
+        let c = self.tc.calls[at]
+        if c.role == TcRole.Operator {
+            return self.operator_call(e, &c, left, right, op)
+        }
+        var a = self.operand(left)
+        if not self.is_pure(right) {
+            a = self.snapshot(a)
+        }
+        let b = self.operand(right)
+        var pair = Vector<Int>()
+        try! pair.push(a)
+        try! pair.push(b)
+        let rv = self.rv_over(MirRvalueKind.Binary, t, op, &pair)
+        self.temp_operand(rv)
+    }
+
+    // A comparison a declared `equals` or `compare` answers: `!=` negates
+    // `equals`, and an ordering compares `compare`'s `Ordering` with a case.
+    func operator_call(&var self, e: Int, c: &TcCall, left: Int, right: Int, op: String) -> Int {
+        let b = self.tc.bool_type()
+        let a = self.operand_as(left, true)
+        let r = self.operand_as(right, true)
+        var args = Vector<Int>()
+        try! args.push(a)
+        try! args.push(r)
+        let s = self.tc.sigs[c.target]
+        let target = c.target
+        let result = self.tc.call_subst(s.result, target, &c)
+        let l = self.new_temp(result)
+        var call = self.blank_call(MirCallKind.Function, e)
+        call.target = c.target
+        call.owner = c.owner
+        self.instantiate(&var call, &c)
+        call.arg_first = self.push_args(&args)
+        call.arg_count = 2
+        call.dest = self.place_local(l)
+        self.suspension(e, &var call)
+        let _ = self.call_and_continue(call)
+        let value = self.move_local(l)
+        if op.equals("==") {
+            return value
+        }
+        if op.equals("!=") {
+            let rv = self.rv_one(MirRvalueKind.Unary, b, "not", value)
+            return self.temp_operand(rv)
+        }
+        var case_name = "Less"
+        var compare_op = "=="
+        if op.equals("<=") {
+            case_name = "Greater"
+            compare_op = "!="
+        } else if op.equals(">") {
+            case_name = "Greater"
+        } else if op.equals(">=") {
+            compare_op = "!="
+        }
+        let ordering = self.tc.nominal_decl(result)
+        let case_decl = self.builtin_case(ordering, case_name)
+        let none = Vector<Int>()
+        let crv = self.rv_aggregate(MirAggregate.Case, case_decl, result, &none)
+        let expected = self.temp_operand(crv)
+        var pair = Vector<Int>()
+        try! pair.push(value)
+        try! pair.push(expected)
+        let rv = self.rv_over(MirRvalueKind.Binary, b, compare_op, &pair)
+        self.temp_operand(rv)
+    }
+
+    // `a ?? b ?? c`: each operand but the last tested in turn, the first
+    // present one's payload, or the whole Optional when the result is one.
+    func coalesce(&var self, e: Int) -> Int {
+        let t = self.tc.expr_types[e]
+        var operands = Vector<Int>()
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(e, k)
+            if not self.tc.is_leaf(c) {
+                try! operands.push(c)
+            }
+            k = k + 1
+        }
+        let r = self.new_temp(t)
+        let join = self.new_block()
+        let some = self.optional_case("Some")
+        let none = self.optional_case("None")
+        k = 0
+        while k + 1 < operands.len() {
+            let o = self.operand(operands[k])
+            let p = self.as_place(mir_operand_val(o), operands[k])
+            // An optional default keeps the left operand whole when the two
+            // share a type; against `T??` it peels one layer.
+            let whole = self.place_type(p) == t
+            let present = self.new_block()
+            let absent = self.new_block()
+            var cases = Vector<Int>()
+            try! cases.push(some)
+            try! cases.push(none)
+            var targets = Vector<Int>()
+            try! targets.push(present)
+            try! targets.push(absent)
+            self.switch_cases(p, &cases, &targets, -1)
+            self.enter(present)
+            let rp = self.place_local(r)
+            if whole {
+                let rv = self.rv_move(p)
+                self.assign(rp, rv)
+            } else {
+                let payload = self.project(p, MirProjKind.Payload, some, 0, t)
+                let rv = self.rv_move(payload)
+                self.assign(rp, rv)
+            }
+            self.goto(join)
+            self.enter(absent)
+            k = k + 1
+        }
+        let rp = self.place_local(r)
+        self.lower_into(operands[operands.len() - 1], rp)
+        self.goto(join)
+        self.enter(join)
+        self.move_local(r)
+    }
+
+    // `a..b`, `a..=b`.
+    func range(&var self, e: Int) -> Int {
+        let low = self.tc.res.first_node_child(e)
+        let high = self.tc.res.last_node_child(e)
+        let m = self.tc.node_module(e)
+        let op_leaf = self.tc.res.first_leaf(e)
+        let op = self.tc.text(m, op_leaf)
+        var a = self.operand(low)
+        if not self.is_pure(high) {
+            a = self.snapshot(a)
+        }
+        let b = self.operand(high)
+        var pair = Vector<Int>()
+        try! pair.push(a)
+        try! pair.push(b)
+        let t = self.tc.expr_types[e]
+        let rv = self.rv_over(MirRvalueKind.Binary, t, op, &pair)
+        self.temp_operand(rv)
+    }
+
+    // `x as T`.
+    func cast(&var self, e: Int) -> Int {
+        let inner = self.tc.res.first_node_child(e)
+        let o = self.conversion_operand(inner)
+        let t = self.tc.expr_types[e]
+        let rv = self.rv_one(MirRvalueKind.Cast, t, "", o)
+        self.temp_operand(rv)
+    }
+
+    // `&x`, `&var x`: a reference to a place, or to a temporary that lives to
+    // the end of its statement; through a reference binding, a reborrow.
+    func reference(&var self, e: Int, exclusive: Bool) -> Int {
+        let inner = self.tc.res.first_node_child(e)
+        var steps = Vector<MirStep>()
+        self.prepare_base(inner, &var steps)
+        let p = self.realize_all(&steps)
+        if steps.len() == 1 && steps[0].fresh {
+            self.own_temp(p)
+        }
+        let rv = self.rv_ref(exclusive, p)
+        self.temp_operand(rv)
+    }
+
+    // `try e`: an error returns from the body, as its own Result's `Err`,
+    // after every scope's exits; the `Ok` payload is the value.
+    func try_propagate(&var self, e: Int) -> Int {
+        let inner = self.tc.res.first_node_child(e)
+        let o = self.operand(inner)
+        let p = self.as_place(mir_operand_val(o), inner)
+        let pt = self.place_type(p)
+        let ok = self.result_case("Ok")
+        let err = self.result_case("Err")
+        let good = self.new_block()
+        let bad = self.new_block()
+        var cases = Vector<Int>()
+        try! cases.push(ok)
+        try! cases.push(err)
+        var targets = Vector<Int>()
+        try! targets.push(good)
+        try! targets.push(bad)
+        self.switch_cases(p, &cases, &targets, -1)
+        self.enter(bad)
+        let result = self.local_type(0)
+        let et = self.tc.arg_of(pt, 1)
+        let error = self.project(p, MirProjKind.Payload, err, 0, et)
+        var ops = Vector<Int>()
+        try! ops.push(self.op_move(error))
+        let rv = self.rv_aggregate(MirAggregate.Case, err, result, &ops)
+        let ret = self.place_local(0)
+        self.assign(ret, rv)
+        self.unwind_to(0)
+        self.ret()
+        self.enter(good)
+        let t = self.tc.expr_types[e]
+        let value = self.project(p, MirProjKind.Payload, ok, 0, t)
+        self.op_move(value)
+    }
+
+    // `try! e`: the `Ok` payload, which panics with the error otherwise.
+    func try_force(&var self, e: Int) -> MirVal {
+        let inner = self.tc.res.first_node_child(e)
+        let o = self.operand(inner)
+        let p = self.as_place(mir_operand_val(o), inner)
+        let ok = self.result_case("Ok")
+        let t = self.tc.expr_types[e]
+        let value = self.project(p, MirProjKind.Force, ok, 0, t)
+        mir_place_val(value, false)
+    }
+
+    // `try? e`: `Some` of the `Ok` payload, or `None`.
+    func try_optional(&var self, e: Int) -> Int {
+        let inner = self.tc.res.first_node_child(e)
+        let o = self.operand(inner)
+        let p = self.as_place(mir_operand_val(o), inner)
+        let pt = self.place_type(p)
+        let t = self.tc.expr_types[e]
+        let ok = self.result_case("Ok")
+        let err = self.result_case("Err")
+        let some = self.optional_case("Some")
+        let none = self.optional_case("None")
+        let r = self.new_temp(t)
+        let good = self.new_block()
+        let bad = self.new_block()
+        let join = self.new_block()
+        var cases = Vector<Int>()
+        try! cases.push(ok)
+        try! cases.push(err)
+        var targets = Vector<Int>()
+        try! targets.push(good)
+        try! targets.push(bad)
+        self.switch_cases(p, &cases, &targets, -1)
+        self.enter(good)
+        let ok_type = self.tc.arg_of(pt, 0)
+        let value = self.project(p, MirProjKind.Payload, ok, 0, ok_type)
+        var ops = Vector<Int>()
+        try! ops.push(self.op_move(value))
+        let rv = self.rv_aggregate(MirAggregate.Case, some, t, &ops)
+        self.assign_local(r, rv)
+        self.goto(join)
+        self.enter(bad)
+        let empty = Vector<Int>()
+        let nrv = self.rv_aggregate(MirAggregate.Case, none, t, &empty)
+        self.assign_local(r, nrv)
+        self.goto(join)
+        self.enter(join)
+        self.move_local(r)
+    }
+
+    // A tuple's elements, in order.
+    func tuple(&var self, e: Int, named: Bool) -> Int {
+        var values = Vector<Int>()
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(e, k)
+            k = k + 1
+            if self.tc.is_leaf(c) {
+                continue
+            }
+            if named && self.tc.has_alt(c, Alt.Expr_TupleField) {
+                try! values.push(self.tc.res.last_node_child(c))
+            } else {
+                try! values.push(c)
+            }
+        }
+        let ops = self.element_operands(&values)
+        let t = self.tc.expr_types[e]
+        let rv = self.rv_aggregate(MirAggregate.Tuple, -1, t, &ops)
+        self.temp_operand(rv)
+    }
+
+    // Construction operands, left to right, each read of a place taken
+    // before an element after it runs code.
+    func element_operands(&var self, values: &Vector<Int>) -> Vector<Int> {
+        var out = Vector<Int>()
+        var k = 0
+        while k < values.len() {
+            let o = self.operand(values[k])
+            var later = false
+            var i = k + 1
+            while i < values.len() {
+                if not self.is_pure(values[i]) {
+                    later = true
+                }
+                i = i + 1
+            }
+            if later {
+                try! out.push(self.snapshot(o))
+            } else {
+                try! out.push(o)
+            }
+            k = k + 1
+        }
+        move out
+    }
+
+    // A bracket literal: a `Vector` where its type is one, else a fixed
+    // array.
+    func array(&var self, e: Int) -> Int {
+        var values = Vector<Int>()
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(e, k)
+            if not self.tc.is_leaf(c) {
+                try! values.push(c)
+            }
+            k = k + 1
+        }
+        let ops = self.element_operands(&values)
+        let t = self.tc.expr_types[e]
+        var agg = MirAggregate.Array
+        let vector = self.tc.known.vector
+        if self.tc.is_nominal_of(t, vector) {
+            agg = MirAggregate.Vector
+        }
+        let rv = self.rv_aggregate(agg, -1, t, &ops)
+        self.temp_operand(rv)
+    }
+
+    // `[v; N]`.
+    func repeat(&var self, e: Int) -> Int {
+        var values = Vector<Int>()
+        try! values.push(self.tc.res.first_node_child(e))
+        try! values.push(self.tc.res.last_node_child(e))
+        let ops = self.element_operands(&values)
+        let t = self.tc.expr_types[e]
+        let rv = self.rv_aggregate(MirAggregate.Repeat, -1, t, &ops)
+        self.temp_operand(rv)
+    }
+
+    // `{k: v, ...}` and `{:}`: keys and values in turn.
+    func map_literal(&var self, e: Int) -> Int {
+        var values = Vector<Int>()
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(e, k)
+            k = k + 1
+            if self.tc.has_alt(c, Alt.Expr_MapEntry) {
+                try! values.push(self.tc.res.first_node_child(c))
+                try! values.push(self.tc.res.last_node_child(c))
+            }
+        }
+        let ops = self.element_operands(&values)
+        let t = self.tc.expr_types[e]
+        let rv = self.rv_aggregate(MirAggregate.Map, -1, t, &ops)
+        self.temp_operand(rv)
+    }
+
+    func set_literal(&var self, e: Int) -> Int {
+        var values = Vector<Int>()
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(e, k)
+            if not self.tc.is_leaf(c) {
+                try! values.push(c)
+            }
+            k = k + 1
+        }
+        let ops = self.element_operands(&values)
+        let t = self.tc.expr_types[e]
+        let rv = self.rv_aggregate(MirAggregate.Set, -1, t, &ops)
+        self.temp_operand(rv)
+    }
+
+    // A closure: the aggregate of its captures, each taken as typecheck's
+    // capture table says, its body lowered after the function it is written
+    // in (SL:architecture §3.5).
+    func closure(&var self, e: Int) -> Int {
+        let t = self.tc.expr_types[e]
+        let at = self.tc.closure_index.first(e, 0)
+        if at < 0 {
+            self.missing(e, "a closure has no capture table")
+            return self.dead_operand(t)
+        }
+        let index = self.tc.closure_index.value(at)
+        let ops = self.closure_captures(e, index)
+        let rv = self.rv_aggregate(MirAggregate.Closure, e, t, &ops)
+        let parent = self.cur
+        try! self.pending.push(e)
+        try! self.pending_parents.push(parent)
+        self.temp_operand(rv)
+    }
+
+    // A closure's capture operands, in its table's order.
+    func closure_captures(&var self, e: Int, k: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        let first = self.tc.capture_first[k]
+        let count = self.tc.capture_count[k]
+        var j = 0
+        while j < count {
+            let cap = self.tc.captures[first + j]
+            j = j + 1
+            var steps = Vector<MirStep>()
+            self.prepare_local(cap.binding, cap.site, &var steps)
+            let p = self.realize_all(&steps)
+            if cap.use == TcUse.Move {
+                try! out.push(self.op_move(p))
+            } else if cap.use == TcUse.Copy {
+                try! out.push(self.copy_place(p))
+            } else {
+                let rv = self.rv_ref(cap.use == TcUse.BorrowVar, p)
+                try! out.push(self.temp_operand(rv))
+            }
+        }
+        move out
+    }
+}
+
+// An optional test's two edges: on the present one, the payload's place
+// and, for a conditional lend, its window.
+public struct MirTest {
+    public present: Int
+    public absent: Int
+    public payload: Int
+    public window: Int
+}
+
+// Control flow.
+extension MirProgram {
+    // A control construct, its value into `dest` or none with -1.
+    public func lower_control(&var self, e: Int, dest: Int) {
+        guard let alt = self.tc.node_alt(e) else {
+            return
+        }
+        self.lower_control_as(e, alt, dest)
+        let t = self.tc.expr_types[e]
+        if self.tc.is_never(t) {
+            self.unreachable()
+        }
+    }
+
+    func lower_control_as(&var self, e: Int, alt: Alt, dest: Int) {
+        match alt {
+            case Expr_If -> self.lower_if(e, dest),
+            case Expr_Match -> self.lower_match(e, dest),
+            case Expr_While_Conditional -> self.lower_while(e),
+            case Expr_While_Infinite -> self.lower_while(e),
+            case Expr_WhileLet_Let -> self.lower_while_let(e),
+            case Expr_WhileLet_Var -> self.lower_while_let(e),
+            case Expr_For_Plain -> self.lower_for(e),
+            case Borrow_Block -> self.lower_borrow_block(e, dest),
+            case _ -> self.not_yet(e, alt_name(alt))
+        }
+    }
+
+    // `if`: each arm's head, a condition or an optional test, then its
+    // block; the `else` block last.
+    func lower_if(&var self, e: Int, dest: Int) {
+        var heads = Vector<Int>()
+        var blocks = Vector<Int>()
+        var otherwise = -1
+        var seen_else = false
+        let m = self.tc.node_module(e)
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(e, k)
+            k = k + 1
+            if self.tc.is_leaf(c) {
+                if self.tc.text(m, c).equals("else") {
+                    seen_else = true
+                }
+                continue
+            }
+            if self.tc.has_alt(c, Alt.Expr_ElseIf) {
+                let arm_n = self.tc.child_count(c)
+                var j = 0
+                while j < arm_n {
+                    let part = self.tc.child(c, j)
+                    j = j + 1
+                    if self.tc.is_leaf(part) {
+                        continue
+                    }
+                    if self.tc.has_alt(part, Alt.Stmt_Block) {
+                        try! blocks.push(part)
+                    } else {
+                        try! heads.push(part)
+                    }
+                }
+            } else if self.tc.has_alt(c, Alt.Stmt_Block) {
+                if seen_else {
+                    otherwise = c
+                } else {
+                    try! blocks.push(c)
+                }
+            } else {
+                try! heads.push(c)
+            }
+        }
+        let join = self.new_block()
+        k = 0
+        while k < heads.len() {
+            let head = heads[k]
+            let block = blocks[k]
+            k = k + 1
+            if not self.live() {
+                break
+            }
+            let binding = self.tc.has_alt(head, Alt.Expr_OptionalBinding_Let) || self.tc.has_alt(head, Alt.Expr_OptionalBinding_Var)
+            let unwrap = self.tc.has_alt(head, Alt.Borrow_Unwrap_Let) || self.tc.has_alt(head, Alt.Borrow_Unwrap_Var)
+            if binding || unwrap {
+                let target = self.tc.res.first_node_child(head)
+                let subject = self.tc.res.last_node_child(head)
+                let depth = self.open_scope()
+                let test = self.optional_switch(subject, unwrap)
+                self.enter(test.absent)
+                self.unwind_to(depth)
+                let absent = self.current
+                self.enter(test.present)
+                let _ = self.open_scope()
+                var bound = Vector<Int>()
+                self.bind_test(&test, target, unwrap, &var bound)
+                self.scope_all(&bound)
+                self.lower_block(block, dest)
+                self.close_scope()
+                self.unwind_to(depth)
+                self.goto(join)
+                self.discard_scope()
+                self.enter(absent)
+            } else {
+                let c = self.condition_operand(head)
+                let yes = self.new_block()
+                let no = self.new_block()
+                self.switch_bool(c, yes, no)
+                self.enter(yes)
+                self.lower_block(block, dest)
+                self.goto(join)
+                self.enter(no)
+            }
+        }
+        if otherwise >= 0 {
+            self.lower_block(otherwise, dest)
+        }
+        self.goto(join)
+        self.enter(join)
+    }
+
+    // Evaluates optional `subject` and branches on its presence. A
+    // conditional lend opens its window, which lends on the present edge
+    // and takes the absent edge when there is nothing to lend; any other
+    // Optional is switched on, its own place or a temporary holding it.
+    func optional_switch(&var self, written: Int, unwrap: Bool) -> MirTest {
+        let subject = self.lend_subject(written)
+        if self.conditional_lend(subject) {
+            let opened = self.open_lend(subject, true)
+            let w = self.place_local(opened.dest)
+            let inner = self.lent_type(&opened)
+            let payload = self.project(w, MirProjKind.Deref, -1, -1, inner)
+            return MirTest(present: opened.present, absent: opened.absent, payload: payload, window: opened.window)
+        }
+        var steps = Vector<MirStep>()
+        self.prepare_base(subject, &var steps)
+        let p = self.realize_all(&steps)
+        if steps.len() == 1 && steps[0].fresh {
+            self.own_temp(p)
+        }
+        let t = self.place_type(p)
+        let some = self.optional_case("Some")
+        let none = self.optional_case("None")
+        let present = self.new_block()
+        let absent = self.new_block()
+        var cases = Vector<Int>()
+        try! cases.push(some)
+        try! cases.push(none)
+        var targets = Vector<Int>()
+        try! targets.push(present)
+        try! targets.push(absent)
+        self.switch_cases(p, &cases, &targets, -1)
+        let payload_type = self.tc.arg_of(t, 0)
+        let payload = self.project(p, MirProjKind.Payload, some, 0, payload_type)
+        MirTest(present: present, absent: absent, payload: payload, window: -1)
+    }
+
+    // The conditional lend a `borrow` expression `e` spells out, or `e`
+    // itself: `borrow v.get(i)` opens the same window `v.get(i)` does.
+    func lend_subject(&self, e: Int) -> Int {
+        if not self.tc.has_alt(e, Alt.Borrow_Place_Shared) && not self.tc.has_alt(e, Alt.Borrow_Place_Var) {
+            return e
+        }
+        let inner = self.tc.res.first_node_child(e)
+        if inner >= 0 && self.conditional_lend(inner) {
+            return inner
+        }
+        e
+    }
+
+    // Whether `e` is a call or subscript of a `borrows` accessor that may
+    // lend nothing.
+    func conditional_lend(&self, e: Int) -> Bool {
+        let at = self.tc.call_at[e]
+        if at < 0 {
+            return false
+        }
+        let c = self.tc.calls[at]
+        if c.target < 0 {
+            return false
+        }
+        let subscript = self.tc.has_alt(e, Alt.Expr_Subscript_Single) || self.tc.has_alt(e, Alt.Expr_Subscript_Multi)
+        let accessor = (subscript && (c.role == TcRole.Place || (c.role == TcRole.Getitem && c.derived))) || (self.tc.is_call_alt(e) && c.role == TcRole.Call)
+        if not accessor {
+            return false
+        }
+        let s = self.tc.sigs[c.target]
+        (s.effects & TC_EFFECT_BORROWS) != 0 && (s.lending == TcLend.ConditionalPlace || s.lending == TcLend.ConditionalSlice)
+    }
+
+    // Opens the window of conditional lend `e`: a method call's or a
+    // subscript's.
+    func open_lend(&var self, e: Int, edges: Bool) -> MirOpen {
+        let c = self.tc.calls[self.tc.call_at[e]]
+        var base = self.tc.res.first_node_child(e)
+        if self.tc.is_call_alt(e) {
+            base = self.tc.res.first_node_child(base)
+        }
+        var steps = Vector<MirStep>()
+        self.prepare_base(base, &var steps)
+        let args = self.call_arguments(e, &c, true)
+        let p = self.realize_all(&steps)
+        let first = self.push_args(&args)
+        let exclusive = self.borrows_exclusively(base)
+        self.window_open(e, p, exclusive, first, args.len(), edges)
+    }
+
+    // The present edge's bindings: `target` bound from the payload. A copy
+    // out of a lent place lets its window close at once; a `borrow` unwrap
+    // keeps it open for the arm, whose scope then closes it.
+    func bind_test(&var self, test: &MirTest, target: Int, unwrap: Bool, bound: &var Vector<Int>) {
+        self.bind_pattern(target, test.payload, &var bound)
+        if test.window < 0 {
+            return
+        }
+        if unwrap {
+            self.scope_window(test.window)
+        } else {
+            self.close_window(test.window)
+        }
+    }
+
+    // The bindings irrefutable pattern `p` makes of place `place`, each by
+    // the transfer typecheck recorded for it; the locals made go into
+    // `bound` for the caller's scope.
+    public func bind_pattern(&var self, p: Int, place: Int, bound: &var Vector<Int>) {
+        guard let alt = self.tc.node_alt(p) else {
+            return
+        }
+        if alt == Alt.Pat_Tuple_Positional {
+            let t = self.place_type(place)
+            var index = 0
+            let n = self.tc.child_count(p)
+            var k = 0
+            while k < n {
+                let c = self.tc.child(p, k)
+                k = k + 1
+                if self.tc.is_leaf(c) {
+                    continue
+                }
+                let part_type = self.tc.types.arg(t, index)
+                let part = self.project(place, MirProjKind.Tuple, -1, index, part_type)
+                self.bind_pattern(c, part, &var bound)
+                index = index + 1
+            }
+            return
+        }
+        if alt == Alt.Stmt_BindingName || alt == Alt.Pat_Name || alt == Alt.Pat_BorrowBinding_Let || alt == Alt.Pat_BorrowBinding_Var {
+            if alt == Alt.Pat_Name && self.tc.call_at[p] >= 0 {
+                return
+            }
+            let l = self.bind_one(p, place)
+            if l >= 0 {
+                try! bound.push(l)
+            }
+        }
+    }
+
+    // One binding of place `place` at pattern node `p`, by its recorded use:
+    // a copy, a move or a hand-off into a local of its own, or a reference
+    // its name reads through. Returns the local, or -1 for `_`.
+    func bind_one(&var self, p: Int, place: Int) -> Int {
+        let u = self.tc.expr_use[p]
+        if u == TcUse.Test {
+            return -1
+        }
+        let leaf = self.tc.res.first_leaf(p)
+        let m = self.tc.node_module(p)
+        let name = self.leaf_name(m, leaf)
+        let t = self.tc.expr_types[p]
+        if u == TcUse.Borrow || u == TcUse.BorrowVar {
+            let rv = self.rv_ref(u == TcUse.BorrowVar, place)
+            let rt = self.rvalues[rv].ty
+            let l = self.new_local(rt, MirLocalKind.User, name, leaf)
+            self.assign_local(l, rv)
+            self.mark_reference(l)
+            self.bind_leaf(leaf, l)
+            return l
+        }
+        let l = self.new_local(t, MirLocalKind.User, name, leaf)
+        var o = -1
+        if u == TcUse.Copy {
+            o = self.copy_place(place)
+        } else if u == TcUse.Move || u == TcUse.Temp {
+            o = self.op_move(place)
+        } else {
+            self.missing(p, "a binding has no transfer recorded")
+            o = self.op_copy(place)
+        }
+        let rv = self.rv_use(o)
+        self.assign_local(l, rv)
+        self.bind_leaf(leaf, l)
+        l
+    }
+
+    // `while cond { }` and `while { }`: the condition at the head, the body,
+    // and the backedge's op-budget point.
+    func lower_while(&var self, e: Int) {
+        var cond = -1
+        var block = -1
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(e, k)
+            k = k + 1
+            if self.tc.is_leaf(c) {
+                continue
+            }
+            if self.tc.has_alt(c, Alt.Stmt_Block) {
+                block = c
+            } else {
+                cond = c
+            }
+        }
+        let head = self.new_block()
+        let exit = self.new_block()
+        self.goto(head)
+        self.enter(head)
+        if cond >= 0 {
+            let o = self.condition_operand(cond)
+            let body = self.new_block()
+            self.switch_bool(o, body, exit)
+            self.enter(body)
+        }
+        let yields = self.budget_class()
+        let loop_depth = self.scope_marks.len()
+        try! self.loops.push(MirLoop(head: head, exit: exit, depth: loop_depth, yields: yields))
+        self.lower_block(block, -1)
+        self.emit_budget(yields)
+        self.goto(head)
+        self.pop_loop()
+        self.enter(exit)
+    }
+
+    func pop_loop(&var self) {
+        var kept = Vector<MirLoop>()
+        var k = 0
+        while k + 1 < self.loops.len() {
+            try! kept.push(self.loops[k])
+            k = k + 1
+        }
+        self.loops = move kept
+    }
+
+    // `while let x = e { }`: the subject tested at each iteration's head, its
+    // temporaries dropped on both edges.
+    func lower_while_let(&var self, e: Int) {
+        let target = self.tc.res.first_node_child(e)
+        var subject = -1
+        var block = -1
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(e, k)
+            k = k + 1
+            if c == target || self.tc.is_leaf(c) {
+                continue
+            }
+            if self.tc.has_alt(c, Alt.Stmt_Block) {
+                block = c
+            } else if subject < 0 {
+                subject = c
+            }
+        }
+        let head = self.new_block()
+        let exit = self.new_block()
+        self.goto(head)
+        self.enter(head)
+        let depth = self.open_scope()
+        let test = self.optional_switch(subject, false)
+        self.enter(test.absent)
+        self.unwind_to(depth)
+        self.goto(exit)
+        self.enter(test.present)
+        let yields = self.budget_class()
+        try! self.loops.push(MirLoop(head: head, exit: exit, depth: depth, yields: yields))
+        let _ = self.open_scope()
+        var bound = Vector<Int>()
+        self.bind_test(&test, target, false, &var bound)
+        self.scope_all(&bound)
+        self.lower_block(block, -1)
+        self.close_scope()
+        self.unwind_to(depth)
+        self.emit_budget(yields)
+        self.goto(head)
+        self.pop_loop()
+        self.discard_scope()
+        self.enter(exit)
+    }
+
+    // `for x in seq { }`: the head borrowed for the whole loop, a window when
+    // a `borrows` accessor lends it, and each item what its iterator's
+    // `next` hands out (SL:borrowing §2.6).
+    func lower_for(&var self, e: Int) {
+        let target = self.tc.res.first_node_child(e)
+        let body = self.tc.res.last_node_child(e)
+        var seq = -1
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(e, k)
+            k = k + 1
+            if c != target && c != body && not self.tc.is_leaf(c) {
+                seq = c
+            }
+        }
+        let at = self.tc.call_at[e]
+        if at < 0 {
+            self.missing(e, "a `for` has no `next` recorded")
+            return
+        }
+        let c = self.tc.calls[at]
+        let outer = self.open_scope()
+        let it = self.iterator_of(seq)
+        if it < 0 {
+            self.close_scope()
+            return
+        }
+        let head = self.new_block()
+        let exit = self.new_block()
+        self.goto(head)
+        self.enter(head)
+        let next_decl = c.target
+        let next_result = self.tc.sigs[next_decl].result
+        let item_opt = self.tc.call_subst(next_result, next_decl, &c)
+        let n_local = self.new_temp(item_opt)
+        let rv = self.rv_ref(true, it)
+        let r = self.temp_of(rv)
+        var args = Vector<Int>()
+        try! args.push(self.move_local(r))
+        var call = self.blank_call(MirCallKind.Function, e)
+        call.target = c.target
+        call.owner = c.owner
+        self.instantiate(&var call, &c)
+        call.arg_first = self.push_args(&args)
+        call.arg_count = 1
+        call.dest = self.place_local(n_local)
+        self.suspension(e, &var call)
+        let _ = self.call_and_continue(call)
+        let np = self.place_local(n_local)
+        let some = self.optional_case("Some")
+        let none = self.optional_case("None")
+        let present = self.new_block()
+        var cases = Vector<Int>()
+        try! cases.push(some)
+        try! cases.push(none)
+        var targets = Vector<Int>()
+        try! targets.push(present)
+        try! targets.push(exit)
+        self.switch_cases(np, &cases, &targets, -1)
+        self.enter(present)
+        let yields = self.budget_class()
+        let loop_depth = self.scope_marks.len()
+        try! self.loops.push(MirLoop(head: head, exit: exit, depth: loop_depth, yields: yields))
+        let _ = self.open_scope()
+        let item = self.tc.arg_of(item_opt, 0)
+        let payload = self.project(np, MirProjKind.Payload, some, 0, item)
+        var bound = Vector<Int>()
+        self.bind_pattern(target, payload, &var bound)
+        self.scope_all(&bound)
+        self.lower_block(body, -1)
+        self.close_scope()
+        self.emit_budget(yields)
+        self.goto(head)
+        self.pop_loop()
+        self.enter(exit)
+        self.close_scope()
+        let _ = outer
+    }
+
+    // The place a `for` loop's iterator lives in for the whole loop: the
+    // value a `borrows` head lends in its window, or the head's value.
+    func iterator_of(&var self, seq: Int) -> Int {
+        let at = self.tc.call_at[seq]
+        if at >= 0 && self.tc.is_call_alt(seq) {
+            let c = self.tc.calls[at]
+            let s = self.tc.sigs[c.target]
+            if c.role == TcRole.Call && (s.effects & TC_EFFECT_BORROWS) != 0 {
+                if s.lending != TcLend.BorrowingStruct {
+                    self.not_yet(seq, "a `for` head that lends a place")
+                    return -1
+                }
+                let callee = self.tc.res.first_node_child(seq)
+                let base = self.tc.res.first_node_child(callee)
+                var steps = Vector<MirStep>()
+                self.prepare_base(base, &var steps)
+                let args = self.call_arguments(seq, &c, true)
+                let p = self.realize_all(&steps)
+                let first = self.push_args(&args)
+                let exclusive = self.borrows_exclusively(base)
+                let count = args.len()
+                let opened = self.lent_struct_window(seq, p, exclusive, first, count)
+                self.scope_window(opened.window)
+                return self.place_local(opened.dest)
+            }
+        }
+        if self.tc.expr_place[seq] {
+            self.not_yet(seq, "a `for` over an iterator place")
+            return -1
+        }
+        let v = self.lower_val(seq)
+        let p = self.as_place(v, seq)
+        p
+    }
+
+    // The window of an accessor that lends a borrowing struct by value: its
+    // lent value is the struct itself.
+    func lent_struct_window(&var self, e: Int, receiver: Int, exclusive: Bool, first: Int, count: Int) -> MirOpen {
+        let c = self.tc.calls[self.tc.call_at[e]]
+        let s = self.tc.sigs[c.target]
+        let sync = (s.effects & TC_EFFECT_BORROWS_SYNC) != 0
+        let w = self.new_window(c.target, exclusive, sync, false, e)
+        let t = self.tc.expr_types[e]
+        let d = self.new_temp(t)
+        let rv = self.rv_ref(exclusive, receiver)
+        let rl = self.temp_of(rv)
+        var args = Vector<Int>()
+        try! args.push(self.move_local(rl))
+        var k = 0
+        while k < count {
+            try! args.push(self.lists[first + k])
+            k = k + 1
+        }
+        var call = self.blank_call(MirCallKind.WindowOpen, e)
+        call.target = c.target
+        call.owner = c.owner
+        self.instantiate(&var call, &c)
+        call.arg_first = self.push_args(&args)
+        call.arg_count = args.len()
+        call.dest = self.place_local(d)
+        call.window = w
+        self.suspension(e, &var call)
+        let _ = self.call_and_continue(call)
+        MirOpen(window: w, dest: d, present: self.current, absent: -1)
+    }
+
+    // `borrow let x = place, var y = place { }`: each binding's windows open
+    // in order and close in reverse on every exit of the block, whose tail is
+    // the construct's value.
+    func lower_borrow_block(&var self, e: Int, dest: Int) {
+        let _ = self.open_scope()
+        var block = -1
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(e, k)
+            k = k + 1
+            if self.tc.has_alt(c, Alt.Borrow_Binding_Let) || self.tc.has_alt(c, Alt.Borrow_Binding_Var) {
+                let target = self.tc.res.first_node_child(c)
+                let place = self.tc.res.last_node_child(c)
+                if self.conditional_lend(place) {
+                    self.not_yet(place, "a `borrow` block binding a conditional lend")
+                    self.close_scope()
+                    return
+                }
+                let p = self.place_of(place)
+                let _ = self.bind_one(target, p)
+            } else if self.tc.has_alt(c, Alt.Stmt_Block) {
+                block = c
+            }
+        }
+        self.lower_block(block, dest)
+        self.close_scope()
+    }
+}
+
+// One pending test of a decision-tree row: a pattern against a place.
+public struct MirCell {
+    public place: Int
+    public pattern: Int
+}
+
+// A row of the decision tree: an arm and its cells still to test, a run of
+// the tree's cells.
+public struct MirRow {
+    public arm: Int
+    public first: Int
+    public count: Int
+}
+
+// The state of one `match`'s lowering: its arms, the block each arm's body
+// starts at once a leaf reaches it, and the places already made for a path,
+// so every row tests the one place a path names.
+public struct MirMatch {
+    public arms: Vector<Int>
+    public entries: Vector<Int>
+    public cells: Vector<MirCell>
+    public cache_parent: Vector<Int>
+    public cache_decl: Vector<Int>
+    public cache_index: Vector<Int>
+    public cache_place: Vector<Int>
+    // Each arm's bindings: (leaf, local) pairs, made at the first leaf.
+    public bind_leaves: Vector<Int>
+    public bind_locals: Vector<Int>
+    public bind_arms: Vector<Int>
+}
+
+extension MirMatch: NoCopy {}
+
+// `match` as a decision tree.
+extension MirProgram {
+    // `match`: the scrutinee's place, then a decision tree of switches on
+    // discriminants and tests on literals, ranges and guards; each arm's body
+    // once. A consumed owned local is moved into the match first, so its
+    // parts the arms do not take drop when the match ends.
+    func lower_match(&var self, e: Int, dest: Int) {
+        let scrutinee = self.tc.res.first_node_child(e)
+        let depth = self.open_scope()
+        if self.conditional_lend(scrutinee) {
+            self.not_yet(scrutinee, "a `match` on a conditional lend")
+            self.close_scope()
+            return
+        }
+        var root = -1
+        if self.tc.expr_use[scrutinee] == TcUse.Move {
+            let p = self.place_of(scrutinee)
+            let t = self.place_type(p)
+            let l = self.new_temp(t)
+            let rv = self.rv_move(p)
+            self.assign_local(l, rv)
+            root = self.place_local(l)
+            self.own_temp(root)
+        } else {
+            var steps = Vector<MirStep>()
+            self.prepare_base(scrutinee, &var steps)
+            root = self.realize_all(&steps)
+            if steps.len() == 1 && steps[0].fresh {
+                self.own_temp(root)
+            }
+        }
+        var state = MirMatch(arms: Vector<Int>(), entries: Vector<Int>(), cells: Vector<MirCell>(),
+                             cache_parent: Vector<Int>(), cache_decl: Vector<Int>(), cache_index: Vector<Int>(),
+                             cache_place: Vector<Int>(), bind_leaves: Vector<Int>(), bind_locals: Vector<Int>(),
+                             bind_arms: Vector<Int>())
+        var rows = Vector<MirRow>()
+        let n = self.tc.child_count(e)
+        var k = 0
+        while k < n {
+            let arm = self.tc.child(e, k)
+            k = k + 1
+            if not self.tc.has_alt(arm, Alt.Expr_MatchArm) {
+                continue
+            }
+            let index = state.arms.len()
+            try! state.arms.push(arm)
+            try! state.entries.push(-1)
+            let first = state.cells.len()
+            try! state.cells.push(MirCell(place: root, pattern: self.tc.res.first_node_child(arm)))
+            try! rows.push(MirRow(arm: index, first: first, count: 1))
+        }
+        let join = self.new_block()
+        self.compile_rows(&var state, &rows, root)
+        k = 0
+        while k < state.arms.len() {
+            let entry = state.entries[k]
+            if entry >= 0 {
+                self.enter(entry)
+                let _ = self.open_scope()
+                var j = 0
+                while j < state.bind_arms.len() {
+                    if state.bind_arms[j] == k {
+                        let l = state.bind_locals[j]
+                        self.bind_leaf(state.bind_leaves[j], l)
+                        if not self.local(l).reference {
+                            self.scope_owned(l)
+                        }
+                    }
+                    j = j + 1
+                }
+                self.lower_arm_body(state.arms[k], dest)
+                self.close_scope()
+                self.unwind_to(depth)
+                self.goto(join)
+            }
+            k = k + 1
+        }
+        self.discard_scope()
+        self.enter(join)
+    }
+
+    // An arm's body: a block, a statement, or an expression.
+    func lower_arm_body(&var self, arm: Int, dest: Int) {
+        let body = self.tc.res.last_node_child(arm)
+        if self.tc.has_alt(body, Alt.Stmt_Block) {
+            self.lower_block(body, dest)
+            return
+        }
+        if res_is_statement_alt(self.tc.node_alt(body)) {
+            self.lower_statement(body)
+            return
+        }
+        let _ = self.open_scope()
+        self.lower_into(body, dest)
+        self.close_scope()
+    }
+
+    // The tree for `rows`, in order of priority: the first row's first
+    // refutable test splits them, and a row left with nothing to test is a
+    // leaf, its guard tested there.
+    func compile_rows(&var self, state: &var MirMatch, rows: &Vector<MirRow>, root: Int) {
+        if not self.live() {
+            return
+        }
+        if rows.len() == 0 {
+            self.unreachable()
+            return
+        }
+        var simple = Vector<MirRow>()
+        var k = 0
+        while k < rows.len() {
+            let r = rows[k]
+            try! simple.push(self.simplify(&var state, r))
+            k = k + 1
+        }
+        let top = simple[0]
+        if top.count == 0 {
+            var rest = Vector<MirRow>()
+            k = 1
+            while k < simple.len() {
+                try! rest.push(simple[k])
+                k = k + 1
+            }
+            self.leaf(&var state, top.arm, &rest, root)
+            return
+        }
+        let cell = state.cells[top.first]
+        if self.is_constructor(cell.pattern) {
+            self.split_constructors(&var state, &simple, cell.place, root)
+        } else {
+            self.split_test(&var state, &simple, cell, root)
+        }
+    }
+
+    // Row `r` with its irrefutable cells taken out and its tuple patterns
+    // spread over their elements.
+    func simplify(&var self, state: &var MirMatch, r: MirRow) -> MirRow {
+        var pending = Vector<MirCell>()
+        var k = r.count - 1
+        while k >= 0 {
+            try! pending.push(state.cells[r.first + k])
+            k = k - 1
+        }
+        let first = state.cells.len()
+        var out = Vector<MirCell>()
+        while pending.len() > 0 {
+            let cell = pending[pending.len() - 1]
+            var rest = Vector<MirCell>()
+            var j = 0
+            while j + 1 < pending.len() {
+                try! rest.push(pending[j])
+                j = j + 1
+            }
+            pending = move rest
+            guard let alt = self.tc.node_alt(cell.pattern) else {
+                continue
+            }
+            if alt == Alt.Pat_Tuple_Positional {
+                var parts = Vector<Int>()
+                let n = self.tc.child_count(cell.pattern)
+                j = 0
+                while j < n {
+                    let c = self.tc.child(cell.pattern, j)
+                    if not self.tc.is_leaf(c) {
+                        try! parts.push(c)
+                    }
+                    j = j + 1
+                }
+                let t = self.place_type(cell.place)
+                j = parts.len() - 1
+                while j >= 0 {
+                    let part_type = self.tc.types.arg(t, j)
+                    let part = self.cached_place(&var state, cell.place, -1, j, part_type)
+                    try! pending.push(MirCell(place: part, pattern: parts[j]))
+                    j = j - 1
+                }
+            } else if self.is_refutable(cell.pattern) {
+                try! out.push(cell)
+            }
+        }
+        k = 0
+        while k < out.len() {
+            try! state.cells.push(out[k])
+            k = k + 1
+        }
+        MirRow(arm: r.arm, first: first, count: out.len())
+    }
+
+    // The place `parent.index` (a tuple element, `decl` -1) or `(parent as
+    // decl).index` (a payload field), made once per match.
+    func cached_place(&var self, state: &var MirMatch, parent: Int, decl: Int, index: Int, t: Int) -> Int {
+        var k = 0
+        while k < state.cache_parent.len() {
+            if state.cache_parent[k] == parent && state.cache_decl[k] == decl && state.cache_index[k] == index {
+                return state.cache_place[k]
+            }
+            k = k + 1
+        }
+        var p = -1
+        if decl < 0 {
+            p = self.project(parent, MirProjKind.Tuple, -1, index, t)
+        } else {
+            p = self.project(parent, MirProjKind.Payload, decl, index, t)
+        }
+        try! state.cache_parent.push(parent)
+        try! state.cache_decl.push(decl)
+        try! state.cache_index.push(index)
+        try! state.cache_place.push(p)
+        p
+    }
+
+    func is_refutable(&self, p: Int) -> Bool {
+        guard let alt = self.tc.node_alt(p) else {
+            return false
+        }
+        if alt == Alt.Pat_Name {
+            return self.tc.call_at[p] >= 0
+        }
+        let binds = alt == Alt.Stmt_BindingName || alt == Alt.Pat_BorrowBinding_Let || alt == Alt.Pat_BorrowBinding_Var
+        alt != Alt.Pat_Wildcard && not binds
+    }
+
+    // Whether pattern `p` names an enum case: a variant, `None`, a lone case
+    // name.
+    func is_constructor(&self, p: Int) -> Bool {
+        if self.tc.has_alt(p, Alt.Pat_None) || self.tc.has_alt(p, Alt.Pat_Variant) {
+            return true
+        }
+        self.tc.has_alt(p, Alt.Pat_Name) && self.tc.call_at[p] >= 0
+    }
+
+    // The case constructor pattern `p` names.
+    func pattern_case(&var self, p: Int) -> Int {
+        if self.tc.has_alt(p, Alt.Pat_None) {
+            return self.optional_case("None")
+        }
+        let at = self.tc.call_at[p]
+        if at < 0 {
+            return -1
+        }
+        self.tc.calls[at].target
+    }
+
+    // The cell row `r` holds for place `p`, or -1.
+    func cell_at(&self, state: &MirMatch, r: MirRow, p: Int) -> Int {
+        var k = 0
+        while k < r.count {
+            if state.cells[r.first + k].place == p {
+                return r.first + k
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // A switch on place `p`'s discriminant, one arm per case the rows name,
+    // in the order they first name them, and an `otherwise` for the rows
+    // that test `p` no further when some case goes unnamed.
+    func split_constructors(&var self, state: &var MirMatch, rows: &Vector<MirRow>, p: Int, root: Int) {
+        var cases = Vector<Int>()
+        var k = 0
+        while k < rows.len() {
+            let at = self.cell_at(&state, rows[k], p)
+            if at >= 0 {
+                let c = self.pattern_case(state.cells[at].pattern)
+                var seen = false
+                var j = 0
+                while j < cases.len() {
+                    if cases[j] == c {
+                        seen = true
+                    }
+                    j = j + 1
+                }
+                if not seen && c >= 0 {
+                    try! cases.push(c)
+                }
+            }
+            k = k + 1
+        }
+        let all = self.case_count(p)
+        var targets = Vector<Int>()
+        k = 0
+        while k < cases.len() {
+            try! targets.push(self.new_block())
+            k = k + 1
+        }
+        var otherwise = -1
+        if cases.len() < all {
+            otherwise = self.new_block()
+        }
+        self.switch_cases(p, &cases, &targets, otherwise)
+        k = 0
+        while k < cases.len() {
+            let c = cases[k]
+            self.enter(targets[k])
+            var special = Vector<MirRow>()
+            var j = 0
+            while j < rows.len() {
+                let r = rows[j]
+                j = j + 1
+                let at = self.cell_at(&state, r, p)
+                if at < 0 {
+                    try! special.push(r)
+                    continue
+                }
+                let pat = state.cells[at].pattern
+                if self.pattern_case(pat) != c {
+                    continue
+                }
+                try! special.push(self.expand_case(&var state, r, at, c))
+            }
+            self.compile_rows(&var state, &special, root)
+            k = k + 1
+        }
+        if otherwise >= 0 {
+            self.enter(otherwise)
+            var rest = Vector<MirRow>()
+            k = 0
+            while k < rows.len() {
+                if self.cell_at(&state, rows[k], p) < 0 {
+                    try! rest.push(rows[k])
+                }
+                k = k + 1
+            }
+            self.compile_rows(&var state, &rest, root)
+        }
+    }
+
+    // How many cases the enum place `p` holds has.
+    func case_count(&var self, p: Int) -> Int {
+        let d = self.place_decl(p)
+        if d < 0 {
+            return 0
+        }
+        var count = 0
+        let members = self.tc.members_of(d)
+        var k = 0
+        while k < members.len() {
+            if self.tc.res.decls[members[k]].kind == ResDeclKind.Case {
+                count = count + 1
+            }
+            k = k + 1
+        }
+        if count == 0 && (d == self.tc.known.optional || d == self.tc.known.result) {
+            return 2
+        }
+        count
+    }
+
+    // Row `r` with its cell `at`, a pattern of case `c`, replaced by its
+    // payload patterns against the payload's places.
+    func expand_case(&var self, state: &var MirMatch, r: MirRow, at: Int, c: Int) -> MirRow {
+        let cell = state.cells[at]
+        let first = state.cells.len()
+        var k = 0
+        while k < r.count {
+            if r.first + k != at {
+                let kept = state.cells[r.first + k]
+                try! state.cells.push(kept)
+            }
+            k = k + 1
+        }
+        var parts = Vector<Int>()
+        if self.tc.has_alt(cell.pattern, Alt.Pat_Variant) {
+            let n = self.tc.child_count(cell.pattern)
+            var j = 0
+            while j < n {
+                let child = self.tc.child(cell.pattern, j)
+                if not self.tc.is_leaf(child) {
+                    try! parts.push(child)
+                }
+                j = j + 1
+            }
+        }
+        var j = 0
+        while j < parts.len() {
+            let t = self.tc.expr_types[parts[j]]
+            let place = self.cached_place(&var state, cell.place, c, j, t)
+            try! state.cells.push(MirCell(place: place, pattern: parts[j]))
+            j = j + 1
+        }
+        MirRow(arm: r.arm, first: first, count: state.cells.len() - first)
+    }
+
+    // A test of the first row's literal or range pattern: rows the same
+    // pattern settles follow its true edge, the rest its false edge.
+    func split_test(&var self, state: &var MirMatch, rows: &Vector<MirRow>, cell: MirCell, root: Int) {
+        let o = self.pattern_test(cell)
+        let yes = self.new_block()
+        let no = self.new_block()
+        self.switch_bool(o, yes, no)
+        var passed = Vector<MirRow>()
+        var failed = Vector<MirRow>()
+        var k = 0
+        while k < rows.len() {
+            let r = rows[k]
+            k = k + 1
+            let at = self.cell_at(&state, r, cell.place)
+            if at < 0 {
+                try! passed.push(r)
+                try! failed.push(r)
+                continue
+            }
+            let other = state.cells[at].pattern
+            if self.same_pattern(other, cell.pattern) {
+                try! passed.push(self.without(&var state, r, at))
+            } else if self.is_bool_pattern(other) && self.is_bool_pattern(cell.pattern) {
+                // The other `Bool` literal holds exactly where this one fails.
+                try! failed.push(self.without(&var state, r, at))
+            } else if self.is_literal_pattern(other) && self.is_literal_pattern(cell.pattern) {
+                try! failed.push(r)
+            } else {
+                try! passed.push(r)
+                try! failed.push(r)
+            }
+        }
+        self.enter(yes)
+        self.compile_rows(&var state, &passed, root)
+        self.enter(no)
+        self.compile_rows(&var state, &failed, root)
+    }
+
+    // Row `r` without its cell `at`.
+    func without(&var self, state: &var MirMatch, r: MirRow, at: Int) -> MirRow {
+        let first = state.cells.len()
+        var k = 0
+        while k < r.count {
+            if r.first + k != at {
+                let kept = state.cells[r.first + k]
+                try! state.cells.push(kept)
+            }
+            k = k + 1
+        }
+        MirRow(arm: r.arm, first: first, count: state.cells.len() - first)
+    }
+
+    func is_bool_pattern(&self, p: Int) -> Bool {
+        self.tc.has_alt(p, Alt.Pat_Literal_True) || self.tc.has_alt(p, Alt.Pat_Literal_False)
+    }
+
+    func is_literal_pattern(&self, p: Int) -> Bool {
+        self.tc.has_alt(p, Alt.Pat_Literal_Int) || self.tc.has_alt(p, Alt.Pat_Literal_NegativeInt) || self.tc.has_alt(p, Alt.Pat_Literal_String) || self.tc.has_alt(p, Alt.Pat_Literal_True) || self.tc.has_alt(p, Alt.Pat_Literal_False)
+    }
+
+    // Whether two literal or range patterns test the same thing, by their
+    // spelling.
+    func same_pattern(&self, a: Int, b: Int) -> Bool {
+        let ma = self.tc.node_module(a)
+        let mb = self.tc.node_module(b)
+        let ta = self.tc.text(ma, a)
+        let tb = self.tc.text(mb, b)
+        let alt_a = self.tc.node_alt(a)
+        let alt_b = self.tc.node_alt(b)
+        ta.equals(tb) && alt_a == alt_b
+    }
+
+    // The `Bool` a literal or range pattern's test computes of its place.
+    func pattern_test(&var self, cell: MirCell) -> Int {
+        let p = cell.place
+        let pat = cell.pattern
+        let t = self.place_type(p)
+        let b = self.tc.bool_type()
+        let m = self.tc.node_module(pat)
+        if self.tc.has_alt(pat, Alt.Pat_Literal_True) {
+            return self.op_copy(p)
+        }
+        if self.tc.has_alt(pat, Alt.Pat_Literal_False) {
+            let read = self.op_copy(p)
+            let rv = self.rv_one(MirRvalueKind.Unary, b, "not", read)
+            return self.temp_operand(rv)
+        }
+        if self.tc.has_alt(pat, Alt.Pat_Range_Exclusive) || self.tc.has_alt(pat, Alt.Pat_Range_Inclusive) {
+            let written = self.tc.text(m, pat)
+            let low_text = mir_range_bound(&written, true)
+            let high_text = mir_range_bound(&written, false)
+            let lo = self.op_const(MirConstKind.Int, low_text, t)
+            let hi = self.op_const(MirConstKind.Int, high_text, t)
+            var first = Vector<Int>()
+            let read = self.op_copy(p)
+            try! first.push(read)
+            try! first.push(lo)
+            let above_rv = self.rv_over(MirRvalueKind.Binary, b, ">=", &first)
+            let above = self.temp_operand(above_rv)
+            let r = self.new_temp(b)
+            let check = self.new_block()
+            let short = self.new_block()
+            let join = self.new_block()
+            self.switch_bool(above, check, short)
+            self.enter(short)
+            let no = self.op_const(MirConstKind.Bool, "false", b)
+            let no_rv = self.rv_use(no)
+            self.assign_local(r, no_rv)
+            self.goto(join)
+            self.enter(check)
+            var second = Vector<Int>()
+            let again = self.op_copy(p)
+            try! second.push(again)
+            try! second.push(hi)
+            let op = if self.tc.has_alt(pat, Alt.Pat_Range_Inclusive) { "<=" } else { "<" }
+            let below = self.rv_over(MirRvalueKind.Binary, b, op, &second)
+            self.assign_local(r, below)
+            self.goto(join)
+            self.enter(join)
+            return self.move_local(r)
+        }
+        var kind = MirConstKind.Int
+        var read = self.op_copy(p)
+        if self.tc.has_alt(pat, Alt.Pat_Literal_String) {
+            kind = MirConstKind.String
+            read = self.borrowed_value(p)
+        }
+        let lit_text = self.tc.text(m, pat)
+        let lit = self.op_const(kind, lit_text, t)
+        var pair = Vector<Int>()
+        try! pair.push(read)
+        try! pair.push(lit)
+        let rv = self.rv_over(MirRvalueKind.Binary, b, "==", &pair)
+        self.temp_operand(rv)
+    }
+
+    // A leaf: arm `arm`'s pattern matched. Without a guard its bindings are
+    // made and its body entered; with one, the guard reads the bindings
+    // through references first, and the rest of the rows take its false
+    // edge.
+    func leaf(&var self, state: &var MirMatch, arm: Int, rest: &Vector<MirRow>, root: Int) {
+        let node = state.arms[arm]
+        let pattern = self.tc.res.first_node_child(node)
+        let body = self.tc.res.last_node_child(node)
+        var guard_node = -1
+        let n = self.tc.child_count(node)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(node, k)
+            k = k + 1
+            if c != pattern && c != body && not self.tc.is_leaf(c) {
+                guard_node = c
+            }
+        }
+        if guard_node >= 0 {
+            self.bind_arm(&var state, arm, pattern, root, true)
+            let o = self.condition_operand(guard_node)
+            let yes = self.new_block()
+            let no = self.new_block()
+            self.switch_bool(o, yes, no)
+            self.enter(no)
+            self.compile_rows(&var state, &rest, root)
+            self.enter(yes)
+        }
+        self.bind_arm(&var state, arm, pattern, root, false)
+        if state.entries[arm] < 0 {
+            state.entries[arm] = self.new_block()
+        }
+        self.goto(state.entries[arm])
+    }
+
+    // Arm `arm`'s bindings of its pattern against the scrutinee's place: for
+    // its guard, references its names read through; for its body, each by
+    // its recorded transfer, into the locals the arm's first leaf made.
+    func bind_arm(&var self, state: &var MirMatch, arm: Int, pattern: Int, root: Int, for_guard: Bool) {
+        var stack_nodes = Vector<Int>()
+        var stack_places = Vector<Int>()
+        try! stack_nodes.push(pattern)
+        try! stack_places.push(root)
+        while stack_nodes.len() > 0 {
+            let top = stack_nodes.len() - 1
+            let p = stack_nodes[top]
+            let place = stack_places[top]
+            var keep_nodes = Vector<Int>()
+            var keep_places = Vector<Int>()
+            var j = 0
+            while j < top {
+                try! keep_nodes.push(stack_nodes[j])
+                try! keep_places.push(stack_places[j])
+                j = j + 1
+            }
+            stack_nodes = move keep_nodes
+            stack_places = move keep_places
+            guard let alt = self.tc.node_alt(p) else {
+                continue
+            }
+            if alt == Alt.Pat_Tuple_Positional || alt == Alt.Pat_Variant {
+                var c = -1
+                if alt == Alt.Pat_Variant {
+                    c = self.pattern_case(p)
+                }
+                var index = 0
+                var parts_nodes = Vector<Int>()
+                var parts_places = Vector<Int>()
+                let n = self.tc.child_count(p)
+                var k = 0
+                while k < n {
+                    let child = self.tc.child(p, k)
+                    k = k + 1
+                    if self.tc.is_leaf(child) {
+                        continue
+                    }
+                    var t = self.tc.expr_types[child]
+                    if c < 0 {
+                        t = self.place_arg(place, index)
+                    }
+                    let part = self.cached_place(&var state, place, c, index, t)
+                    try! parts_nodes.push(child)
+                    try! parts_places.push(part)
+                    index = index + 1
+                }
+                // Pushed in reverse, so the parts bind left to right.
+                var back = parts_nodes.len() - 1
+                while back >= 0 {
+                    try! stack_nodes.push(parts_nodes[back])
+                    try! stack_places.push(parts_places[back])
+                    back = back - 1
+                }
+                continue
+            }
+            let binding = alt == Alt.Stmt_BindingName || alt == Alt.Pat_BorrowBinding_Let || alt == Alt.Pat_BorrowBinding_Var || (alt == Alt.Pat_Name && self.tc.call_at[p] < 0)
+            if not binding || self.tc.expr_use[p] == TcUse.Test {
+                continue
+            }
+            let leaf = self.tc.res.first_leaf(p)
+            if for_guard {
+                let m = self.tc.node_module(p)
+                let name = self.leaf_name(m, leaf)
+                let rv = self.rv_ref(false, place)
+                let rt = self.rvalues[rv].ty
+                let l = self.new_local(rt, MirLocalKind.User, name, leaf)
+                self.assign_local(l, rv)
+                self.mark_reference(l)
+                self.bind_leaf(leaf, l)
+                continue
+            }
+            var existing = -1
+            var k = 0
+            while k < state.bind_leaves.len() {
+                if state.bind_leaves[k] == leaf && state.bind_arms[k] == arm {
+                    existing = state.bind_locals[k]
+                }
+                k = k + 1
+            }
+            if existing < 0 {
+                existing = self.bind_one(p, place)
+                try! state.bind_leaves.push(leaf)
+                try! state.bind_locals.push(existing)
+                try! state.bind_arms.push(arm)
+            } else {
+                self.rebind(p, place, existing)
+            }
+        }
+    }
+
+    // A binding another leaf of the same arm made first, assigned again from
+    // this leaf's place.
+    func rebind(&var self, p: Int, place: Int, l: Int) {
+        let u = self.tc.expr_use[p]
+        var rv = -1
+        if u == TcUse.Borrow || u == TcUse.BorrowVar {
+            rv = self.rv_ref(u == TcUse.BorrowVar, place)
+        } else if u == TcUse.Copy {
+            let o = self.copy_place(place)
+            rv = self.rv_use(o)
+        } else {
+            rv = self.rv_move(place)
+        }
+        self.assign_local(l, rv)
+    }
+}

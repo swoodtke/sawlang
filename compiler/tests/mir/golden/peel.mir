@@ -1,0 +1,111 @@
+module peel
+
+fn peel.peel(v: std.vector.Vector<Int?, std.alloc.GlobalAllocator>, o: Int?, p: Int?) -> Int {
+    let _0: Int;  // return
+    let _1: std.vector.Vector<Int?, std.alloc.GlobalAllocator>;  // param v
+    let _2: Int?;  // param o
+    let _3: Int?;  // param p
+    let _4: Int?;  // one
+    let _5: Int?;
+    let _6: &Int?;
+    let _7: &std.vector.Vector<Int?, std.alloc.GlobalAllocator>;
+    let _8: Int??;
+    let _9: Int?;
+    let _10: Int?;  // same
+    let _11: Int?;
+    let _12: Int?;
+    let _13: Int;
+    let _14: Int?;
+    let _15: Int;
+    let _16: Int?;
+    let _17: Int;
+    window w0: std.vector.Vector.get(index: Int) shared conditional;
+
+    bb0: {
+        _7 = ref(shared, _1);
+        _6 = window_open w0 std.vector.Vector.get(index: Int) (owner std.vector.Vector<Int?, std.alloc.GlobalAllocator>) [move _7, const 0: Int] -> [present: bb2, absent: bb3];
+    }
+
+    bb1: {
+        _4 = move _5;
+        _12 = copy _2;
+        switch discriminant(_12) -> [Some: bb9, None: bb10];
+    }
+
+    bb2: {
+        _8 = Int??::Some(copy (*_6));
+        window_close w0 std.vector.Vector.get(index: Int) -> [return: bb5];
+    }
+
+    bb3: {
+        _8 = Int??::None;
+        goto -> bb4;
+    }
+
+    bb4: {
+        switch discriminant(_8) -> [Some: bb6, None: bb7];
+    }
+
+    bb5: {
+        goto -> bb4;
+    }
+
+    bb6: {
+        _5 = move (_8 as Some).0;
+        goto -> bb1;
+    }
+
+    bb7: {
+        _9 = Int?::None;
+        _5 = move _9;
+        goto -> bb1;
+    }
+
+    bb8: {
+        _10 = move _11;
+        _14 = copy _4;
+        switch discriminant(_14) -> [Some: bb12, None: bb13];
+    }
+
+    bb9: {
+        _11 = move _12;
+        goto -> bb8;
+    }
+
+    bb10: {
+        _11 = copy _3;
+        goto -> bb8;
+    }
+
+    bb11: {
+        _16 = copy _10;
+        switch discriminant(_16) -> [Some: bb15, None: bb16];
+    }
+
+    bb12: {
+        _13 = move (_14 as Some).0;
+        goto -> bb11;
+    }
+
+    bb13: {
+        _13 = const 0: Int;
+        goto -> bb11;
+    }
+
+    bb14: {
+        _17 = Add(move _13, move _15);
+        _0 = move _17;
+        drop(_1);
+        return;
+    }
+
+    bb15: {
+        _15 = move (_16 as Some).0;
+        goto -> bb14;
+    }
+
+    bb16: {
+        _15 = const 0: Int;
+        goto -> bb14;
+    }
+}

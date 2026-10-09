@@ -78,7 +78,7 @@
       (44:29-44:30 Name Int place copy)
       (44:33-44:40 Call.paren Int value temp (call std.vector.Vector.len() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
       (44:33-44:34 Name std.vector.Vector<Int, std.alloc.GlobalAllocator> (borrow &std.vector.Vector<Int, std.alloc.GlobalAllocator>) place borrow)
-      (44:43-44:54 Call.paren Int value temp (call widening.defaulted(n: Int))))
+      (44:43-44:54 Call.paren Int value temp (call widening.defaulted(n: Int) (bind n=default))))
     (merged 47:6
       (48:9-48:14 BindingName Int place temp)
       (48:17-48:41 If Int value temp)

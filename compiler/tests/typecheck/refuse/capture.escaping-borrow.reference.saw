@@ -1,0 +1,8 @@
+// refuses: capture.escaping-borrow at 6:29
+// an escaping closure capturing a reference parameter, whose reference would
+// outlive the call it borrows for
+
+func make(r: &Int) -> Int {
+    let f = { k: Int in k + r }
+    f(1)
+}

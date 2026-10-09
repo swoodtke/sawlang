@@ -5,7 +5,8 @@
 import sawparse.src.grammar.{Alt, alt_kind}
 import sawresolve.src.dump.{res_sort_strings}
 import sawresolve.src.model.{ResDecl, ResDeclKind, ResModule}
-import sawtypecheck.src.model.{TcAdjust, TcAdjustKind, TcCall, TcRole, TcUse}
+import sawtypecheck.src.conform.{tc_extension_sets}
+import sawtypecheck.src.model.{TC_BIND_DEFAULT, TcAdjust, TcAdjustKind, TcCall, TcRole, TcUse}
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.spell.{tc_effects_text}
 
@@ -163,6 +164,37 @@ extension TcProgram {
         if at >= 0 {
             self.append_call(&var out, at)
         }
+        self.append_captures(&var out, m, id)
+        try! out.append(")")
+    }
+
+    // A closure's captures, `(captures (NAME USE)...)`, in order; nothing for
+    // a closure that captures nothing.
+    func append_captures(&self, out: &var StringBuilder, m: Int, id: Int) {
+        let entry = self.closure_index.first(id, 0)
+        if entry < 0 {
+            return
+        }
+        let k = self.closure_index.value(entry)
+        if k >= self.capture_first.len() || self.capture_count[k] == 0 {
+            return
+        }
+        try! out.append(" (captures")
+        let first = self.capture_first[k]
+        var j = 0
+        while j < self.capture_count[k] {
+            let cap = self.captures[first + j]
+            try! out.append(" (")
+            if self.res.is_alt(cap.binding, Alt.Decl_Param_Receiver) {
+                try! out.append("self")
+            } else {
+                try! out.append(self.res.text_of(m, cap.binding))
+            }
+            try! out.append(" ")
+            try! out.append(tc_use_text(cap.use))
+            try! out.append(")")
+            j = j + 1
+        }
         try! out.append(")")
     }
 
@@ -198,7 +230,81 @@ extension TcProgram {
             }
             try! out.append(")")
         }
+        if not self.binds_in_order(&c) {
+            try! out.append(" (bind")
+            var j = 0
+            while j < c.bind_count {
+                try! out.append(" ")
+                try! out.append(self.bound_param_text(&c, j))
+                try! out.append("=")
+                let arg = self.binds[c.bind_first + j]
+                if arg == TC_BIND_DEFAULT {
+                    try! out.append("default")
+                } else {
+                    try! out.append(arg)
+                }
+                j = j + 1
+            }
+            try! out.append(")")
+        }
+        if c.variadic_from >= 0 {
+            try! out.append(" (variadic ")
+            try! out.append(c.variadic_from)
+            try! out.append(")")
+        }
         try! out.append(")")
+    }
+
+    // Whether call record `c`'s written arguments bind its parameters one to
+    // one in order, which the dump leaves unsaid; a record with no binding
+    // counts as in order.
+    public func binds_in_order(&self, c: &TcCall) -> Bool {
+        if c.bind_first < 0 {
+            return true
+        }
+        var j = 0
+        while j < c.bind_count {
+            if self.binds[c.bind_first + j] != j {
+                return false
+            }
+            j = j + 1
+        }
+        true
+    }
+
+    // The name of parameter `j` of call record `c`'s target: a function's
+    // parameter, a struct's field, a case's payload field.
+    public func bound_param_text(&self, c: &TcCall, j: Int) -> String {
+        let info = self.res.decls[c.target]
+        if info.kind == ResDeclKind.Struct {
+            var seen = 0
+            let members = self.members_of(c.target)
+            var k = 0
+            while k < members.len() {
+                let field = self.res.decls[members[k]]
+                if field.kind == ResDeclKind.Field {
+                    if seen == j {
+                        return self.name_text(field.name)
+                    }
+                    seen = seen + 1
+                }
+                k = k + 1
+            }
+            return "?"
+        }
+        if info.kind == ResDeclKind.Case && info.node < 0 {
+            let case_name = self.name_text(info.name)
+            if case_name.equals("Err") && info.parent == self.known.result {
+                return "error"
+            }
+            return "value"
+        }
+        let s = self.sigs[c.target]
+        if j >= s.param_count {
+            return "?"
+        }
+        let param = self.params[s.param_first + j]
+        self.name_text(param.name)
     }
 
     // A call's target: its declaration's identity, and a function's

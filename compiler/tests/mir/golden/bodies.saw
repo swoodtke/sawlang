@@ -1,0 +1,34 @@
+// Every kind of body typecheck checks is a function of its own: a function's
+// and a method's, a parameter's default value, a static's initializer, an
+// `@align` argument, a raw-backed case's value, a `static_assert`, a `test`.
+// A body producing `Result<Void, E>` that ends in a statement returns `Ok(())`.
+
+enum Level: UInt8 {
+    case Low = 1,
+    case High = 2
+}
+
+@align(16)
+static TABLE: [UInt8; 4] = [0; 4]
+
+static LIMIT: Int = 4 * 8
+
+enum Fault {
+    case Broken
+}
+
+func scaled(n: Int, by: Int = LIMIT + 1) -> Int {
+    n * by
+}
+
+func check(n: Int) -> Result<Void, Fault> {
+    if n < 0 {
+        return Fault.Broken
+    }
+}
+
+static_assert(LIMIT > 0, "a positive limit")
+
+@test "scaled multiplies" {
+    assert(scaled(2, by: 3) == 6)
+}

@@ -6,7 +6,9 @@
 //     unresolved: an error type only where the module has a refusal;
 //   - every expression and pattern has a use, and a value use a transfer
 //     kind that fits it: a copy of a place, a temporary's hand-off, a move;
-//   - every call has a target and a complete instantiation;
+//   - every call has a target and a complete instantiation, and a call the
+//     overload filter resolved a total argument binding;
+//   - every closure records a capture of each enclosing binding it names;
 //   - every adjustment chain composes, each step's source the last's result;
 //   - every type written in a body was built exactly once, and resolved.
 // Nothing under a construct refused as outside the slice is asked about.
@@ -17,7 +19,9 @@ import sawresolve.src.kinds.{res_is_type_alt}
 import sawresolve.src.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResDecl, ResDeclKind,
                              ResModule}
 import sawtypecheck.src.adjust.{TC_FIT_NONE}
-import sawtypecheck.src.model.{TcAdjust, TcAdjustKind, TcCall, TcRole, TcUse}
+import sawtypecheck.src.bodies.{tc_closure_mentions}
+import sawtypecheck.src.conform.{tc_extension_sets}
+import sawtypecheck.src.model.{TC_BIND_DEFAULT, TcAdjust, TcAdjustKind, TcCall, TcRole, TcUse}
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.signatures.{TcContext}
 import sawtypecheck.src.typeops.{TcClient}
@@ -47,7 +51,54 @@ extension TcProgram {
             let poisoned = self.is_poisoned(root)
             self.verify_subtree(&var problems, m, root, refused || poisoned, &skipped)
         }
+        self.verify_captures(&var problems, m, &skipped)
         move problems
+    }
+
+    // Every closure of module `m` has its capture run, which holds each
+    // enclosing binding its body names, each with a transfer a capture takes.
+    func verify_captures(&self, problems: &var Vector<String>, m: Int, skipped: &Vector<Bool>) {
+        let info = self.res.modules[m]
+        var k = 0
+        while k < self.closures.len() {
+            let e = self.closures[k]
+            k = k + 1
+            if e < info.node_base || e >= info.node_base + info.node_count || skipped[e - info.node_base] {
+                continue
+            }
+            if k - 1 >= self.capture_first.len() {
+                self.body_problem(&var problems, m, e, "a closure records no captures")
+                continue
+            }
+            let first = self.capture_first[k - 1]
+            let count = self.capture_count[k - 1]
+            var j = 0
+            while j < count {
+                let cap = self.captures[first + j]
+                let fits = cap.use == TcUse.Copy || cap.use == TcUse.Move || cap.use == TcUse.Borrow || cap.use == TcUse.BorrowVar
+                if cap.closure != e || not fits {
+                    self.body_problem(&var problems, m, e, "a closure's capture has no transfer a capture takes")
+                }
+                j = j + 1
+            }
+            let mentions = tc_closure_mentions(&self, e)
+            j = 0
+            while j < mentions.len() {
+                let b = self.mention_binding(mentions[j])
+                var held = false
+                var i = 0
+                while i < count {
+                    if self.captures[first + i].binding == b.node {
+                        held = true
+                    }
+                    i = i + 1
+                }
+                if not held {
+                    self.body_problem(&var problems, m, mentions[j], "a closure names an enclosing binding it records no capture of")
+                }
+                j = j + 1
+            }
+        }
     }
 
     // Whether body `root` was poisoned by a signature another module's
@@ -457,6 +508,100 @@ extension TcProgram {
         if c.owner >= 0 && not refused && self.type_has_error(c.owner) {
             self.body_problem(&var problems, m, id, "a call's owner is unresolved")
         }
+        if c.role == TcRole.Call || c.role == TcRole.Memberwise || c.role == TcRole.Case {
+            self.verify_binding(&var problems, m, id, &c)
+        }
+    }
+
+    // A resolved call's argument binding is total: every written argument
+    // binds exactly one parameter or falls in the variadic tail, and every
+    // parameter no argument binds has a default.
+    func verify_binding(&self, problems: &var Vector<String>, m: Int, id: Int, c: &TcCall) {
+        if c.bind_first < 0 {
+            self.body_problem(&var problems, m, id, "a call records no argument binding")
+            return
+        }
+        let written = self.written_argument_count(id)
+        if c.bind_count != self.target_param_count(c.target) {
+            self.body_problem(&var problems, m, id, "a call's argument binding does not cover its target's parameters")
+            return
+        }
+        var seen = Vector<Int>()
+        var k = 0
+        while k < written {
+            try! seen.push(0)
+            k = k + 1
+        }
+        var j = 0
+        while j < c.bind_count {
+            let arg = self.binds[c.bind_first + j]
+            if arg == TC_BIND_DEFAULT {
+                if not self.param_has_default(c.target, j) {
+                    self.body_problem(&var problems, m, id, "a call leaves a parameter with no default unbound")
+                }
+            } else if arg < 0 || arg >= written || (c.variadic_from >= 0 && arg >= c.variadic_from) {
+                self.body_problem(&var problems, m, id, "a call binds a parameter to no written argument")
+            } else {
+                seen[arg] += 1
+            }
+            j = j + 1
+        }
+        k = 0
+        while k < written {
+            let tail = c.variadic_from >= 0 && k >= c.variadic_from
+            if (tail && seen[k] != 0) || (not tail && seen[k] != 1) {
+                self.body_problem(&var problems, m, id, "a call's written argument is not bound exactly once")
+            }
+            k = k + 1
+        }
+    }
+
+    // How many arguments call node `id` writes: its children past the callee.
+    func written_argument_count(&self, id: Int) -> Int {
+        let callee = self.res.first_node_child(id)
+        var count = 0
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            if c != callee && not self.is_leaf(c) {
+                count = count + 1
+            }
+            k = k + 1
+        }
+        count
+    }
+
+    // How many parameters a call of declaration `d` binds: a function's, a
+    // struct's fields, a case's payload fields.
+    func target_param_count(&self, d: Int) -> Int {
+        let info = self.res.decls[d]
+        if info.kind == ResDeclKind.Struct {
+            var count = 0
+            let members = self.members_of(d)
+            var k = 0
+            while k < members.len() {
+                if self.res.decls[members[k]].kind == ResDeclKind.Field {
+                    count = count + 1
+                }
+                k = k + 1
+            }
+            return count
+        }
+        if info.kind == ResDeclKind.Case && info.node < 0 {
+            return 1
+        }
+        self.sigs[d].param_count
+    }
+
+    func param_has_default(&self, d: Int, j: Int) -> Bool {
+        let info = self.res.decls[d]
+        if info.kind == ResDeclKind.Struct || info.kind == ResDeclKind.Case {
+            return false
+        }
+        let s = self.sigs[d]
+        let param = self.params[s.param_first + j]
+        param.has_default
     }
 
     // Whether `t` names a type parameter of declaration `d`.

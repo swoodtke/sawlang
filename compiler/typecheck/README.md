@@ -85,7 +85,11 @@ typecheck/
    only, so no body reads another.
 8. **Places** (`settle_places`): once every body is checked, each subscript's
    role and each `borrows` accessor's receiver borrow is read off the use its
-   position recorded (SL:borrowing §5, design 141).
+   position recorded (SL:borrowing §5, design 141). Then each closure's
+   captures (`settle_captures`): the bindings its capture list writes and its
+   body names from outside it, each with its transfer, and the refusals of a
+   capture that does not copy silently and of a borrow of the enclosing frame
+   in a closure that escapes.
 9. **Exhaustiveness** (`exhaust.saw`): every `match`'s unguarded arms
    against its scrutinee's type, as the usefulness of a wildcard row over the
    pattern matrix, which names each missing value. A discarded `Result` is
@@ -258,6 +262,18 @@ These are the reversible readings U6b2 made; SL-447's report lists them.
 - A call whose target's signature carries a type another module's refusal
   left unformed poisons the body (SL:architecture §3.0): its error types are
   that refusal's, and the verifier asks nothing of them.
+- A closure escapes unless it is written straight as a call's argument whose
+  parameter is a function type that does not say `escaping`; a function
+  value's parameter counts too. Binding it to a `let` escapes (spec,
+  Capturing `self` and reference parameters).
+- An implicit capture of `self` borrows as the enclosing method's receiver
+  declares, shared or exclusive, as `[&self]` and `[&var self]` would; a
+  consuming method's `self` is owned, and captured by value. A reference
+  parameter's capture copies its reference, which borrows the frame.
+- A closure's captures are its capture list's entries, in order, then the
+  enclosing bindings its body names, in the order it first names them; a
+  nested closure's names count for every closure around it that they lie
+  outside of.
 
 ## Summary readings
 
@@ -323,6 +339,15 @@ These are the reversible readings U6b3 made; SL-447's report lists them.
   cooperative intrinsics a body spells, not from the executor's own
   `__saw_exec_*` helpers: those serve the `sync` drive loop, and
   `std.taskgroup`, which declares them, holds no suspending function.
+- `effect.any-suspends` refuses a suspending implementation where it is
+  coerced to `any Trait`, not where it is dispatched: the coercion is the site
+  a modular checker sees, since the dispatch may sit in another module
+  (SL:open-questions D21). Stage 0 refuses at the dispatch, so a coercion
+  never dispatched is accepted there and refused here.
+- Exhaustiveness reasons over closed types at any depth: `Bool` and enum
+  constructors split inside tuples and payloads, so `(true, true)`,
+  `(true, false)` and `(false, _)` cover `(Bool, Bool)` (D21). Only an open
+  type, an integer or a `String`, needs a wildcard or a binding.
 
 The builtin declarations typecheck knows by identity, (builtin, name), are
 found once: `Optional` (for `T?`, which no name occurrence spells), `Result`,

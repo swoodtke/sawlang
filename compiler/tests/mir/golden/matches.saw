@@ -1,0 +1,81 @@
+// `match` as a decision tree: a switch on a discriminant for each case its
+// rows name, payloads tested in turn; tests on integer and string literals,
+// ranges and `Bool`s; tuples spread over their elements; a guard, which reads
+// its bindings through references before they are made; bindings that copy
+// out of a place, that take the parts of a consumed owned local, and that
+// alias a borrowed scrutinee's part.
+
+enum Shape {
+    case Dot,
+    case Line(length: Int),
+    case Box(width: Int, height: Int)
+}
+
+enum Token {
+    case Word(text: String),
+    case Number(value: Int),
+    case End
+}
+
+struct Holder {
+    token: Token
+}
+
+func area(s: Shape) -> Int {
+    match s {
+        case Dot -> 0,
+        case Line(n) if n > 10 -> 10,
+        case Line(n) -> n,
+        case Box(w, h) -> w * h
+    }
+}
+
+func digits(n: Int) -> Int {
+    match n {
+        case 0 -> 1,
+        case 1..=9 -> 1,
+        case -1 -> 2,
+        case _ -> 3
+    }
+}
+
+func keyword(text: String) -> Bool {
+    match text {
+        case "let" -> true,
+        case "var" -> true,
+        case _ -> false
+    }
+}
+
+func both(pair: (Bool, Bool)) -> Int {
+    match pair {
+        case (true, true) -> 3,
+        case (true, false) -> 2,
+        case (false, _) -> 0
+    }
+}
+
+func pairs(p: (Int, Int)) -> Int {
+    match p {
+        case (0, 0) -> 1,
+        case (x, 0) -> x + 10,
+        case (x, y) if x == y -> 99,
+        case (x, y) -> x + y
+    }
+}
+
+func consume(t: Token) -> Int {
+    match t {
+        case Word(text) -> text.len(),
+        case Number(value) -> value,
+        case End -> 0
+    }
+}
+
+func inspect(h: &Holder) -> Int {
+    match h.token {
+        case Word(text) -> text.len(),
+        case Number(value) -> value,
+        case End -> 0
+    }
+}

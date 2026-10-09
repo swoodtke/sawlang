@@ -1,0 +1,87 @@
+// Every adjustment kind typecheck records, each lowered to an explicit
+// rvalue or projection: `adopt` (a literal, and a static leaf), `never`,
+// `some`, `ok`, `err`, `slice`, `deref`, `borrow`, `borrow-var`, `shared`,
+// `erase` and `widen`.
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+struct Square {
+    side: Int
+}
+
+extension Square: Shape {
+    func area(&self) -> Int {
+        self.side * self.side
+    }
+}
+
+extension Square {
+    func grow(&var self) {
+        self.side = self.side + 1
+    }
+}
+
+enum Fault {
+    case Broken
+}
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let _ = into.append("broken")
+    }
+}
+
+extension Fault: Error {}
+
+static LIMIT: Int = 8
+
+func maybe(n: Int) -> Int? {
+    n
+}
+
+func outcome(n: Int, fault: Fault) -> Result<Int, Fault> {
+    if n > 0 {
+        return n
+    }
+    fault
+}
+
+func total(values: &[Int]) -> Int {
+    values.len()
+}
+
+func peek(p: &Square) -> Int {
+    p.side
+}
+
+func widen(small: UInt8) -> Int {
+    small
+}
+
+func adopt() -> UInt8 {
+    let a: UInt8 = 7
+    let b: UInt16 = LIMIT + 1
+    a
+}
+
+func pick(o: Int?) -> Int {
+    o ?? panic("absent")
+}
+
+func erased(n: Int) -> Result<Int, Box<any Error>> {
+    let v = try outcome(n, Fault.Broken)
+    v
+}
+
+func adjustments(v: &var Vector<Int>, s: &var Square) -> Int {
+    let n = total(&v)
+    let m = peek(s)
+    s.grow()
+    let side = s.side
+    let shape: &any Shape = &Square(side: 2)
+    let square = Square(side: 3)
+    let area = square.area()
+    n + m + side + area
+}

@@ -1,0 +1,38 @@
+// A closure's captures (spec, Capturing `self` and reference parameters), the
+// closure's `(captures ...)`: a Copy local captured implicitly, by copy; an
+// explicit `move`; an explicit `&var` borrow and a reference parameter's
+// reference in a closure passed straight to a parameter that does not
+// escape; `self` as its receiver declares, implicitly and as `[&var self]`.
+
+struct Counter {
+    n: Int
+}
+
+struct Handle {
+    name: String
+}
+
+extension Handle: NoCopy {}
+
+func apply(f: (Int) -> Int, x: Int) -> Int {
+    f(x)
+}
+
+extension Counter {
+    func read(&self) -> Int {
+        apply({ k: Int in k + self.n }, 1)
+    }
+
+    func bump(&var self) -> Int {
+        apply({ [&var self] k: Int in k + self.n }, 2)
+    }
+}
+
+func captures(limit: Int, total: &var Int, name: String) -> Int {
+    let h = Handle(name: name)
+    var count = 3
+    let copied = { k: Int in k + limit }
+    let moved = { [move h] k: Int in k + h.name.len() }
+    let both = apply({ [&var count] k: Int in k + count + total }, 4)
+    copied(1) + moved(2) + both
+}

@@ -1,0 +1,478 @@
+module windows
+
+fn windows.Row.[](i: Int) -> &var Int {
+    let _0: &var Int;  // return
+    let _1: &var windows.Row;  // self
+    let _2: Int;  // param i
+    let _3: Int;
+    let _4: &var Int;
+
+    bb0: {
+        _3 = copy _2;
+        _4 = ref(exclusive, (*_1).cells[_3]);
+        lend [move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn windows.Row.find(i: Int) -> &var Int? {
+    let _0: &var Int?;  // return
+    let _1: &var windows.Row;  // self
+    let _2: Int;  // param i
+    let _3: Bool;
+    let _4: Bool;
+    let _5: Bool;
+    let _6: Int?;
+    let _7: Int;
+    let _8: &var Int;
+
+    bb0: {
+        _4 = Lt(copy _2, const 0: Int);
+        switch move _4 -> [true: bb4, false: bb3];
+    }
+
+    bb1: {
+        _7 = copy _2;
+        _8 = ref(exclusive, (*_1).cells[_7]);
+        lend [move _8] -> [return: bb7];
+    }
+
+    bb2: {
+        switch move _3 -> [true: bb5, false: bb6];
+    }
+
+    bb3: {
+        _5 = Ge(copy _2, const 4: Int);
+        _3 = move _5;
+        goto -> bb2;
+    }
+
+    bb4: {
+        _3 = const true: Bool;
+        goto -> bb2;
+    }
+
+    bb5: {
+        _6 = Int?::None;
+        return;
+    }
+
+    bb6: {
+        goto -> bb1;
+    }
+
+    bb7: {
+        return;
+    }
+}
+
+fn windows.block_form(r: &var windows.Row, limit: Int) -> Int {
+    let _0: Int;  // return
+    let _1: &var windows.Row;  // param r
+    let _2: Int;  // param limit
+    let _3: Int;  // total
+    let _4: Bool;
+    let _5: Int;  // step
+    let _6: &Int;
+    let _7: &windows.Row;
+    let _8: &Int;  // ref cell
+    let _9: Bool;
+    let _10: Int;
+    let _11: Int;
+    window w0: windows.Row.[](i: Int) shared;
+
+    bb0: {
+        _3 = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _4 = Lt(copy _3, copy _2);
+        switch move _4 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        _0 = copy _3;
+        return;
+    }
+
+    bb3: {
+        _7 = ref(shared, (*_1));
+        _6 = window_open w0 windows.Row.[](i: Int) (owner windows.Row) [move _7, const 0: Int] -> [present: bb4];
+    }
+
+    bb4: {
+        _8 = ref(shared, (*_6));
+        _9 = Gt(copy (*_8), copy _2);
+        switch move _9 -> [true: bb6, false: bb7];
+    }
+
+    bb5: {
+        _10 = Add(copy (*_8), const 1: Int);
+        _5 = move _10;
+        window_close w0 windows.Row.[](i: Int) -> [return: bb9];
+    }
+
+    bb6: {
+        window_close w0 windows.Row.[](i: Int) -> [return: bb8];
+    }
+
+    bb7: {
+        goto -> bb5;
+    }
+
+    bb8: {
+        goto -> bb2;
+    }
+
+    bb9: {
+        _11 = Add(copy _3, copy _5);
+        _3 = move _11;
+        budget(yield-capable);
+        goto -> bb1;
+    }
+}
+
+fn windows.statement_form(r: &var windows.Row) -> Int {
+    let _0: Int;  // return
+    let _1: &var windows.Row;  // param r
+    let _2: &var Int;
+    let _3: &var windows.Row;
+    let _4: Int;  // copied
+    let _5: Int;
+    let _6: &Int;
+    let _7: &windows.Row;
+    window w0: windows.Row.[](i: Int) exclusive;
+    window w1: windows.Row.[](i: Int) shared;
+
+    bb0: {
+        _3 = ref(exclusive, (*_1));
+        _2 = window_open w0 windows.Row.[](i: Int) (owner windows.Row) [move _3, const 1: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        (*_2) = Add(copy (*_2), const 2: Int);
+        window_close w0 windows.Row.[](i: Int) -> [return: bb2];
+    }
+
+    bb2: {
+        _7 = ref(shared, (*_1));
+        _6 = window_open w1 windows.Row.[](i: Int) (owner windows.Row) [move _7, const 2: Int] -> [present: bb3];
+    }
+
+    bb3: {
+        _5 = copy (*_6);
+        window_close w1 windows.Row.[](i: Int) -> [return: bb4];
+    }
+
+    bb4: {
+        _4 = move _5;
+        _0 = copy _4;
+        return;
+    }
+}
+
+fn windows.conditional(r: &var windows.Row, v: std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> Int {
+    let _0: Int;  // return
+    let _1: &var windows.Row;  // param r
+    let _2: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // param v
+    let _3: &var Int;
+    let _4: &var windows.Row;
+    let _5: &var Int;  // ref found
+    let _6: Int;  // first
+    let _7: Int;
+    let _8: &Int;
+    let _9: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _10: Int?;
+    let _11: &Int;
+    let _12: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _13: Int;  // second
+    window w0: windows.Row.find(i: Int) exclusive conditional;
+    window w1: std.vector.Vector.get(index: Int) shared conditional;
+    window w2: std.vector.Vector.get(index: Int) shared conditional;
+
+    bb0: {
+        _4 = ref(exclusive, (*_1));
+        _3 = window_open w0 windows.Row.find(i: Int) (owner windows.Row) [move _4, const 2: Int] -> [present: bb2, absent: bb3];
+    }
+
+    bb1: {
+        _9 = ref(shared, _2);
+        _8 = window_open w1 std.vector.Vector.get(index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _9, const 0: Int] -> [present: bb6, absent: bb7];
+    }
+
+    bb2: {
+        _5 = ref(exclusive, (*_3));
+        (*_5) = Add(copy (*_5), const 1: Int);
+        window_close w0 windows.Row.find(i: Int) -> [return: bb4];
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        goto -> bb1;
+    }
+
+    bb5: {
+        _6 = move _7;
+        _12 = ref(shared, _2);
+        _11 = window_open w2 std.vector.Vector.get(index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _12, const 1: Int] -> [present: bb13, absent: bb14];
+    }
+
+    bb6: {
+        _10 = Int?::Some(copy (*_8));
+        window_close w1 std.vector.Vector.get(index: Int) -> [return: bb9];
+    }
+
+    bb7: {
+        _10 = Int?::None;
+        goto -> bb8;
+    }
+
+    bb8: {
+        switch discriminant(_10) -> [Some: bb10, None: bb11];
+    }
+
+    bb9: {
+        goto -> bb8;
+    }
+
+    bb10: {
+        _7 = move (_10 as Some).0;
+        goto -> bb5;
+    }
+
+    bb11: {
+        _7 = const 0: Int;
+        goto -> bb5;
+    }
+
+    bb12: {
+        _0 = copy _6;
+        drop(_2);
+        return;
+    }
+
+    bb13: {
+        _13 = copy (*_11);
+        window_close w2 std.vector.Vector.get(index: Int) -> [return: bb15];
+    }
+
+    bb14: {
+        goto -> bb12;
+    }
+
+    bb15: {
+        _0 = copy _13;
+        drop(_2);
+        return;
+    }
+}
+
+fn windows.bump(n: &var Int) -> Void {
+    let _0: Void;  // return
+    let _1: &var Int;  // param n
+
+    bb0: {
+        (*_1) = Add(copy (*_1), const 1: Int);
+        return;
+    }
+}
+
+fn windows.spelled(r: &var windows.Row, v: std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> Int {
+    let _0: Int;  // return
+    let _1: &var windows.Row;  // param r
+    let _2: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // param v
+    let _3: &var Int;
+    let _4: &var windows.Row;
+    let _5: &var Int;
+    let _6: &Int;
+    let _7: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _8: Int;  // first
+    let _9: Int;
+    let _10: &Int;
+    let _11: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _12: Int?;
+    window w0: windows.Row.[](i: Int) exclusive;
+    window w1: std.vector.Vector.get(index: Int) shared conditional;
+    window w2: std.vector.Vector.get(index: Int) shared conditional;
+
+    bb0: {
+        _4 = ref(exclusive, (*_1));
+        _3 = window_open w0 windows.Row.[](i: Int) (owner windows.Row) [move _4, const 3: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _5 = ref(exclusive, (*_3));
+        call windows.bump(n: &var Int) [move _5] -> [return: bb2];
+    }
+
+    bb2: {
+        window_close w0 windows.Row.[](i: Int) -> [return: bb3];
+    }
+
+    bb3: {
+        _7 = ref(shared, _2);
+        _6 = window_open w1 std.vector.Vector.get(index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _7, const 0: Int] -> [present: bb5, absent: bb6];
+    }
+
+    bb4: {
+        _11 = ref(shared, _2);
+        _10 = window_open w2 std.vector.Vector.get(index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _11, const 1: Int] -> [present: bb9, absent: bb10];
+    }
+
+    bb5: {
+        _8 = copy (*_6);
+        window_close w1 std.vector.Vector.get(index: Int) -> [return: bb7];
+    }
+
+    bb6: {
+        goto -> bb4;
+    }
+
+    bb7: {
+        _0 = copy _8;
+        drop(_2);
+        return;
+    }
+
+    bb8: {
+        _0 = move _9;
+        drop(_2);
+        return;
+    }
+
+    bb9: {
+        _12 = Int?::Some(copy (*_10));
+        window_close w2 std.vector.Vector.get(index: Int) -> [return: bb12];
+    }
+
+    bb10: {
+        _12 = Int?::None;
+        goto -> bb11;
+    }
+
+    bb11: {
+        switch discriminant(_12) -> [Some: bb13, None: bb14];
+    }
+
+    bb12: {
+        goto -> bb11;
+    }
+
+    bb13: {
+        _9 = move (_12 as Some).0;
+        goto -> bb8;
+    }
+
+    bb14: {
+        _9 = const 0: Int;
+        goto -> bb8;
+    }
+}
+
+fn windows.derived(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> Int {
+    let _0: Int;  // return
+    let _1: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // param v
+    let _2: Int;
+    let _3: &Int;
+    let _4: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _5: &var Int;
+    let _6: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _7: Int;
+    let _8: &Int;
+    let _9: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    window w0: std.vector.Vector.[](index: Int) shared;
+    window w1: std.vector.Vector.[](index: Int) exclusive;
+    window w2: std.vector.Vector.[](index: Int) shared;
+
+    bb0: {
+        _4 = ref(shared, (*_1));
+        _3 = window_open w0 std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _4, const 1: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _2 = copy (*_3);
+        window_close w0 std.vector.Vector.[](index: Int) -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = ref(exclusive, (*_1));
+        _5 = window_open w1 std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _6, const 0: Int] -> [present: bb3];
+    }
+
+    bb3: {
+        (*_5) = move _2;
+        window_close w1 std.vector.Vector.[](index: Int) -> [return: bb4];
+    }
+
+    bb4: {
+        _9 = ref(shared, (*_1));
+        _8 = window_open w2 std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _9, const 0: Int] -> [present: bb5];
+    }
+
+    bb5: {
+        _7 = copy (*_8);
+        window_close w2 std.vector.Vector.[](index: Int) -> [return: bb6];
+    }
+
+    bb6: {
+        _0 = move _7;
+        return;
+    }
+}
+
+fn windows.iterate(v: std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> Int {
+    let _0: Int;  // return
+    let _1: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // param v
+    let _2: Int;  // sum
+    let _3: std.vector.VectorIterator<Int, std.alloc.GlobalAllocator>;
+    let _4: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _5: Int?;
+    let _6: &var std.vector.VectorIterator<Int, std.alloc.GlobalAllocator>;
+    let _7: Int;  // x
+    let _8: Int;
+    window w0: std.vector.Vector.iter() shared;
+
+    bb0: {
+        _2 = const 0: Int;
+        _4 = ref(shared, _1);
+        _3 = window_open w0 std.vector.Vector.iter() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _4] -> [present: bb1];
+    }
+
+    bb1: {
+        goto -> bb2;
+    }
+
+    bb2: {
+        _6 = ref(exclusive, _3);
+        _5 = call std.vector.VectorIterator.next() (owner std.vector.VectorIterator<Int, std.alloc.GlobalAllocator>) [move _6] -> [return: bb4];
+    }
+
+    bb3: {
+        window_close w0 std.vector.Vector.iter() -> [return: bb6];
+    }
+
+    bb4: {
+        switch discriminant(_5) -> [Some: bb5, None: bb3];
+    }
+
+    bb5: {
+        _7 = move (_5 as Some).0;
+        _8 = Add(copy _2, copy _7);
+        _2 = move _8;
+        budget(yield-capable);
+        goto -> bb2;
+    }
+
+    bb6: {
+        _0 = copy _2;
+        drop(_1);
+        return;
+    }
+}

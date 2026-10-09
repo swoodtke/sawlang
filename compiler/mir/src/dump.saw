@@ -1,0 +1,680 @@
+// The MIR's text dump (compiler/tests/mir/README.md): one function at a
+// time, its locals with their types, its windows, then its blocks, each with
+// its statements and its one terminator. Types print in their canonical
+// spelling, so no dump depends on interning order.
+
+import sawmir.src.model.{MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind, MirFunc,
+                         MirFuncKind, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace,
+                         MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind,
+                         MirSuspend, MirSwitchKind, MirTermKind, MirWindow}
+import sawmir.src.program.{MirProgram}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.model.{ResDeclKind}
+import sawresolve.src.program.{ResProgram}
+import sawtypecheck.src.bodydump.{tc_dump_bodies}
+import sawtypecheck.src.conform.{tc_extension_sets}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.spell.{tc_effects_text}
+
+// Module `m`'s dump: every function lowered from its bodies, in order.
+public func mir_dump_module(p: &MirProgram, out: &var StringBuilder, m: Int) {
+    try! out.append("module ")
+    try! out.append(p.tc.res.module_name(m))
+    try! out.append("\n")
+    var f = 0
+    while f < p.funcs.len() {
+        let info = p.funcs[f]
+        if info.module == m && not info.refused {
+            try! out.append("\n")
+            p.dump_func(&var out, f)
+        }
+        f = f + 1
+    }
+}
+
+// The spelling a builtin binary or unary operator prints as.
+public func mir_operator_name(op: String, unary: Bool) -> String {
+    if unary {
+        if op.equals("-") {
+            return "Neg"
+        }
+        if op.equals("not") {
+            return "Not"
+        }
+        return "BitNot"
+    }
+    if op.equals("+") {
+        return "Add"
+    }
+    if op.equals("-") {
+        return "Sub"
+    }
+    if op.equals("*") {
+        return "Mul"
+    }
+    if op.equals("/") {
+        return "Div"
+    }
+    if op.equals("%") {
+        return "Rem"
+    }
+    if op.equals("&+") {
+        return "AddWrapping"
+    }
+    if op.equals("&-") {
+        return "SubWrapping"
+    }
+    if op.equals("&*") {
+        return "MulWrapping"
+    }
+    if op.equals("&") {
+        return "BitAnd"
+    }
+    if op.equals("|") {
+        return "BitOr"
+    }
+    if op.equals("^") {
+        return "BitXor"
+    }
+    if op.equals("<<") {
+        return "Shl"
+    }
+    if op.equals(">>") {
+        return "Shr"
+    }
+    if op.equals("==") {
+        return "Eq"
+    }
+    if op.equals("!=") {
+        return "Ne"
+    }
+    if op.equals("<") {
+        return "Lt"
+    }
+    if op.equals("<=") {
+        return "Le"
+    }
+    if op.equals(">") {
+        return "Gt"
+    }
+    if op.equals(">=") {
+        return "Ge"
+    }
+    if op.equals("..") {
+        return "Range"
+    }
+    if op.equals("..=") {
+        return "RangeInclusive"
+    }
+    op
+}
+
+extension MirProgram {
+    public func dump_func(&self, out: &var StringBuilder, f: Int) {
+        let info = self.funcs[f]
+        try! out.append("fn ")
+        try! out.append(self.func_name(f))
+        try! out.append(" -> ")
+        let result = self.locals[info.local_first].ty
+        self.append_type(&var out, result)
+        try! out.append(" \{\n")
+        var k = 0
+        while k < info.local_count {
+            let l = self.locals[info.local_first + k]
+            try! out.append("    let _")
+            try! out.append(k)
+            try! out.append(": ")
+            self.append_type(&var out, l.ty)
+            try! out.append(";")
+            self.append_local_note(&var out, info.module, &l)
+            try! out.append("\n")
+            k = k + 1
+        }
+        k = 0
+        while k < info.window_count {
+            let w = self.windows[info.window_first + k]
+            try! out.append("    window w")
+            try! out.append(k)
+            try! out.append(": ")
+            try! out.append(self.tc.target_text(w.accessor))
+            if w.exclusive {
+                try! out.append(" exclusive")
+            } else {
+                try! out.append(" shared")
+            }
+            if w.conditional {
+                try! out.append(" conditional")
+            }
+            if w.sync {
+                try! out.append(" sync")
+            }
+            try! out.append(";\n")
+            k = k + 1
+        }
+        k = 0
+        while k < info.block_count {
+            try! out.append("\n    bb")
+            try! out.append(k)
+            try! out.append(": \{\n")
+            let b = self.blocks[info.block_first + k]
+            var s = b.first
+            while s >= 0 {
+                let stmt = self.stmts[s]
+                try! out.append("        ")
+                self.append_stmt(&var out, info.local_first, &stmt)
+                try! out.append("\n")
+                s = stmt.next
+            }
+            try! out.append("        ")
+            self.append_term(&var out, info.local_first, &b)
+            try! out.append("\n    \}\n")
+            k = k + 1
+        }
+        try! out.append("\}\n")
+    }
+
+    // The name a function's header gives it: its declaration's identity and
+    // parameters, or what else its body is.
+    public func func_name(&self, f: Int) -> String {
+        let info = self.funcs[f]
+        var out = StringBuilder()
+        match info.kind {
+            case Body -> try! out.append(self.tc.target_text(info.decl)),
+            case Default -> {
+                try! out.append("default ")
+                try! out.append(self.tc.target_text(info.decl))
+                try! out.append(".")
+                let s = self.tc.sigs[info.decl]
+                if info.param >= 0 && info.param < s.param_count {
+                    let param = self.tc.params[s.param_first + info.param]
+                    try! out.append(self.tc.name_text(param.name))
+                }
+            },
+            case Static -> {
+                try! out.append("static ")
+                try! out.append(self.tc.res.decl_identity(info.decl))
+            },
+            case RawValue -> {
+                try! out.append("raw ")
+                try! out.append(self.tc.res.decl_identity(info.decl))
+            },
+            case Align -> {
+                try! out.append("align ")
+                try! out.append(self.tc.res.decl_identity(info.decl))
+            },
+            case Assert -> {
+                try! out.append("static_assert ")
+                try! out.append(self.tc.res.module_name(info.module))
+                try! out.append(" ")
+                try! out.append(self.tc.res.node_position(info.module, info.root))
+            },
+            case Test -> {
+                try! out.append("test ")
+                try! out.append(self.tc.res.module_name(info.module))
+                try! out.append(" ")
+                try! out.append(self.tc.res.node_position(info.module, info.root))
+            },
+            case Closure -> {
+                try! out.append("closure#")
+                try! out.append(info.ordinal)
+                try! out.append(" of ")
+                try! out.append(self.func_name(info.parent))
+            }
+        }
+        out.build()
+    }
+
+    func append_local_note(&self, out: &var StringBuilder, m: Int, l: &MirLocal) {
+        match l.kind {
+            case Return -> try! out.append("  // return"),
+            case Receiver -> try! out.append("  // self"),
+            case Env -> try! out.append("  // env"),
+            case Param -> {
+                try! out.append("  // param ")
+                try! out.append(self.tc.name_text(l.name))
+            },
+            case User -> {
+                if l.reference {
+                    try! out.append("  // ref ")
+                } else {
+                    try! out.append("  // ")
+                }
+                try! out.append(self.tc.name_text(l.name))
+            },
+            case Temp -> {}
+        }
+    }
+
+    public func append_type(&self, out: &var StringBuilder, t: Int) {
+        if t < 0 {
+            try! out.append("?")
+            return
+        }
+        self.tc.append_type(&var out, t)
+    }
+
+    func append_stmt(&self, out: &var StringBuilder, base: Int, s: &MirStmt) {
+        match s.kind {
+            case Assign -> {
+                self.append_place(&var out, s.place)
+                try! out.append(" = ")
+                self.append_rvalue(&var out, s.rvalue)
+                try! out.append(";")
+            },
+            case Drop -> {
+                try! out.append("drop(")
+                self.append_place(&var out, s.place)
+                try! out.append(");")
+            },
+            case Budget -> {
+                if s.yields {
+                    try! out.append("budget(yield-capable);")
+                } else {
+                    try! out.append("budget(charge-only);")
+                }
+            }
+        }
+    }
+
+    public func append_place(&self, out: &var StringBuilder, p: Int) {
+        if p < 0 {
+            try! out.append("?")
+            return
+        }
+        let info = self.places[p]
+        var text = StringBuilder()
+        if info.local >= 0 {
+            try! text.append("_")
+            try! text.append(info.local)
+        } else {
+            try! text.append("static ")
+            try! text.append(self.tc.res.decl_identity(info.static_decl))
+        }
+        var cur = text.build()
+        var k = 0
+        while k < info.count {
+            let step = self.projs[info.first + k]
+            var next = StringBuilder()
+            match step.kind {
+                case Field -> {
+                    try! next.append(cur)
+                    try! next.append(".")
+                    try! next.append(self.decl_name(step.decl))
+                },
+                case Tuple -> {
+                    try! next.append(cur)
+                    try! next.append(".")
+                    try! next.append(step.index)
+                },
+                case Index -> {
+                    try! next.append(cur)
+                    try! next.append("[_")
+                    try! next.append(step.index)
+                    try! next.append("]")
+                },
+                case Deref -> {
+                    try! next.append("(*")
+                    try! next.append(cur)
+                    try! next.append(")")
+                },
+                case Payload -> {
+                    try! next.append("(")
+                    try! next.append(cur)
+                    try! next.append(" as ")
+                    try! next.append(self.decl_name(step.decl))
+                    try! next.append(").")
+                    try! next.append(step.index)
+                },
+                case Force -> {
+                    try! next.append("(")
+                    try! next.append(cur)
+                    try! next.append(" as ")
+                    try! next.append(self.decl_name(step.decl))
+                    try! next.append("!).")
+                    try! next.append(step.index)
+                }
+            }
+            cur = next.build()
+            k = k + 1
+        }
+        try! out.append(cur)
+    }
+
+    public func append_operand(&self, out: &var StringBuilder, o: Int) {
+        if o < 0 {
+            try! out.append("?")
+            return
+        }
+        let info = self.operands[o]
+        match info.kind {
+            case Copy -> {
+                try! out.append("copy ")
+                self.append_place(&var out, info.place)
+            },
+            case Move -> {
+                try! out.append("move ")
+                self.append_place(&var out, info.place)
+            },
+            case Const -> {
+                try! out.append("const ")
+                try! out.append(self.tc.name_text(info.text))
+                try! out.append(": ")
+                self.append_type(&var out, info.ty)
+            }
+        }
+    }
+
+    // Operand `at` of the operand lists.
+    func append_listed(&self, out: &var StringBuilder, at: Int) {
+        let o = self.lists[at]
+        self.append_operand(&var out, o)
+    }
+
+    // Declaration `d`'s name.
+    public func decl_name(&self, d: Int) -> String {
+        let name = self.tc.res.decls[d].name
+        self.tc.name_text(name)
+    }
+
+    func append_operands(&self, out: &var StringBuilder, first: Int, count: Int) {
+        var k = 0
+        while k < count {
+            if k > 0 {
+                try! out.append(", ")
+            }
+            self.append_listed(&var out, first + k)
+            k = k + 1
+        }
+    }
+
+    public func append_rvalue(&self, out: &var StringBuilder, r: Int) {
+        let info = self.rvalues[r]
+        match info.kind {
+            case Use -> self.append_listed(&var out, info.first),
+            case Ref -> {
+                if info.exclusive {
+                    try! out.append("ref(exclusive, ")
+                } else {
+                    try! out.append("ref(shared, ")
+                }
+                self.append_place(&var out, info.place)
+                try! out.append(")")
+            },
+            case Binary -> {
+                try! out.append(mir_operator_name(self.tc.name_text(info.op), false))
+                try! out.append("(")
+                self.append_operands(&var out, info.first, info.count)
+                try! out.append(")")
+            },
+            case Unary -> {
+                try! out.append(mir_operator_name(self.tc.name_text(info.op), true))
+                try! out.append("(")
+                self.append_operands(&var out, info.first, info.count)
+                try! out.append(")")
+            },
+            case Cast -> self.append_conversion(&var out, "cast", &info),
+            case Widen -> self.append_conversion(&var out, "widen", &info),
+            case Adopt -> self.append_conversion(&var out, "adopt", &info),
+            case Erase -> self.append_conversion(&var out, "erase", &info),
+            case Slice -> self.append_conversion(&var out, "slice", &info),
+            case Conversion -> {
+                let word = self.tc.name_text(info.op)
+                self.append_conversion(&var out, word, &info)
+            },
+            case Aggregate -> self.append_aggregate(&var out, &info),
+            case Interpolate -> {
+                try! out.append("interpolate [")
+                self.append_operands(&var out, info.first, info.count)
+                try! out.append("]")
+            }
+        }
+    }
+
+    func append_conversion(&self, out: &var StringBuilder, word: String, info: &MirRvalue) {
+        try! out.append(word)
+        try! out.append("(")
+        self.append_operands(&var out, info.first, info.count)
+        try! out.append(" as ")
+        self.append_type(&var out, info.ty)
+        try! out.append(")")
+    }
+
+    func append_aggregate(&self, out: &var StringBuilder, info: &MirRvalue) {
+        match info.aggregate {
+            case Plain -> try! out.append("?"),
+            case Struct -> {
+                self.append_type(&var out, info.ty)
+                try! out.append(" \{")
+                var seen = 0
+                let members = self.tc.members_of(info.decl)
+                var k = 0
+                while k < members.len() {
+                    let field = self.tc.res.decls[members[k]]
+                    if field.kind == ResDeclKind.Field && seen < info.count {
+                        if seen > 0 {
+                            try! out.append(",")
+                        }
+                        try! out.append(" ")
+                        try! out.append(self.tc.name_text(field.name))
+                        try! out.append(": ")
+                        self.append_listed(&var out, info.first + seen)
+                        seen = seen + 1
+                    }
+                    k = k + 1
+                }
+                try! out.append(" \}")
+            },
+            case Case -> {
+                self.append_type(&var out, info.ty)
+                try! out.append("::")
+                try! out.append(self.decl_name(info.decl))
+                if info.count > 0 {
+                    try! out.append("(")
+                    self.append_operands(&var out, info.first, info.count)
+                    try! out.append(")")
+                }
+            },
+            case Tuple -> {
+                try! out.append("(")
+                self.append_operands(&var out, info.first, info.count)
+                if info.count == 1 {
+                    try! out.append(",")
+                }
+                try! out.append(")")
+            },
+            case Array -> {
+                try! out.append("[")
+                self.append_operands(&var out, info.first, info.count)
+                try! out.append("]")
+            },
+            case Repeat -> {
+                try! out.append("[")
+                self.append_listed(&var out, info.first)
+                try! out.append("; ")
+                self.append_listed(&var out, info.first + 1)
+                try! out.append("]")
+            },
+            case Vector -> self.append_collection(&var out, "vector", &info),
+            case Set -> self.append_collection(&var out, "set", &info),
+            case Map -> {
+                try! out.append("map [")
+                var k = 0
+                while k + 1 < info.count {
+                    if k > 0 {
+                        try! out.append(", ")
+                    }
+                    self.append_listed(&var out, info.first + k)
+                    try! out.append(": ")
+                    self.append_listed(&var out, info.first + k + 1)
+                    k = k + 2
+                }
+                try! out.append("]: ")
+                self.append_type(&var out, info.ty)
+            },
+            case Closure -> {
+                let at = self.func_of.first(info.decl, 0)
+                if at >= 0 {
+                    let f = self.func_of.value(at)
+                    try! out.append(self.func_name(f))
+                } else {
+                    try! out.append("closure")
+                }
+                try! out.append(" [")
+                self.append_operands(&var out, info.first, info.count)
+                try! out.append("]")
+            }
+        }
+    }
+
+    func append_collection(&self, out: &var StringBuilder, word: String, info: &MirRvalue) {
+        try! out.append(word)
+        try! out.append(" [")
+        self.append_operands(&var out, info.first, info.count)
+        try! out.append("]: ")
+        self.append_type(&var out, info.ty)
+    }
+
+    func append_term(&self, out: &var StringBuilder, base: Int, b: &MirBlock) {
+        match b.term {
+            case Open -> try! out.append("(unterminated);"),
+            case Goto -> {
+                try! out.append("goto -> bb")
+                try! out.append(b.target)
+                try! out.append(";")
+            },
+            case Return -> try! out.append("return;"),
+            case Unreachable -> try! out.append("unreachable;"),
+            case Switch -> self.append_switch(&var out, &b),
+            case Call -> self.append_call(&var out, b.call)
+        }
+    }
+
+    func append_switch(&self, out: &var StringBuilder, b: &MirBlock) {
+        try! out.append("switch ")
+        if b.switch_kind == MirSwitchKind.Bool {
+            self.append_operand(&var out, b.operand)
+        } else {
+            try! out.append("discriminant(")
+            self.append_place(&var out, b.place)
+            try! out.append(")")
+        }
+        try! out.append(" -> [")
+        var k = 0
+        while k < b.arm_count {
+            let arm = self.arms[b.arm_first + k]
+            if k > 0 {
+                try! out.append(", ")
+            }
+            if b.switch_kind == MirSwitchKind.Bool {
+                if arm.value == 1 {
+                    try! out.append("true")
+                } else {
+                    try! out.append("false")
+                }
+            } else {
+                try! out.append(self.decl_name(arm.value))
+            }
+            try! out.append(": bb")
+            try! out.append(arm.target)
+            k = k + 1
+        }
+        if b.otherwise >= 0 {
+            try! out.append(", otherwise: bb")
+            try! out.append(b.otherwise)
+        }
+        try! out.append("];")
+    }
+
+    func append_call(&self, out: &var StringBuilder, at: Int) {
+        let c = self.calls[at]
+        if c.dest >= 0 {
+            self.append_place(&var out, c.dest)
+            try! out.append(" = ")
+        }
+        match c.kind {
+            case Function -> {
+                try! out.append("call ")
+                try! out.append(self.tc.target_text(c.target))
+            },
+            case Default -> {
+                try! out.append("call default ")
+                try! out.append(self.tc.target_text(c.target))
+                try! out.append(".")
+                let s = self.tc.sigs[c.target]
+                if c.param >= 0 && c.param < s.param_count {
+                    let param = self.tc.params[s.param_first + c.param]
+                    try! out.append(self.tc.name_text(param.name))
+                }
+            },
+            case Builtin -> {
+                try! out.append("call builtin ")
+                try! out.append(self.tc.name_text(c.spelling))
+            },
+            case Value -> {
+                try! out.append("call value ")
+                self.append_operand(&var out, c.callee)
+            },
+            case WindowOpen -> {
+                try! out.append("window_open w")
+                try! out.append(c.window)
+                try! out.append(" ")
+                try! out.append(self.tc.target_text(c.target))
+            },
+            case WindowClose -> {
+                try! out.append("window_close w")
+                try! out.append(c.window)
+                try! out.append(" ")
+                try! out.append(self.tc.target_text(c.target))
+            },
+            case Lend -> try! out.append("lend")
+        }
+        if c.owner >= 0 && c.kind != MirCallKind.Value {
+            try! out.append(" (owner ")
+            self.append_type(&var out, c.owner)
+            try! out.append(")")
+        }
+        if c.inst_count > 0 {
+            try! out.append(" (inst")
+            var k = 0
+            while k < c.inst_count {
+                try! out.append(" ")
+                let t = self.types[c.inst_first + k]
+                self.append_type(&var out, t)
+                k = k + 1
+            }
+            try! out.append(")")
+        }
+        if c.kind != MirCallKind.WindowClose {
+            try! out.append(" [")
+            self.append_operands(&var out, c.arg_first, c.arg_count)
+            try! out.append("]")
+        }
+        if c.next < 0 {
+            try! out.append(" -> !")
+        } else if c.kind == MirCallKind.WindowOpen {
+            try! out.append(" -> [present: bb")
+            try! out.append(c.next)
+            if c.absent >= 0 {
+                try! out.append(", absent: bb")
+                try! out.append(c.absent)
+            }
+            try! out.append("]")
+        } else {
+            try! out.append(" -> [return: bb")
+            try! out.append(c.next)
+            try! out.append("]")
+        }
+        if c.suspend == MirSuspend.Always {
+            try! out.append(" suspends")
+        } else if c.suspend == MirSuspend.When {
+            try! out.append(" suspends when")
+            var k = 0
+            while k < c.cond_count {
+                try! out.append(" ")
+                try! out.append(self.conds.get(c.cond_first + k) ?? "")
+                k = k + 1
+            }
+        }
+        try! out.append(";")
+    }
+}

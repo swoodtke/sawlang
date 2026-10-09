@@ -1,0 +1,80 @@
+// Borrow windows (SL:borrowing §2): a `borrow` block opens its accessor's
+// window and closes it on every edge out of its body, a `break` and a
+// `return` included; the statement form closes at its statement's end, or as
+// soon as its value is copied out; a conditional lend has a present and an
+// absent edge, and a copy of it is an Optional; a getitem and a setitem
+// derived from the place accessor open and close their window around the copy
+// or the store; a `for` over a borrowing struct opens a window on its head.
+
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+
+    func find(&var self, i: Int) borrows -> &var Int? {
+        if i < 0 || i >= 4 {
+            return None
+        }
+        lend self.cells[i]
+    }
+}
+
+func block_form(r: &var Row, limit: Int) -> Int {
+    var total = 0
+    while total < limit {
+        let step = borrow let cell = r[0] {
+            if cell > limit {
+                break
+            }
+            cell + 1
+        }
+        total = total + step
+    }
+    total
+}
+
+func statement_form(r: &var Row) -> Int {
+    borrow var r[1] += 2
+    let copied = borrow r[2]
+    copied
+}
+
+func conditional(r: &var Row, v: Vector<Int>) -> Int {
+    if borrow var found = r.find(2) {
+        found += 1
+    }
+    let first = v.get(0) ?? 0
+    if let second = v.get(1) {
+        return second
+    }
+    first
+}
+
+func bump(n: &var Int) {
+    n += 1
+}
+
+func spelled(r: &var Row, v: Vector<Int>) -> Int {
+    bump(borrow var r[3])
+    if let first = borrow v.get(0) {
+        return first
+    }
+    borrow v.get(1) ?? 0
+}
+
+func derived(v: &var Vector<Int>) -> Int {
+    v[0] = v[1]
+    v[0]
+}
+
+func iterate(v: Vector<Int>) -> Int {
+    var sum = 0
+    for x in v.iter() {
+        sum = sum + x
+    }
+    sum
+}

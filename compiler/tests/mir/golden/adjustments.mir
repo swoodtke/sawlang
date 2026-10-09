@@ -1,0 +1,274 @@
+module adjustments
+
+fn adjustments.Square.area() -> Int {
+    let _0: Int;  // return
+    let _1: &adjustments.Square;  // self
+    let _2: Int;
+
+    bb0: {
+        _2 = Mul(copy (*_1).side, copy (*_1).side);
+        _0 = move _2;
+        return;
+    }
+}
+
+fn adjustments.Square.grow() -> Void {
+    let _0: Void;  // return
+    let _1: &var adjustments.Square;  // self
+    let _2: Int;
+
+    bb0: {
+        _2 = Add(copy (*_1).side, const 1: Int);
+        (*_1).side = move _2;
+        return;
+    }
+}
+
+fn adjustments.Fault.format(into: &var std.stringbuilder.StringBuilder) -> Void {
+    let _0: Void;  // return
+    let _1: &adjustments.Fault;  // self
+    let _2: &var std.stringbuilder.StringBuilder;  // param into
+    let _3: &var std.stringbuilder.StringBuilder;
+    let _4: Result<Void, std.alloc.AllocError>;
+
+    bb0: {
+        _3 = ref(exclusive, (*_2));
+        _4 = call std.stringbuilder.StringBuilder.append(s: String) (owner std.stringbuilder.StringBuilder) [move _3, const "broken": String] -> [return: bb1];
+    }
+
+    bb1: {
+        drop(_4);
+        return;
+    }
+}
+
+fn static adjustments.LIMIT -> Int {
+    let _0: Int;  // return
+
+    bb0: {
+        _0 = const 8: Int;
+        return;
+    }
+}
+
+fn adjustments.maybe(n: Int) -> Int? {
+    let _0: Int?;  // return
+    let _1: Int;  // param n
+    let _2: Int?;
+
+    bb0: {
+        _2 = Int?::Some(copy _1);
+        _0 = move _2;
+        return;
+    }
+}
+
+fn adjustments.outcome(n: Int, fault: adjustments.Fault) -> Result<Int, adjustments.Fault> {
+    let _0: Result<Int, adjustments.Fault>;  // return
+    let _1: Int;  // param n
+    let _2: adjustments.Fault;  // param fault
+    let _3: Bool;
+    let _4: Result<Int, adjustments.Fault>;
+    let _5: Result<Int, adjustments.Fault>;
+
+    bb0: {
+        _3 = Gt(copy _1, const 0: Int);
+        switch move _3 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _5 = Result<Int, adjustments.Fault>::Err(copy _2);
+        _0 = move _5;
+        return;
+    }
+
+    bb2: {
+        _4 = Result<Int, adjustments.Fault>::Ok(copy _1);
+        _0 = move _4;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn adjustments.total(values: &[Int]) -> Int {
+    let _0: Int;  // return
+    let _1: &[Int];  // param values
+    let _2: Int;
+
+    bb0: {
+        _2 = call builtin len [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _2;
+        return;
+    }
+}
+
+fn adjustments.peek(p: &adjustments.Square) -> Int {
+    let _0: Int;  // return
+    let _1: &adjustments.Square;  // param p
+
+    bb0: {
+        _0 = copy (*_1).side;
+        return;
+    }
+}
+
+fn adjustments.widen(small: UInt8) -> Int {
+    let _0: Int;  // return
+    let _1: UInt8;  // param small
+    let _2: Int;
+
+    bb0: {
+        _2 = widen(copy _1 as Int);
+        _0 = move _2;
+        return;
+    }
+}
+
+fn adjustments.adopt() -> UInt8 {
+    let _0: UInt8;  // return
+    let _1: UInt8;  // a
+    let _2: UInt16;  // b
+    let _3: UInt16;
+    let _4: UInt16;
+
+    bb0: {
+        _1 = const 7: UInt8;
+        _3 = adopt(copy static adjustments.LIMIT as UInt16);
+        _4 = Add(move _3, const 1: UInt16);
+        _2 = move _4;
+        _0 = copy _1;
+        return;
+    }
+}
+
+fn adjustments.pick(o: Int?) -> Int {
+    let _0: Int;  // return
+    let _1: Int?;  // param o
+    let _2: Int;
+    let _3: Int?;
+
+    bb0: {
+        _3 = copy _1;
+        switch discriminant(_3) -> [Some: bb2, None: bb3];
+    }
+
+    bb1: {
+        _0 = move _2;
+        return;
+    }
+
+    bb2: {
+        _2 = move (_3 as Some).0;
+        goto -> bb1;
+    }
+
+    bb3: {
+        call builtin panic [const "absent": String] -> !;
+    }
+}
+
+fn adjustments.erased(n: Int) -> Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>> {
+    let _0: Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>;  // return
+    let _1: Int;  // param n
+    let _2: Int;  // v
+    let _3: adjustments.Fault;
+    let _4: Result<Int, adjustments.Fault>;
+    let _5: Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>;
+    let _6: Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>;
+
+    bb0: {
+        _3 = adjustments.Fault::Broken;
+        _4 = call adjustments.outcome(n: Int, fault: adjustments.Fault) [copy _1, move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _5 = erase(move _4 as Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>);
+        switch discriminant(_5) -> [Ok: bb2, Err: bb3];
+    }
+
+    bb2: {
+        _2 = move (_5 as Ok).0;
+        drop(_5);
+        _6 = Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>::Ok(copy _2);
+        _0 = move _6;
+        return;
+    }
+
+    bb3: {
+        _0 = Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>::Err(move (_5 as Err).0);
+        drop(_5);
+        return;
+    }
+}
+
+fn adjustments.adjustments(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>, s: &var adjustments.Square) -> Int {
+    let _0: Int;  // return
+    let _1: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // param v
+    let _2: &var adjustments.Square;  // param s
+    let _3: Int;  // n
+    let _4: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _5: &[Int];
+    let _6: Int;
+    let _7: Int;  // m
+    let _8: &adjustments.Square;
+    let _9: Int;
+    let _10: &var adjustments.Square;
+    let _11: Int;  // side
+    let _12: &any adjustments.Shape;  // shape
+    let _13: adjustments.Square;
+    let _14: &adjustments.Square;
+    let _15: &any adjustments.Shape;
+    let _16: adjustments.Square;  // square
+    let _17: adjustments.Square;
+    let _18: Int;  // area
+    let _19: &adjustments.Square;
+    let _20: Int;
+    let _21: Int;
+    let _22: Int;
+    let _23: Int;
+
+    bb0: {
+        _4 = ref(shared, (*_1));
+        _5 = slice(move _4 as &[Int]);
+        _6 = call adjustments.total(values: &[Int]) [move _5] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = move _6;
+        _8 = ref(shared, (*_2));
+        _9 = call adjustments.peek(p: &adjustments.Square) [move _8] -> [return: bb2];
+    }
+
+    bb2: {
+        _7 = move _9;
+        _10 = ref(exclusive, (*_2));
+        call adjustments.Square.grow() (owner adjustments.Square) [move _10] -> [return: bb3];
+    }
+
+    bb3: {
+        _11 = copy (*_2).side;
+        _13 = adjustments.Square { side: const 2: Int };
+        _14 = ref(shared, _13);
+        _15 = erase(move _14 as &any adjustments.Shape);
+        _12 = move _15;
+        _17 = adjustments.Square { side: const 3: Int };
+        _16 = move _17;
+        _19 = ref(shared, _16);
+        _20 = call adjustments.Square.area() (owner adjustments.Square) [move _19] -> [return: bb4];
+    }
+
+    bb4: {
+        _18 = move _20;
+        _21 = Add(copy _3, copy _7);
+        _22 = Add(move _21, copy _11);
+        _23 = Add(move _22, copy _18);
+        _0 = move _23;
+        return;
+    }
+}

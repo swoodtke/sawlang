@@ -42,7 +42,7 @@
       (26:15-26:22 Name Int place copy)
       (26:25-26:26 IntLit Int value temp)
       (27:9-27:10 BindingName Int32 place temp)
-      (27:13-27:66 Call.paren Int32 value temp (call lowlevel.printf(format: UnsafePointer<UInt8>)))
+      (27:13-27:66 Call.paren Int32 value temp (call lowlevel.printf(format: UnsafePointer<UInt8>) (variadic 1)))
       (27:20-27:51 Cast UnsafePointer<UInt8> value temp)
       (27:20-27:27 Name UnsafePointer<Int> place copy)
       (27:53-27:58 Name Int place copy)

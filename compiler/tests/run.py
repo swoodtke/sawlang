@@ -16,9 +16,10 @@ speculation ledgers, the parser's and the tree builder's, name every field, runs
 depth-funnel lane with its fixtures in `funnel/`, runs the parse lane, which
 holds `sawc2 parse` to the parser corpus as far as `compiler/parse/CLAIMS.tsv`
 claims, and times the line-length cells, which hold a parse to linear time on
-one very long line; and runs the resolve lane over `resolve/` and the typecheck
-lane over `typecheck/`, whose golden dumps, refusal fixtures and the compiler's
-own source hold `sawc2 resolve` and `sawc2 typecheck` to their specifications.
+one very long line; and runs the resolve lane over `resolve/`, the typecheck
+lane over `typecheck/` and the MIR lane over `mir/`, whose golden dumps,
+refusal fixtures and the compiler's own source hold `sawc2 resolve`, `sawc2
+typecheck` and `sawc2 mir` to their specifications.
 The inventory of Stage 0 workaround markers prints first, then each failure as
 one line in a fixed order; the summary comes last, and any failure exits 1.
 """
@@ -60,6 +61,9 @@ import resolve_lane  # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "typecheck"))
 import typecheck_lane  # noqa: E402
 
+sys.path.insert(0, os.path.join(HERE, "mir"))
+import mir_lane  # noqa: E402
+
 UNIT_OUT = os.path.join(REPO, ".build", "compiler-tests")
 LEX_FIXTURES = os.path.join(HERE, "lex")
 SUBSET_FIXTURES = os.path.join(HERE, "subset")
@@ -68,6 +72,7 @@ GRAMMAR_FIXTURES = os.path.join(HERE, "grammar", "fixtures")
 PARSE_CORPUS = os.path.join(HERE, "parse")
 RESOLVE_CORPUS = os.path.join(HERE, "resolve")
 TYPECHECK_CORPUS = os.path.join(HERE, "typecheck")
+MIR_CORPUS = os.path.join(HERE, "mir")
 FUNNEL_FIXTURES = os.path.join(HERE, "funnel")
 LEXER_SOURCE = os.path.join(COMPILER, "lex", "src", "lib.saw")
 RUN_TIMEOUT = 60
@@ -160,6 +165,8 @@ def check_fixture_whitespace(run):
         paths += glob.glob(os.path.join(RESOLVE_CORPUS, "**", suffix), recursive=True)
     for suffix in ("*.saw", "*.typecheck"):
         paths += glob.glob(os.path.join(TYPECHECK_CORPUS, "**", suffix), recursive=True)
+    for suffix in ("*.saw", "*.mir"):
+        paths += glob.glob(os.path.join(MIR_CORPUS, "**", suffix), recursive=True)
     for path in sorted(paths):
         rel = os.path.relpath(path, REPO)
         with open(path, "rb") as fh:
@@ -419,6 +426,18 @@ def run_typechecker(run):
     for key, n in counts.items():
         run.count(key, n)
 
+
+def run_mir(run):
+    """The MIR lane (compiler/tests/mir/mir_lane.py): the golden dumps, the
+    refusal fixtures, and the compiler's own source lowering with no refusal
+    and no invariant."""
+    failures, counts = mir_lane.run()
+    for failure in failures:
+        run.fail(failure)
+    for key, n in counts.items():
+        run.count(key, n)
+
+
 def main():
     run = Run()
     ok, output = build.build_sawc2()
@@ -438,6 +457,7 @@ def main():
         run_parser(run)
         run_resolver(run)
         run_typechecker(run)
+        run_mir(run)
     for line in run.inventory:
         print(line)
     for failure in run.failures:

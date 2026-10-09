@@ -1,0 +1,202 @@
+module operands
+
+fn operands.Retained.copy() -> operands.Retained {
+    let _0: operands.Retained;  // return
+    let _1: &operands.Retained;  // self
+    let _2: Int;
+    let _3: operands.Retained;
+
+    bb0: {
+        _2 = Add(copy (*_1).n, const 1: Int);
+        _3 = operands.Retained { n: move _2 };
+        _0 = move _3;
+        return;
+    }
+}
+
+fn operands.Label.equals(other: &operands.Label) -> Bool {
+    let _0: Bool;  // return
+    let _1: &operands.Label;  // self
+    let _2: &operands.Label;  // param other
+    let _3: &String;
+    let _4: Int;
+    let _5: &String;
+    let _6: Int;
+    let _7: Bool;
+
+    bb0: {
+        _3 = ref(shared, (*_1).text);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _5 = ref(shared, (*_2).text);
+        _6 = call std.string.String.len() (owner String) [move _5] -> [return: bb2];
+    }
+
+    bb2: {
+        _7 = Eq(copy _4, copy _6);
+        _0 = move _7;
+        return;
+    }
+}
+
+fn operands.Counter.take() -> Int {
+    let _0: Int;  // return
+    let _1: operands.Counter;  // self
+
+    bb0: {
+        _0 = copy _1.n;
+        return;
+    }
+}
+
+fn operands.sink(t: operands.Tagged, n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: operands.Tagged;  // param t
+    let _2: Int;  // param n
+
+    bb0: {
+        _0 = copy _2;
+        drop(_1);
+        return;
+    }
+}
+
+fn operands.forward(value: T) -> T {
+    let _0: T;  // return
+    let _1: T;  // param value
+
+    bb0: {
+        _0 = move _1;
+        drop(_1);
+        return;
+    }
+}
+
+fn operands.operands(tag: operands.Tagged, label: operands.Label, other: operands.Label, r: operands.Retained, c: operands.Counter) -> Int {
+    let _0: Int;  // return
+    let _1: operands.Tagged;  // param tag
+    let _2: operands.Label;  // param label
+    let _3: operands.Label;  // param other
+    let _4: operands.Retained;  // param r
+    let _5: operands.Counter;  // param c
+    let _6: Int;  // count
+    let _7: Int;
+    let _8: operands.Shape;  // shape
+    let _9: operands.Shape;
+    let _10: (Int, Int);  // pair
+    let _11: (Int, Int);
+    let _12: operands.Retained;  // kept
+    let _13: &operands.Retained;
+    let _14: operands.Retained;
+    let _15: operands.Retained;
+    let _16: operands.Retained;  // again
+    let _17: &operands.Retained;
+    let _18: operands.Retained;
+    let _19: operands.Tagged;  // built
+    let _20: operands.Tagged;
+    let _21: Bool;  // same
+    let _22: &operands.Label;
+    let _23: &operands.Label;
+    let _24: Bool;
+    let _25: UInt8;  // narrow
+    let _26: UInt8;
+    let _27: Int;  // wide
+    let _28: Int;
+    let _29: String;
+    let _30: Int;  // total
+    let _31: Int;
+    let _32: Int;
+    let _33: Int;
+    let _34: Int;
+    let _35: Int;
+
+    bb0: {
+        _6 = copy _1.hits;
+        _7 = Add(copy _6, const 1: Int);
+        _6 = move _7;
+        _6 = Add(copy _6, const 2: Int);
+        _9 = operands.Shape::Square(copy _6);
+        _8 = move _9;
+        _11 = (copy _6, copy _1.hits);
+        _10 = move _11;
+        _13 = ref(shared, _4);
+        _14 = call operands.Retained.copy() (owner operands.Retained) [move _13] -> [return: bb1];
+    }
+
+    bb1: {
+        _15 = call operands.forward(value: T) (inst operands.Retained) [move _14] -> [return: bb2];
+    }
+
+    bb2: {
+        _12 = move _15;
+        _17 = ref(shared, _4);
+        _18 = call operands.Retained.copy() (owner operands.Retained) [move _17] -> [return: bb3];
+    }
+
+    bb3: {
+        _16 = move _18;
+        _20 = operands.Tagged { name: copy _1.name, hits: copy _10.0 };
+        _19 = move _20;
+        _22 = ref(shared, _2);
+        _23 = ref(shared, _3);
+        _24 = call operands.Label.equals(other: &operands.Label) (owner operands.Label) [move _22, move _23] -> [return: bb4];
+    }
+
+    bb4: {
+        _21 = move _24;
+        _26 = from(truncating:)(copy _6 as UInt8);
+        _25 = move _26;
+        _28 = cast(copy _25 as Int);
+        _27 = move _28;
+        _29 = interpolate [const "count = ": String, const {}: String];
+        call builtin print [move _29, copy _6] -> [return: bb5];
+    }
+
+    bb5: {
+        _31 = call operands.sink(t: operands.Tagged, n: Int) [copy _19, copy _27] -> [return: bb6];
+    }
+
+    bb6: {
+        _32 = call operands.Counter.take() (owner operands.Counter) [move _5] -> [return: bb7];
+    }
+
+    bb7: {
+        _33 = Add(move _31, move _32);
+        _30 = move _33;
+        switch copy _21 -> [true: bb9, false: bb10];
+    }
+
+    bb8: {
+        _34 = Add(copy _30, copy _12.n);
+        _35 = Add(move _34, copy _16.n);
+        _0 = move _35;
+        drop(_19);
+        drop(_16);
+        drop(_12);
+        drop(_8);
+        drop(_4);
+        drop(_3);
+        drop(_2);
+        drop(_1);
+        return;
+    }
+
+    bb9: {
+        _0 = copy _30;
+        drop(_19);
+        drop(_16);
+        drop(_12);
+        drop(_8);
+        drop(_4);
+        drop(_3);
+        drop(_2);
+        drop(_1);
+        return;
+    }
+
+    bb10: {
+        goto -> bb8;
+    }
+}

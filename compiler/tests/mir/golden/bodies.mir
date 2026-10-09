@@ -1,0 +1,135 @@
+module bodies
+
+fn raw bodies.Level.Low -> UInt8 {
+    let _0: UInt8;  // return
+
+    bb0: {
+        _0 = const 1: UInt8;
+        return;
+    }
+}
+
+fn raw bodies.Level.High -> UInt8 {
+    let _0: UInt8;  // return
+
+    bb0: {
+        _0 = const 2: UInt8;
+        return;
+    }
+}
+
+fn static bodies.TABLE -> [UInt8; 4] {
+    let _0: [UInt8; 4];  // return
+    let _1: [UInt8; 4];
+
+    bb0: {
+        _1 = [const 0: UInt8; const 4: Int];
+        _0 = move _1;
+        return;
+    }
+}
+
+fn align bodies.TABLE -> Int {
+    let _0: Int;  // return
+
+    bb0: {
+        _0 = const 16: Int;
+        return;
+    }
+}
+
+fn static bodies.LIMIT -> Int {
+    let _0: Int;  // return
+    let _1: Int;
+
+    bb0: {
+        _1 = Mul(const 4: Int, const 8: Int);
+        _0 = move _1;
+        return;
+    }
+}
+
+fn default bodies.scaled(n: Int, by: Int).by -> Int {
+    let _0: Int;  // return
+    let _1: Int;
+
+    bb0: {
+        _1 = Add(copy static bodies.LIMIT, const 1: Int);
+        _0 = move _1;
+        return;
+    }
+}
+
+fn bodies.scaled(n: Int, by: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;  // param by
+    let _3: Int;
+
+    bb0: {
+        _3 = Mul(copy _1, copy _2);
+        _0 = move _3;
+        return;
+    }
+}
+
+fn bodies.check(n: Int) -> Result<Void, bodies.Fault> {
+    let _0: Result<Void, bodies.Fault>;  // return
+    let _1: Int;  // param n
+    let _2: Bool;
+    let _3: bodies.Fault;
+    let _4: Result<Void, bodies.Fault>;
+    let _5: Result<Void, bodies.Fault>;
+
+    bb0: {
+        _2 = Lt(copy _1, const 0: Int);
+        switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _5 = Result<Void, bodies.Fault>::Ok(const (): Void);
+        _0 = move _5;
+        return;
+    }
+
+    bb2: {
+        _3 = bodies.Fault::Broken;
+        _4 = Result<Void, bodies.Fault>::Err(move _3);
+        _0 = move _4;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn static_assert bodies 30:15 -> Bool {
+    let _0: Bool;  // return
+    let _1: Bool;
+
+    bb0: {
+        _1 = Gt(copy static bodies.LIMIT, const 0: Int);
+        _0 = move _1;
+        return;
+    }
+}
+
+fn test bodies 32:27 -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: Bool;
+
+    bb0: {
+        _1 = call bodies.scaled(n: Int, by: Int) [const 2: Int, const 3: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = Eq(copy _1, const 6: Int);
+        call builtin assert [move _2] -> [return: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+}

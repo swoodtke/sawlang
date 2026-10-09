@@ -1,0 +1,74 @@
+// The operand funnel at each of its entry points: a binding's value, an
+// assignment's and a compound assignment's value, a return and a tail, a
+// call's arguments and a receiver taken by value, constructions, a builtin's
+// and a format's operands, a builtin comparison and a declared `equals`, a
+// conversion; a named Copy place copied through its `copy()` hook even at its
+// last use; a generic local's single-path read moved (design 219).
+
+struct Counter {
+    n: Int
+}
+
+struct Tagged {
+    name: String,
+    hits: Int
+}
+
+enum Shape {
+    case Dot,
+    case Square(side: Int)
+}
+
+struct Retained {
+    n: Int
+}
+
+extension Retained: Copy {
+    func copy(&self) -> Retained {
+        Retained(n: self.n + 1)
+    }
+}
+
+struct Label {
+    text: String
+}
+
+extension Label: Equatable {
+    func equals(&self, other: &Label) -> Bool {
+        self.text.len() == other.text.len()
+    }
+}
+
+extension Counter {
+    func take(&var self) consumes -> Int {
+        self.n
+    }
+}
+
+func sink(t: Tagged, n: Int) -> Int {
+    n
+}
+
+func forward<T>(value: T) -> T {
+    value
+}
+
+func operands(tag: Tagged, label: Label, other: Label, r: Retained, c: Counter) -> Int {
+    var count = tag.hits
+    count = count + 1
+    count += 2
+    let shape = Shape.Square(side: count)
+    let pair = (count, tag.hits)
+    let kept = forward(r)
+    let again = r
+    let built = Tagged(name: tag.name, hits: pair.0)
+    let same = label == other
+    let narrow = UInt8.from(truncating: count)
+    let wide = narrow as Int
+    print("count = {}", count)
+    let total = sink(built, wide) + (move c).take()
+    if same {
+        return total
+    }
+    total + kept.n + again.n
+}

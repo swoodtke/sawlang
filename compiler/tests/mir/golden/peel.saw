@@ -1,0 +1,8 @@
+// `??` against a nested Optional peels one layer, and keeps its left operand
+// whole when the default is an Optional of the same type.
+
+func peel(v: Vector<Int?>, o: Int?, p: Int?) -> Int {
+    let one: Int? = v.get(0) ?? None
+    let same: Int? = o ?? p
+    (one ?? 0) + (same ?? 0)
+}

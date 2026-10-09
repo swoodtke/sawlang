@@ -1,0 +1,49 @@
+// The operators that branch, each an explicit switch: `&&` and `||`, which
+// evaluate their right side only on the path the left leaves open; `??`
+// chains, taking the payload or the whole Optional; `try`, whose error
+// returns from the body; `try!`, whose payload read panics on an error;
+// `try?`; `if let`, `guard let` and `while let`.
+
+enum Fault {
+    case Broken
+}
+
+func check(n: Int) -> Bool {
+    n > 2
+}
+
+func parse(n: Int) -> Result<Int, Fault> {
+    if n < 0 {
+        return Fault.Broken
+    }
+    n
+}
+
+func logic(a: Int, b: Int) -> Bool {
+    check(a) && check(b) || a == b
+}
+
+func coalesce(first: Int?, second: Int?, last: Int) -> Int {
+    first ?? second ?? last
+}
+
+func coalesce_optional(first: Int?, second: Int?) -> Int? {
+    first ?? second
+}
+
+func tries(n: Int) -> Result<Int, Fault> {
+    let a = try parse(n)
+    let b = try! parse(a)
+    let c = try? parse(b)
+    if let d = c {
+        return d
+    }
+    guard let e = c else {
+        return 0
+    }
+    var o: Int? = e
+    while let f = o {
+        o = None
+    }
+    a + b
+}

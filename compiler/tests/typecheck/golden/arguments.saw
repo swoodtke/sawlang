@@ -1,0 +1,29 @@
+// How a call's written arguments bind its target's parameters (design 66),
+// the call record's `(bind ...)`: a label skipping a defaulted parameter, a
+// defaulted parameter left out, a construction's labels written out of field
+// order, a payload by label, and a binding one to one in order, which the
+// record leaves unsaid.
+
+struct Span {
+    start: Int,
+    end: Int
+}
+
+enum Shape {
+    case Rect(width: Int, height: Int),
+    case Dot
+}
+
+func connect(host: Int, port: Int = 80, retries: Int = 3) -> Int {
+    host + port + retries
+}
+
+func arguments() -> Int {
+    let a = connect(1, retries: 5)
+    let b = connect(host: 2)
+    let c = connect(3, 4, 5)
+    let s = Span(end: 9, start: 1)
+    let r = Shape.Rect(height: 2, width: 3)
+    let d = Shape.Dot
+    a + b + c + s.end
+}

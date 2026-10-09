@@ -1,0 +1,13 @@
+// refuses: capture.copy at 11:16
+// `[copy h]` of a NoCopy local, which has no copy
+
+struct Handle {
+    name: String
+}
+
+extension Handle: NoCopy {}
+
+func run(h: Handle) -> Int {
+    let f = { [copy h] k: Int in k + h.name.len() }
+    f(1)
+}
