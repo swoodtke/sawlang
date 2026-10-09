@@ -1544,6 +1544,8 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-449 | L21 An `Int` static as a bare operand against another width | loud (found by the new typecheck's widening golden) |
 | SL-450 | L22 An integer widened into an Optional argument or field | loud (found in the Air's typecheck probes) |
 | SL-451 | L23 Same-named methods in two extensions of one type | loud (found by the new typecheck's own source) |
+| SL-469 | S25 A consume of a capture in an escaping closure | silent (a ruling, which sawc2's typecheck refuses) |
+| SL-472 | S25 A write to a by-value capture | silent (a ruling, which sawc2's typecheck refuses) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
