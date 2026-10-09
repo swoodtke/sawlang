@@ -254,6 +254,9 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 
 ## Resolved
 
+### SL-469. An escaping closure that consumes a `move` capture is a compile error (Oct 9; the USER's ruling)
+An escaping closure is a shared, refcounted value, so a body that consumes an owned capture takes it from storage that other copies, later calls and the env's destructor still see: a double free in both compilers (DF-255a, V49). **Ruled by the user:** a consuming use of a `move` capture inside an escaping closure body is refused at compile time, with a hint toward the spellings that work: capture an `Optional` and `take()` it, pass the value as a parameter, or use a non-escaping closure. Non-escaping closures keep the take-once rule. The runtime once-flag (an atomic swap per consuming call, and a panic on the second) was rejected.
+
 ### W4. How a generic body names its type parameter's associated type (user, Oct 9): (a) `T.Item`
 A trait declares an associated type: `trait Container { type Item; func get(&self, i: Int) -> Item? }`. Inside the trait and its conformances, bare `Item` names it. The spec shows nothing for a generic function over the trait, which has to say "the `Item` of `T`":
 
