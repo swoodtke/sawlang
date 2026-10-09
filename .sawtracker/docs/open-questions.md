@@ -14,6 +14,19 @@ None right now.
 
 **D2–D21 were all accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. Nothing in this section is waiting for review.
 
+### D25. A call argument's loan spans the whole call expression, with a two-phase receiver reservation (Oct 9; U6d2, SL-460; the agent's m393)
+SL:architecture §3.6 says a `ref` loan lives until its last use. Under that rule alone, the spec's "Nested calls" refusals would be accepted: X45 `combine(bump(&var n), scale(&var n))`, where the first loan is dead before the second is taken, and X44 `p.total(reset(&var p))`, where the receiver's `ref` is taken after `reset` returns. The spec says both are errors: an argument's borrow extends over the whole call expression, nested calls included, and the receiver is borrowed for the whole call.
+
+**Decided:** the spec holds. §3.6's last-use rule is general, and the spec refines it for call operands.
+- A loan created for a call argument, at any nesting depth, lives to the outermost enclosing call's terminator.
+- A deferred receiver loan is reserved from the receiver's evaluation and activated at the call, as in Rust's two-phase borrows. While reserved it acts as a shared loan. Shared reads in the arguments stay legal (`v.push(v.len())`), and a write or exclusive borrow of an overlapping path conflicts (X44).
+- A `window_open` receiver is not reserved but fully live from receiver position (SL-473).
+- The reservation is an explicit MIR fact.
+
+**Rejected:** last-use extent only, which accepts X44/X45 as a spec divergence. It is sound, since no two references alias at run time, but it changes meaning the spec states.
+
+**Reversal:** drop the extent and the reservation from borrowck, then reword the spec's "Nested calls" paragraph. X44 and X45 flip to accepted.
+
 ### D24. String's sentinel check is a relaxed atomic load, not a plain one (Oct 9; SL-466; the Air's SL-456.p2 review)
 The spec's String section says a literal's sentinel refcount is checked with a "plain (non-atomic) load" before any atomic operation, and Stage 0 emits exactly that. The fact being read, "is this block immortal", never changes over a live block, so the result is right in practice. But in the C++/LLVM memory model a non-atomic load that races with another thread's atomic read-modify-write of the same word is a data race, and its result is `undef`. A relaxed (monotonic) atomic load compiles to the same instruction on every mainstream target and has no race.
 
