@@ -21,7 +21,7 @@ SL:architecture §3.6 says a `ref` loan lives until its last use. Under that rul
 - Per outermost call expression, every reference WRITTEN as & or &var anywhere in its argument list (nested calls included) keeps its loan to that call's terminator; a nested call's implicit receiver borrow does not join (so combine(n.get(), bump(&var n)) stays legal; the Air's m394).
 - A deferred receiver loan is reserved from the receiver's evaluation and activated at the call, as in Rust's two-phase borrows. While reserved it acts as a shared loan. Shared reads in the arguments stay legal (`v.push(v.len())`), and a write or exclusive borrow of an overlapping path conflicts (X44).
 - A `window_open` receiver is not reserved but fully live from receiver position (SL-473).
-- The reservation is an explicit MIR fact.
+- It is derived from U6d1's MIR source nodes, or an explicit MIR marker, whichever is exact.
 
 **Rejected:** last-use extent only, which accepts X44/X45 as a spec divergence. It is sound, since no two references alias at run time, but it changes meaning the spec states.
 
