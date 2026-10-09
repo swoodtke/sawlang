@@ -8,28 +8,11 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Waiting for the user (fundamental)
 
-### W4. How a generic body names its type parameter's associated type (Sep 30; the Air, SL-445.p1 review)
-A trait declares an associated type: `trait Container { type Item; func get(&self, i: Int) -> Item? }`. Inside the trait and its conformances, bare `Item` names it. The spec shows nothing for a generic function over the trait, which has to say "the `Item` of `T`":
-
-```saw
-func first<T: Container>(c: T) -> ??? { c.get(i: 0)! }
-```
-
-**Today:**
-- Stage 0 accepts bare `Item` there, resolved through `T`'s bound.
-- The new compiler has no spelling yet. Bare `Item` is not in scope. `T.Item` parses as an ordinary qualified type path, but resolve refuses it: "`Item` cannot be named through a path here". Stage 0 refuses it too, as "`T` is not a module qualifier here" (the Air, t9).
-- Usage: three corpus test programs, and nothing in std, Blade, libs or `compiler/`. So no real code depends on either answer, and the bootstrap doesn't wait on this.
-
-**The options:**
-- **(a) `T.Item`,** as in Swift (Rust writes `T::Item`). The reader sees which parameter the type belongs to, and it stays unambiguous with two parameters, or with two bounds that both declare `Item`. It needs no GRAMMAR change. It needs a resolve rule: a type path headed by a type parameter names the associated type its bounds declare, and an ambiguous or absent one is refused. Typecheck then needs a projection key.
-- **(b) Bare `Item`,** found through the bounds of the type parameters in scope, as Stage 0 does. An ambiguous name is refused. It is shorter, but a reader can't tell where `Item` comes from, and adding a bound elsewhere can make it ambiguous.
-- **(c) Both,** bare as a shorthand when it is unambiguous.
-
-**Recommendation: (a).** Reader-visibility trumps inference (the design doctrine), and `T.Item` matches the `Enum.Case` qualification the language already uses. The three corpus programs would be re-aimed.
-
-**Meanwhile:** resolve refuses the bare form as `slice.not-yet`, "an associated type named through a type parameter's bound", which no program in the bootstrap slice meets.
+None right now.
 
 ## Decided by the lead, for review (reversible)
+
+**D6–D21 were accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. D2–D5 remain for review.
 
 ### D21. Two typecheck readings from SL-447.p3's review (Sep 30; the Air)
 1. **A suspending implementation is refused where it is coerced to `any Trait`,** not where it is dispatched. Stage 0 refuses at the dispatch, so a coercion that is never dispatched is accepted by Stage 0 and refused by sawc2. Refusing at the coercion is sound, and it is the site a modular checker can see: the dispatch may be in another module. Decision 3 of U6b3 rests on it.
@@ -237,6 +220,29 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 - Both land when SL-426 is dispatched, before U4h.
 
 ## Resolved
+
+### W4. How a generic body names its type parameter's associated type (user, Oct 9): (a) `T.Item`
+A trait declares an associated type: `trait Container { type Item; func get(&self, i: Int) -> Item? }`. Inside the trait and its conformances, bare `Item` names it. The spec shows nothing for a generic function over the trait, which has to say "the `Item` of `T`":
+
+```saw
+func first<T: Container>(c: T) -> ??? { c.get(i: 0)! }
+```
+
+**Today:**
+- Stage 0 accepts bare `Item` there, resolved through `T`'s bound.
+- The new compiler has no spelling yet. Bare `Item` is not in scope. `T.Item` parses as an ordinary qualified type path, but resolve refuses it: "`Item` cannot be named through a path here". Stage 0 refuses it too, as "`T` is not a module qualifier here" (the Air, t9).
+- Usage: three corpus test programs, and nothing in std, Blade, libs or `compiler/`. So no real code depends on either answer, and the bootstrap doesn't wait on this.
+
+**The options:**
+- **(a) `T.Item`,** as in Swift (Rust writes `T::Item`). The reader sees which parameter the type belongs to, and it stays unambiguous with two parameters, or with two bounds that both declare `Item`. It needs no GRAMMAR change. It needs a resolve rule: a type path headed by a type parameter names the associated type its bounds declare, and an ambiguous or absent one is refused. Typecheck then needs a projection key.
+- **(b) Bare `Item`,** found through the bounds of the type parameters in scope, as Stage 0 does. An ambiguous name is refused. It is shorter, but a reader can't tell where `Item` comes from, and adding a bound elsewhere can make it ambiguous.
+- **(c) Both,** bare as a shorthand when it is unambiguous.
+
+**Recommendation: (a).** Reader-visibility trumps inference (the design doctrine), and `T.Item` matches the `Enum.Case` qualification the language already uses. The three corpus programs would be re-aimed.
+
+**Ruled (user, Oct 9): (a), `T.Item`.** Implementation is SL-453: a resolve rule naming the bound's associated type through a type-parameter-headed path, with ambiguous or absent ones refused, plus typecheck's projection key. Bare `Item` stays refused, and the three corpus programs are re-aimed.
+
+**Until SL-453 lands:** resolve refuses the bare form as `slice.not-yet`, "an associated type named through a type parameter's bound", which no program in the bootstrap slice meets.
 
 ### W3. An absent conditional write evaluates its right side (user, Sep 29): (a)
 **Ruling:** `borrow var v.find(9)?.value = loud(3)` calls `loud(3)` whether or not the place is present. Every assignment has one order: the right side first, then the left borrow. `?` skips only the write. The block form `if borrow var p = v.find(9) { p.value = loud(3) }` computes the value only when present.
