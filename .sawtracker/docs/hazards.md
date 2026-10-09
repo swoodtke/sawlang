@@ -1321,8 +1321,10 @@ run. Nothing reports it.
 
 **Shape:** Stage 0's `StringBuilder(bytes:capacity:)` fixed mode can write part
 of a multi-byte scalar when `append(scalar:)` reaches capacity, so the built
-`String` holds invalid UTF-8. This was found by reading the code, and no run
-probe exists yet.
+`String` holds invalid UTF-8. A run under Stage 0 confirms it: appending U+1F600
+to a 9-byte builder holding `abc` builds `abc`, then `F0 9F`, then the `…`
+marker. `append(scalar:)` writes the encoding one byte at a time, while
+`append(s:)` scans back to a boundary.
 
 **Instead:** size the scratch with room for a whole scalar (four bytes) beyond
 the text, or append whole strings, which cut on a boundary.
