@@ -14,6 +14,17 @@ None right now.
 
 **D2–D21 were all accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. Nothing in this section is waiting for review.
 
+### D23. Atomics are builtin intrinsics, and `Atomic<T>` is a `std/` type over them (Oct 9; U5b2, SL-456; the Air's c17)
+Under "the builtins should not be magic", String's retain hook is written in Saw in `std/`, and it needs atomic operations: a plain load, `add`/`sub` with an ordering, and a fence. Stage 0 synthesizes `__saw_atomic_*` (and `__saw_string_*`) as IR bodies, and `sawc/rt/ABI.md` says a runtime must not provide them.
+
+**Decided:** the synthetic builtin module gains a minimal set of atomic intrinsics, spelled as Stage 0's `__saw_atomic_*` helpers, so `rt/ABI.md` keeps one vocabulary. They are what no Saw source can declare, which is what the builtin module keeps under the ruling. They pull in no runtime, so they are freestanding-safe. `Atomic<T>`, where needed, is an ordinary `std/` type built on them.
+
+**Rejected:**
+- **`extern` declarations naming the synthesized helpers:** an extern claims a runtime provides the body, which ABI.md forbids for these.
+- **A lang-item function role per atomic op:** that would be a role with no Saw body.
+
+**Reversal:** expose atomics through a different spelling or layer. It changes only `std/`'s internals and the builtin table.
+
 ### D22. `case None` is declarable only in the Optional lang item (Oct 9; U5b1, SL-456)
 Under the user's ruling that "the builtins should not be magic", `std/prelude.saw` declares `Optional<T>` as an ordinary enum. But `None` is a keyword, and GRAMMAR's `syntax.decl.case` takes an IDENT, so `case None` doesn't parse.
 
