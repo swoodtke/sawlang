@@ -10,9 +10,9 @@
 //! refcount is atomic: a retain adds with relaxed ordering, a release
 //! subtracts with release ordering, and the release that reaches zero issues
 //! an acquire fence before it frees the block. A string literal is a static
-//! block whose refcount is `-1`. That count is read with a plain load before
-//! any atomic operation, so a literal is never retained, released or written,
-//! and a literal costs no allocation.
+//! block whose refcount is `-1`. That count is read with a relaxed atomic load
+//! before any atomic read-modify-write, so a literal is never retained,
+//! released or written, and a literal costs no allocation.
 
 // The String layer's blocks go straight to the runtime's allocation seams, as
 // Stage 0's synthesized helpers do, so a program whose only Strings are
@@ -271,12 +271,12 @@ func digit_value(b: Int) -> Int {
 extension String: Copy {
     /// Retains the block and returns a second reference to it.
     ///
-    /// A literal's block is immortal: its count is read with a plain load and
-    /// never written.
+    /// A literal's block is immortal: its count is read with a relaxed atomic
+    /// load and never written.
     public func copy(&self) unsafe -> String {
         let words = self.bytes as UnsafePointer<Int>
-        if words[REFCOUNT_SLOT] != IMMORTAL {
-            let count = (&words[REFCOUNT_SLOT]) as UnsafePointer<Int>
+        let count = (&words[REFCOUNT_SLOT]) as UnsafePointer<Int>
+        if __saw_atomic_load_i64_relaxed(count) != IMMORTAL {
             let _ = __saw_atomic_add_i64(count, 1)
         }
         String(bytes: self.bytes)
@@ -285,10 +285,12 @@ extension String: Copy {
     /// Releases the block, freeing it when this was the last reference.
     public func deinit(&var self) unsafe {
         let words = self.bytes as UnsafePointer<Int>
-        if words[REFCOUNT_SLOT] == IMMORTAL {
+        let count = (&words[REFCOUNT_SLOT]) as UnsafePointer<Int>
+        // Another thread's retain may race this read, so it is atomic
+        // (SL:open-questions D24).
+        if __saw_atomic_load_i64_relaxed(count) == IMMORTAL {
             return
         }
-        let count = (&words[REFCOUNT_SLOT]) as UnsafePointer<Int>
         let old = __saw_atomic_sub_i64_release(count, 1)
         if old < 1 {
             panic("String: over-release of a String reference (refcount underflow)")

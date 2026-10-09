@@ -1,0 +1,18 @@
+// refuses: mutability.immutable at 17:5
+// a `&var self` method reached through an inline array element of a `let`
+// root (conformance row M44)
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func bump(&var self) {
+        self.n += 1
+    }
+}
+
+func main() {
+    let a: [Counter; 2] = [Counter(n: 0), Counter(n: 1)]
+    a[0].bump()
+}

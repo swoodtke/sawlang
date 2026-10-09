@@ -1,0 +1,19 @@
+// refuses: transfer.partial-move at 18:13
+// `move p.a.b`, a nested path, is a part of a part
+
+struct Inner {
+    b: Vector<Int>
+}
+
+extension Inner: NoCopy {}
+
+struct Outer {
+    a: Inner
+}
+
+extension Outer: NoCopy {}
+
+func main() {
+    var p = Outer(a: Inner(b: Vector<Int>()))
+    let b = move p.a.b
+}

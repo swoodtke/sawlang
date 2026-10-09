@@ -1,0 +1,14 @@
+// refuses: type.reference-position at 13:17
+// an associated-type assignment naming a reference
+
+trait Source {
+    type Item
+}
+
+struct Numbers {
+    n: Int
+}
+
+extension Numbers: Source {
+    type Item = &Int
+}

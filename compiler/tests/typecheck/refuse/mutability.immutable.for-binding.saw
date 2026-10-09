@@ -1,0 +1,8 @@
+// refuses: mutability.immutable at 6:9
+// assigning a `for` loop's binding (conformance row M17)
+
+func main() {
+    for i in 0..3 {
+        i = 5
+    }
+}

@@ -1,0 +1,13 @@
+// refuses: mutability.immutable at 11:9
+// a `&self` method writing an inline `[T; N]` element of the receiver
+// (conformance row M42)
+
+struct Grid {
+    cells: [Int; 4]
+}
+
+extension Grid {
+    func mark(&self) {
+        self.cells[0] = 1
+    }
+}

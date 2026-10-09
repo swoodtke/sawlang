@@ -1,0 +1,7 @@
+// refuses: mutability.immutable at 6:5
+// compound-assigning a `let` local (conformance row M02)
+
+func main() {
+    let a = 1
+    a += 2
+}

@@ -1,0 +1,9 @@
+// refuses: type.reference-position at 8:8
+// a type alias laundering a reference into a struct field: the walk reads the
+// type the alias stands for (conformance row R20)
+
+type R = &Int
+
+struct Holder {
+    r: R
+}

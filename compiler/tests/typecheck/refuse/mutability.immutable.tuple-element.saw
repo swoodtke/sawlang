@@ -1,0 +1,7 @@
+// refuses: mutability.immutable at 6:5
+// writing a tuple element of a `let` (conformance row M09)
+
+func main() {
+    let t = (1, 2)
+    t.0 = 5
+}

@@ -1,0 +1,9 @@
+// refuses: mutability.immutable at 7:9
+// writing through a `borrow let` binding, which lends its place shared
+
+func main() {
+    var v: Vector<Int> = [1, 2]
+    borrow let slot = v[0] {
+        slot = 5
+    }
+}

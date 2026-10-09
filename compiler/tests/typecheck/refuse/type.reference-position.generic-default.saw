@@ -1,0 +1,6 @@
+// refuses: type.reference-position at 4:19
+// a generic parameter's default naming a reference
+
+struct Holder<T = &Int> {
+    value: Int
+}

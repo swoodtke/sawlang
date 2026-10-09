@@ -1,0 +1,11 @@
+// refuses: mutability.immutable at 10:15
+// `&var x` of a `let` (conformance row M03)
+
+func bump(n: &var Int) {
+    n += 1
+}
+
+func main() {
+    let x = 1
+    bump(&var x)
+}

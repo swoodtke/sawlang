@@ -1,0 +1,15 @@
+// refuses: mutability.immutable at 13:9
+// a `&self` `borrows` body writing a field in its epilogue (conformance row
+// M24)
+
+struct Grid {
+    cells: [Int; 4],
+    reads: Int
+}
+
+extension Grid {
+    func at(&self, i: Int) borrows -> &Int {
+        lend self.cells[i]
+        self.reads = self.reads + 1
+    }
+}

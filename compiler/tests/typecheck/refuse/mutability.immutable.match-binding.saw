@@ -1,0 +1,12 @@
+// refuses: mutability.immutable at 7:13
+// assigning a `match` arm's binding
+
+func f(o: Int?) -> Int {
+    match o {
+        case Some(x) -> {
+            x = 2
+            x
+        },
+        case None -> 0
+    }
+}

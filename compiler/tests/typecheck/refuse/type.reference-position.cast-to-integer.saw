@@ -1,0 +1,8 @@
+// refuses: type.reference-position at 7:14
+// `(&x) as Int`: only a cast to a raw pointer takes a bare `&` (conformance
+// row R29)
+
+func main() {
+    let x = 1
+    let n = (&x) as Int
+}

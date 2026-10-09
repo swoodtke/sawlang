@@ -613,6 +613,160 @@ and whether it duplicates the local. A function named is one of
 | a function type's parameter or result | refused | borrowing.containment.function-type |
 | a `for` head, a `borrow` head, a reference parameter | allowed | body_rules |
 
+## The safety matrices
+
+The rows of the three safety families (SL-462): each row a refusal fixture
+(`refuse/RULE.VARIANT`) or the golden program that allows it.
+
+**Mutability** (spec, Variables and Mutability: "Bindings always initialize";
+Reference Types). Every position that writes a place or borrows it
+exclusively reaches `place_verdict` (`compiler/typecheck/src/mutability.saw`),
+whose docstring names them: an assignment, a compound assignment, `&var`, a
+`&var self` receiver (the builtin `take()` and an array's `swap` too), `borrow
+var` (argument, block head, unwrap), an exclusive `lend`, the window of a
+`borrows` accessor opened exclusive, and a `[&var x]` capture. Under
+`mutability.immutable`:
+
+| row | verdict | covered by |
+|---|---|---|
+| assigning a `let` local | refused | mutability.immutable |
+| compound-assigning a `let` local | refused | mutability.immutable.compound |
+| `&var x` of a `let` | refused | mutability.immutable.exclusive-ref |
+| a field of a `let` struct | refused | mutability.immutable.field |
+| a tuple element of a `let` | refused | mutability.immutable.tuple-element |
+| a fixed-array element of a `let`, plain and compound, through a field | refused | mutability.immutable.array-element, mutability.immutable.array-element-compound |
+| a `Vector` element of a `let` root (an exclusive window) | refused | mutability.immutable.vector-element |
+| `m[k]! = v` on a `let` `Map` root | refused | mutability.immutable.map-force |
+| the payload of a `let` optional, `o!.n = v` | refused | mutability.immutable.optional-payload |
+| a hand-written accessor's window on a `let` root | refused | mutability.immutable.accessor-root |
+| a `&var self` method on a `let`, NoCopy and automatic Copy | refused | mutability.immutable.exclusive-receiver, mutability.immutable.copy-receiver |
+| `v.push` on a `let` Vector | refused | mutability.immutable.vector-push |
+| a `&var self` method through an inline array element of a `let` | refused | mutability.immutable.array-element-receiver |
+| the builtin `take()` on a `let` optional | refused | mutability.immutable.take |
+| a write through `&T`: compound, replacement, a `&var self` method | refused | mutability.immutable.shared-reference, mutability.immutable.shared-reference-replace, mutability.immutable.shared-reference-receiver |
+| a write through a closure's `&T` parameter | refused | mutability.immutable.shared-closure-parameter |
+| a write through a named accessor lending read-only, `-> &T` | refused | mutability.immutable.read-only-lend |
+| a write through a subscript lending read-only | refused | subscript.role.setitem |
+| `&self` writing a field, `self = v`, an inline array element | refused | mutability.immutable.shared-receiver, mutability.immutable.shared-self-replace, mutability.immutable.shared-receiver-array |
+| `&self` calling a `&var self` method on `self` or a field, projecting `&var self.f` | refused | mutability.immutable.shared-receiver-call, mutability.immutable.shared-receiver-field-call, mutability.immutable.shared-receiver-projection |
+| `&self` writing through a window on inline storage | refused | mutability.immutable.shared-receiver-window |
+| a `&self` `borrows` body writing a field in its epilogue | refused | mutability.immutable.shared-receiver-epilogue |
+| a `[&self]` capture's write in a `&var self` method | refused | mutability.immutable.shared-capture-self |
+| a `for` loop's, an `if let`'s, a `guard let`'s, a `match` arm's binding | refused | mutability.immutable.for-binding, mutability.immutable.if-let, mutability.immutable.guard-let, mutability.immutable.match-binding |
+| a `let` destructuring's binding, a closure's parameter | refused | mutability.immutable.destructure, mutability.immutable.closure-parameter |
+| a `borrow let` binding | refused | mutability.immutable.borrow-let |
+| a `let` declared in a loop body, assigned in the loop | refused | mutability.immutable.loop-let |
+| a parameter taken by value | refused | mutability.immutable.parameter |
+| a by-value capture, and a field of one | refused | mutability.immutable.value-capture, mutability.immutable.value-capture-field |
+| a `[&x]` capture's write | refused | mutability.immutable.shared-capture |
+| `[&var x]` of a `let` | refused | mutability.immutable.exclusive-capture |
+| a plain `static` | refused | mutability.immutable.static |
+| a `var`, its fields and elements; `&var` of one; a `&var self` method on one | allowed | mutability |
+| `r = v` and `r += v` through a `&var` parameter (design 110), and its reborrow `&var r` | allowed | mutability |
+| `self = v` and field writes under `&var self` | allowed | mutability |
+| writes to `self.f` in a `consumes` body | allowed | mutability |
+| a `let` declared in a loop body, taking a fresh value each iteration | allowed | mutability |
+| `var` destructuring, `if var`, `guard var`, `borrow var` | allowed | mutability |
+| a `[&var x]` capture's write | allowed | mutability |
+| an `unsafe static var` | allowed | mutability |
+| a raw pointer's pointee, through a `let` pointer or a `&self` receiver | allowed | mutability |
+| `&self` writing storage the receiver points at: a `Vector` field's element, nested, a `&var self` method of one, a hand-written accessor lending out of a `Vector`, a prologue write in a `&self` `borrows` body (design 200) | allowed | mutability |
+| a `&self` `borrows` body writing through any window on `self`, inline storage's included (design 200; rows M33, K125) | allowed | mutability |
+| a `var` parameter | none: the grammar has no `var` parameter | |
+| an interior cell's `&self` method on a `let` (`Atomic`, `Mutex`, `SpinLock`) | allowed: a `&self` method borrows shared, so no row reaches the funnel; the cells' constructions are `slice.not-yet` | |
+
+**Reference positions** (spec, Reference Types: "References cannot escape").
+Every outermost written type passes `reference_position_of`
+(`compiler/typecheck/src/refpositions.saw`), whose docstring names the
+written positions; the walk reads the type an alias stands for and stops at a
+function type, whose own nodes answer. Under `type.reference-position`:
+
+| row | verdict | covered by |
+|---|---|---|
+| a free function's, a method's, a requirement's, an extern's return | refused | type.reference-position.return, type.reference-position.method-return, type.reference-position.requirement-return, type.reference-position.extern-return |
+| a function type's return, written as a parameter's or a field's type | refused | type.reference-position.function-type-return, type.reference-position.field-function-type |
+| a return naming one in a tuple, an optional (`&Int?`), a type argument | refused | type.reference-position.return-tuple, type.reference-position.return-optional, type.reference-position.return-vector |
+| a struct field, an enum payload, a static | refused | type.reference-position.field, type.reference-position.payload, type.reference-position.static |
+| an exclusive field of a borrowing struct | refused | type.reference-position.borrowing-field |
+| a type argument, in a parameter's type too: `Vector`, `Map`'s value, `Optional<&T>` written, `Box`, nested | refused | type.reference-position.type-argument, type.reference-position.map-value, type.reference-position.optional-written, type.reference-position.box, type.reference-position.nested-generic |
+| a type argument written at a call, `idn<&Int>(&x)` | refused | type.reference-position.explicit-instantiation |
+| an alias used as a field's or a return's type | refused | type.reference-position.alias-field, type.reference-position.alias-return |
+| an associated-type assignment, a generic parameter's default | refused | type.reference-position.associated-type, type.reference-position.generic-default |
+| a `let` annotation | refused | type.reference-position.local-annotation |
+| a reference inside a `borrows` lend, `&(Int, &Int)` | refused | type.reference-position.lend-nested |
+| `let r = &x`, `var r = &var x`: a bare `&` bound | refused | type.reference-position, type.reference-position.exclusive-binding |
+| a bare `&` in an array literal, a tuple literal, an operator's operand, a closure's tail, a cast to an integer | refused | type.reference-position.array-literal, type.reference-position.tuple-literal, type.reference-position.operand, type.reference-position.closure-return, type.reference-position.cast-to-integer |
+| a binding whose inferred type names a reference | refused | type.reference-position.inferred-binding |
+| a generic instantiated at a reference by inference | refused | type.reference-position.instantiation |
+| a bare trait behind a reference, `&Shape` | refused | type.not-a-type.trait |
+| a parameter: `&T`, `&var T`, `&[T]`, `&any Trait`, an alias of a reference, an extern's | allowed | reference_positions |
+| a function type's parameter, `(&Int) sync -> R` | allowed | reference_positions |
+| a `borrows` lend: `-> &T`, `-> &var T`, `-> &var T?` (SL:borrowing §2) | allowed | reference_positions |
+| a borrowing struct's shared field (spec, Borrowing structs; `borrowing.containment` keeps its values in their window) | allowed | reference_positions |
+| a type alias standing for a reference | allowed | reference_positions |
+| a bare `&` as a call argument, and as the operand of a cast to a raw pointer (DF-163f) | allowed | reference_positions |
+| a reference read through a binding into an unannotated `let` or a closure's inferred result, which gives the value | allowed | reference_positions |
+| a generic whose parameter is `&T`, called with `&x`, which solves `T` to the referent | allowed | reference_positions |
+
+**Field move-out** (spec, "NO partial moves"; Moving a field out). Checked as
+the walk meets a `move` (`check_whole_move`):
+
+| row | verdict | covered by |
+|---|---|---|
+| `move h.v`, a struct field | refused | transfer.partial-move |
+| `move t.0`, a tuple element | refused | transfer.partial-move.tuple-element |
+| `move h.s!`, an optional field's payload | refused | transfer.partial-move.payload |
+| `move v[i]` on a `Vector`, on a fixed array | refused | transfer.partial-move.vector-element, transfer.partial-move.array-element |
+| `move p.a.b`, a nested path | refused | transfer.partial-move.nested |
+| `move r.f` through `r: &var S`, in a `consumes` body | refused | transfer.partial-move.through-reference |
+| `move self.a.b` in a `consumes` body | refused | transfer.partial-move.consumes-nested |
+| `move self.f` outside a `consumes` body | refused | consumes.move-self |
+| `move r` of a reference binding, `&var` and `&` | refused | transfer.move-from-borrow, transfer.move-from-borrow.shared |
+| `move` of a pattern binding that aliases a borrowed scrutinee's part, through a reference or `self` | refused | transfer.move-from-borrow.match-payload, transfer.move-from-borrow.match-self |
+| `move` of a closure's reference parameter | refused | transfer.move-from-borrow.closure-parameter |
+| a whole binding, `move o!`, `move self.f` in a `consumes` body, `move buf[i]` through a raw pointer | allowed | field_moves |
+
+## The conformance rows
+
+The rows of `examples/conformance/INDEX.md`'s Mutability and References
+sections, and V03–V05, V31, V60–V62, V68 and V70 of its Moves section, each
+with what covers it here; `compiler/tests/borrowck/CONFORMANCE.md` names the
+same fixtures. `m.` abbreviates `refuse/mutability.immutable.`, `r.`
+`refuse/type.reference-position.`, `p.` `refuse/transfer.partial-move.` and
+`b.` `refuse/transfer.move-from-borrow.`; a bare name is the rule's own
+fixture.
+
+| rows | covered by |
+|---|---|
+| M01, M02, M03, M04, M05 | `m` (bare), `m.compound`, `m.exclusive-ref`, `m.field`, `m.exclusive-receiver` |
+| M06, M07, M08, M09 | `m.vector-push`, `m.array-element`, `m.vector-element`, `m.tuple-element` |
+| M10, M11, M12 | `m.shared-reference`, `m.shared-reference-replace`, `m.shared-reference-receiver` |
+| M13, M14, M15, M16 | `m.shared-receiver`, `m.shared-receiver-call`, `m.shared-receiver-field-call`, `m.shared-receiver-projection` |
+| M17, M18, M19, M20, M21 | `m.for-binding`, `m.if-let`, `m.parameter`, `m.value-capture`, `m.value-capture-field` |
+| M22, M23, M24, M25, M26 | `m.accessor-root`, `m.shared-closure-parameter`, `m.shared-receiver-epilogue`, `m.map-force`, `m.copy-receiver` |
+| M27 | `slice.not-yet` (a method call on `any Trait`); an interior cell's `&self` method borrows shared, which no row of the funnel asks about |
+| M28, M32, M33, M34, M35, M41 | accepted: golden `mutability` (the heap carve-out through a subscript, nested and through a hand-written accessor; a prologue write through a heap window; writes under `&var self`) |
+| M29 | accepted: golden `mutability`, `borrow_arguments` |
+| M30, M31, M36, M37 | `m.static`, `m.shared-receiver-window`, `m.shared-capture-self`, `m.array-element` and `m.array-element-compound` |
+| M38 | the borrow check (U6d2) |
+| M39, M40 | `slice.not-yet` (`syntax.stmt.optional-assign`) |
+| M42, M43, M44 | `m.shared-receiver-array`, `m.optional-payload`, `m.array-element-receiver` |
+| R01, R02, R03, R04, R05 | `r.return`, `r.method-return`, `r.requirement-return`, `r.extern-return`, `r.function-type-return` |
+| R06, R07, R08, R09, R10 | `r.return-tuple`, `r.return-optional`, `r.return-vector`, `r.field`, `r.payload` |
+| R11, R12, R13, R14, R15 | `r` (bare), `r.exclusive-binding`, `r.type-argument` and `r.local-annotation`, `r.explicit-instantiation`, `r.closure-return` |
+| R16, R17, R18, R19, R20, R21 | `r.array-literal`, `r.tuple-literal`, `r.map-value`, `r.static`, `r.alias-field`, `r.alias-return` |
+| R22, R23 | `capture.escaping-borrow` and `capture.escaping-borrow.explicit`: a closure bound to a `let` or passed to an escaping parameter, the `[&x]` spelling |
+| R24, R25 | `slice.not-yet` (`TaskGroup.spawn`, task-group-spawn): due when spawn enters the slice |
+| R26, R27, R29, R31, R32, R34 | `r.optional-written`, `r.nested-generic`, `r.cast-to-integer`, `r.operand`, `r.box`, `r.field-function-type` |
+| R28, R30, R33 | accepted: golden `reference_positions` (the pointer cast, the `borrows` lends), `captures` (a non-escaping borrow capture) |
+| V03, V04 | `b` (bare), `b.shared` |
+| V05, V31 | `p` (bare), `p.vector-element` |
+| V60, V61, V62 | `b.match-payload`, `b.match-self`, `b.match-payload` (a Copy-tier payload) |
+| V68, V70 | `b.closure-parameter` |
+
+That is 44 M rows, 34 R rows and 9 V rows: 71 refused here, 10 accepted
+here, 5 answered by `slice.not-yet` and 1 by the borrow check.
+
 ## Refusals
 
 Each rule's fixture is `refuse/RULE.saw`, or `refuse/RULE.VARIANT.saw` for one
@@ -662,6 +816,10 @@ says what the fixture shows.
 | `call.field-method-ambiguous` | `h.f(x)` where `f` names both a field holding a function and a method this module sees, with the fix-it `let g = h.f; g(x)` (D16) |
 | `infer.failed` | a type argument nothing determines or two arguments disagree on; `None` or an empty literal with nothing expected, though not one whose slot holds a type already refused, which adopts the error type |
 | `implicit-member.no-type` | an implicit member where nothing expects a type, with the `Enum.Case` fix-it |
+| `mutability.immutable` | a write or an exclusive borrow of a place nothing makes writable: rooted in a `let`, a pattern's, a `for` loop's or a closure parameter's binding, a parameter taken by value, a plain `static`, `self` under `&self`, a binding a closure captured by value or by shared borrow, or reached through a shared reference or a read-only lend (the mutability matrix) |
+| `type.reference-position` | a reference where a type is stored, returned or bound: every written position but a parameter, a function type's parameter, a `borrows` lend and a borrowing struct's shared field, at any depth; a bare `&` outside a call argument or a pointer cast; a binding inferred to name one; a call instantiated at one (the reference-position matrix) |
+| `transfer.partial-move` | a spelled `move` of a part of a binding: a field, a tuple element, an element, an optional field's payload, at any depth (the field move-out matrix) |
+| `transfer.move-from-borrow` | a spelled `move` of a binding that owns nothing: a reference, a closure's reference parameter, a pattern's binding aliasing a part of a borrowed scrutinee (spec, Reference Semantics; DF-288a) |
 | `transfer.implicit-copy` | an ExplicitCopy or NoCopy place read by value with no `move`, payload reads included (design 131), and a projection's (`T.Item` in a generic body, a trait's own `Item` in its default bodies); a closure's capture of one by value with nothing written, with the fix-it `[move x]` |
 | `capture.copy` | `[copy x]` of a NoCopy binding, which has no copy |
 | `capture.escaping-borrow` | a borrow of the enclosing frame, `[&x]`, `[&var x]`, a reference parameter or `self`, captured by a closure that escapes: anything but one passed straight to a parameter whose function type does not say `escaping` (spec, Capturing `self` and reference parameters) |

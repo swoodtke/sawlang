@@ -1,0 +1,14 @@
+// refuses: transfer.partial-move at 13:13
+// `move h.v` takes a field out of a struct binding (conformance row V05)
+
+struct Holder {
+    v: Vector<Int>,
+    n: Int
+}
+
+extension Holder: NoCopy {}
+
+func main() {
+    var h = Holder(v: Vector<Int>(), n: 1)
+    let v = move h.v
+}

@@ -1,0 +1,11 @@
+// refuses: mutability.immutable at 10:12
+// `[&var r]` of a shared reference parameter: the capture borrows through the
+// reference, which never writes
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func peek(r: &Int) -> Int {
+    run({ [&var r] in r })
+}

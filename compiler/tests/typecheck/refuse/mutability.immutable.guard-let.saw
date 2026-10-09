@@ -1,0 +1,10 @@
+// refuses: mutability.immutable at 8:5
+// assigning a `guard let` binding
+
+func f(o: Int?) -> Int {
+    guard let x = o else {
+        return 0
+    }
+    x = 2
+    x
+}

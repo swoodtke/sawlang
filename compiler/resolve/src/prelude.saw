@@ -58,6 +58,7 @@ public func res_declare_synthetic_builtins(p: &var ResProgram) {
         p.builtin_function("__saw_atomic_add_i64")
         p.builtin_function("__saw_atomic_sub_i64_release")
         p.builtin_function("__saw_atomic_fence_acquire")
+        p.builtin_function("__saw_atomic_load_i64_relaxed")
     }
 }
 

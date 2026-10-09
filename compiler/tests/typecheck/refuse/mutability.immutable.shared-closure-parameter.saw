@@ -1,0 +1,11 @@
+// refuses: mutability.immutable at 10:32
+// a write through the `&T` a callback hands its closure (conformance row
+// M23)
+
+func with_ref(n: Int, body: (&Int) -> Int) -> Int {
+    body(&n)
+}
+
+func main() {
+    let r = with_ref(1, { e in e = 9; e })
+}

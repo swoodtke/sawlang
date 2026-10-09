@@ -1,0 +1,527 @@
+// References are parameters only (spec, Reference Types: "References cannot
+// escape"): a `&T` or `&var T` borrows storage for one call, which is what
+// lets the borrow check stay inside a function (SL:architecture §3.6). Every
+// position that stores, returns or binds a type refuses one, reading what the
+// type names once aliases are resolved, and stopping at a function type,
+// whose parameters take references and whose return answers for itself. The
+// rows are compiler/tests/typecheck/README.md's reference-position matrix.
+
+import sawparse.src.grammar.{Alt}
+import sawparse.src.tree.{AstNode}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.kinds.{res_is_type_alt}
+import sawresolve.src.model.{ResDeclKind, ResModule}
+import sawtypecheck.src.adjust.{TC_FIT_EXACT}
+import sawtypecheck.src.checks.{tc_check_unsafe}
+import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_FLAG_BORROWS_STRUCT, TcCall, TcRole, TcUse}
+import sawtypecheck.src.mutability.{tc_check_mutability}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind, TcType}
+
+// Runs every reference-position check over the modules checked in full.
+public func tc_check_reference_positions(p: &var TcProgram) {
+    p.check_reference_positions()
+}
+
+// Where a written type stands, which says what it may name.
+enum TcRefPosition {
+    // The written type stands inside another one, whose position answers.
+    case Inner,
+    case Parameter,
+    case FunctionTypeParameter,
+    case Return,
+    case Lend,
+    case FunctionTypeReturn,
+    case Field,
+    case BorrowingField,
+    case Payload,
+    case Static,
+    case Alias,
+    case AssociatedType,
+    case GenericDefault,
+    case Local,
+    case Cast,
+    case TypeArgument,
+    case Other
+}
+
+// What may stand at the top of a position's type: nothing, any reference (a
+// parameter), a lend (`&T`, `&var T`, `&[T]`, `&[T]?`), or a shared reference
+// (a borrowing struct's field).
+enum TcRefAllow {
+    case Nothing,
+    case AnyReference,
+    case Lend,
+    case SharedReference
+}
+
+// The part of a type a reference was found in.
+enum TcRefWithin {
+    case Top,
+    case Referent,
+    case TypeArgument,
+    case OptionalPayload,
+    case TupleElement,
+    case ArrayElement
+}
+
+// The first reference a type names, and the part it stands in; `ty` -1 for
+// none.
+struct TcRefHit {
+    ty: Int
+    within: TcRefWithin
+}
+
+extension TcProgram {
+    // THE reference-position funnel, `reference_position_of`: every type a
+    // module checked in full writes is judged at its outermost node, by the
+    // position the node's parent gives it. The written positions:
+    //
+    // ENTRY POINTS (reference_position_of):
+    //     a function's, method's, init's, requirement's or extern's parameter
+    //     a closure's parameter
+    //     a function type's parameter and its return
+    //     a function's, method's, init's, requirement's or extern's return
+    //     a `borrows` function's lend
+    //     a struct field, a borrowing struct's field, an enum payload
+    //     a static, a type alias, an associated-type assignment
+    //     a generic parameter's default
+    //     a `let` or `var` annotation, a cast's target
+    //     a type argument written at a call or a construction
+    //
+    // The inferred positions are the expression `&` outside a call argument
+    // (check_reference_expressions), a binding (check_reference_bindings), a
+    // closure's result (bodies.saw, closure_typed) and a call's
+    // instantiation (check_reference_instantiations).
+    public func check_reference_positions(&var self) {
+        let n = self.res.nodes.len()
+        var parents = Vector<Int>()
+        var decl_of_node = Vector<Int>()
+        var k = 0
+        while k < n {
+            try! parents.push(-1)
+            try! decl_of_node.push(-1)
+            k = k + 1
+        }
+        k = 0
+        while k < n {
+            let count = self.child_count(k)
+            var j = 0
+            while j < count {
+                let c = self.child(k, j)
+                parents[c] = k
+                j = j + 1
+            }
+            k = k + 1
+        }
+        k = 0
+        while k < self.res.decls.len() {
+            let node = self.res.decls[k].node
+            if node >= 0 {
+                decl_of_node[node] = k
+            }
+            k = k + 1
+        }
+        let skipped = self.outside_slice_marks(n)
+        var m = 0
+        while m < self.res.modules.len() {
+            let info = self.res.modules[m]
+            m = m + 1
+            if not info.available || info.interface_only {
+                continue
+            }
+            let module = m - 1
+            self.check_written_types(module, info.node_base, info.node_count, &parents, &decl_of_node, &skipped)
+            self.check_reference_expressions(module, info.node_base, info.node_count, &parents, &skipped)
+            self.check_reference_bindings(module, info.node_base, info.node_count, &parents, &skipped)
+        }
+        self.check_reference_instantiations(&skipped)
+    }
+
+    // Each outermost written type of module `m`'s nodes.
+    func check_written_types(&var self, m: Int, base: Int, count: Int, parents: &Vector<Int>,
+                             decl_of_node: &Vector<Int>, skipped: &Vector<Bool>) {
+        var id = base
+        while id < base + count {
+            let at = id
+            id = id + 1
+            let t = self.node_types[at]
+            if t < 0 || self.type_builds[at] == 0 || skipped[at] {
+                continue
+            }
+            let pos = self.reference_position_of(at, &parents, &decl_of_node)
+            if pos == TcRefPosition.Inner {
+                continue
+            }
+            let hit = self.reference_in(t, tc_ref_allow(pos), true, TcRefWithin.Top)
+            if hit.ty < 0 {
+                continue
+            }
+            if pos == TcRefPosition.BorrowingField && hit.within == TcRefWithin.Top {
+                var msg = StringBuilder()
+                try! msg.append("a borrowing struct's field holds a shared reference only, and `")
+                try! msg.append(self.type_text(t))
+                try! msg.append("` is exclusive: a window is shared, and an exclusive field could reallocate the storage another reader walks; lend it shared, with `&`")
+                self.refuse_in(m, at, "type.reference-position", msg.build())
+            } else {
+                self.refuse_reference(m, at, t, hit, tc_ref_position_text(pos))
+            }
+        }
+    }
+
+    // The position written type node `at` stands in, read off its parent.
+    func reference_position_of(&self, at: Int, parents: &Vector<Int>, decl_of_node: &Vector<Int>) -> TcRefPosition {
+        let p = parents[at]
+        if p < 0 {
+            return TcRefPosition.Other
+        }
+        if self.has_alt(p, Alt.Type_Func) {
+            if self.res.last_node_child(p) == at {
+                return TcRefPosition.FunctionTypeReturn
+            }
+            return TcRefPosition.FunctionTypeParameter
+        }
+        if self.has_alt(p, Alt.Type_FuncParams) {
+            return TcRefPosition.FunctionTypeParameter
+        }
+        if res_is_type_alt(self.node_alt(p)) {
+            return TcRefPosition.Inner
+        }
+        if self.has_alt(p, Alt.Decl_Param_Plain) || self.has_alt(p, Alt.Decl_Param_Default) || self.has_alt(p, Alt.Decl_ExternParam) || self.has_alt(p, Alt.Expr_ClosureParam_Value) || self.has_alt(p, Alt.Expr_ClosureParam_Ref) || self.has_alt(p, Alt.Expr_ClosureParam_RefExclusive) {
+            return TcRefPosition.Parameter
+        }
+        if self.has_alt(p, Alt.Decl_PayloadField) {
+            return TcRefPosition.Payload
+        }
+        if self.has_alt(p, Alt.Generic_Param_Type) {
+            return TcRefPosition.GenericDefault
+        }
+        if self.has_alt(p, Alt.Stmt_Let_Immutable) || self.has_alt(p, Alt.Stmt_Let_Mutable) {
+            return TcRefPosition.Local
+        }
+        if self.has_alt(p, Alt.Expr_Cast) {
+            return TcRefPosition.Cast
+        }
+        let d = decl_of_node[p]
+        if d >= 0 {
+            let kind = self.res.decls[d].kind
+            if kind == ResDeclKind.Func || kind == ResDeclKind.Method || kind == ResDeclKind.Init || kind == ResDeclKind.Requirement || kind == ResDeclKind.Extern {
+                if (self.sigs[d].effects & TC_EFFECT_BORROWS) != 0 {
+                    return TcRefPosition.Lend
+                }
+                return TcRefPosition.Return
+            }
+            if kind == ResDeclKind.Field {
+                let owner = self.res.decls[d].parent
+                if owner >= 0 && (self.sigs[owner].flags & TC_FLAG_BORROWS_STRUCT) != 0 {
+                    return TcRefPosition.BorrowingField
+                }
+                return TcRefPosition.Field
+            }
+            if kind == ResDeclKind.Static {
+                return TcRefPosition.Static
+            }
+            if kind == ResDeclKind.Alias {
+                return TcRefPosition.Alias
+            }
+            if kind == ResDeclKind.TypeAssign {
+                return TcRefPosition.AssociatedType
+            }
+            return TcRefPosition.Other
+        }
+        if self.has_alt(p, Alt.Expr_Name) || self.has_alt(p, Alt.Expr_Member) || self.is_call_alt_node(p) {
+            return TcRefPosition.TypeArgument
+        }
+        TcRefPosition.Other
+    }
+
+    func is_call_alt_node(&self, e: Int) -> Bool {
+        self.has_alt(e, Alt.Expr_Call_Paren) || self.has_alt(e, Alt.Expr_Call_ParenTrailing) || self.has_alt(e, Alt.Expr_TrailingCall)
+    }
+
+    // The first reference type `t` names, `allow` saying what may stand at
+    // its top. A function type answers for itself.
+    func reference_in(&self, t: Int, allow: TcRefAllow, top: Bool, within: TcRefWithin) -> TcRefHit {
+        if t < 0 {
+            return tc_no_reference()
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Ref || info.kind == TcKind.Slice {
+            let shared = info.a == 0
+            let allowed = top && (allow == TcRefAllow.AnyReference || allow == TcRefAllow.Lend || (allow == TcRefAllow.SharedReference && shared && info.kind == TcKind.Ref))
+            if allowed {
+                return self.reference_in(info.b, TcRefAllow.Nothing, false, TcRefWithin.Referent)
+            }
+            return TcRefHit(ty: t, within: within)
+        }
+        if info.kind == TcKind.Func || info.kind == TcKind.Error {
+            return tc_no_reference()
+        }
+        if info.kind == TcKind.Array {
+            return self.reference_in(info.b, TcRefAllow.Nothing, false, TcRefWithin.ArrayElement)
+        }
+        if info.kind != TcKind.Nominal && info.kind != TcKind.Tuple {
+            return tc_no_reference()
+        }
+        let optional = info.kind == TcKind.Nominal && info.decl == self.known.optional
+        var k = 0
+        while k < info.count {
+            let arg = self.types.arg(t, k)
+            k = k + 1
+            if optional && top && allow == TcRefAllow.Lend && self.kind_of(arg) == TcKind.Slice {
+                let lent = self.types.ty(arg)
+                let inner = self.reference_in(lent.b, TcRefAllow.Nothing, false, TcRefWithin.Referent)
+                if inner.ty >= 0 {
+                    return inner
+                }
+                continue
+            }
+            var part = TcRefWithin.TypeArgument
+            if optional {
+                part = TcRefWithin.OptionalPayload
+            } else if info.kind == TcKind.Tuple {
+                part = TcRefWithin.TupleElement
+            }
+            let hit = self.reference_in(arg, TcRefAllow.Nothing, false, part)
+            if hit.ty >= 0 {
+                return hit
+            }
+        }
+        tc_no_reference()
+    }
+
+    // A bare `&` or `&var` is a call argument, or the operand of a cast to a
+    // raw pointer, the one crossing into the unsafe tier (DF-163f); anywhere
+    // else it would outlive the call it borrows for.
+    func check_reference_expressions(&var self, m: Int, base: Int, count: Int, parents: &Vector<Int>,
+                                     skipped: &Vector<Bool>) {
+        var id = base
+        while id < base + count {
+            let at = id
+            id = id + 1
+            let shared = self.has_alt(at, Alt.Expr_Ref_Shared)
+            if skipped[at] || (not shared && not self.has_alt(at, Alt.Expr_Ref_Exclusive)) {
+                continue
+            }
+            if self.expr_types[at] < 0 || self.argument_position(at, &parents) {
+                continue
+            }
+            var msg = StringBuilder()
+            if shared {
+                try! msg.append("`&`")
+            } else {
+                try! msg.append("`&var`")
+            }
+            try! msg.append(" here is not a call argument, and references are parameters only: a reference borrows storage for the duration of one call and may not be stored, returned or bound; pass it straight to a reference parameter, or, to hand out storage a value already owns, declare a `borrows` accessor")
+            self.refuse_in(m, at, "type.reference-position", msg.build())
+        }
+    }
+
+    // Whether the `&` at `at` is a call's argument or a pointer cast's
+    // operand, parentheses aside.
+    func argument_position(&self, at: Int, parents: &Vector<Int>) -> Bool {
+        var child = at
+        var p = parents[at]
+        while p >= 0 && self.has_alt(p, Alt.Expr_Paren) {
+            child = p
+            p = parents[p]
+        }
+        if p < 0 {
+            return false
+        }
+        if self.has_alt(p, Alt.Expr_Argument_Positional) || self.has_alt(p, Alt.Expr_Argument_Labelled) {
+            return true
+        }
+        if self.is_call_alt_node(p) || self.has_alt(p, Alt.Expr_Subscript_Single) || self.has_alt(p, Alt.Expr_Subscript_Multi) {
+            return self.res.first_node_child(p) != child
+        }
+        if self.has_alt(p, Alt.Expr_Cast) {
+            let cast = self.expr_types[p]
+            if cast < 0 {
+                return false
+            }
+            let info = self.types.ty(cast)
+            return info.kind == TcKind.Nominal && (info.decl == self.known.unsafe_pointer || info.decl == self.known.unsafe_const_pointer)
+        }
+        false
+    }
+
+    // A binding whose type names a reference, inferred from its value: a
+    // reference read through a binding gives the value (spec, Reference
+    // Semantics), so only a value that builds a reference into a tuple or a
+    // generic reaches this. A `let x = &y` is the `&`'s refusal.
+    func check_reference_bindings(&var self, m: Int, base: Int, count: Int, parents: &Vector<Int>,
+                                  skipped: &Vector<Bool>) {
+        var id = base
+        while id < base + count {
+            let at = id
+            id = id + 1
+            if skipped[at] || (not self.has_alt(at, Alt.Stmt_BindingName) && not self.has_alt(at, Alt.Pat_Name)) {
+                continue
+            }
+            let t = self.expr_types[at]
+            let u = self.expr_use[at]
+            if t < 0 || u == TcUse.Borrow || u == TcUse.BorrowVar {
+                continue
+            }
+            let hit = self.reference_in(t, TcRefAllow.Nothing, true, TcRefWithin.Top)
+            if hit.ty < 0 || self.bound_from_reference_expression(at, &parents) {
+                continue
+            }
+            self.refuse_reference(m, at, t, hit, "a binding")
+        }
+    }
+
+    // Whether binding `at` is a `let` whose type a written annotation gives,
+    // or whose value is a bare `&`, each refused where it is written.
+    func bound_from_reference_expression(&self, at: Int, parents: &Vector<Int>) -> Bool {
+        let p = parents[at]
+        if p < 0 || not (self.has_alt(p, Alt.Stmt_Let_Immutable) || self.has_alt(p, Alt.Stmt_Let_Mutable)) {
+            return false
+        }
+        let n = self.child_count(p)
+        var k = 0
+        while k < n {
+            let c = self.child(p, k)
+            k = k + 1
+            if not self.is_leaf(c) && res_is_type_alt(self.node_alt(c)) {
+                return true
+            }
+        }
+        var value = self.res.last_node_child(p)
+        while value >= 0 && self.has_alt(value, Alt.Expr_Paren) {
+            value = self.res.first_node_child(value)
+        }
+        value >= 0 && (self.has_alt(value, Alt.Expr_Ref_Shared) || self.has_alt(value, Alt.Expr_Ref_Exclusive))
+    }
+
+    // A call whose type arguments, its own or its owner's, name a reference:
+    // a generic holds its argument as storage, so `idn(r)` instantiated at
+    // `&Int` would hand the reference back out.
+    func check_reference_instantiations(&var self, skipped: &Vector<Bool>) {
+        var k = 0
+        while k < self.calls.len() {
+            let c = self.calls[k]
+            k = k + 1
+            if c.target < 0 || skipped[c.node] || c.role == TcRole.BuiltinOperator || c.role == TcRole.Builtin || c.role == TcRole.Value {
+                continue
+            }
+            let m = self.node_module(c.node)
+            if m < 0 || self.is_interface(m) || self.writes_type_arguments(c.node) {
+                continue
+            }
+            var found = -1
+            var j = 0
+            while j < c.inst_count && found < 0 {
+                let arg = self.insts[c.inst_first + j]
+                let hit = self.reference_in(arg, TcRefAllow.Nothing, true, TcRefWithin.Top)
+                found = hit.ty
+                j = j + 1
+            }
+            if found < 0 && c.owner >= 0 {
+                let owner = self.types.ty(c.owner)
+                if owner.kind == TcKind.Nominal {
+                    let hit = self.reference_in(c.owner, TcRefAllow.Nothing, false, TcRefWithin.TypeArgument)
+                    found = hit.ty
+                }
+            }
+            if found < 0 {
+                continue
+            }
+            var msg = StringBuilder()
+            try! msg.append("this call instantiates `")
+            try! msg.append(self.res.decl_path(c.target))
+            try! msg.append("` at the reference `")
+            try! msg.append(self.type_text(found))
+            try! msg.append("`, and references are parameters only: a generic holds its type argument as storage, which would outlive the call the reference borrows for; pass the value, or take the parameter as a reference")
+            self.refuse_in(m, c.node, "type.reference-position", msg.build())
+        }
+    }
+
+    // Whether call `e`'s head writes type arguments, which the written-type
+    // check judged where they stand.
+    func writes_type_arguments(&self, e: Int) -> Bool {
+        let head = self.res.first_node_child(e)
+        if head < 0 {
+            return false
+        }
+        let n = self.child_count(head)
+        var k = 0
+        while k < n {
+            let c = self.child(head, k)
+            k = k + 1
+            if not self.is_leaf(c) && res_is_type_alt(self.node_alt(c)) {
+                return true
+            }
+        }
+        false
+    }
+
+    func refuse_reference(&var self, m: Int, at: Int, t: Int, hit: TcRefHit, what: String) {
+        var msg = StringBuilder()
+        try! msg.append(what)
+        try! msg.append(" may not name a reference: `")
+        try! msg.append(self.type_text(t))
+        if hit.within == TcRefWithin.Top {
+            try! msg.append("` is one")
+        } else {
+            try! msg.append("` holds `")
+            try! msg.append(self.type_text(hit.ty))
+            try! msg.append("` as ")
+            try! msg.append(tc_ref_within_text(hit.within))
+        }
+        try! msg.append(", and references are parameters only: a reference borrows storage for the duration of one call and may not escape it; use the value type, or, to hand out storage a type already owns, declare a `borrows` accessor")
+        self.refuse_in(m, at, "type.reference-position", msg.build())
+    }
+}
+
+func tc_no_reference() -> TcRefHit {
+    TcRefHit(ty: -1, within: TcRefWithin.Top)
+}
+
+// What may stand at the top of position `pos`'s type.
+func tc_ref_allow(pos: TcRefPosition) -> TcRefAllow {
+    match pos {
+        case Parameter -> TcRefAllow.AnyReference,
+        case FunctionTypeParameter -> TcRefAllow.AnyReference,
+        case Alias -> TcRefAllow.AnyReference,
+        case Lend -> TcRefAllow.Lend,
+        case BorrowingField -> TcRefAllow.SharedReference,
+        case _ -> TcRefAllow.Nothing
+    }
+}
+
+func tc_ref_position_text(pos: TcRefPosition) -> String {
+    match pos {
+        case Parameter -> "a parameter's type",
+        case FunctionTypeParameter -> "a function type's parameter",
+        case Return -> "a return type",
+        case Lend -> "a `borrows` function's lend",
+        case FunctionTypeReturn -> "a function type's return",
+        case Field -> "a field",
+        case BorrowingField -> "a borrowing struct's field",
+        case Payload -> "an enum payload",
+        case Static -> "a static",
+        case Alias -> "a type alias",
+        case AssociatedType -> "an associated-type assignment",
+        case GenericDefault -> "a generic parameter's default",
+        case Local -> "a binding's annotation",
+        case Cast -> "a cast's target",
+        case TypeArgument -> "a type argument",
+        case _ -> "this type"
+    }
+}
+
+func tc_ref_within_text(w: TcRefWithin) -> String {
+    match w {
+        case Referent -> "the referent of a reference",
+        case TypeArgument -> "a type argument",
+        case OptionalPayload -> "an optional's payload",
+        case TupleElement -> "a tuple element",
+        case ArrayElement -> "an array element",
+        case _ -> "itself"
+    }
+}

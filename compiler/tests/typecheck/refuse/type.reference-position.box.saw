@@ -1,0 +1,6 @@
+// refuses: type.reference-position at 4:11
+// storing a reference in a `Box` (conformance row R32)
+
+func f(b: &Box<&Int>) -> Int {
+    0
+}

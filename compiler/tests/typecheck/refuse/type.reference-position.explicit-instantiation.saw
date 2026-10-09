@@ -1,0 +1,12 @@
+// refuses: type.reference-position at 11:17
+// an explicit instantiation at a reference, `idn<&Int>(&x)` (conformance row
+// R14)
+
+func idn<T>(x: T) -> T {
+    x
+}
+
+func main() {
+    let x = 1
+    let y = idn<&Int>(&x)
+}

@@ -1,0 +1,702 @@
+// Mutability (spec, Variables and Mutability; Reference Types): every write
+// lands in a place some binding or reference makes writable. Bindings always
+// initialize, so a `let` is never written, on any path, and no flow analysis
+// is needed: what decides a write is the place's root binding, `let` or
+// `var`, and each reference along its path, `&T` or `&var T`. The rows are
+// compiler/tests/typecheck/README.md's mutability matrix.
+
+import sawparse.src.grammar.{Alt}
+import sawparse.src.tree.{AstNode}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.model.{ResBindKind, ResBinding, ResDeclKind}
+import sawtypecheck.src.adjust.{TC_FIT_EXACT}
+import sawtypecheck.src.checks.{tc_check_unsafe}
+import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_FLAG_UNSAFE_VAR, TcReceiver, TcRole, TcUse}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind}
+
+// Runs the mutability check over every checked body, once each place's use
+// and each closure's captures are settled.
+public func tc_check_mutability(p: &var TcProgram) {
+    p.check_mutability()
+}
+
+// What decides a write: allowed, or the reason it is refused and the node
+// that gives the reason.
+struct TcWriteVerdict {
+    ok: Bool
+    reason: TcWriteRefusal
+    at: Int
+    // For an immutable binding, what declared it.
+    binder: TcBinder
+}
+
+// Why a place cannot be written.
+enum TcWriteRefusal {
+    // The write is allowed.
+    case Allowed,
+    // A `let`, a pattern's, a `for` loop's, a closure parameter's binding.
+    case Immutable,
+    // A parameter taken by value.
+    case Parameter,
+    // A place reached through a shared reference, `&T` or `&[T]`.
+    case SharedReference,
+    // `self` in a method whose receiver is `&self`, or a `[&self]` capture.
+    case SharedReceiver,
+    // A binding a closure captured by value.
+    case ValueCapture,
+    // A binding a closure captured by shared borrow, `[&x]`.
+    case SharedCapture,
+    // A `static` that is not an `unsafe static var`.
+    case Static,
+    // A `borrows` accessor that lends read-only, `-> &T`.
+    case ReadOnlyLend
+}
+
+// The per-check tables: each node's parent, each declaration by its node,
+// and each `borrows` accessor's verdict on where it lends from.
+struct TcMutTables {
+    parents: Vector<Int>
+    decl_of_node: Vector<Int>
+    // Per declaration: -1 not yet asked, 0 lends out of the receiver's own
+    // storage, 1 lends out of storage the receiver points at.
+    indirect: Vector<Int>
+}
+
+extension TcMutTables: NoCopy {}
+
+extension TcProgram {
+    // THE writability funnel: each write-shaped use of a place asks whether
+    // the place is writable, through one walk from the place to its root.
+    //
+    // ENTRY POINTS (place_verdict):
+    //     an assignment's target (`Write`)
+    //     a compound assignment's target (`Update`)
+    //     `&var PLACE`, `borrow var PLACE` as an argument (`BorrowVar`)
+    //     a `borrow var` binding's head, `if borrow var` and `while borrow var`
+    //     a `&var self` method's receiver, the builtin `take()` and `swap(i, j)`
+    //     a `lend` in a `borrows -> &var T` body
+    //     a `borrows` window opened exclusive: the window's own use, whose
+    //         walk crosses the accessor to its receiver
+    //     a `[&var x]` capture (capture_verdict)
+    public func check_mutability(&var self) {
+        let n = self.res.nodes.len()
+        var tables = TcMutTables(parents: Vector<Int>(), decl_of_node: Vector<Int>(),
+                                 indirect: Vector<Int>())
+        var k = 0
+        while k < n {
+            try! tables.parents.push(-1)
+            try! tables.decl_of_node.push(-1)
+            k = k + 1
+        }
+        k = 0
+        while k < n {
+            let count = self.child_count(k)
+            var j = 0
+            while j < count {
+                let c = self.child(k, j)
+                tables.parents[c] = k
+                j = j + 1
+            }
+            k = k + 1
+        }
+        k = 0
+        while k < self.res.decls.len() {
+            let node = self.res.decls[k].node
+            if node >= 0 {
+                tables.decl_of_node[node] = k
+            }
+            try! tables.indirect.push(-1)
+            k = k + 1
+        }
+        let receivers = self.window_receivers(n)
+        let skipped = self.outside_slice_marks(n)
+        k = 0
+        while k < n {
+            let at = k
+            k = k + 1
+            let u = self.expr_use[at]
+            if u != TcUse.Write && u != TcUse.Update && u != TcUse.BorrowVar {
+                continue
+            }
+            if receivers[at] || skipped[at] || not self.is_place_alt(at) || not self.expr_place[at] {
+                continue
+            }
+            let verdict = self.place_verdict(at, TcCrossing.Nothing, &var tables)
+            if not verdict.ok {
+                self.refuse_write(at, u, verdict)
+            }
+        }
+        k = 0
+        while k < self.captures.len() {
+            let cap = self.captures[k]
+            k = k + 1
+            if cap.use != TcUse.BorrowVar || not cap.explicit || skipped[cap.closure] {
+                continue
+            }
+            if self.has_alt(cap.site, Alt.Expr_Capture_SelfExclusive) {
+                continue
+            }
+            // A reference binding is borrowed again through its own
+            // reference, whatever declared it.
+            var verdict = tc_write_ok()
+            let bt = self.local_types[cap.binding]
+            if bt >= 0 && (self.kind_of(bt) == TcKind.Ref || self.kind_of(bt) == TcKind.Slice) {
+                if self.types.ty(bt).a != 1 {
+                    verdict = tc_write_refused(TcWriteRefusal.SharedReference, cap.binding)
+                }
+            } else {
+                verdict = self.binding_verdict(cap.binding, cap.closure, TcCrossing.Nothing, &var tables)
+            }
+            if not verdict.ok {
+                self.refuse_write(cap.site, TcUse.BorrowVar, verdict)
+            }
+        }
+    }
+
+    // Per node, whether it lies under a construct refused as outside the
+    // slice, whose uses no check after the walk may read.
+    public func outside_slice_marks(&self, n: Int) -> Vector<Bool> {
+        var out = Vector<Bool>()
+        var k = 0
+        while k < n {
+            try! out.push(false)
+            k = k + 1
+        }
+        var stack = Vector<Int>()
+        k = 0
+        while k < self.skipped.len() {
+            try! stack.push(self.skipped[k])
+            k = k + 1
+        }
+        k = 0
+        while k < self.res.skipped.len() {
+            try! stack.push(self.res.skipped[k])
+            k = k + 1
+        }
+        var top = stack.len()
+        while top > 0 {
+            top = top - 1
+            let at = stack[top]
+            if at < 0 || out[at] {
+                continue
+            }
+            out[at] = true
+            let count = self.child_count(at)
+            var j = 0
+            while j < count {
+                let c = self.child(at, j)
+                if top < stack.len() {
+                    stack[top] = c
+                } else {
+                    try! stack.push(c)
+                }
+                top = top + 1
+                j = j + 1
+            }
+        }
+        move out
+    }
+
+    // The receivers of `borrows` accessor calls and subscripts: an exclusive
+    // one is borrowed because its window's use writes, and that use's walk
+    // judges it, crossing the accessor.
+    func window_receivers(&self, n: Int) -> Vector<Bool> {
+        var out = Vector<Bool>()
+        var k = 0
+        while k < n {
+            try! out.push(false)
+            k = k + 1
+        }
+        k = 0
+        while k < self.calls.len() {
+            let c = self.calls[k]
+            k = k + 1
+            if c.target < 0 || c.role == TcRole.BuiltinOperator || c.role == TcRole.Builtin {
+                continue
+            }
+            let e = c.node
+            let subscript = self.has_alt(e, Alt.Expr_Subscript_Single) || self.has_alt(e, Alt.Expr_Subscript_Multi)
+            let head = self.res.first_node_child(e)
+            if head < 0 {
+                continue
+            }
+            if subscript {
+                out[head] = true
+            } else if c.role == TcRole.Call && (self.sigs[c.target].effects & TC_EFFECT_BORROWS) != 0 {
+                let receiver = if self.has_alt(head, Alt.Expr_Member) { self.res.first_node_child(head) } else { -1 }
+                if receiver >= 0 {
+                    out[receiver] = true
+                }
+            }
+        }
+        move out
+    }
+
+    // Whether node `e` is an expression that can name a place.
+    func is_place_alt(&self, e: Int) -> Bool {
+        self.has_alt(e, Alt.Expr_Name) || self.has_alt(e, Alt.Expr_NameRef) || self.has_alt(e, Alt.Expr_Self) || self.has_alt(e, Alt.Expr_Member) || self.has_alt(e, Alt.Expr_TupleIndex) || self.has_alt(e, Alt.Expr_Force) || self.has_alt(e, Alt.Expr_Subscript_Single) || self.has_alt(e, Alt.Expr_Subscript_Multi) || self.has_alt(e, Alt.Expr_Deref) || self.has_alt(e, Alt.Expr_Paren) || self.has_alt(e, Alt.Expr_Call_Paren)
+    }
+
+    // Whether place `e` may be written. `crossed` says which `borrows`
+    // window the walk from the write has passed, which decides the two
+    // carve-outs of the `&self` rule (spec, "A `&self` method may not write
+    // its receiver"; design 200).
+    func place_verdict(&var self, e: Int, crossed: TcCrossing, tables: &var TcMutTables) -> TcWriteVerdict {
+        if e < 0 {
+            return tc_write_ok()
+        }
+        let t = self.expr_types[e]
+        if t >= 0 {
+            let info = self.types.ty(t)
+            if info.kind == TcKind.Ref || info.kind == TcKind.Slice {
+                if info.a == 1 {
+                    return tc_write_ok()
+                }
+                return tc_write_refused(TcWriteRefusal.SharedReference, e)
+            }
+        }
+        if self.has_alt(e, Alt.Expr_Paren) {
+            let inner = self.res.first_node_child(e)
+            return self.place_verdict(inner, crossed, &var tables)
+        }
+        if self.has_alt(e, Alt.Expr_Deref) {
+            return tc_write_ok()
+        }
+        if self.has_alt(e, Alt.Expr_Name) || self.has_alt(e, Alt.Expr_NameRef) {
+            let leaf = self.res.first_leaf(e)
+            let b = self.binding_at(leaf)
+            return self.named_verdict(e, b, crossed, &var tables)
+        }
+        if self.has_alt(e, Alt.Expr_Self) {
+            let b = self.binding_at(e)
+            if b.kind != ResBindKind.Local || b.node < 0 {
+                return tc_write_ok()
+            }
+            return self.binding_verdict(b.node, e, crossed, &var tables)
+        }
+        if self.has_alt(e, Alt.Expr_Member) {
+            let leaf = self.res.last_leaf_of(e)
+            let b = self.binding_at(leaf)
+            if b.kind == ResBindKind.Decl && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Static {
+                return self.static_verdict(e, b.decl)
+            }
+            let base = self.res.first_node_child(e)
+            return self.place_verdict(base, crossed, &var tables)
+        }
+        if self.has_alt(e, Alt.Expr_TupleIndex) || self.has_alt(e, Alt.Expr_Force) {
+            let base = self.res.first_node_child(e)
+            return self.place_verdict(base, crossed, &var tables)
+        }
+        let at = self.call_at[e]
+        if at < 0 {
+            return tc_write_ok()
+        }
+        let c = self.calls[at]
+        let subscript = self.has_alt(e, Alt.Expr_Subscript_Single) || self.has_alt(e, Alt.Expr_Subscript_Multi)
+        if subscript && c.role == TcRole.BuiltinOperator {
+            let base = self.res.first_node_child(e)
+            if self.points(base) {
+                return tc_write_ok()
+            }
+            return self.place_verdict(base, crossed, &var tables)
+        }
+        if c.target < 0 {
+            return tc_write_ok()
+        }
+        let sig = self.sigs[c.target]
+        let lending = (sig.effects & TC_EFFECT_BORROWS) != 0
+        var receiver = -1
+        if subscript {
+            receiver = self.res.first_node_child(e)
+        } else if lending {
+            let callee = self.res.first_node_child(e)
+            if callee >= 0 && self.has_alt(callee, Alt.Expr_Member) {
+                receiver = self.res.first_node_child(callee)
+            }
+        }
+        if receiver < 0 {
+            return tc_write_ok()
+        }
+        if lending && not sig.lending_exclusive {
+            // A subscript's read-only lend is `subscript.role`'s refusal.
+            if subscript {
+                return tc_write_ok()
+            }
+            return tc_write_refused(TcWriteRefusal.ReadOnlyLend, e)
+        }
+        let receiver_type = self.expr_types[receiver]
+        if not self.expr_place[receiver] && self.referent(receiver_type) < 0 {
+            return tc_write_ok()
+        }
+        var through = crossed
+        if lending && self.lends_indirectly(c.target, 0, &var tables) {
+            through = TcCrossing.Heap
+        } else if crossed == TcCrossing.Nothing {
+            through = TcCrossing.Window
+        }
+        self.place_verdict(receiver, through, &var tables)
+    }
+
+    // Whether expression `e`'s value is a raw pointer, through which a
+    // subscript writes the pointee whatever binding holds the pointer.
+    func points(&self, e: Int) -> Bool {
+        var t = self.final_type(e)
+        if t < 0 {
+            return false
+        }
+        let r = self.referent(t)
+        if r >= 0 {
+            t = r
+        }
+        let info = self.types.ty(t)
+        info.kind == TcKind.Nominal && (info.decl == self.known.unsafe_pointer || info.decl == self.known.unsafe_const_pointer)
+    }
+
+    // A name's place: a local's binding, or a static.
+    func named_verdict(&var self, e: Int, b: ResBinding, crossed: TcCrossing, tables: &var TcMutTables) -> TcWriteVerdict {
+        if b.kind == ResBindKind.Local && b.node >= 0 {
+            return self.binding_verdict(b.node, e, crossed, &var tables)
+        }
+        if b.kind == ResBindKind.Decl && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Static {
+            return self.static_verdict(e, b.decl)
+        }
+        tc_write_ok()
+    }
+
+    // A static is written only as an `unsafe static var` (design 149).
+    func static_verdict(&self, e: Int, d: Int) -> TcWriteVerdict {
+        if (self.sigs[d].flags & TC_FLAG_UNSAFE_VAR) != 0 {
+            return tc_write_ok()
+        }
+        tc_write_refused(TcWriteRefusal.Static, e)
+    }
+
+    // Whether the binding declared at `binding` may be written from `site`:
+    // each closure between them captured it exclusively, or captured it by
+    // value or `self` shared where the write reaches only storage the capture
+    // points at (design 132); and its declaration makes it writable.
+    func binding_verdict(&var self, binding: Int, site: Int, crossed: TcCrossing, tables: &var TcMutTables) -> TcWriteVerdict {
+        let declared = self.res.nodes[binding]
+        let heap = crossed == TcCrossing.Heap
+        var at = site
+        while at >= 0 {
+            if self.closure_index.first(at, 0) >= 0 {
+                let span = self.res.nodes[at]
+                let inside = declared.start >= span.start && declared.end <= span.end
+                if not inside {
+                    let u = self.capture_use(at, binding)
+                    if u == TcUse.Borrow {
+                        let receiver = self.has_alt(binding, Alt.Decl_Param_Receiver)
+                        if not (receiver && heap) {
+                            return tc_write_refused(TcWriteRefusal.SharedCapture, site)
+                        }
+                    } else if u != TcUse.BorrowVar {
+                        if heap {
+                            return tc_write_ok()
+                        }
+                        return tc_write_refused(TcWriteRefusal.ValueCapture, site)
+                    }
+                }
+            }
+            at = tables.parents[at]
+        }
+        if self.has_alt(binding, Alt.Decl_Param_Receiver) {
+            let owner = tables.parents[binding]
+            let d = if owner >= 0 { tables.decl_of_node[owner] } else { -1 }
+            if d < 0 || self.sigs[d].receiver != TcReceiver.Shared || heap {
+                return tc_write_ok()
+            }
+            // A `borrows` body's receiver travels by pointer, so a window it
+            // opens on `self` writes the caller's storage, and makes the
+            // accessor exclusive-only (design 200; SL-333 R4).
+            let lending = (self.sigs[d].effects & TC_EFFECT_BORROWS) != 0
+            if lending && crossed == TcCrossing.Window {
+                return tc_write_ok()
+            }
+            return tc_write_refused(TcWriteRefusal.SharedReceiver, binding)
+        }
+        let kind = self.binder_kind(binding, &tables)
+        if kind == TcBinder.Mutable {
+            return tc_write_ok()
+        }
+        if kind == TcBinder.Parameter {
+            return tc_write_refused(TcWriteRefusal.Parameter, binding)
+        }
+        TcWriteVerdict(ok: false, reason: TcWriteRefusal.Immutable, at: binding, binder: kind)
+    }
+
+    // How closure `e` captured the binding declared at `binding`.
+    func capture_use(&self, e: Int, binding: Int) -> TcUse {
+        var k = 0
+        while k < self.captures.len() {
+            let cap = self.captures[k]
+            if cap.closure == e && cap.binding == binding {
+                return cap.use
+            }
+            k = k + 1
+        }
+        TcUse.Copy
+    }
+
+    // What declares the binding at leaf `binding`: the nearest binding
+    // construct above it.
+    func binder_kind(&self, binding: Int, tables: &TcMutTables) -> TcBinder {
+        var at = tables.parents[binding]
+        while at >= 0 {
+            if let alt = self.node_alt(at) {
+                let found = tc_binder_of(alt)
+                if found != TcBinder.Unknown {
+                    return found
+                }
+            }
+            at = tables.parents[at]
+        }
+        TcBinder.Let
+    }
+
+    // Whether `borrows` accessor `d` lends out of storage its receiver points
+    // at rather than out of the receiver itself: every `lend` in its body
+    // reaches its place through a raw pointer or through another accessor
+    // that does. An accessor whose body is not checked, std's read as an
+    // interface, is taken to lend so, as std's containers do.
+    func lends_indirectly(&var self, d: Int, depth: Int, tables: &var TcMutTables) -> Bool {
+        let known = tables.indirect[d]
+        if known >= 0 {
+            return known == 1
+        }
+        let info = self.res.decls[d]
+        var answer = true
+        if info.node >= 0 && not self.is_interface(info.module) && depth < 8 {
+            var places = Vector<Int>()
+            self.collect_lends(info.node, &var places)
+            answer = places.len() > 0
+            var k = 0
+            while k < places.len() {
+                if not self.lent_through_pointer(places[k], depth, &var tables) {
+                    answer = false
+                }
+                k = k + 1
+            }
+        }
+        tables.indirect[d] = if answer { 1 } else { 0 }
+        answer
+    }
+
+    // Every `lend` statement's place under node `id`, outside closures.
+    func collect_lends(&self, id: Int, out: &var Vector<Int>) {
+        var stack = Vector<Int>()
+        try! stack.push(id)
+        var top = 1
+        while top > 0 {
+            top = top - 1
+            let at = stack[top]
+            if self.has_alt(at, Alt.Expr_Closure) {
+                continue
+            }
+            if self.has_alt(at, Alt.Stmt_Lend) {
+                let place = self.res.first_node_child(at)
+                if place >= 0 {
+                    try! out.push(place)
+                }
+                continue
+            }
+            var c = self.child_count(at) - 1
+            while c >= 0 {
+                let child = self.child(at, c)
+                if not self.is_leaf(child) {
+                    if top < stack.len() {
+                        stack[top] = child
+                    } else {
+                        try! stack.push(child)
+                    }
+                    top = top + 1
+                }
+                c = c - 1
+            }
+        }
+    }
+
+    // Whether lent place `e` is reached through a raw pointer, or through an
+    // accessor that lends out of pointed-at storage.
+    func lent_through_pointer(&var self, e: Int, depth: Int, tables: &var TcMutTables) -> Bool {
+        var at = e
+        var steps = 0
+        while at >= 0 && steps < 64 {
+            steps = steps + 1
+            if self.has_alt(at, Alt.Expr_Deref) {
+                return true
+            }
+            if self.has_alt(at, Alt.Expr_Paren) || self.has_alt(at, Alt.Expr_Member) || self.has_alt(at, Alt.Expr_TupleIndex) || self.has_alt(at, Alt.Expr_Force) {
+                at = self.res.first_node_child(at)
+                continue
+            }
+            let subscript = self.has_alt(at, Alt.Expr_Subscript_Single) || self.has_alt(at, Alt.Expr_Subscript_Multi)
+            let call = self.call_at[at]
+            if subscript && call >= 0 && self.calls[call].role == TcRole.BuiltinOperator {
+                let base = self.res.first_node_child(at)
+                if self.points(base) {
+                    return true
+                }
+                at = base
+                continue
+            }
+            if call >= 0 && self.calls[call].target >= 0 {
+                let target = self.calls[call].target
+                if (self.sigs[target].effects & TC_EFFECT_BORROWS) != 0 {
+                    return self.lends_indirectly(target, depth + 1, &var tables)
+                }
+            }
+            return false
+        }
+        false
+    }
+
+    func refuse_write(&var self, e: Int, u: TcUse, verdict: TcWriteVerdict) {
+        let m = self.node_module(e)
+        var msg = StringBuilder()
+        if u == TcUse.Write {
+            try! msg.append("this assignment writes `")
+        } else if u == TcUse.Update {
+            try! msg.append("this compound assignment writes `")
+        } else {
+            try! msg.append("this exclusive borrow of `")
+        }
+        try! msg.append(self.text(m, e))
+        if u == TcUse.BorrowVar {
+            try! msg.append("` would let it be written")
+        } else {
+            try! msg.append("`")
+        }
+        let at = verdict.at
+        let am = self.node_module(at)
+        let name = if at >= 0 { self.text(am, at) } else { "" }
+        match verdict.reason {
+            case Immutable -> {
+                try! msg.append(", and `")
+                try! msg.append(name)
+                try! msg.append("` is ")
+                try! msg.append(tc_binder_text(verdict.binder))
+                try! msg.append(", which is never written: every binding is initialized where it is declared, so only a `var` takes a new value")
+            },
+            case Parameter -> {
+                try! msg.append(", and `")
+                try! msg.append(name)
+                try! msg.append("` is a parameter taken by value, which is never written: copy it into a `var`, or take it as `&var`")
+            },
+            case SharedReference -> {
+                try! msg.append(", and `")
+                try! msg.append(name)
+                try! msg.append("` is a shared reference, through which nothing is written: take it as `&var`")
+            },
+            case SharedReceiver -> {
+                try! msg.append(", and this method's receiver is `&self`, a shared borrow that never writes the storage it borrows: declare the receiver `&var self`")
+            },
+            case ValueCapture -> {
+                try! msg.append(", and the closure captured it by value, so the write would land in the closure's copy: capture it with `[&var ")
+                try! msg.append(self.base_name(e))
+                try! msg.append("]` in a closure that does not escape")
+            },
+            case SharedCapture -> {
+                try! msg.append(", and the closure captured it by shared borrow, which never writes: capture it with `[&var ")
+                try! msg.append(self.base_name(e))
+                try! msg.append("]`")
+            },
+            case Static -> {
+                try! msg.append(", and a `static` is immutable: only an `unsafe static var` is written (design 149)")
+            },
+            case ReadOnlyLend -> {
+                try! msg.append(", and `")
+                try! msg.append(name)
+                try! msg.append("` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one")
+            },
+            case Allowed -> {}
+        }
+        self.refuse_in(m, e, "mutability.immutable", msg.build())
+    }
+
+    // The name a place's root is spelled with: its first leaf.
+    func base_name(&self, e: Int) -> String {
+        let m = self.node_module(e)
+        let leaf = self.res.first_leaf(e)
+        if leaf < 0 {
+            return ""
+        }
+        self.text(m, leaf)
+    }
+}
+
+// The `borrows` windows a walk from a write has passed: none, one whose
+// accessor lends out of its receiver's own storage, or one that lends out of
+// storage the receiver points at.
+enum TcCrossing {
+    case Nothing,
+    case Window,
+    case Heap
+}
+
+// What a binding construct makes of the names it binds.
+enum TcBinder {
+    // Not a binding construct: the search goes on outward.
+    case Unknown,
+    // A `var` or `var` destructuring, `if var`, `guard var`, `while var`, a
+    // `borrow var` binding.
+    case Mutable,
+    // A parameter taken by value.
+    case Parameter,
+    // A `let` or `let` destructuring, `guard let`.
+    case Let,
+    // An `if let`, `while let` or `match` arm's pattern binding.
+    case Pattern,
+    // A `for` loop's binding.
+    case ForLoop,
+    // A closure's parameter.
+    case ClosureParam,
+    // A `borrow let` binding, which lends its place shared.
+    case BorrowLet
+}
+
+func tc_binder_of(alt: Alt) -> TcBinder {
+    if alt == Alt.Stmt_Let_Mutable || alt == Alt.Stmt_Destructure_Mutable || alt == Alt.Stmt_Guard_Var || alt == Alt.Expr_OptionalBinding_Var || alt == Alt.Expr_WhileLet_Var || alt == Alt.Borrow_Binding_Var || alt == Alt.Borrow_Unwrap_Var || alt == Alt.Borrow_For_Var || alt == Alt.Pat_BorrowBinding_Var {
+        return TcBinder.Mutable
+    }
+    if alt == Alt.Decl_Param_Plain || alt == Alt.Decl_Param_Default {
+        return TcBinder.Parameter
+    }
+    if alt == Alt.Stmt_Let_Immutable || alt == Alt.Stmt_Destructure_Immutable || alt == Alt.Stmt_Guard_Let || alt == Alt.Stmt_Block {
+        return TcBinder.Let
+    }
+    if alt == Alt.Expr_OptionalBinding_Let || alt == Alt.Expr_WhileLet_Let || alt == Alt.Expr_MatchArm {
+        return TcBinder.Pattern
+    }
+    if alt == Alt.Expr_For_Plain {
+        return TcBinder.ForLoop
+    }
+    if alt == Alt.Expr_ClosureParam_Value {
+        return TcBinder.ClosureParam
+    }
+    if alt == Alt.Borrow_Binding_Let || alt == Alt.Borrow_Unwrap_Let || alt == Alt.Borrow_For_Let || alt == Alt.Pat_BorrowBinding_Let {
+        return TcBinder.BorrowLet
+    }
+    TcBinder.Unknown
+}
+
+// How a refusal names what declared an immutable binding.
+func tc_binder_text(b: TcBinder) -> String {
+    match b {
+        case Pattern -> "a pattern's binding",
+        case ForLoop -> "a `for` loop's binding",
+        case ClosureParam -> "a closure's parameter",
+        case BorrowLet -> "a `borrow let` binding, which lends its place shared",
+        case _ -> "a `let` binding"
+    }
+}
+
+func tc_write_ok() -> TcWriteVerdict {
+    TcWriteVerdict(ok: true, reason: TcWriteRefusal.Allowed, at: -1, binder: TcBinder.Unknown)
+}
+
+func tc_write_refused(reason: TcWriteRefusal, at: Int) -> TcWriteVerdict {
+    TcWriteVerdict(ok: false, reason: reason, at: at, binder: TcBinder.Unknown)
+}

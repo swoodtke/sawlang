@@ -1,0 +1,7 @@
+// refuses: transfer.partial-move at 6:13
+// `move t.0` takes an element out of a tuple binding
+
+func main() {
+    var t = (Vector<Int>(), 1)
+    let v = move t.0
+}

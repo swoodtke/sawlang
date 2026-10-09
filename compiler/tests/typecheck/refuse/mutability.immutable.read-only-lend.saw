@@ -1,0 +1,18 @@
+// refuses: mutability.immutable at 17:5
+// a write through a named accessor that lends read-only, `-> &T`
+// (conformance row M23's rule at a named accessor)
+
+struct Cell {
+    n: Int
+}
+
+extension Cell {
+    func slot(&var self) borrows -> &Int {
+        lend self.n
+    }
+}
+
+func main() {
+    var c = Cell(n: 0)
+    c.slot() = 5
+}

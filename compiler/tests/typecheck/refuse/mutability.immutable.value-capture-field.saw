@@ -1,0 +1,16 @@
+// refuses: mutability.immutable at 15:19
+// writing a field of a struct a closure captured by value (conformance row
+// M21)
+
+struct Point {
+    x: Int
+}
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func main() {
+    var p = Point(x: 1)
+    let r = run({ p.x = 2; p.x })
+}

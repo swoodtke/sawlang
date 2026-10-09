@@ -1,0 +1,14 @@
+// refuses: transfer.partial-move at 13:13
+// `move h.s!` takes an optional field's payload, which `move o!` does only for
+// a whole binding (design 131)
+
+struct Holder {
+    s: Vector<Int>?
+}
+
+extension Holder: NoCopy {}
+
+func main() {
+    var h = Holder(s: Vector<Int>())
+    let v = move h.s!
+}

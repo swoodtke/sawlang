@@ -1,0 +1,6 @@
+// refuses: type.reference-position at 4:24
+// a return type `&Int?` outside a `borrows` lend (conformance row R07)
+
+func find(r: &Int?) -> &Int? {
+    r
+}

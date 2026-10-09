@@ -1,0 +1,6 @@
+// refuses: type.reference-position at 5:25
+// a trait requirement returning `&Int` (conformance row R03)
+
+trait Holder {
+    func peek(&self) -> &Int
+}

@@ -1,0 +1,12 @@
+// refuses: mutability.immutable at 11:19
+// writing a binding a closure captured by value, which lands in the closure's
+// copy (conformance row M20, design 132)
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func main() {
+    var n = 0
+    let r = run({ n = n + 1; n })
+}

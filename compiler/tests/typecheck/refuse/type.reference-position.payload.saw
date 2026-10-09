@@ -1,0 +1,7 @@
+// refuses: type.reference-position at 5:18
+// an enum case payload of reference type (conformance row R10)
+
+enum Slot {
+    case Held(r: &Int),
+    case Empty
+}

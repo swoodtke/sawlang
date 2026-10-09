@@ -1,0 +1,15 @@
+// refuses: transfer.move-from-borrow at 13:25
+// a payload binding of a match through a reference aliases its part, at every
+// tier (conformance rows V60, V62)
+
+enum Slot {
+    case Empty,
+    case Full(n: Int)
+}
+
+func take_it(s: &var Slot) -> Int {
+    match s {
+        case Empty -> 0,
+        case Full(n) -> move n
+    }
+}

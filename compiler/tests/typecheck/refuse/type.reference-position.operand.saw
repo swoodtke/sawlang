@@ -1,0 +1,8 @@
+// refuses: type.reference-position at 7:14
+// `&` as a binary operator's operand (conformance row R31)
+
+func main() {
+    var a = 1
+    var b = 2
+    let c = (&a) == (&b)
+}

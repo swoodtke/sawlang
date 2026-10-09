@@ -1,0 +1,78 @@
+// The positions `type.reference-position` allows a reference in: a
+// parameter, a function type's parameter, a `borrows` lend, a borrowing
+// struct's shared field, a type alias, a call argument and a pointer cast's
+// operand; and a reference read through a binding, which gives its value.
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+struct Square {
+    side: Int
+}
+
+extension Square: Shape {
+    func area(&self) -> Int {
+        self.side * self.side
+    }
+}
+
+struct Grid {
+    cells: [Int; 4],
+    flag: Bool?
+}
+
+extension Grid {
+    func at(&self, i: Int) borrows -> &Int {
+        lend self.cells[i]
+    }
+
+    func at_var(&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+
+    func maybe(&var self) borrows -> &var Bool? {
+        if self.flag.is_none() {
+            return None
+        }
+        lend self.flag!
+    }
+}
+
+borrows struct Walker {
+    grid: &Grid,
+    index: Int
+}
+
+type IntRef = &Int
+
+extern "C" {
+    func observe(at: &Int) -> Int
+}
+
+func sizes(a: &Int, b: &var Int, values: &[Int], shape: &any Shape, alias: IntRef) -> Int {
+    let copied = a
+    b = copied + alias
+    values.len()
+}
+
+func apply<R>(n: &Int, f: (&Int) sync -> R) -> R {
+    f(n)
+}
+
+func first<T>(x: &T) -> Int {
+    0
+}
+
+func address(n: &var Int) unsafe -> UnsafePointer<Int> {
+    (&var n) as UnsafePointer<Int>
+}
+
+func main() {
+    var x = 1
+    var y = 2
+    let v: Vector<Int> = [1, 2]
+    let total = sizes(&x, &var y, &v, &Square(side: 2), &x)
+    let same = apply(&x, { e: &Int in e })
+    let none = first(&x)
+}

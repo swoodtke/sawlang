@@ -1,0 +1,21 @@
+// refuses: transfer.partial-move at 19:9
+// `move self.a.b` in a `consumes` body: the body may move a field of `self`
+// out, not a part of one
+
+struct Inner {
+    b: Vector<Int>
+}
+
+extension Inner: NoCopy {}
+
+struct Outer {
+    a: Inner
+}
+
+extension Outer: NoCopy {}
+
+extension Outer {
+    func finish(&var self) consumes -> Vector<Int> {
+        move self.a.b
+    }
+}

@@ -1,0 +1,12 @@
+// refuses: mutability.immutable at 10:9
+// `self = v` in a `&self` method
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func reset(&self) {
+        self = Counter(n: 0)
+    }
+}

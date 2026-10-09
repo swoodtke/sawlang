@@ -1,0 +1,4 @@
+// refuses: type.reference-position at 4:14
+// a `static` of reference type (conformance row R19)
+
+static SLOT: &Int

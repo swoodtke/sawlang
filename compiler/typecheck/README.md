@@ -55,6 +55,10 @@ typecheck/
     strings.saw       the String positions and their funnel
     bodychecks.saw    borrowing-struct containment, the body half of `unsafe`,
                       the `borrows(sync)` window
+    mutability.saw    the writability funnel: whether each place a body writes
+                      or borrows exclusively may be written
+    refpositions.saw  references are parameters only: the funnel over written
+                      type positions, and the inferred ones
     dump.saw          the dump
     verify.saw        the verifier
 ```
@@ -96,22 +100,43 @@ typecheck/
    body names from outside it, each with its transfer, and the refusals of a
    capture that does not copy silently and of a borrow of the enclosing frame
    in a closure that escapes.
-9. **Exhaustiveness** (`exhaust.saw`): every `match`'s unguarded arms
+9. **Mutability** (`mutability.saw`): every place a use writes (an
+   assignment, a compound assignment) or borrows exclusively (`&var`, a
+   `&var self` receiver, `borrow var`, an exclusive lend, `[&var x]`) is
+   walked to its root by one funnel, `place_verdict`, whose docstring names
+   its entry points. Bindings always initialize, so the root decides: a `var`
+   is written, a `let`, a pattern's, a `for` loop's or a closure parameter's
+   binding, a parameter taken by value and a plain `static` are not; a
+   reference along the path decides by its own `&` or `&var`; `self` by its
+   receiver; a binding a closure captured, by the capture. A raw pointer's
+   pointee is always written. A `move` that takes a part of a binding is
+   refused as the body is walked (`transfer.partial-move`), and so is one of
+   a binding that owns nothing, a reference or a pattern's binding aliasing a
+   borrowed scrutinee (`transfer.move-from-borrow`). Then **reference
+   positions** (`refpositions.saw`): each outermost type a module checked in
+   full writes is judged by the position its parent gives it, through one
+   funnel, `reference_position_of`, whose docstring names the positions; a
+   parameter may be a reference, a `borrows` lend may lend one, a borrowing
+   struct's field may hold a shared one, and no other position may name one
+   at any depth. Then a bare `&` outside a call argument or a pointer cast, a
+   binding whose inferred type names a reference, and a call instantiated at
+   one. A closure's inferred result is judged as the closure is walked.
+10. **Exhaustiveness** (`exhaust.saw`): every `match`'s unguarded arms
    against its scrutinee's type, as the usefulness of a wildcard row over the
    pattern matrix, which names each missing value. A discarded `Result` is
    refused as the body is walked (design 151).
-10. **Path uses** (`paths.saw`, design 219): each by-value read of a local
+11. **Path uses** (`paths.saw`, design 219): each by-value read of a local
     whose type names one of the function's own type parameters, which the
     walk recorded as a copy, is settled over the body's paths (below): a move
     when no path uses the local again, a copy otherwise.
-11. **Summaries** (`summaries.saw`, SL:architecture §3.4 "Order" phase 2):
+12. **Summaries** (`summaries.saw`, SL:architecture §3.4 "Order" phase 2):
    every function's may-suspend, sync-callable and inferred Copy requirement,
    one worklist over the call graph to the least fixpoint (below).
-12. **Effect checks** (`effects.saw`, phase 3): a `sync` body calls only
+13. **Effect checks** (`effects.saw`, phase 3): a `sync` body calls only
     sync-callable targets, each call site meets its callee's Copy requirement,
     no closure body suspends, and no coercion to `any Trait` dispatches to a
     suspending implementation.
-13. **Body rules** (`bodychecks.saw`): borrowing-struct containment, the body
+14. **Body rules** (`bodychecks.saw`): borrowing-struct containment, the body
     half of `unsafe`, and the `borrows(sync)` window, which reads the
     summaries. A `consumes` call's `move` and `move self`'s `consumes` body
     are checked as the body is walked.
@@ -207,7 +232,7 @@ is instantiated at, and its own type arguments.
   places. A position that takes a value copies a place, which only a type of
   the Copy tier does silently (design 131), or hands off a temporary. A
   generic body's read of a local of its own type parameter's type is settled
-  per path by phase 10, and recorded as `move` when no path uses the local
+  per path by phase 11, and recorded as `move` when no path uses the local
   after it.
 
 ## The per-path use count
@@ -274,8 +299,10 @@ These are the reversible readings U6b2 made; SL-447's report lists them.
 - The new std's atomic intrinsics (SL:open-questions D23) are typed as Stage
   0's synthesized helpers of their names: `__saw_atomic_add_i64` and
   `__saw_atomic_sub_i64_release` take an `UnsafePointer<Int>` and an `Int`
-  delta and return the old value, and `__saw_atomic_fence_acquire` takes
-  nothing. A plain load is an ordinary read through a pointer.
+  delta and return the old value, `__saw_atomic_load_i64_relaxed` takes an
+  `UnsafePointer<Int>` and returns the word (D24), and
+  `__saw_atomic_fence_acquire` takes nothing. A plain load is an ordinary
+  read through a pointer.
 - A documented enum case's doc comment is a child of its node, and no raw
   value.
 - sawc2 takes no target yet, so the platform pair, `Int` and `UInt`, is read
@@ -494,3 +521,52 @@ These are the reversible readings this unit made; SL-447's report lists them.
   rename that leaves out a defaulted parameter is refused with the head
   written out (SL:open-questions D14); a rename missing an undefaulted one is
   `type.arity`.
+
+## Safety readings
+
+These are the reversible readings SL-462 made; its report lists them.
+
+- The heap carve-out (design 200: a `&self` method may write storage its
+  receiver only points at) holds for `self` under `&self`, for a `[&self]`
+  capture, and for a binding a closure captured by value (design 132), and
+  for no other root: a write through a `Vector` field of a `let`, a parameter
+  taken by value, a `&T` parameter or a `[&x]` capture is refused, as Stage 0
+  refuses `r.grid[0] = v` through a `&Board`.
+- In a `&self` `borrows` body any window opened on `self`, inline storage's
+  too, may be written: the accessor's receiver travels by pointer (design
+  200, conformance rows M33 and K125). A direct write of `self`'s own storage
+  there is refused as in any `&self` method. Such an accessor is
+  exclusive-only (SL-333 R4), which no use site enforces yet: a read through
+  it on a `let` root is accepted.
+- A `borrows` accessor lends out of storage its receiver points at when
+  every `lend` in its checked body reaches its place through a raw pointer or
+  through another accessor that does. An accessor whose body is not checked,
+  std's under Stage 0's root, is taken to lend so, as std's containers do.
+- A write through a subscript whose accessor lends read-only stays
+  `subscript.role`'s refusal; through a named accessor it is
+  `mutability.immutable`. `&var r` through a shared reference is
+  `mutability.immutable`, not `type.not-a-place`.
+- A reference read through a binding at a position that names no type, an
+  unannotated `let` or a closure's inferred result, gives the referent's
+  value, copied out as any place read is (spec, Reference Semantics), where
+  U6b2 bound the reference itself: `let a = p` over `p: &Int` is an `Int`,
+  and `{ e in e }` over a `&T` returns a `T`. Anywhere else a reference read
+  keeps its type, so `let t = (p, 1)` is refused as a binding naming a
+  reference, where Stage 0 takes the value.
+- A reference in a tuple element, an optional's payload, an array element or
+  a type argument is refused in a parameter's type as well as in a stored
+  one: `func f(t: (Int, &Int))` is refused, where Stage 0 walks a parameter
+  only for its type arguments. A `let` annotation naming a reference is
+  refused too, where Stage 0 has no annotation rule.
+- A type alias may stand for a reference, as a parameter's type may be one;
+  each use is judged where it stands, with the alias resolved.
+- A generic instantiated by inference at a reference, `idn(&x)` for `idn<T>(x:
+  T)`, is refused at the call; a parameter `x: &T` solves `T` to the
+  referent.
+- A pattern's binding aliases its part when the walk took the scrutinee as
+  borrowed (`TcOrigin.Borrowed`: a reference, a receiver, a field), so a
+  `move` of it is refused; a match on an owned local consumes it, and its
+  bindings own their parts.
+- An accessor that mutates its receiver outside the place it lends, which
+  SL:borrowing makes exclusive-only (SL-333 R4), is judged by its use site as
+  any other: a read through it on a `let` root is not refused.

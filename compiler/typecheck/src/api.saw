@@ -18,9 +18,11 @@ import sawtypecheck.src.effects.{tc_check_effects}
 import sawtypecheck.src.exhaust.{tc_check_exhaustive}
 import sawtypecheck.src.lang.{tc_check_lang_shapes}
 import sawtypecheck.src.members.{tc_build_members}
+import sawtypecheck.src.mutability.{tc_check_mutability}
 import sawtypecheck.src.model.{TcDiag}
 import sawtypecheck.src.paths.{tc_settle_path_uses}
 import sawtypecheck.src.program.{TcKnown, TcProgram, tc_program}
+import sawtypecheck.src.refpositions.{tc_check_reference_positions}
 import sawtypecheck.src.signatures.{tc_index_generics}
 import sawtypecheck.src.summaries.{tc_solve_summaries, tc_verify_all_summaries}
 import sawtypecheck.src.tier.{tc_check_containment, tc_check_obligations, tc_compute_tiers}
@@ -64,6 +66,8 @@ public func typecheck_program(path: String, std_root: String, names: &Vector<Str
     tc_check_inits(&var p)
     tc_check_lang_shapes(&var p)
     tc_check_bodies(&var p)
+    tc_check_mutability(&var p)
+    tc_check_reference_positions(&var p)
     tc_check_exhaustive(&var p)
     tc_settle_path_uses(&var p)
     tc_solve_summaries(&var p)

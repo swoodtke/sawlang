@@ -1334,9 +1334,12 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
     the count reach zero issues an **acquire fence**, then runs deinit / frees
     (ordering every other thread's final reads before the free);
   - **immortal literals**: string literals are static blocks with a sentinel
-    refcount of `-1`, checked with a plain (non-atomic) load *before* any atomic
-    op. Literals are never retained or released, so the common case pays zero
-    atomic traffic.
+    refcount of `-1`, checked with a relaxed atomic load *before* any atomic
+    read-modify-write. Literals are never retained or released, so the common
+    case pays no atomic read-modify-write. The load is atomic because another
+    thread's retain or release may run at the same time, and a plain load
+    racing an atomic read-modify-write is a data race. On mainstream targets a
+    relaxed load is the same instruction as a plain one.
 
 ### Data
 

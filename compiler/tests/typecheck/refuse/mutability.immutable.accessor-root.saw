@@ -1,0 +1,18 @@
+// refuses: mutability.immutable at 17:5
+// a write through a hand-written `borrows` accessor on a `let` root
+// (conformance row M22)
+
+struct Grid {
+    cells: [Int; 4]
+}
+
+extension Grid {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+func main() {
+    let g = Grid(cells: [0; 4])
+    g[1] = 5
+}

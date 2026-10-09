@@ -1,0 +1,12 @@
+// refuses: mutability.immutable at 11:5
+// writing a field of a `let` struct (conformance row M04)
+
+struct Point {
+    x: Int,
+    y: Int
+}
+
+func main() {
+    let p = Point(x: 1, y: 2)
+    p.x = 3
+}

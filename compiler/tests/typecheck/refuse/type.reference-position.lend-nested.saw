@@ -1,0 +1,13 @@
+// refuses: type.reference-position at 10:31
+// a `borrows` lend may be a reference at its top only: `&(Int, &Int)` names
+// one inside the lent place
+
+struct Pair {
+    a: Int
+}
+
+extension Pair {
+    func at(&self) borrows -> &(Int, &Int) {
+        panic("nothing to lend")
+    }
+}

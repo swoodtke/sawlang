@@ -1,0 +1,7 @@
+// refuses: mutability.immutable at 6:5
+// `m[k]! = v` on a `let` Map root (conformance row M25)
+
+func main() {
+    let m: Map<String, Int> = {"a": 1}
+    m["a"]! = 5
+}

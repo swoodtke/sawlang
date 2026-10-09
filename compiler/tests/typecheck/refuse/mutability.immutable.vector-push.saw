@@ -1,0 +1,7 @@
+// refuses: mutability.immutable at 6:13
+// `v.push` on a `let` Vector, a `&var self` method (conformance row M06)
+
+func main() {
+    let v = Vector<Int>()
+    let _ = v.push(1)
+}

@@ -1,0 +1,7 @@
+// refuses: type.reference-position at 5:11
+// `Optional<&Int>` spelled by its written name, as a parameter's type
+// (conformance row R26)
+
+func f(o: Optional<&Int>) -> Int {
+    0
+}

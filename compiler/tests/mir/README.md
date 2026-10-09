@@ -335,7 +335,7 @@ slice.not-yet at L:C`.
 | a `borrow` block binding a conditional lend | conditional-block |
 | a `for` over an iterator held in a place | iterator-place |
 | a consuming destructure of a type that writes its own `deinit`, since the spec does not say whether dissolving one skips that body | consuming-deinit |
-| a `consumes` body moving out of `self` deeper than one field | consumes-deep-move |
+| a `consumes` body moving out of `self` deeper than one field | refused by typecheck as transfer.partial-move (SL-462) |
 | the release of a consumed receiver that moves out whole, or is an enum, when its type writes its own `deinit` | consumes-whole |
 | a `for` head that lends a place; a `borrows` call lending a slice or a borrowing struct outside a `for` head; a `borrows` function called with no receiver; a setitem derived from a conditional lend; a conditional lend's place read other than through `!`; an accessor's local partly moved out at a `lend` | none: nothing in the slice reaches them |
 

@@ -1,88 +1,31 @@
 module references
 
-fn references.wrap(f: (&var Int) -> R, r: &var Int) -> R? {
-    let _0: R?;  // return
-    let _1: (&var Int) -> R;  // param f
-    let _2: &var Int;  // param r
-    let _3: R;
-    let _4: R?;
+fn prologue references.Grid.slot() -> (&var Int)? {
+    let _0: (&var Int)?;  // return
+    let _1: &var references.Grid;  // self
+    let _2: &Int?;
+    let _3: Bool;
+    let _4: &var Int;
+    let _5: (&var Int)?;
 
     bb0: {
-        _3 = call value copy _1 [copy _2] -> [return: bb1];
+        _2 = ref(shared, (*_1).flag);
+        _3 = call builtin is_none (owner Int?) [move _2] -> [return: bb2];
     }
 
     bb1: {
-        _4 = R?::Some(move _3);
-        _0 = move _4;
-        drop(_1);
-        return;
-    }
-}
-
-fn references.view(f: (&Int) -> R, r: &Int) -> R? {
-    let _0: R?;  // return
-    let _1: (&Int) -> R;  // param f
-    let _2: &Int;  // param r
-    let _3: R;
-    let _4: R?;
-
-    bb0: {
-        _3 = call value copy _1 [copy _2] -> [return: bb1];
-    }
-
-    bb1: {
-        _4 = R?::Some(move _3);
-        _0 = move _4;
-        drop(_1);
-        return;
-    }
-}
-
-fn references.pair(f: (&var Int) -> R, r: &var Int) -> (R, Int) {
-    let _0: (R, Int);  // return
-    let _1: (&var Int) -> R;  // param f
-    let _2: &var Int;  // param r
-    let _3: R;
-    let _4: (R, Int);
-
-    bb0: {
-        _3 = call value copy _1 [copy _2] -> [return: bb1];
-    }
-
-    bb1: {
-        _4 = (move _3, const 1: Int);
-        _0 = move _4;
-        drop(_1);
-        return;
-    }
-}
-
-fn references.exclusive(n: &var Int) -> Int {
-    let _0: Int;  // return
-    let _1: &var Int;  // param n
-    let _2: (&var Int) -> &var Int;
-    let _3: (&var Int)?;
-    let _4: &var Int;  // r
-    let _5: Int;
-
-    bb0: {
-        _2 = closure#0 of references.exclusive(n: &var Int) [];
-        _3 = call references.wrap(f: (&var Int) -> R, r: &var Int) (inst &var Int) [move _2, copy _1] -> [return: bb2];
-    }
-
-    bb1: {
-        _0 = const 0: Int;
+        _4 = ref(exclusive, ((*_1).flag as Some!).0);
+        _5 = (&var Int)?::Some(move _4);
+        _0 = move _5;
         return;
     }
 
     bb2: {
-        switch discriminant(_3) -> [Some: bb3, None: bb4];
+        switch move _3 -> [true: bb3, false: bb4];
     }
 
     bb3: {
-        _4 = move (_3 as Some).0;
-        _5 = Add(copy (*_4), const 1: Int);
-        _0 = move _5;
+        _0 = (&var Int)?::None;
         return;
     }
 
@@ -91,128 +34,295 @@ fn references.exclusive(n: &var Int) -> Int {
     }
 }
 
-fn closure#0 of references.exclusive(n: &var Int) -> &var Int {
+fn epilogue references.Grid.slot() -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn prologue references.Grid.peek() -> (&Int)? {
+    let _0: (&Int)?;  // return
+    let _1: &references.Grid;  // self
+    let _2: &Int?;
+    let _3: Bool;
+    let _4: &Int;
+    let _5: (&Int)?;
+
+    bb0: {
+        _2 = ref(shared, (*_1).flag);
+        _3 = call builtin is_none (owner Int?) [move _2] -> [return: bb2];
+    }
+
+    bb1: {
+        _4 = ref(shared, ((*_1).flag as Some!).0);
+        _5 = (&Int)?::Some(move _4);
+        _0 = move _5;
+        return;
+    }
+
+    bb2: {
+        switch move _3 -> [true: bb3, false: bb4];
+    }
+
+    bb3: {
+        _0 = (&Int)?::None;
+        return;
+    }
+
+    bb4: {
+        goto -> bb1;
+    }
+}
+
+fn epilogue references.Grid.peek() -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn prologue references.Grid.counted(i: Int) -> &var Int {
     let _0: &var Int;  // return
-    let _1: &();  // env
-    let _2: &var Int;  // param m
-
-    bb0: {
-        _0 = copy _2;
-        return;
-    }
-}
-
-fn references.shared(n: &Int) -> Int {
-    let _0: Int;  // return
-    let _1: &Int;  // param n
-    let _2: (&Int) -> &Int;
-    let _3: (&Int)?;
-    let _4: &Int;  // r
+    let _1: &var (&var references.Grid, String);  // record
+    let _2: &var references.Grid;  // self
+    let _3: Int;  // param i
+    let _4: String;  // tag
     let _5: Int;
+    let _6: &var Int;
 
     bb0: {
-        _2 = closure#0 of references.shared(n: &Int) [];
-        _3 = call references.view(f: (&Int) -> R, r: &Int) (inst &Int) [move _2, copy _1] -> [return: bb2];
-    }
-
-    bb1: {
-        _0 = const 0: Int;
-        return;
-    }
-
-    bb2: {
-        switch discriminant(_3) -> [Some: bb3, None: bb4];
-    }
-
-    bb3: {
-        _4 = copy (_3 as Some).0;
-        _5 = Add(copy (*_4), const 1: Int);
-        _0 = move _5;
-        return;
-    }
-
-    bb4: {
-        goto -> bb1;
-    }
-}
-
-fn closure#0 of references.shared(n: &Int) -> &Int {
-    let _0: &Int;  // return
-    let _1: &();  // env
-    let _2: &Int;  // param m
-
-    bb0: {
-        _0 = copy _2;
-        return;
-    }
-}
-
-fn references.element(n: &var Int) -> Int {
-    let _0: Int;  // return
-    let _1: &var Int;  // param n
-    let _2: (&var Int) -> &var Int;
-    let _3: (&var Int, Int);
-    let _4: &var Int;  // r
-    let _5: Int;  // k
-    let _6: Int;
-
-    bb0: {
-        _2 = closure#0 of references.element(n: &var Int) [];
-        _3 = call references.pair(f: (&var Int) -> R, r: &var Int) (inst &var Int) [move _2, copy _1] -> [return: bb1];
-    }
-
-    bb1: {
-        _4 = move _3.0;
-        _5 = copy _3.1;
-        _6 = Add(copy (*_4), copy _5);
+        _4 = const "read": String;
+        _5 = copy _3;
+        _6 = ref(exclusive, (*_2).cells[_5]);
         _0 = move _6;
+        (*_1).0 = move _2;
+        (*_1).1 = move _4;
         return;
     }
 }
 
-fn closure#0 of references.element(n: &var Int) -> &var Int {
-    let _0: &var Int;  // return
-    let _1: &();  // env
-    let _2: &var Int;  // param m
+fn epilogue references.Grid.counted(i: Int) -> Void {
+    let _0: Void;  // return
+    let _1: &var (&var references.Grid, String);  // record
+    let _2: &var references.Grid;  // self
+    let _3: String;  // tag
+    let _4: Int;
+    let _5: &String;
+    let _6: Int;
+    let _7: Int;
 
     bb0: {
-        _0 = copy _2;
+        _2 = move (*_1).0;
+        _3 = move (*_1).1;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _4 = copy (*_2).reads;
+        _5 = ref(shared, _3);
+        _6 = call std.string.String.len() (owner String) [move _5] -> [return: bb2];
+    }
+
+    bb2: {
+        _7 = Add(move _4, move _6);
+        (*_2).reads = move _7;
+        drop(_3);
+        return;
+    }
+}
+
+fn references.inc(n: &var Int) -> Void {
+    let _0: Void;  // return
+    let _1: &var Int;  // param n
+
+    bb0: {
+        (*_1) = Add(copy (*_1), const 1: Int);
+        return;
+    }
+}
+
+fn references.exclusive(g: &var references.Grid) -> Int {
+    let _0: Int;  // return
+    let _1: &var references.Grid;  // param g
+    let _2: &var Int;
+    let _3: &var references.Grid;
+    let _4: &var Int;  // ref r
+    let _5: (&var Int)?;
+    let _6: &var references.Grid;
+    let _7: &var Int;
+    window w0: references.Grid.slot() exclusive conditional;
+    window w1: references.Grid.slot() exclusive conditional;
+
+    bb0: {
+        _3 = ref(exclusive, (*_1));
+        _2 = window_open w0 prologue references.Grid.slot() (owner references.Grid) [move _3] -> [present: bb2, absent: bb3];
+    }
+
+    bb1: {
+        _6 = ref(exclusive, (*_1));
+        _5 = window_open w1 prologue references.Grid.slot() (owner references.Grid) [move _6] -> [present: bb5];
+    }
+
+    bb2: {
+        _4 = ref(exclusive, (*_2));
+        (*_4) = Add(copy (*_4), const 1: Int);
+        window_close w0 epilogue references.Grid.slot() (owner references.Grid) -> [return: bb4];
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        goto -> bb1;
+    }
+
+    bb5: {
+        _7 = ref(exclusive, (*(_5 as Some!).0));
+        call references.inc(n: &var Int) [move _7] -> [return: bb6];
+    }
+
+    bb6: {
+        window_close w1 epilogue references.Grid.slot() (owner references.Grid) -> [return: bb7];
+    }
+
+    bb7: {
+        _0 = copy (*_1).reads;
+        return;
+    }
+}
+
+fn references.shared(g: &references.Grid) -> Int {
+    let _0: Int;  // return
+    let _1: &references.Grid;  // param g
+    let _2: &Int;
+    let _3: &references.Grid;
+    let _4: Int;  // r
+    let _5: Int;
+    window w0: references.Grid.peek() shared conditional;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _2 = window_open w0 prologue references.Grid.peek() (owner references.Grid) [move _3] -> [present: bb2, absent: bb3];
+    }
+
+    bb1: {
+        _0 = const 0: Int;
+        return;
+    }
+
+    bb2: {
+        _4 = copy (*_2);
+        window_close w0 epilogue references.Grid.peek() (owner references.Grid) -> [return: bb4];
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        _5 = Add(copy _4, const 1: Int);
+        _0 = move _5;
+        return;
+    }
+}
+
+fn references.element(g: &var references.Grid) -> Int {
+    let _0: Int;  // return
+    let _1: &var references.Grid;  // param g
+    let _2: &var Int;
+    let _3: &var references.Grid;
+    let _4: (&var references.Grid, String);  // record
+    let _5: &var (&var references.Grid, String);
+    let _6: &var (&var references.Grid, String);
+    let _7: &Int;
+    let _8: &references.Grid;
+    let _9: (&var references.Grid, String);  // record
+    let _10: &var (&var references.Grid, String);
+    let _11: Int;
+    let _12: &var (&var references.Grid, String);
+    window w0: references.Grid.counted(i: Int) exclusive record _4;
+    window w1: references.Grid.counted(i: Int) shared record _9;
+
+    bb0: {
+        _3 = ref(exclusive, (*_1));
+        _5 = ref(exclusive, _4);
+        _2 = window_open w0 prologue references.Grid.counted(i: Int) (owner references.Grid) [move _5, move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        (*_2) = Add(copy (*_2), const 1: Int);
+        _6 = ref(exclusive, _4);
+        window_close w0 epilogue references.Grid.counted(i: Int) (owner references.Grid) [move _6] -> [return: bb2];
+    }
+
+    bb2: {
+        _8 = ref(shared, (*_1));
+        _10 = ref(exclusive, _9);
+        _7 = window_open w1 prologue references.Grid.counted(i: Int) (owner references.Grid) [move _10, move _8, const 1: Int] -> [present: bb3];
+    }
+
+    bb3: {
+        _11 = copy (*_7);
+        _12 = ref(exclusive, _9);
+        window_close w1 epilogue references.Grid.counted(i: Int) (owner references.Grid) [move _12] -> [return: bb4];
+    }
+
+    bb4: {
+        _0 = move _11;
         return;
     }
 }
 
 fn references.main() -> Void {
     let _0: Void;  // return
-    let _1: Int;  // a
-    let _2: &var Int;
-    let _3: Int;
-    let _4: &Int;
-    let _5: Int;
+    let _1: references.Grid;  // g
+    let _2: [Int; 4];
+    let _3: Int?;
+    let _4: references.Grid;
+    let _5: &var references.Grid;
     let _6: Int;
-    let _7: &var Int;
+    let _7: &references.Grid;
     let _8: Int;
     let _9: Int;
+    let _10: &var references.Grid;
+    let _11: Int;
+    let _12: Int;
 
     bb0: {
-        _1 = const 1: Int;
-        _2 = ref(exclusive, _1);
-        _3 = call references.exclusive(n: &var Int) [move _2] -> [return: bb1];
+        _2 = [const 1: Int, const 2: Int, const 3: Int, const 4: Int];
+        _3 = Int?::Some(const 5: Int);
+        _4 = references.Grid { cells: move _2, flag: move _3, reads: const 0: Int };
+        _1 = move _4;
+        _5 = ref(exclusive, _1);
+        _6 = call references.exclusive(g: &var references.Grid) [move _5] -> [return: bb1];
     }
 
     bb1: {
-        _4 = ref(shared, _1);
-        _5 = call references.shared(n: &Int) [move _4] -> [return: bb2];
+        _7 = ref(shared, _1);
+        _8 = call references.shared(g: &references.Grid) [move _7] -> [return: bb2];
     }
 
     bb2: {
-        _6 = Add(move _3, move _5);
-        _7 = ref(exclusive, _1);
-        _8 = call references.element(n: &var Int) [move _7] -> [return: bb3];
+        _9 = Add(move _6, move _8);
+        _10 = ref(exclusive, _1);
+        _11 = call references.element(g: &var references.Grid) [move _10] -> [return: bb3];
     }
 
     bb3: {
-        _9 = Add(move _6, move _8);
-        call builtin print [move _9] -> [return: bb4];
+        _12 = Add(move _9, move _11);
+        call builtin print [move _12] -> [return: bb4];
     }
 
     bb4: {

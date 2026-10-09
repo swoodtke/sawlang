@@ -1,0 +1,7 @@
+// refuses: type.reference-position at 5:30
+// a function type whose return is a reference, as a parameter's type; its own
+// parameter may take one (conformance row R05)
+
+func apply(f: (&Int) sync -> &Int) -> Int {
+    0
+}

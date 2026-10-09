@@ -1,0 +1,7 @@
+// refuses: mutability.immutable at 6:5
+// assigning a binding a `let` destructuring declared
+
+func main() {
+    let (a, b) = (1, 2)
+    b = 3
+}

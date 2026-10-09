@@ -1,0 +1,6 @@
+// refuses: mutability.immutable at 5:5
+// whole-referent replacement through a `&T` (conformance row M11)
+
+func f(x: &Int) {
+    x = 5
+}

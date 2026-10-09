@@ -1,0 +1,11 @@
+// refuses: transfer.move-from-borrow at 10:43
+// a closure's reference parameter names storage its caller owns, at every
+// tier (conformance rows V68, V70)
+
+func visit(n: Int, body: (&Int) -> Int) -> Int {
+    body(&n)
+}
+
+func main() {
+    let r = visit(1, { e: &Int in let v = move e; 0 })
+}

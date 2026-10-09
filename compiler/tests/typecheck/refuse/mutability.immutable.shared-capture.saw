@@ -1,0 +1,11 @@
+// refuses: mutability.immutable at 10:27
+// writing a binding a closure captured by shared borrow, `[&n]`
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func main() {
+    var n = 0
+    let r = run({ [&n] in n = 5; n })
+}

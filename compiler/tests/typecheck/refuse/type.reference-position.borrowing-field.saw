@@ -1,0 +1,8 @@
+// refuses: type.reference-position at 6:12
+// a borrowing struct's field holds a shared reference only: an exclusive one
+// could reallocate storage another reader walks
+
+borrows struct Walker {
+    items: &var Vector<Int>,
+    index: Int
+}

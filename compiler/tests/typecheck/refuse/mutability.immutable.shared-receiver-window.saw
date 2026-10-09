@@ -1,0 +1,23 @@
+// refuses: mutability.immutable at 21:9
+// a `&self` method writing through a place window on the receiver's own,
+// inline storage (conformance row M31)
+
+struct Grid {
+    cells: [Int; 4]
+}
+
+extension Grid {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+struct Board {
+    grid: Grid
+}
+
+extension Board {
+    func mark(&self) {
+        self.grid[0] += 100
+    }
+}

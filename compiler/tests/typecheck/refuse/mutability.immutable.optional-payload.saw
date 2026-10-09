@@ -1,0 +1,11 @@
+// refuses: mutability.immutable at 10:5
+// writing the payload of a `let` optional, `o!.n = 5` (conformance row M43)
+
+struct Box2 {
+    n: Int
+}
+
+func main() {
+    let o: Box2? = Box2(n: 1)
+    o!.n = 5
+}

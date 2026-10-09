@@ -1,0 +1,23 @@
+// refuses: mutability.immutable at 21:9
+// a `&self` method calling a `&var self` method on a field of `self`
+// (conformance row M15)
+
+struct Inner {
+    n: Int
+}
+
+extension Inner {
+    func reset(&var self) {
+        self.n = 0
+    }
+}
+
+struct Outer {
+    inner: Inner
+}
+
+extension Outer {
+    func look(&self) {
+        self.inner.reset()
+    }
+}

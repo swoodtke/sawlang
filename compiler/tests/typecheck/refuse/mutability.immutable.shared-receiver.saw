@@ -1,0 +1,12 @@
+// refuses: mutability.immutable at 10:9
+// a `&self` method writing its own field (conformance row M13)
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func hit(&self) {
+        self.n = self.n + 1
+    }
+}

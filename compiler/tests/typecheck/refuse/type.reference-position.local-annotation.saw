@@ -1,0 +1,7 @@
+// refuses: type.reference-position at 5:12
+// a `let` annotation naming a reference (conformance row R13 at a local)
+
+func f(p: &Int) -> Int {
+    let r: &Int = p
+    0
+}

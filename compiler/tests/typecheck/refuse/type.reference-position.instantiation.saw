@@ -1,0 +1,11 @@
+// refuses: type.reference-position at 10:13
+// a generic instantiated at a reference by inference, `idn(&x)`
+
+func idn<T>(x: T) -> Int {
+    0
+}
+
+func main() {
+    let x = 1
+    let y = idn(&x)
+}

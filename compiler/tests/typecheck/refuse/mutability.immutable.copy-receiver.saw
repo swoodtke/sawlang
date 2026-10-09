@@ -1,0 +1,18 @@
+// refuses: mutability.immutable at 17:5
+// a `&var self` method on a `let` of an automatic Copy struct (conformance
+// row M26)
+
+struct Point {
+    x: Int
+}
+
+extension Point {
+    func shift(&var self) {
+        self.x += 1
+    }
+}
+
+func main() {
+    let p = Point(x: 1)
+    p.shift()
+}

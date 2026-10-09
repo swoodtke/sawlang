@@ -1,0 +1,7 @@
+// refuses: type.reference-position at 5:11
+// a reference inside a nested generic, `Box<Vector<&Int>>` (conformance row
+// R27)
+
+func f(b: &Box<Vector<&Int>>) -> Int {
+    0
+}

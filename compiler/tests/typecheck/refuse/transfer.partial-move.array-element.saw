@@ -1,0 +1,7 @@
+// refuses: transfer.partial-move at 6:13
+// `move a[0]` takes an element out of a fixed array binding
+
+func main() {
+    var a: [Int; 2] = [1, 2]
+    let e = move a[0]
+}

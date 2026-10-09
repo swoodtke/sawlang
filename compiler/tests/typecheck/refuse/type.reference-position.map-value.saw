@@ -1,0 +1,6 @@
+// refuses: type.reference-position at 4:14
+// a `Map` with a reference value type (conformance row R18)
+
+func size(m: &Map<String, &Int>) -> Int {
+    0
+}

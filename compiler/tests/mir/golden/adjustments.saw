@@ -75,13 +75,17 @@ func erased(n: Int) -> Result<Int, Box<any Error>> {
     v
 }
 
+func measure(shape: &any Shape) -> Int {
+    0
+}
+
 func adjustments(v: &var Vector<Int>, s: &var Square) -> Int {
     let n = total(&v)
     let m = peek(s)
     s.grow()
     let side = s.side
-    let shape: &any Shape = &Square(side: 2)
+    let shape = measure(&Square(side: 2))
     let square = Square(side: 3)
     let area = square.area()
-    n + m + side + area
+    n + m + side + area + shape
 }

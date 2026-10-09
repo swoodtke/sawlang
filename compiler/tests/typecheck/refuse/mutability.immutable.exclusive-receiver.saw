@@ -1,0 +1,19 @@
+// refuses: mutability.immutable at 18:5
+// a `&var self` method on a `let` receiver (conformance row M05)
+
+struct Counter {
+    n: Int
+}
+
+extension Counter: NoCopy {}
+
+extension Counter {
+    func bump(&var self) {
+        self.n += 1
+    }
+}
+
+func main() {
+    let c = Counter(n: 0)
+    c.bump()
+}

@@ -220,7 +220,8 @@ these things.
   behaviour pair runs under Stage 0 (exiting 0, or panicking as its
   `// expect-panic:` line says) and checks, lowers and evaluates against
   `std/`; each MIR pin (`tests/std/mir/`) holds, String's retain and release
-  reading the immortal sentinel before any atomic operation; and each
+  reading the count with a relaxed atomic load and comparing it with the
+  immortal sentinel before any atomic read-modify-write; and each
   recorded cone holds, the ones of a program using only Optional and Result
   and of one whose only Strings are literals reaching no runtime module and
   no allocator, and the one of a program that interpolates reaching the

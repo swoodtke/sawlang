@@ -1,0 +1,16 @@
+// refuses: mutability.immutable at 14:19
+// a `&self` method projecting `&var self.field` (conformance row M16)
+
+func bump(n: &var Int) {
+    n += 1
+}
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func look(&self) {
+        bump(&var self.n)
+    }
+}

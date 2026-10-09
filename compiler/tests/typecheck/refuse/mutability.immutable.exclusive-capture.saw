@@ -1,0 +1,11 @@
+// refuses: mutability.immutable at 10:20
+// `[&var n]` of a `let`: an exclusive capture borrows the binding writably
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func main() {
+    let n = 0
+    let r = run({ [&var n] in n })
+}

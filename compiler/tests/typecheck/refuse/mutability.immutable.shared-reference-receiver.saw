@@ -1,0 +1,16 @@
+// refuses: mutability.immutable at 15:5
+// a `&var self` method through a `&T` parameter (conformance row M12)
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func bump(&var self) {
+        self.n += 1
+    }
+}
+
+func f(c: &Counter) {
+    c.bump()
+}

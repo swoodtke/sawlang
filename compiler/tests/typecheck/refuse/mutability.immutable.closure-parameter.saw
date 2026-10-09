@@ -1,0 +1,10 @@
+// refuses: mutability.immutable at 9:29
+// assigning a closure's parameter
+
+func run(f: (Int) -> Int) -> Int {
+    f(1)
+}
+
+func main() {
+    let r = run({ x: Int in x = 2; x })
+}

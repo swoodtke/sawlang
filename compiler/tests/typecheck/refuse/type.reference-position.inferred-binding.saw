@@ -1,0 +1,7 @@
+// refuses: type.reference-position at 5:9
+// a binding inferred from a value that builds a reference into a tuple
+
+func f(p: &Int) -> Int {
+    let pair = (p, 1)
+    0
+}

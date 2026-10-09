@@ -1,0 +1,17 @@
+// refuses: mutability.immutable at 15:26
+// a `[&self]` capture narrows a `&var self` receiver, and the closure's write
+// through it is refused (conformance row M36)
+
+struct Counter {
+    n: Int
+}
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+extension Counter {
+    func bump(&var self) -> Int {
+        run({ [&self] in self.n = 5; self.n })
+    }
+}

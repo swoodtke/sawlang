@@ -1,0 +1,7 @@
+// refuses: type.reference-position at 6:20
+// a tuple literal holding a reference (conformance row R17)
+
+func main() {
+    let a = 1
+    let pair = (1, &a)
+}

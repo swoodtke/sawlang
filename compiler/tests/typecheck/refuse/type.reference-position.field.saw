@@ -1,0 +1,6 @@
+// refuses: type.reference-position at 5:8
+// a struct field of reference type (conformance row R09)
+
+struct Holder {
+    r: &Int
+}

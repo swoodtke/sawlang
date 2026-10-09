@@ -1,0 +1,12 @@
+// refuses: mutability.immutable at 11:5
+// compound-assigning a fixed-array element of a `let`, through a field
+// (conformance row M37)
+
+struct Grid {
+    cells: [Int; 2]
+}
+
+func main() {
+    let g = Grid(cells: [1, 2])
+    g.cells[0] += 5
+}

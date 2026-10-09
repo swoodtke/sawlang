@@ -1,0 +1,7 @@
+// refuses: type.reference-position at 6:13
+// `var r = &var x` binds an exclusive reference (conformance row R12)
+
+func main() {
+    var x = 1
+    var r = &var x
+}

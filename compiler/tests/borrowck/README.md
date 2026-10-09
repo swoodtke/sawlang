@@ -124,17 +124,17 @@ leaving on every path or on none.
 
 | rule | owner |
 |---|---|
-| a field, element or payload moved out of a binding, `move p.x`, `move v[0]` | typecheck, SL-462 (refused nowhere yet) |
-| moving out through a reference, or out of a borrowed match payload | typecheck, SL-462 (refused nowhere yet) |
+| a field, element or payload moved out of a binding, `move p.x`, `move v[0]` | typecheck, `transfer.partial-move` (SL-462) |
+| moving out through a reference, or out of a borrowed match payload | typecheck, `transfer.move-from-borrow` (SL-462); `move r.f` through a reference is `transfer.partial-move` |
 | `move self.f` or `move self` outside a `consumes` method | typecheck, `consumes.move-self` |
-| `move self.f` deeper than one field | MIR lowering, `slice.not-yet` (`consumes-deep-move`) |
+| `move self.f` deeper than one field | typecheck, `transfer.partial-move` (SL-462) |
 | `move self` whole in a `consumes` body | MIR lowering, `slice.not-yet` (`consumes-whole`) |
 | a `consumes` field moved on some paths to a return only | the borrow check, `consumes.some-paths` |
 | a use of `self` after `move self.f` | the borrow check, `move.use-after` |
 
-Until SL-462 lands, a user's `move p.f` of an owning field reaches the MIR
-verifier as an `INVARIANT` (the whole drop after a part left), and one of a
-trivially copyable field is lowered as a copy and refused by nothing.
+Typecheck refuses a user's `move p.f` before MIR exists, so the MIR
+verifier's whole-drop-after-a-part check and the copy a trivially copyable
+part is read as see only the parts MIR moves itself.
 
 ## Drop labels
 

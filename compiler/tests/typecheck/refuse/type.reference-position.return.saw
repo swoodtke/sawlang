@@ -1,0 +1,6 @@
+// refuses: type.reference-position at 4:23
+// a free function returning `&Int` (conformance row R01)
+
+func keep(r: &Int) -> &Int {
+    r
+}

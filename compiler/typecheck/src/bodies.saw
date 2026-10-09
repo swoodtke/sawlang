@@ -116,6 +116,7 @@ extension TcProgram {
             try! self.adj_tail.push(-1)
             try! self.call_at.push(-1)
             try! self.local_types.push(-1)
+            try! self.aliasing_bindings.push(false)
             try! self.res_call_at.push(-1)
             try! self.string_positions.push(-1)
             k = k + 1
@@ -617,9 +618,27 @@ extension TcProgram {
         } else {
             let _ = self.expr(value, TC_WANT_NONE)
             self.consume(value)
-            t = self.final_type(value)
+            t = self.read_through_reference(value)
         }
         self.bind_target(target, t, TcOrigin.Temporary)
+    }
+
+    // The type a position that names none takes from expression `e`: a
+    // reference read through a binding gives its referent's value (spec,
+    // Reference Semantics: "References auto-dereference on read"), copied
+    // out as any place read is. A bare `&` keeps its reference type, which
+    // the reference-position check refuses.
+    func read_through_reference(&var self, e: Int) -> Int {
+        let ft = self.final_type(e)
+        let inner = self.referent(ft)
+        if inner < 0 || not self.expr_place[e] || self.has_error(inner) {
+            return ft
+        }
+        self.add_adjust(e, TcAdjustKind.Deref, inner)
+        if not self.copies_silently(inner) {
+            self.refuse_implicit_copy(e, inner)
+        }
+        inner
     }
 
     // `let (a, b) = e`: the tuple pattern against the value's type.
@@ -675,7 +694,12 @@ extension TcProgram {
             },
             case Temporary -> self.set_use(node, TcUse.Temp),
             case Owned -> self.set_use(node, TcUse.Move),
-            case Borrowed -> self.set_use(node, TcUse.Borrow)
+            case Borrowed -> {
+                self.set_use(node, TcUse.Borrow)
+                if leaf >= 0 {
+                    self.aliasing_bindings[leaf] = true
+                }
+            }
         }
     }
 
@@ -2867,10 +2891,9 @@ extension TcProgram {
         }
         let inner = self.referent(ot)
         if inner >= 0 {
+            // Whether a `&var` may reborrow it is the writability funnel's
+            // (mutability.saw).
             self.add_adjust(operand, TcAdjustKind.Deref, inner)
-            if exclusive && not self.is_exclusive_ref(ot) {
-                self.refuse_not_a_place(operand)
-            }
             let t = self.mk_ref(exclusive, inner)
             return self.set_type(e, t, false)
         }
@@ -2887,6 +2910,8 @@ extension TcProgram {
             var msg = StringBuilder()
             try! msg.append("`move` out of `self` is legal only in a `consumes` method, whose receiver ends with the call: declare the method `consumes`, or take the value with `take()` or `swap_out`")
             self.refuse(e, "consumes.move-self", msg.build())
+        } else if not self.has_error(t) {
+            self.check_whole_move(e, operand)
         }
         if not self.has_error(t) && not self.expr_place[operand] {
             self.refuse_not_a_place(operand)
@@ -2925,6 +2950,120 @@ extension TcProgram {
             at = self.res.first_node_child(at)
         }
         false
+    }
+
+    // A spelled `move` takes a whole binding, never a part of one (spec,
+    // "NO partial moves"): a field, a tuple element, a payload through `!` or
+    // an element would leave its owner half-owned. Two places move a part
+    // out: `move self.f` in a `consumes` body, whose receiver ends with the
+    // call, and an element through a raw pointer, whose occupancy nothing
+    // tracks (design 219). `move o!` moves the whole binding `o`.
+    func check_whole_move(&var self, e: Int, operand: Int) {
+        let place = self.unparen(operand)
+        if self.has_alt(place, Alt.Expr_Name) || self.has_alt(place, Alt.Expr_NameRef) {
+            self.check_owned_move(e, place)
+            return
+        }
+        if self.has_alt(place, Alt.Expr_Self) || self.has_alt(place, Alt.Expr_Deref) {
+            return
+        }
+        let member = self.has_alt(place, Alt.Expr_Member)
+        let element = self.has_alt(place, Alt.Expr_TupleIndex)
+        let payload = self.has_alt(place, Alt.Expr_Force)
+        let subscript = self.has_alt(place, Alt.Expr_Subscript_Single) || self.has_alt(place, Alt.Expr_Subscript_Multi)
+        if not member && not element && not payload && not subscript {
+            return
+        }
+        let base = self.res.first_node_child(place)
+        let base_type = self.final_type(base)
+        if subscript && self.is_pointer_type(base_type) {
+            return
+        }
+        let owner = self.unparen(base)
+        if member && self.has_alt(owner, Alt.Expr_Self) && self.in_consuming_body() {
+            return
+        }
+        let m = self.current
+        let part = self.res.last_leaf_of(place)
+        var msg = StringBuilder()
+        try! msg.append("cannot move out of ")
+        if member {
+            try! msg.append("field `")
+            try! msg.append(self.text(m, part))
+            try! msg.append("` of `")
+        } else if element {
+            try! msg.append("tuple element `")
+            try! msg.append(self.text(m, part))
+            try! msg.append("` of `")
+        } else if payload {
+            try! msg.append("the payload of `")
+        } else {
+            try! msg.append("an element of `")
+        }
+        try! msg.append(self.text(m, base))
+        try! msg.append("`: a `move` takes a whole binding, and taking a part would leave its owner half-owned; ")
+        let last = self.res.last_leaf_of(e)
+        let unwraps = last >= 0 && self.text(m, last).equals("!")
+        let part_type = self.final_type(place)
+        if subscript {
+            try! msg.append("an indexed place moves out with `swap_out`, which leaves a value behind")
+        } else if unwraps || self.is_optional(part_type) {
+            try! msg.append("`take()` moves an optional part's payload out and leaves `None` behind")
+        } else {
+            try! msg.append("move the whole value, or keep the part in a binding of its own")
+        }
+        self.refuse(e, "transfer.partial-move", msg.build())
+    }
+
+    // A `move` of a whole binding takes what the binding owns, never what it
+    // borrows (spec, Reference Semantics: "Moving out of references is not
+    // allowed"): a reference binding, a closure's reference parameter, and a
+    // pattern's binding that aliases a part of a borrowed scrutinee each name
+    // storage their owner still ends (DF-288a).
+    func check_owned_move(&var self, e: Int, name: Int) {
+        let t = self.expr_types[name]
+        let leaf = self.res.first_leaf(name)
+        let b = self.binding_at(leaf)
+        var reason = ""
+        if t >= 0 && (self.kind_of(t) == TcKind.Ref || self.kind_of(t) == TcKind.Slice) {
+            reason = "it is a reference, which borrows storage its caller owns and ends"
+        } else if b.kind == ResBindKind.Local && b.node >= 0 && self.aliasing_bindings[b.node] {
+            reason = "it binds a part of a value this match only borrows, so the part's owner still ends it"
+        }
+        if reason.len() == 0 {
+            return
+        }
+        let m = self.current
+        var msg = StringBuilder()
+        try! msg.append("cannot move out of `")
+        try! msg.append(self.text(m, name))
+        try! msg.append("`: ")
+        try! msg.append(reason)
+        try! msg.append("; read or borrow it instead, or give the owner a move-out (`take()` on an optional, `swap_out` on an indexed place)")
+        self.refuse(e, "transfer.move-from-borrow", msg.build())
+    }
+
+    // Expression `e` with its parentheses taken off.
+    func unparen(&self, e: Int) -> Int {
+        var at = e
+        while at >= 0 && self.has_alt(at, Alt.Expr_Paren) {
+            at = self.res.first_node_child(at)
+        }
+        at
+    }
+
+    // Whether `t`, read through a reference, is a raw pointer.
+    func is_pointer_type(&self, t: Int) -> Bool {
+        if t < 0 {
+            return false
+        }
+        var inner = t
+        let r = self.referent(t)
+        if r >= 0 {
+            inner = r
+        }
+        let info = self.types.ty(inner)
+        info.kind == TcKind.Nominal && (info.decl == self.known.unsafe_pointer || info.decl == self.known.unsafe_const_pointer)
     }
 
     // Whether the body being checked is a `consumes` method's (SL-414).
@@ -3360,6 +3499,9 @@ extension TcProgram {
         } else {
             body = self.check_statements(e, TC_WANT_NONE, TcTail.Closure)
             result = body
+            if self.referent(result) >= 0 {
+                result = self.closure_result_value(e, result)
+            }
             if self.is_never(result) {
                 result = self.void_type()
             }
@@ -3368,6 +3510,36 @@ extension TcProgram {
         self.loop_breaks = move saved_loops
         let t = self.mk_func(&params, result, effects)
         self.set_type(e, t, false)
+    }
+
+    // A closure whose result is inferred, and whose tail is a reference: a
+    // reference binding read there gives its value, as `{ e in e }` over a
+    // `&T` returns a `T`; any other reference would leave the call it
+    // borrows for, and is refused (`{ &x }` at the `&`).
+    func closure_result_value(&var self, e: Int, result: Int) -> Int {
+        var tail = -1
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            if self.is_statement_child(c) {
+                tail = if self.has_alt(c, Alt.Stmt_Expr) { self.res.first_node_child(c) } else { -1 }
+            }
+            k = k + 1
+        }
+        if tail >= 0 && self.expr_place[tail] {
+            return self.read_through_reference(tail)
+        }
+        let bare = tail >= 0 && (self.has_alt(tail, Alt.Expr_Ref_Shared) || self.has_alt(tail, Alt.Expr_Ref_Exclusive))
+        if not bare {
+            let at = if tail >= 0 { tail } else { e }
+            var msg = StringBuilder()
+            try! msg.append("a closure's result may not be a reference: this body's value is `")
+            try! msg.append(self.type_text(result))
+            try! msg.append("`, and references are parameters only, so one handed out of the closure would outlive the call it borrows for; yield the value instead")
+            self.refuse(at, "type.reference-position", msg.build())
+        }
+        result
     }
 
     func is_closure_param(&self, c: Int) -> Bool {
@@ -6601,10 +6773,17 @@ extension TcProgram {
     // An atomic intrinsic of the new std's builtin module (SL:open-questions
     // D23), typed as Stage 0's synthesized helper of its name: the add and the
     // release subtract take a word pointer and a delta and return the old
-    // value, and the acquire fence takes nothing.
+    // value, the relaxed load takes a word pointer and returns the word, and
+    // the acquire fence takes nothing.
     func atomic_intrinsic(&var self, e: Int, d: Int, name: String, args: &TcArgs) -> Int {
         let fence = name.equals("__saw_atomic_fence_acquire")
-        let wanted = if fence { 0 } else { 2 }
+        let load = name.equals("__saw_atomic_load_i64_relaxed")
+        var wanted = 2
+        if fence {
+            wanted = 0
+        } else if load {
+            wanted = 1
+        }
         if args.values.len() != wanted {
             var msg = StringBuilder()
             try! msg.append("`")
@@ -6621,7 +6800,9 @@ extension TcProgram {
             let pointer_decl = self.known.unsafe_pointer
             let pointer = self.mk_nominal(pointer_decl, &targs)
             self.check_argument(args.values[0], pointer)
-            self.check_argument(args.values[1], word)
+            if not load {
+                self.check_argument(args.values[1], word)
+            }
         }
         self.record_builtin(e, d, TcRole.Builtin, name)
         if fence {

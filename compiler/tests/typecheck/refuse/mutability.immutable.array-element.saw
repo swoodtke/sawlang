@@ -1,0 +1,7 @@
+// refuses: mutability.immutable at 6:5
+// writing a fixed-array element of a `let` (conformance rows M07, M37)
+
+func main() {
+    let a: [Int; 3] = [1, 2, 3]
+    a[1] = 5
+}

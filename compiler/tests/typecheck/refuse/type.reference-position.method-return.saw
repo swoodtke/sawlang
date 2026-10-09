@@ -1,0 +1,12 @@
+// refuses: type.reference-position at 9:25
+// an extension method returning `&Int` (conformance row R02)
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func peek(&self) -> &Int {
+        &self.n
+    }
+}

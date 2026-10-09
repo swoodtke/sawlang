@@ -1,0 +1,12 @@
+// refuses: transfer.move-from-borrow at 11:5
+// `move` out of a `&var` parameter (conformance row V03)
+
+struct Resource {
+    id: Int
+}
+
+extension Resource: NoCopy {}
+
+func steal(r: &var Resource) -> Resource {
+    move r
+}

@@ -1,0 +1,25 @@
+// refuses: transfer.move-from-borrow at 22:29
+// `match self` in a reference receiver borrows, so a payload binding may not
+// be moved out (conformance row V61)
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+enum Slot {
+    case Empty,
+    case Full(r: Res)
+}
+
+extension Slot: NoCopy {}
+
+extension Slot {
+    func steal(&var self) -> Res {
+        match self {
+            case Empty -> Res(id: 0),
+            case Full(r) -> move r
+        }
+    }
+}

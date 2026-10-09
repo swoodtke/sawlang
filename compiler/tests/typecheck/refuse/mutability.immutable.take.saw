@@ -1,0 +1,7 @@
+// refuses: mutability.immutable at 6:13
+// the builtin `take()` on a `let` optional, which writes `None` into it
+
+func main() {
+    let o: Int? = 1
+    let v = o.take()
+}

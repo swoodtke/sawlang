@@ -1,0 +1,9 @@
+// refuses: mutability.immutable at 7:9
+// assigning an `if let` payload binding (conformance row M18)
+
+func main() {
+    let o: Int? = 1
+    if let x = o {
+        x = 2
+    }
+}

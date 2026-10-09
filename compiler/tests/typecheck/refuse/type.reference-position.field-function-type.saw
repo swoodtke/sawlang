@@ -1,0 +1,7 @@
+// refuses: type.reference-position at 6:21
+// a struct field whose type is a function type returning a reference
+// (conformance row R34)
+
+struct Holder {
+    get: () sync -> &Int
+}

@@ -1,0 +1,31 @@
+// The moves `transfer.partial-move` allows: a whole binding, `move o!`,
+// `move self.f` in a `consumes` body, and an element through a raw pointer.
+
+struct Builder {
+    items: Vector<Int>,
+    count: Int
+}
+
+extension Builder: NoCopy {}
+
+extension Builder {
+    func finish(&var self) consumes -> Vector<Int> {
+        move self.items
+    }
+
+    func split(&var self) consumes -> (Vector<Int>, Int) {
+        (move self.items, self.count)
+    }
+}
+
+func take_out(buf: UnsafePointer<Vector<Int>>) unsafe -> Vector<Int> {
+    move buf[0]
+}
+
+func main() {
+    var b = Builder(items: Vector<Int>(), count: 0)
+    let whole = move b
+    var o: Vector<Int>? = Vector<Int>()
+    let payload = move o!
+    let items = (move whole).finish()
+}

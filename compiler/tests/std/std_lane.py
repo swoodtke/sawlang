@@ -27,8 +27,9 @@ profile, the lang-item table, and the API equivalence of the two stds.
   panics with the text its `// expect-panic:` line names, and checks, lowers
   and evaluates clean with sawc2 against `std/`;
 - each `mir/NAME.mir` holds its functions' MIR as sawc2 lowers them against
-  `std/`, and String's retain and release read the immortal sentinel before
-  any atomic operation;
+  `std/`, and String's retain and release read the count with a relaxed
+  atomic load and compare it with the immortal sentinel before any atomic
+  read-modify-write;
 - each `cone/` program's new-std cone (compiler/tools/std_cone.py) equals
   `NAME.cone`; `optional_result`'s and `literal_only`'s hold no runtime module,
   nothing of `std.alloc` and no task module, `interpolation`'s reaches the
@@ -93,10 +94,12 @@ PROBE_VALUES = {"String": "\"probe\"", "Vector": "Vector<Int>()"}
 LAYOUT_FIELDS = {"String": {"std.string field String.bytes -": " private UnsafePointer<Int8>"}}
 LAYOUT_PAIR = "string_layout"
 # The functions each `mir/` pin holds, and String's refcount hooks, which read
-# the immortal sentinel before any atomic operation.
+# the count with a relaxed atomic load and compare it with the immortal
+# sentinel before any atomic read-modify-write (SL:open-questions D24).
 REFCOUNT_HOOKS = ("fn std.string.String.copy()", "fn std.string.String.deinit()")
 SENTINEL = "static std.string.IMMORTAL"
-ATOMIC = "call builtin __saw_atomic_"
+RELAXED_LOAD = "call builtin __saw_atomic_load_i64_relaxed"
+ATOMIC_RMW = ("call builtin __saw_atomic_add_i64", "call builtin __saw_atomic_sub_i64_release")
 _MARKER = re.compile(r"//\s*refuses:\s*(.+)$")
 _EXPECT_PANIC = re.compile(r"^//\s*expect-panic:\s*(.+)$")
 _PIN_FUNCTION = re.compile(r"^// function: (.+)$")
@@ -653,6 +656,34 @@ def pinned_text(functions, names):
     return "\n".join(parts)
 
 
+_BLOCK = re.compile(r"^    (bb\d+): \{$", re.M)
+_RETURN_TO = re.compile(r"-> \[return: (bb\d+)\]")
+
+
+def refcount_order_problem(body):
+    """Why a refcount hook's MIR may write before it knows the block is not
+    immortal, or None. The entry block must end in the relaxed load and hold
+    no read-modify-write, and the block the load returns to must compare the
+    count with the sentinel: then every read-modify-write lies past both."""
+    blocks = {}
+    marks = list(_BLOCK.finditer(body))
+    for i, m in enumerate(marks):
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(body)
+        blocks[m.group(1)] = body[m.end():end]
+    entry = blocks.get("bb0", "")
+    if any(op in entry for op in ATOMIC_RMW):
+        return "performs an atomic read-modify-write in its entry block"
+    if RELAXED_LOAD not in entry:
+        return ("does not read the count with a relaxed atomic load in its entry block "
+                "(SL:open-questions D24)")
+    after = _RETURN_TO.search(entry[entry.find(RELAXED_LOAD):])
+    if after is None or SENTINEL not in blocks.get(after.group(1), ""):
+        return "does not compare the loaded count with the immortal sentinel next"
+    if not any(op in body for op in ATOMIC_RMW):
+        return "performs no atomic read-modify-write at all"
+    return None
+
+
 def check_mir_pins(failures, counts, write):
     _, dump = sawc2("mir", "--dump", "--std-root", NEW_ROOT, rel(ENTRY))
     functions = mir_functions(dump)
@@ -661,11 +692,10 @@ def check_mir_pins(failures, counts, write):
         if len(found) != 1:
             failures.append("std mir: no single `%s` in the new std's MIR" % header)
             continue
-        body = found[0]
-        sentinel, atomic = body.find(SENTINEL), body.find(ATOMIC)
-        if atomic < 0 or sentinel < 0 or sentinel > atomic:
-            failures.append("std mir: `%s` performs an atomic operation before it reads the "
-                            "immortal sentinel, so a literal's block could be written" % header)
+        problem = refcount_order_problem(found[0])
+        if problem:
+            failures.append("std mir: `%s` %s, so a literal's block could be written"
+                            % (header, problem))
     for path in sorted(glob.glob(os.path.join(MIR, "*.mir"))):
         header, names, expected = pin_parts(path)
         got = pinned_text(functions, names)

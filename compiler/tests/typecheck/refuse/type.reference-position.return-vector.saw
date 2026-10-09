@@ -1,0 +1,6 @@
+// refuses: type.reference-position at 4:18
+// a return type `Vector<&Int>` (conformance row R08)
+
+func gather() -> Vector<&Int> {
+    Vector<&Int>()
+}

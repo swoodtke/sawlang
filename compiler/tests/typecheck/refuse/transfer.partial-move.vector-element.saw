@@ -1,0 +1,8 @@
+// refuses: transfer.partial-move at 7:13
+// `move v[0]` on a `Vector`, a place whose occupancy the language tracks
+// (conformance row V31, design 219)
+
+func main() {
+    var v: Vector<Vector<Int>> = Vector<Vector<Int>>()
+    let e = move v[0]
+}

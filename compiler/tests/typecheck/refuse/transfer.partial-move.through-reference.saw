@@ -1,0 +1,21 @@
+// refuses: transfer.partial-move at 19:9
+// `move r.items` through a `&var` parameter, refused even in a `consumes`
+// body: only the consumed receiver's own fields may leave
+
+struct Bag {
+    items: Vector<Int>
+}
+
+extension Bag: NoCopy {}
+
+struct Builder {
+    items: Vector<Int>
+}
+
+extension Builder: NoCopy {}
+
+extension Builder {
+    func absorb(&var self, r: &var Bag) consumes -> Vector<Int> {
+        move r.items
+    }
+}

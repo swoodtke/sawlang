@@ -150,6 +150,9 @@ public struct TcProgram {
     public binds: Vector<Int>
     // A local's type, by the leaf that declares it.
     public local_types: Vector<Int>
+    // Whether the pattern binding a leaf declares aliases a part of a
+    // borrowed scrutinee, which it may not move out.
+    public aliasing_bindings: Vector<Bool>
     // Resolve's call record for a call node, or -1.
     public res_call_at: Vector<Int>
     // The roots of every body checked, and the declaration each belongs to.
@@ -261,7 +264,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       adj_tail: Vector<Int>(), adjusts: Vector<TcAdjust>(),
                       call_at: Vector<Int>(), calls: Vector<TcCall>(), insts: Vector<Int>(),
                       binds: Vector<Int>(),
-                      local_types: Vector<Int>(), res_call_at: Vector<Int>(),
+                      local_types: Vector<Int>(), aliasing_bindings: Vector<Bool>(),
+                      res_call_at: Vector<Int>(),
                       body_roots: Vector<Int>(), body_decls: Vector<Int>(),
                       ext_visible: Vector<Bool>(), body_result: -1, loop_breaks: Vector<Int>(),
                       branch_allow: TcAllowance(optionals: 1, results: 1, erases: false, widens: true),

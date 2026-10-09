@@ -1,0 +1,8 @@
+// refuses: type.reference-position at 6:20
+// a type alias laundering a reference into a return type (conformance row R21)
+
+type R = &Int
+
+func keep(r: R) -> R {
+    r
+}

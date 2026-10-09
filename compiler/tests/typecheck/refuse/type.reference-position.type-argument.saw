@@ -1,0 +1,7 @@
+// refuses: type.reference-position at 5:15
+// a type argument naming a reference, even inside a parameter's type
+// (conformance row R13)
+
+func count(v: &Vector<&Int>) -> Int {
+    0
+}

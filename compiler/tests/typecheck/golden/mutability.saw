@@ -1,0 +1,167 @@
+// The writes `mutability.immutable` allows, one per row of the mutability
+// matrix's allowed side (compiler/tests/typecheck/README.md).
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func bump(&var self) {
+        self.n += 1
+    }
+
+    func reset(&var self) {
+        self = Counter(n: 0)
+    }
+}
+
+struct Builder {
+    items: Vector<Int>,
+    count: Int
+}
+
+extension Builder: NoCopy {}
+
+extension Builder {
+    func with(&var self, n: Int) consumes -> Vector<Int> {
+        self.count = self.count + n
+        move self.items
+    }
+}
+
+struct Rows {
+    cells: Vector<Int>,
+    rows: Vector<Vector<Int>>
+}
+
+extension Rows: NoCopy {}
+
+extension Rows {
+    // The receiver's heap, which a `&self` borrow does not cover (design 200).
+    func touch(&self) {
+        self.cells[0] = 1
+        self.rows[0][0] += 100
+        let _ = self.rows[0].push(9)
+    }
+
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+
+    func peek(&self, i: Int) borrows -> &Int {
+        self.cells[0] += 1
+        lend self.cells[i]
+    }
+}
+
+struct Board {
+    rows: Rows
+}
+
+extension Board: NoCopy {}
+
+extension Board {
+    // A hand-written accessor that lends out of a Vector lends out of the
+    // heap too.
+    func mark(&self) {
+        self.rows[0] = 5
+    }
+}
+
+struct Tally {
+    cells: [Int; 2]
+}
+
+extension Tally {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+struct Log {
+    tally: Tally,
+    slots: [Int; 2]
+}
+
+extension Log {
+    // A `borrows` body's receiver travels by pointer, so a window it opens on
+    // `self` writes the caller's storage, inline storage included.
+    func at(&self, i: Int) borrows -> &Int {
+        self.tally[0] += 1
+        lend self.slots[i]
+    }
+}
+
+struct Raw {
+    at: UnsafePointer<Int>
+}
+
+extension Raw {
+    // A write through a raw pointer writes the pointee, whatever borrows the
+    // pointer.
+    func store(&self, v: Int) unsafe {
+        self.at[0] = v
+    }
+}
+
+unsafe static var HITS: Int = 0
+
+func replace(r: &var Int) {
+    r = 5
+    r += 1
+}
+
+func forward(r: &var Int) {
+    replace(&var r)
+}
+
+func through_pointer(p: UnsafePointer<Int>) unsafe {
+    let words = p
+    words[0] = 1
+    HITS = HITS + 1
+}
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+// A `[&var r]` capture of a `&var` parameter borrows through the reference.
+func through_capture(r: &var Int) -> Int {
+    run({ [&var r] in r = r + 1; r })
+}
+
+func optional(o: Int?) -> Int {
+    guard var g = o else {
+        return 0
+    }
+    g = g + 1
+    if var x = o {
+        x = x + g
+    }
+    g
+}
+
+func main() {
+    var a = 1
+    a = 2
+    a += 3
+    replace(&var a)
+    var c = Counter(n: 0)
+    c.bump()
+    c.reset()
+    var i = 0
+    while i < 3 {
+        let k = i
+        var j = k
+        j = j + 1
+        i = i + j
+    }
+    var (x, y) = (1, 2)
+    x = y
+    let n = run({ [&var a] in a = 7; a })
+    var v: Vector<Int> = [1, 2]
+    borrow var slot = v[0] {
+        slot = 4
+    }
+    v[1] = 3
+}

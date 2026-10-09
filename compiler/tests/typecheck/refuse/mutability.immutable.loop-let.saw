@@ -1,0 +1,12 @@
+// refuses: mutability.immutable at 9:9
+// a `let` declared in a loop body takes a fresh value on every iteration, and
+// a real assignment to it inside the loop is still refused (the Air, m352)
+
+func main() {
+    var i = 0
+    while i < 3 {
+        let k = i
+        k = k + 1
+        i = i + 1
+    }
+}

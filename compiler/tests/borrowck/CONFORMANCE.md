@@ -11,7 +11,7 @@ INDEX.md, or when an owner is not one of the words below.
 | `U6d1` | the borrow check's initialisation analysis (SL-460 U6d1): a refusal fixture or golden under `compiler/tests/borrowck/` |
 | `U6d2` | the borrow check's loans and conflicts (SL-460 U6d2), not written yet |
 | `typecheck` | refused or accepted by typecheck today: the named fixture in `compiler/tests/typecheck/` |
-| `SL-462` | a typecheck rule not written yet, owned by SL-462: reference positions, mutability, moving out of a part or through a borrow |
+| `SL-462` | a typecheck rule SL-462 owns and has not written; SL-462 wrote reference positions, mutability and moving out of a part or through a borrow, so no row names it |
 | `typecheck-gap` | a typecheck rule that refuses nothing today, which no issue owns yet (a finding of this unit) |
 | `parse` | the parser refuses the spelling: the named fixture in `compiler/tests/parse/` |
 | `mir` | the MIR stage: the named golden in `compiler/tests/mir/` |
@@ -24,89 +24,89 @@ INDEX.md, or when an owner is not one of the words below.
 
 | Row | Owner | Covered by, or why not |
 |---|---|---|
-| M01 | SL-462 | assignment to a `let` local |
-| M02 | SL-462 | compound assignment to a `let` local |
-| M03 | SL-462 | `&var` of a `let` |
-| M04 | SL-462 | field write on a `let` struct |
-| M05 | SL-462 | `&var self` call on a `let` receiver |
-| M06 | SL-462 | `push` on a `let` Vector; the migrated file is refused first by `result.discarded`, a migration artifact |
-| M07 | SL-462 | fixed-array element write on a `let` |
-| M08 | SL-462 | a place window writing a `let` root |
-| M09 | SL-462 | tuple element write on a `let` root |
-| M10 | SL-462 | write through `&T` |
-| M11 | SL-462 | whole-referent replacement through `&T` |
-| M12 | SL-462 | `&var self` call through `&T` |
-| M13 | SL-462 | `&self` method writing its field |
-| M14 | SL-462 | `&self` method calling a `&var self` method |
-| M15 | SL-462 | the same on a field; the migrated file is refused first by `result.discarded`, a migration artifact |
-| M16 | SL-462 | `&var self.field` in a `&self` method |
-| M17 | SL-462 | assignment to a `for` variable |
-| M18 | SL-462 | assignment to an `if let` binding |
-| M19 | SL-462 | assignment to a by-value parameter |
-| M20 | SL-462 | write to a by-value capture |
-| M21 | SL-462 | field write on a by-value capture |
-| M22 | SL-462 | a `borrows` place write on a `let` root |
-| M23 | SL-462 | write through a shared borrow's `&T` |
-| M24 | SL-462 | `&self` accessor writing a field in its epilogue; the migrated file is refused first by `result.discarded`, a migration artifact |
-| M25 | SL-462 | `m[k]! = v` on a `let` Map; the migrated file is refused first by `member.unknown`, a migration artifact |
-| M26 | SL-462 | `&var self` call on a `let` of the Copy tier |
-| M27 | slice.not-yet | a method call on `any Trait` (then SL-462: an `Atomic` field is interior mutability, accepted) |
-| M28 | slice.not-yet | a `borrow` block over `SpinLock.lock`, which lends through a closure parameter (then SL-462: the indirection carve-out, accepted) |
+| M01 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.saw` |
+| M02 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.compound.saw` |
+| M03 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.exclusive-ref.saw` |
+| M04 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.field.saw` |
+| M05 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.exclusive-receiver.saw` |
+| M06 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.vector-push.saw`; the migrated file is refused first by `result.discarded`, a migration artifact |
+| M07 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.array-element.saw` |
+| M08 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.vector-element.saw` |
+| M09 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.tuple-element.saw` |
+| M10 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-reference.saw` |
+| M11 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-reference-replace.saw` |
+| M12 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-reference-receiver.saw` |
+| M13 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver.saw` |
+| M14 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-call.saw` |
+| M15 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-field-call.saw`; the migrated file is refused first by `result.discarded`, a migration artifact |
+| M16 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-projection.saw` |
+| M17 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.for-binding.saw` |
+| M18 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.if-let.saw` |
+| M19 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.parameter.saw` |
+| M20 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.value-capture.saw` |
+| M21 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.value-capture-field.saw` |
+| M22 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.accessor-root.saw` |
+| M23 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-closure-parameter.saw` |
+| M24 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-epilogue.saw`; the migrated file is refused first by `result.discarded`, a migration artifact |
+| M25 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.map-force.saw`; the migrated file is refused first by `member.unknown`, a migration artifact |
+| M26 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.copy-receiver.saw` |
+| M27 | slice.not-yet | a method call on `any Trait` (then typecheck: a `&self` method of an interior cell borrows shared, which the writability funnel never asks about) |
+| M28 | slice.not-yet | a `borrow` block over `SpinLock.lock`, which lends through a closure parameter (then typecheck: the indirection carve-out, accepted in `compiler/tests/typecheck/golden/mutability.saw`) |
 | M29 | typecheck | accepted: a `&var` parameter's writes; typecheck golden `borrow_arguments.saw` |
-| M30 | SL-462 | assignment to an immutable `static` |
-| M31 | SL-462 | `&self` method writing through a window on inline storage; the migrated file is refused first by `subscript.role`, a migration artifact |
-| M32 | SL-462 | accepted side: the indirection carve-out through a window |
-| M33 | SL-462 | a place write in a `&self` accessor's prologue |
-| M34 | SL-462 | accepted: a place write in the exclusive accessor's prologue |
-| M35 | SL-462 | accepted: the same write declared `&var self` |
-| M36 | SL-462 | a `[&self]` capture narrowing a `&var self` receiver |
-| M37 | SL-462 | `let` inline-array immutability at every write shape |
+| M30 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.static.saw` |
+| M31 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-window.saw`; the migrated file is refused first by `subscript.role`, a migration artifact |
+| M32 | typecheck | accepted: the indirection carve-out through a window, `self.rows[0][0] += 100` in `compiler/tests/typecheck/golden/mutability.saw` |
+| M33 | typecheck | accepted: a window write in a `&self` accessor's prologue, inline (`Log.at`) and heap (`Rows.peek`), in `compiler/tests/typecheck/golden/mutability.saw` |
+| M34 | typecheck | accepted: a `&var self` accessor's writes, as any `&var self` body's (`compiler/tests/typecheck/golden/mutability.saw`); `#lend_var` is not modelled |
+| M35 | typecheck | accepted: writes under `&var self`, `compiler/tests/typecheck/golden/mutability.saw` |
+| M36 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-capture-self.saw` |
+| M37 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.array-element.saw` and `compiler/tests/typecheck/refuse/mutability.immutable.array-element-compound.saw` |
 | M38 | U6d2 | a compound assignment's right side borrowing the path it writes |
-| M39 | slice.not-yet | `syntax.stmt.optional-assign.plain` (then SL-462) |
-| M40 | slice.not-yet | `syntax.stmt.optional-assign.compound` (then SL-462) |
-| M41 | SL-462 | accepted side of the indirection carve-out; the migrated file is refused first by `operator.undefined`, a migration artifact |
-| M42 | SL-462 | `&self` method writing an inline `[T; N]` element |
-| M43 | SL-462 | write to the payload of a `let` optional |
-| M44 | SL-462 | `&var self` call through an inline array element of a `let` root |
+| M39 | slice.not-yet | `syntax.stmt.optional-assign.plain` (then typecheck, `mutability.immutable`) |
+| M40 | slice.not-yet | `syntax.stmt.optional-assign.compound` (then typecheck, `mutability.immutable`) |
+| M41 | typecheck | accepted: the indirection carve-out at a `Vector` subscript, nested, and a hand-written accessor over a `Vector`, in `compiler/tests/typecheck/golden/mutability.saw`; the migrated file is refused first by `operator.undefined`, a migration artifact |
+| M42 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-array.saw` |
+| M43 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.optional-payload.saw` |
+| M44 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.array-element-receiver.saw` |
 
 ## References are parameters only
 
 | Row | Owner | Covered by, or why not |
 |---|---|---|
-| R01 | SL-462 | a free function returning `&Int` |
-| R02 | SL-462 | a method returning `&Int` |
-| R03 | SL-462 | a requirement returning `&Int` |
-| R04 | SL-462 | an extern returning `&Int` |
-| R05 | slice.not-yet | `syntax.expr.shorthand-param` (then SL-462) |
-| R06 | SL-462 | `(Int, &Int)` result |
-| R07 | SL-462 | `&Int?` result; refused today only by `type.mismatch` on the returned value |
-| R08 | SL-462 | `Vector<&Int>` result |
-| R09 | SL-462 | a struct field of reference type |
-| R10 | SL-462 | a case payload of reference type; the migrated file is refused first by `result.discarded`, a migration artifact |
-| R11 | SL-462 | `let r = &x` |
-| R12 | SL-462 | `var r = &var x` |
-| R13 | SL-462 | `Vector<&Int>` in a type position; the migrated file is refused first by `result.discarded`, a migration artifact |
-| R14 | SL-462 | `idn<&Int>(&x)` |
-| R15 | SL-462 | a closure inferring a reference result |
-| R16 | SL-462 | an array literal of references |
-| R17 | SL-462 | a tuple literal holding a reference |
-| R18 | SL-462 | a Map with a reference value |
-| R19 | SL-462 | a `static` of reference type; refused today only by `type.mismatch` |
-| R20 | SL-462 | an alias laundering a reference into a field |
-| R21 | SL-462 | an alias laundering a reference into a result |
+| R01 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.return.saw` |
+| R02 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.method-return.saw` |
+| R03 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.requirement-return.saw` |
+| R04 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.extern-return.saw` |
+| R05 | slice.not-yet | `syntax.expr.shorthand-param` in the migrated file (then typecheck, `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.function-type-return.saw`) |
+| R06 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.return-tuple.saw` |
+| R07 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.return-optional.saw` |
+| R08 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.return-vector.saw` |
+| R09 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.field.saw` |
+| R10 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.payload.saw`; the migrated file is refused first by `result.discarded`, a migration artifact |
+| R11 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.saw` |
+| R12 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.exclusive-binding.saw` |
+| R13 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.type-argument.saw`; the migrated file is refused first by `result.discarded`, a migration artifact |
+| R14 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.explicit-instantiation.saw` |
+| R15 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.closure-return.saw` |
+| R16 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.array-literal.saw` |
+| R17 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.tuple-literal.saw` |
+| R18 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.map-value.saw` |
+| R19 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.static.saw` |
+| R20 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.alias-field.saw` |
+| R21 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.alias-return.saw` |
 | R22 | slice.not-yet | the `Thread.spawn` and `Task.spawn` forms (then typecheck `capture.escaping-borrow`) |
 | R23 | typecheck | `capture.escaping-borrow`: `compiler/tests/typecheck/refuse/capture.escaping-borrow.saw` |
 | R24 | slice.not-yet | `TaskGroup.spawn` (then typecheck) |
 | R25 | slice.not-yet | `TaskGroup.spawn` (then typecheck and U6d2: the task borrows its root) |
-| R26 | SL-462 | `Optional<&Int>` spelled out |
-| R27 | SL-462 | a reference in a nested generic |
-| R28 | SL-462 | accepted: the sanctioned `(&var n) as UnsafePointer<Int>` |
-| R29 | typecheck-gap | `(&x) as Int` is not refused by `type.cast` today |
+| R26 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.optional-written.saw` |
+| R27 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.nested-generic.saw` |
+| R28 | typecheck | accepted: the sanctioned `(&var n) as UnsafePointer<Int>`, `address` in `compiler/tests/typecheck/golden/reference_positions.saw` |
+| R29 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.cast-to-integer.saw` |
 | R30 | typecheck | accepted: a non-escaping borrow capture; typecheck golden `captures.saw` |
-| R31 | SL-462 | `&` as a binary operand |
-| R32 | SL-462 | a reference in a `Box` |
-| R33 | SL-462 | a reference result legal iff `borrows` |
-| R34 | SL-462 | a field of a reference-returning function type |
+| R31 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.operand.saw` |
+| R32 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.box.saw` |
+| R33 | typecheck | accepted: `borrows` lends in `compiler/tests/typecheck/golden/reference_positions.saw`; the same result without `borrows` is `compiler/tests/typecheck/refuse/type.reference-position.method-return.saw` |
+| R34 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.field-function-type.saw` |
 | R35 | typecheck | `capture.escaping-borrow`: `compiler/tests/typecheck/refuse/capture.escaping-borrow.reference.saw` |
 | R36 | typecheck | `capture.escaping-borrow`: `compiler/tests/typecheck/refuse/capture.escaping-borrow.saw` |
 | R37 | typecheck | accepted: a non-escaping closure naming `self`; typecheck golden `captures.saw` |
@@ -159,9 +159,9 @@ INDEX.md, or when an owner is not one of the words below.
 |---|---|---|
 | V01 | U6d1 | `move.use-after`: `compiler/tests/borrowck/refuse/move.use-after.saw` |
 | V02 | U6d1 | `move.use-after`: `compiler/tests/borrowck/refuse/move.use-after.double.saw` |
-| V03 | SL-462 | `move` out of a `&var` parameter: moving through a borrow; refused today only by `type.mismatch` |
-| V04 | SL-462 | `move` out of a `&` parameter |
-| V05 | SL-462 | `move h.v`, a partial move; MIR reads a trivially copyable part as `copy`, so only the source sees it |
+| V03 | typecheck | `transfer.move-from-borrow`: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.saw` |
+| V04 | typecheck | `transfer.move-from-borrow`: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.shared.saw` |
+| V05 | typecheck | `transfer.partial-move`: `compiler/tests/typecheck/refuse/transfer.partial-move.saw` |
 | V06 | U6d1 | `move.use-after`: `compiler/tests/borrowck/refuse/move.use-after.loop.saw` |
 | V07 | U6d1 | `move.use-after`: `compiler/tests/borrowck/refuse/move.use-after.branch.saw` |
 | V08 | U6d1 | accepted: a moved `var` revived by assignment, `compiler/tests/borrowck/golden/reinit.saw` |
@@ -187,7 +187,7 @@ INDEX.md, or when an owner is not one of the words below.
 | V28 | slice.not-yet | constructing the builtin type `Atomic` (then typecheck, accepted) |
 | V29 | slice.not-yet | constructing the builtin type `Atomic` (then typecheck, accepted) |
 | V30 | slice.not-yet | constructing the builtin type `Atomic` (then U6d1, accepted moves) |
-| V31 | SL-462 | `move v[0]`, a partial move out of an element; the migrated file is refused first by `result.discarded`, a migration artifact |
+| V31 | typecheck | `transfer.partial-move`: `compiler/tests/typecheck/refuse/transfer.partial-move.vector-element.saw`; the migrated file is refused first by `result.discarded`, a migration artifact |
 | V32 | typecheck | accepted: a Copy bound met by the derived tier; typecheck golden `tiers.saw` |
 | V33 | typecheck | `copy.requirement` at a silent-copy bound; the migrated file is refused first by `result.discarded`, a migration artifact |
 | V34 | typecheck | accepted: `T: ExplicitCopy` licenses `.copy()`; typecheck golden `tiers.saw` |
@@ -220,17 +220,17 @@ INDEX.md, or when an owner is not one of the words below.
 | V57 | slice.not-yet | the intrinsic `__saw_deinit_in_place` (then §3.7) |
 | V58 | typecheck-gap | a `NoMove` placement after a borrow is not refused today |
 | V59 | typecheck-gap | a bound `NoMove` value moved into an argument is not refused today |
-| V60 | SL-462 | a payload moved out of a match through a reference: moving through a borrow |
-| V61 | SL-462 | `match self` in a reference receiver moving a payload |
-| V62 | SL-462 | the same refusal at every tier and on a field scrutinee |
+| V60 | typecheck | `transfer.move-from-borrow`: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.match-payload.saw` |
+| V61 | typecheck | `transfer.move-from-borrow`: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.match-self.saw` |
+| V62 | typecheck | `transfer.move-from-borrow`, a Copy-tier payload: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.match-payload.saw` |
 | V63 | §3.7 | an owned match still consumes, released once: `compiler/tests/drops/golden/dissolves.saw`, `compiler/tests/drops/conformance.tsv` |
 | V64 | typecheck | `transfer.implicit-copy` at a forwarding cast; tests/corpus file refused by it |
 | V65 | §3.8 | the Copy tier retains through a forwarding cast |
 | V66 | typecheck | a forwarding alias projection; refused today by `type.mismatch` first |
 | V67 | typecheck | accepted: building casts are untouched |
-| V68 | SL-462 | a closure's reference parameter moved out: moving through a borrow |
-| V69 | slice.not-yet | a `borrow` block over `Mutex.lock`, which lends through a closure parameter (then SL-462) |
-| V70 | SL-462 | the borrowed closure binding refusal at every tier |
+| V68 | typecheck | `transfer.move-from-borrow`: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.closure-parameter.saw` |
+| V69 | slice.not-yet | a `borrow` block over `Mutex.lock`, which lends through a closure parameter (then typecheck, `transfer.move-from-borrow`) |
+| V70 | typecheck | `transfer.move-from-borrow`, a Copy-tier referent: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.closure-parameter.saw` |
 | V71 | §3.7 | the borrowed-binding fence is narrow, each value released once: `compiler/tests/drops/conformance.tsv` |
 | V72 | §3.7 | std visitors lend: `compiler/tests/drops/conformance.tsv`; its error file is refused first by `result.discarded`, a migration artifact |
 | V73 | §3.7 | a by-value closure parameter is released once: `compiler/tests/drops/conformance.tsv` |

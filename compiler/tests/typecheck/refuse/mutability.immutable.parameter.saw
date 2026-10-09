@@ -1,0 +1,7 @@
+// refuses: mutability.immutable at 5:5
+// assigning a parameter taken by value (conformance row M19)
+
+func f(n: Int) -> Int {
+    n = n + 1
+    n
+}

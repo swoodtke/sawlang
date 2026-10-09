@@ -1,0 +1,8 @@
+// refuses: mutability.immutable at 7:5
+// writing a Vector element of a `let` root opens an exclusive window on it
+// (conformance row M08)
+
+func main() {
+    let v: Vector<Int> = [1, 2]
+    v[0] = 5
+}

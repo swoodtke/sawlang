@@ -1,0 +1,8 @@
+// refuses: mutability.immutable at 7:5
+// writing a `static` that is not an `unsafe static var` (conformance row M30)
+
+static LIMIT: Int = 4
+
+func main() {
+    LIMIT = 5
+}

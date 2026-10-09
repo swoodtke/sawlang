@@ -1,0 +1,18 @@
+// refuses: mutability.immutable at 15:9
+// a `&self` method calling a `&var self` method on `self` (conformance row
+// M14)
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func reset(&var self) {
+        self.n = 0
+    }
+
+    func look(&self) -> Int {
+        self.reset()
+        self.n
+    }
+}

@@ -1,0 +1,8 @@
+// refuses: type.reference-position at 7:13
+// `let r = &x`: a bare `&` outside a call argument would bind a reference
+// (conformance row R11)
+
+func main() {
+    let x = 1
+    let r = &x
+}

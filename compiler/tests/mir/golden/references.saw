@@ -1,39 +1,61 @@
-// A reference read out of a part, an Optional's payload or a tuple's element:
-// an exclusive one moves, a reborrow out of a container dead after it, and a
-// shared one is copied.
+// References reached through `borrows` accessors: a conditional lend's
+// present edge hands out the lent `&var` or `&` itself and its forced place is
+// reborrowed, and an accessor's epilogue moves the exclusive receiver out of
+// its state record's tuple element.
 
-func wrap<R>(f: (&var Int) -> R, r: &var Int) -> R? {
-    f(r)
+struct Grid {
+    cells: [Int; 4],
+    flag: Int?,
+    reads: Int
 }
 
-func view<R>(f: (&Int) -> R, r: &Int) -> R? {
-    f(r)
+extension Grid {
+    func slot(&var self) borrows -> &var Int? {
+        if self.flag.is_none() {
+            return None
+        }
+        lend self.flag!
+    }
+
+    func peek(&self) borrows -> &Int? {
+        if self.flag.is_none() {
+            return None
+        }
+        lend self.flag!
+    }
+
+    func counted(&var self, i: Int) borrows -> &var Int {
+        let tag = "read"
+        lend self.cells[i]
+        self.reads = self.reads + tag.len()
+    }
 }
 
-func pair<R>(f: (&var Int) -> R, r: &var Int) -> (R, Int) {
-    (f(r), 1)
+func inc(n: &var Int) {
+    n += 1
 }
 
-func exclusive(n: &var Int) -> Int {
-    if let r = wrap({ m: &var Int in m }, n) {
+func exclusive(g: &var Grid) -> Int {
+    if borrow var r = g.slot() {
+        r += 1
+    }
+    inc(&var g.slot()!)
+    g.reads
+}
+
+func shared(g: &Grid) -> Int {
+    if let r = g.peek() {
         return r + 1
     }
     0
 }
 
-func shared(n: &Int) -> Int {
-    if let r = view({ m: &Int in m }, n) {
-        return r + 1
-    }
-    0
-}
-
-func element(n: &var Int) -> Int {
-    let (r, k) = pair({ m: &var Int in m }, n)
-    r + k
+func element(g: &var Grid) -> Int {
+    g.counted(0) += 1
+    g.counted(1)
 }
 
 func main() {
-    var a = 1
-    print(exclusive(&var a) + shared(&a) + element(&var a))
+    var g = Grid(cells: [1, 2, 3, 4], flag: 5, reads: 0)
+    print(exclusive(&var g) + shared(&g) + element(&var g))
 }

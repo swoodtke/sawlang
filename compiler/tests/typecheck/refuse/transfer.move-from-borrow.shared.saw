@@ -1,0 +1,6 @@
+// refuses: transfer.move-from-borrow at 5:5
+// `move` out of a `&` parameter (conformance row V04)
+
+func steal(x: &Vector<Int>) -> Vector<Int> {
+    move x
+}

@@ -1,0 +1,8 @@
+// refuses: type.reference-position at 7:15
+// a closure whose inferred result is a reference, `{ &x }` (conformance row
+// R15)
+
+func main() {
+    let x = 7
+    let f = { &x }
+}
