@@ -1373,6 +1373,25 @@ well. Loud.
 
 **Checker:** yes: the L13 rule covers it.
 
+
+### C5. A safe function storing `None` into a raw-pointer field
+
+**Shape:** Stage 0 accepts a function with no `unsafe` declaration whose body
+stores `None` into an `UnsafePointer<T>?` field, as a memberwise `init` does:
+`StringBuilder(buffer: None, …)` in a safe `init`. The spec's trigger rule
+makes that function `unsafe`, since its body names a value of an unsafe type
+("names, binds, receives or returns a value of an unsafe type… deliberately
+broader than 'performs a deref'"). So Stage 0 under-reports the effect. It is
+silent but harmless at run time: no code is wrong, and only the declaration
+lacks its `unsafe`.
+
+**Instead:** declare the function `unsafe`. Calling it from safe code needs no
+ceremony, so no caller changes. sawc2 refuses the undeclared form
+(`unsafe.undeclared`), and `std/`'s `StringBuilder.init` carries it, recorded
+as the equivalence exception "Stage 0 under-reports the effect" (SL-456 U5b1).
+
+**Checker:** not needed. sawc2 refuses it wherever it builds the code.
+
 ## Inventory
 
 Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and eight found since, mapped to its entry. "Call" is this
