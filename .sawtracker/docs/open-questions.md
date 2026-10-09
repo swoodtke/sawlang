@@ -18,7 +18,7 @@ None right now.
 SL:architecture §3.6 says a `ref` loan lives until its last use. Under that rule alone, the spec's "Nested calls" refusals would be accepted: X45 `combine(bump(&var n), scale(&var n))`, where the first loan is dead before the second is taken, and X44 `p.total(reset(&var p))`, where the receiver's `ref` is taken after `reset` returns. The spec says both are errors: an argument's borrow extends over the whole call expression, nested calls included, and the receiver is borrowed for the whole call.
 
 **Decided:** the spec holds. §3.6's last-use rule is general, and the spec refines it for call operands.
-- A loan created for a call argument, at any nesting depth, lives to the outermost enclosing call's terminator.
+- Per outermost call expression, every reference WRITTEN as & or &var anywhere in its argument list (nested calls included) keeps its loan to that call's terminator; a nested call's implicit receiver borrow does not join (so combine(n.get(), bump(&var n)) stays legal; the Air's m394).
 - A deferred receiver loan is reserved from the receiver's evaluation and activated at the call, as in Rust's two-phase borrows. While reserved it acts as a shared loan. Shared reads in the arguments stay legal (`v.push(v.len())`), and a write or exclusive borrow of an overlapping path conflicts (X44).
 - A `window_open` receiver is not reserved but fully live from receiver position (SL-473).
 - The reservation is an explicit MIR fact.
