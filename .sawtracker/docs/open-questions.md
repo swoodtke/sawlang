@@ -19,6 +19,8 @@ Under the user's ruling that "the builtins should not be magic", `std/prelude.sa
 
 **Decided:** the grammar admits `None` as a case name in an enum declaration, everywhere, so the grammar stays context-free. A semantic rule refuses a `case None` declaration in every enum except the one bound to the Optional lang item, and the lang-item shape check requires it there, payload-free. The `None` literal and the `None` pattern keep their one meaning: Optional's case.
 
+**Who and when:** U5b1 makes the grammar edit itself, in its own commits: GRAMMAR.md with a lint fixture, the reference recognizer and its corpus expectations, and sawc2's parser. Its boundary was extended for this in the lead's direct message. It lands no later than `std/prelude.saw`, and U5b1's gate includes `grammarcorpus` (the Air, t15).
+
 **Rejected:**
 - spelling the case another way and mapping `None` to it, which keeps magic in the mapping and changes a user-visible name;
 - a compiler-supplied case, which is still magic.
