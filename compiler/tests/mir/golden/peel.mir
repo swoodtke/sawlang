@@ -51,7 +51,7 @@ fn peel.peel(v: std.vector.Vector<Int?, std.alloc.GlobalAllocator>, o: Int?, p: 
     }
 
     bb6: {
-        _5 = move (_8 as Some).0;
+        _5 = copy (_8 as Some).0;
         goto -> bb1;
     }
 
@@ -83,7 +83,7 @@ fn peel.peel(v: std.vector.Vector<Int?, std.alloc.GlobalAllocator>, o: Int?, p: 
     }
 
     bb12: {
-        _13 = move (_14 as Some).0;
+        _13 = copy (_14 as Some).0;
         goto -> bb11;
     }
 
@@ -100,7 +100,7 @@ fn peel.peel(v: std.vector.Vector<Int?, std.alloc.GlobalAllocator>, o: Int?, p: 
     }
 
     bb15: {
-        _15 = move (_16 as Some).0;
+        _15 = copy (_16 as Some).0;
         goto -> bb14;
     }
 

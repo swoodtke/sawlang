@@ -34,10 +34,9 @@ fn prologue accessors.Grid.find(i: Int) -> (&var Int)? {
     let _3: Bool;
     let _4: Bool;
     let _5: Bool;
-    let _6: Int?;
-    let _7: Int;
-    let _8: &var Int;
-    let _9: (&var Int)?;
+    let _6: Int;
+    let _7: &var Int;
+    let _8: (&var Int)?;
 
     bb0: {
         _4 = Lt(copy _2, const 0: Int);
@@ -45,10 +44,10 @@ fn prologue accessors.Grid.find(i: Int) -> (&var Int)? {
     }
 
     bb1: {
-        _7 = copy _2;
-        _8 = ref(exclusive, (*_1).cells[_7]);
-        _9 = (&var Int)?::Some(move _8);
-        _0 = move _9;
+        _6 = copy _2;
+        _7 = ref(exclusive, (*_1).cells[_6]);
+        _8 = (&var Int)?::Some(move _7);
+        _0 = move _8;
         return;
     }
 
@@ -68,7 +67,6 @@ fn prologue accessors.Grid.find(i: Int) -> (&var Int)? {
     }
 
     bb5: {
-        _6 = Int?::None;
         _0 = (&var Int)?::None;
         return;
     }
@@ -121,8 +119,8 @@ fn epilogue accessors.Grid.counted(i: Int) -> Void {
 
     bb0: {
         _2 = move (*_1).0;
-        _3 = move (*_1).1;
-        _4 = move (*_1).2;
+        _3 = copy (*_1).1;
+        _4 = copy (*_1).2;
         goto -> bb1;
     }
 

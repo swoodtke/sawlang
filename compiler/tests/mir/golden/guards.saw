@@ -1,0 +1,132 @@
+// A `guard let` or `guard var` closes its head scope before its else block:
+// on the absent edge the subject's Optional and its owned temporaries drop
+// once, and every way out of the else block leaves only the scopes around
+// the guard. One function per way out, each with a `Holder` temporary that
+// owns a `String` in the subject.
+
+struct Holder { name: String }
+
+enum Fault { case Broken }
+
+extension Holder {
+    func find(&self, n: Int) -> Int? {
+        if n > 0 {
+            return n
+        }
+        None
+    }
+
+    func label(&self, n: Int) -> String? {
+        if n > 0 {
+            return "found"
+        }
+        None
+    }
+}
+
+func make() -> Holder { Holder(name: "held") }
+
+func fetch(n: Int) -> Result<Holder, Fault> {
+    if n < 0 {
+        return Fault.Broken
+    }
+    make()
+}
+
+func failing(n: Int) -> Result<Int, Fault> {
+    if n < 0 {
+        return Fault.Broken
+    }
+    n
+}
+
+func apply(f: (Int) -> Int, x: Int) -> Int {
+    f(x)
+}
+
+func returned(n: Int) -> Int {
+    guard let r = make().find(n) else {
+        return 0
+    }
+    r
+}
+
+func broken(n: Int) -> Int {
+    var i = n
+    while i > 0 {
+        guard let r = make().find(i) else {
+            break
+        }
+        i = i - r
+    }
+    i
+}
+
+func continued(n: Int) -> Int {
+    var i = n
+    var total = 0
+    while i > -2 {
+        i = i - 1
+        guard let r = make().find(i) else {
+            continue
+        }
+        total = total + r
+    }
+    total
+}
+
+func propagated(n: Int) -> Result<Int, Fault> {
+    guard let r = make().find(n) else {
+        return try failing(n)
+    }
+    r
+}
+
+func mutable(n: Int) -> Int {
+    guard var r = make().find(n) else {
+        return 0
+    }
+    r = r + 1
+    r
+}
+
+func closed(n: Int) -> Int {
+    apply({ k: Int in
+        guard let r = make().find(k) else {
+            return 0
+        }
+        r
+    }, n)
+}
+
+func nested(n: Int) -> Int {
+    var i = n
+    var total = 0
+    while i > 0 {
+        i = i - 1
+        if i > 1 {
+            guard let r = make().find(i) else {
+                break
+            }
+            guard let s = make().find(r - 1) else {
+                continue
+            }
+            total = total + s
+        }
+    }
+    total
+}
+
+func tried(n: Int) -> Result<Int, Fault> {
+    guard let r = (try fetch(n)).find(n) else {
+        return 0
+    }
+    r
+}
+
+func present(h: Holder?, n: Int) -> Int {
+    guard let x = h!.label(n) else {
+        return 0
+    }
+    x.len()
+}

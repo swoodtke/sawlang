@@ -184,7 +184,7 @@ fn order.order(row: &var order.Row, v: &var std.vector.Vector<Int, std.alloc.Glo
     }
 
     bb9: {
-        _26 = move (_25 as Ok!).0;
+        _26 = copy (_25 as Ok!).0;
         drop(_25);
         _27 = ref(exclusive, _8);
         _28 = call order.tick(n: &var Int) [move _27] -> [return: bb10];

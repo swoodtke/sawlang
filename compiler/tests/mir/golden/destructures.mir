@@ -195,6 +195,76 @@ fn destructures.propagated(n: Int) -> Result<Int, destructures.Fault> {
     }
 }
 
+fn destructures.checked(n: Int) -> Result<String, destructures.Bad> {
+    let _0: Result<String, destructures.Bad>;  // return
+    let _1: Int;  // param n
+    let _2: Bool;
+    let _3: destructures.Bad;
+    let _4: Result<String, destructures.Bad>;
+    let _5: Result<String, destructures.Bad>;
+
+    bb0: {
+        _2 = Lt(copy _1, const 0: Int);
+        switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _5 = Result<String, destructures.Bad>::Ok(const "fine": String);
+        _0 = move _5;
+        return;
+    }
+
+    bb2: {
+        _3 = destructures.Bad { code: copy _1 };
+        _4 = Result<String, destructures.Bad>::Err(move _3);
+        _0 = move _4;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn destructures.relayed(n: Int) -> Result<Int, destructures.Bad> {
+    let _0: Result<Int, destructures.Bad>;  // return
+    let _1: Int;  // param n
+    let _2: String;  // s
+    let _3: Result<String, destructures.Bad>;
+    let _4: String;
+    let _5: &String;
+    let _6: Int;
+    let _7: Result<Int, destructures.Bad>;
+
+    bb0: {
+        _3 = call destructures.checked(n: Int) [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        switch discriminant(_3) -> [Ok: bb2, Err: bb3];
+    }
+
+    bb2: {
+        _4 = move (_3 as Ok).0;
+        _2 = move _4;
+        _5 = ref(shared, _2);
+        _6 = call std.string.String.len() (owner String) [move _5] -> [return: bb4];
+    }
+
+    bb3: {
+        _0 = Result<Int, destructures.Bad>::Err(copy (_3 as Err).0);
+        drop(_3);
+        return;
+    }
+
+    bb4: {
+        _7 = Result<Int, destructures.Bad>::Ok(move _6);
+        _0 = move _7;
+        drop(_2);
+        return;
+    }
+}
+
 fn destructures.forced(n: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param n
@@ -446,7 +516,7 @@ fn destructures.matched(n: Int) -> Int {
 
     bb3: {
         _5 = move (_4 as Filled).0;
-        _6 = move (_4 as Filled).2;
+        _6 = copy (_4 as Filled).2;
         drop((_4 as Filled).1);
         goto -> bb6;
     }
@@ -605,7 +675,6 @@ fn destructures.unwrapped(n: Int) -> Int {
     bb8: {
         drop(_5);
         _0 = const 0: Int;
-        drop(_5);
         return;
     }
 

@@ -439,7 +439,8 @@ extension MirProgram {
 
     // The fields of struct `d` that `move self.f` moves out anywhere under
     // node `id`, each once; `whole` set by a `move self` of all of it. A move
-    // deeper into `self` is refused.
+    // deeper into `self` is refused. A trivially copyable field is read as a
+    // copy (`op_move`), which leaves `self` whole, so it is never one.
     func fields_moved_from_self(&var self, id: Int, d: Int, moved: &var Vector<Int>, whole: &var Bool) {
         let n = self.tc.child_count(id)
         var k = 0
@@ -456,7 +457,9 @@ extension MirProgram {
                     whole = true
                 } else if self.tc.has_alt(operand, Alt.Expr_Member) && base >= 0 && self.tc.has_alt(base, Alt.Expr_Self) {
                     let f = self.self_field(operand, d)
-                    if f >= 0 && not tc_contains(&moved, f) {
+                    let ft = self.tc.expr_types[operand]
+                    let trivial = ft >= 0 && self.tc.is_trivial(ft, 0)
+                    if f >= 0 && not trivial && not tc_contains(&moved, f) {
                         try! moved.push(f)
                     }
                 } else if self.rooted_in_self(operand) {
@@ -1194,7 +1197,8 @@ extension MirProgram {
 
     // `return` and `return e`: the value into the return place, then every
     // scope's exits. A `borrows` body's `return` is its absent path, which
-    // lends nothing.
+    // lends nothing: its value is evaluated only for what evaluating it does,
+    // so a pure one, `None`, lowers to nothing.
     func lower_return(&var self, s: Int) {
         let e = self.tc.res.first_node_child(s)
         let result = self.local_type(0)
@@ -1205,9 +1209,11 @@ extension MirProgram {
             self.lower_into(e, ret)
             self.close_scope()
         } else if e >= 0 {
-            let _ = self.open_scope()
-            self.lower_into(e, -1)
-            self.close_scope()
+            if not self.is_pure(e) {
+                let _ = self.open_scope()
+                self.lower_into(e, -1)
+                self.close_scope()
+            }
         } else if self.returns_void_ok(result) {
             let ret = self.place_local(0)
             self.assign_void_ok(ret)
@@ -1266,7 +1272,8 @@ extension MirProgram {
         let _ = self.call_and_continue(c)
     }
 
-    // `guard let x = e else { ... }`: the binding outlives the guard.
+    // `guard let x = e else { ... }`: the binding outlives the guard, and the
+    // else block runs once the head scope has closed on both edges.
     func lower_guard_let(&var self, s: Int) {
         let target = self.tc.res.first_node_child(s)
         var subject = -1
@@ -1285,17 +1292,16 @@ extension MirProgram {
                 subject = c
             }
         }
+        let opened = self.open_head(subject, false, target)
+        let test = opened.test
         var bound = Vector<Int>()
-        let head = self.open_scope()
-        let test = self.optional_switch(subject, false, target)
-        self.enter(test.absent)
-        self.unwind_to(head)
+        self.bind_test(&test, target, false, &var bound)
+        let absent = self.close_head(&opened)
+        let present = self.current
+        self.enter(absent)
         self.lower_block(block, -1)
         self.unreachable()
-        self.enter(test.present)
-        self.bind_test(&test, target, false, &var bound)
-        self.unwind_to(head)
-        self.discard_scope()
+        self.enter(present)
         self.scope_all(&bound)
     }
 
@@ -3751,6 +3757,15 @@ public struct MirTest {
     public consuming: Bool
 }
 
+// An Optional head's scope and its test (`open_head`). The test's own absent
+// edge is withheld: `absent` is that edge past the head scope's exits, and
+// only `close_head` hands it out.
+public struct MirHead {
+    public test: MirTest
+    public depth: Int
+    public absent: Int
+}
+
 // Control flow.
 extension MirProgram {
     // A control construct, its value into `dest` or none with -1.
@@ -3837,21 +3852,16 @@ extension MirProgram {
             if binding || unwrap {
                 let target = self.tc.res.first_node_child(head)
                 let subject = self.tc.res.last_node_child(head)
-                let depth = self.open_scope()
-                let test = self.optional_switch(subject, unwrap, target)
-                self.enter(test.absent)
-                self.unwind_to(depth)
-                let absent = self.current
-                self.enter(test.present)
+                let opened = self.open_head(subject, unwrap, target)
+                let test = opened.test
                 let _ = self.open_scope()
                 var bound = Vector<Int>()
                 self.bind_test(&test, target, unwrap, &var bound)
                 self.scope_all(&bound)
                 self.lower_block(block, dest)
                 self.close_scope()
-                self.unwind_to(depth)
+                let absent = self.close_head(&opened)
                 self.goto(join)
-                self.discard_scope()
                 self.enter(absent)
             } else {
                 let c = self.condition_operand(head)
@@ -3869,6 +3879,36 @@ extension MirProgram {
         }
         self.goto(join)
         self.enter(join)
+    }
+
+    // The head of `if let`, `guard let` and `while let`: `subject` evaluated
+    // in a scope of its own and switched on. The absent edge runs the head
+    // scope's exits at once; the present edge is entered with the scope
+    // still open, and `close_head` ends it there before handing out the
+    // absent edge, so no exit lowered on the absent path unwinds through the
+    // head scope and drops its temporaries a second time.
+    //
+    // ENTRY POINTS (open_head):
+    //     lower_if
+    //     lower_guard_let
+    //     lower_while_let
+    func open_head(&var self, subject: Int, unwrap: Bool, target: Int) -> MirHead {
+        let depth = self.open_scope()
+        var test = self.optional_switch(subject, unwrap, target)
+        self.enter(test.absent)
+        self.unwind_to(depth)
+        let absent = self.current
+        test.absent = -1
+        self.enter(test.present)
+        MirHead(test: test, depth: depth, absent: absent)
+    }
+
+    // Ends `head`'s scope on the present path, its exits run there, and
+    // returns the head's absent edge for the construct to enter.
+    func close_head(&var self, head: &MirHead) -> Int {
+        self.unwind_to(head.depth)
+        self.discard_scope()
+        head.absent
     }
 
     // Evaluates optional `subject` and branches on its presence. A
@@ -4130,25 +4170,22 @@ extension MirProgram {
         let exit = self.new_block()
         self.goto(head)
         self.enter(head)
-        let depth = self.open_scope()
-        let test = self.optional_switch(subject, false, target)
-        self.enter(test.absent)
-        self.unwind_to(depth)
-        self.goto(exit)
-        self.enter(test.present)
+        let opened = self.open_head(subject, false, target)
+        let test = opened.test
         let yields = self.budget_class()
-        try! self.loops.push(MirLoop(head: head, exit: exit, depth: depth, yields: yields))
+        try! self.loops.push(MirLoop(head: head, exit: exit, depth: opened.depth, yields: yields))
         let _ = self.open_scope()
         var bound = Vector<Int>()
         self.bind_test(&test, target, false, &var bound)
         self.scope_all(&bound)
         self.lower_block(block, -1)
         self.close_scope()
-        self.unwind_to(depth)
+        let absent = self.close_head(&opened)
         self.emit_budget(yields)
         self.goto(head)
         self.pop_loop()
-        self.discard_scope()
+        self.enter(absent)
+        self.goto(exit)
         self.enter(exit)
     }
 

@@ -1,0 +1,662 @@
+module guards
+
+fn guards.Holder.find(n: Int) -> Int? {
+    let _0: Int?;  // return
+    let _1: &guards.Holder;  // self
+    let _2: Int;  // param n
+    let _3: Bool;
+    let _4: Int?;
+    let _5: Int?;
+
+    bb0: {
+        _3 = Gt(copy _2, const 0: Int);
+        switch move _3 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _5 = Int?::None;
+        _0 = move _5;
+        return;
+    }
+
+    bb2: {
+        _4 = Int?::Some(copy _2);
+        _0 = move _4;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn guards.Holder.label(n: Int) -> String? {
+    let _0: String?;  // return
+    let _1: &guards.Holder;  // self
+    let _2: Int;  // param n
+    let _3: Bool;
+    let _4: String?;
+    let _5: String?;
+
+    bb0: {
+        _3 = Gt(copy _2, const 0: Int);
+        switch move _3 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _5 = String?::None;
+        _0 = move _5;
+        return;
+    }
+
+    bb2: {
+        _4 = String?::Some(const "found": String);
+        _0 = move _4;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn guards.make() -> guards.Holder {
+    let _0: guards.Holder;  // return
+    let _1: guards.Holder;
+
+    bb0: {
+        _1 = guards.Holder { name: const "held": String };
+        _0 = move _1;
+        return;
+    }
+}
+
+fn guards.fetch(n: Int) -> Result<guards.Holder, guards.Fault> {
+    let _0: Result<guards.Holder, guards.Fault>;  // return
+    let _1: Int;  // param n
+    let _2: Bool;
+    let _3: guards.Fault;
+    let _4: Result<guards.Holder, guards.Fault>;
+    let _5: guards.Holder;
+    let _6: Result<guards.Holder, guards.Fault>;
+
+    bb0: {
+        _2 = Lt(copy _1, const 0: Int);
+        switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _5 = call guards.make() [] -> [return: bb4];
+    }
+
+    bb2: {
+        _3 = guards.Fault::Broken;
+        _4 = Result<guards.Holder, guards.Fault>::Err(move _3);
+        _0 = move _4;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        _6 = Result<guards.Holder, guards.Fault>::Ok(move _5);
+        _0 = move _6;
+        return;
+    }
+}
+
+fn guards.failing(n: Int) -> Result<Int, guards.Fault> {
+    let _0: Result<Int, guards.Fault>;  // return
+    let _1: Int;  // param n
+    let _2: Bool;
+    let _3: guards.Fault;
+    let _4: Result<Int, guards.Fault>;
+    let _5: Result<Int, guards.Fault>;
+
+    bb0: {
+        _2 = Lt(copy _1, const 0: Int);
+        switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _5 = Result<Int, guards.Fault>::Ok(copy _1);
+        _0 = move _5;
+        return;
+    }
+
+    bb2: {
+        _3 = guards.Fault::Broken;
+        _4 = Result<Int, guards.Fault>::Err(move _3);
+        _0 = move _4;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn guards.apply(f: (Int) -> Int, x: Int) -> Int {
+    let _0: Int;  // return
+    let _1: (Int) -> Int;  // param f
+    let _2: Int;  // param x
+    let _3: Int;
+
+    bb0: {
+        _3 = call value copy _1 [copy _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _3;
+        drop(_1);
+        return;
+    }
+}
+
+fn guards.returned(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: guards.Holder;
+    let _3: Int;
+    let _4: &guards.Holder;
+    let _5: Int?;
+    let _6: Int;  // r
+
+    bb0: {
+        _2 = call guards.make() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = copy _1;
+        _4 = ref(shared, _2);
+        _5 = call guards.Holder.find(n: Int) (owner guards.Holder) [move _4, move _3] -> [return: bb2];
+    }
+
+    bb2: {
+        switch discriminant(_5) -> [Some: bb3, None: bb4];
+    }
+
+    bb3: {
+        _6 = copy (_5 as Some).0;
+        drop(_2);
+        _0 = copy _6;
+        return;
+    }
+
+    bb4: {
+        drop(_2);
+        _0 = const 0: Int;
+        return;
+    }
+}
+
+fn guards.broken(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;  // i
+    let _3: Bool;
+    let _4: guards.Holder;
+    let _5: Int;
+    let _6: &guards.Holder;
+    let _7: Int?;
+    let _8: Int;  // r
+    let _9: Int;
+
+    bb0: {
+        _2 = copy _1;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _3 = Gt(copy _2, const 0: Int);
+        switch move _3 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        _0 = copy _2;
+        return;
+    }
+
+    bb3: {
+        _4 = call guards.make() [] -> [return: bb4];
+    }
+
+    bb4: {
+        _5 = copy _2;
+        _6 = ref(shared, _4);
+        _7 = call guards.Holder.find(n: Int) (owner guards.Holder) [move _6, move _5] -> [return: bb5];
+    }
+
+    bb5: {
+        switch discriminant(_7) -> [Some: bb6, None: bb7];
+    }
+
+    bb6: {
+        _8 = copy (_7 as Some).0;
+        drop(_4);
+        _9 = Sub(copy _2, copy _8);
+        _2 = move _9;
+        budget(yield-capable);
+        goto -> bb1;
+    }
+
+    bb7: {
+        drop(_4);
+        goto -> bb2;
+    }
+}
+
+fn guards.continued(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;  // i
+    let _3: Int;  // total
+    let _4: Int;
+    let _5: Bool;
+    let _6: Int;
+    let _7: guards.Holder;
+    let _8: Int;
+    let _9: &guards.Holder;
+    let _10: Int?;
+    let _11: Int;  // r
+    let _12: Int;
+
+    bb0: {
+        _2 = copy _1;
+        _3 = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _4 = Neg(const 2: Int);
+        _5 = Gt(copy _2, move _4);
+        switch move _5 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        _0 = copy _3;
+        return;
+    }
+
+    bb3: {
+        _6 = Sub(copy _2, const 1: Int);
+        _2 = move _6;
+        _7 = call guards.make() [] -> [return: bb4];
+    }
+
+    bb4: {
+        _8 = copy _2;
+        _9 = ref(shared, _7);
+        _10 = call guards.Holder.find(n: Int) (owner guards.Holder) [move _9, move _8] -> [return: bb5];
+    }
+
+    bb5: {
+        switch discriminant(_10) -> [Some: bb6, None: bb7];
+    }
+
+    bb6: {
+        _11 = copy (_10 as Some).0;
+        drop(_7);
+        _12 = Add(copy _3, copy _11);
+        _3 = move _12;
+        budget(yield-capable);
+        goto -> bb1;
+    }
+
+    bb7: {
+        drop(_7);
+        budget(yield-capable);
+        goto -> bb1;
+    }
+}
+
+fn guards.propagated(n: Int) -> Result<Int, guards.Fault> {
+    let _0: Result<Int, guards.Fault>;  // return
+    let _1: Int;  // param n
+    let _2: guards.Holder;
+    let _3: Int;
+    let _4: &guards.Holder;
+    let _5: Int?;
+    let _6: Int;  // r
+    let _7: Result<Int, guards.Fault>;
+    let _8: Result<Int, guards.Fault>;
+    let _9: Result<Int, guards.Fault>;
+
+    bb0: {
+        _2 = call guards.make() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = copy _1;
+        _4 = ref(shared, _2);
+        _5 = call guards.Holder.find(n: Int) (owner guards.Holder) [move _4, move _3] -> [return: bb2];
+    }
+
+    bb2: {
+        switch discriminant(_5) -> [Some: bb3, None: bb4];
+    }
+
+    bb3: {
+        _6 = copy (_5 as Some).0;
+        drop(_2);
+        _9 = Result<Int, guards.Fault>::Ok(copy _6);
+        _0 = move _9;
+        return;
+    }
+
+    bb4: {
+        drop(_2);
+        _7 = call guards.failing(n: Int) [copy _1] -> [return: bb5];
+    }
+
+    bb5: {
+        switch discriminant(_7) -> [Ok: bb6, Err: bb7];
+    }
+
+    bb6: {
+        _8 = Result<Int, guards.Fault>::Ok(copy (_7 as Ok).0);
+        _0 = move _8;
+        drop(_7);
+        return;
+    }
+
+    bb7: {
+        _0 = Result<Int, guards.Fault>::Err(copy (_7 as Err).0);
+        drop(_7);
+        return;
+    }
+}
+
+fn guards.mutable(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: guards.Holder;
+    let _3: Int;
+    let _4: &guards.Holder;
+    let _5: Int?;
+    let _6: Int;  // r
+    let _7: Int;
+
+    bb0: {
+        _2 = call guards.make() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = copy _1;
+        _4 = ref(shared, _2);
+        _5 = call guards.Holder.find(n: Int) (owner guards.Holder) [move _4, move _3] -> [return: bb2];
+    }
+
+    bb2: {
+        switch discriminant(_5) -> [Some: bb3, None: bb4];
+    }
+
+    bb3: {
+        _6 = copy (_5 as Some).0;
+        drop(_2);
+        _7 = Add(copy _6, const 1: Int);
+        _6 = move _7;
+        _0 = copy _6;
+        return;
+    }
+
+    bb4: {
+        drop(_2);
+        _0 = const 0: Int;
+        return;
+    }
+}
+
+fn guards.closed(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: (Int) -> Int;
+    let _3: Int;
+
+    bb0: {
+        _2 = closure#0 of guards.closed(n: Int) [];
+        _3 = call guards.apply(f: (Int) -> Int, x: Int) [move _2, copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _3;
+        return;
+    }
+}
+
+fn closure#0 of guards.closed(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: &();  // env
+    let _2: Int;  // param k
+    let _3: guards.Holder;
+    let _4: Int;
+    let _5: &guards.Holder;
+    let _6: Int?;
+    let _7: Int;  // r
+
+    bb0: {
+        _3 = call guards.make() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = copy _2;
+        _5 = ref(shared, _3);
+        _6 = call guards.Holder.find(n: Int) (owner guards.Holder) [move _5, move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        switch discriminant(_6) -> [Some: bb3, None: bb4];
+    }
+
+    bb3: {
+        _7 = copy (_6 as Some).0;
+        drop(_3);
+        _0 = copy _7;
+        return;
+    }
+
+    bb4: {
+        drop(_3);
+        _0 = const 0: Int;
+        return;
+    }
+}
+
+fn guards.nested(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;  // i
+    let _3: Int;  // total
+    let _4: Bool;
+    let _5: Int;
+    let _6: Bool;
+    let _7: guards.Holder;
+    let _8: Int;
+    let _9: &guards.Holder;
+    let _10: Int?;
+    let _11: Int;  // r
+    let _12: guards.Holder;
+    let _13: Int;
+    let _14: &guards.Holder;
+    let _15: Int?;
+    let _16: Int;  // s
+    let _17: Int;
+
+    bb0: {
+        _2 = copy _1;
+        _3 = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _4 = Gt(copy _2, const 0: Int);
+        switch move _4 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        _0 = copy _3;
+        return;
+    }
+
+    bb3: {
+        _5 = Sub(copy _2, const 1: Int);
+        _2 = move _5;
+        _6 = Gt(copy _2, const 1: Int);
+        switch move _6 -> [true: bb5, false: bb6];
+    }
+
+    bb4: {
+        budget(yield-capable);
+        goto -> bb1;
+    }
+
+    bb5: {
+        _7 = call guards.make() [] -> [return: bb7];
+    }
+
+    bb6: {
+        goto -> bb4;
+    }
+
+    bb7: {
+        _8 = copy _2;
+        _9 = ref(shared, _7);
+        _10 = call guards.Holder.find(n: Int) (owner guards.Holder) [move _9, move _8] -> [return: bb8];
+    }
+
+    bb8: {
+        switch discriminant(_10) -> [Some: bb9, None: bb10];
+    }
+
+    bb9: {
+        _11 = copy (_10 as Some).0;
+        drop(_7);
+        _12 = call guards.make() [] -> [return: bb11];
+    }
+
+    bb10: {
+        drop(_7);
+        goto -> bb2;
+    }
+
+    bb11: {
+        _13 = Sub(copy _11, const 1: Int);
+        _14 = ref(shared, _12);
+        _15 = call guards.Holder.find(n: Int) (owner guards.Holder) [move _14, move _13] -> [return: bb12];
+    }
+
+    bb12: {
+        switch discriminant(_15) -> [Some: bb13, None: bb14];
+    }
+
+    bb13: {
+        _16 = copy (_15 as Some).0;
+        drop(_12);
+        _17 = Add(copy _3, copy _16);
+        _3 = move _17;
+        goto -> bb4;
+    }
+
+    bb14: {
+        drop(_12);
+        budget(yield-capable);
+        goto -> bb1;
+    }
+}
+
+fn guards.tried(n: Int) -> Result<Int, guards.Fault> {
+    let _0: Result<Int, guards.Fault>;  // return
+    let _1: Int;  // param n
+    let _2: Result<guards.Holder, guards.Fault>;
+    let _3: guards.Holder;
+    let _4: Int;
+    let _5: &guards.Holder;
+    let _6: Int?;
+    let _7: Int;  // r
+    let _8: Result<Int, guards.Fault>;
+    let _9: Result<Int, guards.Fault>;
+
+    bb0: {
+        _2 = call guards.fetch(n: Int) [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        switch discriminant(_2) -> [Ok: bb2, Err: bb3];
+    }
+
+    bb2: {
+        _3 = move (_2 as Ok).0;
+        _4 = copy _1;
+        _5 = ref(shared, _3);
+        _6 = call guards.Holder.find(n: Int) (owner guards.Holder) [move _5, move _4] -> [return: bb4];
+    }
+
+    bb3: {
+        _0 = Result<Int, guards.Fault>::Err(copy (_2 as Err).0);
+        drop(_2);
+        return;
+    }
+
+    bb4: {
+        switch discriminant(_6) -> [Some: bb5, None: bb6];
+    }
+
+    bb5: {
+        _7 = copy (_6 as Some).0;
+        drop(_3);
+        _9 = Result<Int, guards.Fault>::Ok(copy _7);
+        _0 = move _9;
+        return;
+    }
+
+    bb6: {
+        drop(_3);
+        _8 = Result<Int, guards.Fault>::Ok(const 0: Int);
+        _0 = move _8;
+        return;
+    }
+}
+
+fn guards.present(h: guards.Holder?, n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: guards.Holder?;  // param h
+    let _2: Int;  // param n
+    let _3: Int;
+    let _4: &guards.Holder;
+    let _5: String?;
+    let _6: String;  // x
+    let _7: &String;
+    let _8: Int;
+
+    bb0: {
+        _3 = copy _2;
+        _4 = ref(shared, (_1 as Some!).0);
+        _5 = call guards.Holder.label(n: Int) (owner guards.Holder) [move _4, move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        switch discriminant(_5) -> [Some: bb2, None: bb3];
+    }
+
+    bb2: {
+        _6 = move (_5 as Some).0;
+        _7 = ref(shared, _6);
+        _8 = call std.string.String.len() (owner String) [move _7] -> [return: bb4];
+    }
+
+    bb3: {
+        drop(_5);
+        _0 = const 0: Int;
+        drop(_1);
+        return;
+    }
+
+    bb4: {
+        _0 = move _8;
+        drop(_6);
+        drop(_1);
+        return;
+    }
+}

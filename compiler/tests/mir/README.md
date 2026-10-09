@@ -100,7 +100,9 @@ allocated (design 137). Only a real interpolation, `"x = {x}"`, builds a
 
 A **statement** is `PLACE = RVALUE;`, `drop(PLACE);` (drop it if it is still
 initialised; a part's place drops that part alone), or `budget(yield-capable);` / `budget(charge-only);`, an
-op-budget point. An **rvalue** is:
+op-budget point. Only a value that owns something a drop releases is dropped:
+anything but a reference, a slice, a trivially copyable type, or a tuple, an
+array or an Optional of those alone. An **rvalue** is:
 
 | rvalue | reads |
 |---|---|
@@ -217,7 +219,10 @@ whose docstring lists them), each covered by a golden case:
 (operands, `forward`); an owned temporary is handed off; a named place of the
 Copy tier copies, through its type's written `copy()` when it has one
 (operands, `Retained`); a borrowed operand is copied or referenced as the
-rvalue table says.
+rvalue table says. A part of a trivially copyable type (a field, an element,
+a payload) is read as `copy` wherever its position takes it by value: the
+bits are the same, and the value it lies in stays whole, so that value's one
+drop is still right (destructures `relayed`).
 
 **Adjustments**, each made explicit (adjustments):
 
@@ -238,7 +243,7 @@ rvalue table says.
 | construct | lowered as | covered by |
 |---|---|---|
 | `if`, `else if`, `else` | a switch per condition, each arm into the destination | branches, windows |
-| `if let`, `guard let`, `while let` | a discriminant switch, or a conditional window's two edges | branches, windows |
+| `if let`, `guard let`, `while let` | a discriminant switch, or a conditional window's two edges | branches, windows, guards |
 | `while`, `while { }`, `for` | a head, a body, an op-budget point on each backedge | drops, points, windows |
 | `break`, `continue`, `return` | the scopes' exits, then the edge | drops |
 | `&&`, `\|\|` | a switch per operand | branches |
@@ -257,6 +262,28 @@ rvalue table says.
 | `lend p` | the end of the accessor's prologue, the start of its epilogue | windows, accessors |
 | a call of a function that may suspend | a suspension point, conditional in a generic body | points |
 
+**Optional heads** (`open_head` in `compiler/mir/src/lower.saw`, whose
+docstring lists its entry points: `if let`, `guard let`, `while let`). The
+subject is evaluated in a head scope of its own. Its absent edge runs that
+scope's exits at once, its Optional and the subject's owned temporaries
+dropping there; `close_head` ends the scope on the present edge before it
+hands out the absent one, so a `guard`'s else block, lowered after, leaves
+only the scopes around the guard and drops nothing of the head a second
+time. Each way out of a `guard let`'s else block, with a temporary owning a
+`String` in the subject:
+
+| way out | covered by |
+|---|---|
+| `return` | guards `returned` |
+| `break` | guards `broken` |
+| `continue` | guards `continued` |
+| `try`'s error edge | guards `propagated` |
+| `guard var` | guards `mutable` |
+| in a closure's body | guards `closed` |
+| a guard nested in a loop, by `break` and by `continue` | guards `nested` |
+| a `try` inside the subject | guards `tried` |
+| an owning payload, `h!.label(n)`: taken by the binding on the present edge, the `None` dropped once on the absent one | guards `present` |
+
 **Consuming destructures** (`dissolve` in `compiler/mir/src/lower.saw`,
 whose docstring lists its entry points). Saw has no partial moves, so a value
 comes apart only where a construct consumes it whole: a pattern whose bindings
@@ -273,7 +300,7 @@ nothing.
 
 | position | dissolved at | covered by |
 |---|---|---|
-| `try e` | the switch: the `Ok` payload into a temporary, the `Err` payload into the returned `Err` | destructures `propagated` |
+| `try e` | the switch: the `Ok` payload into a temporary, the `Err` payload into the returned `Err`; a trivially copyable `Err` is copied out, and the Result drops whole | destructures `propagated`, `relayed` |
 | `try! e` | the checked `Ok!` payload, moved into a temporary when its position takes it by value | destructures `forced` |
 | `try? e` | the `Ok` edge's `Some`; the `Err` edge drops the Result whole | destructures `optional` |
 | `a ?? b` | the present edge's payload; the absent edge drops the `None` | destructures `coalesced` |
@@ -341,9 +368,17 @@ nowhere, and checks, from the MIR alone:
   is assigned again, so every scope exit drops it; no window may still be
   open at a `return`, or when it opens again, so every path out of its body
   closes it;
-- no path drops a local whole once a move has taken an owned part out of it
-  (a field, an element, a payload, not through a reference): a consuming
-  destructure dissolves its value, and the move ends the local's life;
+- no path drops a local whole once a move has taken any part out of it (a
+  field, an element, a payload, not through a reference): a consuming
+  destructure dissolves its value, and the move ends the local's life. There
+  is no exemption for a part that owns nothing, since such a part is read as
+  `copy` (Transfers, above);
+- no path drops a local twice, an owned local or a statement's temporary,
+  with no assignment to it between, and no path reads, borrows, writes a part
+  of, or indexes with a local after its drop with no assignment between. The
+  drop semantics, drop it if it is still initialised, make such a drop
+  harmless at run time, so this is the check that tells a lowering's
+  misplaced exit apart from a correct one;
 - every loop backedge, an edge to a block on the depth-first path from the
   entry, leaves a block whose last statement is an op-budget point.
 

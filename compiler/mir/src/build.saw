@@ -60,7 +60,8 @@ extension MirProgram {
     }
 
     // Whether a value of type `t` owns something a drop releases: anything
-    // but a reference, a slice or a trivially copyable type.
+    // but a reference, a slice, a trivially copyable type, or a tuple, an
+    // array or an Optional of those alone.
     public func owns(&var self, t: Int) -> Bool {
         if t < 0 {
             return false
@@ -69,7 +70,30 @@ extension MirProgram {
         if kind == TcKind.Ref || kind == TcKind.Slice || kind == TcKind.Error {
             return false
         }
-        not self.tc.is_trivial(t, 0)
+        if self.tc.is_trivial(t, 0) {
+            return false
+        }
+        if kind == TcKind.Tuple {
+            let n = self.tc.types.ty(t).count
+            var k = 0
+            while k < n {
+                let element = self.tc.types.arg(t, k)
+                if self.owns(element) {
+                    return true
+                }
+                k = k + 1
+            }
+            return false
+        }
+        if kind == TcKind.Array {
+            let element = self.tc.types.ty(t).b
+            return self.owns(element)
+        }
+        if self.tc.nominal_decl(t) == self.tc.known.optional {
+            let payload = self.tc.arg_of(t, 0)
+            return self.owns(payload)
+        }
+        true
     }
 
     // Registers local `l` with the innermost scope, whose exits drop it,
@@ -211,11 +235,18 @@ extension MirProgram {
         at
     }
 
+    // A move out of place `p`. A part of a trivially copyable type is read as
+    // a copy instead: the bits are the same, and the value it lies in stays
+    // whole, so a later drop of that value is its one drop and no
+    // destructure has to dissolve it.
     public func op_move(&var self, p: Int) -> Int {
         let t = self.place_type(p)
+        var kind = MirOperandKind.Move
+        if self.places[p].count > 0 && t >= 0 && self.tc.is_trivial(t, 0) {
+            kind = MirOperandKind.Copy
+        }
         let at = self.operands.len()
-        try! self.operands.push(MirOperand(kind: MirOperandKind.Move, place: p, ty: t,
-                                           const_kind: MirConstKind.Unit, text: -1))
+        try! self.operands.push(MirOperand(kind: kind, place: p, ty: t, const_kind: MirConstKind.Unit, text: -1))
         at
     }
 

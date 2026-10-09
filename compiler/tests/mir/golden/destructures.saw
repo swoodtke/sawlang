@@ -45,6 +45,22 @@ func propagated(n: Int) -> Result<Int, Fault> {
     use_res(move r)
 }
 
+// A trivially copyable error is read out as a copy, so the Result stays
+// whole and drops once on the error path.
+struct Bad { code: Int }
+
+func checked(n: Int) -> Result<String, Bad> {
+    if n < 0 {
+        return Bad(code: n)
+    }
+    "fine"
+}
+
+func relayed(n: Int) -> Result<Int, Bad> {
+    let s = try checked(n)
+    s.len()
+}
+
 func forced(n: Int) -> Int {
     let r = try! risky(n)
     use_res(move r)

@@ -144,7 +144,7 @@ fn drops.exits(n: Int) -> Result<Int, drops.Fault> {
     }
 
     bb16: {
-        _13 = move (_14 as Ok).0;
+        _13 = copy (_14 as Ok).0;
         drop(_14);
         drop(_6);
         budget(yield-capable);
@@ -152,7 +152,7 @@ fn drops.exits(n: Int) -> Result<Int, drops.Fault> {
     }
 
     bb17: {
-        _0 = Result<Int, drops.Fault>::Err(move (_14 as Err).0);
+        _0 = Result<Int, drops.Fault>::Err(copy (_14 as Err).0);
         drop(_14);
         drop(_6);
         drop(_2);

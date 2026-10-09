@@ -34,10 +34,9 @@ fn prologue windows.Row.find(i: Int) -> (&var Int)? {
     let _3: Bool;
     let _4: Bool;
     let _5: Bool;
-    let _6: Int?;
-    let _7: Int;
-    let _8: &var Int;
-    let _9: (&var Int)?;
+    let _6: Int;
+    let _7: &var Int;
+    let _8: (&var Int)?;
 
     bb0: {
         _4 = Lt(copy _2, const 0: Int);
@@ -45,10 +44,10 @@ fn prologue windows.Row.find(i: Int) -> (&var Int)? {
     }
 
     bb1: {
-        _7 = copy _2;
-        _8 = ref(exclusive, (*_1).cells[_7]);
-        _9 = (&var Int)?::Some(move _8);
-        _0 = move _9;
+        _6 = copy _2;
+        _7 = ref(exclusive, (*_1).cells[_6]);
+        _8 = (&var Int)?::Some(move _7);
+        _0 = move _8;
         return;
     }
 
@@ -68,7 +67,6 @@ fn prologue windows.Row.find(i: Int) -> (&var Int)? {
     }
 
     bb5: {
-        _6 = Int?::None;
         _0 = (&var Int)?::None;
         return;
     }
@@ -264,7 +262,7 @@ fn windows.conditional(r: &var windows.Row, v: std.vector.Vector<Int, std.alloc.
     }
 
     bb10: {
-        _7 = move (_10 as Some).0;
+        _7 = copy (_10 as Some).0;
         goto -> bb5;
     }
 
@@ -387,7 +385,7 @@ fn windows.spelled(r: &var windows.Row, v: std.vector.Vector<Int, std.alloc.Glob
     }
 
     bb13: {
-        _9 = move (_12 as Some).0;
+        _9 = copy (_12 as Some).0;
         goto -> bb8;
     }
 
@@ -484,7 +482,7 @@ fn windows.iterate(v: std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> Int 
     }
 
     bb5: {
-        _7 = move (_5 as Some).0;
+        _7 = copy (_5 as Some).0;
         _8 = Add(copy _2, copy _7);
         _2 = move _8;
         budget(yield-capable);

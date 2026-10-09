@@ -164,7 +164,7 @@ fn adjustments.pick(o: Int?) -> Int {
     }
 
     bb2: {
-        _2 = move (_3 as Some).0;
+        _2 = copy (_3 as Some).0;
         goto -> bb1;
     }
 
@@ -194,7 +194,7 @@ fn adjustments.erased(n: Int) -> Result<Int, std.box.Box<any Error, std.alloc.Gl
     }
 
     bb2: {
-        _6 = move (_5 as Ok).0;
+        _6 = copy (_5 as Ok).0;
         drop(_5);
         _2 = move _6;
         _7 = Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>::Ok(copy _2);

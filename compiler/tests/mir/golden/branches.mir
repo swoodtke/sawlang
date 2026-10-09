@@ -116,7 +116,7 @@ fn branches.coalesce(first: Int?, second: Int?, last: Int) -> Int {
     }
 
     bb2: {
-        _4 = move (_5 as Some).0;
+        _4 = copy (_5 as Some).0;
         goto -> bb1;
     }
 
@@ -126,7 +126,7 @@ fn branches.coalesce(first: Int?, second: Int?, last: Int) -> Int {
     }
 
     bb4: {
-        _4 = move (_6 as Some).0;
+        _4 = copy (_6 as Some).0;
         goto -> bb1;
     }
 
@@ -176,8 +176,8 @@ fn branches.tries(n: Int) -> Result<Int, branches.Fault> {
     let _8: Int?;
     let _9: Int;  // d
     let _10: Result<Int, branches.Fault>;
-    let _11: Result<Int, branches.Fault>;
-    let _12: Int;  // e
+    let _11: Int;  // e
+    let _12: Result<Int, branches.Fault>;
     let _13: Int?;  // o
     let _14: Int?;
     let _15: Int;  // f
@@ -194,19 +194,19 @@ fn branches.tries(n: Int) -> Result<Int, branches.Fault> {
     }
 
     bb2: {
-        _2 = move (_3 as Ok).0;
+        _2 = copy (_3 as Ok).0;
         drop(_3);
         _5 = call branches.parse(n: Int) [copy _2] -> [return: bb4];
     }
 
     bb3: {
-        _0 = Result<Int, branches.Fault>::Err(move (_3 as Err).0);
+        _0 = Result<Int, branches.Fault>::Err(copy (_3 as Err).0);
         drop(_3);
         return;
     }
 
     bb4: {
-        _4 = move (_5 as Ok!).0;
+        _4 = copy (_5 as Ok!).0;
         drop(_5);
         _7 = call branches.parse(n: Int) [copy _4] -> [return: bb5];
     }
@@ -216,7 +216,7 @@ fn branches.tries(n: Int) -> Result<Int, branches.Fault> {
     }
 
     bb6: {
-        _8 = Int?::Some(move (_7 as Ok).0);
+        _8 = Int?::Some(copy (_7 as Ok).0);
         goto -> bb8;
     }
 
@@ -247,15 +247,15 @@ fn branches.tries(n: Int) -> Result<Int, branches.Fault> {
     }
 
     bb12: {
-        _12 = copy (_6 as Some).0;
-        _14 = Int?::Some(copy _12);
+        _11 = copy (_6 as Some).0;
+        _14 = Int?::Some(copy _11);
         _13 = move _14;
         goto -> bb14;
     }
 
     bb13: {
-        _11 = Result<Int, branches.Fault>::Ok(const 0: Int);
-        _0 = move _11;
+        _12 = Result<Int, branches.Fault>::Ok(const 0: Int);
+        _0 = move _12;
         return;
     }
 

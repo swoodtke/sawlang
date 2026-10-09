@@ -14,7 +14,8 @@
 //   - no owned local is live at a `return` or when it is assigned again,
 //     so every scope exit drops it; no window is open at a `return` or when
 //     it opens again, so every path out of its body closes it; no local is
-//     dropped whole once a move has taken an owned part out of it;
+//     dropped whole once a move has taken a part out of it; no path drops a
+//     local twice, or uses it after its drop, with no assignment between;
 //   - every loop backedge carries an op-budget point.
 
 import sawmir.src.build.{mir_func_local}
@@ -708,13 +709,14 @@ extension MirProgram {
         }
     }
 
-    // The two may-dataflows over the blocks: the owned locals assigned and
-    // not yet dropped, and the windows open.
+    // The may-dataflows over the blocks: the owned locals assigned and not
+    // yet dropped, the windows open, the locals a move of a part dissolved,
+    // and the locals dropped and not assigned since.
     func verify_flow(&var self, f: Int, out: &var Vector<String>) {
         let info = self.funcs[f]
-        // Each local's liveness, each window's openness, then each local's
-        // dissolution.
-        let width = info.local_count + info.window_count + info.local_count
+        // Each local's liveness, each window's openness, each local's
+        // dissolution, then each local's drop.
+        let width = info.local_count + info.window_count + info.local_count + info.local_count
         var entry = Vector<Bool>()
         var reached = Vector<Bool>()
         var k = 0
@@ -758,7 +760,7 @@ extension MirProgram {
                         k = k + 1
                     }
                     let block = self.blocks[info.block_first + b]
-                    self.flow_statements(f, &block, &var state, false, &var out)
+                    self.flow_statements(f, b, &block, &var state, false, &var out)
                     var succ = Vector<Int>()
                     var opened = -1
                     self.successors(f, &block, &var succ, &var opened)
@@ -802,7 +804,7 @@ extension MirProgram {
                     k = k + 1
                 }
                 let block = self.blocks[info.block_first + b]
-                self.flow_statements(f, &block, &var state, true, &var out)
+                self.flow_statements(f, b, &block, &var state, true, &var out)
                 if block.term == MirTermKind.Return {
                     k = 0
                     while k < info.local_count + info.window_count {
@@ -841,28 +843,39 @@ extension MirProgram {
 
     // One block's statements over `state`: an assignment to a whole owned
     // local makes it live, a drop of it ends it, and a window's close ends
-    // the window. A move of an owned part out of a local dissolves it, which
-    // ends it too (`dissolve` in lower.saw), and a whole assignment makes it
-    // whole again. With `report`, an assignment to a live owned local is a
-    // missing drop, and a drop of a local some path dissolved drops the parts
-    // that left it a second time.
-    func flow_statements(&var self, f: Int, block: &MirBlock, state: &var Vector<Bool>, report: Bool,
+    // the window. A move of any part out of a local dissolves it, which ends
+    // it too (`dissolve` in lower.saw), and a whole assignment makes it whole
+    // again. With `report`, an assignment to a live owned local is a missing
+    // drop, a whole drop of a local some path dissolved drops the parts that
+    // left it a second time, and a drop or a use of a local some path
+    // dropped, with no assignment since, is a double drop or a use after its
+    // drop.
+    func flow_statements(&var self, f: Int, b: Int, block: &MirBlock, state: &var Vector<Bool>, report: Bool,
                          out: &var Vector<String>) {
         let info = self.funcs[f]
         let dissolved = info.local_count + info.window_count
+        let dropped = dissolved + info.local_count
         var s = block.first
         while s >= 0 {
             let stmt = self.stmts[s]
             s = stmt.next
             if stmt.kind == MirStmtKind.Assign && stmt.rvalue >= 0 {
                 let rv = self.rvalues[stmt.rvalue]
+                self.flow_reads(f, b, rv.first, rv.count, &state, report, &var out)
+                if rv.kind == MirRvalueKind.Ref && rv.place >= 0 {
+                    self.flow_use(f, b, rv.place, &state, report, &var out)
+                }
                 self.flow_moves(f, rv.first, rv.count, &var state)
             }
             if stmt.place < 0 {
                 continue
             }
             let place = self.places[stmt.place]
-            if place.count != 0 || place.local < 0 {
+            if place.local < 0 {
+                continue
+            }
+            if place.count != 0 {
+                self.flow_use(f, b, stmt.place, &state, report, &var out)
                 continue
             }
             if stmt.kind == MirStmtKind.Drop && report && state[dissolved + place.local] {
@@ -872,8 +885,21 @@ extension MirProgram {
                 try! text.append(" is dropped whole after a part of it moved out: a destructure does not dissolve it")
                 self.problem(f, &var out, text.build())
             }
+            if stmt.kind == MirStmtKind.Drop {
+                if report && state[dropped + place.local] {
+                    var text = StringBuilder()
+                    try! text.append("local _")
+                    try! text.append(place.local)
+                    try! text.append(" may be dropped twice in bb")
+                    try! text.append(b)
+                    try! text.append(": a path drops it before, and nothing assigns it between")
+                    self.problem(f, &var out, text.build())
+                }
+                state[dropped + place.local] = true
+            }
             if stmt.kind == MirStmtKind.Assign {
                 state[dissolved + place.local] = false
+                state[dropped + place.local] = false
             }
             let l = mir_func_local(&self, f, place.local)
             if not l.owned {
@@ -892,16 +918,32 @@ extension MirProgram {
                 state[place.local] = true
             }
         }
+        if block.term == MirTermKind.Switch {
+            if block.switch_kind == MirSwitchKind.Bool {
+                if block.operand >= 0 {
+                    self.flow_operand(f, b, block.operand, &state, report, &var out)
+                }
+            } else if block.place >= 0 {
+                self.flow_use(f, b, block.place, &state, report, &var out)
+            }
+        }
         if block.term == MirTermKind.Call {
             let c = self.calls[block.call]
+            self.flow_reads(f, b, c.arg_first, c.arg_count, &state, report, &var out)
+            if c.kind == MirCallKind.Value && c.callee >= 0 {
+                self.flow_operand(f, b, c.callee, &state, report, &var out)
+            }
             self.flow_moves(f, c.arg_first, c.arg_count, &var state)
             if c.kind == MirCallKind.WindowClose && c.window >= 0 {
                 state[info.local_count + c.window] = false
             }
             if c.dest >= 0 {
                 let place = self.places[c.dest]
-                if place.count == 0 && place.local >= 0 {
+                if place.count != 0 {
+                    self.flow_use(f, b, c.dest, &state, report, &var out)
+                } else if place.local >= 0 {
                     state[dissolved + place.local] = false
+                    state[dropped + place.local] = false
                     let l = mir_func_local(&self, f, place.local)
                     if l.owned {
                         state[place.local] = true
@@ -911,8 +953,76 @@ extension MirProgram {
         }
     }
 
+    // The operands `first .. first + count` of the operand lists, each read.
+    func flow_reads(&self, f: Int, b: Int, first: Int, count: Int, state: &Vector<Bool>, report: Bool,
+                    out: &var Vector<String>) {
+        var k = 0
+        while k < count {
+            let o = self.lists[first + k]
+            self.flow_operand(f, b, o, &state, report, &var out)
+            k = k + 1
+        }
+    }
+
+    func flow_operand(&self, f: Int, b: Int, o: Int, state: &Vector<Bool>, report: Bool, out: &var Vector<String>) {
+        let operand = self.operands[o]
+        if operand.kind != MirOperandKind.Const && operand.place >= 0 {
+            self.flow_use(f, b, operand.place, &state, report, &var out)
+        }
+    }
+
+    // Place `p` read, borrowed, or written in part: its local, and each local
+    // an index projection reads, must not be one some path dropped with no
+    // assignment since.
+    func flow_use(&self, f: Int, b: Int, p: Int, state: &Vector<Bool>, report: Bool, out: &var Vector<String>) {
+        if not report {
+            return
+        }
+        let info = self.funcs[f]
+        let dropped = info.local_count + info.window_count + info.local_count
+        let place = self.places[p]
+        if place.local >= 0 && place.local < info.local_count {
+            self.report_use_after_drop(f, b, place.local, &state, dropped, &var out)
+        }
+        var k = 0
+        while k < place.count {
+            let step = self.projs[place.first + k]
+            if step.kind == MirProjKind.Index && step.index >= 0 && step.index < info.local_count {
+                self.report_use_after_drop(f, b, step.index, &state, dropped, &var out)
+            }
+            k = k + 1
+        }
+    }
+
+    func report_use_after_drop(&self, f: Int, b: Int, l: Int, state: &Vector<Bool>, dropped: Int,
+                               out: &var Vector<String>) {
+        if not state[dropped + l] {
+            return
+        }
+        var text = StringBuilder()
+        try! text.append("local _")
+        try! text.append(l)
+        try! text.append(" may be used in bb")
+        try! text.append(b)
+        try! text.append(" after a path dropped it, and nothing assigns it between")
+        self.problem(f, &var out, text.build())
+    }
+
+    // Whether place `p` reaches its storage through a reference.
+    func reaches_through_reference(&self, p: Int) -> Bool {
+        let place = self.places[p]
+        var j = 0
+        while j < place.count {
+            if self.projs[place.first + j].kind == MirProjKind.Deref {
+                return true
+            }
+            j = j + 1
+        }
+        false
+    }
+
     // The operands `first .. first + count` of the operand lists: each that
-    // moves an owned part out of a local, through no reference, dissolves it.
+    // moves a part out of a local, through no reference, dissolves it.
     func flow_moves(&var self, f: Int, first: Int, count: Int, state: &var Vector<Bool>) {
         let info = self.funcs[f]
         let dissolved = info.local_count + info.window_count
@@ -928,15 +1038,7 @@ extension MirProgram {
             if place.count == 0 || place.local < 0 || place.local >= info.local_count {
                 continue
             }
-            var through_reference = false
-            var j = 0
-            while j < place.count {
-                if self.projs[place.first + j].kind == MirProjKind.Deref {
-                    through_reference = true
-                }
-                j = j + 1
-            }
-            if through_reference || not self.owns(place.ty) {
+            if self.reaches_through_reference(operand.place) {
                 continue
             }
             state[place.local] = false
