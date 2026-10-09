@@ -14,6 +14,17 @@ None right now.
 
 **D2–D21 were all accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. Nothing in this section is waiting for review.
 
+### D22. `case None` is declarable only in the Optional lang item (Oct 9; U5b1, SL-456)
+Under the user's ruling that "the builtins should not be magic", `std/prelude.saw` declares `Optional<T>` as an ordinary enum. But `None` is a keyword, and GRAMMAR's `syntax.decl.case` takes an IDENT, so `case None` doesn't parse.
+
+**Decided:** the grammar admits `None` as a case name in an enum declaration, everywhere, so the grammar stays context-free. A semantic rule refuses a `case None` declaration in every enum except the one bound to the Optional lang item, and the lang-item shape check requires it there, payload-free. The `None` literal and the `None` pattern keep their one meaning: Optional's case.
+
+**Rejected:**
+- spelling the case another way and mapping `None` to it, which keeps magic in the mapping and changes a user-visible name;
+- a compiler-supplied case, which is still magic.
+
+**Reversal:** let `case None` be declared in any enum, with the literal resolved by expected type, which would change what `None` means.
+
 ### D21. Two typecheck readings from SL-447.p3's review (Sep 30; the Air)
 1. **A suspending implementation is refused where it is coerced to `any Trait`,** not where it is dispatched. Stage 0 refuses at the dispatch, so a coercion that is never dispatched is accepted by Stage 0 and refused by sawc2. Refusing at the coercion is sound, and it is the site a modular checker can see: the dispatch may be in another module. Decision 3 of U6b3 rests on it.
 2. **Exhaustiveness reasons over closed types at any depth.** `(Bool, Bool)` covered by `(true, true)`, `(true, false)` and `(false, _)` is exhaustive, and so is `A(X)`, `A(Y)`, `C` over nested payload cases. The spec's "never prove it on an **open** type" supports this, since `Bool` and enum constructors are closed. Stage 0 refuses both ("literal, range, and guarded arms do not prove exhaustiveness"). `compiler/` meets Stage 0's stricter rule regardless.
