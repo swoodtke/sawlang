@@ -202,7 +202,12 @@ syntax, so the rule and the recipe above agree (codex t5):
   - In a coroutine, `return try f()` leaks the error it propagates; sync code
     does not.
 
-  A `match` on the `Result` releases the error in both cases (0 leaks).
+  - **The catch need not diverge** (sawtracker's ST-71, measured with `leaks
+    --atExit` at N=1,000 and 2,000, -O2): a catch that FALLS THROUGH,
+    `let v = try f() catch { -1 }`, leaks the error too, in sync code as well.
+    So does a `try` inside a block `try { … } catch { … }`.
+
+  A `match` on the `Result` releases the error in every one of these cases (0 leaks).
 - **SL-429** (silent, leak): `try?` never releases the error it discards, in
   sync code too. `let _ = try? fail(i)` and `let o = try? fail(i)` each leak
   one block per failure. The lead reproduced 1,000 leaks at N=1,000 and 2,000
@@ -221,7 +226,11 @@ syntax, so the rule and the recipe above agree (codex t5):
     - any of those inside an `if`;
     - `try … catch { return 0 }`.
   - **Clean:** a `try` nested in a call argument (`add1(try f(i))`),
-    `return f(i)`, and a `match`.
+    `return f(i)`, and a `match`. The call-argument exception is about where
+    the `try` sits after the coroutine transform, not in the source: the
+    transform rewrites some `let x = try f()` into call arguments, and those
+    still leak (ST-71). So a census cannot trust the AST position, and counts
+    every coroutine `try`.
   - Where the `try` sits relative to the suspension makes no difference.
   - **The loud twin:** an ExplicitCopy error type is refused in the same
     position ("cannot copy value of type `Solo` which implements
@@ -248,8 +257,8 @@ value by value:
 `let k = try fail()`, then `sink_rev(move r, k)`; and
 `let k = try fail_it()`, then `sink2(make_res("fresh"), k)` (Air t10). When an error path must
 consume a local, `match` on the `Result` instead of writing `move` in a
-`catch`. Where a caught error's path diverges (`catch { return … }`), where
-the code would write `try?`, or where a coroutine would propagate with `try`,
+`catch`. Where a caught error is discarded at all (`catch { return … }`, and
+also a fall-through `catch { -1 }`), where the code would write `try?`, or where a coroutine would propagate with `try`,
 `match` on the `Result` too, so the error is released.
 
 **Checker:** leak only, except `try?`. The rule `optional-try` refuses a `try?`
