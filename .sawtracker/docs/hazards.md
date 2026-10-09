@@ -1374,20 +1374,24 @@ well. Loud.
 **Checker:** yes: the L13 rule covers it.
 
 
-### C5. A safe function storing `None` into a raw-pointer field
+### C5. A safe function writing `None` into a raw-pointer place
 
-**Shape:** Stage 0 accepts a function with no `unsafe` declaration whose body
-stores `None` into an `UnsafePointer<T>?` field, as a memberwise `init` does:
-`StringBuilder(buffer: None, …)` in a safe `init`. The spec's trigger rule
-makes that function `unsafe`, since its body names a value of an unsafe type
-("names, binds, receives or returns a value of an unsafe type… deliberately
-broader than 'performs a deref'"). So Stage 0 under-reports the effect. It is
-silent but harmless at run time: no code is wrong, and only the declaration
-lacks its `unsafe`.
+**Shape:** Stage 0 accepts a function with no `unsafe` declaration that writes
+`None` into an `UnsafePointer<T>?` place, by memberwise construction anywhere
+(`Holder(buffer: None, n: 0)`, in the type's own `init` or in any other
+function, `main` included) or by assignment (`self.buffer = None`). The spec's
+trigger rule makes each of those functions `unsafe`, since its body names a
+value of an unsafe type ("names, binds, receives or returns a value of an unsafe
+type… deliberately broader than 'performs a deref'"). So Stage 0 under-reports
+the effect. Reading the field (`self.buffer.is_some()`) is refused by both
+compilers. It is silent but harmless at run time: no code is wrong, and only the
+declaration lacks its `unsafe` (the Air's probes on t25).
 
-**Instead:** declare the function `unsafe`. Calling it from safe code needs no
-ceremony, so no caller changes. sawc2 refuses the undeclared form
-(`unsafe.undeclared`), and `std/`'s `StringBuilder.init` carries it, recorded
+**Instead:** declare each such function `unsafe`. Calling it from safe code
+needs no ceremony, so callers of an `unsafe init` don't change. Code that wants
+its callers unmarked routes construction through the type's own `unsafe init`
+rather than building the struct directly, since a plain construction site is
+itself `unsafe` under sawc2. `std/`'s `StringBuilder.init` carries it, recorded
 as the equivalence exception "Stage 0 under-reports the effect" (SL-456 U5b1).
 
 **Checker:** not needed. sawc2 refuses it wherever it builds the code.
