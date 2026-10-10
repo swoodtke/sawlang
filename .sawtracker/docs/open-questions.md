@@ -15,6 +15,22 @@ CLAUDE.md says only 'LANGUAGE_SPEC.md is authoritative for meaning'. Today two c
 
 **Asking you:** may this sentence go into CLAUDE.md's opening paragraph and compiler/README.md? Until you answer, the lead applies it as stated. The stale spec passages are now rewritten (SL-479 and SL-482, both merged), and writing the rule down is SL-489.
 
+## Open, for the lead to decide with the Air (reversible)
+
+The lead hasn't decided these yet. Each one moves to "Decided" with its reasoning when it is settled.
+
+### O4. The shape of Map's entry iterator (Oct 10; SL-489 item 3, docs489)
+SL:borrowing §2.6 says collections implement `LendingIterator`, but it names no Map iterator. It gives no method name and no item shape. A map entry is a key and a value, so the item would be either a tuple of places (§7's tuple lends are a separate rule) or a pair struct. Until this is settled, the spec's Map "Iteration" says `Map` declares no iterator yet, and its visitors and snapshots are the iteration forms.
+
+### O3. How a value of a `borrows` function type is formed (Oct 10; SL-489 item 6)
+The grammar has no method reference, and `lend` must be rooted in the receiver, so the spec doesn't say how such a value is made.
+
+### O2. What `--emit-docs` reports as a `borrows` accessor's receiver kind (Oct 10; SL-489 item 5)
+One `&self` declaration serves both shared and exclusive use, and the shared twins of D9 exist too.
+
+### O1. Which inner accessor a forwarded lend from a `(&var self) borrows -> &T` outer reaches (Oct 10; SL-489 item 4)
+SL:borrowing §2.7 and §3 are silent on it.
+
 ## Decided by the lead, for review (reversible)
 
 **D2–D21 were all accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. Nothing in this section is waiting for review.
