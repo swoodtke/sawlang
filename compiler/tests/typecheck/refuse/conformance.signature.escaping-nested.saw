@@ -1,0 +1,16 @@
+// refuses: conformance.signature at 13:10
+// a function-typed parameter whose own parameter's escaping-ness differs from the requirement's; the comparison is exact, so the unsound direction shown here is refused with the safe one (SL-504)
+
+trait Feeder {
+    func feed(&self, h: (() escaping -> Int) sync -> Int) -> Int
+}
+
+struct Plain {
+    n: Int
+}
+
+extension Plain: Feeder {
+    func feed(&self, h: (() -> Int) sync -> Int) -> Int {
+        self.n
+    }
+}

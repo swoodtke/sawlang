@@ -661,6 +661,12 @@ extension TcProgram {
             if want != mp.ty {
                 return "a parameter's type differs"
             }
+            // A caller through the requirement may hand a non-escaping
+            // parameter a value it only lends, so only the requirement can
+            // widen it to `escaping`; narrowing is safe (SL-504).
+            if mp.escaping && not rp.escaping {
+                return "a parameter says `escaping` where the requirement's does not, so it could keep a function value its callers only lend"
+            }
             k = k + 1
         }
         let want_result = self.subst(r.result, &renamed)

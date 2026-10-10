@@ -1,0 +1,19 @@
+// refuses: trait.generic-requirement at 5:10
+// a generic requirement met by a generic method in a conformance, called on the concrete type;
+// the conformance adds no refusal of its own
+trait Feeder {
+    func feed<T>(&self, x: T) -> Int
+}
+
+struct P { n: Int }
+extension P: Feeder {
+    func feed<T>(&self, x: T) -> Int {
+        let _ = move x
+        self.n
+    }
+}
+
+func main() {
+    let p = P(n: 3)
+    print(p.feed(true))
+}

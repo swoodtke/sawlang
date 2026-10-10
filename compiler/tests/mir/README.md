@@ -180,7 +180,10 @@ caller is lowered, since a caller holds the state record the split lays out:
   something and is not definitely whole at some `lend`, then an `Int` resume
   index when the body lends at more than one place. An accessor with none of
   them has no record and no `_1`. A window the prologue opens to forward a
-  place stays open into the epilogue, which closes it. A flagged local's
+  place stays open into the epilogue, which closes it: a `lend` operand's
+  as the `lend` statement completes, at the epilogue's start, since it is
+  open exactly as long as the outer lend (SL:borrowing §2.7); a `borrow`
+  block's at the block's end. A flagged local's
   record write is a transfer and its load a resume, which the initialisation
   analysis models (`compiler/tests/borrowck/README.md`); the flag field
   itself is written by drop elaboration (`compiler/tests/drops/README.md`),
@@ -496,7 +499,13 @@ nowhere, and checks, from the MIR alone:
   return writes all of the record's fields but the drop flags, or none; a
   prologue's return may
   leave its record locals live and its carried windows open, which the
-  epilogue resumes with;
+  epilogue resumes with; the epilogue carries exactly its prologue's carried
+  windows, as many, each in range, in order (the k-th of each the same window
+  of the body), since the window dataflow and the borrow check's carried loans
+  read the two lists in step (SL-495). The unit program
+  `compiler/mir/tests/verify_carried.saw` drops a carried window from a
+  lowered epilogue (`inject/carried.saw`) and names one out of range, and
+  requires the report each time;
 - over the blocks, no owned local may still be live at a `return`, or when it
   is assigned again, so every scope exit drops it; no window may still be
   open at a `return`, or when it opens again, so every path out of its body

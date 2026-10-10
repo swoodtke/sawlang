@@ -6,10 +6,12 @@
 import sawparse.src.grammar.{Alt}
 import sawresolve.src.collect.{res_is_top_level}
 import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.kinds.{res_is_type_alt}
 import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
 import sawtypecheck.src.adjust.{TC_FIT_EXACT}
 import sawtypecheck.src.candidates.{tc_contains}
 import sawtypecheck.src.checks.{tc_check_unsafe}
+import sawtypecheck.src.conform.{TcSubst}
 import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_UNSAFE,
                                TC_FLAG_BORROWS_STRUCT, TC_FLAG_UNSAFE_VAR, TcAdjust, TcAdjustKind,
                                TcCall, TcLend, TcParam, TcSig, TcUse}
@@ -98,6 +100,8 @@ extension TcProgram {
                 }
             } else if info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.Requirement {
                 self.check_function_containment(decl)
+            } else if info.kind == ResDeclKind.Enum {
+                self.check_raw_backing(decl)
             } else if info.kind == ResDeclKind.Static {
                 self.check_static_type(decl)
             }
@@ -160,6 +164,83 @@ extension TcProgram {
         if found >= 0 {
             self.refuse_containment(info.module, site, found, "returned plainly, by a function that does not lend it with `borrows`")
         }
+    }
+
+    // An enum's raw backing (spec, Raw-backed enums): a fixed-width or
+    // platform integer written as itself, since the backing pins the
+    // representation and an alias is a distinct type, `Byte` included; and
+    // only on an enum whose cases carry no payload.
+    func check_raw_backing(&var self, d: Int) {
+        let backing = self.sigs[d].result
+        if backing < 0 || self.has_error(backing) {
+            return
+        }
+        let info = self.res.decls[d]
+        let written = self.backing_node(d)
+        var msg = StringBuilder()
+        try! msg.append("enum `")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` is backed by `")
+        if written >= 0 && self.names_alias(written) {
+            try! msg.append(self.text(info.module, written))
+            try! msg.append("`, a type alias: a raw backing is a fixed-width integer or the platform `Int`/`UInt`, written as itself, so write `")
+            try! msg.append(self.type_text(backing))
+            try! msg.append("`")
+            self.refuse_in(info.module, written, "type.raw-backing", msg.build())
+            return
+        }
+        if not self.is_integer(backing) {
+            try! msg.append(self.type_text(backing))
+            try! msg.append("`, which is not an integer type: a raw backing is a fixed-width integer or the platform `Int`/`UInt`")
+            let site = if written >= 0 { written } else { self.decl_site(d) }
+            self.refuse_in(info.module, site, "type.raw-backing", msg.build())
+            return
+        }
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let c = members[k]
+            k = k + 1
+            if self.res.decls[c].kind == ResDeclKind.Case && self.sigs[c].param_count > 0 {
+                var why = StringBuilder()
+                try! why.append("case `")
+                try! why.append(self.res.decl_path(c))
+                try! why.append("` carries a payload, so its enum cannot declare a raw backing: a case with a payload has no integer identity")
+                let site = self.decl_site(c)
+                self.refuse_in(info.module, site, "type.raw-backing", why.build())
+                return
+            }
+        }
+    }
+
+    // The type node enum `d` writes its raw backing with, or -1.
+    func backing_node(&self, d: Int) -> Int {
+        let info = self.res.decls[d]
+        let n = self.child_count(info.node)
+        var k = 0
+        while k < n {
+            let c = self.child(info.node, k)
+            if not self.is_leaf(c) && res_is_type_alt(self.node_alt(c)) {
+                return c
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // Whether type node `t` names a type alias by its path's last segment.
+    func names_alias(&self, t: Int) -> Bool {
+        if self.child_count(t) == 0 {
+            return false
+        }
+        let path = self.child(t, 0)
+        let segments = self.child_count(path)
+        if segments == 0 {
+            return false
+        }
+        let leaf = self.child(path, segments - 1)
+        let b = self.binding_at(leaf)
+        b.kind == ResBindKind.Decl && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Alias
     }
 
     // A static's own type is never an optional (spec, Module-level statics:

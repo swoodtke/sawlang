@@ -1,4 +1,4 @@
-// refuses: eval.divide-by-zero at 4:24
-// a division by zero
+// shadowed: constant.divide-by-zero at 4:24
+// a division by zero; typecheck's fold refuses it first
 
 static QUOTIENT: Int = Int.max / 0

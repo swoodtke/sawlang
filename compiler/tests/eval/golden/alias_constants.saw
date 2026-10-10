@@ -3,7 +3,8 @@
 // `static_assert` and a raw case's value, through an alias of an alias, an
 // alias over `Int8` holding a negative value or its minimum, an alias over
 // `Bool`, and over an argument that is a static or an `as`. An alias over
-// `Float` is no constant, as a float literal is not, and a call stays none.
+// `Float` is a static's constant the evaluator does not hold yet. A call
+// stays no constant, which typecheck refuses (static.not-constant).
 // Typecheck's fold reaches every value the evaluator does.
 
 type Small = Int8
@@ -11,8 +12,6 @@ type Octet = Byte
 type Flag = Bool
 type Ratio = Float
 type Count = Int
-
-func seven() -> Int { 7 }
 
 static BASE: Int = 7
 static LETTER: Byte = Byte(65)
@@ -27,7 +26,6 @@ static NAMED: Count = Count(BASE)
 static CAST: Byte = Byte(BASE as UInt8)
 static FOLDED: Byte = Byte(200 + 55)
 static RATIO: Ratio = Ratio(1.5)
-static CALLED: Int = seven()
 
 static_assert(Byte(65) == 65, "an alias's construction in a condition")
 static_assert(Small(-3) < 0, "a signed alias")

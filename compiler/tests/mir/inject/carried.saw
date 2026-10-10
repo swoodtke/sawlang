@@ -1,0 +1,32 @@
+// The program compiler/mir/tests/verify_carried.saw lowers, then edits:
+// `Grid.at`'s `lend` sits inside a `borrow` block, so the block's window is
+// carried from the prologue into the epilogue. Each edit breaks the two
+// halves' agreement on it, and the verifier must then report it.
+
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+struct Grid {
+    row: Row
+}
+
+extension Grid {
+    func at(&var self, i: Int) borrows -> &var Int {
+        borrow var cell = self.row[i] {
+            lend cell
+        }
+    }
+}
+
+func main() {
+    var g = Grid(row: Row(cells: [1, 2, 3, 4]))
+    borrow var g.at(1) += 1
+    print(g.row.cells[1])
+}

@@ -1,0 +1,101 @@
+// The `transfer.implicit-copy` hint offers what compiles for the refused
+// shape and names a tier only where the type establishes one (SL-500): an
+// owned local, `move`; an ExplicitCopy local, `move` and `.copy()`; a field,
+// no `move`; an optional field or a field's optional payload, `take()` where
+// the root is written (a `var`, a `&var` parameter, `&var self`) and a move
+// of the root into a `var` where it is not (a by-value parameter, a `let`);
+// a local's optional payload, `move o!`; a read through a reference, a
+// borrow alone; a projection, no tier and no `.copy()`; a pattern binding
+// a place's payload. golden/implicit_copy_fixes applies each fix.
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+
+struct Holder { r: Res, o: Res? }
+extension Holder: NoCopy {}
+
+trait Source {
+    type Item
+    func next(&var self) -> Self.Item
+}
+
+func sink(r: Res) -> Int { r.n }
+func sink_all(v: Vector<Int>) -> Int { v.len() }
+
+func owned() -> Int {
+    let r = Res(n: 1)
+    let a = sink(r)
+    a
+}
+
+func explicit() -> Int {
+    var v = Vector<Int>()
+    try! v.push(1)
+    sink_all(v)
+}
+
+func field(h: Holder) -> Int {
+    sink(h.r)
+}
+
+func optional_field(h: Holder) -> Int {
+    let o = h.o
+    0
+}
+
+func payload() -> Int {
+    let o: Res? = Res(n: 2)
+    sink(o!)
+}
+
+func field_payload(h: Holder) -> Int {
+    sink(h.o!)
+}
+
+func through(r: &Res) -> Int {
+    let t = (r, 1)
+    0
+}
+
+func projected<S: Source>(s: &var S) -> Int {
+    let v = s.next()
+    let a = v
+    let b = v
+    0
+}
+
+func pattern(h: &Holder) -> Int {
+    if let r = h.o {
+        return r.n
+    }
+    0
+}
+
+func var_field(seed: Res) -> Int {
+    var h = Holder(r: move seed, o: None)
+    let o = h.o
+    0
+}
+
+func let_payload(seed: Res) -> Int {
+    let h = Holder(r: move seed, o: None)
+    sink(h.o!)
+}
+
+func exclusive_field(h: &var Holder) -> Int {
+    let o = h.o
+    0
+}
+
+extension Holder {
+    func own_payload(&var self) -> Int {
+        sink(self.o!)
+    }
+
+    func shared_payload(&self) -> Int {
+        sink(self.o!)
+    }
+}
+
+func main() {
+}

@@ -18,6 +18,8 @@
 //     place twice, or uses a local after its drop, with no assignment
 //     between. The move-path facts are the initialisation analysis's
 //     (initialisation.saw);
+//   - an accessor's epilogue carries exactly its prologue's carried windows,
+//     in order;
 //   - every loop backedge carries an op-budget point;
 //   - every statement and terminator the entry reaches carries a source node;
 //   - no operand moves an owning value out through a reference, but for an
@@ -383,6 +385,7 @@ extension MirProgram {
         }
         if info.kind == MirFuncKind.Epilogue {
             self.verify_epilogue_record(f, acc.record, &var out)
+            self.verify_carried(f, acc.prologue, &var out)
         } else {
             self.verify_prologue_record(f, acc.record, &var out)
         }
@@ -432,6 +435,44 @@ extension MirProgram {
                 self.problem(f, &var out, text.build())
             }
             k = k + 1
+        }
+    }
+
+    // Epilogue `f` carries exactly prologue `pro`'s carried windows, in
+    // order: as many, each in range of its own half's windows, the k-th of
+    // each the same window of the accessor's body. The window dataflow here
+    // and borrowck's carried loans read the two lists in step (SL-495), so a
+    // mismatch would drop a loan silently rather than fail.
+    func verify_carried(&self, f: Int, pro: Int, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        if pro < 0 {
+            return
+        }
+        let pinfo = self.funcs[pro]
+        if pinfo.carried_count != info.carried_count {
+            var text = StringBuilder()
+            try! text.append("the epilogue carries ")
+            try! text.append(info.carried_count)
+            try! text.append(" windows and its prologue leaves ")
+            try! text.append(pinfo.carried_count)
+            try! text.append(" open at the `lend`")
+            self.problem(f, &var out, text.build())
+            return
+        }
+        var k = 0
+        while k < info.carried_count {
+            let w = self.aux[info.carried_first + k]
+            let pw = self.aux[pinfo.carried_first + k]
+            k = k + 1
+            if w < 0 || w >= info.window_count || pw < 0 || pw >= pinfo.window_count {
+                self.problem(f, &var out, "a carried window is out of range of its half's windows")
+                continue
+            }
+            let mine = self.windows[info.window_first + w]
+            let theirs = self.windows[pinfo.window_first + pw]
+            if mine.node != theirs.node {
+                self.problem(f, &var out, "the epilogue's carried windows are not its prologue's, in order")
+            }
         }
     }
 
@@ -1219,7 +1260,11 @@ extension MirProgram {
         if info.kind == MirFuncKind.Epilogue && width > 0 {
             k = 0
             while k < info.carried_count {
-                entry[self.aux[info.carried_first + k]] = true
+                // An index out of range is verify_carried's report.
+                let w = self.aux[info.carried_first + k]
+                if w >= 0 && w < width {
+                    entry[w] = true
+                }
                 k = k + 1
             }
         }

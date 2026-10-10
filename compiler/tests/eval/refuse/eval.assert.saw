@@ -1,5 +1,5 @@
-// refuses: eval.assert at 6:15
-// a `static_assert` whose condition is false
+// shadowed: static_assert.failed at 6:15
+// a `static_assert` whose condition is false; typecheck's fold refuses it first
 
 static WIDTH: Int = 32
 

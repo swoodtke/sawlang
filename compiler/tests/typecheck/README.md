@@ -466,10 +466,11 @@ expression adopts, each leaf converted to it, and each operation runs at its
 operands' type. A value that does not fit where it adopts is refused as "does
 not fit", so `b >= (BIG + 0)` with `BIG = 1000` and a `UInt8` peer is refused
 as "constant expression 1000 does not fit in `UInt8`" (static-leaf); an
-operation that leaves its type's range is refused as overflowing it, so `255 +
-1` at `UInt8` is (constant-range), and so is `256 - 1`, whose `256` does not
-fit; a shift count outside the shifted type's width and a division by zero
-are refused too. `1 << 63` at `UInt64` is 2^63. A 64-bit magnitude past
+operation that leaves its type's range is refused as overflowing it,
+`constant.overflow`, so `255 + 1` at `UInt8` is (constant.overflow), and so
+is `256 - 1`, as `type.mismatch`, whose `256` does not fit; a shift count
+outside the shifted type's width and a division by zero are refused too, as
+`constant.shift-range` and `constant.divide-by-zero`. `1 << 63` at `UInt64` is 2^63. A 64-bit magnitude past
 `Int.max` is refused only where it certainly does not fit: a non-negated one
 at a signed type. A literal with a signed width suffix is held to the width's
 signed range wherever it stands, with the minimum's magnitude allowed only
@@ -492,6 +493,50 @@ A `??` whose fallback is wider than the
 optional's payload would merge into the fallback's type, widening the payload
 inside its Optional, which no adjustment records: it is `slice.not-yet`
 (coalesce-wider).
+
+### The constant-position funnel
+
+Every position the constant grammar governs reaches one funnel,
+`check_constant_position`, after its expression is typed (spec, Compile-Time
+Evaluation, "The constant grammar"; SL-493, SL-494). Its docstring names the
+entry points. It refuses, in order, the first sub-expression outside the
+position's grammar (`static.not-constant`, naming it), a static whose value
+depends on itself (`static.cycle`, once per cycle, at the earliest-declared
+static on it, naming the statics in order), a fault the fold meets in the
+expression itself (`constant.overflow`, `constant.shift-range`,
+`constant.divide-by-zero`, and `type.mismatch` for a value that does not
+fit), and a `static_assert` whose condition folds to `false`
+(`static_assert.failed`, carrying its message). A fault met inside a static
+the expression names is that static's refusal. An expression with a refusal
+inside it already is not judged again, and neither is an optional static's,
+which `static.optional` refuses. What the grammar admits and the fold does not
+compute (an aggregate, a float, `sizeof`, a const parameter) is constant and
+unfolded: no fault and no verdict. The evaluator computes the same answers from
+MIR and is held to the fold by its agreement check, so its own refusals are
+defence in depth (`compiler/tests/eval/README.md`).
+
+| position | entry point | grammar beyond the shared one | covered by |
+|---|---|---|---|
+| a static's initializer | `check_static_body` | a struct's memberwise construction, an array and a repeat literal, a float, an earlier static of any type; no `init` body, call, tuple, `String`, or case of an enum with no backing | constant_positions, constant_refusals; static.not-constant, .conversion, .init, .interpolation, .tuple, .unbacked-case, .mutable; static.cycle; constant.divide-by-zero; type.mismatch.constant-cast |
+| a raw case's value | `check_raw_value` | names no static and no other enum's case (spec, Raw backings) | constant_positions; static.not-constant.raw-static, .raw-case |
+| an `@align` argument on a static | `check_align_attribute` | none | constant_positions |
+| an `@align` argument on a local | `check_align_local` | none | constant_positions; static.not-constant.align |
+| a `static_assert` condition, at the top and in every body kind | `check_static_assert` | a const parameter in scope | constant_positions, constant_faults; static_assert.failed, .function, .method, .init, .closure, .default-body, .test-case; static.not-constant.assert-local; constant.overflow.assert, constant.shift-range |
+
+The shared grammar is the fold's: integer and `Bool` literals, `#line`, module
+statics that are not an `unsafe static var`, raw-backed cases, an integer
+type's `max` and `min`, under the unary, arithmetic, shift, bit, comparison
+and logical operators and `as`; a type alias's construction over a constant
+(the user's ruling, SL:open-questions "Resolved"); and `sizeof` and `alignof`,
+of any type in a `static_assert` and elsewhere only of a type the target alone
+lays out, an integer, `Bool`, `Float`, `String` or a raw pointer, an alias
+measuring as the type it stands for (spec, "Layout in a constant"; a struct,
+an enum, a tuple, an array or an optional is `static.not-constant`, naming the
+type: `.layout-static`, `.layout-align`, `.layout-align-local`,
+`.layout-raw`; golden `layout_constants` holds the accepted rows). The
+array-length, repeat-count and const-argument positions are folded by
+`build_const` (SL-457) and do not reach the funnel; it refuses every `sizeof`
+there, of any type, as `slice.not-yet`.
 
 Every body construct in the slice, and how it is typed:
 
@@ -884,7 +929,13 @@ inferred Copy requirement where it publishes or declares one), under
 `copy.declared-bound`: a public generic function (row V45) and a public
 generic method whose requirement a callee brings refuse, `copy.declared-bound`
 and `.method`; a declared `ExplicitCopy` the body exceeds (row V46),
-`.explicit`. A private generic rides inference, its call sites checked by
+`.explicit`. A requirement on a parameter of a method's type is declared by
+the method's extension (SL-501): a public method in an extension that does not
+grant the parameter `Copy` refuses, `.extension`, through a callee too,
+`.extension-callee`, and so does a method in an extension declaring `T:
+ExplicitCopy` that its body exceeds, `.extension-explicit`; a trait default
+body publishes as its trait does (golden `declared_bounds` holds the accepted
+rows). A private generic rides inference, its call sites checked by
 `copy.requirement` (`summaries`), an indexed place read included (row P12,
 `copy.requirement.indexed-place`, and golden `indexed_place_requirement`).
 
@@ -969,10 +1020,12 @@ says what the fixture shows.
 | `type.bound` | a type argument, or a default, that does not satisfy its parameter's bound, for every kind of type, primitives included (design 109); a member of a bounded extension or conformance on a receiver whose arguments do not meet its bounds, and the builtin `copy()` reaching a type parameter no bound makes `ExplicitCopy` (SL-463) |
 | `type.default` | a parameter with no default after one with a default; a default that names a type parameter |
 | `type.alias-cycle` | type aliases that stand for each other |
+| `type.raw-backing` | an enum's raw backing written as a type alias, `Byte`, an alias of it and a user alias alike, since an alias is a distinct type and the backing is a fixed-width or platform integer written as itself; a backing that is not an integer type; a backing on an enum whose case carries a payload (spec, Raw-backed enums; SL-498: `type.raw-backing`, `.user-alias`, `.alias-of-byte`, `.not-integer`, `.payload`; golden `constant_positions` holds the `UInt8` control) |
 | `type.infinite-size` | a struct or enum whose storage contains its own inline, through fields, payloads, tuples, optionals, arrays and the generic declarations they instantiate, or through ever larger instantiations |
 | `conformance.incomplete` | a requirement of a trait, or of a trait it refines, that nothing meets: no member written, no default, no derivation; an associated type no type assignment gives, the conformance's own or, for a parent trait's, the type's conformance to that trait (refined_assignments) |
 | `conformance.associated-conflict` | a refining trait's conformance restating a parent trait's associated type as another type than the type's conformance to the parent assigns |
-| `conformance.signature` | a written member that disagrees with its requirement: receiver, staticness, type parameters, parameters, result, an `unsafe` the requirement declares, `consumes`, or `borrows` (a `borrows(sync)` member never meets a plain `borrows` requirement, SL:borrowing §2.5) |
+| `conformance.signature` | a written member that disagrees with its requirement: receiver, staticness, type parameters, parameters, result, an `unsafe` the requirement declares, `consumes`, or `borrows` (a `borrows(sync)` member never meets a plain `borrows` requirement, SL:borrowing §2.5); a parameter that says `escaping` where the requirement's does not, though the narrowing is met (SL-504: `conformance.signature.escaping`, `-escaping-default`; a function-typed parameter's own parameters are compared exactly, `-escaping-nested`; golden `escaping_values`) |
+| `trait.generic-requirement` | a trait requirement declaring generic parameters of its own, which the grammar parses and type checking refuses for now (GRAMMAR §3.4), once, at the requirement: with a default body (`.default-body`), met by a generic method in a conformance (`.conformance`), called through a bound (`.bound`), and its trait erased (bare), none adds a second refusal; golden `generic_methods` holds the accepted control, a generic method in an ordinary extension |
 | `synthesize.required` | a declared conformance to a derivable trait whose method is neither written nor asked for with `@synthesize` (design 128) |
 | `synthesize.inert` | `@synthesize` on a conformance that derives nothing |
 | `nomove.undeclared` | a struct or enum holding a `NoMove` value inline, a field, a payload, through an optional, a tuple, an array or a generic instance, that does not declare `NoMove` itself (design 188) |
@@ -986,7 +1039,8 @@ says what the fixture shows.
 | `conformance.deinit` | a conformance to `Deinit` itself, which a copy policy carries instead (design 131) |
 | `deinit.outside-policy` | a `deinit` written in an extension that declares no copy policy, beside the type's policy or on a type with none, where no scope exit would call it (spec, The Deinit trait) |
 | `extension.default-omitted` | an extension head renaming its type's parameters that leaves out a defaulted one, with the head written out (D14) |
-| `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's literal or leaf, that does not fit the type it adopts; a constant expression whose typed arithmetic overflows, shifts past its width or divides by zero; a literal past its signed suffix's range (D6) |
+| `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's literal, leaf or cast, that does not fit the type it adopts or converts to; a literal past its signed suffix's range (D6) |
+| `constant.overflow`, `constant.shift-range`, `constant.divide-by-zero` | a constant expression whose typed arithmetic overflows, shifts by a count outside its width, or divides by zero, where it adopts an integer slot and at every constant position (the constant-position funnel) |
 | `type.ambiguous-result` | a value both of a Result slot's payloads could take |
 | `type.not-a-value` | a type, module or trait named where a value is read |
 | `type.not-a-place` | a value where a place is needed: an assignment's target, `move`, `&var` |
@@ -1005,10 +1059,10 @@ says what the fixture shows.
 | `type.reference-position` | a reference where a type is stored, returned or bound: every written position but a parameter, a function type's parameter, a `borrows` lend and a borrowing struct's shared field, at any depth; a bare `&` outside a call argument or a pointer cast; a binding inferred to name one; a call instantiated at one (the reference-position matrix) |
 | `transfer.partial-move` | a spelled `move` of a part of a binding: a field, a tuple element, an element, an optional field's payload, at any depth (the field move-out matrix) |
 | `transfer.move-from-borrow` | a spelled `move` of a binding that owns nothing: a reference, a closure's reference parameter, a `borrow` binding, a `[&x]` or `[&var x]` capture, a pattern's binding aliasing a part of a borrowed scrutinee, which a name reading through a borrow is as a scrutinee (spec, Reference Semantics; DF-288a) |
-| `transfer.implicit-copy` | an ExplicitCopy or NoCopy place read by value with no `move`, payload reads included (design 131), and a projection's (`T.Item` in a generic body, a trait's own `Item` in its default bodies); a closure's capture of one by value with nothing written, with the fix-it `[move x]`; a plain subscript of such an element read where its position keeps nothing, a getitem all the same, with the fix-it `borrow` (D29) |
+| `transfer.implicit-copy` | an ExplicitCopy or NoCopy place read by value with no `move`, payload reads included (design 131), and a projection's (`T.Item` in a generic body, a trait's own `Item` in its default bodies); a closure's capture of one by value with nothing written, with the fix-it `[move x]`; a plain subscript of such an element read where its position keeps nothing, a getitem all the same, with the fix-it `borrow` (D29). A place read's hint offers only what compiles for its shape, `move` on a binding that owns its value or on its optional's payload, `take()` on an optional place a write through lands in (a `var`, a `&var` parameter, `&var self`), and through an owned root that is never written a move of the root into a `var` first, `.copy()` where the type meets `ExplicitCopy`, and names the tier only where the type establishes one (SL-500; golden `implicit_copy_hints`, and golden `implicit_copy_fixes` with each fix applied) |
 | `transfer.no-move` | a `move` of a `NoMove` value, or of one holding it inline (an Optional, a tuple, an array, a generic instance), at every position: a binding, an argument, a consuming receiver, a `[move x]` capture, `take()` out of an optional; a by-value parameter placed by `ptr[i] = move p` before any `&`, `&var` or `borrow` named it is the value reaching its home, and allowed (design 188) |
 | `deinit.manual-call` | a `deinit` called by hand, written or synthesized, through a bound or named as a static (spec, The Deinit trait) |
-| `copy.declared-bound` | a body's inferred Copy requirement on one of its own type parameters that its signature does not cover: a public generic that does not declare it, or a declared `ExplicitCopy` the body exceeds (design 219) |
+| `copy.declared-bound` | a body's inferred Copy requirement on one of its own type parameters that its signature does not cover, or on its type's that its extension does not: a public generic that does not declare it, or a declared `ExplicitCopy` the body exceeds (design 219, SL-501) |
 | `capture.copy` | `[copy x]` of a NoCopy binding, which has no copy; `[copy x]` of a value whose type names a type parameter no bound lets the body copy: `Copy` for every one, or `ExplicitCopy` on a bare parameter (D30) |
 | `capture.escaping-consume` | a consuming use of a by-value capture in a closure that escapes, at every copy tier: a `move` of it, a `match` consuming it, an inner closure's `[move x]` of it; a spawn form's brace is exempt (SL-469; the escaping-consume matrix) |
 | `capture.escaping-borrow` | a borrow of the enclosing frame, `[&x]`, `[&var x]`, a reference parameter or `self`, captured by a closure that escapes: anything but one passed straight to a parameter whose function type does not say `escaping` (spec, Capturing `self` and reference parameters) |
@@ -1020,6 +1074,9 @@ says what the fixture shows.
 | `format.mixed` | a format string that interpolates a value beside its `{}` slots or arguments (spec, "Format arguments and the allocation-free path"), judged where the string-position funnel records it as `format` |
 | `operator.undefined` | an operator over a type it is not defined for |
 | `static.optional` | a static whose own type is an optional; an `unsafe static var` is exempt (spec, Module-level statics: "Never optional") |
+| `static.not-constant` | a sub-expression outside the constant grammar of a static's initializer, a raw case's value, an `@align` argument or a `static_assert` condition, named (the constant-position funnel) |
+| `static.cycle` | a static whose value depends on itself, through any number of statics, named in order |
+| `static_assert.failed` | a `static_assert` whose condition folds to `false`, at the top of a file or in a body |
 | `borrowing.containment` | a borrowing struct (spec, Borrowing structs) bound outside the head of a `borrow` or a `for`, taken as a parameter by value, stored in a field or a payload, erased to an existential, returned by a function that does not lend it with `borrows`, or carried by a function type |
 | `escaping.stored` | a non-escaping function value (a parameter whose function type does not say `escaping`, or a local bound to one) in a position that holds it past the call: a field, a payload, an element, an Optional, a return, an assignment's target, an escaping closure's capture, a type argument, an `escaping` parameter (D35) |
 | `borrowing.sigil-place` | `&` or `&var` on a place reached through a `borrows` call, a subscript accessor or a named one, at any depth of fields, tuple elements and payloads: the place is passed with `borrow` (SL:borrowing §9) |

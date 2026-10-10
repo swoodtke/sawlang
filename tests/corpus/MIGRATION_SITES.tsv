@@ -1141,6 +1141,8 @@ expr_suspend_optchain_compound_assign.saw	41	0	reaim.companion	manual	print(CALL
 generic_bound_call_mixed_signature_error.saw	40	6	unseen	reviewed	r.at(peer: &other, index: 1, item: "text")	-	-	reviewed: a plain method in this file, not a `borrows` accessor
 generic_bound_call_mixed_signature_error.saw	45	6	unseen	reviewed	r.at(peer: &wrong, index: "nope", item: "text")	-	-	reviewed: a plain method in this file, not a `borrows` accessor
 generic_method_not_generic_type_args.saw	14	12	unseen	reviewed	print(b.get<Int>())  // get takes no method type params	-	-	reviewed: a plain method in this file, not a `borrows` accessor
+generic_static_call_own_type_params.saw	21	0	declared-copy	manual	extension Holder<T> {	extension Holder<T: Copy> {	-	a public method's inferred Copy requirement on its extension's parameter is declared there (SL-501)
+generic_static_call_own_type_params.saw	31	0	declared-copy	manual	extension Pair<A, B> {	extension Pair<A: Copy, B: Copy> {	-	a public method's inferred Copy requirement on its extension's parameter is declared there (SL-501)
 import247b_glob_pair_one_identity.saw	36	22	G1.accessor-read	rewritten	print("emitted {s.value()}")	print("emitted {borrow s.value()}")	Slot.value elem=Int tier=free policy=trivial shared	-
 json_value_accessors.saw	5	0	D3.companion	manual	// that does not exist (absent, through `as_object()!.get`/`as_array()!.get`	// that does not exist (absent, through `as_object()!`/`as_array()!`	-	the header names the accessors the file composes
 json_value_accessors.saw	67	19	D3.borrow-block	rewritten	if let _ = arr.as_array() {	if (borrow let e = arr.as_array() { if let _ = e { true } else { false } }) {	JsonValue.as_array elem=Vector<JsonValue> tier=explicit policy=nocopy shared optional	-

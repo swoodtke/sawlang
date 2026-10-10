@@ -1,0 +1,12 @@
+// refuses: copy.declared-bound at 9:10
+// a method in an extension declaring `T: ExplicitCopy` whose body copies a `T` silently: the bound licenses a spelled `.copy()` only (SL-501)
+
+struct Cell<T> {
+    value: T
+}
+
+extension Cell<T: ExplicitCopy> {
+    func get(&self) -> T {
+        self.value
+    }
+}

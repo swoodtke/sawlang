@@ -1,0 +1,4 @@
+// refuses: type.mismatch at 4:24
+// a constant cast to a type that cannot hold its value, in a static's initializer (SL-493)
+
+static NARROW: UInt8 = 300 as UInt8

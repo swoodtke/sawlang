@@ -1,0 +1,4 @@
+// refuses: constant.divide-by-zero at 4:24
+// a division by zero behind an integer type's limit, in a static's initializer (SL-493)
+
+static QUOTIENT: Int = Int.max / 0

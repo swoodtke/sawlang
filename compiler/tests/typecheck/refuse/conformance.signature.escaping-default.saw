@@ -1,0 +1,18 @@
+// refuses: conformance.signature at 15:10
+// an override of a trait's default body whose parameter says `escaping` where the requirement's does not (SL-504)
+
+trait Runner {
+    func run(&self, g: () -> Int) -> Int {
+        g()
+    }
+}
+
+struct Plain {
+    n: Int
+}
+
+extension Plain: Runner {
+    func run(&self, g: () escaping -> Int) -> Int {
+        g() + self.n
+    }
+}

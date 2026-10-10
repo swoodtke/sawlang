@@ -1036,7 +1036,10 @@ extension TcProgram {
     }
 
     // The requirements of trait `tr` and the traits it refines that a
-    // dispatch through `any` reaches and that are not `sync`.
+    // dispatch through `any` reaches and that are not `sync`. A generic
+    // requirement is left out: `trait.generic-requirement` has refused it
+    // already, and its implementation's suspension is a condition over its
+    // own parameters, which no erasure can answer.
     public func dispatched_requirements(&self, tr: Int) -> Vector<Int> {
         var out = Vector<Int>()
         let traits = self.trait_and_ancestors(tr)
@@ -1047,7 +1050,8 @@ extension TcProgram {
             while k < members.len() {
                 let r = members[k]
                 let info = self.res.decls[r]
-                if info.kind == ResDeclKind.Requirement && not self.declares_sync(r) {
+                let generic = self.sigs[r].generic_count > 0
+                if info.kind == ResDeclKind.Requirement && not self.declares_sync(r) && not generic {
                     try! out.push(r)
                 }
                 k = k + 1

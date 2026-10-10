@@ -1,0 +1,6 @@
+// refuses: static_assert.failed at 6:15
+// a top-level `static_assert` whose condition folds to false, carrying its message (SL-493)
+
+static WIDTH: Int = 32
+
+static_assert(WIDTH == 64, "a 64-bit width")

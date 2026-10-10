@@ -1,0 +1,169 @@
+ERROR	constant.overflow	compiler/tests/typecheck/golden/constant_refusals.saw:20:21	constant expression overflows `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	constant.divide-by-zero	compiler/tests/typecheck/golden/constant_refusals.saw:21:24	constant expression divides by zero
+ERROR	type.mismatch	compiler/tests/typecheck/golden/constant_refusals.saw:22:24	constant expression 300 does not fit in `UInt8` (range 0..=255)
+ERROR	static.cycle	compiler/tests/typecheck/golden/constant_refusals.saw:23:17	static `A` depends on itself: `A` -> `B` -> `A`; a static's value is fixed at compile time, so its initializer may name only statics that do not lead back to it
+ERROR	static.not-constant	compiler/tests/typecheck/golden/constant_refusals.saw:30:22	`seven()` is not a constant, and a static's initializer is a constant expression: a call runs only at run time, an `init` body included; only a type alias's construction, `sizeof`, `alignof` and a static's memberwise construction are constants; state that has to be computed wants `static X: Once<T>`, set once, or an `unsafe static var`
+ERROR	static.not-constant	compiler/tests/typecheck/golden/constant_refusals.saw:31:27	`(1, 2)` is not a constant, and a static's initializer is a constant expression: a constant is built from literals, statics, raw-backed cases and the integer limits, under operators, casts between integers and a type alias's construction; state that has to be computed wants `static X: Once<T>`, set once, or an `unsafe static var`
+ERROR	static.not-constant	compiler/tests/typecheck/golden/constant_refusals.saw:32:21	`Mode.Fast` is not a constant, and a static's initializer is a constant expression: it is a case of an enum with no raw backing, which has no constant value; state that has to be computed wants `static X: Once<T>`, set once, or an `unsafe static var`
+ERROR	static.not-constant	compiler/tests/typecheck/golden/constant_refusals.saw:35:32	`WIDTH` is not a constant, and a raw case's value is a constant expression: it may not name a static or another enum's case, since an enum's cases are fixed by its own declaration, before either is known
+ERROR	static.not-constant	compiler/tests/typecheck/golden/constant_refusals.saw:35:51	`Code.B` is not a constant, and a raw case's value is a constant expression: it may not name a static or another enum's case, since an enum's cases are fixed by its own declaration, before either is known
+ERROR	static.not-constant	compiler/tests/typecheck/golden/constant_refusals.saw:42:19	`n` is not a constant, and a `static_assert` condition is a constant expression: it names a binding whose value is known only at run time
+ERROR	static_assert.failed	compiler/tests/typecheck/golden/constant_refusals.saw:43:19	static assertion failed: false in a body
+ERROR	static.not-constant	compiler/tests/typecheck/golden/constant_refusals.saw:44:12	`n` is not a constant, and an `@align` argument is a constant expression: it names a binding whose value is known only at run time
+ERROR	constant.shift-range	compiler/tests/typecheck/golden/constant_refusals.saw:37:16	constant expression shifts a value of type `Int` by a count outside its width
+ERROR	static_assert.failed	compiler/tests/typecheck/golden/constant_refusals.saw:38:15	static assertion failed: one is not greater than two
+(Module constant_refusals
+  (declarations
+    (struct Point 13:8 private)
+    (field Point.x 13:16 private Int)
+    (field Point.y 13:24 private Int)
+    (enum Mode 14:6 private)
+    (case Mode.Fast 14:18)
+    (case Mode.Slow 14:29)
+    (enum Code 15:6 private (raw UInt8))
+    (case Code.A 15:25)
+    (case Code.B 15:37)
+    (func seven 17:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (static USER 19:8 private Int)
+    (static EDGE 20:8 private Int)
+    (static QUOTIENT 21:8 private Int)
+    (static NARROW 22:8 private UInt8)
+    (static A 23:8 private Int)
+    (static B 24:8 private Int)
+    (static TABLE 25:8 private [UInt8; 4])
+    (static ORIGIN 26:8 private constant_refusals.Point)
+    (static RATIO 27:8 private Float)
+    (static WORD 28:8 private Int)
+    (static LETTER 29:8 private UInt8)
+    (static CALLED 30:8 private Int)
+    (static PAIR 31:8 private (Int, Int))
+    (static MODE 32:8 private constant_refusals.Mode)
+    (static WIDTH 33:8 private UInt8)
+    (enum Flags 35:6 private (raw UInt8))
+    (case Flags.Low 35:26)
+    (case Flags.High 35:44)
+    (case Flags.Mid 35:64)
+    (func local 41:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 49:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (constant_refusals.Point
+      (field x Int private declared)
+      (field y Int private declared))
+    (constant_refusals.Mode
+      (case Fast private declared)
+      (case Slow private declared))
+    (constant_refusals.Code
+      (case A private declared)
+      (case B private declared)
+      (static from public (synthesized raw)))
+    (constant_refusals.Flags
+      (case Low private declared)
+      (case High private declared)
+      (case Mid private declared)
+      (static from public (synthesized raw))))
+  (views
+    (constant_refusals.Point x y)
+    (constant_refusals.Mode Fast Slow)
+    (constant_refusals.Code A B from)
+    (constant_refusals.Flags Low High Mid from))
+  (conformances)
+  (copy-tier
+    (constant_refusals.Point Copy)
+    (constant_refusals.Mode Copy)
+    (constant_refusals.Code Copy)
+    (constant_refusals.Flags Copy))
+  (bodies
+    (Code.A 15:25
+      (15:29-15:30 IntLit Int (adopt UInt8) value temp))
+    (Code.B 15:37
+      (15:41-15:42 IntLit Int (adopt UInt8) value temp))
+    (seven 17:6
+      (17:23-17:24 IntLit Int value temp))
+    (USER 19:8
+      (19:21-19:37 Binary Int value temp (op *))
+      (19:21-19:32 Cast Int value temp)
+      (19:21-19:25 Name Int place copy)
+      (19:36-19:37 IntLit Int value temp))
+    (EDGE 20:8
+      (20:21-20:40 Binary Int value temp (op +))
+      (20:21-20:35 Cast Int value temp)
+      (20:21-20:28 Member Int value temp)
+      (20:39-20:40 IntLit Int value temp))
+    (QUOTIENT 21:8
+      (21:24-21:35 Binary Int value temp (op /))
+      (21:24-21:31 Member Int value temp)
+      (21:34-21:35 IntLit Int value temp))
+    (NARROW 22:8
+      (22:24-22:36 Cast UInt8 value temp)
+      (22:24-22:27 IntLit Int value temp))
+    (A 23:8
+      (23:17-23:22 Binary Int value temp (op +))
+      (23:17-23:18 Name Int place copy)
+      (23:21-23:22 IntLit Int value temp))
+    (B 24:8
+      (24:17-24:22 Binary Int value temp (op +))
+      (24:17-24:18 Name Int place copy)
+      (24:21-24:22 IntLit Int value temp))
+    (TABLE 25:8
+      (25:28-25:34 Repeat [UInt8; 4] value temp)
+      (25:29-25:30 IntLit Int (adopt UInt8) value temp)
+      (25:32-25:33 IntLit Int value temp))
+    (ORIGIN 26:8
+      (26:24-26:41 Call.paren constant_refusals.Point value temp (memberwise constant_refusals.Point (owner constant_refusals.Point)))
+      (26:33-26:34 IntLit Int value temp)
+      (26:39-26:40 IntLit Int value temp))
+    (RATIO 27:8
+      (27:23-27:26 FloatLit Float value temp))
+    (WORD 28:8
+      (28:20-28:33 Call.paren Int value temp (builtin sizeof)))
+    (LETTER 29:8
+      (29:23-29:31 Call.paren UInt8 value temp (conversion Byte alias (owner UInt8)))
+      (29:28-29:30 IntLit Int (adopt UInt8) value temp))
+    (CALLED 30:8
+      (30:22-30:29 Call.paren Int value temp (call constant_refusals.seven())))
+    (PAIR 31:8
+      (31:27-31:33 Tuple.positional (Int, Int) value temp)
+      (31:28-31:29 IntLit Int value temp)
+      (31:31-31:32 IntLit Int value temp))
+    (MODE 32:8
+      (32:21-32:30 Member constant_refusals.Mode value temp (case constant_refusals.Mode.Fast (owner constant_refusals.Mode))))
+    (WIDTH 33:8
+      (33:23-33:24 IntLit Int (adopt UInt8) value temp))
+    (Flags.Low 35:26
+      (35:32-35:37 Name UInt8 place copy))
+    (Flags.High 35:44
+      (35:51-35:57 Member constant_refusals.Code (adopt UInt8) value temp (case constant_refusals.Code.B (owner constant_refusals.Code))))
+    (Flags.Mid 35:64
+      (35:70-35:77 Call.paren UInt8 value temp (conversion Byte alias (owner UInt8)))
+      (35:75-35:76 IntLit Int (adopt UInt8) value temp))
+    (local 41:6
+      (42:19-42:24 Binary.pair Bool value temp (op >))
+      (42:19-42:20 Name Int place borrow)
+      (42:23-42:24 IntLit Int value borrow)
+      (43:19-43:24 Binary.pair Bool value temp (op >))
+      (43:19-43:20 IntLit Int value borrow)
+      (43:23-43:24 IntLit Int value borrow)
+      (44:12-44:13 Name Int place copy)
+      (45:9-45:12 BindingName [UInt8; 4] place temp)
+      (45:27-45:33 Repeat [UInt8; 4] value temp)
+      (45:28-45:29 IntLit Int (adopt UInt8) value temp)
+      (45:31-45:32 IntLit Int value temp)
+      (46:5-46:6 Name Int place copy))
+    (main 49:6
+      (50:5-50:20 Call.paren Void value temp (builtin print))
+      (50:11-50:19 Call.paren Int value borrow (call constant_refusals.local(n: Int)))
+      (50:17-50:18 IntLit Int value temp))
+    (item 37:16
+      (37:16-37:29 Binary.pair Bool value temp (op ==))
+      (37:16-37:23 Binary Int value borrow (op <<))
+      (37:16-37:17 IntLit Int value temp)
+      (37:21-37:23 IntLit Int value temp)
+      (37:28-37:29 IntLit Int value borrow))
+    (item 38:15
+      (38:15-38:20 Binary.pair Bool value temp (op >))
+      (38:15-38:16 IntLit Int value borrow)
+      (38:19-38:20 IntLit Int value borrow))
+    (item 39:15
+      (39:15-39:24 Binary.pair Bool value temp (op ==))
+      (39:15-39:19 Name Int place borrow)
+      (39:23-39:24 IntLit Int value borrow))))

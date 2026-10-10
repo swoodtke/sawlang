@@ -13,7 +13,10 @@ directory specifies:
 - each refusal fixture, `refuse/RULE.saw` or `refuse/RULE.VARIANT.saw`, is
   refused first by RULE at the position its `// refuses:` header names, and
   every rule the evaluator refuses by (`eval_rules` in
-  `compiler/eval/src/report.saw`) has a fixture;
+  `compiler/eval/src/report.saw`) has a fixture. A fixture headed
+  `// shadowed: TC-RULE at L:C` instead is refused first by typecheck's
+  constant-position funnel, which reaches the fault before the evaluator
+  can; it covers the evaluator rule it is named for;
 - the compiler's own source, the sawc2 build and each unit program,
   evaluates with no refusal and no `INVARIANT` line;
 - over tests/corpus/, the evaluator and typecheck's fold agree on every
@@ -41,7 +44,7 @@ CORPUS = os.path.join(REPO, "tests", "corpus")
 RULES_SOURCE = os.path.join(COMPILER, "eval", "src", "report.saw")
 TIMEOUT = 3600
 
-_HEADER = re.compile(r"^// refuses: (\S+)(?: at (\d+:\d+))?$")
+_HEADER = re.compile(r"^// (refuses|shadowed): (\S+)(?: at (\d+:\d+))?$")
 _RULE = re.compile(r'try! out\.push\("([^"]+)"\)')
 # The problems the evaluator's verifier reports, told apart from the earlier
 # stages' by their wording.
@@ -162,15 +165,22 @@ def check_refusals(failures, counts, fill):
         found = first_error(record)
         with open(path) as fh:
             m = _HEADER.match(fh.readline().rstrip("\n"))
-        if fill and (m is None or m.group(1) == "TODO"):
+        if fill and (m is None or m.group(2) == "TODO"):
             write_header(path, found)
             continue
         if m is None:
             failures.append("eval refusal %s: no `// refuses: RULE at L:C` header" % rel(path))
             continue
-        rule, at = m.group(1), m.group(2)
+        shadowed = m.group(1) == "shadowed"
+        rule, at = m.group(2), m.group(3)
         named = os.path.basename(path).split(".saw")[0]
-        if not (named == rule or named.startswith(rule + ".")):
+        # A shadowed fixture is named for the evaluator rule it covers; its
+        # header names the typecheck rule that refuses first.
+        covers = named.split(".")[0] + "." + named.split(".")[1] if shadowed and "." in named else rule
+        if shadowed and (rule.startswith("eval.") or covers not in evaluator_rules()):
+            failures.append("eval refusal %s: a shadowed fixture names a typecheck rule and is named for an evaluator rule"
+                            % rel(path))
+        if not shadowed and not (named == rule or named.startswith(rule + ".")):
             failures.append("eval refusal %s: the file is not named for its rule %s" % (rel(path), rule))
         if found is None:
             failures.append("eval refusal %s: expected %s, nothing refused" % (rel(path), rule))
@@ -178,7 +188,7 @@ def check_refusals(failures, counts, fill):
             failures.append("eval refusal %s: expected %s at %s first, refused as %s at %s"
                             % (rel(path), rule, at, found[0], found[1]))
         else:
-            covered.add(rule)
+            covered.add(covers)
         for line in record.split("\n"):
             if line.startswith("INVARIANT\t"):
                 failures.append("eval refusal %s: %s" % (rel(path), line))

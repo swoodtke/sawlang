@@ -88,28 +88,28 @@ fn epilogue accessor.Board.noted(i: Int, tag: String, keep: Bool) -> Void {
     }
 
     bb1: {
-        _7 = ref(shared, (*_2).cells);
-        _6 = window_open w1 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _7, const 0: Int] -> [present: bb2];
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb2];
     }
 
     bb2: {
-        _5 = copy (*_6);
-        window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb3];
+        _7 = ref(shared, (*_2).cells);
+        _6 = window_open w1 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _7, const 0: Int] -> [present: bb3];
     }
 
     bb3: {
-        _8 = Add(move _5, const 1: Int);
-        _10 = ref(exclusive, (*_2).cells);
-        _9 = window_open w2 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _10, const 0: Int] -> [present: bb4];
+        _5 = copy (*_6);
+        window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb4];
     }
 
     bb4: {
-        (*_9) = move _8;
-        window_close w2 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb5];
+        _8 = Add(move _5, const 1: Int);
+        _10 = ref(exclusive, (*_2).cells);
+        _9 = window_open w2 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _10, const 0: Int] -> [present: bb5];
     }
 
     bb5: {
-        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb6];
+        (*_9) = move _8;
+        window_close w2 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb6];
     }
 
     bb6: {

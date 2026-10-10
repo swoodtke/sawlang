@@ -1,0 +1,13 @@
+// refuses: static_assert.failed at 10:23
+// a false statement-position `static_assert` in a closure body (SL-494)
+
+func run(body: () -> Int) -> Int {
+    body()
+}
+
+func check() -> Int {
+    run({
+        static_assert(1 > 2, "in a closure")
+        7
+    })
+}

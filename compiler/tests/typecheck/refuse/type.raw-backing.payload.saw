@@ -1,0 +1,4 @@
+// refuses: type.raw-backing at 4:40
+// a raw backing on an enum whose case carries a payload, which has no integer identity (SL-498's sweep)
+
+enum Shape: UInt8 { case Dot = 1, case Line(len: Int) }

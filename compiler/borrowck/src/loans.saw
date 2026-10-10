@@ -325,6 +325,7 @@ extension BorrowckProgram {
         self.loan_defs(f, &var facts)
         self.loan_windows(f, &var facts)
         self.loan_collect(f, &var facts)
+        self.carried_loans(f, &var facts)
         self.loan_holders(f, &var facts)
         self.loan_ties(f, &var facts)
         facts.loan_words = borrowck_words(facts.loans.len())
@@ -578,6 +579,118 @@ extension BorrowckProgram {
             }
             b = b + 1
         }
+    }
+
+    // An epilogue's carried windows, each a loan on its receiver as the
+    // epilogue names it: the prologue's receiver, traced to its root, each
+    // local read back through the state record. Its open sits in the
+    // prologue, so without this nothing in the epilogue could conflict with
+    // a window still open there (SL-495).
+    func carried_loans(&self, f: Int, facts: &var BorrowckLoans) {
+        let info = self.mir.funcs[f]
+        if info.kind != MirFuncKind.Epilogue || info.carried_count == 0 || info.decl < 0 {
+            return
+        }
+        let a = self.mir.accessor_of[info.decl]
+        if a < 0 {
+            return
+        }
+        let pro = self.mir.accessors[a].prologue
+        let pinfo = self.mir.funcs[pro]
+        // The two halves' carried windows disagreeing in number or range is
+        // the MIR verifier's INVARIANT (verify_carried); these guards only
+        // keep this pass in range.
+        if pinfo.carried_count != info.carried_count {
+            return
+        }
+        var theirs = self.borrowck_loans(pro)
+        var k = 0
+        while k < info.carried_count {
+            let w = self.mir.aux[info.carried_first + k]
+            let pw = self.mir.aux[pinfo.carried_first + k]
+            k = k + 1
+            if w < 0 || w >= info.window_count || pw < 0 || pw >= pinfo.window_count {
+                continue
+            }
+            let receiver = theirs.window_path[pw]
+            if receiver.count < 0 {
+                continue
+            }
+            let root = self.borrowck_trace(pro, &receiver, &var theirs)
+            let path = self.carried_path(f, pro, &root, &theirs, &var facts)
+            if path.count < 0 {
+                continue
+            }
+            let window = self.mir.windows[info.window_first + w]
+            let exclusive = theirs.window_exclusive[pw]
+            self.add_loan(&var facts, BorrowckLoanKind.Window, path, exclusive, window.node, false, 0, -1, w, -1)
+        }
+    }
+
+    // Prologue path `p` with each local renamed to the epilogue's: a local
+    // the record does not carry cannot be reached in the epilogue, so a root
+    // without one gives no path, and an index without one ends the path
+    // there, which only widens it.
+    func carried_path(&self, f: Int, pro: Int, p: &BorrowckPath, theirs: &BorrowckLoans,
+                      facts: &var BorrowckLoans) -> BorrowckPath {
+        var local = -1
+        if p.local >= 0 {
+            local = self.record_counterpart(f, pro, p.local)
+            if local < 0 {
+                return borrowck_no_path()
+            }
+        }
+        let first = facts.projs.len()
+        var count = 0
+        var k = 0
+        while k < p.count {
+            var step = theirs.proj(&p, k)
+            if step.kind == MirProjKind.Index && step.index >= 0 {
+                let i = self.record_counterpart(f, pro, step.index)
+                if i < 0 {
+                    break
+                }
+                step.index = i
+            }
+            try! facts.projs.push(step)
+            count = count + 1
+            k = k + 1
+        }
+        BorrowckPath(local: local, static_decl: p.static_decl, first: first, count: count)
+    }
+
+    // The epilogue `f`'s local the state record restores prologue `pro`'s
+    // local `l` into, or -1.
+    func record_counterpart(&self, f: Int, pro: Int, l: Int) -> Int {
+        let info = self.mir.funcs[f]
+        let pinfo = self.mir.funcs[pro]
+        var k = 0
+        while k < pinfo.record_count && k < info.record_count {
+            if self.mir.aux[pinfo.record_first + k] == l {
+                return self.mir.aux[info.record_first + k]
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // Whether statement `s` of function `f` is an epilogue's restore of a
+    // local from the state record: the split's own move, which reaches no
+    // user storage a loan could hold.
+    public func restores_record(&self, f: Int, s: Int) -> Bool {
+        if self.mir.funcs[f].kind != MirFuncKind.Epilogue || s < 0 {
+            return false
+        }
+        let stmt = self.mir.stmts[s]
+        if stmt.kind != MirStmtKind.Assign || stmt.rvalue < 0 {
+            return false
+        }
+        let rv = self.mir.rvalues[stmt.rvalue]
+        if rv.kind != MirRvalueKind.Use || rv.count != 1 {
+            return false
+        }
+        let o = self.mir.operands[self.mir.lists[rv.first]]
+        o.kind == MirOperandKind.Move && o.place >= 0 && self.record_place(f, o.place)
     }
 
     // Whether place `p` of function `f` is rooted in an accessor's state
@@ -1233,7 +1346,8 @@ extension BorrowckProgram {
             return borrowck_no_path()
         }
         let stmt = self.mir.stmts[s]
-        if stmt.rvalue < 0 {
+        // A local the epilogue restores is the binding the source names.
+        if stmt.rvalue < 0 || self.restores_record(f, s) {
             return borrowck_no_path()
         }
         let rv = self.mir.rvalues[stmt.rvalue]

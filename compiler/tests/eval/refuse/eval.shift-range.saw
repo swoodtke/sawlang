@@ -1,4 +1,4 @@
-// refuses: eval.shift-range at 4:16
-// a shift count at the shifted type's width
+// shadowed: constant.shift-range at 4:16
+// a shift count at the shifted type's width; typecheck's fold refuses it first
 
 static_assert((1 << 64) == 0, "a count at the width is no count")

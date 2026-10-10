@@ -1,0 +1,51 @@
+(Module generic_methods
+  (declarations
+    (trait Feeder 1:7 private)
+    (requirement Feeder.size 2:10 (signature (receiver shared) (params) -> Int))
+    (struct P 5:8 private)
+    (field P.n 5:12 private Int)
+    (extension 6:1 (target generic_methods.P) (conforms generic_methods.Feeder))
+    (method P.size 7:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (extension 10:1 (target generic_methods.P))
+    (method P.feed 11:10 private (signature (generics (T)) (receiver shared) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func via 17:6 private (signature (generics (F (bounds generic_methods.Feeder))) (params (f &F shared)) -> Int) (summary body (suspends when F.Feeder.size) (sync-callable unless F.Feeder.size)))
+    (func main 21:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (generic_methods.P
+      (field n Int private declared)
+      (method size private (extension generic_methods))
+      (method feed private (extension generic_methods))))
+  (views
+    (generic_methods.P n size feed))
+  (conformances
+    (generic_methods.P generic_methods.Feeder 6:14 (size written)))
+  (copy-tier
+    (generic_methods.P Copy))
+  (bodies
+    (P.size 7:10
+      (7:31-7:37 Member Int place copy)
+      (7:31-7:35 SelfExpr generic_methods.P place project))
+    (P.feed 11:10
+      (12:13-12:14 BindingName T place temp)
+      (12:17-12:23 Move T value move)
+      (12:22-12:23 Name T place move)
+      (13:9-13:15 Member Int place copy)
+      (13:9-13:13 SelfExpr generic_methods.P place project))
+    (via 17:6
+      (18:5-18:13 Call.paren Int value temp (call generic_methods.Feeder.size() (owner F)))
+      (18:5-18:6 Name &F (deref F) (borrow &F) place borrow))
+    (main 21:6
+      (22:9-22:10 BindingName generic_methods.P place temp)
+      (22:13-22:20 Call.paren generic_methods.P value temp (memberwise generic_methods.P (owner generic_methods.P)))
+      (22:18-22:19 IntLit Int value temp)
+      (23:5-23:46 Call.paren Void value temp (builtin print))
+      (23:11-23:45 Binary Int value borrow (op + +))
+      (23:11-23:23 Call.paren Int value temp (call generic_methods.P.feed(x: T) (owner generic_methods.P) (inst Bool)))
+      (23:11-23:12 Name generic_methods.P (borrow &generic_methods.P) place borrow)
+      (23:18-23:22 BoolLit.true Bool value temp)
+      (23:26-23:35 Call.paren Int value temp (call generic_methods.P.feed(x: T) (owner generic_methods.P) (inst Int)))
+      (23:26-23:27 Name generic_methods.P (borrow &generic_methods.P) place borrow)
+      (23:33-23:34 IntLit Int value temp)
+      (23:38-23:45 Call.paren Int value temp (call generic_methods.via(f: &F) (inst generic_methods.P)))
+      (23:42-23:44 Ref.shared &generic_methods.P value temp)
+      (23:43-23:44 Name generic_methods.P place borrow))))

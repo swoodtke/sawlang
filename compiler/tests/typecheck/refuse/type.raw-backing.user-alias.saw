@@ -1,0 +1,6 @@
+// refuses: type.raw-backing at 6:14
+// a user alias over an integer type as a raw backing: an alias is a distinct type, not the integer it stands for (SL-498)
+
+type Code = UInt16
+
+enum Status: Code { case Ok = 0, case Busy = 1 }

@@ -1,0 +1,76 @@
+// Each fix golden/implicit_copy_hints offers, applied: every function here is
+// one of its refused shapes rewritten as the hint says, and checks clean.
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+
+struct Holder { r: Res, o: Res? }
+extension Holder: NoCopy {}
+
+func sink(r: Res) -> Int { r.n }
+func sink_all(v: Vector<Int>) -> Int { v.len() }
+func peek(r: &Res) -> Int { r.n }
+
+func owned() -> Int {
+    let r = Res(n: 1)
+    let a = sink(move r)
+    a
+}
+
+func explicit_move() -> Int {
+    var v = Vector<Int>()
+    try! v.push(1)
+    sink_all(move v)
+}
+
+func explicit_copy() -> Int {
+    var v = Vector<Int>()
+    try! v.push(1)
+    sink_all(v.copy())
+}
+
+func field(h: Holder) -> Int {
+    peek(&h.r)
+}
+
+func optional_field(h: Holder) -> Int {
+    var w = move h
+    let o = w.o.take()
+    0
+}
+
+func payload() -> Int {
+    let o: Res? = Res(n: 2)
+    sink(move o!)
+}
+
+func field_payload(h: Holder) -> Int {
+    var w = move h
+    sink(w.o.take()!)
+}
+
+func var_field(seed: Res) -> Int {
+    var h = Holder(r: move seed, o: None)
+    let o = h.o.take()
+    0
+}
+
+func let_payload(seed: Res) -> Int {
+    let h = Holder(r: move seed, o: None)
+    var w = move h
+    sink(w.o.take()!)
+}
+
+func exclusive_field(h: &var Holder) -> Int {
+    let o = h.o.take()
+    0
+}
+
+extension Holder {
+    func own_payload(&var self) -> Int {
+        sink(self.o.take()!)
+    }
+}
+
+func main() {
+}

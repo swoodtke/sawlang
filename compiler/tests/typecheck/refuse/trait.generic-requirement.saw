@@ -1,0 +1,43 @@
+// refuses: trait.generic-requirement at 8:10
+// a trait requirement with generic parameters, one with a default body too, met by a generic method, called through a bound and erased
+trait Source {
+    func next(&var self) -> Int
+}
+
+trait Sink {
+    func feed<S: Source>(&var self, s: S) -> Int
+    func twice<S: Source>(&var self, s: S, t: S) -> Int {
+        self.feed(move s) + self.feed(move t)
+    }
+}
+
+struct Counter { n: Int }
+extension Counter: Source {
+    func next(&var self) -> Int {
+        self.n = self.n + 1
+        self.n
+    }
+}
+
+struct Total { sum: Int }
+extension Total: Sink {
+    func feed<S: Source>(&var self, s: S) -> Int {
+        var src = move s
+        self.sum = self.sum + src.next()
+        self.sum
+    }
+}
+
+func via<K: Sink>(k: &var K) -> Int {
+    k.feed(Counter(n: 0))
+}
+
+func erased(k: &any Sink) -> Int {
+    0
+}
+
+func main() {
+    var t = Total(sum: 0)
+    print(via(&var t))
+    print(erased(&t))
+}

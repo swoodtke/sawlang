@@ -1,0 +1,6 @@
+// refuses: static.not-constant at 6:35
+// a raw case's value may not name another enum's case (SL-493)
+
+enum Code: UInt8 { case A = 1, case B = 2 }
+
+enum Shape: UInt8 { case Narrow = Code.B, case Wide = 8 }

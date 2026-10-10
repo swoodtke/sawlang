@@ -90,9 +90,16 @@ which has none, by its condition's position: `the static_assert at 12:16`.
 | `eval.assert` | a `static_assert` whose condition is `false` | eval.assert |
 | `slice.not-yet` | a construct outside the evaluator: a call, a loop, an aggregate, a part of a value, a mutable static, a static whose initializer this program does not lower | slice.not-yet |
 
-Typecheck's fold refuses the faults it meets first, at a constant expression
-where it adopts an integer slot; the evaluator meets the rest, such as one
-behind a cast or `Int.max`, which the fold does not range-check.
+Typecheck's constant-position funnel (`compiler/tests/typecheck/README.md`)
+reads the same fold at every constant position and refuses each fault, a
+cycle and a false `static_assert` first, in a statement-position
+`static_assert` too, which has no MIR function here (SL-493, SL-494). So no
+program typecheck accepts reaches the six `eval.` rules: they stand as
+defence in depth, held to the fold by the agreement check. Each one's fixture
+is headed `// shadowed: TC-RULE at L:C` instead: it is refused first by that
+typecheck rule at that position, and it covers the evaluator rule it is named
+for. `slice.not-yet` stays the evaluator's own: an aggregate, a float, a call
+the grammar admits (`sizeof`), constants it does not hold yet.
 
 ## The verifier
 

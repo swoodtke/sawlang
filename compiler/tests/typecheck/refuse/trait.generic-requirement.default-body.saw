@@ -1,0 +1,34 @@
+// refuses: trait.generic-requirement at 9:10
+// a generic requirement with a default body, which a conformance inherits and a concrete call reaches
+trait Source {
+    func next(&var self) -> Int
+}
+
+trait Sink {
+    func feed(&var self, n: Int) -> Int
+    func drain<S: Source>(&var self, s: S) -> Int {
+        var src = move s
+        self.feed(src.next())
+    }
+}
+
+struct Counter { n: Int }
+extension Counter: Source {
+    func next(&var self) -> Int {
+        self.n = self.n + 1
+        self.n
+    }
+}
+
+struct Total { sum: Int }
+extension Total: Sink {
+    func feed(&var self, n: Int) -> Int {
+        self.sum = self.sum + n
+        self.sum
+    }
+}
+
+func main() {
+    var t = Total(sum: 0)
+    print(t.drain(Counter(n: 4)))
+}

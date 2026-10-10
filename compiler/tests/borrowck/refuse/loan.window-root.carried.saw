@@ -1,0 +1,31 @@
+// refuses: loan.window-root at 22:13
+// a `lend` inside a `borrow` block keeps the block's window open across the lend, so the epilogue's use of the root before the block ends conflicts with it (SL:borrowing §2.7, SL-495)
+
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+struct Grid {
+    row: Row
+}
+
+extension Grid {
+    func at(&var self, i: Int) borrows -> &var Int {
+        borrow var cell = self.row[i] {
+            lend cell
+            borrow var self.row[0] += 1
+        }
+    }
+}
+
+func main() {
+    var g = Grid(row: Row(cells: [1, 2, 3, 4]))
+    borrow var g.at(1) += 1
+    print(g.row.cells[1])
+}

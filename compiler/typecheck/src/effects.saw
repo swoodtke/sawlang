@@ -21,6 +21,7 @@ import sawtypecheck.src.model.{TC_EFFECT_SYNC, TC_FLAG_DEFAULT_BODY, TC_FORBID_C
                                TcAtom, TcCall, TcConformance, TcItem, TcRole, TcStatus, TcStatusKind,
                                TcSummary, TcUnit, TcUse}
 import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.signatures.{TcContext}
 import sawtypecheck.src.summaries.{TcAcc, tc_acc}
 import sawtypecheck.src.types.{TcKind, TcType}
 
@@ -48,8 +49,8 @@ extension TcProgram {
     // needs, so editing the body cannot tighten a published contract, and a
     // declared `ExplicitCopy` licenses a spelled `.copy()` only, never a
     // silent copy. Each is refused at the declaration, once per parameter.
-    // A requirement on the parameters of a method's type is the type's to
-    // declare, and is held at each call site instead.
+    // A requirement on a parameter of a method's type is declared by the
+    // method's extension, as `extension Vector<T: Copy>` (SL-501).
     func check_declared_requirements(&var self) {
         var d = 0
         while d < self.summaries.len() {
@@ -63,26 +64,55 @@ extension TcProgram {
 
     func check_declared_copy(&var self, d: Int, s: &TcSummary) {
         var seen = Vector<Int>()
+        let ext = self.enclosing_extension(d)
+        let owner = if ext >= 0 { self.ext_target(ext) } else { -1 }
         var k = 0
         while k < s.copy_count {
             let a = self.atoms[s.copy_first + k]
             k = k + 1
             let info = self.types.ty(a.ty)
-            if info.kind != TcKind.Param || info.decl != d || tc_contains(&seen, a.ty) {
+            let on_type = owner >= 0 && info.decl == owner
+            if info.kind != TcKind.Param || (info.decl != d && not on_type) || tc_contains(&seen, a.ty) {
                 continue
             }
             try! seen.push(a.ty)
-            let g = self.generic(d, info.a)
+            let declarer = if on_type { ext } else { d }
+            let g = self.generic(declarer, info.a)
             let ec = self.known.explicit_copy
-            if ec >= 0 && self.generic_grants(d, info.a, ec) {
-                self.refuse_declared_copy(d, &a, g.name, "declares `", ": ExplicitCopy`, which licenses a spelled `.copy()`, but its body needs `")
-            } else if self.res.decls[d].vis == ResVis.Public {
-                self.refuse_declared_copy(d, &a, g.name, "is public, so it must declare the tier it requires: `", "` is undeclared, and its body needs `")
+            let c = self.known.copy
+            if on_type && c >= 0 && self.generic_grants(ext, info.a, c) {
+                continue
+            }
+            if ec >= 0 && self.generic_grants(declarer, info.a, ec) {
+                let declares = if on_type { "is in an extension that declares `" } else { "declares `" }
+                self.refuse_declared_copy(d, &a, g.name, declares, ": ExplicitCopy`, which licenses a spelled `.copy()`, but its body needs `", on_type)
+            } else if self.publishes(d) {
+                let declares = if on_type { "is public, so its extension must declare the tier it requires: `" } else { "is public, so it must declare the tier it requires: `" }
+                self.refuse_declared_copy(d, &a, g.name, declares, "` is undeclared, and its body needs `", on_type)
             }
         }
     }
 
-    func refuse_declared_copy(&var self, d: Int, a: &TcAtom, name: Int, before: String, after: String) {
+    // Whether declaration `d` is published: written `public`, or a trait
+    // default body of a `public` trait, which is as visible as its trait.
+    func publishes(&self, d: Int) -> Bool {
+        let info = self.res.decls[d]
+        if info.vis == ResVis.Public {
+            return true
+        }
+        info.kind == ResDeclKind.Requirement && info.parent >= 0 && self.res.decls[info.parent].vis == ResVis.Public
+    }
+
+    // The extension method `d` is a member of, or -1.
+    func enclosing_extension(&self, d: Int) -> Int {
+        let parent = self.res.decls[d].parent
+        if parent < 0 || self.res.decls[parent].kind != ResDeclKind.Extension {
+            return -1
+        }
+        parent
+    }
+
+    func refuse_declared_copy(&var self, d: Int, a: &TcAtom, name: Int, before: String, after: String, on_type: Bool) {
         let info = self.res.decls[d]
         let param = self.name_text(name)
         var msg = StringBuilder()
@@ -97,7 +127,11 @@ extension TcProgram {
         try! msg.append(self.copy_origin_text(a.origin))
         try! msg.append(" with nothing written: declare `")
         try! msg.append(param)
-        try! msg.append(": Copy`, or write `.copy()` where it duplicates")
+        if on_type {
+            try! msg.append(": Copy` on the extension, or move the method to an extension that does, or write `.copy()` where it duplicates")
+        } else {
+            try! msg.append(": Copy`, or write `.copy()` where it duplicates")
+        }
         let site = self.decl_site(d)
         self.refuse_in(info.module, site, "copy.declared-bound", msg.build())
     }

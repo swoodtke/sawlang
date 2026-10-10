@@ -57,6 +57,8 @@ typecheck/
                       the `borrows(sync)` window
     mutability.saw    the writability funnel: whether each place a body writes
                       or borrows exclusively may be written
+    binders.saw       what each binding construct makes of its names, which the
+                      funnel and the hints that propose a write both read
     refpositions.saw  references are parameters only: the funnel over written
                       type positions, and the inferred ones
     dump.saw          the dump
@@ -500,6 +502,12 @@ These are the reversible readings this unit made; SL-447's report lists them.
   needs an `unsafe` member (design 188), and `borrows` follows SL:borrowing
   §2.5. A `sync` requirement met by a member not declared `sync` holds when
   the member's summary makes it sync-callable, which phase 3 checks.
+- A trait requirement with generic parameters of its own is refused once, at
+  the requirement, as `trait.generic-requirement`: the grammar parses the form
+  and type checking refuses it for now (GRAMMAR §3.4). Its signature is still
+  built whole, so a generic member meeting it, its default body and a call
+  through a bound add no refusal, and a dispatch through `any` leaves it out
+  of the requirements it judges.
 - An extern has no effect slot, so the signature half of `unsafe` asks
   nothing of it. A default parameter value is an expression, which U6b3's
   body half checks.

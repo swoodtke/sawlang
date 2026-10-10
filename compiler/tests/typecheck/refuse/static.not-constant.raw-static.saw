@@ -1,0 +1,6 @@
+// refuses: static.not-constant at 6:35
+// a raw case's value may not name a static: an enum's cases are fixed before any static is known (SL-493)
+
+static WIDTH: UInt8 = 4
+
+enum Shape: UInt8 { case Narrow = WIDTH, case Wide = 8 }

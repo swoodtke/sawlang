@@ -1,0 +1,102 @@
+ERROR	constant.overflow	compiler/tests/typecheck/golden/constant_faults.saw:9:20	constant expression overflows `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	constant.shift-range	compiler/tests/typecheck/golden/constant_faults.saw:11:16	constant expression shifts a value of type `Int` by a count outside its width
+ERROR	constant.shift-range	compiler/tests/typecheck/golden/constant_faults.saw:12:16	constant expression shifts a value of type `Int` by a count outside its width
+ERROR	constant.overflow	compiler/tests/typecheck/golden/constant_faults.saw:13:16	constant expression overflows `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	constant.overflow	compiler/tests/typecheck/golden/constant_faults.saw:14:16	constant expression overflows `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	constant.overflow	compiler/tests/typecheck/golden/constant_faults.saw:15:16	constant expression overflows `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	constant.overflow	compiler/tests/typecheck/golden/constant_faults.saw:16:16	constant expression overflows `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	constant.divide-by-zero	compiler/tests/typecheck/golden/constant_faults.saw:17:16	constant expression divides by zero
+ERROR	constant.divide-by-zero	compiler/tests/typecheck/golden/constant_faults.saw:18:16	constant expression divides by zero
+ERROR	type.mismatch	compiler/tests/typecheck/golden/constant_faults.saw:19:16	constant expression 300 does not fit in `UInt8` (range 0..=255)
+ERROR	constant.overflow	compiler/tests/typecheck/golden/constant_faults.saw:20:16	constant expression overflows `UInt8` (range 0..=255)
+(Module constant_faults
+  (declarations
+    (static BIG 8:8 private Int)
+    (static EDGE 9:8 private Int)
+    (func main 24:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (BIG 8:8
+      (8:19-8:26 Binary Int value temp (op <<))
+      (8:19-8:20 IntLit Int value temp)
+      (8:24-8:26 IntLit Int value temp))
+    (EDGE 9:8
+      (9:20-9:31 Binary Int value temp (op +))
+      (9:20-9:27 Member Int value temp)
+      (9:30-9:31 IntLit Int value temp))
+    (main 24:6
+      (25:5-25:15 Call.paren Void value temp (builtin print))
+      (25:11-25:14 Name Int place borrow))
+    (item 11:16
+      (11:16-11:29 Binary.pair Bool value temp (op ==))
+      (11:16-11:23 Binary Int value borrow (op <<))
+      (11:16-11:17 IntLit Int value temp)
+      (11:21-11:23 IntLit Int value temp)
+      (11:28-11:29 IntLit Int value borrow))
+    (item 12:16
+      (12:16-12:29 Binary.pair Bool value temp (op ==))
+      (12:16-12:23 Binary Int value borrow (op >>))
+      (12:16-12:17 IntLit Int value temp)
+      (12:21-12:23 IntLit Int value temp)
+      (12:28-12:29 IntLit Int value borrow))
+    (item 13:16
+      (13:16-13:33 Binary.pair Bool value temp (op ==))
+      (13:16-13:27 Binary Int value borrow (op +))
+      (13:16-13:23 Member Int value temp)
+      (13:26-13:27 IntLit Int value temp)
+      (13:32-13:33 IntLit Int value borrow))
+    (item 14:16
+      (14:16-14:33 Binary.pair Bool value temp (op ==))
+      (14:16-14:27 Binary Int value borrow (op -))
+      (14:16-14:23 Member Int value temp)
+      (14:26-14:27 IntLit Int value temp)
+      (14:32-14:33 IntLit Int value borrow))
+    (item 15:16
+      (15:16-15:29 Binary.pair Bool value temp (op ==))
+      (15:16-15:23 Binary Int value borrow (op *))
+      (15:16-15:19 Name Int place copy)
+      (15:22-15:23 IntLit Int value temp)
+      (15:28-15:29 IntLit Int value borrow))
+    (item 16:16
+      (16:16-16:30 Binary.pair Bool value temp (op ==))
+      (16:16-16:24 Unary.negate Int value borrow (op -))
+      (16:17-16:24 Member Int value temp)
+      (16:29-16:30 IntLit Int value borrow))
+    (item 17:16
+      (17:16-17:27 Binary.pair Bool value temp (op ==))
+      (17:16-17:21 Binary Int value borrow (op /))
+      (17:16-17:17 IntLit Int value temp)
+      (17:20-17:21 IntLit Int value temp)
+      (17:26-17:27 IntLit Int value borrow))
+    (item 18:16
+      (18:16-18:27 Binary.pair Bool value temp (op ==))
+      (18:16-18:21 Binary Int value borrow (op %))
+      (18:16-18:17 IntLit Int value temp)
+      (18:20-18:21 IntLit Int value temp)
+      (18:26-18:27 IntLit Int value borrow))
+    (item 19:16
+      (19:16-19:34 Binary.pair Bool value temp (op ==))
+      (19:16-19:28 Cast UInt8 value borrow)
+      (19:16-19:19 IntLit Int value temp)
+      (19:33-19:34 IntLit Int (adopt UInt8) value borrow))
+    (item 20:16
+      (20:16-20:49 Binary.pair Bool value temp (op ==))
+      (20:16-20:44 Binary UInt8 value borrow (op +))
+      (20:16-20:28 Cast UInt8 value temp)
+      (20:16-20:19 IntLit Int value temp)
+      (20:33-20:43 Cast UInt8 value temp)
+      (20:33-20:34 IntLit Int value temp)
+      (20:48-20:49 IntLit Int (adopt UInt8) value borrow))
+    (item 21:15
+      (21:15-21:24 Binary.pair Bool value temp (op ==))
+      (21:15-21:19 Name Int place borrow)
+      (21:23-21:24 IntLit Int value borrow))
+    (item 22:16
+      (22:16-22:29 Binary.pair Bool value temp (op ==))
+      (22:16-22:23 Binary Int value borrow (op <<))
+      (22:16-22:17 IntLit Int value temp)
+      (22:21-22:23 IntLit Int value temp)
+      (22:28-22:29 IntLit Int value borrow))))

@@ -1,0 +1,103 @@
+// The MIR verifier holds an accessor's epilogue to its prologue's carried
+// windows: as many, in range, in order (SL-495). The verifier reads no text,
+// so the fixture `compiler/tests/mir/inject/carried.saw` is lowered, found
+// clean, then edited: the epilogue drops a carried window, then names one out
+// of range, and each edit must be reported. Paths are the repository root's,
+// where the runner runs.
+import sawmir.src.api.{mir_lower_file}
+import sawmir.src.model.{MirFuncKind}
+import sawmir.src.program.{MirProgram}
+import sawmir.src.verify.{mir_verify_module}
+
+// The index of module `name`, or -1.
+func module_index(p: &MirProgram, name: String) -> Int {
+    var m = 0
+    while m < p.tc.res.module_count() {
+        if p.tc.res.module_name(m).equals(name) {
+            return m
+        }
+        m = m + 1
+    }
+    return -1
+}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// How many of `found` hold `word`.
+func reported(found: &Vector<String>, word: String) -> Int {
+    var count = 0
+    var k = 0
+    while k < found.len() {
+        let line = found.get(k) ?? ""
+        if holds(&line, word) {
+            count = count + 1
+        }
+        k = k + 1
+    }
+    count
+}
+
+// Module `m`'s epilogue that carries a window, or -1.
+func carrying_epilogue(p: &MirProgram, m: Int) -> Int {
+    var f = 0
+    while f < p.funcs.len() {
+        let info = p.funcs[f]
+        if info.module == m && info.kind == MirFuncKind.Epilogue && info.carried_count > 0 {
+            return f
+        }
+        f = f + 1
+    }
+    return -1
+}
+
+// The fixture lowered, checked clean, and its carrying epilogue found.
+func lowered_carried(names: &Vector<String>, dirs: &Vector<String>) -> MirProgram {
+    var p = mir_lower_file("compiler/tests/mir/inject/carried.saw", "sawc", &names, &dirs)
+    let m = module_index(&p, "carried")
+    assert(m >= 0, "the fixture did not load: run from the repository root")
+    assert(p.diags.len() == 0 && p.tc.error_count() == 0, "the fixture is refused")
+    let clean = mir_verify_module(&var p, m)
+    assert(clean.len() == 0, "the fixture's MIR is not clean before the edit")
+    assert(carrying_epilogue(&p, m) >= 0, "the fixture's accessor carries no window")
+    move p
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+
+    // An epilogue that carries one window fewer than its prologue leaves open.
+    var p = lowered_carried(&names, &dirs)
+    let m = module_index(&p, "carried")
+    let f = carrying_epilogue(&p, m)
+    var fewer = p.funcs[f]
+    fewer.carried_count = fewer.carried_count - 1
+    p.funcs[f] = fewer
+    let dropped = mir_verify_module(&var p, m)
+    assert(reported(&dropped, "its prologue leaves") == 1, "the verifier admits an epilogue that drops a carried window")
+
+    // An epilogue that names a carried window past its own windows.
+    var q = lowered_carried(&names, &dirs)
+    let qm = module_index(&q, "carried")
+    let g = carrying_epilogue(&q, qm)
+    let info = q.funcs[g]
+    q.aux[info.carried_first] = info.window_count
+    let wild = mir_verify_module(&var q, qm)
+    assert(reported(&wild, "out of range") == 1, "the verifier admits a carried window out of range")
+}

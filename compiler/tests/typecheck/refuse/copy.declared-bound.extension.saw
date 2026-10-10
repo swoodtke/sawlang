@@ -1,0 +1,12 @@
+// refuses: copy.declared-bound at 9:17
+// a public method reading its type's parameter out of a field, in an extension that does not declare `T: Copy` (SL-501)
+
+public struct Cell<T> {
+    value: T
+}
+
+extension Cell<T> {
+    public func get(&self) -> T {
+        self.value
+    }
+}

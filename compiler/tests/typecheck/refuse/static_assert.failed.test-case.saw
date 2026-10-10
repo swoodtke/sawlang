@@ -1,0 +1,6 @@
+// refuses: static_assert.failed at 5:19
+// a false statement-position `static_assert` in a test case's body (SL-494)
+
+@test "widths" {
+    static_assert(1 > 2, "in a test case")
+}

@@ -1,0 +1,4 @@
+// refuses: static.not-constant at 4:21
+// a checked conversion is a call, unlike a type alias's construction (SL-493)
+
+static LOW: UInt8 = UInt8.from(truncating: 300)

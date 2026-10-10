@@ -1,0 +1,4 @@
+// refuses: constant.overflow at 4:16
+// an overflow behind an integer type's limit, in a `static_assert` condition, where no integer slot adopts it (SL-493)
+
+static_assert((Int.max + 1) > 0, "past the limit")

@@ -1,0 +1,18 @@
+// refuses: copy.declared-bound at 15:17
+// a public method whose requirement on its type's parameter comes through a callee: the requirement travels to the extension (SL-501)
+
+func twice<T>(x: T) -> Int {
+    let a = x
+    let b = x
+    1
+}
+
+public struct Kit<T> {
+    n: Int
+}
+
+extension Kit<T> {
+    public func run(&self, x: T) -> Int {
+        twice(move x)
+    }
+}

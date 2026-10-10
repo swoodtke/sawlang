@@ -1,0 +1,9 @@
+// refuses: static.not-constant at 5:8
+// `alignof` of a struct in a static's `@align` argument (spec, Layout in a constant)
+struct Region { a: Int, b: Int }
+
+@align(alignof<Region>())
+static WINDOW: [UInt8; 16] = [0; 16]
+
+func main() {
+}

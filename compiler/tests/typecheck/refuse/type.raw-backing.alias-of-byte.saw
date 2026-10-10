@@ -1,0 +1,6 @@
+// refuses: type.raw-backing at 6:12
+// an alias of `Byte` as a raw backing (SL-498)
+
+type Octet = Byte
+
+enum Flag: Octet { case On = 1 }

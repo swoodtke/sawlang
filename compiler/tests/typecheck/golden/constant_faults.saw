@@ -1,10 +1,9 @@
 // Every fault a `static_assert` condition can meet, one assertion each
-// (SL-459). The evaluator refuses each and names the assertion by its
-// position; typecheck's fold reaches the same fault, which the verifier's
-// agreement check holds, so no record line here is an INVARIANT. A shift keeps
-// its type's low bits, so `2 << 63` is no fault. A refused static the
-// condition reads leaves the assertion with no value and no refusal of its
-// own.
+// (SL-459, SL-493). Typecheck's constant-position funnel refuses each at the
+// operation or cast that faults, behind a cast and `Int.max` too; the
+// evaluator computes the same faults and is held to agreement with the fold.
+// A shift keeps its type's low bits, so `2 << 63` is no fault. A condition
+// that reads a refused static is refused only at that static.
 
 static BIG: Int = 1 << 62
 static EDGE: Int = Int.max + 1

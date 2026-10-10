@@ -30,11 +30,12 @@ import sawtypecheck.src.checks.{tc_check_unsafe}
 import sawtypecheck.src.conform.{TcSubst, tc_args_subst, tc_copy_ints, tc_extension_sets}
 import sawtypecheck.src.declarations.{tc_build_signatures}
 import sawtypecheck.src.arith.{TcFault, tc_arith_literal}
+import sawtypecheck.src.binders.{TcBinder, tc_binder_of, tc_binder_text}
 import sawtypecheck.src.fold.{TcFold}
 import sawtypecheck.src.infer.{TcSolve, tc_solve}
 import sawtypecheck.src.members.{tc_build_members}
 import sawtypecheck.src.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
-                               TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcLend, TcMember, TcParam, TcReceiver,
+                               TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcLend, TcMember, TcParam, TcReceiver,
                                TcRole, TcSig, TcSource, TcUse, tc_blank_sig}
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.signatures.{TcContext}
@@ -77,6 +78,14 @@ public enum TcPosition {
     case ClosureTail,
     case Operand,
     case Coalesce
+}
+
+// The positions the constant-position funnel serves, which its refusals name.
+public enum TcConstPosition {
+    case Static,
+    case RawValue,
+    case Align,
+    case Assert
 }
 
 // Which funnel entry a block's tail goes through.
@@ -175,6 +184,7 @@ extension TcProgram {
             let c = self.res.first_node_child(item)
             self.begin_body(-1, c)
             self.check_condition(c)
+            self.check_static_assert(item)
         } else if alt == Alt.Test_Case_Run || alt == Alt.Test_Case_Panics || alt == Alt.Test_Case_Warns {
             self.enter_module(m)
             let body = self.res.last_node_child(item)
@@ -339,6 +349,7 @@ extension TcProgram {
                 self.begin_body(d, c)
                 self.body_result = s.result
                 self.check_static_value(c, s.result)
+                self.check_constant_position(c, TcConstPosition.Static, d, -1)
             }
             k = k + 1
         }
@@ -358,6 +369,7 @@ extension TcProgram {
                 self.body_result = backing
                 if backing >= 0 {
                     self.check_static_value(c, backing)
+                    self.check_constant_position(c, TcConstPosition.RawValue, d, -1)
                 } else {
                     let _ = self.expr(c, TC_WANT_NONE)
                     self.consume(c)
@@ -385,6 +397,7 @@ extension TcProgram {
                     let t = self.int_type()
                     self.body_result = t
                     self.check_static_value(e, t)
+                    self.check_constant_position(e, TcConstPosition.Align, d, -1)
                 }
             }
             k = k + 1
@@ -551,19 +564,7 @@ extension TcProgram {
                 false
             },
             case Stmt_AttributedLocal -> {
-                let n = self.child_count(s)
-                var k = 0
-                while k < n {
-                    let c = self.child(s, k)
-                    if self.has_alt(c, Alt.Attr_Attribute_Align) {
-                        let e = self.res.first_node_child(c)
-                        if e >= 0 {
-                            let t = self.int_type()
-                            self.check_static_value(e, t)
-                        }
-                    }
-                    k = k + 1
-                }
+                self.check_align_local(s)
                 let local = self.res.last_node_child(s)
                 self.check_statement(local)
             },
@@ -603,6 +604,7 @@ extension TcProgram {
             case Decl_StaticAssert -> {
                 let c = self.res.first_node_child(s)
                 self.check_condition(c)
+                self.check_static_assert(s)
                 false
             },
             case _ -> {
@@ -1360,7 +1362,16 @@ extension TcProgram {
         if v.ok || v.fault == TcFault.NotConstant || v.fault == TcFault.Cycle {
             return
         }
+        self.refuse_constant_fault(&v, e, t)
+    }
+
+    // A fault the fold met, reported at `at`; `t` is the type a value did
+    // not fit, for `NotFit`. A value adopting a slot it does not fit is a
+    // mismatch; the other faults are the run-time panics a constant turns
+    // into compile errors, each by name.
+    func refuse_constant_fault(&var self, v: &TcFold, at: Int, t: Int) {
         var msg = StringBuilder()
+        var rule = "type.mismatch"
         if v.fault == TcFault.NotFit {
             try! msg.append("constant expression ")
             try! msg.append(self.fold_text(&v))
@@ -1370,19 +1381,567 @@ extension TcProgram {
             try! msg.append(self.int_range_text(t))
             try! msg.append(")")
         } else if v.fault == TcFault.Overflow {
+            rule = "constant.overflow"
             try! msg.append("constant expression overflows `")
             try! msg.append(self.type_text(v.ty))
             try! msg.append("` (range ")
             try! msg.append(self.int_range_text(v.ty))
             try! msg.append(")")
         } else if v.fault == TcFault.ShiftRange {
+            rule = "constant.shift-range"
             try! msg.append("constant expression shifts a value of type `")
             try! msg.append(self.type_text(v.ty))
             try! msg.append("` by a count outside its width")
         } else {
+            rule = "constant.divide-by-zero"
             try! msg.append("constant expression divides by zero")
         }
-        self.refuse(e, "type.mismatch", msg.build())
+        self.refuse(at, rule, msg.build())
+    }
+}
+
+// The constant-position funnel.
+extension TcProgram {
+    // The constant-position funnel (spec, Compile-Time Evaluation, "The
+    // constant grammar"): expression `e`, typed already, at position `pos`
+    // of declaration `d`. It refuses the first sub-expression outside the
+    // position's grammar (`static.not-constant`), a static whose value
+    // depends on itself (`static.cycle`), a fault the fold meets in `e`
+    // itself, and a `static_assert` whose condition folds to `false`
+    // (`static_assert.failed`). An expression already refused inside is not
+    // judged again. What the grammar admits and the fold does not compute
+    // (an aggregate, `sizeof`, a const parameter) is constant and unfolded;
+    // `sizeof` and `alignof` of a type code generation lays out are admitted
+    // only in a `static_assert`.
+    //
+    // ENTRY POINTS (check_constant_position):
+    //     check_static_body
+    //     check_raw_value
+    //     check_align_attribute
+    //     check_align_local
+    //     check_static_assert
+    func check_constant_position(&var self, e: Int, pos: TcConstPosition, d: Int, message: Int) {
+        if e < 0 || self.refused_within(e) {
+            return
+        }
+        let t = self.final_type(e)
+        if t < 0 || self.has_error(t) {
+            return
+        }
+        // An optional static is `static.optional`'s refusal, whatever it holds.
+        let declared = if d >= 0 { self.sigs[d].result } else { -1 }
+        if pos == TcConstPosition.Static && declared >= 0 && self.is_optional(declared) {
+            return
+        }
+        let offender = self.constant_offender(e, pos, d)
+        if offender >= 0 {
+            self.refuse_not_constant(offender, pos)
+            return
+        }
+        if pos == TcConstPosition.Static && d >= 0 && self.refuse_static_cycle(d, e) {
+            return
+        }
+        let v = self.check_constant_faults(e)
+        if pos == TcConstPosition.Assert && v.ok && v.ty >= 0 && self.is_bool(v.ty) && v.bits == 0 {
+            var msg = StringBuilder()
+            try! msg.append("static assertion failed")
+            if message >= 0 {
+                try! msg.append(": ")
+                try! msg.append(self.assert_message_text(message))
+            }
+            self.refuse(e, "static_assert.failed", msg.build())
+        }
+    }
+
+    // A `static_assert`'s condition, at the top of a file or in a body.
+    func check_static_assert(&var self, item: Int) {
+        let c = self.res.first_node_child(item)
+        let m = self.node_module(item)
+        var message = -1
+        let n = self.child_count(item)
+        var k = 0
+        while k < n {
+            let child = self.child(item, k)
+            k = k + 1
+            if self.is_leaf(child) {
+                let text = self.text(m, child)
+                if text.starts_with("\"") {
+                    message = child
+                }
+            }
+        }
+        self.check_constant_position(c, TcConstPosition.Assert, -1, message)
+    }
+
+    // A local's `@align(N)` argument, an integer.
+    func check_align_local(&var self, s: Int) {
+        let n = self.child_count(s)
+        var k = 0
+        while k < n {
+            let c = self.child(s, k)
+            if self.has_alt(c, Alt.Attr_Attribute_Align) {
+                let e = self.res.first_node_child(c)
+                if e >= 0 {
+                    let t = self.int_type()
+                    self.check_static_value(e, t)
+                    self.check_constant_position(e, TcConstPosition.Align, -1, -1)
+                }
+            }
+            k = k + 1
+        }
+    }
+
+    // A `static_assert` message leaf as the refusal quotes it: the string
+    // literal's contents.
+    func assert_message_text(&self, e: Int) -> String {
+        let m = self.node_module(e)
+        let text = self.text(m, e)
+        let n = text.len()
+        if n >= 2 {
+            return text.substring(1, n - 1)
+        }
+        text
+    }
+
+    // Whether a refusal already stands inside expression `e`.
+    func refused_within(&self, e: Int) -> Bool {
+        let m = self.node_module(e)
+        let n = self.res.nodes[e]
+        var k = 0
+        while k < self.diags.len() {
+            let diag = self.diags[k]
+            if diag.module == m && diag.start >= n.start && diag.end <= n.end {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // The first sub-expression of `e` outside position `pos`'s constant
+    // grammar, or -1. A static's initializer also aggregates: a struct's
+    // memberwise construction, an array or repeat literal, a float, and an
+    // earlier static of any type. A raw case's value names no static and no
+    // other enum's case, which are not yet known when its cases are fixed.
+    func constant_offender(&self, e: Int, pos: TcConstPosition, d: Int) -> Int {
+        guard let alt = self.node_alt(e) else {
+            return e
+        }
+        self.constant_offender_as(e, alt, pos, d)
+    }
+
+    func constant_offender_as(&self, e: Int, alt: Alt, pos: TcConstPosition, d: Int) -> Int {
+        let aggregate = pos == TcConstPosition.Static
+        match alt {
+            case Expr_Int -> -1,
+            case Expr_Bool_True -> -1,
+            case Expr_Bool_False -> -1,
+            case Expr_SourceLocation_Line -> -1,
+            case Expr_Float -> if aggregate { -1 } else { e },
+            case Expr_Paren -> self.constant_parts(e, pos, d),
+            case Expr_Unary_Negate -> self.constant_parts(e, pos, d),
+            case Expr_Unary_Complement -> self.constant_parts(e, pos, d),
+            case Expr_Unary_Not -> self.constant_parts(e, pos, d),
+            case Expr_Additive -> self.constant_parts(e, pos, d),
+            case Expr_Multiplicative -> self.constant_parts(e, pos, d),
+            case Expr_Shift -> self.constant_parts(e, pos, d),
+            case Expr_Bitand -> self.constant_parts(e, pos, d),
+            case Expr_Bitor -> self.constant_parts(e, pos, d),
+            case Expr_Bitxor -> self.constant_parts(e, pos, d),
+            case Expr_Compare_Pair -> self.constant_parts(e, pos, d),
+            case Expr_And -> self.constant_parts(e, pos, d),
+            case Expr_Or -> self.constant_parts(e, pos, d),
+            case Expr_Cast -> {
+                let operand = self.res.first_node_child(e)
+                self.constant_offender(operand, pos, d)
+            },
+            case Expr_Array -> if aggregate { self.constant_parts(e, pos, d) } else { e },
+            case Expr_Repeat -> if aggregate { self.constant_parts(e, pos, d) } else { e },
+            case Expr_Name -> self.constant_name(e, pos),
+            case Expr_Member -> self.constant_member(e, pos, d),
+            case Expr_ImplicitMember -> self.constant_member(e, pos, d),
+            case Expr_Call_Paren -> self.constant_call(e, pos, d),
+            case _ -> e
+        }
+    }
+
+    // The first offender among `e`'s expression children, or -1; a type
+    // written among them, a cast's or a repeat's, is no offender.
+    func constant_parts(&self, e: Int, pos: TcConstPosition, d: Int) -> Int {
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            if self.is_leaf(c) || res_is_type_alt(self.node_alt(c)) {
+                continue
+            }
+            let found = self.constant_offender(c, pos, d)
+            if found >= 0 {
+                return found
+            }
+        }
+        return -1
+    }
+
+    // A bare name: a module static whose value is fixed, or a const
+    // parameter, which a raw case's value may not name.
+    func constant_name(&self, e: Int, pos: TcConstPosition) -> Int {
+        let leaf = self.res.first_leaf(e)
+        let b = self.binding_at(leaf)
+        if b.kind == ResBindKind.TypeParam && pos != TcConstPosition.RawValue {
+            return -1
+        }
+        if b.kind == ResBindKind.Decl && self.fixed_static(b.decl) && pos != TcConstPosition.RawValue {
+            return -1
+        }
+        e
+    }
+
+    // Whether declaration `d` is a static whose value the source fixes: one
+    // that is not an `unsafe static var`.
+    func fixed_static(&self, d: Int) -> Bool {
+        if d < 0 || self.res.decls[d].kind != ResDeclKind.Static {
+            return false
+        }
+        (self.sigs[d].flags & TC_FLAG_UNSAFE_VAR) == 0
+    }
+
+    // A member: a case of a raw-backed enum (of the enum being declared, in
+    // a raw case's value), an integer type's `max` or `min`, or a static
+    // named through its module.
+    func constant_member(&self, e: Int, pos: TcConstPosition, d: Int) -> Int {
+        let leaf = self.res.last_leaf_of(e)
+        if leaf < 0 {
+            return e
+        }
+        let b = self.binding_at(leaf)
+        let t = self.expr_types[e]
+        if b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Case {
+            let owner = self.res.decls[b.decl].parent
+            if not self.raw_backed(owner) {
+                return e
+            }
+            if pos == TcConstPosition.RawValue && d >= 0 && owner != self.res.decls[d].parent {
+                return e
+            }
+            return -1
+        }
+        if b.kind == ResBindKind.Decl && self.fixed_static(b.decl) {
+            if pos == TcConstPosition.RawValue {
+                return e
+            }
+            return -1
+        }
+        let base = self.res.first_node_child(e)
+        if base >= 0 && self.expr_types[base] < 0 && t >= 0 && self.is_integer(t) && leaf >= 0 {
+            let m = self.node_module(e)
+            let name = self.text(m, leaf)
+            if name.equals("max") || name.equals("min") {
+                return -1
+            }
+        }
+        e
+    }
+
+    // Whether enum `d` has a raw backing.
+    func raw_backed(&self, d: Int) -> Bool {
+        if d < 0 || self.res.decls[d].kind != ResDeclKind.Enum {
+            return false
+        }
+        let backing = self.sigs[d].result
+        backing >= 0 && self.is_integer(backing)
+    }
+
+    // A call: a type alias's construction over a constant, `sizeof` and
+    // `alignof`, and in a static's initializer a struct's memberwise
+    // construction over constants. Any other call runs only at run time.
+    // `sizeof` and `alignof` measure any type in a `static_assert`, and
+    // elsewhere only a type whose layout the target alone fixes (spec,
+    // "Layout in a constant").
+    func constant_call(&self, e: Int, pos: TcConstPosition, d: Int) -> Int {
+        let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
+        if at < 0 {
+            return e
+        }
+        let c = self.calls[at]
+        let spelling = if c.spelling >= 0 { self.name_text(c.spelling) } else { "" }
+        if c.role == TcRole.Builtin && (spelling.equals("sizeof") || spelling.equals("alignof")) {
+            let t = self.measured_type(e)
+            if pos == TcConstPosition.Assert || t < 0 || self.has_error(t) || self.target_fixes_layout(t) {
+                return -1
+            }
+            return e
+        }
+        let alias = c.role == TcRole.Conversion && spelling.equals("alias")
+        let memberwise = c.role == TcRole.Memberwise && pos == TcConstPosition.Static
+        if not alias && not memberwise {
+            return e
+        }
+        let callee = self.res.first_node_child(e)
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let child = self.child(e, k)
+            k = k + 1
+            if child == callee || self.is_leaf(child) || res_is_type_alt(self.node_alt(child)) {
+                continue
+            }
+            var value = child
+            if self.has_alt(child, Alt.Expr_Argument_Positional) || self.has_alt(child, Alt.Expr_Argument_Labelled) {
+                value = self.res.last_node_child(child)
+            }
+            let found = self.constant_offender(value, pos, d)
+            if found >= 0 {
+                return found
+            }
+        }
+        return -1
+    }
+
+    // The type `sizeof<T>()` or `alignof<T>()` call `e` measures, or -1 when
+    // `e` is no such call.
+    func measured_type(&self, e: Int) -> Int {
+        let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
+        if at < 0 {
+            return -1
+        }
+        let c = self.calls[at]
+        let spelling = if c.spelling >= 0 { self.name_text(c.spelling) } else { "" }
+        if c.role != TcRole.Builtin || not (spelling.equals("sizeof") || spelling.equals("alignof")) {
+            return -1
+        }
+        let callee = self.res.first_node_child(e)
+        let n = self.child_count(callee)
+        var k = 0
+        while k < n {
+            let arg = self.child(callee, k)
+            k = k + 1
+            if not self.is_leaf(arg) && self.type_builds[arg] > 0 {
+                return self.node_types[arg]
+            }
+        }
+        return -1
+    }
+
+    // Whether the target alone fixes type `t`'s layout: the integers, `Bool`,
+    // `Float`, `String` and the raw pointers. Code generation lays out every
+    // other type, after the positions that would measure it are resolved.
+    func target_fixes_layout(&self, t: Int) -> Bool {
+        if self.is_integer(t) || self.is_bool(t) || self.is_float(t) || self.is_string(t) {
+            return true
+        }
+        let d = self.nominal_decl(t)
+        d >= 0 && (d == self.known.unsafe_pointer || d == self.known.unsafe_const_pointer)
+    }
+
+    func refuse_not_constant(&var self, e: Int, pos: TcConstPosition) {
+        let m = self.node_module(e)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.text(m, e))
+        try! msg.append("` is not a constant, and ")
+        if pos == TcConstPosition.Static {
+            try! msg.append("a static's initializer")
+        } else if pos == TcConstPosition.RawValue {
+            try! msg.append("a raw case's value")
+        } else if pos == TcConstPosition.Align {
+            try! msg.append("an `@align` argument")
+        } else {
+            try! msg.append("a `static_assert` condition")
+        }
+        try! msg.append(" is a constant expression: ")
+        try! msg.append(self.not_constant_reason(e, pos))
+        if pos == TcConstPosition.Static && self.measured_type(e) < 0 {
+            try! msg.append("; state that has to be computed wants `static X: Once<T>`, set once, or an `unsafe static var`")
+        }
+        self.refuse_in(m, e, "static.not-constant", msg.build())
+    }
+
+    // Why sub-expression `e` is no constant at position `pos`.
+    func not_constant_reason(&self, e: Int, pos: TcConstPosition) -> String {
+        let leaf = if self.has_alt(e, Alt.Expr_Name) { self.res.first_leaf(e) } else { self.res.last_leaf_of(e) }
+        let named = leaf >= 0 && (self.has_alt(e, Alt.Expr_Name) || self.has_alt(e, Alt.Expr_Member) || self.has_alt(e, Alt.Expr_ImplicitMember))
+        let b = self.binding_at(if leaf >= 0 { leaf } else { e })
+        if named && pos == TcConstPosition.RawValue && (b.kind == ResBindKind.Decl || b.kind == ResBindKind.Case || b.kind == ResBindKind.TypeParam) {
+            return "it may not name a static or another enum's case, since an enum's cases are fixed by its own declaration, before either is known"
+        }
+        if named && b.kind == ResBindKind.Local {
+            return "it names a binding whose value is known only at run time"
+        }
+        if named && b.kind == ResBindKind.Decl && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Static {
+            return "it names an `unsafe static var`, whose value belongs to the running program"
+        }
+        if named && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Case {
+            return "it is a case of an enum with no raw backing, which has no constant value"
+        }
+        let measured = self.measured_type(e)
+        if measured >= 0 {
+            var out = StringBuilder()
+            try! out.append("`")
+            try! out.append(self.type_text(measured))
+            try! out.append("` is laid out only by code generation, so `sizeof` and `alignof` measure it only in a `static_assert`; elsewhere they measure an integer, `Bool`, `Float`, `String` or a raw pointer")
+            return out.build()
+        }
+        if self.has_alt(e, Alt.Expr_Call_Paren) {
+            return "a call runs only at run time, an `init` body included; only a type alias's construction, `sizeof`, `alignof` and a static's memberwise construction are constants"
+        }
+        if self.has_alt(e, Alt.Expr_String) || self.has_alt(e, Alt.Expr_Interpolation) || self.has_alt(e, Alt.Expr_SourceLocation_File) || self.has_alt(e, Alt.Expr_SourceLocation_Function) {
+            return "a `String` is never a constant"
+        }
+        "a constant is built from literals, statics, raw-backed cases and the integer limits, under operators, casts between integers and a type alias's construction"
+    }
+
+    // Refuses static `d`'s initializer `e` when `d`'s value depends on
+    // itself, once per cycle: at the earliest-declared static on it.
+    func refuse_static_cycle(&var self, d: Int, e: Int) -> Bool {
+        let cycle = self.static_cycle(d)
+        if cycle.len() == 0 {
+            return false
+        }
+        var k = 0
+        while k < cycle.len() {
+            if cycle[k] < d {
+                return true
+            }
+            k = k + 1
+        }
+        var msg = StringBuilder()
+        try! msg.append("static `")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` depends on itself: ")
+        k = 0
+        while k < cycle.len() {
+            try! msg.append("`")
+            try! msg.append(self.res.decl_path(cycle[k]))
+            try! msg.append("` -> ")
+            k = k + 1
+        }
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("`; a static's value is fixed at compile time, so its initializer may name only statics that do not lead back to it")
+        self.refuse(e, "static.cycle", msg.build())
+        true
+    }
+
+    // The statics static `d`'s initializer leads back to `d` through, in
+    // order from `d`, or an empty list when it leads to no cycle through
+    // `d`.
+    func static_cycle(&self, d: Int) -> Vector<Int> {
+        var path = Vector<Int>()
+        try! path.push(d)
+        var seen = Vector<Int>()
+        if self.reaches_static(d, d, &var path, &var seen) {
+            return move path
+        }
+        Vector<Int>()
+    }
+
+    // Whether static `from`'s initializer leads to static `target`, `path`
+    // the statics walked to `from`.
+    func reaches_static(&self, from: Int, target: Int, path: &var Vector<Int>, seen: &var Vector<Int>) -> Bool {
+        var refs = Vector<Int>()
+        let value = self.static_initializer(from)
+        self.statics_named(value, &var refs)
+        var k = 0
+        while k < refs.len() {
+            let r = refs[k]
+            k = k + 1
+            if r == target {
+                return true
+            }
+            if tc_contains(&seen, r) {
+                continue
+            }
+            try! seen.push(r)
+            try! path.push(r)
+            if self.reaches_static(r, target, &var path, &var seen) {
+                return true
+            }
+            var kept = Vector<Int>()
+            var j = 0
+            while j + 1 < path.len() {
+                try! kept.push(path[j])
+                j = j + 1
+            }
+            path = move kept
+        }
+        false
+    }
+
+    // Each fixed static expression `e` names, in source order, into `out`.
+    func statics_named(&self, e: Int, out: &var Vector<Int>) {
+        if e < 0 || self.is_leaf(e) {
+            return
+        }
+        if self.has_alt(e, Alt.Expr_Name) || self.has_alt(e, Alt.Expr_Member) {
+            let leaf = if self.has_alt(e, Alt.Expr_Name) { self.res.first_leaf(e) } else { self.res.last_leaf_of(e) }
+            let b = self.binding_at(leaf)
+            if b.kind == ResBindKind.Decl && self.fixed_static(b.decl) {
+                try! out.push(b.decl)
+                return
+            }
+        }
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            self.statics_named(c, &var out)
+            k = k + 1
+        }
+    }
+
+    // Expression `e`'s fold, with the faults it meets inside `e` refused;
+    // one met inside a static `e` names is that static's refusal. Where `e`
+    // is constant but unfolded, as an aggregate is, its parts are folded.
+    func check_constant_faults(&var self, e: Int) -> TcFold {
+        let v = self.fold_constant(e)
+        if v.ok || v.fault == TcFault.Cycle {
+            return v
+        }
+        if v.fault == TcFault.NotConstant {
+            let n = self.child_count(e)
+            var k = 0
+            while k < n {
+                let c = self.child(e, k)
+                k = k + 1
+                if not self.is_leaf(c) && not res_is_type_alt(self.node_alt(c)) {
+                    let _ = self.check_constant_faults(c)
+                }
+            }
+            return v
+        }
+        if v.at >= 0 && self.node_within(v.at, e) {
+            let at = v.at
+            let target = self.fault_target(at)
+            self.refuse_constant_fault(&v, at, target)
+        }
+        v
+    }
+
+    // The type a value converted at node `at` lands in: its last adoption or
+    // widening, or its own type, which a cast's is.
+    func fault_target(&self, at: Int) -> Int {
+        var t = self.expr_types[at]
+        var a = self.adj_head[at]
+        while a >= 0 {
+            let adj = self.adjusts[a]
+            if adj.kind == TcAdjustKind.Adopt || adj.kind == TcAdjustKind.Widen {
+                t = adj.to
+            }
+            a = adj.next
+        }
+        t
+    }
+
+    // Whether node `inner` lies inside node `outer`, in one module.
+    func node_within(&self, inner: Int, outer: Int) -> Bool {
+        if self.node_module(inner) != self.node_module(outer) {
+            return false
+        }
+        let a = self.res.nodes[inner]
+        let b = self.res.nodes[outer]
+        a.start >= b.start && a.end <= b.end
     }
 
     // A literal with a signed width suffix fits the width's signed range
@@ -4833,6 +5392,14 @@ public struct TcCand {
     public kind: TcCandKind
     public member: Int
     public owner: Int
+}
+
+// The root a hint's proposed write would land in: its node, or -1, whether a
+// write through the place lands, and what declared a root binding.
+struct TcHintRoot {
+    node: Int
+    writable: Bool
+    binder: TcBinder
 }
 
 // A call's arguments: each value expression, and its label's name, or -1.
@@ -8870,14 +9437,356 @@ extension TcProgram {
         self.refuse(e, "type.ambiguous-result", msg.build())
     }
 
+    // An implicit copy of place `e` of type `t`. The hint offers only what
+    // compiles for the refused shape, and names a tier only where the type
+    // establishes one: a projection's or `Self`'s is the bounds' question
+    // (SL-500).
     func refuse_implicit_copy(&var self, e: Int, t: Int) {
         var msg = StringBuilder()
         try! msg.append("this reads a place of type `")
         try! msg.append(self.type_text(t))
-        try! msg.append("`, which is ")
-        try! msg.append(self.tier_word(t))
-        try! msg.append(", by value: only a Copy type copies silently; write `move` to take it, `.copy()` for a copy, or borrow it")
+        try! msg.append("`")
+        let tier = self.established_tier(t)
+        if tier.len() > 0 {
+            try! msg.append(", which is ")
+            try! msg.append(tier)
+        } else {
+            try! msg.append(", which no bound in scope makes `Copy`")
+        }
+        try! msg.append(", by value: only a Copy type copies silently; ")
+        if self.reads_expression(e) {
+            try! msg.append(self.implicit_copy_fixes(e, t))
+        } else {
+            try! msg.append(self.binding_copy_fixes(t))
+        }
         self.refuse(e, "transfer.implicit-copy", msg.build())
+    }
+
+    // Whether node `e` is an expression, not a pattern's binding.
+    func reads_expression(&self, e: Int) -> Bool {
+        guard let alt = self.node_alt(e) else {
+            return false
+        }
+        alt_name(alt).starts_with("syntax.expr.")
+    }
+
+    // The ways out of a pattern binding a copy of a place's part: bind from
+    // a `move` of the scrutinee or a `take()` of an optional place; `.copy()`
+    // where the type meets `ExplicitCopy`; a borrow of the place.
+    func binding_copy_fixes(&var self, t: Int) -> String {
+        var out = StringBuilder()
+        try! out.append("match a `move` of the value when its binding owns it, or its `take()` when it is an optional place, ")
+        let ec = self.known.explicit_copy
+        let env = self.current_decl
+        let ext = self.current_ext
+        if ec >= 0 && not self.open_tier(t) && self.satisfies(t, ec, env, ext) {
+            try! out.append("bind its `.copy()`, ")
+        }
+        try! out.append("or borrow it")
+        out.build()
+    }
+
+    // `t`'s copy tier as a refusal names it, `ExplicitCopy` or `NoCopy`, or
+    // "" where a type parameter, `Self` or a projection leaves it open.
+    func established_tier(&var self, t: Int) -> String {
+        if self.open_tier(t) {
+            return ""
+        }
+        let tier = self.type_tier(t, -1)
+        if tier.base == TC_TIER_EXPLICIT {
+            return "ExplicitCopy"
+        }
+        if tier.base == TC_TIER_NOCOPY {
+            return "NoCopy"
+        }
+        ""
+    }
+
+    // Whether `t` mentions a type parameter, `Self` or a projection.
+    func open_tier(&self, t: Int) -> Bool {
+        if t < 0 {
+            return false
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Param || info.kind == TcKind.SelfType || info.kind == TcKind.Projection {
+            return true
+        }
+        if info.b >= 0 && (info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array) && self.open_tier(info.b) {
+            return true
+        }
+        if info.kind == TcKind.Nominal || info.kind == TcKind.Tuple {
+            var k = 0
+            while k < info.count {
+                let a = self.types.arg(t, k)
+                if self.open_tier(a) {
+                    return true
+                }
+                k = k + 1
+            }
+        }
+        false
+    }
+
+    // The ways out of an implicit copy of place `e` that compile for its
+    // shape: `move` on a binding that owns its value, or on its optional's
+    // payload; `take()` on an optional field, or on the optional a payload is
+    // forced from, where a write through the place lands, and otherwise a
+    // move of an owned root into a `var` first; `.copy()` where the type
+    // meets `ExplicitCopy`; a borrow.
+    func implicit_copy_fixes(&var self, e: Int, t: Int) -> String {
+        let place = self.unparenthesized(e)
+        let m = self.node_module(place)
+        let text = self.text(m, place)
+        var out = StringBuilder()
+        var offered = false
+        var part = ""
+        if self.owns_binding(place) {
+            try! out.append("write `move ")
+            try! out.append(text)
+            try! out.append("` to take it, ")
+            offered = true
+        } else if self.has_alt(place, Alt.Expr_Force) {
+            let base = self.res.first_node_child(place)
+            let base_text = self.text(m, base)
+            if self.owns_binding(base) {
+                try! out.append("write `move ")
+                try! out.append(text)
+                try! out.append("` to take the payload, ")
+                offered = true
+            } else if self.expr_place[base] {
+                offered = self.offer_take(&var out, base, &base_text, "the payload")
+            }
+        } else if self.is_optional(t) && (self.has_alt(place, Alt.Expr_Member) || self.has_alt(place, Alt.Expr_TupleIndex)) {
+            offered = self.offer_take(&var out, place, &text, "it")
+        } else if self.has_alt(place, Alt.Expr_Member) {
+            part = "a field"
+        } else if self.has_alt(place, Alt.Expr_TupleIndex) {
+            part = "a tuple element"
+        }
+        let ec = self.known.explicit_copy
+        let env = self.current_decl
+        let ext = self.current_ext
+        let copies = ec >= 0 && not self.open_tier(t) && self.satisfies(t, ec, env, ext)
+        if part.len() > 0 {
+            try! out.append(part)
+            try! out.append(" is not moved out on its own")
+            if not copies {
+                try! out.append(", so borrow it")
+                return out.build()
+            }
+            try! out.append(": ")
+        }
+        if copies {
+            try! out.append("`")
+            try! out.append(text)
+            try! out.append(".copy()` for a copy, ")
+            offered = true
+        }
+        if not offered && part.len() == 0 {
+            try! out.append("a binding that only borrows has nothing to move, so borrow it")
+        } else {
+            try! out.append("or borrow it")
+        }
+        out.build()
+    }
+
+    // `take()` on optional place `opt`, written `written`, when a write
+    // through it lands; through an owned root that is never written, a move
+    // of the root into a `var` first, as the mutability refusal names it.
+    // Whether it offered either.
+    func offer_take(&var self, out: &var StringBuilder, opt: Int, written: &String, what: String) -> Bool {
+        let root = self.hint_root(opt)
+        if root.writable {
+            try! out.append("write `")
+            try! out.append(written)
+            try! out.append(".take()` to take ")
+            try! out.append(what)
+            try! out.append(" and leave `None`, ")
+            return true
+        }
+        if root.node < 0 || (root.binder != TcBinder.Let && root.binder != TcBinder.Parameter) {
+            return false
+        }
+        let m = self.node_module(root.node)
+        let name = self.text(m, root.node)
+        try! out.append("`")
+        try! out.append(written)
+        try! out.append(".take()` would write `")
+        try! out.append(name)
+        try! out.append("`, ")
+        try! out.append(tc_binder_text(root.binder))
+        try! out.append(", which is never written: move it into a `var` first, `var w = move ")
+        try! out.append(name)
+        try! out.append("`, and take ")
+        try! out.append(what)
+        try! out.append(" from `w`, ")
+        true
+    }
+
+    // The root of field, element or payload place `e`, and whether a write
+    // through `e` lands there: `self` under `&var self`, a `&var` reference,
+    // or a `var` the place's own closure declares. Anything else, a subscript
+    // or a call on the way included, answers no root (the mutability funnel
+    // judges the write itself once it runs).
+    func hint_root(&self, e: Int) -> TcHintRoot {
+        let none = TcHintRoot(node: -1, writable: false, binder: TcBinder.Unknown)
+        var at = e
+        var steps = 0
+        while steps < 64 && (self.has_alt(at, Alt.Expr_Member) || self.has_alt(at, Alt.Expr_TupleIndex) || self.has_alt(at, Alt.Expr_Force) || self.has_alt(at, Alt.Expr_Paren)) {
+            at = self.res.first_node_child(at)
+            if at < 0 {
+                return none
+            }
+            steps = steps + 1
+        }
+        if self.has_alt(at, Alt.Expr_Self) {
+            let d = self.current_decl
+            let exclusive = d >= 0 && self.sigs[d].receiver == TcReceiver.Exclusive
+            return TcHintRoot(node: at, writable: exclusive, binder: TcBinder.Unknown)
+        }
+        if not self.has_alt(at, Alt.Expr_Name) {
+            return none
+        }
+        let leaf = self.res.first_leaf(at)
+        let b = self.binding_at(leaf)
+        if b.kind != ResBindKind.Local || b.node < 0 {
+            return none
+        }
+        let t = self.expr_types[at]
+        if t >= 0 && (self.kind_of(t) == TcKind.Ref || self.kind_of(t) == TcKind.Slice) {
+            return TcHintRoot(node: at, writable: self.types.ty(t).a == 1, binder: TcBinder.Unknown)
+        }
+        if self.aliasing_bindings[b.node] || tc_contains(&self.borrow_captures, b.node) {
+            return none
+        }
+        if self.captured_by_value(e, b.node) {
+            return none
+        }
+        let binder = self.binder_above(b.node)
+        TcHintRoot(node: at, writable: binder == TcBinder.Mutable, binder: binder)
+    }
+
+    // Whether a closure around place `e` captures the binding declared at
+    // `binding` other than by `[&var x]`: a by-value capture is never written
+    // (SL-472), and a shared one never either.
+    func captured_by_value(&self, e: Int, binding: Int) -> Bool {
+        let declared = self.res.nodes[binding]
+        let path = self.path_to(e)
+        var k = 0
+        while k < path.len() {
+            let at = path[k]
+            k = k + 1
+            if self.closure_index.first(at, 0) < 0 {
+                continue
+            }
+            let span = self.res.nodes[at]
+            if declared.start >= span.start && declared.end <= span.end {
+                continue
+            }
+            var exclusive = false
+            var j = 0
+            while j < self.captures.len() {
+                let cap = self.captures[j]
+                j = j + 1
+                if cap.closure == at && cap.binding == binding && cap.use == TcUse.BorrowVar {
+                    exclusive = true
+                }
+            }
+            if not exclusive {
+                return true
+            }
+        }
+        false
+    }
+
+    // What declares the binding at leaf `binding`: the nearest binding
+    // construct above it, as the mutability funnel reads it.
+    func binder_above(&self, binding: Int) -> TcBinder {
+        let path = self.path_to(binding)
+        if path.len() == 0 {
+            return TcBinder.Unknown
+        }
+        var k = path.len()
+        while k > 0 {
+            k = k - 1
+            if let alt = self.node_alt(path[k]) {
+                let found = tc_binder_of(alt)
+                if found != TcBinder.Unknown {
+                    return found
+                }
+            }
+        }
+        TcBinder.Let
+    }
+
+    // The nodes from the current declaration's node down to node `target`'s
+    // parent, found by span, or nothing when `target` lies outside it.
+    func path_to(&self, target: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        let d = self.current_decl
+        if d < 0 || target < 0 {
+            return move out
+        }
+        let goal = self.res.nodes[target]
+        var at = self.res.decls[d].node
+        var steps = 0
+        while at >= 0 && steps < 100000 {
+            steps = steps + 1
+            try! out.push(at)
+            let n = self.child_count(at)
+            var next = -1
+            var k = 0
+            while k < n && next < 0 {
+                let c = self.child(at, k)
+                k = k + 1
+                if c == target {
+                    return move out
+                }
+                if self.is_leaf(c) {
+                    continue
+                }
+                let span = self.res.nodes[c]
+                if span.start <= goal.start && goal.end <= span.end {
+                    next = c
+                }
+            }
+            at = next
+        }
+        Vector<Int>()
+    }
+
+    // Expression `e` with its parentheses taken off.
+    func unparenthesized(&self, e: Int) -> Int {
+        var at = e
+        var rounds = 0
+        while rounds < 64 && self.has_alt(at, Alt.Expr_Paren) {
+            let inner = self.res.first_node_child(at)
+            if inner < 0 {
+                return at
+            }
+            at = inner
+            rounds = rounds + 1
+        }
+        at
+    }
+
+    // Whether expression `e` names a binding that owns its value, which a
+    // `move` takes: no reference, no `borrow` binding or borrowed pattern
+    // part, and no capture by borrow.
+    func owns_binding(&self, e: Int) -> Bool {
+        if not self.has_alt(e, Alt.Expr_Name) {
+            return false
+        }
+        let leaf = self.res.first_leaf(e)
+        let b = self.binding_at(leaf)
+        if b.kind != ResBindKind.Local || b.node < 0 {
+            return false
+        }
+        let t = self.expr_types[e]
+        if t >= 0 && (self.kind_of(t) == TcKind.Ref || self.kind_of(t) == TcKind.Slice) {
+            return false
+        }
+        not self.aliasing_bindings[b.node] && not tc_contains(&self.borrow_captures, b.node)
     }
 
     // A plain binding of the payload of an optional place an accessor lends,

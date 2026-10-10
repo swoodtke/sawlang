@@ -1,0 +1,78 @@
+(Module layout_constants
+  (declarations
+    (struct Region 6:8 private)
+    (field Region.a 6:17 private Int)
+    (field Region.b 6:25 private Int)
+    (alias Code 7:6 private UInt16)
+    (static WORDS 9:8 private Int)
+    (static FLAG 10:8 private Int)
+    (static PTR 11:8 private Int)
+    (static BYTE 12:8 private Int)
+    (static WINDOW 15:8 private [UInt8; 16])
+    (enum Tag 17:6 private (raw Int))
+    (case Tag.Small 18:10)
+    (case Tag.Wide 19:10)
+    (func main 25:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (layout_constants.Region
+      (field a Int private declared)
+      (field b Int private declared))
+    (layout_constants.Tag
+      (case Small private declared)
+      (case Wide private declared)
+      (static from public (synthesized raw))))
+  (views
+    (layout_constants.Region a b)
+    (layout_constants.Tag Small Wide from))
+  (conformances)
+  (copy-tier
+    (layout_constants.Region Copy)
+    (layout_constants.Tag Copy))
+  (bodies
+    (WORDS 9:8
+      (9:21-9:42 Binary Int value temp (op /))
+      (9:21-9:25 IntLit Int value temp)
+      (9:28-9:42 Call.paren Int value temp (builtin sizeof)))
+    (FLAG 10:8
+      (10:20-10:71 Binary Int value temp (op + +))
+      (10:20-10:34 Call.paren Int value temp (builtin sizeof))
+      (10:37-10:52 Call.paren Int value temp (builtin sizeof))
+      (10:55-10:71 Call.paren Int value temp (builtin sizeof)))
+    (PTR 11:8
+      (11:19-11:88 Binary Int value temp (op +))
+      (11:19-11:50 Call.paren Int value temp (builtin sizeof))
+      (11:53-11:88 Call.paren Int value temp (builtin alignof)))
+    (BYTE 12:8
+      (12:20-12:52 Binary Int value temp (op +))
+      (12:20-12:34 Call.paren Int value temp (builtin sizeof))
+      (12:37-12:52 Call.paren Int value temp (builtin alignof)))
+    (WINDOW 15:8
+      (15:30-15:37 Repeat [UInt8; 16] value temp)
+      (15:31-15:32 IntLit Int (adopt UInt8) value temp)
+      (15:34-15:36 IntLit Int value temp)
+      (14:8-14:25 Call.paren Int value temp (builtin alignof)))
+    (Tag.Small 18:10
+      (18:18-18:19 IntLit Int value temp))
+    (Tag.Wide 19:10
+      (19:17-19:32 Call.paren Int value temp (builtin sizeof)))
+    (main 25:6
+      (26:12-26:28 Call.paren Int value temp (builtin sizeof))
+      (27:9-27:13 BindingName [UInt8; 8] place temp)
+      (27:28-27:34 Repeat [UInt8; 8] value temp)
+      (27:29-27:30 IntLit Int (adopt UInt8) value temp)
+      (27:32-27:33 IntLit Int value temp)
+      (28:19-28:41 Binary.pair Bool value temp (op >=))
+      (28:19-28:35 Call.paren Int value borrow (builtin sizeof))
+      (28:39-28:41 IntLit Int value borrow)
+      (29:5-29:19 Call.paren Void value temp (builtin print))
+      (29:11-29:18 Subscript.single UInt8 place borrow (op []))
+      (29:11-29:15 Name [UInt8; 8] place project)
+      (29:16-29:17 IntLit Int value temp))
+    (item 22:15
+      (22:15-22:37 Binary.pair Bool value temp (op ==))
+      (22:15-22:31 Call.paren Int value borrow (builtin sizeof))
+      (22:35-22:37 IntLit Int value borrow))
+    (item 23:15
+      (23:15-23:42 Binary.pair Bool value temp (op ==))
+      (23:15-23:37 Call.paren Int value borrow (builtin alignof))
+      (23:41-23:42 IntLit Int value borrow))))

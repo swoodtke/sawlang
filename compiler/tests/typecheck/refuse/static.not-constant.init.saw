@@ -1,0 +1,13 @@
+// refuses: static.not-constant at 13:24
+// a hand-written `init` body never runs at compile time, though memberwise construction folds (SL-493)
+
+struct Region { bytes: Int, pages: Int }
+
+extension Region {
+    init(pages: Int) {
+        Region(bytes: pages * 4096, pages: pages)
+    }
+}
+
+static WHOLE: Region = Region(bytes: 4096, pages: 1)
+static BUILT: Region = Region(pages: 1)

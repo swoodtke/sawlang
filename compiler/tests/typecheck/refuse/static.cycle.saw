@@ -1,0 +1,7 @@
+// refuses: static.cycle at 4:17
+// three statics whose values depend on each other, named in order and refused once, at the first declared (SL-493)
+
+static A: Int = C + 1
+static B: Int = A + 1
+static C: Int = B + 1
+static OUTSIDE: Int = A + 1

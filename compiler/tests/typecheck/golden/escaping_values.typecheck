@@ -19,10 +19,19 @@
     (func bound 58:6 private (signature (params (f () -> Int owned)) -> Int) (summary body (suspends no) (sync-callable no)))
     (func inner_capture 63:6 private (signature (params (f () -> Int owned)) -> Int) (summary body (suspends no) (sync-callable no)))
     (func visited 67:6 private (signature (params (f (Int) -> Int owned) (v &std.vector.Vector<Int, std.alloc.GlobalAllocator> shared)) -> Int) (summary body (suspends no) (sync-callable no)))
-    (func main 73:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+    (trait Keeper 75:7 private)
+    (requirement Keeper.keep 76:10 (signature (receiver exclusive) (params (g () -> Int owned escaping)) -> Int))
+    (requirement Keeper.peek 77:10 (signature (receiver shared) (params (g () -> Int owned)) -> Int))
+    (extension 80:1 (target escaping_values.Holder) (conforms escaping_values.Keeper))
+    (method Holder.keep 81:10 private (signature (receiver exclusive) (params (g () -> Int owned)) -> Int) (summary body (suspends no) (sync-callable no)))
+    (method Holder.peek 85:10 private (signature (receiver shared) (params (g () -> Int owned)) -> Int) (summary body (suspends no) (sync-callable no)))
+    (func through 90:6 private (signature (generics (K (bounds escaping_values.Keeper))) (params (k &var K exclusive) (f () -> Int owned escaping)) -> Int) (summary body (suspends when K.Keeper.keep) (sync-callable unless K.Keeper.keep)))
+    (func main 94:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (escaping_values.Holder
       (field f () -> Int private declared)
+      (method keep private (extension escaping_values))
+      (method peek private (extension escaping_values))
       (method deinit public (synthesized Deinit)))
     (escaping_values.Spelled
       (field f () -> Int private declared)
@@ -32,10 +41,11 @@
       (case Empty private declared)
       (method deinit public (synthesized Deinit))))
   (views
-    (escaping_values.Holder f deinit)
+    (escaping_values.Holder f keep peek deinit)
     (escaping_values.Spelled f deinit)
     (escaping_values.Slot Holds Empty deinit))
-  (conformances)
+  (conformances
+    (escaping_values.Holder escaping_values.Keeper 80:19 (keep written) (peek written)))
   (copy-tier
     (escaping_values.Holder Copy)
     (escaping_values.Spelled Copy)
@@ -117,4 +127,14 @@
       (69:48-69:49 Name (Int) -> Int place borrow)
       (69:50-69:51 Name &Int (deref Int) place copy)
       (70:5-70:10 Name Int place copy))
-    (main 73:6)))
+    (Holder.keep 81:10
+      (82:9-82:12 Call.paren Int value temp (value (owner () -> Int)))
+      (82:9-82:10 Name () -> Int place borrow))
+    (Holder.peek 85:10
+      (86:9-86:12 Call.paren Int value temp (value (owner () -> Int)))
+      (86:9-86:10 Name () -> Int place borrow))
+    (through 90:6
+      (91:5-91:14 Call.paren Int value temp (call escaping_values.Keeper.keep(g: () -> Int) (owner K)))
+      (91:5-91:6 Name &var K (deref K) (borrow-var &var K) place borrow-var)
+      (91:12-91:13 Name () -> Int place copy))
+    (main 94:6)))

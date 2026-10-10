@@ -1,0 +1,6 @@
+// refuses: static.not-constant at 6:21
+// an `unsafe static var` is mutable, so naming one is no constant (SL-493)
+
+unsafe static var COUNTER: Int = 0
+
+static START: Int = COUNTER + 1

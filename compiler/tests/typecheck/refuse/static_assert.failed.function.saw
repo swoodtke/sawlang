@@ -1,0 +1,7 @@
+// refuses: static_assert.failed at 5:19
+// a false statement-position `static_assert` in a function body is evaluated and refused (SL-494)
+
+func check(n: Int) -> Int {
+    static_assert(1 > 2, "in a function")
+    n
+}

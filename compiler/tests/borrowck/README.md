@@ -143,7 +143,11 @@ dump are its clients.
   `_0`), and after a path from its creation reaches the point. A loan a
   window's argument carries lives while the window is open. An accessor's
   epilogue starts with the windows its prologue left open across the `lend`
-  (the halves' record, `compiler/tests/mir/README.md`, "Accessors").
+  (the halves' record, `compiler/tests/mir/README.md`, "Accessors"), each
+  with a loan of its own there: on its receiver, traced to its root in the
+  prologue and named by the locals the state record restores, with the
+  prologue's charge. The restores themselves are the split's moves and
+  access nothing a loan holds (SL-495).
 - **Carrying.** A local carries the loan made into it, and the loans of
   every value assigned into it: an operand read from a local's own storage,
   or a reference or function value read through one, carries; a value read
@@ -174,7 +178,7 @@ dump are its clients.
 | `loan.exclusive-twice` | a write or an exclusive borrow of a place overlapping a live exclusive loan | `loan.exclusive-twice`, `.dynamic-index` |
 | `loan.move-while-borrowed` | a move of a place overlapping a live loan, a take included | `loan.move-while-borrowed`, `.take` |
 | `loan.drop-while-borrowed` | a drop, at a scope's end or before an assignment, of a place overlapping a live loan | `loan.drop-while-borrowed` |
-| `loan.window-root` | any access but a move or a drop that conflicts with a live window's loan on its whole root | `loan.window-root`, `.receiver-order`, `.two-windows`, `.beside-root`, `.forced`; a chain of hops, each exclusive under an exclusive one: `.chain` (block), `.chain-argument` (statement), `.chain-field`, `.chain-member`, `.chain-method`, `.chain-lend`, `.chain-cell`, and `.chain-for` (due) |
+| `loan.window-root` | any access but a move or a drop that conflicts with a live window's loan on its whole root | `loan.window-root`, `.receiver-order`, `.two-windows`, `.beside-root`, `.forced`; a chain of hops, each exclusive under an exclusive one: `.chain` (block), `.chain-argument` (statement), `.chain-field`, `.chain-member`, `.chain-method`, `.chain-lend`, `.chain-cell`, and `.chain-for` (due); a window a `borrow` block keeps open across its `lend`, in the epilogue: `.carried` |
 | `loan.closure-carrier` | any access but a move or a drop that conflicts with a loan a live closure carries | `loan.closure-carrier` |
 | `loan.nested-call` | in a call's access set (spec, Nested calls), two written references overlapping, one exclusive and one inside a nested call, or a written `&var` inside a nested call overlapping the receiver of a call it is nested in, a shared reservation for the whole call | `loan.nested-call`, `.receiver`, `.sibling` |
 | `loan.sync-suspend` | a suspension point, a call that may suspend or a yield-capable budget point, while a `borrows(sync)` window is open; typecheck's `borrows.sync-window` refuses the block form first | `loan.sync-suspend` |
@@ -353,4 +357,4 @@ information.
 | a call's access set accepted: `combine(n.get(), bump(&var n))`, disjoint fields, distinct roots | calls |
 | an assignment's right side reading its target, or borrowing a disjoint path | calls |
 | a non-escaping `[&var v]` closure writing `v`, its loan ending at its last call; a captured reference parameter | loan.closure-carrier |
-| a `lend` rooted in `self` or forwarding a window on it; a `borrows(sync)` forward declared so; a conditional lend's absent path | accessors |
+| a `lend` rooted in `self` or forwarding a window on it, the forwarded window closed as the `lend` completes so the epilogue reaches the root again; a `lend` inside a `borrow` block beside a disjoint field; a `borrows(sync)` forward declared so; a conditional lend's absent path | accessors |

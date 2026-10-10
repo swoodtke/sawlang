@@ -1,0 +1,4 @@
+// refuses: static.not-constant at 4:23
+// an interpolation in a static's initializer: a `String` is never a constant (SL-493)
+
+static NAME: String = "v{1}"

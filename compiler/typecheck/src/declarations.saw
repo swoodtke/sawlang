@@ -303,6 +303,9 @@ extension TcProgram {
         if self.has_alt(info.outer, Alt.Decl_ExtensionMember_SynthesizedMethod) {
             flags = flags | TC_FLAG_SYNTHESIZE_SHARED
         }
+        if info.kind == ResDeclKind.Requirement && self.sigs[d].generic_count > 0 {
+            self.refuse_generic_requirement(d)
+        }
         var s = self.sigs[d]
         s.param_first = first
         s.param_count = self.params.len() - first
@@ -315,6 +318,19 @@ extension TcProgram {
             s.lending_exclusive = self.lend_is_exclusive(result)
         }
         self.sigs[d] = s
+    }
+
+    // The grammar parses generic parameters on a trait requirement, and type
+    // checking refuses them, once, at the requirement: the signature is still
+    // built whole, so its conformances, default body and calls through a bound
+    // add no second refusal (GRAMMAR §3.4).
+    func refuse_generic_requirement(&var self, d: Int) {
+        let info = self.res.decls[d]
+        var msg = StringBuilder()
+        try! msg.append("trait requirement `")
+        try! msg.append(self.text(info.module, info.leaf))
+        try! msg.append("` declares generic parameters: generic trait requirements are not supported yet")
+        self.refuse(info.leaf, "trait.generic-requirement", msg.build())
     }
 
     // The index among `d`'s node's children of the last token of its name,

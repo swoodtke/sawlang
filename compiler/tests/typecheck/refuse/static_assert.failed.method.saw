@@ -1,0 +1,11 @@
+// refuses: static_assert.failed at 8:23
+// a false statement-position `static_assert` in a method body (SL-494)
+
+struct Box2 { n: Int }
+
+extension Box2 {
+    func get(&self) -> Int {
+        static_assert(1 > 2, "in a method")
+        self.n
+    }
+}

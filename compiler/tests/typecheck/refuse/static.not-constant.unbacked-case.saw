@@ -1,0 +1,6 @@
+// refuses: static.not-constant at 6:21
+// a case of an enum with no raw backing has no constant value (SL-493)
+
+enum Mode { case Fast, case Slow }
+
+static MODE: Mode = Mode.Fast

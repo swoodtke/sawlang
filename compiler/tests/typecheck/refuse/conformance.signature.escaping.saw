@@ -1,0 +1,17 @@
+// refuses: conformance.signature at 13:10
+// an implementation whose parameter says `escaping` where its requirement's does not (SL-504)
+
+trait Taker {
+    func take(&var self, g: () -> Int) -> Int
+}
+
+struct Store {
+    held: () -> Int
+}
+
+extension Store: Taker {
+    func take(&var self, g: () escaping -> Int) -> Int {
+        self.held = g
+        1
+    }
+}

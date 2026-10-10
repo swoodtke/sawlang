@@ -1,0 +1,4 @@
+// refuses: static.not-constant at 4:27
+// a tuple literal is not among a static's aggregations, which are struct and fixed-array literals (SL-493)
+
+static PAIR: (Int, Int) = (1, 2)

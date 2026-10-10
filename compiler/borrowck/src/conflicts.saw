@@ -96,8 +96,10 @@ extension BorrowckProgram {
         while i < count {
             let live = borrowck_slice(&lives, i * words, words)
             let accesses = self.instruction_accesses(f, b, i, &var facts)
+            let s = self.instruction_stmt(f, b, i)
+            let restore = self.restores_record(f, s)
             var k = 0
-            while k < accesses.len() {
+            while k < accesses.len() && not restore {
                 let a = accesses[k]
                 self.check_access(f, &a, -1, &var facts, &live, &created, &open, &var reported)
                 k = k + 1

@@ -1,0 +1,11 @@
+// refuses: static.not-constant at 7:17
+// `sizeof` of an enum in a raw case's value (spec, Layout in a constant)
+enum Mode { case A, case B }
+
+enum Tag: Int {
+    case Small = 1,
+    case Wide = sizeof<Mode>()
+}
+
+func main() {
+}

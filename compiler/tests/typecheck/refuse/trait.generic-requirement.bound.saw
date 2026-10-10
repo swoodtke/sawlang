@@ -1,0 +1,22 @@
+// refuses: trait.generic-requirement at 4:10
+// a generic requirement called through a bound, `<F: Feeder>`, at two instantiations
+trait Feeder {
+    func feed<T>(&self, x: T) -> Int
+}
+
+struct P { n: Int }
+extension P: Feeder {
+    func feed<T>(&self, x: T) -> Int {
+        let _ = move x
+        self.n
+    }
+}
+
+func via<F: Feeder>(f: &F) -> Int {
+    f.feed(true) + f.feed(7)
+}
+
+func main() {
+    let p = P(n: 3)
+    print(via(&p))
+}

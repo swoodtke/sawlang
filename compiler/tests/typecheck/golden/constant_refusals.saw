@@ -1,0 +1,51 @@
+// The constant-position funnel's refusals, each once, at the sub-expression
+// that fails (spec, Compile-Time Evaluation, "The constant grammar"; SL-493,
+// SL-494): an overflow in a static another reads, reported at the static that
+// overflows and not at its reader; a division by zero; a cast that does not
+// fit; a cycle between statics, named in order and reported once; a shift past
+// its type's width; a false `static_assert` at the top and in a body; a call,
+// a tuple and a case with no backing in a static's initializer; a raw case's
+// value naming a static or another enum's case; a local in a statement
+// `static_assert` and in an `@align` argument. An aggregate, a float, `sizeof`
+// and an alias's construction over a constant are constants, and none of them
+// is refused.
+
+struct Point { x: Int, y: Int }
+enum Mode { case Fast, case Slow }
+enum Code: UInt8 { case A = 1, case B = 2 }
+
+func seven() -> Int { 7 }
+
+static USER: Int = (EDGE as Int) * 2
+static EDGE: Int = (Int.max as Int) + 1
+static QUOTIENT: Int = Int.max / 0
+static NARROW: UInt8 = 300 as UInt8
+static A: Int = B + 1
+static B: Int = A + 1
+static TABLE: [UInt8; 4] = [0; 4]
+static ORIGIN: Point = Point(x: 0, y: 0)
+static RATIO: Float = 1.5
+static WORD: Int = sizeof<Int>()
+static LETTER: Byte = Byte(65)
+static CALLED: Int = seven()
+static PAIR: (Int, Int) = (1, 2)
+static MODE: Mode = Mode.Fast
+static WIDTH: UInt8 = 4
+
+enum Flags: UInt8 { case Low = WIDTH, case High = Code.B, case Mid = Byte(3) }
+
+static_assert((1 << 64) == 0, "a count at the width is no count")
+static_assert(1 > 2, "one is not greater than two")
+static_assert(WORD == 8, "not folded, so not judged")
+
+func local(n: Int) -> Int {
+    static_assert(n > 2, "a local")
+    static_assert(3 > 4, "false in a body")
+    @align(n)
+    var buf: [UInt8; 4] = [0; 4]
+    n
+}
+
+func main() {
+    print(local(3))
+}

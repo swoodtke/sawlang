@@ -1,0 +1,6 @@
+// refuses: static.not-constant at 6:24
+// a function call in a static's initializer, named as the sub-expression that fails (SL-493)
+
+func seven() -> Int { 7 }
+
+static BASE: Int = 1 + seven()

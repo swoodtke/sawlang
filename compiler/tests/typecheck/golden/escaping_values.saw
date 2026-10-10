@@ -70,5 +70,26 @@ func visited(f: (Int) -> Int, v: &Vector<Int>) -> Int {
     total
 }
 
+// A conformance may narrow an `escaping` requirement's parameter, never widen
+// a non-escaping one (SL-504).
+trait Keeper {
+    func keep(&var self, g: () escaping -> Int) -> Int
+    func peek(&self, g: () -> Int) -> Int
+}
+
+extension Holder: Keeper {
+    func keep(&var self, g: () -> Int) -> Int {
+        g()
+    }
+
+    func peek(&self, g: () -> Int) -> Int {
+        g()
+    }
+}
+
+func through<K: Keeper>(k: &var K, f: () escaping -> Int) -> Int {
+    k.keep(f)
+}
+
 func main() {
 }

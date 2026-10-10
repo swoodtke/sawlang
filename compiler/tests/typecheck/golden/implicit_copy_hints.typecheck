@@ -1,0 +1,166 @@
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints.saw:27:18	this reads a place of type `implicit_copy_hints.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints.saw:34:14	this reads a place of type `std.vector.Vector<Int, std.alloc.GlobalAllocator>`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move v` to take it, `v.copy()` for a copy, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints.saw:38:10	this reads a place of type `implicit_copy_hints.Res`, which is NoCopy, by value: only a Copy type copies silently; a field is not moved out on its own, so borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints.saw:42:13	this reads a place of type `implicit_copy_hints.Res?`, which is NoCopy, by value: only a Copy type copies silently; `h.o.take()` would write `h`, a parameter taken by value, which is never written: move it into a `var` first, `var w = move h`, and take it from `w`, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints.saw:48:10	this reads a place of type `implicit_copy_hints.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move o!` to take the payload, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints.saw:52:10	this reads a place of type `implicit_copy_hints.Res`, which is NoCopy, by value: only a Copy type copies silently; `h.o.take()` would write `h`, a parameter taken by value, which is never written: move it into a `var` first, `var w = move h`, and take the payload from `w`, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints.saw:56:14	this reads a place of type `implicit_copy_hints.Res`, which is NoCopy, by value: only a Copy type copies silently; a binding that only borrows has nothing to move, so borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints.saw:62:13	this reads a place of type `S.Item`, which no bound in scope makes `Copy`, by value: only a Copy type copies silently; write `move v` to take it, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints.saw:63:13	this reads a place of type `S.Item`, which no bound in scope makes `Copy`, by value: only a Copy type copies silently; write `move v` to take it, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints.saw:68:12	this reads a place of type `implicit_copy_hints.Res`, which is NoCopy, by value: only a Copy type copies silently; match a `move` of the value when its binding owns it, or its `take()` when it is an optional place, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints.saw:76:13	this reads a place of type `implicit_copy_hints.Res?`, which is NoCopy, by value: only a Copy type copies silently; write `h.o.take()` to take it and leave `None`, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints.saw:82:10	this reads a place of type `implicit_copy_hints.Res`, which is NoCopy, by value: only a Copy type copies silently; `h.o.take()` would write `h`, a `let` binding, which is never written: move it into a `var` first, `var w = move h`, and take the payload from `w`, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints.saw:86:13	this reads a place of type `implicit_copy_hints.Res?`, which is NoCopy, by value: only a Copy type copies silently; write `h.o.take()` to take it and leave `None`, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints.saw:92:14	this reads a place of type `implicit_copy_hints.Res`, which is NoCopy, by value: only a Copy type copies silently; write `self.o.take()` to take the payload and leave `None`, or borrow it
+ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints.saw:96:14	this reads a place of type `implicit_copy_hints.Res`, which is NoCopy, by value: only a Copy type copies silently; a binding that only borrows has nothing to move, so borrow it
+(Module implicit_copy_hints
+  (declarations
+    (struct Res 11:8 private)
+    (field Res.n 11:14 private Int)
+    (extension 12:1 (target implicit_copy_hints.Res) (conforms NoCopy))
+    (struct Holder 14:8 private)
+    (field Holder.r 14:17 private implicit_copy_hints.Res)
+    (field Holder.o 14:25 private implicit_copy_hints.Res?)
+    (extension 15:1 (target implicit_copy_hints.Holder) (conforms NoCopy))
+    (trait Source 17:7 private)
+    (assoc-type Source.Item 18:10)
+    (requirement Source.next 19:10 (signature (receiver exclusive) (params) -> Self.Item))
+    (func sink 22:6 private (signature (params (r implicit_copy_hints.Res owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func sink_all 23:6 private (signature (params (v std.vector.Vector<Int, std.alloc.GlobalAllocator> owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func owned 25:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func explicit 31:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func field 37:6 private (signature (params (h implicit_copy_hints.Holder owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func optional_field 41:6 private (signature (params (h implicit_copy_hints.Holder owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func payload 46:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func field_payload 51:6 private (signature (params (h implicit_copy_hints.Holder owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func through 55:6 private (signature (params (r &implicit_copy_hints.Res shared)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func projected 60:6 private (signature (generics (S (bounds implicit_copy_hints.Source))) (params (s &var S exclusive)) -> Int) (summary body (suspends when S.Source.next) (sync-callable unless S.Source.next)))
+    (func pattern 67:6 private (signature (params (h &implicit_copy_hints.Holder shared)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func var_field 74:6 private (signature (params (seed implicit_copy_hints.Res owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func let_payload 80:6 private (signature (params (seed implicit_copy_hints.Res owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func exclusive_field 85:6 private (signature (params (h &var implicit_copy_hints.Holder exclusive)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (extension 90:1 (target implicit_copy_hints.Holder))
+    (method Holder.own_payload 91:10 private (signature (receiver exclusive) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (method Holder.shared_payload 95:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 100:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (implicit_copy_hints.Res
+      (field n Int private declared))
+    (implicit_copy_hints.Holder
+      (field r implicit_copy_hints.Res private declared)
+      (field o implicit_copy_hints.Res? private declared)
+      (method own_payload private (extension implicit_copy_hints))
+      (method shared_payload private (extension implicit_copy_hints))))
+  (views
+    (implicit_copy_hints.Res n)
+    (implicit_copy_hints.Holder r o own_payload shared_payload))
+  (conformances
+    (implicit_copy_hints.Res NoCopy 12:16 (deinit implicit))
+    (implicit_copy_hints.Holder NoCopy 15:19 (deinit implicit)))
+  (copy-tier
+    (implicit_copy_hints.Res NoCopy declared)
+    (implicit_copy_hints.Holder NoCopy declared))
+  (bodies
+    (sink 22:6
+      (22:28-22:31 Member Int place copy)
+      (22:28-22:29 Name implicit_copy_hints.Res place project))
+    (sink_all 23:6
+      (23:40-23:47 Call.paren Int value temp (call std.vector.Vector.len() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
+      (23:40-23:41 Name std.vector.Vector<Int, std.alloc.GlobalAllocator> (borrow &std.vector.Vector<Int, std.alloc.GlobalAllocator>) place borrow))
+    (owned 25:6
+      (26:9-26:10 BindingName implicit_copy_hints.Res place temp)
+      (26:13-26:22 Call.paren implicit_copy_hints.Res value temp (memberwise implicit_copy_hints.Res (owner implicit_copy_hints.Res)))
+      (26:20-26:21 IntLit Int value temp)
+      (27:9-27:10 BindingName Int place temp)
+      (27:13-27:20 Call.paren Int value temp (call implicit_copy_hints.sink(r: implicit_copy_hints.Res)))
+      (27:18-27:19 Name implicit_copy_hints.Res place copy)
+      (28:5-28:6 Name Int place copy))
+    (explicit 31:6
+      (32:9-32:10 BindingName std.vector.Vector<Int, std.alloc.GlobalAllocator> place temp)
+      (32:13-32:26 Call.paren std.vector.Vector<Int, std.alloc.GlobalAllocator> value temp (call std.vector.Vector.init() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
+      (33:5-33:19 Try.force Void value temp)
+      (33:10-33:19 Call.paren Result<Void, std.alloc.AllocError> value temp (call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
+      (33:10-33:11 Name std.vector.Vector<Int, std.alloc.GlobalAllocator> (borrow-var &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) place borrow-var)
+      (33:17-33:18 IntLit Int value temp)
+      (34:5-34:16 Call.paren Int value temp (call implicit_copy_hints.sink_all(v: std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
+      (34:14-34:15 Name std.vector.Vector<Int, std.alloc.GlobalAllocator> place copy))
+    (field 37:6
+      (38:5-38:14 Call.paren Int value temp (call implicit_copy_hints.sink(r: implicit_copy_hints.Res)))
+      (38:10-38:13 Member implicit_copy_hints.Res place copy)
+      (38:10-38:11 Name implicit_copy_hints.Holder place project))
+    (optional_field 41:6
+      (42:9-42:10 BindingName implicit_copy_hints.Res? place temp)
+      (42:13-42:16 Member implicit_copy_hints.Res? place copy)
+      (42:13-42:14 Name implicit_copy_hints.Holder place project)
+      (43:5-43:6 IntLit Int value temp))
+    (payload 46:6
+      (47:9-47:10 BindingName implicit_copy_hints.Res? place temp)
+      (47:19-47:28 Call.paren implicit_copy_hints.Res (some implicit_copy_hints.Res?) value temp (memberwise implicit_copy_hints.Res (owner implicit_copy_hints.Res)))
+      (47:26-47:27 IntLit Int value temp)
+      (48:5-48:13 Call.paren Int value temp (call implicit_copy_hints.sink(r: implicit_copy_hints.Res)))
+      (48:10-48:12 ForceUnwrap implicit_copy_hints.Res place copy)
+      (48:10-48:11 Name implicit_copy_hints.Res? place project))
+    (field_payload 51:6
+      (52:5-52:15 Call.paren Int value temp (call implicit_copy_hints.sink(r: implicit_copy_hints.Res)))
+      (52:10-52:14 ForceUnwrap implicit_copy_hints.Res place copy)
+      (52:10-52:13 Member implicit_copy_hints.Res? place project)
+      (52:10-52:11 Name implicit_copy_hints.Holder place project))
+    (through 55:6
+      (56:9-56:10 BindingName (implicit_copy_hints.Res, Int) place temp)
+      (56:13-56:19 Tuple.positional (implicit_copy_hints.Res, Int) value temp)
+      (56:14-56:15 Name &implicit_copy_hints.Res (deref implicit_copy_hints.Res) place copy)
+      (56:17-56:18 IntLit Int value temp)
+      (57:5-57:6 IntLit Int value temp))
+    (projected 60:6
+      (61:9-61:10 BindingName S.Item place temp)
+      (61:13-61:21 Call.paren S.Item value temp (call implicit_copy_hints.Source.next() (owner S)))
+      (61:13-61:14 Name &var S (deref S) (borrow-var &var S) place borrow-var)
+      (62:9-62:10 BindingName S.Item place temp)
+      (62:13-62:14 Name S.Item place copy)
+      (63:9-63:10 BindingName S.Item place temp)
+      (63:13-63:14 Name S.Item place copy)
+      (64:5-64:6 IntLit Int value temp))
+    (pattern 67:6
+      (68:5-70:6 If Void value temp)
+      (68:12-68:13 BindingName implicit_copy_hints.Res place copy)
+      (68:16-68:19 Member implicit_copy_hints.Res? place test)
+      (68:16-68:17 Name &implicit_copy_hints.Holder (deref implicit_copy_hints.Holder) place project)
+      (69:16-69:19 Member Int place copy)
+      (69:16-69:17 Name implicit_copy_hints.Res place project)
+      (71:5-71:6 IntLit Int value temp))
+    (var_field 74:6
+      (75:9-75:10 BindingName implicit_copy_hints.Holder place temp)
+      (75:13-75:42 Call.paren implicit_copy_hints.Holder value temp (memberwise implicit_copy_hints.Holder (owner implicit_copy_hints.Holder)))
+      (75:23-75:32 Move implicit_copy_hints.Res value move)
+      (75:28-75:32 Name implicit_copy_hints.Res place move)
+      (75:37-75:41 NoneLit implicit_copy_hints.Res? value temp)
+      (76:9-76:10 BindingName implicit_copy_hints.Res? place temp)
+      (76:13-76:16 Member implicit_copy_hints.Res? place copy)
+      (76:13-76:14 Name implicit_copy_hints.Holder place project)
+      (77:5-77:6 IntLit Int value temp))
+    (let_payload 80:6
+      (81:9-81:10 BindingName implicit_copy_hints.Holder place temp)
+      (81:13-81:42 Call.paren implicit_copy_hints.Holder value temp (memberwise implicit_copy_hints.Holder (owner implicit_copy_hints.Holder)))
+      (81:23-81:32 Move implicit_copy_hints.Res value move)
+      (81:28-81:32 Name implicit_copy_hints.Res place move)
+      (81:37-81:41 NoneLit implicit_copy_hints.Res? value temp)
+      (82:5-82:15 Call.paren Int value temp (call implicit_copy_hints.sink(r: implicit_copy_hints.Res)))
+      (82:10-82:14 ForceUnwrap implicit_copy_hints.Res place copy)
+      (82:10-82:13 Member implicit_copy_hints.Res? place project)
+      (82:10-82:11 Name implicit_copy_hints.Holder place project))
+    (exclusive_field 85:6
+      (86:9-86:10 BindingName implicit_copy_hints.Res? place temp)
+      (86:13-86:16 Member implicit_copy_hints.Res? place copy)
+      (86:13-86:14 Name &var implicit_copy_hints.Holder (deref implicit_copy_hints.Holder) place project)
+      (87:5-87:6 IntLit Int value temp))
+    (Holder.own_payload 91:10
+      (92:9-92:22 Call.paren Int value temp (call implicit_copy_hints.sink(r: implicit_copy_hints.Res)))
+      (92:14-92:21 ForceUnwrap implicit_copy_hints.Res place copy)
+      (92:14-92:20 Member implicit_copy_hints.Res? place project)
+      (92:14-92:18 SelfExpr implicit_copy_hints.Holder place project))
+    (Holder.shared_payload 95:10
+      (96:9-96:22 Call.paren Int value temp (call implicit_copy_hints.sink(r: implicit_copy_hints.Res)))
+      (96:14-96:21 ForceUnwrap implicit_copy_hints.Res place copy)
+      (96:14-96:20 Member implicit_copy_hints.Res? place project)
+      (96:14-96:18 SelfExpr implicit_copy_hints.Holder place project))
+    (main 100:6)))

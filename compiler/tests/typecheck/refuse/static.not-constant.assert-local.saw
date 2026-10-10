@@ -1,0 +1,8 @@
+// refuses: static.not-constant at 6:19
+// a statement-position `static_assert` naming a local is refused, not left unevaluated (SL-494)
+
+func check(n: Int) -> Int {
+    let m = n + 1
+    static_assert(m > 2, "a local")
+    m
+}

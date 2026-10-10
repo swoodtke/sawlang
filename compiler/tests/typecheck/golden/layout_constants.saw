@@ -1,0 +1,30 @@
+// `sizeof` and `alignof` at each constant position the funnel reaches (spec,
+// Layout in a constant): a type the target alone fixes everywhere, an alias
+// measuring as its underlying type, and any type in a `static_assert`, at the
+// top of the file and in a body.
+
+struct Region { a: Int, b: Int }
+type Code = UInt16
+
+static WORDS: Int = 4096 / sizeof<UInt>()
+static FLAG: Int = sizeof<Bool>() + sizeof<Float>() + sizeof<String>()
+static PTR: Int = sizeof<UnsafePointer<Region>>() + alignof<UnsafeConstPointer<Int8>>()
+static BYTE: Int = sizeof<Byte>() + alignof<Code>()
+
+@align(alignof<UInt64>())
+static WINDOW: [UInt8; 16] = [0; 16]
+
+enum Tag: Int {
+    case Small = 1,
+    case Wide = sizeof<Int64>()
+}
+
+static_assert(sizeof<Region>() == 16, "two words")
+static_assert(alignof<(Int, Bool)>() == 8, "word aligned")
+
+func main() {
+    @align(sizeof<UInt64>())
+    var body: [UInt8; 8] = [0; 8]
+    static_assert(sizeof<Region>() >= 16, "at least two words")
+    print(body[0])
+}

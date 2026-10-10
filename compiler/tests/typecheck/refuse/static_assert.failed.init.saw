@@ -1,0 +1,11 @@
+// refuses: static_assert.failed at 8:23
+// a false statement-position `static_assert` in an `init` body (SL-494)
+
+struct Box2 { n: Int }
+
+extension Box2 {
+    init(seed: Int) {
+        static_assert(1 > 2, "in an init")
+        Box2(n: seed)
+    }
+}

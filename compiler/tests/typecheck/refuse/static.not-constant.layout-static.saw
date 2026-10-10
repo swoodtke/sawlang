@@ -1,0 +1,8 @@
+// refuses: static.not-constant at 5:19
+// `sizeof` of a struct in a static's initializer, whose layout only code generation knows (spec, Layout in a constant)
+struct Region { a: Int, b: Int }
+
+static R10: Int = sizeof<Region>()
+
+func main() {
+}

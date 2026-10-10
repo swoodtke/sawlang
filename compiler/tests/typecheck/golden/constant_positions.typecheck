@@ -1,0 +1,151 @@
+(Module constant_positions
+  (declarations
+    (struct Point 10:8 private)
+    (field Point.x 10:16 private Int)
+    (field Point.y 10:24 private Int)
+    (enum Code 11:6 private (raw UInt8))
+    (case Code.A 11:25)
+    (case Code.B 11:37)
+    (static WORD 13:8 private Int)
+    (static LETTER 14:8 private UInt8)
+    (static ORIGIN 15:8 private constant_positions.Point)
+    (static SPARE 16:8 private constant_positions.Point)
+    (static TABLE 17:8 private [Int; 3])
+    (static ZEROS 18:8 private [UInt8; 4])
+    (static RATIO 19:8 private Float)
+    (static PICK 20:8 private constant_positions.Code)
+    (static MASK 21:8 private UInt8)
+    (static WINDOW 24:8 private [UInt8; 8])
+    (struct Holder 28:8 private)
+    (field Holder.n 28:17 private Int)
+    (extension 30:1 (target constant_positions.Holder))
+    (init Holder.init 31:5 private (signature (params (seed Int owned)) -> constant_positions.Holder) (summary body (suspends no) (sync-callable yes)))
+    (method Holder.get 36:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (trait Sized 42:7 private)
+    (requirement Sized.width 43:10 (signature (receiver shared) (params) -> Int default-body) (summary body (suspends no) (sync-callable yes)))
+    (func run 49:6 private (signature (params (body () -> Int owned)) -> Int) (summary body (suspends no) (sync-callable no)))
+    (func sized 53:6 private (signature (generics (const N Int)) (params (xs [Int; N] owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func stage 58:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable no)))
+    (func main 72:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable no))))
+  (members
+    (constant_positions.Point
+      (field x Int private declared)
+      (field y Int private declared))
+    (constant_positions.Code
+      (case A private declared)
+      (case B private declared)
+      (static from public (synthesized raw)))
+    (constant_positions.Holder
+      (field n Int private declared)
+      (init init private (extension constant_positions))
+      (method get private (extension constant_positions))))
+  (views
+    (constant_positions.Point x y)
+    (constant_positions.Code A B from)
+    (constant_positions.Holder n init get))
+  (conformances)
+  (copy-tier
+    (constant_positions.Point Copy)
+    (constant_positions.Code Copy)
+    (constant_positions.Holder Copy))
+  (bodies
+    (Code.A 11:25
+      (11:29-11:30 IntLit Int (adopt UInt8) value temp))
+    (Code.B 11:37
+      (11:41-11:48 Call.paren UInt8 value temp (conversion Byte alias (owner UInt8)))
+      (11:46-11:47 IntLit Int (adopt UInt8) value temp))
+    (WORD 13:8
+      (13:20-13:36 Call.paren Int value temp (builtin sizeof)))
+    (LETTER 14:8
+      (14:23-14:31 Call.paren UInt8 value temp (conversion Byte alias (owner UInt8)))
+      (14:28-14:30 IntLit Int (adopt UInt8) value temp))
+    (ORIGIN 15:8
+      (15:24-15:44 Call.paren constant_positions.Point value temp (memberwise constant_positions.Point (owner constant_positions.Point)))
+      (15:33-15:34 IntLit Int value temp)
+      (15:39-15:43 Name Int place copy))
+    (SPARE 16:8
+      (16:23-16:29 Name constant_positions.Point place copy))
+    (TABLE 17:8
+      (17:26-17:38 Array [Int; 3] value temp)
+      (17:27-17:28 IntLit Int value temp)
+      (17:30-17:31 IntLit Int value temp)
+      (17:33-17:37 Name Int place copy))
+    (ZEROS 18:8
+      (18:28-18:34 Repeat [UInt8; 4] value temp)
+      (18:29-18:30 IntLit Int (adopt UInt8) value temp)
+      (18:32-18:33 IntLit Int value temp))
+    (RATIO 19:8
+      (19:23-19:26 FloatLit Float value temp))
+    (PICK 20:8
+      (20:21-20:27 Member constant_positions.Code value temp (case constant_positions.Code.B (owner constant_positions.Code))))
+    (MASK 21:8
+      (21:22-21:37 Binary UInt8 value temp (op |))
+      (21:22-21:28 Member constant_positions.Code (adopt UInt8) value temp (case constant_positions.Code.A (owner constant_positions.Code)))
+      (21:31-21:37 Member constant_positions.Code (adopt UInt8) value temp (case constant_positions.Code.B (owner constant_positions.Code))))
+    (WINDOW 24:8
+      (24:29-24:35 Repeat [UInt8; 8] value temp)
+      (24:30-24:31 IntLit Int (adopt UInt8) value temp)
+      (24:33-24:34 IntLit Int value temp)
+      (23:8-23:24 Call.paren Int value temp (builtin sizeof)))
+    (Holder.init 31:5
+      (32:23-32:32 Binary.pair Bool value temp (op ==))
+      (32:23-32:27 Name UInt8 place borrow)
+      (32:31-32:32 IntLit Int (adopt UInt8) value borrow)
+      (33:9-33:24 Call.paren constant_positions.Holder value temp (memberwise constant_positions.Holder (owner constant_positions.Holder)))
+      (33:19-33:23 Name Int place copy))
+    (Holder.get 36:10
+      (37:23-37:34 Binary.pair Bool value temp (op <))
+      (37:23-37:30 Call.paren UInt8 value borrow (conversion Byte alias (owner UInt8)))
+      (37:28-37:29 IntLit Int (adopt UInt8) value temp)
+      (37:33-37:34 IntLit Int (adopt UInt8) value borrow)
+      (38:9-38:15 Member Int place copy)
+      (38:9-38:13 SelfExpr constant_positions.Holder place project))
+    (Sized.width 43:10
+      (44:23-44:34 Binary.pair Bool value temp (op ==))
+      (44:23-44:29 Binary Int value borrow (op <<))
+      (44:23-44:24 IntLit Int value temp)
+      (44:28-44:29 IntLit Int value temp)
+      (44:33-44:34 IntLit Int value borrow)
+      (45:9-45:10 IntLit Int value temp))
+    (run 49:6
+      (50:5-50:11 Call.paren Int value temp (value (owner () -> Int)))
+      (50:5-50:9 Name () -> Int place borrow))
+    (sized 53:6
+      (54:19-54:25 Binary.pair Bool value temp (op >=))
+      (54:19-54:20 Name Int value borrow)
+      (54:24-54:25 IntLit Int value borrow)
+      (55:5-55:6 Name Int value temp))
+    (stage 58:6
+      (59:19-59:30 Binary.pair Bool value temp (op >))
+      (59:19-59:26 Member Int value borrow)
+      (59:29-59:30 IntLit Int value borrow)
+      (60:12-60:16 Name Int place copy)
+      (61:9-61:12 BindingName [UInt8; 8] place temp)
+      (61:27-61:33 Repeat [UInt8; 8] value temp)
+      (61:28-61:29 IntLit Int (adopt UInt8) value temp)
+      (61:31-61:32 IntLit Int value temp)
+      (62:5-65:7 Call.paren Int value temp (call constant_positions.run(body: () -> Int)))
+      (62:9-65:6 Closure () -> Int value temp)
+      (63:23-63:27 BoolLit.true Bool value temp)
+      (64:9-64:10 IntLit Int value temp))
+    (main 72:6
+      (73:9-73:10 BindingName constant_positions.Holder place temp)
+      (73:13-73:28 Call.paren constant_positions.Holder value temp (call constant_positions.Holder.init(seed: Int) (owner constant_positions.Holder)))
+      (73:26-73:27 IntLit Int value temp)
+      (74:5-74:45 Call.paren Void value temp (builtin print))
+      (74:11-74:44 Binary Int value borrow (op + +))
+      (74:11-74:18 Call.paren Int value temp (call constant_positions.stage()))
+      (74:21-74:28 Call.paren Int value temp (call constant_positions.Holder.get() (owner constant_positions.Holder)))
+      (74:21-74:22 Name constant_positions.Holder (borrow &constant_positions.Holder) place borrow)
+      (74:31-74:44 Call.paren Int value temp (call constant_positions.sized(xs: [Int; N]) (inst 2)))
+      (74:37-74:43 Array [Int; 2] value temp)
+      (74:38-74:39 IntLit Int value temp)
+      (74:41-74:42 IntLit Int value temp))
+    (item 26:15
+      (26:15-26:27 Binary.pair Bool value temp (op ==))
+      (26:15-26:21 Name UInt8 place borrow)
+      (26:25-26:27 IntLit Int (adopt UInt8) value borrow))
+    (item 68:16
+      (69:19-69:27 Binary.pair Bool value temp (op >))
+      (69:19-69:23 Name Int place borrow)
+      (69:26-69:27 IntLit Int value borrow))))

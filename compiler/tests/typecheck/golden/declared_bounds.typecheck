@@ -1,0 +1,59 @@
+(Module declared_bounds
+  (declarations
+    (struct Cell 8:15 public (generics (T)))
+    (field Cell.value 9:5 public T)
+    (extension 12:1 (target declared_bounds.Cell<T>) (where (T Copy)))
+    (method Cell.get 13:17 public (signature (receiver shared) (params) -> T) (summary body (suspends no) (sync-callable yes) (copy T)))
+    (extension 18:1 (target declared_bounds.Cell<T>))
+    (method Cell.peek 19:10 private (signature (receiver shared) (params) -> T) (summary body (suspends no) (sync-callable yes) (copy T)))
+    (method Cell.replace 23:17 public (signature (receiver exclusive) (params (next T owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (extension 28:1 (target declared_bounds.Cell<T>) (where (T ExplicitCopy)))
+    (method Cell.duplicate 29:17 public (signature (receiver shared) (params) -> T) (summary body (suspends when T.ExplicitCopy.copy) (sync-callable unless T.ExplicitCopy.copy)))
+    (func main 34:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (declared_bounds.Cell
+      (field value T public declared)
+      (method get public (extension declared_bounds))
+      (method peek private (extension declared_bounds))
+      (method replace public (extension declared_bounds))
+      (method duplicate public (extension declared_bounds))
+      (method deinit public (synthesized Deinit))))
+  (views
+    (declared_bounds.Cell value get peek replace duplicate deinit))
+  (conformances)
+  (copy-tier
+    (declared_bounds.Cell (join Copy T)))
+  (bodies
+    (Cell.get 13:17
+      (14:9-14:19 Member T place copy)
+      (14:9-14:13 SelfExpr declared_bounds.Cell<T> place project))
+    (Cell.peek 19:10
+      (20:9-20:19 Member T place copy)
+      (20:9-20:13 SelfExpr declared_bounds.Cell<T> place project))
+    (Cell.replace 23:17
+      (24:9-24:19 Member T place write)
+      (24:9-24:13 SelfExpr declared_bounds.Cell<T> place project)
+      (24:22-24:31 Move T value move)
+      (24:27-24:31 Name T place move))
+    (Cell.duplicate 29:17
+      (30:9-30:26 Call.paren T value temp (call ExplicitCopy.copy() (owner T)))
+      (30:9-30:19 Member T (borrow &T) place borrow)
+      (30:9-30:13 SelfExpr declared_bounds.Cell<T> place project))
+    (main 34:6
+      (35:9-35:10 BindingName declared_bounds.Cell<Int> place temp)
+      (35:13-35:32 Call.paren declared_bounds.Cell<Int> value temp (memberwise declared_bounds.Cell (owner declared_bounds.Cell<Int>)))
+      (35:30-35:31 IntLit Int value temp)
+      (36:5-36:46 Call.paren Void value temp (builtin print))
+      (36:11-36:45 Binary Int value borrow (op + +))
+      (36:11-36:18 Call.paren Int value temp (call declared_bounds.Cell.get() (owner declared_bounds.Cell<Int>)))
+      (36:11-36:12 Name declared_bounds.Cell<Int> (borrow &declared_bounds.Cell<Int>) place borrow)
+      (36:21-36:29 Call.paren Int value temp (call declared_bounds.Cell.peek() (owner declared_bounds.Cell<Int>)))
+      (36:21-36:22 Name declared_bounds.Cell<Int> (borrow &declared_bounds.Cell<Int>) place borrow)
+      (36:32-36:45 Call.paren Int value temp (call declared_bounds.Cell.duplicate() (owner declared_bounds.Cell<Int>)))
+      (36:32-36:33 Name declared_bounds.Cell<Int> (borrow &declared_bounds.Cell<Int>) place borrow)
+      (37:5-37:17 Call.paren Void value temp (call declared_bounds.Cell.replace(next: T) (owner declared_bounds.Cell<Int>)))
+      (37:5-37:6 Name declared_bounds.Cell<Int> (borrow-var &var declared_bounds.Cell<Int>) place borrow-var)
+      (37:15-37:16 IntLit Int value temp)
+      (38:5-38:19 Call.paren Void value temp (builtin print))
+      (38:11-38:18 Call.paren Int value borrow (call declared_bounds.Cell.get() (owner declared_bounds.Cell<Int>)))
+      (38:11-38:12 Name declared_bounds.Cell<Int> (borrow &declared_bounds.Cell<Int>) place borrow))))

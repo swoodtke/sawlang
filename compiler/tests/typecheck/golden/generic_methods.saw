@@ -1,0 +1,24 @@
+trait Feeder {
+    func size(&self) -> Int
+}
+
+struct P { n: Int }
+extension P: Feeder {
+    func size(&self) -> Int { self.n }
+}
+
+extension P {
+    func feed<T>(&self, x: T) -> Int {
+        let _ = move x
+        self.n
+    }
+}
+
+func via<F: Feeder>(f: &F) -> Int {
+    f.size()
+}
+
+func main() {
+    let p = P(n: 3)
+    print(p.feed(true) + p.feed(7) + via(&p))
+}

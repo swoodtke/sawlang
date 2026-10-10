@@ -1,7 +1,10 @@
 // Accessors accepted: a `lend` rooted in `self`, or forwarding a window opened
-// on `self`, which stays open until the epilogue closes it; an accessor that
-// forwards a `borrows(sync)` window declares `borrows(sync)` itself; a
-// conditional lend's absent path returns `None`.
+// on `self`, which closes as the `lend` statement completes, at the
+// epilogue's start, so the epilogue may use the root again; a `lend` inside a
+// `borrow` block, whose window stays open to the block's end, beside a
+// disjoint field; an accessor that forwards a `borrows(sync)` window declares
+// `borrows(sync)` itself; a conditional lend's absent path returns `None`
+// (SL:borrowing §2.7, SL-495).
 
 struct Lock {
     n: Int
@@ -25,7 +28,8 @@ extension Row {
 
 struct Grid {
     row: Row,
-    lock: Lock
+    lock: Lock,
+    reads: Int
 }
 
 extension Grid {
@@ -43,14 +47,29 @@ extension Grid {
         }
         lend self.row.cells[i]
     }
+
+    func touched(&var self, i: Int) borrows -> &var Int {
+        lend self.row[i]
+        borrow var self.row[0] += 1
+    }
+
+    func counted(&var self, i: Int) borrows -> &var Int {
+        borrow var cell = self.row[i] {
+            lend cell
+            self.reads = self.reads + 1
+        }
+        borrow var self.row[0] += 1
+    }
 }
 
 func main() {
-    var g = Grid(row: Row(cells: [1, 2, 3, 4]), lock: Lock(n: 0))
+    var g = Grid(row: Row(cells: [1, 2, 3, 4]), lock: Lock(n: 0), reads: 0)
     borrow var g.at(1) += 1
     borrow var g.held() += 1
     if borrow var m = g.maybe(2) {
         m += 1
     }
-    print(g.row.cells[1] + g.lock.n)
+    borrow var g.touched(1) += 1
+    borrow var g.counted(2) += 1
+    print(g.row.cells[1] + g.lock.n + g.reads)
 }

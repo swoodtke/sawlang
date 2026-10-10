@@ -1,7 +1,7 @@
 module accessors
 
 fn prologue accessors.Lock.hold() {
-    loan L0: exclusive (*_1).n;  // ref at 12:9
+    loan L0: exclusive (*_1).n;  // ref at 15:9
 
     bb0: {
         [] {} _2 = ref(exclusive, (*_1).n);
@@ -22,7 +22,7 @@ fn epilogue accessors.Lock.hold() {
 }
 
 fn prologue accessors.Row.[](i: Int) {
-    loan L0: exclusive (*_1).cells[_3];  // ref at 22:9
+    loan L0: exclusive (*_1).cells[_3];  // ref at 25:9
 
     bb0: {
         [] {} _3 = copy _2;
@@ -44,9 +44,9 @@ fn epilogue accessors.Row.[](i: Int) {
 }
 
 fn prologue accessors.Grid.at(i: Int) {
-    loan L0: exclusive (*_1).row;  // ref at 33:9
-    loan L1: exclusive (*_1).row;  // window w0 at 33:9
-    loan L2: exclusive (*_4);  // ref at 33:9
+    loan L0: exclusive (*_1).row;  // ref at 37:9
+    loan L1: exclusive (*_1).row;  // window w0 at 37:9
+    loan L2: exclusive (*_4);  // ref at 37:9
 
     bb0: {
         [] {} _3 = copy _2;
@@ -77,9 +77,9 @@ fn epilogue accessors.Grid.at(i: Int) {
 }
 
 fn prologue accessors.Grid.held() {
-    loan L0: exclusive (*_1).lock;  // ref at 37:9
-    loan L1: exclusive (*_1).lock;  // window w0 at 37:9
-    loan L2: exclusive (*_2);  // ref at 37:9
+    loan L0: exclusive (*_1).lock;  // ref at 41:9
+    loan L1: exclusive (*_1).lock;  // window w0 at 41:9
+    loan L2: exclusive (*_2);  // ref at 41:9
 
     bb0: {
         [] {} _3 = ref(exclusive, (*_1).lock);
@@ -109,7 +109,7 @@ fn epilogue accessors.Grid.held() {
 }
 
 fn prologue accessors.Grid.maybe(i: Int) {
-    loan L0: exclusive (*_1).row.cells[_4];  // ref at 44:9
+    loan L0: exclusive (*_1).row.cells[_4];  // ref at 48:9
 
     bb0: {
         [] {} _3 = Gt(copy _2, const 3: Int);
@@ -145,20 +145,124 @@ fn epilogue accessors.Grid.maybe(i: Int) {
     }
 }
 
+fn prologue accessors.Grid.touched(i: Int) {
+    loan L0: exclusive (*_2).row;  // ref at 52:9
+    loan L1: exclusive (*_2).row;  // window w0 at 52:9
+    loan L2: exclusive (*_5);  // ref at 52:9
+
+    bb0: {
+        [] {} _4 = copy _3;
+        [] {} _6 = ref(exclusive, (*_2).row);
+        [] {L0} _5 = window_open w0 prologue accessors.Row.[](i: Int) (owner accessors.Row) [move _6, move _4] -> [present: bb1];
+    }
+
+    bb1: {
+        [] {L0 L1} _7 = ref(exclusive, (*_5));
+        [] {L0 L1 L2} _0 = move _7;
+        [] {L0 L1 L2} (*_1).0 = move _2;
+        [] {L0 L1 L2} return;
+    }
+}
+
+fn epilogue accessors.Grid.touched(i: Int) {
+    loan L0: exclusive (*_2).row;  // ref at 53:9
+    loan L1: exclusive (*_2).row;  // window w1 at 53:9
+    loan L2: exclusive (*_2).row;  // window w0 at 52:14
+
+    bb0: {
+        [] {L2} _2 = move (*_1).0;
+        [] {L2} goto -> bb1;
+    }
+
+    bb1: {
+        [] {L2} window_close w0 epilogue accessors.Row.[](i: Int) (owner accessors.Row) -> [return: bb2];
+    }
+
+    bb2: {
+        [] {} _4 = ref(exclusive, (*_2).row);
+        [] {L0} _3 = window_open w1 prologue accessors.Row.[](i: Int) (owner accessors.Row) [move _4, const 0: Int] -> [present: bb3];
+    }
+
+    bb3: {
+        [] {L0 L1} (*_3) = Add(copy (*_3), const 1: Int);
+        [] {L0 L1} window_close w1 epilogue accessors.Row.[](i: Int) (owner accessors.Row) -> [return: bb4];
+    }
+
+    bb4: {
+        [] {} return;
+    }
+}
+
+fn prologue accessors.Grid.counted(i: Int) {
+    loan L0: exclusive (*_2).row;  // ref at 57:9
+    loan L1: exclusive (*_2).row;  // window w0 at 57:9
+    loan L2: exclusive (*_5);  // ref at 57:20
+    loan L3: exclusive (*_7);  // ref at 58:13
+
+    bb0: {
+        [] {} _4 = copy _3;
+        [] {} _6 = ref(exclusive, (*_2).row);
+        [] {L0} _5 = window_open w0 prologue accessors.Row.[](i: Int) (owner accessors.Row) [move _6, move _4] -> [present: bb1];
+    }
+
+    bb1: {
+        [] {L0 L1} _7 = ref(exclusive, (*_5));
+        [] {L0 L1 L2} _8 = ref(exclusive, (*_7));
+        [] {L0 L1 L2 L3} _0 = move _8;
+        [] {L0 L1 L2 L3} (*_1).0 = move _2;
+        [] {L0 L1 L2 L3} return;
+    }
+}
+
+fn epilogue accessors.Grid.counted(i: Int) {
+    loan L0: exclusive (*_2).row;  // ref at 61:9
+    loan L1: exclusive (*_2).row;  // window w1 at 61:9
+    loan L2: exclusive (*_2).row;  // window w0 at 57:27
+
+    bb0: {
+        [] {L2} _2 = move (*_1).0;
+        [] {L2} goto -> bb1;
+    }
+
+    bb1: {
+        [] {L2} _3 = Add(copy (*_2).reads, const 1: Int);
+        [] {L2} (*_2).reads = move _3;
+        [] {L2} window_close w0 epilogue accessors.Row.[](i: Int) (owner accessors.Row) -> [return: bb2];
+    }
+
+    bb2: {
+        [] {} _5 = ref(exclusive, (*_2).row);
+        [] {L0} _4 = window_open w1 prologue accessors.Row.[](i: Int) (owner accessors.Row) [move _5, const 0: Int] -> [present: bb3];
+    }
+
+    bb3: {
+        [] {L0 L1} (*_4) = Add(copy (*_4), const 1: Int);
+        [] {L0 L1} window_close w1 epilogue accessors.Row.[](i: Int) (owner accessors.Row) -> [return: bb4];
+    }
+
+    bb4: {
+        [] {} return;
+    }
+}
+
 fn accessors.main() {
-    loan L0: exclusive _1;  // ref at 50:5
-    loan L1: exclusive _1;  // window w0 at 50:5
-    loan L2: exclusive _1;  // ref at 51:5
-    loan L3: exclusive _1;  // window w1 at 51:5
-    loan L4: exclusive _1;  // ref at 52:5
-    loan L5: exclusive _1;  // window w2 at 52:5
-    loan L6: exclusive (*_10);  // ref at 52:19
+    loan L0: exclusive _1;  // ref at 67:5
+    loan L1: exclusive _1;  // window w0 at 67:5
+    loan L2: exclusive _1;  // ref at 68:5
+    loan L3: exclusive _1;  // window w1 at 68:5
+    loan L4: exclusive _1;  // ref at 69:5
+    loan L5: exclusive _1;  // window w2 at 69:5
+    loan L6: exclusive _1;  // ref at 72:5
+    loan L7: exclusive _1;  // window w3 at 72:5
+    loan L8: exclusive (*_10);  // ref at 69:19
+    loan L9: exclusive _1;  // ref at 73:5
+    loan L10: exclusive _1;  // window w4 at 73:5
 
     bb0: {
         [] {} _2 = [const 1: Int, const 2: Int, const 3: Int, const 4: Int];
         [] {} _3 = accessors.Row { cells: move _2 };
         [] {} _4 = accessors.Lock { n: const 0: Int };
-        [] {} _5 = accessors.Grid { row: move _3, lock: move _4 };
+        [] {} _5 = accessors.Grid { row: move _3, lock: move _4, reads: const 0: Int };
         [] {} _1 = move _5;
         [] {} _7 = ref(exclusive, _1);
         [] {L0} _6 = window_open w0 prologue accessors.Grid.at(i: Int) (owner accessors.Grid) [move _7, const 1: Int] -> [present: bb1];
@@ -185,14 +289,14 @@ fn accessors.main() {
     }
 
     bb5: {
-        [] {} _13 = const 1: Int;
-        [] {} _14 = Add(copy _1.row.cells[_13], copy _1.lock.n);
-        [] {} call builtin print [move _14] -> [return: bb9];
+        [] {} _14 = ref(exclusive, _1);
+        [] {L6} _16 = ref(exclusive, _15);
+        [] {L6} _13 = window_open w3 prologue accessors.Grid.touched(i: Int) (owner accessors.Grid) [move _16, move _14, const 1: Int] -> [present: bb9];
     }
 
     bb6: {
         [] {L4 L5} _12 = ref(exclusive, (*_10));
-        [] {L4 L5 L6} (*_12) = Add(copy (*_12), const 1: Int);
+        [] {L4 L5 L8} (*_12) = Add(copy (*_12), const 1: Int);
         [] {L4 L5} window_close w2 epilogue accessors.Grid.maybe(i: Int) (owner accessors.Grid) -> [return: bb8];
     }
 
@@ -205,6 +309,31 @@ fn accessors.main() {
     }
 
     bb9: {
+        [] {L6 L7} (*_13) = Add(copy (*_13), const 1: Int);
+        [] {L6 L7} _17 = ref(exclusive, _15);
+        [] {L6 L7} window_close w3 epilogue accessors.Grid.touched(i: Int) (owner accessors.Grid) [move _17] -> [return: bb10];
+    }
+
+    bb10: {
+        [] {} _19 = ref(exclusive, _1);
+        [] {L9} _21 = ref(exclusive, _20);
+        [] {L9} _18 = window_open w4 prologue accessors.Grid.counted(i: Int) (owner accessors.Grid) [move _21, move _19, const 2: Int] -> [present: bb11];
+    }
+
+    bb11: {
+        [] {L9 L10} (*_18) = Add(copy (*_18), const 1: Int);
+        [] {L9 L10} _22 = ref(exclusive, _20);
+        [] {L9 L10} window_close w4 epilogue accessors.Grid.counted(i: Int) (owner accessors.Grid) [move _22] -> [return: bb12];
+    }
+
+    bb12: {
+        [] {} _23 = const 1: Int;
+        [] {} _24 = Add(copy _1.row.cells[_23], copy _1.lock.n);
+        [] {} _25 = Add(move _24, copy _1.reads);
+        [] {} call builtin print [move _25] -> [return: bb13];
+    }
+
+    bb13: {
         [] {} return;
     }
 }

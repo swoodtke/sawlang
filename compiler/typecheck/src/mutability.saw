@@ -11,6 +11,7 @@ import sawresolve.src.collect.{res_is_top_level}
 import sawresolve.src.dump.{res_sort_strings}
 import sawresolve.src.model.{ResBindKind, ResBinding, ResDeclKind}
 import sawtypecheck.src.adjust.{TC_FIT_EXACT}
+import sawtypecheck.src.binders.{TcBinder, tc_binder_of, tc_binder_text}
 import sawtypecheck.src.bodies.{tc_check_bodies}
 import sawtypecheck.src.checks.{tc_check_unsafe}
 import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_FLAG_UNSAFE_VAR, TcReceiver, TcRole, TcUse}
@@ -624,63 +625,6 @@ extension TcProgram {
         }
         try! msg.append(captured)
         try! msg.append("`")
-    }
-}
-
-// What a binding construct makes of the names it binds.
-enum TcBinder {
-    // Not a binding construct: the search goes on outward.
-    case Unknown,
-    // A `var` or `var` destructuring, `if var`, `guard var`, `while var`, a
-    // `borrow var` binding.
-    case Mutable,
-    // A parameter taken by value.
-    case Parameter,
-    // A `let` or `let` destructuring, `guard let`.
-    case Let,
-    // An `if let`, `while let` or `match` arm's pattern binding.
-    case Pattern,
-    // A `for` loop's binding.
-    case ForLoop,
-    // A closure's parameter.
-    case ClosureParam,
-    // A `borrow let` binding, which lends its place shared.
-    case BorrowLet
-}
-
-func tc_binder_of(alt: Alt) -> TcBinder {
-    if alt == Alt.Stmt_Let_Mutable || alt == Alt.Stmt_Destructure_Mutable || alt == Alt.Stmt_Guard_Var || alt == Alt.Expr_OptionalBinding_Var || alt == Alt.Expr_WhileLet_Var || alt == Alt.Borrow_Binding_Var || alt == Alt.Borrow_Unwrap_Var || alt == Alt.Borrow_For_Var || alt == Alt.Pat_BorrowBinding_Var {
-        return TcBinder.Mutable
-    }
-    if alt == Alt.Decl_Param_Plain || alt == Alt.Decl_Param_Default {
-        return TcBinder.Parameter
-    }
-    if alt == Alt.Stmt_Let_Immutable || alt == Alt.Stmt_Destructure_Immutable || alt == Alt.Stmt_Guard_Let || alt == Alt.Stmt_Block {
-        return TcBinder.Let
-    }
-    if alt == Alt.Expr_OptionalBinding_Let || alt == Alt.Expr_WhileLet_Let || alt == Alt.Expr_MatchArm {
-        return TcBinder.Pattern
-    }
-    if alt == Alt.Expr_For_Plain {
-        return TcBinder.ForLoop
-    }
-    if alt == Alt.Expr_ClosureParam_Value {
-        return TcBinder.ClosureParam
-    }
-    if alt == Alt.Borrow_Binding_Let || alt == Alt.Borrow_Unwrap_Let || alt == Alt.Borrow_For_Let || alt == Alt.Pat_BorrowBinding_Let {
-        return TcBinder.BorrowLet
-    }
-    TcBinder.Unknown
-}
-
-// How a refusal names what declared an immutable binding.
-func tc_binder_text(b: TcBinder) -> String {
-    match b {
-        case Pattern -> "a pattern's binding",
-        case ForLoop -> "a `for` loop's binding",
-        case ClosureParam -> "a closure's parameter",
-        case BorrowLet -> "a `borrow let` binding, which lends its place shared",
-        case _ -> "a `let` binding"
     }
 }
 

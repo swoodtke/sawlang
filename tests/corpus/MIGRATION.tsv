@@ -1662,7 +1662,7 @@ generic_optional_tail_return.saw	copied	-	-
 generic_primitive_bounds.saw	copied	-	-
 generic_result_direct_consume.saw	copied	-	-
 generic_same_named_inits_and_overloads.saw	copied	-	-
-generic_static_call_own_type_params.saw	copied	-	-
+generic_static_call_own_type_params.saw	manual	manual.declared-copy:2	the extensions declare `T: Copy` and `A: Copy, B: Copy`, which their public methods require (SL-501)
 generic_static_type_arg_inference.saw	copied	-	-
 generic_struct.saw	copied	-	-
 generic_struct_deinit.saw	copied	-	-

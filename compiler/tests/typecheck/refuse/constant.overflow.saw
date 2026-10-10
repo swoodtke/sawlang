@@ -1,4 +1,4 @@
-// refuses: type.mismatch at 7:23
+// refuses: constant.overflow at 7:23
 // a constant expression is typed arithmetic at the type it adopts
 // (SL:architecture §3.10): each literal fits, and the sum overflows
 

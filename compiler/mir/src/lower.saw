@@ -1223,11 +1223,13 @@ extension MirProgram {
     }
 
     // `lend place`: the accessor pauses while its caller's window is open. A
-    // window the operand opens to forward another accessor's place stays
-    // open until the body ends.
+    // window the operand opens to forward another accessor's place is open
+    // exactly as long as the outer lend, so it closes as the statement
+    // completes, at the epilogue's start (SL:borrowing §2.7).
     func lower_lend(&var self, s: Int) {
         let e = self.tc.res.first_node_child(s)
         let exclusive = self.tc.expr_use[e] == TcUse.BorrowVar
+        let _ = self.open_scope()
         let p = self.place_of(e)
         let rv = self.rv_ref(exclusive, p)
         let r = self.temp_of(rv)
@@ -1238,6 +1240,7 @@ extension MirProgram {
         c.arg_first = self.push_args(&args)
         c.arg_count = 1
         let _ = self.call_and_continue(c)
+        self.close_scope()
     }
 
     // `guard let x = e else { ... }`: the binding outlives the guard, and the

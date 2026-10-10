@@ -1,0 +1,39 @@
+// Where a generic's inferred Copy requirement is declared (design 219,
+// SL-501): a public method reading its type's parameter in an extension that
+// declares `T: Copy`; a private method in an unbounded extension, which rides
+// inference and is held at each call; a public method that only moves its
+// type's parameter, which requires nothing; and a spelled `.copy()` under
+// `T: ExplicitCopy`.
+
+public struct Cell<T> {
+    value: T
+}
+
+extension Cell<T: Copy> {
+    public func get(&self) -> T {
+        self.value
+    }
+}
+
+extension Cell<T> {
+    func peek(&self) -> T {
+        self.value
+    }
+
+    public func replace(&var self, next: T) {
+        self.value = move next
+    }
+}
+
+extension Cell<T: ExplicitCopy> {
+    public func duplicate(&self) -> T {
+        self.value.copy()
+    }
+}
+
+func main() {
+    var c = Cell<Int>(value: 3)
+    print(c.get() + c.peek() + c.duplicate())
+    c.replace(4)
+    print(c.get())
+}

@@ -1,0 +1,75 @@
+// What the constant-position funnel accepts (SL-493, SL-494): at a static's
+// initializer, a literal, an alias's construction over a constant, `sizeof`,
+// a struct's memberwise construction, a fixed-array and a repeat literal, a
+// float, a raw-backed case and an earlier static of any type; at a raw case's
+// value, an alias's construction; at an `@align` argument, `sizeof` and a
+// static; and a true `static_assert` at the top of a file and in every body
+// kind, a function's, a method's, an `init`'s, a closure's, a trait default
+// body's and a test case's, a const parameter's included.
+
+struct Point { x: Int, y: Int }
+enum Code: UInt8 { case A = 1, case B = Byte(2) }
+
+static WORD: Int = sizeof<UInt64>()
+static LETTER: Byte = Byte(65)
+static ORIGIN: Point = Point(x: 0, y: WORD)
+static SPARE: Point = ORIGIN
+static TABLE: [Int; 3] = [1, 2, WORD]
+static ZEROS: [UInt8; 4] = [0; 4]
+static RATIO: Float = 1.5
+static PICK: Code = Code.B
+static MASK: UInt8 = Code.A | Code.B
+
+@align(sizeof<UInt64>())
+static WINDOW: [UInt8; 8] = [0; 8]
+
+static_assert(LETTER == 65, "at the top")
+
+struct Holder { n: Int }
+
+extension Holder {
+    init(seed: Int) {
+        static_assert(MASK == 3, "in an init")
+        Holder(n: seed)
+    }
+
+    func get(&self) -> Int {
+        static_assert(Byte(1) < 2, "in a method")
+        self.n
+    }
+}
+
+trait Sized {
+    func width(&self) -> Int {
+        static_assert(1 << 3 == 8, "in a default body")
+        8
+    }
+}
+
+func run(body: () -> Int) -> Int {
+    body()
+}
+
+func sized<const N: Int>(xs: [Int; N]) -> Int {
+    static_assert(N >= 0, "a const parameter")
+    N
+}
+
+func stage() -> Int {
+    static_assert(Int.max > 0, "in a function")
+    @align(WORD)
+    var buf: [UInt8; 8] = [0; 8]
+    run({
+        static_assert(true, "in a closure")
+        7
+    })
+}
+
+@test "widths" {
+    static_assert(WORD > 0, "in a test case")
+}
+
+func main() {
+    let h = Holder(seed: 2)
+    print(stage() + h.get() + sized([1, 2]))
+}

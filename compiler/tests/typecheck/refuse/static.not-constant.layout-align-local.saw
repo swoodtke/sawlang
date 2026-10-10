@@ -1,0 +1,12 @@
+// refuses: static.not-constant at 6:12
+// `alignof` of a tuple in a local's `@align` argument (spec, Layout in a constant)
+struct Region { a: Int, b: Int }
+
+func stage() -> Int {
+    @align(alignof<(Int, Region)>())
+    var buf: [UInt8; 4] = [0; 4]
+    0
+}
+
+func main() {
+}
