@@ -1,5 +1,5 @@
-// The writes a closure CAN still make, now that a write to a by-value capture
-// is rejected (design 132 unit A). Each of these reaches real storage: a
+// The writes a closure CAN make, since a by-value capture is a `let` in its
+// body (SL-472). Each of these reaches real storage: a
 // borrow capture and a `&var` parameter both hold a pointer into live memory,
 // a closure's own locals live in the closure, and `Arc<Mutex<T>>` shares state
 // instead of capturing it.

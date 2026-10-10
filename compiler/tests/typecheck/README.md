@@ -658,6 +658,10 @@ var` (argument, block head, unwrap), an exclusive `lend`, the window of a
 | a `let` declared in a loop body, assigned in the loop | refused | mutability.immutable.loop-let |
 | a parameter taken by value | refused | mutability.immutable.parameter |
 | a by-value capture, and a field of one | refused | mutability.immutable.value-capture, mutability.immutable.value-capture-field |
+| a plain, `move` or `copy` capture, in an escaping or a non-escaping closure (SL-472: a `let` in the body), written by `x = v`, `x += v`, `x.f = v`, `x[i] = y` (a `Vector`'s heap element included), a `&var self` method, `&var x`, `take()`: one fixture per cell, `capture-KIND-WRITE-CLOSURE` | refused | mutability.immutable.capture-* (the plain non-escaping assignment and field cells are value-capture and value-capture-field) |
+| an array's `swap` on a `move` capture | refused | mutability.immutable.capture-move-swap-nonescaping |
+| copies of one escaping closure sharing a counter in a `[move v]` capture's heap buffer | refused | mutability.immutable.capture-shared-environment |
+| a nested `[&var n]` of an outer by-value capture | refused | mutability.immutable.capture-reborrow-of-value |
 | a `[&x]` capture's write | refused | mutability.immutable.shared-capture |
 | `[&var x]` of a `let` | refused | mutability.immutable.exclusive-capture |
 | a plain `static` | refused | mutability.immutable.static |
@@ -668,6 +672,11 @@ var` (argument, block head, unwrap), an exclusive `lend`, the window of a
 | a `let` declared in a loop body, taking a fresh value each iteration | allowed | mutability |
 | `var` destructuring, `if var`, `guard var`, `borrow var` | allowed | mutability |
 | a `[&var x]` capture's write | allowed | mutability |
+| a nested `[&var n]` of an outer `[&var n]`; the counter through a non-escaping `[&var v]` | allowed | capture_rules |
+| an implicit `self` capture's write under `&var self`; a write through a plain capture of a `&var` parameter; a closure's own `&var` parameter written | allowed | capture_rules |
+| a `&self` cell method (`Mutex.lock`) on a `move` capture; a captured raw pointer's pointee, escaping too | allowed | capture_rules |
+| a `&var self` method through a `[move h]` capture of an `UnsafeRef`, as through a `let h` | refused | mutability.immutable.capture-unsafe-handle |
+| a move into a place window, `slots[0].push(move h)`; the non-escaping `[move v]` idiom `var w = move v` | allowed | capture_rules |
 | an `unsafe static var` | allowed | mutability |
 | a raw pointer's pointee, through a `let` pointer or a `&self` receiver | allowed | mutability |
 | `&self` writing storage the receiver points at: a `Vector` field's element, nested, a `&var self` method of one, a hand-written accessor lending out of a `Vector`, a prologue write in a `&self` `borrows` body (design 200) | allowed | mutability |
@@ -726,10 +735,25 @@ the walk meets a `move` (`check_whole_move`):
 | `move` of a closure's reference parameter | refused | transfer.move-from-borrow.closure-parameter |
 | a whole binding, `move o!`, `move self.f` in a `consumes` body, `move buf[i]` through a raw pointer | allowed | field_moves |
 
+**Escaping consumes** (SL-469: an escaping closure's environment is shared by
+every copy and outlives each call). Checked once captures are settled
+(`check_escaping_consumes`, `compiler/typecheck/src/captures.saw`), under
+`capture.escaping-consume`; `c.` abbreviates `refuse/capture.escaping-consume.`:
+
+| row | verdict | covered by |
+|---|---|---|
+| a returned closure, one stored in a field, one bound to a `let`, one passed to an `escaping` parameter, each consuming its `move` capture by a `move` argument, a tail, a `return`, a `consumes` call, a destructuring, a move into a constructed value's field | refused | `c.ESCAPE-USE`, ESCAPE in returned, stored, bound, parameter; USE in argument, tail, return, consumes, destructure, field |
+| a `match` consuming an owned capture | refused | c.match |
+| an inner closure's `[move r]` of the outer escaping closure's capture | refused | c.inner-capture |
+| a `[copy s]` capture of a `String`, a `[copy v]` of a `Vector`, an implicit `String` capture, moved | refused | c.copy-string, c.copy-vector, c.implicit |
+| conformance row V49's shape | refused | `capture.escaping-consume` (bare) |
+| a non-escaping closure consuming its `move` capture | allowed | capture_rules |
+| a `Thread.spawn` brace consuming its capture | allowed: the brace is exempt; the form is `slice.not-yet` | |
+
 ## The conformance rows
 
 The rows of `examples/conformance/INDEX.md`'s Mutability and References
-sections, and V03–V05, V31, V60–V62, V68 and V70 of its Moves section, each
+sections, and V03–V05, V31, V49, V60–V62, V68 and V70 of its Moves section, each
 with what covers it here; `compiler/tests/borrowck/CONFORMANCE.md` names the
 same fixtures. `m.` abbreviates `refuse/mutability.immutable.`, `r.`
 `refuse/type.reference-position.`, `p.` `refuse/transfer.partial-move.` and
@@ -763,8 +787,9 @@ fixture.
 | V05, V31 | `p` (bare), `p.vector-element` |
 | V60, V61, V62 | `b.match-payload`, `b.match-self`, `b.match-payload` (a Copy-tier payload) |
 | V68, V70 | `b.closure-parameter` |
+| V49 | `capture.escaping-consume` (bare): an escaping closure's consume of its `move` capture is refused (SL-469) |
 
-That is 44 M rows, 34 R rows and 9 V rows: 71 refused here, 10 accepted
+That is 44 M rows, 34 R rows and 10 V rows: 72 refused here, 10 accepted
 here, 5 answered by `slice.not-yet` and 1 by the borrow check.
 
 ## Refusals
@@ -816,12 +841,13 @@ says what the fixture shows.
 | `call.field-method-ambiguous` | `h.f(x)` where `f` names both a field holding a function and a method this module sees, with the fix-it `let g = h.f; g(x)` (D16) |
 | `infer.failed` | a type argument nothing determines or two arguments disagree on; `None` or an empty literal with nothing expected, though not one whose slot holds a type already refused, which adopts the error type |
 | `implicit-member.no-type` | an implicit member where nothing expects a type, with the `Enum.Case` fix-it |
-| `mutability.immutable` | a write or an exclusive borrow of a place nothing makes writable: rooted in a `let`, a pattern's, a `for` loop's or a closure parameter's binding, a parameter taken by value, a plain `static`, `self` under `&self`, a binding a closure captured by value or by shared borrow, or reached through a shared reference or a read-only lend (the mutability matrix) |
+| `mutability.immutable` | a write or an exclusive borrow of a place nothing makes writable: rooted in a `let`, a pattern's, a `for` loop's or a closure parameter's binding, a parameter taken by value, a plain `static`, `self` under `&self`, a binding a closure captured by value (in every closure, SL-472) or by shared borrow, or reached through a shared reference or a read-only lend (the mutability matrix) |
 | `type.reference-position` | a reference where a type is stored, returned or bound: every written position but a parameter, a function type's parameter, a `borrows` lend and a borrowing struct's shared field, at any depth; a bare `&` outside a call argument or a pointer cast; a binding inferred to name one; a call instantiated at one (the reference-position matrix) |
 | `transfer.partial-move` | a spelled `move` of a part of a binding: a field, a tuple element, an element, an optional field's payload, at any depth (the field move-out matrix) |
 | `transfer.move-from-borrow` | a spelled `move` of a binding that owns nothing: a reference, a closure's reference parameter, a pattern's binding aliasing a part of a borrowed scrutinee (spec, Reference Semantics; DF-288a) |
 | `transfer.implicit-copy` | an ExplicitCopy or NoCopy place read by value with no `move`, payload reads included (design 131), and a projection's (`T.Item` in a generic body, a trait's own `Item` in its default bodies); a closure's capture of one by value with nothing written, with the fix-it `[move x]` |
 | `capture.copy` | `[copy x]` of a NoCopy binding, which has no copy |
+| `capture.escaping-consume` | a consuming use of a by-value capture in a closure that escapes, at every copy tier: a `move` of it, a `match` consuming it, an inner closure's `[move x]` of it; a spawn form's brace is exempt (SL-469; the escaping-consume matrix) |
 | `capture.escaping-borrow` | a borrow of the enclosing frame, `[&x]`, `[&var x]`, a reference parameter or `self`, captured by a closure that escapes: anything but one passed straight to a parameter whose function type does not say `escaping` (spec, Capturing `self` and reference parameters) |
 | `capture.exclusive-self` | `[&var self]` in a method whose receiver is `&self` |
 | `subscript.role` | a subscript of a type that declares no `[]`, or a role it declares and derives no accessor for (SL:borrowing §5.2) |

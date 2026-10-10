@@ -9,6 +9,7 @@ import sawresolve.src.verify.{res_verify_module}
 import sawtypecheck.src.bodies.{tc_check_bodies}
 import sawtypecheck.src.bodychecks.{tc_check_body_rules}
 import sawtypecheck.src.bodyverify.{tc_verify_bodies}
+import sawtypecheck.src.captures.{tc_check_escaping_consumes}
 import sawtypecheck.src.checks.{tc_check_finite_size, tc_check_inits, tc_check_unsafe}
 import sawtypecheck.src.conform.{tc_collect_conformances, tc_extension_sets,
                                  tc_settle_conformances}
@@ -67,6 +68,7 @@ public func typecheck_program(path: String, std_root: String, names: &Vector<Str
     tc_check_lang_shapes(&var p)
     tc_check_bodies(&var p)
     tc_check_mutability(&var p)
+    tc_check_escaping_consumes(&var p)
     tc_check_reference_positions(&var p)
     tc_check_exhaustive(&var p)
     tc_settle_path_uses(&var p)

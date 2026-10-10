@@ -43,8 +43,8 @@ INDEX.md, or when an owner is not one of the words below.
 | M17 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.for-binding.saw` |
 | M18 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.if-let.saw` |
 | M19 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.parameter.saw` |
-| M20 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.value-capture.saw` |
-| M21 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.value-capture-field.saw` |
+| M20 | typecheck | `mutability.immutable`, a by-value capture is a `let` in every closure (SL-472): `compiler/tests/typecheck/refuse/mutability.immutable.value-capture.saw`, the write-kind matrix `mutability.immutable.capture-*` (plain, `move`, `copy` × escaping, non-escaping), and the shared heap counter, `compiler/tests/typecheck/refuse/mutability.immutable.capture-shared-environment.saw`; the accepted rows, typecheck golden `capture_rules.saw`; the non-escaping `[&var v]` writer's loan, U6d2's `loan.closure-carrier.*` |
+| M21 | typecheck | `mutability.immutable` (SL-472): `compiler/tests/typecheck/refuse/mutability.immutable.value-capture-field.saw`, and the field cells of the write-kind matrix |
 | M22 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.accessor-root.saw` |
 | M23 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-closure-parameter.saw` |
 | M24 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-epilogue.saw`; the migrated file is refused first by `result.discarded`, a migration artifact |
@@ -205,7 +205,7 @@ INDEX.md, or when an owner is not one of the words below.
 | V46 | typecheck-gap | a declared bound the body exceeds is not refused today |
 | V47 | typecheck | accepted: returning a whole binding out of a generic body is a move |
 | V48 | slice.not-yet | `syntax.expr.optional-member` (then §3.7: a non-escaping `move` capture transfers when the body runs) |
-| V49 | §3.7 | an escaping closure consuming its `move` capture frees it once: the environment's drop is placed, `compiler/tests/drops/conformance.tsv`; the body's move out through its `&` environment, which the environment's glue then frees again, is DF-255a's shape, still open in the MIR |
+| V49 | typecheck | `capture.escaping-consume`, an escaping closure may not consume a capture (SL-469): `compiler/tests/typecheck/refuse/capture.escaping-consume.saw`, and the matrix `capture.escaping-consume.*` (returned, stored, bound, `escaping` parameter × each consuming use); the non-escaping consume is accepted, typecheck golden `capture_rules.saw` |
 | V50 | slice.not-yet | the intrinsic `__saw_drive` (then §3.9 and §3.7) |
 | V51 | U6d1 | `move.use-after`, the rule a second consuming call meets: `compiler/tests/borrowck/refuse/move.use-after.double.saw` |
 | V52 | U6d1 | `move.use-after`: `compiler/tests/borrowck/refuse/move.use-after.consumed.saw` |

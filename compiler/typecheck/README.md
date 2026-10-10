@@ -108,8 +108,12 @@ typecheck/
    is written, a `let`, a pattern's, a `for` loop's or a closure parameter's
    binding, a parameter taken by value and a plain `static` are not; a
    reference along the path decides by its own `&` or `&var`; `self` by its
-   receiver; a binding a closure captured, by the capture. A raw pointer's
-   pointee is always written. A `move` that takes a part of a binding is
+   receiver; a binding a closure captured, by the capture: a by-value,
+   `move` or `copy` capture is judged exactly as a `let` of its type, in
+   every closure (SL-472). A raw pointer's pointee is always written. Then
+   **escaping consumes**
+   (`captures.saw`): a consuming use of a by-value capture inside a closure
+   that escapes is refused (SL-469). A `move` that takes a part of a binding is
    refused as the body is walked (`transfer.partial-move`), and so is one of
    a binding that owns nothing, a reference or a pattern's binding aliasing a
    borrowed scrutinee (`transfer.move-from-borrow`). Then **reference
@@ -527,11 +531,11 @@ These are the reversible readings this unit made; SL-447's report lists them.
 These are the reversible readings SL-462 made; its report lists them.
 
 - The heap carve-out (design 200: a `&self` method may write storage its
-  receiver only points at) holds for `self` under `&self`, for a `[&self]`
-  capture, and for a binding a closure captured by value (design 132), and
-  for no other root: a write through a `Vector` field of a `let`, a parameter
-  taken by value, a `&T` parameter or a `[&x]` capture is refused, as Stage 0
-  refuses `r.grid[0] = v` through a `&Board`.
+  receiver only points at) holds for `self` under `&self` and for a `[&self]`
+  capture, and for no other root: a write through a `Vector` field of a `let`,
+  a parameter taken by value, a `&T` parameter, a `[&x]` capture or a
+  by-value capture is refused, as Stage 0 refuses `r.grid[0] = v` through a
+  `&Board`.
 - In a `&self` `borrows` body any window opened on `self`, inline storage's
   too, may be written: the accessor's receiver travels by pointer (design
   200, conformance rows M33 and K125). A direct write of `self`'s own storage
@@ -570,3 +574,29 @@ These are the reversible readings SL-462 made; its report lists them.
 - An accessor that mutates its receiver outside the place it lends, which
   SL:borrowing makes exclusive-only (SL-333 R4), is judged by its use site as
   any other: a read through it on a `let` root is not refused.
+
+## Capture readings
+
+These are the reversible readings typecheck batch A made (SL-472, SL-469).
+
+- A by-value capture is judged exactly as a `let` of its type would be,
+  whatever binding it was taken from: the one unsafe allowance is a `let`'s,
+  a write to a raw pointer's pointee. So `h.deref().bump()` on a `[move h]`
+  capture of an `UnsafeRef` is refused as it is on a `let h`, which design
+  218's generated receiver capture rests on.
+- A consuming use of any by-value capture, plain, `move` or `copy`, is
+  refused in an escaping body, and at every copy tier: a `move` of a Copy-tier
+  capture is refused too, with the hint to drop the `move`. A `match` on an
+  owned capture whose type does not copy silently consumes it, and so does an
+  inner closure's `[move x]` of it.
+- Each consuming use is judged against the innermost closure that captured
+  the binding. A by-value capture of an inner closure is a value of its own,
+  and the inner closure's `[move x]` entry is the use the outer closure
+  answers for.
+- The brace written as a `Thread.spawn` or `Task.spawn` form's argument is
+  exempt from the consume rule, keyed on the form: its capture list is its
+  parameter list and its body runs once (design 242). Its captures are still
+  `let`s. The form takes only a brace, never a closure value.
+- An implicit capture that does not copy silently is
+  `transfer.implicit-copy`'s refusal alone; the consume rule does not refuse
+  it again.

@@ -211,6 +211,8 @@ public struct TcProgram {
     public capture_count: Vector<Int>
     public captures: Vector<TcCapture>
     public closure_index: ResIndex
+    // By closure ordinal: whether the closure escapes (`closure_escapes`).
+    public closure_escaping: Vector<Bool>
 }
 
 extension TcProgram: NoCopy {}
@@ -277,7 +279,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       negated_literal: -1, meets_trait: Vector<Int>(), closures: Vector<Int>(),
                       closure_decls: Vector<Int>(), capture_first: Vector<Int>(),
                       capture_count: Vector<Int>(), captures: Vector<TcCapture>(),
-                      closure_index: res_index())
+                      closure_index: res_index(), closure_escaping: Vector<Bool>())
     let empty = Vector<Int>()
     let unlabeled = Vector<Int>()
     p.error_type = p.types.intern(TcKind.Error, -1, 0, 0, &empty, &unlabeled)

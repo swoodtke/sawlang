@@ -1,0 +1,16 @@
+// refuses: mutability.immutable at 13:17
+// the builtin `take()` on a `[copy o]` capture, in a closure passed straight
+// to a non-escaping parameter: a by-value capture is a `let` in the closure's
+// body (SL-472)
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func probe() -> Int {
+    var o: Int? = 3
+    run({ [copy o] in
+        let t = o.take()
+        t ?? 0
+    })
+}

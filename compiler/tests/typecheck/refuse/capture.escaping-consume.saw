@@ -1,0 +1,20 @@
+// refuses: capture.escaping-consume at 18:35
+// conformance row V49: an escaping closure bound to a `let` hands its `[move
+// h]` capture on to `sink`, which would leave the environment's own teardown
+// freeing it again (SL-469)
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+func sink(r: Res) {
+    let _ = r.id
+}
+
+func main() {
+    let h = Res(id: 1)
+    let f = { [move h] in sink(r: move h) }
+    f()
+}

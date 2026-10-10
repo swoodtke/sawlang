@@ -7373,6 +7373,7 @@ extension TcProgram {
             try! self.capture_first.push(first)
             self.current = self.node_module(e)
             let escapes = self.closure_escapes(e, &parents)
+            try! self.closure_escaping.push(escapes)
             self.collect_captures(e, d, escapes)
             let count = self.captures.len() - first
             try! self.capture_count.push(count)
@@ -7544,7 +7545,7 @@ extension TcProgram {
     }
 
     // The name a capture's binding is written with.
-    func capture_name(&self, binding: Int) -> String {
+    public func capture_name(&self, binding: Int) -> String {
         if self.has_alt(binding, Alt.Decl_Param_Receiver) {
             return "self"
         }

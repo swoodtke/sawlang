@@ -971,9 +971,9 @@ var u = w.copy()       // explicit duplicate
   (DF-218h — ``cannot copy value of type `Res` which implements NoCopy``,
   anchored at a receiver that copies nothing), so distrust the shape in an older
   build, where the workaround was to move into a plain local first. An ESCAPING
-  closure keeps the creation-time transfer, and a body that moves ITS capture
-  out still double-frees there (DF-255a) — pass the value as a parameter
-  instead.
+  closure keeps the creation-time transfer, and its body may not move ITS
+  capture out at all (SL-469, a compile error in sawc2; Stage 0 still compiles
+  it and double-frees, DF-255a) — pass the value as a parameter instead.
   **An arm of a borrowing `match` may LEND ITS PAYLOAD BINDING** (design 146,
   DF-146d) — how a slot-enum container gets an accessor at all:
   ```saw-fragment
@@ -4256,17 +4256,45 @@ construct in the owner and lend `&driver` down.
   was the workaround. Its last corner closed with DF-244b (Aug 22): a bare
   `None` tail at a `Result<T?, E>` types itself now, in a closure and in a named
   body alike.
-- **Writing to a by-value capture is a compile error** (design 132). The env is
-  immutable and each plain/`move`/`copy` capture is loaded into a per-call
-  local, so `{ n = n + 1; n }` would count in a copy that dies with the call.
-  The error names the two working spellings: `[&var n]` (borrow capture — only
-  in a closure passed directly to a non-escaping parameter) and `Arc<Mutex<T>>`
-  (escaping, shared instead of captured). READS are untouched, and so are the
-  closure's own locals/params, a `&var` closure parameter, and a capture that
-  is already a reference. Covers the whole path in — `n = v`, `n += v`,
-  `s.f = v`, `t.0 = v`, a fixed-array element — but NOT `v[i] = x` on a
-  `Vector`, whose heap buffer the copy shares (that write does persist). The
-  counter-closure idiom is unwritable without an `Arc<Mutex<Int>>`.
+- **CAPTURES ARE `let` (SL-472, user ruling Oct 9).** A plain, `move` or `copy`
+  capture is an immutable binding in the closure's body, in EVERY closure,
+  escaping or not. Every write shape is refused on one: `n = v`, `n += v`,
+  `s.f = v`, `t.0 = v`, `v[i] = x` (a `Vector`'s heap element included — copies
+  of an escaping closure share one env, so that write would be seen by all of
+  them), a `&var self` METHOD (`v.push(1)`, `o.take()`, `m.insert(..)`), and
+  `&var n`. The working spellings, by what you mean:
+  ```saw-fragment
+  run({ [&var n] in n += 1; n })                 // change the CALLER's binding:
+                                                 // non-escaping closures only
+  run({ [move v] in var w = move v; try! w.push(1); w.len() })  // a value of
+                                                 // the BODY's own (non-escaping)
+  let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+  let bump = { shared.lock({ &var c in c = c + 1; c }) }   // escaping: share it
+  ```
+  An escaping closure keeps NO mutable captured state; `Arc<Mutex<T>>` is the
+  way to change state across calls. Untouched: reads, the closure's own
+  locals/params, a `&var` closure parameter, a capture that is already a
+  reference (`r.x = 1` through a captured `&var` param), a `&self` cell method
+  (`Mutex.lock`, `Atomic` ops) on a capture, and a write to a captured raw
+  pointer's POINTEE (`p[0] = v`) — the one unsafe allowance a `let` has. A
+  capture is judged EXACTLY as a `let` of its type: `h.deref().bump()` on a
+  `[move h]` `UnsafeRef` is refused, as on a `let h`. GOTCHA: the FROZEN
+  Stage 0 compiler (`sawc/`) refuses only the assignment forms and still
+  accepts `v[i] = x` and `v.push(1)` on a capture — sawc2 refuses them, so do
+  not write them.
+- **AN ESCAPING CLOSURE NEVER CONSUMES A CAPTURE (SL-469, user ruling Oct 9).**
+  Its env is shared by every copy and outlives each call, so `move` of a
+  by-value capture in an escaping body is a compile error — into an argument,
+  a tail or `return`, a `consumes` call, a destructuring, a field — and so is a
+  `match` consuming it and an inner closure's `[move x]` of it. At every copy
+  tier (for a `Copy` capture, drop the `move`). The outs: take the value as a
+  PARAMETER; pass the closure straight to a NON-escaping parameter, where
+  `[move r]` transfers when the body runs (`run({ [move r] in sink(move r) })`
+  is fine); or, for a value consumed at most once across calls, capture an
+  `Arc<Mutex<T?>>` and `take()` it under the lock. A `Thread.spawn` brace is
+  exempt (its capture list is its parameter list, and it runs once). Stage 0
+  still compiles the escaping consume and double-frees it (DF-255a) — never
+  write it.
 - **A closure body MAY NAME `self`** (design 216) — and a `&T`/`&var T` PARAMETER
   of the enclosing function. Both are captured BY BORROW: the body reads the live
   value, and through `&var self` / a `&var T` param it WRITES the caller's

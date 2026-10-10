@@ -1,0 +1,9 @@
+// refuses: capture.escaping-consume at 7:15
+// an escaping closure moving a `String` it captured implicitly: a plain
+// capture is the environment's too (SL-469)
+
+func probe() -> () -> String {
+    let s = "x"
+    let f = { move s }
+    f
+}

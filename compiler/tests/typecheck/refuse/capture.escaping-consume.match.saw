@@ -1,0 +1,27 @@
+// refuses: capture.escaping-consume at 22:15
+// an escaping closure matching its `[move o]` capture, an owned optional of a
+// NoCopy payload, which the `match` consumes (SL-469)
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+func sink(r: Res) -> Int {
+    r.id
+}
+
+func keep(f: () escaping -> Int) -> Int {
+    f()
+}
+
+func probe() -> Int {
+    let o: Res? = Res(id: 1)
+    keep({ [move o] in
+        match o {
+            case Some(r) -> sink(move r),
+            case None -> 0
+        }
+    })
+}

@@ -1,0 +1,22 @@
+// refuses: capture.escaping-consume at 19:22
+// A closure passed to a parameter that says `escaping` consumes its `[move t]`
+// capture by destructuring it: the environment is shared by every copy of the
+// closure and outlives each call (SL-469)
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+func keep(f: () escaping -> Int) -> Int {
+    f()
+}
+
+func probe() -> Int {
+    let t = (Res(id: 1), 2)
+    keep({ [move t] in
+        let (a, b) = move t
+        a.id + b
+    })
+}

@@ -1,0 +1,27 @@
+// refuses: capture.escaping-consume at 25:10
+// A closure passed to a parameter that says `escaping` consumes its `[move r]`
+// capture by calling a `consumes` method on it: the environment is shared by
+// every copy of the closure and outlives each call (SL-469)
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+extension Res {
+    func close(&var self) consumes -> Int {
+        self.id
+    }
+}
+
+func keep(f: () escaping -> Int) -> Int {
+    f()
+}
+
+func probe() -> Int {
+    let r = Res(id: 1)
+    keep({ [move r] in
+        (move r).close()
+    })
+}

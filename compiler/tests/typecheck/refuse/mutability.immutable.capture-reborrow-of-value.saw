@@ -1,0 +1,18 @@
+// refuses: mutability.immutable at 14:13
+// an inner non-escaping `[&var n]` of a binding the outer closure captured by
+// value: the outer capture is a `let`, so it has no exclusive borrow to hand
+// on (SL-472)
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func probe() -> Int {
+    var n = 0
+    run({ [move n] in
+        run({ [&var n] in
+            n = n + 1
+            n
+        })
+    })
+}

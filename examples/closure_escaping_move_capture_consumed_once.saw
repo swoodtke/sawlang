@@ -1,27 +1,21 @@
-// An ESCAPING closure whose body consumes its `move` capture must free it once.
+// An ESCAPING closure may not consume what it captured: a `move` of its
+// `[move h]` capture in the body is a compile error.
 //
-// The environment of an escaping closure owns its captures: the transfer
-// happens where the closure is built, and the generated env destructor releases
-// them when the last owner drops. Nothing tells that destructor when the BODY
-// took the value instead. The body's prologue loads the capture out of the env
-// into a local, so `move h` inside the body retires the LOCAL and leaves the
-// env field looking occupied — `sink` frees the value, then the env destructor
-// frees it again.
+// The environment of an escaping closure owns its captures, every copy of the
+// closure shares it, and it outlives each call. A body that hands `h` on would
+// take the value out of storage the next call, every other copy and the
+// environment's own teardown still see, so the user's ruling makes it a
+// refusal rather than a runtime once-flag (SL-469). The non-escaping half is
+// legal: a `[move h]` into a closure passed straight to a non-escaping
+// parameter transfers when the body runs (V48).
 //
-// The non-escaping half of this is DF-218h, closed by the deferred transfer:
-// the body takes ownership at run time and the source's drop flag records it.
-// An escaping env has no such flag, so the same answer does not port — the
-// occupancy has to live in the environment.
-//
-// ORACLE: id 1 is constructed once and deinits once.
+// The pin stays XFAIL because the frozen Stage 0 compiler accepts the program
+// and double-frees `h`; the checker that refuses it is sawc2's
+// (`capture.escaping-consume`).
 // XFAIL: DF-255a an escaping closure's env destructor releases a capture the
 // body already moved out
-// EXPECT: success
-// EXPECT-OUTPUT:
-// built
-// sank 1
-// deinit 1
-// done
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: out of an escaping closure's environment
 
 struct Res { id: Int }
 extension Res: NoCopy {

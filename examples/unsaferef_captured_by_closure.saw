@@ -6,12 +6,15 @@
 // Saw has no local reference binding, so there is nothing else to put in an env.
 // It is `NoCopy`, so it travels by `move` and the env owns exactly one.
 //
-// THE MODE IS THE BINDING'S. A `var`-bound handle opens an exclusive window
-// inside the body and the write reaches the caller's storage; a `let`-bound one
-// reads only, and the write is refused (see
-// `examples/errors/unsaferef_write_through_let_closure_capture.saw`). That is
-// what makes a `&self` method's generated capture and a `&var self` method's
-// differ by one word.
+// THE MODE IS THE BINDING'S. A capture is a `let` in the closure's body
+// (SL-472), so a captured handle reads only, and a write through it is refused
+// exactly as through a `let`-bound handle (see
+// `examples/errors/unsaferef_write_through_let_closure_capture.saw`) — that
+// refusal is what a `&self` method's generated capture rests on. A body that
+// writes binds the handle to a `var` of its own first, `var g = move h`, which a
+// closure passed straight to a non-escaping parameter may do: its `[move h]`
+// transfers when the body runs. That `var` is the one word a `&var self`
+// method's capture differs by.
 //
 // A NESTED closure needs a handle of its OWN — the inner env cannot capture the
 // outer one, since `UnsafeRef` is `NoCopy` and both the implicit capture and
@@ -46,11 +49,11 @@ func read_through(c: &var Counter) unsafe -> Int {
     run_int({ [move h] in h.deref().n + 1 })
 }
 
-// A `&var self` method call through a `var`-bound one: the window is exclusive
-// and the mutation lands where the caller can see it.
+// A `&var self` method call through the body's own `var` handle: the window is
+// exclusive and the mutation lands where the caller can see it.
 func bump_through(c: &var Counter) unsafe -> Int {
-    var h = mint(&var c)
-    run_int({ [move h] in h.deref().bump(); h.deref().n })
+    let h = mint(&var c)
+    run_int({ [move h] in var g = move h; g.deref().bump(); g.deref().n })
 }
 
 // A NESTED closure mints its own handle from the outer one, at a statement.

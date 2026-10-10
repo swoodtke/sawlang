@@ -1,0 +1,17 @@
+// refuses: capture.escaping-consume at 15:16
+// A returned closure consumes its `[move r]` capture by returning it: the
+// environment is shared by every copy of the closure and outlives each call
+// (SL-469)
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+func probe() -> () -> Res {
+    let r = Res(id: 1)
+    return { [move r] in
+        return move r
+    }
+}

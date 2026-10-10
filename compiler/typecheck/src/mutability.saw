@@ -10,6 +10,7 @@ import sawparse.src.tree.{AstNode}
 import sawresolve.src.collect.{res_is_top_level}
 import sawresolve.src.model.{ResBindKind, ResBinding, ResDeclKind}
 import sawtypecheck.src.adjust.{TC_FIT_EXACT}
+import sawtypecheck.src.bodies.{tc_check_bodies}
 import sawtypecheck.src.checks.{tc_check_unsafe}
 import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_FLAG_UNSAFE_VAR, TcReceiver, TcRole, TcUse}
 import sawtypecheck.src.program.{TcProgram}
@@ -30,6 +31,8 @@ struct TcWriteVerdict {
     at: Int
     // For an immutable binding, what declared it.
     binder: TcBinder
+    // For a capture, the closure that captured it, or -1.
+    closure: Int
 }
 
 // Why a place cannot be written.
@@ -44,7 +47,8 @@ enum TcWriteRefusal {
     case SharedReference,
     // `self` in a method whose receiver is `&self`, or a `[&self]` capture.
     case SharedReceiver,
-    // A binding a closure captured by value.
+    // A binding a closure captured by value, `move` or `copy`: a `let` in
+    // the closure's body.
     case ValueCapture,
     // A binding a closure captured by shared borrow, `[&x]`.
     case SharedCapture,
@@ -69,6 +73,12 @@ extension TcMutTables: NoCopy {}
 extension TcProgram {
     // THE writability funnel: each write-shaped use of a place asks whether
     // the place is writable, through one walk from the place to its root.
+    // A capture is judged as its closure declares it: a by-value, `move` or
+    // `copy` capture is judged exactly as a `let` of its type in every
+    // closure, and a `[&var x]` capture or an implicit `self` under
+    // `&var self` borrows the caller's binding. The
+    // captures judged are the ones source writes or names, never an
+    // environment a lowering synthesizes, such as a place window's (SL-472).
     //
     // ENTRY POINTS (place_verdict):
     //     an assignment's target (`Write`)
@@ -374,9 +384,11 @@ extension TcProgram {
     }
 
     // Whether the binding declared at `binding` may be written from `site`:
-    // each closure between them captured it exclusively, or captured it by
-    // value or `self` shared where the write reaches only storage the capture
-    // points at (design 132); and its declaration makes it writable.
+    // each closure between them captured it exclusively, or captured `self`
+    // shared where the write reaches only storage the receiver points at
+    // (design 200); and its declaration makes it writable. A by-value capture
+    // is never written, even where the write would land in a heap buffer the
+    // closure shares with its copies (SL-472).
     func binding_verdict(&var self, binding: Int, site: Int, crossed: TcCrossing, tables: &var TcMutTables) -> TcWriteVerdict {
         let declared = self.res.nodes[binding]
         let heap = crossed == TcCrossing.Heap
@@ -390,13 +402,10 @@ extension TcProgram {
                     if u == TcUse.Borrow {
                         let receiver = self.has_alt(binding, Alt.Decl_Param_Receiver)
                         if not (receiver && heap) {
-                            return tc_write_refused(TcWriteRefusal.SharedCapture, site)
+                            return tc_capture_refused(TcWriteRefusal.SharedCapture, binding, at)
                         }
                     } else if u != TcUse.BorrowVar {
-                        if heap {
-                            return tc_write_ok()
-                        }
-                        return tc_write_refused(TcWriteRefusal.ValueCapture, site)
+                        return tc_capture_refused(TcWriteRefusal.ValueCapture, binding, at)
                     }
                 }
             }
@@ -424,7 +433,7 @@ extension TcProgram {
         if kind == TcBinder.Parameter {
             return tc_write_refused(TcWriteRefusal.Parameter, binding)
         }
-        TcWriteVerdict(ok: false, reason: TcWriteRefusal.Immutable, at: binding, binder: kind)
+        TcWriteVerdict(ok: false, reason: TcWriteRefusal.Immutable, at: binding, binder: kind, closure: -1)
     }
 
     // How closure `e` captured the binding declared at `binding`.
@@ -594,14 +603,18 @@ extension TcProgram {
                 try! msg.append(", and this method's receiver is `&self`, a shared borrow that never writes the storage it borrows: declare the receiver `&var self`")
             },
             case ValueCapture -> {
-                try! msg.append(", and the closure captured it by value, so the write would land in the closure's copy: capture it with `[&var ")
-                try! msg.append(self.base_name(e))
-                try! msg.append("]` in a closure that does not escape")
+                self.explain_value_capture(&var msg, verdict)
             },
             case SharedCapture -> {
-                try! msg.append(", and the closure captured it by shared borrow, which never writes: capture it with `[&var ")
-                try! msg.append(self.base_name(e))
+                let captured = self.capture_name(verdict.at)
+                try! msg.append(", and the closure captured `")
+                try! msg.append(captured)
+                try! msg.append("` by shared borrow, which never writes: capture it with `[&var ")
+                try! msg.append(captured)
                 try! msg.append("]`")
+                if self.has_alt(verdict.at, Alt.Decl_Param_Receiver) {
+                    try! msg.append(" in a `&var self` method")
+                }
             },
             case Static -> {
                 try! msg.append(", and a `static` is immutable: only an `unsafe static var` is written (design 149)")
@@ -616,14 +629,29 @@ extension TcProgram {
         self.refuse_in(m, e, "mutability.immutable", msg.build())
     }
 
-    // The name a place's root is spelled with: its first leaf.
-    func base_name(&self, e: Int) -> String {
-        let m = self.node_module(e)
-        let leaf = self.res.first_leaf(e)
-        if leaf < 0 {
-            return ""
+    // Why a by-value capture is not written, and what writes instead: a
+    // borrow of the caller's binding where the closure does not escape, a
+    // local of the body's own, or shared state for a closure that escapes,
+    // whose copies all read one environment (SL-472).
+    func explain_value_capture(&self, msg: &var StringBuilder, verdict: TcWriteVerdict) {
+        let captured = self.capture_name(verdict.at)
+        try! msg.append(", and `")
+        try! msg.append(captured)
+        try! msg.append("` is captured by value, which makes it a `let` in the closure's body: ")
+        let k = if verdict.closure >= 0 { self.closure_index.first(verdict.closure, 0) } else { -1 }
+        let ordinal = if k >= 0 { self.closure_index.value(k) } else { -1 }
+        if ordinal >= 0 && ordinal < self.closure_escaping.len() && self.closure_escaping[ordinal] {
+            try! msg.append("an escaping closure keeps no state that changes across calls, since every copy of it reads one environment; share the state as an `Arc<Mutex<T>>` and change it under the lock")
+            return
         }
-        self.text(m, leaf)
+        try! msg.append("to write the caller's binding, capture it with `[&var ")
+        try! msg.append(captured)
+        try! msg.append("]`; to change a value of the body's own, bind it there, as `var w = ")
+        if self.capture_use(verdict.closure, verdict.at) == TcUse.Move {
+            try! msg.append("move ")
+        }
+        try! msg.append(captured)
+        try! msg.append("`")
     }
 }
 
@@ -694,9 +722,15 @@ func tc_binder_text(b: TcBinder) -> String {
 }
 
 func tc_write_ok() -> TcWriteVerdict {
-    TcWriteVerdict(ok: true, reason: TcWriteRefusal.Allowed, at: -1, binder: TcBinder.Unknown)
+    TcWriteVerdict(ok: true, reason: TcWriteRefusal.Allowed, at: -1, binder: TcBinder.Unknown, closure: -1)
 }
 
 func tc_write_refused(reason: TcWriteRefusal, at: Int) -> TcWriteVerdict {
-    TcWriteVerdict(ok: false, reason: reason, at: at, binder: TcBinder.Unknown)
+    TcWriteVerdict(ok: false, reason: reason, at: at, binder: TcBinder.Unknown, closure: -1)
+}
+
+// A write refused because closure `closure` captured the binding declared at
+// `binding` in a way that does not write it.
+func tc_capture_refused(reason: TcWriteRefusal, binding: Int, closure: Int) -> TcWriteVerdict {
+    TcWriteVerdict(ok: false, reason: reason, at: binding, binder: TcBinder.Unknown, closure: closure)
 }

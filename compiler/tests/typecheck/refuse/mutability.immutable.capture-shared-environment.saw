@@ -1,0 +1,21 @@
+// refuses: mutability.immutable at 9:9
+// the counter that copies of one escaping closure would share: `[move v]` is a
+// `let` in the body, so the write to `v[0]`, which would land in the heap
+// buffer every copy reads (Stage 0 prints 2, 3, 4), is refused (SL-472)
+
+func make() -> () -> Int {
+    var v: Vector<Int> = [1]
+    let f = { [move v] in
+        v[0] = v[0] + 1
+        v[0]
+    }
+    return f
+}
+
+func main() {
+    let f = make()
+    let g = f
+    print(f())
+    print(g())
+    print(f())
+}

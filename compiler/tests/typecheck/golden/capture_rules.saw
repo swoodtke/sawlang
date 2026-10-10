@@ -1,0 +1,128 @@
+// What a closure may still change once its by-value captures are `let`s
+// (SL-472), and what a non-escaping closure may consume (SL-469): every row
+// here checks clean.
+
+import std.mutex.{Mutex}
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+struct Counter {
+    n: Int
+}
+
+struct Point {
+    x: Int
+}
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func with_var(x: &var Int, f: (&var Int) -> Int) -> Int {
+    f(&var x)
+}
+
+func sink(r: Res) -> Int {
+    r.id
+}
+
+extension Counter {
+    // An implicit `self` capture follows a `&var self` receiver.
+    func bump(&var self) -> Int {
+        run({
+            self.n += 1
+            self.n
+        })
+    }
+}
+
+// A `&self` method of an interior cell, on a value captured by `move`.
+func locked(m: Mutex<Int>) -> Int {
+    run({ [move m] in m.lock({ &var c in
+        c = c + 1
+        c
+    }) })
+}
+
+// The pointee of a captured raw pointer, in a closure that escapes too.
+func pointee(p: UnsafePointer<Int>) unsafe -> Int {
+    let near = run({ [copy p] in
+        p[0] = 5
+        p[0]
+    })
+    let far = { [copy p] in
+        p[0] = 6
+        p[0]
+    }
+    near + far()
+}
+
+// A plain capture of a `&var` parameter, written through.
+func through_reference(r: &var Point) -> Int {
+    run({
+        r.x = 1
+        r.x
+    })
+}
+
+// A `[&var n]` reborrowed by a nested `[&var n]`.
+func reborrow() -> Int {
+    var n = 0
+    run({ [&var n] in
+        run({ [&var n] in
+            n = n + 1
+            n
+        })
+    })
+}
+
+// A closure's own `&var` parameter, as `with_var_ref` hands one out.
+func parameter_write() -> Int {
+    var x = 1
+    with_var(&var x, { &var e in
+        e = e + 1
+        e
+    })
+}
+
+// A move into a place window, which no closure lowers in source.
+func into_window() -> Int {
+    var slots: Vector<Vector<Res>> = Vector<Vector<Res>>()
+    try! slots.push(Vector<Res>())
+    let h = Res(id: 2)
+    try! slots[0].push(move h)
+    slots[0].len()
+}
+
+// The non-escaping `[move v]` idiom: the body binds a `var` of its own.
+func own_copy() -> Int {
+    let v: Vector<Int> = [1]
+    run({ [move v] in
+        var w = move v
+        try! w.push(2)
+        w.len()
+    })
+}
+
+// A non-escaping closure consumes its `move` capture when the body runs.
+func consume_once() -> Int {
+    let r = Res(id: 3)
+    run({ [move r] in sink(move r) })
+}
+
+// The counter as a borrow of the caller's binding.
+func counter() -> Int {
+    var v: Vector<Int> = [1]
+    let a = run({ [&var v] in
+        v[0] = v[0] + 1
+        v[0]
+    })
+    a + v[0]
+}
+
+func main() {
+}

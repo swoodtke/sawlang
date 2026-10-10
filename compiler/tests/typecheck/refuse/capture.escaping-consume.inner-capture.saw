@@ -1,0 +1,24 @@
+// refuses: capture.escaping-consume at 22:16
+// an inner closure's `[move r]` takes the escaping outer closure's own capture
+// out of its environment, though the inner closure does not escape (SL-469)
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+func sink(r: Res) -> Int {
+    r.id
+}
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func probe() -> () -> Int {
+    let r = Res(id: 1)
+    return { [move r] in
+        run({ [move r] in sink(move r) })
+    }
+}

@@ -6362,7 +6362,11 @@ func main() {
 ```
 
 `run({ r in move r })` compiles, and a value capture handed on the same way
-(`run_owned({ [move o] in move o })`) does too. What the tail forwards does not
+does too when the closure does not escape: `run_owned({ [move o] in move o })`,
+where `run_owned(body: () sync -> Res)` takes the closure as a non-escaping
+parameter, so the capture transfers when the body runs. An escaping closure may
+not hand on a capture at all; see "An escaping closure never consumes a
+capture" in [Concurrency](#6-concurrency). What the tail forwards does not
 change the rule: a by-value parameter, a value capture, a local of the body, a
 `&var` parameter, a borrow capture, and a field of an owned binding are judged
 alike. Two of those have no `move` spelling. Moving out of a borrowed binding is
@@ -7347,31 +7351,80 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   ```
 
   Running one such body twice panics rather than taking a value that has already
-  left. An **escaping** closure keeps the creation-time transfer described above.
-- **Assigning to a by-value capture is a compile error** (design 132). The env
-  above is immutable, and at body entry every plain / `move` / `copy` capture is
-  loaded out of it into a per-call local. A write to one therefore lands on that
-  local and is gone when the call returns, so the checker rejects it instead:
+  left. An **escaping** closure keeps the creation-time transfer described above,
+  and its body may not consume what it took (below).
+- **Captures are `let`.** A plain, `move` or `copy` capture is an immutable
+  binding inside the closure's body, in every closure, escaping or not. The
+  only way a closure changes state outside its body is a borrow capture,
+  `[&var x]`, which only a closure passed directly to a non-escaping parameter
+  may take. Every write shape is refused on a by-value capture: `x = v`,
+  `x += v`, `x.f = v`, `x.0 = v`, `v[i] = y`, a `&var self` method call such as
+  `v.push(1)` or `o.take()`, and `&var x`.
 
   ```saw-error
-  // error-contains: cannot assign to `n`: it is captured by
+  // error-contains: cannot assign to `n`
   func make_counter() -> () -> Int {
       var n = 0
       { n = n + 1        // error: cannot assign to `n`: it is captured by
-        n }              //        value, so the write would be discarded
-  }                      //        when the closure returns
+        n }              //        value
+  }
   ```
 
-  The diagnostic names the two spellings that do reach real storage. `[&var n]`
-  captures by borrow, legal in a closure passed directly to a non-escaping
-  parameter, where the env holds a pointer into the live frame. `Arc<Mutex<T>>`
-  is the answer for a closure that outlives the frame, since the state is then
-  shared rather than captured. Reading a by-value capture is untouched, as are
-  a closure's own locals and params, a `&var` closure parameter, and a write
-  through a capture whose type is already a reference. The rule covers the
-  whole path into the captured value — `x = v`, `x += v`, `x.f = v`, `x.0 = v`,
-  a fixed-array element — but not an index into a heap-backed container such as
-  `Vector`, whose buffer the copy shares with the original.
+  An index into a heap-backed container gets no exception. Copies of an
+  escaping closure share one environment, so a write through a `Vector` capture
+  would be seen by every copy:
+
+  ```saw-fragment
+  func make() -> () -> Int {
+      var v: Vector<Int> = [1]
+      return { [move v] in
+          v[0] = v[0] + 1      // error: `v` is captured by value, which makes
+          v[0]                 //        it a `let` in the closure's body
+      }
+  }
+  // Without the rule, `let g = f` followed by f(), g(), f() would print 2, 3, 4.
+  ```
+
+  Three spellings change state on purpose. In a closure that does not escape,
+  `[&var v]` writes the caller's binding, and a body that wants a value of its
+  own binds one: `{ [move v] in var w = move v; try! w.push(1); w.len() }`.
+  An escaping closure keeps no mutable captured state at all; state that has to
+  change across calls is shared, as an `Arc<Mutex<T>>` the closure captures and
+  changes under the lock.
+
+  Writes that reach storage a capture does not hold are untouched. A `&self`
+  method of an interior cell (`Mutex.lock`, the `Atomic` operations) borrows
+  shared, so it is legal on a by-value capture. So is a write through a
+  capture whose type is already a reference, through a closure's own `&var`
+  parameter, and to a closure's own locals. A by-value capture is judged
+  exactly as a `let` of its type would be, so its one unsafe allowance is a
+  `let`'s: a write to a captured raw pointer's pointee (`p[0] = v`, `*p = v`)
+  stays legal. A `&var self` method of a captured unsafe-typed value, such as
+  an `UnsafeRef`'s `deref()`, is refused as it is on a `let`.
+- **An escaping closure never consumes a capture.** Its environment is shared
+  by every copy of the closure and outlives each call, so a value taken out of
+  it on one call would still be there for the next call, for the other copies,
+  and for the environment's own teardown. A consuming use of a by-value capture
+  in an escaping body is therefore a compile error: a `move` of it into an
+  argument, a tail or a `return`, a `consumes` method call on it, a
+  destructuring, a move into a field or a constructed value, a `match` that
+  consumes it, and an inner closure's `[move x]` of it. The rule holds at every
+  copy tier; for a `Copy` capture, drop the `move`, since reading it copies.
+
+  ```saw-fragment
+  func later(r: Res) -> () -> Int {
+      return { [move r] in sink(move r) }
+      // error: this `move` takes `r` out of an escaping closure's environment
+  }
+  ```
+
+  The diagnostic names the spellings that work: pass the value to the closure
+  as a parameter; pass the closure straight to a non-escaping parameter, where a
+  `[move r]` capture transfers when the body runs; or, for a value an escaping
+  closure consumes at most once across its calls, capture an
+  `Arc<Mutex<T?>>` and `take()` the value under the lock. A `Thread.spawn`
+  brace is exempt: its capture list is its parameter list and its body runs
+  once (see [The spawn brace's capture list](#the-spawn-braces-capture-list)).
 - **A closure satisfies the generic `Copy` bound** (design 77 DF-C2). Because an
   escaping closure is `Copy`, a container element type of closures is
   copyable: `Vector<() -> Int>` is `ExplicitCopy`, and `.copy()`/`.get()` each

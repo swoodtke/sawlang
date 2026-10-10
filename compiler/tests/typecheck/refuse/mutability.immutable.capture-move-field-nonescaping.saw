@@ -1,0 +1,20 @@
+// refuses: mutability.immutable at 17:9
+// writing a field of a `[move p]` capture, in a closure passed straight to a
+// non-escaping parameter: a by-value capture is a `let` in the closure's body
+// (SL-472)
+
+struct P {
+    x: Int
+}
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func probe() -> Int {
+    var p = P(x: 1)
+    run({ [move p] in
+        p.x = 2
+        p.x
+    })
+}

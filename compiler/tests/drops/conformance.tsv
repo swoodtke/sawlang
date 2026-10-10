@@ -4,7 +4,6 @@
 # A count changes only on purpose: review the program's dump, then this line.
 row	path	summary	reading
 V25	tests/corpus/conformance/V25_implicitcopy_deinit_once.saw	drops 2, flags 0	each Copy-tier value has one static drop; the copy's retain is glue (§3.8)
-V49	tests/corpus/closure_escaping_move_capture_consumed_once.saw	drops 2, flags 0	the escaping environment's one drop is placed; the body's move out of the environment and the environment's glue are DF-255a's shape, still open in the MIR
 V56	tests/corpus/conformance/V56_consuming_body_replaces_deinit_body.saw	drops 8, flags 0	a consumed receiver is released field by field, statically; `self = v` drops the old referent whole, through its deinit
 V63	tests/corpus/conformance/V63_owned_match_still_consumes.saw	drops 8, flags 0	every consuming match dissolves its scrutinee; each part's drop is static
 V71	tests/corpus/conformance/V71_borrowed_closure_binding_fence_is_narrow.saw	drops 6, flags 0	each value is dropped once, statically, in reverse declaration order

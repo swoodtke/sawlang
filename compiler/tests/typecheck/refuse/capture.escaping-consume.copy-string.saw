@@ -1,0 +1,9 @@
+// refuses: capture.escaping-consume at 8:26
+// an escaping closure moving its `[copy s]` capture of a `String` out: every
+// by-value capture belongs to the environment, and a Copy-tier one is read,
+// which copies it (SL-469)
+
+func probe() -> () -> String {
+    let s = "x"
+    return { [copy s] in move s }
+}

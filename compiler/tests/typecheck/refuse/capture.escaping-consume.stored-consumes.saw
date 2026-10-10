@@ -1,0 +1,27 @@
+// refuses: capture.escaping-consume at 25:10
+// A closure stored in a struct's field consumes its `[move r]` capture by
+// calling a `consumes` method on it: the environment is shared by every copy
+// of the closure and outlives each call (SL-469)
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+extension Res {
+    func close(&var self) consumes -> Int {
+        self.id
+    }
+}
+
+struct Keeper {
+    f: () -> Int
+}
+
+func probe() -> Keeper {
+    let r = Res(id: 1)
+    Keeper(f: { [move r] in
+        (move r).close()
+    })
+}

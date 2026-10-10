@@ -1,0 +1,235 @@
+// What an escaping closure's body may do with what it captured by value: read
+// it, never consume it. The environment is shared by every copy of the
+// closure and outlives each call, so a value taken out of it on one call is
+// still there for the next call and for the environment's own teardown
+// (SL-469). A closure that does not escape keeps its transfer-when-run rule.
+
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.model.{ResBindKind}
+import sawtypecheck.src.bodies.{tc_check_bodies}
+import sawtypecheck.src.checks.{tc_check_unsafe}
+import sawtypecheck.src.model.{TcUse}
+import sawtypecheck.src.mutability.{tc_check_mutability}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.typeops.{TcClient}
+
+// Refuses each consuming use of a by-value capture in a closure that
+// escapes, once every closure's captures are settled.
+public func tc_check_escaping_consumes(p: &var TcProgram) {
+    p.check_escaping_consumes()
+}
+
+extension TcProgram {
+    // The consuming uses of a capture: a spelled `move` of it, wherever the
+    // value goes (an argument, a tail or `return`, a `consumes` receiver, a
+    // destructuring, a field or a constructor), a `match` that consumes an
+    // owned capture, and an inner closure's `[move x]` of it. Each is judged
+    // against the innermost closure that captured the binding: an inner
+    // closure's by-value capture is a value of its own. A spawn form's brace
+    // is exempt (`spawn_brace`).
+    public func check_escaping_consumes(&var self) {
+        if self.closures.len() == 0 {
+            return
+        }
+        let n = self.res.nodes.len()
+        var parents = Vector<Int>()
+        var k = 0
+        while k < n {
+            try! parents.push(-1)
+            k = k + 1
+        }
+        k = 0
+        while k < n {
+            let count = self.child_count(k)
+            var j = 0
+            while j < count {
+                let c = self.child(k, j)
+                parents[c] = k
+                j = j + 1
+            }
+            k = k + 1
+        }
+        let skipped = self.outside_slice_marks(n)
+        k = 0
+        while k < n {
+            let at = k
+            k = k + 1
+            if self.expr_use[at] != TcUse.Move || skipped[at] {
+                continue
+            }
+            let binding = self.consumed_binding(at)
+            if binding < 0 {
+                continue
+            }
+            let start = parents[at]
+            let closure = self.escaping_capturer(start, binding, &parents)
+            if closure >= 0 && not self.spawn_brace(closure, &parents) {
+                let up = parents[at]
+                if up >= 0 && self.has_alt(up, Alt.Expr_Move_Place) {
+                    self.refuse_escaping_consume(up, TcConsume.Move, binding)
+                } else {
+                    self.refuse_escaping_consume(at, TcConsume.Match, binding)
+                }
+            }
+        }
+        k = 0
+        while k < self.captures.len() {
+            let cap = self.captures[k]
+            k = k + 1
+            if cap.use != TcUse.Move || not cap.explicit || skipped[cap.site] {
+                continue
+            }
+            let start = parents[cap.closure]
+            let closure = self.escaping_capturer(start, cap.binding, &parents)
+            if closure >= 0 && not self.spawn_brace(closure, &parents) {
+                self.refuse_escaping_consume(cap.site, TcConsume.Capture, cap.binding)
+            }
+        }
+    }
+
+    // Whether closure `e` is the brace written as a `Thread.spawn` or
+    // `Task.spawn` form's argument. Its capture list is the body's parameter
+    // list and the body runs once (design 242), so it may consume what it
+    // captured. The form takes only a brace, never a closure value.
+    func spawn_brace(&self, e: Int, parents: &Vector<Int>) -> Bool {
+        var call = parents[e]
+        if call >= 0 && (self.has_alt(call, Alt.Expr_Argument_Positional) || self.has_alt(call, Alt.Expr_Argument_Labelled)) {
+            call = parents[call]
+        }
+        if call < 0 || not self.is_call_alt(call) {
+            return false
+        }
+        let callee = self.res.first_node_child(call)
+        if callee < 0 || callee == e || not self.has_alt(callee, Alt.Expr_Member) {
+            return false
+        }
+        let base = self.res.first_node_child(callee)
+        if base < 0 || not self.has_alt(base, Alt.Expr_Name) {
+            return false
+        }
+        let m = self.node_module(callee)
+        let head = self.text(m, base)
+        let last = self.res.last_leaf_of(callee)
+        let member = self.text(m, last)
+        member.equals("spawn") && (head.equals("Thread") || head.equals("Task"))
+    }
+
+    // The local binding a consumed place takes whole: a name, `self`, or the
+    // binding behind `move o!`; -1 for anything else.
+    func consumed_binding(&self, e: Int) -> Int {
+        var at = e
+        while at >= 0 && (self.has_alt(at, Alt.Expr_Paren) || self.has_alt(at, Alt.Expr_Force)) {
+            at = self.res.first_node_child(at)
+        }
+        if at < 0 {
+            return -1
+        }
+        if self.has_alt(at, Alt.Expr_Self) {
+            let b = self.binding_at(at)
+            return if b.kind == ResBindKind.Local { b.node } else { -1 }
+        }
+        if self.has_alt(at, Alt.Expr_Name) || self.has_alt(at, Alt.Expr_NameRef) {
+            let leaf = self.res.first_leaf(at)
+            let b = self.binding_at(leaf)
+            return if b.kind == ResBindKind.Local { b.node } else { -1 }
+        }
+        return -1
+    }
+
+    // The innermost closure at or above node `start` that captured the
+    // binding declared at `binding`, when it escapes and captured it by
+    // value; -1 otherwise.
+    func escaping_capturer(&var self, start: Int, binding: Int, parents: &Vector<Int>) -> Int {
+        if binding < 0 {
+            return -1
+        }
+        let declared = self.res.nodes[binding]
+        var at = start
+        while at >= 0 {
+            let found = self.closure_index.first(at, 0)
+            if found >= 0 {
+                let span = self.res.nodes[at]
+                if declared.start >= span.start && declared.end <= span.end {
+                    return -1
+                }
+                let ordinal = self.closure_index.value(found)
+                let c = self.capture_at(ordinal, binding)
+                if c < 0 || ordinal >= self.closure_escaping.len() || not self.closure_escaping[ordinal] {
+                    return -1
+                }
+                let cap = self.captures[c]
+                if cap.use == TcUse.Move {
+                    return at
+                }
+                // An implicit capture that does not copy silently is already
+                // `transfer.implicit-copy`'s refusal.
+                if cap.use == TcUse.Copy && (cap.explicit || cap.ty < 0 || self.has_error(cap.ty) || self.copies_silently(cap.ty)) {
+                    return at
+                }
+                return -1
+            }
+            at = parents[at]
+        }
+        return -1
+    }
+
+    // The index in `captures` of the closure with ordinal `k`'s capture of
+    // the binding declared at `binding`, or -1 when it did not capture it.
+    func capture_at(&self, k: Int, binding: Int) -> Int {
+        if k >= self.capture_first.len() {
+            return -1
+        }
+        let first = self.capture_first[k]
+        var j = 0
+        while j < self.capture_count[k] {
+            if self.captures[first + j].binding == binding {
+                return first + j
+            }
+            j = j + 1
+        }
+        return -1
+    }
+
+    func refuse_escaping_consume(&var self, site: Int, how: TcConsume, binding: Int) {
+        let name = self.capture_name(binding)
+        let t = self.local_types[binding]
+        var msg = StringBuilder()
+        match how {
+            case Move -> {
+                try! msg.append("this `move` takes `")
+            },
+            case Match -> {
+                try! msg.append("this `match`, which consumes the owned value it matches, takes `")
+            },
+            case Capture -> {
+                try! msg.append("`[move ")
+                try! msg.append(name)
+                try! msg.append("]` takes `")
+            }
+        }
+        try! msg.append(name)
+        try! msg.append("` out of an escaping closure's environment, which every copy of the closure shares and which outlives each call, so the body reads what it captured and never consumes it: ")
+        if t >= 0 && not self.has_error(t) && self.copies_silently(t) {
+            try! msg.append("drop the `move`, since reading `")
+            try! msg.append(name)
+            try! msg.append("` copies it")
+        } else {
+            try! msg.append("pass the value to the closure as a parameter; or pass the closure straight to a parameter that does not escape, where `[move ")
+            try! msg.append(name)
+            try! msg.append("]` transfers the value when the body runs; or, for a value the closure consumes at most once across its calls, capture an `Arc<Mutex<T?>>` and `take()` the value under the lock")
+        }
+        let m = self.node_module(site)
+        self.refuse_in(m, site, "capture.escaping-consume", msg.build())
+    }
+}
+
+// How a body consumes a capture.
+enum TcConsume {
+    // A spelled `move` of it.
+    case Move,
+    // A `match` on it, which consumes an owned value.
+    case Match,
+    // An inner closure's `[move x]` of it.
+    case Capture
+}

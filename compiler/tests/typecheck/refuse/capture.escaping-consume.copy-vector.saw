@@ -1,0 +1,13 @@
+// refuses: capture.escaping-consume at 12:32
+// an escaping closure moving its `[copy v]` capture of a `Vector` into an
+// argument: a copy capture is as much the environment's as a move capture
+// (SL-469)
+
+func total(v: Vector<Int>) -> Int {
+    v.len()
+}
+
+func probe() -> () -> Int {
+    let v: Vector<Int> = [1, 2]
+    return { [copy v] in total(move v) }
+}

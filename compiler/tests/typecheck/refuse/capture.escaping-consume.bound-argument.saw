@@ -1,0 +1,22 @@
+// refuses: capture.escaping-consume at 19:14
+// A closure bound to a `let`, which escapes consumes its `[move r]` capture by
+// moving it into an argument: the environment is shared by every copy of the
+// closure and outlives each call (SL-469)
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+func sink(r: Res) -> Int {
+    r.id
+}
+
+func probe() -> Int {
+    let r = Res(id: 1)
+    let f: () -> Int = { [move r] in
+        sink(move r)
+    }
+    f()
+}

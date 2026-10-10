@@ -1,0 +1,32 @@
+// refuses: mutability.immutable at 29:9
+// a `&var self` method through a `[move h]` capture of an `UnsafeRef`: a
+// capture is judged exactly as a `let` of its type, so `h.deref()` opens no
+// exclusive window, as on a `let h` (SL-472)
+
+import std.compiler.frame.{UnsafeRef}
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func bump(&var self) {
+        self.n = self.n + 10
+    }
+}
+
+func run_int(body: () sync -> Int) -> Int {
+    body()
+}
+
+func mint(c: &var Counter) unsafe -> UnsafeRef<Counter> {
+    UnsafeRef<Counter>(p: (&c) as UnsafePointer<Counter>)
+}
+
+func through_capture(c: &var Counter) unsafe -> Int {
+    var h = mint(&var c)
+    run_int({ [move h] in
+        h.deref().bump()
+        1
+    })
+}
