@@ -19,6 +19,15 @@ CLAUDE.md says only 'LANGUAGE_SPEC.md is authoritative for meaning'. Today two c
 
 **D2–D21 were all accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. Nothing in this section is waiting for review.
 
+### D28. "`&self` is read-only all the way down" stops at a raw pointer's pointee (Oct 9; SL-479, the spec rewrite agent's open question 1)
+SL:borrowing §9 retires design 200's heap carve-out: a `&self` body may not write storage the receiver reaches, `self.rows[0].push(9)` included. §9 doesn't say whether that covers a write through an `UnsafePointer` field.
+
+**Decided:** it doesn't. A write through a raw pointer writes the pointee, not the receiver, and the receiver's type is what declared the pointer unsafe. This matches the SL-472 capture rule, where the only unsafe allowance is a raw pointer's pointee, and sawc2's K150 row. std's `Task.cancel` relies on it. The LANGUAGE_SPEC rewrite (SL-479) states it this way.
+
+**Rejected:** refusing the write, which would force every std type over a raw buffer to take `&var self` for an interior write it guards itself.
+
+**Reversal:** refuse a write through a pointer reached from a `&self` receiver, and give std's `&self` writers through pointers `&var self` receivers.
+
 ### D27. A getitem in a generic body is an inferred `Copy` requirement, not a definition-site refusal (Oct 9; batch B1, SL-467 row P12; the agent's m405)
 `let s = self.slots[i]` in a method of `Holder<K>`, where `slots: Vector<Slot<K>>` and `K` is unbounded. Two texts disagreed:
 - **LANGUAGE_SPEC** (design 219) says a read out of storage the body does not own ("a field, a tuple element, an indexed place") is always a duplicate, so it is an inferred `Copy` requirement checked at each call site.
