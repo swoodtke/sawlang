@@ -1,0 +1,15 @@
+// refuses: transfer.no-move at 14:14
+// a `NoMove` binding moved into a consuming call's receiver, conformance row
+// V53 (SL-467)
+
+struct Pinned { n: Int }
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+extension Pinned {
+    func finish(&var self) consumes -> Int { self.n }
+}
+
+func main() {
+    var p = Pinned(n: 1)
+    let n = (move p).finish()
+}

@@ -18,7 +18,6 @@ tests/corpus/errors/window_acquire_mutating_argument.saw	accepts	owned	slice.not
 tests/corpus/errors/window_conflicts.saw	accepts	owned	slice.not-yet: TaskGroup.spawn
 tests/corpus/exclusivity_erased_and_generic_receivers.saw	accepts	owned	slice.not-yet: a method call on an existential
 tests/corpus/map_each_mutate_error.saw	accepts	owned	result.discarded, a migration artifact; with the discard spelled, loan.closure-carrier refuses the capture beside `each`'s receiver
-tests/corpus/place_enum_payload_lend.saw	refuses	mir-bug	slice.not-yet refuses the program first; the lowering also moves a matched borrow binding's referent into a temporary (`_14 = move (*_13)`), so `lend r` lends that temporary, which lend.root refuses (reported to the lead)
 tests/corpus/set_each_mutate_error.saw	accepts	owned	result.discarded, a migration artifact; with the discard spelled, loan.closure-carrier refuses the capture beside `each`'s receiver
 tests/corpus/spawn_capture_alias.saw	accepts	owned	slice.not-yet: TaskGroup.spawn
 tests/corpus/spawn_capture_caller_alias.saw	accepts	owned	slice.not-yet: TaskGroup.spawn

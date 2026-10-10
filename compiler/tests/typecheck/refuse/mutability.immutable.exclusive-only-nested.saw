@@ -1,0 +1,28 @@
+// refuses: mutability.immutable at 27:13
+// a window nested in a window, each through a `&var self` accessor with no
+// shared twin, read on a `let` root (SL-470)
+
+struct Bag {
+    cells: [Int; 4]
+}
+
+extension Bag {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+struct Outer {
+    inner: Bag
+}
+
+extension Outer {
+    func bag(&var self) borrows -> &var Bag {
+        lend self.inner
+    }
+}
+
+func main() {
+    let out = Outer(inner: Bag(cells: [1, 2, 3, 4]))
+    let w = out.bag()[1]
+}

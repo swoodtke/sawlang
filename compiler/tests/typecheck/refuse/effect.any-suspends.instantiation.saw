@@ -22,7 +22,7 @@ extension Person: Greeter {
 func shout(g: &any Greeter) -> Int { 1 }
 
 func relay<T: Greeter>(t: &T) -> Int {
-    shout(t)
+    shout(&t)
 }
 
 func main() {

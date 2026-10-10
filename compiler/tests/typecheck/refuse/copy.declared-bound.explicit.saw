@@ -1,0 +1,13 @@
+// refuses: copy.declared-bound at 5:6
+// a declared `ExplicitCopy` bound the body exceeds by copying with nothing
+// written, conformance row V46 (SL-467)
+
+func exceeds<T: ExplicitCopy>(x: T) -> Int {
+    let a = x
+    let b = x
+    2
+}
+
+func main() {
+    let n = exceeds<Int>(2)
+}

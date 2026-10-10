@@ -1,0 +1,21 @@
+// refuses: mutability.immutable at 20:13
+// a get-shaped conditional lend through a `&var self` accessor with no
+// shared twin, read through `!` on a `let` root (SL-470)
+
+struct Bag {
+    cells: [Int; 4]
+}
+
+extension Bag {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        if i < 0 || i >= 4 {
+            return None
+        }
+        lend self.cells[i]
+    }
+}
+
+func main() {
+    let b = Bag(cells: [1, 2, 3, 4])
+    let o = b.find(1)!
+}

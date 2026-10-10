@@ -1,0 +1,57 @@
+(Module indexed_place_requirement
+  (declarations
+    (struct Res 5:8 private)
+    (field Res.name 5:14 private String)
+    (enum Slot 7:6 private (generics (K)))
+    (case Slot.Empty 7:21)
+    (case Slot.Occupied 7:33 (payload (key K)))
+    (struct Holder 9:8 private (generics (K)))
+    (field Holder.slots 9:20 private std.vector.Vector<indexed_place_requirement.Slot<K>, std.alloc.GlobalAllocator>)
+    (extension 11:1 (target indexed_place_requirement.Holder<K>) (conforms NoCopy))
+    (extension 13:1 (target indexed_place_requirement.Holder<K>))
+    (method Holder.tag_at 14:10 private (signature (receiver shared) (params (i Int owned)) -> Int) (summary body (suspends no) (sync-callable yes) (copy K)))
+    (func main 23:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (indexed_place_requirement.Res
+      (field name String private declared)
+      (method deinit public (synthesized Deinit)))
+    (indexed_place_requirement.Slot
+      (case Empty private declared)
+      (case Occupied private declared)
+      (method deinit public (synthesized Deinit)))
+    (indexed_place_requirement.Holder
+      (field slots std.vector.Vector<indexed_place_requirement.Slot<K>, std.alloc.GlobalAllocator> private declared)
+      (method tag_at private (extension indexed_place_requirement))
+      (method deinit public (synthesized Deinit))))
+  (views
+    (indexed_place_requirement.Res name deinit)
+    (indexed_place_requirement.Slot Empty Occupied deinit)
+    (indexed_place_requirement.Holder slots tag_at deinit))
+  (conformances
+    (indexed_place_requirement.Holder NoCopy 11:22 (deinit implicit)))
+  (copy-tier
+    (indexed_place_requirement.Res Copy)
+    (indexed_place_requirement.Slot (join Copy K))
+    (indexed_place_requirement.Holder NoCopy declared))
+  (bodies
+    (Holder.tag_at 14:10
+      (15:13-15:14 BindingName indexed_place_requirement.Slot<K> place temp)
+      (15:17-15:30 Subscript.single indexed_place_requirement.Slot<K> place copy (getitem std.vector.Vector.[](index: Int) derived (owner std.vector.Vector<indexed_place_requirement.Slot<K>, std.alloc.GlobalAllocator>)))
+      (15:17-15:27 Member std.vector.Vector<indexed_place_requirement.Slot<K>, std.alloc.GlobalAllocator> (borrow &std.vector.Vector<indexed_place_requirement.Slot<K>, std.alloc.GlobalAllocator>) place borrow)
+      (15:17-15:21 SelfExpr indexed_place_requirement.Holder<K> place project)
+      (15:28-15:29 Name Int place copy)
+      (16:9-19:10 Match Int value temp)
+      (16:15-16:16 Name indexed_place_requirement.Slot<K> place test)
+      (17:18-17:23 NamePat indexed_place_requirement.Slot<K> value test (case indexed_place_requirement.Slot.Empty (owner indexed_place_requirement.Slot<K>)))
+      (17:27-17:28 IntLit Int value temp)
+      (18:18-18:29 VariantPat indexed_place_requirement.Slot<K> value test (case indexed_place_requirement.Slot.Occupied (owner indexed_place_requirement.Slot<K>)))
+      (18:27-18:28 WildcardPat K value test)
+      (18:33-18:34 IntLit Int value temp))
+    (main 23:6
+      (24:9-24:10 BindingName indexed_place_requirement.Holder<indexed_place_requirement.Res> place temp)
+      (24:13-24:52 Call.paren indexed_place_requirement.Holder<indexed_place_requirement.Res> value temp (memberwise indexed_place_requirement.Holder (owner indexed_place_requirement.Holder<indexed_place_requirement.Res>)))
+      (24:32-24:51 Call.paren std.vector.Vector<indexed_place_requirement.Slot<indexed_place_requirement.Res>, std.alloc.GlobalAllocator> value temp (call std.vector.Vector.init() (owner std.vector.Vector<indexed_place_requirement.Slot<indexed_place_requirement.Res>, std.alloc.GlobalAllocator>)))
+      (25:5-25:23 Call.paren Void value temp (builtin print))
+      (25:11-25:22 Call.paren Int value borrow (call indexed_place_requirement.Holder.tag_at(i: Int) (owner indexed_place_requirement.Holder<indexed_place_requirement.Res>)))
+      (25:11-25:12 Name indexed_place_requirement.Holder<indexed_place_requirement.Res> (borrow &indexed_place_requirement.Holder<indexed_place_requirement.Res>) place borrow)
+      (25:20-25:21 IntLit Int value temp))))

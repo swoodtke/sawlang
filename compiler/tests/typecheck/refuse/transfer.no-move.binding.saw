@@ -1,0 +1,18 @@
+// refuses: transfer.no-move at 17:17
+// a `NoMove` value moved into another binding, and a generic instance that
+// holds one inline, which is `NoMove` itself (SL-467)
+
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {}
+extension Anchor: NoMove {}
+
+struct Wrap<T> { v: T }
+extension Wrap<T>: NoCopy {}
+
+func main() {
+    var w = Wrap<Anchor>(v: Anchor(n: 1))
+    var moved = move w
+}

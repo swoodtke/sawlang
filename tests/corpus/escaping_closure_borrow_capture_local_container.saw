@@ -17,7 +17,7 @@
 
 func build(n: &Int) -> Vector<() sync -> Int> {
     var fns = Vector<() sync -> Int>()
-    fns.push({ n * 2 })
+    try! fns.push({ n * 2 })
     move fns
 }
 

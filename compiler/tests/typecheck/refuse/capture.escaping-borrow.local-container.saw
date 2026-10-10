@@ -1,0 +1,14 @@
+// refuses: capture.escaping-borrow at 7:21
+// a borrow-capturing closure stored into a local container whose element
+// type a constructor's type argument writes, conformance row R44 (SL-467)
+
+func build(n: &Int) -> Vector<() sync -> Int> {
+    var fns = Vector<() sync -> Int>()
+    try! fns.push({ n * 2 })
+    move fns
+}
+
+func main() {
+    var local = 21
+    let fns = build(&local)
+}

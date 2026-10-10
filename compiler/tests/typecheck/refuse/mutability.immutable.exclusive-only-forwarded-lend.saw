@@ -1,0 +1,27 @@
+// refuses: mutability.immutable at 22:14
+// a `&self` accessor forwarding its lend through an inner `&var self`
+// accessor with no shared twin: the inner window borrows `self` exclusively,
+// which a shared receiver does not allow (SL-470)
+
+struct Bag {
+    cells: [Int; 4]
+}
+
+extension Bag {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+struct Outer {
+    inner: Bag
+}
+
+extension Outer {
+    func at(&self, i: Int) borrows -> &Int {
+        lend self.inner[i]
+    }
+}
+
+func main() {
+}

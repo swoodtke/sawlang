@@ -82,9 +82,10 @@
       (56:5-56:17 Call.paren Int value temp (builtin len))
       (56:5-56:11 Name &[Int] place borrow))
     (apply 59:6
-      (60:5-60:9 Call.paren R value temp (value (owner (&Int) sync -> R)))
+      (60:5-60:10 Call.paren R value temp (value (owner (&Int) sync -> R)))
       (60:5-60:6 Name (&Int) sync -> R place borrow)
-      (60:7-60:8 Name &Int place copy))
+      (60:7-60:9 Ref.shared &Int value temp)
+      (60:8-60:9 Name &Int (deref Int) place borrow))
     (first 63:6
       (64:5-64:6 IntLit Int value temp))
     (address 67:6

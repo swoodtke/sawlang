@@ -21,7 +21,7 @@
 // EXPECT-ERROR-CONTAINS: escaping closure cannot capture
 
 func stash(out: &var Vector<() sync -> Int>, n: &Int) {
-    out.push({ n * 2 })
+    try! out.push({ n * 2 })
 }
 
 func build() -> Vector<() sync -> Int> {

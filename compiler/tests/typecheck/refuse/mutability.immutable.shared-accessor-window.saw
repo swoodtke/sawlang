@@ -1,0 +1,29 @@
+// refuses: mutability.immutable at 23:9
+// a `&self` `borrows` body writing through a window it opens on `self`:
+// its receiver is a shared borrow, which every caller may hold beside
+// another, conformance row M33 (SL:borrowing §3)
+
+struct Tally {
+    cells: [Int; 2]
+}
+
+extension Tally {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+struct Log {
+    tally: Tally,
+    slots: [Int; 2]
+}
+
+extension Log {
+    func at(&self, i: Int) borrows -> &Int {
+        self.tally[0] += 1
+        lend self.slots[i]
+    }
+}
+
+func main() {
+}

@@ -57,7 +57,7 @@ func sizes(a: &Int, b: &var Int, values: &[Int], shape: &any Shape, alias: IntRe
 }
 
 func apply<R>(n: &Int, f: (&Int) sync -> R) -> R {
-    f(n)
+    f(&n)
 }
 
 func first<T>(x: &T) -> Int {

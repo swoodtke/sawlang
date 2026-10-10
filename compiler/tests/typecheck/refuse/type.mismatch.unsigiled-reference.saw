@@ -1,0 +1,13 @@
+// refuses: type.mismatch at 9:15
+// a reference binding passed to a reference parameter with no sigil: the
+// read gives its value, and the call site spells the parameter's `&`
+// (spec, Reference forwarding)
+
+func takes_ref(r: &Int) -> Int { r + 0 }
+
+func forward(p: &Int) -> Int {
+    takes_ref(p)
+}
+
+func main() {
+}

@@ -1,0 +1,64 @@
+// A reference binding read by value gives its referent's value at every
+// position that builds or passes a value: a tuple, array, collection and map
+// element, a construction's field, an enum payload, an auto-wrap, an
+// interpolation segment and a format argument, a value branch's arm, a tail
+// and a `return`, a by-value argument, and a generic argument, which infers
+// the referent. A reference parameter takes the reference forwarded with its
+// sigil, and a receiver's sigil is implicit (SL-474).
+
+struct Pair { a: Int, b: Int }
+
+enum Shape { case Dot(at: Int), case Empty }
+
+struct Meter { n: Int }
+
+extension Meter {
+    func read(&self) -> Int { self.n }
+    func plus(&self, r: &Int) -> Int { r + self.n }
+}
+
+func id<T>(x: T) -> T { x }
+
+func takes_int(n: Int) -> Int { n }
+
+func takes_ref(r: &Int) -> Int { r + 0 }
+
+func bump(r: &var Int) { r += 1 }
+
+func positions(p: &Int, q: &var Int, m: &Meter, flag: Bool) -> Int {
+    let t = (p, 1)
+    let arr = [p, 2]
+    let v: Vector<Int> = [p, 3]
+    let table = {p: 4}
+    let s = Pair(a: p, b: 5)
+    let d = Shape.Dot(at: p)
+    let o: Int? = p
+    let w = if flag { p } else { q }
+    let k = match flag {
+        case true -> p,
+        case false -> q
+    }
+    print("{p} {t.0} {arr[0]} {s.a} {w} {k}")
+    print("p = {}", p)
+    let i = id(p)
+    let n = takes_int(p)
+    let r = takes_ref(&p)
+    bump(&var q)
+    t.0 + arr[1] + i + n + r + m.read() + m.plus(&p) + table.len() + v.len()
+}
+
+func tail(p: &Int) -> Int {
+    p
+}
+
+func ret(p: &Int) -> Int {
+    return p
+}
+
+func main() {
+    var x = 7
+    var y = 1
+    let m = Meter(n: 2)
+    print(positions(&x, &var y, &m, true))
+    print(tail(&x) + ret(&x))
+}

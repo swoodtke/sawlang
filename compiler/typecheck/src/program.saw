@@ -170,6 +170,21 @@ public struct TcProgram {
     // The exclusive twin the overload filter set aside when it chose a
     // shared accessor, for the call being resolved; -1 for none.
     public chosen_twin: Int
+    // The latest member lookup's first entry dropped because its declaring
+    // extension's bounds fail for the receiver, and that receiver's type; -1
+    // for none (`members_for`).
+    public unmet_member: Int
+    public unmet_owner: Int
+    // The value of the placement write `ptr[i] = v` being checked, or -1;
+    // the leaf of every function parameter checked so far; and the ones of
+    // the body being checked that a `&`, `&var` or `borrow` argument has
+    // named so far (design 188's fresh journey).
+    public placement_value: Int
+    // The bindings the closures being walked capture by borrow, `[&x]` or
+    // `[&var x]`, by declaring leaf: inside them a name owns nothing.
+    public borrow_captures: Vector<Int>
+    public param_leaves: Vector<Int>
+    public referenced_params: Vector<Int>
     // The body being checked, and the bodies poisoned by a signature another
     // module's refusal left unformed (SL:architecture §3.0): their error
     // types are that refusal's, not this body's.
@@ -271,7 +286,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       body_roots: Vector<Int>(), body_decls: Vector<Int>(),
                       ext_visible: Vector<Bool>(), body_result: -1, loop_breaks: Vector<Int>(),
                       branch_allow: TcAllowance(optionals: 1, results: 1, erases: false, widens: true),
-                      chosen_twin: -1, current_root: -1, poisoned: Vector<Int>(), borrow_head: -1,
+                      chosen_twin: -1, unmet_member: -1, unmet_owner: -1,
+                      placement_value: -1, borrow_captures: Vector<Int>(), param_leaves: Vector<Int>(), referenced_params: Vector<Int>(), current_root: -1, poisoned: Vector<Int>(), borrow_head: -1,
                       summaries: Vector<TcSummary>(), atoms: Vector<TcAtom>(), units: Vector<TcUnit>(),
                       items: Vector<TcItem>(), decl_unit: Vector<Int>(), summary_deps: res_index(),
                       std_verdicts: res_index(), std_keys: Vector<Int>(), untabled: Vector<Int>(),

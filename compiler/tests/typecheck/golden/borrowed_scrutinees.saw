@@ -1,0 +1,49 @@
+// A `match` on a name that reads through a borrow, a `borrow let` binding, an
+// unwrap binding, a payload binding and a `[&s]` capture, borrows what it
+// names: its payload bindings alias their parts and are read in place, and a
+// Copy payload is copied out (SL-478).
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+
+enum Slot { case Empty, case Occupied(key: Res), case Count(n: Int) }
+extension Slot: NoCopy {}
+
+func run(f: () sync -> Int) -> Int { f() }
+
+func peek(slots: &var Vector<Slot>, i: Int) -> Int {
+    borrow let lent = slots[i] {
+        match lent {
+            case Occupied(k) -> k.n,
+            case Count(n) -> n,
+            case Empty -> 0
+        }
+    }
+}
+
+func unwrapped(slots: &var Vector<Slot>, i: Int) -> Int {
+    if borrow let lent = slots.get(i) {
+        return match lent {
+            case Occupied(k) -> k.n,
+            case Count(n) -> n + 1,
+            case Empty -> 0
+        }
+    }
+    0
+}
+
+func captured(s: Slot) -> Int {
+    run({ [&s] in
+        match s {
+            case Occupied(k) -> k.n,
+            case Count(n) -> n,
+            case Empty -> 0
+        }
+    })
+}
+
+func main() {
+    var slots = Vector<Slot>()
+    try! slots.push(Slot.Count(n: 3))
+    print("{} {} {}", peek(&var slots, 0), unwrapped(&var slots, 0), captured(Slot.Count(n: 4)))
+}

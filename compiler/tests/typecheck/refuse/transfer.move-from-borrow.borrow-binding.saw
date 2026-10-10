@@ -1,0 +1,20 @@
+// refuses: transfer.move-from-borrow at 14:14
+// a `move` of a `borrow let` binding itself, and of a `[&s]` capture: each
+// names a place it only borrows (SL-478)
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+
+func sink(r: Res) -> Int { r.n }
+
+func run(f: () sync -> Int) -> Int { f() }
+
+func take(items: &var Vector<Res>, s: Res) -> Int {
+    let a = borrow let lent = items[0] {
+        sink(move lent)
+    }
+    a + run({ [&s] in sink(move s) })
+}
+
+func main() {
+}

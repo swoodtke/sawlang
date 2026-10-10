@@ -1451,8 +1451,8 @@ errors/with_var_ref_invalidation.saw	manual,expectation-pending	manual.unseen:1,
 errors/withcstring_escape.saw	copied,expectation-pending	-	-
 errors/wrong_args.saw	copied,expectation-pending	-	-
 errors/yield_now_bare_gated.saw	copied,expectation-pending	-	-
-escaping_closure_borrow_capture_local_container.saw	reviewed,expectation-pending	reviewed.unseen:1	-
-escaping_closure_borrow_capture_stored.saw	reviewed,expectation-pending	reviewed.unseen:1	-
+escaping_closure_borrow_capture_local_container.saw	manual,expectation-pending	manual.result-discarded:1,reviewed.unseen:1	push's Result is spelled try!, so the file's first refusal is the escaping borrow it pins (SL-467)
+escaping_closure_borrow_capture_stored.saw	manual,expectation-pending	manual.result-discarded:1,reviewed.unseen:1	push's Result is spelled try!, so the file's first refusal is the escaping borrow it pins (SL-467)
 escaping_on_declaration_rejected.saw	copied,expectation-pending	-	-
 escaping_variance_safe.saw	copied	-	-
 exclusivity_assign_rhs_allowed_shapes.saw	copied	-	-

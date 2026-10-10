@@ -1,0 +1,29 @@
+// refuses: transfer.move-from-borrow at 20:38
+// a payload binding of a borrowed scrutinee matched again: the nested match
+// borrows it too, so its own payload is not moved out (SL-478)
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+
+enum Inner { case Bare, case Held(r: Res) }
+extension Inner: NoCopy {}
+
+enum Slot { case Empty, case Occupied(key: Inner) }
+extension Slot: NoCopy {}
+
+func sink(r: Res) -> Int { r.n }
+
+func take_key(slots: &var Vector<Slot>, i: Int) -> Int {
+    borrow let lent = slots[i] {
+        match lent {
+            case Occupied(k) -> match k {
+                case Held(r) -> sink(move r),
+                case Bare -> 1
+            },
+            case Empty -> 0
+        }
+    }
+}
+
+func main() {
+}

@@ -1,0 +1,12 @@
+// refuses: type.mismatch at 8:10
+// a `&var` binding passed to a `&var` parameter with no sigil; the fix-it
+// names `&var q` (spec, Reference forwarding)
+
+func bump(r: &var Int) { r += 1 }
+
+func forward(q: &var Int) {
+    bump(q)
+}
+
+func main() {
+}

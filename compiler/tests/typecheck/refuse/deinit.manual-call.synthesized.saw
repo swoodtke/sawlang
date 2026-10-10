@@ -1,0 +1,12 @@
+// refuses: deinit.manual-call at 11:7
+// the `deinit` the compiler writes for a struct that owns a `String`, called
+// by hand (SL-467)
+
+struct Named {
+    name: String
+}
+
+func main() {
+    var n = Named(name: "a")
+    n.deinit()
+}

@@ -1,0 +1,39 @@
+// refuses: capture.escaping-borrow at 12:15
+// the store positions beside rows R43 and R44, each refused: a field written
+// through a `&var` parameter, an optional replaced through one, a
+// construction's field, a generic argument, a tuple element and a `Map`'s
+// value (SL-467)
+
+struct Holder { f: () sync -> Int }
+
+func keep<T>(x: T) -> T { x }
+
+func field_store(out: &var Holder, n: &Int) {
+    out.f = { n * 2 }
+}
+
+func optional_store(o: &var (() sync -> Int)?, n: &Int) {
+    o = { n * 2 }
+}
+
+func construct(n: &Int) -> Int {
+    let h = Holder(f: { n * 2 })
+    1
+}
+
+func generic_call(n: &Int) -> Int {
+    let g = keep({ n * 2 })
+    1
+}
+
+func tuple_element(n: &Int) -> Int {
+    let t = ({ n * 2 }, 1)
+    1
+}
+
+func map_insert(m: &var Map<Int, () sync -> Int>, n: &Int) {
+    let _ = m.insert(1, { n * 2 })
+}
+
+func main() {
+}

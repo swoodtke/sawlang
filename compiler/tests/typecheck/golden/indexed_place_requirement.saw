@@ -1,0 +1,26 @@
+// An indexed place read by value in a method of a generic type is accepted at
+// the definition: its copy is an inferred requirement, which a Copy-tier `K`
+// meets at the call (conformance row P12, superseded by design 219; SL-467).
+
+struct Res { name: String }
+
+enum Slot<K> { case Empty, case Occupied(key: K) }
+
+struct Holder<K> { slots: Vector<Slot<K>> }
+
+extension Holder<K>: NoCopy {}
+
+extension Holder<K> {
+    func tag_at(&self, i: Int) -> Int {
+        let s = self.slots[i]
+        match s {
+            case Empty -> 0,
+            case Occupied(_) -> 1
+        }
+    }
+}
+
+func main() {
+    let h = Holder<Res>(slots: Vector<Slot<Res>>())
+    print(h.tag_at(0))
+}

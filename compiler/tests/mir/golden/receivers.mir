@@ -175,8 +175,8 @@ fn receivers.accessor_receiver(g: &var receivers.Grid) -> Void {
 fn receivers.chained(g: &var receivers.Grid) -> Void {
     let _0: Void;  // return
     let _1: &var receivers.Grid;  // param g
-    let _2: &receivers.Inner;
-    let _3: &receivers.Grid;
+    let _2: &var receivers.Inner;
+    let _3: &var receivers.Grid;
     let _4: Int;
     let _5: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
     let _6: &var receivers.Inner;
@@ -184,11 +184,11 @@ fn receivers.chained(g: &var receivers.Grid) -> Void {
     let _8: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
     let _9: Result<Void, std.alloc.AllocError>;
     let _10: Void;
-    window w0: receivers.Grid.cell() shared;
+    window w0: receivers.Grid.cell() exclusive;
     window w1: receivers.Inner.inner(k: Int) exclusive;
 
     bb0: {
-        _3 = ref(shared, (*_1));
+        _3 = ref(exclusive, (*_1));
         _2 = window_open w0 prologue receivers.Grid.cell() (owner receivers.Grid) [move _3] -> [present: bb1];
     }
 
@@ -264,21 +264,21 @@ fn receivers.forced(g: &var receivers.Grid) -> Void {
 fn receivers.keyed(g: &var receivers.Grid) -> Int {
     let _0: Int;  // return
     let _1: &var receivers.Grid;  // param g
-    let _2: &receivers.Inner;
-    let _3: &receivers.Grid;
+    let _2: &var receivers.Inner;
+    let _3: &var receivers.Grid;
     let _4: Int;
-    let _5: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
-    let _6: &receivers.Inner;
+    let _5: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _6: &var receivers.Inner;
     let _7: Int;
     let _8: Int;
     let _9: &Int;
     let _10: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
-    window w0: receivers.Grid.cell() shared;
-    window w1: receivers.Inner.inner(k: Int) shared;
+    window w0: receivers.Grid.cell() exclusive;
+    window w1: receivers.Inner.inner(k: Int) exclusive;
     window w2: std.vector.Vector.[](index: Int) shared;
 
     bb0: {
-        _3 = ref(shared, (*_1));
+        _3 = ref(exclusive, (*_1));
         _2 = window_open w0 prologue receivers.Grid.cell() (owner receivers.Grid) [move _3] -> [present: bb1];
     }
 
@@ -287,7 +287,7 @@ fn receivers.keyed(g: &var receivers.Grid) -> Int {
     }
 
     bb2: {
-        _6 = ref(shared, (*_2));
+        _6 = ref(exclusive, (*_2));
         _5 = window_open w1 prologue receivers.Inner.inner(k: Int) (owner receivers.Inner) [move _6, move _4] -> [present: bb3];
     }
 
@@ -322,13 +322,13 @@ fn receivers.keyed(g: &var receivers.Grid) -> Int {
 fn receivers.indexed(g: &var receivers.Grid) -> Int {
     let _0: Int;  // return
     let _1: &var receivers.Grid;  // param g
-    let _2: &receivers.Inner;
-    let _3: &receivers.Grid;
+    let _2: &var receivers.Inner;
+    let _3: &var receivers.Grid;
     let _4: Int;
-    window w0: receivers.Grid.cell() shared;
+    window w0: receivers.Grid.cell() exclusive;
 
     bb0: {
-        _3 = ref(shared, (*_1));
+        _3 = ref(exclusive, (*_1));
         _2 = window_open w0 prologue receivers.Grid.cell() (owner receivers.Grid) [move _3] -> [present: bb1];
     }
 

@@ -1,0 +1,18 @@
+// refuses: deinit.manual-call at 12:7
+// `deinit` called through a bound that refines `Deinit`, in a generic body,
+// and named as a static (SL-467)
+
+struct Resource {
+    value: Int
+}
+
+extension Resource: NoCopy {}
+
+func finish<T: NoCopy>(x: &var T) {
+    x.deinit()
+}
+
+func main() {
+    var r = Resource(value: 1)
+    Resource.deinit(&var r)
+}

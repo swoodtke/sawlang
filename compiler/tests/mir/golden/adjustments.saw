@@ -81,7 +81,7 @@ func measure(shape: &any Shape) -> Int {
 
 func adjustments(v: &var Vector<Int>, s: &var Square) -> Int {
     let n = total(&v)
-    let m = peek(s)
+    let m = peek(&s)
     s.grow()
     let side = s.side
     let shape = measure(&Square(side: 2))

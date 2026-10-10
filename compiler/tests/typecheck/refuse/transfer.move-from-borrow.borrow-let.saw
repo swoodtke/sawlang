@@ -1,0 +1,23 @@
+// refuses: transfer.move-from-borrow at 16:38
+// a `match` on a `borrow let` binding borrows the place it names, so its
+// payload binding is moved out of storage the owner still ends (SL-478)
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+
+enum Slot { case Empty, case Occupied(key: Res) }
+extension Slot: NoCopy {}
+
+func sink(r: Res) -> Int { r.n }
+
+func take_key(slots: &var Vector<Slot>, i: Int) -> Int {
+    borrow let lent = slots[i] {
+        match lent {
+            case Occupied(k) -> sink(move k),
+            case Empty -> 0
+        }
+    }
+}
+
+func main() {
+}

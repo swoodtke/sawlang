@@ -56,7 +56,7 @@ INDEX.md, or when an owner is not one of the words below.
 | M30 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.static.saw` |
 | M31 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-window.saw`; the migrated file is refused first by `subscript.role`, a migration artifact |
 | M32 | typecheck | accepted: the indirection carve-out through a window, `self.rows[0][0] += 100` in `compiler/tests/typecheck/golden/mutability.saw` |
-| M33 | typecheck | accepted: a window write in a `&self` accessor's prologue, inline (`Log.at`) and heap (`Rows.peek`), in `compiler/tests/typecheck/golden/mutability.saw` |
+| M33 | typecheck | `mutability.immutable`, a `&self` accessor's prologue writing a window on `self`'s inline storage (SL-470): `compiler/tests/typecheck/refuse/mutability.immutable.shared-accessor-window.saw`, and the migrated file is refused by it; the heap form (`Rows.peek`) stays the design-200 carve-out, accepted in `compiler/tests/typecheck/golden/mutability.saw` |
 | M34 | typecheck | accepted: a `&var self` accessor's writes, as any `&var self` body's (`compiler/tests/typecheck/golden/mutability.saw`); `#lend_var` is not modelled |
 | M35 | typecheck | accepted: writes under `&var self`, `compiler/tests/typecheck/golden/mutability.saw` |
 | M36 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-capture-self.saw` |
@@ -115,8 +115,8 @@ INDEX.md, or when an owner is not one of the words below.
 | R40 | typecheck | `capture.exclusive-self`: `compiler/tests/typecheck/refuse/capture.exclusive-self.saw` |
 | R41 | typecheck | `capture.escaping-borrow`: `compiler/tests/typecheck/refuse/capture.escaping-borrow.explicit.saw` |
 | R42 | parse | `[self]` and `[move self]` are no spellings: `compiler/tests/parse/negative/cells.saw` |
-| R43 | typecheck-gap | a borrow-capturing closure stored through a `&var` parameter; the migrated file is refused first by `result.discarded`, a migration artifact |
-| R44 | typecheck-gap | the same into a local container; the migrated file is refused first by `result.discarded`, a migration artifact |
+| R43 | typecheck | `capture.escaping-borrow` (SL-467): `compiler/tests/typecheck/refuse/capture.escaping-borrow.reference-container.saw`; the store positions beside it, `compiler/tests/typecheck/refuse/capture.escaping-borrow.stored-positions.saw`; the migrated file spells `try!` on `push`, so it is refused by the rule it pins |
+| R44 | typecheck | `capture.escaping-borrow` (SL-467): `compiler/tests/typecheck/refuse/capture.escaping-borrow.local-container.saw`; the migrated file spells `try!` on `push`, so it is refused by the rule it pins |
 
 ## The Law of Exclusivity
 
@@ -167,7 +167,7 @@ INDEX.md, or when an owner is not one of the words below.
 | V08 | U6d1 | accepted: a moved `var` revived by assignment, `compiler/tests/borrowck/golden/reinit.saw` |
 | V09 | typecheck | `transfer.implicit-copy`: `compiler/tests/typecheck/refuse/transfer.implicit-copy.explicit.saw` |
 | V10 | typecheck | `transfer.implicit-copy`: `compiler/tests/typecheck/refuse/transfer.implicit-copy.saw` |
-| V11 | typecheck-gap | `.copy()` on a NoCopy type is not refused today |
+| V11 | typecheck | `member.unknown`, the builtin `copy()` exists only where `ExplicitCopy` holds (SL-463): `compiler/tests/typecheck/refuse/member.unknown.copy-nocopy.saw`; a declared `copy` under an unmet bound, `compiler/tests/typecheck/refuse/type.bound.vector-copy.saw`; the migrated file's `Box.make` returns a `Result`, a migration artifact, which is refused the same way |
 | V12 | typecheck | `transfer.implicit-copy`: `compiler/tests/typecheck/refuse/transfer.implicit-copy.capture.saw` |
 | V13 | U6d1 | `move.use-after`: `compiler/tests/borrowck/refuse/move.use-after.field-init.saw` |
 | V14 | U6d1 | `move.use-after`: `compiler/tests/borrowck/refuse/move.use-after.loop.saw`, `compiler/tests/borrowck/refuse/move.use-after.field-init.saw` |
@@ -178,9 +178,9 @@ INDEX.md, or when an owner is not one of the words below.
 | V19 | typecheck | `copy.undeclared-policy`: `compiler/tests/typecheck/refuse/copy.undeclared-policy.saw` |
 | V20 | typecheck | `copy.undeclared-policy`: `compiler/tests/typecheck/refuse/copy.undeclared-policy.enum.saw` |
 | V21 | typecheck | `transfer.implicit-copy`: `compiler/tests/typecheck/refuse/transfer.implicit-copy.payload.saw` |
-| V22 | typecheck-gap | `.copy()` on a tuple with a NoCopy element is not refused today |
+| V22 | typecheck | `member.unknown` (SL-463): `compiler/tests/typecheck/refuse/member.unknown.copy-nocopy.saw` |
 | V23 | typecheck | `conformance.deinit`: `compiler/tests/typecheck/refuse/conformance.deinit.saw` |
-| V24 | typecheck-gap | a manual `deinit()` call is not refused today |
+| V24 | typecheck | `deinit.manual-call` (SL-467): `compiler/tests/typecheck/refuse/deinit.manual-call.saw`, and a synthesized `deinit`, a bound's and a static spelling, `deinit.manual-call.synthesized` and `deinit.manual-call.generic` |
 | V25 | §3.7 | a Copy-tier struct's deinit runs once: one static drop per value, `compiler/tests/drops/conformance.tsv` (the retain is §3.8's glue) |
 | V26 | slice.not-yet | constructing the builtin type `Atomic` (then typecheck: `Atomic` is move-only) |
 | V27 | typecheck | `copy.undeclared-policy`: `compiler/tests/typecheck/refuse/copy.undeclared-policy.saw` |
@@ -199,17 +199,17 @@ INDEX.md, or when an owner is not one of the words below.
 | V40 | slice.not-yet | `TaskGroup.spawn` (then typecheck `copy.requirement`) |
 | V41 | typecheck | accepted: branch-exclusive uses stay move-only |
 | V42 | typecheck | accepted: a duplicating body at every tier that satisfies it |
-| V43 | typecheck-gap | `.copy()` through wrappers without a bound is not refused today |
+| V43 | typecheck | `type.bound`, a copy reaching an unbounded type parameter (SL-463): `compiler/tests/typecheck/refuse/type.bound.copy-wrapper.saw`; the bounded control, typecheck golden `extension_bounds.saw` |
 | V44 | typecheck | accepted: bounded wrapper copies (then §3.8) |
-| V45 | typecheck-gap | a public generic exceeding move-only without declaring its bound is not refused today |
-| V46 | typecheck-gap | a declared bound the body exceeds is not refused today |
+| V45 | typecheck | `copy.declared-bound` (SL-467): `compiler/tests/typecheck/refuse/copy.declared-bound.saw`, and a public method whose requirement a callee brings, `copy.declared-bound.method` |
+| V46 | typecheck | `copy.declared-bound` (SL-467): `compiler/tests/typecheck/refuse/copy.declared-bound.explicit.saw`; the private control rides inference, `twice` in typecheck golden `summaries.saw` |
 | V47 | typecheck | accepted: returning a whole binding out of a generic body is a move |
 | V48 | slice.not-yet | `syntax.expr.optional-member` (then §3.7: a non-escaping `move` capture transfers when the body runs) |
 | V49 | typecheck | `capture.escaping-consume`, an escaping closure may not consume a capture (SL-469): `compiler/tests/typecheck/refuse/capture.escaping-consume.saw`, and the matrix `capture.escaping-consume.*` (returned, stored, bound, `escaping` parameter × each consuming use); the non-escaping consume is accepted, typecheck golden `capture_rules.saw` |
 | V50 | slice.not-yet | the intrinsic `__saw_drive` (then §3.9 and §3.7) |
 | V51 | U6d1 | `move.use-after`, the rule a second consuming call meets: `compiler/tests/borrowck/refuse/move.use-after.double.saw` |
 | V52 | U6d1 | `move.use-after`: `compiler/tests/borrowck/refuse/move.use-after.consumed.saw` |
-| V53 | typecheck-gap | a `NoMove` receiver at a consuming call is not refused today |
+| V53 | typecheck | `transfer.no-move` (SL-467): `compiler/tests/typecheck/refuse/transfer.no-move.saw`; a move into a binding, a closure, out by `take()`, and of a wrapper holding one, `transfer.no-move.binding`, `.capture`, `.take` |
 | V54 | U6d1 | `consumes.some-paths`: `compiler/tests/borrowck/refuse/consumes.some-paths.saw`; every path, none, and a diverging path exempt, `compiler/tests/borrowck/golden/consumes.saw` |
 | V55 | typecheck | `consumes.move`: `compiler/tests/typecheck/refuse/consumes.move.saw` |
 | V56 | §3.7 | a consuming body replaces the hand-written deinit body: the fields that stay drop statically, `compiler/tests/drops/golden/consumes.saw`, `compiler/tests/drops/conformance.tsv` |
@@ -218,8 +218,8 @@ INDEX.md, or when an owner is not one of the words below.
 | V119 | slice.not-yet | the release of a consumed receiver that moves out whole, `compiler/tests/mir/refuse/consumes-whole.saw` (then U6d1; the field form, a use of `self` after `move self.f`, is `compiler/tests/borrowck/refuse/move.use-after.partial.saw`) |
 | V120 | typecheck | `consumes.move-self`: `compiler/tests/typecheck/refuse/consumes.move-self.saw` |
 | V57 | slice.not-yet | the intrinsic `__saw_deinit_in_place` (then §3.7) |
-| V58 | typecheck-gap | a `NoMove` placement after a borrow is not refused today |
-| V59 | typecheck-gap | a bound `NoMove` value moved into an argument is not refused today |
+| V58 | typecheck | `transfer.no-move` (SL-467): `compiler/tests/typecheck/refuse/transfer.no-move.placement-after-borrow.saw`; the fresh placement itself is accepted, typecheck golden `no_move.saw` |
+| V59 | typecheck | `transfer.no-move` (SL-467): `compiler/tests/typecheck/refuse/transfer.no-move.argument.saw` |
 | V60 | typecheck | `transfer.move-from-borrow`: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.match-payload.saw` |
 | V61 | typecheck | `transfer.move-from-borrow`: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.match-self.saw` |
 | V62 | typecheck | `transfer.move-from-borrow`, a Copy-tier payload: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.match-payload.saw` |
@@ -229,7 +229,7 @@ INDEX.md, or when an owner is not one of the words below.
 | V66 | typecheck | a forwarding alias projection; refused today by `type.mismatch` first |
 | V67 | typecheck | accepted: building casts are untouched |
 | V68 | typecheck | `transfer.move-from-borrow`: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.closure-parameter.saw` |
-| V69 | slice.not-yet | a `borrow` block over `Mutex.lock`, which lends through a closure parameter (then typecheck, `transfer.move-from-borrow`) |
+| V69 | typecheck | `transfer.move-from-borrow`, a `move` of a `[&o]` or `[&var o]` capture (SL-478): `compiler/tests/typecheck/refuse/transfer.move-from-borrow.borrow-binding.saw`, and a `match` on one, `transfer.move-from-borrow.borrow-capture`; the migrated file's lock-body half, a `borrow` block over `Mutex.lock`, is `slice.not-yet` (then typecheck, `transfer.move-from-borrow`) |
 | V70 | typecheck | `transfer.move-from-borrow`, a Copy-tier referent: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.closure-parameter.saw` |
 | V71 | §3.7 | the borrowed-binding fence is narrow, each value released once: `compiler/tests/drops/conformance.tsv` |
 | V72 | §3.7 | std visitors lend: `compiler/tests/drops/conformance.tsv`; its error file is refused first by `result.discarded`, a migration artifact |
@@ -293,7 +293,7 @@ INDEX.md, or when an owner is not one of the words below.
 | P09 | typecheck | `type.not-a-place`: `compiler/tests/typecheck/refuse/type.not-a-place.saw`; the migrated file is refused first by `result.discarded`, a migration artifact, then by `type.not-a-place` |
 | P10 | mir | the absent path opens no window: `compiler/tests/mir/golden/accessors.saw`, `Grid.find`; its edge carries no loan, `compiler/tests/borrowck/golden/windows.saw` |
 | P11 | U6d2 | accepted: a shared window on a `let` root, `compiler/tests/borrowck/golden/windows.saw` |
-| P12 | typecheck-gap | a place read by value in a generic body without a `Copy` bound is not refused today |
+| P12 | typecheck | superseded by design 219 (SL:open-questions D27): an indexed place read by value in a generic body is an inferred Copy requirement, accepted at the definition (typecheck golden `indexed_place_requirement.saw`, a Copy-tier `K`) and refused at a call whose argument is NoCopy, `copy.requirement`: `compiler/tests/typecheck/refuse/copy.requirement.indexed-place.saw`; Stage 0's refusal at the definition is its over-refusal |
 | P13 | mir | epilogues run at close, last opened first: `compiler/tests/mir/golden/windows.saw` |
 | P14 | U6d2 | `lend.root`, which refuses the lend whatever the window does with it: `compiler/tests/borrowck/refuse/lend.root.saw` |
 | P15 | U6d2 | `lend.root`, a read included: `compiler/tests/borrowck/refuse/lend.root.saw` |

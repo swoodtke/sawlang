@@ -68,30 +68,6 @@ extension Board {
     }
 }
 
-struct Tally {
-    cells: [Int; 2]
-}
-
-extension Tally {
-    func [](&var self, i: Int) borrows -> &var Int {
-        lend self.cells[i]
-    }
-}
-
-struct Log {
-    tally: Tally,
-    slots: [Int; 2]
-}
-
-extension Log {
-    // A `borrows` body's receiver travels by pointer, so a window it opens on
-    // `self` writes the caller's storage, inline storage included.
-    func at(&self, i: Int) borrows -> &Int {
-        self.tally[0] += 1
-        lend self.slots[i]
-    }
-}
-
 struct Raw {
     at: UnsafePointer<Int>
 }

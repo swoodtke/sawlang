@@ -1,0 +1,17 @@
+// refuses: type.bound at 16:13
+// `a == b` resolving to the `equals` of a bounded conformance, on a
+// `Cell<Token>`, which Stage 0 accepts (SL:hazards S26)
+
+struct Token { id: Int }
+extension Token: NoCopy {}
+
+struct Cell<T> { v: T }
+extension Cell<T: Equatable>: Equatable {
+    func equals(&self, other: &Cell<T>) -> Bool { self.v == other.v }
+}
+
+func main() {
+    let a = Cell(v: Token(id: 3))
+    let b = Cell(v: Token(id: 4))
+    let s = a == b
+}

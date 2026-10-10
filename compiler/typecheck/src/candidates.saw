@@ -8,7 +8,7 @@ import sawresolve.src.imports.{res_decl_binding}
 import sawresolve.src.model.{ResBinding, ResBindKind, ResDecl, ResDeclKind}
 import sawtypecheck.src.conform.{TcSubst, tc_args_subst, tc_copy_ints}
 import sawtypecheck.src.members.{tc_build_members}
-import sawtypecheck.src.model.{TC_FLAG_STATIC, TcMember, TcSig, TcSource}
+import sawtypecheck.src.model.{TC_FLAG_STATIC, TcMember, TcSig, TcSource, TcUnmetBound}
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.signatures.{TcContext}
 import sawtypecheck.src.tier.{tc_tier}
@@ -63,6 +63,77 @@ extension TcProgram {
             k = k + 1
         }
         move out
+    }
+
+    // The members named `name` a value of nominal type `owner` has, as
+    // module `viewer` sees them: `members_named`, less each entry whose
+    // declaring extension's bounds `owner`'s arguments do not meet. The
+    // first entry dropped is kept in `unmet_member` for the refusal
+    // (`refuse_unmet_member`), so a member that exists only under a bound
+    // is never chosen and never mistaken for an absent one (SL-463).
+    //
+    // ENTRY POINTS:
+    // - method_candidates (methods, statics, a subscript's `[]`)
+    // - resolve_comparison (`==`, `!=`, `<` through `equals`, `compare`)
+    // - iterator_item (a `for` loop's `next`)
+    // - finish_call (an `init`, once inference solves its type's arguments)
+    public func members_for(&var self, owner: Int, name: Int, viewer: Int) -> Vector<Int> {
+        self.unmet_member = -1
+        self.unmet_owner = -1
+        let d = self.nominal_decl(owner)
+        let found = self.members_named(d, name, viewer)
+        var out = Vector<Int>()
+        var k = 0
+        while k < found.len() {
+            let at = found[k]
+            k = k + 1
+            if let _ = self.unmet_member_bound(at, owner) {
+                if self.unmet_member < 0 {
+                    self.unmet_member = at
+                    self.unmet_owner = owner
+                }
+            } else {
+                try! out.push(at)
+            }
+        }
+        move out
+    }
+
+    // The first bound the extension declaring member-table entry `k` puts
+    // on its type's parameters that `owner`'s arguments do not meet, or
+    // none. A member of `extension Cell<T: Equatable>`, or of a conformance
+    // that extension declares, exists only where `T` is `Equatable`. An
+    // argument that is a type parameter is answered by the bounds in scope
+    // where the member is named, the question `type.bound` asks.
+    public func unmet_member_bound(&var self, k: Int, owner: Int) -> TcUnmetBound? {
+        let member = self.members[k]
+        let ext = member.ext
+        if ext < 0 || owner < 0 {
+            return None
+        }
+        let info = self.types.ty(owner)
+        if info.kind != TcKind.Nominal || info.decl != member.type_decl {
+            return None
+        }
+        self.ensure_generics(ext)
+        let s = self.sigs[ext]
+        let env = self.current_decl
+        let env_ext = self.current_ext
+        var i = 0
+        while i < s.generic_count && i < info.count {
+            let g = self.generics[s.generic_first + i]
+            let arg = self.types.arg(owner, i)
+            var j = 0
+            while j < g.bound_count {
+                let bound = self.traits[g.bound_first + j]
+                if not self.satisfies(arg, bound, env, env_ext) {
+                    return TcUnmetBound(index: i, trait_decl: bound)
+                }
+                j = j + 1
+            }
+            i = i + 1
+        }
+        None
     }
 
     // Whether a member-table entry is a method: static or not as `statics`

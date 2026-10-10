@@ -1,0 +1,16 @@
+// refuses: type.bound at 15:13
+// a subscript declared in a bounded extension, on a receiver whose argument
+// does not meet the bound (SL-463)
+
+struct Token { id: Int }
+extension Token: NoCopy {}
+
+struct Bag<T> { v: T, n: Int }
+extension Bag<T: Equatable> {
+    func [](&self, i: Int) borrows -> &Int { lend self.n }
+}
+
+func main() {
+    let b = Bag(v: Token(id: 1), n: 2)
+    let x = b[0]
+}

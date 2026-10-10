@@ -1,0 +1,13 @@
+// refuses: copy.declared-bound at 5:13
+// a public generic whose body needs its parameter on the Copy tier without
+// declaring it, conformance row V45 (SL-467)
+
+public func published<T>(x: T) -> Int {
+    let a = x
+    let b = x
+    1
+}
+
+func main() {
+    let n = published<Int>(1)
+}

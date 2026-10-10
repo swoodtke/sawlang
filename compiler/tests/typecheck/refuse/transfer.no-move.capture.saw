@@ -1,0 +1,16 @@
+// refuses: transfer.no-move at 15:20
+// a `NoMove` binding moved into a closure's environment (SL-467)
+
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {}
+extension Anchor: NoMove {}
+
+func run(f: () sync -> Int) -> Int { f() }
+
+func main() {
+    let a = Anchor(n: 5)
+    let n = run({ [move a] in a.n })
+}

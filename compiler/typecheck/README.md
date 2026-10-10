@@ -287,7 +287,8 @@ These are the reversible readings U6b2 made; SL-447's report lists them.
   a `&self` accessor, which the new std will add.
 - A `borrows` accessor's receiver is borrowed exclusively when the use its
   place's projection ends in writes (an assignment, a compound assignment, an
-  exclusive borrow), and shared otherwise, whatever the accessor declares.
+  exclusive borrow), or when the accessor takes `&var self` and declares no
+  shared twin ("Safety readings"), and shared otherwise.
 - `T.from(x)`, `T.from(truncating: x)` on an integer and `A(x)` for a
   distinct alias of a builtin type are conversions no declaration writes
   (designs 170 and 250); `E.from(raw:)` is a member-table row of every
@@ -536,12 +537,17 @@ These are the reversible readings SL-462 made; its report lists them.
   a parameter taken by value, a `&T` parameter, a `[&x]` capture or a
   by-value capture is refused, as Stage 0 refuses `r.grid[0] = v` through a
   `&Board`.
-- In a `&self` `borrows` body any window opened on `self`, inline storage's
-  too, may be written: the accessor's receiver travels by pointer (design
-  200, conformance rows M33 and K125). A direct write of `self`'s own storage
-  there is refused as in any `&self` method. Such an accessor is
-  exclusive-only (SL-333 R4), which no use site enforces yet: a read through
-  it on a `let` root is accepted.
+- A `&self` `borrows` body is a `&self` method: it writes no window it opens
+  on `self`'s own storage (conformance row M33), since its callers borrow the
+  root shared. An accessor that takes `&var self` and declares no shared twin
+  (`@synthesize(shared)` or a `&self` overload) borrows its receiver
+  exclusively at every use, a read included, so its root must be writable:
+  a read through it on a `let` root is refused (SL:borrowing §3). The
+  receiver decides this, not the lend, so a cell-carrying `(&self) borrows
+  -> &var T` serves a `let` root, though the borrow check charges its root
+  exclusively for overlap; the two are separate facts, and agree on every
+  other declaration. Stage 0's std predates declared modes, so its accessors
+  serve both, as the borrow check also reads them.
 - A `borrows` accessor lends out of storage its receiver points at when
   every `lend` in its checked body reaches its place through a raw pointer or
   through another accessor that does. An accessor whose body is not checked,
@@ -550,13 +556,17 @@ These are the reversible readings SL-462 made; its report lists them.
   `subscript.role`'s refusal; through a named accessor it is
   `mutability.immutable`. `&var r` through a shared reference is
   `mutability.immutable`, not `type.not-a-place`.
-- A reference read through a binding at a position that names no type, an
-  unannotated `let` or a closure's inferred result, gives the referent's
-  value, copied out as any place read is (spec, Reference Semantics), where
-  U6b2 bound the reference itself: `let a = p` over `p: &Int` is an `Int`,
-  and `{ e in e }` over a `&T` returns a `T`. Anywhere else a reference read
-  keeps its type, so `let t = (p, 1)` is refused as a binding naming a
-  reference, where Stage 0 takes the value.
+- A reference read through a binding gives the referent's value at every
+  position that builds or passes a value, copied out as any place read is
+  (spec, Reference Semantics; `read_value`, whose docstring names the
+  positions): `let a = p` over `p: &Int` is an `Int`, `(p, 1)` an `(Int,
+  Int)`, `{ e in e }` over a `&T` returns a `T`, and `id(p)` infers `T =
+  Int`, as Stage 0 has them. A reference parameter takes the reference
+  forwarded with its sigil, `takes_ref(&p)` or `bump(&var q)`, so a bare
+  `takes_ref(p)` is refused with the sigil written out, as Stage 0 refuses
+  it; a receiver's sigil is implicit. A reference slot outside a call, a
+  return's or an annotation's, keeps the reference, which the
+  reference-position check refuses where the slot is declared.
 - A reference in a tuple element, an optional's payload, an array element or
   a type argument is refused in a parameter's type as well as in a stored
   one: `func f(t: (Int, &Int))` is refused, where Stage 0 walks a parameter
@@ -568,12 +578,11 @@ These are the reversible readings SL-462 made; its report lists them.
   T)`, is refused at the call; a parameter `x: &T` solves `T` to the
   referent.
 - A pattern's binding aliases its part when the walk took the scrutinee as
-  borrowed (`TcOrigin.Borrowed`: a reference, a receiver, a field), so a
-  `move` of it is refused; a match on an owned local consumes it, and its
-  bindings own their parts.
-- An accessor that mutates its receiver outside the place it lends, which
-  SL:borrowing makes exclusive-only (SL-333 R4), is judged by its use site as
-  any other: a read through it on a `let` root is not refused.
+  borrowed (`TcOrigin.Borrowed`: a reference, a receiver, a field, or a name
+  reading through a borrow: a `borrow` binding, a payload binding aliasing a
+  borrowed scrutinee, a `[&x]` or `[&var x]` capture), so a `move` of it is
+  refused; a match on an owned local consumes it, and its bindings own their
+  parts.
 
 ## Capture readings
 
@@ -600,3 +609,34 @@ These are the reversible readings typecheck batch A made (SL-472, SL-469).
 - An implicit capture that does not copy silently is
   `transfer.implicit-copy`'s refusal alone; the consume rule does not refuse
   it again.
+
+## Bound readings
+
+These are the reversible readings typecheck batch B1 made (SL-463, SL-467,
+SL-470, SL-474).
+
+- A member a bounded extension or conformance withholds from its receiver is
+  refused as `type.bound`, naming the bound; Stage 0 words it as a missing
+  method. The builtin `copy()` on a NoCopy value stays `member.unknown`, and
+  on a type whose copy reaches an unbounded type parameter it is `type.bound`.
+- A requirement two conformances bring reaches the member table once, from
+  the first, so that conformance's conditions are the ones its member is held
+  to.
+- A `[]=` that `settle_places` chooses for a subscript's write is not held to
+  its own extension's bounds; the subscript's `[]` already was.
+- A public generic's undeclared Copy requirement, and a declared
+  `ExplicitCopy` its body exceeds, are judged for the function's own type
+  parameters; a requirement on the parameters of a method's type is held at
+  each call site. Public means `public`; `package` does not publish.
+- A `NoMove` by-value parameter's journey home ends at the first `&`, `&var`
+  or `borrow` argument naming it, in source order; a method call's receiver
+  borrow does not end it, as in Stage 0. A wrapper of a `NoMove` value is
+  `NoMove` when it holds it inline: an Optional, a tuple, an array, a generic
+  instance's substituted field or payload; a pointer or a `Box` holds it
+  behind an indirection.
+- An indexed place read by value in a generic body is design 219's inferred
+  requirement, checked at the call (SL:open-questions D27), where Stage 0
+  refuses it at the definition.
+- The overload filter scores a reference binding by its own type, so among
+  overloads taking `Int` and `&Int` a bare `p` picks the `&Int` one, which
+  then asks for the sigil; only the funnel reads through it.

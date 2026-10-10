@@ -1,7 +1,11 @@
-// refuses: type.reference-position at 5:9
-// a binding inferred from a value that builds a reference into a tuple
+// refuses: type.reference-position at 9:9
+// a binding inferred from a call a reference instantiates: a reference read
+// gives its value at every position, so only a bare `&` builds one
 
-func f(p: &Int) -> Int {
-    let pair = (p, 1)
+func idn<T>(x: T) -> T { x }
+
+func f() -> Int {
+    var n = 1
+    let a = idn(&n)
     0
 }

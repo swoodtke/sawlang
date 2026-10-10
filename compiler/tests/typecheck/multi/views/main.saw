@@ -7,5 +7,5 @@ import shapes
 import ruler.{measure}
 
 func area_of(c: &shapes.Circle) -> Int {
-    measure(c)
+    measure(&c)
 }

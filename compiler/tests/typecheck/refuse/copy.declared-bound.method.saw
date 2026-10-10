@@ -1,0 +1,20 @@
+// refuses: copy.declared-bound at 14:17
+// a public generic method whose requirement comes through a callee: the
+// requirement travels, and the method publishes it (SL-467)
+
+struct Kit { n: Int }
+
+func twice<T>(x: T) -> Int {
+    let a = x
+    let b = x
+    1
+}
+
+extension Kit {
+    public func run<T>(&self, x: T) -> Int { twice(move x) }
+}
+
+func main() {
+    let k = Kit(n: 1)
+    let n = k.run(3)
+}

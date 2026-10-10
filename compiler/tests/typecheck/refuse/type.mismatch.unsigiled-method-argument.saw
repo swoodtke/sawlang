@@ -1,0 +1,16 @@
+// refuses: type.mismatch at 12:12
+// a reference binding passed to a method's reference parameter with no
+// sigil; the receiver's own sigil is implicit (spec, Reference forwarding)
+
+struct Meter { n: Int }
+
+extension Meter {
+    func plus(&self, r: &Int) -> Int { r + self.n }
+}
+
+func forward(p: &Int, m: &Meter) -> Int {
+    m.plus(p)
+}
+
+func main() {
+}

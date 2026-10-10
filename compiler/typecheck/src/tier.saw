@@ -318,6 +318,85 @@ extension TcProgram {
     }
 }
 
+// Relocation: the `NoMove` axis, apart from the Copy tier.
+extension TcProgram {
+    // Whether a value of type `t` may not be relocated: its type declares
+    // `NoMove`, or holds such a value inline, an Optional's payload, a tuple's
+    // or an array's element, or a generic instance's substituted field or
+    // payload included (design 188). A pointer, and so a `Box`, holds its
+    // value behind an indirection, which moving the pointer leaves in place.
+    public func is_no_move(&var self, t: Int, depth: Int) -> Bool {
+        let tr = self.known.no_move
+        if t < 0 || tr < 0 || depth > 16 {
+            return false
+        }
+        let info = self.types.ty(t)
+        match info.kind {
+            case Tuple -> {
+                var k = 0
+                while k < info.count {
+                    let part = self.types.arg(t, k)
+                    if self.is_no_move(part, depth + 1) {
+                        return true
+                    }
+                    k = k + 1
+                }
+                false
+            },
+            case Array -> self.is_no_move(info.b, depth + 1),
+            case Nominal -> self.nominal_no_move(t, depth),
+            case _ -> false
+        }
+    }
+
+    func nominal_no_move(&var self, t: Int, depth: Int) -> Bool {
+        let info = self.types.ty(t)
+        let d = info.decl
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if c.type_decl == d && c.trait_decl == self.known.no_move {
+                return true
+            }
+        }
+        if info.count == 0 || d == self.known.unsafe_pointer || d == self.known.unsafe_const_pointer {
+            return false
+        }
+        if d == self.known.optional {
+            let payload = self.types.arg(t, 0)
+            return self.is_no_move(payload, depth + 1)
+        }
+        let s = tc_args_subst(d, self.nominal_args(t))
+        let members = self.members_of(d)
+        k = 0
+        while k < members.len() {
+            let m = members[k]
+            let mi = self.res.decls[m]
+            k = k + 1
+            if mi.kind == ResDeclKind.Field {
+                let written = self.sigs[m].result
+                let ft = self.subst(written, &s)
+                if self.is_no_move(ft, depth + 1) {
+                    return true
+                }
+            } else if mi.kind == ResDeclKind.Case {
+                let cs = self.sigs[m]
+                var j = 0
+                while j < cs.param_count {
+                    let p = self.params[cs.param_first + j]
+                    let pt = self.subst(p.ty, &s)
+                    if self.is_no_move(pt, depth + 1) {
+                        return true
+                    }
+                    j = j + 1
+                }
+            }
+        }
+        false
+    }
+}
+
 // Bound satisfaction.
 extension TcProgram {
     // Every recorded type argument against its parameter's bound.
@@ -436,7 +515,7 @@ extension TcProgram {
     }
 
     // Whether parameter `index` of `d` has a bound that is `tr` or refines it.
-    func generic_grants(&var self, d: Int, index: Int, tr: Int) -> Bool {
+    public func generic_grants(&var self, d: Int, index: Int, tr: Int) -> Bool {
         self.ensure_generics(d)
         let s = self.sigs[d]
         if index >= s.generic_count {

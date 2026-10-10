@@ -69,17 +69,21 @@ ERROR	capture.escaping-borrow	compiler/tests/typecheck/golden/summaries.saw:91:2
       (39:5-39:13 Call.paren Int value temp (call summaries.Worker.step() (owner T)))
       (39:5-39:6 Name &T (deref T) (borrow &T) place borrow))
     (run_both 42:6
-      (43:5-43:20 Binary Int value temp (op +))
-      (43:5-43:11 Call.paren Int value temp (call summaries.run(w: &T) (inst U)))
-      (43:9-43:10 Name &U place copy)
-      (43:14-43:20 Call.paren Int value temp (call summaries.run(w: &T) (inst U)))
-      (43:18-43:19 Name &U place copy))
+      (43:5-43:22 Binary Int value temp (op +))
+      (43:5-43:12 Call.paren Int value temp (call summaries.run(w: &T) (inst U)))
+      (43:9-43:11 Ref.shared &U value temp)
+      (43:10-43:11 Name &U (deref U) place borrow)
+      (43:15-43:22 Call.paren Int value temp (call summaries.run(w: &T) (inst U)))
+      (43:19-43:21 Ref.shared &U value temp)
+      (43:20-43:21 Name &U (deref U) place borrow))
     (slow_total 47:6
-      (48:5-48:11 Call.paren Int value temp (call summaries.run(w: &T) (inst summaries.Slow)))
-      (48:9-48:10 Name &summaries.Slow place copy))
+      (48:5-48:12 Call.paren Int value temp (call summaries.run(w: &T) (inst summaries.Slow)))
+      (48:9-48:11 Ref.shared &summaries.Slow value temp)
+      (48:10-48:11 Name &summaries.Slow (deref summaries.Slow) place borrow))
     (fast_total 51:6
-      (52:5-52:11 Call.paren Int value temp (call summaries.run(w: &T) (inst summaries.Fast)))
-      (52:9-52:10 Name &summaries.Fast place copy))
+      (52:5-52:12 Call.paren Int value temp (call summaries.run(w: &T) (inst summaries.Fast)))
+      (52:9-52:11 Ref.shared &summaries.Fast value temp)
+      (52:10-52:11 Name &summaries.Fast (deref summaries.Fast) place borrow))
     (early 57:6
       (58:5-58:11 Call.paren Int value temp (call summaries.late())))
     (late 61:6
@@ -123,8 +127,9 @@ ERROR	capture.escaping-borrow	compiler/tests/typecheck/golden/summaries.saw:91:2
     (erased 101:6
       (101:38-101:39 IntLit Int value temp))
     (relay 103:6
-      (104:5-104:14 Call.paren Int value temp (call summaries.erased(w: &any summaries.Worker)))
-      (104:12-104:13 Name &T (erase &any summaries.Worker) place copy))
+      (104:5-104:15 Call.paren Int value temp (call summaries.erased(w: &any summaries.Worker)))
+      (104:12-104:14 Ref.shared &T (erase &any summaries.Worker) value temp)
+      (104:13-104:14 Name &T (deref T) place borrow))
     (sink 108:6
       (108:29-108:30 IntLit Int value temp))
     (twice 110:6

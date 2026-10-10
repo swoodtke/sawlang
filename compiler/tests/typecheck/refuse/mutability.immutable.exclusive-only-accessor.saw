@@ -1,0 +1,20 @@
+// refuses: mutability.immutable at 19:20
+// a read through a named `&var self` accessor lending read-only, with no
+// shared twin, on a `let` root (SL-470)
+
+struct Bag {
+    cells: [Int; 4]
+    reads: Int
+}
+
+extension Bag {
+    func tally(&var self) borrows -> &Int {
+        self.reads += 1
+        lend self.reads
+    }
+}
+
+func main() {
+    let b = Bag(cells: [1, 2, 3, 4], reads: 0)
+    let t = borrow b.tally()
+}

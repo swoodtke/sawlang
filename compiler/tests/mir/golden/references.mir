@@ -246,14 +246,14 @@ fn references.element(g: &var references.Grid) -> Int {
     let _4: (&var references.Grid, String);  // record
     let _5: &var (&var references.Grid, String);
     let _6: &var (&var references.Grid, String);
-    let _7: &Int;
-    let _8: &references.Grid;
+    let _7: &var Int;
+    let _8: &var references.Grid;
     let _9: (&var references.Grid, String);  // record
     let _10: &var (&var references.Grid, String);
     let _11: Int;
     let _12: &var (&var references.Grid, String);
     window w0: references.Grid.counted(i: Int) exclusive record _4;
-    window w1: references.Grid.counted(i: Int) shared record _9;
+    window w1: references.Grid.counted(i: Int) exclusive record _9;
 
     bb0: {
         _3 = ref(exclusive, (*_1));
@@ -268,7 +268,7 @@ fn references.element(g: &var references.Grid) -> Int {
     }
 
     bb2: {
-        _8 = ref(shared, (*_1));
+        _8 = ref(exclusive, (*_1));
         _10 = ref(exclusive, _9);
         _7 = window_open w1 prologue references.Grid.counted(i: Int) (owner references.Grid) [move _10, move _8, const 1: Int] -> [present: bb3];
     }

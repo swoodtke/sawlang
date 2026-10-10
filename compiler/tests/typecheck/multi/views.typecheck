@@ -8,8 +8,9 @@
   (copy-tier)
   (bodies
     (area_of 9:6
-      (10:5-10:15 Call.paren Int value temp (call ruler.measure(c: &shapes.Circle)))
-      (10:13-10:14 Name &shapes.Circle place copy))))
+      (10:5-10:16 Call.paren Int value temp (call ruler.measure(c: &shapes.Circle)))
+      (10:13-10:15 Ref.shared &shapes.Circle value temp)
+      (10:14-10:15 Name &shapes.Circle (deref shapes.Circle) place borrow))))
 
 (Module shapes
   (declarations

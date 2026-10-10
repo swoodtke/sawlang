@@ -1,0 +1,15 @@
+// refuses: type.bound at 14:13
+// an `init` of a bounded extension, its type's argument solved by inference
+// to a type that does not meet the bound (SL-463)
+
+struct Token { id: Int }
+extension Token: NoCopy {}
+
+struct Bag<T> { v: T, n: Int }
+extension Bag<T: Equatable> {
+    init(one: T) -> Bag<T> { Bag<T>(v: one, n: 1) }
+}
+
+func main() {
+    let c = Bag(one: Token(id: 2))
+}

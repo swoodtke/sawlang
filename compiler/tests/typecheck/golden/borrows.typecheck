@@ -41,7 +41,7 @@
       (24:18-26:6 BorrowBlock Int value temp)
       (24:29-24:33 BindingName Int place borrow)
       (24:36-24:40 Subscript.single Int place borrow (place borrows.Row.[](i: Int) (owner borrows.Row)))
-      (24:36-24:37 Name &var borrows.Row (deref borrows.Row) (borrow &borrows.Row) place borrow)
+      (24:36-24:37 Name &var borrows.Row (deref borrows.Row) (borrow-var &var borrows.Row) place borrow-var)
       (24:38-24:39 IntLit Int value temp)
       (25:9-25:17 Binary Int value temp (op +))
       (25:9-25:13 Name Int place copy)

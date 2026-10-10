@@ -1,0 +1,17 @@
+// refuses: deinit.manual-call at 16:7
+// a hand-written `deinit` called by hand, conformance row V24 (SL-467)
+
+struct Resource {
+    value: Int
+}
+
+extension Resource: NoCopy {
+    func deinit(&var self) {
+        print("cleanup")
+    }
+}
+
+func main() {
+    var r = Resource(value: 42)
+    r.deinit()
+}

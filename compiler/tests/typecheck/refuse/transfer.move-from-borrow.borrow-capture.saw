@@ -1,0 +1,25 @@
+// refuses: transfer.move-from-borrow at 18:38
+// a `match` on a `[&s]` capture inside the closure, whose payload binding is
+// moved out of the caller's binding (SL-478)
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+
+enum Slot { case Empty, case Occupied(key: Res) }
+extension Slot: NoCopy {}
+
+func sink(r: Res) -> Int { r.n }
+
+func run(f: () sync -> Int) -> Int { f() }
+
+func take_key(s: Slot) -> Int {
+    run({ [&s] in
+        match s {
+            case Occupied(k) -> sink(move k),
+            case Empty -> 0
+        }
+    })
+}
+
+func main() {
+}

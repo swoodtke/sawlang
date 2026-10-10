@@ -1,0 +1,14 @@
+// refuses: transfer.implicit-copy at 9:14
+// a reference to a NoCopy value read into a tuple: the read is a copy of
+// the referent, which only a Copy type makes silently (SL-474)
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+
+func pair(r: &Res) -> Int {
+    let t = (r, 1)
+    t.1
+}
+
+func main() {
+}

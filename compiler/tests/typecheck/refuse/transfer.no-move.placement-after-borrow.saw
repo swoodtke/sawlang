@@ -1,0 +1,27 @@
+// refuses: transfer.no-move at 20:18
+// a `NoMove` by-value parameter placed into fresh storage after a reference
+// named it: the address was observable, so its journey home is over,
+// conformance row V58 (SL-467)
+
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {}
+extension Anchor: NoMove {}
+
+func observe(a: &Anchor) -> Int { a.n }
+
+func place(value: Anchor) unsafe -> UnsafePointer<Anchor> {
+    let raw = GlobalAllocator().alloc(sizeof<Anchor>(), alignof<Anchor>())
+    if let chunk = raw {
+        let ptr = chunk as UnsafePointer<Anchor>
+        let seen = observe(&value)
+        ptr[0] = move value
+        return ptr
+    }
+    panic("place: allocation failed")
+}
+
+func main() {
+}

@@ -1,0 +1,14 @@
+// refuses: member.unknown at 13:13
+// the builtin `copy()` on a tuple holding a NoCopy element, which is NoCopy
+// itself, conformance rows V11 and V22 (SL-463)
+
+struct Res {
+    n: Int
+}
+
+extension Res: NoCopy {}
+
+func main() {
+    let t = (Res(n: 1), 5)
+    let u = t.copy()
+}

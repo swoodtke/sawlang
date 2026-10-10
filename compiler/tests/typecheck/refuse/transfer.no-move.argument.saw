@@ -1,0 +1,17 @@
+// refuses: transfer.no-move at 16:18
+// a bound `NoMove` value moved into an argument, the caller-side fence the
+// fresh-journey placement rests on, conformance row V59 (SL-467)
+
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {}
+extension Anchor: NoMove {}
+
+func keep(a: Anchor) -> Int { 1 }
+
+func main() {
+    let a = Anchor(n: 5)
+    let n = keep(move a)
+}

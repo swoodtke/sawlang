@@ -40,16 +40,16 @@ func run<T: Worker>(w: &T) -> Int {
 }
 
 func run_both<U: Worker>(a: &U, b: &U) -> Int {
-    run(a) + run(b)
+    run(&a) + run(&b)
 }
 
 // Concrete instantiations evaluate the condition exactly.
 func slow_total(s: &Slow) -> Int {
-    run(s)
+    run(&s)
 }
 
 func fast_total(f: &Fast) sync -> Int {
-    run(f)
+    run(&f)
 }
 
 // A function declared before the one it calls is summarized again when that
@@ -101,7 +101,7 @@ func run_sync<T: Worker>(w: &T) sync -> Int {
 func erased(w: &any Worker) -> Int { 1 }
 
 func relay<T: Worker>(w: &T) -> Int {
-    erased(w)
+    erased(&w)
 }
 
 // The Copy requirement, inferred, then carried by a forwarder.

@@ -1,0 +1,28 @@
+// refuses: copy.requirement at 27:13
+// an indexed place read by value in a method of a generic type is a copy
+// whose requirement its call site meets: at a NoCopy `K` it is refused at
+// the call, conformance row P12 (SL-467)
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+
+enum Slot<K> { case Empty, case Occupied(key: K) }
+
+struct Holder<K> { slots: Vector<Slot<K>> }
+
+extension Holder<K>: NoCopy {}
+
+extension Holder<K> {
+    func tag_at(&self, i: Int) -> Int {
+        let s = self.slots[i]
+        match s {
+            case Empty -> 0,
+            case Occupied(_) -> 1
+        }
+    }
+}
+
+func main() {
+    let h = Holder<Res>(slots: Vector<Slot<Res>>())
+    let n = h.tag_at(0)
+}

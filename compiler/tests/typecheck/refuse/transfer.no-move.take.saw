@@ -1,0 +1,17 @@
+// refuses: transfer.no-move at 14:17
+// `take()` moves a `NoMove` payload out of its optional, and a tuple holding
+// one is moved (SL-467)
+
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {}
+extension Anchor: NoMove {}
+
+func main() {
+    var o: Anchor? = Anchor(n: 1)
+    let taken = o.take()
+    var pair = (Anchor(n: 2), 3)
+    var other = move pair
+}

@@ -8,7 +8,9 @@
 
 import sawresolve.src.collect.{res_is_top_level}
 import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.model.{ResDecl, ResDeclKind, ResModule}
+import sawresolve.src.model.{ResDecl, ResDeclKind, ResModule, ResVis}
+import sawtypecheck.src.candidates.{tc_contains}
+import sawtypecheck.src.tier.{tc_tier}
 import sawtypecheck.src.checks.{tc_check_unsafe}
 import sawtypecheck.src.conform.{TcSubst}
 import sawtypecheck.src.spell.{tc_effects_text}
@@ -38,6 +40,66 @@ extension TcProgram {
             u = u + 1
         }
         self.check_sync_requirements()
+        self.check_declared_requirements()
+    }
+
+    // A generic body's inferred Copy requirement against what its signature
+    // declares (design 219): a public generic declares the tier its body
+    // needs, so editing the body cannot tighten a published contract, and a
+    // declared `ExplicitCopy` licenses a spelled `.copy()` only, never a
+    // silent copy. Each is refused at the declaration, once per parameter.
+    // A requirement on the parameters of a method's type is the type's to
+    // declare, and is held at each call site instead.
+    func check_declared_requirements(&var self) {
+        var d = 0
+        while d < self.summaries.len() {
+            let s = self.summaries[d]
+            if s.state == TC_SUMMARY_BODY && s.copy_count > 0 {
+                self.check_declared_copy(d, &s)
+            }
+            d = d + 1
+        }
+    }
+
+    func check_declared_copy(&var self, d: Int, s: &TcSummary) {
+        var seen = Vector<Int>()
+        var k = 0
+        while k < s.copy_count {
+            let a = self.atoms[s.copy_first + k]
+            k = k + 1
+            let info = self.types.ty(a.ty)
+            if info.kind != TcKind.Param || info.decl != d || tc_contains(&seen, a.ty) {
+                continue
+            }
+            try! seen.push(a.ty)
+            let g = self.generic(d, info.a)
+            let ec = self.known.explicit_copy
+            if ec >= 0 && self.generic_grants(d, info.a, ec) {
+                self.refuse_declared_copy(d, &a, g.name, "declares `", ": ExplicitCopy`, which licenses a spelled `.copy()`, but its body needs `")
+            } else if self.res.decls[d].vis == ResVis.Public {
+                self.refuse_declared_copy(d, &a, g.name, "is public, so it must declare the tier it requires: `", "` is undeclared, and its body needs `")
+            }
+        }
+    }
+
+    func refuse_declared_copy(&var self, d: Int, a: &TcAtom, name: Int, before: String, after: String) {
+        let info = self.res.decls[d]
+        let param = self.name_text(name)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` ")
+        try! msg.append(before)
+        try! msg.append(param)
+        try! msg.append(after)
+        try! msg.append(param)
+        try! msg.append("` to be `Copy`, as it ")
+        try! msg.append(self.copy_origin_text(a.origin))
+        try! msg.append(" with nothing written: declare `")
+        try! msg.append(param)
+        try! msg.append(": Copy`, or write `.copy()` where it duplicates")
+        let site = self.decl_site(d)
+        self.refuse_in(info.module, site, "copy.declared-bound", msg.build())
     }
 
     // Every item of top unit `u` and its closures.

@@ -1,0 +1,21 @@
+// refuses: mutability.immutable at 18:28
+// a `borrow let` head through a `&var self` accessor with no shared twin, on
+// a `let` root: the binding only reads, the root is still borrowed
+// exclusively (SL-470)
+
+struct Bag {
+    cells: [Int; 4]
+}
+
+extension Bag {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+func main() {
+    let b = Bag(cells: [1, 2, 3, 4])
+    let y = borrow let c = b[2] {
+        c + 1
+    }
+}

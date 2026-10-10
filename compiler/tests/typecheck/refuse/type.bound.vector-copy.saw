@@ -1,0 +1,12 @@
+// refuses: type.bound at 11:15
+// std's `copy()` on a `Vector<Token>`: its ExplicitCopy conformance holds
+// only where `T: ExplicitCopy`, and no builtin `copy()` answers in its place
+// (SL-463)
+
+struct Token { id: Int }
+extension Token: NoCopy {}
+
+func main() {
+    let v = Vector<Token>()
+    let w = v.copy()
+}

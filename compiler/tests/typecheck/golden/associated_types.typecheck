@@ -109,8 +109,9 @@
       (65:12-65:18 Move S.Item value move)
       (65:17-65:18 Name S.Item place move))
     (again 68:6
-      (69:5-69:15 Call.paren U.Item value temp (call associated_types.first(box: &T) (inst U)))
-      (69:11-69:14 Name &U place copy))
+      (69:5-69:16 Call.paren U.Item value temp (call associated_types.first(box: &T) (inst U)))
+      (69:11-69:15 Ref.shared &U value temp)
+      (69:12-69:15 Name &U (deref U) place borrow))
     (pair 72:6
       (73:5-73:23 Tuple.positional (T.Item, U.Item) value temp)
       (73:6-73:13 Call.paren T.Item value temp (call associated_types.Source.get() (owner T)))

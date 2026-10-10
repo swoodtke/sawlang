@@ -1,0 +1,24 @@
+// refuses: mutability.immutable at 23:13
+// a `&self` method called on a window through a `&var self` accessor with no
+// shared twin, on a `let` root (SL-470)
+
+struct Num { n: Int }
+
+extension Num {
+    func get(&self) -> Int { self.n }
+}
+
+struct Shelf {
+    nums: [Num; 2]
+}
+
+extension Shelf {
+    func [](&var self, i: Int) borrows -> &var Num {
+        lend self.nums[i]
+    }
+}
+
+func main() {
+    let s = Shelf(nums: [Num(n: 1), Num(n: 2)])
+    let g = s[0].get()
+}

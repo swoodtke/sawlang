@@ -95,13 +95,13 @@ fn windows.block_form(r: &var windows.Row, limit: Int) -> Int {
     let _3: Int;  // total
     let _4: Bool;
     let _5: Int;  // step
-    let _6: &Int;
-    let _7: &windows.Row;
+    let _6: &var Int;
+    let _7: &var windows.Row;
     let _8: &Int;  // ref cell
     let _9: Bool;
     let _10: Int;
     let _11: Int;
-    window w0: windows.Row.[](i: Int) shared;
+    window w0: windows.Row.[](i: Int) exclusive;
 
     bb0: {
         _3 = const 0: Int;
@@ -119,7 +119,7 @@ fn windows.block_form(r: &var windows.Row, limit: Int) -> Int {
     }
 
     bb3: {
-        _7 = ref(shared, (*_1));
+        _7 = ref(exclusive, (*_1));
         _6 = window_open w0 prologue windows.Row.[](i: Int) (owner windows.Row) [move _7, const 0: Int] -> [present: bb4];
     }
 

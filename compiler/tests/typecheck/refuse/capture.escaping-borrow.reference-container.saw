@@ -1,0 +1,14 @@
+// refuses: capture.escaping-borrow at 7:21
+// a borrow-capturing closure stored into a container reached through a
+// `&var` parameter: `push` keeps its argument, a type argument's function
+// type escapes, conformance row R43 (SL-467)
+
+func stash(out: &var Vector<() sync -> Int>, n: &Int) {
+    try! out.push({ n * 2 })
+}
+
+func main() {
+    var fns = Vector<() sync -> Int>()
+    var local = 21
+    stash(&var fns, &local)
+}

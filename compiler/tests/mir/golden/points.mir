@@ -58,14 +58,16 @@ fn points.run(w: &T) -> Int {
 fn points.slow(s: &points.Slow) -> Int {
     let _0: Int;  // return
     let _1: &points.Slow;  // param s
-    let _2: Int;
+    let _2: &points.Slow;
+    let _3: Int;
 
     bb0: {
-        _2 = call points.run(w: &T) (inst points.Slow) [copy _1] -> [return: bb1] suspends;
+        _2 = ref(shared, (*_1));
+        _3 = call points.run(w: &T) (inst points.Slow) [move _2] -> [return: bb1] suspends;
     }
 
     bb1: {
-        _0 = move _2;
+        _0 = move _3;
         return;
     }
 }

@@ -1,0 +1,20 @@
+// refuses: mutability.immutable at 19:13
+// a subscript read through a `&var self` accessor with no shared twin, on a
+// `let` root: every use borrows the root exclusively (SL-470)
+
+struct Bag {
+    cells: [Int; 4]
+    reads: Int
+}
+
+extension Bag {
+    func [](&var self, i: Int) borrows -> &var Int {
+        self.reads += 1
+        lend self.cells[i]
+    }
+}
+
+func main() {
+    let b = Bag(cells: [1, 2, 3, 4], reads: 0)
+    let x = b[0]
+}

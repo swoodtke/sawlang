@@ -1,0 +1,34 @@
+// A member of a bounded extension, or of a bounded conformance, where its
+// bound holds: on a receiver whose argument meets it, and in a generic body
+// whose own bound proves it (SL-463).
+
+struct Cell<T> { v: T }
+
+extension Cell<T: Equatable> {
+    func same(&self, other: &Cell<T>) -> Bool { self.v == other.v }
+    static func twin(a: &Cell<T>, b: &Cell<T>) -> Bool { a.v == b.v }
+}
+
+extension Cell<T: Equatable>: Equatable {
+    func equals(&self, other: &Cell<T>) -> Bool { self.v == other.v }
+}
+
+func bounded<T: Equatable>(a: &Cell<T>, b: &Cell<T>) -> Bool {
+    let x = a.same(&b)
+    let y = Cell<T>.twin(&a, &b)
+    let z = a == b
+    x && y && z
+}
+
+func copies<T: ExplicitCopy>(p: (T, Int)) -> Int {
+    let q = p.copy()
+    q.1
+}
+
+func main() {
+    let c = Cell(v: 1)
+    let d = Cell(v: 2)
+    let v = Vector<Int>()
+    let w = v.copy()
+    print("{} {} {} {}", c.same(&d), Cell<Int>.twin(&c, &d), c == d, bounded(&c, &d))
+}

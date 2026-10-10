@@ -170,6 +170,13 @@ public struct TcMember {
     public name: Int
 }
 
+// A bound a member's declaring extension puts on a parameter of its type that
+// a receiver's argument does not meet: the parameter's index and the trait.
+public struct TcUnmetBound {
+    public index: Int
+    public trait_decl: Int
+}
+
 // A nominal type's Copy tier: `base` joined with the tiers of the arguments
 // whose parameter indices `mask` holds. A declared policy is uniform over the
 // arguments, so its mask is empty.

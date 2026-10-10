@@ -1,0 +1,53 @@
+// Reads through `borrows` accessors where the root may be borrowed as each
+// declares: a `&var self` accessor on a `var` and through a `&var`
+// parameter, and on a `let` root one with a shared twin, `@synthesize(shared)`
+// or a hand-written `&self` overload (SL-470).
+
+struct Bag {
+    cells: [Int; 4]
+    reads: Int
+}
+
+extension Bag {
+    func [](&var self, i: Int) borrows -> &var Int {
+        self.reads += 1
+        lend self.cells[i]
+    }
+
+    func tally(&var self) borrows -> &Int {
+        lend self.reads
+    }
+}
+
+struct Plain {
+    cells: [Int; 4]
+}
+
+extension Plain {
+    @synthesize(shared)
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+
+    func at(&self, i: Int) borrows -> &Int {
+        lend self.cells[i]
+    }
+
+    func at(&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+func through(b: &var Bag) -> Int {
+    b[0] + borrow b.tally()
+}
+
+func main() {
+    var b = Bag(cells: [1, 2, 3, 4], reads: 0)
+    let x = b[0]
+    let t = borrow b.tally()
+    let p = Plain(cells: [5, 6, 7, 8])
+    let y = p[1]
+    let z = borrow p.at(2)
+    print("{} {} {} {} {}", x, t, y, z, through(&var b))
+}

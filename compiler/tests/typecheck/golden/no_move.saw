@@ -1,0 +1,39 @@
+// A `NoMove` value built where it lives and lent by reference, and a fresh
+// by-value parameter placed into its home, conformance row V57's shape
+// (SL-467).
+
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {}
+extension Anchor: NoMove {}
+
+extension Anchor {
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+func lend_it(a: &var Anchor) {
+    a.bump()
+}
+
+func replace_it(a: &var Anchor) {
+    a = Anchor(n: 99)
+}
+
+func place(value: Anchor) unsafe -> UnsafePointer<Anchor> {
+    let raw = GlobalAllocator().alloc(sizeof<Anchor>(), alignof<Anchor>())
+    if let chunk = raw {
+        let ptr = chunk as UnsafePointer<Anchor>
+        ptr[0] = move value
+        return ptr
+    }
+    panic("place: allocation failed")
+}
+
+func main() {
+    var a = Anchor(n: 1)
+    lend_it(&var a)
+    replace_it(&var a)
+    print(a.n)
+}

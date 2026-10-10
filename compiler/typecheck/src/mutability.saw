@@ -8,6 +8,7 @@
 import sawparse.src.grammar.{Alt}
 import sawparse.src.tree.{AstNode}
 import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.dump.{res_sort_strings}
 import sawresolve.src.model.{ResBindKind, ResBinding, ResDeclKind}
 import sawtypecheck.src.adjust.{TC_FIT_EXACT}
 import sawtypecheck.src.bodies.{tc_check_bodies}
@@ -89,6 +90,10 @@ extension TcProgram {
     //     a `lend` in a `borrows -> &var T` body
     //     a `borrows` window opened exclusive: the window's own use, whose
     //         walk crosses the accessor to its receiver
+    //     a window through an exclusive-only accessor whose use reads
+    //         (check_exclusive_windows): a subscript read, a named
+    //         accessor's call, a `borrow let` head, a `for` head, a
+    //         forwarded `lend`, a nested window, a method call's receiver
     //     a `[&var x]` capture (capture_verdict)
     public func check_mutability(&var self) {
         let n = self.res.nodes.len()
@@ -163,6 +168,65 @@ extension TcProgram {
                 self.refuse_write(cap.site, TcUse.BorrowVar, verdict)
             }
         }
+        self.check_exclusive_windows(&skipped, &var tables)
+    }
+
+    // Every window through an accessor that borrows its receiver
+    // exclusively at every use (`accessor_exclusive_only`) whose own use
+    // reads: its receiver is judged as an exclusive borrow, since nothing
+    // else asks. A window whose use writes is judged by that write's walk.
+    func check_exclusive_windows(&var self, skipped: &Vector<Bool>, tables: &var TcMutTables) {
+        var k = 0
+        while k < self.calls.len() {
+            let c = self.calls[k]
+            k = k + 1
+            if c.target < 0 || not self.accessor_exclusive_only(c.target) {
+                continue
+            }
+            let e = c.node
+            if skipped[e] || self.window_use_writes(e, &tables) {
+                continue
+            }
+            let subscript = self.has_alt(e, Alt.Expr_Subscript_Single) || self.has_alt(e, Alt.Expr_Subscript_Multi)
+            var receiver = -1
+            let head = self.res.first_node_child(e)
+            if subscript {
+                receiver = head
+            } else if head >= 0 && self.has_alt(head, Alt.Expr_Member) {
+                receiver = self.res.first_node_child(head)
+            }
+            if receiver < 0 || not self.is_place_alt(receiver) {
+                continue
+            }
+            let receiver_type = self.expr_types[receiver]
+            if not self.expr_place[receiver] && self.referent(receiver_type) < 0 {
+                continue
+            }
+            var through = TcCrossing.Window
+            if self.lends_indirectly(c.target, 0, &var tables) {
+                through = TcCrossing.Heap
+            }
+            let verdict = self.place_verdict(receiver, through, &var tables)
+            if not verdict.ok {
+                self.refuse_exclusive_window(e, c.target, verdict)
+            }
+        }
+    }
+
+    // Whether the use that ends window `e`'s projection writes: an
+    // assignment, a compound assignment, or an exclusive borrow.
+    func window_use_writes(&self, e: Int, tables: &TcMutTables) -> Bool {
+        var node = e
+        var steps = 0
+        while node >= 0 && steps < 10000 {
+            let u = self.expr_use[node]
+            if u != TcUse.Project {
+                return u == TcUse.Write || u == TcUse.Update || u == TcUse.BorrowVar
+            }
+            node = tables.parents[node]
+            steps = steps + 1
+        }
+        false
     }
 
     // Per node, whether it lies under a construct refused as outside the
@@ -417,13 +481,6 @@ extension TcProgram {
             if d < 0 || self.sigs[d].receiver != TcReceiver.Shared || heap {
                 return tc_write_ok()
             }
-            // A `borrows` body's receiver travels by pointer, so a window it
-            // opens on `self` writes the caller's storage, and makes the
-            // accessor exclusive-only (design 200; SL-333 R4).
-            let lending = (self.sigs[d].effects & TC_EFFECT_BORROWS) != 0
-            if lending && crossed == TcCrossing.Window {
-                return tc_write_ok()
-            }
             return tc_write_refused(TcWriteRefusal.SharedReceiver, binding)
         }
         let kind = self.binder_kind(binding, &tables)
@@ -578,6 +635,27 @@ extension TcProgram {
         } else {
             try! msg.append("`")
         }
+        self.append_write_reason(&var msg, verdict)
+        self.refuse_in(m, e, "mutability.immutable", msg.build())
+    }
+
+    // A read through accessor `d`, which borrows its receiver exclusively at
+    // every use, of window `e` whose receiver `verdict` refuses to write.
+    func refuse_exclusive_window(&var self, e: Int, d: Int, verdict: TcWriteVerdict) {
+        let m = self.node_module(e)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` takes `&var self` and declares no shared twin, so every use borrows its receiver exclusively, a read included; this use of `")
+        try! msg.append(self.text(m, e))
+        try! msg.append("` would let its receiver be written")
+        self.append_write_reason(&var msg, verdict)
+        try! msg.append("; or give the accessor a shared twin, `@synthesize(shared)` or a `&self` overload")
+        self.refuse_in(m, e, "mutability.immutable", msg.build())
+    }
+
+    // Why a write `verdict` refuses is refused, appended to `msg`.
+    func append_write_reason(&self, msg: &var StringBuilder, verdict: TcWriteVerdict) {
         let at = verdict.at
         let am = self.node_module(at)
         let name = if at >= 0 { self.text(am, at) } else { "" }
@@ -626,7 +704,6 @@ extension TcProgram {
             },
             case Allowed -> {}
         }
-        self.refuse_in(m, e, "mutability.immutable", msg.build())
     }
 
     // Why a by-value capture is not written, and what writes instead: a

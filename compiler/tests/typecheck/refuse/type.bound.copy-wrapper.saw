@@ -1,0 +1,22 @@
+// refuses: type.bound at 7:13
+// the builtin `copy()` on a tuple, an Optional and an array whose element is
+// an unbounded type parameter: each copy reaches `T`, which no bound makes
+// `ExplicitCopy`, conformance row V43 (SL-463)
+
+func dup_tuple<T>(p: (T, Int)) -> Int {
+    let q = p.copy()
+    q.1
+}
+
+func dup_opt<T>(p: T?) -> Int {
+    let q = p.copy()
+    if q.is_some() { 1 } else { 0 }
+}
+
+func dup_arr<T>(p: [T; 2]) -> Int {
+    let q = p.copy()
+    q.len()
+}
+
+func main() {
+}

@@ -36,7 +36,7 @@ func run<T: Worker>(w: &T) -> Int {
 }
 
 func slow(s: &Slow) -> Int {
-    run(s)
+    run(&s)
 }
 
 func spin(g: &var Guarded, limit: Int) -> Int {
