@@ -1756,7 +1756,7 @@ refused-unsafe-expr ::= "unsafe" prefix-expr
 # syntax.expr.refused-borrow-let-unbound  status=removed  spec="Places (`borrows` and `lend`)"  node=Error  ref="SL:borrowing §2.2"
 refused-borrow-let-unbound ::= "borrow" "let" postfix-expr
 
-# syntax.expr.refused-lend-var  status=removed  spec="`#lend_var`: a body that knows its flavor"  node=Error  ref="SL:borrowing §4"
+# syntax.expr.refused-lend-var  status=removed  spec="Shared and exclusive accessors"  node=Error  ref="SL:borrowing §4"
 refused-lend-var ::= "#lend_var"
 
 # syntax.expr.refused-try-route  status=removed  spec="Error routing at `try`"  node=Error
