@@ -812,6 +812,14 @@ A temporary passed by value as an argument is dropped by its callee. An owned `m
 
 **Checker:** yes: `closure-capture` refuses every capture in compiler source. The rules themselves come from sawc2, so Stage 1 rejects any source Stage 0 let through.
 
+### S26. A static or an operator from a bounded extension, on an argument that misses the bound (SL-463)
+
+**Shape (missing check):** a member declared in `extension Cell<T: Equatable> { ... }`, or brought by a bounded conformance `extension Cell<T: Equatable>: Equatable`, exists only where `T` meets the bound. Stage 0 enforces that for an instance method (`a.same(&b)` on a `Cell<Token>` is refused: "has no method `same`: requires `T: Equatable`"), but not for a static, `Cell<Token>.twin(&a, &b)`, nor for an operator that resolves to such a member, `a == b` through the bounded conformance's `equals`. It accepts both, and instantiates the member's body at a type that body was never checked for. sawc2's typecheck refuses both, as `type.bound`, through the one member lookup that methods, statics, subscripts, `for` loops and `init`s share.
+
+**Instead:** call such a member only on an argument that meets the bound.
+
+**Checker:** yes: `bounded-extension` refuses every bound on an extension in compiler source, so the shape cannot arise there, and the new std is compiled by sawc2 alone.
+
 ## Loud hazards
 
 ### L1. Integer literal adoption (SL-13, SL-53, SL-56, SL-70, SL-75, SL-84, SL-194)
