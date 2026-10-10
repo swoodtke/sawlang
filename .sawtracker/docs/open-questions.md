@@ -8,7 +8,16 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Waiting for the user (fundamental)
 
-Nothing is waiting. Q-precedence was approved on Oct 10 and is under "Resolved".
+### Q-args. Should `Env.args` report a non-UTF-8 argument as an error instead of panicking? (Oct 10; U5b3, SL-456.p3; the Air's review)
+The new std's `Env.args() -> Result<Vector<String>, AllocError>` panics on an argument that isn't valid UTF-8. That's strictly better than Stage 0, which silently builds an invalid `String`, and it is what Rust's `args()` does. But an argument comes from outside the program, not from a caller bug the caller could have checked first, and the doctrine ("never hide errors") has such failures surface as a `Result`. The signature is the spec's (the Allocation-failure list) and Stage 0's, so changing it is a spec change.
+
+The options:
+- **(a)** keep the panic (as landed);
+- **(b)** a compound error, `Alloc(e: AllocError)` and `InvalidUtf8(index:, offset:)`, in the design-234 shape;
+- **(c)** keep `args` as it is and add a bytes-level `arguments()` (one `Data` per argument) beside it, for a program that must accept any argument.
+
+The lead recommends (c). The common case stays simple, the panic message names the argument's index, and a tool that must take arbitrary bytes has a total API. sawc2 itself is fine with (a), since its arguments are paths and flags.
+
 
 ## Open, for the lead to decide with the Air (reversible)
 
