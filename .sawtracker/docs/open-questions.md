@@ -14,6 +14,17 @@ None right now.
 
 **D2–D21 were all accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. Nothing in this section is waiting for review.
 
+### D27. A getitem in a generic body is an inferred `Copy` requirement, not a definition-site refusal (Oct 9; batch B1, SL-467 row P12; the agent's m405)
+`let s = self.slots[i]` in a method of `Holder<K>`, where `slots: Vector<Slot<K>>` and `K` is unbounded. Two texts disagreed:
+- **LANGUAGE_SPEC** (design 219) says a read out of storage the body does not own ("a field, a tuple element, an indexed place") is always a duplicate, so it is an inferred `Copy` requirement checked at each call site.
+- **SL:borrowing §2.7** (and K15), with Stage 0 (design 146, DF-146e), refused a generic slot's getitem in the body itself.
+
+**Decided:** the spec holds, because it is authoritative for meaning and it is the later, unified rule. P12 is accepted at the definition, and a call at a NoCopy `K` is refused at the call site. A concrete NoCopy slot's getitem stays refused at the definition. SL:borrowing §2.7 is corrected. Stage 0's definition-site refusal is a Stage 0 over-refusal.
+
+**Rejected:** a getitem-specific definition-site rule beside design 219's, which would be a second rule for one fact.
+
+**Reversal:** add the definition-site refusal for a getitem whose element type mentions an unbounded type parameter, and restore §2.7's wording.
+
 ### D26. An assignment through an accessor runs its right side before the accessor's prologue (Oct 9; U6d2, SL-460.p2; the Air's review)
 In `g[k] = f()` and `g[k] += f()`, where `[]` is a `borrows` accessor, the order of the right side and the accessor's prologue (user code) is observable. Stage 0 runs `k`, then the prologue, then `f()`, unless the right side reads the root, in which case it runs `f()` first. So its order depends on what the right side mentions.
 
