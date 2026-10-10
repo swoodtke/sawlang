@@ -22,19 +22,55 @@ The lead hasn't decided these yet. Each one moves to "Decided" with its reasonin
 ### O4. The shape of Map's entry iterator (Oct 10; SL-489 item 3, docs489)
 SL:borrowing §2.6 says collections implement `LendingIterator`, but it names no Map iterator. It gives no method name and no item shape. A map entry is a key and a value, so the item would be either a tuple of places (§7's tuple lends are a separate rule) or a pair struct. Until this is settled, the spec's Map "Iteration" says `Map` declares no iterator yet, and its visitors and snapshots are the iteration forms.
 
-### O3. How a value of a `borrows` function type is formed (Oct 10; SL-489 item 6)
-The grammar has no method reference, and `lend` must be rooted in the receiver, so the spec doesn't say how such a value is made.
-
-### O2. What `--emit-docs` reports as a `borrows` accessor's receiver kind (Oct 10; SL-489 item 5)
-One `&self` declaration serves both shared and exclusive use, and the shared twins of D9 exist too.
-
-### O1. Which inner accessor a forwarded lend from a `(&var self) borrows -> &T` outer reaches (Oct 10; SL-489 item 4)
-SL:borrowing §2.7 and §3 are silent on it.
+O1 to O3 are decided as D31 to D33.
 
 ## Decided by the lead, for review (reversible)
 
 **D2–D21 were all accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. Nothing in this section is waiting for review.
 
+### D33. No expression forms a value of a `borrows` function type yet (Oct 10; SL-489 item 6, was O3)
+The spec lets a function type carry `borrows` or `borrows(sync)` (`syntax.type.func-borrows`), and a `borrows(sync)` value does not convert to a plain `borrows` type. Nothing says how such a value is made. Two ways are closed:
+- **A method reference:** the grammar has none.
+- **A closure literal:** a closure has no receiver, and §2.7 refuses a `lend` rooted in a parameter, `&var` included.
+
+**Decided:** in this language, the type describes methods: a trait requirement, and a call through a bound or an `any Trait`. No expression produces a value of it. Writing the type is legal, as the grammar already says. The spec says so plainly where it introduces the type.
+
+**Rejected:**
+- Admitting a closure that forwards a parameter's place. That widens §2.7's root rule, which deliberately keeps "lend what a caller handed you" out for now.
+- Inventing a method-reference form inside a docs patch.
+
+**Reversal or growth:** a method-reference design lists it in SL:borrowing §10 (Deferred). Admitting values later is compatible with today's text.
+
+### D32. `--emit-docs` reports a `borrows` accessor's declared receiver, with a separate lend record (Oct 10; SL-489 item 5, was O2)
+Stage 0 reports the receiver kind `window`, meaning "a read borrows shared and a write borrows exclusively, chosen at each use site" (design 146). The exception is an accessor that writes `self`, which it reports as `borrows-var`. SL:borrowing §3 retires use-site mode inference: the root charge follows the declaration. So `window`'s premise is gone.
+
+**Decided:**
+- **The receiver:** the `self` kind is read off the declared receiver, as for any method. `&self` is `borrows` and `&var self` is `borrows-var`.
+- **A separate `lends` record** holds the facts the receiver can't show:
+  - the lent type (`&T`, `&var T`, `&T?`, or a borrowing struct);
+  - the root charge from §3's table, `shared` or `exclusive`;
+  - whether it is `borrows(sync)`.
+
+  A cell-carrying `(&self) borrows -> &var T` is then `self: borrows` (it serves a `let` root) with `root: exclusive`. These are two facts that one kind can't carry.
+- **A `@synthesize(shared)` twin** is a real overload, so it is emitted as its own item with `synthesized: "shared"`.
+- `window` is retired.
+
+**Rejected:** folding the root charge into the receiver kind. It would report a cell-carrying accessor as `borrows-var`, telling a reader it needs a mutable root, which D7 says it doesn't.
+
+**Reversal:** keep a single receiver-kind field, and give the root charge a new kind value.
+
+### D31. A forwarded `lend` picks the inner accessor by the outer's lent type (Oct 10; SL-489 item 4, was O1)
+An outer `(&var self) borrows -> &T` forwards `lend self.data[i]`, and the inner type has both a `&self` and a `&var self` `[]`. §2.7 and §3 don't say which one runs. It matters: `Data`'s exclusive `[]` separates shared copy-on-write bytes, and its shared one doesn't (§4).
+
+**Decided:** the outer's lent type plays the binding keyword for the `lend` operand.
+- **Lending `&T`** is read like `borrow let`. Per §4, it picks the `&self` variant when one exists ("the least privilege that works"), and otherwise the exclusive one.
+- **Lending `&var T`** is read like `borrow var`, and needs a writable inner lend.
+
+This applies at each accessor hop of the operand. The outer's own root charge is unchanged, because it is still exclusive from its `&var self` declaration. A read-only forward through `Data` therefore never separates bytes.
+
+**Rejected:** picking by the outer's receiver (`&var self`, so always the exclusive variant). It would make a read-only accessor perform a write's side effects, such as a copy-on-write separation and its allocation panic.
+
+**Reversal:** pick the inner variant by the outer's receiver.
 ### D30. A by-value capture of a type parameter: `[copy x]` is refused at the definition, `[x]` is an inferred requirement (Oct 10; SL-481, batch B2's question)
 `[copy x]`, `[x]` and an implicit by-value capture of an `x: T`, where `T` has no `Copy` bound. Today typecheck records nothing for any of them, and MIR's `capture_copy` raises an INVARIANT for all three.
 
