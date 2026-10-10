@@ -53,7 +53,7 @@ borrow var n = counter.lock() { n += 1 }
   let outcome = borrow var task = frames[i] {
       match task.resume() {
           case Pending -> Outcome(done: false, wake: task.wake_reason())
-          case Ready -> Outcome(done: true, wake: Wake.None)
+          case Ready -> Outcome(done: true, wake: Wake.Idle)
       }
   }
   ```
