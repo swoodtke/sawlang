@@ -366,6 +366,14 @@ lend of §7.
   the window. Lending what a caller handed you is a larger promise than lending
   your own storage, and widening later stays compatible. sawc2's rule is
   `lend.root` (SL-460).
+- **The lent type picks the forwarded accessor.** A `lend` operand that
+  reaches an accessor with both variants reads the outer's lent type as its
+  binding keyword: `-> &T` reads as `borrow let` and picks the `&self`
+  variant when one exists (§4), and `-> &var T` reads as `borrow var`. The
+  pick is made among the accessors the outer's receiver can reach, so a `&self`
+  outer never reaches an inner `&var self` one. The rule applies at each hop. So
+  a `(&var self) borrows -> &T` forwarding `lend self.data[i]` runs Data's
+  shared `[]` and separates no copy-on-write bytes. (SL:open-questions D31.)
 - **A `borrows(sync)` borrow open at a `lend` makes the accessor
   `borrows(sync)`** (Ruled with §2.5; codex t17). If any borrow still open at a
   `lend` comes from a `borrows(sync)` accessor, the lending accessor must itself
