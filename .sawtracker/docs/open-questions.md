@@ -19,6 +19,20 @@ CLAUDE.md says only 'LANGUAGE_SPEC.md is authoritative for meaning'. Today two c
 
 **D2–D21 were all accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. Nothing in this section is waiting for review.
 
+### D29. A plain subscript in a rendering or comparison position is a getitem (Oct 10; SL-482, spec482's question; the Air's probes)
+`print(v[0])`, `"{v[0]}"`, `print("{}", v[0])` and `v[0] == w[0]` over a `Vector<Res>` with `Res: NoCopy`. LANGUAGE_SPEC's "Value reads" said these places are borrowed where they sit, and both compilers accept them.
+
+**Decided:** each is a getitem, so a NoCopy element is refused, and an ExplicitCopy one needs `.copy()`. The in-place read is spelled `borrow v[0]`, which parses at all four positions in sawc2. This follows from:
+- the user's §1 ruling, "if it looks like a copy, then just copy";
+- §5.1: "plain subscripts are values and `borrow` subscripts are places; the spelling at the call site picks the role";
+- §2.2's own example, `print(borrow doc.section("net").name)`.
+
+Copy-tier elements are unaffected. SL-482 writes the rule into the spec, and SL-486 makes sawc2 refuse the plain forms.
+
+**Rejected:** a per-position exception ("a position that keeps nothing borrows"). It would make a plain subscript's role depend on where it sits, which §5.1's spelling rule replaces.
+
+**Reversal:** restore "Value reads" to borrow-in-place for rendering and comparison operands, and close SL-486.
+
 ### D28. "`&self` is read-only all the way down" stops at a raw pointer's pointee (Oct 9; SL-479, the spec rewrite agent's open question 1)
 SL:borrowing §9 retires design 200's heap carve-out: a `&self` body may not write storage the receiver reaches, `self.rows[0].push(9)` included. §9 doesn't say whether that covers a write through an `UnsafePointer` field.
 
