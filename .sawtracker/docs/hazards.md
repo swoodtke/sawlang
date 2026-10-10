@@ -1480,6 +1480,14 @@ C6 to C9 come from the Air's review of SL-505.p1 (chat file f22). Each was verif
 
 **Checker:** not needed: the build fails visibly.
 
+### C10. A consumed `match` on an owned `Optional` keeps its payload to scope end
+
+**Shape (silent: wrong drop timing):** on an owned `Noisy?`, `match o { case Some(n) -> … }` destroys `n` at the end of the enclosing scope under Stage 0, not at the arm's end. The arm binding owns the payload ("Match consumes an owned enum"), so its `deinit` belongs at the arm's end, where sawc2 runs it. A user enum with the same shape drops at the arm's end in both compilers. The repro is the Air's `e9_matchconsume.saw` (chat file f22), and the SL-513 ruling records the arm-entry rule for parts no arm binding takes.
+
+**Instead:** none needed in compiler source, which declares no `deinit` (checker rule `deinit-body`), so the timing is unobservable in Stage 1.
+
+**Checker:** covered by `deinit-body`.
+
 ## Inventory
 
 Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and eight found since, mapped to its entry. "Call" is this
