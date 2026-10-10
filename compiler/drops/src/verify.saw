@@ -14,7 +14,7 @@
 //     path that diverges reaches no return, and a panic does not unwind;
 //   - each flag follows its path: set in bb0 from the entry's conditions,
 //     then updated after every statement, and before every terminator, whose
-//     accesses change whether the path is whole;
+//     accesses change whether the path is whole, and nowhere else;
 //   - no flag tracks a `consumes` body's receiver or a field of it;
 //   - a prologue's `lend` writes every flag field of its record.
 
@@ -437,11 +437,18 @@ extension DropsProgram {
         0
     }
 
+    // A constant update no change before it explains is owed by the
+    // terminator, so only flag updates may follow it and the terminator's
+    // change must be the same; otherwise the flag says the path changed where
+    // it did not, and the refined fact its false edge gives is unsound. bb0's
+    // leading run of flag assignments sets each flag from the entry instead.
     func verify_flag_block(&self, f: Int, b: Int, facts: &MirInit, flag: Int, q: Int, out: &var Vector<String>) {
         let info = self.bc.mir.funcs[f]
         let block = self.bc.mir.blocks[info.block_first + b]
         var pending = DROPS_KEEP
         var last = DROPS_KEEP
+        var unexplained = DROPS_KEEP
+        var leading = b == 0
         var s = block.first
         while s >= 0 {
             let at = s
@@ -452,9 +459,20 @@ extension DropsProgram {
                 if pending != DROPS_KEEP && v >= 0 && v != pending {
                     self.verify_problem(f, b, -1, "updates a drop flag against its path's change", &var out)
                 }
+                if pending == DROPS_KEEP && v >= 0 && not leading {
+                    unexplained = v
+                }
                 pending = DROPS_KEEP
                 last = v
                 continue
+            }
+            if self.assigned_flag(f, &stmt) >= 0 {
+                continue
+            }
+            leading = false
+            if unexplained != DROPS_KEEP {
+                self.verify_problem(f, b, -1, "updates a drop flag where its path does not change", &var out)
+                unexplained = DROPS_KEEP
             }
             let accesses = self.bc.mir.init_stmt_accesses(f, at, &facts)
             let effect = self.net_effect(&facts, q, &accesses)
@@ -473,6 +491,9 @@ extension DropsProgram {
         let effect = self.net_effect(&facts, q, &term)
         if effect != DROPS_KEEP && effect != last {
             self.verify_problem(f, b, -1, "ends in a terminator whose flag update does not stand before it", &var out)
+        }
+        if unexplained != DROPS_KEEP && effect != unexplained {
+            self.verify_problem(f, b, -1, "updates a drop flag where its path does not change", &var out)
         }
     }
 

@@ -1,0 +1,24 @@
+// The program compiler/drops/tests/verify_flags.saw elaborates, then edits:
+// `maybe` moves `r` on one branch, so `r` carries a drop flag, cleared where
+// the move stands. The edit turns the move into a copy and leaves the clear,
+// so the flag says `r` left while it is still whole, and its guarded drop
+// would skip it: the drops verifier must refuse that.
+
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {}
+
+func sink(r: Res) -> Int {
+    r.name.len()
+}
+
+func maybe(flag: Bool) -> Int {
+    let r = Res(name: "abc")
+    var n = 0
+    if flag {
+        n = sink(move r)
+    }
+    n
+}

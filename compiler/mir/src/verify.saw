@@ -19,7 +19,9 @@
 //     between. The move-path facts are the initialisation analysis's
 //     (initialisation.saw);
 //   - every loop backedge carries an op-budget point;
-//   - every statement and terminator the entry reaches carries a source node.
+//   - every statement and terminator the entry reaches carries a source node;
+//   - no operand moves an owning value out through a reference, but for an
+//     epilogue's record load and a non-escaping closure's `move` capture load.
 
 import sawmir.src.build.{mir_func_local}
 import sawmir.src.dump.{mir_dump_module, mir_module_functions}
@@ -35,7 +37,7 @@ import sawresolve.src.model.{ResDeclKind}
 import sawresolve.src.program.{ResProgram}
 import sawtypecheck.src.bodydump.{tc_dump_bodies}
 import sawtypecheck.src.conform.{TcSubst, tc_args_subst}
-import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TcLend, TcReceiver}
+import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TcLend, TcReceiver, TcUse}
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.signatures.{TcContext}
 import sawtypecheck.src.spell.{tc_effects_text}
@@ -71,6 +73,112 @@ extension MirProgram {
         self.verify_backedges(f, &var out)
         self.verify_halves(f, &var out)
         self.verify_nodes(f, &var out)
+        self.verify_moves(f, &var out)
+    }
+
+    // No operand moves an owning value out through a reference. Storage
+    // reached through a `Deref` of a reference belongs to someone else, who
+    // drops it again, so such a move is a double free once code exists
+    // (SL-475). A value that owns nothing, a reference part among them, may
+    // move. Two shapes are exempt: an epilogue's load from its accessor's
+    // state record, which the accessor owns across its split, and a
+    // non-escaping closure's load of a `move` capture, the take-once transfer
+    // that owes a shape of its own (SL-477).
+    func verify_moves(&var self, f: Int, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = self.blocks[info.block_first + b]
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.stmts[s]
+                s = stmt.next
+                if stmt.kind == MirStmtKind.Assign && stmt.rvalue >= 0 {
+                    let rv = self.rvalues[stmt.rvalue]
+                    var k = 0
+                    while k < rv.count {
+                        let o = self.lists[rv.first + k]
+                        self.check_move(f, b, o, &var out)
+                        k = k + 1
+                    }
+                }
+            }
+            if block.term == MirTermKind.Switch && block.switch_kind == MirSwitchKind.Bool {
+                self.check_move(f, b, block.operand, &var out)
+            } else if block.term == MirTermKind.Call && block.call >= 0 {
+                let c = self.calls[block.call]
+                if c.callee >= 0 {
+                    self.check_move(f, b, c.callee, &var out)
+                }
+                var k = 0
+                while k < c.arg_count {
+                    let o = self.lists[c.arg_first + k]
+                    self.check_move(f, b, o, &var out)
+                    k = k + 1
+                }
+            }
+            b = b + 1
+        }
+    }
+
+    func check_move(&var self, f: Int, b: Int, o: Int, out: &var Vector<String>) {
+        if o < 0 || o >= self.operands.len() {
+            return
+        }
+        let operand = self.operands[o]
+        if operand.kind != MirOperandKind.Move || not self.through_reference_deref(operand.place) {
+            return
+        }
+        if not self.owns(operand.ty) || self.exempt_move(f, operand.place) {
+            return
+        }
+        var text = StringBuilder()
+        try! text.append("bb")
+        try! text.append(b)
+        try! text.append(" moves a `")
+        try! text.append(self.tc.type_text(operand.ty))
+        try! text.append("` out through a reference, `")
+        self.append_place(&var text, operand.place)
+        try! text.append("`: the referent's owner drops it again")
+        self.problem(f, &var out, text.build())
+    }
+
+    // The two moves through a reference `verify_moves` admits, each a whole
+    // entry `(*_1).K` exactly: an epilogue's load of record local K, and a
+    // non-escaping closure's load of its capture K when that capture is a
+    // `move`.
+    func exempt_move(&self, f: Int, p: Int) -> Bool {
+        let info = self.funcs[f]
+        let place = self.places[p]
+        if place.local != 1 || place.count != 2 {
+            return false
+        }
+        let entry = self.projs[place.first + 1]
+        if self.projs[place.first].kind != MirProjKind.Deref || entry.kind != MirProjKind.Tuple {
+            return false
+        }
+        if info.kind == MirFuncKind.Epilogue {
+            return entry.index < info.record_count
+        }
+        info.kind == MirFuncKind.Closure && self.take_once_capture(f, entry.index)
+    }
+
+    // Whether capture `j` of closure function `f` is a `move` capture of a
+    // closure typecheck found does not escape.
+    func take_once_capture(&self, f: Int, j: Int) -> Bool {
+        let e = self.funcs[f].root
+        let at = self.tc.closure_index.first(e, 0)
+        if at < 0 {
+            return false
+        }
+        let k = self.tc.closure_index.value(at)
+        if k < 0 || k >= self.tc.closure_escaping.len() || self.tc.closure_escaping[k] {
+            return false
+        }
+        if j < 0 || j >= self.tc.capture_count[k] {
+            return false
+        }
+        self.tc.captures[self.tc.capture_first[k] + j].use == TcUse.Move
     }
 
     // Every statement and terminator the entry reaches carries a source node

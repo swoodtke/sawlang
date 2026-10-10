@@ -1,0 +1,256 @@
+module generics
+
+fn generics.measure(x: &T) -> Int {
+    let _0: Int;  // return
+    let _1: &T;  // param x
+
+    bb0: {
+        _0 = const 1: Int;
+        return;
+    }
+}
+
+fn generics.run(body: () -> Int) -> Int {
+    let _0: Int;  // return
+    let _1: () -> Int;  // param body
+    let _2: Int;
+
+    bb0: {
+        _2 = call value copy _1 [] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _2;
+        drop(_1);
+        return;
+    }
+
+    glue () -> Int: closure environment
+}
+
+fn generics.later(x: T) -> () -> Int {
+    let _0: () -> Int;  // return
+    let _1: T;  // param x
+    let _2: () -> Int;
+
+    bb0: {
+        _2 = closure#0 of generics.later(x: T) [move _1];
+        _0 = move _2;
+        return;
+    }
+}
+
+fn closure#0 of generics.later(x: T) -> Int {
+    let _0: Int;  // return
+    let _1: &(T,);  // env
+    let _2: &T;  // ref x
+    let _3: &T;
+    let _4: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1).0);
+        _3 = ref(shared, (*_2));
+        _4 = call generics.measure(x: &T) (inst T) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        return;
+    }
+}
+
+fn generics.later_copy(x: T) -> () -> Int {
+    let _0: () -> Int;  // return
+    let _1: T;  // param x
+    let _2: () -> Int;
+
+    bb0: {
+        _2 = closure#0 of generics.later_copy(x: T) [move _1];
+        _0 = move _2;
+        return;
+    }
+}
+
+fn closure#0 of generics.later_copy(x: T) -> Int {
+    let _0: Int;  // return
+    let _1: &(T,);  // env
+    let _2: T;  // x
+    let _3: &T;
+    let _4: Int;
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _3 = ref(shared, _2);
+        _4 = call generics.measure(x: &T) (inst T) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        drop(_2);
+        return;
+    }
+
+    glue T: per instantiation
+}
+
+fn generics.copied(x: T) -> Int {
+    let _0: Int;  // return
+    let _1: T;  // param x
+    let _2: &T;
+    let _3: T;
+    let _4: () -> Int;
+    let _5: Int;
+
+    bb0: {
+        _2 = ref(shared, _1);
+        _3 = call ExplicitCopy.copy() (owner T) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = closure#0 of generics.copied(x: T) [move _3];
+        _5 = call generics.run(body: () -> Int) [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _5;
+        drop(_1);
+        return;
+    }
+
+    glue T: per instantiation
+}
+
+fn closure#0 of generics.copied(x: T) -> Int {
+    let _0: Int;  // return
+    let _1: &(T,);  // env
+    let _2: &T;  // ref x
+    let _3: &T;
+    let _4: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1).0);
+        _3 = ref(shared, (*_2));
+        _4 = call generics.measure(x: &T) (inst T) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        return;
+    }
+}
+
+fn generics.Holder.take(v: T) -> Int {
+    let _0: Int;  // return
+    let _1: &generics.Holder<T>;  // self
+    let _2: T;  // param v
+
+    bb0: {
+        _0 = const 1: Int;
+        drop(_2);
+        return;
+    }
+
+    glue T: per instantiation
+}
+
+fn generics.Holder.hand(t: T) -> Int {
+    let _0: Int;  // return
+    let _1: &generics.Holder<T>;  // self
+    let _2: T;  // param t
+    let _3: &T;
+    let _4: T;
+    let _5: &generics.Holder<T>;
+    let _6: Int;
+
+    bb0: {
+        _3 = ref(shared, _2);
+        _4 = copy (*_3);
+        _5 = ref(shared, (*_1));
+        _6 = call generics.Holder.take(v: T) (owner generics.Holder<T>) [move _5, move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _6;
+        drop(_2);
+        return;
+    }
+
+    glue T: per instantiation
+}
+
+fn generics.main() -> Void {
+    let _0: Void;  // return
+    let _1: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
+    let _2: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _3: () -> Int;  // f
+    let _4: () -> Int;
+    let _5: () -> Int;  // g
+    let _6: () -> Int;
+    let _7: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // w
+    let _8: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _9: generics.Holder<String>;  // h
+    let _10: generics.Holder<String>;
+    let _11: Int;
+    let _12: Int;
+    let _13: Int;
+    let _14: Int;
+    let _15: Int;
+    let _16: Int;
+    let _17: Int;
+    let _18: &generics.Holder<String>;
+    let _19: Int;
+    let _20: Int;
+
+    bb0: {
+        _2 = vector [const 1: Int, const 2: Int]: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+        _1 = move _2;
+        _4 = call generics.later(x: T) (inst std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _1] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = move _4;
+        _6 = call generics.later_copy(x: T) (inst String) [const "abc": String] -> [return: bb2];
+    }
+
+    bb2: {
+        _5 = move _6;
+        _8 = vector [const 3: Int]: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+        _7 = move _8;
+        _10 = generics.Holder<String> { n: const 1: Int };
+        _9 = move _10;
+        _11 = call value copy _3 [] -> [return: bb3];
+    }
+
+    bb3: {
+        _12 = call value copy _3 [] -> [return: bb4];
+    }
+
+    bb4: {
+        _13 = Add(move _11, move _12);
+        _14 = call value copy _5 [] -> [return: bb5];
+    }
+
+    bb5: {
+        _15 = Add(move _13, move _14);
+        _16 = call generics.copied(x: T) (inst std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _7] -> [return: bb6];
+    }
+
+    bb6: {
+        _17 = Add(move _15, move _16);
+        _18 = ref(shared, _9);
+        _19 = call generics.Holder.hand(t: T) (owner generics.Holder<String>) [move _18, const "d": String] -> [return: bb7];
+    }
+
+    bb7: {
+        _20 = Add(move _17, move _19);
+        call builtin print [move _20] -> [return: bb8];
+    }
+
+    bb8: {
+        drop(_5);
+        drop(_3);
+        return;
+    }
+
+    glue () -> Int: closure environment
+}

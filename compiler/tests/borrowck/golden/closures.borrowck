@@ -37,13 +37,12 @@ fn closures.captured() {
 }
 
 fn closure#0 of closures.captured() {
-    place _2: closures.Res;  // r
+    loan L0: shared (*_1).0;  // ref at 12:13
 
     bb0: {
-        [U] _2 = move (*_1).0;
-        [W] _0 = copy _2.id;
-        [W] drop(_2);  // static
-        [D] return;
+        [] {} _2 = ref(shared, (*_1).0);
+        [] {L0} _0 = copy (*_2).id;
+        [] {} return;
     }
 }
 

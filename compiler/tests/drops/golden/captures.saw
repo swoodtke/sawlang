@@ -1,0 +1,104 @@
+// An escaping closure's environment is shared by every copy of the closure
+// and released once, at its last owner, so a call never takes ownership out of
+// it (SL-475). A capture that owns something and is not of the Copy tier is
+// read in place, through a reference into the environment, and dropped by no
+// call: `readonly` calls its closure twice and `r` is released once, by the
+// closure's own drop. A Copy-tier capture is copied into a local the call
+// drops. One function per closure kind (let-bound, returned, stored in a field,
+// passed to an `escaping` parameter, and non-escaping) and capture kind
+// (plain, `move`, `copy`). A `[copy v]` of an ExplicitCopy `Vector` calls its
+// `copy()` once at creation, in either kind, and the environment and `v` are
+// each dropped once. A non-escaping `[move v]` is the take-once transfer,
+// whose shape is owed elsewhere (SL-477), so it has no row here.
+
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {}
+
+struct Keeper {
+    f: () -> Int
+}
+
+func run(body: () -> Int) -> Int {
+    body()
+}
+
+func later(body: () escaping -> Int) -> Int {
+    body()
+}
+
+func readonly() -> Int {
+    let r = Res(name: "abc")
+    let f = { [move r] in r.name.len() }
+    f() + f()
+}
+
+func let_plain() -> Int {
+    let s = "abc"
+    let f = { s.len() }
+    f()
+}
+
+func let_move_copy_tier() -> Int {
+    let s = "abc"
+    let f = { [move s] in s.len() }
+    f()
+}
+
+func let_copy_copy_tier() -> Int {
+    let s = "abc"
+    let f = { [copy s] in s.len() }
+    f()
+}
+
+func let_copy() -> Int {
+    let v: Vector<Int> = [1, 2]
+    let f = { [copy v] in v.len() }
+    f() + f()
+}
+
+func returned_move() -> () -> Int {
+    let r = Res(name: "abc")
+    return { [move r] in r.name.len() }
+}
+
+func returned_plain() -> () -> Int {
+    let s = "abc"
+    return { s.len() }
+}
+
+func stored_move() -> Int {
+    let r = Res(name: "abc")
+    let k = Keeper(f: { [move r] in r.name.len() })
+    k.f()
+}
+
+func passed_move() -> Int {
+    let r = Res(name: "abc")
+    later({ [move r] in r.name.len() })
+}
+
+func local_plain() -> Int {
+    let s = "abc"
+    run({ s.len() })
+}
+
+func local_copy_copy_tier() -> Int {
+    let s = "abc"
+    run({ [copy s] in s.len() })
+}
+
+func local_copy() -> Int {
+    let v: Vector<Int> = [1, 2]
+    run({ [copy v] in v.len() })
+}
+
+func main() {
+    let g = returned_move()
+    let h = returned_plain()
+    print(readonly() + let_plain() + let_move_copy_tier() + let_copy_copy_tier() + g() + h())
+    print(stored_move() + passed_move() + local_plain() + local_copy_copy_tier())
+    print(let_copy() + local_copy())
+}

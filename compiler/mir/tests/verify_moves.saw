@@ -1,0 +1,123 @@
+// The MIR verifier refuses a move of an owning value out through a reference
+// (SL-475). The verifier reads no text, so the fixture
+// `compiler/tests/mir/inject/moves.saw` is lowered, found clean, then edited:
+// its one copy of an owning value through a reference becomes a move, and the
+// verifier must report exactly that. `inject/handoff.saw` is lowered as it
+// stands: a generic hand-off of an unbounded `T` must stay a reported move.
+// Paths are the repository root's, where the runner runs.
+import sawmir.src.api.{mir_lower_file}
+import sawmir.src.build.{mir_func_local}
+import sawmir.src.model.{MirOperandKind, MirStmtKind}
+import sawmir.src.program.{MirProgram}
+import sawmir.src.verify.{mir_verify_module}
+
+// The index of module `name`, or -1.
+func module_index(p: &MirProgram, name: String) -> Int {
+    var m = 0
+    while m < p.tc.res.module_count() {
+        if p.tc.res.module_name(m).equals(name) {
+            return m
+        }
+        m = m + 1
+    }
+    return -1
+}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// How many of `found` report a move through a reference.
+func moves_reported(found: &Vector<String>) -> Int {
+    var count = 0
+    var k = 0
+    while k < found.len() {
+        let line = found.get(k) ?? ""
+        if holds(&line, "out through a reference") {
+            count = count + 1
+        }
+        k = k + 1
+    }
+    count
+}
+
+// The first operand of module `m`'s functions that copies an owning value
+// out through a reference, or -1.
+func owning_copy_through_reference(p: &var MirProgram, m: Int) -> Int {
+    var f = 0
+    while f < p.funcs.len() {
+        let info = p.funcs[f]
+        f = f + 1
+        if info.module != m {
+            continue
+        }
+        p.local_base = info.local_first
+        var b = 0
+        while b < info.block_count {
+            let block = p.blocks[info.block_first + b]
+            b = b + 1
+            var s = block.first
+            while s >= 0 {
+                let stmt = p.stmts[s]
+                s = stmt.next
+                if stmt.kind != MirStmtKind.Assign || stmt.rvalue < 0 {
+                    continue
+                }
+                let rv = p.rvalues[stmt.rvalue]
+                var k = 0
+                while k < rv.count {
+                    let o = p.lists[rv.first + k]
+                    k = k + 1
+                    let operand = p.operands[o]
+                    if operand.kind == MirOperandKind.Copy && p.owns(operand.ty) && p.through_reference_deref(operand.place) {
+                        return o
+                    }
+                }
+            }
+        }
+    }
+    return -1
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var p = mir_lower_file("compiler/tests/mir/inject/moves.saw", "sawc", &names, &dirs)
+    let m = module_index(&p, "moves")
+    assert(m >= 0, "the fixture did not load: run from the repository root")
+    assert(p.diags.len() == 0 && p.tc.error_count() == 0, "the fixture is refused")
+    let before = mir_verify_module(&var p, m)
+    assert(before.len() == 0, "the fixture's MIR is not clean before the edit")
+
+    let o = owning_copy_through_reference(&var p, m)
+    assert(o >= 0, "the fixture holds no copy of an owning value through a reference")
+    var edited = p.operands[o]
+    edited.kind = MirOperandKind.Move
+    p.operands[o] = edited
+    let after = mir_verify_module(&var p, m)
+    assert(moves_reported(&after) == 1, "the verifier does not refuse the edited move")
+    assert(after.len() == 1, "the edit is reported as more than the move")
+
+    // A hand-off of an unbounded `T` through a reference stays visible as a
+    // move, never a bitwise copy.
+    var q = mir_lower_file("compiler/tests/mir/inject/handoff.saw", "sawc", &names, &dirs)
+    let h = module_index(&q, "handoff")
+    assert(h >= 0, "the hand-off fixture did not load")
+    assert(q.diags.len() == 0 && q.tc.error_count() == 0, "the hand-off fixture is refused")
+    let found = mir_verify_module(&var q, h)
+    assert(moves_reported(&found) == 1 && found.len() == 1, "the generic hand-off is not reported as a move")
+}

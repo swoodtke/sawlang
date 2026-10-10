@@ -135,8 +135,10 @@ def build_and_run_unit(name, path):
     ok, output = build.build_program(path, exe)
     if not ok:
         return name, "unit %s: does not compile: %s" % (name, _first_line(output))
+    # From this checkout's root, so a unit program that reads a fixture by its
+    # repository path reads this tree's, whatever the caller's directory.
     try:
-        r = subprocess.run([exe], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+        r = subprocess.run([exe], capture_output=True, text=True, timeout=RUN_TIMEOUT, cwd=REPO)
     except subprocess.TimeoutExpired:
         return name, "unit %s: timed out" % name
     if r.returncode != 0:

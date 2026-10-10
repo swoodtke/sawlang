@@ -11,6 +11,7 @@ drops/
   drops_lane.py      the lane compiler/tests/run.py runs
   golden/            NAME.saw, a program, and NAME.drops, its expected record
   refuse/            RULE.saw or RULE.VARIANT.saw, a program refused, or a due row
+  inject/            NAME.saw, a program a unit program elaborates, then edits
   conformance.tsv    the conformance rows drop elaboration owns, and their summaries
 ```
 
@@ -160,9 +161,30 @@ that fact sound. It fails, naming the function and the block, on:
   partly moved one, may still be whole;
 - a flag not starting as its path's entry conditions give, a statement that
   changes its path not followed by the matching update before the path is
-  touched again, or a terminator whose update does not stand before it;
+  touched again, a terminator whose update does not stand before it, or a
+  constant update where its path does not change: one no change before it
+  explains and the terminator after it does not owe, such as a flag cleared
+  without its move, which would make the false edge's fact unsound;
 - a flag on a `consumes` body's receiver or a field of it;
 - a prologue `lend` that writes its record but not every flag field.
+
+The verifier reads no text, so each rejection that matters is pinned by a unit
+program that elaborates a fixture of `inject/`, edits it, and requires the
+report: `compiler/drops/tests/verify_flags.saw` turns the move a flag's clear
+stands for into a copy.
+
+**A limit: the leak check does not follow enum payloads.** At a `return` it
+follows a partly moved value's fields and tuple elements, never a payload
+path. The analysis keeps every case's payload paths, and only one case is
+active at run time; after a join, a case another path never entered looks
+whole, so following them would refuse every match whose arms take parts of
+different cases. An owning payload a lowering failed to drop beside a payload
+it moved out therefore escapes this check: MIR's `dissolve`, which drops every
+owned part a destructure does not take, is what rules it out, and §3.8 must
+not read this verifier as covering it. `compiler/drops/tests/leak_payloads.saw`
+pins the limit: it unlinks the drop of the payload `first_name` leaves in
+`inject/payloads.saw` and requires the verifier to stay silent, so the program
+fails, and becomes a rejection pin, once the limit is closed.
 
 ## The lane
 
@@ -189,6 +211,8 @@ there. It counts the drop flags over the sawc2 build and over tests/corpus.
 | statement temporaries in reverse creation order; one on a short circuit, flagged | temporaries |
 | drops inside a window's body before its close; a `for` over a borrowing struct | windows |
 | glue: `deinit`, structural, closure environment, builtin, per instantiation | glue |
+| an escaping closure's captures, released once by the environment, never by a call; each closure kind and capture kind | captures |
+| the same over a type parameter: unbounded read in place, `ExplicitCopy`'s `copy()` at creation, `Copy` copied; a `Copy` hand-off through a reference | generics |
 | glue under the new std: `Vector<Token>` and `Vector<Int>` | glue_std |
 | a flag across an accessor's split (the Air's probe) | accessor |
 | a flagged drop across a suspending call | suspension |

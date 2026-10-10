@@ -1,6 +1,6 @@
 // A closure capturing by `move` moves the binding into its environment: the
-// binding is moved from there on, and the closure's own body owns the
-// capture.
+// binding is moved from there on, and the escaping closure's body reads the
+// capture in place, a loan on the environment that owns it.
 
 struct Res { id: Int }
 extension Res: NoCopy {}

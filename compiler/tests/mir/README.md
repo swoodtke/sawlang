@@ -11,6 +11,8 @@ mir/
   golden/          NAME.saw, a program, and NAME.mir, its expected record
   spans/           NAME.saw, a program, and NAME.mir, its expected `--spans` record
   refuse/          NAME.saw, a construct the lowering refuses
+  inject/          NAME.saw, a program a unit program lowers, then edits, to
+                   prove the verifier refuses a shape no lowering emits
   corpus_info.py   how much of tests/corpus/ lowers, for information
 ```
 
@@ -233,7 +235,23 @@ drop is still right (destructures `relayed`). So is a part holding a shared
 reference or slice. A part holding an exclusive reference, `&var T`, read by
 value through no reference, is always a `move`, even where its position copies:
 it is a reborrow out of a container that is dead after it, never a second live
-alias of the referent (references).
+alias of the referent (references). No transfer moves an owning value out
+through a reference: a hand-off or a last read of a place reached through one,
+such as `s.compare(&t)` handing the `deref` of a fresh `&t` to a by-value
+parameter, copies a Copy-tier value (`copy (*_K)`), and a pattern binding of
+an owning part reached through one copies it or aliases it (below).
+
+These copies the lowering chooses, and so do a closure's capture loads and
+copy captures (Closure environments, below), so they ask
+`mir_copies_silently`, not typecheck's tier: a type that is or mentions a type
+parameter copies only where the bounds grant `Copy`. Typecheck answers that
+every parameter copies, the requirement design 219 checks at each call, but
+it records no requirement for a copy the lowering invents, so at a NoCopy
+instantiation such a copy would be freed twice. Otherwise each rule takes its
+non-Copy path: read in place, alias, or leave the move for the verifier to
+report. Drops golden `generics` holds each, and the unit program
+`compiler/mir/tests/verify_moves.saw` requires an unbounded `T` handed off
+through a reference to stay a reported move.
 
 **Adjustments**, each made explicit (adjustments):
 
@@ -324,6 +342,60 @@ nothing.
 | `for`'s `next()` Optional | each item, after the binding; an item nothing binds drops there | destructures `iterated` |
 | `move self.f` in a `consumes` body | every exit: the fields the body moves out nowhere, never the whole receiver nor its `deinit` body; a field moved on some paths to a return only is borrowck's `consumes.some-paths` | destructures `Holder.take_kept` |
 
+**Scrutinees read through a reference** (SL-475). A pattern-matching head
+whose scrutinee's place reaches through a `Deref` of a reference matches the
+referent where it sits: a switch on `discriminant((*_K))`, no temporary, no
+drop, and no consuming destructure. Typecheck records a borrowed scrutinee's
+use as a test and its bindings as borrows; `lower_match` and `optional_switch`
+still decide by the place, not the use, so a `move` recorded for such a
+scrutinee could not move its referent out. A binding of an owning
+part reached through a reference (`binding_use`) never moves it out: a
+Copy-tier part is copied, any other is aliased (`// ref NAME`), as a part of
+a borrowed scrutinee is. Each head and scrutinee kind is a function of
+golden `scrutinees`:
+
+| head | `borrow let` | `borrow var` | `&` / `&var` parameter | `&self` / `&var self` field | `[&x]` capture | conditional lend's payload |
+|---|---|---|---|---|---|---|
+| `match`, a `borrow` payload | `match_borrow_let` | `match_borrow_var` | `match_parameter`, `match_parameter_var` | `match_field`, `match_field_var` | `match_capture` | `match_lend_payload` |
+| `match`, a by-value payload: Copy / NoCopy (an alias) | `match_borrow_let_copy` / `match_borrow_let_alias` | | | | `match_capture_copy` | |
+| `match`, no binding; nested under a payload | `match_borrow_let_none`; `match_nested` | | | | | |
+| `if let`, `if borrow let` | `if_let_borrow_let`, `if_let_borrow_let_none`, `if_borrow_unwrap` | `if_let_borrow_var` | `if_let_parameter` | `if_let_field` | `if_let_capture` | |
+| `guard let` | `guard_let_borrow_let` | | `guard_let_parameter` | `guard_let_field` | | |
+| `while let` | `while_let_borrow_let` | | `while_let_parameter` | `while_let_field` | | |
+
+A by-value binding of a NoCopy payload is refused by typecheck under `if let`,
+`guard let` and `while let` (`transfer.implicit-copy`), so those heads have no
+alias row. A user's `move` of an aliased binding is typecheck's to refuse
+(`transfer.move-from-borrow`); one it missed would lower through the alias,
+and the verifier would report it.
+
+**Closure environments** (`lower_closure`). A closure's body reads its
+captures out of its environment, `_1`, at entry. An escaping closure's
+environment is shared by every copy of the closure and released once, at its
+last owner (spec, Escaping-closure heap environments), so a call never takes
+ownership out of it (`load_owned_capture`, SL-475), and neither does a call of
+any closure take a `[copy x]` capture, which the environment holds from
+creation. At creation, `capture_copy` builds a copy capture: a silent copy for
+the Copy tier, and otherwise a call of the `copy()` the type's ExplicitCopy
+conformance declares (`_5 = call Vector.copy() [...]`), or, for a type
+parameter bounded `ExplicitCopy`, the bound's (`call ExplicitCopy.copy()
+(owner T)`), as a spelled `x.copy()` lowers; so the environment and the
+binding never share one buffer. One no copy resolves for is an `INVARIANT`,
+never a bitwise copy (typecheck's refusal is SL-481). In the body, a by-value
+capture that owns nothing, or is of the Copy tier, is copied into a local the
+call drops, retained by its copy (`_2 = copy (*_1).0`); any other is read in
+place,
+through a reference the capture's name reads through (`_2 = ref(shared,
+(*_1).0)`, `// ref r`). This is the spec's "loaded into a per-call local" read
+so that it never transfers: what the local holds is a copy or a view, never
+the environment's value. Typecheck refuses every consuming use of such a
+capture (`capture.escaping-consume`), so no move out of an escaping
+environment is left to lower. A non-escaping closure's `[move v]` still loads
+with a move (`_2 = move (*_1).0`): that is the take-once transfer, which
+needs a shape of its own and a drop flag the body clears (SL-477), and the
+verifier exempts it by name. Each closure kind and capture kind is a function
+of drops golden `captures`.
+
 ## Refusals
 
 A construct the lowering does not handle yet is refused as `slice.not-yet`,
@@ -404,7 +476,19 @@ nowhere, and checks, from the MIR alone:
   here;
 - every loop backedge, an edge to a block on the depth-first path from the
   entry, leaves a block whose last statement is an op-budget point;
-- every statement and terminator the entry reaches carries a source node.
+- every statement and terminator the entry reaches carries a source node;
+- no operand moves an owning value out through a `Deref` of a reference
+  (SL-475): that storage is someone else's, who drops it again. A value that
+  owns nothing, a reference part such as an accessor record's `&var` field,
+  may move, and a raw pointer's pointee is not a reference's. Two shapes are
+  exempt, each a whole entry `(*_1).K`: an epilogue's load of record local K,
+  which its accessor owns across the split, and a non-escaping closure's load
+  of a `move` capture K, the take-once transfer that is owed a shape of its own
+  (SL-477). The initialisation analysis reads a move
+  through a reference as a read of the reference, so this is the one check
+  that sees one. The verifier reads no text, so its rejection is pinned by the
+  unit program `compiler/mir/tests/verify_moves.saw`, which edits a lowered
+  copy through a reference into a move and requires the report.
 
 ## Source nodes
 

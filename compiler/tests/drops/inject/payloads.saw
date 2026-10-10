@@ -1,0 +1,25 @@
+// The program compiler/drops/tests/leak_payloads.saw elaborates, then edits:
+// `first_name` takes `a` out of a `Both` and drops the payload `b` it leaves.
+// The edit removes that drop. The leak check at a `return` follows a partly
+// moved value's fields and elements, not its payloads, so it does not see
+// `b` escape (compiler/tests/drops/README.md, "The verifier").
+
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {}
+
+enum Pair {
+    case Both(a: Res, b: Res),
+    case Neither
+}
+
+extension Pair: NoCopy {}
+
+func first_name(p: Pair) -> Int {
+    match p {
+        case Both(a, _) -> a.name.len(),
+        case Neither -> 0
+    }
+}

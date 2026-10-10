@@ -1,0 +1,238 @@
+// A pattern-matching head whose scrutinee reads through a reference matches
+// the referent where it sits: a switch on `discriminant((*_K))`, payloads bound
+// as references or copied out, nothing moved out and nothing dropped (SL-475).
+// The lowering decides by the place, not the recorded use, so a scrutinee
+// typecheck took for an owned one would still be matched in place. One
+// function per head and scrutinee kind: a `borrow let` binding, a `borrow var`
+// binding, a reference parameter, a field through `&self` and `&var self`, a
+// `[&x]` capture, and a conditional lend's payload; with `borrow let` and
+// `borrow var` payloads, a by-value payload of the Copy tier, one of a NoCopy
+// type (an alias, as over a reference parameter), and none.
+
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {}
+
+enum Slot {
+    case Empty,
+    case Occupied(key: Res)
+}
+
+extension Slot: NoCopy {}
+
+enum Tag {
+    case Blank,
+    case Named(name: String)
+}
+
+struct Holder {
+    slot: Slot,
+    tag: Tag,
+    res: Res?,
+    text: String?
+}
+
+extension Holder: NoCopy {}
+
+func run(body: () -> Int) -> Int {
+    body()
+}
+
+func match_borrow_let(slots: &Vector<Slot>, i: Int) -> Int {
+    borrow let lent = slots[i] { match lent {
+        case Empty -> 0,
+        case Occupied(borrow let k) -> k.name.len()
+    } }
+}
+
+func match_borrow_let_none(slots: &Vector<Slot>, i: Int) -> Int {
+    borrow let lent = slots[i] { match lent {
+        case Empty -> 0,
+        case Occupied(_) -> 1
+    } }
+}
+
+func match_borrow_let_alias(slots: &Vector<Slot>, i: Int) -> Int {
+    borrow let lent = slots[i] { match lent {
+        case Empty -> 0,
+        case Occupied(k) -> k.name.len()
+    } }
+}
+
+func match_borrow_let_copy(tags: &Vector<Tag>, i: Int) -> Int {
+    borrow let lent = tags[i] { match lent {
+        case Blank -> 0,
+        case Named(n) -> n.len()
+    } }
+}
+
+func match_borrow_var(slots: &var Vector<Slot>, i: Int) -> Int {
+    borrow var lent = slots[i] { match lent {
+        case Empty -> 0,
+        case Occupied(borrow var k) -> k.name.len()
+    } }
+}
+
+func match_nested(slots: &Vector<Slot>, i: Int) -> Int {
+    borrow let lent = slots[i] { match lent {
+        case Empty -> 0,
+        case Occupied(borrow let k) -> match k.name.len() {
+            case 0 -> 0,
+            case _ -> 2
+        }
+    } }
+}
+
+func match_parameter(s: &Slot) -> Int {
+    match s {
+        case Empty -> 0,
+        case Occupied(borrow let k) -> k.name.len()
+    }
+}
+
+func match_parameter_var(s: &var Slot) -> Int {
+    match s {
+        case Empty -> 0,
+        case Occupied(borrow var k) -> k.name.len()
+    }
+}
+
+func match_capture() -> Int {
+    let s = Slot.Occupied(key: Res(name: "a"))
+    run({ [&s] in match s {
+        case Empty -> 0,
+        case Occupied(borrow let k) -> k.name.len()
+    } })
+}
+
+func match_capture_copy() -> Int {
+    let t = Tag.Named(name: "a")
+    run({ [&t] in match t {
+        case Blank -> 0,
+        case Named(n) -> n.len()
+    } })
+}
+
+func match_lend_payload(slots: &Vector<Slot>, i: Int) -> Int {
+    if borrow let e = slots.get(i) {
+        match e {
+            case Empty -> 0,
+            case Occupied(borrow let k) -> k.name.len()
+        }
+    } else {
+        0
+    }
+}
+
+extension Holder {
+    func match_field(&self) -> Int {
+        match self.slot {
+            case Empty -> 0,
+            case Occupied(borrow let k) -> k.name.len()
+        }
+    }
+
+    func match_field_var(&var self) -> Int {
+        match self.slot {
+            case Empty -> 0,
+            case Occupied(borrow var k) -> k.name.len()
+        }
+    }
+
+    func if_let_field(&self) -> Int {
+        if let s = self.text { s.len() } else { 0 }
+    }
+
+    func guard_let_field(&var self) -> Int {
+        guard let s = self.text else {
+            return 0
+        }
+        s.len()
+    }
+
+    func while_let_field(&self) -> Int {
+        var n = 0
+        while let s = self.text {
+            n = n + s.len()
+            if n > 2 {
+                break
+            }
+        }
+        n
+    }
+}
+
+func if_let_borrow_let(opts: &Vector<String?>, i: Int) -> Int {
+    borrow let lent = opts[i] {
+        if let s = lent { s.len() } else { 0 }
+    }
+}
+
+func if_let_borrow_let_none(opts: &Vector<Res?>, i: Int) -> Int {
+    borrow let lent = opts[i] {
+        if let _ = lent { 1 } else { 0 }
+    }
+}
+
+func if_borrow_unwrap(opts: &Vector<Res?>, i: Int) -> Int {
+    borrow let lent = opts[i] {
+        if borrow let r = lent { r.name.len() } else { 0 }
+    }
+}
+
+func if_let_borrow_var(opts: &var Vector<String?>, i: Int) -> Int {
+    borrow var lent = opts[i] {
+        if let s = lent { s.len() } else { 0 }
+    }
+}
+
+func if_let_parameter(o: &Res?) -> Int {
+    if borrow let r = o { r.name.len() } else { 0 }
+}
+
+func if_let_capture() -> Int {
+    let o: String? = "a"
+    run({ [&o] in if let s = o { s.len() } else { 0 } })
+}
+
+func guard_let_borrow_let(opts: &Vector<String?>, i: Int) -> Int {
+    borrow let lent = opts[i] {
+        guard let s = lent else {
+            return 0
+        }
+        s.len()
+    }
+}
+
+func guard_let_parameter(o: &var String?) -> Int {
+    guard let s = o else {
+        return 0
+    }
+    s.len()
+}
+
+func while_let_borrow_let(opts: &Vector<Res?>, i: Int) -> Int {
+    var n = 0
+    borrow let lent = opts[i] {
+        while let _ = lent {
+            n = n + 1
+            if n > 2 {
+                break
+            }
+        }
+    }
+    n
+}
+
+func while_let_parameter(o: &String?) -> Int {
+    var n = 0
+    while let s = o {
+        n = n + s.len()
+        if n > 2 {
+            break
+        }
+    }
+    n
+}

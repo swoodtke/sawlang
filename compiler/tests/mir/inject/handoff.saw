@@ -1,0 +1,20 @@
+// The program compiler/mir/tests/verify_moves.saw lowers unedited: `give`
+// hands the `deref` of `&t` to a by-value `T` with no `Copy` bound. The
+// lowering copies a type parameter only where a bound grants `Copy`, so this
+// stays a move out through a reference, `move (*_3)`, which the verifier
+// reports; a bitwise copy would hide the double free at `Holder<Res>`.
+// Typecheck accepting the read is its own miss.
+
+struct Holder<T> {
+    n: Int
+}
+
+extension Holder<T> {
+    func take(&self, v: T) -> Int {
+        1
+    }
+
+    func give(&self, t: T) -> Int {
+        self.take(&t)
+    }
+}

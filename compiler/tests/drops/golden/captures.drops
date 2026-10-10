@@ -1,0 +1,695 @@
+module captures
+
+fn captures.run(body: () -> Int) -> Int {
+    let _0: Int;  // return
+    let _1: () -> Int;  // param body
+    let _2: Int;
+
+    bb0: {
+        _2 = call value copy _1 [] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _2;
+        drop(_1);
+        return;
+    }
+
+    glue () -> Int: closure environment
+}
+
+fn captures.later(body: () escaping -> Int) -> Int {
+    let _0: Int;  // return
+    let _1: () escaping -> Int;  // param body
+    let _2: Int;
+
+    bb0: {
+        _2 = call value copy _1 [] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _2;
+        drop(_1);
+        return;
+    }
+
+    glue () escaping -> Int: closure environment
+}
+
+fn captures.readonly() -> Int {
+    let _0: Int;  // return
+    let _1: captures.Res;  // r
+    let _2: captures.Res;
+    let _3: () -> Int;  // f
+    let _4: () -> Int;
+    let _5: Int;
+    let _6: Int;
+    let _7: Int;
+
+    bb0: {
+        _2 = captures.Res { name: const "abc": String };
+        _1 = move _2;
+        _4 = closure#0 of captures.readonly() [move _1];
+        _3 = move _4;
+        _5 = call value copy _3 [] -> [return: bb1];
+    }
+
+    bb1: {
+        _6 = call value copy _3 [] -> [return: bb2];
+    }
+
+    bb2: {
+        _7 = Add(move _5, move _6);
+        _0 = move _7;
+        drop(_3);
+        return;
+    }
+
+    glue () -> Int: closure environment
+}
+
+fn closure#0 of captures.readonly() -> Int {
+    let _0: Int;  // return
+    let _1: &(captures.Res,);  // env
+    let _2: &captures.Res;  // ref r
+    let _3: &String;
+    let _4: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1).0);
+        _3 = ref(shared, (*_2).name);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        return;
+    }
+}
+
+fn captures.let_plain() -> Int {
+    let _0: Int;  // return
+    let _1: String;  // s
+    let _2: () -> Int;  // f
+    let _3: () -> Int;
+    let _4: Int;
+
+    bb0: {
+        _1 = const "abc": String;
+        _3 = closure#0 of captures.let_plain() [copy _1];
+        _2 = move _3;
+        _4 = call value copy _2 [] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        drop(_2);
+        drop(_1);
+        return;
+    }
+
+    glue () -> Int: closure environment
+    glue String: builtin
+}
+
+fn closure#0 of captures.let_plain() -> Int {
+    let _0: Int;  // return
+    let _1: &(String,);  // env
+    let _2: String;  // s
+    let _3: &String;
+    let _4: Int;
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _3 = ref(shared, _2);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        drop(_2);
+        return;
+    }
+
+    glue String: builtin
+}
+
+fn captures.let_move_copy_tier() -> Int {
+    let _0: Int;  // return
+    let _1: String;  // s
+    let _2: () -> Int;  // f
+    let _3: () -> Int;
+    let _4: Int;
+
+    bb0: {
+        _1 = const "abc": String;
+        _3 = closure#0 of captures.let_move_copy_tier() [move _1];
+        _2 = move _3;
+        _4 = call value copy _2 [] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        drop(_2);
+        return;
+    }
+
+    glue () -> Int: closure environment
+}
+
+fn closure#0 of captures.let_move_copy_tier() -> Int {
+    let _0: Int;  // return
+    let _1: &(String,);  // env
+    let _2: String;  // s
+    let _3: &String;
+    let _4: Int;
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _3 = ref(shared, _2);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        drop(_2);
+        return;
+    }
+
+    glue String: builtin
+}
+
+fn captures.let_copy_copy_tier() -> Int {
+    let _0: Int;  // return
+    let _1: String;  // s
+    let _2: () -> Int;  // f
+    let _3: () -> Int;
+    let _4: Int;
+
+    bb0: {
+        _1 = const "abc": String;
+        _3 = closure#0 of captures.let_copy_copy_tier() [copy _1];
+        _2 = move _3;
+        _4 = call value copy _2 [] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        drop(_2);
+        drop(_1);
+        return;
+    }
+
+    glue () -> Int: closure environment
+    glue String: builtin
+}
+
+fn closure#0 of captures.let_copy_copy_tier() -> Int {
+    let _0: Int;  // return
+    let _1: &(String,);  // env
+    let _2: String;  // s
+    let _3: &String;
+    let _4: Int;
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _3 = ref(shared, _2);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        drop(_2);
+        return;
+    }
+
+    glue String: builtin
+}
+
+fn captures.let_copy() -> Int {
+    let _0: Int;  // return
+    let _1: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
+    let _2: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _3: () -> Int;  // f
+    let _4: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _5: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _6: () -> Int;
+    let _7: Int;
+    let _8: Int;
+    let _9: Int;
+
+    bb0: {
+        _2 = vector [const 1: Int, const 2: Int]: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+        _1 = move _2;
+        _4 = ref(shared, _1);
+        _5 = call std.vector.Vector.copy() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        _6 = closure#0 of captures.let_copy() [move _5];
+        _3 = move _6;
+        _7 = call value copy _3 [] -> [return: bb2];
+    }
+
+    bb2: {
+        _8 = call value copy _3 [] -> [return: bb3];
+    }
+
+    bb3: {
+        _9 = Add(move _7, move _8);
+        _0 = move _9;
+        drop(_3);
+        drop(_1);
+        return;
+    }
+
+    glue () -> Int: closure environment
+    glue std.vector.Vector<Int, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit(), then structural
+}
+
+fn closure#0 of captures.let_copy() -> Int {
+    let _0: Int;  // return
+    let _1: &(std.vector.Vector<Int, std.alloc.GlobalAllocator>,);  // env
+    let _2: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // ref v
+    let _3: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _4: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1).0);
+        _3 = ref(shared, (*_2));
+        _4 = call std.vector.Vector.len() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        return;
+    }
+}
+
+fn captures.returned_move() -> () -> Int {
+    let _0: () -> Int;  // return
+    let _1: captures.Res;  // r
+    let _2: captures.Res;
+    let _3: () -> Int;
+
+    bb0: {
+        _2 = captures.Res { name: const "abc": String };
+        _1 = move _2;
+        _3 = closure#0 of captures.returned_move() [move _1];
+        _0 = move _3;
+        return;
+    }
+}
+
+fn closure#0 of captures.returned_move() -> Int {
+    let _0: Int;  // return
+    let _1: &(captures.Res,);  // env
+    let _2: &captures.Res;  // ref r
+    let _3: &String;
+    let _4: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1).0);
+        _3 = ref(shared, (*_2).name);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        return;
+    }
+}
+
+fn captures.returned_plain() -> () -> Int {
+    let _0: () -> Int;  // return
+    let _1: String;  // s
+    let _2: () -> Int;
+
+    bb0: {
+        _1 = const "abc": String;
+        _2 = closure#0 of captures.returned_plain() [copy _1];
+        _0 = move _2;
+        drop(_1);
+        return;
+    }
+
+    glue String: builtin
+}
+
+fn closure#0 of captures.returned_plain() -> Int {
+    let _0: Int;  // return
+    let _1: &(String,);  // env
+    let _2: String;  // s
+    let _3: &String;
+    let _4: Int;
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _3 = ref(shared, _2);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        drop(_2);
+        return;
+    }
+
+    glue String: builtin
+}
+
+fn captures.stored_move() -> Int {
+    let _0: Int;  // return
+    let _1: captures.Res;  // r
+    let _2: captures.Res;
+    let _3: captures.Keeper;  // k
+    let _4: () -> Int;
+    let _5: captures.Keeper;
+    let _6: Int;
+
+    bb0: {
+        _2 = captures.Res { name: const "abc": String };
+        _1 = move _2;
+        _4 = closure#0 of captures.stored_move() [move _1];
+        _5 = captures.Keeper { f: move _4 };
+        _3 = move _5;
+        _6 = call value copy _3.f [] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _6;
+        drop(_3);
+        return;
+    }
+
+    glue captures.Keeper: structural
+}
+
+fn closure#0 of captures.stored_move() -> Int {
+    let _0: Int;  // return
+    let _1: &(captures.Res,);  // env
+    let _2: &captures.Res;  // ref r
+    let _3: &String;
+    let _4: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1).0);
+        _3 = ref(shared, (*_2).name);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        return;
+    }
+}
+
+fn captures.passed_move() -> Int {
+    let _0: Int;  // return
+    let _1: captures.Res;  // r
+    let _2: captures.Res;
+    let _3: () escaping -> Int;
+    let _4: Int;
+
+    bb0: {
+        _2 = captures.Res { name: const "abc": String };
+        _1 = move _2;
+        _3 = closure#0 of captures.passed_move() [move _1];
+        _4 = call captures.later(body: () escaping -> Int) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        return;
+    }
+}
+
+fn closure#0 of captures.passed_move() -> Int {
+    let _0: Int;  // return
+    let _1: &(captures.Res,);  // env
+    let _2: &captures.Res;  // ref r
+    let _3: &String;
+    let _4: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1).0);
+        _3 = ref(shared, (*_2).name);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        return;
+    }
+}
+
+fn captures.local_plain() -> Int {
+    let _0: Int;  // return
+    let _1: String;  // s
+    let _2: () -> Int;
+    let _3: Int;
+
+    bb0: {
+        _1 = const "abc": String;
+        _2 = closure#0 of captures.local_plain() [copy _1];
+        _3 = call captures.run(body: () -> Int) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _3;
+        drop(_1);
+        return;
+    }
+
+    glue String: builtin
+}
+
+fn closure#0 of captures.local_plain() -> Int {
+    let _0: Int;  // return
+    let _1: &(String,);  // env
+    let _2: String;  // s
+    let _3: &String;
+    let _4: Int;
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _3 = ref(shared, _2);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        drop(_2);
+        return;
+    }
+
+    glue String: builtin
+}
+
+fn captures.local_copy_copy_tier() -> Int {
+    let _0: Int;  // return
+    let _1: String;  // s
+    let _2: () -> Int;
+    let _3: Int;
+
+    bb0: {
+        _1 = const "abc": String;
+        _2 = closure#0 of captures.local_copy_copy_tier() [copy _1];
+        _3 = call captures.run(body: () -> Int) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _3;
+        drop(_1);
+        return;
+    }
+
+    glue String: builtin
+}
+
+fn closure#0 of captures.local_copy_copy_tier() -> Int {
+    let _0: Int;  // return
+    let _1: &(String,);  // env
+    let _2: String;  // s
+    let _3: &String;
+    let _4: Int;
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _3 = ref(shared, _2);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        drop(_2);
+        return;
+    }
+
+    glue String: builtin
+}
+
+fn captures.local_copy() -> Int {
+    let _0: Int;  // return
+    let _1: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
+    let _2: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _3: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _4: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _5: () -> Int;
+    let _6: Int;
+
+    bb0: {
+        _2 = vector [const 1: Int, const 2: Int]: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+        _1 = move _2;
+        _3 = ref(shared, _1);
+        _4 = call std.vector.Vector.copy() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _5 = closure#0 of captures.local_copy() [move _4];
+        _6 = call captures.run(body: () -> Int) [move _5] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _6;
+        drop(_1);
+        return;
+    }
+
+    glue std.vector.Vector<Int, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit(), then structural
+}
+
+fn closure#0 of captures.local_copy() -> Int {
+    let _0: Int;  // return
+    let _1: &(std.vector.Vector<Int, std.alloc.GlobalAllocator>,);  // env
+    let _2: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // ref v
+    let _3: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _4: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1).0);
+        _3 = ref(shared, (*_2));
+        _4 = call std.vector.Vector.len() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        return;
+    }
+}
+
+fn captures.main() -> Void {
+    let _0: Void;  // return
+    let _1: () -> Int;  // g
+    let _2: () -> Int;
+    let _3: () -> Int;  // h
+    let _4: () -> Int;
+    let _5: Int;
+    let _6: Int;
+    let _7: Int;
+    let _8: Int;
+    let _9: Int;
+    let _10: Int;
+    let _11: Int;
+    let _12: Int;
+    let _13: Int;
+    let _14: Int;
+    let _15: Int;
+    let _16: Int;
+    let _17: Int;
+    let _18: Int;
+    let _19: Int;
+    let _20: Int;
+    let _21: Int;
+    let _22: Int;
+    let _23: Int;
+    let _24: Int;
+    let _25: Int;
+
+    bb0: {
+        _2 = call captures.returned_move() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _1 = move _2;
+        _4 = call captures.returned_plain() [] -> [return: bb2];
+    }
+
+    bb2: {
+        _3 = move _4;
+        _5 = call captures.readonly() [] -> [return: bb3];
+    }
+
+    bb3: {
+        _6 = call captures.let_plain() [] -> [return: bb4];
+    }
+
+    bb4: {
+        _7 = Add(move _5, move _6);
+        _8 = call captures.let_move_copy_tier() [] -> [return: bb5];
+    }
+
+    bb5: {
+        _9 = Add(move _7, move _8);
+        _10 = call captures.let_copy_copy_tier() [] -> [return: bb6];
+    }
+
+    bb6: {
+        _11 = Add(move _9, move _10);
+        _12 = call value copy _1 [] -> [return: bb7];
+    }
+
+    bb7: {
+        _13 = Add(move _11, move _12);
+        _14 = call value copy _3 [] -> [return: bb8];
+    }
+
+    bb8: {
+        _15 = Add(move _13, move _14);
+        call builtin print [move _15] -> [return: bb9];
+    }
+
+    bb9: {
+        _16 = call captures.stored_move() [] -> [return: bb10];
+    }
+
+    bb10: {
+        _17 = call captures.passed_move() [] -> [return: bb11];
+    }
+
+    bb11: {
+        _18 = Add(move _16, move _17);
+        _19 = call captures.local_plain() [] -> [return: bb12];
+    }
+
+    bb12: {
+        _20 = Add(move _18, move _19);
+        _21 = call captures.local_copy_copy_tier() [] -> [return: bb13];
+    }
+
+    bb13: {
+        _22 = Add(move _20, move _21);
+        call builtin print [move _22] -> [return: bb14];
+    }
+
+    bb14: {
+        _23 = call captures.let_copy() [] -> [return: bb15];
+    }
+
+    bb15: {
+        _24 = call captures.local_copy() [] -> [return: bb16];
+    }
+
+    bb16: {
+        _25 = Add(move _23, move _24);
+        call builtin print [move _25] -> [return: bb17];
+    }
+
+    bb17: {
+        drop(_3);
+        drop(_1);
+        return;
+    }
+
+    glue () -> Int: closure environment
+}

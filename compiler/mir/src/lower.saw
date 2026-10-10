@@ -626,15 +626,22 @@ extension MirProgram {
             }
         }
         self.end_params()
+        let escaping = k < self.tc.closure_escaping.len() && self.tc.closure_escaping[k]
         j = 0
         while j < count {
             let cap = self.tc.captures[first + j]
             let et = elements[j]
             let name = self.capture_name(m, cap.binding)
-            let l = self.new_local(et, MirLocalKind.User, name, cap.binding)
             let env_place = self.place_local(env)
             let whole = self.project(env_place, MirProjKind.Deref, -1, -1, env_tuple)
             let part = self.project(whole, MirProjKind.Tuple, -1, j, et)
+            let borrowed = cap.use == TcUse.Borrow || cap.use == TcUse.BorrowVar
+            if not borrowed && (escaping || cap.use == TcUse.Copy) {
+                self.load_owned_capture(&cap, part, name)
+                j = j + 1
+                continue
+            }
+            let l = self.new_local(et, MirLocalKind.User, name, cap.binding)
             var o = self.op_copy(part)
             if cap.use == TcUse.Move {
                 o = self.op_move(part)
@@ -643,7 +650,7 @@ extension MirProgram {
             let rv = self.rv_use(o)
             self.assign(dest, rv)
             self.bind_leaf(cap.binding, l)
-            if cap.use == TcUse.Borrow || cap.use == TcUse.BorrowVar {
+            if borrowed {
                 self.mark_reference(l)
             } else {
                 self.scope_owned(l)
@@ -657,6 +664,35 @@ extension MirProgram {
             self.lower_statements(e, ret)
         }
         self.finish_function()
+    }
+
+    // A by-value capture the environment owns, read from it at `part`: any of
+    // an escaping closure's, whose environment every copy of the closure
+    // shares and its last owner releases, and a copy capture of any closure,
+    // made at creation. A call never takes ownership out of the environment:
+    // a value that owns nothing, or one of the Copy tier, is copied into a
+    // local the call drops, retained by its copy; any other is read in place,
+    // through a reference the capture's name reads through. Typecheck refuses
+    // every consuming use of an escaping closure's capture
+    // (`capture.escaping-consume`), so no move out of it is left to lower
+    // (SL-475).
+    func load_owned_capture(&var self, cap: &TcCapture, part: Int, name: Int) {
+        let et = self.place_type(part)
+        if self.owns(et) && not self.mir_copies_silently(et) {
+            let rv = self.rv_ref(false, part)
+            let rt = self.rvalues[rv].ty
+            let l = self.new_local(rt, MirLocalKind.User, name, cap.binding)
+            self.assign_local(l, rv)
+            self.mark_reference(l)
+            self.bind_leaf(cap.binding, l)
+            return
+        }
+        let l = self.new_local(et, MirLocalKind.User, name, cap.binding)
+        let o = self.copy_place(part)
+        let rv = self.rv_use(o)
+        self.assign_local(l, rv)
+        self.bind_leaf(cap.binding, l)
+        self.scope_owned(l)
     }
 
     // The type a capture takes in its closure's environment: the value, or a
@@ -1389,6 +1425,14 @@ extension MirProgram {
         if v.fresh {
             return self.op_move(p)
         }
+        // A hand-off read through a reference, a `deref` adjustment of a
+        // fresh `&x` among them, takes nothing from the referent: a Copy-tier
+        // value is copied out (SL-475).
+        let handed = u == TcUse.Move || u == TcUse.Temp
+        let pt = self.place_type(p)
+        if handed && self.owns(pt) && self.through_reference_deref(p) && self.mir_copies_silently(pt) {
+            return self.copy_place(p)
+        }
         match u {
             case Move -> self.op_move(p),
             case Temp -> self.op_move(p),
@@ -1434,6 +1478,12 @@ extension MirProgram {
         if hook < 0 {
             return self.op_copy(p)
         }
+        self.call_copy(p, hook, t)
+    }
+
+    // A call of `copy()` declaration `hook` on place `p` of type `t`, its
+    // result in a temporary the operand moves out of.
+    func call_copy(&var self, p: Int, hook: Int, t: Int) -> Int {
         let r = self.shared_ref(p)
         var args = Vector<Int>()
         try! args.push(r)
@@ -1451,8 +1501,16 @@ extension MirProgram {
 
     // The `copy()` a Copy-tier type `t` writes for itself, or -1.
     func copy_hook(&var self, t: Int) -> Int {
+        if not self.tc.copies_silently(t) {
+            return -1
+        }
+        self.declared_copy(t)
+    }
+
+    // The `copy()` nominal type `t`'s own extensions declare, or -1.
+    func declared_copy(&var self, t: Int) -> Int {
         let d = self.tc.nominal_decl(t)
-        if d < 0 || self.tc.is_primitive_decl(d) || not self.tc.copies_silently(t) {
+        if d < 0 || self.tc.is_primitive_decl(d) {
             return -1
         }
         let name = self.tc.res.intern("copy")
@@ -3660,13 +3718,52 @@ extension MirProgram {
             if cap.use == TcUse.Move {
                 try! out.push(self.op_move(p))
             } else if cap.use == TcUse.Copy {
-                try! out.push(self.copy_place(p))
+                try! out.push(self.capture_copy(p, cap.site))
             } else {
                 let rv = self.rv_ref(cap.use == TcUse.BorrowVar, p)
                 try! out.push(self.temp_operand(rv))
             }
         }
         move out
+    }
+
+    // The value a copy capture of place `p` puts in its environment: a
+    // silent copy for a type of the Copy tier, and otherwise a call of the
+    // `copy()` its ExplicitCopy conformance declares, or, for a type
+    // parameter, the one its `ExplicitCopy` bound grants, as a spelled
+    // `x.copy()` lowers; so the environment and the binding never share what
+    // one of them owns. A capture no copy resolves for is an INVARIANT, never
+    // a bitwise copy: typecheck owes its refusal (SL-481).
+    func capture_copy(&var self, p: Int, site: Int) -> Int {
+        let t = self.place_type(p)
+        if not self.owns(t) || self.mir_copies_silently(t) {
+            return self.copy_place(p)
+        }
+        var hook = self.declared_copy(t)
+        let explicit_copy = self.tc.known.explicit_copy
+        if hook < 0 && self.tc.kind_of(t) == TcKind.Param && self.satisfies_here(t, explicit_copy) {
+            hook = self.bound_copy()
+        }
+        if hook < 0 {
+            self.missing(site, "a capture copies a value no `Copy` tier or `copy()` copies")
+            return self.op_copy(p)
+        }
+        self.call_copy(p, hook, t)
+    }
+
+    // The `copy()` requirement of the `ExplicitCopy` trait, or -1.
+    func bound_copy(&var self) -> Int {
+        let trait_decl = self.tc.known.explicit_copy
+        let name = self.tc.res.intern("copy")
+        var d = 0
+        while d < self.tc.res.decls.len() {
+            let info = self.tc.res.decls[d]
+            if info.parent == trait_decl && info.kind == ResDeclKind.Requirement && info.name == name {
+                return d
+            }
+            d = d + 1
+        }
+        return -1
     }
 }
 
@@ -3860,7 +3957,7 @@ extension MirProgram {
         if steps.len() == 1 && steps[0].fresh {
             self.own_temp(p)
         }
-        let consuming = target >= 0 && self.pattern_moves_owned(target)
+        let consuming = target >= 0 && self.pattern_moves_owned(target) && not self.through_reference_deref(p)
         if consuming {
             p = self.consumed_root(p, target)
         }
@@ -4000,7 +4097,7 @@ extension MirProgram {
     }
 
     func bind_one_at(&var self, p: Int, place: Int) -> Int {
-        let u = self.tc.expr_use[p]
+        let u = self.binding_use(p, place)
         if u == TcUse.Test {
             return -1
         }
@@ -4032,6 +4129,25 @@ extension MirProgram {
         self.assign_local(l, rv)
         self.bind_leaf(leaf, l)
         l
+    }
+
+    // How pattern binding `p` takes its part `place`: its recorded use, except
+    // that an owned part reached through a reference never moves out. It is
+    // copied when its type copies silently, and aliased otherwise, as a part
+    // of a borrowed scrutinee is (SL-475).
+    func binding_use(&var self, p: Int, place: Int) -> TcUse {
+        let u = self.tc.expr_use[p]
+        if u != TcUse.Move && u != TcUse.Temp {
+            return u
+        }
+        let t = self.place_type(place)
+        if not self.through_reference_deref(place) || not self.owns(t) {
+            return u
+        }
+        if self.mir_copies_silently(t) {
+            return TcUse.Copy
+        }
+        TcUse.Borrow
     }
 
     // `while cond { }` and `while { }`: the condition at the head, the body,
@@ -4469,23 +4585,7 @@ extension MirProgram {
     // `deinit`.
     func writes_deinit(&var self, t: Int) -> Bool {
         let d = self.tc.nominal_decl(t)
-        if d < 0 || d >= self.tc.member_first.len() {
-            return false
-        }
-        let first = self.tc.member_first[d]
-        if first < 0 {
-            return false
-        }
-        let name = self.tc.res.intern("deinit")
-        var k = first
-        while k < first + self.tc.member_count[d] {
-            let member = self.tc.members[k]
-            if member.name == name && member.source == TcSource.Extension {
-                return true
-            }
-            k = k + 1
-        }
-        false
+        self.deinit_member(d) >= 0
     }
 
     // The temporary a consuming destructure takes apart: `p` itself when it
@@ -4641,7 +4741,10 @@ extension MirProgram {
     // `match`: the scrutinee's place, then a decision tree of switches on
     // discriminants and tests on literals, ranges and guards; each arm's body
     // once. A consumed owned local is moved into the match first, so its
-    // parts the arms do not take drop when the match ends.
+    // parts the arms do not take drop when the match ends. A scrutinee that
+    // reads through a reference, a borrow binding's name or a borrow
+    // capture's, is matched where it sits whatever its recorded use: its
+    // storage is the referent's owner's, so no arm consumes it (SL-475).
     func lower_match(&var self, e: Int, dest: Int) {
         let scrutinee = self.tc.res.first_node_child(e)
         let depth = self.open_scope()
@@ -4653,12 +4756,16 @@ extension MirProgram {
         var root = -1
         if self.tc.expr_use[scrutinee] == TcUse.Move {
             let p = self.place_of(scrutinee)
-            let t = self.place_type(p)
-            let l = self.new_temp(t)
-            let rv = self.rv_move(p)
-            self.assign_local(l, rv)
-            root = self.place_local(l)
-            self.own_temp(root)
+            if self.through_reference_deref(p) {
+                root = p
+            } else {
+                let t = self.place_type(p)
+                let l = self.new_temp(t)
+                let rv = self.rv_move(p)
+                self.assign_local(l, rv)
+                root = self.place_local(l)
+                self.own_temp(root)
+            }
         } else {
             var steps = Vector<MirStep>()
             self.prepare_base(scrutinee, &var steps)
@@ -4684,6 +4791,9 @@ extension MirProgram {
                     consuming = true
                 }
             }
+        }
+        if consuming && self.through_reference_deref(root) {
+            consuming = false
         }
         if consuming {
             root = self.consumed_root(root, scrutinee)
@@ -5313,7 +5423,7 @@ extension MirProgram {
     // A binding another leaf of the same arm made first, assigned again from
     // this leaf's place.
     func rebind(&var self, p: Int, place: Int, l: Int) {
-        let u = self.tc.expr_use[p]
+        let u = self.binding_use(p, place)
         var rv = -1
         if u == TcUse.Borrow || u == TcUse.BorrowVar {
             rv = self.rv_ref(u == TcUse.BorrowVar, place)

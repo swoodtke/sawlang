@@ -91,23 +91,22 @@ fn closure#1 of closures.closures(limit: Int, total: &var Int, name: String) -> 
     let _0: Int;  // return
     let _1: &(closures.Handle,);  // env
     let _2: Int;  // param k
-    let _3: closures.Handle;  // h
+    let _3: &closures.Handle;  // ref h
     let _4: Int;
     let _5: &String;
     let _6: Int;
     let _7: Int;
 
     bb0: {
-        _3 = move (*_1).0;
+        _3 = ref(shared, (*_1).0);
         _4 = copy _2;
-        _5 = ref(shared, _3.name);
+        _5 = ref(shared, (*_3).name);
         _6 = call std.string.String.len() (owner String) [move _5] -> [return: bb1];
     }
 
     bb1: {
         _7 = Add(move _4, move _6);
         _0 = move _7;
-        drop(_3);
         return;
     }
 }

@@ -1,7 +1,7 @@
 // A closure is an aggregate of its captures, each taken as typecheck's
 // capture table says: a Copy local copied, a `move` capture moved, a borrow of
 // the frame a `ref`. Its body is a function of its own, after the one it is
-// written in, which loads each capture out of its environment at entry.
+// written in; an escaping body reads a NoCopy capture in its environment.
 
 struct Handle {
     name: String

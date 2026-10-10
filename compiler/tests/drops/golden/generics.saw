@@ -1,0 +1,53 @@
+// In a generic body the lowering copies a type parameter only where a bound
+// grants `Copy` (SL-475): typecheck answers that every parameter copies, the
+// requirement it checks at each call, but a copy the lowering chooses carries
+// no requirement, so at a NoCopy instantiation it would be freed twice. An
+// escaping `[move x]` of an unbounded `T` is read in place and dropped by no
+// call; a `[copy x]` of a `T: ExplicitCopy` calls the bound's `copy()` at
+// creation; and at `T: Copy` both the capture and a hand-off of `&t` to a
+// by-value `T` keep the copy, which the call drops.
+
+func measure<T>(x: &T) -> Int {
+    1
+}
+
+func run(body: () -> Int) -> Int {
+    body()
+}
+
+func later<T>(x: T) -> () -> Int {
+    return { [move x] in measure(&x) }
+}
+
+func later_copy<T: Copy>(x: T) -> () -> Int {
+    return { [move x] in measure(&x) }
+}
+
+func copied<T: ExplicitCopy>(x: T) -> Int {
+    run({ [copy x] in measure(&x) })
+}
+
+struct Holder<T> {
+    n: Int
+}
+
+extension Holder<T> {
+    func take(&self, v: T) -> Int {
+        1
+    }
+}
+
+extension Holder<T: Copy> {
+    func hand(&self, t: T) -> Int {
+        self.take(&t)
+    }
+}
+
+func main() {
+    let v: Vector<Int> = [1, 2]
+    let f = later(move v)
+    let g = later_copy("abc")
+    let w: Vector<Int> = [3]
+    let h = Holder<String>(n: 1)
+    print(f() + f() + g() + copied(move w) + h.hand("d"))
+}

@@ -1,0 +1,93 @@
+// The drops verifier refuses a flag cleared without its move (SL-471). The
+// verifier reads no text, so the fixture `compiler/tests/drops/inject/flags.saw`
+// is elaborated, found clean, then edited: the move its flag's clear stands
+// for becomes a copy, which leaves the clear saying the value left while it
+// is still whole. Paths are the repository root's, where the runner runs.
+import sawborrowck.src.check.{borrowck_rules}
+import sawborrowck.src.program.{borrowck_program}
+import sawdrops.src.elaborate.{drops_rules}
+import sawdrops.src.program.{DropsProgram, drops_program}
+import sawdrops.src.verify.{drops_verify_module}
+import sawmir.src.api.{mir_lower_file}
+import sawmir.src.model.{MirOperandKind, MirTermKind}
+
+// The index of module `name`, or -1.
+func module_index(p: &DropsProgram, name: String) -> Int {
+    var m = 0
+    while m < p.bc.mir.tc.res.module_count() {
+        if p.bc.mir.tc.res.module_name(m).equals(name) {
+            return m
+        }
+        m = m + 1
+    }
+    return -1
+}
+
+// The call argument of module `m`'s functions that moves the whole local a
+// drop flag tracks, or -1.
+func flagged_move(p: &DropsProgram, m: Int) -> Int {
+    var f = 0
+    while f < p.bc.mir.funcs.len() {
+        let info = p.bc.mir.funcs[f]
+        let fn_index = f
+        f = f + 1
+        if info.module != m || p.flag_count[fn_index] == 0 {
+            continue
+        }
+        let tracked = p.bc.mir.places[p.flag_place[p.flag_first[fn_index]]]
+        var b = 0
+        while b < info.block_count {
+            let block = p.bc.mir.blocks[info.block_first + b]
+            b = b + 1
+            if block.term != MirTermKind.Call {
+                continue
+            }
+            let c = p.bc.mir.calls[block.call]
+            var k = 0
+            while k < c.arg_count {
+                let o = p.bc.mir.lists[c.arg_first + k]
+                k = k + 1
+                let operand = p.bc.mir.operands[o]
+                if operand.kind != MirOperandKind.Move || operand.place < 0 {
+                    continue
+                }
+                let place = p.bc.mir.places[operand.place]
+                if place.local == tracked.local && place.count == 0 && tracked.count == 0 {
+                    return o
+                }
+            }
+        }
+    }
+    return -1
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    let lowered = mir_lower_file("compiler/tests/drops/inject/flags.saw", "sawc", &names, &dirs)
+    var bc = borrowck_program(move lowered)
+    var m = 0
+    while m < bc.mir.tc.res.module_count() {
+        let info = bc.mir.tc.res.module(m)
+        if info.available && not info.interface_only {
+            bc.check_module(m)
+        }
+        m = m + 1
+    }
+    assert(bc.diags.len() == 0 && bc.mir.diags.len() == 0, "the fixture is refused")
+    var p = drops_program(move bc)
+    let entry = module_index(&p, "flags")
+    assert(entry >= 0, "the fixture did not load: run from the repository root")
+    p.elaborate_module(entry)
+    assert(p.problems.len() == 0, "elaborating the fixture meets a problem")
+    let before = drops_verify_module(&var p, entry)
+    assert(before.len() == 0, "the fixture's elaborated MIR is not clean before the edit")
+
+    let o = flagged_move(&p, entry)
+    assert(o >= 0, "the fixture holds no move of a flagged local")
+    var edited = p.bc.mir.operands[o]
+    edited.kind = MirOperandKind.Copy
+    p.bc.mir.operands[o] = edited
+    let after = drops_verify_module(&var p, entry)
+    assert(after.len() > 0, "the verifier does not refuse a flag cleared without its move")
+}

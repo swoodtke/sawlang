@@ -11,8 +11,10 @@ import sawmir.src.model.{MirAccessor, MirAggregate, MirArm, MirBlock, MirCall, M
 import sawmir.src.program.{MirLoop, MirProgram, MirScopeEntry}
 import sawresolve.src.collect.{res_is_top_level}
 import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.model.{ResDeclKind}
 import sawresolve.src.program.{ResProgram}
 import sawtypecheck.src.checks.{tc_check_unsafe}
+import sawtypecheck.src.model.{TcSource}
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.signatures.{TcContext}
 import sawtypecheck.src.spell.{tc_effects_text}
@@ -94,6 +96,96 @@ extension MirProgram {
             return self.owns(payload)
         }
         true
+    }
+
+    // The member index of type declaration `d`'s hand-written `deinit`, which
+    // one of its extensions writes whatever bound its conformance carries, or
+    // -1: the one answer to whether a type writes its own destructor.
+    //
+    // ENTRY POINTS (deinit_member):
+    //     writes_deinit
+    //     glue_of
+    public func deinit_member(&var self, d: Int) -> Int {
+        if d < 0 || d >= self.tc.member_first.len() {
+            return -1
+        }
+        let first = self.tc.member_first[d]
+        if first < 0 {
+            return -1
+        }
+        let count = self.tc.member_count[d]
+        let name = self.tc.res.intern("deinit")
+        var k = first
+        while k < first + count {
+            let member = self.tc.members[k]
+            if member.name == name && member.source == TcSource.Extension {
+                return k
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // Whether a value of type `t` copies silently in the function being
+    // lowered: typecheck's tier, except that a type parameter copies only
+    // where a bound grants `Copy`. Typecheck answers yes for every parameter,
+    // since a generic body's silent copy is a requirement it checks at each
+    // call (design 219), but a copy the lowering chooses carries no such
+    // requirement, so it must be one the bounds already prove.
+    //
+    // ENTRY POINTS (mir_copies_silently):
+    //     load_owned_capture
+    //     transfer
+    //     binding_use
+    //     capture_copy
+    public func mir_copies_silently(&var self, t: Int) -> Bool {
+        if not self.tc.copies_silently(t) {
+            return false
+        }
+        if not self.tc.mentions_param(t) {
+            return true
+        }
+        let copy = self.tc.known.copy
+        self.satisfies_here(t, copy)
+    }
+
+    // Whether type `t` satisfies trait `tr` where the function being lowered
+    // stands: its declaration's parameters and its extension's conditions in
+    // scope.
+    public func satisfies_here(&var self, t: Int, tr: Int) -> Bool {
+        let d = self.funcs[self.cur].decl
+        var ext = -1
+        if d >= 0 {
+            let parent = self.tc.res.decls[d].parent
+            if parent >= 0 && self.tc.res.decls[parent].kind == ResDeclKind.Extension {
+                ext = parent
+            }
+        }
+        self.tc.satisfies(t, tr, d, ext)
+    }
+
+    // Whether place `p` reaches its storage through a `Deref` of a reference:
+    // storage someone else owns, which no move may take a value out of. A
+    // raw pointer's pointee is not one.
+    public func through_reference_deref(&self, p: Int) -> Bool {
+        if p < 0 || p >= self.places.len() {
+            return false
+        }
+        let place = self.places[p]
+        var before = -1
+        if place.local >= 0 {
+            before = self.local_type(place.local)
+        }
+        var k = 0
+        while k < place.count {
+            let step = self.projs[place.first + k]
+            if step.kind == MirProjKind.Deref && before >= 0 && self.tc.kind_of(before) == TcKind.Ref {
+                return true
+            }
+            before = step.ty
+            k = k + 1
+        }
+        false
     }
 
     // Registers local `l` with the innermost scope, whose exits drop it,
