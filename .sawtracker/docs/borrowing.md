@@ -341,7 +341,7 @@ lend of §7.
   it, and closes in reverse order.
 - **Only the `lend` operand is exempt.** A place reached some other way is an
   ordinary borrow and is written as one (codex t16). A plain `self.slots[b]` is
-  a getitem: refused for a NoCopy or generic slot, and for a Copy slot it
+  a getitem: refused for a NoCopy slot, an inferred Copy requirement for a generic slot (LANGUAGE_SPEC, design 219: an indexed place is always a duplicate), and for a Copy slot it
   matches a copy, not the map's storage. So Map's `find` opens a borrow of the
   slot, matches the bound place, and lends its payload:
   ```saw
