@@ -1,0 +1,13 @@
+// refuses: nomove.bound at 11:14
+// `NoMove` written as a generic bound (conformance row V122)
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {}
+
+extension Anchor: NoMove {}
+
+func hold<T: NoMove>(x: T) -> Int {
+    1
+}

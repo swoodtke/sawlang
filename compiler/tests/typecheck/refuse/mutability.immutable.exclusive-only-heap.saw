@@ -1,0 +1,29 @@
+// refuses: mutability.immutable at 27:16
+// a `&self` method reading through a `&var self` accessor with no shared
+// twin, which lends out of a `Vector` field's buffer: every use borrows the
+// receiver exclusively, and storage `&self` reaches is never written
+// (SL:borrowing §3, §9)
+
+struct Slotted {
+    cells: Vector<Int>
+}
+
+extension Slotted: NoCopy {}
+
+extension Slotted {
+    func slot(&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+struct Owner {
+    s: Slotted
+}
+
+extension Owner: NoCopy {}
+
+extension Owner {
+    func at(&self) -> Int {
+        borrow self.s.slot(0)
+    }
+}

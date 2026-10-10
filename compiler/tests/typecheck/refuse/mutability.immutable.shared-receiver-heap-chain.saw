@@ -1,0 +1,15 @@
+// refuses: mutability.immutable at 13:9
+// a `&self` method writing through two nested `Vector` windows, the chained
+// place write `borrow var self.rows[0][0] += 100` (conformance row M32)
+
+struct Rows {
+    rows: Vector<Vector<Int>>
+}
+
+extension Rows: NoCopy {}
+
+extension Rows {
+    func bump_head(&self) {
+        borrow var self.rows[0][0] += 100
+    }
+}

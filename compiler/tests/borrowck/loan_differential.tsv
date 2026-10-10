@@ -17,6 +17,7 @@ tests/corpus/errors/spinlock_suspending_body.saw	accepts	owned	slice.not-yet: a 
 tests/corpus/errors/window_acquire_mutating_argument.saw	accepts	owned	slice.not-yet: `lends` (SL-461)
 tests/corpus/errors/window_conflicts.saw	accepts	owned	slice.not-yet: TaskGroup.spawn
 tests/corpus/exclusivity_erased_and_generic_receivers.saw	accepts	owned	slice.not-yet: a method call on an existential
+tests/corpus/lend_accessor_local.saw	accepts	owned	typecheck: mutability.immutable refuses `borrow var c.slot() = 99` first, a write through the read-only lend `-> &Int`; its `lend tmp` is lend.root (compiler/tests/borrowck/refuse/lend.root.saw)
 tests/corpus/map_each_mutate_error.saw	accepts	owned	result.discarded, a migration artifact; with the discard spelled, loan.closure-carrier refuses the capture beside `each`'s receiver
 tests/corpus/set_each_mutate_error.saw	accepts	owned	result.discarded, a migration artifact; with the discard spelled, loan.closure-carrier refuses the capture beside `each`'s receiver
 tests/corpus/spawn_capture_alias.saw	accepts	owned	slice.not-yet: TaskGroup.spawn

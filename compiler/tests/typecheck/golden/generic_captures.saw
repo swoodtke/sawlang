@@ -1,0 +1,45 @@
+// By-value captures of a type parameter's value (SL-481): a bound that
+// licenses the copy, a move that needs none, and the inferred requirement
+// met at a Copy instantiation.
+
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {}
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func measure<T>(x: &T) -> Int {
+    1
+}
+
+// `ExplicitCopy` licenses the spelled copy.
+func spelled<T: ExplicitCopy>(x: T) -> Int {
+    run({ [copy x] in measure(&x) })
+}
+
+// `Copy` copies silently, spelled or not.
+func silent<T: Copy>(x: T) -> Int {
+    run({ [copy x] in measure(&x) }) + run({ measure(&x) })
+}
+
+// A move captures the value and copies nothing.
+func moved<T>(x: T) -> Int {
+    run({ [move x] in measure(&x) })
+}
+
+// An unbounded silent copy is the inferred requirement, met by `Int` (D30).
+func inferred<T>(x: T) -> Int {
+    run({ [x] in measure(&x) }) + run({ measure(&x) })
+}
+
+func main() {
+    let v: Vector<Int> = [1]
+    let a = spelled(move v)
+    let b = silent(2)
+    let c = moved(Res(name: "a"))
+    let d = inferred(3)
+}

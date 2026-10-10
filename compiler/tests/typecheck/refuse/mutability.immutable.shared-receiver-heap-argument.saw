@@ -1,0 +1,19 @@
+// refuses: mutability.immutable at 17:25
+// a `&self` method passing an element of a `Vector` field as `borrow var`
+// to a `&var` parameter (SL:borrowing §9)
+
+struct Board {
+    cells: Vector<Int>
+}
+
+extension Board: NoCopy {}
+
+func bump(r: &var Int) {
+    r += 1
+}
+
+extension Board {
+    func stamp(&self) {
+        bump(borrow var self.cells[0])
+    }
+}

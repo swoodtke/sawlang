@@ -708,6 +708,71 @@ extension TcProgram {
         self.refuse(e, "type.mismatch", msg.build())
     }
 
+    // A sigil written on argument `e` that its parameter's type, `slot`,
+    // does not spell: `&x` or `&var x` for a parameter taken by value, and
+    // `&var x` or `borrow var p` for a shared reference. Call sites mirror
+    // the parameter's reference spelling both ways (spec, Reference
+    // forwarding), so each is refused with the spelling that matches.
+    func refuse_sigil_mismatch(&var self, e: Int, slot: Int, ref_slot: Bool) -> Bool {
+        var arg = e
+        while self.has_alt(arg, Alt.Expr_Paren) {
+            arg = self.res.first_node_child(arg)
+        }
+        let reference = self.has_alt(arg, Alt.Expr_Ref_Shared) || self.has_alt(arg, Alt.Expr_Ref_Exclusive)
+        let exclusive = self.has_alt(arg, Alt.Expr_Ref_Exclusive) || self.has_alt(arg, Alt.Borrow_Place_Var)
+        if not reference && not exclusive {
+            return false
+        }
+        let m = self.current
+        let operand = self.res.first_node_child(arg)
+        let operand_text = if operand >= 0 { self.text(m, operand) } else { "" }
+        var msg = StringBuilder()
+        if not ref_slot {
+            if not reference {
+                return false
+            }
+            try! msg.append("this parameter takes `")
+            try! msg.append(self.type_text(slot))
+            try! msg.append("` by value, and `")
+            try! msg.append(self.text(m, arg))
+            try! msg.append("` passes a reference: drop the sigil, `")
+            try! msg.append(operand_text)
+            try! msg.append("`")
+            if not self.copies_silently(slot) {
+                try! msg.append(", which hands the value over; ")
+                if self.tier_word(slot).equals("ExplicitCopy") {
+                    try! msg.append("`")
+                    try! msg.append(operand_text)
+                    try! msg.append(".copy()` passes a copy")
+                } else {
+                    try! msg.append("`move ")
+                    try! msg.append(operand_text)
+                    try! msg.append("` moves an owned one")
+                }
+            }
+            try! msg.append(" (call sites mirror the parameter's reference spelling)")
+            self.refuse(e, "type.mismatch", msg.build())
+            return true
+        }
+        if not exclusive || self.is_exclusive_ref(slot) {
+            return false
+        }
+        try! msg.append("this parameter is `")
+        try! msg.append(self.type_text(slot))
+        try! msg.append("`, a shared reference, and `")
+        try! msg.append(self.text(m, arg))
+        try! msg.append("` borrows exclusively: write `")
+        if reference {
+            try! msg.append("&")
+        } else {
+            try! msg.append("borrow ")
+        }
+        try! msg.append(operand_text)
+        try! msg.append("` (call sites mirror the parameter's reference spelling)")
+        self.refuse(e, "type.mismatch", msg.build())
+        true
+    }
+
     // `let (a, b) = e`: the tuple pattern against the value's type.
     func check_destructure(&var self, s: Int) {
         let target = self.res.first_node_child(s)
@@ -1136,6 +1201,10 @@ extension TcProgram {
         if read && ref_slot {
             self.take(e, true)
             self.refuse_unsigiled_reference(e, slot)
+            return from
+        }
+        if pos == TcPosition.Argument && self.refuse_sigil_mismatch(e, slot, ref_slot) {
+            self.take(e, borrowed)
             return from
         }
         let how = self.coerce(e, from, slot, allow)
@@ -5069,6 +5138,21 @@ extension TcProgram {
             }
             if out.len() == 0 {
                 self.primitive_requirements(&var out, t, info.decl, name, statics)
+            } else if self.is_primitive_decl(info.decl) {
+                // A builtin type's own method beside its builtin conformance's
+                // requirement of one name, Stage 0's `String.compare(other:
+                // String)` beside `compare(other: &Self)`, overload by their
+                // parameters, so the call site's sigil picks one.
+                var reqs = Vector<TcCand>()
+                self.primitive_requirements(&var reqs, t, info.decl, name, statics)
+                var r = 0
+                while r < reqs.len() {
+                    let req = reqs[r]
+                    r = r + 1
+                    if not self.shadowed_requirement(&out, req, t) {
+                        try! out.push(req)
+                    }
+                }
             }
             return
         }
@@ -5104,6 +5188,48 @@ extension TcProgram {
             }
             k = k + 1
         }
+    }
+
+    // Whether candidate `req`, a requirement on type `t`, takes the same
+    // parameters as one of `found`, which then answers for it.
+    func shadowed_requirement(&var self, found: &Vector<TcCand>, req: TcCand, t: Int) -> Bool {
+        let n = self.cand_param_count(req)
+        var k = 0
+        while k < found.len() {
+            let c = found[k]
+            k = k + 1
+            if self.cand_param_count(c) != n {
+                continue
+            }
+            var same = true
+            var j = 0
+            while j < n && same {
+                let a = self.cand_param_type(req, j)
+                let b = self.cand_param_type(c, j)
+                same = self.same_under_self(a, b, t)
+                j = j + 1
+            }
+            if same {
+                return true
+            }
+        }
+        false
+    }
+
+    // Whether type `a`, which may name `Self`, is type `b` once `Self` is `t`.
+    func same_under_self(&self, a: Int, b: Int, t: Int) -> Bool {
+        if a == b {
+            return true
+        }
+        let ia = self.types.ty(a)
+        let ib = self.types.ty(b)
+        if ia.kind == TcKind.SelfType {
+            return b == t
+        }
+        if ia.kind == TcKind.Ref && ib.kind == TcKind.Ref && ia.a == ib.a {
+            return self.same_under_self(ia.b, ib.b, t)
+        }
+        false
     }
 
     // The methods named `name` a type answers through a conformance no
@@ -6230,6 +6356,19 @@ extension TcProgram {
     // How well argument `v` fits a parameter of type `p`: exact 3, adopting
     // 2, converting or generic 1, not at all 0. `owner`'s parameters in `p`
     // are unknowns inference would solve.
+    // An argument of type `a` against parameter type `p`: 3 exact, 1
+    // converted, 0 no fit.
+    func fit_score(&var self, a: Int, p: Int, allow: TcAllowance) -> Int {
+        let f = self.fit(a, p, allow)
+        if f == TC_FIT_EXACT {
+            return 3
+        }
+        if f == TC_FIT_CONVERTED {
+            return 1
+        }
+        return 0
+    }
+
     func arg_fit(&var self, v: Int, p: Int, owner: Int) -> Int {
         let generic = owner >= 0 && self.mentions_owner(p, owner)
         if self.is_typed(v) {
@@ -6245,14 +6384,21 @@ extension TcProgram {
                 return 0
             }
             let allow = self.allowance(TcPosition.Argument)
-            let f = self.fit(a, p, allow)
-            if f == TC_FIT_EXACT {
-                return 3
+            if self.reads_reference(v) {
+                // A bare reference binding reads its referent's value, as
+                // every by-value position does; a reference parameter it
+                // fits only by its sigil, which `expect` then asks for.
+                let inner = self.referent(a)
+                let by_value = self.fit_score(inner, p, allow)
+                if by_value > 0 {
+                    return by_value
+                }
+                if self.fit(a, p, allow) != TC_FIT_NONE {
+                    return 1
+                }
+                return 0
             }
-            if f == TC_FIT_CONVERTED {
-                return 1
-            }
-            return 0
+            return self.fit_score(a, p, allow)
         }
         if generic {
             return 1
@@ -7505,6 +7651,200 @@ extension TcProgram {
             self.settle_call(k, &parents)
             k = k + 1
         }
+        self.check_plain_subscript_reads(&parents)
+    }
+
+    // A plain subscript is a getitem wherever it is read, so it copies its
+    // element out even where its position keeps nothing: an interpolation
+    // hole, a message or format argument, a comparison operand, a match's
+    // scrutinee, the receiver of a member hop (SL:borrowing §1, §5; D29).
+    // Only a Copy element copies silently, `.copy()` spells an ExplicitCopy
+    // one, and `borrow` reads either in place; an element that copies only
+    // by inference owes design 219's requirement (`implied_copies`).
+    // The positions that lend a place, and so exempt it, are the `borrow`
+    // forms, `lend`, a `for` head and a sigiled `&` (`lends_in_place`).
+    func check_plain_subscript_reads(&var self, parents: &Vector<Int>) {
+        let n = self.res.nodes.len()
+        self.implied_copies = Vector<Int>()
+        var k = 0
+        while k < n {
+            try! self.implied_copies.push(-1)
+            k = k + 1
+        }
+        let skipped = self.outside_slice_marks(n)
+        k = 0
+        while k < self.calls.len() {
+            let c = self.calls[k]
+            k = k + 1
+            let e = c.node
+            if c.target < 0 || skipped[e] || (c.role != TcRole.Getitem && c.role != TcRole.Place) {
+                continue
+            }
+            if not self.has_alt(e, Alt.Expr_Subscript_Single) && not self.has_alt(e, Alt.Expr_Subscript_Multi) {
+                continue
+            }
+            let u = self.expr_use[e]
+            let reads = u == TcUse.Borrow || u == TcUse.Project || (u == TcUse.Test && self.scrutinizes_bound(e, &parents))
+            if not reads {
+                continue
+            }
+            if self.use_writes(e, &parents) {
+                continue
+            }
+            let top = self.projection_top(e, &parents)
+            if self.lends_in_place(parents[top]) || self.spells_copy(e, &parents) {
+                continue
+            }
+            let t = self.expr_types[e]
+            if t < 0 || self.has_error(t) {
+                continue
+            }
+            if self.copies_silently(t) {
+                self.implied_copies[e] = t
+                continue
+            }
+            self.refuse_getitem_read(e, top, t, u == TcUse.Test)
+        }
+    }
+
+    // Whether `e` is a `match`'s scrutinee and some arm's pattern binds a
+    // name: the arm reads a part, where one binding nothing tests a tag.
+    func scrutinizes_bound(&self, e: Int, parents: &Vector<Int>) -> Bool {
+        let m = parents[e]
+        if m < 0 || not self.has_alt(m, Alt.Expr_Match) || self.res.first_node_child(m) != e {
+            return false
+        }
+        var stack = Vector<Int>()
+        var k = 0
+        while k < self.child_count(m) {
+            let c = self.child(m, k)
+            k = k + 1
+            if self.has_alt(c, Alt.Expr_MatchArm) {
+                try! stack.push(self.res.first_node_child(c))
+            } else if self.has_alt(c, Alt.Expr_MatchArms) {
+                var j = 0
+                while j < self.child_count(c) {
+                    let arm = self.child(c, j)
+                    if self.has_alt(arm, Alt.Expr_MatchArm) {
+                        try! stack.push(self.res.first_node_child(arm))
+                    }
+                    j = j + 1
+                }
+            }
+        }
+        var top = stack.len()
+        while top > 0 {
+            top = top - 1
+            let p = stack[top]
+            if p < 0 || self.is_leaf(p) {
+                continue
+            }
+            if self.has_alt(p, Alt.Pat_BorrowBinding_Let) || self.has_alt(p, Alt.Pat_BorrowBinding_Var) {
+                return true
+            }
+            if self.has_alt(p, Alt.Pat_Name) {
+                let leaf = self.res.first_leaf(p)
+                if self.binding_at(leaf).kind != ResBindKind.Cases {
+                    return true
+                }
+            }
+            var j = 0
+            while j < self.child_count(p) {
+                let c = self.child(p, j)
+                if top < stack.len() {
+                    stack[top] = c
+                } else {
+                    try! stack.push(c)
+                }
+                top = top + 1
+                j = j + 1
+            }
+        }
+        false
+    }
+
+    // The outermost node of the projection `e` heads: each step a member, a
+    // call, a subscript, a tuple element, a force or parentheses whose first
+    // operand is the step below.
+    func projection_top(&self, e: Int, parents: &Vector<Int>) -> Int {
+        var node = e
+        var steps = 0
+        while steps < 10000 {
+            let up = parents[node]
+            if up < 0 || self.res.first_node_child(up) != node {
+                return node
+            }
+            let step = self.has_alt(up, Alt.Expr_Member) || self.has_alt(up, Alt.Expr_Call_Paren) || self.has_alt(up, Alt.Expr_Subscript_Single) || self.has_alt(up, Alt.Expr_Subscript_Multi) || self.has_alt(up, Alt.Expr_TupleIndex) || self.has_alt(up, Alt.Expr_Force) || self.has_alt(up, Alt.Expr_Paren)
+            if not step {
+                return node
+            }
+            node = up
+            steps = steps + 1
+        }
+        return node
+    }
+
+    // Whether node `p`, holding a projection, lends the place it names
+    // rather than reading it by value.
+    func lends_in_place(&self, p: Int) -> Bool {
+        if p < 0 {
+            return false
+        }
+        guard let alt = self.node_alt(p) else {
+            return false
+        }
+        alt == Alt.Borrow_Place_Shared || alt == Alt.Borrow_Place_Var || alt == Alt.Borrow_OptionalTarget || alt == Alt.Borrow_Block || alt == Alt.Borrow_Binding_Let || alt == Alt.Borrow_Binding_Var || alt == Alt.Borrow_Unwrap_Let || alt == Alt.Borrow_Unwrap_Var || alt == Alt.Borrow_For_Let || alt == Alt.Borrow_For_Var || alt == Alt.Stmt_Lend || alt == Alt.Expr_Lends || alt == Alt.Expr_For_Plain || alt == Alt.Expr_For_Borrow || alt == Alt.Expr_Ref_Shared || alt == Alt.Expr_Ref_Exclusive
+    }
+
+    // Whether subscript `e` is the receiver of a `.copy()` call, which spells
+    // the copy its getitem makes.
+    func spells_copy(&self, e: Int, parents: &Vector<Int>) -> Bool {
+        let member = parents[e]
+        if member < 0 || not self.has_alt(member, Alt.Expr_Member) {
+            return false
+        }
+        let call = parents[member]
+        if call < 0 || not self.has_alt(call, Alt.Expr_Call_Paren) || self.res.first_node_child(call) != member {
+            return false
+        }
+        var operands = 0
+        var k = 0
+        while k < self.child_count(call) {
+            let c = self.child(call, k)
+            if not self.is_leaf(c) {
+                operands = operands + 1
+            }
+            k = k + 1
+        }
+        let m = self.node_module(e)
+        let leaf = self.res.last_leaf_of(member)
+        operands == 1 && self.text(m, leaf).equals("copy")
+    }
+
+    func refuse_getitem_read(&var self, e: Int, top: Int, t: Int, scrutinee: Bool) {
+        let m = self.node_module(e)
+        self.current = m
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.text(m, e))
+        try! msg.append("` is a plain subscript, a getitem that copies its element out, and the element is `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("`, which is ")
+        let word = self.tier_word(t)
+        try! msg.append(word)
+        if scrutinee {
+            try! msg.append(": match it in place as `borrow let e = ")
+            try! msg.append(self.text(m, top))
+            try! msg.append(" \{ match e \{ ... \} \}`")
+        } else {
+            try! msg.append(": write `borrow ")
+            try! msg.append(self.text(m, top))
+            try! msg.append("` to read it in place")
+        }
+        if word.equals("ExplicitCopy") {
+            try! msg.append(", or `.copy()` on it for a copy")
+        }
+        self.refuse(e, "transfer.implicit-copy", msg.build())
     }
 
     func settle_call(&var self, at: Int, parents: &Vector<Int>) {
@@ -7798,6 +8138,8 @@ extension TcProgram {
         } else if entry >= 0 && self.has_alt(entry, Alt.Expr_Capture_Copy) {
             if t >= 0 && not self.has_error(t) && not self.copies_silently(t) && self.tier_word(t).equals("NoCopy") {
                 self.refuse_capture_copy(entry, binding, t)
+            } else if t >= 0 && not self.has_error(t) && self.mentions_param(t) && not self.capture_copies(t, d) {
+                self.refuse_generic_capture(entry, binding, t)
             }
         } else if entry >= 0 && (self.has_alt(entry, Alt.Expr_Capture_Borrow) || self.has_alt(entry, Alt.Expr_Capture_Self)) {
             u = TcUse.Borrow
@@ -7818,6 +8160,10 @@ extension TcProgram {
             frame = true
         } else if t >= 0 && not self.has_error(t) && not self.copies_silently(t) {
             self.refuse_capture_by_value(site, binding, t)
+        } else if t >= 0 && not self.has_error(t) && self.mentions_param(t) {
+            // A silent by-value capture copies at the closure's creation,
+            // design 219's inferred requirement, checked at each call (D30).
+            self.implied_copies[site] = t
         }
         // A borrow of the enclosing frame lowers to a pointer into it.
         if frame && escapes {
@@ -7825,6 +8171,44 @@ extension TcProgram {
         }
         try! self.captures.push(TcCapture(closure: e, binding: binding, ty: t, use: u, site: site,
                                           explicit: entry >= 0))
+    }
+
+    // Whether a spelled `[copy x]` of a value of type `t`, which names a type
+    // parameter, has a copy declaration `d`'s bounds grant: `Copy` for every
+    // parameter it names, or `ExplicitCopy` on a bare parameter, whose
+    // `copy()` the lowering calls. Design 219 refuses a spelled copy no bound
+    // grants at the definition (D30).
+    func capture_copies(&var self, t: Int, d: Int) -> Bool {
+        if d < 0 {
+            return true
+        }
+        let saved = self.save_context()
+        self.enter_decl(d)
+        let env_decl = self.current_decl
+        let env_ext = self.current_ext
+        let copy = self.known.copy
+        let explicit_copy = self.known.explicit_copy
+        var met = copy >= 0 && self.satisfies(t, copy, env_decl, env_ext)
+        if not met && self.kind_of(t) == TcKind.Param && explicit_copy >= 0 {
+            met = self.satisfies(t, explicit_copy, env_decl, env_ext)
+        }
+        self.restore_context(saved)
+        met
+    }
+
+    func refuse_generic_capture(&var self, at: Int, binding: Int, t: Int) {
+        let name = self.capture_name(binding)
+        var msg = StringBuilder()
+        try! msg.append("`[copy ")
+        try! msg.append(name)
+        try! msg.append("]` copies `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("`, and no bound lets this generic body spell that copy: bound its parameter `Copy`, or `ExplicitCopy` on a bare parameter; or capture it with `[move ")
+        try! msg.append(name)
+        try! msg.append("]`, or `[")
+        try! msg.append(name)
+        try! msg.append("]` for a copy each call checks")
+        self.refuse(at, "capture.copy", msg.build())
     }
 
     // Whether closure `e` escapes: anything but a direct argument of a call

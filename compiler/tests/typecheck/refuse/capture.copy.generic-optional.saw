@@ -1,0 +1,25 @@
+// refuses: capture.copy at 20:12
+// a `[copy o]` capture of an optional of a type parameter bounded
+// `ExplicitCopy`: only a bare parameter's bound grants the copy (D30)
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {}
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func measure<T>(x: &T) -> Int {
+    1
+}
+
+func copied<T: ExplicitCopy>(x: T) -> Int {
+    let o: T? = move x
+    run({ [copy o] in measure(&o) })
+}
+
+func main() {
+    let _ = copied(1)
+}

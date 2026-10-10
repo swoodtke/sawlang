@@ -2,13 +2,13 @@
 // (SL-475). The verifier reads no text, so the fixture
 // `compiler/tests/mir/inject/moves.saw` is lowered, found clean, then edited:
 // its one copy of an owning value through a reference becomes a move, and the
-// verifier must report exactly that. `inject/handoff.saw` is lowered as it
-// stands: a generic hand-off of an unbounded `T` must stay a reported move.
-// `inject/takes.saw` holds a closure body's take, the one owning move through
-// a reference the verifier admits; it is found clean, then each of two edits,
-// unlinking the flag's clear and swapping the switch's arms, must make the
-// verifier report the move. Paths are the repository root's, where the runner
-// runs.
+// verifier must report exactly that. `inject/handoff.saw`'s generic hand-off
+// of `&t` to a by-value `T` is refused by typecheck, which keeps that move
+// out of checked code. `inject/takes.saw` holds a closure body's take, the one
+// owning move through a reference the verifier admits; it is found clean, then
+// each of two edits, unlinking the flag's clear and swapping the switch's arms,
+// must make the verifier report the move. Paths are the repository root's,
+// where the runner runs.
 import sawmir.src.api.{mir_lower_file}
 import sawmir.src.build.{mir_func_local}
 import sawmir.src.model.{MirOperandKind, MirStmtKind}
@@ -170,14 +170,12 @@ func main() {
     assert(moves_reported(&after) == 1, "the verifier does not refuse the edited move")
     assert(after.len() == 1, "the edit is reported as more than the move")
 
-    // A hand-off of an unbounded `T` through a reference stays visible as a
-    // move, never a bitwise copy.
-    var q = mir_lower_file("compiler/tests/mir/inject/handoff.saw", "sawc", &names, &dirs)
+    // A call site's sigil mirrors its parameter, so `&t` written for a
+    // by-value `T` is refused before any lowering (SL-484).
+    let q = mir_lower_file("compiler/tests/mir/inject/handoff.saw", "sawc", &names, &dirs)
     let h = module_index(&q, "handoff")
     assert(h >= 0, "the hand-off fixture did not load")
-    assert(q.diags.len() == 0 && q.tc.error_count() == 0, "the hand-off fixture is refused")
-    let found = mir_verify_module(&var q, h)
-    assert(moves_reported(&found) == 1 && found.len() == 1, "the generic hand-off is not reported as a move")
+    assert(q.tc.error_count() == 1, "typecheck does not refuse the hand-off's sigil")
 
     // A take whose flag is never cleared would let a second run take again.
     var t = lowered_takes(&names, &dirs)

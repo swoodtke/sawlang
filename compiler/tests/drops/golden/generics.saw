@@ -4,8 +4,8 @@
 // no requirement, so at a NoCopy instantiation it would be freed twice. An
 // escaping `[move x]` of an unbounded `T` is read in place and dropped by no
 // call; a `[copy x]` of a `T: ExplicitCopy` calls the bound's `copy()` at
-// creation; and at `T: Copy` both the capture and a hand-off of `&t` to a
-// by-value `T` keep the copy, which the call drops.
+// creation; and at `T: Copy` both the capture and a hand-off of a `&T`
+// parameter's referent to a by-value `T` keep the copy, which the call drops.
 
 func measure<T>(x: &T) -> Int {
     1
@@ -38,8 +38,8 @@ extension Holder<T> {
 }
 
 extension Holder<T: Copy> {
-    func hand(&self, t: T) -> Int {
-        self.take(&t)
+    func hand(&self, t: &T) -> Int {
+        self.take(t)
     }
 }
 
@@ -49,5 +49,6 @@ func main() {
     let g = later_copy("abc")
     let w: Vector<Int> = [3]
     let h = Holder<String>(n: 1)
-    print(f() + f() + g() + copied(move w) + h.hand("d"))
+    let d = "d"
+    print(f() + f() + g() + copied(move w) + h.hand(&d))
 }

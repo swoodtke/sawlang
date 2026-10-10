@@ -383,8 +383,11 @@ the Copy tier, and otherwise a call of the `copy()` the type's ExplicitCopy
 conformance declares (`_5 = call Vector.copy() [...]`), or, for a type
 parameter bounded `ExplicitCopy`, the bound's (`call ExplicitCopy.copy()
 (owner T)`), as a spelled `x.copy()` lowers; so the environment and the
-binding never share one buffer. One no copy resolves for is an `INVARIANT`,
-never a bitwise copy (typecheck's refusal is SL-481). In the body, a by-value
+binding never share one buffer. A spelled `[copy x]` no copy resolves for is
+an `INVARIANT`, never a bitwise copy (typecheck's refusal is SL-481). A silent
+capture, `[x]` or implicit, is the copy typecheck recorded, as a read it
+records as a copy is: at a type parameter, the Copy requirement its summary
+checks at each call (`closures`, `held`; SL:open-questions D30). In the body, a by-value
 capture that owns nothing, or is of the Copy tier, is copied into a local the
 call drops, retained by its copy (`_2 = copy (*_1).0`); any other is read in
 place,

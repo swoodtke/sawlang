@@ -1,0 +1,72 @@
+// Call-site sigils that mirror their parameters, at each call shape, and the
+// overload a bare reference binding picks by its referent's value (SL-484).
+
+struct Box2 {
+    n: Int
+}
+
+extension Box2 {
+    init(r: &Int) -> Box2 {
+        Box2(n: r)
+    }
+
+    func look(&self, r: &Int) -> Int {
+        r + self.n
+    }
+
+    static func peek(r: &Int) -> Int {
+        r
+    }
+}
+
+func look(r: &Int) -> Int {
+    r
+}
+
+func bump(r: &var Int) {
+    r += 1
+}
+
+func take(v: Int) -> Int {
+    v + 1
+}
+
+func f(x: Int) -> Int {
+    101
+}
+
+func f(x: &Int) -> Int {
+    201
+}
+
+func run(g: (&Int) -> Int, n: Int) -> Int {
+    let m = n
+    g(&m)
+}
+
+// A `&var` reference forwards as `&` to a shared parameter: its own sigil
+// is the one written.
+func relay(r: &var Int) -> Int {
+    look(&r)
+}
+
+// A bare reference binding reads its referent's value, so `f(p)` is the
+// by-value overload, as Stage 0 has it; `f(&p)` forwards the reference.
+func pick(p: &Int) -> Int {
+    f(p) + f(&p)
+}
+
+func main() {
+    var n = 1
+    let b = Box2(r: &n)
+    let a = look(&n) + b.look(&n) + Box2.peek(&n) + take(n)
+    bump(&var n)
+    let c = run({ r in r + 1 }, n) + relay(&var n) + pick(&n)
+    var v: Vector<Int> = [1]
+    let d = look(borrow v[0])
+    bump(borrow var v[0])
+    let s = "abc"
+    let t = "abd"
+    let o = s.compare(&t)
+    let e = s.compare(t)
+}

@@ -1,0 +1,7 @@
+// refuses: transfer.implicit-copy at 6:13
+// a method called on a plain subscript of an ExplicitCopy element,
+// with no `.copy()` (SL:borrowing §5.2)
+func main() {
+    let w: Vector<Vector<Int>> = [[1, 2]]
+    let _ = w[0].len()
+}

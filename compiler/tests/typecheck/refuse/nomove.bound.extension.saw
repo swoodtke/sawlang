@@ -1,0 +1,14 @@
+// refuses: nomove.bound at 10:19
+// `NoMove` written as an extension parameter's bound (conformance row
+// V122)
+struct Wrap<T> {
+    held: T
+}
+
+extension Wrap<T>: NoCopy {}
+
+extension Wrap<T: NoMove> {
+    func size(&self) -> Int {
+        1
+    }
+}

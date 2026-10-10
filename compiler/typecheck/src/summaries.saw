@@ -294,13 +294,15 @@ extension TcProgram {
     }
 
     // The items node `id` holds for unit `u`: a call, a copy of a place, a
-    // coercion to an existential. Of a local's copies, one carries the
+    // transfer's or one its position implies (`implied_copies`), a coercion
+    // to an existential. Of a local's copies, one carries the
     // requirement (`settle_path_uses`).
     func note_items(&var self, id: Int, u: Int) {
         if self.call_at[id] >= 0 {
             try! self.items.push(TcItem(kind: TC_ITEM_CALL, node: id, unit: u))
         }
-        if self.expr_use[id] == TcUse.Copy && self.expr_types[id] >= 0 && self.copy_partner[id] != TC_COPY_COVERED {
+        let implied = id < self.implied_copies.len() && self.implied_copies[id] >= 0
+        if (implied || (self.expr_use[id] == TcUse.Copy && self.expr_types[id] >= 0)) && self.copy_partner[id] != TC_COPY_COVERED {
             try! self.items.push(TcItem(kind: TC_ITEM_COPY, node: id, unit: u))
         }
         if self.erased_trait(id) >= 0 {
@@ -448,7 +450,8 @@ extension TcProgram {
                     }
                 }
             } else if item.kind == TC_ITEM_COPY {
-                let t = self.copied_type(item.node)
+                let implied = if item.node < self.implied_copies.len() { self.implied_copies[item.node] } else { -1 }
+                let t = if implied >= 0 { implied } else { self.copied_type(item.node) }
                 let _ = self.copy_needs(t, item.node, item.node, &var acc)
             } else if item.kind == TC_ITEM_ERASE {
                 self.erase_conditions(item.node, &var acc)

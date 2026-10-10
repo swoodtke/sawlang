@@ -1,0 +1,16 @@
+// refuses: mutability.immutable at 14:9
+// a `&self` method assigning an element of a `Vector` field: `&self` is
+// read-only all the way down, the heap buffer the receiver points at
+// included (conformance row M41; SL:borrowing §9)
+
+struct Board {
+    cells: Vector<Int>
+}
+
+extension Board: NoCopy {}
+
+extension Board {
+    func stamp(&self) {
+        self.cells[0] = 1
+    }
+}

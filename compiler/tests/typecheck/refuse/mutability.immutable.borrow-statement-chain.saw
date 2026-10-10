@@ -1,0 +1,11 @@
+// refuses: mutability.immutable at 10:5
+// a `borrow var` statement compound-assigning a field through two nested
+// `Vector` windows on a `let` root (SL-487)
+struct Cell {
+    n: Int
+}
+
+func main() {
+    let g: Vector<Vector<Cell>> = [[Cell(n: 1)]]
+    borrow var g[0][0].n += 1
+}

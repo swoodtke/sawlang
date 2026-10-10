@@ -647,7 +647,9 @@ Reference Types). Every position that writes a place or borrows it
 exclusively reaches `place_verdict` (`compiler/typecheck/src/mutability.saw`),
 whose docstring names them: an assignment, a compound assignment, `&var`, a
 `&var self` receiver (the builtin `take()` and an array's `swap` too), `borrow
-var` (argument, block head, unwrap), an exclusive `lend`, the window of a
+var` (argument, block head, unwrap, and the statement form's place, written
+whole or through a projection), a write through a bare `borrow` statement,
+which lends its place shared (SL-487), an exclusive `lend`, the window of a
 `borrows` accessor opened exclusive, a window read through an accessor that
 borrows its receiver exclusively at every use (a `&var self` one with no
 shared twin, SL-470), and a `[&var x]` capture. Under
@@ -672,6 +674,9 @@ shared twin, SL-470), and a `[&var x]` capture. Under
 | a write through `&T`: compound, replacement, a `&var self` method | refused | mutability.immutable.shared-reference, mutability.immutable.shared-reference-replace, mutability.immutable.shared-reference-receiver |
 | a write through a closure's `&T` parameter | refused | mutability.immutable.shared-closure-parameter |
 | a write through a named accessor lending read-only, `-> &T` | refused | mutability.immutable.read-only-lend |
+| a `borrow var` statement writing through a read-only lend: a field, compound, the whole place, on a `let` root (SL-487) | refused | mutability.immutable.read-only-lend-statement, -compound, -whole, -let |
+| a bare `borrow` statement written through: a field, compound, a `&var self` method, the whole place, on a `let` root, through a `&T` parameter (SL:borrowing §2.2, SL-487) | refused | mutability.immutable.shared-borrow, -compound, -method, -whole, -let, -parameter |
+| a `borrow var` statement on a `let` root, through one exclusive window and through two nested ones (SL-487) | refused | mutability.immutable.borrow-statement, mutability.immutable.borrow-statement-chain |
 | a write through a subscript lending read-only | refused | subscript.role.setitem |
 | `&self` writing a field, `self = v`, an inline array element | refused | mutability.immutable.shared-receiver, mutability.immutable.shared-self-replace, mutability.immutable.shared-receiver-array |
 | `&self` calling a `&var self` method on `self` or a field, projecting `&var self.f` | refused | mutability.immutable.shared-receiver-call, mutability.immutable.shared-receiver-field-call, mutability.immutable.shared-receiver-projection |
@@ -697,6 +702,7 @@ shared twin, SL-470), and a `[&var x]` capture. Under
 | writes to `self.f` in a `consumes` body | allowed | mutability |
 | a `let` declared in a loop body, taking a fresh value each iteration | allowed | mutability |
 | `var` destructuring, `if var`, `guard var`, `borrow var` | allowed | mutability |
+| the `borrow var` statement on a `var` root: assigned, compound-assigned, a `&var self` method through it; a bare `borrow` read | allowed | mutability |
 | a `[&var x]` capture's write | allowed | mutability |
 | a nested `[&var n]` of an outer `[&var n]`; the counter through a non-escaping `[&var v]` | allowed | capture_rules |
 | an implicit `self` capture's write under `&var self`; a write through a plain capture of a `&var` parameter; a closure's own `&var` parameter written | allowed | capture_rules |
@@ -705,7 +711,8 @@ shared twin, SL-470), and a `[&var x]` capture. Under
 | a move into a place window, `slots[0].push(move h)`; the non-escaping `[move v]` idiom `var w = move v` | allowed | capture_rules |
 | an `unsafe static var` | allowed | mutability |
 | a raw pointer's pointee, through a `let` pointer or a `&self` receiver | allowed | mutability |
-| `&self` writing storage the receiver points at: a `Vector` field's element, nested, a `&var self` method of one, a hand-written accessor lending out of a `Vector`, a prologue write in a `&self` `borrows` body (design 200) | allowed | mutability |
+| `&self` writing storage the receiver points at (SL:borrowing §9, SL-483): a `Vector` field's element assigned, compound-assigned, passed `borrow var`, opened in a `borrow var` block; a `&var self` method of one; a hand-written accessor lending out of a `Vector`; a nested chain; a `[&self]` capture's write; a prologue write in a `&self` `borrows` body; a read through a `&var self` accessor with no shared twin | refused | mutability.immutable.shared-receiver-heap, -heap-compound, -heap-argument, -heap-block, -heap-method, -heap-accessor, -heap-chain, mutability.immutable.shared-capture-heap, mutability.immutable.shared-accessor-heap, mutability.immutable.exclusive-only-heap |
+| a raw pointer's pointee from `&self`: `p[0] = v`, `*p = v`, a pointer read out of a `Vector` field (SL:open-questions D28); a `&self` accessor's lend, whose receiver is only read (SL:borrowing §3); storage the receiver points at under `&var self` | allowed | mutability |
 | a `&self` `borrows` body writing through a window on `self`'s inline storage (row M33) | refused | mutability.immutable.shared-accessor-window |
 | a read through a `&var self` accessor with no shared twin, on a `let` root, at each window opener: a subscript, a named accessor, a conditional lend through `!`, a `borrow let` head, a `for` head, a nested window, a method call's receiver; a `&self` accessor forwarding its lend through one (rows K123, K125, K129) | refused | mutability.immutable.exclusive-only-subscript, -accessor, -conditional, -borrow-let, -for-head, -nested, -receiver, -forwarded-lend |
 | reads through a `&var self` accessor on a `var` and through a `&var` parameter; on a `let` root, through a `@synthesize(shared)` twin or a hand-written `&self` overload (rows K123, K127, K128) | allowed | exclusive_only |
@@ -734,7 +741,11 @@ function type, whose own nodes answer. Under `type.reference-position`:
 | `let r = &x`, `var r = &var x`: a bare `&` bound | refused | type.reference-position, type.reference-position.exclusive-binding |
 | a bare `&` in an array literal, a tuple literal, an operator's operand, a closure's tail, a cast to an integer | refused | type.reference-position.array-literal, type.reference-position.tuple-literal, type.reference-position.operand, type.reference-position.closure-return, type.reference-position.cast-to-integer |
 | a binding whose inferred type names a reference: only a bare `&` builds one, as an argument instantiating a generic | refused | type.reference-position.inferred-binding |
-| a reference binding passed with no sigil to a reference parameter, a function's, a `&var` one's, a method's | refused, `type.mismatch` with the sigil written out | type.mismatch.unsigiled-reference, type.mismatch.unsigiled-exclusive, type.mismatch.unsigiled-method-argument |
+| a reference binding passed with no sigil to a reference parameter, a function's, a `&var` one's, a method's; and to the reference overload when no by-value one fits | refused, `type.mismatch` with the sigil written out | type.mismatch.unsigiled-reference, type.mismatch.unsigiled-exclusive, type.mismatch.unsigiled-method-argument, type.mismatch.unsigiled-overload |
+| `&var x` for a `&T` parameter: a free function's, a method's, a static method's, an initializer's, by label, a function value's; `borrow var p` for one (SL-484) | refused, `type.mismatch` naming `&x` or `borrow p` | type.mismatch.sigil-exclusive, -exclusive-method, -exclusive-static, -exclusive-init, -exclusive-labeled, -exclusive-closure, -exclusive-borrow |
+| `&x` or `&var x` for a parameter taken by value: Copy, NoCopy through a reference, ExplicitCopy, a generic method's `T` (SL-484) | refused, `type.mismatch` dropping the sigil | type.mismatch.sigil-to-value, -to-value-exclusive, -to-value-nocopy, -to-value-explicit, -to-value-generic |
+| an operator's reference operand, `a + &b` | refused as a bare `&` operand before any sigil question | type.reference-position.operand |
+| each call shape with its parameter's own sigil; a `&var` reference forwarded as `&`; `f(p)` picking `f(Int)` over `f(&Int)`; Stage 0's `s.compare(&t)` reaching the requirement | allowed | call_sigils |
 | a reference to a NoCopy value read by value into an aggregate | refused, `transfer.implicit-copy` | transfer.implicit-copy.reference-read |
 | a generic instantiated at a reference by inference | refused | type.reference-position.instantiation |
 | a bare trait behind a reference, `&Shape` | refused | type.not-a-type.trait |
@@ -783,6 +794,47 @@ Checked as the walk meets a `move` (`check_no_move`), a `[move x]` capture and
 | a `[move a]` capture; `take()` out of an optional; a tuple holding one | refused | n.capture, n.take |
 | a fresh by-value parameter placed by `ptr[0] = move value`; lending by `&var`; replacing a referent whole | allowed | no_move |
 
+The declaration side (SL-485; rows V121-V123), checked with the
+containment rules (`check_no_move_declarations`):
+
+| row | verdict | covered by |
+|---|---|---|
+| a struct's `NoMove` field, an enum's payload, one in an optional, a generic instance at a `NoMove` argument, undeclared | refused | nomove.undeclared, .payload, .wrapped, .instance |
+| `T: NoMove` on a function's and on an extension's parameter | refused | nomove.bound, nomove.bound.extension |
+| `NoMove` with no declared `NoCopy`, beside `ExplicitCopy` | refused | nomove.requires-nocopy, nomove.requires-nocopy.explicit |
+| a container declaring `NoCopy` and `NoMove`; a pointer holder; a generic holding `T` | allowed | no_move |
+
+**Generic captures** (SL-481, D30). A spelled `[copy x]` of a value whose
+type names a type parameter is refused at the definition unless a bound
+grants the copy (`add_capture`); a silent by-value capture, `[x]` or
+implicit, is design 219's inferred requirement, recorded through the same
+copy items a getitem's copy reaches (`implied_copies`, then the summaries'
+`copy_needs`) and checked at each call:
+
+| capture | verdict | covered by |
+|---|---|---|
+| `[copy x]` of an unbounded `T`, of `(T, Int)`, of a `T?` with `T: ExplicitCopy` | refused at the definition, `capture.copy` | capture.copy.generic, -generic-tuple, -generic-optional |
+| `[x]`, an implicit capture of an unbounded `T`, called at a NoCopy type | refused at the call, `copy.requirement` | copy.requirement.capture-value, copy.requirement.capture-implicit |
+| `[copy x]` at `T: ExplicitCopy` and `T: Copy`; `[move x]` unbounded; `[x]` and an implicit capture called at `Int` | allowed | generic_captures; MIR golden `closures` |
+
+**Plain subscript reads** (SL:open-questions D29; SL:borrowing §1, §5.2: a plain
+subscript is a getitem wherever it is read). Settled once places are
+(`check_plain_subscript_reads`), over every accessor subscript whose use
+borrows or projects without writing and whose projection does not end in a
+position that lends (`lends_in_place`: the `borrow` forms, `lend`, a `for`
+head, a sigiled `&`). Under `transfer.implicit-copy`, `g.` abbreviating
+`refuse/transfer.implicit-copy.getitem-`:
+
+| position | verdict | covered by |
+|---|---|---|
+| an interpolation hole; `print`'s message; a `{}` format argument of `print`, `assert`, `panic` | refused, NoCopy element | g.interpolation, g.message, g.format, g.assert, g.panic |
+| a comparison operand | refused | g.comparison |
+| a field read, a `&self` method, a chained hop off the subscript | refused | g.field, g.method, g.chain |
+| a member hop or a subscript off an ExplicitCopy element, with no `.copy()` | refused | g.explicit, g.subscript |
+| a `match` whose arm binds a payload | refused | g.scrutinee |
+| an element of a type parameter's type, hopped off in a generic body | design 219's inferred requirement, refused at a NoCopy call | copy.requirement.getitem-hop |
+| each position spelled `borrow`; `.copy()` on an ExplicitCopy element; Copy-tier elements plain; a `match` binding nothing; a generic at a Copy type | allowed | plain_subscript_reads |
+
 **Declared bounds** (design 219: a generic's signature covers its body's
 inferred Copy requirement where it publishes or declares one), under
 `copy.declared-bound`: a public generic function (row V45) and a public
@@ -826,8 +878,9 @@ fixture.
 | M17, M18, M19, M20, M21 | `m.for-binding`, `m.if-let`, `m.parameter`, `m.value-capture`, `m.value-capture-field` |
 | M22, M23, M24, M25, M26 | `m.accessor-root`, `m.shared-closure-parameter`, `m.shared-receiver-epilogue`, `m.map-force`, `m.copy-receiver` |
 | M27 | `slice.not-yet` (a method call on `any Trait`); an interior cell's `&self` method borrows shared, which no row of the funnel asks about |
-| M28, M32, M34, M35, M41 | accepted: golden `mutability` (the heap carve-out through a subscript, nested and through a hand-written accessor; a prologue write through a heap window; writes under `&var self`) |
-| M33 | `m.shared-accessor-window`: a `&self` accessor's prologue writing a window on inline storage; its heap form stays accepted in golden `mutability` |
+| M28, M32, M41 | language changed (SL:borrowing §9, SL-483): `m.shared-receiver-heap-method` (M28), `m.shared-receiver-heap-chain` (M32), `m.shared-receiver-heap`, `-heap-compound`, `-heap-accessor` and `-heap-chain` (M41) |
+| M34, M35 | accepted: golden `mutability` (writes under `&var self`) |
+| M33 | `m.shared-accessor-window`: a `&self` accessor's prologue writing a window on inline storage; its heap form, `m.shared-accessor-heap` (SL-483) |
 | M29 | accepted: golden `mutability`, `borrow_arguments` |
 | M30, M31, M36, M37 | `m.static`, `m.shared-receiver-window`, `m.shared-capture-self`, `m.array-element` and `m.array-element-compound` |
 | M38 | the borrow check (U6d2) |
@@ -848,7 +901,7 @@ fixture.
 | V49 | `capture.escaping-consume` (bare): an escaping closure's consume of its `move` capture is refused (SL-469) |
 | R43, R44 | `capture.escaping-borrow.reference-container`, `capture.escaping-borrow.local-container` (SL-467) |
 
-That is 44 M rows, 36 R rows and 10 V rows: 75 refused here, 9 accepted
+That is 44 M rows, 36 R rows and 10 V rows: 78 refused here, 6 accepted
 here, 5 answered by `slice.not-yet` and 1 by the borrow check.
 
 ## Refusals
@@ -877,6 +930,9 @@ says what the fixture shows.
 | `conformance.signature` | a written member that disagrees with its requirement: receiver, staticness, type parameters, parameters, result, an `unsafe` the requirement declares, `consumes`, or `borrows` (a `borrows(sync)` member never meets a plain `borrows` requirement, SL:borrowing §2.5) |
 | `synthesize.required` | a declared conformance to a derivable trait whose method is neither written nor asked for with `@synthesize` (design 128) |
 | `synthesize.inert` | `@synthesize` on a conformance that derives nothing |
+| `nomove.undeclared` | a struct or enum holding a `NoMove` value inline, a field, a payload, through an optional, a tuple, an array or a generic instance, that does not declare `NoMove` itself (design 188) |
+| `nomove.bound` | `NoMove` written as a generic parameter's bound |
+| `nomove.requires-nocopy` | a `NoMove` conformance on a type whose policy is not a declared `NoCopy` |
 | `copy.undeclared-policy` | a struct or enum with no policy holding an ExplicitCopy or NoCopy member, or a struct with a field of a declared Copy type |
 | `unsafe.undeclared` | a function whose parameters, result or receiver name an unsafe type, or whose body (its closures included) names, binds, receives or returns a value of one or names an `unsafe static var`, and which is not declared `unsafe` (designs 130, 136 and 149) |
 | `unsafe.function-type` | a function type that names an unsafe type without saying `unsafe`, or says it without naming one |
@@ -904,11 +960,11 @@ says what the fixture shows.
 | `type.reference-position` | a reference where a type is stored, returned or bound: every written position but a parameter, a function type's parameter, a `borrows` lend and a borrowing struct's shared field, at any depth; a bare `&` outside a call argument or a pointer cast; a binding inferred to name one; a call instantiated at one (the reference-position matrix) |
 | `transfer.partial-move` | a spelled `move` of a part of a binding: a field, a tuple element, an element, an optional field's payload, at any depth (the field move-out matrix) |
 | `transfer.move-from-borrow` | a spelled `move` of a binding that owns nothing: a reference, a closure's reference parameter, a `borrow` binding, a `[&x]` or `[&var x]` capture, a pattern's binding aliasing a part of a borrowed scrutinee, which a name reading through a borrow is as a scrutinee (spec, Reference Semantics; DF-288a) |
-| `transfer.implicit-copy` | an ExplicitCopy or NoCopy place read by value with no `move`, payload reads included (design 131), and a projection's (`T.Item` in a generic body, a trait's own `Item` in its default bodies); a closure's capture of one by value with nothing written, with the fix-it `[move x]` |
+| `transfer.implicit-copy` | an ExplicitCopy or NoCopy place read by value with no `move`, payload reads included (design 131), and a projection's (`T.Item` in a generic body, a trait's own `Item` in its default bodies); a closure's capture of one by value with nothing written, with the fix-it `[move x]`; a plain subscript of such an element read where its position keeps nothing, a getitem all the same, with the fix-it `borrow` (D29) |
 | `transfer.no-move` | a `move` of a `NoMove` value, or of one holding it inline (an Optional, a tuple, an array, a generic instance), at every position: a binding, an argument, a consuming receiver, a `[move x]` capture, `take()` out of an optional; a by-value parameter placed by `ptr[i] = move p` before any `&`, `&var` or `borrow` named it is the value reaching its home, and allowed (design 188) |
 | `deinit.manual-call` | a `deinit` called by hand, written or synthesized, through a bound or named as a static (spec, The Deinit trait) |
 | `copy.declared-bound` | a body's inferred Copy requirement on one of its own type parameters that its signature does not cover: a public generic that does not declare it, or a declared `ExplicitCopy` the body exceeds (design 219) |
-| `capture.copy` | `[copy x]` of a NoCopy binding, which has no copy |
+| `capture.copy` | `[copy x]` of a NoCopy binding, which has no copy; `[copy x]` of a value whose type names a type parameter no bound lets the body copy: `Copy` for every one, or `ExplicitCopy` on a bare parameter (D30) |
 | `capture.escaping-consume` | a consuming use of a by-value capture in a closure that escapes, at every copy tier: a `move` of it, a `match` consuming it, an inner closure's `[move x]` of it; a spawn form's brace is exempt (SL-469; the escaping-consume matrix) |
 | `capture.escaping-borrow` | a borrow of the enclosing frame, `[&x]`, `[&var x]`, a reference parameter or `self`, captured by a closure that escapes: anything but one passed straight to a parameter whose function type does not say `escaping` (spec, Capturing `self` and reference parameters) |
 | `capture.exclusive-self` | `[&var self]` in a method whose receiver is `&self` |

@@ -1,0 +1,22 @@
+// refuses: nomove.undeclared at 18:8
+// a struct holding a generic instance at a `NoMove` argument, which is
+// `NoMove` per instance (conformance row V121)
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {}
+
+extension Anchor: NoMove {}
+
+struct Wrap<T> {
+    held: T
+}
+
+extension Wrap<T>: NoCopy {}
+
+struct Outer {
+    w: Wrap<Anchor>
+}
+
+extension Outer: NoCopy {}

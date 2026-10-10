@@ -1,0 +1,34 @@
+// refuses: type.mismatch at 33:20
+// `&var x` passed to a method's `&T` parameter (SL-484)
+struct Box2 {
+    n: Int
+}
+
+extension Box2 {
+    init(r: &Int) -> Box2 {
+        Box2(n: r)
+    }
+
+    func look(&self, r: &Int) -> Int {
+        r + self.n
+    }
+
+    static func peek(r: &Int) -> Int {
+        r
+    }
+}
+
+func look(r: &Int) -> Int {
+    r
+}
+
+func pair(a: Int, r: &Int) -> Int {
+    a + r
+}
+
+
+func main() {
+    var n = 1
+    let b = Box2(n: 2)
+    let _ = b.look(&var n)
+}

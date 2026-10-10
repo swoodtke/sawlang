@@ -13,6 +13,27 @@ extension Anchor {
     func bump(&var self) { self.n = self.n + 1 }
 }
 
+// A container of a `NoMove` value declares both words; one holding it
+// behind a pointer owes nothing, and a generic derives it per instance
+// (SL-485).
+struct Server {
+    anchor: Anchor,
+    port: Int
+}
+
+extension Server: NoCopy {}
+extension Server: NoMove {}
+
+struct Handle {
+    at: UnsafePointer<Anchor>
+}
+
+struct Wrap<T> {
+    held: T
+}
+
+extension Wrap<T>: NoCopy {}
+
 func lend_it(a: &var Anchor) {
     a.bump()
 }

@@ -1,0 +1,82 @@
+(Module generic_captures
+  (declarations
+    (struct Res 5:8 private)
+    (field Res.name 6:5 private String)
+    (extension 9:1 (target generic_captures.Res) (conforms NoCopy))
+    (func run 11:6 private (signature (params (f () -> Int owned)) -> Int) (summary body (suspends no) (sync-callable no)))
+    (func measure 15:6 private (signature (generics (T)) (params (x &T shared)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func spelled 20:6 private (signature (generics (T (bounds ExplicitCopy))) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable no)))
+    (func silent 25:6 private (signature (generics (T (bounds Copy))) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable no)))
+    (func moved 30:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable no)))
+    (func inferred 35:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable no) (copy T)))
+    (func main 39:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable no))))
+  (members
+    (generic_captures.Res
+      (field name String private declared)
+      (method deinit public (synthesized Deinit))))
+  (views
+    (generic_captures.Res name deinit))
+  (conformances
+    (generic_captures.Res NoCopy 9:16 (deinit implicit)))
+  (copy-tier
+    (generic_captures.Res NoCopy declared))
+  (bodies
+    (run 11:6
+      (12:5-12:8 Call.paren Int value temp (value (owner () -> Int)))
+      (12:5-12:6 Name () -> Int place borrow))
+    (measure 15:6
+      (16:5-16:6 IntLit Int value temp))
+    (spelled 20:6
+      (21:5-21:37 Call.paren Int value temp (call generic_captures.run(f: () -> Int)))
+      (21:9-21:36 Closure () -> Int value temp (captures (x copy)))
+      (21:23-21:34 Call.paren Int value temp (call generic_captures.measure(x: &T) (inst T)))
+      (21:31-21:33 Ref.shared &T value temp)
+      (21:32-21:33 Name T place borrow))
+    (silent 25:6
+      (26:5-26:60 Binary Int value temp (op +))
+      (26:5-26:37 Call.paren Int value temp (call generic_captures.run(f: () -> Int)))
+      (26:9-26:36 Closure () -> Int value temp (captures (x copy)))
+      (26:23-26:34 Call.paren Int value temp (call generic_captures.measure(x: &T) (inst T)))
+      (26:31-26:33 Ref.shared &T value temp)
+      (26:32-26:33 Name T place borrow)
+      (26:40-26:60 Call.paren Int value temp (call generic_captures.run(f: () -> Int)))
+      (26:44-26:59 Closure () -> Int value temp (captures (x copy)))
+      (26:46-26:57 Call.paren Int value temp (call generic_captures.measure(x: &T) (inst T)))
+      (26:54-26:56 Ref.shared &T value temp)
+      (26:55-26:56 Name T place borrow))
+    (moved 30:6
+      (31:5-31:37 Call.paren Int value temp (call generic_captures.run(f: () -> Int)))
+      (31:9-31:36 Closure () -> Int value temp (captures (x move)))
+      (31:23-31:34 Call.paren Int value temp (call generic_captures.measure(x: &T) (inst T)))
+      (31:31-31:33 Ref.shared &T value temp)
+      (31:32-31:33 Name T place borrow))
+    (inferred 35:6
+      (36:5-36:55 Binary Int value temp (op +))
+      (36:5-36:32 Call.paren Int value temp (call generic_captures.run(f: () -> Int)))
+      (36:9-36:31 Closure () -> Int value temp (captures (x copy)))
+      (36:18-36:29 Call.paren Int value temp (call generic_captures.measure(x: &T) (inst T)))
+      (36:26-36:28 Ref.shared &T value temp)
+      (36:27-36:28 Name T place borrow)
+      (36:35-36:55 Call.paren Int value temp (call generic_captures.run(f: () -> Int)))
+      (36:39-36:54 Closure () -> Int value temp (captures (x copy)))
+      (36:41-36:52 Call.paren Int value temp (call generic_captures.measure(x: &T) (inst T)))
+      (36:49-36:51 Ref.shared &T value temp)
+      (36:50-36:51 Name T place borrow))
+    (main 39:6
+      (40:9-40:10 BindingName std.vector.Vector<Int, std.alloc.GlobalAllocator> place temp)
+      (40:26-40:29 Array std.vector.Vector<Int, std.alloc.GlobalAllocator> value temp)
+      (40:27-40:28 IntLit Int value temp)
+      (41:9-41:10 BindingName Int place temp)
+      (41:13-41:28 Call.paren Int value temp (call generic_captures.spelled(x: T) (inst std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
+      (41:21-41:27 Move std.vector.Vector<Int, std.alloc.GlobalAllocator> value move)
+      (41:26-41:27 Name std.vector.Vector<Int, std.alloc.GlobalAllocator> place move)
+      (42:9-42:10 BindingName Int place temp)
+      (42:13-42:22 Call.paren Int value temp (call generic_captures.silent(x: T) (inst Int)))
+      (42:20-42:21 IntLit Int value temp)
+      (43:9-43:10 BindingName Int place temp)
+      (43:13-43:34 Call.paren Int value temp (call generic_captures.moved(x: T) (inst generic_captures.Res)))
+      (43:19-43:33 Call.paren generic_captures.Res value temp (memberwise generic_captures.Res (owner generic_captures.Res)))
+      (43:29-43:32 StringLit String value temp)
+      (44:9-44:10 BindingName Int place temp)
+      (44:13-44:24 Call.paren Int value temp (call generic_captures.inferred(x: T) (inst Int)))
+      (44:22-44:23 IntLit Int value temp))))

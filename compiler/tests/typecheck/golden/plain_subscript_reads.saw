@@ -1,0 +1,91 @@
+// The plain-subscript reads `transfer.implicit-copy` allows: every
+// rendering, comparison and member position spelled with `borrow`, and the
+// same positions over Copy-tier elements, which copy silently (SL:open-questions
+// D29; SL:borrowing §5.2).
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+extension Res: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(value: self.id)
+    }
+}
+
+extension Res: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        self.id == other.id
+    }
+}
+
+extension Res {
+    func look(&self) -> Int {
+        self.id
+    }
+}
+
+enum Slot {
+    case Full(r: Res),
+    case Empty
+}
+
+extension Slot: NoCopy {}
+
+struct Point {
+    x: Int,
+    y: Int
+}
+
+trait Sized2 {
+    func size(&self) -> Int
+}
+
+extension Point: Sized2 {
+    func size(&self) -> Int {
+        self.x
+    }
+}
+
+func first<T: Sized2>(v: &Vector<T>) -> Int {
+    v[0].size()
+}
+
+func tag(v: &Vector<Slot>) -> Int {
+    let full = borrow let s = v[0] {
+        match s {
+            case Full(r) -> r.id,
+            case Empty -> 0
+        }
+    }
+    match v[0] {
+        case Full(_) -> full,
+        case Empty -> 0
+    }
+}
+
+func main() {
+    var v: Vector<Res> = Vector<Res>()
+    try! v.push(Res(id: 1))
+    print("{borrow v[0]}")
+    print(borrow v[0])
+    print("{}", borrow v[0])
+    assert(borrow v[0] == borrow v[0], "{}", borrow v[0])
+    let a = borrow v[0].id
+    let b = borrow v[0].look()
+    let w: Vector<Vector<Int>> = [[1, 2]]
+    let c = w[0].copy()
+    let d = borrow w[0][1]
+    let e = borrow w[0].len()
+    let n: Vector<Int> = [1, 2]
+    print("{n[0]}")
+    print("{}", n[1])
+    let f = n[0] == n[1]
+    let p: Vector<Point> = [Point(x: 1, y: 2)]
+    let g = p[0].x
+    let h = first(&p)
+    let s: Vector<Slot> = Vector<Slot>()
+    let i = tag(&s)
+}

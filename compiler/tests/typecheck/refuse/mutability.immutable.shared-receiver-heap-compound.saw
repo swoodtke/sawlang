@@ -1,0 +1,15 @@
+// refuses: mutability.immutable at 13:9
+// a `&self` method compound-assigning an element of a `Vector` field
+// (conformance row M41; SL:borrowing §9)
+
+struct Board {
+    cells: Vector<Int>
+}
+
+extension Board: NoCopy {}
+
+extension Board {
+    func bump(&self) {
+        self.cells[0] += 1
+    }
+}

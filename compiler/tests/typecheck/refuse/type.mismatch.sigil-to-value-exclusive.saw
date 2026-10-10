@@ -1,0 +1,10 @@
+// refuses: type.mismatch at 9:18
+// `&var x` passed to a parameter taken by value (SL-484)
+func take(v: Int) -> Int {
+    v + 1
+}
+
+func main() {
+    var n = 1
+    let _ = take(&var n)
+}

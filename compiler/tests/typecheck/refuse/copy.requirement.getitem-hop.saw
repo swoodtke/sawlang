@@ -1,0 +1,29 @@
+// refuses: copy.requirement at 28:13
+// a method called on a plain subscript of a type parameter's element owes
+// the inferred Copy requirement, refused at a NoCopy instantiation
+// (SL:open-questions D27, D29)
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+trait Sized2 {
+    func size(&self) -> Int
+}
+
+extension Res: Sized2 {
+    func size(&self) -> Int {
+        self.id
+    }
+}
+
+func first<T: Sized2>(v: &Vector<T>) -> Int {
+    v[0].size()
+}
+
+func main() {
+    var v: Vector<Res> = Vector<Res>()
+    try! v.push(Res(id: 1))
+    let _ = first(&v)
+}

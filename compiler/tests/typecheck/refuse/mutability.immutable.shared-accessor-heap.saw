@@ -1,0 +1,17 @@
+// refuses: mutability.immutable at 14:9
+// a `&self` `borrows` body whose prologue writes an element of a `Vector`
+// field: the heap form of conformance row M33 (SL:borrowing §3, §9)
+
+struct Log {
+    counts: Vector<Int>,
+    slots: [Int; 2]
+}
+
+extension Log: NoCopy {}
+
+extension Log {
+    func at(&self, i: Int) borrows -> &Int {
+        self.counts[0] += 1
+        lend self.slots[i]
+    }
+}

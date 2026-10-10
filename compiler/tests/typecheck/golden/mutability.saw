@@ -37,46 +37,46 @@ struct Rows {
 extension Rows: NoCopy {}
 
 extension Rows {
-    // The receiver's heap, which a `&self` borrow does not cover (design 200).
-    func touch(&self) {
+    // Storage the receiver points at is written under `&var self`.
+    func touch(&var self) {
         self.cells[0] = 1
-        self.rows[0][0] += 100
-        let _ = self.rows[0].push(9)
-    }
-
-    func [](&var self, i: Int) borrows -> &var Int {
-        lend self.cells[i]
-    }
-
-    func peek(&self, i: Int) borrows -> &Int {
-        self.cells[0] += 1
-        lend self.cells[i]
-    }
-}
-
-struct Board {
-    rows: Rows
-}
-
-extension Board: NoCopy {}
-
-extension Board {
-    // A hand-written accessor that lends out of a Vector lends out of the
-    // heap too.
-    func mark(&self) {
-        self.rows[0] = 5
+        borrow var self.rows[0][0] += 100
+        try! borrow var self.rows[0].push(9)
     }
 }
 
 struct Raw {
-    at: UnsafePointer<Int>
+    at: UnsafePointer<Int>,
+    ptrs: Vector<UnsafePointer<Int>>
 }
+
+extension Raw: NoCopy {}
 
 extension Raw {
     // A write through a raw pointer writes the pointee, whatever borrows the
-    // pointer.
+    // pointer (SL:open-questions D28).
     func store(&self, v: Int) unsafe {
         self.at[0] = v
+        *self.at = v
+        self.ptrs[0][0] = v
+    }
+
+    func cell(&self) unsafe borrows -> &var Int {
+        lend self.at[0]
+    }
+}
+
+struct Holder {
+    raw: Raw
+}
+
+extension Holder: NoCopy {}
+
+extension Holder {
+    // A `&self` accessor reads its receiver, so its lend is written from a
+    // `&self` body (SL:borrowing §3).
+    func stamp(&self) unsafe {
+        borrow var self.raw.cell() = 4
     }
 }
 
@@ -140,4 +140,9 @@ func main() {
         slot = 4
     }
     v[1] = 3
+    borrow var v[0] = 5
+    borrow var v[1] += 1
+    let k = borrow v[0]
+    var w: Vector<Vector<Int>> = [[1]]
+    try! borrow var w[0].push(k)
 }

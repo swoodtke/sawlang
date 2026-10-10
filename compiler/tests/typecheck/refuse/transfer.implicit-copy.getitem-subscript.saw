@@ -1,0 +1,7 @@
+// refuses: transfer.implicit-copy at 6:13
+// a subscript of a plain subscript of an ExplicitCopy element: the outer
+// `[]` is a member hop off the getitem (SL:borrowing §5.2)
+func main() {
+    let w: Vector<Vector<Int>> = [[1, 2]]
+    let _ = w[0][1]
+}

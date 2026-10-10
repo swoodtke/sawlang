@@ -1,0 +1,17 @@
+// refuses: nomove.undeclared at 12:8
+// a struct holding a `NoMove` field inline that does not declare
+// `NoMove` itself (conformance row V121)
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {}
+
+extension Anchor: NoMove {}
+
+struct Server {
+    anchor: Anchor,
+    port: Int
+}
+
+extension Server: NoCopy {}

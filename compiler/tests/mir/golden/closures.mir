@@ -129,3 +129,101 @@ fn closure#2 of closures.closures(limit: Int, total: &var Int, name: String) -> 
         return;
     }
 }
+
+fn closures.held(x: T) -> Int {
+    let _0: Int;  // return
+    let _1: T;  // param x
+    let _2: (Int) -> Int;
+    let _3: Int;
+    let _4: (Int) -> Int;
+    let _5: Int;
+    let _6: Int;
+
+    bb0: {
+        _2 = closure#0 of closures.held(x: T) [copy _1];
+        _3 = call closures.apply(f: (Int) -> Int, x: Int) [move _2, const 1: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = closure#1 of closures.held(x: T) [copy _1];
+        _5 = call closures.apply(f: (Int) -> Int, x: Int) [move _4, const 2: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = Add(move _3, move _5);
+        _0 = move _6;
+        drop(_1);
+        return;
+    }
+}
+
+fn closure#0 of closures.held(x: T) -> Int {
+    let _0: Int;  // return
+    let _1: &(T,);  // env
+    let _2: Int;  // param k
+    let _3: &T;  // ref x
+
+    bb0: {
+        _3 = ref(shared, (*_1).0);
+        _0 = copy _2;
+        return;
+    }
+}
+
+fn closure#1 of closures.held(x: T) -> Int {
+    let _0: Int;  // return
+    let _1: &(T,);  // env
+    let _2: Int;  // param k
+    let _3: &T;  // ref x
+    let _4: &T;
+    let _5: Int;
+    let _6: Int;
+
+    bb0: {
+        _3 = ref(shared, (*_1).0);
+        _4 = ref(shared, (*_3));
+        _5 = call closures.measure(x: &T) (inst T) [move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        _6 = Add(move _5, copy _2);
+        _0 = move _6;
+        return;
+    }
+}
+
+fn closures.measure(x: &T) -> Int {
+    let _0: Int;  // return
+    let _1: &T;  // param x
+
+    bb0: {
+        _0 = const 1: Int;
+        return;
+    }
+}
+
+fn closures.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;  // total
+    let _2: Int;  // n
+    let _3: &var Int;
+    let _4: Int;
+    let _5: Int;
+    let _6: Int;
+
+    bb0: {
+        _1 = const 0: Int;
+        _3 = ref(exclusive, _1);
+        _4 = call closures.closures(limit: Int, total: &var Int, name: String) [const 1: Int, move _3, const "a": String] -> [return: bb1];
+    }
+
+    bb1: {
+        _5 = call closures.held(x: T) (inst Int) [const 5: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = Add(move _4, move _5);
+        _2 = move _6;
+        return;
+    }
+}

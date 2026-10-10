@@ -27,9 +27,11 @@ public func tc_check_obligations(p: &var TcProgram) {
     p.check_obligations()
 }
 
-// The Copy-policy containment rule.
+// The containment rules: the Copy policy's, and `NoMove`'s declared
+// cascade with the policy it requires.
 public func tc_check_containment(p: &var TcProgram) {
     p.check_containment()
+    p.check_no_move_declarations()
 }
 
 static TC_TIER_UNSEEN: Int = 0
@@ -320,6 +322,106 @@ extension TcProgram {
 
 // Relocation: the `NoMove` axis, apart from the Copy tier.
 extension TcProgram {
+    // The declaration side of design 188: `NoMove` stands only beside a
+    // declared `NoCopy`, and a struct or enum holding a `NoMove` value inline
+    // declares `NoMove` itself, so no field's movability changes a type
+    // behind its author's back (spec, The `NoMove` trait). A generic holding
+    // a type parameter derives it per instance instead.
+    public func check_no_move_declarations(&var self) {
+        let tr = self.known.no_move
+        if tr < 0 {
+            return
+        }
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if c.trait_decl == tr && c.type_decl >= 0 && self.declared_policy(c.type_decl) != TC_TIER_NOCOPY {
+                self.refuse_no_move_policy(c)
+            }
+        }
+        var d = 0
+        while d < self.res.decls.len() {
+            let info = self.res.decls[d]
+            let own = info.kind == ResDeclKind.Struct || info.kind == ResDeclKind.Enum
+            if own && info.node >= 0 && not self.declares_no_move(d) {
+                self.check_members_no_move(d)
+            }
+            d = d + 1
+        }
+    }
+
+    func declares_no_move(&self, d: Int) -> Bool {
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            if c.type_decl == d && c.trait_decl == self.known.no_move {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    func check_members_no_move(&var self, d: Int) {
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            k = k + 1
+            let mi = self.res.decls[m]
+            var types = Vector<Int>()
+            let s = self.sigs[m]
+            if mi.kind == ResDeclKind.Field && s.result >= 0 {
+                try! types.push(s.result)
+            } else if mi.kind == ResDeclKind.Case {
+                var j = 0
+                while j < s.param_count {
+                    let p = self.params[s.param_first + j]
+                    try! types.push(p.ty)
+                    j = j + 1
+                }
+            }
+            var j = 0
+            while j < types.len() {
+                let t = types[j]
+                j = j + 1
+                if self.is_no_move(t, 0) {
+                    self.refuse_undeclared_no_move(d, m, t)
+                    return
+                }
+            }
+        }
+    }
+
+    func refuse_undeclared_no_move(&var self, d: Int, member: Int, t: Int) {
+        let info = self.res.decls[d]
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        let member_name = self.res.decls[member].name
+        try! msg.append("` contains NoMove member `")
+        try! msg.append(self.name_text(member_name))
+        try! msg.append("` of type `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` but does not declare `NoMove`: declare `extension ")
+        try! msg.append(self.name_text(info.name))
+        try! msg.append(": NoMove \{\}` beside its `NoCopy`, or hold the member behind a `Box` for a movable handle")
+        let site = self.decl_site(d)
+        self.refuse_in(info.module, site, "nomove.undeclared", msg.build())
+    }
+
+    func refuse_no_move_policy(&var self, c: TcConformance) {
+        let info = self.res.decls[c.type_decl]
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(c.type_decl))
+        try! msg.append("` declares `NoMove` without a declared `NoCopy`: a pinned type is move-only first, so declare `extension ")
+        try! msg.append(self.name_text(info.name))
+        try! msg.append(": NoCopy \{\}` beside it")
+        self.refuse_in(c.module, c.node, "nomove.requires-nocopy", msg.build())
+    }
+
     // Whether a value of type `t` may not be relocated: its type declares
     // `NoMove`, or holds such a value inline, an Optional's payload, a tuple's
     // or an array's element, or a generic instance's substituted field or

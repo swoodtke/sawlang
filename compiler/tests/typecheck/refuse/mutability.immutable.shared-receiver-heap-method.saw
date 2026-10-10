@@ -1,0 +1,15 @@
+// refuses: mutability.immutable at 13:25
+// a `&self` method calling a `&var self` method on an element of a `Vector`
+// field, `self.rows[0].push(9)` (conformance row M28; SL:borrowing §9)
+
+struct Rows {
+    rows: Vector<Vector<Int>>
+}
+
+extension Rows: NoCopy {}
+
+extension Rows {
+    func widen(&self) {
+        try! borrow var self.rows[0].push(9)
+    }
+}

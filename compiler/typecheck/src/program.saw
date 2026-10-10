@@ -228,6 +228,12 @@ public struct TcProgram {
     public closure_index: ResIndex
     // By closure ordinal: whether the closure escapes (`closure_escapes`).
     public closure_escaping: Vector<Bool>
+    // Keyed by node id: the type a position copies though no transfer
+    // records the copy, or -1; in a generic body it owes design 219's
+    // inferred Copy requirement (D27): a plain subscript read where its
+    // position keeps nothing (`check_plain_subscript_reads`), and a closure's
+    // silent by-value capture, `[x]` or implicit, at creation (`add_capture`).
+    public implied_copies: Vector<Int>
 }
 
 extension TcProgram: NoCopy {}
@@ -295,7 +301,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       negated_literal: -1, meets_trait: Vector<Int>(), closures: Vector<Int>(),
                       closure_decls: Vector<Int>(), capture_first: Vector<Int>(),
                       capture_count: Vector<Int>(), captures: Vector<TcCapture>(),
-                      closure_index: res_index(), closure_escaping: Vector<Bool>())
+                      closure_index: res_index(), closure_escaping: Vector<Bool>(),
+                      implied_copies: Vector<Int>())
     let empty = Vector<Int>()
     let unlabeled = Vector<Int>()
     p.error_type = p.types.intern(TcKind.Error, -1, 0, 0, &empty, &unlabeled)
@@ -308,6 +315,50 @@ extension TcProgram {
     public func sig(&self, d: Int) -> TcSig { self.sigs[d] }
 
     public func ty(&self, t: Int) -> TcType { self.types.ty(t) }
+
+    // Per node, whether it lies under a construct refused as outside the
+    // slice, whose uses no check after the walk may read.
+    public func outside_slice_marks(&self, n: Int) -> Vector<Bool> {
+        var out = Vector<Bool>()
+        var k = 0
+        while k < n {
+            try! out.push(false)
+            k = k + 1
+        }
+        var stack = Vector<Int>()
+        k = 0
+        while k < self.skipped.len() {
+            try! stack.push(self.skipped[k])
+            k = k + 1
+        }
+        k = 0
+        while k < self.res.skipped.len() {
+            try! stack.push(self.res.skipped[k])
+            k = k + 1
+        }
+        var top = stack.len()
+        while top > 0 {
+            top = top - 1
+            let at = stack[top]
+            if at < 0 || out[at] {
+                continue
+            }
+            out[at] = true
+            let count = self.child_count(at)
+            var j = 0
+            while j < count {
+                let c = self.child(at, j)
+                if top < stack.len() {
+                    stack[top] = c
+                } else {
+                    try! stack.push(c)
+                }
+                top = top + 1
+                j = j + 1
+            }
+        }
+        move out
+    }
 
     public func node_alt(&self, id: Int) -> Alt? { self.res.alt_of(id) }
 

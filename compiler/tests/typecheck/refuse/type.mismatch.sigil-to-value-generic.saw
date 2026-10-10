@@ -1,0 +1,16 @@
+// refuses: type.mismatch at 14:19
+// `&t` handed to a method's by-value `T`: the hand-off of
+// compiler/tests/mir/inject/handoff.saw (SL-484, SL-481)
+struct Holder<T> {
+    n: Int
+}
+
+extension Holder<T> {
+    func take(&self, v: T) -> Int {
+        1
+    }
+
+    func give(&self, t: T) -> Int {
+        self.take(&t)
+    }
+}

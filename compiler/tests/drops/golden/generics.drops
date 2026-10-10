@@ -153,29 +153,24 @@ fn generics.Holder.take(v: T) -> Int {
     glue T: per instantiation
 }
 
-fn generics.Holder.hand(t: T) -> Int {
+fn generics.Holder.hand(t: &T) -> Int {
     let _0: Int;  // return
     let _1: &generics.Holder<T>;  // self
-    let _2: T;  // param t
-    let _3: &T;
-    let _4: T;
-    let _5: &generics.Holder<T>;
-    let _6: Int;
+    let _2: &T;  // param t
+    let _3: T;
+    let _4: &generics.Holder<T>;
+    let _5: Int;
 
     bb0: {
-        _3 = ref(shared, _2);
-        _4 = copy (*_3);
-        _5 = ref(shared, (*_1));
-        _6 = call generics.Holder.take(v: T) (owner generics.Holder<T>) [move _5, move _4] -> [return: bb1];
+        _3 = copy (*_2);
+        _4 = ref(shared, (*_1));
+        _5 = call generics.Holder.take(v: T) (owner generics.Holder<T>) [move _4, move _3] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _6;
-        drop(_2);
+        _0 = move _5;
         return;
     }
-
-    glue T: per instantiation
 }
 
 fn generics.main() -> Void {
@@ -190,16 +185,18 @@ fn generics.main() -> Void {
     let _8: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
     let _9: generics.Holder<String>;  // h
     let _10: generics.Holder<String>;
-    let _11: Int;
+    let _11: String;  // d
     let _12: Int;
     let _13: Int;
     let _14: Int;
     let _15: Int;
     let _16: Int;
     let _17: Int;
-    let _18: &generics.Holder<String>;
-    let _19: Int;
-    let _20: Int;
+    let _18: Int;
+    let _19: &String;
+    let _20: &generics.Holder<String>;
+    let _21: Int;
+    let _22: Int;
 
     bb0: {
         _2 = vector [const 1: Int, const 2: Int]: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
@@ -218,39 +215,43 @@ fn generics.main() -> Void {
         _7 = move _8;
         _10 = generics.Holder<String> { n: const 1: Int };
         _9 = move _10;
-        _11 = call value copy _3 [] -> [return: bb3];
+        _11 = const "d": String;
+        _12 = call value copy _3 [] -> [return: bb3];
     }
 
     bb3: {
-        _12 = call value copy _3 [] -> [return: bb4];
+        _13 = call value copy _3 [] -> [return: bb4];
     }
 
     bb4: {
-        _13 = Add(move _11, move _12);
-        _14 = call value copy _5 [] -> [return: bb5];
+        _14 = Add(move _12, move _13);
+        _15 = call value copy _5 [] -> [return: bb5];
     }
 
     bb5: {
-        _15 = Add(move _13, move _14);
-        _16 = call generics.copied(x: T) (inst std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _7] -> [return: bb6];
+        _16 = Add(move _14, move _15);
+        _17 = call generics.copied(x: T) (inst std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _7] -> [return: bb6];
     }
 
     bb6: {
-        _17 = Add(move _15, move _16);
-        _18 = ref(shared, _9);
-        _19 = call generics.Holder.hand(t: T) (owner generics.Holder<String>) [move _18, const "d": String] -> [return: bb7];
+        _18 = Add(move _16, move _17);
+        _19 = ref(shared, _11);
+        _20 = ref(shared, _9);
+        _21 = call generics.Holder.hand(t: &T) (owner generics.Holder<String>) [move _20, move _19] -> [return: bb7];
     }
 
     bb7: {
-        _20 = Add(move _17, move _19);
-        call builtin print [move _20] -> [return: bb8];
+        _22 = Add(move _18, move _21);
+        call builtin print [move _22] -> [return: bb8];
     }
 
     bb8: {
+        drop(_11);
         drop(_5);
         drop(_3);
         return;
     }
 
     glue () -> Int: closure environment
+    glue String: builtin
 }

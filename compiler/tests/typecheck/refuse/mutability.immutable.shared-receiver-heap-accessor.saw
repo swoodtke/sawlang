@@ -1,0 +1,28 @@
+// refuses: mutability.immutable at 26:9
+// a `&self` method writing through a hand-written exclusive accessor that
+// lends out of a `Vector` field's buffer (conformance row M41)
+
+struct Slotted {
+    cells: Vector<Int>
+}
+
+extension Slotted: NoCopy {}
+
+extension Slotted {
+    @synthesize(shared)
+    func slot(&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+struct Owner {
+    s: Slotted
+}
+
+extension Owner: NoCopy {}
+
+extension Owner {
+    func stamp(&self) {
+        borrow var self.s.slot(0) = 100
+    }
+}

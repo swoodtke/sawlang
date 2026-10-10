@@ -85,7 +85,7 @@ typecheck/
 4. **Member tables** (`members.saw`), one per struct, enum and builtin type.
 5. **Copy tiers** (`tier.saw`), one per nominal type.
 6. **The checks** that need the tables: bounds, Copy-policy containment,
-   finite size, the signature half of `unsafe`, what an `init` returns, the
+   `NoMove`'s declared containment and the `NoCopy` it requires, finite size, the signature half of `unsafe`, what an `init` returns, the
    conformances `Deinit` refuses, and a `deinit` written outside the copy
    policy.
 7. **Bodies** (`bodies.saw`), each module checked in full, declarations in
@@ -95,23 +95,26 @@ typecheck/
    only, so no body reads another.
 8. **Places** (`settle_places`): once every body is checked, each subscript's
    role and each `borrows` accessor's receiver borrow is read off the use its
-   position recorded (SL:borrowing §5, design 141). Then each closure's
+   position recorded (SL:borrowing §5, design 141), and a plain subscript
+   read where its position keeps nothing is held to the getitem it is, so its
+   element copies (D29). Then each closure's
    captures (`settle_captures`): the bindings its capture list writes and its
    body names from outside it, each with its transfer, and the refusals of a
    capture that does not copy silently and of a borrow of the enclosing frame
    in a closure that escapes.
 9. **Mutability** (`mutability.saw`): every place a use writes (an
    assignment, a compound assignment) or borrows exclusively (`&var`, a
-   `&var self` receiver, `borrow var`, an exclusive lend, `[&var x]`) is
-   walked to its root by one funnel, `place_verdict`, whose docstring names
-   its entry points. Bindings always initialize, so the root decides: a `var`
+   `&var self` receiver, `borrow var` in each form, an exclusive lend,
+   `[&var x]`) is walked to its root by one funnel, `place_verdict`, whose
+   docstring names its entry points. Bindings always initialize, so the root decides: a `var`
    is written, a `let`, a pattern's, a `for` loop's or a closure parameter's
    binding, a parameter taken by value and a plain `static` are not; a
    reference along the path decides by its own `&` or `&var`; `self` by its
    receiver; a binding a closure captured, by the capture: a by-value,
    `move` or `copy` capture is judged exactly as a `let` of its type, in
-   every closure (SL-472). A raw pointer's pointee is always written. Then
-   **escaping consumes**
+   every closure (SL-472). A raw pointer's pointee is always written. A
+   bare `borrow` statement lends its place shared, so a write through it is
+   refused whatever the root (SL-487). Then **escaping consumes**
    (`captures.saw`): a consuming use of a by-value capture inside a closure
    that escapes is refused (SL-469). A `move` that takes a part of a binding is
    refused as the body is walked (`transfer.partial-move`), and so is one of
@@ -531,12 +534,13 @@ These are the reversible readings this unit made; SL-447's report lists them.
 
 These are the reversible readings SL-462 made; its report lists them.
 
-- The heap carve-out (design 200: a `&self` method may write storage its
-  receiver only points at) holds for `self` under `&self` and for a `[&self]`
-  capture, and for no other root: a write through a `Vector` field of a `let`,
-  a parameter taken by value, a `&T` parameter, a `[&x]` capture or a
-  by-value capture is refused, as Stage 0 refuses `r.grid[0] = v` through a
-  `&Board`.
+- `&self` is read-only all the way down (SL:borrowing §9, SL-483): a write
+  through a `Vector` field's buffer is refused from `self` under `&self` and
+  from a `[&self]` capture, as from any other root that does not write. A
+  raw pointer's pointee is written whatever holds the pointer (SL:open-questions
+  D28), and so is a place a `&self` accessor lends, since its receiver is only
+  read and its own `lend` was judged in its body (SL:borrowing §3); Stage 0
+  accepts the heap writes design 200 allowed.
 - A `&self` `borrows` body is a `&self` method: it writes no window it opens
   on `self`'s own storage (conformance row M33), since its callers borrow the
   root shared. An accessor that takes `&var self` and declares no shared twin
@@ -548,10 +552,6 @@ These are the reversible readings SL-462 made; its report lists them.
   exclusively for overlap; the two are separate facts, and agree on every
   other declaration. Stage 0's std predates declared modes, so its accessors
   serve both, as the borrow check also reads them.
-- A `borrows` accessor lends out of storage its receiver points at when
-  every `lend` in its checked body reaches its place through a raw pointer or
-  through another accessor that does. An accessor whose body is not checked,
-  std's under Stage 0's root, is taken to lend so, as std's containers do.
 - A write through a subscript whose accessor lends read-only stays
   `subscript.role`'s refusal; through a named accessor it is
   `mutability.immutable`. `&var r` through a shared reference is
@@ -602,6 +602,11 @@ These are the reversible readings typecheck batch A made (SL-472, SL-469).
   the binding. A by-value capture of an inner closure is a value of its own,
   and the inner closure's `[move x]` entry is the use the outer closure
   answers for.
+- A spelled `[copy x]` of a value whose type names a type parameter needs a
+  bound that grants the copy, `Copy` for every parameter it names or
+  `ExplicitCopy` on a bare one, or is refused at the definition; a silent
+  by-value capture, `[x]` or implicit, is the inferred Copy requirement,
+  checked at each call, as a getitem's copy is (SL:open-questions D30).
 - The brace written as a `Thread.spawn` or `Task.spawn` form's argument is
   exempt from the consume rule, keyed on the form: its capture list is its
   parameter list and its body runs once (design 242). Its captures are still
@@ -637,6 +642,49 @@ SL-470, SL-474).
 - An indexed place read by value in a generic body is design 219's inferred
   requirement, checked at the call (SL:open-questions D27), where Stage 0
   refuses it at the definition.
-- The overload filter scores a reference binding by its own type, so among
-  overloads taking `Int` and `&Int` a bare `p` picks the `&Int` one, which
-  then asks for the sigil; only the funnel reads through it.
+- The overload filter scores a bare reference binding by its referent's
+  value, as the funnel reads it, so among overloads taking `Int` and `&Int`
+  `p` picks the `Int` one, as Stage 0 does (SL-484); a reference parameter it
+  fits only by its sigil, so with no by-value overload that fits it picks the
+  reference one, which asks for the sigil.
+- Call-site sigils mirror the parameter both ways (SL-484): `&x` or `&var x`
+  written for a parameter taken by value is refused with the sigil dropped,
+  and `&var x` or `borrow var p` for a shared reference with `&x` or
+  `borrow p`. `borrow p` for a by-value parameter is the statement form's
+  copy, not a sigil, and stays.
+- Under Stage 0's std a builtin type's own method and its builtin
+  conformance's requirement of one name overload by their parameters, so
+  `s.compare(&t)` is `Comparable.compare(other: &Self)` and `s.compare(t)` is
+  `String.compare(other: String)`, as Stage 0 resolves them; where the two
+  take the same parameters, the type's own method answers.
+
+## Getitem readings
+
+These are the reversible readings typecheck batch B2 made for SL-486.
+
+- A plain subscript is a getitem only where an accessor serves it: a fixed
+  array's `a[i]` and a raw pointer's `p[i]` are places of their own, read in
+  place as a field is.
+- `.copy()` written straight on a plain subscript spells the copy its getitem
+  makes, so an ExplicitCopy element takes it; the lowering keeps the in-place
+  read, which is the same value.
+- A Copy-tier element keeps its role and lowering where its position keeps
+  nothing: only the refusal is new, never a second copy.
+- A `match` on a plain subscript reads it by value only when an arm binds a
+  name; arms binding nothing test the tag, at every tier.
+- A sigiled `&v[0]` or `&var v[0]` is a lent place here; SL:borrowing §9
+  retires the spelling, and refusing it is not this rule's.
+- A write through a plain subscript (`v[0].n = 1`) is not judged here; it is
+  the retired inline place use.
+
+## NoMove readings
+
+These are the reversible readings typecheck batch B2 made for SL-485.
+
+- A `NoMove` bound is refused where it is written and dropped, so the
+  parameter is checked as if unbounded after it (SL-485).
+- `NoMove` containment reads a member the way relocation does: inline in a
+  field or payload, through an optional, a tuple, an array or a generic
+  instance's substituted members; a pointer holds its value behind an
+  indirection and owes nothing. A generic declaration holding a type
+  parameter derives `NoMove` per instance and owes no declaration.

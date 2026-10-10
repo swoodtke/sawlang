@@ -1,0 +1,10 @@
+// refuses: nomove.requires-nocopy at 10:19
+// `NoMove` beside a declared `ExplicitCopy` (conformance row V123)
+struct Pinned {
+    v: Vector<Int>
+}
+
+@synthesize
+extension Pinned: ExplicitCopy {}
+
+extension Pinned: NoMove {}

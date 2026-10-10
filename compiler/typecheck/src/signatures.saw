@@ -417,7 +417,9 @@ extension TcProgram {
                 }
             } else if self.has_alt(c, Alt.Type_Path) {
                 let t = self.trait_of_path(c)
-                if t >= 0 {
+                if t >= 0 && t == self.known.no_move {
+                    self.refuse_no_move_bound(c)
+                } else if t >= 0 {
                     try! self.traits.push(t)
                 }
             } else if after_equals {
@@ -461,6 +463,17 @@ extension TcProgram {
                 }
             }
         }
+    }
+
+    // `NoMove` licenses a generic body nothing, so it is no bound: it is
+    // declared by a type's conformance (spec, The `NoMove` trait).
+    func refuse_no_move_bound(&var self, c: Int) {
+        let m = self.current
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.text(m, c))
+        try! msg.append("` is not a bound: `NoMove` licenses a generic body nothing, and a type states it in its own conformance, `extension T: NoMove \{\}`")
+        self.refuse(c, "nomove.bound", msg.build())
     }
 
     public func is_extension(&self, d: Int) -> Bool {

@@ -1,0 +1,6 @@
+// refuses: type.mismatch at 5:7
+// `&var x` passed to a function value's `&T` parameter (SL-484)
+func run(f: (&Int) -> Int, n: Int) -> Int {
+    var m = n
+    f(&var m)
+}

@@ -95,7 +95,7 @@ func into_window() -> Int {
     try! slots.push(Vector<Res>())
     let h = Res(id: 2)
     try! slots[0].push(move h)
-    slots[0].len()
+    borrow slots[0].len()
 }
 
 // The non-escaping `[move v]` idiom: the body binds a `var` of its own.

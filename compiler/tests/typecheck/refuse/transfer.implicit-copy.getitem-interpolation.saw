@@ -1,0 +1,37 @@
+// refuses: transfer.implicit-copy at 36:13
+// a plain subscript of a NoCopy element in an interpolation hole: a
+// getitem, which copies (SL:open-questions D29)
+struct Res {
+    id: Int,
+    inner: Tag
+}
+
+struct Tag {
+    n: Int
+}
+
+extension Res: NoCopy {}
+
+extension Res: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(value: self.id)
+    }
+}
+
+extension Res: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        self.id == other.id
+    }
+}
+
+extension Res {
+    func look(&self) -> Int {
+        self.id
+    }
+}
+
+func main() {
+    var v: Vector<Res> = Vector<Res>()
+    try! v.push(Res(id: 1, inner: Tag(n: 2)))
+    print("{v[0]}")
+}

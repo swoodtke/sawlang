@@ -1,0 +1,22 @@
+// refuses: transfer.implicit-copy at 18:11
+// a `match` binding a payload of a plain subscript of a NoCopy element
+// (SL:borrowing §2.7)
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+enum Slot {
+    case Full(r: Res),
+    case Empty
+}
+
+extension Slot: NoCopy {}
+
+func peek(v: &Vector<Slot>) -> Int {
+    match v[0] {
+        case Full(r) -> r.id,
+        case Empty -> 0
+    }
+}

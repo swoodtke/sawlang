@@ -1,0 +1,30 @@
+// refuses: mutability.immutable at 29:5
+// a bare `borrow` statement replacing its whole place (SL:borrowing §2.2)
+struct Cell {
+    n: Int
+}
+
+extension Cell {
+    func bump(&var self) {
+        self.n += 1
+    }
+}
+
+struct Grid {
+    cells: [Cell; 2]
+}
+
+extension Grid {
+    func ro(&self, i: Int) borrows -> &Cell {
+        lend self.cells[i]
+    }
+
+    func rw(&var self, i: Int) borrows -> &var Cell {
+        lend self.cells[i]
+    }
+}
+
+func main() {
+    var g = Grid(cells: [Cell(n: 1), Cell(n: 2)])
+    borrow g.rw(0) = Cell(n: 5)
+}

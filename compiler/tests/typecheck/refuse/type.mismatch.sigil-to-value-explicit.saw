@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 10:19
+// `&v` passed to an ExplicitCopy parameter taken by value: the fix-it
+// names `.copy()` (SL-484)
+func total(v: Vector<Int>) -> Int {
+    v.len()
+}
+
+func main() {
+    let v: Vector<Int> = [1, 2]
+    let _ = total(&v)
+}

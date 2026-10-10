@@ -1,0 +1,19 @@
+// refuses: mutability.immutable at 17:26
+// a `[&self]` capture writing an element of a `Vector` field: a shared
+// capture writes no storage it reaches (SL:borrowing §9)
+
+struct Board {
+    cells: Vector<Int>
+}
+
+extension Board: NoCopy {}
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+extension Board {
+    func stamp(&var self) -> Int {
+        run({ [&self] in self.cells[0] = 3; 1 })
+    }
+}

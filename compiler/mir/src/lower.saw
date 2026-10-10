@@ -3829,16 +3829,19 @@ extension MirProgram {
         self.new_local(t, MirLocalKind.Flag, info.name, info.node)
     }
 
-    // The value a copy capture of place `p` puts in its environment: a
-    // silent copy for a type of the Copy tier, and otherwise a call of the
-    // `copy()` its ExplicitCopy conformance declares, or, for a type
-    // parameter, the one its `ExplicitCopy` bound grants, as a spelled
-    // `x.copy()` lowers; so the environment and the binding never share what
-    // one of them owns. A capture no copy resolves for is an INVARIANT, never
-    // a bitwise copy: typecheck owes its refusal (SL-481).
+    // The value a copy capture of place `p` puts in its environment. A
+    // silent capture, `[x]` or implicit, is the copy typecheck recorded, as a
+    // read it records as a copy is, its generic requirement checked at each
+    // call. A spelled `[copy x]` is a silent copy for a type of the
+    // Copy tier, and otherwise a call of the `copy()` its ExplicitCopy
+    // conformance declares, or, for a type parameter, the one its
+    // `ExplicitCopy` bound grants, as a spelled `x.copy()` lowers. A spelled
+    // copy no copy resolves for is an INVARIANT, never a bitwise copy:
+    // typecheck refuses it (SL-481).
     func capture_copy(&var self, p: Int, site: Int) -> Int {
         let t = self.place_type(p)
-        if not self.owns(t) || self.mir_copies_silently(t) {
+        let spelled = self.tc.has_alt(site, Alt.Expr_Capture_Copy)
+        if not self.owns(t) || self.mir_copies_silently(t) || not spelled {
             return self.copy_place(p)
         }
         var hook = self.declared_copy(t)

@@ -1,0 +1,16 @@
+// refuses: type.mismatch at 15:10
+// `&r` passed to a NoCopy parameter taken by value, a move out through a
+// reference (SL-484)
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {}
+
+func take(r: Res) -> Int {
+    r.name.len()
+}
+
+func pass(r: &Res) -> Int {
+    take(&r)
+}

@@ -21,3 +21,18 @@ func closures(limit: Int, total: &var Int, name: String) -> Int {
     let both = apply({ [&var count] k: Int in k + count + total }, 4)
     copied(1) + moved(2) + both
 }
+
+// A silent capture of a type parameter's value copies it at creation, the
+// copy typecheck recorded, its Copy requirement met at `Int` (D30).
+func held<T>(x: T) -> Int {
+    apply({ [x] k: Int in k }, 1) + apply({ k: Int in measure(&x) + k }, 2)
+}
+
+func measure<T>(x: &T) -> Int {
+    1
+}
+
+func main() {
+    var total = 0
+    let n = closures(1, &var total, "a") + held(5)
+}

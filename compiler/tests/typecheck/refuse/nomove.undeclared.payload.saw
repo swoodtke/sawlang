@@ -1,0 +1,17 @@
+// refuses: nomove.undeclared at 12:6
+// an enum holding a `NoMove` payload inline that does not declare
+// `NoMove` (conformance row V121)
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {}
+
+extension Anchor: NoMove {}
+
+enum Slot {
+    case Held(a: Anchor),
+    case Empty
+}
+
+extension Slot: NoCopy {}

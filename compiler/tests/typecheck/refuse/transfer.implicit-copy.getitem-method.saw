@@ -1,0 +1,37 @@
+// refuses: transfer.implicit-copy at 36:13
+// a `&self` method called on a plain subscript of a NoCopy element: the
+// spelling, not the callee, decides (SL:borrowing §1)
+struct Res {
+    id: Int,
+    inner: Tag
+}
+
+struct Tag {
+    n: Int
+}
+
+extension Res: NoCopy {}
+
+extension Res: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(value: self.id)
+    }
+}
+
+extension Res: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        self.id == other.id
+    }
+}
+
+extension Res {
+    func look(&self) -> Int {
+        self.id
+    }
+}
+
+func main() {
+    var v: Vector<Res> = Vector<Res>()
+    try! v.push(Res(id: 1, inner: Tag(n: 2)))
+    let _ = v[0].look()
+}

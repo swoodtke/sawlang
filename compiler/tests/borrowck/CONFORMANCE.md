@@ -51,12 +51,12 @@ INDEX.md, or when an owner is not one of the words below.
 | M25 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.map-force.saw`; the migrated file is refused first by `member.unknown`, a migration artifact |
 | M26 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.copy-receiver.saw` |
 | M27 | slice.not-yet | a method call on `any Trait` (then typecheck: a `&self` method of an interior cell borrows shared, which the writability funnel never asks about) |
-| M28 | slice.not-yet | a `borrow` block over `SpinLock.lock`, which lends through a closure parameter (then typecheck: the indirection carve-out, accepted in `compiler/tests/typecheck/golden/mutability.saw`) |
+| M28 | typecheck | `mutability.immutable`, language changed (SL:borrowing §9, SL-483): `self.rows[0].push(9)` at `&self`, `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-heap-method.saw`, and `widen` in the migrated M32 file; the row's covering file is refused first by `slice.not-yet`, a `borrow` block over `SpinLock.lock`, which lends through a closure parameter |
 | M29 | typecheck | accepted: a `&var` parameter's writes; typecheck golden `borrow_arguments.saw` |
 | M30 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.static.saw` |
 | M31 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-window.saw`; the migrated file is refused first by `subscript.role`, a migration artifact |
-| M32 | typecheck | accepted: the indirection carve-out through a window, `self.rows[0][0] += 100` in `compiler/tests/typecheck/golden/mutability.saw` |
-| M33 | typecheck | `mutability.immutable`, a `&self` accessor's prologue writing a window on `self`'s inline storage (SL-470): `compiler/tests/typecheck/refuse/mutability.immutable.shared-accessor-window.saw`, and the migrated file is refused by it; the heap form (`Rows.peek`) stays the design-200 carve-out, accepted in `compiler/tests/typecheck/golden/mutability.saw` |
+| M32 | typecheck | `mutability.immutable`, language changed (SL:borrowing §9, SL-483): `borrow var self.rows[0][0] += 100` at `&self`, `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-heap-chain.saw`, and the migrated file is refused by it at each of its three writes |
+| M33 | typecheck | `mutability.immutable`, a `&self` accessor's prologue writing a window on `self`'s inline storage (SL-470): `compiler/tests/typecheck/refuse/mutability.immutable.shared-accessor-window.saw`, and the migrated file is refused by it; the heap form is refused too, language changed (SL-483): `compiler/tests/typecheck/refuse/mutability.immutable.shared-accessor-heap.saw` |
 | M34 | typecheck | accepted: a `&var self` accessor's writes, as any `&var self` body's (`compiler/tests/typecheck/golden/mutability.saw`); `#lend_var` is not modelled |
 | M35 | typecheck | accepted: writes under `&var self`, `compiler/tests/typecheck/golden/mutability.saw` |
 | M36 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-capture-self.saw` |
@@ -64,7 +64,7 @@ INDEX.md, or when an owner is not one of the words below.
 | M38 | U6d2 | `assign.rhs-borrow`: `compiler/tests/borrowck/refuse/assign.rhs-borrow.saw`, the plain form `compiler/tests/borrowck/refuse/assign.rhs-borrow.plain.saw`; accepted shared reads of the target (`v[0] += v.len()`, `w[0] += w[1]`) and a disjoint `&var`, `compiler/tests/borrowck/golden/calls.saw` |
 | M39 | slice.not-yet | `syntax.stmt.optional-assign.plain` (then typecheck, `mutability.immutable`) |
 | M40 | slice.not-yet | `syntax.stmt.optional-assign.compound` (then typecheck, `mutability.immutable`) |
-| M41 | typecheck | accepted: the indirection carve-out at a `Vector` subscript, nested, and a hand-written accessor over a `Vector`, in `compiler/tests/typecheck/golden/mutability.saw`; the migrated file is refused first by `operator.undefined`, a migration artifact |
+| M41 | typecheck | `mutability.immutable`, language changed (SL:borrowing §9, SL-483), at every spelling: a `Vector` element assigned and compound-assigned, `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-heap.saw` and `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-heap-compound.saw`; a hand-written accessor over a `Vector`, `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-heap-accessor.saw`; a nested chain, `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-heap-chain.saw`; the migrated file is refused first by `operator.undefined`, a migration artifact, and `mutability.immutable` refuses each of its eight writes |
 | M42 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-array.saw` |
 | M43 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.optional-payload.saw` |
 | M44 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.array-element-receiver.saw` |
@@ -220,6 +220,9 @@ INDEX.md, or when an owner is not one of the words below.
 | V57 | slice.not-yet | the intrinsic `__saw_deinit_in_place` (then §3.7) |
 | V58 | typecheck | `transfer.no-move` (SL-467): `compiler/tests/typecheck/refuse/transfer.no-move.placement-after-borrow.saw`; the fresh placement itself is accepted, typecheck golden `no_move.saw` |
 | V59 | typecheck | `transfer.no-move` (SL-467): `compiler/tests/typecheck/refuse/transfer.no-move.argument.saw` |
+| V121 | typecheck | `nomove.undeclared` (SL-485): `compiler/tests/typecheck/refuse/nomove.undeclared.saw`, an enum payload, an optional, a generic instance (`nomove.undeclared.payload`, `.wrapped`, `.instance`); the declared container, a pointer holder and a generic, typecheck golden `no_move.saw` |
+| V122 | typecheck | `nomove.bound` (SL-485): `compiler/tests/typecheck/refuse/nomove.bound.saw`, an extension parameter's, `compiler/tests/typecheck/refuse/nomove.bound.extension.saw` |
+| V123 | typecheck | `nomove.requires-nocopy` (SL-485): `compiler/tests/typecheck/refuse/nomove.requires-nocopy.saw`, beside `ExplicitCopy`, `compiler/tests/typecheck/refuse/nomove.requires-nocopy.explicit.saw` |
 | V60 | typecheck | `transfer.move-from-borrow`: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.match-payload.saw` |
 | V61 | typecheck | `transfer.move-from-borrow`: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.match-self.saw` |
 | V62 | typecheck | `transfer.move-from-borrow`, a Copy-tier payload: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.match-payload.saw` |

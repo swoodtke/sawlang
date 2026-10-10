@@ -1,0 +1,25 @@
+// refuses: capture.copy at 20:12
+// a `[copy p]` capture of a tuple naming an unbounded type parameter,
+// refused at the definition (SL-481, D30)
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {}
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func measure<T>(x: &T) -> Int {
+    1
+}
+
+func copied<T>(x: T) -> Int {
+    let p = (move x, 1)
+    run({ [copy p] in measure(&p) })
+}
+
+func main() {
+    let _ = copied(Res(name: "a"))
+}

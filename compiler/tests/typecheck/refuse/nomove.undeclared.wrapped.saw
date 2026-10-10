@@ -1,0 +1,16 @@
+// refuses: nomove.undeclared at 12:8
+// a struct holding a `NoMove` value inline through an optional
+// (conformance row V121)
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {}
+
+extension Anchor: NoMove {}
+
+struct Spare {
+    maybe: Anchor?
+}
+
+extension Spare: NoCopy {}

@@ -56,17 +56,15 @@ enum TcWriteRefusal {
     // A `static` that is not an `unsafe static var`.
     case Static,
     // A `borrows` accessor that lends read-only, `-> &T`.
-    case ReadOnlyLend
+    case ReadOnlyLend,
+    // A bare `borrow` statement, which lends its place shared.
+    case SharedBorrow
 }
 
-// The per-check tables: each node's parent, each declaration by its node,
-// and each `borrows` accessor's verdict on where it lends from.
+// The per-check tables: each node's parent and each declaration by its node.
 struct TcMutTables {
     parents: Vector<Int>
     decl_of_node: Vector<Int>
-    // Per declaration: -1 not yet asked, 0 lends out of the receiver's own
-    // storage, 1 lends out of storage the receiver points at.
-    indirect: Vector<Int>
 }
 
 extension TcMutTables: NoCopy {}
@@ -74,6 +72,9 @@ extension TcMutTables: NoCopy {}
 extension TcProgram {
     // THE writability funnel: each write-shaped use of a place asks whether
     // the place is writable, through one walk from the place to its root.
+    // `&self` is read-only all the way down: storage the receiver points at
+    // is as unwritable as its own fields, and only a raw pointer's pointee,
+    // or a place a `&self` accessor lends, is written through it (SL-483).
     // A capture is judged as its closure declares it: a by-value, `move` or
     // `copy` capture is judged exactly as a `let` of its type in every
     // closure, and a `[&var x]` capture or an implicit `self` under
@@ -84,6 +85,9 @@ extension TcProgram {
     // ENTRY POINTS (place_verdict):
     //     an assignment's target (`Write`)
     //     a compound assignment's target (`Update`)
+    //     the place of a `borrow var` statement written whole (`borrow var
+    //         PLACE = v`, `+=`), and of a bare `borrow` one, refused
+    //     a write reached through a bare `borrow` statement's place, refused
     //     `&var PLACE`, `borrow var PLACE` as an argument (`BorrowVar`)
     //     a `borrow var` binding's head, `if borrow var` and `while borrow var`
     //     a `&var self` method's receiver, the builtin `take()` and `swap(i, j)`
@@ -97,8 +101,7 @@ extension TcProgram {
     //     a `[&var x]` capture (capture_verdict)
     public func check_mutability(&var self) {
         let n = self.res.nodes.len()
-        var tables = TcMutTables(parents: Vector<Int>(), decl_of_node: Vector<Int>(),
-                                 indirect: Vector<Int>())
+        var tables = TcMutTables(parents: Vector<Int>(), decl_of_node: Vector<Int>())
         var k = 0
         while k < n {
             try! tables.parents.push(-1)
@@ -122,7 +125,6 @@ extension TcProgram {
             if node >= 0 {
                 tables.decl_of_node[node] = k
             }
-            try! tables.indirect.push(-1)
             k = k + 1
         }
         let receivers = self.window_receivers(n)
@@ -135,10 +137,21 @@ extension TcProgram {
             if u != TcUse.Write && u != TcUse.Update && u != TcUse.BorrowVar {
                 continue
             }
-            if receivers[at] || skipped[at] || not self.is_place_alt(at) || not self.expr_place[at] {
+            if skipped[at] || not self.expr_place[at] {
                 continue
             }
-            let verdict = self.place_verdict(at, TcCrossing.Nothing, &var tables)
+            let statement = self.has_alt(at, Alt.Borrow_Place_Var) || self.has_alt(at, Alt.Borrow_Place_Shared)
+            if not statement && (receivers[at] || not self.is_place_alt(at)) {
+                continue
+            }
+            var verdict = tc_write_ok()
+            let shared_at = self.shared_borrow_above(at, &tables)
+            let place = if statement { self.res.first_node_child(at) } else { at }
+            if shared_at >= 0 {
+                verdict = tc_write_refused(TcWriteRefusal.SharedBorrow, shared_at)
+            } else {
+                verdict = self.place_verdict(place, &var tables)
+            }
             if not verdict.ok {
                 self.refuse_write(at, u, verdict)
             }
@@ -162,7 +175,7 @@ extension TcProgram {
                     verdict = tc_write_refused(TcWriteRefusal.SharedReference, cap.binding)
                 }
             } else {
-                verdict = self.binding_verdict(cap.binding, cap.closure, TcCrossing.Nothing, &var tables)
+                verdict = self.binding_verdict(cap.binding, cap.closure, &var tables)
             }
             if not verdict.ok {
                 self.refuse_write(cap.site, TcUse.BorrowVar, verdict)
@@ -202,11 +215,7 @@ extension TcProgram {
             if not self.expr_place[receiver] && self.referent(receiver_type) < 0 {
                 continue
             }
-            var through = TcCrossing.Window
-            if self.lends_indirectly(c.target, 0, &var tables) {
-                through = TcCrossing.Heap
-            }
-            let verdict = self.place_verdict(receiver, through, &var tables)
+            let verdict = self.place_verdict(receiver, &var tables)
             if not verdict.ok {
                 self.refuse_exclusive_window(e, c.target, verdict)
             }
@@ -227,50 +236,6 @@ extension TcProgram {
             steps = steps + 1
         }
         false
-    }
-
-    // Per node, whether it lies under a construct refused as outside the
-    // slice, whose uses no check after the walk may read.
-    public func outside_slice_marks(&self, n: Int) -> Vector<Bool> {
-        var out = Vector<Bool>()
-        var k = 0
-        while k < n {
-            try! out.push(false)
-            k = k + 1
-        }
-        var stack = Vector<Int>()
-        k = 0
-        while k < self.skipped.len() {
-            try! stack.push(self.skipped[k])
-            k = k + 1
-        }
-        k = 0
-        while k < self.res.skipped.len() {
-            try! stack.push(self.res.skipped[k])
-            k = k + 1
-        }
-        var top = stack.len()
-        while top > 0 {
-            top = top - 1
-            let at = stack[top]
-            if at < 0 || out[at] {
-                continue
-            }
-            out[at] = true
-            let count = self.child_count(at)
-            var j = 0
-            while j < count {
-                let c = self.child(at, j)
-                if top < stack.len() {
-                    stack[top] = c
-                } else {
-                    try! stack.push(c)
-                }
-                top = top + 1
-                j = j + 1
-            }
-        }
-        move out
     }
 
     // The receivers of `borrows` accessor calls and subscripts: an exclusive
@@ -308,16 +273,46 @@ extension TcProgram {
         move out
     }
 
+    // The bare `borrow` statement whose place a write at node `at` reaches,
+    // through its receiver chain, or -1: such a place is lent shared, so
+    // nothing writes through it (SL:borrowing §2.2).
+    func shared_borrow_above(&self, at: Int, tables: &TcMutTables) -> Int {
+        var node = at
+        var steps = 0
+        while node >= 0 && steps < 64 {
+            if self.has_alt(node, Alt.Borrow_Place_Shared) {
+                return node
+            }
+            if self.has_alt(node, Alt.Borrow_Place_Var) {
+                return -1
+            }
+            if node != at && self.expr_use[node] != TcUse.Unused && self.expr_use[node] != TcUse.Project {
+                return -1
+            }
+            let up = tables.parents[node]
+            if up < 0 || self.res.first_node_child(up) != node {
+                return -1
+            }
+            let chain = self.is_place_alt(up) || self.has_alt(up, Alt.Borrow_Place_Shared) || self.has_alt(up, Alt.Borrow_Place_Var)
+            if not chain {
+                return -1
+            }
+            node = up
+            steps = steps + 1
+        }
+        return -1
+    }
+
     // Whether node `e` is an expression that can name a place.
     func is_place_alt(&self, e: Int) -> Bool {
         self.has_alt(e, Alt.Expr_Name) || self.has_alt(e, Alt.Expr_NameRef) || self.has_alt(e, Alt.Expr_Self) || self.has_alt(e, Alt.Expr_Member) || self.has_alt(e, Alt.Expr_TupleIndex) || self.has_alt(e, Alt.Expr_Force) || self.has_alt(e, Alt.Expr_Subscript_Single) || self.has_alt(e, Alt.Expr_Subscript_Multi) || self.has_alt(e, Alt.Expr_Deref) || self.has_alt(e, Alt.Expr_Paren) || self.has_alt(e, Alt.Expr_Call_Paren)
     }
 
-    // Whether place `e` may be written. `crossed` says which `borrows`
-    // window the walk from the write has passed, which decides the two
-    // carve-outs of the `&self` rule (spec, "A `&self` method may not write
-    // its receiver"; design 200).
-    func place_verdict(&var self, e: Int, crossed: TcCrossing, tables: &var TcMutTables) -> TcWriteVerdict {
+    // Whether place `e` may be written, walked to its root. The walk stops
+    // where nothing above decides: a raw pointer's pointee, a `&var`
+    // reference, and a place a `&self` accessor lends, whose receiver is only
+    // read, as the accessor's own `lend` was judged (SL:borrowing §3).
+    func place_verdict(&var self, e: Int, tables: &var TcMutTables) -> TcWriteVerdict {
         if e < 0 {
             return tc_write_ok()
         }
@@ -333,7 +328,7 @@ extension TcProgram {
         }
         if self.has_alt(e, Alt.Expr_Paren) {
             let inner = self.res.first_node_child(e)
-            return self.place_verdict(inner, crossed, &var tables)
+            return self.place_verdict(inner, &var tables)
         }
         if self.has_alt(e, Alt.Expr_Deref) {
             return tc_write_ok()
@@ -341,14 +336,14 @@ extension TcProgram {
         if self.has_alt(e, Alt.Expr_Name) || self.has_alt(e, Alt.Expr_NameRef) {
             let leaf = self.res.first_leaf(e)
             let b = self.binding_at(leaf)
-            return self.named_verdict(e, b, crossed, &var tables)
+            return self.named_verdict(e, b, &var tables)
         }
         if self.has_alt(e, Alt.Expr_Self) {
             let b = self.binding_at(e)
             if b.kind != ResBindKind.Local || b.node < 0 {
                 return tc_write_ok()
             }
-            return self.binding_verdict(b.node, e, crossed, &var tables)
+            return self.binding_verdict(b.node, e, &var tables)
         }
         if self.has_alt(e, Alt.Expr_Member) {
             let leaf = self.res.last_leaf_of(e)
@@ -357,11 +352,11 @@ extension TcProgram {
                 return self.static_verdict(e, b.decl)
             }
             let base = self.res.first_node_child(e)
-            return self.place_verdict(base, crossed, &var tables)
+            return self.place_verdict(base, &var tables)
         }
         if self.has_alt(e, Alt.Expr_TupleIndex) || self.has_alt(e, Alt.Expr_Force) {
             let base = self.res.first_node_child(e)
-            return self.place_verdict(base, crossed, &var tables)
+            return self.place_verdict(base, &var tables)
         }
         let at = self.call_at[e]
         if at < 0 {
@@ -374,7 +369,7 @@ extension TcProgram {
             if self.points(base) {
                 return tc_write_ok()
             }
-            return self.place_verdict(base, crossed, &var tables)
+            return self.place_verdict(base, &var tables)
         }
         if c.target < 0 {
             return tc_write_ok()
@@ -400,17 +395,14 @@ extension TcProgram {
             }
             return tc_write_refused(TcWriteRefusal.ReadOnlyLend, e)
         }
+        if lending && sig.receiver == TcReceiver.Shared {
+            return tc_write_ok()
+        }
         let receiver_type = self.expr_types[receiver]
         if not self.expr_place[receiver] && self.referent(receiver_type) < 0 {
             return tc_write_ok()
         }
-        var through = crossed
-        if lending && self.lends_indirectly(c.target, 0, &var tables) {
-            through = TcCrossing.Heap
-        } else if crossed == TcCrossing.Nothing {
-            through = TcCrossing.Window
-        }
-        self.place_verdict(receiver, through, &var tables)
+        self.place_verdict(receiver, &var tables)
     }
 
     // Whether expression `e`'s value is a raw pointer, through which a
@@ -429,9 +421,9 @@ extension TcProgram {
     }
 
     // A name's place: a local's binding, or a static.
-    func named_verdict(&var self, e: Int, b: ResBinding, crossed: TcCrossing, tables: &var TcMutTables) -> TcWriteVerdict {
+    func named_verdict(&var self, e: Int, b: ResBinding, tables: &var TcMutTables) -> TcWriteVerdict {
         if b.kind == ResBindKind.Local && b.node >= 0 {
-            return self.binding_verdict(b.node, e, crossed, &var tables)
+            return self.binding_verdict(b.node, e, &var tables)
         }
         if b.kind == ResBindKind.Decl && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Static {
             return self.static_verdict(e, b.decl)
@@ -448,14 +440,12 @@ extension TcProgram {
     }
 
     // Whether the binding declared at `binding` may be written from `site`:
-    // each closure between them captured it exclusively, or captured `self`
-    // shared where the write reaches only storage the receiver points at
-    // (design 200); and its declaration makes it writable. A by-value capture
-    // is never written, even where the write would land in a heap buffer the
-    // closure shares with its copies (SL-472).
-    func binding_verdict(&var self, binding: Int, site: Int, crossed: TcCrossing, tables: &var TcMutTables) -> TcWriteVerdict {
+    // each closure between them captured it exclusively, and its declaration
+    // makes it writable. A by-value capture is never written, even where the
+    // write would land in a heap buffer the closure shares with its copies
+    // (SL-472), and a shared one, `self`'s included, never either (SL-483).
+    func binding_verdict(&var self, binding: Int, site: Int, tables: &var TcMutTables) -> TcWriteVerdict {
         let declared = self.res.nodes[binding]
-        let heap = crossed == TcCrossing.Heap
         var at = site
         while at >= 0 {
             if self.closure_index.first(at, 0) >= 0 {
@@ -464,10 +454,7 @@ extension TcProgram {
                 if not inside {
                     let u = self.capture_use(at, binding)
                     if u == TcUse.Borrow {
-                        let receiver = self.has_alt(binding, Alt.Decl_Param_Receiver)
-                        if not (receiver && heap) {
-                            return tc_capture_refused(TcWriteRefusal.SharedCapture, binding, at)
-                        }
+                        return tc_capture_refused(TcWriteRefusal.SharedCapture, binding, at)
                     } else if u != TcUse.BorrowVar {
                         return tc_capture_refused(TcWriteRefusal.ValueCapture, binding, at)
                     }
@@ -478,7 +465,7 @@ extension TcProgram {
         if self.has_alt(binding, Alt.Decl_Param_Receiver) {
             let owner = tables.parents[binding]
             let d = if owner >= 0 { tables.decl_of_node[owner] } else { -1 }
-            if d < 0 || self.sigs[d].receiver != TcReceiver.Shared || heap {
+            if d < 0 || self.sigs[d].receiver != TcReceiver.Shared {
                 return tc_write_ok()
             }
             return tc_write_refused(TcWriteRefusal.SharedReceiver, binding)
@@ -520,103 +507,6 @@ extension TcProgram {
             at = tables.parents[at]
         }
         TcBinder.Let
-    }
-
-    // Whether `borrows` accessor `d` lends out of storage its receiver points
-    // at rather than out of the receiver itself: every `lend` in its body
-    // reaches its place through a raw pointer or through another accessor
-    // that does. An accessor whose body is not checked, std's read as an
-    // interface, is taken to lend so, as std's containers do.
-    func lends_indirectly(&var self, d: Int, depth: Int, tables: &var TcMutTables) -> Bool {
-        let known = tables.indirect[d]
-        if known >= 0 {
-            return known == 1
-        }
-        let info = self.res.decls[d]
-        var answer = true
-        if info.node >= 0 && not self.is_interface(info.module) && depth < 8 {
-            var places = Vector<Int>()
-            self.collect_lends(info.node, &var places)
-            answer = places.len() > 0
-            var k = 0
-            while k < places.len() {
-                if not self.lent_through_pointer(places[k], depth, &var tables) {
-                    answer = false
-                }
-                k = k + 1
-            }
-        }
-        tables.indirect[d] = if answer { 1 } else { 0 }
-        answer
-    }
-
-    // Every `lend` statement's place under node `id`, outside closures.
-    func collect_lends(&self, id: Int, out: &var Vector<Int>) {
-        var stack = Vector<Int>()
-        try! stack.push(id)
-        var top = 1
-        while top > 0 {
-            top = top - 1
-            let at = stack[top]
-            if self.has_alt(at, Alt.Expr_Closure) {
-                continue
-            }
-            if self.has_alt(at, Alt.Stmt_Lend) {
-                let place = self.res.first_node_child(at)
-                if place >= 0 {
-                    try! out.push(place)
-                }
-                continue
-            }
-            var c = self.child_count(at) - 1
-            while c >= 0 {
-                let child = self.child(at, c)
-                if not self.is_leaf(child) {
-                    if top < stack.len() {
-                        stack[top] = child
-                    } else {
-                        try! stack.push(child)
-                    }
-                    top = top + 1
-                }
-                c = c - 1
-            }
-        }
-    }
-
-    // Whether lent place `e` is reached through a raw pointer, or through an
-    // accessor that lends out of pointed-at storage.
-    func lent_through_pointer(&var self, e: Int, depth: Int, tables: &var TcMutTables) -> Bool {
-        var at = e
-        var steps = 0
-        while at >= 0 && steps < 64 {
-            steps = steps + 1
-            if self.has_alt(at, Alt.Expr_Deref) {
-                return true
-            }
-            if self.has_alt(at, Alt.Expr_Paren) || self.has_alt(at, Alt.Expr_Member) || self.has_alt(at, Alt.Expr_TupleIndex) || self.has_alt(at, Alt.Expr_Force) {
-                at = self.res.first_node_child(at)
-                continue
-            }
-            let subscript = self.has_alt(at, Alt.Expr_Subscript_Single) || self.has_alt(at, Alt.Expr_Subscript_Multi)
-            let call = self.call_at[at]
-            if subscript && call >= 0 && self.calls[call].role == TcRole.BuiltinOperator {
-                let base = self.res.first_node_child(at)
-                if self.points(base) {
-                    return true
-                }
-                at = base
-                continue
-            }
-            if call >= 0 && self.calls[call].target >= 0 {
-                let target = self.calls[call].target
-                if (self.sigs[target].effects & TC_EFFECT_BORROWS) != 0 {
-                    return self.lends_indirectly(target, depth + 1, &var tables)
-                }
-            }
-            return false
-        }
-        false
     }
 
     func refuse_write(&var self, e: Int, u: TcUse, verdict: TcWriteVerdict) {
@@ -678,7 +568,7 @@ extension TcProgram {
                 try! msg.append("` is a shared reference, through which nothing is written: take it as `&var`")
             },
             case SharedReceiver -> {
-                try! msg.append(", and this method's receiver is `&self`, a shared borrow that never writes the storage it borrows: declare the receiver `&var self`")
+                try! msg.append(", and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through it: declare the receiver `&var self`")
             },
             case ValueCapture -> {
                 self.explain_value_capture(&var msg, verdict)
@@ -701,6 +591,11 @@ extension TcProgram {
                 try! msg.append(", and `")
                 try! msg.append(name)
                 try! msg.append("` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one")
+            },
+            case SharedBorrow -> {
+                try! msg.append(", and `")
+                try! msg.append(name)
+                try! msg.append("` borrows its place shared, which never writes: write `borrow var`")
             },
             case Allowed -> {}
         }
@@ -730,15 +625,6 @@ extension TcProgram {
         try! msg.append(captured)
         try! msg.append("`")
     }
-}
-
-// The `borrows` windows a walk from a write has passed: none, one whose
-// accessor lends out of its receiver's own storage, or one that lends out of
-// storage the receiver points at.
-enum TcCrossing {
-    case Nothing,
-    case Window,
-    case Heap
 }
 
 // What a binding construct makes of the names it binds.

@@ -1,0 +1,8 @@
+// refuses: nomove.requires-nocopy at 8:18
+// `NoMove` declared on a type with no declared `NoCopy` (conformance row
+// V123)
+struct Loose {
+    n: Int
+}
+
+extension Loose: NoMove {}

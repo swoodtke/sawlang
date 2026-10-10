@@ -1,0 +1,15 @@
+// refuses: type.mismatch at 14:7
+// a bare reference binding is scored by its referent: with no by-value
+// overload it fits, the reference one is picked and asks for the sigil
+// (SL-484)
+func g(x: &Int) -> Int {
+    1
+}
+
+func g(x: String) -> Int {
+    2
+}
+
+func pick(p: &Int) -> Int {
+    g(p)
+}
