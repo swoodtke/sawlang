@@ -765,8 +765,9 @@ var u = w.copy()       // explicit duplicate
   refused at the argument, because `v.push(&x)` into it IS a genuine call
   argument); and a closure's INFERRED return (`{ &x }` typed `() -> &Int` — a
   closure literal writes no return type, so the check runs at inference and
-  anchors on the tail expression). The `with_ref` identity closure `{ e in e }`
-  is fine: reading a reference binding yields the VALUE, so it returns `T`.
+  anchors on the tail expression). An identity closure over a `&T` parameter,
+  `{ e in e }`, is fine: reading a reference binding yields the VALUE, so it
+  returns `T`.
   A bare `&` anywhere else that is not a call argument — bound to a `let`/`var`,
   an operand, a literal element — is refused too.
   **THREE MORE, from the position matrix (design 193)**: a `static`
@@ -3117,6 +3118,8 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   }
   // group.spawn(add(shared.copy(), 1))
   ```
+  (STAGE 0 spelling. In the ruled language `Mutex.lock()` is an accessor and
+  there is no closure: `borrow var c = shared.lock() { c = c + n; c }`.)
   Two positions still refuse a capture, cleanly: a bare (non-block) `match` arm
   expression, which cannot host the materialization at all, and a `while`
   CONDITION, where it would run once ahead of a condition that runs every
@@ -3658,13 +3661,16 @@ storage that refuses nothing, so a `format` body spells `try!`.
 Nothing degrades: no truncated container, no `Ok("")` from a validating
 constructor, no un-joined path, no dropped message, and no inert object
 (`Arc`/`Mutex`/`Channel` used to construct one and no longer can). `Mutex.get()`
-is `T`, not `T?`, for the same reason. **`Mutex.lock` hands back the closure's
-OWN result** — `lock<R>(body: (&var T) sync -> R) -> R`, the same shape
-`SpinLock.lock` has (M1 landed; DF-123c is closed, and `Arc<Mutex<T>>`
-forwarding reaches the method-generic `lock` too):
+is `T`, not `T?`, for the same reason. **What the critical section computes
+comes back out.** Ruled language: `lock()` is a `borrows(sync)` accessor and a
+`borrow` block is an expression, so the block's tail is the value, and
+`Arc<Mutex<T>>` forwarding reaches the `&self` accessor:
 ```saw-fragment
-let n = shared.lock({ c in c = c + 5; c })   // shared: Arc<Mutex<Int>> -> n == 5
+let n = borrow var c = shared.lock() { c = c + 5; c }   // shared: Arc<Mutex<Int>> -> n == 5
 ```
+STAGE 0 spells it with a closure whose own result comes back,
+`lock<R>(body: (&var T) sync -> R) -> R`, the same shape Stage 0's
+`SpinLock.lock` has: `let n = shared.lock({ c in c = c + 5; c })`.
 
 ## Systems/embedded corner
 `static NAME: T = const_init` (Sync-only, immortal, and NEVER OPTIONAL —
@@ -3689,10 +3695,17 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   - **`SpinLock<T>`** (`import std.spinlock.*`) — state several THREADS or
     cores genuinely share where there is no OS: one word + the payload, no
     allocation, so it works FREESTANDING. `static LOCK: SpinLock<Counters>`
-    (NO initializer — zero IS unlocked + zeroed payload). `lock({ c in
-    ... })` / `try_lock` hand out `&var T` and return the body's own
-    result; the body is `sync` ENFORCED (suspending under a lock is a
-    compile error, not a livelock). NoCopy, so it cannot be captured into
+    (NO initializer — zero IS unlocked + zeroed payload). Ruled language:
+    `lock()` is a `sync borrows(sync) -> &var T` accessor
+    (`borrow var c = LOCK.lock() { … }`, the block's tail is the value) and
+    `try_lock()` its conditional lend (`-> &var T?`, absent when ANOTHER
+    owner holds it); suspending inside the window is a compile error.
+    RE-ENTRY: through the same name a compile error, through another name a
+    run-time PANIC (from `try_lock` too), never a spin-forever; freestanding
+    owners come from a runtime seam (CPU/hart + interrupt context). STAGE 0
+    spells them `lock({ c in ... })` / `try_lock({ … })` with a `sync`-ENFORCED
+    body returning its own result, and taking the lock while holding it
+    spins forever. NoCopy, so it cannot be captured into
     a closure — reach one through a static or a `&` param. Needs real
     target atomics: on rv32i, naming one is a compile error pointing at
     `--target-features +a`. Short critical sections; a waiter burns its
@@ -3992,8 +4005,8 @@ at the conformance, since a caller reaching it through the requirement is
 promised the unsafe contract. The reverse stays legal: an `unsafe`-declared body
 satisfying a SAFE requirement is the redundant form above.
 **Closures: judged on their SIGNATURE, and they INHERIT the enclosing domain.**
-`v.with_ref(0) { e in e + 1 }` sees only `&T` and stays safe even though
-`with_ref` is unsafe. A closure whose signature names an unsafe type carries
+`v.each { e in print(e) }` sees only `&T` and stays safe even though
+`each` is unsafe. A closure whose signature names an unsafe type carries
 `unsafe` in its type and fits the `unsafe` slot that handed it the value
 (`String.withCString`'s callback is the std case) — that contact stays local.
 Contact BEYOND the signature (a captured pointer, an unsafe binding written in
@@ -4028,8 +4041,9 @@ input, and a precondition is expressed by taking an unsafe-typed parameter —
 which drags the obligation into the caller through the trigger rule itself.
 Std policy: an `unsafe` function is short enough to review as a unit.
 **Accessor rule:** on a safe type every indexed accessor is checked. A direct
-accessor PANICS out of range (`Vector.set`/`swap`/`swap_out`/`with_ref`/
-`with_var_ref`, `Data.set`, `FixedBuf.set`, `String.byte_at`/`substring`); a
+accessor PANICS out of range (`Vector.[]`/`set`/`swap`/`swap_out`, `Data.[]`,
+`Data.set`, `FixedBuf.set`, `String.byte_at`/`substring`; STAGE 0's
+`with_ref`/`with_var_ref` too); a
 `get`-shaped one returns `None`/`Err` (`Vector.get`, `Data.get`, `Data.slice`,
 `FixedBuf.get`). Never a silent
 no-op, never a clamp, never an ignorable status flag (`Data.set` returned one).
@@ -4041,8 +4055,10 @@ is worth distrusting in an older build.
 `<what>: index out of range: <i> (len <n>)`, with a range accessor spelling both
 bounds (`range out of range: {}..{} (len {})`). Design 137's `{}` arguments, not
 interpolation, so the message costs no allocation and works freestanding.
-For scoped no-copy element access use `Vector.with_ref`/`with_var_ref` (a
-non-escaping `&T`/`&var T` borrow, invalidation-proof) — this REPLACED `ref_at`.
+For scoped no-copy element access, the ruled language writes `borrow`
+(`borrow let e = v[i] { … }`, `borrow var e = v[i] { … }`); STAGE 0 uses
+`Vector.with_ref`/`with_var_ref` (a non-escaping `&T`/`&var T` closure
+borrow, invalidation-proof).
 **MMIO driver idiom (blessed, design 112 — use for EVERY memory-mapped
 device):** two structs per device — a register-block struct that IS the
 hardware layout (declaration-order ABI; `ReadOnly<T>` for read-only registers)
@@ -4122,7 +4138,8 @@ construct in the owner and lend `&driver` down.
   `let` root.
   **THERE IS NO INTERIOR-MUTABILITY EXEMPTION** — design 186 dissolved the
   `{Atomic, SpinLock, UnsafeMemory}` list it used to be, and found it protected
-  nothing. `self.n.fetch_add(1)`, `self.cell.lock({ ... })` and a user cell
+  nothing. `self.n.fetch_add(1)`, `borrow var c = self.cell.lock() { … }`
+  (STAGE 0: `self.cell.lock({ ... })`) and a user cell
   wrapper's `self.hits.bump()` are all `&self` METHODS, which this rule never
   refused; what makes them reach the caller's storage is the CELL-CARRYING
   by-pointer receiver, not an exemption. A `&var self` method on a field stays
@@ -4347,13 +4364,15 @@ construct in the owner and lend `&driver` down.
   run({ [move v] in var w = move v; try! w.push(1); w.len() })  // a value of
                                                  // the BODY's own (non-escaping)
   let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
-  let bump = { shared.lock({ &var c in c = c + 1; c }) }   // escaping: share it
+  let bump = { borrow var c = shared.lock() { c = c + 1; c } }   // escaping: share it
   ```
+  (STAGE 0 spells the lock with a closure: `shared.lock({ &var c in c = c + 1; c })`.)
   An escaping closure keeps NO mutable captured state; `Arc<Mutex<T>>` is the
   way to change state across calls. Untouched: reads, the closure's own
   locals/params, a `&var` closure parameter, a capture that is already a
   reference (`r.x = 1` through a captured `&var` param), a `&self` cell method
-  (`Mutex.lock`, `Atomic` ops) on a capture, and a write to a captured raw
+  or accessor (`Atomic` ops, `borrow var c = m.lock() { … }`) on a capture,
+  and a write to a captured raw
   pointer's POINTEE (`p[0] = v`) — the one unsafe allowance a `let` has. A
   capture is judged EXACTLY as a `let` of its type: `h.deref().bump()` on a
   `[move h]` `UnsafeRef` is refused, as on a `let h`. GOTCHA: the FROZEN

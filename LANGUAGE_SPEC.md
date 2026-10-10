@@ -3221,13 +3221,16 @@ through an `UnsafePointer` field writes the pointee rather than the receiver,
 and is not covered; neither is a `&var self` method called on that pointee.
 
 **Interior mutability writes through `&self`, and that is the point.**
-`self.n.fetch_add(1)` on an `Atomic` field, `self.lock.lock({ ... })` on a
-`SpinLock` one, and `self.cell.set(v)` on a wrapper you wrote yourself are all
-idioms rather than mistakes. None of them is an exception to the rule above:
-each is a `&self` METHOD, which this rule never refused, and what makes the
-write reach the caller's storage is that a
-[cell-carrying](#interior-mutability) receiver arrives by POINTER even at
-`&self`.
+`self.n.fetch_add(1)` on an `Atomic` field,
+`borrow var c = self.lock.lock() { … }` on a `SpinLock` one, and
+`self.cell.set(v)` on a wrapper you wrote yourself are all idioms rather than
+mistakes. None of them is an exception to the rule above: each is a `&self`
+METHOD, which this rule never refused, and what makes the write reach the
+caller's storage is that a [cell-carrying](#interior-mutability) receiver
+arrives by POINTER even at `&self`. The lock's `lock()` is the cell-carrying
+`(&self) borrows -> &var T` accessor: it lends a writable place from a `&self`
+receiver, and allows no other use of its root while the window is open (see
+[Receiver access](#receiver-access-is-a-second-fact)).
 
 A `&var self` method is a different claim and stays refused whatever the field
 holds. It takes the entire receiver exclusively — sibling fields included — and
@@ -3886,8 +3889,8 @@ enforced at the declaration, in every position a return type is written: a
 and the function-**TYPE** grammar (`(Int) sync -> &Int`). The rule reads what
 the return type *names*, not its outermost spelling, so `(Int, &Int)`, `&Int?`
 and `Vector<&Int>` are refused on the same terms. It stops at a nested function
-type: that type's parameter list takes references legitimately — `(&T) sync -> R`
-is `Vector.with_ref`'s callback — and its own return was checked at its own
+type: that type's parameter list takes references legitimately — `(&T) -> Void`
+is `Vector.each`'s visitor — and its own return was checked at its own
 arrow. A reference in *parameter* position is untouched anywhere.
 
 ```saw-error
@@ -3930,8 +3933,9 @@ written:
 - **A closure's inferred return.** A closure literal writes no return type, so
   the declaration-side rule above has nothing to read: `{ &x }` typed
   `() -> &Int`. The check runs at inference instead and anchors on the body's
-  tail expression. Reading a reference *binding* yields the value, so the
-  `with_ref` identity closure `{ e in e }` returns a `T` and is untouched.
+  tail expression. Reading a reference *binding* yields the value, so an
+  identity closure over a `&T` parameter, `{ e in e }`, returns a `T` and is
+  untouched.
 
 Three further declarations name a type without writing a `&` in any signature,
 and each is refused too:
@@ -7583,8 +7587,13 @@ a NoCopy / move-only-Deinit element is a compile error, which is also why a
   five reports through `Result<_, AllocError>` because each builds a table to
   work in.
 
-**Iteration** (`designs/57`). Saw's no-escape references mean an iterator object
-cannot borrow the map, so iteration is not an Iterator-over-a-borrow. Two forms:
+**Iteration** (`designs/57`). An iterator may borrow a map. It is a
+[borrowing struct](#borrowing-structs) lent by a `borrows` accessor, which holds
+the map with the accessor's root charge for the whole loop (shared for a
+`&self` accessor), and `for borrow let` / `for borrow var` over a
+`LendingIterator` (planned) borrows each element where it sits. `Map` declares no
+iterator, though: a map entry is a key and a value, and no item shape for
+lending one is specified. So a map has two iteration forms:
 
 - **Visitors** (the zero-allocation primitive) — non-escaping closures, same
   borrow discipline as `Vector.sort_by`/`withCString`:
@@ -7755,12 +7764,12 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   pointer and mutates the referent in place. A closure whose signature has
   reference parameters is **non-storable** (legal only as a direct call
   argument) — the conservative gate ahead of full non-escaping closures.
-- **`Mutex<T>`** — `NoCopy + Deinit`, backed by a `pthread_mutex_t` in a
-  seam-allocated block. `lock(body)` runs the closure once, synchronously, with
-  `&var` access to the payload under the lock, and is **non-reentrant**
-  (self-deadlock on re-lock). The pthread opaque buffer is a conservative
-  64-byte slot (real sizes: macOS 64, glibc/x86_64 40, glibc/aarch64 48),
-  initialized via `pthread_mutex_init` — never a hardcoded platform struct.
+- **`Mutex<T>`** — `NoCopy`, one inline lock word beside its payload, zero when
+  unlocked. `lock()` is a `borrows(sync)` accessor that lends the payload under
+  the lock for the `borrow` window, and the lock is not reentrant: a second
+  `m.lock()` inside the window is a compile error, and re-entry through another
+  name panics. See [Synchronized Access](#synchronized-access), which also says
+  which parts are planned.
 - **Escaping-closure heap environments — `Copy`, refcounted env**
   (design 71 + 73) — a closure used in value position (bound, returned, stored,
   or passed to `spawn`) outlives its creating frame, so its captured environment
@@ -7850,8 +7859,11 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   changes under the lock.
 
   Writes that reach storage a capture does not hold are untouched. A `&self`
-  method of an interior cell (`Mutex.lock`, the `Atomic` operations) borrows
-  shared, so it is legal on a by-value capture. So is a write through a
+  method of an interior cell (the `Atomic` operations) borrows shared, so it is
+  legal on a by-value capture, and so is a cell-carrying `&self` accessor such
+  as `Mutex.lock()`, under `borrow var`: its receiver serves a `let` root, so
+  `borrow var c = m.lock() { … }` works on a captured mutex as it does on a
+  `let` one. So is a write through a
   capture whose type is already a reference, through a closure's own `&var`
   parameter, and to a closure's own locals. A by-value capture is judged
   exactly as a `let` of its type would be, so its one unsafe allowance is a
@@ -7917,7 +7929,10 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   the control block's payload slot. Sound because a live strong reference pins
   the payload. A `&var self` payload method is rejected (aliased mutation — use
   `Arc<Mutex<T>>`). This gives the `Arc<Mutex<T>>` idiom its access path:
-  `arc.lock { ... }` forwards to `Mutex.lock`.
+  `Mutex.lock()` is a `&self` accessor, so `borrow var c = arc.lock() { … }`
+  reaches it through the `Arc`. Two copies of one `Arc` name the same mutex
+  under two names, which is why re-entry through another name panics at run
+  time rather than being refused (see [Synchronized Access](#synchronized-access)).
 - **`Thread.spawn` / `Thread<T>`** — `Thread.spawn { ... } -> Thread<T>`
   launches the closure on a fresh OS thread (hosted pthread-per-thread engine;
   the thread identity is never exposed). A body whose value is `Void` yields a
@@ -9763,8 +9778,8 @@ have sent the value. Use `receive`. Nothing rejects that call today (DF-181c).
 ### Shared State
 
 `Arc<Mutex<T>>` — see [Synchronized Access](#synchronized-access).
-`Mutex.lock`'s closure parameter is a `sync (…)` context: suspending while
-holding a lock is a compile error.
+`Mutex.lock()` is a `borrows(sync)` accessor: suspending inside its `borrow`
+window, while the lock is held, is a compile error.
 
 ### Send and Sync
 
@@ -9833,7 +9848,9 @@ builtin traits, not a user-definable unsafe-trait feature. The
 
 ### A raw buffer shared across threads
 
-**Status: implemented.** A type that owns raw memory — a pointer into the heap,
+**Status: implemented; the `Mutex.lock()` accessor Level 1's example locks
+through is planned (see [Synchronized Access](#synchronized-access)).** A type
+that owns raw memory — a pointer into the heap,
 a mapped region, an inline byte array it hands addresses out of — becomes
 shareable in one of two ways, and which one you want depends on where the
 synchronization lives. Both start from the same fact: the raw pointer does not
@@ -9928,7 +9945,7 @@ then make the handle safe to copy into a worker.
 
 ```saw-fragment
 func record(shared: Arc<Mutex<SampleBuffer>>, sample: UInt8) {
-    shared.lock({ &var buf in buf.push(sample) })
+    borrow var buf = shared.lock() { buf.push(sample) }
 }
 
 func main() {
@@ -9938,8 +9955,8 @@ func main() {
     let right = workers.spawn(record(shared.copy(), 4))
     left.join()
     right.join()
-    print("{} samples, sum {}", shared.lock({ &var buf in buf.len() }),
-                                shared.lock({ &var buf in buf.sum() }))
+    let (count, total) = borrow let buf = shared.lock() { (buf.len(), buf.sum()) }
+    print("{} samples, sum {}", count, total)
     // prints: 2 samples, sum 7
 }
 ```
@@ -10533,12 +10550,14 @@ NoCopy static is legal, and every atomic operation takes `&self`.
 
 ### `SpinLock<T>`
 
-**Status: implemented (design 149).** `import std.spinlock`. A value
-guarded by an atomic word: one word plus the payload, no allocation, and no
-operating system, so it works in the freestanding profile where
-[`Mutex<T>`](#synchronized-access) — which needs a host lock — does not.
+**Status: implemented (design 149); the `lock()` and `try_lock()` accessors,
+the re-entry panic and its freestanding owner seam are planned.**
+`import std.spinlock`. A value guarded by an atomic word: one word plus the
+payload, no allocation, and no operating system, so it works in the
+freestanding profile where [`Mutex<T>`](#synchronized-access) — which needs a
+host lock — does not.
 
-```saw-body
+```saw-fragment
 import std.spinlock.*
 
 struct Counters { hits: Int, misses: Int }
@@ -10546,19 +10565,26 @@ struct Counters { hits: Int, misses: Int }
 static STATS: SpinLock<Counters>         // zero = unlocked, payload zeroed
 
 func record(hit: Bool) {
-    STATS.lock({ c in
+    borrow var c = STATS.lock() {
         if hit { c.hits = c.hits + 1 } else { c.misses = c.misses + 1 }
-    })
+    }                                    // released at the block's end
 }
 
-let seen = STATS.lock({ c in c.hits })   // the body's result comes back out
-if let n = STATS.try_lock({ c in c.hits }) { }  // None if held; never spins
+let seen = borrow let c = STATS.lock() { c.hits }   // the block's value comes back out
+let quick = if borrow let c = STATS.try_lock() { c.hits } else { 0 }   // never spins; absent: another owner holds it
 ```
 
-- `lock<R>(body: (&var T) sync -> R) -> R` spins until free, runs `body`
-  once with `&var` access, releases, and returns what `body` returned.
-- `try_lock<R>(body: (&var T) sync -> R) -> R?` decides with one
-  compare-and-swap. `None` means the lock was held at that instant.
+- `lock()`, declared `func lock(&self) sync borrows(sync) -> &var T`, spins
+  until the lock is free and lends the payload for the `borrow` window. The
+  lock is released when the window closes, on every way out. It is a
+  [cell-carrying](#interior-mutability) `&self` accessor, so it works on a
+  `static`, a `let` or a `&SpinLock` parameter, while no other use of the lock
+  is allowed inside the window.
+- `try_lock()`, declared `func try_lock(&self) sync borrows(sync) -> &var T?`,
+  decides with one compare-and-swap. It is a conditional lend: absent when
+  another owner held the lock at that instant, and the body unwraps it (see
+  [Conditional lends](#conditional-lends-borrows--t)). `try_` means
+  non-blocking.
 - `is_locked() -> Bool` is a debugging aid; the answer can be stale
   before it is read, so branch with `try_lock`, not with this.
 
@@ -10566,16 +10592,33 @@ if let n = STATS.try_lock({ c in c.hits }) { }  // None if held; never spins
 interior cell, so its `Sync` is DECLARED — `extension SpinLock<T: Send>:
 UnsafeSync {}` — on the same terms as `Mutex`: handing out a `&var T` under
 mutual exclusion is safe to share exactly when moving a `T` between threads is.
-Locking is not reentrant: taking the lock while holding it spins forever.
+
+**A spin lock is not reentrant, and re-entry never spins forever.** A
+re-entrant lock would hand out two live `&var T` to one payload.
+
+- Re-entry through the same name is a compile error. `lock` lends `&var T`, so
+  the lock is held exclusively for the window, and a second `STATS.lock()` or
+  `STATS.try_lock()` inside it is refused.
+- Re-entry through another name panics at run time, from `lock` and `try_lock`
+  alike: the lock word records its owner, and acquiring panics when it finds
+  its own. `try_lock` answers `None` only when another owner holds the lock.
+- A freestanding runtime has no thread id to record, so the owner comes from a
+  runtime seam that answers who holds the lock. For a kernel the owner is the
+  CPU or hart plus the interrupt context, because the re-entry that matters
+  there is an interrupt handler taking a lock its own core already holds. The
+  seam's signature goes into `rt/ABI.md` with the contract, so a
+  `--runtime-provider` implements a checked signature.
 
 Two constraints are enforced, not documented:
 
-- **The body is `sync`.** Suspending inside a critical section is a
-  compile error. A suspended task keeps the lock while the executor runs
-  somebody else, and that somebody may be the task waiting for it.
-  A consequence: since `lock` and its body are both `sync`, a task cannot
-  be interrupted while holding the lock, so two tasks on one thread never
-  contend and contention always means another thread or another core.
+- **The window cannot suspend.** `lock` and `try_lock` are `borrows(sync)`,
+  so a suspension inside the window is a compile error naming the accessor. A
+  suspended task would keep the lock while the executor runs somebody else, and
+  that somebody may be the task waiting for it; and a task can resume on a
+  different worker, which would release the lock from a thread that is not its
+  owner. A consequence: a task cannot be switched out while it holds the lock,
+  so two tasks on one thread never contend, and contention always means another
+  thread or another core.
 - **The target must have atomics.** Where a compare-and-swap lowers to
   `__atomic_*` libcalls (rv32i), naming a `SpinLock` is a compile error
   pointing at `--target-features +a`, never a silent fallback into a C
@@ -12812,7 +12855,11 @@ then enforce, is a separate design and is not yet spellable.
 #### Synthesized conformances
 
 **`@synthesize`** goes on an `extension` and asks the compiler to derive the
-conformance's method from the type's fields. It takes no argument.
+conformance's method from the type's fields. On an extension it takes no
+argument. Its one argument form, `@synthesize(shared)` (planned), goes on a
+`(&var self) borrows -> &var T` accessor instead and derives that accessor's
+`(&self) borrows -> &T` form (`syntax.attr.synthesize-shared`; see
+[Shared and exclusive accessors](#shared-and-exclusive-accessors)).
 
 ```saw
 struct Version {
@@ -12933,9 +12980,9 @@ error: function `peek_owner` is not declared `unsafe`, but its body names an
 ```
 
 **Derivation does not propagate.** A value or reference of a *safe* type produced
-inside an unsafe function is safe onward — the `&T` that `with_ref` hands its
-closure is an ordinary reference. Performing that derivation soundly is exactly
-what the reviewed wrapper exists for.
+inside an unsafe function is safe onward — the place `Vector.[]` lends out of
+its raw buffer is an ordinary `&T`. Performing that derivation soundly is
+exactly what the reviewed wrapper exists for.
 
 Declaring `unsafe` where the rule would not require it is allowed. The marker is
 a promise about the contract, and a conformer of an `unsafe` trait requirement
@@ -12963,9 +13010,12 @@ post-parameter slot beside `sync`, in the canonical order `unsafe sync`:
 
 ```saw-fragment
 public func push(&var self, value: T) unsafe { ... }
-func with_var_ref<R>(&var self, i: Int, body: (&var T) sync -> R) unsafe -> R
+public func [](&var self, i: Int) unsafe borrows -> &var T { ... }
 init(at: Int) unsafe -> UnsafeMmioReg { ... }
 ```
+
+`borrows` follows `sync` in the same slot, `unsafe sync borrows` (see
+[Places](#places-borrows-and-lend)).
 
 A function **type** uses the same slot, with `escaping` completing the order
 `unsafe sync escaping`:
@@ -13013,7 +13063,7 @@ The type-position effect has one job: handing an unsafe value into a function
 nobody named, which is the `with_raw` shape. Tying it to the signature means one
 contract has one spelling, so there is no marked-versus-unmarked pair to define
 variance between. The rule is checked on the type **as written**, which is what
-keeps generics out of it: `Vector.with_ref`'s `(&T) sync -> R` is judged once
+keeps generics out of it: `Vector.each`'s `(&T) -> Void` is judged once
 against `T`, not again for an instantiation that substitutes a pointer.
 
 A declaration is judged the other way round, and a redundant `unsafe` on one
@@ -13074,8 +13124,8 @@ A closure that never names an unsafe type is safe even when passed into an unsaf
 function, which is what keeps the reviewed wrappers usable from safe code:
 
 ```saw-fragment
-func with_ref<R>(&self, i: Int, body: (&T) sync -> R) unsafe -> R
-v.with_ref(0) { e in e + 1 }        // the closure sees only `&T`: safe
+func each(&self, body: (&T) -> Void) unsafe
+v.each { e in print(e) }            // the closure sees only `&T`: safe
 ```
 
 #### Calling an unsafe function
@@ -13089,8 +13139,8 @@ all safe types must be sound for **every** input. A precondition is expressed by
 taking an unsafe-typed parameter, which drags the obligation into the caller
 through the trigger rule itself.
 
-- `with_ref(index: Int)` takes only safe types, so it must be sound for every
-  index — it bounds-checks and panics on a miss.
+- `Vector.[]` (`i: Int`) takes only safe types, so it must be sound for every
+  index — it bounds-checks and panics on a miss before it lends.
 - `dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)` names an unsafe
   type, so any caller must name one too, and every caller is therefore unsafe.
 
@@ -13105,9 +13155,9 @@ function is short enough to review as a unit.
 
 On a safe type, every indexed accessor is checked. Unchecked access exists only
 through `UnsafePointer`. An out-of-range index **panics** for a direct accessor
-(`Vector.set`, `Vector.swap`, `Vector.swap_out`, `Vector.with_ref`,
-`with_var_ref`, `Data.set`, `FixedBuf.set`, `String.byte_at`,
-`String.substring`) or yields `None`/`Err` for a `get`-shaped one
+(`Vector.[]`, `Vector.set`, `Vector.swap`, `Vector.swap_out`, `Data.[]`,
+`Data.set`, `FixedBuf.set`, `String.byte_at`, `String.substring`) or yields
+`None`/`Err` for a `get`-shaped one
 (`Vector.get`, `Data.get`, `Data.slice`, `FixedBuf.get`). Never a silent
 no-op, never a clamp to a plausible-looking result, and never a status flag a
 caller can ignore. The two halves are a rule about the NAME, so a member on

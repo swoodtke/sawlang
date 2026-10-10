@@ -2211,14 +2211,8 @@ spelling holds. The spec still:
 - says that a match arm's bare body is an expression, where it may also be one
   statement (syntax.rule.arm-body);
 - teaches `x as Int? ?? y`, which is refused (syntax.rule.cast-target-question);
-- says `@synthesize` takes no argument, that traits cannot require a `borrows`
-  method, that there are no `borrows` function values, and that a borrowing
-  struct holds shared references only (SL:borrowing changes all four);
 - describes a consuming `self` "declared without `&`", where the receiver is
   `&var self`;
-- says, under "Optionals", that a chained assignment that short-circuits skips
-  its right side, where SL:borrowing §2.2 evaluates the right side first and
-  skips only the write;
 - shows the planned `const func`, and gives the slot order as
   `consumes unsafe sync` without `constexpr` in `sync`'s place
   (syntax.rule.effect-slot);
