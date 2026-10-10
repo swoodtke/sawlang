@@ -28,6 +28,29 @@ O1 to O3 are decided as D31 to D33.
 
 **D2–D21 were all accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. Nothing in this section is waiting for review.
 
+### D35. A function type in a storage position is escaping, and a parameter's is non-escaping unless it says `escaping` (Oct 10; SL-480, tcb2b's question)
+The spec decides the parameter half:
+- a non-escaping parameter (the default) "is forbidden from being stored or outliving the call";
+- "forwarding a closure into a *non-escaping* parameter is a lend".
+
+It never says whether `struct H { f: () -> Int }` declares an escaping slot. Stage 0 treats every storage slot as escaping, and prints the field as `() escaping -> Int`. sawc2 treats the `escaping` bit as type identity, so it is wrong in both directions: it stores a plain parameter, and refuses to store an `escaping` one.
+
+**Decided (Stage 0's model, written down):**
+- **Where a function type is escaping:** in every position that holds a value past the call. That is a field, an enum payload, a generic argument (`Vector<() -> Int>`, `T?`), a static, a return type, and a closure's capture.
+- **Parameters:** a parameter's function type is non-escaping unless it says `escaping`.
+- **At the transfer funnel:**
+  - An escaping value goes to either kind, since a non-escaping parameter is a lend.
+  - A non-escaping value goes only to a non-escaping parameter or a call. Anywhere else it is refused, with a hint naming `escaping` on the parameter.
+- **A closure literal** is escaping or not according to its position.
+- **`escaping` written in a storage position** is redundant and legal.
+- **A local `let g = f`** keeps `f`'s kind.
+
+**Rejected:** requiring storage positions to spell `escaping`. A plain `() -> Int` field could then hold no closure at all, which would make every function-typed field in the tree wrong.
+
+**Owed:** the spec states the storage rule in the closures section; it goes to SL-489's next docs patch. Stage 0's `Optional` refusal of an escaping value is a Stage 0 over-refusal.
+
+**Reversal:** require `escaping` in storage positions.
+
 ### D34. A refining trait may not redeclare an inherited associated type (Oct 10; SL-499, std496's question)
 `trait Source { type Item }` and `trait Pipe: Source { type Item }`. The spec says nothing about associated types under refinement. Today a bare `Item` in `Pipe` binds `Pipe`'s own, while `Self.Item` and `T.Item` under `T: Pipe` are `name.ambiguous`.
 
