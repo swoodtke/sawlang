@@ -412,6 +412,18 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 
 ## Resolved
 
+### SL-519. A package's module root is its `src/` (Oct 10; the USER's ruling)
+The spec's import search names "its package root" without defining it. Stage 0 reads it as the `Saw.toml` directory, so a package's imports of its own modules spell `src.` (Blade's `import src.layout.*`). Separately, `compiler/tools/build.py` mapped each stage package one level above its `src/`, so the compiler's imports read `sawmir.src.api`.
+
+**Ruled:** a package's module root is `src/`, everywhere.
+- **Inside the package:** `import layout`, or `import <package>.layout`.
+- **Its tests:** `import <package>.layout`, with the package's own `--module-path`.
+- **From outside:** unchanged, `import <package>` and `import <package>.sub`, as Blade already passes `<dep>/src`.
+
+**Where it lands:** SL-518 for `compiler/`, queued in the gap after SL-505 and SL-456.p3; then SL-519 for the spec, Blade, `libs/` and sawc2's resolver.
+
+**With it (the user, the same day), a style convention, not a rule change:** a field's visibility is written only when it narrows. The spec already makes a field inherit its declaring type's tier ("The tier is stated once, on the type"), and both compilers implement that. So `public` on a field of a `public struct` is redundant and is dropped. SL-518 does this for `compiler/` and `std/` and adds a subset-checker rule; the saw-lang skill gains the idiom.
+
 ### SL-513 (B). A discarded part dies when the construct that took it completes (Oct 10; the USER's ruling, superseding A below; the Air found no hole)
 A `match` on an owned NoCopy or ExplicitCopy enum still consumes its scrutinee, whatever the arms bind. What no arm binding takes (a `_` sub-pattern, a pattern that binds nothing, a `case _` arm) is held by an implicit binding of the `match`, older than the arm's own bindings, and dies when the `match` completes: after the arm body and the arm's bindings, in reverse declaration order among the leftovers.
 
