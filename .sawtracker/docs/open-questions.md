@@ -412,6 +412,15 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 
 ## Resolved
 
+### SL-513. A consumed `match` destroys what no arm binding takes at arm entry (Oct 10; the USER's ruling)
+A `match` on an owned NoCopy or ExplicitCopy enum consumes its scrutinee, but the spec never said when the parts no arm binding takes are destroyed: a `_` inside a pattern, a pattern like `Full(_)` that binds nothing, or a `case _` arm. Stage 0 destroys them at arm entry. sawc2 did so only when the arm bound part of the payload, and at arm end when it bound nothing.
+
+**Ruled (option A):** what a consumed `match` doesn't bind dies at arm entry, before the arm body runs, in reverse declaration order among the discarded fields. This is the meaning `_` already has in `let _ = e` and `let (a, _) = pair`: discard now. The arm's own bindings die at the arm's end, as before. The ruling rejected arm end (B) and scrutinee scope end (C). A guard-like payload discarded with `_` is therefore released before the arm runs, the same as `let _ = lock()`.
+
+**Where it lands:** a sentence in the spec's "Match consumes an owned enum", plus sawc2's MIR match lowering for arms that bind nothing, pinned with deinit-order run-lane programs (SL-513).
+
+Stage 0 is wrong on an owned `Optional` scrutinee: `case Some(n)` destroys `n` at the enclosing scope's end, not the arm's. That case is SL:hazards C10.
+
 ### Q-precedence. A Ruled design section supersedes the spec text it names (Oct 10; the USER approved; SL-489)
 CLAUDE.md said only "LANGUAGE_SPEC.md is authoritative for meaning". Two conflicts had gone opposite ways, each correctly. In D27 the spec beat SL:borrowing §2.7, which restated a rule that design 219 later replaced. In m410, SL:borrowing §3/§9 beat the spec, because §9 records a RULED retirement the spec text predates.
 
