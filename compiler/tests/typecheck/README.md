@@ -856,6 +856,23 @@ containment rules (`check_no_move_declarations`):
 | `NoMove` with no declared `NoCopy`, beside `ExplicitCopy` | refused | nomove.requires-nocopy, nomove.requires-nocopy.explicit |
 | a container declaring `NoCopy` and `NoMove`; a pointer holder; a generic holding `T` | allowed | no_move |
 
+**Copy-policy containment** (spec, The Copy Trait Family, "Containment" and
+"The automatic `Copy` tier"; `check_containment`). The members whose retain
+the compiler handles itself put a struct on the automatic tier with no
+policy owed; a field of a declared Copy type does not. The two golden
+programs run under `--std-root std`, where `String`'s Copy is a written
+conformance and still owes nothing (SL-515); the fixtures run under Stage 0's
+std, the only one with an `Arc`; `c.` abbreviates
+`refuse/copy.undeclared-policy.`:
+
+| member | verdict | covered by |
+|---|---|---|
+| a `String` field, a `[String; 3]`, a `String?`, a struct on the tier through one, an enum's `String` payload | allowed | string_fields |
+| a NoCopy field beside a `String` field | refused, naming the NoCopy field | string_field_refusals |
+| a field of std's `Data`, of a user type declaring `Copy` | refused | string_field_refusals; c.data, c.retain-hook |
+| an `Arc<T>` field | refused | c.arc |
+| an ExplicitCopy field; an enum's NoCopy payload | refused | `copy.undeclared-policy` (bare), c.enum |
+
 **Generic captures** (SL-481, D30). A spelled `[copy x]` of a value whose
 type names a type parameter is refused at the definition unless a bound
 grants the copy (`add_capture`); a silent by-value capture, `[x]` or
@@ -1031,7 +1048,7 @@ says what the fixture shows.
 | `nomove.undeclared` | a struct or enum holding a `NoMove` value inline, a field, a payload, through an optional, a tuple, an array or a generic instance, that does not declare `NoMove` itself (design 188) |
 | `nomove.bound` | `NoMove` written as a generic parameter's bound |
 | `nomove.requires-nocopy` | a `NoMove` conformance on a type whose policy is not a declared `NoCopy` |
-| `copy.undeclared-policy` | a struct or enum with no policy holding an ExplicitCopy or NoCopy member, or a struct with a field of a declared Copy type |
+| `copy.undeclared-policy` | a struct or enum with no policy holding an ExplicitCopy or NoCopy member, or a struct with a field of a declared Copy type, which `String` is not even where std declares its Copy (spec, "The automatic `Copy` tier") |
 | `unsafe.undeclared` | a function whose parameters, result or receiver name an unsafe type, or whose body (its closures included) names, binds, receives or returns a value of one or names an `unsafe static var`, and which is not declared `unsafe` (designs 130, 136 and 149) |
 | `unsafe.function-type` | a function type that names an unsafe type without saying `unsafe`, or says it without naming one |
 | `unsafe.type-name` | an `unsafe struct` not named `Unsafe*` |
@@ -1102,7 +1119,11 @@ extern has no effect slot, so the unsafe rule asks nothing of it.
 `typecheck_lane.py` runs one `sawc2 typecheck` process per group and checks:
 
 - each golden program's record equals its `.typecheck` file byte for byte;
-  `--write` rewrites them after a deliberate change, for review;
+  `--write` rewrites them after a deliberate change, for review. A first line
+  `// flags: ...` passes those flags, and the programs sharing a line run as
+  one group; under `--std-root` the expectation leaves out each `std.`
+  module's dump, keeping the program's modules and every line outside a
+  module, so a refusal in std still shows;
 - each refusal fixture is refused first by its rule, at its position;
   `--fill` writes the header of a new fixture whose first line is
   `// refuses: TODO`, for review;

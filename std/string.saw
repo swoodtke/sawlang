@@ -345,3 +345,21 @@ extension String: Printable {
 // and be shared between them; the pointer field alone blocks the derivation.
 extension String: UnsafeSend {}
 extension String: UnsafeSync {}
+
+/// The error a decode reports when bytes are not UTF-8.
+///
+/// `offset` is the byte index at which the first malformed sequence begins;
+/// the bytes before it decode cleanly. It renders as
+/// `invalid UTF-8 at byte offset 6`.
+public struct Utf8Error {
+    /// Byte index of the first malformed sequence.
+    public offset: Int
+}
+
+extension Utf8Error: Error {
+    /// Writes the offset of the first malformed sequence.
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append("invalid UTF-8 at byte offset ")
+        try! into.append(self.offset)
+    }
+}

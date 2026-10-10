@@ -1,0 +1,200 @@
+//! `SystemError`: an operating-system operation that failed, and why.
+//!
+//! A runtime seam reports a failure as the negated portable tag of
+//! `sawc/rt/ABI.md`'s error table, and this module reads that tag as a
+//! `SystemErrorKind`. It reads nothing else from the runtime: the error
+//! carries the operation's name and the kind, and no platform error number,
+//! so it renders the same on every host.
+
+/// What kind of failure an operating-system operation reported.
+///
+/// The kinds are the runtime's portable tags, plus `UnexpectedEnd`, which the
+/// standard library raises itself. Several platform codes share one kind
+/// (`EACCES` and `EPERM` are both `PermissionDenied`), and `Unknown` is a
+/// failure the portable set has no word for.
+public enum SystemErrorKind {
+    /// The operation would have blocked, and the descriptor is non-blocking.
+    case WouldBlock,
+    /// A connection is still being established.
+    case InProgress,
+    /// The socket is already connected.
+    case AlreadyConnected,
+    /// A signal interrupted the call.
+    case Interrupted,
+    /// The peer reset the connection.
+    case ConnectionReset,
+    /// Nothing was listening at the address.
+    case ConnectionRefused,
+    /// The connection was aborted before it was established.
+    case ConnectionAborted,
+    /// The write end has no reader left.
+    case BrokenPipe,
+    /// The socket is not connected.
+    case NotConnected,
+    /// No such file, directory or host.
+    case NotFound,
+    /// The caller is not allowed to do this.
+    case PermissionDenied,
+    /// The thing being created is already there.
+    case AlreadyExists,
+    /// The address is already bound.
+    case AddressInUse,
+    /// The system rejected an argument.
+    case InvalidArgument,
+    /// A system resource ran out: descriptors, memory or disk space.
+    case ResourcesExhausted,
+    /// A failure the portable set has no word for.
+    case Unknown,
+    /// The host cannot be reached.
+    case HostUnreachable,
+    /// The network cannot be reached.
+    case NetworkUnreachable,
+    /// The operation ran out of time.
+    case TimedOut,
+    /// The host is down.
+    case HostDown,
+    /// The network is down.
+    case NetworkDown,
+    /// The data ended before the length the operation was promised, as when a
+    /// file shrinks while it is read.
+    case UnexpectedEnd
+}
+
+// The runtime's portable tags (sawc/rt/ABI.md, "Errors"). Tag 0 is success
+// and is never reported.
+static TAG_WOULD_BLOCK: Int = 1
+static TAG_IN_PROGRESS: Int = 2
+static TAG_ALREADY_CONNECTED: Int = 3
+static TAG_INTERRUPTED: Int = 4
+static TAG_CONNECTION_RESET: Int = 5
+static TAG_CONNECTION_REFUSED: Int = 6
+static TAG_CONNECTION_ABORTED: Int = 7
+static TAG_BROKEN_PIPE: Int = 8
+static TAG_NOT_CONNECTED: Int = 9
+static TAG_NOT_FOUND: Int = 10
+static TAG_PERMISSION_DENIED: Int = 11
+static TAG_ALREADY_EXISTS: Int = 12
+static TAG_ADDRESS_IN_USE: Int = 13
+static TAG_INVALID_ARGUMENT: Int = 14
+static TAG_RESOURCES_EXHAUSTED: Int = 15
+static TAG_HOST_UNREACHABLE: Int = 17
+static TAG_NETWORK_UNREACHABLE: Int = 18
+static TAG_TIMED_OUT: Int = 19
+static TAG_HOST_DOWN: Int = 20
+static TAG_NETWORK_DOWN: Int = 21
+
+/// Returns the kind a portable tag names: `Unknown` for the catch-all tag,
+/// and for a tag a newer runtime reports that this table does not know.
+public(package) func system_error_kind(tag: Int) -> SystemErrorKind {
+    if tag == TAG_WOULD_BLOCK {
+        SystemErrorKind.WouldBlock
+    } else if tag == TAG_IN_PROGRESS {
+        SystemErrorKind.InProgress
+    } else if tag == TAG_ALREADY_CONNECTED {
+        SystemErrorKind.AlreadyConnected
+    } else if tag == TAG_INTERRUPTED {
+        SystemErrorKind.Interrupted
+    } else if tag == TAG_CONNECTION_RESET {
+        SystemErrorKind.ConnectionReset
+    } else if tag == TAG_CONNECTION_REFUSED {
+        SystemErrorKind.ConnectionRefused
+    } else if tag == TAG_CONNECTION_ABORTED {
+        SystemErrorKind.ConnectionAborted
+    } else if tag == TAG_BROKEN_PIPE {
+        SystemErrorKind.BrokenPipe
+    } else if tag == TAG_NOT_CONNECTED {
+        SystemErrorKind.NotConnected
+    } else if tag == TAG_NOT_FOUND {
+        SystemErrorKind.NotFound
+    } else if tag == TAG_PERMISSION_DENIED {
+        SystemErrorKind.PermissionDenied
+    } else if tag == TAG_ALREADY_EXISTS {
+        SystemErrorKind.AlreadyExists
+    } else if tag == TAG_ADDRESS_IN_USE {
+        SystemErrorKind.AddressInUse
+    } else if tag == TAG_INVALID_ARGUMENT {
+        SystemErrorKind.InvalidArgument
+    } else if tag == TAG_RESOURCES_EXHAUSTED {
+        SystemErrorKind.ResourcesExhausted
+    } else if tag == TAG_HOST_UNREACHABLE {
+        SystemErrorKind.HostUnreachable
+    } else if tag == TAG_NETWORK_UNREACHABLE {
+        SystemErrorKind.NetworkUnreachable
+    } else if tag == TAG_TIMED_OUT {
+        SystemErrorKind.TimedOut
+    } else if tag == TAG_HOST_DOWN {
+        SystemErrorKind.HostDown
+    } else if tag == TAG_NETWORK_DOWN {
+        SystemErrorKind.NetworkDown
+    } else {
+        SystemErrorKind.Unknown
+    }
+}
+
+extension SystemErrorKind {
+    /// Returns a short description, the one `SystemError` renders.
+    public func describe(&self) -> String {
+        match self {
+            case WouldBlock -> "would block",
+            case InProgress -> "in progress",
+            case AlreadyConnected -> "already connected",
+            case Interrupted -> "interrupted",
+            case ConnectionReset -> "connection reset",
+            case ConnectionRefused -> "connection refused",
+            case ConnectionAborted -> "connection aborted",
+            case BrokenPipe -> "broken pipe",
+            case NotConnected -> "not connected",
+            case NotFound -> "not found",
+            case PermissionDenied -> "permission denied",
+            case AlreadyExists -> "already exists",
+            case AddressInUse -> "address in use",
+            case InvalidArgument -> "invalid argument",
+            case ResourcesExhausted -> "resources exhausted",
+            case Unknown -> "other error",
+            case HostUnreachable -> "host unreachable",
+            case NetworkUnreachable -> "network unreachable",
+            case TimedOut -> "timed out",
+            case HostDown -> "host is down",
+            case NetworkDown -> "network is down",
+            case UnexpectedEnd -> "unexpected end of data"
+        }
+    }
+}
+
+/// An operating-system operation that failed: which one, and its kind.
+///
+/// It renders as `open failed (not found)`: the operation, then the kind's
+/// description. The text names no platform error number, so it reads the
+/// same on every host.
+public struct SystemError {
+    private operation: String
+    private kind: SystemErrorKind
+}
+
+extension SystemError {
+    // The error a failing seam reported for `operation` as the negated
+    // portable `tag`.
+    public(package) static func of(operation: String, tag: Int) -> SystemError {
+        SystemError(operation: operation, kind: system_error_kind(tag))
+    }
+
+    // An error the standard library raises itself, with no tag behind it.
+    public(package) static func raised(operation: String, kind: SystemErrorKind) -> SystemError {
+        SystemError(operation: operation, kind: kind)
+    }
+
+    /// Returns the kind of the failure.
+    public func kind(&self) -> SystemErrorKind {
+        self.kind
+    }
+}
+
+extension SystemError: Error {
+    /// Writes the operation and the kind's description.
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append(self.operation)
+        try! into.append(" failed (")
+        try! into.append(self.kind.describe())
+        try! into.append(")")
+    }
+}

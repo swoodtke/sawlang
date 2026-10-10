@@ -1,0 +1,18 @@
+//! `Path`: a filesystem path, held as its text.
+
+/// A filesystem path, held as the text it was built from.
+public struct Path {
+    private text: String
+}
+
+extension Path {
+    /// Creates the path whose text is `s`, unchanged.
+    public init(s: String) -> Path {
+        Path(text: s)
+    }
+
+    // The path's text, which `std.file` hands to the runtime.
+    public(package) func as_string(&self) -> String {
+        self.text
+    }
+}

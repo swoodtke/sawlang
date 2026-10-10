@@ -25,7 +25,9 @@ profile, the lang-item table, and the API equivalence of the two stds.
   Vector, read off which trait bounds each type meets under each root;
 - each `pairs/` program exits 0 when Stage 0 builds it against `sawc/std`, or
   panics with the text its `// expect-panic:` line names, and checks, lowers
-  and evaluates clean with sawc2 against `std/`;
+  and evaluates clean with sawc2 against `std/`; one headed
+  `// arguments: ...` runs with those arguments, `{files}` the directory of
+  the lane's FILE_FIXTURES;
 - each `calls/` program, which only the new std's API can type, checks clean
   through drop elaboration against `std/`, or, headed `// refuses: RULE at
   L:C`, is refused first there by that rule;
@@ -37,6 +39,10 @@ profile, the lang-item table, and the API equivalence of the two stds.
   `NAME.cone`; `optional_result`'s and `literal_only`'s hold no runtime module,
   nothing of `std.alloc` and no task module, `interpolation`'s reaches the
   builder and the allocator, and none holds a task module;
+- sawc2's own build (the driver with every stage package, the resolve loader
+  among them) typechecks, lowers, borrow-checks and drop-elaborates against
+  `std/` with no refusal and no invariant, and its new-std cone equals
+  `cone/sawc2.cone` and holds no runtime, task or network module;
 - no fixture here ends a line in whitespace or ends in a blank line.
 """
 import collections
@@ -76,7 +82,7 @@ RUN_TIMEOUT = 60
 
 # The units of SL-456 whose std modules have landed. A member row of a landed
 # unit is compared, and an exception due by one fails until it is resolved.
-LANDED_UNITS = ("U5b1", "U5b2")
+LANDED_UNITS = ("U5b1", "U5b2", "U5b3")
 # The programs of `lang/` checked against the new std only, or refused.
 NEW_ONLY = ("optional_methods", "string_positions")
 REFUSED_PAIRED = ("missing_case",)
@@ -88,6 +94,12 @@ NO_ALLOCATOR_CONES = ("optional_result", "literal_only")
 # The cone of a program that interpolates, which reaches the builder and the
 # allocator.
 BUILDER_CONE = "interpolation"
+# sawc2's own build against the new std: the stages it must check clean
+# through, its recorded cone, and the modules that cone must not reach (the
+# runtime, the task executor and the network stack; SL-443).
+DRIVER_STAGES = ("typecheck", "mir", "borrowck", "drops")
+DRIVER_CONE = os.path.join(CONE, "sawc2.cone")
+DRIVER_CONE_EXCLUDED = ("rt.", "std.task", "std.net")
 # The conformance probe: the traits whose bounds each type's set is read off,
 # and an expression of the type for the probe to pass.
 PROBE_TRAITS = ("Copy", "ExplicitCopy", "NoCopy", "Equatable", "Comparable", "Hashable",
@@ -106,6 +118,16 @@ RELAXED_LOAD = "call builtin __saw_atomic_load_i64_relaxed"
 ATOMIC_RMW = ("call builtin __saw_atomic_add_i64", "call builtin __saw_atomic_sub_i64_release")
 _MARKER = re.compile(r"//\s*refuses:\s*(.+)$")
 _EXPECT_PANIC = re.compile(r"^//\s*expect-panic:\s*(.+)$")
+_ARGUMENTS = re.compile(r"^//\s*arguments:\s*(.+)$")
+# The files a pair's `{files}` argument names the directory of, written fresh
+# before the pairs run: the bytes are exact here, where a committed fixture
+# holding invalid UTF-8 would not survive the patch's text transport.
+FILE_FIXTURES = {
+    "text.txt": "saw: héllo\n".encode("utf-8"),
+    "empty.txt": b"",
+    "invalid.txt": b"caf\xc3\xa9 \xff!",
+}
+FILES = os.path.join(OUT, "files")
 _REFUSES = re.compile(r"^// refuses: (\S+) at (\d+:\d+)$")
 _PIN_FUNCTION = re.compile(r"^// function: (.+)$")
 _DECLARATION = re.compile(r"^    \((\S+) (\S+) \d+:\d+(.*)\)$")
@@ -545,13 +567,34 @@ def expected_panic(path):
     return m.group(1) if m else None
 
 
+def pair_arguments(path):
+    """The command-line arguments a pair's `// arguments:` header line names,
+    `{files}` standing for the directory of FILE_FIXTURES."""
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            if not line.startswith("//"):
+                break
+            m = _ARGUMENTS.match(line.rstrip("\n"))
+            if m:
+                return [a.replace("{files}", FILES) for a in m.group(1).split()]
+    return []
+
+
+def write_file_fixtures():
+    os.makedirs(FILES, exist_ok=True)
+    for name, data in FILE_FIXTURES.items():
+        with open(os.path.join(FILES, name), "wb") as fh:
+            fh.write(data)
+
+
 def build_and_run_pair(path):
     exe = os.path.join(OUT, "pairs", module_name(path))
     ok, output = build.build_program(path, exe)
     if not ok:
         return "std pair %s: Stage 0 does not build it: %s" % (rel(path), output.split("\n")[0])
     try:
-        r = subprocess.run([exe], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+        r = subprocess.run([exe] + pair_arguments(path), capture_output=True, text=True,
+                           timeout=RUN_TIMEOUT)
     except subprocess.TimeoutExpired:
         return "std pair %s: timed out under Stage 0" % rel(path)
     panic = expected_panic(path)
@@ -568,6 +611,7 @@ def build_and_run_pair(path):
 
 def check_pairs(failures, counts):
     pairs = sorted(glob.glob(os.path.join(PAIRS, "*.saw")))
+    write_file_fixtures()
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, os.cpu_count() or 1)) as pool:
         for failure in pool.map(build_and_run_pair, pairs):
             if failure:
@@ -659,6 +703,50 @@ def check_cones(failures, counts, write):
                 failures += ["std cone %s: reached, not listed: %s" % (name, l) for l in added]
                 failures += ["std cone %s: listed, not reached: %s" % (name, l) for l in removed]
         counts["std cones"] = counts.get("std cones", 0) + 1
+
+
+# --------------------------------------------------- sawc2 over the new std
+
+def driver_arguments():
+    args = []
+    for name, directory in build.STAGE_PACKAGES:
+        args += ["--module-path", "%s=%s" % (name, directory)]
+    return args + [rel(build.DRIVER_ENTRY)]
+
+
+def check_driver(failures, counts, write):
+    """sawc2's own build, the driver and every stage package its loader and
+    passes import, checks clean against the new std through drop elaboration,
+    and its new-std cone equals `cone/sawc2.cone` and holds no runtime, task or
+    network module."""
+    for stage in DRIVER_STAGES:
+        _, out = sawc2(stage, "--check", "--std-root", NEW_ROOT, *driver_arguments())
+        for line in problems_of(out):
+            failures.append("std driver %s: %s" % (stage, line))
+        counts["driver stages"] = counts.get("driver stages", 0) + 1
+    text, problems, _ = std_cone.new_std_cone(build.DRIVER_ENTRY, NEW_ROOT,
+                                              driver_arguments()[:-1])
+    failures += ["std driver cone: %s" % p for p in problems]
+    if text is None:
+        return
+    for mod in re.findall(r"^(\S+): \d+$", text, re.M):
+        if mod.startswith(DRIVER_CONE_EXCLUDED):
+            failures.append("std driver cone: reaches `%s`" % mod)
+    if write:
+        with open(DRIVER_CONE, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        return
+    try:
+        with open(DRIVER_CONE, encoding="utf-8") as fh:
+            expected = fh.read()
+    except FileNotFoundError:
+        expected = ""
+    if expected != text:
+        added, removed = std_cone.diff_lines(expected, text)
+        failures.append("std driver cone: differs from %s; review it and rerun with --write"
+                        % rel(DRIVER_CONE))
+        failures += ["std driver cone: reached, not listed: %s" % l for l in added]
+        failures += ["std driver cone: listed, not reached: %s" % l for l in removed]
 
 
 # ------------------------------------------------------------- the MIR pins
@@ -783,6 +871,7 @@ def run(write=False):
     check_calls(failures, counts)
     check_mir_pins(failures, counts, write)
     check_cones(failures, counts, write)
+    check_driver(failures, counts, write)
     return failures, counts
 
 

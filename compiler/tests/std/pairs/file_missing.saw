@@ -1,0 +1,20 @@
+// arguments: {files}
+// File.open of a path that names nothing is an Err, never a File, and the
+// error renders as text.
+
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+
+func main() -> Int {
+    let args = try! Env.args()
+    let dir = args.get(1) ?? ""
+    let opened = File.open(Path(s: "{dir}/missing.txt"))
+    match opened {
+        case Ok(_) -> panic("missing.txt opened"),
+        case Err(e) -> {
+            assert(not e.to_string().is_empty(), "the error renders as text")
+        }
+    }
+    0
+}

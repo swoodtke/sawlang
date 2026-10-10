@@ -234,10 +234,17 @@ extension TcProgram {
     // Whether a struct field of type `t` is of a declared Copy type, directly
     // or as a fixed array's element: a retain hook, which an undeclared struct
     // may not absorb silently. A tuple, an optional and an enum's payload
-    // carry one without a declaration.
+    // carry one without a declaration. `String` is the exception even where
+    // std declares its Copy: its retain is the compiler's own, so the spec
+    // puts a `String` field on the automatic tier. The tier table keeps
+    // recording that declaration, since it answers what a type declares and
+    // not whose retain it is.
     func holds_declared_copy(&var self, t: Int) -> Bool {
         let info = self.types.ty(t)
         if info.kind == TcKind.Nominal {
+            if info.decl == self.known.string {
+                return false
+            }
             let rule = self.tier_of_decl(info.decl)
             return rule.declared && rule.base == TC_TIER_COPY
         }

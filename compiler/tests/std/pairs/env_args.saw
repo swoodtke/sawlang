@@ -1,0 +1,18 @@
+// arguments: alpha béta
+// Env.args: every command-line argument in order, the program's own path
+// first, a multi-byte argument whole.
+
+import std.env.{Env}
+
+func main() -> Int {
+    let args = try! Env.args()
+    assert(args.len() == 3, "the program and two arguments, not {}", args.len())
+    let program = args.get(0) ?? ""
+    assert(not program.is_empty(), "the program's own path comes first")
+    let first = args.get(1) ?? ""
+    assert(first.equals("alpha"), "the first argument")
+    let second = args.get(2) ?? ""
+    assert(second.equals("béta"), "the second argument, `é` included")
+    assert(second.len() == 5, "the second argument's five bytes")
+    0
+}

@@ -1,0 +1,132 @@
+//! `File`: a file opened for reading.
+//!
+//! Every operation is synchronous: none suspends, so the calling thread waits
+//! in the system call until it returns.
+
+import std.data.{Data}
+import std.path.{Path}
+import std.systemerror.{SystemError, SystemErrorKind, system_error_kind}
+
+extern "C" {
+    // Each returns its natural non-negative result (a descriptor, a byte
+    // count, an offset) or a negated portable tag (sawc/rt/ABI.md).
+    func __saw_rt_fs_open(path: UnsafePointer<Int8>, mode: Int, perm: Int) -> Int
+    func __saw_rt_fs_read(fd: Int, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func __saw_rt_fs_lseek(fd: Int, offset: Int, whence: Int) -> Int
+    // No runtime seam closes a descriptor, so the C library's close(2) does.
+    func close(fd: Int32) -> Int32
+}
+
+// The runtime's portable open modes; the runtime translates each into its
+// host's flag bits.
+enum OpenMode: UInt8 {
+    case Read = 0
+}
+
+// Where an lseek(2) offset is measured from: POSIX's `SEEK_SET`, `SEEK_CUR`
+// and `SEEK_END`, which the seam passes on unchanged.
+enum SeekOrigin: UInt8 {
+    case Start = 0,
+    case Current = 1,
+    case End = 2
+}
+
+// The creation permission, which an open that creates nothing ignores.
+static NO_PERMISSION: Int = 0
+static NUL_BYTE: Int8 = 0
+
+/// A file opened for reading, closed when it is destroyed.
+public struct File {
+    private descriptor: Int
+}
+
+extension File {
+    /// Opens the file at `path` for reading.
+    ///
+    /// Returns `Err(SystemError)` with the reason open(2) refused. A path
+    /// holding a NUL byte, which no system path can, is `InvalidArgument`,
+    /// and a path whose C string cannot be allocated is `ResourcesExhausted`.
+    public static func open(path: Path) unsafe -> Result<File, SystemError> {
+        let text = path.as_string()
+        let length = text.len()
+        let size = length + 1
+        guard let name = GlobalAllocator().alloc(size, 1) else {
+            return SystemError.raised("open", SystemErrorKind.ResourcesExhausted)
+        }
+        var i = 0
+        while i < length {
+            let b = text.byte_at(i)
+            if b == 0 {
+                GlobalAllocator().dealloc(name, size, 1)
+                return SystemError.raised("open", SystemErrorKind.InvalidArgument)
+            }
+            name[i] = Int8.from(truncating: b)
+            i = i + 1
+        }
+        name[length] = NUL_BYTE
+        let fd = __saw_rt_fs_open(name, (OpenMode.Read as UInt8) as Int, NO_PERMISSION)
+        GlobalAllocator().dealloc(name, size, 1)
+        if fd < 0 {
+            return SystemError.of("open", 0 - fd)
+        }
+        File(descriptor: fd)
+    }
+
+    /// Reads the rest of the file, from the current position to its end.
+    ///
+    /// An empty `Ok` means nothing was left. Returns `Err(SystemError)` with
+    /// the cause of a failing lseek(2) or read(2); `UnexpectedEnd` when the
+    /// file ends before the length lseek(2) reported, as when it shrinks
+    /// during the read; and `ResourcesExhausted` when the bytes cannot be
+    /// allocated.
+    public func read(&var self) unsafe -> Result<Data, SystemError> {
+        let here = __saw_rt_fs_lseek(self.descriptor, 0, (SeekOrigin.Current as UInt8) as Int)
+        if here < 0 {
+            return SystemError.of("lseek", 0 - here)
+        }
+        let end = __saw_rt_fs_lseek(self.descriptor, 0, (SeekOrigin.End as UInt8) as Int)
+        if end < 0 {
+            return SystemError.of("lseek", 0 - end)
+        }
+        let back = __saw_rt_fs_lseek(self.descriptor, here, (SeekOrigin.Start as UInt8) as Int)
+        if back < 0 {
+            return SystemError.of("lseek", 0 - back)
+        }
+        // Bound in place: a copy would be a second reference, and `spare()`
+        // refuses a shared block.
+        guard var data = Data.reserved(end - here) else {
+            return SystemError.raised("read", SystemErrorKind.ResourcesExhausted)
+        }
+        // A read may return fewer bytes than asked, so it repeats until the
+        // block is full; a signal's interruption is retried, not reported.
+        while data.spare_count() > 0 {
+            let wanted = data.spare_count()
+            let into = data.spare()
+            let n = __saw_rt_fs_read(self.descriptor, into, wanted)
+            if n > 0 {
+                data.grow(n)
+            } else if n == 0 {
+                return SystemError.raised("read", SystemErrorKind.UnexpectedEnd)
+            } else if not file_interrupted(0 - n) {
+                return SystemError.of("read", 0 - n)
+            }
+        }
+        data
+    }
+}
+
+// Whether a portable tag reports a call a signal interrupted.
+func file_interrupted(tag: Int) -> Bool {
+    match system_error_kind(tag) {
+        case Interrupted -> true,
+        case _ -> false
+    }
+}
+
+extension File: NoCopy {
+    // A failed close(2) of a descriptor opened for reading loses no data, so
+    // its status has nothing to report.
+    public func deinit(&var self) {
+        let _ = close(self.descriptor as Int32)
+    }
+}

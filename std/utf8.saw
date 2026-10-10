@@ -1,0 +1,93 @@
+//! UTF-8 validation: where a run of bytes stops being UTF-8.
+//!
+//! The one check every door into a `String` from raw bytes goes through, so a
+//! `String` always holds valid UTF-8.
+
+// The byte ranges a well-formed sequence is built from (RFC 3629, table 3-7 of
+// the Unicode standard).
+static ASCII_END: Int = 128
+static CONTINUATION_LOW: Int = 128
+static CONTINUATION_HIGH: Int = 191
+// 0xC0 and 0xC1 could only lead an overlong encoding of an ASCII byte.
+static TWO_BYTE_LEAD_LOW: Int = 194
+static THREE_BYTE_LEAD_LOW: Int = 224
+static FOUR_BYTE_LEAD_LOW: Int = 240
+// 0xF5 and above would encode past U+10FFFF.
+static LEAD_END: Int = 245
+// The leads whose first continuation byte is narrowed: 0xE0 against an
+// overlong form, 0xED against a UTF-16 surrogate, 0xF0 against an overlong
+// form and 0xF4 against a scalar past U+10FFFF.
+static OVERLONG_THREE_LEAD: Int = 224
+static OVERLONG_THREE_LOW: Int = 160
+static SURROGATE_LEAD: Int = 237
+static SURROGATE_HIGH: Int = 159
+static OVERLONG_FOUR_LEAD: Int = 240
+static OVERLONG_FOUR_LOW: Int = 144
+static MAX_SCALAR_LEAD: Int = 244
+static MAX_SCALAR_HIGH: Int = 143
+
+/// Returns the byte offset at which the first malformed sequence in the
+/// `count` bytes at `bytes` begins, or `None` when all of them are UTF-8.
+///
+/// The bytes before the offset decode cleanly. A sequence cut off by the end
+/// of the bytes is malformed where it begins.
+public(package) func utf8_error_offset(bytes: UnsafePointer<Int8>, count: Int) unsafe -> Int? {
+    var i = 0
+    while i < count {
+        let width = utf8_sequence_width(bytes, count, i)
+        if width == 0 {
+            return i
+        }
+        i = i + width
+    }
+    None
+}
+
+// The byte at `at`, read unsigned.
+func utf8_byte(bytes: UnsafePointer<Int8>, at: Int) unsafe -> Int {
+    UInt8.from(truncating: bytes[at]) as Int
+}
+
+// Whether the byte at `at` lies in `low..=high`.
+func utf8_byte_in(bytes: UnsafePointer<Int8>, at: Int, low: Int, high: Int) unsafe -> Bool {
+    let b = utf8_byte(bytes, at)
+    b >= low && b <= high
+}
+
+// The length of the well-formed sequence that begins at `at`, or 0 when the
+// sequence there is malformed. The caller keeps `at` below `count`.
+func utf8_sequence_width(bytes: UnsafePointer<Int8>, count: Int, at: Int) unsafe -> Int {
+    let lead = utf8_byte(bytes, at)
+    if lead < ASCII_END {
+        return 1
+    }
+    if lead < TWO_BYTE_LEAD_LOW || lead >= LEAD_END {
+        return 0
+    }
+    let width = if lead < THREE_BYTE_LEAD_LOW { 2 } else if lead < FOUR_BYTE_LEAD_LOW { 3 } else { 4 }
+    if at + width > count {
+        return 0
+    }
+    var low = CONTINUATION_LOW
+    var high = CONTINUATION_HIGH
+    if lead == OVERLONG_THREE_LEAD {
+        low = OVERLONG_THREE_LOW
+    } else if lead == SURROGATE_LEAD {
+        high = SURROGATE_HIGH
+    } else if lead == OVERLONG_FOUR_LEAD {
+        low = OVERLONG_FOUR_LOW
+    } else if lead == MAX_SCALAR_LEAD {
+        high = MAX_SCALAR_HIGH
+    }
+    if not utf8_byte_in(bytes, at + 1, low, high) {
+        return 0
+    }
+    var k = 2
+    while k < width {
+        if not utf8_byte_in(bytes, at + k, CONTINUATION_LOW, CONTINUATION_HIGH) {
+            return 0
+        }
+        k = k + 1
+    }
+    width
+}

@@ -1,0 +1,52 @@
+// flags: --std-root std
+// A `String` field puts a struct on the automatic Copy tier with no policy
+// owed, under the std that declares `String`'s Copy as under the one that
+// synthesizes it: directly, as a fixed array's element, as an optional's
+// payload, through a struct already on the tier, and as an enum's payload.
+
+struct Ticket {
+    code: String
+}
+
+struct Names {
+    all: [String; 3]
+}
+
+struct Maybe {
+    note: String?
+}
+
+struct Booking {
+    ticket: Ticket,
+    seat: Int
+}
+
+enum Label {
+    case Named(text: String),
+    case Blank
+}
+
+func keep(b: Booking) -> Int {
+    let copy = b
+    copy.seat + b.seat
+}
+
+func main() {
+    let t = Ticket(code: "x")
+    let u = t
+    let n = Names(all: ["a", "b", "c"])
+    let m = n
+    let o = Maybe(note: "y")
+    let p = o
+    let b = Booking(ticket: u, seat: 4)
+    let l = Label.Named(text: "z")
+    let k = l
+    let _ = keep(b)
+    print(t.code)
+    print(m.all[0])
+    print(p.note ?? "")
+    match k {
+        case Named(text) -> print(text),
+        case Blank -> print("-")
+    }
+}

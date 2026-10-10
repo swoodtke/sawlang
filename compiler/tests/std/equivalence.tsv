@@ -26,13 +26,14 @@ StringBuilder	std.stringbuilder init StringBuilder.init -	U5b1
 .equals	lang Equatable	U5b1
 .to_string	lang Printable	U5b1
 Byte	vocabulary alias Byte -	U5b2
-Path	-	U5b3
+Path	std.path struct Path -	U5b3
+Path	std.path init Path.init s:String	U5b3
 Scalar	std.scalar struct Scalar -	U5b2
 Scalar	std.scalar init Scalar.init value:Int	U5b2
 Vector	std.vector struct Vector -	U5b2
 Vector	std.vector init Vector.init -	U5b2
-Env.args	-	U5b3
-File.open	-	U5b3
+Env.args	std.env method Env.args -	U5b3
+File.open	std.file method File.open path:std.path.Path	U5b3
 UInt8.from	paired conversions	U5b2
 .append	std.stringbuilder method StringBuilder.append scalar:std.scalar.Scalar	U5b2
 .byte_at	std.string method String.byte_at index:Int	U5b2
@@ -45,7 +46,8 @@ UInt8.from	paired conversions	U5b2
 .len	std.string method String.len -	U5b2
 .len	std.vector method Vector.len -	U5b2
 .push	std.vector method Vector.push value:T	U5b2
-.read	-	U5b3
+.read	std.file method File.read -	U5b3
+.to_string	std.data method Data.to_string -	U5b3
 .starts_with	std.string method String.starts_with prefix:String	U5b2
 .substring	std.string method String.substring start:Int,end:Int	U5b2
 .to_uint	std.string method String.to_uint -	U5b2
@@ -96,5 +98,22 @@ UInt8.from	paired conversions	U5b2
 (api)	std.vector conformance Vector ExplicitCopy	U5b2
 (api)	std.vector conformance Vector UnsafeSend	U5b2
 (api)	std.vector conformance Vector UnsafeSync	U5b2
+(api)	std.string struct Utf8Error -	U5b3
+(api)	std.string field Utf8Error.offset -	U5b3
+(api)	std.string conformance Utf8Error Error	U5b3
+(api)	std.string method Utf8Error.format into:&var std.stringbuilder.StringBuilder	U5b3
+(api)	std.data struct Data -	U5b3
+(api)	std.data conformance Data Copy	U5b3
+(api)	std.data conformance Data UnsafeSend	U5b3
+(api)	std.data conformance Data UnsafeSync	U5b3
+(api)	std.env struct Env -	U5b3
+(api)	std.file struct File -	U5b3
+(api)	std.file conformance File NoCopy	U5b3
+(api)	std.systemerror struct SystemError -	U5b3
+(api)	std.systemerror method SystemError.kind -	U5b3
+(api)	std.systemerror conformance SystemError Error	U5b3
+(api)	std.systemerror method SystemError.format into:&var std.stringbuilder.StringBuilder	U5b3
+(api)	std.systemerror enum SystemErrorKind -	U5b3
+(api)	std.systemerror method SystemErrorKind.describe -	U5b3
 (api)	std.vector method Vector.iter -	SL-461
 (api)	std.vector struct VectorIterator -	SL-461

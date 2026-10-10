@@ -429,3 +429,137 @@ defect.
   `Int`s.
 - **`borrows-accessor`** (2 declarations): `Vector.[]` and `Vector.get` are
   `borrows` accessors with `lend`, the new std's other named feature.
+
+# The new std's cone of sawc2
+
+Everything above is Stage 0's cone: what the frozen compiler compiles into
+sawc2 from `sawc/std`. That cone stays as recorded while Stage 0 builds sawc2,
+since `sawc/std` is frozen. The std sawc2 compiles from Stage 1 on is `std/`, and
+its cone of sawc2's own build is recorded in `compiler/tests/std/cone/sawc2.cone`,
+which the std lane holds (SL-456).
+
+## Method
+
+`std_cone.py`'s new-std reading (`new_std_cone`, with the stage packages'
+`--module-path`s) reads sawc2's typecheck dump of the driver build against
+`std/`: every std declaration the compiler's functions reach through calls, the
+types their bodies name, the String positions they hold, and each reached
+type's `copy` and `deinit`. The std lane fails if the cone reaches a runtime
+(`rt.`), task (`std.task`) or network (`std.net`) module, and on any change to
+the file.
+
+What this reading cannot see, besides the blind spots listed above:
+
+- **A conformance method reached through a refining trait.** The reading
+  follows a reached requirement to the conformances written for its own trait,
+  so `Printable.format` does not reach a `format` written in an `Error`
+  conformance. `SystemError.format` (with `SystemErrorKind.describe`),
+  `Utf8Error.format` and `AllocError.format` are reached that way, by the
+  driver's `print("...{}", e)` and by `try!`, and are reviewed below although
+  the file does not list them.
+- **The runtime behind a seam.** The reading stops at an `extern`. Behind
+  `__saw_rt_fs_open` and `__saw_rt_fs_read`, the frozen runtime's own bodies
+  call `rt_last_syserror`, which reads the errno table in
+  `rt.host_macos.net_os` and stores the raw code in its pthread-keyed slot.
+  That part of `net_os` stays in a hosted link whatever std does, until a
+  runtime change; what the new std removes is every call into the slot
+  (`__saw_rt_last_raw_code`) and `std.net` itself.
+
+## Summary
+
+The cone is 109 declarations in 14 modules, all of them std:
+
+| Module | Declarations |
+|---|---|
+| `std.alloc` | 8 |
+| `std.data` | 12 |
+| `std.env` | 7 |
+| `std.file` | 11 |
+| `std.mem` | 2 |
+| `std.panic` | 2 |
+| `std.path` | 3 |
+| `std.prelude` | 5 |
+| `std.scalar` | 6 |
+| `std.string` | 20 |
+| `std.stringbuilder` | 15 |
+| `std.systemerror` | 5 |
+| `std.utf8` | 4 |
+| `std.vector` | 9 |
+
+Against Stage 0's cone of the same program (250 declarations in 19 modules),
+these are gone: `std.taskgroup` (44) and `std.task` (1), since the panic sink
+reaches no executor; `std.net` (9), since file errors are `SystemError`;
+`std.arc` (9), `std.box` (1) and `std.compiler.frame` (1), since `Data` holds
+its own refcount and nothing reaches a task frame; the `builtin` declarations
+the new std's prelude now declares; and every runtime module, which the
+new-std reading does not enter (above).
+
+## The system modules, reviewed against SL:hazards
+
+Only sawc2 compiles `std/`, so Stage 0's silent hazards cannot miscompile these
+bodies; the std profile of the subset checker holds them to the subset anyway,
+and accepts them. What follows reads each body against the entries whose shape
+it has, and against the leak-tolerance condition, which concerns Stage 1.
+
+### std.utf8
+
+| Declaration | Shapes |
+|---|---|
+| `utf8_error_offset`, `utf8_sequence_width`, `utf8_byte`, `utf8_byte_in` | C1: every read is below `count`, since a sequence's width is checked against `count` before its continuation bytes are read. A byte is read through `UInt8.from(truncating:)`, so one at or above 0x80 is its unsigned value |
+
+No body: the byte-range statics.
+
+### std.data
+
+| Declaration | Shapes |
+|---|---|
+| struct `Data` | C1: a block pointer and a length; the block is `{ refcount, capacity, bytes }` |
+| `Data.reserved` | C1: one allocation through `GlobalAllocator`, refcount 1; a refusal is `None` |
+| `Data.spare`, `.spare_count`, `.grow` | C1: a write goes at `spare()`, within `spare_count()`, and `spare()` panics on a shared block, so no `Data` observes another's write; `grow` panics past the capacity |
+| `Data.to_string`, `.decoded` | Validates through `std.utf8` before `string_from_bytes` copies; an invalid run is `Err(Utf8Error)`, never a `String` |
+| `Data.copy`, `Data.deinit` | The atomic refcount, with `String`'s orderings. `deinit` frees the block it was allocated with, through the same allocator, and panics only on an over-release |
+| `data_refcount`, `data_capacity`, `data_bytes` | C1: header reads at fixed offsets |
+
+### std.systemerror
+
+| Declaration | Shapes |
+|---|---|
+| enum `SystemErrorKind`, `.describe` | Not raw-backed: a tag becomes a kind through `system_error_kind`, an `if` chain under L14's limit, and an unknown tag is `Unknown` |
+| struct `SystemError`, `.of`, `.raised`, `.kind`, `.format` | Holds the operation's name, always a literal, and a kind; nothing it owns needs a release, so a `try` over it cannot leak (S3) |
+
+No body: the tag statics, one per portable tag.
+
+### std.path, std.env
+
+| Declaration | Shapes |
+|---|---|
+| struct `Path`, `Path.init(s:)`, `Path.as_string` | `init` is in a non-generic extension (S1 does not apply) |
+| struct `Env`, `Env.argument_count` | none |
+| `Env.argument` | C1: `argv[index]` after the bounds check against `argc`; the length is the scan to the NUL that ends a C argument; a non-UTF-8 argument panics rather than becoming a `String` |
+| `Env.args` | S3's shape, an owned `String` argument under a propagating `try`: `push` consumes its argument on both paths, and `AllocError` owns nothing |
+| `c_string_length` | C1: the scan stops at the argument's NUL |
+
+No body: externs `__saw_rt_get_argc`, `__saw_rt_get_argv`.
+
+### std.file
+
+| Declaration | Shapes |
+|---|---|
+| struct `File` | One descriptor, opened by `open` and closed by `deinit` |
+| `File.open` | C1: the path's bytes are copied into a buffer of `len + 1` and NUL-terminated; a NUL inside the path is `Err(InvalidArgument)`, never a shorter path; the buffer is freed on every path |
+| `File.read` | C1: reads land at `Data.spare()` within `spare_count()`. A short read repeats, an interrupted one is retried, and an end before the length lseek(2) reported is `Err(UnexpectedEnd)`; the `Data` is released on every error path |
+| `File.deinit` | Leak tolerance: closes the descriptor, through the C library's close(2), since no runtime seam closes one |
+| `file_interrupted` | S2 does not apply: the scrutinee is a call's result |
+| enums `OpenMode`, `SeekOrigin` | Raw-backed; used only through `as UInt8` |
+
+No body: externs `__saw_rt_fs_open`, `__saw_rt_fs_read`, `__saw_rt_fs_lseek`,
+`close`; statics `NO_PERMISSION`, `NUL_BYTE`.
+
+### The leak-tolerance condition
+
+`ALLOWED_STD_MODULES` (`env`, `file`, `path`) and the pin in `tests/run.py` are
+unchanged: the compiler imports no new module. The modules those three reach
+are `std.data`, `std.systemerror` and `std.utf8`, and every `deinit` in the new
+cone frees memory (`Data`, `String`, `StringBuilder`, `Vector`) or closes a
+descriptor (`File`), so a drop Stage 1 skips has no effect but memory. None of
+the system modules writes a file.

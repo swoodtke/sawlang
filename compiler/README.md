@@ -237,7 +237,10 @@ these things.
   recorded cone holds, the ones of a program using only Optional and Result
   and of one whose only Strings are literals reaching no runtime module and
   no allocator, and the one of a program that interpolates reaching the
-  builder and the allocator.
+  builder and the allocator; and sawc2's own build, the driver with every stage
+  package, typechecks, lowers, borrow-checks and drop-elaborates against `std/`
+  with no refusal, its cone (`tests/std/cone/sawc2.cone`) reaching no runtime,
+  task or network module.
 - **The borrow check** (`tests/borrowck/README.md`): the borrowck lane
   (`tests/borrowck/borrowck_lane.py`) holds `sawc2 borrowck` to its golden
   records, refusal and due fixtures, requires a fixture for every rule it

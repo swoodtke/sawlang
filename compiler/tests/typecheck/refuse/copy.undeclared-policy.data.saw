@@ -1,0 +1,8 @@
+// refuses: copy.undeclared-policy at 6:8
+// a struct with a field of std's `Data`, a declared Copy type, and no policy of its own
+
+import std.data.{Data}
+
+struct Packet {
+    body: Data
+}

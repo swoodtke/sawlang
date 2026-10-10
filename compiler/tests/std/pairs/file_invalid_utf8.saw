@@ -1,0 +1,31 @@
+// arguments: {files}
+// Data.to_string on bytes that are not UTF-8 is an Err whose offset is the
+// byte index of the first malformed sequence, counted in bytes past a valid
+// two-byte scalar.
+
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+
+func main() -> Int {
+    let args = try! Env.args()
+    let dir = args.get(1) ?? ""
+    let opened = File.open(Path(s: "{dir}/invalid.txt"))
+    var file = match opened {
+        case Ok(handle) -> move handle,
+        case Err(e) -> panic("cannot open invalid.txt: {}", e)
+    }
+    let read = file.read()
+    let data = match read {
+        case Ok(bytes) -> bytes,
+        case Err(e) -> panic("cannot read invalid.txt: {}", e)
+    }
+    let decoded = data.to_string()
+    match decoded {
+        case Ok(_) -> panic("invalid.txt decoded"),
+        case Err(e) -> {
+            assert(e.offset == 6, "the 0xFF after `caf`, `é` and a space is byte 6, not {}", e.offset)
+        }
+    }
+    0
+}

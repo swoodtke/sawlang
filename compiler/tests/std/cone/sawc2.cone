@@ -1,0 +1,140 @@
+# The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
+# functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
+# 109 declarations in 14 modules
+
+std.alloc: 8
+  extern __saw_rt_alloc
+  extern __saw_rt_dealloc
+  method GlobalAllocator.alloc
+  method GlobalAllocator.dealloc
+  requirement Allocator.alloc
+  requirement Allocator.dealloc
+  struct AllocError
+  struct GlobalAllocator
+
+std.data: 12
+  func data_bytes
+  func data_capacity
+  func data_refcount
+  method Data.copy
+  method Data.decoded
+  method Data.deinit
+  method Data.grow
+  method Data.reserved
+  method Data.spare
+  method Data.spare_count
+  method Data.to_string
+  struct Data
+
+std.env: 7
+  extern __saw_rt_get_argc
+  extern __saw_rt_get_argv
+  func c_string_length
+  method Env.args
+  method Env.argument
+  method Env.argument_count
+  struct Env
+
+std.file: 11
+  enum OpenMode
+  enum SeekOrigin
+  extern __saw_rt_fs_lseek
+  extern __saw_rt_fs_open
+  extern __saw_rt_fs_read
+  extern close
+  func file_interrupted
+  method File.deinit
+  method File.open
+  method File.read
+  struct File
+
+std.mem: 2
+  func copy_bytes
+  func drop_in_place
+
+std.panic: 2
+  extern __saw_rt_panic
+  func panic_sink
+
+std.path: 3
+  init Path.init
+  method Path.as_string
+  struct Path
+
+std.prelude: 5
+  enum Optional
+  enum Result
+  requirement ExplicitCopy.copy
+  requirement Printable.format
+  requirement Printable.to_string
+
+std.scalar: 6
+  enum InvalidScalar
+  init Scalar.init
+  method InvalidScalar.format
+  method Scalar.format
+  method Scalar.value
+  struct Scalar
+
+std.string: 20
+  extern __saw_rt_alloc
+  extern __saw_rt_dealloc
+  func digit_value
+  func string_bytes
+  func string_equals
+  func string_from_bytes
+  func string_literal
+  method String.byte_at
+  method String.copy
+  method String.copy_range
+  method String.deinit
+  method String.equals
+  method String.is_empty
+  method String.len
+  method String.parse_unsigned
+  method String.starts_with
+  method String.substring
+  method String.to_uint
+  struct String
+  struct Utf8Error
+
+std.stringbuilder: 15
+  init StringBuilder.init
+  method StringBuilder.append
+  method StringBuilder.append_decimal
+  method StringBuilder.append_scalar_bytes
+  method StringBuilder.append_text
+  method StringBuilder.build
+  method StringBuilder.clear
+  method StringBuilder.deinit
+  method StringBuilder.grow_target
+  method StringBuilder.is_continuation
+  method StringBuilder.mark_truncated
+  method StringBuilder.overflow
+  method StringBuilder.place_byte
+  method StringBuilder.reserve_bytes
+  struct StringBuilder
+
+std.systemerror: 5
+  enum SystemErrorKind
+  func system_error_kind
+  method SystemError.of
+  method SystemError.raised
+  struct SystemError
+
+std.utf8: 4
+  func utf8_byte
+  func utf8_byte_in
+  func utf8_error_offset
+  func utf8_sequence_width
+
+std.vector: 9
+  init Vector.init
+  method Vector.copy
+  method Vector.deinit
+  method Vector.get
+  method Vector.grow_target
+  method Vector.len
+  method Vector.push
+  method Vector.reserve_slots
+  struct Vector

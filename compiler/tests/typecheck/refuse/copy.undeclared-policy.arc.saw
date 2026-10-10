@@ -1,0 +1,10 @@
+// refuses: copy.undeclared-policy at 8:8
+// a struct with an `Arc<T>` field, a declared Copy type, and no policy of its own
+
+struct Resource {
+    id: Int
+}
+
+struct Shared {
+    resource: Arc<Resource>
+}

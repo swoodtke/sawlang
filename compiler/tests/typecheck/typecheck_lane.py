@@ -10,6 +10,8 @@ directory specifies:
 
 - each golden program, `golden/NAME.saw` or `multi/NAME/main.saw`, checks to
   exactly the record in `golden/NAME.typecheck` or `multi/NAME.typecheck`;
+  a first line `// flags: ...` passes those flags, and under `--std-root`
+  the record leaves out the `std.` modules' dumps;
 - each refusal fixture, `refuse/RULE[.VARIANT].saw` or
   `refuse/RULE[.VARIANT]/main.saw`, is refused first by the rule and at the
   position its `// refuses:` header names;
@@ -39,6 +41,7 @@ TYPECHECK_SOURCE = os.path.join(COMPILER, "typecheck", "src")
 TIMEOUT = 300
 
 _HEADER = re.compile(r"^// refuses: (\S+)(?: at ((?:[\w.-]+\.saw:)?\d+:\d+))?$")
+_FLAGS = re.compile(r"^// flags: (.*)$")
 _RULE_ID = re.compile(r'"((?:type|conformance|synthesize|copy|unsafe|slice|member|call|infer|'
                       r'transfer|subscript|pattern|format|extension|implicit-member|operator|'
                       r'init|deinit|effect|match|result|borrowing|borrows|consumes|static|'
@@ -108,10 +111,43 @@ def first_difference(expected, got):
     return "a trailing byte"
 
 
+def golden_flags(src):
+    """The flags a golden program's first line `// flags: ...` passes."""
+    with open(src) as fh:
+        m = _FLAGS.match(fh.readline().rstrip("\n"))
+    return tuple(m.group(1).split()) if m else ()
+
+
+def without_std_modules(record):
+    """The record with each `std.` module's dump left out. Under `--std-root`
+    the std modules are dumped beside the program's, and they are std's
+    lane's to hold. A line outside every module, an `ERROR` or `INVARIANT`
+    among them, is kept."""
+    out = []
+    keep = True
+    for line in record.split("\n"):
+        if line.startswith("(Module "):
+            keep = not line[len("(Module "):].startswith("std.")
+        elif line and not line.startswith(" "):
+            keep = True
+        if keep:
+            out.append(line)
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
 def check_golden(failures, counts, write):
-    cases = golden_cases()
-    code, out = sawc2(["--dump"] + [rel(src) for src, _ in cases])
+    groups = {}
+    for src, exp in golden_cases():
+        groups.setdefault(golden_flags(src), []).append((src, exp))
+    for flags, cases in sorted(groups.items()):
+        check_golden_group(failures, counts, write, flags, cases)
+
+
+def check_golden_group(failures, counts, write, flags, cases):
+    code, out = sawc2(["--dump"] + list(flags) + [rel(src) for src, _ in cases])
     got = records(out)
+    if "--std-root" in flags:
+        got = {path: without_std_modules(record) for path, record in got.items()}
     for src, exp in cases:
         record = got.get(rel(src))
         if record is None:

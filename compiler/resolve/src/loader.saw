@@ -312,6 +312,12 @@ extension ResProgram {
         self.std_module("string")
         self.std_module("stringbuilder")
         self.std_module("vector")
+        self.std_module("utf8")
+        self.std_module("data")
+        self.std_module("systemerror")
+        self.std_module("path")
+        self.std_module("env")
+        self.std_module("file")
     }
 
     // Stage 0's std modules, each `std.X` at `<std root>/std/X.saw`.

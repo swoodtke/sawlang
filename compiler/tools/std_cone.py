@@ -1034,19 +1034,21 @@ _POSITION_MEMBERS = {
 }
 
 
-def _new_std_dump(entry, std_root):
-    r = subprocess.run([build.SAWC2, "typecheck", "--dump", "--std-root", std_root, entry],
+def _new_std_dump(entry, std_root, extra=()):
+    args = ["--std-root", std_root] + list(extra) + [entry]
+    r = subprocess.run([build.SAWC2, "typecheck", "--dump"] + args,
                        cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
     problems = [l for l in r.stdout.splitlines() if l.startswith(("ERROR", "INVARIANT"))]
-    lang = subprocess.run([build.SAWC2, "resolve", "--dump", "--std-root", std_root, entry],
+    lang = subprocess.run([build.SAWC2, "resolve", "--dump"] + args,
                           cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
     return r.stdout, lang.stdout, problems
 
 
-def new_std_cone(entry, std_root="std"):
-    """(text, problems, reached) for `entry` against the new std at `std_root`:
-    the cone as `module: count` blocks of `kind name` lines, like std_cone.txt."""
-    dump, resolved, problems = _new_std_dump(entry, std_root)
+def new_std_cone(entry, std_root="std", extra=()):
+    """(text, problems, reached) for `entry` against the new std at `std_root`,
+    `extra` the sawc2 arguments it also needs (its `--module-path`s): the cone
+    as `module: count` blocks of `kind name` lines, like std_cone.txt."""
+    dump, resolved, problems = _new_std_dump(entry, std_root, extra)
     if problems:
         return None, ["new std cone: %s" % p for p in problems], None
     decls = {}        # identity -> kind

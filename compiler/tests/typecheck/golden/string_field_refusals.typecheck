@@ -1,0 +1,57 @@
+ERROR	copy.undeclared-policy	compiler/tests/typecheck/golden/string_field_refusals.saw:15:8	`Mixed` holds `Mixed.handle` of type `string_field_refusals.Handle`, which is NoCopy, so it declares its own policy: `extension Mixed: NoCopy {}`, or `@synthesize` an ExplicitCopy
+ERROR	copy.undeclared-policy	compiler/tests/typecheck/golden/string_field_refusals.saw:20:8	`Packet` holds `Packet.body` of type `std.data.Data`, which declares Copy, so it declares its own policy: `extension Packet: NoCopy {}`, or `@synthesize` an ExplicitCopy
+ERROR	copy.undeclared-policy	compiler/tests/typecheck/golden/string_field_refusals.saw:34:8	`Badge` holds `Badge.tag` of type `string_field_refusals.Tag`, which declares Copy, so it declares its own policy: `extension Badge: NoCopy {}`, or `@synthesize` an ExplicitCopy
+(Module string_field_refusals
+  (declarations
+    (struct Handle 9:8 private)
+    (field Handle.fd 10:5 private Int)
+    (extension 13:1 (target string_field_refusals.Handle) (conforms NoCopy))
+    (struct Mixed 15:8 private)
+    (field Mixed.name 16:5 private String)
+    (field Mixed.handle 17:5 private string_field_refusals.Handle)
+    (struct Packet 20:8 private)
+    (field Packet.body 21:5 private std.data.Data)
+    (struct Tag 24:8 private)
+    (field Tag.id 25:5 private Int)
+    (extension 28:1 (target string_field_refusals.Tag) (conforms Copy))
+    (method Tag.copy 29:10 private (signature (receiver shared) (params) -> string_field_refusals.Tag) (summary body (suspends no) (sync-callable yes)))
+    (struct Badge 34:8 private)
+    (field Badge.label 35:5 private String)
+    (field Badge.tag 36:5 private string_field_refusals.Tag))
+  (members
+    (string_field_refusals.Handle
+      (field fd Int private declared))
+    (string_field_refusals.Mixed
+      (field name String private declared)
+      (field handle string_field_refusals.Handle private declared)
+      (method deinit public (synthesized Deinit)))
+    (string_field_refusals.Packet
+      (field body std.data.Data private declared)
+      (method deinit public (synthesized Deinit)))
+    (string_field_refusals.Tag
+      (field id Int private declared)
+      (method copy private (extension string_field_refusals)))
+    (string_field_refusals.Badge
+      (field label String private declared)
+      (field tag string_field_refusals.Tag private declared)
+      (method deinit public (synthesized Deinit))))
+  (views
+    (string_field_refusals.Handle fd)
+    (string_field_refusals.Mixed name handle deinit)
+    (string_field_refusals.Packet body deinit)
+    (string_field_refusals.Tag id copy)
+    (string_field_refusals.Badge label tag deinit))
+  (conformances
+    (string_field_refusals.Handle NoCopy 13:19 (deinit implicit))
+    (string_field_refusals.Tag Copy 28:16 (copy written)))
+  (copy-tier
+    (string_field_refusals.Handle NoCopy declared)
+    (string_field_refusals.Mixed NoCopy)
+    (string_field_refusals.Packet Copy)
+    (string_field_refusals.Tag Copy declared)
+    (string_field_refusals.Badge Copy))
+  (bodies
+    (Tag.copy 29:10
+      (30:9-30:25 Call.paren string_field_refusals.Tag value temp (memberwise string_field_refusals.Tag (owner string_field_refusals.Tag)))
+      (30:17-30:24 Member Int place copy)
+      (30:17-30:21 SelfExpr string_field_refusals.Tag place project))))

@@ -1,0 +1,29 @@
+// arguments: {files}
+// read of an empty file is an empty Ok, distinct from a failure, and it
+// decodes to the empty String.
+
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+
+func main() -> Int {
+    let args = try! Env.args()
+    let dir = args.get(1) ?? ""
+    let opened = File.open(Path(s: "{dir}/empty.txt"))
+    var file = match opened {
+        case Ok(handle) -> move handle,
+        case Err(e) -> panic("cannot open empty.txt: {}", e)
+    }
+    let read = file.read()
+    let data = match read {
+        case Ok(bytes) -> bytes,
+        case Err(e) -> panic("an empty file reads as an Err: {}", e)
+    }
+    let decoded = data.to_string()
+    let text = match decoded {
+        case Ok(t) -> t,
+        case Err(e) -> panic("no bytes do not decode: {}", e)
+    }
+    assert(text.is_empty(), "an empty file decodes to the empty String")
+    0
+}

@@ -1,0 +1,41 @@
+// arguments: {files}
+// File.open and read: a file's bytes come back whole, and to_string decodes
+// them, a multi-byte scalar included.
+
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+
+func main() -> Int {
+    let args = try! Env.args()
+    let dir = args.get(1) ?? ""
+    let opened = File.open(Path(s: "{dir}/text.txt"))
+    var file = match opened {
+        case Ok(handle) -> move handle,
+        case Err(e) -> panic("cannot open text.txt: {}", e)
+    }
+    let read = file.read()
+    let data = match read {
+        case Ok(bytes) -> bytes,
+        case Err(e) -> panic("cannot read text.txt: {}", e)
+    }
+    let decoded = data.to_string()
+    let text = match decoded {
+        case Ok(t) -> t,
+        case Err(e) -> panic("text.txt does not decode: {}", e)
+    }
+    assert(text.len() == 12, "the file's 12 bytes, the two of `é` included")
+    assert(text.equals("saw: héllo\n"), "the bytes as written")
+    let again = file.read()
+    let rest = match again {
+        case Ok(bytes) -> bytes,
+        case Err(e) -> panic("cannot read text.txt again: {}", e)
+    }
+    let remainder = rest.to_string()
+    let tail = match remainder {
+        case Ok(t) -> t,
+        case Err(e) -> panic("an empty read does not decode: {}", e)
+    }
+    assert(tail.is_empty(), "a second read starts at the end and is empty")
+    0
+}

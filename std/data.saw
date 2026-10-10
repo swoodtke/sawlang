@@ -1,0 +1,149 @@
+//! `Data`: bytes with value semantics.
+//!
+//! A `Data` is a length over one heap block laid out as
+//! `{ refcount, capacity, bytes }`. Copying a `Data` retains the block and
+//! copies no bytes, and the last drop frees it. The refcount is atomic, with
+//! `String`'s orderings: a retain adds with relaxed ordering, a release
+//! subtracts with release ordering, and the release that reaches zero issues
+//! an acquire fence before it frees the block.
+//!
+//! The block is written only while one `Data` owns it, which every write
+//! checks, so no `Data` observes another's write.
+
+import std.string.{Utf8Error, string_from_bytes}
+import std.utf8.{utf8_error_offset}
+
+// The header's two words sit at the front of the block: the refcount, then
+// the capacity in bytes, which the release needs to free the block.
+static DATA_REFCOUNT_SLOT: Int = 0
+static DATA_CAPACITY_SLOT: Int = 1
+static DATA_HEADER_WORDS: Int = 2
+static DATA_BLOCK_ALIGN: Int = 16
+
+/// Bytes with value semantics, shared by reference count.
+///
+/// Copying a `Data` is a refcount increment.
+public struct Data {
+    // `None` is the empty `Data`, which owns no block.
+    private block: UnsafePointer<Int8>?
+    private length: Int
+}
+
+// The address of a block's refcount word.
+func data_refcount(block: UnsafePointer<Int8>) unsafe -> UnsafePointer<Int> {
+    let words = block as UnsafePointer<Int>
+    (&words[DATA_REFCOUNT_SLOT]) as UnsafePointer<Int>
+}
+
+// The block's capacity in bytes, from its header.
+func data_capacity(block: UnsafePointer<Int8>) unsafe -> Int {
+    let words = block as UnsafePointer<Int>
+    words[DATA_CAPACITY_SLOT]
+}
+
+// The address of a block's first byte.
+func data_bytes(block: UnsafePointer<Int8>) unsafe -> UnsafePointer<Int8> {
+    (&block[DATA_HEADER_WORDS * sizeof<Int>()]) as UnsafePointer<Int8>
+}
+
+extension Data {
+    // An empty `Data` with a block of `capacity` bytes, or `None` when the
+    // allocator refuses. A non-positive `capacity` allocates nothing.
+    public(package) static func reserved(capacity: Int) unsafe -> Data? {
+        if capacity <= 0 {
+            return Data(block: None, length: 0)
+        }
+        let total = DATA_HEADER_WORDS * sizeof<Int>() + capacity
+        guard let block = GlobalAllocator().alloc(total, DATA_BLOCK_ALIGN) else {
+            return None
+        }
+        let words = block as UnsafePointer<Int>
+        words[DATA_REFCOUNT_SLOT] = 1
+        words[DATA_CAPACITY_SLOT] = capacity
+        Data(block: block, length: 0)
+    }
+
+    // Where the next byte goes, with `spare_count()` bytes of room behind it.
+    // Panics on a shared block, since a write there would show through every
+    // other `Data` that holds it.
+    public(package) func spare(&var self) unsafe -> UnsafePointer<Int8> {
+        guard let block = self.block else {
+            panic("Data.spare: no block")
+        }
+        if __saw_atomic_load_i64_relaxed(data_refcount(block)) != 1 {
+            panic("Data.spare: the block is shared")
+        }
+        (&data_bytes(block)[self.length]) as UnsafePointer<Int8>
+    }
+
+    // How many bytes fit after the last one before the block is full.
+    public(package) func spare_count(&self) unsafe -> Int {
+        guard let block = self.block else {
+            return 0
+        }
+        data_capacity(block) - self.length
+    }
+
+    // Counts `count` more bytes, which the caller has written at `spare()`.
+    // Panics if they would run past the block.
+    public(package) func grow(&var self, count: Int) unsafe {
+        if count < 0 || count > self.spare_count() {
+            panic("Data.grow: {} bytes do not fit ({} free)", count, self.spare_count())
+        }
+        self.length = self.length + count
+    }
+
+    /// Decodes the bytes as UTF-8 into a new `String`.
+    ///
+    /// Returns `Err(Utf8Error)` when they are not UTF-8, its `offset` the byte
+    /// index where the first malformed sequence begins. Panics if the
+    /// allocator refuses the `String`.
+    public func to_string(&self) -> Result<String, Utf8Error> {
+        self.decoded()
+    }
+
+    func decoded(&self) unsafe -> Result<String, Utf8Error> {
+        guard let block = self.block else {
+            return ""
+        }
+        let bytes = data_bytes(block)
+        if let offset = utf8_error_offset(bytes, self.length) {
+            return Utf8Error(offset: offset)
+        }
+        string_from_bytes(bytes, self.length)
+    }
+}
+
+/// `Data` copies by reference count.
+extension Data: Copy {
+    /// Retains the block and returns a second `Data` over it.
+    public func copy(&self) unsafe -> Data {
+        if let block = self.block {
+            let _ = __saw_atomic_add_i64(data_refcount(block), 1)
+        }
+        Data(block: self.block, length: self.length)
+    }
+
+    /// Releases the block, freeing it when this was the last reference.
+    public func deinit(&var self) unsafe {
+        guard let block = self.block else {
+            return
+        }
+        let count = data_refcount(block)
+        let old = __saw_atomic_sub_i64_release(count, 1)
+        if old < 1 {
+            panic("Data: over-release of a Data block (refcount underflow)")
+        }
+        if old == 1 {
+            __saw_atomic_fence_acquire()
+            let total = DATA_HEADER_WORDS * sizeof<Int>() + data_capacity(block)
+            GlobalAllocator().dealloc(block, total, DATA_BLOCK_ALIGN)
+        }
+    }
+}
+
+// A block is written only by its sole owner and its count is atomic, so a
+// `Data` may cross threads and be shared between them; the pointer field alone
+// blocks the derivation.
+extension Data: UnsafeSend {}
+extension Data: UnsafeSync {}
