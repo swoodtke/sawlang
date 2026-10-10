@@ -30,6 +30,12 @@ O1 to O3 are decided as D31 to D33.
 
 ## Decided by the lead, for review (reversible)
 
+### D36. `File`'s deinit calls `close(2)` directly (Oct 10; U5b3, SL-456.p3; the Air confirmed)
+`sawc/rt/ABI.md` has no close seam, and adding one would be an ABI change. Stage 0 does the same, and `std.file` is hosted-only. A failed close of a read-only descriptor loses no data, so its status is dropped. EINTR isn't retried, which is correct, since on Linux the descriptor is already released.
+
+### D37. `File.read` repeats short reads and retries EINTR; an early end is `Err(UnexpectedEnd)` (Oct 10; U5b3, SL-456.p3; the Air confirmed)
+For a compiler reading its sources, an error beats a silently short file. Stage 0 returns the short prefix. `read` sizes its block with lseek(2), so a pipe or FIFO is `Err` from `lseek`, and a file that grows during the read is cut at the length measured at the start. SL-520 makes the doc say both.
+
 **D2–D21 were all accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. Nothing in this section is waiting for review.
 
 ### D35. A function type in a storage position is escaping, and a parameter's is non-escaping unless it says `escaping` (Oct 10; SL-480, tcb2b's question)
