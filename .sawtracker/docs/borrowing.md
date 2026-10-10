@@ -886,6 +886,10 @@ in them. Each note says what the migrated code looks like.
   a `consumes func keep()` that ends it without running it. Its limits: the
   closure escapes, so it cannot capture references; it allocates; and a
   forgotten `keep()` rolls back on success.
+- Method references, and so any value of a `borrows` function type. Today the
+  type describes methods only (a trait requirement, a call through a bound or
+  an `any Trait`), and no expression forms one: a closure has no receiver to
+  root a `lend` in (§2.7). (SL:open-questions D33.)
 
 ## 11. Open
 
