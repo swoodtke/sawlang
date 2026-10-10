@@ -354,6 +354,18 @@ lend of §7.
   ```
   A `lend` inside a `borrow` block keeps that block's borrow open for as long as
   the outer lend is open, exactly as a forwarded operand does.
+- **The lent place is the receiver's own storage** (LANGUAGE_SPEC, "The lent
+  place is rooted in the receiver"). It may be:
+  - rooted in `self`;
+  - reached through an indirection the receiver holds, such as
+    `if let buf = self.buffer { lend buf[i] }`;
+  - a receiver-rooted `match` payload;
+  - a borrow opened in the body over such a place.
+
+  A parameter is refused, `&var` included, even though its referent outlives
+  the window. Lending what a caller handed you is a larger promise than lending
+  your own storage, and widening later stays compatible. sawc2's rule is
+  `lend.root` (SL-460).
 - **A `borrows(sync)` borrow open at a `lend` makes the accessor
   `borrows(sync)`** (Ruled with §2.5; codex t17). If any borrow still open at a
   `lend` comes from a `borrows(sync)` accessor, the lending accessor must itself
