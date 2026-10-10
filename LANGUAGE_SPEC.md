@@ -988,7 +988,7 @@ division libcalls (`__divdi3`) on a 32-bit chip. Consequently:
   type the same way an annotation does, at every target kind: a local (`v = 4`),
   a struct field (`w.b = 2`), a tuple element under either spelling (`t.0 = 5`,
   `pair.x = 5`), an array or `Vector` element (`arr[0] = 5`), a `borrows` place
-  (`m[k]! = 5`), an `unsafe static var`, and the referent of a `&var` reference
+  (`borrow var g[i] = 5`), an `unsafe static var`, and the referent of a `&var` reference
   or of `self`. In each the literal takes the slot's exact
   width, so it stores and overflow-checks at that width, and an out-of-range
   literal (`let b: UInt8 = 256`) is a clean compile error, never a silent wrap or
@@ -1367,11 +1367,11 @@ shared until written.
 - **The uniqueness gate.** Every mutation — `push`, `append`, `append_bytes`,
   `set`, a write through `d[i]`, and the reservations behind them —
   takes the same test: sole owner, write in place; shared, copy the live bytes
-  into a fresh buffer and write there. The mechanism is
-  `Arc.with_unique(body:)`, which runs its body on a `&var` borrow of the
-  payload when the handle is the only strong owner and answers `None` when it
-  is not. Because there is no second path, no operation on a `Data` can be
-  observed by another `Data`.
+  into a fresh buffer and write there. The mechanism is `Arc.unique()`, a
+  conditional lend (`borrows -> &var T?`) of the payload that is present when
+  the handle is the only strong owner and absent when it is not. Because there
+  is no second path, no operation on a `Data` can be observed by another
+  `Data`.
 - **Slicing is O(1) at any size.** `slice(start, end) -> Data?` retains the same
   storage and narrows the window; `None` means the bounds were invalid. The
   slice is an independent value, so writing either it or its source separates
@@ -1396,14 +1396,14 @@ shared until written.
   bytes, so a number arriving at one has no second reading. `d[i]` is the
   exception on the read side: a place has one type for reading and writing, and
   it is `UInt8` so that `d[i] = 42` stays writable.
-- **`d[i]` is a place, and reading one costs nothing.** A read reaches the
-  `&self` accessor, so it works on a `let` binding, a `&Data` parameter, or a
-  slice several `Data`s share. A write reaches the `&var self` accessor, so it
+- **Reading `d[i]` costs nothing.** A read, the getitem `d[i]` or a shared
+  `borrow d[i]`, reaches the `&self` accessor, so it works on a `let` binding, a
+  `&Data` parameter, or a slice several `Data`s share. A write, the setitem
+  `d[i] = 42` or `borrow var d[i]`, reaches the `&var self` accessor, so it
   needs a `var` root and the first one on shared bytes copies them. They are two
   declarations because only the exclusive one runs the uniqueness gate (see
   [Shared and exclusive accessors](#shared-and-exclusive-accessors)). `get(i)`
-  is the `None`-returning twin of a panicking `[]`, not a different kind of
-  read.
+  is the optional copy beside a panicking `[]`, not a different kind of read.
 - **Iterating holds a retain.** `iter()` returns a `DataIterator` that owns a
   `Data`, so an iterator outliving the binding it came from still reads live
   bytes.
@@ -2204,14 +2204,17 @@ method instead), while a final METHOD result is a fresh value, unrestricted. The
 result composes as an ordinary Optional (`??`, `if let`, `guard let`, `!`, match
 all apply). `?.` on a non-Optional expression is a clean error.
 
-Once a `?` short-circuits, **ALL later evaluation is skipped, including the
-argument expressions of a skipped method call** — a deliberate, observable
-carve-out of the left-to-right rule under "Argument Evaluation Order" below.
+Once a `?` short-circuits, **ALL later evaluation in the chain is skipped,
+including the argument expressions of a skipped method call** — a deliberate,
+observable carve-out of the left-to-right rule under "Argument Evaluation
+Order" below. The right side of a chained assignment is not part of the chain:
+it is evaluated first (below).
 
 **Chained assignment** `x?.y = v` (and longer chains, `x?.a.b?.c = v`) writes the
 RHS through the chain into the payload FIELD **in place** iff every optional hop
-is non-None; the RHS is skipped entirely on short-circuit (same eval-order
-carve-out). The head must be a mutable place (a `var` or a `&var`-reachable path),
+is non-None. The RHS is evaluated first, as in every assignment, so it runs
+whether or not the chain short-circuits, and a short-circuit skips only the
+write and drops the value. The head must be a mutable place (a `var` or a `&var`-reachable path),
 and exclusivity applies to the written root. The RHS follows ordinary assignment
 transfer rules against the field type (implicit copy where the tier allows,
 `move`/`.copy()` for ExplicitCopy/NoCopy); the old field value deinits exactly
@@ -2223,30 +2226,30 @@ consumed via optional binding, **not** a `!= nil` comparison —
 `guard let` bound pattern: evaluate and test the Optional, bind nothing, drop the
 payload immediately).
 
-The **compound spelling** `x?.y += v` writes the same storage: on the non-None
-path the field is read, the operator applied and the result written back, and on
-a None head neither the write nor the RHS runs. Every compound operator is
-available (`+= -= *= /= %= &= |= ^= <<= >>=`), the operand rules are the compound
-statement's (both integer operands agree in width and signedness; a bare literal
-adopts the field's type), and the result is the same `Void?`. A SUSPENDING RHS
-works in either spelling (design 224): `x?.y += stream.read()` runs the read only
-on the non-None path, exactly as `x?.y = stream.read()` does. Builds before
-design 224 refused both the chained compound form and the plain `n += slow()`
-it lowers through.
+The **compound spelling** `x?.y += v` writes the same storage: the RHS is
+evaluated first, then on the non-None path the field is read, the operator
+applied and the result written back, and on a None head the write is skipped.
+Every compound operator is available (`+= -= *= /= %= &= |= ^= <<= >>=`), the
+operand rules are the compound statement's (both integer operands agree in
+width and signedness; a bare literal adopts the field's type), and the result
+is the same `Void?`. A SUSPENDING RHS works in either spelling (design 224), and
+runs on both paths as any RHS does.
 
-The head may be a **place** — a conditional lend, in either spelling:
+The head may be a **place** — a conditional lend, written with `borrow var`
+(`syntax.borrow.optional-target`):
 
 ```saw-fragment
-m["x"]?.value = 42        // subscript head
-v.get(0)?.value = 8       // named-accessor head
+borrow var m.find(&"x")?.value = 42     // a map's conditional lend
+borrow var v.find(0)?.value = 8         // a vector's
 ```
 
-The head lends, and an absent head opens no window, writes nothing and evaluates
-no RHS — the ordinary `?.` short-circuit. The `?` is the LEND's optionality, so
-inside the window the payload is simply there; the head is never read out as a
-value first, which is what would make the write land in a copy. One fence: a
-second `?` hop past the lend (`m[k]?.a?.b = v`) is not supported — bind the lend
-first.
+The head lends, and an absent head opens no window and writes nothing; the RHS
+has already run. The `?` is the LEND's optionality, so inside the window the
+payload is simply there; the head is never read out as a value first, which is
+what would make the write land in a copy. To compute the value only when the
+place is present, write the block form, `if borrow var p = v.find(0) { p.value = 8 }`.
+One fence: a second `?` hop past the lend (`borrow var m.find(&k)?.a?.b = v`)
+is not supported — bind the lend first.
 
 A **suspending hop** is supported (`designs/120`), on the read and the write
 side. The chain lowers to its branch shape before the suspension is embedded, so
@@ -2254,8 +2257,8 @@ side. The chain lowers to its branch shape before the suspension is embedded, so
 short-circuit still skips it (and its side effects) entirely. A multi-hop chain
 peels one hop at a time; `o?.a?.read()` evaluates `o?.a` into a temporary and
 then takes the last hop over it. A chained assignment whose RHS suspends
-(`x?.y = stream.read()`) lowers to a None-guarded read-modify-writeback, so the
-RHS runs only on the written path. `?.` indexing (`a?[i]`) is still out of scope.
+(`x?.y = stream.read()`) runs the RHS first, as every assignment does, and then
+the None-guarded write. `?.` indexing (`a?[i]`) is still out of scope.
 
 #### Payload reads: the place rule
 
@@ -3172,27 +3175,26 @@ original share a buffer: a push that does not reallocate writes into storage the
 caller owns while the caller's `length` stays behind.
 
 The fourth spelling is a **place window**. Where a field's type publishes a
-`borrows` accessor, a write through it opens an exclusive window on storage the
-receiver holds:
+`borrows` accessor, `borrow var` through it opens an exclusive window on storage
+the receiver holds:
 
-```saw-error
-// error-contains: cannot write through a place window on
+```saw-fragment
 struct Board {
     grid: Grid          // Grid holds an inline [Cell; 9]; a Vector field
 }                       // is refused the same way
 
 extension Board {
     func bump(&self) {
-        self.grid[0] += 100     // error: cannot write through a place window on
-    }                           //        storage reached through a `&self` receiver
-}
+        borrow var self.grid[0] += 100   // error: cannot write through a place
+    }                                    //        window on storage reached
+}                                        //        through a `&self` receiver
 ```
 
-A read (`self.grid[0]`) is legal when the field's type declares a `&self`
-accessor, written or derived with `@synthesize(shared)`: it lends the element
-read-only, so nothing is written. Through a `&var self` accessor alone, even a
-read is a `&var self` call on storage reached through `&self`, and is refused
-like any other (see [Receiver access](#receiver-access-is-a-second-fact)).
+A shared borrow (`borrow self.grid[0]`) is legal when the field's type declares
+a `&self` accessor, written or derived with `@synthesize(shared)`: it lends the
+element read-only, so nothing is written. Through a `&var self` accessor alone,
+even a read is a `&var self` call on storage reached through `&self`, and is
+refused like any other (see [Receiver access](#receiver-access-is-a-second-fact)).
 
 **`&self` is read-only all the way down.** Storage the receiver only *points
 at* is covered exactly as storage inside it is. A `Vector` field's elements live
@@ -3206,9 +3208,11 @@ struct Sheet { rows: Vector<Vector<Int>> }
 
 extension Sheet {
     func touch(&self) {
-        self.rows[0][0] += 100      // error: a write through a `&self` receiver
-        self.rows[0].push(9)        // error: `&var self` method `push` on storage
-    }                               //        reached through a `&self` receiver
+        borrow var self.rows[0][0] += 100   // error: a write through a `&self`
+                                            //        receiver
+        borrow var self.rows[0].push(9)     // error: `&var self` method `push` on
+    }                                       //        storage reached through a
+                                            //        `&self` receiver
 }
 ```
 
@@ -4221,9 +4225,16 @@ sink(&var p.x, extra)
 ```
 
 **Assignment.** An assignment writes its target, and its right-hand side is
-evaluated first, so the RHS may not borrow a path overlapping the written root:
-everything the callee wrote through that borrow would be overwritten by the
-assignment that follows.
+evaluated first, before the target's borrow opens. A borrow the right-hand side
+makes conflicts with the write when it is still open as the target's borrow
+opens. A reference the RHS hands to a callee, such as `&var p` passed to
+`bump`, is one such borrow, and on a path overlapping the written root it is
+refused: everything the callee wrote through that borrow would be overwritten
+by the assignment that follows. A borrow whose result is only copied out does
+not conflict, because it closes as soon as the value is read, before the
+target's borrow opens: `borrow var v[i].x = borrow v[j].x` with a copyable `x`,
+and `borrow var v[0].n = v.pop()!.n`, are legal (see
+[Window extent and nesting](#window-extent-and-nesting)).
 
 ```saw-error
 // error-contains: `p` is written by this assignment while also
@@ -4240,8 +4251,9 @@ that created it, and each is folded into the same disjointness check rather than
 getting a checker of its own — only the *window* over which paths are compared
 changes.
 
-- A **place window** (`borrows` / `lend`, below) borrows its root for the extent
-  of the expression that opened it, which is the whole enclosing call.
+- A **place window** (`borrows` / `lend`, below) borrows its root for as long
+  as the `borrow` that opened it: its block, its statement, or the call it is an
+  argument of.
 - A **task capture** borrows its root for the life of the spawned task: `[&var
   x]` exclusively, `[&x]` shared, released at the task handle's `join()` or at
   the group's death. The concurrency chapter states the release rules; the point
@@ -4256,7 +4268,7 @@ let seen = n
 
 > **Invariant (for future features):** the fully-static guarantee rests on every
 > live reference having a statically known extent. A call argument's extent is
-> the call expression, a place window's is the enclosing expression, a task capture's is the
+> the call expression, a place window's is the `borrow` that opened it, a task capture's is the
 > handle's join or its group's death. Returned/stored references or
 > globally-reachable mutable variables would have none, so they must either be
 > given one or be kept out; otherwise this law weakens from *sound* to
@@ -4264,7 +4276,9 @@ let seen = n
 
 ### Places (`borrows` and `lend`)
 
-**Status: implemented.** A **place** is storage that already exists: a local, a
+**Status: partially implemented.** Accessor declarations and `lend` are built;
+the `borrow` construct, the subscript roles and the shared/exclusive accessor
+pair are planned. A **place** is storage that already exists: a local, a
 field, a tuple component, an array element, an optional's payload. Places are
 not new — `v.x`, `t.0` and `o!` have always been places. What is new is that a
 *method* can hand one out.
@@ -4284,15 +4298,26 @@ extension Grid {
 }
 
 var g = Grid(cells: [...])
-print(g[4].weight)     // reads the element where it sits
-g[4].weight += 1       // writes it where it sits
+print(borrow g[4].weight)     // reads the element where it sits
+borrow var g[4].weight += 1   // writes it where it sits
 ```
 
 `borrows` rides the post-parameter effect slot beside `unsafe` and `sync`, in
 the order `unsafe sync borrows`, and the same slot exists on function types
 (`(Int) borrows -> Cell`). `[]` is a declarable method name, so a `borrows`
-method named `[]` is the subscript. Any named method may be `borrows` too
-(`func first() borrows -> &T`).
+method named `[]` is the subscript's place accessor. Any named method may be
+`borrows` too (`func first() borrows -> &T`).
+
+A `borrows` method is called only through the `borrow` construct, as the head
+of a `for`, or as the operand of a `lend` that forwards its place (see
+[The `borrow` construct](#the-borrow-construct)). A reader can tell a borrow
+from a copy by looking: whatever touches storage in place says `borrow`, and
+whatever looks like a copy is one. A plain subscript is the getitem, which
+copies the element out (see
+[Subscripts](#subscripts-getitem-setitem-and-the-place)). This `Grid` has none:
+a getitem derives only from a `&self` place accessor, and `Grid.[]` takes
+`&var self`, so a plain `g[4]` is refused and `borrow g[4]` is the way to read
+it.
 
 #### The signature names the lent reference and its mode
 
@@ -4370,11 +4395,6 @@ coverage is. A `lend` inside a loop is rejected: two windows would need their
 prologues and epilogues interleaved. Lend once, after the loop has chosen the
 place.
 
-The lowering is a scoped-borrow callback, which is what a place window already
-was before it had syntax: the accessor becomes an ordinary method taking a
-window closure, the use site becomes a call passing one. No coroutine machinery,
-no allocation, one direct call for the common case.
-
 #### The lent place is rooted in the receiver
 
 An accessor lends storage its **receiver** already owns. `lend` on the
@@ -4402,37 +4422,332 @@ referent outlives the window: lending what a caller handed you is a larger
 promise than lending your own storage, and there is no shape yet that needs it.
 Widening the rule later stays compatible.
 
-Two things count as the receiver's own storage without being written `self.…`. A
-`match` arm's payload binding is one, when the scrutinee is receiver-rooted (see
-[Conditional lends](#conditional-lends-borrows--t)). An INDIRECTION out of the
-receiver is the other: `Vector.[]` lends `buf[index]` for a `buf` read out of
-`self.buffer`, and `Data.[]` lends through a pointer cast from
-`self.byte_ptr()`. That storage is the receiver's own heap and no more dies with
-the accessor than a field does. Lending such a binding whole (`lend buf`) is
-still refused — that would hand out the frame's copy of the pointer.
+Three things count as the receiver's own storage without being written
+`self.…`. A `match` arm's payload binding is one, when the scrutinee is
+receiver-rooted (see [Lending an enum payload](#lending-an-enum-payload)). A
+place bound by a `borrow` the body opens over such storage is another. An
+INDIRECTION out of the receiver is the third: `Vector.[]` lends `buf[index]`
+for a `buf` read out of `self.buffer`, and `Data.[]` lends through a pointer
+cast from `self.byte_ptr()`. That storage is the receiver's own heap and no
+more dies with the accessor than a field does. Lending such a binding whole
+(`lend buf`) is still refused — that would hand out the frame's copy of the
+pointer.
 
-#### The use reads or writes; the declaration charges the root
+#### The `borrow` construct
 
-One `borrows -> &var T` declaration serves reads and writes. The use decides
-which: reading through the place reads it where it sits, and writing through it
-(or handing it over as `&var`) writes it there. The use decides nothing else.
-How the ROOT is borrowed follows the declaration (see
-[Receiver access](#receiver-access-is-a-second-fact)): `Grid.[]` above takes
-`&var self` and declares no `&self` form, so every use of it borrows `g`
-exclusively, a read included.
+**Status: planned.** `borrow` marks every use of storage through a `borrows`
+method. It has three forms: a block that names the place, a prefix that borrows
+it for one statement or one call, and a `for` loop that borrows each element in
+turn (see [Borrowing structs](#borrowing-structs)). GRAMMAR.md §9 gives their
+spelling (`syntax.borrow.block`, `syntax.borrow.place`, `syntax.borrow.unwrap`,
+`syntax.borrow.for`), and the tokens after `borrow` decide the form
+(`syntax.rule.borrow-form`).
+
+Two positions call a `borrows` method without writing `borrow`. A `for` head is
+one: `for` is the repeating form of the construct (see
+[Borrowing structs](#borrowing-structs)). The operand of `lend` is the other.
+Inside a `borrows` body, `lend self.sections[i]` forwards a place reached
+through another accessor; `lend` is already the explicit borrow marker there.
+The inner borrow opens for as long as the outer lend is open, nested inside it,
+and they close in reverse order. A place reached any other way inside the body
+is an ordinary borrow and is written as one.
+
+**The block form** names the place and scopes it to a block:
 
 ```saw-fragment
-print(g[4].weight)      // a read; still an exclusive borrow of `g`, so `g`
-                        // must be a `var`
-g[4].weight += 1        // a write; an exclusive borrow of `g`
-bump(&var g[4])         // exclusive, spanning the call
+borrow var slot = v[i] { slot.count += 1 }
+borrow let entry = doc.section("net") { print(entry.name) }
+borrow var n = counter.lock() { n += 1 }
 ```
 
-The declaration sets the ceiling on the place: a use may read through a
-writable lend, and never write through a read-only one. A read borrows the root
-shared only through a `&self` accessor, which a type declares beside the
-exclusive one or derives with `@synthesize(shared)` (see
-[Shared and exclusive accessors](#shared-and-exclusive-accessors)).
+- `borrow let` binds a read-only place, and `borrow var` a writable one. The
+  word in front names the construct, as `if` does in `if let`; the `let` or
+  `var` after it introduces the name and gives its mode. A statement that
+  starts with `let` or `var` declares a name that lives to the end of the
+  enclosing block, and this name dies at the construct's `}`.
+- The binding is always named, and inside the block only the name reaches the
+  place. The head expression cannot be used there, so the body always works on
+  the place that was borrowed.
+- The head is evaluated once and may be any expression, calls included
+  (`v[next_index()]`, `counter.lock()`). A temporary may be the head:
+  `borrow var x = make_grid()[0] { … }` keeps the temporary alive until the
+  borrow closes, so the storage the place points into persists.
+- The borrow closes at the block's `}`, and on every other way out of it:
+  `return`, `break` or `continue` out of the block, and a propagating `try`.
+- There is no `else` clause. The binding carries whatever the accessor lends,
+  so a conditional lend binds an optional place, which the body unwraps (see
+  [Conditional lends](#conditional-lends-borrows--t)).
+- The block is an expression, and its value is its tail, as with `if` and
+  `match`. The value must be owned or copied out. It never carries the borrow
+  itself: no reference, slice or borrowing struct into the place leaves the
+  block.
+
+```saw-fragment
+let outcome = borrow var task = frames[i] {
+    match task.resume() {
+        case Pending -> Outcome(done: false, wake: task.wake_reason())
+        case Ready -> Outcome(done: true, wake: Wake.Idle)
+    }
+}
+```
+
+One block may bind several places. The bindings open left to right and close
+in reverse order on every exit. A later binding may borrow through an earlier
+one, which freezes the earlier binding while the later one is live, as any
+reborrow does:
+
+```saw-fragment
+borrow var row = grid[r], var cell = row[c] { cell.weight += bias }
+```
+
+**The statement form** prefixes the place directly, for in-place work that fits
+in one statement. The borrow lasts exactly that statement:
+
+```saw-fragment
+borrow var grid[r][c].weight += bias
+borrow var queues[k].push(job)
+print(borrow doc.section("net").name)
+```
+
+- No name is bound, so bare `borrow` is shared and `borrow var` is exclusive,
+  as `&` and `&var` are. Bare `borrow` is always shared, never inferred from
+  use: a write through it is refused, with a hint naming `borrow var`.
+  `borrow let` with no name after it is refused
+  (`syntax.expr.refused-borrow-let-unbound`), since `let` introduces a name.
+- The prefix covers the place expression up to and including its `borrows`
+  call, and what follows (`.weight`, `.push(job)`) acts on the lent place. The
+  operand is a postfix expression, so `borrow` binds tighter than `as`, every
+  binary operator and `=` (`syntax.rule.borrow-extent`):
+  `borrow doc.section_at(x).get("k") ?? ""` coalesces the borrowed read.
+- A chain with several `borrows` calls, such as `grid[r][c]`, is a chain of
+  nested reborrows. The root is charged first. Each later call borrows through
+  the place the one before it lent, which freezes that place while the later
+  borrow is live, and they close in reverse order at the end of the statement.
+  That is the meaning of nested block forms,
+  `borrow var row = grid[r] { borrow var cell = row[c] { … } }`.
+- Several borrows in one statement are checked together, so
+  `borrow var a[i].x = borrow b[j].x` is legal.
+- A borrow whose result is only copied closes as soon as the value is read.
+  The right side of an assignment is evaluated before the left side's borrow
+  opens, so `borrow var v[i].x = borrow v[j].x` works when `x` is copyable: the
+  right borrow opens, `x` is copied out, the right borrow closes, and only then
+  does the left one open. Two borrows are live together only while both are in
+  use.
+- A conditional lend reached into inline needs `!`, which panics if the place
+  is absent, or `?`, which skips if it is absent, since there is no block to
+  discriminate it in. An absent conditional write still evaluates its right
+  side: `borrow var v.find(9)?.value = loud(3)` calls `loud(3)` whether or not
+  the place is present, and drops the value when it is not. Every assignment
+  has this one order, the right side and then the left borrow, and `?` skips
+  only the write. To compute the value only when the place is present, write
+  `if borrow var p = v.find(9) { p.value = loud(3) }`. The statement with `?`
+  has type `Void?`, as a chained assignment does (see [Optionals](#optionals)).
+- A conditional lend read as a whole value is an optional copy:
+  `let c = borrow b.slot(0)` copies the lent place out as a `T?`. The element
+  must be copyable, and the borrow closes once the value is read.
+
+**In argument position** the place form passes the place by reference.
+`borrow var <place>` passes `&var` and `borrow <place>` passes `&`: the prefix
+replaces the sigil at that argument, and the borrow lasts for the call.
+
+```saw-fragment
+bump(borrow var g[4])
+show(borrow g[4])
+```
+
+A local, or a field path with no `borrows` accessor in it, is still passed as
+`&x` or `&var s.field`, because `borrow` is written only where a `borrows`
+accessor is called. Inside a borrow, a bound place is passed on the same way
+(`f(&var slot)`), as an ordinary reborrow for the duration of the call. `&` of
+a temporary is legal for a shared `&` argument, as in `m.find(&"zz")` or
+`m.find(&key_of(x))`. The temporary lives to the end of the statement, or, in a
+borrow's head, until that borrow closes, and the reference cannot outlive it,
+since a reference is never stored.
+
+**The binding keyword is a capability on the place, and the declaration
+charges the root.** `borrow let` and bare `borrow` only read the place, and are
+always allowed. `borrow var` may write it and requires a `&var` lend: through a
+`-> &T` accessor it is refused, because the lend is read-only. How the root is
+held is read from the accessor (see
+[Receiver access](#receiver-access-is-a-second-fact)). A shared borrow uses the
+type's `&self` accessor when it has one, the least privilege that works, and
+otherwise the exclusive one, whose root charge is then exclusive. `Grid.[]`
+above takes `&var self` and declares no `&self` form, so every borrow through
+it holds `g` exclusively, a read included:
+
+```saw-fragment
+print(borrow g[4].weight)      // a read; still an exclusive borrow of `g`, so
+                               // `g` must be a `var`
+borrow var g[4].weight += 1    // a write; an exclusive borrow of `g`
+bump(borrow var g[4])          // exclusive, spanning the call
+```
+
+**A borrow may stay open across a suspension**: the block form, the statement
+form, a `for` loop and a borrowed argument alike. A borrow held across a
+suspension lives in the coroutine frame like any other live value, and the
+borrow check sees it there. The opt-out is declared on the accessor, as
+`borrows(sync)` (`syntax.decl.borrows-sync`):
+
+```saw-fragment
+extension SpinLock<T> {
+    func lock(&self) sync borrows(sync) -> &var T { … }
+}
+
+borrow var n = counter.lock() {
+    n += 1
+    sleep(Duration.ms(5))    // error: `n` is a `borrows(sync)` borrow from `SpinLock.lock`,
+}                            //        which cannot be held across a suspension
+```
+
+- A function's `sync` effect and `borrows(sync)` are independent. `sync` says
+  the accessor's own body, before and after `lend`, does not suspend.
+  `borrows(sync)` says the caller cannot suspend while the place is lent.
+  `Vector.[]`'s body never suspends, yet its borrow may span a suspension; a
+  spin lock is `sync borrows(sync)`.
+- It is declared, never inferred, and nothing is written at the use site.
+  Suspending inside such a borrow is a compile error that names the accessor.
+- It is for whatever is valid only on the current thread or CPU. A lock is the
+  main case: a task can resume on a different worker after a suspension, so a
+  lock held across one would be released by a thread that is not its owner.
+  Thread-local storage, per-CPU data and interrupt-disabled sections are the
+  others.
+- It combines with the other effects in the slot: `unsafe borrows(sync)`,
+  `sync borrows(sync)`.
+- A caller holding a plain `borrows` loan is entitled to suspend, so a
+  `borrows(sync)` accessor never stands in for a plain one. A plain `borrows`
+  implementation satisfies a `borrows(sync)` requirement, and a
+  `borrows(sync)` implementation never satisfies a plain `borrows` one. The
+  restriction survives every indirection: trait and `any Trait` dispatch follow
+  the requirement's declaration, a `@synthesize(shared)` accessor keeps it, and
+  a function value of a `borrows(sync)` type does not convert to a plain
+  `borrows` type. This is the reverse of function `sync`, where a `sync`
+  implementation satisfies a plain requirement, because function `sync`
+  constrains the callee's body and `borrows(sync)` constrains the consumer's.
+- **A `borrows(sync)` borrow open at a `lend` makes the lending accessor
+  `borrows(sync)`.** If any borrow still open at a `lend` comes from a
+  `borrows(sync)` accessor, the accessor doing the lending must itself be
+  declared `borrows(sync)`, and otherwise that `lend` is refused. Forwarding a
+  lock's place (`lend self.guard.lock()`) is one case. A wrapper that holds an
+  unrelated lock while it lends its own buffer is another: it forwards nothing,
+  but the lock is still held while the consumer runs. A lock borrow closed
+  before the `lend` imposes nothing. The suspension that would break the lock
+  happens in the consumer's body, while the accessor is paused at `lend`, so
+  the accessor's own `sync` check cannot see it; the rule sits at the `lend`,
+  the one place the borrow's lifetime is visible, and the restriction then
+  travels with the declaration.
+
+#### Subscripts: getitem, setitem and the place
+
+**Status: planned.** A subscript has three roles, and each is an ordinary
+method, so its receiver mode, effects, visibility, overloads, doc comment and
+`@synthesize` apply unchanged. A method named `[]` with a `borrows` effect is
+the place accessor, one without is the getitem, and `[]=` is the setitem, whose
+last parameter is the value (`syntax.rule.subscript-declaration`):
+
+| Role | Declared as | Used as | Meaning |
+|---|---|---|---|
+| getitem | `func [](&self, key: K) -> V` | `m[k]` | copy the value out; panics if absent |
+| setitem | `func []=(&var self, key: K, value: V)` | `m[k] = v` | store: insert or replace (`Map`), replace (`Vector`, panics out of range) |
+| place | `func [](…) borrows -> &var V` | `borrow var e = m[k] { … }` | lend the storage in place |
+
+- A plain subscript is a value and a `borrow` subscript is a place; the
+  spelling at the call site picks the role.
+- `counts[k] += 1` is a getitem and then a setitem, and panics if `k` is
+  absent. The receiver and every key expression are evaluated exactly once,
+  even though getitem and setitem are two calls, so `counts[next_key()] += 1`
+  calls `next_key()` once.
+- `Map`'s getitem panics on a missing key, as `Vector`'s does out of range, and
+  `m.get(k)` is the optional copy. An optional place is a named accessor, such
+  as `m.find(&k)` lending `&var V?`, because `[]` under `borrow` panics on
+  absence as getitem does.
+- A setitem that inserts (`m[k] = v`) may allocate and has no way to return an
+  error, so it panics if the allocator refuses: a documented panic boundary
+  (see [Where a refusal still panics](#where-a-refusal-still-panics)), which a
+  strict flag refuses. `try m.insert(k, v)` is the spelling that reports.
+
+**Derivation.** A type that declares only the place accessor gets the other two
+derived. The derived getitem is a shared lend plus a copy. It exists for
+Copy-tier values only, and only from a `&self` place accessor, declared or
+`@synthesize(shared)`, so a plain read never holds the root exclusively or runs
+a prologue that writes `self`. The derived setitem is an exclusive lend plus an
+assignment that replaces the element. A type that declares a `&self` and
+`&var self` pair derives getitem from the first and setitem from the second.
+`Map` declares its getitem and setitem, because its setitem inserts.
+
+**A field read off a plain subscript copies the element.** `PROCESSES[p].state`
+is a getitem of the whole element and then a field read. Where the getitem is
+derived and copying the element runs no code (no declared `copy()` and no
+deinit anywhere in it, so the copy is a plain memory copy), the compiler may
+read the field alone through a shared borrow, which is observably the same. A
+declared getitem is always called as written, since its body may have side
+effects.
+
+**Several arguments** follow the ordinary call rules, labels included:
+
+```saw-fragment
+extension Matrix {
+    func [](&self, row: Int, col: Int) -> Float
+    func []=(&var self, row: Int, col: Int, value: Float)
+    func [](&var self, row: Int, col: Int) borrows -> &var Float
+}
+```
+
+- The setitem's `value` is its last parameter, so `m[r, c] = x` calls
+  `[]=(r, c, value: x)`.
+- Within one family, the key parameters of `[]`, of `[]=` without its `value`,
+  and of the place accessor match, and `value`'s type is the getitem's return
+  type.
+- `m[r, c]` (two arguments) and `m[(r, c)]` (one tuple argument) are different
+  signatures (`syntax.rule.subscript-arguments`).
+
+**The `default:` subscript** handles a missing key per call. On a miss, the
+read form yields the default and the other forms insert it:
+
+```saw-fragment
+counts[word, default: 0] += 1
+if names[id, default: ""] == "admin" { … }
+borrow var e = sessions[id, default: Session()] { e.hits += 1 }
+```
+
+The default is evaluated only when the key is absent, never on a hit, so
+`cache[k, default: try load(k)]` does no I/O on a hit. `default:` is a
+compiler-known argument label with `??` semantics, not a lazy-parameter
+feature, so nothing is captured or allocated. The operations it uses are one
+declared trait:
+
+```saw-fragment
+trait KeyedPlace<K, V> {
+    func find(&var self, key: &K) borrows -> &var V?    // the existing entry, if any
+    func insert_and_lend(&var self, key: K, value: V) borrows -> &var V   // store, then lend
+}
+```
+
+The receiver and the key are evaluated exactly once, first:
+
+| Spelling | Meaning | When `e` is evaluated |
+|---|---|---|
+| `m[k, default: e]` | `find(&k)`: on a hit, copy the entry out; on a miss, yield `e`. Nothing is inserted | only on a miss |
+| `m[k, default: e] op= r` | evaluate `r`, then `find(&k)`; on a miss, evaluate `e` and `insert_and_lend(k, e)`; then `entry op= r` in place | only on a miss. The result is stored, so `counts[k, default: 0] += 1` stores `1` on a miss |
+| `m[k, default: e] = v` | `m[k] = v`, the type's own setitem; requires `[]=` | never. A pure store ignores the default, and writing one there draws a warning |
+| `borrow var x = m[k, default: e] { … }` | `find(&k)`; on a miss, evaluate `e` and lend `insert_and_lend(k, e)` | only on a miss |
+
+- `find` takes the key by reference, and `insert_and_lend`, the one operation
+  that stores, takes it by value as the key's last use, so the key is never
+  copied behind the reader's back.
+- A read borrows through `find`'s `&self` accessor when the conformer has one,
+  and otherwise through the exclusive one. `Map` has one.
+- The read and compound forms need a Copy-tier `V`. For a NoCopy `V`, write the
+  place form.
+- The place form always works on storage in the map, never on a temporary
+  written back later, and needs no second lookup after inserting.
+- The pure store needs the type's `[]=`, which a `KeyedPlace` bound alone does
+  not provide.
+- The compound and place forms, like an inserting setitem, panic if the
+  allocator refuses, and are the same documented panic boundary.
+
+A user-defined type gets `default:` by conforming to `KeyedPlace`. There is no
+default parameter value on a getitem, which would silently undo the
+missing-key panic.
 
 #### Read-only lends
 
@@ -4454,11 +4769,10 @@ extension Document {
     }
 }
 
-print(doc.section("package")!.get("name") ?? "")   // shared window
+print(borrow doc.section("package")!.get("name") ?? "")   // shared borrow
 ```
 
-```saw-error
-// error-contains: which lends the place READ-ONLY
+```saw-fragment
 struct Section { name: String }
 struct Document { sections: [Section; 1] }
 
@@ -4471,7 +4785,9 @@ extension Document {
 
 func main() {
     var doc = Document(sections: [Section(name: "package")])
-    doc.section(0)!.name = "other"
+    borrow var doc.section(0)!.name = "other"
+    // error: `borrow var` through `Document.section`, which lends the place
+    //        READ-ONLY
 }
 ```
 
@@ -4481,36 +4797,40 @@ want that narrower promise.
 
 #### Writing through a place
 
-Four spellings reach the write side, and they all mean the same thing — replace
-or mutate storage the container already holds, where it sits:
+Every write through a place says `borrow var`, and every one means the same
+thing: replace or mutate storage the container already holds, where it sits.
 
 ```saw-fragment
-v[i] = fresh              // subscript, unconditional lend
-m[k]! = fresh             // forced conditional lend; panics if `k` is absent
-c.slot(i) = fresh         // named accessor
-m[k]?.field = v           // chain assignment; an absent key writes nothing
+borrow var c.slot(i) = fresh            // replaces the lent element
+borrow var g[4].weight += 1             // mutates it
+borrow var m.find(&k)?.field = v        // conditional lend; absent writes nothing
+borrow var e = m[k] { e = fresh }       // `[]` panics if `k` is absent
 ```
 
-The `!` form is the panic spelling of the `?` form, exactly as it is for a read.
-Each reaches the accessor's `-> &var T` lend and opens an **exclusive** window,
-so each needs a mutable root, unless the accessor is a cell-carrying `&self`
-one, and reports an immutable one by name. A method call is an assignment target
-only when it lends a place; anything else is refused naming the method.
+A plain `v[i] = fresh` is the setitem, not a write through the place (see
+[Subscripts](#subscripts-getitem-setitem-and-the-place)): on a `Map` it inserts,
+and the place form above is what requires the key to be there. A `!` reaching
+into a conditional lend is the panic spelling of its `?`, exactly as it is for a
+read. Each of these reaches the accessor's `-> &var T` lend and holds the root
+**exclusively**, so each needs a mutable root, unless the accessor is a
+cell-carrying `&self` one, and reports an immutable one by name. A method call
+is an assignment target only when it lends a place; anything else is refused
+naming the method.
 
-A `-> &T` lend gives the element **read-only**: inside its window the place is a
-`&T`, so a write is a compile error there. Nested windows take the inner one's
-flavor —
-`b[0][1].count += 1` opens two exclusive windows, since the write reaches the
-outer place's storage — and an immutable root is refused for either of them,
-named as the root rather than as the window.
+A `-> &T` lend gives the element **read-only**, so `borrow var` through it is a
+compile error. A chain of borrows takes the mode the prefix gives it:
+`borrow var b[0][1].count += 1` opens two exclusive borrows, the outer first,
+since the write reaches the outer place's storage, and an immutable root is
+refused for either of them, named as the root.
 
 > **On a `borrows` accessor the receiver sigil settles the root, as it does on
 > every method.** A `&var self` accessor borrows its receiver exclusively at
 > every use, a read included, so `let g` cannot read through `Grid.[]` above. A
 > `&self ... borrows -> &T` accessor borrows it shared. A type that wants reads
 > to share the root declares a `&self` accessor of the same name beside the
-> exclusive one, or derives it with `@synthesize(shared)`; a read then uses the
-> `&self` accessor and a write the `&var self` one. See
+> exclusive one, or derives it with `@synthesize(shared)`; a bare `borrow` or
+> `borrow let` then uses the `&self` accessor and `borrow var` the `&var self`
+> one, by the form written, whether or not the body writes. See
 > [Receiver access](#receiver-access-is-a-second-fact) below.
 
 #### Receiver access is a second fact
@@ -4543,8 +4863,7 @@ Nothing in the accessor's body enters into either fact. A `&var self` accessor
 borrows its receiver exclusively at every use, a read-only window included,
 whether or not its body writes `self`, so a `let` root is refused by name:
 
-```saw-error
-// error-contains: the accessor borrows its receiver exclusively at every use site
+```saw-fragment
 struct Bag { cells: [Int; 4], visits: Int }
 
 extension Bag {
@@ -4557,24 +4876,28 @@ extension Bag {
 
 func main() {
     let frozen = Bag(cells: [10, 20, 30, 40], visits: 0)
-    print("{frozen.tally(0)}")               // error: `frozen` is immutable
-}
+    print("{borrow frozen.tally(0)}")        // error: `frozen` is immutable;
+}                                            // the accessor borrows its receiver
+                                             // exclusively at every use site
 ```
 
 What lets a read share the root is a `&self` accessor, written beside the
 exclusive one or derived with `@synthesize(shared)` (below). `tally` could not
 derive one: its epilogue writes `self`, which the shared signature refuses.
 
-A read-only RESULT is not a shared receiver BORROW, so a window through an
+A read-only RESULT is not a shared receiver BORROW, so a borrow through an
 exclusively charged accessor conflicts with any other by-reference access of its
-root in the same call — another such window, a window through a shared
-accessor, a plain `&root` or `&var root` — exactly as a `&var` window does.
+root made while both are in use — another such borrow, a borrow through a
+shared accessor, a plain `&root` or `&var root` — exactly as a `borrow var`
+does. Two borrowed arguments of one call are both in use for the call; two
+borrows whose results are only copied out, as in
+`borrow b[0] + borrow b.tally(1)`, are not, since each closes once its value is
+read.
 There is no separate rule for it: the receiver borrow's mode is what the
 [root charge](#exclusivity-invalidation-and-the-fences) compares, and a place
 borrow charges its root whichever sigil is written.
 
-```saw-error
-// error-contains: a read-only RESULT is not a shared receiver BORROW
+```saw-fragment
 struct Bag { cells: [Int; 4], visits: Int }
 
 extension Bag {
@@ -4590,8 +4913,10 @@ func pair(a: &Int, b: &Int) -> Int { a + b }
 
 func main() {
     var b = Bag(cells: [10, 20, 30, 40], visits: 0)
-    print("{pair(&b[0], &b.tally(1))}")   // both accessors take `&var self`:
-}                                         // two exclusive borrows of `b`
+    print(pair(borrow b[0], borrow b.tally(1)))
+    // error: a read-only RESULT is not a shared receiver BORROW: both
+    //        accessors take `&var self`, so these are two exclusive borrows of `b`
+}
 ```
 
 Both facts belong to the DECLARATION, so an imported or generic accessor carries
@@ -4602,9 +4927,11 @@ site.
 
 A type serves shared reads and exclusive writes of one place with two
 accessors of the same name and parameters: a `(&self) borrows -> &T` one and a
-`(&var self) borrows -> &var T` one. A read uses the `&self` accessor when the
-type has one, the least privilege that works, and otherwise the exclusive one,
-whose root charge is then exclusive. A write uses the exclusive one.
+`(&var self) borrows -> &var T` one. The form written selects between them,
+never what the body does with the place. A bare `borrow` or `borrow let` uses
+the `&self` accessor when the type has one, the least privilege that works, and
+otherwise the exclusive one, whose root charge is then exclusive. `borrow var`
+uses the exclusive one, even when its body only reads.
 
 **`@synthesize(shared)` derives the `&self` accessor** from a
 `(&var self) borrows -> &var T` one. It typechecks the same body again under the
@@ -4644,14 +4971,20 @@ extension Data {
 }
 ```
 
-A read reaches the `&self` accessor, which separates nothing and needs no `var`;
-a write reaches the other, which separates first:
+A bare `borrow` or `borrow let` reaches the `&self` accessor, which separates
+nothing and needs no `var`; `borrow var` reaches the other, which separates
+first, so `borrow var x = d[i] { print(x) }` separates shared bytes although it
+only reads. The plain subscripts reach
+them too, since the getitem derives from the `&self` accessor and the setitem
+from the `&var self` one (see
+[Subscripts](#subscripts-getitem-setitem-and-the-place)):
 
 ```saw-fragment
 let frozen = load()
-print(frozen[0])       // shared: no separation, no `var` required
+print(frozen[0])       // getitem, shared: no separation, no `var` required
 var buf = frozen
-buf[0] = 90            // exclusive: separates first, so `frozen` keeps its bytes
+buf[0] = 90            // setitem, exclusive: separates first, so `frozen`
+                       // keeps its bytes
 ```
 
 **That `Data.[]: allocation failed` is a documented boundary, and it stays a
@@ -4680,17 +5013,18 @@ writable place it promises, and is refused at the `lend`.
 
 #### Window extent and nesting
 
-The **window's extent** is the smallest expression that turns the place back
-into a value: the chain suffix that follows it, the whole call when the place is
-a reference argument, the whole statement when it is being written to. Nothing
-outside that extent runs with the window open.
+A borrow's **window** is the span in which it is open, and the form that opened
+it says how long that is: a block form's window is its block, a statement
+form's is its statement, and a borrowed argument's is the call. A statement
+form whose result is only copied closes as soon as the value is read. Nothing
+outside the window runs with the place lent.
 
-Windows **nest**, which is what orders them. `b[0][1].count += 1` is two
-windows, the outer opening first and closing last. Two place arguments in one
-call run their prologues in argument order and their epilogues LIFO, because
-that is what nesting means.
+Windows **nest**, which is what orders them. `borrow var b[0][1].count += 1` is
+two windows, the outer opening first and closing last. Two borrowed arguments
+in one call run their prologues in argument order and their epilogues LIFO,
+because that is what nesting means.
 
-**Everything inside the extent runs against the enclosing scope's own
+**Everything inside the window runs against the enclosing scope's own
 bindings.** The code in a window is code you wrote where you wrote it, so a
 local it names is *borrowed*, never copied — which is what lets a move-only
 value be handed to something reached through a place:
@@ -4699,35 +5033,36 @@ value be handed to something reached through a place:
 var enc = CborEncoder()             // NoCopy, built right here
 var i = 0
 while i < entries.len() {
-    try entries[i].serialize(to: &var enc)     // borrowed, not copied
+    try borrow entries[i].serialize(to: &var enc)     // borrowed, not copied
     i = i + 1
 }
 ```
 
 The one name that is not borrowed is the **root of the place itself**. A window
 already holds that root — exclusively, unless the window is a shared
-accessor's — so reaching it a
-second time from inside the extent is the aliasing the Law of Exclusivity
-refuses. Bind what you need from the root before the window opens:
+accessor's — so reaching it a second time from inside the window is the
+aliasing the Law of Exclusivity refuses. A method called on the place opens its
+window before its arguments are evaluated, so bind what you need from the root
+first:
 
 ```saw-fragment
 let n = v.len()
-v[0].bump(by: n)        // `v[0].bump(by: v.len())` is refused
+borrow var v[0].bump(by: n)     // `borrow var v[0].bump(by: v.len())` is refused
 ```
 
 An **assignment** is the one position that needs no such line. Its right-hand
-side is defined to run before its target, so a right-hand side that names the
-target's own root is lifted out of the window and the two accesses become two
-statements:
+side is evaluated before the left side's borrow opens, so a right-hand side
+that names the target's own root finishes first, and the two accesses never
+overlap:
 
 ```saw-fragment
-v[0].n = v.len()        // compiles: the read finishes, then the window opens
-v[0].n = v.pop()!.n     // and so does this, for the same reason
+borrow var v[0].n = v.len()        // the read finishes, then the window opens
+borrow var v[0].n = v.pop()!.n     // and so does this, for the same reason
 ```
 
-That order is not available anywhere else. An argument and a body read both run
-after the accessor's prologue, so lifting one would change the order the program
-runs in; the diagnostic there names the asymmetry and gives the `let`.
+That order is not available anywhere else. An argument of a method called on
+the place runs inside its window, after the accessor's prologue, so reading the
+root there is refused; the diagnostic names the asymmetry and gives the `let`.
 
 #### Conditional lends (`borrows -> &T?`)
 
@@ -4757,63 +5092,126 @@ value read means `None`; a chain that reached *through* the place with `!` has
 already promised the place is there, so absence is that force-unwrap's panic.
 
 ```saw-fragment
-print(g.at(4)!.weight)              // panics if absent
-g.at(4)!.weight += 1                // exclusive window on the present path
-if let c = g.at(99) { ... } else { ... }   // absent: no window, no epilogue
+print(borrow g.at(4)!.weight)                    // panics if absent
+if borrow let c = g.at(4) { print(c.weight) }    // shared window on the present path
+if borrow let c = g.at(99) { ... } else { ... }  // absent: no window, no epilogue
 ```
+
+**Unwrapping an optional place says `borrow`.** Its payload is itself a place,
+a reborrow of the binding, and like every place use its capability is written
+(`syntax.borrow.unwrap`, `syntax.pat.borrow-binding`):
+
+```saw-fragment
+borrow var e = m.find(&k) {
+    if borrow var entry = e { entry.count += 1 }
+    else { let _ = try! m.insert(k, Entry(count: 1)) }   // absent: `m` is free
+}
+```
+
+- `if borrow var x = e { … }` and `if borrow let x = e { … }` unwrap it, and
+  so does an `else if` arm. The head may be the accessor call itself, as in
+  `if borrow var p = v.find(9) { … }`.
+- In a `match`, a payload pattern binds the same way:
+  `case Some(borrow var entry) -> …`, or
+  `case Occupied(_, borrow var v) -> { lend v }` (see
+  [Lending an enum payload](#lending-an-enum-payload)).
+- A plain `if let x = e` or `case Some(x)` copies the payload, because it looks
+  like a copy. It is refused for a non-copyable payload, with a hint naming
+  `borrow let`.
+- `if var x = e` on a place is refused, with a hint naming both forms. It would
+  write to a copy of the entry.
+- `if let _ = e` and `case Some(_)` bind nothing, so they read no payload and
+  copy nothing. They are presence tests at every copy tier, NoCopy payloads
+  included.
+- A `while` head unwraps the same way:
+  `while borrow var e = it.find(&k) { e.count += 1 }` runs while the place is
+  present. The window is the loop body, and the head is evaluated again at each
+  iteration, after the previous body's window has closed, so each iteration
+  borrows afresh.
+- At an `if` or `while` head a binding is always the unwrap. A bare `borrow`
+  block there is refused as a condition, and a parenthesized one is a boolean
+  condition: `while (borrow let e = m[k] { e.ok }) { }`.
+- A `guard` takes no borrow binding. Its braces run on the absent path, and on
+  the present path the binding would have to stay live to the end of the
+  enclosing block, a window no rule defines. So `guard borrow let e = … else { … }`
+  is refused (`syntax.stmt.refused-guard-borrow`), with a hint naming
+  `if borrow let e = … { … } else { … }`. A parenthesized `borrow` block is
+  still a boolean guard condition.
+
+On the absent path no borrow was ever opened, so touching the root there is
+sound, and the borrow check knows it: it is path-sensitive, and an absent arm
+of the binding holds no borrow. The insert above is legal for that reason. The
+common get-or-insert needs none of this, since the `default:` subscript covers
+it (see [Subscripts](#subscripts-getitem-setitem-and-the-place)).
+
+**`Vector.find(i)` is the vector's conditional lend**,
+`(&var self, index: Int) borrows -> &var T?`, absent when `i` is out of range.
+`v[i]` is the panicking place and `v.get(i)` the optional copy, so `find` is
+what serves a presence test on a non-copyable element and a write through an
+index that may be out of range. `Vector.find` and `KeyedPlace.find` each have a
+shared accessor beside the exclusive one, derived with `@synthesize(shared)`,
+so a presence test or a read under `borrow let` works on a `&Vector` or a
+`&Map`, and `borrow var` uses the exclusive accessor.
 
 #### Value reads
 
 A place stops being storage at a **value read** — binding it, passing it by
-value, returning it, using it as an operand. That is governed by the element's
-entry in [the Copy trait family](#the-copy-trait-family) table, exactly as an
-optional payload is ([Payload reads](#payload-reads-the-place-rule)):
+value, returning it, using it as an operand. A plain subscript is always a
+value read, since it is the getitem, and a `borrow` whose result is read as a
+value copies it out. Either is governed by the element's entry in
+[the Copy trait family](#the-copy-trait-family) table, exactly as an optional
+payload is ([Payload reads](#payload-reads-the-place-rule)):
 
 | Use of the place | trivial | Copy | ExplicitCopy | NoCopy |
 |---|---|---|---|---|
-| Borrow (`v[i].m()`, `&v[i]`, `v[i].field`) | ok | ok | ok | ok |
-| Value read (`let e = v[i]`, by-value argument, return) | bitwise | retain | error | error |
+| Borrow (`borrow v[i].m()`, `f(borrow v[i])`, `borrow let e = v[i] { … }`) | ok | ok | ok | ok |
+| Value read (`let e = v[i]`, `v[i].field`, `let e = borrow v[i]`, by-value argument, return) | bitwise | retain | error | error |
 
 A `Copy` element is retained at the read, so the container keeps its own
 reference and both are destroyed once. An `ExplicitCopy` or `NoCopy` element is
-never duplicated implicitly, and the error names the ways out — `with_ref` to
-borrow it in place, `swap_out` to move it out.
+never duplicated implicitly, and the error names the ways out: `borrow` to
+reach it in place, `swap_out` to move it out.
 
-**A position that keeps nothing is a borrow, not a read.** Some expressions hand
-a value to a `&self` callee and are done with it, and a place in one of those is
-borrowed where it sits — the table above never comes into it, so a move-only
-element behaves exactly as an `Int` one does. Two such positions:
-
-*Rendering.* `print("{v[0]}")`, `print(v[0])` and `print("{}", v[0])` hand the
-element to `format(&self, into:)`. That covers an interpolation operand wherever
-an interpolation is written, a single-argument `print` of a `Printable`, and the
-format arguments of `print`, `panic` and `assert`.
-
-*Comparison.* `v[0] == w[0]` and the ordering operators lower to
-`equals`/`compare`, whose `other` is a `&Self`, so neither side is read out.
-
-The window spans the whole expression that asks for the borrow, so an operand
-beside the place is inside that window too — which is why an `assert` condition
-that names the place's own root wants a binding of its own ahead of the call.
-
-**A pattern that binds nothing is a presence test, not a read.** `if let _ =
-g.at(i)`, `guard let _ = g.at(i)`, and a `match` arm like `case Empty` or
-`case Occupied(_)` take no payload out: they look at the discriminant through
-the borrow. So they are legal for every tier, move-only elements included, and
-they emit no copy and no drop. A `match` on a place matches it where it sits,
-and an arm that DOES bind binds the payload in place, so the table above is
-consulted for that one binding rather than for the whole element.
+**Rendering and comparison follow the same rule.** A plain subscript there is
+a getitem like anywhere else, so it copies the element, and a non-copyable
+element is refused. Written with `borrow`, the element is reached where it
+sits, so a move-only element behaves exactly as an `Int` one does:
 
 ```saw-fragment
-if let _ = doc.section("package") { ... }     // presence: no read at all
-match slots[i] {                              // discriminant through the borrow
-    case Empty -> 0,
-    case Occupied(_, _) -> 1
+print("{borrow v[0]}")          // interpolation operand
+print(borrow v[0])              // single-argument `print` of a `Printable`
+print("{}", borrow v[0])        // format argument of `print`, `panic`, `assert`
+let same = borrow v[0] == borrow w[0]   // `equals` takes `other` as `&Self`
+```
+
+Rendering hands the element to `format(&self, into:)`, and the comparison
+operators lower to `equals`/`compare`, so with `borrow` neither side is read
+out. Each borrow is a statement form, so its window is the statement, and an
+operand beside it is inside that window too — which is why an `assert`
+condition that names the place's own root wants a binding of its own ahead of
+the call.
+
+**A pattern that binds nothing is a presence test, not a read.** `if let _ = e`
+and a `match` arm like `case Empty` or `case Occupied(_)` take no payload out:
+they look at the discriminant through the borrow. So they are legal for every
+tier, move-only elements included, and they emit no copy and no drop. A `match`
+on a bound place matches it where it sits. An arm that binds with a plain name
+copies that one payload, so the table above is consulted for that binding
+rather than for the whole element; an arm that binds with `borrow let` or
+`borrow var` reborrows it (see [Conditional lends](#conditional-lends-borrows--t)).
+
+```saw-fragment
+if borrow let s = doc.section("package") { ... }   // present: no read at all
+borrow let s = slots[i] {                          // discriminant through the borrow
+    match s {
+        case Empty -> 0,
+        case Occupied(_, _) -> 1
+    }
 }
 ```
 
 Presence is tier-independent wherever it is asked, and the scrutinee's shape
-does not change that. A plain optional, a conditional lend (`v.get(i)`), and an
+does not change that. A plain optional, a conditional lend (`v.find(i)`), and an
 unconditional lend whose element is ITSELF optional (`Slot<T>.value()` at
 `T = Res?`) all answer the same question the same way, at every tier. The third
 of those is the one worth naming, because it reads like a value read and is not:
@@ -4827,44 +5225,43 @@ struct Session { id: Int }
 extension Session: NoCopy {}
 
 var slot = Slot<Session?>.of(value: Session(id: 1))
-if let _ = slot.value() { ... }        // same question as slot.value().is_some()
+borrow let v = slot.value() {
+    if let _ = v { ... }        // same question as v.is_some()
+}
 ```
 
-Two shapes keep the ordinary value-read path, because a window is a closure: an
-arm body that leaves the enclosing function (`return`, `break`, `continue`), and
-an arm that `move`s one of its own bindings out, which is destructuring rather
-than reading.
-
-**An element type that mentions a type parameter demands a bound.** `Slot<K>`
-has no copy tier of its own: whether it duplicates is a property of the
-instantiation, so a value read of one inside a generic body is legal exactly
-when the bounds prove every instantiation can be copied — a `Copy`-family bound
-on each parameter it mentions. The question is asked once, in the generic body,
-never at an instantiation, so a body that compiles compiles for every caller.
-The refusal names both ways forward:
+**An element type that mentions a type parameter is an inferred requirement.**
+`Slot<K>` has no copy tier of its own: whether it duplicates is a property of
+the instantiation. A getitem of one inside a generic body is a read out of
+storage the body does not own, so it is always a duplicate, and the body needs
+`K` on the `Copy` tier. That requirement is inferred and checked at each call
+site against the type argument passed (see
+[What a generic body requires of its type parameters](#what-a-generic-body-requires-of-its-type-parameters-design-219)):
 
 ```saw-fragment
 struct Holder<K> { slots: Vector<Slot<K>> }
 
 extension Holder<K> {
     func tag_at(&self, i: Int) -> Int {
-        let s = self.slots[i]      // error: `self.slots[…]` lends a place of
-        ...                        // type `Slot<K>`, whose copy policy depends
-    }                              // on the type parameter `K`
+        let s = self.slots[i]      // a duplicate: `Holder<K>.tag_at` needs `K: Copy`
+        ...
+    }
 }
 ```
 
-Bound `K: Copy` and the read is legal; leave it unbounded and reach the place
-through a borrow instead. Where the read IS legal, the copy is emitted at the
-instantiation — the same phase that emits the matching drop — so the concrete
-tier decides whether it is a bitwise copy, a retain, or the type's own
-`copy()`.
+A call at a move-only `K` is refused at the call site, naming the read. A body
+that should work at every `K` reaches the place through a `borrow` instead.
+Where the read IS legal, the copy is emitted at the instantiation — the same
+phase that emits the matching drop — so the concrete tier decides whether it is
+a bitwise copy, a retain, or the type's own `copy()`. A getitem of a concrete
+non-copyable element type is refused where it is written.
 
 #### Lending an enum payload
 
-A `match` on a place matches it where it sits, so an arm that binds binds the
-payload in place (above). That binding can also be **lent**, which is how a
-container whose storage is a slot enum publishes an accessor at all:
+A `match` on a bound place matches it where it sits, so a payload pattern
+written `borrow let` or `borrow var` binds the payload in place (above). That
+binding can also be **lent**, which is how a container whose storage is a slot
+enum publishes an accessor at all:
 
 ```saw-fragment
 enum Slot { case Empty, case Filled(key: Int, res: Res) }
@@ -4874,13 +5271,20 @@ extension Table {
         if i < 0 || i >= self.slots.len() {
             return None
         }
-        match self.slots[i] {
-            case Filled(_, r) -> { lend r },
-            case Empty -> { return None }
+        borrow var slot = self.slots[i] {
+            match slot {
+                case Filled(_, borrow var r) -> { lend r },
+                case Empty -> { return None }
+            }
         }
     }
 }
 ```
+
+A plain `self.slots[i]` would be a getitem, a copy of the slot, so the accessor
+opens a borrow of it, matches the bound place, and lends the payload. A `lend`
+inside a `borrow` block keeps that block's borrow open for as long as the
+accessor's own lend is open, and they close in reverse order.
 
 Tag stability comes free. The window borrows the scrutinee's root for its whole
 extent, so the Law of Exclusivity freezes the enum, discriminant included: no
@@ -4895,44 +5299,46 @@ rather than a write that goes nowhere:
 ```saw-fragment
 let built = self.fresh()
 match built {
-    case Filled(_, r) -> { lend r },  // error: `lend r` names the payload of a
-    case Empty -> { return None }     // `match` on something other than the
-}                                     // receiver's own storage
+    case Filled(_, borrow var r) -> { lend r },  // error: `lend r` names the
+    case Empty -> { return None }                // payload of a `match` on
+}                                                // something other than the
+                                                 // receiver's own storage
 ```
 
 #### Exclusivity, invalidation, and the fences
 
-A place borrow charges its **root**: `&v[i]` borrows all of `v`, with the charge
+A place borrow charges its **root**: `borrow v[i]` borrows all of `v`, with the charge
 of the accessor the use reaches — shared through a `(&self) borrows -> &T`
 accessor, exclusive through any other, whatever sigil the use writes (see
 [Receiver access](#receiver-access-is-a-second-fact)). Index values
 are ignored, so any `v[i]` borrows the whole of `v` — swapping two elements
 through two windows is an exclusivity error, and `Vector.swap(i, j)` stays the
-method for that. The spelling makes no difference either: `v.get(i)!` charges
-`v` exactly as `v[i]` does, since the `!` is the lend's own presence rather
-than a step into different storage. No new rules are involved: a place use is
-an access path like any other, so passing `&var v` beside `&v[i]` in one call,
-or capturing `[&var v]` alongside, are the existing Law of Exclusivity shapes.
+method for that. The spelling makes no difference either: `borrow v.find(i)!`
+charges `v` exactly as `borrow v[i]` does, since the `!` is the lend's own
+presence rather than a step into different storage. No new rules are involved:
+a place use is an access path like any other, so passing `&var v` beside
+`borrow v[i]` in one call, or capturing `[&var v]` alongside, are the existing
+Law of Exclusivity shapes.
 
 That is also what makes a window invalidation-proof. While a window is open its
-root is borrowed, so `v.push(x)` inside the window is a compile error — the same
-guarantee `with_ref` gets from its closure scope, obtained here from the law.
+root is borrowed, so `v.push(x)` inside the window is a compile error, by the
+Law of Exclusivity.
 
 **Two by-reference accesses to one root in one call, at least one of them a
 place, are an exclusivity error on every copy tier.** Two windows
-(`setboth(&var p.at(0), &var p.at(1))`), or a window beside a `&var` of its own
-root, name overlapping storage, and the diagnostic says so:
+(`setboth(borrow var p.at(0), borrow var p.at(1))`), or a window beside a
+`&var` of its own root, name overlapping storage, and the diagnostic says so:
 
 ```saw-fragment
-setboth(&var p.at(0), &var p.at(1))
+setboth(borrow var p.at(0), borrow var p.at(1))
 // error: exclusive access violation: the place `p.at(…)` borrows `p` for the
 //        whole window, and `p` is accessed by reference a second time in the
 //        same call
 ```
 
-The window's extent is the whole call, so a reference created by a NESTED call
-in the same argument list is inside it too — `sink(&var p.at(0), reset(&var p))`
-is the same violation. Until design 188 none of this was checked: what refused
+The window is the whole call, so a reference created by a NESTED call in the
+same argument list is inside it too —
+`sink(borrow var p.at(0), reset(&var p))` is the same violation. Until design 188 none of this was checked: what refused
 the shape on an `ExplicitCopy` or `NoCopy` receiver was the COPY POLICY, because
 the compiler copied the receiver to open the second access and reported that
 copy. A receiver that copies for free had nothing to trip on, so the program
@@ -4941,28 +5347,37 @@ two-window swap gave `d0=1 d1=1` for a buffer holding `1, 2`.
 
 Everything outside that trigger is unaffected: a single window, two windows in
 separate statements, a window beside a shared read of a disjoint path, nested
-windows (`b[0][1].n += 1` — two windows on two roots), and plain fixed-array
-indexing (`a[0]` is not an accessor, so constant distinct indices stay disjoint).
+windows (`borrow var b[0][1].n += 1` — two windows on two roots), and plain
+fixed-array indexing (`a[0]` is not an accessor, so constant distinct indices
+stay disjoint).
 
-Three fences hold in this version:
+**`borrows` reaches suspensions, function types and traits on the
+declaration's terms.**
 
-- A `borrows` body is `sync`. An accessor's `lend` window may not span a
-  suspension, and neither may a `with_ref` / `with_var_ref` body: the root
-  stays borrowed for the whole window, and those two spellings record no extent
-  a reader could check it against. `with_ref` / `with_var_ref` remain the
-  explicit long-window and multi-statement spellings. The `for` window over a
-  borrowing struct is the one window that DOES span a suspension — see
-  *Borrowing structs* below, and *Suspension and the coroutine transform* for
-  what is known about it that is not known about these two.
-- There are no `borrows` function *values* or existentials. A `borrows` method
-  cannot be bound to a name or erased behind `any Trait`.
-- Traits cannot require a `borrows` method. A generic `T: IndexPlace` bound is
-  not part of this version.
+- A window may span a suspension, whichever form opened it, unless the
+  accessor is declared `borrows(sync)` (see
+  [The `borrow` construct](#the-borrow-construct)). The block form is the
+  multi-statement spelling, and a window that must stay open across several
+  statements is written as one. An accessor that lends while a `borrows(sync)`
+  borrow is open, its own lock's or a forwarded one's, must be declared
+  `borrows(sync)` itself, and otherwise that `lend` is refused, so a plain
+  `borrows` wrapper never hides a lock from its consumer.
+- A function type carries `borrows` or `borrows(sync)` in its effect slot
+  (`syntax.type.func-borrows`), and a value of a `borrows(sync)` type does not
+  convert to a plain `borrows` type.
+- A trait may require a `borrows` or `borrows(sync)` method
+  (`syntax.rule.requirement-borrows`), as `KeyedPlace` does (see
+  [Subscripts](#subscripts-getitem-setitem-and-the-place)). A call through a
+  bound or an `any Trait` follows the requirement's declaration, and a plain
+  `borrows` implementation satisfies a `borrows(sync)` requirement, never the
+  reverse.
 
 #### Borrowing structs
 
-**Status: implemented.** A **borrowing struct** is a type that holds a lent
-place. It is declared `borrows struct`, one of its fields is a plain shared
+**Status: partially implemented.** The shared, `for`-headed form is built;
+`&var` fields, a `&var self` origin, a temporary or `borrow` head, and
+`LendingIterator` are planned. A **borrowing struct** is a type that holds a
+lent place. It is declared `borrows struct`, one of its fields is a plain
 reference, and a `borrows` function returns one by value:
 
 ```saw-fragment
@@ -4984,25 +5399,29 @@ ordinary reference spelling, and no second modifier restates it; `borrows` on
 a value-returning signature says at the declaration that the result borrows
 the receiver; and `lends self` at the initializer is the body's proof.
 
-**The window is the `for` statement.** A `borrows` call returning a borrowing
-struct is legal in exactly one position: the direct head of a `for` whose
-receiver is a place rooted in a named binding — a local, a parameter, `self`,
-or a field path of one. The window opens at the head's evaluation and closes
-when the statement ends, on every route out.
+**The window is the `for` statement or a `borrow` block.** A `borrows` call
+returning a borrowing struct is legal in exactly two positions: the direct head
+of a `for`, and the head of a `borrow` binding. The window opens at the head's
+evaluation and closes when the statement ends, on every route out, and the
+struct cannot leave it. The head's receiver may be a temporary: the compiler
+keeps the temporary alive until the window closes, so the storage the struct
+points into persists.
 
 ```saw-fragment
-for x in v.iter() { total = total + x }   // the window's extent is this statement
+for x in v.iter() { total = total + x }   // the window is this statement
+for x in make_vector().iter() { }          // the temporary lives as long as the loop
 let it = v.iter()                          // error: a borrowing struct may not
                                            // be bound by a `let`
-for x in make_vector().iter() { }          // error: bind the collection first —
-                                           // a temporary has no persistent
-                                           // storage for the window to point into
 ```
 
-While the window is open the collection is borrowed shared, so the body may
-read it and may not grow it, replace it, move it or swap its elements. That is
-the same exclusivity error `v.push` already gets inside a `with_ref` window,
-and it is what makes iteration safe: before this rule an iterator held a raw
+`for` is the repeating form of `borrow`. The head is borrowed for the whole
+loop exactly as a `borrow` block's head is, the body runs once per `next` until
+`next` returns `None`, and the window may span suspensions unless the head's
+accessor is `borrows(sync)`. While the window is open the collection is held
+with the charge the head's accessor declares: shared for a `&self` accessor, so
+the body may read it and may not grow it, replace it, move it or swap its
+elements, and exclusively for a `&var self` one, so the body cannot touch it at
+all. That is what makes iteration safe: before this rule an iterator held a raw
 buffer pointer and a length snapshot, so a body that pushed until the buffer
 reallocated read freed memory in safe code.
 
@@ -5013,28 +5432,48 @@ may not sit in a function type's return or parameters (`() -> It`,
 existential, and may not be a parameter, a struct field, a plain return type or
 an associated type. Each is refused at
 the declaration that names the type, so a helper that would forward one cannot
-be written rather than being caught at its call. It may conform to `Iterator`,
-which is how `for` reaches `next`, and only static dispatch reaches the
-conformance.
+be written rather than being caught at its call. It may conform to `Iterator`
+or `LendingIterator`, which is how `for` reaches `next`, and only static
+dispatch reaches the conformance.
 
-**The origin is the receiver.** `lends self` is the only spelling, it requires
-a `&self` receiver, and every returning path must initialize every reference
-field with it. A projection (`lends self.buffer`), another reference parameter
-or a local names a root the call site cannot charge, and each is refused by
-name. The rule is why the iterator lends the vector rather than its buffer:
-`next()` reads `length` and `buffer` through the reference on every call, so
-nothing is snapshotted and there is no stale pointer to go stale.
+**The origin is the receiver.** `lends self` is the only spelling, and every
+returning path must initialize every reference field with it. The receiver may
+be `&self` or `&var self`, and the root charge follows it as it does for any
+accessor: shared for `&self`, exclusive for `&var self` (see
+[Receiver access](#receiver-access-is-a-second-fact)). A projection
+(`lends self.buffer`), another reference parameter or a local names a root the
+call site cannot charge, and each is refused by name. The rule is why the
+iterator lends the vector rather than its buffer: `next()` reads `length` and
+`buffer` through the reference on every call, so nothing is snapshotted and
+there is no stale pointer to go stale.
 
-**Shared only.** A borrowing struct's reference fields are `&T`. A `&var`
-field is refused: an iterator holding `&var Vector<T>` could reallocate the
-collection another reader is walking through its own field, and recording the
-root would not catch it. Mutating the borrowing struct's own state is
-unaffected — `next(&var self)` advances its cursor, which is not mutable
-access to the borrowed collection.
+**Reference fields may be `&T` or `&var T`.** An iterator over a `&var Grid`
+is sound because the collection is charged exclusively for the struct's whole
+life, and each `next` reborrows through the struct, which freezes it while an
+element is live. Mutating the borrowing struct's own state is a separate matter
+— `next(&var self)` advances its cursor.
 
-**Item is owned.** A borrowing struct's `Iterator.Item` may be neither a
-reference nor another borrowing struct, so the loop variable owns what it is
-handed. `Vector`'s `T: Copy` elements satisfy this.
+**Two iterator traits.** `Iterator` hands out owned items,
+`func next(&var self) -> Item?`; ranges and generators implement it, as in
+`for i in 0..n`. `LendingIterator` lends each element in turn,
+`func next(&var self) borrows -> &var Item?`, or `&Item?` for a shared one;
+collections implement it. Each iteration is one nested borrow, closed before
+the next `next`, so no more than one element is lent at a time.
+
+```saw-fragment
+for borrow let s in sessions.iter() { print(s.name) }
+for borrow var c in grid.cells() { c.weight += 1 }
+```
+
+- `for borrow let x in …` and `for borrow var x in …` (`syntax.borrow.for`)
+  borrow each element in place and require a `LendingIterator`. The collection
+  is charged for the whole loop, exclusively for `borrow var`, so the body
+  cannot push to the vector it is walking.
+- A plain `for x in …` over a `LendingIterator` copies each element out of the
+  lent reference, so it needs copyable elements. `for var x in …` would read as
+  a mutable copy; the in-place form is written with `borrow`.
+- `for borrow let i in 0..n` is refused, since a range has nothing to lend,
+  with a hint naming `for i in 0..n`.
 
 **Owned fields and `deinit` are supported**, and two things happen at the
 window's close in this order: the borrowing struct is destroyed, and then the
@@ -5050,20 +5489,22 @@ never a value outside its window.
 
 ```saw-fragment
 var v: Vector<Entry> = [...]
-print(v[0].count)                // shared window
-v[0].count += 1                  // exclusive window
-v[0] = Entry(count: 0)           // whole-element write; the old one deinits once
-f(&var v[0])                     // the window spans the call
+print(borrow v[0].count)         // shared window
+borrow var v[0].count += 1       // exclusive window
+v[0] = Entry(count: 0)           // setitem: replaces; the old one deinits once
+f(borrow var v[0])               // the window spans the call
 
 var d = try! Data(capacity: 1)
 try! d.push(9u8)
-d[0] = 0u8                       // panicking place, same rules
+d[0] = 0u8                       // setitem; panics out of range
 ```
 
 `Vector.[]` is declared `&var self ... borrows -> &var T` with
-`@synthesize(shared)`, which is what a container subscript is for: a read
-reaches the derived `&self` accessor and borrows `v` shared, and a write reaches
-the exclusive one.
+`@synthesize(shared)`, which is what a container subscript is for: a shared
+borrow reaches the derived `&self` accessor and holds `v` shared, and
+`borrow var` reaches the exclusive one. The getitem and setitem derive from
+the two accessors, so a plain `v[0]` copies a Copy-tier element out and
+`v[0] = e` replaces one.
 
 `Data.[]` is two declarations, because its two bodies differ (see
 [Shared and exclusive accessors](#shared-and-exclusive-accessors)).
@@ -5072,52 +5513,57 @@ might write to, and must not separate for a read. The `&self` accessor lends
 read-only and separates nothing, so a read works on a `let` root, a `&Data`
 parameter, or a slice several `Data`s share. A write reaches the `&var self`
 accessor, so it needs a `var` root, and the first write on shared bytes copies
-(see [Data](#data)). `d.get(i)` is the `None`-returning twin, nothing more.
+(see [Data](#data)). `d.get(i)` is the optional copy, nothing more.
 
-Both panic out of range, on design 130's accessor-rule terms. `Vector.get(i)` is
-the `None`-returning twin of `v[i]` and the same lowering — a conditional lend:
+Both panic out of range, on design 130's accessor-rule terms. `Vector.get(i)`
+is the optional copy of `v[i]`: it returns the element's value, so it needs a
+copyable element and a write through it would change only the copy.
+`Vector.find(i)` is the conditional lend (see
+[Conditional lends](#conditional-lends-borrows--t)):
 
 ```saw-fragment
-if let e = v.get(i) { ... }      // value read, so the copy tier decides
-if let _ = v.get(i) { ... }      // presence test: legal for every tier
-v.get(i)!.count += 1             // exclusive window; the `!` panics if absent
+if let e = v.get(i) { ... }               // an optional copy, so the copy tier decides
+if borrow let e = v.find(i) { ... }       // the element in place, any tier
+borrow var v.find(i)!.count += 1          // exclusive window; the `!` panics if absent
 ```
 
-`Map` publishes its values as a subscript,
-`func [](&var self, key: K) borrows -> &var V?` — a conditional lend, since a
-key may not be there:
+`Map` has all three subscript roles and a conditional lend. `m[k]` copies the
+value out and panics if `k` is absent, `m[k] = v` inserts or replaces,
+`borrow var e = m[k] { … }` lends the stored value and panics if `k` is
+absent, and `m.find(&k)`, `func find(&var self, key: &K) borrows -> &var V?`,
+lends it if it is there. `m.get(k)` is the optional copy:
 
 ```saw-fragment
 var counts = Map<String, Entry>()
 let _ = counts.insert("a", Entry(n: 0))
 
-counts["a"]!.n += 1                       // exclusive window; writes the stored value
-print(counts["a"]!.n)                     // shared window
-print((counts["b"] ?? Entry(n: 0)).n)     // absent: no window opens
-if let _ = counts["b"] { ... }            // presence test: no copy, any tier
+borrow var counts["a"].n += 1             // exclusive window; writes the stored value
+print(borrow counts["a"].n)               // shared window
+print(borrow counts.find(&"b")?.n ?? 0)   // absent: no window opens
+if borrow let e = counts.find(&"b") { ... }   // presence test: no copy, any tier
 ```
 
 A map's value lives inside an enum payload (`MapSlot.Occupied(key:value:)`), and
-the accessor reaches it by matching the slot where it sits and lending the arm's
-binding. So the window addresses the value in the table: a `Vector` value grows
-through `m["k"]!.push(x)` rather than being read out, appended to, and written
-back.
+the accessor reaches it by borrowing the slot, matching the bound place and
+lending the arm's binding. So the window addresses the value in the table: a
+`Vector` value grows through `borrow var m["k"].push(x)` rather than being read
+out, appended to, and written back.
 
 `Set` has no equivalent. A set's elements are the underlying map's keys, and the
 table's own correctness depends on them — a writable element accessor would
 permit a write that changes an element's hash and loses it in its own table.
 
-A place is one expression, so a caller that reads several values out of one
-move-only element holds an INDEX rather than a binding. `libs/toml` is the
-worked example: `TomlDoc.section(name) borrows -> &TomlSection?` is the named
-place, and `index_of(name)` plus `section_at(i)` is the same borrow when several
-reads share one lookup. Both are READ-ONLY lends: a parsed document is a view,
-and nothing a caller writes should reach its storage.
+A caller that reads several values out of one move-only element binds it once,
+with the block form. `libs/toml` is the worked example:
+`TomlDoc.section(name) borrows -> &TomlSection?` is the named place, and
+`index_of(name)` plus `section_at(i)` reach it by index. Both are READ-ONLY
+lends: a parsed document is a view, and nothing a caller writes should reach
+its storage.
 
 `Map` and `Set` probe through their slots the same way. `K` is `Hashable +
 Equatable`, never `Copy`, so reading a whole slot out is not something the table
-is entitled to do; every probe matches the slot where it sits, which also means
-walking past a live entry touches no refcount.
+is entitled to do; every probe borrows the slot with `borrow let` and matches it
+where it sits, which also means walking past a live entry touches no refcount.
 
 ### Shared Ownership
 
@@ -5140,62 +5586,66 @@ print(shared2.strong_count()) // 2
 // `make` is a static because the allocator type argument is named at the call
 // site, not because construction is special.
 let boxed = try! Box<Int>.make(42)
-print(boxed.value())          // 42
+print(borrow boxed.value())   // 42
 ```
 
-`value()` is a `borrows` accessor: it lends the heap payload where it sits, so
-the use site decides what the window is for. Reading the place out as a value
-follows the payload's copy tier (bitwise for a trivial payload, a retain for a
-`String`), and a move-only payload is reached through the window instead:
+`value()` is a `borrows` accessor: it lends the heap payload where it sits, and
+the `borrow` at the use site says what the window is for. It is declared
+`(&var self) unsafe borrows -> &var T` with a `@synthesize(shared)` accessor
+beside it, since its body only reads, so a shared borrow works on a `let` box and
+`borrow var` needs a `var` one. Reading the place out as a value follows the
+payload's copy tier (bitwise for a trivial payload, a retain for a `String`),
+and a move-only payload is reached through the window instead:
 
 ```saw-fragment
 var b = try! Box<Res>.make(Res(name: "r", hits: 0))
-print(b.value().label())      // borrows the payload for the call
-b.value().hits += 5           // writes it in the box's own allocation
-let taken = b.value()
+print(borrow b.value().label())   // borrows the payload for the call
+borrow var b.value().hits += 5    // writes it in the box's own allocation
+let taken = borrow b.value()
 // error: `b.value(…)` lends a place of type `Res`, which is move-only —
 //        reading it out as a value would alias storage the container still owns
 ```
 
 ### Synchronized Access
 
-**Status: `Mutex<T>` implemented (hosted); `RwLock` planned.** `Mutex<T>` is
+**Status: `Mutex<T>` implemented (hosted); its `lock()` accessor and the
+re-entry panic are planned; `RwLock` planned.** `Mutex<T>` is
 ONE INLINE WORD beside its payload: `os_unfair_lock` on macOS, a futex on Linux,
 and zero means unlocked on both. It is `NoCopy`, allocates nothing and frees
-nothing. Rather than a returned lock guard, `lock` takes a non-escaping closure
-and runs it with `&var` access to the guarded payload under the lock — the lock
-is always released on the way out. `get()` snapshots the payload
-(`T: ExplicitCopy`).
+nothing. `lock()` is a `borrows` accessor that lends the guarded payload under
+the lock: a [cell-carrying](#interior-mutability) `(&self) borrows -> &var T`,
+declared `borrows(sync)`. The window is the critical section, and the lock is
+released when the window closes, on every way out. `get()` snapshots the
+payload (`T: ExplicitCopy`).
 
 ```saw-fragment
-// lock<R>(body: (&var T) sync -> R) -> R — the body's own result comes back out
 let m = Mutex<Int>(value: 0)
 
-let doubled = m.lock({ c in
+let doubled = borrow var c = m.lock() {
     c = c + 1
     c * 2
-})                  // lock released automatically
+}                   // lock released at the block's end
 
 print(doubled)      // 2
 print(m.get())      // 1
 ```
 
-The result type is the closure's, not a fixed `Bool`: `lock` is generic in `R`,
-the same shape [`SpinLock.lock`](#spinlockt) has. A body that computes nothing
-gives a `Void` result. Naming the parameter `&var c` instead of `c` is also
-accepted, and means the same thing — the parameter type says `&var T` either
-way.
+A `borrow` block is an expression, so what the critical section computes comes
+back out as its value. The value must be owned or copied out, never the borrow
+itself. The receiver is `&self`, so `lock()` works on a `let` mutex, a `&Mutex`
+parameter or a static, while the root charge is still exclusive for the window
+(see [Receiver access](#receiver-access-is-a-second-fact)).
 
 **A `static` holds one with no initializer.** Zero is unlocked, so the whole
 value is zerofill and an idle mutex costs no image bytes:
 
-```saw
+```saw-fragment
 import std.mutex.{Mutex}
 
 static REGISTRY: Mutex<Int>
 
 func record(n: Int) {
-    REGISTRY.lock({ &var total in total = total + n })
+    borrow var total = REGISTRY.lock() { total = total + n }
 }
 ```
 
@@ -5204,16 +5654,28 @@ the fallible tier exists exactly where an allocation does
 (see [Allocation failure](#allocation-failure)), and `get` is not optional.
 
 **Movability** comes from the Law of Exclusivity rather than from an
-address-stability contract: a thread inside `lock()` holds a live `&self`
-borrow for the whole critical section, and a move needs exclusive access, so a
-move cannot be spelled while any thread is inside the lock. Moving an IDLE
-mutex relocates one word and a payload, and nothing was pointing at either —
-which is why `Mutex` is ordinary `NoCopy` and deliberately not
+address-stability contract: a thread inside a `lock()` window holds a live
+borrow of the mutex for the whole critical section, and a move needs exclusive
+access, so a move cannot be spelled while any thread is inside the lock. Moving
+an IDLE mutex relocates one word and a payload, and nothing was pointing at
+either — which is why `Mutex` is ordinary `NoCopy` and deliberately not
 [`NoMove`](#nomove).
 
-`lock` blocks the calling THREAD on a contended lock, and is not reentrant:
-taking a mutex this thread already holds is a program bug (macOS traps, Linux
-deadlocks). Prefer a `Channel` where a task would otherwise wait.
+`lock` blocks the calling THREAD on a contended lock. Prefer a `Channel` where
+a task would otherwise wait. The window cannot span a suspension, because
+`lock` is `borrows(sync)`: a task can resume on a different worker, and the
+lock would then be released by a thread that is not its owner.
+
+**A lock is not reentrant, and re-entry never deadlocks.** A re-entrant lock
+would hand out two live `&var T` to one payload.
+
+- Re-entry through the same name is a compile error. `lock` lends `&var T`, so
+  the mutex is held exclusively for the window, and a second `m.lock()` inside
+  it is refused.
+- Re-entry through another name, such as two `Arc` copies of one mutex, panics
+  at run time. The lock word records its owner: macOS's `os_unfair_lock`
+  stores its owner and traps on re-entry, and on Linux the futex word holds the
+  owner's thread id, and acquiring panics when it finds its own.
 
 `RwLock` (multiple readers XOR single writer) is planned; it is not yet in the
 stdlib.
@@ -6897,7 +7359,7 @@ trait Deserialize {
   short item.
 - **Every serde signature is `sync`.** Serialization writes into a buffer, so it
   is suspension-free by contract, and the effect is what lets a value serialize
-  inside a place window, under a `SpinLock`, or in a kernel. A conformer that
+  inside a `borrows(sync)` window such as a lock's, or in a kernel. A conformer that
   wants to do I/O writes into a buffer first and sends the buffer afterwards.
 - **`@synthesize` derives both directions structurally.** The walk emits every
   stored field in declaration order as one array; it covers the integer types,
@@ -7052,7 +7514,8 @@ element it owns, which is a copy at the source.
 
 ### `Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator>`
 
-**Status: implemented** (`designs/48-ord-hash.md`, unified by `designs/54`).
+**Status: implemented** (`designs/48-ord-hash.md`, unified by `designs/54`);
+the subscript roles, `find` and `default:` below are planned.
 `Map` is **THE dictionary type** — an **open-addressing** hash table (linear
 probing, tombstone deletion) over a `Vector` of slot enums. (The old
 Vector-backed linear-scan `Map` was **retired** in design 54; there is now one
@@ -7064,14 +7527,15 @@ Vector-backed linear-scan `Map` was **retired** in design 54; there is now one
   `insert(key, value) -> Result<V?, AllocError>` (the `Ok` payload is the old
   value on update), `contains_key(key) -> Bool`, `remove(key) -> V?`. Works with
   `Int` and `String` keys (and any `Hashable + Equatable` key).
-- **`m[k]` and `m.get(k)` are ONE accessor under two names** — a conditional lend
-  of the stored value (`borrows -> &var V?`; see
-  [Places](#places-borrows-and-lend)).
-  Both name the value where it sits, both open no window at all for an absent
-  key, and both follow the copy tier when the place is read out as a value.
-  `get` used to return an owned `V?` built by copying the slot, which for a
-  move-only value was a non-retained alias two lookups double-freed; reach such
-  a value through the window (`m.get(k)!.method()`) or take it out with `remove`.
+- **`m[k]` copies the value out and panics if `k` is absent; `m.get(k)` is the
+  optional copy; `m[k] = v` inserts or replaces.** The place forms are
+  `borrow var e = m[k] { … }`, which panics if `k` is absent, and the
+  conditional lend `m.find(&k)` (`borrows -> &var V?`), which opens no window
+  for an absent key (see
+  [Subscripts](#subscripts-getitem-setitem-and-the-place)). The copying forms
+  need a Copy-tier `V`; reach a move-only value through a borrow
+  (`borrow m[k].method()`) or take it out with `remove`. `m[k, default: e]`
+  supplies a value for a missing key, and `Map` conforms to `KeyedPlace`.
 - **Keys must be copyable-with-retain** (design 65): the container probes keys BY
   COPY (hash / compare / slot inspection), so a KEY must be trivial/POD,
   `Copy` (String, `Arc<T>`), or `ExplicitCopy` — a **NoCopy** key, or a
@@ -7318,7 +7782,7 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   **lend** — no retain, and the caller keeps ownership (drops once). For `spawn`
   the task frame owns the closure's reference and the trampoline release is THE
   release — the env is torn down on the task thread exactly once. Non-escaping
-  closures (a direct call argument, e.g. `Mutex.lock`'s body) keep a stack env and
+  closures (a direct call argument, e.g. `Vector.each`'s body) keep a stack env and
   own nothing. Borrow captures remain non-escaping-only, in all three of their
   spellings: `[&x]`/`[&var x]`, a reference parameter, and `self` (see
   [Capturing `self` and reference parameters](#capturing-self-and-reference-parameters)). *(This
@@ -7330,20 +7794,20 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   of its own, so it cannot own a value from creation the way an escaping
   environment does. Its environment holds a pointer to the local, and the body
   takes the value as it starts. The source therefore stops owning it on exactly
-  the paths that run the body. A body that never runs (a conditional lend's
-  absent path, a closure the callee did not call) leaves the local alone, and it
-  deinits at the end of its own scope. What the body took belongs to the body: a
-  body that moves it on only some paths deinits it on the others, at the body's
-  end. This is one rule for every non-escaping shape, the closure a place window
-  is lowered into included, which is what makes `v[i].push(move h)` through a
-  place consume `h` once:
+  the paths that run the body. A body that never runs (a closure the callee did
+  not call) leaves the local alone, and it deinits at the end of its own scope.
+  What the body took belongs to the body: a body that moves it on only some
+  paths deinits it on the others, at the body's end. This is one rule for every
+  non-escaping closure. A place window is not a closure: a `move` into a call
+  made through one is an ordinary move inside the borrow's window, so it
+  consumes `h` once, on the path that runs it:
 
   ```saw-fragment
   let h = Res(id: 1)
-  try! slots[0].push(move h)     // `h` is the container's now
+  try! borrow var slots[0].push(move h)     // `h` is the container's now
   ```
 
-  Running one such body twice panics rather than taking a value that has already
+  Running one non-escaping closure body twice panics rather than taking a value that has already
   left. An **escaping** closure keeps the creation-time transfer described above,
   and its body may not consume what it took (below).
 - **Captures are `let`.** A plain, `move` or `copy` capture is an immutable
@@ -7621,19 +8085,20 @@ Observable rules:
     spawned body needs none of that — it points into the task's own frame, which
     the box keeps alive. A `threads: N` group refuses a reference parameter
     outright, on `Send`.
-  - The `for` WINDOW spans a suspension; the closure and accessor spellings do
-    not. A `for x in v.iter()` head opens a tracked window over the collection
-    (see *Borrowing structs* under Places), and the window may hold across a
-    park because three things are known about it: its ORIGIN is recorded, its
-    EXTENT is the statement, and the Law of Exclusivity sees every competing
-    safe writer. A `&var` extent live at the head or started inside the body is
-    the writer-beside-reader error, a `&` extent composes, a `threads: N` group
+  - A `borrow` WINDOW spans a suspension, whichever form opened it: a block, a
+    statement form, a borrowed argument or a `for` head (see
+    *The `borrow` construct* under Places). It may hold across a park because
+    three things are known about it: its ORIGIN is recorded, its EXTENT is the
+    construct, and the Law of Exclusivity sees every competing safe writer. The
+    borrow lives in the coroutine frame like any other live value. A `&var`
+    extent live at the head or started inside the body is the
+    writer-beside-reader error; a `&` extent composes with a SHARED window, and
+    inside an exclusive window the body cannot touch the root at all, so a `&`
+    of it there is refused too; a `threads: N` group
     refuses the frame on `Send` before the question arises, and nothing else in
-    this task runs while the frame is parked. `Vector.with_ref` /
-    `with_var_ref` bodies and `borrows` accessor `lend` windows RETAIN the
-    `sync` restriction: a suspension inside one is a compile error, and the
-    same argument would lift it, but it wants a consumer sweep and rows of its
-    own.
+    this task runs while the frame is parked. A window opened through a
+    `borrows(sync)` accessor, such as a lock's, cannot span one: a suspension
+    inside it is a compile error that names the accessor.
 - **`deinit` may not suspend** — a `deinit` is always a `sync` context, so a
   suspension inside one is a compile error (deterministic destruction).
 - **Effect polymorphism — generic suspending functions/methods** (design 70,
@@ -11815,13 +12280,13 @@ would be a second set of rules with nothing checking it.
 `Slot<T>` is storage that either holds a `T` or is empty. It is where a frame
 keeps a local across a suspension, and its occupancy is part of the type:
 
-```saw-body
+```saw-fragment
 import std.compiler.frame.{Slot}
 
 var s = Slot<String>.empty()
 s.put("payload")
-print(s.value().len())      // prints: 7
-let owned = s.take()        // the slot is empty again
+print(borrow s.value().len())   // prints: 7
+let owned = s.take()            // the slot is empty again
 ```
 
 `put` installs a value and drops the previous occupant if there was one.
@@ -11829,8 +12294,10 @@ let owned = s.take()        // the slot is empty again
 machine is the proof that it is not empty, and a wrong proof reports itself
 rather than handing back a husk. `clear` drops the occupant if there is one and
 is idempotent, which is what a frame's teardown runs per field. `value()` is a
-`borrows` accessor, so reads, writes and method calls reach the payload where
-it sits. `is_occupied` answers the tag.
+`borrows` accessor, so reads, writes and method calls under `borrow` reach the
+payload where it sits. It has a `@synthesize(shared)` accessor beside the
+exclusive one, so a shared borrow works on a `let` slot. `is_occupied` answers
+the tag.
 
 The field is private, which is the whole guarantee: a payload leaves a slot by
 exactly four operations — `take`, `clear`, a `put` onto an occupied slot, and
@@ -11841,10 +12308,12 @@ and `take` are moves, and a pinned value's storage is a plain field.
 
 `UnsafeRef<T>` is a pointer to a `T` that something else owns — a frame's
 method receiver, and the reference parameters it carries across a suspension.
-It owns nothing and is never dropped. `deref()` lends the referent as a place,
-and the WINDOW MODE comes from the binding: a `var`-bound handle can open an
-exclusive window and a `let`-bound one cannot, so a `&self` receiver and a
-`&var self` receiver get the right window out of one declaration. `copy()`
+It owns nothing and is never dropped. `deref()` lends the referent as a place.
+It is declared `(&var self) unsafe borrows -> &var T` with a
+`@synthesize(shared)` accessor beside it, so `borrow let` through a `let`-bound
+handle uses the shared accessor and `borrow var` needs a `var`-bound one: a
+`&self` receiver and a `&var self` receiver each get the window they allow from
+one written body. `copy()`
 returns a second handle to the same referent; the type is `NoCopy` so that
 duplication is written where it happens.
 
@@ -12673,10 +13142,10 @@ zero — are deliberately *not* in this family: they report a condition rather
 than an index into something with a length, and they keep their fixed text.
 
 For scoped, no-copy access to a container element (including a `NoCopy` one)
-without minting a raw pointer at all, use `Vector.with_ref`/`with_var_ref`: a
-non-escaping `&T`/`&var T` borrow of the element in place, with the whole vector
-held borrowed for the body (reallocation- and invalidation-proof). This replaced
-the removed `ref_at`.
+without minting a raw pointer at all, use the `borrow` construct:
+`borrow let e = v[i] { … }` or `borrow var e = v[i] { … }` binds the element in
+place, with the whole vector held borrowed for the block (reallocation- and
+invalidation-proof; see [The `borrow` construct](#the-borrow-construct)).
 
 ```saw-fragment
 // The obligation rides the type; the function that touches it says so.
@@ -13001,7 +13470,10 @@ re-enumerating its vocabulary.
 
 #### Where a refusal still panics
 
-Five places, each because the report has nowhere to go.
+Six places, each because the report has nowhere to go. A strict flag, in the
+spirit of `--no-hidden-alloc`, refuses the panicking subscript forms (the sixth
+entry), so kernels and other code that must handle allocation failure are held
+to the fallible spellings.
 
 **The allocations the compiler inserts that no source construct names** — string
 interpolation, an escaping closure's captured environment, a coroutine frame, a
@@ -13035,6 +13507,14 @@ same footing — its signature is the trait's, and the path it serves (panic and
 assert assembly, `print("{}", x)`) is the one that has to work with the
 allocator refusing everything, which is why it writes into fixed storage where
 an overrun truncates and no `AllocError` exists at all.
+
+**The subscript sugar that inserts.** A setitem that inserts (`m[k] = v`), and
+the compound and place forms of the `default:` subscript
+(`counts[k, default: 0] += 1`, `borrow var e = m[k, default: e0] { … }`), may
+allocate and are expressions with no `Result` to return, so they panic if the
+allocator refuses. `try m.insert(k, v)` is the reporting spelling, returning
+`Result<V?, AllocError>` (see
+[Subscripts](#subscripts-getitem-setitem-and-the-place)).
 
 A type parameterized by its allocator (`Vector<T, A>`, `Box<T, A>`,
 `Map<K, V, A>`, `Set<T, A>`) is the freestanding toolkit. Types with no
@@ -13074,7 +13554,7 @@ The classification below covers every allocation `sawc` emits.
 | `x.to_string()` | the call | yes: it returns a `String` | allowed |
 | `&concrete` to `&any Trait` | passing to an existential reference | — | never allocates: a static vtable is attached |
 | Optional and `Result` auto-wrap | `return 42` from a `Result`-returning function | — | never allocates: an inline tagged value |
-| Place windows | `v[i]`, a `borrows` accessor's lend | — | never allocates |
+| Place windows | `borrow v[i]`, a `borrows` accessor's lend | — | never allocates |
 | Loop desugaring | `for i in 0..n`, `v.iter()` | — | never allocates |
 | String literals, statics, `#file`/`#line` | — | — | never allocates: immortal blocks with refcount `-1` |
 | Format arguments | `print("{}", x)`, `panic`, `assert` | — | never allocates |
@@ -13150,9 +13630,9 @@ once on deinit.
 The constructor is a **static factory method**, because the allocator type
 argument is named at the call site (`Box<Job, JobSlab>.make(...)`):
 
-```saw-body
+```saw-fragment
 match Box<Int>.make(42) {
-    case Ok(b)  -> print(b.value())
+    case Ok(b)  -> print(borrow b.value())
     case Err(e) -> print(e.size)   // AllocError with size/align context
 }
 ```
@@ -13162,7 +13642,8 @@ leaked): `make` places it with the placement-move primitive
 (`ptr[0] = move value`) only once the allocation succeeded, so a refusal leaves
 it unmoved. Payload access:
 
-- `value()` returns a copy of the payload (bounded `T: ExplicitCopy`).
+- `value()` is a `borrows` accessor that lends the payload in place, used
+  under `borrow` (see [Shared Ownership](#shared-ownership)).
 - **Method forwarding** (like `Arc`): a `&self` method on the payload
   struct is callable through the Box — `b.peek()` forwards to the payload's
   `peek`. A `&var self` payload method is rejected (aliased mutation of
