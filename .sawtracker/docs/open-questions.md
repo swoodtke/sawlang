@@ -13,7 +13,7 @@ CLAUDE.md says only 'LANGUAGE_SPEC.md is authoritative for meaning'. Today two c
 
 **Proposed rule:** a Ruled section of an SL: design doc, or a §9-style retirement, supersedes the spec text it names; otherwise the spec holds. The spec is then rewritten to the ruling (SL-479), so the conflict is temporary.
 
-**Asking you:** may this sentence go into CLAUDE.md's opening paragraph and compiler/README.md? Until you answer, the lead applies it as stated and SL-479 rewrites the stale spec passages.
+**Asking you:** may this sentence go into CLAUDE.md's opening paragraph and compiler/README.md? Until you answer, the lead applies it as stated. The stale spec passages are now rewritten (SL-479 and SL-482, both merged), and writing the rule down is SL-489.
 
 ## Decided by the lead, for review (reversible)
 
