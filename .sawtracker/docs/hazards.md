@@ -1482,7 +1482,7 @@ C6 to C9 come from the Air's review of SL-505.p1 (chat file f22). Each was verif
 
 ### C10. A consumed `match` on an owned `Optional` keeps its payload to scope end
 
-**Shape (silent: wrong drop timing):** on an owned `Noisy?`, `match o { case Some(n) -> … }` destroys `n` at the end of the enclosing scope under Stage 0, not at the arm's end. The arm binding owns the payload ("Match consumes an owned enum"), so its `deinit` belongs at the arm's end, where sawc2 runs it. A user enum with the same shape drops at the arm's end in both compilers. The repro is the Air's `e9_matchconsume.saw` (chat file f22), and the SL-513 ruling records the arm-entry rule for parts no arm binding takes.
+**Shape (silent: wrong drop timing):** on an owned `Noisy?`, `match o { case Some(n) -> … }` destroys `n` at the end of the enclosing scope under Stage 0, not at the arm's end. The arm binding owns the payload ("Match consumes an owned enum"), so its `deinit` belongs at the arm's end, where sawc2 runs it. A user enum with the same shape drops at the arm's end in both compilers. The repro is the Air's `e9_matchconsume.saw` (chat file f22), and the SL-513 ruling (B) puts the destruction of parts no arm binding takes at the match's completion (C11).
 
 **Instead:** none needed in compiler source, which declares no `deinit` (checker rule `deinit-body`), so the timing is unobservable in Stage 1.
 
