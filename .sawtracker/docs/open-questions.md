@@ -418,6 +418,14 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 
 ## Resolved
 
+### Q-args. `Env.args` takes a defaulted policy for a non-UTF-8 argument (Oct 10; the USER's ruling; SL-521)
+The new std's `Env.args()` panicked on an argument that isn't valid UTF-8 (U5b3). The Air accepted that for the unit, but noted that an argument comes from outside the program, and the doctrine has such failures surface rather than crash.
+
+**Ruled:** `Env.args(invalid: .panic)` by default, and `.replace` on request, which turns each invalid sequence into U+FFFD and keeps the argument count and positions. The policy is an enum, not a `Bool`, so the call site reads as what it does and a later policy doesn't break callers.
+- **The user's first idea, skipping invalid arguments,** was set aside for the reason that makes skipping unsafe: it shifts every later index, so `args[1]` silently becomes the next argument.
+- **Also rejected:** a compound error type, heavier for the common case.
+- **Deferred:** a lossless bytes-level `arguments()`, until a program needs one.
+
 ### SL-519. A package's module root is its `src/` (Oct 10; the USER's ruling)
 The spec's import search names "its package root" without defining it. Stage 0 reads it as the `Saw.toml` directory, so a package's imports of its own modules spell `src.` (Blade's `import src.layout.*`). Separately, `compiler/tools/build.py` mapped each stage package one level above its `src/`, so the compiler's imports read `sawmir.src.api`.
 
